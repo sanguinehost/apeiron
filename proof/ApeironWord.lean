@@ -98261,6 +98261,2600 @@ def SliceU8.Insts.Apeiron_wordHashtrinityAlgebraCoord.coord
   (self : Slice Std.U8) : Result Std.U64 := do
   hashtrinity.algebra.fold_bytes self
 
+/-- [apeiron_word::hashtrinity::algebra::Face]
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 484:0-493:1
+    Visibility: public -/
+@[discriminant isize]
+inductive hashtrinity.algebra.Face where
+| Keep : hashtrinity.algebra.Face
+| Set : hashtrinity.algebra.Face
+| Count : hashtrinity.algebra.Face
+| Link : hashtrinity.algebra.Face
+
+/-- [apeiron_word::hashtrinity::algebra::Species]
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 497:0-502:1
+    Visibility: public -/
+@[discriminant isize]
+inductive hashtrinity.algebra.Species where
+| Being : hashtrinity.algebra.Species
+| Null : hashtrinity.algebra.Species
+
+/-- [apeiron_word::hashtrinity::algebra::{apeiron_word::hashtrinity::algebra::Face}::species]:
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 506:4-511:5
+    Visibility: public -/
+def hashtrinity.algebra.Face.species
+  (self : hashtrinity.algebra.Face) : Result hashtrinity.algebra.Species := do
+  match self with
+  | hashtrinity.algebra.Face.Keep => ok hashtrinity.algebra.Species.Being
+  | hashtrinity.algebra.Face.Set => ok hashtrinity.algebra.Species.Null
+  | hashtrinity.algebra.Face.Count => ok hashtrinity.algebra.Species.Being
+  | hashtrinity.algebra.Face.Link => ok hashtrinity.algebra.Species.Null
+
+/-- [apeiron_word::hashtrinity::algebra::keep]:
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 518:0-520:1
+    Visibility: public -/
+def hashtrinity.algebra.keep (new : Bool) (old : Bool) : Result Bool := do
+  if new
+  then ok true
+  else ok old
+
+/-- [apeiron_word::hashtrinity::algebra::set]:
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 523:0-525:1
+    Visibility: public -/
+def hashtrinity.algebra.set {V : Type} (new : V) (_old : V) : Result V := do
+  ok new
+
+/-- Trait declaration: [apeiron_word::hashtrinity::algebra::Monoid]
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 540:0-546:1
+    Visibility: public -/
+structure hashtrinity.algebra.Monoid (Self : Type) where
+  identity : Result Self
+  combine : Self → Self → Result Self
+
+/-- [apeiron_word::hashtrinity::algebra::count]:
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 528:0-530:1
+    Visibility: public -/
+def hashtrinity.algebra.count
+  {V : Type} (MonoidInst : hashtrinity.algebra.Monoid V) (new : V) (old : V) :
+  Result V
+  := do
+  MonoidInst.combine new old
+
+/-- [apeiron_word::hashtrinity::algebra::link]:
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 533:0-536:1
+    Visibility: public -/
+def hashtrinity.algebra.link
+  {T : Type} (new : alloc.vec.Vec T) (old : alloc.vec.Vec T) :
+  Result (alloc.vec.Vec T)
+  := do
+  alloc.vec.Vec.Insts.CoreIterTraitsCollectExtend.extend Global
+    (core.iter.traits.collect.IntoIteratorVec T) new old
+
+/-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Monoid for i64}::combine]:
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 552:22-552:76
+    Visibility: public -/
+def I64.Insts.Apeiron_wordHashtrinityAlgebraMonoid.combine
+  (self : Std.I64) (other : Std.I64) : Result Std.I64 := do
+  self + other
+
+/-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Monoid for i64}::identity]:
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 551:22-551:49
+    Visibility: public -/
+def I64.Insts.Apeiron_wordHashtrinityAlgebraMonoid.identity
+  : Result Std.I64 := do
+  ok 0#i64
+
+/-- Trait implementation: [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Monoid for i64}]
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 550:8-553:9 -/
+@[reducible]
+def I64.Insts.Apeiron_wordHashtrinityAlgebraMonoid : hashtrinity.algebra.Monoid
+  Std.I64 := {
+  identity := I64.Insts.Apeiron_wordHashtrinityAlgebraMonoid.identity
+  combine := I64.Insts.Apeiron_wordHashtrinityAlgebraMonoid.combine
+}
+
+/-- [apeiron_word::hashtrinity::side::SideStore]
+    Source: '../../src/map/hashtrinity/side.rs', lines 16:0-22:1 -/
+structure hashtrinity.side.SideStore (K : Type) (V : Type) (KS : Type) where
+  coords : alloc.vec.Vec Std.U64
+  vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V)
+  keys : KS
+  cap : Std.Usize
+  _k : core.marker.PhantomData K
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::find]: loop body 0:
+    Source: '../../src/map/hashtrinity/side.rs', lines 63:8-70:5 -/
+@[rust_loop_body]
+def hashtrinity.side.SideStore.find_loop.body
+  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
+  (coord : Std.U64) (k : K) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize (Option Std.Usize))
+  := do
+  let i1 := alloc.vec.Vec.len self.coords
+  if i < i1
+  then
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
+        self.coords i
+    if i2 = coord
+    then
+      let b ← algebraKeyStoreInst.«matches» self.keys i coord k
+      if b
+      then ok (done (some i))
+      else let i3 ← i + 1#usize
+           ok (cont i3)
+    else let i3 ← i + 1#usize
+         ok (cont i3)
+  else ok (done none)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::find]: loop 0:
+    Source: '../../src/map/hashtrinity/side.rs', lines 63:8-70:5 -/
+@[rust_loop]
+def hashtrinity.side.SideStore.find_loop
+  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
+  (coord : Std.U64) (k : K) (i : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  loop
+    (fun i1 => hashtrinity.side.SideStore.find_loop.body algebraKeyStoreInst
+      self coord k i1)
+    i
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::find]:
+    Source: '../../src/map/hashtrinity/side.rs', lines 61:4-70:5 -/
+@[reducible]
+def hashtrinity.side.SideStore.find
+  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
+  (coord : Std.U64) (k : K) :
+  Result (Option Std.Usize)
+  := do
+  hashtrinity.side.SideStore.find_loop algebraKeyStoreInst self coord k 0#usize
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::push]: loop body 0:
+    Source: '../../src/map/hashtrinity/side.rs', lines 43:12-48:13 -/
+@[rust_loop_body]
+def hashtrinity.side.SideStore.push_loop.body
+  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (v : alloc.vec.Vec Std.U64) (grown : KS) (grown1 : KS) (i : Std.Usize) :
+  Result (ControlFlow (KS × KS × Std.Usize) KS)
+  := do
+  let i1 := alloc.vec.Vec.len v
+  if i < i1
+  then
+    let c ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64) v i
+    let (key, grown2) ← algebraKeyStoreInst.take_key grown i c
+    let grown3 ← algebraKeyStoreInst.set grown1 i key
+    let i2 ← i + 1#usize
+    ok (cont (grown2, grown3, i2))
+  else ok (done grown1)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::push]: loop 0:
+    Source: '../../src/map/hashtrinity/side.rs', lines 43:12-48:13 -/
+@[rust_loop]
+def hashtrinity.side.SideStore.push_loop
+  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (v : alloc.vec.Vec Std.U64) (grown : KS) (grown1 : KS) (i : Std.Usize) :
+  Result KS
+  := do
+  loop
+    (fun (grown2, grown3, i1) => hashtrinity.side.SideStore.push_loop.body
+      algebraKeyStoreInst v grown2 grown3 i1)
+    (grown, grown1, i)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::push]:
+    Source: '../../src/map/hashtrinity/side.rs', lines 37:4-56:5 -/
+def hashtrinity.side.SideStore.push
+  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
+  (coord : Std.U64) (k : K) (v : V) :
+  Result (hashtrinity.side.SideStore K V KS)
+  := do
+  let i := alloc.vec.Vec.len self.coords
+  let need ← i + 1#usize
+  if need > self.cap
+  then
+    let i1 ← self.cap * 2#usize
+    let i2 ← core.cmp.Ord.max.default core.cmp.OrdUsize i1 4#usize
+    let new_cap ← core.cmp.Ord.max.default core.cmp.OrdUsize i2 need
+    let grown ← algebraKeyStoreInst.alloc new_cap
+    let grown1 ←
+      hashtrinity.side.SideStore.push_loop algebraKeyStoreInst self.coords
+        self.keys grown 0#usize
+    let i3 := alloc.vec.Vec.len self.coords
+    let grown2 ← algebraKeyStoreInst.set grown1 i3 k
+    let v1 ← alloc.vec.Vec.push self.coords coord
+    let mu ← core.mem.maybe_uninit.MaybeUninit.new v
+    let v2 ← alloc.vec.Vec.push self.vals mu
+    ok { self with coords := v1, vals := v2, keys := grown2, cap := new_cap }
+  else
+    let i1 := alloc.vec.Vec.len self.coords
+    let grown ← algebraKeyStoreInst.set self.keys i1 k
+    let v1 ← alloc.vec.Vec.push self.coords coord
+    let mu ← core.mem.maybe_uninit.MaybeUninit.new v
+    let v2 ← alloc.vec.Vec.push self.vals mu
+    ok { self with coords := v1, vals := v2, keys := grown }
+
+/-- Trait declaration: [apeiron_word::hashtrinity::overflow::Confirm]
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 47:0-49:1 -/
+structure hashtrinity.overflow.Confirm (Self : Type) (K : Type) (KS : Type)
+  where
+  algebraCoordInst : hashtrinity.algebra.Coord K
+  algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS K
+  confirm : Self → KS → Std.Usize → Result Bool
+
+/-- [apeiron_word::hashtrinity::overflow::Node]
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 165:0-177:1 -/
+structure hashtrinity.overflow.Node (K : Type) (V : Type) where
+  key : Std.U64
+  entries : alloc.vec.Vec (K × (Option V))
+  left : Std.U32
+  right : Std.U32
+  height : Std.U32
+  alive : Bool
+
+/-- [apeiron_word::hashtrinity::overflow::Overflow]
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 183:0-188:1 -/
+structure hashtrinity.overflow.Overflow (K : Type) (V : Type) where
+  nodes : alloc.vec.Vec (hashtrinity.overflow.Node K V)
+  free : alloc.vec.Vec Std.U32
+  root : Std.U32
+  len : Std.Usize
+
+/-- [apeiron_word::hashtrinity::Table]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 319:0-333:1
+    Visibility: public -/
+structure hashtrinity.Table (K : Type) (V : Type) (KS : Type) where
+  coords : Slice Std.U64
+  vals : Slice (core.mem.maybe_uninit.MaybeUninit V)
+  keys : KS
+  side : hashtrinity.side.SideStore K V KS
+  overflow : Option (hashtrinity.overflow.Overflow K V)
+  bits : Std.U32
+  len : Std.Usize
+  tombs : Std.Usize
+  _k : core.marker.PhantomData K
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::home]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 502:4-509:5 -/
+def hashtrinity.Table.home
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) :
+  Result Std.Usize
+  := do
+  let len := Slice.len self.coords
+  let i ← lift (UScalar.cast .Usize coord)
+  if i < len
+  then ok (UScalar.cast .Usize coord)
+  else
+    let i1 ← lift (core.num.U64.wrapping_mul coord hashtrinity.PHI)
+    let i2 ← 64#u32 - self.bits
+    let i3 ← i1 >>> i2
+    ok (UScalar.cast .Usize i3)
+
+/-- [apeiron_word::hashtrinity::LINEAR_G]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 213:0-213:24 -/
+@[global_simps, irreducible] def hashtrinity.LINEAR_G : Std.U32 := 8#u32
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::descend]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 528:4-555:5 -/
+def hashtrinity.Table.descend
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (j : Std.U32) :
+  Result Std.Usize
+  := do
+  let i := Slice.len self.coords
+  let mask ← i - 1#usize
+  if j < hashtrinity.LINEAR_G
+  then
+    let i1 ←
+      hashtrinity.Table.home corecmpEqInst algebraCoordInst algebraKeyStoreInst
+        self coord
+    let i2 ← lift (UScalar.cast .Usize j)
+    let i3 ← lift (core.num.Usize.wrapping_add i1 i2)
+    ok (i3 &&& mask)
+  else
+    let p ← lift (core.num.U64.wrapping_mul coord hashtrinity.PHI)
+    let i1 ← j - hashtrinity.LINEAR_G
+    let jj ← i1 + 1#u32
+    let i2 ← jj + 1#u32
+    let used ← self.bits * i2
+    if used <= 64#u32
+    then
+      let i3 ← 64#u32 - used
+      let i4 ← p >>> i3
+      let i5 ← lift (UScalar.cast .Usize i4)
+      ok (i5 &&& mask)
+    else
+      let full ← 64#u32 / self.bits
+      let i3 ← self.bits * full
+      let i4 ← 64#u32 - i3
+      let i5 ← p >>> i4
+      let i6 ← lift (UScalar.cast .Usize i5)
+      let i7 ← jj - full
+      let i8 ← lift (UScalar.cast .Usize i7)
+      let i9 ← i6 + i8
+      let i10 ← i9 + 1#usize
+      ok (i10 &&& mask)
+
+/-- [apeiron_word::hashtrinity::Capped]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 237:0-244:1 -/
+@[discriminant isize]
+inductive hashtrinity.Capped where
+| Hit : Std.Usize → hashtrinity.Capped
+| Vacant : Std.Usize → hashtrinity.Capped
+| Blocked : hashtrinity.Capped
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 695:8-708:5 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Table.probe_rest_with_loop.body
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (limit : Std.U32) (confirm : T3) (j : Std.U32) :
+  Result (ControlFlow Std.U32 hashtrinity.Capped)
+  := do
+  if j < limit
+  then
+    let i ←
+      hashtrinity.Table.descend corecmpEqInst algebraCoordInst
+        algebraKeyStoreInst self coord j
+    let sc ←
+      core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
+        Std.U64) self.coords i
+    if sc = coord
+    then
+      let b ← ConfirmInst.confirm confirm self.keys i
+      if b
+      then ok (done (hashtrinity.Capped.Hit i))
+      else
+        if sc = hashtrinity.EMPTY
+        then ok (done (hashtrinity.Capped.Vacant i))
+        else let j1 ← j + 1#u32
+             ok (cont j1)
+    else
+      if sc = hashtrinity.EMPTY
+      then ok (done (hashtrinity.Capped.Vacant i))
+      else let j1 ← j + 1#u32
+           ok (cont j1)
+  else ok (done hashtrinity.Capped.Blocked)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 695:8-708:5 -/
+@[rust_loop]
+def hashtrinity.overflow.Table.probe_rest_with_loop
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (j : Std.U32) (limit : Std.U32) (confirm : T3) :
+  Result hashtrinity.Capped
+  := do
+  loop
+    (fun j1 => hashtrinity.overflow.Table.probe_rest_with_loop.body
+      corecmpEqInst algebraCoordInst algebraKeyStoreInst ConfirmInst self coord
+      limit confirm j1)
+    j
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 688:4-708:5 -/
+@[reducible]
+def hashtrinity.overflow.Table.probe_rest_with
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (j : Std.U32) (limit : Std.U32) (confirm : T3) :
+  Result hashtrinity.Capped
+  := do
+  hashtrinity.overflow.Table.probe_rest_with_loop corecmpEqInst
+    algebraCoordInst algebraKeyStoreInst ConfirmInst self coord j limit confirm
+
+/-- [apeiron_word::hashtrinity::overflow::WINDOW_STEPS_BY_BITS]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 37:4-40:5 -/
+@[rust_loop_body]
+def hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop.body
+  (t : Array Std.U32 65#usize) (b : Std.Usize) :
+  Result (ControlFlow ((Array Std.U32 65#usize) × Std.Usize) (Array Std.U32
+    65#usize))
+  := do
+  if b < 65#usize
+  then
+    let i ← lift (UScalar.cast .U32 b)
+    let i1 ← 64#u32 / i
+    let i2 ← hashtrinity.LINEAR_G + i1
+    let i3 ← i2 - 1#u32
+    let a ← Array.update t b i3
+    let b1 ← b + 1#usize
+    ok (cont (a, b1))
+  else ok (done t)
+
+/-- [apeiron_word::hashtrinity::overflow::WINDOW_STEPS_BY_BITS]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 37:4-40:5 -/
+@[rust_loop]
+def hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop
+  (t : Array Std.U32 65#usize) (b : Std.Usize) :
+  Result (Array Std.U32 65#usize)
+  := do
+  loop
+    (fun (t1, b1) => hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop.body t1 b1)
+    (t, b)
+
+/-- [apeiron_word::hashtrinity::overflow::WINDOW_STEPS_BY_BITS]
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 34:0-42:2 -/
+@[global_simps, irreducible]
+def hashtrinity.overflow.WINDOW_STEPS_BY_BITS
+  : Result (Array Std.U32 65#usize) :=
+  let t := Array.repeat 65#usize 0#u32
+  hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop t 1#usize
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::window_steps]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 673:4-675:5 -/
+def hashtrinity.overflow.Table.window_steps
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
+  Result Std.U32
+  := do
+  let a ← hashtrinity.overflow.WINDOW_STEPS_BY_BITS
+  let i ← lift (UScalar.cast .Usize self.bits)
+  Array.index_usize a i
+
+/-- [apeiron_word::hashtrinity::PROBE_CAP]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 224:0-224:30
+    Visibility: public -/
+@[global_simps, irreducible] def hashtrinity.PROBE_CAP : Std.U32 := 16#u32
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_limit]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 680:4-682:5 -/
+def hashtrinity.overflow.Table.probe_limit
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
+  Result Std.U32
+  := do
+  let i ←
+    hashtrinity.overflow.Table.window_steps corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst self
+  core.cmp.Ord.min.trait_default core.cmp.OrdU32 hashtrinity.PROBE_CAP i
+
+/-- [apeiron_word::hashtrinity::overflow::prefix_masks_avx2]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 121:0-142:1 -/
+def hashtrinity.overflow.prefix_masks_avx2
+  (base : ConstRawPtr Std.U64) (coord : Std.U64) :
+  Result (Std.U32 × Std.U32)
+  := do
+  let p ←
+    core.ptr.const_ptr.RawPtrConstT.cast core.core_arch.x86.__m256i base
+  let lo ← core.core_arch.x86.avx._mm256_loadu_si256 p
+  let p1 ← core.ptr.const_ptr.RawPtrConstT.add base 4#usize
+  let p2 ← core.ptr.const_ptr.RawPtrConstT.cast core.core_arch.x86.__m256i p1
+  let hi ← core.core_arch.x86.avx._mm256_loadu_si256 p2
+  let i ← lift (UScalar.hcast .I64 coord)
+  let key ← core.core_arch.x86.avx._mm256_set1_epi64x i
+  let i1 ← lift (UScalar.hcast .I64 hashtrinity.EMPTY)
+  let emp ← core.core_arch.x86.avx._mm256_set1_epi64x i1
+  let mi ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 lo key
+  let md ← core.core_arch.x86.avx._mm256_castsi256_pd mi
+  let i2 ← core.core_arch.x86.avx._mm256_movemask_pd md
+  let hits_lo ← lift (IScalar.hcast .U32 i2)
+  let mi1 ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 hi key
+  let md1 ← core.core_arch.x86.avx._mm256_castsi256_pd mi1
+  let i3 ← core.core_arch.x86.avx._mm256_movemask_pd md1
+  let hits_hi ← lift (IScalar.hcast .U32 i3)
+  let mi2 ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 lo emp
+  let md2 ← core.core_arch.x86.avx._mm256_castsi256_pd mi2
+  let i4 ← core.core_arch.x86.avx._mm256_movemask_pd md2
+  let empties_lo ← lift (IScalar.hcast .U32 i4)
+  let mi3 ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 hi emp
+  let md3 ← core.core_arch.x86.avx._mm256_castsi256_pd mi3
+  let i5 ← core.core_arch.x86.avx._mm256_movemask_pd md3
+  let empties_hi ← lift (IScalar.hcast .U32 i5)
+  let i6 ← hits_hi <<< 4#i32
+  let hits ← lift (hits_lo ||| i6)
+  let i7 ← empties_hi <<< 4#i32
+  let empties ← lift (empties_lo ||| i7)
+  ok (hits, empties)
+
+/-- [apeiron_word::hashtrinity::overflow::prefix_masks]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 100:8-105:9 -/
+@[rust_loop_body]
+def hashtrinity.overflow.prefix_masks_loop.body
+  (coords : Slice Std.U64) (home : Std.Usize) (coord : Std.U64)
+  (hits : Std.U32) (empties : Std.U32) (k : Std.Usize) :
+  Result (ControlFlow (Std.U32 × Std.U32 × Std.Usize) (Std.U32 × Std.U32))
+  := do
+  let i ← lift (UScalar.cast .Usize hashtrinity.LINEAR_G)
+  if k < i
+  then
+    let i1 ← home + k
+    let sc ← Slice.index_usize coords i1
+    let i2 ← lift (core.convert.num.FromU32Bool.from (sc = coord))
+    let i3 ← i2 <<< k
+    let hits1 ← lift (hits ||| i3)
+    let i4 ←
+      lift (core.convert.num.FromU32Bool.from (sc = hashtrinity.EMPTY))
+    let i5 ← i4 <<< k
+    let empties1 ← lift (empties ||| i5)
+    let k1 ← k + 1#usize
+    ok (cont (hits1, empties1, k1))
+  else ok (done (hits, empties))
+
+/-- [apeiron_word::hashtrinity::overflow::prefix_masks]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 100:8-105:9 -/
+@[rust_loop]
+def hashtrinity.overflow.prefix_masks_loop
+  (coords : Slice Std.U64) (home : Std.Usize) (coord : Std.U64)
+  (hits : Std.U32) (empties : Std.U32) (k : Std.Usize) :
+  Result (Std.U32 × Std.U32)
+  := do
+  loop
+    (fun (hits1, empties1, k1) => hashtrinity.overflow.prefix_masks_loop.body
+      coords home coord hits1 empties1 k1)
+    (hits, empties, k)
+
+/-- [apeiron_word::hashtrinity::overflow::prefix_masks]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 78:0-108:1 -/
+def hashtrinity.overflow.prefix_masks
+  (coords : Slice Std.U64) (home : Std.Usize) (coord : Std.U64) :
+  Result (Std.U32 × Std.U32)
+  := do
+  let b ← std_detect.detect.arch.x86.__is_feature_detected.avx2
+  if b
+  then
+    let p ← core.slice.Slice.as_ptr coords
+    let p1 ← core.ptr.const_ptr.RawPtrConstT.add p home
+    hashtrinity.overflow.prefix_masks_avx2 p1 coord
+  else
+    hashtrinity.overflow.prefix_masks_loop coords home coord 0#u32 0#u32
+      0#usize
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 783:12-800:5 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Table.probe_capped_cold_loop.body
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
+  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
+  (ss : hashtrinity.side.SideStore K V KS)
+  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
+  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
+  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (limit : Std.U32)
+  (empties : Std.U32) (hits : Std.U32) :
+  Result (ControlFlow Std.U32 hashtrinity.Capped)
+  := do
+  if hits != 0#u32
+  then
+    let i3 ← core.num.U32.trailing_zeros hits
+    let i4 ← lift (UScalar.cast .Usize i3)
+    let slot ← home + i4
+    let b ← ConfirmInst.confirm confirm t slot
+    if b
+    then ok (done (hashtrinity.Capped.Hit slot))
+    else
+      let i5 ← hits - 1#u32
+      let hits1 ← lift (hits &&& i5)
+      ok (cont hits1)
+  else
+    if empties != 0#u32
+    then
+      let i3 ← core.num.U32.trailing_zeros empties
+      let i4 ← lift (UScalar.cast .Usize i3)
+      let i5 ← home + i4
+      ok (done (hashtrinity.Capped.Vacant i5))
+    else
+      let c ←
+        hashtrinity.overflow.Table.probe_rest_with corecmpEqInst
+          algebraCoordInst algebraKeyStoreInst ConfirmInst
+          {
+            coords := s,
+            vals := s1,
+            keys := t,
+            side := ss,
+            overflow := o,
+            bits := i,
+            len := i1,
+            tombs := i2,
+            _k := pd
+          } coord hashtrinity.LINEAR_G limit confirm
+      ok (done c)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 783:12-800:5 -/
+@[rust_loop]
+def hashtrinity.overflow.Table.probe_capped_cold_loop
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
+  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
+  (ss : hashtrinity.side.SideStore K V KS)
+  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
+  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
+  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (limit : Std.U32)
+  (hits : Std.U32) (empties : Std.U32) :
+  Result hashtrinity.Capped
+  := do
+  loop
+    (fun hits1 => hashtrinity.overflow.Table.probe_capped_cold_loop.body
+      corecmpEqInst algebraCoordInst algebraKeyStoreInst ConfirmInst s s1 t ss
+      o i i1 i2 pd coord home confirm limit empties hits1)
+    hits
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 770:4-800:5 -/
+def hashtrinity.overflow.Table.probe_capped_cold
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (home : Std.Usize) (confirm : T3) :
+  Result hashtrinity.Capped
+  := do
+  let limit ←
+    hashtrinity.overflow.Table.probe_limit corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst self
+  let len := Slice.len self.coords
+  if limit >= hashtrinity.LINEAR_G
+  then
+    let i ← lift (UScalar.cast .Usize hashtrinity.LINEAR_G)
+    let i1 ← home + i
+    if i1 <= len
+    then
+      let (hits, empties) ←
+        hashtrinity.overflow.prefix_masks self.coords home coord
+      hashtrinity.overflow.Table.probe_capped_cold_loop corecmpEqInst
+        algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords
+        self.vals self.keys self.side self.overflow self.bits self.len
+        self.tombs self._k coord home confirm limit hits empties
+    else
+      hashtrinity.overflow.Table.probe_rest_with corecmpEqInst algebraCoordInst
+        algebraKeyStoreInst ConfirmInst self coord 0#u32 limit confirm
+  else
+    hashtrinity.overflow.Table.probe_rest_with corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst ConfirmInst self coord 0#u32 limit confirm
+
+/-- [apeiron_word::hashtrinity::overflow::ByKey]
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 52:0-55:1 -/
+structure hashtrinity.overflow.ByKey (K : Type) where
+  coord : Std.U64
+  k : K
+
+/-- [apeiron_word::hashtrinity::overflow::{impl apeiron_word::hashtrinity::overflow::Confirm<K, KS> for apeiron_word::hashtrinity::overflow::ByKey<'a, K>}::confirm]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 59:4-61:5 -/
+def
+  hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm.confirm
+  {K : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.overflow.ByKey K)
+  (keys : KS) (i : Std.Usize) :
+  Result Bool
+  := do
+  algebraKeyStoreInst.«matches» keys i self.coord self.k
+
+/-- Trait implementation: [apeiron_word::hashtrinity::overflow::{impl apeiron_word::hashtrinity::overflow::Confirm<K, KS> for apeiron_word::hashtrinity::overflow::ByKey<'a, K>}]
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 57:0-62:1 -/
+@[reducible]
+def hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm {K
+  : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (algebraCoordInst1 :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst1 :
+  hashtrinity.algebra.KeyStore KS K) : hashtrinity.overflow.Confirm
+  (hashtrinity.overflow.ByKey K) K KS := {
+  algebraCoordInst := algebraCoordInst1
+  algebraKeyStoreInst := algebraKeyStoreInst1
+  confirm :=
+    hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm.confirm
+    corecmpEqInst algebraCoordInst1 algebraKeyStoreInst1
+}
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_keyed]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 812:4-825:5 -/
+def hashtrinity.overflow.Table.probe_capped_keyed
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (k : K) :
+  Result hashtrinity.Capped
+  := do
+  let home ←
+    hashtrinity.Table.home corecmpEqInst algebraCoordInst algebraKeyStoreInst
+      self coord
+  let sc ←
+    core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
+      Std.U64) self.coords home
+  if sc = coord
+  then
+    let b ← algebraKeyStoreInst.«matches» self.keys home coord k
+    if b
+    then ok (hashtrinity.Capped.Hit home)
+    else
+      if sc = hashtrinity.EMPTY
+      then ok (hashtrinity.Capped.Vacant home)
+      else
+        hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
+          algebraCoordInst algebraKeyStoreInst
+          (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
+          corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home
+          { coord, k }
+  else
+    if sc = hashtrinity.EMPTY
+    then ok (hashtrinity.Capped.Vacant home)
+    else
+      hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
+        algebraCoordInst algebraKeyStoreInst
+        (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
+        corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home
+        { coord, k }
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::write_back]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 467:4-469:5 -/
+def hashtrinity.overflow.Overflow.write_back
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32)
+  (v : V) :
+  Result (hashtrinity.overflow.Overflow K V)
+  := do
+  let i ← lift (UScalar.cast .Usize n)
+  let (n1, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i
+  let i1 ← lift (UScalar.cast .Usize e)
+  let ((t, _), index_mut_back1) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (K ×
+      (Option V))) n1.entries i1
+  let v1 := index_mut_back1 (t, some v)
+  let v2 := index_mut_back { n1 with entries := v1 }
+  ok { self with nodes := v2 }
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::take_value]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 459:4-464:5 -/
+def hashtrinity.overflow.Overflow.take_value
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32) :
+  Result (V × (hashtrinity.overflow.Overflow K V))
+  := do
+  let i ← lift (UScalar.cast .Usize n)
+  let (n1, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i
+  let i1 ← lift (UScalar.cast .Usize e)
+  let ((t, o), index_mut_back1) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (K ×
+      (Option V))) n1.entries i1
+  let (o1, o2) := core.option.Option.take o
+  let t1 ← core.option.Option.expect o1 (toStr "overflow: live entry")
+  let v := index_mut_back1 (t, o2)
+  let v1 := index_mut_back { n1 with entries := v }
+  ok (t1, { self with nodes := v1 })
+
+/-- [apeiron_word::hashtrinity::overflow::NIL]
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 161:0-161:26 -/
+@[global_simps, irreducible]
+def hashtrinity.overflow.NIL : Std.U32 := core.num.U32.MAX
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::h]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 216:4-222:5 -/
+def hashtrinity.overflow.Overflow.h
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
+  Result Std.U32
+  := do
+  if i = hashtrinity.overflow.NIL
+  then ok 0#u32
+  else
+    let i1 ← lift (UScalar.cast .Usize i)
+    let n ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) self.nodes i1
+    ok n.height
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::update]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 224:4-232:5 -/
+def hashtrinity.overflow.Overflow.update
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
+  Result (hashtrinity.overflow.Overflow K V)
+  := do
+  let i1 ← lift (UScalar.cast .Usize i)
+  let n ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i1
+  let i2 ← lift (UScalar.cast .Usize i)
+  let n1 ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i2
+  let hl ← hashtrinity.overflow.Overflow.h algebraCoordInst self n.left
+  let hr ← hashtrinity.overflow.Overflow.h algebraCoordInst self n1.right
+  let taller ← if hl >= hr
+                 then ok hl
+                 else ok hr
+  let height ← taller + 1#u32
+  let i3 ← lift (UScalar.cast .Usize i)
+  let (n2, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i3
+  let v := index_mut_back { n2 with height }
+  ok { self with nodes := v }
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rotate_left]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 244:4-252:5 -/
+def hashtrinity.overflow.Overflow.rotate_left
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (x : Std.U32) :
+  Result (Std.U32 × (hashtrinity.overflow.Overflow K V))
+  := do
+  let i ← lift (UScalar.cast .Usize x)
+  let n ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i
+  let i1 ← lift (UScalar.cast .Usize n.right)
+  let n1 ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i1
+  let i2 ← lift (UScalar.cast .Usize n.right)
+  let (n2, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i2
+  let v := index_mut_back { n2 with left := x }
+  let i3 ← lift (UScalar.cast .Usize x)
+  let (n3, index_mut_back1) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) v i3
+  let v1 := index_mut_back1 { n3 with right := n1.left }
+  let self1 ←
+    hashtrinity.overflow.Overflow.update algebraCoordInst
+      { self with nodes := v1 } x
+  let self2 ←
+    hashtrinity.overflow.Overflow.update algebraCoordInst self1 n.right
+  ok (n.right, self2)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rotate_right]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 234:4-242:5 -/
+def hashtrinity.overflow.Overflow.rotate_right
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (y : Std.U32) :
+  Result (Std.U32 × (hashtrinity.overflow.Overflow K V))
+  := do
+  let i ← lift (UScalar.cast .Usize y)
+  let n ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i
+  let i1 ← lift (UScalar.cast .Usize n.left)
+  let n1 ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i1
+  let i2 ← lift (UScalar.cast .Usize n.left)
+  let (n2, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i2
+  let v := index_mut_back { n2 with right := y }
+  let i3 ← lift (UScalar.cast .Usize y)
+  let (n3, index_mut_back1) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) v i3
+  let v1 := index_mut_back1 { n3 with left := n1.right }
+  let self1 ←
+    hashtrinity.overflow.Overflow.update algebraCoordInst
+      { self with nodes := v1 } y
+  let self2 ←
+    hashtrinity.overflow.Overflow.update algebraCoordInst self1 n.left
+  ok (n.left, self2)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rebalance]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 256:4-281:5 -/
+def hashtrinity.overflow.Overflow.rebalance
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
+  Result (Std.U32 × (hashtrinity.overflow.Overflow K V))
+  := do
+  let self1 ← hashtrinity.overflow.Overflow.update algebraCoordInst self i
+  let i1 ← lift (UScalar.cast .Usize i)
+  let n ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self1.nodes i1
+  let i2 ← lift (UScalar.cast .Usize i)
+  let n1 ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self1.nodes i2
+  let hl ← hashtrinity.overflow.Overflow.h algebraCoordInst self1 n.left
+  let hr ← hashtrinity.overflow.Overflow.h algebraCoordInst self1 n1.right
+  let i3 ← hr + 1#u32
+  if hl > i3
+  then
+    let i4 ← lift (UScalar.cast .Usize n.left)
+    let n2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) self1.nodes i4
+    let i5 ← hashtrinity.overflow.Overflow.h algebraCoordInst self1 n2.right
+    let i6 ← lift (UScalar.cast .Usize n.left)
+    let n3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) self1.nodes i6
+    let i7 ← hashtrinity.overflow.Overflow.h algebraCoordInst self1 n3.left
+    let (v, v1, i8, i9) ←
+      if i5 > i7
+      then
+        do
+        let (nl, self2) ←
+          hashtrinity.overflow.Overflow.rotate_left algebraCoordInst self1
+            n.left
+        let i10 ← lift (UScalar.cast .Usize i)
+        let (n4, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            (hashtrinity.overflow.Node K V)) self2.nodes i10
+        let v2 := index_mut_back { n4 with left := nl }
+        ok (v2, self2.free, self2.root, self2.len)
+      else ok (self1.nodes, self1.free, self1.root, self1.len)
+    hashtrinity.overflow.Overflow.rotate_right algebraCoordInst
+      { nodes := v, free := v1, root := i8, len := i9 } i
+  else
+    let i4 ← hl + 1#u32
+    if hr > i4
+    then
+      let i5 ← lift (UScalar.cast .Usize n1.right)
+      let n2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (hashtrinity.overflow.Node K V)) self1.nodes i5
+      let i6 ← hashtrinity.overflow.Overflow.h algebraCoordInst self1 n2.left
+      let i7 ← lift (UScalar.cast .Usize n1.right)
+      let n3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (hashtrinity.overflow.Node K V)) self1.nodes i7
+      let i8 ←
+        hashtrinity.overflow.Overflow.h algebraCoordInst self1 n3.right
+      let (v, v1, i9, i10) ←
+        if i6 > i8
+        then
+          do
+          let (nr, self2) ←
+            hashtrinity.overflow.Overflow.rotate_right algebraCoordInst self1
+              n1.right
+          let i11 ← lift (UScalar.cast .Usize i)
+          let (n4, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              (hashtrinity.overflow.Node K V)) self2.nodes i11
+          let v2 := index_mut_back { n4 with right := nr }
+          ok (v2, self2.free, self2.root, self2.len)
+        else ok (self1.nodes, self1.free, self1.root, self1.len)
+      hashtrinity.overflow.Overflow.rotate_left algebraCoordInst
+        { nodes := v, free := v1, root := i9, len := i10 } i
+    else ok (i, self1)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rebalance_chain]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 287:8-301:9 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.rebalance_chain_loop.body
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (chain : Slice Std.U32) (self : hashtrinity.overflow.Overflow K V)
+  (idx : Std.Usize) :
+  Result (ControlFlow ((hashtrinity.overflow.Overflow K V) × Std.Usize)
+    (hashtrinity.overflow.Overflow K V))
+  := do
+  if idx > 0#usize
+  then
+    let idx1 ← idx - 1#usize
+    let n ← Slice.index_usize chain idx1
+    let (newroot, self1) ←
+      hashtrinity.overflow.Overflow.rebalance algebraCoordInst self n
+    if idx1 = 0#usize
+    then ok (cont ({ self1 with root := newroot }, idx1))
+    else
+      let i ← idx1 - 1#usize
+      let p ← Slice.index_usize chain i
+      let i1 ← lift (UScalar.cast .Usize p)
+      let n1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (hashtrinity.overflow.Node K V)) self1.nodes i1
+      if n1.left = n
+      then
+        let i2 ← lift (UScalar.cast .Usize p)
+        let (n2, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            (hashtrinity.overflow.Node K V)) self1.nodes i2
+        let v := index_mut_back { n2 with left := newroot }
+        ok (cont ({ self1 with nodes := v }, idx1))
+      else
+        let i2 ← lift (UScalar.cast .Usize p)
+        let (n2, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            (hashtrinity.overflow.Node K V)) self1.nodes i2
+        let v := index_mut_back { n2 with right := newroot }
+        ok (cont ({ self1 with nodes := v }, idx1))
+  else ok (done self)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rebalance_chain]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 287:8-301:9 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.rebalance_chain_loop
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (chain : Slice Std.U32)
+  (idx : Std.Usize) :
+  Result (hashtrinity.overflow.Overflow K V)
+  := do
+  loop
+    (fun (self1, idx1) =>
+      hashtrinity.overflow.Overflow.rebalance_chain_loop.body algebraCoordInst
+      chain self1 idx1)
+    (self, idx)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rebalance_chain]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 285:4-302:5 -/
+def hashtrinity.overflow.Overflow.rebalance_chain
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (chain : Slice Std.U32) :
+  Result (hashtrinity.overflow.Overflow K V)
+  := do
+  let idx := Slice.len chain
+  hashtrinity.overflow.Overflow.rebalance_chain_loop algebraCoordInst self
+    chain idx
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_node]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 572:8-590:9 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.insert_node_loop.body
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (i : Std.U32) (key : Std.U64) (chain : alloc.vec.Vec Std.U32) (cur : Std.U32)
+  :
+  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.U32) ((alloc.vec.Vec
+    (hashtrinity.overflow.Node K V)) × (alloc.vec.Vec Std.U32)))
+  := do
+  let chain1 ← alloc.vec.Vec.push chain cur
+  let i1 ← lift (UScalar.cast .Usize cur)
+  let n ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) v i1
+  if key < n.key
+  then
+    let i2 ← lift (UScalar.cast .Usize cur)
+    let n1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i2
+    if n1.left = hashtrinity.overflow.NIL
+    then
+      let i3 ← lift (UScalar.cast .Usize cur)
+      let (n2, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+          (hashtrinity.overflow.Node K V)) v i3
+      let v1 := index_mut_back { n2 with left := i }
+      ok (done (v1, chain1))
+    else ok (cont (chain1, n1.left))
+  else
+    let i2 ← lift (UScalar.cast .Usize cur)
+    let n1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i2
+    if n1.right = hashtrinity.overflow.NIL
+    then
+      let i3 ← lift (UScalar.cast .Usize cur)
+      let (n2, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+          (hashtrinity.overflow.Node K V)) v i3
+      let v1 := index_mut_back { n2 with right := i }
+      ok (done (v1, chain1))
+    else ok (cont (chain1, n1.right))
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_node]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 572:8-590:9 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.insert_node_loop
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (i : Std.U32) (key : Std.U64) (chain : alloc.vec.Vec Std.U32) (cur : Std.U32)
+  :
+  Result ((alloc.vec.Vec (hashtrinity.overflow.Node K V)) × (alloc.vec.Vec
+    Std.U32))
+  := do
+  loop
+    (fun (chain1, cur1) => hashtrinity.overflow.Overflow.insert_node_loop.body
+      v i key chain1 cur1)
+    (chain, cur)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_node]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 564:4-592:5 -/
+def hashtrinity.overflow.Overflow.insert_node
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
+  Result (hashtrinity.overflow.Overflow K V)
+  := do
+  if self.root = hashtrinity.overflow.NIL
+  then ok { self with root := i }
+  else
+    let i1 ← lift (UScalar.cast .Usize i)
+    let n ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) self.nodes i1
+    let chain := alloc.vec.Vec.with_capacity Std.U32 64#usize
+    let (v, chain1) ←
+      hashtrinity.overflow.Overflow.insert_node_loop self.nodes i n.key chain
+        self.root
+    let s := alloc.vec.Vec.deref chain1
+    hashtrinity.overflow.Overflow.rebalance_chain algebraCoordInst
+      { self with nodes := v } s
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_node]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 334:8-346:5 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.find_node_loop.body
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (coord : Std.U64) (cur : Std.U32) :
+  Result (ControlFlow Std.U32 Std.U32)
+  := do
+  if cur != hashtrinity.overflow.NIL
+  then
+    let i ← lift (UScalar.cast .Usize cur)
+    let n ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i
+    if coord = n.key
+    then ok (done cur)
+    else
+      if coord < n.key
+      then
+        let i1 ← lift (UScalar.cast .Usize cur)
+        let n1 ←
+          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+            (hashtrinity.overflow.Node K V)) v i1
+        ok (cont n1.left)
+      else
+        let i1 ← lift (UScalar.cast .Usize cur)
+        let n1 ←
+          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+            (hashtrinity.overflow.Node K V)) v i1
+        ok (cont n1.right)
+  else ok (done hashtrinity.overflow.NIL)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_node]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 334:8-346:5 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.find_node_loop
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (coord : Std.U64) (cur : Std.U32) :
+  Result Std.U32
+  := do
+  loop
+    (fun cur1 => hashtrinity.overflow.Overflow.find_node_loop.body v coord
+      cur1)
+    cur
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_node]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 332:4-346:5 -/
+@[reducible]
+def hashtrinity.overflow.Overflow.find_node
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (coord : Std.U64) :
+  Result Std.U32
+  := do
+  hashtrinity.overflow.Overflow.find_node_loop self.nodes coord self.root
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::alloc]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 304:4-320:5 -/
+def hashtrinity.overflow.Overflow.alloc
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (key : Std.U64) (k : K)
+  (v : V) :
+  Result (Std.U32 × (hashtrinity.overflow.Overflow K V))
+  := do
+  let y ←
+    lift (Std.Array.to_slice (Array.make 1#usize [ (k, some v) ] : Array (K ×
+      (Option V)) 1#usize))
+  let ret := alloc.slice.Slice.into_vec y
+  let (o, v1) ← alloc.vec.Vec.pop Global self.free
+  match o with
+  | none =>
+    let v2 ←
+      alloc.vec.Vec.push self.nodes
+        ({
+           key,
+           entries := ret,
+           left := hashtrinity.overflow.NIL,
+           right := hashtrinity.overflow.NIL,
+           height := 1#u32,
+           alive := true
+         } : hashtrinity.overflow.Node K V)
+    let i := alloc.vec.Vec.len v2
+    let i1 ← i - 1#usize
+    let i2 ← lift (UScalar.cast .U32 i1)
+    ok (i2, { self with nodes := v2, free := v1 })
+  | some i =>
+    let i1 ← lift (UScalar.cast .Usize i)
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) self.nodes i1
+    let v2 :=
+      index_mut_back
+        {
+          key,
+          entries := ret,
+          left := hashtrinity.overflow.NIL,
+          right := hashtrinity.overflow.NIL,
+          height := 1#u32,
+          alive := true
+        }
+    ok (i, { self with nodes := v2, free := v1 })
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_new_at]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 414:4-427:5 -/
+def hashtrinity.overflow.Overflow.insert_new_at
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (coord : Std.U64) (k : K)
+  (v : V) :
+  Result ((Std.U32 × Std.Usize) × (hashtrinity.overflow.Overflow K V))
+  := do
+  let i ← self.len + 1#usize
+  let n ←
+    hashtrinity.overflow.Overflow.find_node algebraCoordInst
+      { self with len := i } coord
+  let (self1, node) ←
+    if n = hashtrinity.overflow.NIL
+    then
+      do
+      let (i1, self2) ←
+        hashtrinity.overflow.Overflow.alloc algebraCoordInst
+          { self with len := i } coord k v
+      let self3 ←
+        hashtrinity.overflow.Overflow.insert_node algebraCoordInst self2 i1
+      ok (self3, i1)
+    else
+      do
+      let i1 ← lift (UScalar.cast .Usize n)
+      let (n1, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+          (hashtrinity.overflow.Node K V)) self.nodes i1
+      let v1 ← alloc.vec.Vec.push n1.entries (k, some v)
+      let v2 := index_mut_back { n1 with entries := v1 }
+      ok ({ self with nodes := v2, len := i }, n)
+  let i1 ← lift (UScalar.cast .Usize node)
+  let n1 ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self1.nodes i1
+  let i2 := alloc.vec.Vec.len n1.entries
+  let e ← i2 - 1#usize
+  ok ((node, e), self1)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_entry]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 360:8-367:5 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.find_entry_loop.body
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (corecmpEqInst : core.cmp.Eq K) (k : K) (n : Std.U32)
+  (entries : alloc.vec.Vec (K × (Option V))) (e : Std.Usize) :
+  Result (ControlFlow Std.Usize (Option (Std.U32 × Std.U32)))
+  := do
+  let i := alloc.vec.Vec.len entries
+  if e < i
+  then
+    let (t, _) ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (K × (Option
+        V))) entries e
+    let b ← corecmpEqInst.partialEqInst.eq t k
+    if b
+    then let i1 ← lift (UScalar.cast .U32 e)
+         ok (done (some (n, i1)))
+    else let e1 ← e + 1#usize
+         ok (cont e1)
+  else ok (done none)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_entry]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 360:8-367:5 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.find_entry_loop
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (corecmpEqInst : core.cmp.Eq K) (k : K) (n : Std.U32)
+  (entries : alloc.vec.Vec (K × (Option V))) (e : Std.Usize) :
+  Result (Option (Std.U32 × Std.U32))
+  := do
+  loop
+    (fun e1 => hashtrinity.overflow.Overflow.find_entry_loop.body
+      algebraCoordInst corecmpEqInst k n entries e1)
+    e
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_entry]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 350:4-367:5 -/
+def hashtrinity.overflow.Overflow.find_entry
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (corecmpEqInst : core.cmp.Eq K) (self : hashtrinity.overflow.Overflow K V)
+  (coord : Std.U64) (k : K) :
+  Result (Option (Std.U32 × Std.U32))
+  := do
+  let n ← hashtrinity.overflow.Overflow.find_node algebraCoordInst self coord
+  if n = hashtrinity.overflow.NIL
+  then ok none
+  else
+    let i ← lift (UScalar.cast .Usize n)
+    let n1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) self.nodes i
+    hashtrinity.overflow.Overflow.find_entry_loop algebraCoordInst
+      corecmpEqInst k n n1.entries 0#usize
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::new]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 197:4-204:5 -/
+def hashtrinity.overflow.Overflow.new
+  {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K) :
+  Result (hashtrinity.overflow.Overflow K V)
+  := do
+  ok
+    {
+      nodes := (alloc.vec.Vec.new (hashtrinity.overflow.Node K V)),
+      free := (alloc.vec.Vec.new Std.U32),
+      root := hashtrinity.overflow.NIL,
+      len := 0#usize
+    }
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::empty]:
+    Source: '../../src/map/hashtrinity/side.rs', lines 25:4-33:5 -/
+def hashtrinity.side.SideStore.empty
+  {K : Type} (V : Type) {KS : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) :
+  Result (hashtrinity.side.SideStore K V KS)
+  := do
+  let t ← algebraKeyStoreInst.alloc 0#usize
+  ok
+    {
+      coords := (alloc.vec.Vec.new Std.U64),
+      vals := (alloc.vec.Vec.new (core.mem.maybe_uninit.MaybeUninit V)),
+      keys := t,
+      cap := 0#usize,
+      _k := ()
+    }
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 1:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.in_order_loop0_loop0.body
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.U32) (alloc.vec.Vec
+    Std.U32))
+  := do
+  if cur != hashtrinity.overflow.NIL
+  then
+    let stack1 ← alloc.vec.Vec.push stack cur
+    let i ← lift (UScalar.cast .Usize cur)
+    let n ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i
+    ok (cont (stack1, n.left))
+  else ok (done stack)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 1:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.in_order_loop0_loop0
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  loop
+    (fun (stack1, cur1) =>
+      hashtrinity.overflow.Overflow.in_order_loop0_loop0.body v stack1 cur1)
+    (stack, cur)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 2:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.in_order_loop0_loop1.body
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.U32) (alloc.vec.Vec
+    Std.U32))
+  := do
+  if cur != hashtrinity.overflow.NIL
+  then
+    let stack1 ← alloc.vec.Vec.push stack cur
+    let i ← lift (UScalar.cast .Usize cur)
+    let n ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i
+    ok (cont (stack1, n.left))
+  else ok (done stack)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 2:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.in_order_loop0_loop1
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  loop
+    (fun (stack1, cur1) =>
+      hashtrinity.overflow.Overflow.in_order_loop0_loop1.body v stack1 cur1)
+    (stack, cur)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 549:8-559:9 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.in_order_loop0.body
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (out : alloc.vec.Vec Std.U32) (stack : alloc.vec.Vec Std.U32) (cur : Std.U32)
+  :
+  Result (ControlFlow ((alloc.vec.Vec Std.U32) × (alloc.vec.Vec Std.U32) ×
+    Std.U32) (alloc.vec.Vec Std.U32))
+  := do
+  if cur != hashtrinity.overflow.NIL
+  then
+    let stack1 ←
+      hashtrinity.overflow.Overflow.in_order_loop0_loop0 v stack cur
+    let (o, stack2) ← alloc.vec.Vec.pop Global stack1
+    let n ← core.option.Option.expect o (toStr "nonempty stack")
+    let i ← lift (UScalar.cast .Usize n)
+    let n1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i
+    let out1 ← if n1.alive
+                 then alloc.vec.Vec.push out n
+                 else ok out
+    let i1 ← lift (UScalar.cast .Usize n)
+    let n2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i1
+    ok (cont (out1, stack2, n2.right))
+  else
+    let b ← alloc.vec.Vec.is_empty Global stack
+    if b
+    then ok (done out)
+    else
+      let stack1 ←
+        hashtrinity.overflow.Overflow.in_order_loop0_loop1 v stack cur
+      let (o, stack2) ← alloc.vec.Vec.pop Global stack1
+      let n ← core.option.Option.expect o (toStr "nonempty stack")
+      let i ← lift (UScalar.cast .Usize n)
+      let n1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (hashtrinity.overflow.Node K V)) v i
+      let out1 ← if n1.alive
+                   then alloc.vec.Vec.push out n
+                   else ok out
+      let i1 ← lift (UScalar.cast .Usize n)
+      let n2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (hashtrinity.overflow.Node K V)) v i1
+      ok (cont (out1, stack2, n2.right))
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 549:8-559:9 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.in_order_loop0
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (out : alloc.vec.Vec Std.U32) (stack : alloc.vec.Vec Std.U32) (cur : Std.U32)
+  :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  loop
+    (fun (out1, stack1, cur1) =>
+      hashtrinity.overflow.Overflow.in_order_loop0.body v out1 stack1 cur1)
+    (out, stack, cur)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 546:4-560:5 -/
+@[reducible]
+def hashtrinity.overflow.Overflow.in_order
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (out : alloc.vec.Vec Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  hashtrinity.overflow.Overflow.in_order_loop0 self.nodes out
+    (alloc.vec.Vec.new Std.U32) self.root
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop body 1:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 526:12-530:13 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body
+  {K : Type} {V : Type} (key : Std.U64)
+  (iter : alloc.vec.into_iter.IntoIter (K × (Option V)))
+  (out : alloc.vec.Vec (Std.U64 × K × V)) :
+  Result (ControlFlow ((alloc.vec.into_iter.IntoIter (K × (Option V))) ×
+    (alloc.vec.Vec (Std.U64 × K × V))) (alloc.vec.Vec (Std.U64 × K × V)))
+  := do
+  let (o, iter1) ← alloc.vec.into_iter.IteratorIntoIter.next iter
+  match o with
+  | none => ok (done out)
+  | some p =>
+    let (k, v) := p
+    match v with
+    | none => ok (cont (iter1, out))
+    | some v1 =>
+      let out1 ← alloc.vec.Vec.push out (key, k, v1)
+      ok (cont (iter1, out1))
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop 1:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 526:12-530:13 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.into_entries_loop0_loop0
+  {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter (K × (Option V)))
+  (out : alloc.vec.Vec (Std.U64 × K × V)) (key : Std.U64) :
+  Result (alloc.vec.Vec (Std.U64 × K × V))
+  := do
+  loop
+    (fun (iter1, out1) =>
+      hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body key iter1
+      out1)
+    (iter, out)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 522:8-531:9 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.into_entries_loop0.body
+  {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter Std.U32)
+  (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (out : alloc.vec.Vec (Std.U64 × K × V)) :
+  Result (ControlFlow ((alloc.vec.into_iter.IntoIter Std.U32) × (alloc.vec.Vec
+    (hashtrinity.overflow.Node K V)) × (alloc.vec.Vec (Std.U64 × K × V)))
+    (alloc.vec.Vec (Std.U64 × K × V)))
+  := do
+  let (o, iter1) ← alloc.vec.into_iter.IteratorIntoIter.next iter
+  match o with
+  | none => ok (done out)
+  | some n =>
+    let i ← lift (UScalar.cast .Usize n)
+    let (node, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i
+    let (entries, v1) ←
+      core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault (K × (Option V)))
+        node.entries
+    let iter2 ← alloc.vec.IntoIteratorVec.into_iter entries
+    let out1 ←
+      hashtrinity.overflow.Overflow.into_entries_loop0_loop0 iter2 out node.key
+    let v2 := index_mut_back { node with entries := v1 }
+    ok (cont (iter1, v2, out1))
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 522:8-531:9 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.into_entries_loop0
+  {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter Std.U32)
+  (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (out : alloc.vec.Vec (Std.U64 × K × V)) :
+  Result (alloc.vec.Vec (Std.U64 × K × V))
+  := do
+  loop
+    (fun (iter1, v1, out1) =>
+      hashtrinity.overflow.Overflow.into_entries_loop0.body iter1 v1 out1)
+    (iter, v, out)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 518:4-533:5 -/
+def hashtrinity.overflow.Overflow.into_entries
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) :
+  Result (alloc.vec.Vec (Std.U64 × K × V))
+  := do
+  let out := alloc.vec.Vec.with_capacity (Std.U64 × K × V) self.len
+  let order ←
+    hashtrinity.overflow.Overflow.in_order algebraCoordInst self
+      (alloc.vec.Vec.new Std.U32)
+  let iter ← alloc.vec.IntoIteratorVec.into_iter order
+  hashtrinity.overflow.Overflow.into_entries_loop0 iter self.nodes out
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::place_capped]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1149:4-1177:5 -/
+def hashtrinity.Table.place_capped
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (k : K) (v : V) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let c ←
+    hashtrinity.overflow.Table.probe_capped_keyed corecmpEqInst
+      algebraCoordInst algebraKeyStoreInst self coord k
+  match c with
+  | hashtrinity.Capped.Hit i =>
+    let (mu, get_unchecked_mut_back) ←
+      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
+        (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
+    let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
+    core.mem.drop old
+    let mu1 ← core.mem.maybe_uninit.MaybeUninit.new v
+    let s := get_unchecked_mut_back mu
+    let (_, get_unchecked_mut_back1) ←
+      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
+        (core.mem.maybe_uninit.MaybeUninit V)) s i
+    let s1 := get_unchecked_mut_back1 mu1
+    ok { self with vals := s1 }
+  | hashtrinity.Capped.Vacant i =>
+    let (_, get_unchecked_mut_back) ←
+      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
+        Std.U64) self.coords i
+    let mu ← core.mem.maybe_uninit.MaybeUninit.new v
+    let (_, get_unchecked_mut_back1) ←
+      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
+        (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
+    let t ← algebraKeyStoreInst.set self.keys i k
+    let i1 ← self.len + 1#usize
+    let s := get_unchecked_mut_back coord
+    let s1 := get_unchecked_mut_back1 mu
+    ok { self with coords := s, vals := s1, keys := t, len := i1 }
+  | hashtrinity.Capped.Blocked =>
+    let b := core.option.Option.is_none self.overflow
+    let o ←
+      if b
+      then
+        do
+        let o1 ← hashtrinity.overflow.Overflow.new V algebraCoordInst
+        ok (some o1)
+      else ok self.overflow
+    let (o1, as_mut_back) ← core.option.Option.as_mut o
+    match o1 with
+    | none => fail panic
+    | some ov =>
+      let (_, ov1) ←
+        hashtrinity.overflow.Overflow.insert_new_at algebraCoordInst ov coord k
+          v
+      let o2 := as_mut_back (some ov1)
+      ok { self with overflow := o2 }
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::with_bits]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 476:4-489:5 -/
+def hashtrinity.Table.with_bits
+  {K : Type} (V : Type) {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (bits : Std.U32) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let n ← 1#usize <<< bits
+  let v ← alloc.vec.from_elem core.clone.CloneU64 hashtrinity.EMPTY n
+  let s ← alloc.vec.Vec.into_boxed_slice Global v
+  let s1 ← hashtrinity.algebra.alloc_uninit_boxed V n
+  let t ← algebraKeyStoreInst.alloc n
+  let ss ←
+    hashtrinity.side.SideStore.empty V algebraCoordInst algebraKeyStoreInst
+  ok
+    {
+      coords := s,
+      vals := s1,
+      keys := t,
+      side := ss,
+      overflow := none,
+      bits,
+      len := 0#usize,
+      tombs := 0#usize,
+      _k := ()
+    }
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 0:
+    Source: '../../src/map/hashtrinity/side.rs', lines 121:12-125:13 -/
+@[rust_loop_body]
+def hashtrinity.side.SideStore.clear_loop0.body
+  {V : Type} (vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V))
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V)) ×
+    Std.Usize) Unit)
+  := do
+  let i1 := alloc.vec.Vec.len vals
+  if i < i1
+  then
+    let (mu, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+        (core.mem.maybe_uninit.MaybeUninit V)) vals i
+    let mu1 ← core.mem.maybe_uninit.MaybeUninit.assume_init_drop mu
+    let i2 ← i + 1#usize
+    let vals1 := index_mut_back mu1
+    ok (cont (vals1, i2))
+  else ok (done ())
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 0:
+    Source: '../../src/map/hashtrinity/side.rs', lines 121:12-125:13 -/
+@[rust_loop]
+def hashtrinity.side.SideStore.clear_loop0
+  {V : Type} (vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V))
+  (i : Std.Usize) :
+  Result Unit
+  := do
+  loop
+    (fun (vals1, i1) => hashtrinity.side.SideStore.clear_loop0.body vals1 i1)
+    (vals, i)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 1:
+    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
+@[rust_loop_body]
+def hashtrinity.side.SideStore.clear_loop1.body
+  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (coords : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
+  Result (ControlFlow (KS × Std.Usize) KS)
+  := do
+  let i1 := alloc.vec.Vec.len coords
+  if i < i1
+  then
+    let c ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
+        coords i
+    let (t1, t2) ← algebraKeyStoreInst.take_key t i c
+    core.mem.drop t1
+    let i2 ← i + 1#usize
+    ok (cont (t2, i2))
+  else ok (done t)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 1:
+    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
+@[rust_loop]
+def hashtrinity.side.SideStore.clear_loop1
+  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (t : KS) (coords : alloc.vec.Vec Std.U64) (i : Std.Usize) :
+  Result KS
+  := do
+  loop
+    (fun (t1, i1) => hashtrinity.side.SideStore.clear_loop1.body
+      algebraKeyStoreInst coords t1 i1)
+    (t, i)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 2:
+    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
+@[rust_loop_body]
+def hashtrinity.side.SideStore.clear_loop2.body
+  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (coords : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
+  Result (ControlFlow (KS × Std.Usize) KS)
+  := do
+  let i1 := alloc.vec.Vec.len coords
+  if i < i1
+  then
+    let c ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
+        coords i
+    let (t1, t2) ← algebraKeyStoreInst.take_key t i c
+    core.mem.drop t1
+    let i2 ← i + 1#usize
+    ok (cont (t2, i2))
+  else ok (done t)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 2:
+    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
+@[rust_loop]
+def hashtrinity.side.SideStore.clear_loop2
+  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (t : KS) (coords : alloc.vec.Vec Std.U64) (i : Std.Usize) :
+  Result KS
+  := do
+  loop
+    (fun (t1, i1) => hashtrinity.side.SideStore.clear_loop2.body
+      algebraKeyStoreInst coords t1 i1)
+    (t, i)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]:
+    Source: '../../src/map/hashtrinity/side.rs', lines 116:4-133:5 -/
+def hashtrinity.side.SideStore.clear
+  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
+  :
+  Result (hashtrinity.side.SideStore K V KS)
+  := do
+  let (coords, v) ←
+    core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault Std.U64) self.coords
+  let (vals, v1) ←
+    core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault
+      (core.mem.maybe_uninit.MaybeUninit V)) self.vals
+  let b ← core.mem.needs_drop V
+  if b
+  then
+    hashtrinity.side.SideStore.clear_loop0 vals 0#usize
+    let t ←
+      hashtrinity.side.SideStore.clear_loop1 algebraKeyStoreInst self.keys
+        coords 0#usize
+    ok { self with coords := v, vals := v1, keys := t }
+  else
+    let t ←
+      hashtrinity.side.SideStore.clear_loop2 algebraKeyStoreInst self.keys
+        coords 0#usize
+    ok { self with coords := v, vals := v1, keys := t }
+
+/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop body 0:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 341:12-347:13
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop.body
+  {K : Type} {V : Type} {KS : Type} (self : hashtrinity.Table K V KS)
+  (i : Std.Usize) :
+  Result (ControlFlow ((hashtrinity.Table K V KS) × Std.Usize) ((Slice
+    Std.U64) × (Slice (core.mem.maybe_uninit.MaybeUninit V)) × KS ×
+    (hashtrinity.side.SideStore K V KS) × (Option
+    (hashtrinity.overflow.Overflow K V)) × Std.U32 × Std.Usize × Std.Usize
+    × (core.marker.PhantomData K)))
+  := do
+  let i1 := Slice.len self.coords
+  if i < i1
+  then
+    let i2 ← Slice.index_usize self.coords i
+    let b ← hashtrinity.is_live i2
+    let s ←
+      if b
+      then
+        do
+        let (mu, index_mut_back) ← Slice.index_mut_usize self.vals i
+        let mu1 ← core.mem.maybe_uninit.MaybeUninit.assume_init_drop mu
+        ok (index_mut_back mu1)
+      else ok self.vals
+    let i3 ← i + 1#usize
+    ok (cont ({ self with vals := s }, i3))
+  else
+    ok (done (self.coords, self.vals, self.keys, self.side, self.overflow,
+      self.bits, self.len, self.tombs, self._k))
+
+/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop 0:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 341:12-347:13
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop
+  {K : Type} {V : Type} {KS : Type} (self : hashtrinity.Table K V KS)
+  (i : Std.Usize) :
+  Result ((Slice Std.U64) × (Slice (core.mem.maybe_uninit.MaybeUninit V)) ×
+    KS × (hashtrinity.side.SideStore K V KS) × (Option
+    (hashtrinity.overflow.Overflow K V)) × Std.U32 × Std.Usize × Std.Usize
+    × (core.marker.PhantomData K))
+  := do
+  loop
+    (fun (self1, i1) => hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop.body
+      self1 i1)
+    (self, i)
+
+/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 338:4-355:5
+    Visibility: public -/
+def hashtrinity.Table.Insts.CoreOpsDropDrop.drop
+  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let b ← core.mem.needs_drop V
+  if b
+  then
+    let (s, s1, t, ss, o, i, i1, i2, pd) ←
+      hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop self 0#usize
+    let (coords, s2) ←
+      core.mem.take (BoxSlice.Insts.CoreDefaultDefault Std.U64) s
+    let t1 ← algebraKeyStoreInst.drop_live t coords
+    let ss1 ←
+      hashtrinity.side.SideStore.clear algebraCoordInst algebraKeyStoreInst ss
+    ok
+      {
+        coords := s2,
+        vals := s1,
+        keys := t1,
+        side := ss1,
+        overflow := o,
+        bits := i,
+        len := i1,
+        tombs := i2,
+        _k := pd
+      }
+  else
+    let (coords, s) ←
+      core.mem.take (BoxSlice.Insts.CoreDefaultDefault Std.U64) self.coords
+    let t ← algebraKeyStoreInst.drop_live self.keys coords
+    let ss ←
+      hashtrinity.side.SideStore.clear algebraCoordInst algebraKeyStoreInst
+        self.side
+    ok { self with coords := s, keys := t, side := ss }
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop body 0:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1217:8-1230:9 -/
+@[rust_loop_body]
+def hashtrinity.Table.resize_loop0.body
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (bigger : hashtrinity.Table K V KS) (i : Std.Usize) :
+  Result (ControlFlow ((hashtrinity.Table K V KS) × (hashtrinity.Table K V KS)
+    × Std.Usize) ((hashtrinity.side.SideStore K V KS) × (Option
+    (hashtrinity.overflow.Overflow K V)) × (hashtrinity.Table K V KS)))
+  := do
+  let i1 := Slice.len self.coords
+  if i < i1
+  then
+    let c ← Slice.index_usize self.coords i
+    let b ← hashtrinity.is_live c
+    if b
+    then
+      let (key, t) ← algebraKeyStoreInst.take_key self.keys i c
+      let (mu, get_unchecked_mut_back) ←
+        core.slice.Slice.get_unchecked_mut
+          (core.slice.index.SliceIndexUsizeSlice
+          (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
+      let v ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
+      let s ← Slice.update self.coords i hashtrinity.EMPTY
+      let bigger1 ←
+        hashtrinity.Table.place_capped corecmpEqInst algebraCoordInst
+          algebraKeyStoreInst bigger c key v
+      let i2 ← i + 1#usize
+      let s1 := get_unchecked_mut_back mu
+      ok (cont ({ self with coords := s, vals := s1, keys := t }, bigger1, i2))
+    else let i2 ← i + 1#usize
+         ok (cont (self, bigger, i2))
+  else ok (done (self.side, self.overflow, bigger))
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop 0:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1217:8-1230:9 -/
+@[rust_loop]
+def hashtrinity.Table.resize_loop0
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (bigger : hashtrinity.Table K V KS) (i : Std.Usize) :
+  Result ((hashtrinity.side.SideStore K V KS) × (Option
+    (hashtrinity.overflow.Overflow K V)) × (hashtrinity.Table K V KS))
+  := do
+  loop
+    (fun (self1, bigger1, i1) => hashtrinity.Table.resize_loop0.body
+      corecmpEqInst algebraCoordInst algebraKeyStoreInst self1 bigger1 i1)
+    (self, bigger, i)
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop body 1:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1236:12-1238:13 -/
+@[rust_loop_body]
+def hashtrinity.Table.resize_loop1.body
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K)
+  (iter : alloc.vec.into_iter.IntoIter (Std.U64 × K × V))
+  (bigger : hashtrinity.Table K V KS) :
+  Result (ControlFlow ((alloc.vec.into_iter.IntoIter (Std.U64 × K × V)) ×
+    (hashtrinity.Table K V KS)) (hashtrinity.Table K V KS))
+  := do
+  let (o, iter1) ← alloc.vec.into_iter.IteratorIntoIter.next iter
+  match o with
+  | none => ok (done bigger)
+  | some t =>
+    let (c, k, v) := t
+    let bigger1 ←
+      hashtrinity.Table.place_capped corecmpEqInst algebraCoordInst
+        algebraKeyStoreInst bigger c k v
+    ok (cont (iter1, bigger1))
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop 1:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1236:12-1238:13 -/
+@[rust_loop]
+def hashtrinity.Table.resize_loop1
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K)
+  (iter : alloc.vec.into_iter.IntoIter (Std.U64 × K × V))
+  (bigger : hashtrinity.Table K V KS) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  loop
+    (fun (iter1, bigger1) => hashtrinity.Table.resize_loop1.body corecmpEqInst
+      algebraCoordInst algebraKeyStoreInst iter1 bigger1)
+    (iter, bigger)
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1214:4-1241:5 -/
+def hashtrinity.Table.resize
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (new_bits : Std.U32) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let bigger ←
+    hashtrinity.Table.with_bits V corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst new_bits
+  let (ss, o, bigger1) ←
+    hashtrinity.Table.resize_loop0 corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst self bigger 0#usize
+  let ss1 ←
+    hashtrinity.side.SideStore.empty V algebraCoordInst algebraKeyStoreInst
+  let (ss2, _) := core.mem.replace ss ss1
+  let (o1, _) := core.option.Option.take o
+  match o1 with
+  | none => ok { bigger1 with side := ss2 }
+  | some ov =>
+    let v ← hashtrinity.overflow.Overflow.into_entries algebraCoordInst ov
+    let iter ← alloc.vec.IntoIteratorVec.into_iter v
+    hashtrinity.Table.resize_loop1 corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst iter { bigger1 with side := ss2 }
+
+/-- [apeiron_word::hashtrinity::LOAD_DEN]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 232:0-232:26 -/
+@[global_simps, irreducible] def hashtrinity.LOAD_DEN : Std.Usize := 4#usize
+
+/-- [apeiron_word::hashtrinity::LOAD_NUM]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 231:0-231:26 -/
+@[global_simps, irreducible] def hashtrinity.LOAD_NUM : Std.Usize := 3#usize
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::grow_for_one]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1194:4-1205:5 -/
+def hashtrinity.Table.grow_for_one
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let cap := Slice.len self.coords
+  let i ← self.len + self.tombs
+  let i1 ← i + 1#usize
+  let i2 ← i1 * hashtrinity.LOAD_DEN
+  let i3 ← cap * hashtrinity.LOAD_NUM
+  if i2 >= i3
+  then
+    let i4 ← cap / 2#usize
+    let new_bits ← if self.len < i4
+                     then ok self.bits
+                     else self.bits + 1#u32
+    hashtrinity.Table.resize corecmpEqInst algebraCoordInst algebraKeyStoreInst
+      self new_bits
+  else ok self
+
+/-- [apeiron_word::hashtrinity::Store]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 249:0-256:1 -/
+@[discriminant isize]
+inductive hashtrinity.Store where
+| Main : hashtrinity.Store
+| Side : hashtrinity.Store
+| Overflow : hashtrinity.Store
+
+/-- [apeiron_word::hashtrinity::InsertHit]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 939:0-954:1 -/
+structure hashtrinity.InsertHit (V : Type) where
+  slot : Std.Usize
+  node : Std.U32
+  entry : Std.U32
+  coord : Std.U64
+  store : hashtrinity.Store
+  new : V
+  old : V
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::coord_of]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 495:4-497:5 -/
+def hashtrinity.Table.coord_of
+  {K : Type} (V : Type) {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (k : K) :
+  Result Std.U64
+  := do
+  algebraCoordInst.coord k
+
+/-- [apeiron_word::hashtrinity::is_sentinel]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 276:0-278:1 -/
+def hashtrinity.is_sentinel (c : Std.U64) : Result Bool := do
+  if c = hashtrinity.EMPTY
+  then ok true
+  else let i ← hashtrinity.TOMB
+       ok (c = i)
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::insert_core]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1012:4-1105:5 -/
+def hashtrinity.Table.insert_core
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (k : K) (new : V) (last_write : Bool) :
+  Result ((Option (hashtrinity.InsertHit V)) × (hashtrinity.Table K V KS))
+  := do
+  let coord ←
+    hashtrinity.Table.coord_of V corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst k
+  let b ← hashtrinity.is_sentinel coord
+  if b
+  then
+    let o ←
+      hashtrinity.side.SideStore.find algebraCoordInst algebraKeyStoreInst
+        self.side coord k
+    match o with
+    | none =>
+      let ss ←
+        hashtrinity.side.SideStore.push algebraCoordInst algebraKeyStoreInst
+          self.side coord k new
+      ok (none, { self with side := ss })
+    | some i =>
+      core.mem.drop k
+      let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut self.side.vals)
+      let (mu, get_unchecked_mut_back) ←
+        core.slice.Slice.get_unchecked_mut
+          (core.slice.index.SliceIndexUsizeSlice
+          (core.mem.maybe_uninit.MaybeUninit V)) s i
+      let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
+      if last_write
+      then
+        let mu1 ← core.mem.maybe_uninit.MaybeUninit.new new
+        let s1 := get_unchecked_mut_back mu
+        let v := deref_mut_back s1
+        let (s2, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut v)
+        let (_, get_unchecked_mut_back1) ←
+          core.slice.Slice.get_unchecked_mut
+            (core.slice.index.SliceIndexUsizeSlice
+            (core.mem.maybe_uninit.MaybeUninit V)) s2 i
+        core.mem.drop old
+        let s3 := get_unchecked_mut_back1 mu1
+        let v1 := deref_mut_back1 s3
+        ok (none, { self with side := { self.side with vals := v1 } })
+      else
+        let s1 := get_unchecked_mut_back mu
+        let v := deref_mut_back s1
+        ok (some
+          {
+            slot := i,
+            node := 0#u32,
+            entry := 0#u32,
+            coord,
+            store := hashtrinity.Store.Side,
+            new,
+            old
+          }, { self with side := { self.side with vals := v } })
+  else
+    let self1 ←
+      hashtrinity.Table.grow_for_one corecmpEqInst algebraCoordInst
+        algebraKeyStoreInst self
+    let c ←
+      hashtrinity.overflow.Table.probe_capped_keyed corecmpEqInst
+        algebraCoordInst algebraKeyStoreInst self1 coord k
+    match c with
+    | hashtrinity.Capped.Hit i =>
+      core.mem.drop k
+      let (mu, get_unchecked_mut_back) ←
+        core.slice.Slice.get_unchecked_mut
+          (core.slice.index.SliceIndexUsizeSlice
+          (core.mem.maybe_uninit.MaybeUninit V)) self1.vals i
+      let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
+      if last_write
+      then
+        let mu1 ← core.mem.maybe_uninit.MaybeUninit.new new
+        let s := get_unchecked_mut_back mu
+        let (_, get_unchecked_mut_back1) ←
+          core.slice.Slice.get_unchecked_mut
+            (core.slice.index.SliceIndexUsizeSlice
+            (core.mem.maybe_uninit.MaybeUninit V)) s i
+        core.mem.drop old
+        let s1 := get_unchecked_mut_back1 mu1
+        ok (none, { self1 with vals := s1 })
+      else
+        let (_, get_unchecked_mut_back1) ←
+          core.slice.Slice.get_unchecked_mut
+            (core.slice.index.SliceIndexUsizeSlice Std.U64) self1.coords i
+        let i1 ← hashtrinity.TOMB
+        let s := get_unchecked_mut_back1 i1
+        let s1 := get_unchecked_mut_back mu
+        ok (some
+          {
+            slot := i,
+            node := 0#u32,
+            entry := 0#u32,
+            coord,
+            store := hashtrinity.Store.Main,
+            new,
+            old
+          }, { self1 with coords := s, vals := s1 })
+    | hashtrinity.Capped.Vacant i =>
+      let (_, get_unchecked_mut_back) ←
+        core.slice.Slice.get_unchecked_mut
+          (core.slice.index.SliceIndexUsizeSlice Std.U64) self1.coords i
+      let mu ← core.mem.maybe_uninit.MaybeUninit.new new
+      let (_, get_unchecked_mut_back1) ←
+        core.slice.Slice.get_unchecked_mut
+          (core.slice.index.SliceIndexUsizeSlice
+          (core.mem.maybe_uninit.MaybeUninit V)) self1.vals i
+      let t ← algebraKeyStoreInst.set self1.keys i k
+      let i1 ← self1.len + 1#usize
+      let s := get_unchecked_mut_back coord
+      let s1 := get_unchecked_mut_back1 mu
+      ok (none, { self1 with coords := s, vals := s1, keys := t, len := i1 })
+    | hashtrinity.Capped.Blocked =>
+      let b1 := core.option.Option.is_none self1.overflow
+      let o ←
+        if b1
+        then
+          do
+          let o1 ← hashtrinity.overflow.Overflow.new V algebraCoordInst
+          ok (some o1)
+        else ok self1.overflow
+      let (o1, as_mut_back) ← core.option.Option.as_mut o
+      match o1 with
+      | none => fail panic
+      | some ov =>
+        let o2 ←
+          hashtrinity.overflow.Overflow.find_entry algebraCoordInst
+            corecmpEqInst ov coord k
+        match o2 with
+        | none =>
+          let (_, ov1) ←
+            hashtrinity.overflow.Overflow.insert_new_at algebraCoordInst ov
+              coord k new
+          let o3 := as_mut_back (some ov1)
+          ok (none, { self1 with overflow := o3 })
+        | some p =>
+          let (node, entry) := p
+          core.mem.drop k
+          let (old, ov1) ←
+            hashtrinity.overflow.Overflow.take_value algebraCoordInst ov node
+              entry
+          if last_write
+          then
+            let ov2 ←
+              hashtrinity.overflow.Overflow.write_back algebraCoordInst ov1
+                node entry new
+            core.mem.drop old
+            let o3 := as_mut_back (some ov2)
+            ok (none, { self1 with overflow := o3 })
+          else
+            let o3 := as_mut_back (some ov1)
+            ok (some
+              {
+                slot := 0#usize,
+                node,
+                entry,
+                coord,
+                store := hashtrinity.Store.Overflow,
+                new,
+                old
+              }, { self1 with overflow := o3 })
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::insert_merge_last_write]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1139:4-1144:5
+    Visibility: public -/
+def hashtrinity.Table.insert_merge_last_write
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (k : K) (new : V) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let (o, self1) ←
+    hashtrinity.Table.insert_core corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst self k new true
+  match o with
+  | none => ok self1
+  | some _ => fail panic
+
+/-- [apeiron_word::hashtrinity::algebra::{apeiron_word::hashtrinity::Table<K, V, KS>}::put]:
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 573:4-575:5
+    Visibility: public -/
+def hashtrinity.algebra.Table.put
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (CoordInst
+  : hashtrinity.algebra.Coord K) (KeyStoreInst : hashtrinity.algebra.KeyStore
+  KS K) (self : hashtrinity.Table K V KS) (k : K) (v : V) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  hashtrinity.Table.insert_merge_last_write corecmpEqInst CoordInst
+    KeyStoreInst self k v
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 740:12-752:5 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Table.probe_capped_with_loop.body
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
+  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
+  (ss : hashtrinity.side.SideStore K V KS)
+  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
+  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
+  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (empties : Std.U32)
+  (hits : Std.U32) :
+  Result (ControlFlow Std.U32 hashtrinity.Capped)
+  := do
+  if hits != 0#u32
+  then
+    let i3 ← core.num.U32.trailing_zeros hits
+    let i4 ← lift (UScalar.cast .Usize i3)
+    let slot ← home + i4
+    let b ← ConfirmInst.confirm confirm t slot
+    if b
+    then ok (done (hashtrinity.Capped.Hit slot))
+    else
+      let i5 ← hits - 1#u32
+      let hits1 ← lift (hits &&& i5)
+      ok (cont hits1)
+  else
+    if empties != 0#u32
+    then
+      let i3 ← core.num.U32.trailing_zeros empties
+      let i4 ← lift (UScalar.cast .Usize i3)
+      let i5 ← home + i4
+      ok (done (hashtrinity.Capped.Vacant i5))
+    else
+      let c ←
+        hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
+          algebraCoordInst algebraKeyStoreInst ConfirmInst
+          {
+            coords := s,
+            vals := s1,
+            keys := t,
+            side := ss,
+            overflow := o,
+            bits := i,
+            len := i1,
+            tombs := i2,
+            _k := pd
+          } coord home confirm
+      ok (done c)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 740:12-752:5 -/
+@[rust_loop]
+def hashtrinity.overflow.Table.probe_capped_with_loop
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
+  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
+  (ss : hashtrinity.side.SideStore K V KS)
+  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
+  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
+  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (hits : Std.U32)
+  (empties : Std.U32) :
+  Result hashtrinity.Capped
+  := do
+  loop
+    (fun hits1 => hashtrinity.overflow.Table.probe_capped_with_loop.body
+      corecmpEqInst algebraCoordInst algebraKeyStoreInst ConfirmInst s s1 t ss
+      o i i1 i2 pd coord home confirm empties hits1)
+    hits
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 729:4-752:5 -/
+def hashtrinity.overflow.Table.probe_capped_with
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (home : Std.Usize) (confirm : T3) :
+  Result hashtrinity.Capped
+  := do
+  let i ← lift (UScalar.cast .Usize hashtrinity.LINEAR_G)
+  let i1 ← home + i
+  let i2 := Slice.len self.coords
+  if i1 <= i2
+  then
+    let (hits, empties) ←
+      hashtrinity.overflow.prefix_masks self.coords home coord
+    hashtrinity.overflow.Table.probe_capped_with_loop corecmpEqInst
+      algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords self.vals
+      self.keys self.side self.overflow self.bits self.len self.tombs
+      self._k coord home confirm hits empties
+  else
+    hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst ConfirmInst self coord home confirm
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::get]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 389:4-395:5 -/
+def hashtrinity.overflow.Overflow.get
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (corecmpEqInst : core.cmp.Eq K) (self : hashtrinity.overflow.Overflow K V)
+  (coord : Std.U64) (k : K) :
+  Result (Option V)
+  := do
+  let o ←
+    hashtrinity.overflow.Overflow.find_entry algebraCoordInst corecmpEqInst
+      self coord k
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let (n, e) := val
+    let i ← lift (UScalar.cast .Usize n)
+    let n1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) self.nodes i
+    let i1 ← lift (UScalar.cast .Usize e)
+    let (_, o1) ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (K × (Option
+        V))) n1.entries i1
+    core.option.Option.as_ref o1
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      V residual
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::get_coord]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 579:4-612:5 -/
+def hashtrinity.Table.get_coord
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (k : K) :
+  Result (Option V)
+  := do
+  let coord ←
+    hashtrinity.Table.coord_of V corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst k
+  let b ← hashtrinity.is_sentinel coord
+  if b
+  then
+    let o ←
+      hashtrinity.side.SideStore.find algebraCoordInst algebraKeyStoreInst
+        self.side coord k
+    let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let s := alloc.vec.Vec.deref self.side.vals
+      let mu ←
+        core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
+          (core.mem.maybe_uninit.MaybeUninit V)) s val
+      let t ← core.mem.maybe_uninit.MaybeUninit.assume_init_ref mu
+      ok (some t)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        V residual
+  else
+    let home ←
+      hashtrinity.Table.home corecmpEqInst algebraCoordInst algebraKeyStoreInst
+        self coord
+    let sc ←
+      core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
+        Std.U64) self.coords home
+    if sc = coord
+    then
+      let b1 ← algebraKeyStoreInst.«matches» self.keys home coord k
+      if b1
+      then
+        let mu ←
+          core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
+            (core.mem.maybe_uninit.MaybeUninit V)) self.vals home
+        let t ← core.mem.maybe_uninit.MaybeUninit.assume_init_ref mu
+        ok (some t)
+      else
+        let i ← lift (UScalar.cast .Usize coord)
+        if home = i
+        then
+          if sc = hashtrinity.EMPTY
+          then ok none
+          else
+            let c ←
+              hashtrinity.overflow.Table.probe_capped_with corecmpEqInst
+                algebraCoordInst algebraKeyStoreInst
+                (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
+                corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord
+                home { coord, k }
+            match c with
+            | hashtrinity.Capped.Hit i1 =>
+              let mu ←
+                core.slice.Slice.get_unchecked
+                  (core.slice.index.SliceIndexUsizeSlice
+                  (core.mem.maybe_uninit.MaybeUninit V)) self.vals i1
+              let t ← core.mem.maybe_uninit.MaybeUninit.assume_init_ref mu
+              ok (some t)
+            | hashtrinity.Capped.Vacant _ => ok none
+            | hashtrinity.Capped.Blocked =>
+              let o ← core.option.Option.as_ref self.overflow
+              match o with
+              | none => ok none
+              | some o1 =>
+                hashtrinity.overflow.Overflow.get algebraCoordInst
+                  corecmpEqInst o1 coord k
+        else
+          let c ←
+            hashtrinity.overflow.Table.probe_capped_with corecmpEqInst
+              algebraCoordInst algebraKeyStoreInst
+              (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
+              corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord
+              home { coord, k }
+          match c with
+          | hashtrinity.Capped.Hit i1 =>
+            let mu ←
+              core.slice.Slice.get_unchecked
+                (core.slice.index.SliceIndexUsizeSlice
+                (core.mem.maybe_uninit.MaybeUninit V)) self.vals i1
+            let t ← core.mem.maybe_uninit.MaybeUninit.assume_init_ref mu
+            ok (some t)
+          | hashtrinity.Capped.Vacant _ => ok none
+          | hashtrinity.Capped.Blocked =>
+            let o ← core.option.Option.as_ref self.overflow
+            match o with
+            | none => ok none
+            | some o1 =>
+              hashtrinity.overflow.Overflow.get algebraCoordInst corecmpEqInst
+                o1 coord k
+    else
+      let i ← lift (UScalar.cast .Usize coord)
+      if home = i
+      then
+        if sc = hashtrinity.EMPTY
+        then ok none
+        else
+          let c ←
+            hashtrinity.overflow.Table.probe_capped_with corecmpEqInst
+              algebraCoordInst algebraKeyStoreInst
+              (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
+              corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord
+              home { coord, k }
+          match c with
+          | hashtrinity.Capped.Hit i1 =>
+            let mu ←
+              core.slice.Slice.get_unchecked
+                (core.slice.index.SliceIndexUsizeSlice
+                (core.mem.maybe_uninit.MaybeUninit V)) self.vals i1
+            let t ← core.mem.maybe_uninit.MaybeUninit.assume_init_ref mu
+            ok (some t)
+          | hashtrinity.Capped.Vacant _ => ok none
+          | hashtrinity.Capped.Blocked =>
+            let o ← core.option.Option.as_ref self.overflow
+            match o with
+            | none => ok none
+            | some o1 =>
+              hashtrinity.overflow.Overflow.get algebraCoordInst corecmpEqInst
+                o1 coord k
+      else
+        let c ←
+          hashtrinity.overflow.Table.probe_capped_with corecmpEqInst
+            algebraCoordInst algebraKeyStoreInst
+            (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
+            corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home
+            { coord, k }
+        match c with
+        | hashtrinity.Capped.Hit i1 =>
+          let mu ←
+            core.slice.Slice.get_unchecked
+              (core.slice.index.SliceIndexUsizeSlice
+              (core.mem.maybe_uninit.MaybeUninit V)) self.vals i1
+          let t ← core.mem.maybe_uninit.MaybeUninit.assume_init_ref mu
+          ok (some t)
+        | hashtrinity.Capped.Vacant _ => ok none
+        | hashtrinity.Capped.Blocked =>
+          let o ← core.option.Option.as_ref self.overflow
+          match o with
+          | none => ok none
+          | some o1 =>
+            hashtrinity.overflow.Overflow.get algebraCoordInst corecmpEqInst o1
+              coord k
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::get]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 567:4-569:5
+    Visibility: public -/
+def hashtrinity.Table.get
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (k : K) :
+  Result (Option V)
+  := do
+  hashtrinity.Table.get_coord corecmpEqInst algebraCoordInst
+    algebraKeyStoreInst self k
+
+/-- [apeiron_word::hashtrinity::algebra::{apeiron_word::hashtrinity::Table<K, bool, KS>}::has]:
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 589:4-591:5
+    Visibility: public -/
+def hashtrinity.algebra.TableKBoolKS.has
+  {K : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (CoordInst :
+  hashtrinity.algebra.Coord K) (KeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (self : hashtrinity.Table K Bool KS) (k : K) :
+  Result Bool
+  := do
+  let o ← hashtrinity.Table.get corecmpEqInst CoordInst KeyStoreInst self k
+  ok (core.option.Option.unwrap_or o false)
+
+/-- [apeiron_word::hashtrinity::algebra::{apeiron_word::hashtrinity::Table<K, i64, KS>}::count]:
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 676:4-678:5
+    Visibility: public -/
+def hashtrinity.algebra.TableKI64KS.count
+  {K : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (CoordInst :
+  hashtrinity.algebra.Coord K) (KeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (self : hashtrinity.Table K Std.I64 KS) (k : K) :
+  Result Std.I64
+  := do
+  let o ← hashtrinity.Table.get corecmpEqInst CoordInst KeyStoreInst self k
+  ok (core.option.Option.unwrap_or o 0#i64)
+
+/-- [apeiron_word::hashtrinity::algebra::{apeiron_word::hashtrinity::Table<K, V, KS>}::fold]:
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 805:4-812:5
+    Visibility: public -/
+def hashtrinity.algebra.Table.fold
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (CoordInst
+  : hashtrinity.algebra.Coord K) (MonoidInst : hashtrinity.algebra.Monoid V)
+  (corecloneCloneInst : core.clone.Clone V) (KeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (k : K) :
+  Result V
+  := do
+  let o ← hashtrinity.Table.get corecmpEqInst CoordInst KeyStoreInst self k
+  match o with
+  | none => MonoidInst.identity
+  | some v => corecloneCloneInst.clone v
+
 /-- [apeiron_word::hashtrinity::crypto::ecdsa::P]
     Source: '../../src/map/hashtrinity/crypto.rs', lines 912:4-917:6 -/
 @[global_simps, irreducible]
@@ -105530,55 +108124,6 @@ def TuplePAPBPC.Insts.Apeiron_wordHashtrinityFaceAbsorbTupleABC.absorb
   let t5 ← AbsorbInst2.absorb t2
   ok (t3, t4, t5)
 
-/-- [apeiron_word::hashtrinity::side::SideStore]
-    Source: '../../src/map/hashtrinity/side.rs', lines 16:0-22:1 -/
-structure hashtrinity.side.SideStore (K : Type) (V : Type) (KS : Type) where
-  coords : alloc.vec.Vec Std.U64
-  vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V)
-  keys : KS
-  cap : Std.Usize
-  _k : core.marker.PhantomData K
-
-/-- [apeiron_word::hashtrinity::overflow::Node]
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 165:0-177:1 -/
-structure hashtrinity.overflow.Node (K : Type) (V : Type) where
-  key : Std.U64
-  entries : alloc.vec.Vec (K × (Option V))
-  left : Std.U32
-  right : Std.U32
-  height : Std.U32
-  alive : Bool
-
-/-- [apeiron_word::hashtrinity::overflow::Overflow]
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 183:0-188:1 -/
-structure hashtrinity.overflow.Overflow (K : Type) (V : Type) where
-  nodes : alloc.vec.Vec (hashtrinity.overflow.Node K V)
-  free : alloc.vec.Vec Std.U32
-  root : Std.U32
-  len : Std.Usize
-
-/-- [apeiron_word::hashtrinity::Table]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 319:0-333:1
-    Visibility: public -/
-structure hashtrinity.Table (K : Type) (V : Type) (KS : Type) where
-  coords : Slice Std.U64
-  vals : Slice (core.mem.maybe_uninit.MaybeUninit V)
-  keys : KS
-  side : hashtrinity.side.SideStore K V KS
-  overflow : Option (hashtrinity.overflow.Overflow K V)
-  bits : Std.U32
-  len : Std.Usize
-  tombs : Std.Usize
-  _k : core.marker.PhantomData K
-
-/-- [apeiron_word::hashtrinity::Store]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 249:0-256:1 -/
-@[discriminant isize]
-inductive hashtrinity.Store where
-| Main : hashtrinity.Store
-| Side : hashtrinity.Store
-| Overflow : hashtrinity.Store
-
 /-- [apeiron_word::hashtrinity::face::VacantEntry]
     Source: '../../src/map/hashtrinity/face.rs', lines 187:0-193:1
     Visibility: public -/
@@ -105613,1818 +108158,10 @@ inductive hashtrinity.face.Entry (K : Type) (V : Type) (KS : Type) where
   hashtrinity.face.VacantEntry K V KS →
   hashtrinity.face.Entry K V KS
 
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::find]: loop body 0:
-    Source: '../../src/map/hashtrinity/side.rs', lines 63:8-70:5 -/
-@[rust_loop_body]
-def hashtrinity.side.SideStore.find_loop.body
-  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
-  (coord : Std.U64) (k : K) (i : Std.Usize) :
-  Result (ControlFlow Std.Usize (Option Std.Usize))
-  := do
-  let i1 := alloc.vec.Vec.len self.coords
-  if i < i1
-  then
-    let i2 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        self.coords i
-    if i2 = coord
-    then
-      let b ← algebraKeyStoreInst.«matches» self.keys i coord k
-      if b
-      then ok (done (some i))
-      else let i3 ← i + 1#usize
-           ok (cont i3)
-    else let i3 ← i + 1#usize
-         ok (cont i3)
-  else ok (done none)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::find]: loop 0:
-    Source: '../../src/map/hashtrinity/side.rs', lines 63:8-70:5 -/
-@[rust_loop]
-def hashtrinity.side.SideStore.find_loop
-  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
-  (coord : Std.U64) (k : K) (i : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  loop
-    (fun i1 => hashtrinity.side.SideStore.find_loop.body algebraKeyStoreInst
-      self coord k i1)
-    i
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::find]:
-    Source: '../../src/map/hashtrinity/side.rs', lines 61:4-70:5 -/
-@[reducible]
-def hashtrinity.side.SideStore.find
-  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
-  (coord : Std.U64) (k : K) :
-  Result (Option Std.Usize)
-  := do
-  hashtrinity.side.SideStore.find_loop algebraKeyStoreInst self coord k 0#usize
-
-/-- Trait declaration: [apeiron_word::hashtrinity::overflow::Confirm]
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 47:0-49:1 -/
-structure hashtrinity.overflow.Confirm (Self : Type) (K : Type) (KS : Type)
-  where
-  algebraCoordInst : hashtrinity.algebra.Coord K
-  algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS K
-  confirm : Self → KS → Std.Usize → Result Bool
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::home]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 502:4-509:5 -/
-def hashtrinity.Table.home
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) :
-  Result Std.Usize
-  := do
-  let len := Slice.len self.coords
-  let i ← lift (UScalar.cast .Usize coord)
-  if i < len
-  then ok (UScalar.cast .Usize coord)
-  else
-    let i1 ← lift (core.num.U64.wrapping_mul coord hashtrinity.PHI)
-    let i2 ← 64#u32 - self.bits
-    let i3 ← i1 >>> i2
-    ok (UScalar.cast .Usize i3)
-
-/-- [apeiron_word::hashtrinity::LINEAR_G]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 213:0-213:24 -/
-@[global_simps, irreducible] def hashtrinity.LINEAR_G : Std.U32 := 8#u32
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::descend]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 528:4-555:5 -/
-def hashtrinity.Table.descend
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (j : Std.U32) :
-  Result Std.Usize
-  := do
-  let i := Slice.len self.coords
-  let mask ← i - 1#usize
-  if j < hashtrinity.LINEAR_G
-  then
-    let i1 ←
-      hashtrinity.Table.home corecmpEqInst algebraCoordInst algebraKeyStoreInst
-        self coord
-    let i2 ← lift (UScalar.cast .Usize j)
-    let i3 ← lift (core.num.Usize.wrapping_add i1 i2)
-    ok (i3 &&& mask)
-  else
-    let p ← lift (core.num.U64.wrapping_mul coord hashtrinity.PHI)
-    let i1 ← j - hashtrinity.LINEAR_G
-    let jj ← i1 + 1#u32
-    let i2 ← jj + 1#u32
-    let used ← self.bits * i2
-    if used <= 64#u32
-    then
-      let i3 ← 64#u32 - used
-      let i4 ← p >>> i3
-      let i5 ← lift (UScalar.cast .Usize i4)
-      ok (i5 &&& mask)
-    else
-      let full ← 64#u32 / self.bits
-      let i3 ← self.bits * full
-      let i4 ← 64#u32 - i3
-      let i5 ← p >>> i4
-      let i6 ← lift (UScalar.cast .Usize i5)
-      let i7 ← jj - full
-      let i8 ← lift (UScalar.cast .Usize i7)
-      let i9 ← i6 + i8
-      let i10 ← i9 + 1#usize
-      ok (i10 &&& mask)
-
-/-- [apeiron_word::hashtrinity::Capped]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 237:0-244:1 -/
-@[discriminant isize]
-inductive hashtrinity.Capped where
-| Hit : Std.Usize → hashtrinity.Capped
-| Vacant : Std.Usize → hashtrinity.Capped
-| Blocked : hashtrinity.Capped
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 695:8-708:5 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Table.probe_rest_with_loop.body
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (limit : Std.U32) (confirm : T3) (j : Std.U32) :
-  Result (ControlFlow Std.U32 hashtrinity.Capped)
-  := do
-  if j < limit
-  then
-    let i ←
-      hashtrinity.Table.descend corecmpEqInst algebraCoordInst
-        algebraKeyStoreInst self coord j
-    let sc ←
-      core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
-        Std.U64) self.coords i
-    if sc = coord
-    then
-      let b ← ConfirmInst.confirm confirm self.keys i
-      if b
-      then ok (done (hashtrinity.Capped.Hit i))
-      else
-        if sc = hashtrinity.EMPTY
-        then ok (done (hashtrinity.Capped.Vacant i))
-        else let j1 ← j + 1#u32
-             ok (cont j1)
-    else
-      if sc = hashtrinity.EMPTY
-      then ok (done (hashtrinity.Capped.Vacant i))
-      else let j1 ← j + 1#u32
-           ok (cont j1)
-  else ok (done hashtrinity.Capped.Blocked)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 695:8-708:5 -/
-@[rust_loop]
-def hashtrinity.overflow.Table.probe_rest_with_loop
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (j : Std.U32) (limit : Std.U32) (confirm : T3) :
-  Result hashtrinity.Capped
-  := do
-  loop
-    (fun j1 => hashtrinity.overflow.Table.probe_rest_with_loop.body
-      corecmpEqInst algebraCoordInst algebraKeyStoreInst ConfirmInst self coord
-      limit confirm j1)
-    j
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 688:4-708:5 -/
-@[reducible]
-def hashtrinity.overflow.Table.probe_rest_with
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (j : Std.U32) (limit : Std.U32) (confirm : T3) :
-  Result hashtrinity.Capped
-  := do
-  hashtrinity.overflow.Table.probe_rest_with_loop corecmpEqInst
-    algebraCoordInst algebraKeyStoreInst ConfirmInst self coord j limit confirm
-
-/-- [apeiron_word::hashtrinity::overflow::WINDOW_STEPS_BY_BITS]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 37:4-40:5 -/
-@[rust_loop_body]
-def hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop.body
-  (t : Array Std.U32 65#usize) (b : Std.Usize) :
-  Result (ControlFlow ((Array Std.U32 65#usize) × Std.Usize) (Array Std.U32
-    65#usize))
-  := do
-  if b < 65#usize
-  then
-    let i ← lift (UScalar.cast .U32 b)
-    let i1 ← 64#u32 / i
-    let i2 ← hashtrinity.LINEAR_G + i1
-    let i3 ← i2 - 1#u32
-    let a ← Array.update t b i3
-    let b1 ← b + 1#usize
-    ok (cont (a, b1))
-  else ok (done t)
-
-/-- [apeiron_word::hashtrinity::overflow::WINDOW_STEPS_BY_BITS]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 37:4-40:5 -/
-@[rust_loop]
-def hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop
-  (t : Array Std.U32 65#usize) (b : Std.Usize) :
-  Result (Array Std.U32 65#usize)
-  := do
-  loop
-    (fun (t1, b1) => hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop.body t1 b1)
-    (t, b)
-
-/-- [apeiron_word::hashtrinity::overflow::WINDOW_STEPS_BY_BITS]
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 34:0-42:2 -/
-@[global_simps, irreducible]
-def hashtrinity.overflow.WINDOW_STEPS_BY_BITS
-  : Result (Array Std.U32 65#usize) :=
-  let t := Array.repeat 65#usize 0#u32
-  hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop t 1#usize
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::window_steps]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 673:4-675:5 -/
-def hashtrinity.overflow.Table.window_steps
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
-  Result Std.U32
-  := do
-  let a ← hashtrinity.overflow.WINDOW_STEPS_BY_BITS
-  let i ← lift (UScalar.cast .Usize self.bits)
-  Array.index_usize a i
-
-/-- [apeiron_word::hashtrinity::PROBE_CAP]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 224:0-224:30
-    Visibility: public -/
-@[global_simps, irreducible] def hashtrinity.PROBE_CAP : Std.U32 := 16#u32
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_limit]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 680:4-682:5 -/
-def hashtrinity.overflow.Table.probe_limit
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
-  Result Std.U32
-  := do
-  let i ←
-    hashtrinity.overflow.Table.window_steps corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst self
-  core.cmp.Ord.min.trait_default core.cmp.OrdU32 hashtrinity.PROBE_CAP i
-
-/-- [apeiron_word::hashtrinity::overflow::prefix_masks_avx2]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 121:0-142:1 -/
-def hashtrinity.overflow.prefix_masks_avx2
-  (base : ConstRawPtr Std.U64) (coord : Std.U64) :
-  Result (Std.U32 × Std.U32)
-  := do
-  let p ←
-    core.ptr.const_ptr.RawPtrConstT.cast core.core_arch.x86.__m256i base
-  let lo ← core.core_arch.x86.avx._mm256_loadu_si256 p
-  let p1 ← core.ptr.const_ptr.RawPtrConstT.add base 4#usize
-  let p2 ← core.ptr.const_ptr.RawPtrConstT.cast core.core_arch.x86.__m256i p1
-  let hi ← core.core_arch.x86.avx._mm256_loadu_si256 p2
-  let i ← lift (UScalar.hcast .I64 coord)
-  let key ← core.core_arch.x86.avx._mm256_set1_epi64x i
-  let i1 ← lift (UScalar.hcast .I64 hashtrinity.EMPTY)
-  let emp ← core.core_arch.x86.avx._mm256_set1_epi64x i1
-  let mi ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 lo key
-  let md ← core.core_arch.x86.avx._mm256_castsi256_pd mi
-  let i2 ← core.core_arch.x86.avx._mm256_movemask_pd md
-  let hits_lo ← lift (IScalar.hcast .U32 i2)
-  let mi1 ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 hi key
-  let md1 ← core.core_arch.x86.avx._mm256_castsi256_pd mi1
-  let i3 ← core.core_arch.x86.avx._mm256_movemask_pd md1
-  let hits_hi ← lift (IScalar.hcast .U32 i3)
-  let mi2 ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 lo emp
-  let md2 ← core.core_arch.x86.avx._mm256_castsi256_pd mi2
-  let i4 ← core.core_arch.x86.avx._mm256_movemask_pd md2
-  let empties_lo ← lift (IScalar.hcast .U32 i4)
-  let mi3 ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 hi emp
-  let md3 ← core.core_arch.x86.avx._mm256_castsi256_pd mi3
-  let i5 ← core.core_arch.x86.avx._mm256_movemask_pd md3
-  let empties_hi ← lift (IScalar.hcast .U32 i5)
-  let i6 ← hits_hi <<< 4#i32
-  let hits ← lift (hits_lo ||| i6)
-  let i7 ← empties_hi <<< 4#i32
-  let empties ← lift (empties_lo ||| i7)
-  ok (hits, empties)
-
-/-- [apeiron_word::hashtrinity::overflow::prefix_masks]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 100:8-105:9 -/
-@[rust_loop_body]
-def hashtrinity.overflow.prefix_masks_loop.body
-  (coords : Slice Std.U64) (home : Std.Usize) (coord : Std.U64)
-  (hits : Std.U32) (empties : Std.U32) (k : Std.Usize) :
-  Result (ControlFlow (Std.U32 × Std.U32 × Std.Usize) (Std.U32 × Std.U32))
-  := do
-  let i ← lift (UScalar.cast .Usize hashtrinity.LINEAR_G)
-  if k < i
-  then
-    let i1 ← home + k
-    let sc ← Slice.index_usize coords i1
-    let i2 ← lift (core.convert.num.FromU32Bool.from (sc = coord))
-    let i3 ← i2 <<< k
-    let hits1 ← lift (hits ||| i3)
-    let i4 ←
-      lift (core.convert.num.FromU32Bool.from (sc = hashtrinity.EMPTY))
-    let i5 ← i4 <<< k
-    let empties1 ← lift (empties ||| i5)
-    let k1 ← k + 1#usize
-    ok (cont (hits1, empties1, k1))
-  else ok (done (hits, empties))
-
-/-- [apeiron_word::hashtrinity::overflow::prefix_masks]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 100:8-105:9 -/
-@[rust_loop]
-def hashtrinity.overflow.prefix_masks_loop
-  (coords : Slice Std.U64) (home : Std.Usize) (coord : Std.U64)
-  (hits : Std.U32) (empties : Std.U32) (k : Std.Usize) :
-  Result (Std.U32 × Std.U32)
-  := do
-  loop
-    (fun (hits1, empties1, k1) => hashtrinity.overflow.prefix_masks_loop.body
-      coords home coord hits1 empties1 k1)
-    (hits, empties, k)
-
-/-- [apeiron_word::hashtrinity::overflow::prefix_masks]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 78:0-108:1 -/
-def hashtrinity.overflow.prefix_masks
-  (coords : Slice Std.U64) (home : Std.Usize) (coord : Std.U64) :
-  Result (Std.U32 × Std.U32)
-  := do
-  let b ← std_detect.detect.arch.x86.__is_feature_detected.avx2
-  if b
-  then
-    let p ← core.slice.Slice.as_ptr coords
-    let p1 ← core.ptr.const_ptr.RawPtrConstT.add p home
-    hashtrinity.overflow.prefix_masks_avx2 p1 coord
-  else
-    hashtrinity.overflow.prefix_masks_loop coords home coord 0#u32 0#u32
-      0#usize
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 783:12-800:5 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Table.probe_capped_cold_loop.body
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
-  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
-  (ss : hashtrinity.side.SideStore K V KS)
-  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
-  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
-  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (limit : Std.U32)
-  (empties : Std.U32) (hits : Std.U32) :
-  Result (ControlFlow Std.U32 hashtrinity.Capped)
-  := do
-  if hits != 0#u32
-  then
-    let i3 ← core.num.U32.trailing_zeros hits
-    let i4 ← lift (UScalar.cast .Usize i3)
-    let slot ← home + i4
-    let b ← ConfirmInst.confirm confirm t slot
-    if b
-    then ok (done (hashtrinity.Capped.Hit slot))
-    else
-      let i5 ← hits - 1#u32
-      let hits1 ← lift (hits &&& i5)
-      ok (cont hits1)
-  else
-    if empties != 0#u32
-    then
-      let i3 ← core.num.U32.trailing_zeros empties
-      let i4 ← lift (UScalar.cast .Usize i3)
-      let i5 ← home + i4
-      ok (done (hashtrinity.Capped.Vacant i5))
-    else
-      let c ←
-        hashtrinity.overflow.Table.probe_rest_with corecmpEqInst
-          algebraCoordInst algebraKeyStoreInst ConfirmInst
-          {
-            coords := s,
-            vals := s1,
-            keys := t,
-            side := ss,
-            overflow := o,
-            bits := i,
-            len := i1,
-            tombs := i2,
-            _k := pd
-          } coord hashtrinity.LINEAR_G limit confirm
-      ok (done c)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 783:12-800:5 -/
-@[rust_loop]
-def hashtrinity.overflow.Table.probe_capped_cold_loop
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
-  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
-  (ss : hashtrinity.side.SideStore K V KS)
-  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
-  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
-  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (limit : Std.U32)
-  (hits : Std.U32) (empties : Std.U32) :
-  Result hashtrinity.Capped
-  := do
-  loop
-    (fun hits1 => hashtrinity.overflow.Table.probe_capped_cold_loop.body
-      corecmpEqInst algebraCoordInst algebraKeyStoreInst ConfirmInst s s1 t ss
-      o i i1 i2 pd coord home confirm limit empties hits1)
-    hits
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 770:4-800:5 -/
-def hashtrinity.overflow.Table.probe_capped_cold
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (home : Std.Usize) (confirm : T3) :
-  Result hashtrinity.Capped
-  := do
-  let limit ←
-    hashtrinity.overflow.Table.probe_limit corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst self
-  let len := Slice.len self.coords
-  if limit >= hashtrinity.LINEAR_G
-  then
-    let i ← lift (UScalar.cast .Usize hashtrinity.LINEAR_G)
-    let i1 ← home + i
-    if i1 <= len
-    then
-      let (hits, empties) ←
-        hashtrinity.overflow.prefix_masks self.coords home coord
-      hashtrinity.overflow.Table.probe_capped_cold_loop corecmpEqInst
-        algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords
-        self.vals self.keys self.side self.overflow self.bits self.len
-        self.tombs self._k coord home confirm limit hits empties
-    else
-      hashtrinity.overflow.Table.probe_rest_with corecmpEqInst algebraCoordInst
-        algebraKeyStoreInst ConfirmInst self coord 0#u32 limit confirm
-  else
-    hashtrinity.overflow.Table.probe_rest_with corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst ConfirmInst self coord 0#u32 limit confirm
-
-/-- [apeiron_word::hashtrinity::overflow::ByKey]
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 52:0-55:1 -/
-structure hashtrinity.overflow.ByKey (K : Type) where
-  coord : Std.U64
-  k : K
-
-/-- [apeiron_word::hashtrinity::overflow::{impl apeiron_word::hashtrinity::overflow::Confirm<K, KS> for apeiron_word::hashtrinity::overflow::ByKey<'a, K>}::confirm]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 59:4-61:5 -/
-def
-  hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm.confirm
-  {K : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (algebraCoordInst :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.overflow.ByKey K)
-  (keys : KS) (i : Std.Usize) :
-  Result Bool
-  := do
-  algebraKeyStoreInst.«matches» keys i self.coord self.k
-
-/-- Trait implementation: [apeiron_word::hashtrinity::overflow::{impl apeiron_word::hashtrinity::overflow::Confirm<K, KS> for apeiron_word::hashtrinity::overflow::ByKey<'a, K>}]
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 57:0-62:1 -/
-@[reducible]
-def hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm {K
-  : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (algebraCoordInst1 :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst1 :
-  hashtrinity.algebra.KeyStore KS K) : hashtrinity.overflow.Confirm
-  (hashtrinity.overflow.ByKey K) K KS := {
-  algebraCoordInst := algebraCoordInst1
-  algebraKeyStoreInst := algebraKeyStoreInst1
-  confirm :=
-    hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm.confirm
-    corecmpEqInst algebraCoordInst1 algebraKeyStoreInst1
-}
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_keyed]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 812:4-825:5 -/
-def hashtrinity.overflow.Table.probe_capped_keyed
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (k : K) :
-  Result hashtrinity.Capped
-  := do
-  let home ←
-    hashtrinity.Table.home corecmpEqInst algebraCoordInst algebraKeyStoreInst
-      self coord
-  let sc ←
-    core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
-      Std.U64) self.coords home
-  if sc = coord
-  then
-    let b ← algebraKeyStoreInst.«matches» self.keys home coord k
-    if b
-    then ok (hashtrinity.Capped.Hit home)
-    else
-      if sc = hashtrinity.EMPTY
-      then ok (hashtrinity.Capped.Vacant home)
-      else
-        hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
-          algebraCoordInst algebraKeyStoreInst
-          (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
-          corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home
-          { coord, k }
-  else
-    if sc = hashtrinity.EMPTY
-    then ok (hashtrinity.Capped.Vacant home)
-    else
-      hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
-        algebraCoordInst algebraKeyStoreInst
-        (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
-        corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home
-        { coord, k }
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::empty]:
-    Source: '../../src/map/hashtrinity/side.rs', lines 25:4-33:5 -/
-def hashtrinity.side.SideStore.empty
-  {K : Type} (V : Type) {KS : Type} (algebraCoordInst :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) :
-  Result (hashtrinity.side.SideStore K V KS)
-  := do
-  let t ← algebraKeyStoreInst.alloc 0#usize
-  ok
-    {
-      coords := (alloc.vec.Vec.new Std.U64),
-      vals := (alloc.vec.Vec.new (core.mem.maybe_uninit.MaybeUninit V)),
-      keys := t,
-      cap := 0#usize,
-      _k := ()
-    }
-
-/-- [apeiron_word::hashtrinity::overflow::NIL]
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 161:0-161:26 -/
-@[global_simps, irreducible]
-def hashtrinity.overflow.NIL : Std.U32 := core.num.U32.MAX
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 1:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.in_order_loop0_loop0.body
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
-  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.U32) (alloc.vec.Vec
-    Std.U32))
-  := do
-  if cur != hashtrinity.overflow.NIL
-  then
-    let stack1 ← alloc.vec.Vec.push stack cur
-    let i ← lift (UScalar.cast .Usize cur)
-    let n ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i
-    ok (cont (stack1, n.left))
-  else ok (done stack)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 1:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.in_order_loop0_loop0
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
-  Result (alloc.vec.Vec Std.U32)
-  := do
-  loop
-    (fun (stack1, cur1) =>
-      hashtrinity.overflow.Overflow.in_order_loop0_loop0.body v stack1 cur1)
-    (stack, cur)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 2:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.in_order_loop0_loop1.body
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
-  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.U32) (alloc.vec.Vec
-    Std.U32))
-  := do
-  if cur != hashtrinity.overflow.NIL
-  then
-    let stack1 ← alloc.vec.Vec.push stack cur
-    let i ← lift (UScalar.cast .Usize cur)
-    let n ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i
-    ok (cont (stack1, n.left))
-  else ok (done stack)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 2:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.in_order_loop0_loop1
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
-  Result (alloc.vec.Vec Std.U32)
-  := do
-  loop
-    (fun (stack1, cur1) =>
-      hashtrinity.overflow.Overflow.in_order_loop0_loop1.body v stack1 cur1)
-    (stack, cur)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 549:8-559:9 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.in_order_loop0.body
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (out : alloc.vec.Vec Std.U32) (stack : alloc.vec.Vec Std.U32) (cur : Std.U32)
-  :
-  Result (ControlFlow ((alloc.vec.Vec Std.U32) × (alloc.vec.Vec Std.U32) ×
-    Std.U32) (alloc.vec.Vec Std.U32))
-  := do
-  if cur != hashtrinity.overflow.NIL
-  then
-    let stack1 ←
-      hashtrinity.overflow.Overflow.in_order_loop0_loop0 v stack cur
-    let (o, stack2) ← alloc.vec.Vec.pop Global stack1
-    let n ← core.option.Option.expect o (toStr "nonempty stack")
-    let i ← lift (UScalar.cast .Usize n)
-    let n1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i
-    let out1 ← if n1.alive
-                 then alloc.vec.Vec.push out n
-                 else ok out
-    let i1 ← lift (UScalar.cast .Usize n)
-    let n2 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i1
-    ok (cont (out1, stack2, n2.right))
-  else
-    let b ← alloc.vec.Vec.is_empty Global stack
-    if b
-    then ok (done out)
-    else
-      let stack1 ←
-        hashtrinity.overflow.Overflow.in_order_loop0_loop1 v stack cur
-      let (o, stack2) ← alloc.vec.Vec.pop Global stack1
-      let n ← core.option.Option.expect o (toStr "nonempty stack")
-      let i ← lift (UScalar.cast .Usize n)
-      let n1 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-          (hashtrinity.overflow.Node K V)) v i
-      let out1 ← if n1.alive
-                   then alloc.vec.Vec.push out n
-                   else ok out
-      let i1 ← lift (UScalar.cast .Usize n)
-      let n2 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-          (hashtrinity.overflow.Node K V)) v i1
-      ok (cont (out1, stack2, n2.right))
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 549:8-559:9 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.in_order_loop0
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (out : alloc.vec.Vec Std.U32) (stack : alloc.vec.Vec Std.U32) (cur : Std.U32)
-  :
-  Result (alloc.vec.Vec Std.U32)
-  := do
-  loop
-    (fun (out1, stack1, cur1) =>
-      hashtrinity.overflow.Overflow.in_order_loop0.body v out1 stack1 cur1)
-    (out, stack, cur)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 546:4-560:5 -/
-@[reducible]
-def hashtrinity.overflow.Overflow.in_order
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (out : alloc.vec.Vec Std.U32) :
-  Result (alloc.vec.Vec Std.U32)
-  := do
-  hashtrinity.overflow.Overflow.in_order_loop0 self.nodes out
-    (alloc.vec.Vec.new Std.U32) self.root
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop body 1:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 526:12-530:13 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body
-  {K : Type} {V : Type} (key : Std.U64)
-  (iter : alloc.vec.into_iter.IntoIter (K × (Option V)))
-  (out : alloc.vec.Vec (Std.U64 × K × V)) :
-  Result (ControlFlow ((alloc.vec.into_iter.IntoIter (K × (Option V))) ×
-    (alloc.vec.Vec (Std.U64 × K × V))) (alloc.vec.Vec (Std.U64 × K × V)))
-  := do
-  let (o, iter1) ← alloc.vec.into_iter.IteratorIntoIter.next iter
-  match o with
-  | none => ok (done out)
-  | some p =>
-    let (k, v) := p
-    match v with
-    | none => ok (cont (iter1, out))
-    | some v1 =>
-      let out1 ← alloc.vec.Vec.push out (key, k, v1)
-      ok (cont (iter1, out1))
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop 1:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 526:12-530:13 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.into_entries_loop0_loop0
-  {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter (K × (Option V)))
-  (out : alloc.vec.Vec (Std.U64 × K × V)) (key : Std.U64) :
-  Result (alloc.vec.Vec (Std.U64 × K × V))
-  := do
-  loop
-    (fun (iter1, out1) =>
-      hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body key iter1
-      out1)
-    (iter, out)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 522:8-531:9 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.into_entries_loop0.body
-  {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter Std.U32)
-  (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (out : alloc.vec.Vec (Std.U64 × K × V)) :
-  Result (ControlFlow ((alloc.vec.into_iter.IntoIter Std.U32) × (alloc.vec.Vec
-    (hashtrinity.overflow.Node K V)) × (alloc.vec.Vec (Std.U64 × K × V)))
-    (alloc.vec.Vec (Std.U64 × K × V)))
-  := do
-  let (o, iter1) ← alloc.vec.into_iter.IteratorIntoIter.next iter
-  match o with
-  | none => ok (done out)
-  | some n =>
-    let i ← lift (UScalar.cast .Usize n)
-    let (node, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i
-    let (entries, v1) ←
-      core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault (K × (Option V)))
-        node.entries
-    let iter2 ← alloc.vec.IntoIteratorVec.into_iter entries
-    let out1 ←
-      hashtrinity.overflow.Overflow.into_entries_loop0_loop0 iter2 out node.key
-    let v2 := index_mut_back { node with entries := v1 }
-    ok (cont (iter1, v2, out1))
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 522:8-531:9 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.into_entries_loop0
-  {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter Std.U32)
-  (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (out : alloc.vec.Vec (Std.U64 × K × V)) :
-  Result (alloc.vec.Vec (Std.U64 × K × V))
-  := do
-  loop
-    (fun (iter1, v1, out1) =>
-      hashtrinity.overflow.Overflow.into_entries_loop0.body iter1 v1 out1)
-    (iter, v, out)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 518:4-533:5 -/
-def hashtrinity.overflow.Overflow.into_entries
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) :
-  Result (alloc.vec.Vec (Std.U64 × K × V))
-  := do
-  let out := alloc.vec.Vec.with_capacity (Std.U64 × K × V) self.len
-  let order ←
-    hashtrinity.overflow.Overflow.in_order algebraCoordInst self
-      (alloc.vec.Vec.new Std.U32)
-  let iter ← alloc.vec.IntoIteratorVec.into_iter order
-  hashtrinity.overflow.Overflow.into_entries_loop0 iter self.nodes out
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::h]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 216:4-222:5 -/
-def hashtrinity.overflow.Overflow.h
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
-  Result Std.U32
-  := do
-  if i = hashtrinity.overflow.NIL
-  then ok 0#u32
-  else
-    let i1 ← lift (UScalar.cast .Usize i)
-    let n ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) self.nodes i1
-    ok n.height
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::update]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 224:4-232:5 -/
-def hashtrinity.overflow.Overflow.update
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
-  Result (hashtrinity.overflow.Overflow K V)
-  := do
-  let i1 ← lift (UScalar.cast .Usize i)
-  let n ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i1
-  let i2 ← lift (UScalar.cast .Usize i)
-  let n1 ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i2
-  let hl ← hashtrinity.overflow.Overflow.h algebraCoordInst self n.left
-  let hr ← hashtrinity.overflow.Overflow.h algebraCoordInst self n1.right
-  let taller ← if hl >= hr
-                 then ok hl
-                 else ok hr
-  let height ← taller + 1#u32
-  let i3 ← lift (UScalar.cast .Usize i)
-  let (n2, index_mut_back) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i3
-  let v := index_mut_back { n2 with height }
-  ok { self with nodes := v }
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rotate_left]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 244:4-252:5 -/
-def hashtrinity.overflow.Overflow.rotate_left
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (x : Std.U32) :
-  Result (Std.U32 × (hashtrinity.overflow.Overflow K V))
-  := do
-  let i ← lift (UScalar.cast .Usize x)
-  let n ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i
-  let i1 ← lift (UScalar.cast .Usize n.right)
-  let n1 ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i1
-  let i2 ← lift (UScalar.cast .Usize n.right)
-  let (n2, index_mut_back) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i2
-  let v := index_mut_back { n2 with left := x }
-  let i3 ← lift (UScalar.cast .Usize x)
-  let (n3, index_mut_back1) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) v i3
-  let v1 := index_mut_back1 { n3 with right := n1.left }
-  let self1 ←
-    hashtrinity.overflow.Overflow.update algebraCoordInst
-      { self with nodes := v1 } x
-  let self2 ←
-    hashtrinity.overflow.Overflow.update algebraCoordInst self1 n.right
-  ok (n.right, self2)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rotate_right]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 234:4-242:5 -/
-def hashtrinity.overflow.Overflow.rotate_right
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (y : Std.U32) :
-  Result (Std.U32 × (hashtrinity.overflow.Overflow K V))
-  := do
-  let i ← lift (UScalar.cast .Usize y)
-  let n ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i
-  let i1 ← lift (UScalar.cast .Usize n.left)
-  let n1 ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i1
-  let i2 ← lift (UScalar.cast .Usize n.left)
-  let (n2, index_mut_back) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i2
-  let v := index_mut_back { n2 with right := y }
-  let i3 ← lift (UScalar.cast .Usize y)
-  let (n3, index_mut_back1) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) v i3
-  let v1 := index_mut_back1 { n3 with left := n1.right }
-  let self1 ←
-    hashtrinity.overflow.Overflow.update algebraCoordInst
-      { self with nodes := v1 } y
-  let self2 ←
-    hashtrinity.overflow.Overflow.update algebraCoordInst self1 n.left
-  ok (n.left, self2)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rebalance]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 256:4-281:5 -/
-def hashtrinity.overflow.Overflow.rebalance
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
-  Result (Std.U32 × (hashtrinity.overflow.Overflow K V))
-  := do
-  let self1 ← hashtrinity.overflow.Overflow.update algebraCoordInst self i
-  let i1 ← lift (UScalar.cast .Usize i)
-  let n ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self1.nodes i1
-  let i2 ← lift (UScalar.cast .Usize i)
-  let n1 ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self1.nodes i2
-  let hl ← hashtrinity.overflow.Overflow.h algebraCoordInst self1 n.left
-  let hr ← hashtrinity.overflow.Overflow.h algebraCoordInst self1 n1.right
-  let i3 ← hr + 1#u32
-  if hl > i3
-  then
-    let i4 ← lift (UScalar.cast .Usize n.left)
-    let n2 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) self1.nodes i4
-    let i5 ← hashtrinity.overflow.Overflow.h algebraCoordInst self1 n2.right
-    let i6 ← lift (UScalar.cast .Usize n.left)
-    let n3 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) self1.nodes i6
-    let i7 ← hashtrinity.overflow.Overflow.h algebraCoordInst self1 n3.left
-    let (v, v1, i8, i9) ←
-      if i5 > i7
-      then
-        do
-        let (nl, self2) ←
-          hashtrinity.overflow.Overflow.rotate_left algebraCoordInst self1
-            n.left
-        let i10 ← lift (UScalar.cast .Usize i)
-        let (n4, index_mut_back) ←
-          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-            (hashtrinity.overflow.Node K V)) self2.nodes i10
-        let v2 := index_mut_back { n4 with left := nl }
-        ok (v2, self2.free, self2.root, self2.len)
-      else ok (self1.nodes, self1.free, self1.root, self1.len)
-    hashtrinity.overflow.Overflow.rotate_right algebraCoordInst
-      { nodes := v, free := v1, root := i8, len := i9 } i
-  else
-    let i4 ← hl + 1#u32
-    if hr > i4
-    then
-      let i5 ← lift (UScalar.cast .Usize n1.right)
-      let n2 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-          (hashtrinity.overflow.Node K V)) self1.nodes i5
-      let i6 ← hashtrinity.overflow.Overflow.h algebraCoordInst self1 n2.left
-      let i7 ← lift (UScalar.cast .Usize n1.right)
-      let n3 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-          (hashtrinity.overflow.Node K V)) self1.nodes i7
-      let i8 ←
-        hashtrinity.overflow.Overflow.h algebraCoordInst self1 n3.right
-      let (v, v1, i9, i10) ←
-        if i6 > i8
-        then
-          do
-          let (nr, self2) ←
-            hashtrinity.overflow.Overflow.rotate_right algebraCoordInst self1
-              n1.right
-          let i11 ← lift (UScalar.cast .Usize i)
-          let (n4, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              (hashtrinity.overflow.Node K V)) self2.nodes i11
-          let v2 := index_mut_back { n4 with right := nr }
-          ok (v2, self2.free, self2.root, self2.len)
-        else ok (self1.nodes, self1.free, self1.root, self1.len)
-      hashtrinity.overflow.Overflow.rotate_left algebraCoordInst
-        { nodes := v, free := v1, root := i9, len := i10 } i
-    else ok (i, self1)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rebalance_chain]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 287:8-301:9 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.rebalance_chain_loop.body
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (chain : Slice Std.U32) (self : hashtrinity.overflow.Overflow K V)
-  (idx : Std.Usize) :
-  Result (ControlFlow ((hashtrinity.overflow.Overflow K V) × Std.Usize)
-    (hashtrinity.overflow.Overflow K V))
-  := do
-  if idx > 0#usize
-  then
-    let idx1 ← idx - 1#usize
-    let n ← Slice.index_usize chain idx1
-    let (newroot, self1) ←
-      hashtrinity.overflow.Overflow.rebalance algebraCoordInst self n
-    if idx1 = 0#usize
-    then ok (cont ({ self1 with root := newroot }, idx1))
-    else
-      let i ← idx1 - 1#usize
-      let p ← Slice.index_usize chain i
-      let i1 ← lift (UScalar.cast .Usize p)
-      let n1 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-          (hashtrinity.overflow.Node K V)) self1.nodes i1
-      if n1.left = n
-      then
-        let i2 ← lift (UScalar.cast .Usize p)
-        let (n2, index_mut_back) ←
-          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-            (hashtrinity.overflow.Node K V)) self1.nodes i2
-        let v := index_mut_back { n2 with left := newroot }
-        ok (cont ({ self1 with nodes := v }, idx1))
-      else
-        let i2 ← lift (UScalar.cast .Usize p)
-        let (n2, index_mut_back) ←
-          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-            (hashtrinity.overflow.Node K V)) self1.nodes i2
-        let v := index_mut_back { n2 with right := newroot }
-        ok (cont ({ self1 with nodes := v }, idx1))
-  else ok (done self)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rebalance_chain]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 287:8-301:9 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.rebalance_chain_loop
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (chain : Slice Std.U32)
-  (idx : Std.Usize) :
-  Result (hashtrinity.overflow.Overflow K V)
-  := do
-  loop
-    (fun (self1, idx1) =>
-      hashtrinity.overflow.Overflow.rebalance_chain_loop.body algebraCoordInst
-      chain self1 idx1)
-    (self, idx)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::rebalance_chain]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 285:4-302:5 -/
-def hashtrinity.overflow.Overflow.rebalance_chain
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (chain : Slice Std.U32) :
-  Result (hashtrinity.overflow.Overflow K V)
-  := do
-  let idx := Slice.len chain
-  hashtrinity.overflow.Overflow.rebalance_chain_loop algebraCoordInst self
-    chain idx
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_node]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 572:8-590:9 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.insert_node_loop.body
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (i : Std.U32) (key : Std.U64) (chain : alloc.vec.Vec Std.U32) (cur : Std.U32)
-  :
-  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.U32) ((alloc.vec.Vec
-    (hashtrinity.overflow.Node K V)) × (alloc.vec.Vec Std.U32)))
-  := do
-  let chain1 ← alloc.vec.Vec.push chain cur
-  let i1 ← lift (UScalar.cast .Usize cur)
-  let n ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) v i1
-  if key < n.key
-  then
-    let i2 ← lift (UScalar.cast .Usize cur)
-    let n1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i2
-    if n1.left = hashtrinity.overflow.NIL
-    then
-      let i3 ← lift (UScalar.cast .Usize cur)
-      let (n2, index_mut_back) ←
-        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-          (hashtrinity.overflow.Node K V)) v i3
-      let v1 := index_mut_back { n2 with left := i }
-      ok (done (v1, chain1))
-    else ok (cont (chain1, n1.left))
-  else
-    let i2 ← lift (UScalar.cast .Usize cur)
-    let n1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i2
-    if n1.right = hashtrinity.overflow.NIL
-    then
-      let i3 ← lift (UScalar.cast .Usize cur)
-      let (n2, index_mut_back) ←
-        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-          (hashtrinity.overflow.Node K V)) v i3
-      let v1 := index_mut_back { n2 with right := i }
-      ok (done (v1, chain1))
-    else ok (cont (chain1, n1.right))
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_node]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 572:8-590:9 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.insert_node_loop
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (i : Std.U32) (key : Std.U64) (chain : alloc.vec.Vec Std.U32) (cur : Std.U32)
-  :
-  Result ((alloc.vec.Vec (hashtrinity.overflow.Node K V)) × (alloc.vec.Vec
-    Std.U32))
-  := do
-  loop
-    (fun (chain1, cur1) => hashtrinity.overflow.Overflow.insert_node_loop.body
-      v i key chain1 cur1)
-    (chain, cur)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_node]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 564:4-592:5 -/
-def hashtrinity.overflow.Overflow.insert_node
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (i : Std.U32) :
-  Result (hashtrinity.overflow.Overflow K V)
-  := do
-  if self.root = hashtrinity.overflow.NIL
-  then ok { self with root := i }
-  else
-    let i1 ← lift (UScalar.cast .Usize i)
-    let n ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) self.nodes i1
-    let chain := alloc.vec.Vec.with_capacity Std.U32 64#usize
-    let (v, chain1) ←
-      hashtrinity.overflow.Overflow.insert_node_loop self.nodes i n.key chain
-        self.root
-    let s := alloc.vec.Vec.deref chain1
-    hashtrinity.overflow.Overflow.rebalance_chain algebraCoordInst
-      { self with nodes := v } s
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_node]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 334:8-346:5 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.find_node_loop.body
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (coord : Std.U64) (cur : Std.U32) :
-  Result (ControlFlow Std.U32 Std.U32)
-  := do
-  if cur != hashtrinity.overflow.NIL
-  then
-    let i ← lift (UScalar.cast .Usize cur)
-    let n ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i
-    if coord = n.key
-    then ok (done cur)
-    else
-      if coord < n.key
-      then
-        let i1 ← lift (UScalar.cast .Usize cur)
-        let n1 ←
-          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-            (hashtrinity.overflow.Node K V)) v i1
-        ok (cont n1.left)
-      else
-        let i1 ← lift (UScalar.cast .Usize cur)
-        let n1 ←
-          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-            (hashtrinity.overflow.Node K V)) v i1
-        ok (cont n1.right)
-  else ok (done hashtrinity.overflow.NIL)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_node]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 334:8-346:5 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.find_node_loop
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (coord : Std.U64) (cur : Std.U32) :
-  Result Std.U32
-  := do
-  loop
-    (fun cur1 => hashtrinity.overflow.Overflow.find_node_loop.body v coord
-      cur1)
-    cur
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_node]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 332:4-346:5 -/
-@[reducible]
-def hashtrinity.overflow.Overflow.find_node
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (coord : Std.U64) :
-  Result Std.U32
-  := do
-  hashtrinity.overflow.Overflow.find_node_loop self.nodes coord self.root
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::alloc]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 304:4-320:5 -/
-def hashtrinity.overflow.Overflow.alloc
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (key : Std.U64) (k : K)
-  (v : V) :
-  Result (Std.U32 × (hashtrinity.overflow.Overflow K V))
-  := do
-  let y ←
-    lift (Std.Array.to_slice (Array.make 1#usize [ (k, some v) ] : Array (K ×
-      (Option V)) 1#usize))
-  let ret := alloc.slice.Slice.into_vec y
-  let (o, v1) ← alloc.vec.Vec.pop Global self.free
-  match o with
-  | none =>
-    let v2 ←
-      alloc.vec.Vec.push self.nodes
-        ({
-           key,
-           entries := ret,
-           left := hashtrinity.overflow.NIL,
-           right := hashtrinity.overflow.NIL,
-           height := 1#u32,
-           alive := true
-         } : hashtrinity.overflow.Node K V)
-    let i := alloc.vec.Vec.len v2
-    let i1 ← i - 1#usize
-    let i2 ← lift (UScalar.cast .U32 i1)
-    ok (i2, { self with nodes := v2, free := v1 })
-  | some i =>
-    let i1 ← lift (UScalar.cast .Usize i)
-    let (_, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) self.nodes i1
-    let v2 :=
-      index_mut_back
-        {
-          key,
-          entries := ret,
-          left := hashtrinity.overflow.NIL,
-          right := hashtrinity.overflow.NIL,
-          height := 1#u32,
-          alive := true
-        }
-    ok (i, { self with nodes := v2, free := v1 })
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::insert_new_at]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 414:4-427:5 -/
-def hashtrinity.overflow.Overflow.insert_new_at
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (coord : Std.U64) (k : K)
-  (v : V) :
-  Result ((Std.U32 × Std.Usize) × (hashtrinity.overflow.Overflow K V))
-  := do
-  let i ← self.len + 1#usize
-  let n ←
-    hashtrinity.overflow.Overflow.find_node algebraCoordInst
-      { self with len := i } coord
-  let (self1, node) ←
-    if n = hashtrinity.overflow.NIL
-    then
-      do
-      let (i1, self2) ←
-        hashtrinity.overflow.Overflow.alloc algebraCoordInst
-          { self with len := i } coord k v
-      let self3 ←
-        hashtrinity.overflow.Overflow.insert_node algebraCoordInst self2 i1
-      ok (self3, i1)
-    else
-      do
-      let i1 ← lift (UScalar.cast .Usize n)
-      let (n1, index_mut_back) ←
-        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-          (hashtrinity.overflow.Node K V)) self.nodes i1
-      let v1 ← alloc.vec.Vec.push n1.entries (k, some v)
-      let v2 := index_mut_back { n1 with entries := v1 }
-      ok ({ self with nodes := v2, len := i }, n)
-  let i1 ← lift (UScalar.cast .Usize node)
-  let n1 ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self1.nodes i1
-  let i2 := alloc.vec.Vec.len n1.entries
-  let e ← i2 - 1#usize
-  ok ((node, e), self1)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::new]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 197:4-204:5 -/
-def hashtrinity.overflow.Overflow.new
-  {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K) :
-  Result (hashtrinity.overflow.Overflow K V)
-  := do
-  ok
-    {
-      nodes := (alloc.vec.Vec.new (hashtrinity.overflow.Node K V)),
-      free := (alloc.vec.Vec.new Std.U32),
-      root := hashtrinity.overflow.NIL,
-      len := 0#usize
-    }
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::place_capped]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1149:4-1177:5 -/
-def hashtrinity.Table.place_capped
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (k : K) (v : V) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  let c ←
-    hashtrinity.overflow.Table.probe_capped_keyed corecmpEqInst
-      algebraCoordInst algebraKeyStoreInst self coord k
-  match c with
-  | hashtrinity.Capped.Hit i =>
-    let (mu, get_unchecked_mut_back) ←
-      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
-        (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
-    let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
-    core.mem.drop old
-    let mu1 ← core.mem.maybe_uninit.MaybeUninit.new v
-    let s := get_unchecked_mut_back mu
-    let (_, get_unchecked_mut_back1) ←
-      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
-        (core.mem.maybe_uninit.MaybeUninit V)) s i
-    let s1 := get_unchecked_mut_back1 mu1
-    ok { self with vals := s1 }
-  | hashtrinity.Capped.Vacant i =>
-    let (_, get_unchecked_mut_back) ←
-      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
-        Std.U64) self.coords i
-    let mu ← core.mem.maybe_uninit.MaybeUninit.new v
-    let (_, get_unchecked_mut_back1) ←
-      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
-        (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
-    let t ← algebraKeyStoreInst.set self.keys i k
-    let i1 ← self.len + 1#usize
-    let s := get_unchecked_mut_back coord
-    let s1 := get_unchecked_mut_back1 mu
-    ok { self with coords := s, vals := s1, keys := t, len := i1 }
-  | hashtrinity.Capped.Blocked =>
-    let b := core.option.Option.is_none self.overflow
-    let o ←
-      if b
-      then
-        do
-        let o1 ← hashtrinity.overflow.Overflow.new V algebraCoordInst
-        ok (some o1)
-      else ok self.overflow
-    let (o1, as_mut_back) ← core.option.Option.as_mut o
-    match o1 with
-    | none => fail panic
-    | some ov =>
-      let (_, ov1) ←
-        hashtrinity.overflow.Overflow.insert_new_at algebraCoordInst ov coord k
-          v
-      let o2 := as_mut_back (some ov1)
-      ok { self with overflow := o2 }
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::with_bits]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 476:4-489:5 -/
-def hashtrinity.Table.with_bits
-  {K : Type} (V : Type) {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (bits : Std.U32) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  let n ← 1#usize <<< bits
-  let v ← alloc.vec.from_elem core.clone.CloneU64 hashtrinity.EMPTY n
-  let s ← alloc.vec.Vec.into_boxed_slice Global v
-  let s1 ← hashtrinity.algebra.alloc_uninit_boxed V n
-  let t ← algebraKeyStoreInst.alloc n
-  let ss ←
-    hashtrinity.side.SideStore.empty V algebraCoordInst algebraKeyStoreInst
-  ok
-    {
-      coords := s,
-      vals := s1,
-      keys := t,
-      side := ss,
-      overflow := none,
-      bits,
-      len := 0#usize,
-      tombs := 0#usize,
-      _k := ()
-    }
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 0:
-    Source: '../../src/map/hashtrinity/side.rs', lines 121:12-125:13 -/
-@[rust_loop_body]
-def hashtrinity.side.SideStore.clear_loop0.body
-  {V : Type} (vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V))
-  (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V)) ×
-    Std.Usize) Unit)
-  := do
-  let i1 := alloc.vec.Vec.len vals
-  if i < i1
-  then
-    let (mu, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-        (core.mem.maybe_uninit.MaybeUninit V)) vals i
-    let mu1 ← core.mem.maybe_uninit.MaybeUninit.assume_init_drop mu
-    let i2 ← i + 1#usize
-    let vals1 := index_mut_back mu1
-    ok (cont (vals1, i2))
-  else ok (done ())
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 0:
-    Source: '../../src/map/hashtrinity/side.rs', lines 121:12-125:13 -/
-@[rust_loop]
-def hashtrinity.side.SideStore.clear_loop0
-  {V : Type} (vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V))
-  (i : Std.Usize) :
-  Result Unit
-  := do
-  loop
-    (fun (vals1, i1) => hashtrinity.side.SideStore.clear_loop0.body vals1 i1)
-    (vals, i)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 1:
-    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
-@[rust_loop_body]
-def hashtrinity.side.SideStore.clear_loop1.body
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (coords : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
-  Result (ControlFlow (KS × Std.Usize) KS)
-  := do
-  let i1 := alloc.vec.Vec.len coords
-  if i < i1
-  then
-    let c ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        coords i
-    let (t1, t2) ← algebraKeyStoreInst.take_key t i c
-    core.mem.drop t1
-    let i2 ← i + 1#usize
-    ok (cont (t2, i2))
-  else ok (done t)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 1:
-    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
-@[rust_loop]
-def hashtrinity.side.SideStore.clear_loop1
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (t : KS) (coords : alloc.vec.Vec Std.U64) (i : Std.Usize) :
-  Result KS
-  := do
-  loop
-    (fun (t1, i1) => hashtrinity.side.SideStore.clear_loop1.body
-      algebraKeyStoreInst coords t1 i1)
-    (t, i)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 2:
-    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
-@[rust_loop_body]
-def hashtrinity.side.SideStore.clear_loop2.body
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (coords : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
-  Result (ControlFlow (KS × Std.Usize) KS)
-  := do
-  let i1 := alloc.vec.Vec.len coords
-  if i < i1
-  then
-    let c ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        coords i
-    let (t1, t2) ← algebraKeyStoreInst.take_key t i c
-    core.mem.drop t1
-    let i2 ← i + 1#usize
-    ok (cont (t2, i2))
-  else ok (done t)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 2:
-    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
-@[rust_loop]
-def hashtrinity.side.SideStore.clear_loop2
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (t : KS) (coords : alloc.vec.Vec Std.U64) (i : Std.Usize) :
-  Result KS
-  := do
-  loop
-    (fun (t1, i1) => hashtrinity.side.SideStore.clear_loop2.body
-      algebraKeyStoreInst coords t1 i1)
-    (t, i)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]:
-    Source: '../../src/map/hashtrinity/side.rs', lines 116:4-133:5 -/
-def hashtrinity.side.SideStore.clear
-  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
-  :
-  Result (hashtrinity.side.SideStore K V KS)
-  := do
-  let (coords, v) ←
-    core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault Std.U64) self.coords
-  let (vals, v1) ←
-    core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault
-      (core.mem.maybe_uninit.MaybeUninit V)) self.vals
-  let b ← core.mem.needs_drop V
-  if b
-  then
-    hashtrinity.side.SideStore.clear_loop0 vals 0#usize
-    let t ←
-      hashtrinity.side.SideStore.clear_loop1 algebraKeyStoreInst self.keys
-        coords 0#usize
-    ok { self with coords := v, vals := v1, keys := t }
-  else
-    let t ←
-      hashtrinity.side.SideStore.clear_loop2 algebraKeyStoreInst self.keys
-        coords 0#usize
-    ok { self with coords := v, vals := v1, keys := t }
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop body 0:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 341:12-347:13
-    Visibility: public -/
-@[rust_loop_body]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop.body
-  {K : Type} {V : Type} {KS : Type} (self : hashtrinity.Table K V KS)
-  (i : Std.Usize) :
-  Result (ControlFlow ((hashtrinity.Table K V KS) × Std.Usize) ((Slice
-    Std.U64) × (Slice (core.mem.maybe_uninit.MaybeUninit V)) × KS ×
-    (hashtrinity.side.SideStore K V KS) × (Option
-    (hashtrinity.overflow.Overflow K V)) × Std.U32 × Std.Usize × Std.Usize
-    × (core.marker.PhantomData K)))
-  := do
-  let i1 := Slice.len self.coords
-  if i < i1
-  then
-    let i2 ← Slice.index_usize self.coords i
-    let b ← hashtrinity.is_live i2
-    let s ←
-      if b
-      then
-        do
-        let (mu, index_mut_back) ← Slice.index_mut_usize self.vals i
-        let mu1 ← core.mem.maybe_uninit.MaybeUninit.assume_init_drop mu
-        ok (index_mut_back mu1)
-      else ok self.vals
-    let i3 ← i + 1#usize
-    ok (cont ({ self with vals := s }, i3))
-  else
-    ok (done (self.coords, self.vals, self.keys, self.side, self.overflow,
-      self.bits, self.len, self.tombs, self._k))
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop 0:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 341:12-347:13
-    Visibility: public -/
-@[rust_loop]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop
-  {K : Type} {V : Type} {KS : Type} (self : hashtrinity.Table K V KS)
-  (i : Std.Usize) :
-  Result ((Slice Std.U64) × (Slice (core.mem.maybe_uninit.MaybeUninit V)) ×
-    KS × (hashtrinity.side.SideStore K V KS) × (Option
-    (hashtrinity.overflow.Overflow K V)) × Std.U32 × Std.Usize × Std.Usize
-    × (core.marker.PhantomData K))
-  := do
-  loop
-    (fun (self1, i1) => hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop.body
-      self1 i1)
-    (self, i)
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 338:4-355:5
-    Visibility: public -/
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop
-  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  let b ← core.mem.needs_drop V
-  if b
-  then
-    let (s, s1, t, ss, o, i, i1, i2, pd) ←
-      hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop self 0#usize
-    let (coords, s2) ←
-      core.mem.take (BoxSlice.Insts.CoreDefaultDefault Std.U64) s
-    let t1 ← algebraKeyStoreInst.drop_live t coords
-    let ss1 ←
-      hashtrinity.side.SideStore.clear algebraCoordInst algebraKeyStoreInst ss
-    ok
-      {
-        coords := s2,
-        vals := s1,
-        keys := t1,
-        side := ss1,
-        overflow := o,
-        bits := i,
-        len := i1,
-        tombs := i2,
-        _k := pd
-      }
-  else
-    let (coords, s) ←
-      core.mem.take (BoxSlice.Insts.CoreDefaultDefault Std.U64) self.coords
-    let t ← algebraKeyStoreInst.drop_live self.keys coords
-    let ss ←
-      hashtrinity.side.SideStore.clear algebraCoordInst algebraKeyStoreInst
-        self.side
-    ok { self with coords := s, keys := t, side := ss }
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop body 0:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1217:8-1230:9 -/
-@[rust_loop_body]
-def hashtrinity.Table.resize_loop0.body
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (bigger : hashtrinity.Table K V KS) (i : Std.Usize) :
-  Result (ControlFlow ((hashtrinity.Table K V KS) × (hashtrinity.Table K V KS)
-    × Std.Usize) ((hashtrinity.side.SideStore K V KS) × (Option
-    (hashtrinity.overflow.Overflow K V)) × (hashtrinity.Table K V KS)))
-  := do
-  let i1 := Slice.len self.coords
-  if i < i1
-  then
-    let c ← Slice.index_usize self.coords i
-    let b ← hashtrinity.is_live c
-    if b
-    then
-      let (key, t) ← algebraKeyStoreInst.take_key self.keys i c
-      let (mu, get_unchecked_mut_back) ←
-        core.slice.Slice.get_unchecked_mut
-          (core.slice.index.SliceIndexUsizeSlice
-          (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
-      let v ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
-      let s ← Slice.update self.coords i hashtrinity.EMPTY
-      let bigger1 ←
-        hashtrinity.Table.place_capped corecmpEqInst algebraCoordInst
-          algebraKeyStoreInst bigger c key v
-      let i2 ← i + 1#usize
-      let s1 := get_unchecked_mut_back mu
-      ok (cont ({ self with coords := s, vals := s1, keys := t }, bigger1, i2))
-    else let i2 ← i + 1#usize
-         ok (cont (self, bigger, i2))
-  else ok (done (self.side, self.overflow, bigger))
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop 0:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1217:8-1230:9 -/
-@[rust_loop]
-def hashtrinity.Table.resize_loop0
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (bigger : hashtrinity.Table K V KS) (i : Std.Usize) :
-  Result ((hashtrinity.side.SideStore K V KS) × (Option
-    (hashtrinity.overflow.Overflow K V)) × (hashtrinity.Table K V KS))
-  := do
-  loop
-    (fun (self1, bigger1, i1) => hashtrinity.Table.resize_loop0.body
-      corecmpEqInst algebraCoordInst algebraKeyStoreInst self1 bigger1 i1)
-    (self, bigger, i)
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop body 1:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1236:12-1238:13 -/
-@[rust_loop_body]
-def hashtrinity.Table.resize_loop1.body
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K)
-  (iter : alloc.vec.into_iter.IntoIter (Std.U64 × K × V))
-  (bigger : hashtrinity.Table K V KS) :
-  Result (ControlFlow ((alloc.vec.into_iter.IntoIter (Std.U64 × K × V)) ×
-    (hashtrinity.Table K V KS)) (hashtrinity.Table K V KS))
-  := do
-  let (o, iter1) ← alloc.vec.into_iter.IteratorIntoIter.next iter
-  match o with
-  | none => ok (done bigger)
-  | some t =>
-    let (c, k, v) := t
-    let bigger1 ←
-      hashtrinity.Table.place_capped corecmpEqInst algebraCoordInst
-        algebraKeyStoreInst bigger c k v
-    ok (cont (iter1, bigger1))
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop 1:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1236:12-1238:13 -/
-@[rust_loop]
-def hashtrinity.Table.resize_loop1
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K)
-  (iter : alloc.vec.into_iter.IntoIter (Std.U64 × K × V))
-  (bigger : hashtrinity.Table K V KS) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  loop
-    (fun (iter1, bigger1) => hashtrinity.Table.resize_loop1.body corecmpEqInst
-      algebraCoordInst algebraKeyStoreInst iter1 bigger1)
-    (iter, bigger)
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1214:4-1241:5 -/
-def hashtrinity.Table.resize
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (new_bits : Std.U32) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  let bigger ←
-    hashtrinity.Table.with_bits V corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst new_bits
-  let (ss, o, bigger1) ←
-    hashtrinity.Table.resize_loop0 corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst self bigger 0#usize
-  let ss1 ←
-    hashtrinity.side.SideStore.empty V algebraCoordInst algebraKeyStoreInst
-  let (ss2, _) := core.mem.replace ss ss1
-  let (o1, _) := core.option.Option.take o
-  match o1 with
-  | none => ok { bigger1 with side := ss2 }
-  | some ov =>
-    let v ← hashtrinity.overflow.Overflow.into_entries algebraCoordInst ov
-    let iter ← alloc.vec.IntoIteratorVec.into_iter v
-    hashtrinity.Table.resize_loop1 corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst iter { bigger1 with side := ss2 }
-
-/-- [apeiron_word::hashtrinity::LOAD_DEN]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 232:0-232:26 -/
-@[global_simps, irreducible] def hashtrinity.LOAD_DEN : Std.Usize := 4#usize
-
-/-- [apeiron_word::hashtrinity::LOAD_NUM]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 231:0-231:26 -/
-@[global_simps, irreducible] def hashtrinity.LOAD_NUM : Std.Usize := 3#usize
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::grow_for_one]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1194:4-1205:5 -/
-def hashtrinity.Table.grow_for_one
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  let cap := Slice.len self.coords
-  let i ← self.len + self.tombs
-  let i1 ← i + 1#usize
-  let i2 ← i1 * hashtrinity.LOAD_DEN
-  let i3 ← cap * hashtrinity.LOAD_NUM
-  if i2 >= i3
-  then
-    let i4 ← cap / 2#usize
-    let new_bits ← if self.len < i4
-                     then ok self.bits
-                     else self.bits + 1#u32
-    hashtrinity.Table.resize corecmpEqInst algebraCoordInst algebraKeyStoreInst
-      self new_bits
-  else ok self
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::coord_of]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 495:4-497:5 -/
-def hashtrinity.Table.coord_of
-  {K : Type} (V : Type) {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (k : K) :
-  Result Std.U64
-  := do
-  algebraCoordInst.coord k
-
-/-- [apeiron_word::hashtrinity::is_sentinel]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 276:0-278:1 -/
-def hashtrinity.is_sentinel (c : Std.U64) : Result Bool := do
-  if c = hashtrinity.EMPTY
-  then ok true
-  else let i ← hashtrinity.TOMB
-       ok (c = i)
-
 /-- [apeiron_word::hashtrinity::face::{apeiron_word::hashtrinity::Table<K, V, KS>}::entry::{closure}]
     Source: '../../src/map/hashtrinity/face.rs', lines 472:30-472:57 -/
 def hashtrinity.face.Table.entry.closure (K : Type) (V : Type) (KS : Type) :=
   Std.U64 × K
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_entry]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 360:8-367:5 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.find_entry_loop.body
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (corecmpEqInst : core.cmp.Eq K) (k : K) (n : Std.U32)
-  (entries : alloc.vec.Vec (K × (Option V))) (e : Std.Usize) :
-  Result (ControlFlow Std.Usize (Option (Std.U32 × Std.U32)))
-  := do
-  let i := alloc.vec.Vec.len entries
-  if e < i
-  then
-    let (t, _) ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (K × (Option
-        V))) entries e
-    let b ← corecmpEqInst.partialEqInst.eq t k
-    if b
-    then let i1 ← lift (UScalar.cast .U32 e)
-         ok (done (some (n, i1)))
-    else let e1 ← e + 1#usize
-         ok (cont e1)
-  else ok (done none)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_entry]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 360:8-367:5 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.find_entry_loop
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (corecmpEqInst : core.cmp.Eq K) (k : K) (n : Std.U32)
-  (entries : alloc.vec.Vec (K × (Option V))) (e : Std.Usize) :
-  Result (Option (Std.U32 × Std.U32))
-  := do
-  loop
-    (fun e1 => hashtrinity.overflow.Overflow.find_entry_loop.body
-      algebraCoordInst corecmpEqInst k n entries e1)
-    e
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_entry]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 350:4-367:5 -/
-def hashtrinity.overflow.Overflow.find_entry
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (corecmpEqInst : core.cmp.Eq K) (self : hashtrinity.overflow.Overflow K V)
-  (coord : Std.U64) (k : K) :
-  Result (Option (Std.U32 × Std.U32))
-  := do
-  let n ← hashtrinity.overflow.Overflow.find_node algebraCoordInst self coord
-  if n = hashtrinity.overflow.NIL
-  then ok none
-  else
-    let i ← lift (UScalar.cast .Usize n)
-    let n1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) self.nodes i
-    hashtrinity.overflow.Overflow.find_entry_loop algebraCoordInst
-      corecmpEqInst k n n1.entries 0#usize
 
 /-- [apeiron_word::hashtrinity::face::{apeiron_word::hashtrinity::Table<K, V, KS>}::entry::{impl core::ops::function::FnOnce<(&'_ apeiron_word::hashtrinity::overflow::Overflow<K, V>,), core::option::Option<(u32, u32)>> for apeiron_word::hashtrinity::face::{apeiron_word::hashtrinity::Table<K, V, KS>[TraitClause1, TraitClause2]}::entry::{closure}<'_0, '_1, K, V, KS>}::call_once]:
     Source: '../../src/map/hashtrinity/face.rs', lines 472:30-472:57 -/
@@ -107587,34 +108324,6 @@ def hashtrinity.face.Table.entry
             coord,
             store := hashtrinity.Store.Overflow
           }, back)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::get]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 389:4-395:5 -/
-def hashtrinity.overflow.Overflow.get
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (corecmpEqInst : core.cmp.Eq K) (self : hashtrinity.overflow.Overflow K V)
-  (coord : Std.U64) (k : K) :
-  Result (Option V)
-  := do
-  let o ←
-    hashtrinity.overflow.Overflow.find_entry algebraCoordInst corecmpEqInst
-      self coord k
-  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
-  match cf with
-  | core.ops.control_flow.ControlFlow.Continue val =>
-    let (n, e) := val
-    let i ← lift (UScalar.cast .Usize n)
-    let n1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) self.nodes i
-    let i1 ← lift (UScalar.cast .Usize e)
-    let (_, o1) ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (K × (Option
-        V))) n1.entries i1
-    core.option.Option.as_ref o1
-  | core.ops.control_flow.ControlFlow.Break residual =>
-    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
-      V residual
 
 /-- [apeiron_word::hashtrinity::face::{apeiron_word::hashtrinity::Table<K, V, KS>}::contains_key]:
     Source: '../../src/map/hashtrinity/face.rs', lines 624:4-638:5
@@ -107973,12 +108682,12 @@ def hashtrinity.freq.FreqMapKI64.count_aggregate_start
     (hashtrinity.freq.FreqMapKI64.COUNT_AGGREGATE_START algebraCoordInst)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1496:43-1496:63 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1508:43-1508:63 -/
 @[reducible]
 def hashtrinity.freq.FreqMapKI64.add.closure (K : Type) := Unit
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}<K>}::call_once]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1496:43-1496:63 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1508:43-1508:63 -/
 def
   hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64.call_once
   {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -107990,7 +108699,7 @@ def
   new + old
 
 /-- Trait implementation: [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}<K>}]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1496:43-1496:63 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1508:43-1508:63 -/
 @[reducible]
 def
   hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64
@@ -108003,7 +108712,7 @@ def
 }
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::freq]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1262:4-1264:5 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1274:4-1276:5 -/
 def hashtrinity.freq.FreqMap.freq
   {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K)
   (k : K) :
@@ -108031,52 +108740,11 @@ structure hashtrinity.freq.FreqLine (V : Type) where
   overflow : Option (hashtrinity.overflow.Overflow Std.U64 V)
 
 /-- [apeiron_word::hashtrinity::freq::FreqMap]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1237:0-1240:1
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1249:0-1252:1
     Visibility: public -/
 structure hashtrinity.freq.FreqMap (K : Type) (V : Type) where
   inner : hashtrinity.freq.FreqLine V
   _k : core.marker.PhantomData K
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::write_back]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 467:4-469:5 -/
-def hashtrinity.overflow.Overflow.write_back
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32)
-  (v : V) :
-  Result (hashtrinity.overflow.Overflow K V)
-  := do
-  let i ← lift (UScalar.cast .Usize n)
-  let (n1, index_mut_back) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i
-  let i1 ← lift (UScalar.cast .Usize e)
-  let ((t, _), index_mut_back1) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (K ×
-      (Option V))) n1.entries i1
-  let v1 := index_mut_back1 (t, some v)
-  let v2 := index_mut_back { n1 with entries := v1 }
-  ok { self with nodes := v2 }
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::take_value]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 459:4-464:5 -/
-def hashtrinity.overflow.Overflow.take_value
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32) :
-  Result (V × (hashtrinity.overflow.Overflow K V))
-  := do
-  let i ← lift (UScalar.cast .Usize n)
-  let (n1, index_mut_back) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i
-  let i1 ← lift (UScalar.cast .Usize e)
-  let ((t, o), index_mut_back1) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (K ×
-      (Option V))) n1.entries i1
-  let (o1, o2) := core.option.Option.take o
-  let t1 ← core.option.Option.expect o1 (toStr "overflow: live entry")
-  let v := index_mut_back1 (t, o2)
-  let v1 := index_mut_back { n1 with entries := v }
-  ok (t1, { self with nodes := v1 })
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_limit]:
     Source: '../../src/map/hashtrinity/freq.rs', lines 747:4-749:5 -/
@@ -108351,7 +109019,7 @@ def hashtrinity.freq.FreqSide.find
   hashtrinity.freq.FreqSide.find_loop self coord 0#usize
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::place_capped]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1087:4-1124:5 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1099:4-1136:5 -/
 def hashtrinity.freq.FreqLine.place_capped
   {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) (v : V) :
   Result (hashtrinity.freq.FreqLine V)
@@ -108567,7 +109235,7 @@ def hashtrinity.freq.FreqSide.drop_live
   else ok self
 
 /-- [apeiron_word::hashtrinity::freq::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::freq::FreqLine<V>}::drop]: loop body 0:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1174:12-1179:13
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1186:12-1191:13
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop_loop.body
@@ -108600,7 +109268,7 @@ def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop_loop.body
                                     back im1))
 
 /-- [apeiron_word::hashtrinity::freq::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::freq::FreqLine<V>}::drop]: loop 0:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1174:12-1179:13
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1186:12-1191:13
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop_loop
@@ -108620,7 +109288,7 @@ def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop_loop
     (iter, back)
 
 /-- [apeiron_word::hashtrinity::freq::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::freq::FreqLine<V>}::drop]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1172:4-1184:5
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1184:4-1196:5
     Visibility: public -/
 def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop
   {V : Type} (self : hashtrinity.freq.FreqLine V) :
@@ -108639,7 +109307,7 @@ def hashtrinity.freq.FreqLine.Insts.CoreOpsDropDrop.drop
   else ok self
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]: loop body 0:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1131:8-1141:9 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1143:8-1153:9 -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqLine.grow_loop0.body
   {V : Type} (n : Std.Usize)
@@ -108670,7 +109338,7 @@ def hashtrinity.freq.FreqLine.grow_loop0.body
   else ok (done bigger)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]: loop 0:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1131:8-1141:9 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1143:8-1153:9 -/
 @[rust_loop]
 def hashtrinity.freq.FreqLine.grow_loop0
   {V : Type} (s : Slice (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V)))
@@ -108683,7 +109351,7 @@ def hashtrinity.freq.FreqLine.grow_loop0
     (s, bigger, i)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]: loop body 1:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1147:12-1149:13 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1159:12-1161:13 -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqLine.grow_loop1.body
   {V : Type} (iter : alloc.vec.into_iter.IntoIter (Std.U64 × Std.U64 × V))
@@ -108700,7 +109368,7 @@ def hashtrinity.freq.FreqLine.grow_loop1.body
     ok (cont (iter1, bigger1))
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]: loop 1:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1147:12-1149:13 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1159:12-1161:13 -/
 @[rust_loop]
 def hashtrinity.freq.FreqLine.grow_loop1
   {V : Type} (iter : alloc.vec.into_iter.IntoIter (Std.U64 × Std.U64 × V))
@@ -108713,7 +109381,7 @@ def hashtrinity.freq.FreqLine.grow_loop1
     (iter, bigger)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::grow]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1127:4-1152:5 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1139:4-1164:5 -/
 def hashtrinity.freq.FreqLine.grow
   {V : Type} (self : hashtrinity.freq.FreqLine V) :
   Result (hashtrinity.freq.FreqLine V)
@@ -108736,7 +109404,7 @@ def hashtrinity.freq.FreqLine.grow
     hashtrinity.freq.FreqLine.grow_loop1 iter { bigger1 with side := fs1 }
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::insert_with]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1007:4-1081:5 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1019:4-1093:5 -/
 def hashtrinity.freq.FreqLine.insert_with
   {V : Type} {T1 : Type} (coreopsfunctionFnOnceT1PairVInst :
   core.ops.function.FnOnce T1 (V × V) V) (self : hashtrinity.freq.FreqLine V)
@@ -108873,7 +109541,7 @@ def hashtrinity.freq.FreqLine.insert_with
         ok { self2 with len := i5 }
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1494:4-1497:5
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1506:4-1509:5
     Visibility: public -/
 def hashtrinity.freq.FreqMapKI64.add
   {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -108898,7 +109566,7 @@ def hashtrinity.bits_for_slots (slots : Std.Usize) : Result Std.U32 := do
   core.cmp.Ord.max.default core.cmp.OrdU32 i4 3#u32
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::with_capacity]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1278:4-1283:5
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1290:4-1295:5
     Visibility: public -/
 def hashtrinity.freq.FreqMap.with_capacity
   {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -108989,8 +109657,120 @@ def hashtrinity.freq.FreqSide.get
     core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
       V residual
 
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_examinations]: loop body 1:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 846:12-854:13 -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqLine.probe_examinations_loop0_loop0.body
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) (j : Std.U32)
+  (base : Std.Usize) (result : Std.U32) (done1 : Bool) («matches» : Std.U16)
+  :
+  Result (ControlFlow (Std.U32 × Bool × Std.U16) ((hashtrinity.freq.FreqLine
+    V) × Std.U32 × Bool))
+  := do
+  if «matches» != 0#u16
+  then
+    let i ← core.num.U16.trailing_zeros «matches»
+    let i1 ← lift (UScalar.cast .Usize i)
+    let i2 ← base + i1
+    let (i3, _) ←
+      core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
+        (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V))) self.slots i2
+    let (result1, done2) ←
+      if i3 = f
+      then do
+           let result2 ← j + 1#u32
+           ok (result2, true)
+      else ok (result, done1)
+    let i4 ← «matches» - 1#u16
+    let matches1 ← lift («matches» &&& i4)
+    ok (cont (result1, done2, matches1))
+  else ok (done (self, result, done1))
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_examinations]: loop 1:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 846:12-854:13 -/
+@[rust_loop]
+def hashtrinity.freq.FreqLine.probe_examinations_loop0_loop0
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64)
+  (result : Std.U32) (j : Std.U32) (done1 : Bool) (base : Std.Usize)
+  («matches» : Std.U16) :
+  Result ((hashtrinity.freq.FreqLine V) × Std.U32 × Bool)
+  := do
+  loop
+    (fun (result1, done2, matches1) =>
+      hashtrinity.freq.FreqLine.probe_examinations_loop0_loop0.body self f j
+      base result1 done2 matches1)
+    (result, done1, «matches»)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_examinations]: loop body 0:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 843:8-869:9 -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqLine.probe_examinations_loop0.body
+  {V : Type} (f : Std.U64) (p : Std.U64) (tag : Std.U8) (limit : Std.U32)
+  (self : hashtrinity.freq.FreqLine V) (result : Std.U32) (g : Std.Usize)
+  (j : Std.U32) (done1 : Bool) :
+  Result (ControlFlow ((hashtrinity.freq.FreqLine V) × Std.U32 × Std.Usize ×
+    Std.U32 × Bool) Std.U32)
+  := do
+  if done1
+  then ok (done result)
+  else
+    let base ← g * hashtrinity.freq.GROUP
+    let «matches» ← hashtrinity.freq.FreqLine.match_tag self g tag
+    let (self1, result1, done2) ←
+      hashtrinity.freq.FreqLine.probe_examinations_loop0_loop0 self f result j
+        false base «matches»
+    if done2
+    then ok (cont (self1, result1, g, j, true))
+    else
+      let i ← hashtrinity.freq.FreqLine.match_empty self1 g
+      if i != 0#u16
+      then let result2 ← j + 1#u32
+           ok (cont (self1, result2, g, j, true))
+      else
+        let j1 ← j + 1#u32
+        if j1 >= limit
+        then ok (cont (self1, j1, g, j1, true))
+        else
+          let g1 ← hashtrinity.freq.FreqLine.descend_group self1 p j1
+          ok (cont (self1, result1, g1, j1, false))
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_examinations]: loop 0:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 843:8-869:9 -/
+@[rust_loop]
+def hashtrinity.freq.FreqLine.probe_examinations_loop0
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64)
+  (result : Std.U32) (p : Std.U64) (tag : Std.U8) (limit : Std.U32)
+  (g : Std.Usize) (j : Std.U32) (done1 : Bool) :
+  Result Std.U32
+  := do
+  loop
+    (fun (self1, result1, g1, j1, done2) =>
+      hashtrinity.freq.FreqLine.probe_examinations_loop0.body f p tag limit
+      self1 result1 g1 j1 done2)
+    (self, result, g, j, done1)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_examinations]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 830:4-871:5 -/
+def hashtrinity.freq.FreqLine.probe_examinations
+  {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) :
+  Result Std.U32
+  := do
+  let b ← hashtrinity.is_sentinel f
+  if b
+  then ok 0#u32
+  else
+    let p ← lift (core.num.U64.wrapping_mul f hashtrinity.PHI)
+    let i ← hashtrinity.freq.TAG_SHIFT
+    let i1 ← p >>> i
+    let i2 ← lift (i1 &&& 127#u64)
+    let tag ← lift (UScalar.cast .U8 i2)
+    let limit ← hashtrinity.freq.FreqLine.probe_limit self
+    let g ← hashtrinity.freq.FreqLine.home_group self p
+    hashtrinity.freq.FreqLine.probe_examinations_loop0 self f 0#u32 p tag limit
+      g 0#u32 false
+
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::get_p]: loop body 0:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 888:8-913:5 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 900:8-925:5 -/
 @[rust_loop_body]
 def hashtrinity.freq.FreqLine.get_p_loop.body
   {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) (g : Std.Usize)
@@ -109041,7 +109821,7 @@ def hashtrinity.freq.FreqLine.get_p_loop.body
         else ok (done none)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::get_p]: loop 0:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 888:8-913:5 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 900:8-925:5 -/
 @[rust_loop]
 def hashtrinity.freq.FreqLine.get_p_loop
   {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) (g : Std.Usize)
@@ -109054,7 +109834,7 @@ def hashtrinity.freq.FreqLine.get_p_loop
     «matches»
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::get_p]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 873:4-913:5 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 885:4-925:5 -/
 def hashtrinity.freq.FreqLine.get_p
   {V : Type} (self : hashtrinity.freq.FreqLine V) (p : Std.U64) (f : Std.U64) :
   Result (Option V)
@@ -109073,7 +109853,7 @@ def hashtrinity.freq.FreqLine.get_p
     hashtrinity.freq.FreqLine.get_p_loop self f g base «matches»
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::get]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 862:4-864:5 -/
+    Source: '../../src/map/hashtrinity/freq.rs', lines 874:4-876:5 -/
 def hashtrinity.freq.FreqLine.get
   {V : Type} (self : hashtrinity.freq.FreqLine V) (f : Std.U64) :
   Result (Option V)
@@ -109081,8 +109861,18 @@ def hashtrinity.freq.FreqLine.get
   let i ← lift (core.num.U64.wrapping_mul f hashtrinity.PHI)
   hashtrinity.freq.FreqLine.get_p self i f
 
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::stream_with_capacity]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1300:4-1302:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMap.stream_with_capacity
+  {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (cap : Std.Usize) :
+  Result (hashtrinity.freq.FreqMap K V)
+  := do
+  hashtrinity.freq.FreqMap.with_capacity V algebraCoordInst cap
+
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::get]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1294:4-1296:5
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1306:4-1308:5
     Visibility: public -/
 def hashtrinity.freq.FreqMap.get
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -109091,6 +109881,65 @@ def hashtrinity.freq.FreqMap.get
   := do
   let i ← hashtrinity.freq.FreqMap.freq V algebraCoordInst k
   hashtrinity.freq.FreqLine.get self.inner i
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::insert_with]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1312:4-1314:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMap.insert_with
+  {K : Type} {V : Type} {T2 : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (coreopsfunctionFnOnceT2PairVInst :
+  core.ops.function.FnOnce T2 (V × V) V) (self : hashtrinity.freq.FreqMap K V)
+  (k : K) (new : V) (f : T2) :
+  Result (hashtrinity.freq.FreqMap K V)
+  := do
+  let i ← hashtrinity.freq.FreqMap.freq V algebraCoordInst k
+  let fl ←
+    hashtrinity.freq.FreqLine.insert_with coreopsfunctionFnOnceT2PairVInst
+      self.inner i new f
+  ok { self with inner := fl }
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::insert::{closure}]
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1319:49-1319:61 -/
+@[reducible]
+def hashtrinity.freq.FreqMap.insert.closure (K : Type) (V : Type) := Unit
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::insert::{impl core::ops::function::FnOnce<(V, V), V> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::insert::{closure}<K, V>}::call_once]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1319:49-1319:61 -/
+def
+  hashtrinity.freq.FreqMap.insert.closure.Insts.CoreOpsFunctionFnOncePairV.call_once
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (c : hashtrinity.freq.FreqMap.insert.closure K V) (tupled_args : (V × V)) :
+  Result V
+  := do
+  let (new, _) := tupled_args
+  ok new
+
+/-- Trait implementation: [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::insert::{impl core::ops::function::FnOnce<(V, V), V> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::insert::{closure}<K, V>}]
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1319:49-1319:61 -/
+@[reducible]
+def hashtrinity.freq.FreqMap.insert.closure.Insts.CoreOpsFunctionFnOncePairV {K
+  : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K) :
+  core.ops.function.FnOnce (hashtrinity.freq.FreqMap.insert.closure K V) (V ×
+  V) V := {
+  call_once :=
+    hashtrinity.freq.FreqMap.insert.closure.Insts.CoreOpsFunctionFnOncePairV.call_once
+    algebraCoordInst
+}
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::insert]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1318:4-1320:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMap.insert
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.freq.FreqMap K V) (k : K) (v : V) :
+  Result (hashtrinity.freq.FreqMap K V)
+  := do
+  let i ← hashtrinity.freq.FreqMap.freq V algebraCoordInst k
+  let fl ←
+    hashtrinity.freq.FreqLine.insert_with
+      (hashtrinity.freq.FreqMap.insert.closure.Insts.CoreOpsFunctionFnOncePairV
+      V algebraCoordInst) self.inner i v ()
+  ok { self with inner := fl }
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::len]:
     Source: '../../src/map/hashtrinity/overflow.rs', lines 207:4-209:5 -/
@@ -109102,7 +109951,7 @@ def hashtrinity.overflow.Overflow.impl.len
   ok self.len
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::len]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1312:4-1320:5
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1324:4-1332:5
     Visibility: public -/
 def hashtrinity.freq.FreqMap.len
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -109120,7 +109969,7 @@ def hashtrinity.freq.FreqMap.len
   i1 + overflow_len
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::is_empty]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1322:4-1324:5
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1334:4-1336:5
     Visibility: public -/
 def hashtrinity.freq.FreqMap.is_empty
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -109131,7 +109980,7 @@ def hashtrinity.freq.FreqMap.is_empty
   ok (i = 0#usize)
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::capacity]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1326:4-1328:5
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1338:4-1340:5
     Visibility: public -/
 def hashtrinity.freq.FreqMap.capacity
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -109140,8 +109989,89 @@ def hashtrinity.freq.FreqMap.capacity
   := do
   ok (Slice.len self.inner.slots)
 
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::primary_examinations]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1347:4-1349:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMap.primary_examinations
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.freq.FreqMap K V) (k : K) :
+  Result Std.U32
+  := do
+  let i ← hashtrinity.freq.FreqMap.freq V algebraCoordInst k
+  hashtrinity.freq.FreqLine.probe_examinations self.inner i
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::longest_probe]: loop body 0:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1355:8-1360:9
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqMap.longest_probe_loop.body
+  {V : Type} (s : Slice Std.U8)
+  (s1 : Slice (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V))) (i : Std.U32)
+  (i1 : Std.Usize) (i2 : Std.U32) (i3 : Std.Usize)
+  (fs : hashtrinity.freq.FreqSide V)
+  (o : Option (hashtrinity.overflow.Overflow Std.U64 V))
+  (iter : core.ops.range.Range Std.Usize) (worst : Std.U32) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.U32) Std.U32)
+  := do
+  let (o1, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o1 with
+  | none => ok (done worst)
+  | some i4 =>
+    let (f, _) ← Slice.index_usize s1 i4
+    if f != hashtrinity.EMPTY
+    then
+      let i5 ←
+        hashtrinity.freq.FreqLine.probe_examinations
+          {
+            ctrl := s,
+            slots := s1,
+            gshift := i,
+            gmask := i1,
+            bits := i2,
+            len := i3,
+            side := fs,
+            overflow := o
+          } f
+      let worst1 ← core.cmp.Ord.max.default core.cmp.OrdU32 worst i5
+      ok (cont (iter1, worst1))
+    else ok (cont (iter1, worst))
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::longest_probe]: loop 0:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1355:8-1360:9
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.freq.FreqMap.longest_probe_loop
+  {V : Type} (iter : core.ops.range.Range Std.Usize) (s : Slice Std.U8)
+  (s1 : Slice (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V))) (i : Std.U32)
+  (i1 : Std.Usize) (i2 : Std.U32) (i3 : Std.Usize)
+  (fs : hashtrinity.freq.FreqSide V)
+  (o : Option (hashtrinity.overflow.Overflow Std.U64 V)) (worst : Std.U32) :
+  Result Std.U32
+  := do
+  loop
+    (fun (iter1, worst1) => hashtrinity.freq.FreqMap.longest_probe_loop.body s
+      s1 i i1 i2 i3 fs o iter1 worst1)
+    (iter, worst)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::longest_probe]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1353:4-1362:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMap.longest_probe
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.freq.FreqMap K V) :
+  Result Std.Usize
+  := do
+  let i := Slice.len self.inner.slots
+  let worst ←
+    hashtrinity.freq.FreqMap.longest_probe_loop
+      { start := 0#usize, «end» := i } self.inner.ctrl self.inner.slots
+      self.inner.gshift self.inner.gmask self.inner.bits self.inner.len
+      self.inner.side self.inner.overflow 0#u32
+  ok (UScalar.cast .Usize worst)
+
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::overflow_len]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1354:4-1359:5
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1366:4-1371:5
     Visibility: public -/
 def hashtrinity.freq.FreqMap.overflow_len
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -109164,7 +110094,7 @@ def hashtrinity.overflow.Overflow.height
   hashtrinity.overflow.Overflow.h algebraCoordInst self self.root
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::overflow_height]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1363:4-1368:5
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1375:4-1380:5
     Visibility: public -/
 def hashtrinity.freq.FreqMap.overflow_height
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
@@ -109214,530 +110144,6 @@ def hashtrinity.TableKVRegen.coordinate_with_capacity
   hashtrinity.Table.with_bits V corecmpEqInst algebraCoordInvInst.CoordInst
     (hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore
     algebraCoordInvInst corecmpEqInst) i
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 740:12-752:5 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Table.probe_capped_with_loop.body
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
-  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
-  (ss : hashtrinity.side.SideStore K V KS)
-  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
-  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
-  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (empties : Std.U32)
-  (hits : Std.U32) :
-  Result (ControlFlow Std.U32 hashtrinity.Capped)
-  := do
-  if hits != 0#u32
-  then
-    let i3 ← core.num.U32.trailing_zeros hits
-    let i4 ← lift (UScalar.cast .Usize i3)
-    let slot ← home + i4
-    let b ← ConfirmInst.confirm confirm t slot
-    if b
-    then ok (done (hashtrinity.Capped.Hit slot))
-    else
-      let i5 ← hits - 1#u32
-      let hits1 ← lift (hits &&& i5)
-      ok (cont hits1)
-  else
-    if empties != 0#u32
-    then
-      let i3 ← core.num.U32.trailing_zeros empties
-      let i4 ← lift (UScalar.cast .Usize i3)
-      let i5 ← home + i4
-      ok (done (hashtrinity.Capped.Vacant i5))
-    else
-      let c ←
-        hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
-          algebraCoordInst algebraKeyStoreInst ConfirmInst
-          {
-            coords := s,
-            vals := s1,
-            keys := t,
-            side := ss,
-            overflow := o,
-            bits := i,
-            len := i1,
-            tombs := i2,
-            _k := pd
-          } coord home confirm
-      ok (done c)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 740:12-752:5 -/
-@[rust_loop]
-def hashtrinity.overflow.Table.probe_capped_with_loop
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
-  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
-  (ss : hashtrinity.side.SideStore K V KS)
-  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
-  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
-  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (hits : Std.U32)
-  (empties : Std.U32) :
-  Result hashtrinity.Capped
-  := do
-  loop
-    (fun hits1 => hashtrinity.overflow.Table.probe_capped_with_loop.body
-      corecmpEqInst algebraCoordInst algebraKeyStoreInst ConfirmInst s s1 t ss
-      o i i1 i2 pd coord home confirm empties hits1)
-    hits
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 729:4-752:5 -/
-def hashtrinity.overflow.Table.probe_capped_with
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (home : Std.Usize) (confirm : T3) :
-  Result hashtrinity.Capped
-  := do
-  let i ← lift (UScalar.cast .Usize hashtrinity.LINEAR_G)
-  let i1 ← home + i
-  let i2 := Slice.len self.coords
-  if i1 <= i2
-  then
-    let (hits, empties) ←
-      hashtrinity.overflow.prefix_masks self.coords home coord
-    hashtrinity.overflow.Table.probe_capped_with_loop corecmpEqInst
-      algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords self.vals
-      self.keys self.side self.overflow self.bits self.len self.tombs
-      self._k coord home confirm hits empties
-  else
-    hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst ConfirmInst self coord home confirm
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::get_coord]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 579:4-612:5 -/
-def hashtrinity.Table.get_coord
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (k : K) :
-  Result (Option V)
-  := do
-  let coord ←
-    hashtrinity.Table.coord_of V corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst k
-  let b ← hashtrinity.is_sentinel coord
-  if b
-  then
-    let o ←
-      hashtrinity.side.SideStore.find algebraCoordInst algebraKeyStoreInst
-        self.side coord k
-    let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue val =>
-      let s := alloc.vec.Vec.deref self.side.vals
-      let mu ←
-        core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
-          (core.mem.maybe_uninit.MaybeUninit V)) s val
-      let t ← core.mem.maybe_uninit.MaybeUninit.assume_init_ref mu
-      ok (some t)
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
-        V residual
-  else
-    let home ←
-      hashtrinity.Table.home corecmpEqInst algebraCoordInst algebraKeyStoreInst
-        self coord
-    let sc ←
-      core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
-        Std.U64) self.coords home
-    if sc = coord
-    then
-      let b1 ← algebraKeyStoreInst.«matches» self.keys home coord k
-      if b1
-      then
-        let mu ←
-          core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
-            (core.mem.maybe_uninit.MaybeUninit V)) self.vals home
-        let t ← core.mem.maybe_uninit.MaybeUninit.assume_init_ref mu
-        ok (some t)
-      else
-        let i ← lift (UScalar.cast .Usize coord)
-        if home = i
-        then
-          if sc = hashtrinity.EMPTY
-          then ok none
-          else
-            let c ←
-              hashtrinity.overflow.Table.probe_capped_with corecmpEqInst
-                algebraCoordInst algebraKeyStoreInst
-                (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
-                corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord
-                home { coord, k }
-            match c with
-            | hashtrinity.Capped.Hit i1 =>
-              let mu ←
-                core.slice.Slice.get_unchecked
-                  (core.slice.index.SliceIndexUsizeSlice
-                  (core.mem.maybe_uninit.MaybeUninit V)) self.vals i1
-              let t ← core.mem.maybe_uninit.MaybeUninit.assume_init_ref mu
-              ok (some t)
-            | hashtrinity.Capped.Vacant _ => ok none
-            | hashtrinity.Capped.Blocked =>
-              let o ← core.option.Option.as_ref self.overflow
-              match o with
-              | none => ok none
-              | some o1 =>
-                hashtrinity.overflow.Overflow.get algebraCoordInst
-                  corecmpEqInst o1 coord k
-        else
-          let c ←
-            hashtrinity.overflow.Table.probe_capped_with corecmpEqInst
-              algebraCoordInst algebraKeyStoreInst
-              (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
-              corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord
-              home { coord, k }
-          match c with
-          | hashtrinity.Capped.Hit i1 =>
-            let mu ←
-              core.slice.Slice.get_unchecked
-                (core.slice.index.SliceIndexUsizeSlice
-                (core.mem.maybe_uninit.MaybeUninit V)) self.vals i1
-            let t ← core.mem.maybe_uninit.MaybeUninit.assume_init_ref mu
-            ok (some t)
-          | hashtrinity.Capped.Vacant _ => ok none
-          | hashtrinity.Capped.Blocked =>
-            let o ← core.option.Option.as_ref self.overflow
-            match o with
-            | none => ok none
-            | some o1 =>
-              hashtrinity.overflow.Overflow.get algebraCoordInst corecmpEqInst
-                o1 coord k
-    else
-      let i ← lift (UScalar.cast .Usize coord)
-      if home = i
-      then
-        if sc = hashtrinity.EMPTY
-        then ok none
-        else
-          let c ←
-            hashtrinity.overflow.Table.probe_capped_with corecmpEqInst
-              algebraCoordInst algebraKeyStoreInst
-              (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
-              corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord
-              home { coord, k }
-          match c with
-          | hashtrinity.Capped.Hit i1 =>
-            let mu ←
-              core.slice.Slice.get_unchecked
-                (core.slice.index.SliceIndexUsizeSlice
-                (core.mem.maybe_uninit.MaybeUninit V)) self.vals i1
-            let t ← core.mem.maybe_uninit.MaybeUninit.assume_init_ref mu
-            ok (some t)
-          | hashtrinity.Capped.Vacant _ => ok none
-          | hashtrinity.Capped.Blocked =>
-            let o ← core.option.Option.as_ref self.overflow
-            match o with
-            | none => ok none
-            | some o1 =>
-              hashtrinity.overflow.Overflow.get algebraCoordInst corecmpEqInst
-                o1 coord k
-      else
-        let c ←
-          hashtrinity.overflow.Table.probe_capped_with corecmpEqInst
-            algebraCoordInst algebraKeyStoreInst
-            (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
-            corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home
-            { coord, k }
-        match c with
-        | hashtrinity.Capped.Hit i1 =>
-          let mu ←
-            core.slice.Slice.get_unchecked
-              (core.slice.index.SliceIndexUsizeSlice
-              (core.mem.maybe_uninit.MaybeUninit V)) self.vals i1
-          let t ← core.mem.maybe_uninit.MaybeUninit.assume_init_ref mu
-          ok (some t)
-        | hashtrinity.Capped.Vacant _ => ok none
-        | hashtrinity.Capped.Blocked =>
-          let o ← core.option.Option.as_ref self.overflow
-          match o with
-          | none => ok none
-          | some o1 =>
-            hashtrinity.overflow.Overflow.get algebraCoordInst corecmpEqInst o1
-              coord k
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::get]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 567:4-569:5
-    Visibility: public -/
-def hashtrinity.Table.get
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (k : K) :
-  Result (Option V)
-  := do
-  hashtrinity.Table.get_coord corecmpEqInst algebraCoordInst
-    algebraKeyStoreInst self k
-
-/-- [apeiron_word::hashtrinity::InsertHit]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 939:0-954:1 -/
-structure hashtrinity.InsertHit (V : Type) where
-  slot : Std.Usize
-  node : Std.U32
-  entry : Std.U32
-  coord : Std.U64
-  store : hashtrinity.Store
-  new : V
-  old : V
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::push]: loop body 0:
-    Source: '../../src/map/hashtrinity/side.rs', lines 43:12-48:13 -/
-@[rust_loop_body]
-def hashtrinity.side.SideStore.push_loop.body
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (v : alloc.vec.Vec Std.U64) (grown : KS) (grown1 : KS) (i : Std.Usize) :
-  Result (ControlFlow (KS × KS × Std.Usize) KS)
-  := do
-  let i1 := alloc.vec.Vec.len v
-  if i < i1
-  then
-    let c ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64) v i
-    let (key, grown2) ← algebraKeyStoreInst.take_key grown i c
-    let grown3 ← algebraKeyStoreInst.set grown1 i key
-    let i2 ← i + 1#usize
-    ok (cont (grown2, grown3, i2))
-  else ok (done grown1)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::push]: loop 0:
-    Source: '../../src/map/hashtrinity/side.rs', lines 43:12-48:13 -/
-@[rust_loop]
-def hashtrinity.side.SideStore.push_loop
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (v : alloc.vec.Vec Std.U64) (grown : KS) (grown1 : KS) (i : Std.Usize) :
-  Result KS
-  := do
-  loop
-    (fun (grown2, grown3, i1) => hashtrinity.side.SideStore.push_loop.body
-      algebraKeyStoreInst v grown2 grown3 i1)
-    (grown, grown1, i)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::push]:
-    Source: '../../src/map/hashtrinity/side.rs', lines 37:4-56:5 -/
-def hashtrinity.side.SideStore.push
-  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
-  (coord : Std.U64) (k : K) (v : V) :
-  Result (hashtrinity.side.SideStore K V KS)
-  := do
-  let i := alloc.vec.Vec.len self.coords
-  let need ← i + 1#usize
-  if need > self.cap
-  then
-    let i1 ← self.cap * 2#usize
-    let i2 ← core.cmp.Ord.max.default core.cmp.OrdUsize i1 4#usize
-    let new_cap ← core.cmp.Ord.max.default core.cmp.OrdUsize i2 need
-    let grown ← algebraKeyStoreInst.alloc new_cap
-    let grown1 ←
-      hashtrinity.side.SideStore.push_loop algebraKeyStoreInst self.coords
-        self.keys grown 0#usize
-    let i3 := alloc.vec.Vec.len self.coords
-    let grown2 ← algebraKeyStoreInst.set grown1 i3 k
-    let v1 ← alloc.vec.Vec.push self.coords coord
-    let mu ← core.mem.maybe_uninit.MaybeUninit.new v
-    let v2 ← alloc.vec.Vec.push self.vals mu
-    ok { self with coords := v1, vals := v2, keys := grown2, cap := new_cap }
-  else
-    let i1 := alloc.vec.Vec.len self.coords
-    let grown ← algebraKeyStoreInst.set self.keys i1 k
-    let v1 ← alloc.vec.Vec.push self.coords coord
-    let mu ← core.mem.maybe_uninit.MaybeUninit.new v
-    let v2 ← alloc.vec.Vec.push self.vals mu
-    ok { self with coords := v1, vals := v2, keys := grown }
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::insert_core]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1012:4-1105:5 -/
-def hashtrinity.Table.insert_core
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (k : K) (new : V) (last_write : Bool) :
-  Result ((Option (hashtrinity.InsertHit V)) × (hashtrinity.Table K V KS))
-  := do
-  let coord ←
-    hashtrinity.Table.coord_of V corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst k
-  let b ← hashtrinity.is_sentinel coord
-  if b
-  then
-    let o ←
-      hashtrinity.side.SideStore.find algebraCoordInst algebraKeyStoreInst
-        self.side coord k
-    match o with
-    | none =>
-      let ss ←
-        hashtrinity.side.SideStore.push algebraCoordInst algebraKeyStoreInst
-          self.side coord k new
-      ok (none, { self with side := ss })
-    | some i =>
-      core.mem.drop k
-      let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut self.side.vals)
-      let (mu, get_unchecked_mut_back) ←
-        core.slice.Slice.get_unchecked_mut
-          (core.slice.index.SliceIndexUsizeSlice
-          (core.mem.maybe_uninit.MaybeUninit V)) s i
-      let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
-      if last_write
-      then
-        let mu1 ← core.mem.maybe_uninit.MaybeUninit.new new
-        let s1 := get_unchecked_mut_back mu
-        let v := deref_mut_back s1
-        let (s2, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut v)
-        let (_, get_unchecked_mut_back1) ←
-          core.slice.Slice.get_unchecked_mut
-            (core.slice.index.SliceIndexUsizeSlice
-            (core.mem.maybe_uninit.MaybeUninit V)) s2 i
-        core.mem.drop old
-        let s3 := get_unchecked_mut_back1 mu1
-        let v1 := deref_mut_back1 s3
-        ok (none, { self with side := { self.side with vals := v1 } })
-      else
-        let s1 := get_unchecked_mut_back mu
-        let v := deref_mut_back s1
-        ok (some
-          {
-            slot := i,
-            node := 0#u32,
-            entry := 0#u32,
-            coord,
-            store := hashtrinity.Store.Side,
-            new,
-            old
-          }, { self with side := { self.side with vals := v } })
-  else
-    let self1 ←
-      hashtrinity.Table.grow_for_one corecmpEqInst algebraCoordInst
-        algebraKeyStoreInst self
-    let c ←
-      hashtrinity.overflow.Table.probe_capped_keyed corecmpEqInst
-        algebraCoordInst algebraKeyStoreInst self1 coord k
-    match c with
-    | hashtrinity.Capped.Hit i =>
-      core.mem.drop k
-      let (mu, get_unchecked_mut_back) ←
-        core.slice.Slice.get_unchecked_mut
-          (core.slice.index.SliceIndexUsizeSlice
-          (core.mem.maybe_uninit.MaybeUninit V)) self1.vals i
-      let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
-      if last_write
-      then
-        let mu1 ← core.mem.maybe_uninit.MaybeUninit.new new
-        let s := get_unchecked_mut_back mu
-        let (_, get_unchecked_mut_back1) ←
-          core.slice.Slice.get_unchecked_mut
-            (core.slice.index.SliceIndexUsizeSlice
-            (core.mem.maybe_uninit.MaybeUninit V)) s i
-        core.mem.drop old
-        let s1 := get_unchecked_mut_back1 mu1
-        ok (none, { self1 with vals := s1 })
-      else
-        let (_, get_unchecked_mut_back1) ←
-          core.slice.Slice.get_unchecked_mut
-            (core.slice.index.SliceIndexUsizeSlice Std.U64) self1.coords i
-        let i1 ← hashtrinity.TOMB
-        let s := get_unchecked_mut_back1 i1
-        let s1 := get_unchecked_mut_back mu
-        ok (some
-          {
-            slot := i,
-            node := 0#u32,
-            entry := 0#u32,
-            coord,
-            store := hashtrinity.Store.Main,
-            new,
-            old
-          }, { self1 with coords := s, vals := s1 })
-    | hashtrinity.Capped.Vacant i =>
-      let (_, get_unchecked_mut_back) ←
-        core.slice.Slice.get_unchecked_mut
-          (core.slice.index.SliceIndexUsizeSlice Std.U64) self1.coords i
-      let mu ← core.mem.maybe_uninit.MaybeUninit.new new
-      let (_, get_unchecked_mut_back1) ←
-        core.slice.Slice.get_unchecked_mut
-          (core.slice.index.SliceIndexUsizeSlice
-          (core.mem.maybe_uninit.MaybeUninit V)) self1.vals i
-      let t ← algebraKeyStoreInst.set self1.keys i k
-      let i1 ← self1.len + 1#usize
-      let s := get_unchecked_mut_back coord
-      let s1 := get_unchecked_mut_back1 mu
-      ok (none, { self1 with coords := s, vals := s1, keys := t, len := i1 })
-    | hashtrinity.Capped.Blocked =>
-      let b1 := core.option.Option.is_none self1.overflow
-      let o ←
-        if b1
-        then
-          do
-          let o1 ← hashtrinity.overflow.Overflow.new V algebraCoordInst
-          ok (some o1)
-        else ok self1.overflow
-      let (o1, as_mut_back) ← core.option.Option.as_mut o
-      match o1 with
-      | none => fail panic
-      | some ov =>
-        let o2 ←
-          hashtrinity.overflow.Overflow.find_entry algebraCoordInst
-            corecmpEqInst ov coord k
-        match o2 with
-        | none =>
-          let (_, ov1) ←
-            hashtrinity.overflow.Overflow.insert_new_at algebraCoordInst ov
-              coord k new
-          let o3 := as_mut_back (some ov1)
-          ok (none, { self1 with overflow := o3 })
-        | some p =>
-          let (node, entry) := p
-          core.mem.drop k
-          let (old, ov1) ←
-            hashtrinity.overflow.Overflow.take_value algebraCoordInst ov node
-              entry
-          if last_write
-          then
-            let ov2 ←
-              hashtrinity.overflow.Overflow.write_back algebraCoordInst ov1
-                node entry new
-            core.mem.drop old
-            let o3 := as_mut_back (some ov2)
-            ok (none, { self1 with overflow := o3 })
-          else
-            let o3 := as_mut_back (some ov1)
-            ok (some
-              {
-                slot := 0#usize,
-                node,
-                entry,
-                coord,
-                store := hashtrinity.Store.Overflow,
-                new,
-                old
-              }, { self1 with overflow := o3 })
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::insert_merge_last_write]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1139:4-1144:5
-    Visibility: public -/
-def hashtrinity.Table.insert_merge_last_write
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (k : K) (new : V) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  let (o, self1) ←
-    hashtrinity.Table.insert_core corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst self k new true
-  match o with
-  | none => ok self1
-  | some _ => fail panic
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::len]:
     Source: '../../src/map/hashtrinity/mod.rs', lines 1244:4-1252:5
@@ -112475,6 +112881,1105 @@ def table.Table.assemble_directory
     HomeInst keyrepKeyRepInst self.default self.home self.resident self.shards
     self.len self.key { self.locator with links := v } locations 0#usize
 
+/-- [apeiron_word::table::parallel::PhaseNanos]
+    Source: '../../src/map/table/parallel.rs', lines 62:0-84:1
+    Visibility: public -/
+structure table.parallel.PhaseNanos where
+  qualify : Std.U64
+  partition : Std.U64
+  validate : Std.U64
+  schedule : Std.U64
+  reserve : Std.U64
+  kernel : Std.U64
+  assemble : Std.U64
+
+/-- [apeiron_word::table::parallel::{apeiron_word::table::parallel::PhaseNanos}::absorb]:
+    Source: '../../src/map/table/parallel.rs', lines 87:4-95:5 -/
+def table.parallel.PhaseNanos.absorb
+  (self : table.parallel.PhaseNanos) (other : table.parallel.PhaseNanos) :
+  Result table.parallel.PhaseNanos
+  := do
+  let i ← self.qualify + other.qualify
+  let i1 ← self.partition + other.partition
+  let i2 ← self.validate + other.validate
+  let i3 ← self.schedule + other.schedule
+  let i4 ← self.reserve + other.reserve
+  let i5 ← self.kernel + other.kernel
+  let i6 ← self.assemble + other.assemble
+  ok
+    {
+      qualify := i,
+      partition := i1,
+      validate := i2,
+      schedule := i3,
+      reserve := i4,
+      kernel := i5,
+      assemble := i6
+    }
+
+/-- [apeiron_word::table::parallel::{apeiron_word::table::parallel::PhaseNanos}::total]:
+    Source: '../../src/map/table/parallel.rs', lines 99:4-107:5
+    Visibility: public -/
+def table.parallel.PhaseNanos.total
+  (self : table.parallel.PhaseNanos) : Result Std.U64 := do
+  let i ← self.qualify + self.partition
+  let i1 ← i + self.validate
+  let i2 ← i1 + self.schedule
+  let i3 ← i2 + self.reserve
+  let i4 ← i3 + self.kernel
+  i4 + self.assemble
+
+/-- [apeiron_word::table::SHARDS]
+    Source: '../../src/map/table.rs', lines 59:0-59:40 -/
+@[global_simps, irreducible]
+def table.SHARDS : Result Std.Usize := table.partition.SHARDS
+
+/-- [apeiron_word::table::slots_for]: loop body 0:
+    Source: '../../src/map/table/state.rs', lines 653:4-657:1 -/
+@[rust_loop_body]
+def table.slots_for_loop.body
+  (twice : Std.Usize) (capacity : Std.Usize) :
+  Result (ControlFlow Std.Usize (core.result.Result Std.Usize
+    table.StorageError))
+  := do
+  if capacity < twice
+  then
+    let o ← lift (Usize.checked_mul capacity 2#usize)
+    let r ← core.option.Option.ok_or o table.StorageError.SizeOverflow
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val => ok (cont val)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Std.Usize (core.convert.FromSame table.StorageError) residual
+      ok (done r1)
+  else ok (done (core.result.Result.Ok capacity))
+
+/-- [apeiron_word::table::slots_for]: loop 0:
+    Source: '../../src/map/table/state.rs', lines 653:4-657:1 -/
+@[rust_loop]
+def table.slots_for_loop
+  (twice : Std.Usize) (capacity : Std.Usize) :
+  Result (core.result.Result Std.Usize table.StorageError)
+  := do
+  loop
+    (fun capacity1 => table.slots_for_loop.body twice capacity1)
+    capacity
+
+/-- [apeiron_word::table::slots_for]:
+    Source: '../../src/map/table/state.rs', lines 641:0-657:1 -/
+def table.slots_for
+  (load : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result Std.Usize table.StorageError)
+  := do
+  if load = 0#usize
+  then ok (core.result.Result.Ok 0#usize)
+  else
+    let o ← lift (Usize.checked_mul load 2#usize)
+    let r ← core.option.Option.ok_or o table.StorageError.SizeOverflow
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let i ← core.cmp.Ord.max.default core.cmp.OrdUsize n 2#usize
+      let o1 ← lift (Usize.checked_mul i 2#usize)
+      let r1 ← core.option.Option.ok_or o1 table.StorageError.SizeOverflow
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        table.slots_for_loop val val1
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Std.Usize (core.convert.FromSame table.StorageError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Std.Usize (core.convert.FromSame table.StorageError) residual
+
+/-- [apeiron_word::table::resources::try_reserve_exact::{closure}]
+    Source: '../../src/map/table/resources.rs', lines 200:17-200:51 -/
+@[reducible]
+def table.resources.try_reserve_exact.closure (T : Type) := Unit
+
+/-- [apeiron_word::table::resources::try_reserve_exact::{impl core::ops::function::FnOnce<(alloc::collections::TryReserveError,), apeiron_word::table::StorageError> for apeiron_word::table::resources::try_reserve_exact::{closure}<T>}::call_once]:
+    Source: '../../src/map/table/resources.rs', lines 200:17-200:51 -/
+def
+  table.resources.try_reserve_exact.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError.call_once
+  {T : Type} (c : table.resources.try_reserve_exact.closure T)
+  (tupled_args : alloc.collections.TryReserveError) :
+  Result table.StorageError
+  := do
+  ok table.StorageError.AllocationFailed
+
+/-- Trait implementation: [apeiron_word::table::resources::try_reserve_exact::{impl core::ops::function::FnOnce<(alloc::collections::TryReserveError,), apeiron_word::table::StorageError> for apeiron_word::table::resources::try_reserve_exact::{closure}<T>}]
+    Source: '../../src/map/table/resources.rs', lines 200:17-200:51 -/
+@[reducible]
+def
+  table.resources.try_reserve_exact.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError
+  (T : Type) : core.ops.function.FnOnce
+  (table.resources.try_reserve_exact.closure T)
+  alloc.collections.TryReserveError table.StorageError := {
+  call_once :=
+    table.resources.try_reserve_exact.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError.call_once
+}
+
+/-- [apeiron_word::table::resources::try_reserve_exact]:
+    Source: '../../src/map/table/resources.rs', lines 194:0-201:1 -/
+def table.resources.try_reserve_exact
+  {T : Type} (items : alloc.vec.Vec T) (additional : Std.Usize) :
+  Result ((core.result.Result Unit table.StorageError) × (alloc.vec.Vec T))
+  := do
+  let (r, items1) ← alloc.vec.Vec.try_reserve_exact Global items additional
+  let r1 ←
+    core.result.Result.map_err
+      (table.resources.try_reserve_exact.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError
+      T) r ()
+  ok (r1, items1)
+
+/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::reserve_empty]:
+    Source: '../../src/map/table/state.rs', lines 467:4-478:5 -/
+def table.Region.reserve_empty
+  {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
+  (corecloneCloneInst1 : core.clone.Clone V) (capacity : Std.Usize) :
+  Result (core.result.Result (table.Region R V) table.StorageError)
+  := do
+  let (r, slots) ←
+    table.resources.try_reserve_exact (alloc.vec.Vec.new (table.SpillSlot R V))
+      capacity
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let (r1, coords) ←
+      table.resources.try_reserve_exact (alloc.vec.Vec.new Std.U64) capacity
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      ok (core.result.Result.Ok
+        { slots, coords, bits := 0#u32, live := 0#usize })
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (table.Region R V) (core.convert.FromSame table.StorageError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (table.Region R V) (core.convert.FromSame table.StorageError) residual
+
+/-- [apeiron_word::table::parallel::reserve_all_shards]: loop body 0:
+    Source: '../../src/map/table/parallel.rs', lines 345:4-367:5 -/
+@[rust_loop_body]
+def table.parallel.reserve_all_shards_loop.body
+  {R : Type} {V : Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone
+  R) (corecloneCloneInst1 : core.clone.Clone V) (i : Std.Usize)
+  (loads : Array Std.Usize 256#usize)
+  (reserved : alloc.vec.Vec (Option (table.Region R V)))
+  (refusal : Option table.StorageError) (s : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (Option (table.Region R V))) × (Option
+    table.StorageError) × Std.Usize) ((alloc.vec.Vec (Option (table.Region R
+    V))) × (Option table.StorageError)))
+  := do
+  if s < i
+  then
+    let b := core.option.Option.is_none refusal
+    let (reserved1, refusal1) ←
+      if b
+      then
+        do
+        let i1 ← Array.index_usize loads s
+        if i1 = 0#usize
+        then
+          let reserved2 ← alloc.vec.Vec.push reserved none
+          ok (reserved2, refusal)
+        else
+          let r ← table.slots_for i1 N
+          match r with
+          | core.result.Result.Ok slots =>
+            let r1 ←
+              table.Region.reserve_empty corecloneCloneInst corecloneCloneInst1
+                slots
+            match r1 with
+            | core.result.Result.Ok region =>
+              let reserved2 ← alloc.vec.Vec.push reserved (some region)
+              ok (reserved2, refusal)
+            | core.result.Result.Err error => ok (reserved, some error)
+          | core.result.Result.Err error => ok (reserved, some error)
+      else ok (reserved, refusal)
+    let s1 ← s + 1#usize
+    ok (cont (reserved1, refusal1, s1))
+  else ok (done (reserved, refusal))
+
+/-- [apeiron_word::table::parallel::reserve_all_shards]: loop 0:
+    Source: '../../src/map/table/parallel.rs', lines 345:4-367:5 -/
+@[rust_loop]
+def table.parallel.reserve_all_shards_loop
+  {R : Type} {V : Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone
+  R) (corecloneCloneInst1 : core.clone.Clone V) (i : Std.Usize)
+  (loads : Array Std.Usize 256#usize)
+  (reserved : alloc.vec.Vec (Option (table.Region R V)))
+  (refusal : Option table.StorageError) (s : Std.Usize) :
+  Result ((alloc.vec.Vec (Option (table.Region R V))) × (Option
+    table.StorageError))
+  := do
+  loop
+    (fun (reserved1, refusal1, s1) =>
+      table.parallel.reserve_all_shards_loop.body N corecloneCloneInst
+      corecloneCloneInst1 i loads reserved1 refusal1 s1)
+    (reserved, refusal, s)
+
+/-- [apeiron_word::table::parallel::reserve_all_shards]:
+    Source: '../../src/map/table/parallel.rs', lines 338:0-372:1 -/
+def table.parallel.reserve_all_shards
+  {R : Type} {V : Type} (N : Std.Usize) (corecloneCloneInst : core.clone.Clone
+  R) (corecloneCloneInst1 : core.clone.Clone V)
+  (loads : Array Std.Usize 256#usize) :
+  Result (core.result.Result (alloc.vec.Vec (Option (table.Region R V)))
+    table.StorageError)
+  := do
+  let i ← table.SHARDS
+  let reserved := alloc.vec.Vec.with_capacity (Option (table.Region R V)) i
+  let (reserved1, refusal) ←
+    table.parallel.reserve_all_shards_loop N corecloneCloneInst
+      corecloneCloneInst1 i loads reserved none 0#usize
+  match refusal with
+  | none => ok (core.result.Result.Ok reserved1)
+  | some error => ok (core.result.Result.Err error)
+
+/-- [apeiron_word::table::parallel::reserve_handle_table]:
+    Source: '../../src/map/table/parallel.rs', lines 379:0-384:1 -/
+def table.parallel.reserve_handle_table
+  (len : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec (Option Std.U32))
+    table.StorageError)
+  := do
+  let (r, handles) ←
+    table.resources.try_reserve_exact (alloc.vec.Vec.new (Option Std.U32)) len
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let handles1 ←
+      alloc.vec.Vec.resize (core.option.Option.Insts.CoreCloneClone
+        core.clone.CloneU32) handles len none
+    ok (core.result.Result.Ok handles1)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec (Option Std.U32)) (core.convert.FromSame
+      table.StorageError) residual
+
+/-- [apeiron_word::table::parallel::reserve_placement_records]: loop body 0:
+    Source: '../../src/map/table/parallel.rs', lines 401:4-421:5 -/
+@[rust_loop_body]
+def table.parallel.reserve_placement_records_loop.body
+  (i : Std.Usize) (loads : Array Std.Usize 256#usize)
+  (record_bufs : alloc.vec.Vec (alloc.vec.Vec (Std.Usize × Std.Usize)))
+  (refusal : Option table.StorageError) (s : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize × Std.Usize)))
+    × (Option table.StorageError) × Std.Usize) ((alloc.vec.Vec (alloc.vec.Vec
+    (Std.Usize × Std.Usize))) × (Option table.StorageError)))
+  := do
+  if s < i
+  then
+    let b := core.option.Option.is_none refusal
+    let (record_bufs1, refusal1) ←
+      if b
+      then
+        do
+        let i1 ← Array.index_usize loads s
+        if i1 > 0#usize
+        then
+          let (r, records) ←
+            table.resources.try_reserve_exact (alloc.vec.Vec.new (Std.Usize ×
+              Std.Usize)) i1
+          match r with
+          | core.result.Result.Ok _ =>
+            let record_bufs2 ← alloc.vec.Vec.push record_bufs records
+            ok (record_bufs2, refusal)
+          | core.result.Result.Err error => ok (record_bufs, some error)
+        else
+          let record_bufs2 ←
+            alloc.vec.Vec.push record_bufs (alloc.vec.Vec.new (Std.Usize ×
+              Std.Usize))
+          ok (record_bufs2, refusal)
+      else ok (record_bufs, refusal)
+    let s1 ← s + 1#usize
+    ok (cont (record_bufs1, refusal1, s1))
+  else ok (done (record_bufs, refusal))
+
+/-- [apeiron_word::table::parallel::reserve_placement_records]: loop 0:
+    Source: '../../src/map/table/parallel.rs', lines 401:4-421:5 -/
+@[rust_loop]
+def table.parallel.reserve_placement_records_loop
+  (i : Std.Usize) (loads : Array Std.Usize 256#usize)
+  (record_bufs : alloc.vec.Vec (alloc.vec.Vec (Std.Usize × Std.Usize)))
+  (refusal : Option table.StorageError) (s : Std.Usize) :
+  Result ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize × Std.Usize))) × (Option
+    table.StorageError))
+  := do
+  loop
+    (fun (record_bufs1, refusal1, s1) =>
+      table.parallel.reserve_placement_records_loop.body i loads record_bufs1
+      refusal1 s1)
+    (record_bufs, refusal, s)
+
+/-- [apeiron_word::table::parallel::reserve_placement_records]:
+    Source: '../../src/map/table/parallel.rs', lines 393:0-426:1 -/
+def table.parallel.reserve_placement_records
+  (loads : Array Std.Usize 256#usize) :
+  Result (core.result.Result (alloc.vec.Vec (alloc.vec.Vec (Std.Usize ×
+    Std.Usize))) table.StorageError)
+  := do
+  let i ← table.SHARDS
+  let (r, record_bufs) ←
+    table.resources.try_reserve_exact (alloc.vec.Vec.new (alloc.vec.Vec
+      (Std.Usize × Std.Usize))) i
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let (record_bufs1, refusal) ←
+      table.parallel.reserve_placement_records_loop i loads record_bufs none
+        0#usize
+    match refusal with
+    | none => ok (core.result.Result.Ok record_bufs1)
+    | some error => ok (core.result.Result.Err error)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec (alloc.vec.Vec (Std.Usize × Std.Usize)))
+      (core.convert.FromSame table.StorageError) residual
+
+/-- [apeiron_word::table::partition::Schedule]
+    Source: '../../src/map/table/partition.rs', lines 528:0-530:1 -/
+structure table.partition.Schedule where
+  bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop body 1:
+    Source: '../../src/map/table/partition.rs', lines 610:12-618:13 -/
+@[rust_loop_body]
+def table.partition.Schedule.is_complete_loop0_loop0.body
+  (bin : alloc.vec.Vec Std.Usize) (seen : Array Bool 256#usize)
+  (complete : Bool) («at» : Std.Usize) :
+  Result (ControlFlow ((Array Bool 256#usize) × Bool × Std.Usize) ((Array
+    Bool 256#usize) × Bool))
+  := do
+  let i := alloc.vec.Vec.len bin
+  if «at» < i
+  then
+    if complete
+    then
+      let s ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+          bin «at»
+      let i1 ← table.partition.SHARDS
+      let (seen1, complete1) ←
+        if s >= i1
+        then ok (seen, false)
+        else
+          do
+          let b ← Array.index_usize seen s
+          if b
+          then ok (seen, false)
+          else let a ← Array.update seen s true
+               ok (a, true)
+      let at1 ← «at» + 1#usize
+      ok (cont (seen1, complete1, at1))
+    else ok (done (seen, false))
+  else ok (done (seen, complete))
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop 1:
+    Source: '../../src/map/table/partition.rs', lines 610:12-618:13 -/
+@[rust_loop]
+def table.partition.Schedule.is_complete_loop0_loop0
+  (seen : Array Bool 256#usize) (complete : Bool)
+  (bin : alloc.vec.Vec Std.Usize) («at» : Std.Usize) :
+  Result ((Array Bool 256#usize) × Bool)
+  := do
+  loop
+    (fun (seen1, complete1, at1) =>
+      table.partition.Schedule.is_complete_loop0_loop0.body bin seen1 complete1
+      at1)
+    (seen, complete, «at»)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop body 0:
+    Source: '../../src/map/table/partition.rs', lines 607:8-620:9 -/
+@[rust_loop_body]
+def table.partition.Schedule.is_complete_loop0.body
+  (self : table.partition.Schedule) (seen : Array Bool 256#usize)
+  (complete : Bool) (worker : Std.Usize) :
+  Result (ControlFlow ((Array Bool 256#usize) × Bool × Std.Usize) ((Array
+    Bool 256#usize) × Bool))
+  := do
+  let i := alloc.vec.Vec.len self.bins
+  if worker < i
+  then
+    if complete
+    then
+      let bin ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (alloc.vec.Vec Std.Usize)) self.bins worker
+      let (seen1, complete1) ←
+        table.partition.Schedule.is_complete_loop0_loop0 seen true bin 0#usize
+      let worker1 ← worker + 1#usize
+      ok (cont (seen1, complete1, worker1))
+    else ok (done (seen, false))
+  else ok (done (seen, complete))
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop 0:
+    Source: '../../src/map/table/partition.rs', lines 607:8-620:9 -/
+@[rust_loop]
+def table.partition.Schedule.is_complete_loop0
+  (self : table.partition.Schedule) (seen : Array Bool 256#usize)
+  (complete : Bool) (worker : Std.Usize) :
+  Result ((Array Bool 256#usize) × Bool)
+  := do
+  loop
+    (fun (seen1, complete1, worker1) =>
+      table.partition.Schedule.is_complete_loop0.body self seen1 complete1
+      worker1)
+    (seen, complete, worker)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop body 2:
+    Source: '../../src/map/table/partition.rs', lines 622:8-627:9 -/
+@[rust_loop_body]
+def table.partition.Schedule.is_complete_loop1.body
+  (seen : Array Bool 256#usize) (complete : Bool) (shard : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  let i ← table.partition.SHARDS
+  if shard < i
+  then
+    if complete
+    then
+      let b ← Array.index_usize seen shard
+      let complete1 ← if b
+                        then ok true
+                        else ok false
+      let shard1 ← shard + 1#usize
+      ok (cont (complete1, shard1))
+    else ok (done false)
+  else ok (done complete)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop 2:
+    Source: '../../src/map/table/partition.rs', lines 622:8-627:9 -/
+@[rust_loop]
+def table.partition.Schedule.is_complete_loop1
+  (seen : Array Bool 256#usize) (complete : Bool) (shard : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (complete1, shard1) => table.partition.Schedule.is_complete_loop1.body
+      seen complete1 shard1)
+    (complete, shard)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]:
+    Source: '../../src/map/table/partition.rs', lines 603:4-629:5 -/
+def table.partition.Schedule.is_complete
+  (self : table.partition.Schedule) : Result Bool := do
+  let seen := Array.repeat 256#usize false
+  let (seen1, complete) ←
+    table.partition.Schedule.is_complete_loop0 self seen true 0#usize
+  table.partition.Schedule.is_complete_loop1 seen1 complete 0#usize
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::bin]:
+    Source: '../../src/map/table/partition.rs', lines 597:4-599:5 -/
+def table.partition.Schedule.bin
+  (self : table.partition.Schedule) (worker : Std.Usize) :
+  Result (Slice Std.Usize)
+  := do
+  let v ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec
+      Std.Usize)) self.bins worker
+  ok (alloc.vec.Vec.deref v)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::len]:
+    Source: '../../src/map/table/partition.rs', lines 593:4-595:5 -/
+def table.partition.Schedule.len
+  (self : table.partition.Schedule) : Result Std.Usize := do
+  ok (alloc.vec.Vec.len self.bins)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 0:
+    Source: '../../src/map/table/partition.rs', lines 538:8-541:9 -/
+@[rust_loop_body]
+def table.partition.Schedule.lpt_loop0.body
+  (order : alloc.vec.Vec Std.Usize) (shard : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.Usize) × Std.Usize) (alloc.vec.Vec
+    Std.Usize))
+  := do
+  let i ← table.partition.SHARDS
+  if shard < i
+  then
+    let order1 ← alloc.vec.Vec.push order shard
+    let shard1 ← shard + 1#usize
+    ok (cont (order1, shard1))
+  else ok (done order)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 0:
+    Source: '../../src/map/table/partition.rs', lines 538:8-541:9 -/
+@[rust_loop]
+def table.partition.Schedule.lpt_loop0
+  (order : alloc.vec.Vec Std.Usize) (shard : Std.Usize) :
+  Result (alloc.vec.Vec Std.Usize)
+  := do
+  loop
+    (fun (order1, shard1) => table.partition.Schedule.lpt_loop0.body order1
+      shard1)
+    (order, shard)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 2:
+    Source: '../../src/map/table/partition.rs', lines 546:12-555:13 -/
+@[rust_loop_body]
+def table.partition.Schedule.lpt_loop1_loop0.body
+  (i : Std.Usize) (loads : Array Std.Usize 256#usize)
+  (order : alloc.vec.Vec Std.Usize) (best : Std.Usize) (candidate : Std.Usize)
+  :
+  Result (ControlFlow (Std.Usize × Std.Usize) Std.Usize)
+  := do
+  if candidate < i
+  then
+    let candidate_shard ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        order candidate
+    let best_shard ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        order best
+    let i1 ← Array.index_usize loads candidate_shard
+    let i2 ← Array.index_usize loads best_shard
+    let best1 ←
+      if i1 > i2
+      then ok candidate
+      else
+        if i1 = i2
+        then if candidate_shard < best_shard
+             then ok candidate
+             else ok best
+        else ok best
+    let candidate1 ← candidate + 1#usize
+    ok (cont (best1, candidate1))
+  else ok (done best)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 2:
+    Source: '../../src/map/table/partition.rs', lines 546:12-555:13 -/
+@[rust_loop]
+def table.partition.Schedule.lpt_loop1_loop0
+  (i : Std.Usize) (loads : Array Std.Usize 256#usize)
+  (order : alloc.vec.Vec Std.Usize) (best : Std.Usize) (candidate : Std.Usize)
+  :
+  Result Std.Usize
+  := do
+  loop
+    (fun (best1, candidate1) => table.partition.Schedule.lpt_loop1_loop0.body i
+      loads order best1 candidate1)
+    (best, candidate)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 1:
+    Source: '../../src/map/table/partition.rs', lines 543:8-560:9 -/
+@[rust_loop_body]
+def table.partition.Schedule.lpt_loop1.body
+  (loads : Array Std.Usize 256#usize) (order : alloc.vec.Vec Std.Usize)
+  (first : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.Usize) × Std.Usize) (alloc.vec.Vec
+    Std.Usize))
+  := do
+  let i ← table.partition.SHARDS
+  if first < i
+  then
+    let candidate ← first + 1#usize
+    let best ←
+      table.partition.Schedule.lpt_loop1_loop0 i loads order first candidate
+    let order1 ←
+      if best != first
+      then
+        do
+        let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut order)
+        let s1 ← core.slice.Slice.swap s first best
+        ok (deref_mut_back s1)
+      else ok order
+    let first1 ← first + 1#usize
+    ok (cont (order1, first1))
+  else ok (done order)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 1:
+    Source: '../../src/map/table/partition.rs', lines 543:8-560:9 -/
+@[rust_loop]
+def table.partition.Schedule.lpt_loop1
+  (loads : Array Std.Usize 256#usize) (order : alloc.vec.Vec Std.Usize)
+  (first : Std.Usize) :
+  Result (alloc.vec.Vec Std.Usize)
+  := do
+  loop
+    (fun (order1, first1) => table.partition.Schedule.lpt_loop1.body loads
+      order1 first1)
+    (order, first)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 3:
+    Source: '../../src/map/table/partition.rs', lines 564:8-568:9 -/
+@[rust_loop_body]
+def table.partition.Schedule.lpt_loop2.body
+  (workers : Std.Usize) (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize))
+  (filled : alloc.vec.Vec Std.Usize) (worker : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec Std.Usize)) ×
+    (alloc.vec.Vec Std.Usize) × Std.Usize) ((alloc.vec.Vec (alloc.vec.Vec
+    Std.Usize)) × (alloc.vec.Vec Std.Usize)))
+  := do
+  if worker < workers
+  then
+    let bins1 ← alloc.vec.Vec.push bins (alloc.vec.Vec.new Std.Usize)
+    let filled1 ← alloc.vec.Vec.push filled 0#usize
+    let worker1 ← worker + 1#usize
+    ok (cont (bins1, filled1, worker1))
+  else ok (done (bins, filled))
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 3:
+    Source: '../../src/map/table/partition.rs', lines 564:8-568:9 -/
+@[rust_loop]
+def table.partition.Schedule.lpt_loop2
+  (workers : Std.Usize) (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize))
+  (filled : alloc.vec.Vec Std.Usize) (worker : Std.Usize) :
+  Result ((alloc.vec.Vec (alloc.vec.Vec Std.Usize)) × (alloc.vec.Vec
+    Std.Usize))
+  := do
+  loop
+    (fun (bins1, filled1, worker1) => table.partition.Schedule.lpt_loop2.body
+      workers bins1 filled1 worker1)
+    (bins, filled, worker)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 5:
+    Source: '../../src/map/table/partition.rs', lines 574:12-581:13 -/
+@[rust_loop_body]
+def table.partition.Schedule.lpt_loop3_loop0.body
+  (workers : Std.Usize) (filled : alloc.vec.Vec Std.Usize) (chosen : Std.Usize)
+  (worker : Std.Usize) :
+  Result (ControlFlow (Std.Usize × Std.Usize) Std.Usize)
+  := do
+  if worker < workers
+  then
+    let i ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        filled worker
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        filled chosen
+    let chosen1 ←
+      if i < i1
+      then ok worker
+      else
+        if i = i1
+        then if worker < chosen
+             then ok worker
+             else ok chosen
+        else ok chosen
+    let worker1 ← worker + 1#usize
+    ok (cont (chosen1, worker1))
+  else ok (done chosen)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 5:
+    Source: '../../src/map/table/partition.rs', lines 574:12-581:13 -/
+@[rust_loop]
+def table.partition.Schedule.lpt_loop3_loop0
+  (workers : Std.Usize) (filled : alloc.vec.Vec Std.Usize) (chosen : Std.Usize)
+  (worker : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun (chosen1, worker1) => table.partition.Schedule.lpt_loop3_loop0.body
+      workers filled chosen1 worker1)
+    (chosen, worker)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 4:
+    Source: '../../src/map/table/partition.rs', lines 570:8-585:9 -/
+@[rust_loop_body]
+def table.partition.Schedule.lpt_loop3.body
+  (loads : Array Std.Usize 256#usize) (workers : Std.Usize)
+  (order : alloc.vec.Vec Std.Usize)
+  (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize))
+  (filled : alloc.vec.Vec Std.Usize) (order_at : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec Std.Usize)) ×
+    (alloc.vec.Vec Std.Usize) × Std.Usize) (alloc.vec.Vec (alloc.vec.Vec
+    Std.Usize)))
+  := do
+  let i := alloc.vec.Vec.len order
+  if order_at < i
+  then
+    let s ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        order order_at
+    let chosen ←
+      table.partition.Schedule.lpt_loop3_loop0 workers filled 0#usize 1#usize
+    let (v, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+        (alloc.vec.Vec Std.Usize)) bins chosen
+    let v1 ← alloc.vec.Vec.push v s
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        filled chosen
+    let i2 ← Array.index_usize loads s
+    let i3 ← lift (core.num.Usize.saturating_add i1 i2)
+    let (_, index_mut_back1) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        filled chosen
+    let order_at1 ← order_at + 1#usize
+    let filled1 := index_mut_back1 i3
+    let bins1 := index_mut_back v1
+    ok (cont (bins1, filled1, order_at1))
+  else ok (done bins)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 4:
+    Source: '../../src/map/table/partition.rs', lines 570:8-585:9 -/
+@[rust_loop]
+def table.partition.Schedule.lpt_loop3
+  (loads : Array Std.Usize 256#usize) (workers : Std.Usize)
+  (order : alloc.vec.Vec Std.Usize)
+  (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize))
+  (filled : alloc.vec.Vec Std.Usize) (order_at : Std.Usize) :
+  Result (alloc.vec.Vec (alloc.vec.Vec Std.Usize))
+  := do
+  loop
+    (fun (bins1, filled1, order_at1) => table.partition.Schedule.lpt_loop3.body
+      loads workers order bins1 filled1 order_at1)
+    (bins, filled, order_at)
+
+/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]:
+    Source: '../../src/map/table/partition.rs', lines 534:4-587:5 -/
+def table.partition.Schedule.lpt
+  (loads : Array Std.Usize 256#usize) (workers : Std.Usize) :
+  Result table.partition.Schedule
+  := do
+  let workers1 ← if workers = 0#usize
+                   then ok 1#usize
+                   else ok workers
+  let order ←
+    table.partition.Schedule.lpt_loop0 (alloc.vec.Vec.new Std.Usize) 0#usize
+  let order1 ← table.partition.Schedule.lpt_loop1 loads order 0#usize
+  let (bins, filled) ←
+    table.partition.Schedule.lpt_loop2 workers1 (alloc.vec.Vec.new
+      (alloc.vec.Vec Std.Usize)) (alloc.vec.Vec.new Std.Usize) 0#usize
+  let bins1 ←
+    table.partition.Schedule.lpt_loop3 loads workers1 order1 bins filled
+      0#usize
+  ok { bins := bins1 }
+
+/-- [apeiron_word::table::parallel::distribute_regions]: loop body 1:
+    Source: '../../src/map/table/parallel.rs', lines 515:8-523:9 -/
+@[rust_loop_body]
+def table.parallel.distribute_regions_loop0_loop0.body
+  {R : Type} {V : Type} (bin : alloc.vec.Vec Std.Usize)
+  (reserved : Slice (Option (table.Region R V)))
+  (record_bufs : Slice (alloc.vec.Vec (Std.Usize × Std.Usize)))
+  (owned : alloc.vec.Vec (Std.Usize × (Option (table.Region R V)) ×
+  (alloc.vec.Vec (Std.Usize × Std.Usize)))) («at» : Std.Usize) :
+  Result (ControlFlow ((Slice (Option (table.Region R V))) × (Slice
+    (alloc.vec.Vec (Std.Usize × Std.Usize))) × (alloc.vec.Vec (Std.Usize ×
+    (Option (table.Region R V)) × (alloc.vec.Vec (Std.Usize × Std.Usize))))
+    × Std.Usize) ((Slice (Option (table.Region R V))) × (Slice (alloc.vec.Vec
+    (Std.Usize × Std.Usize))) × (alloc.vec.Vec (Std.Usize × (Option
+    (table.Region R V)) × (alloc.vec.Vec (Std.Usize × Std.Usize))))))
+  := do
+  let i := alloc.vec.Vec.len bin
+  if «at» < i
+  then
+    let shard_at ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize) bin
+        «at»
+    let (o, index_mut_back) ← Slice.index_mut_usize reserved shard_at
+    let (o1, o2) := core.option.Option.take o
+    let (v, index_mut_back1) ← Slice.index_mut_usize record_bufs shard_at
+    let (v1, v2) ←
+      core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault (Std.Usize ×
+        Std.Usize)) v
+    let owned1 ← alloc.vec.Vec.push owned (shard_at, o1, v1)
+    let at1 ← «at» + 1#usize
+    let s := index_mut_back1 v2
+    let s1 := index_mut_back o2
+    ok (cont (s1, s, owned1, at1))
+  else ok (done (reserved, record_bufs, owned))
+
+/-- [apeiron_word::table::parallel::distribute_regions]: loop 1:
+    Source: '../../src/map/table/parallel.rs', lines 515:8-523:9 -/
+@[rust_loop]
+def table.parallel.distribute_regions_loop0_loop0
+  {R : Type} {V : Type} (reserved : Slice (Option (table.Region R V)))
+  (record_bufs : Slice (alloc.vec.Vec (Std.Usize × Std.Usize)))
+  (bin : alloc.vec.Vec Std.Usize)
+  (owned : alloc.vec.Vec (Std.Usize × (Option (table.Region R V)) ×
+  (alloc.vec.Vec (Std.Usize × Std.Usize)))) («at» : Std.Usize) :
+  Result ((Slice (Option (table.Region R V))) × (Slice (alloc.vec.Vec
+    (Std.Usize × Std.Usize))) × (alloc.vec.Vec (Std.Usize × (Option
+    (table.Region R V)) × (alloc.vec.Vec (Std.Usize × Std.Usize)))))
+  := do
+  loop
+    (fun (reserved1, record_bufs1, owned1, at1) =>
+      table.parallel.distribute_regions_loop0_loop0.body bin reserved1
+      record_bufs1 owned1 at1)
+    (reserved, record_bufs, owned, «at»)
+
+/-- [apeiron_word::table::parallel::distribute_regions]: loop body 0:
+    Source: '../../src/map/table/parallel.rs', lines 511:4-526:5 -/
+@[rust_loop_body]
+def table.parallel.distribute_regions_loop0.body
+  {R : Type} {V : Type} (bins : Slice (alloc.vec.Vec Std.Usize))
+  (reserved : Slice (Option (table.Region R V)))
+  (record_bufs : Slice (alloc.vec.Vec (Std.Usize × Std.Usize)))
+  (regions : alloc.vec.Vec (alloc.vec.Vec (Std.Usize × (Option (table.Region R
+  V)) × (alloc.vec.Vec (Std.Usize × Std.Usize))))) (worker : Std.Usize) :
+  Result (ControlFlow ((Slice (Option (table.Region R V))) × (Slice
+    (alloc.vec.Vec (Std.Usize × Std.Usize))) × (alloc.vec.Vec (alloc.vec.Vec
+    (Std.Usize × (Option (table.Region R V)) × (alloc.vec.Vec (Std.Usize ×
+    Std.Usize))))) × Std.Usize) ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize ×
+    (Option (table.Region R V)) × (alloc.vec.Vec (Std.Usize × Std.Usize)))))
+    × (Slice (Option (table.Region R V))) × (Slice (alloc.vec.Vec (Std.Usize
+    × Std.Usize)))))
+  := do
+  let i := Slice.len bins
+  if worker < i
+  then
+    let bin ← Slice.index_usize bins worker
+    let (reserved1, record_bufs1, owned) ←
+      table.parallel.distribute_regions_loop0_loop0 reserved record_bufs bin
+        (alloc.vec.Vec.new (Std.Usize × (Option (table.Region R V)) ×
+        (alloc.vec.Vec (Std.Usize × Std.Usize)))) 0#usize
+    let regions1 ← alloc.vec.Vec.push regions owned
+    let worker1 ← worker + 1#usize
+    ok (cont (reserved1, record_bufs1, regions1, worker1))
+  else ok (done (regions, reserved, record_bufs))
+
+/-- [apeiron_word::table::parallel::distribute_regions]: loop 0:
+    Source: '../../src/map/table/parallel.rs', lines 511:4-526:5 -/
+@[rust_loop]
+def table.parallel.distribute_regions_loop0
+  {R : Type} {V : Type} (bins : Slice (alloc.vec.Vec Std.Usize))
+  (reserved : Slice (Option (table.Region R V)))
+  (record_bufs : Slice (alloc.vec.Vec (Std.Usize × Std.Usize)))
+  (regions : alloc.vec.Vec (alloc.vec.Vec (Std.Usize × (Option (table.Region R
+  V)) × (alloc.vec.Vec (Std.Usize × Std.Usize))))) (worker : Std.Usize) :
+  Result ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize × (Option (table.Region R
+    V)) × (alloc.vec.Vec (Std.Usize × Std.Usize))))) × (Slice (Option
+    (table.Region R V))) × (Slice (alloc.vec.Vec (Std.Usize × Std.Usize))))
+  := do
+  loop
+    (fun (reserved1, record_bufs1, regions1, worker1) =>
+      table.parallel.distribute_regions_loop0.body bins reserved1 record_bufs1
+      regions1 worker1)
+    (reserved, record_bufs, regions, worker)
+
+/-- [apeiron_word::table::parallel::distribute_regions]:
+    Source: '../../src/map/table/parallel.rs', lines 502:0-528:1 -/
+@[reducible]
+def table.parallel.distribute_regions
+  {R : Type} {V : Type} (bins : Slice (alloc.vec.Vec Std.Usize))
+  (reserved : Slice (Option (table.Region R V)))
+  (record_bufs : Slice (alloc.vec.Vec (Std.Usize × Std.Usize))) :
+  Result ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize × (Option (table.Region R
+    V)) × (alloc.vec.Vec (Std.Usize × Std.Usize))))) × (Slice (Option
+    (table.Region R V))) × (Slice (alloc.vec.Vec (Std.Usize × Std.Usize))))
+  := do
+  table.parallel.distribute_regions_loop0 bins reserved record_bufs
+    (alloc.vec.Vec.new (alloc.vec.Vec (Std.Usize × (Option (table.Region R V))
+    × (alloc.vec.Vec (Std.Usize × Std.Usize))))) 0#usize
+
+/-- [apeiron_word::table::parallel::schedule_bins_with_regions]: loop body 1:
+    Source: '../../src/map/table/parallel.rs', lines 452:8-455:9 -/
+@[rust_loop_body]
+def table.parallel.schedule_bins_with_regions_loop0_loop0.body
+  (bin : Slice Std.Usize) (row : alloc.vec.Vec Std.Usize) («at» : Std.Usize)
+  :
+  Result (ControlFlow ((alloc.vec.Vec Std.Usize) × Std.Usize) (alloc.vec.Vec
+    Std.Usize))
+  := do
+  let i := Slice.len bin
+  if «at» < i
+  then
+    let i1 ← Slice.index_usize bin «at»
+    let row1 ← alloc.vec.Vec.push row i1
+    let at1 ← «at» + 1#usize
+    ok (cont (row1, at1))
+  else ok (done row)
+
+/-- [apeiron_word::table::parallel::schedule_bins_with_regions]: loop 1:
+    Source: '../../src/map/table/parallel.rs', lines 452:8-455:9 -/
+@[rust_loop]
+def table.parallel.schedule_bins_with_regions_loop0_loop0
+  (bin : Slice Std.Usize) (row : alloc.vec.Vec Std.Usize) («at» : Std.Usize)
+  :
+  Result (alloc.vec.Vec Std.Usize)
+  := do
+  loop
+    (fun (row1, at1) =>
+      table.parallel.schedule_bins_with_regions_loop0_loop0.body bin row1 at1)
+    (row, «at»)
+
+/-- [apeiron_word::table::parallel::schedule_bins_with_regions]: loop body 0:
+    Source: '../../src/map/table/parallel.rs', lines 448:4-458:5 -/
+@[rust_loop_body]
+def table.parallel.schedule_bins_with_regions_loop0.body
+  (schedule : table.partition.Schedule)
+  (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize)) (worker : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec Std.Usize)) × Std.Usize)
+    (alloc.vec.Vec (alloc.vec.Vec Std.Usize)))
+  := do
+  let i ← table.partition.Schedule.len schedule
+  if worker < i
+  then
+    let bin ← table.partition.Schedule.bin schedule worker
+    let row ←
+      table.parallel.schedule_bins_with_regions_loop0_loop0 bin
+        (alloc.vec.Vec.new Std.Usize) 0#usize
+    let bins1 ← alloc.vec.Vec.push bins row
+    let worker1 ← worker + 1#usize
+    ok (cont (bins1, worker1))
+  else ok (done bins)
+
+/-- [apeiron_word::table::parallel::schedule_bins_with_regions]: loop 0:
+    Source: '../../src/map/table/parallel.rs', lines 448:4-458:5 -/
+@[rust_loop]
+def table.parallel.schedule_bins_with_regions_loop0
+  (schedule : table.partition.Schedule)
+  (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize)) (worker : Std.Usize) :
+  Result (alloc.vec.Vec (alloc.vec.Vec Std.Usize))
+  := do
+  loop
+    (fun (bins1, worker1) =>
+      table.parallel.schedule_bins_with_regions_loop0.body schedule bins1
+      worker1)
+    (bins, worker)
+
+/-- [apeiron_word::table::parallel::schedule_bins_with_regions]:
+    Source: '../../src/map/table/parallel.rs', lines 434:0-460:1 -/
+def table.parallel.schedule_bins_with_regions
+  {R : Type} {V : Type} (loads : Array Std.Usize 256#usize) (tasks : Std.Usize)
+  (reserved : Slice (Option (table.Region R V)))
+  (record_bufs : Slice (alloc.vec.Vec (Std.Usize × Std.Usize))) :
+  Result ((core.result.Result (alloc.vec.Vec (alloc.vec.Vec (Std.Usize ×
+    (Option (table.Region R V)) × (alloc.vec.Vec (Std.Usize × Std.Usize)))))
+    table.StorageError) × (Slice (Option (table.Region R V))) × (Slice
+    (alloc.vec.Vec (Std.Usize × Std.Usize))))
+  := do
+  let schedule ← table.partition.Schedule.lpt loads tasks
+  let b ← table.partition.Schedule.is_complete schedule
+  if b
+  then
+    let bins ←
+      table.parallel.schedule_bins_with_regions_loop0 schedule
+        (alloc.vec.Vec.new (alloc.vec.Vec Std.Usize)) 0#usize
+    let s := alloc.vec.Vec.deref bins
+    let (v, reserved1, record_bufs1) ←
+      table.parallel.distribute_regions s reserved record_bufs
+    ok (core.result.Result.Ok v, reserved1, record_bufs1)
+  else
+    ok (core.result.Result.Err table.StorageError.SizeOverflow, reserved,
+      record_bufs)
+
+/-- [apeiron_word::table::parallel::reserve_worker_outcomes]: loop body 0:
+    Source: '../../src/map/table/parallel.rs', lines 475:4-491:5 -/
+@[rust_loop_body]
+def table.parallel.reserve_worker_outcomes_loop.body
+  {R : Type} {V : Type}
+  (bins_with_regions : Slice (alloc.vec.Vec (Std.Usize × (Option (table.Region
+  R V)) × (alloc.vec.Vec (Std.Usize × Std.Usize)))))
+  (outcomes : alloc.vec.Vec (alloc.vec.Vec (Std.Usize × (core.result.Result
+  (table.Region R V) table.StorageError) × Std.Usize × (alloc.vec.Vec
+  (Std.Usize × Std.Usize))))) (refusal : Option table.StorageError)
+  (bin_index : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize ×
+    (core.result.Result (table.Region R V) table.StorageError) × Std.Usize ×
+    (alloc.vec.Vec (Std.Usize × Std.Usize))))) × (Option table.StorageError)
+    × Std.Usize) ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize ×
+    (core.result.Result (table.Region R V) table.StorageError) × Std.Usize ×
+    (alloc.vec.Vec (Std.Usize × Std.Usize))))) × (Option
+    table.StorageError)))
+  := do
+  let i := Slice.len bins_with_regions
+  if bin_index < i
+  then
+    let b := core.option.Option.is_none refusal
+    let (outcomes1, refusal1) ←
+      if b
+      then
+        do
+        let v ← Slice.index_usize bins_with_regions bin_index
+        let i1 := alloc.vec.Vec.len v
+        let (r, buffer) ←
+          table.resources.try_reserve_exact (alloc.vec.Vec.new (Std.Usize ×
+            (core.result.Result (table.Region R V) table.StorageError) ×
+            Std.Usize × (alloc.vec.Vec (Std.Usize × Std.Usize)))) i1
+        match r with
+        | core.result.Result.Ok _ =>
+          let outcomes2 ← alloc.vec.Vec.push outcomes buffer
+          ok (outcomes2, refusal)
+        | core.result.Result.Err error => ok (outcomes, some error)
+      else ok (outcomes, refusal)
+    let bin_index1 ← bin_index + 1#usize
+    ok (cont (outcomes1, refusal1, bin_index1))
+  else ok (done (outcomes, refusal))
+
+/-- [apeiron_word::table::parallel::reserve_worker_outcomes]: loop 0:
+    Source: '../../src/map/table/parallel.rs', lines 475:4-491:5 -/
+@[rust_loop]
+def table.parallel.reserve_worker_outcomes_loop
+  {R : Type} {V : Type}
+  (bins_with_regions : Slice (alloc.vec.Vec (Std.Usize × (Option (table.Region
+  R V)) × (alloc.vec.Vec (Std.Usize × Std.Usize)))))
+  (outcomes : alloc.vec.Vec (alloc.vec.Vec (Std.Usize × (core.result.Result
+  (table.Region R V) table.StorageError) × Std.Usize × (alloc.vec.Vec
+  (Std.Usize × Std.Usize))))) (refusal : Option table.StorageError)
+  (bin_index : Std.Usize) :
+  Result ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize × (core.result.Result
+    (table.Region R V) table.StorageError) × Std.Usize × (alloc.vec.Vec
+    (Std.Usize × Std.Usize))))) × (Option table.StorageError))
+  := do
+  loop
+    (fun (outcomes1, refusal1, bin_index1) =>
+      table.parallel.reserve_worker_outcomes_loop.body bins_with_regions
+      outcomes1 refusal1 bin_index1)
+    (outcomes, refusal, bin_index)
+
+/-- [apeiron_word::table::parallel::reserve_worker_outcomes]:
+    Source: '../../src/map/table/parallel.rs', lines 467:0-498:1 -/
+def table.parallel.reserve_worker_outcomes
+  {R : Type} {V : Type}
+  (bins_with_regions : Slice (alloc.vec.Vec (Std.Usize × (Option (table.Region
+  R V)) × (alloc.vec.Vec (Std.Usize × Std.Usize))))) :
+  Result (core.result.Result ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize ×
+    (core.result.Result (table.Region R V) table.StorageError) × Std.Usize ×
+    (alloc.vec.Vec (Std.Usize × Std.Usize))))) × (alloc.vec.Vec
+    (alloc.vec.Vec (Std.Usize × (core.result.Result (table.Region R V)
+    table.StorageError) × Std.Usize × (alloc.vec.Vec (Std.Usize ×
+    Std.Usize)))))) table.StorageError)
+  := do
+  let i := Slice.len bins_with_regions
+  let (r, outcomes) ←
+    table.resources.try_reserve_exact (alloc.vec.Vec.new (alloc.vec.Vec
+      (Std.Usize × (core.result.Result (table.Region R V) table.StorageError)
+      × Std.Usize × (alloc.vec.Vec (Std.Usize × Std.Usize))))) i
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let (outcomes1, refusal) ←
+      table.parallel.reserve_worker_outcomes_loop bins_with_regions outcomes
+        none 0#usize
+    match refusal with
+    | none =>
+      let i1 := alloc.vec.Vec.len outcomes1
+      let (r1, sink) ←
+        table.resources.try_reserve_exact (alloc.vec.Vec.new (alloc.vec.Vec
+          (Std.Usize × (core.result.Result (table.Region R V)
+          table.StorageError) × Std.Usize × (alloc.vec.Vec (Std.Usize ×
+          Std.Usize))))) i1
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue _ =>
+        ok (core.result.Result.Ok (outcomes1, sink))
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize × (core.result.Result
+          (table.Region R V) table.StorageError) × Std.Usize × (alloc.vec.Vec
+          (Std.Usize × Std.Usize))))) × (alloc.vec.Vec (alloc.vec.Vec
+          (Std.Usize × (core.result.Result (table.Region R V)
+          table.StorageError) × Std.Usize × (alloc.vec.Vec (Std.Usize ×
+          Std.Usize)))))) (core.convert.FromSame table.StorageError) residual
+    | some error => ok (core.result.Result.Err error)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize × (core.result.Result
+      (table.Region R V) table.StorageError) × Std.Usize × (alloc.vec.Vec
+      (Std.Usize × Std.Usize))))) × (alloc.vec.Vec (alloc.vec.Vec (Std.Usize
+      × (core.result.Result (table.Region R V) table.StorageError) ×
+      Std.Usize × (alloc.vec.Vec (Std.Usize × Std.Usize))))))
+      (core.convert.FromSame table.StorageError) residual
+
 /-- [apeiron_word::table::partition::Parts]
     Source: '../../src/map/table/partition.rs', lines 50:0-53:1 -/
 structure table.partition.Parts where
@@ -112880,549 +114385,6 @@ def table.partition.Parts.is_intact
                   else ok false
   table.partition.Parts.is_intact_loop0 HomeInst i1 self.buf self.ends home
     input intact1 0#usize
-
-/-- [apeiron_word::table::partition::Schedule]
-    Source: '../../src/map/table/partition.rs', lines 528:0-530:1 -/
-structure table.partition.Schedule where
-  bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 0:
-    Source: '../../src/map/table/partition.rs', lines 538:8-541:9 -/
-@[rust_loop_body]
-def table.partition.Schedule.lpt_loop0.body
-  (order : alloc.vec.Vec Std.Usize) (shard : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.Usize) × Std.Usize) (alloc.vec.Vec
-    Std.Usize))
-  := do
-  let i ← table.partition.SHARDS
-  if shard < i
-  then
-    let order1 ← alloc.vec.Vec.push order shard
-    let shard1 ← shard + 1#usize
-    ok (cont (order1, shard1))
-  else ok (done order)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 0:
-    Source: '../../src/map/table/partition.rs', lines 538:8-541:9 -/
-@[rust_loop]
-def table.partition.Schedule.lpt_loop0
-  (order : alloc.vec.Vec Std.Usize) (shard : Std.Usize) :
-  Result (alloc.vec.Vec Std.Usize)
-  := do
-  loop
-    (fun (order1, shard1) => table.partition.Schedule.lpt_loop0.body order1
-      shard1)
-    (order, shard)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 2:
-    Source: '../../src/map/table/partition.rs', lines 546:12-555:13 -/
-@[rust_loop_body]
-def table.partition.Schedule.lpt_loop1_loop0.body
-  (i : Std.Usize) (loads : Array Std.Usize 256#usize)
-  (order : alloc.vec.Vec Std.Usize) (best : Std.Usize) (candidate : Std.Usize)
-  :
-  Result (ControlFlow (Std.Usize × Std.Usize) Std.Usize)
-  := do
-  if candidate < i
-  then
-    let candidate_shard ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-        order candidate
-    let best_shard ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-        order best
-    let i1 ← Array.index_usize loads candidate_shard
-    let i2 ← Array.index_usize loads best_shard
-    let best1 ←
-      if i1 > i2
-      then ok candidate
-      else
-        if i1 = i2
-        then if candidate_shard < best_shard
-             then ok candidate
-             else ok best
-        else ok best
-    let candidate1 ← candidate + 1#usize
-    ok (cont (best1, candidate1))
-  else ok (done best)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 2:
-    Source: '../../src/map/table/partition.rs', lines 546:12-555:13 -/
-@[rust_loop]
-def table.partition.Schedule.lpt_loop1_loop0
-  (i : Std.Usize) (loads : Array Std.Usize 256#usize)
-  (order : alloc.vec.Vec Std.Usize) (best : Std.Usize) (candidate : Std.Usize)
-  :
-  Result Std.Usize
-  := do
-  loop
-    (fun (best1, candidate1) => table.partition.Schedule.lpt_loop1_loop0.body i
-      loads order best1 candidate1)
-    (best, candidate)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 1:
-    Source: '../../src/map/table/partition.rs', lines 543:8-560:9 -/
-@[rust_loop_body]
-def table.partition.Schedule.lpt_loop1.body
-  (loads : Array Std.Usize 256#usize) (order : alloc.vec.Vec Std.Usize)
-  (first : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.Usize) × Std.Usize) (alloc.vec.Vec
-    Std.Usize))
-  := do
-  let i ← table.partition.SHARDS
-  if first < i
-  then
-    let candidate ← first + 1#usize
-    let best ←
-      table.partition.Schedule.lpt_loop1_loop0 i loads order first candidate
-    let order1 ←
-      if best != first
-      then
-        do
-        let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut order)
-        let s1 ← core.slice.Slice.swap s first best
-        ok (deref_mut_back s1)
-      else ok order
-    let first1 ← first + 1#usize
-    ok (cont (order1, first1))
-  else ok (done order)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 1:
-    Source: '../../src/map/table/partition.rs', lines 543:8-560:9 -/
-@[rust_loop]
-def table.partition.Schedule.lpt_loop1
-  (loads : Array Std.Usize 256#usize) (order : alloc.vec.Vec Std.Usize)
-  (first : Std.Usize) :
-  Result (alloc.vec.Vec Std.Usize)
-  := do
-  loop
-    (fun (order1, first1) => table.partition.Schedule.lpt_loop1.body loads
-      order1 first1)
-    (order, first)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 3:
-    Source: '../../src/map/table/partition.rs', lines 564:8-568:9 -/
-@[rust_loop_body]
-def table.partition.Schedule.lpt_loop2.body
-  (workers : Std.Usize) (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize))
-  (filled : alloc.vec.Vec Std.Usize) (worker : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec Std.Usize)) ×
-    (alloc.vec.Vec Std.Usize) × Std.Usize) ((alloc.vec.Vec (alloc.vec.Vec
-    Std.Usize)) × (alloc.vec.Vec Std.Usize)))
-  := do
-  if worker < workers
-  then
-    let bins1 ← alloc.vec.Vec.push bins (alloc.vec.Vec.new Std.Usize)
-    let filled1 ← alloc.vec.Vec.push filled 0#usize
-    let worker1 ← worker + 1#usize
-    ok (cont (bins1, filled1, worker1))
-  else ok (done (bins, filled))
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 3:
-    Source: '../../src/map/table/partition.rs', lines 564:8-568:9 -/
-@[rust_loop]
-def table.partition.Schedule.lpt_loop2
-  (workers : Std.Usize) (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize))
-  (filled : alloc.vec.Vec Std.Usize) (worker : Std.Usize) :
-  Result ((alloc.vec.Vec (alloc.vec.Vec Std.Usize)) × (alloc.vec.Vec
-    Std.Usize))
-  := do
-  loop
-    (fun (bins1, filled1, worker1) => table.partition.Schedule.lpt_loop2.body
-      workers bins1 filled1 worker1)
-    (bins, filled, worker)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 5:
-    Source: '../../src/map/table/partition.rs', lines 574:12-581:13 -/
-@[rust_loop_body]
-def table.partition.Schedule.lpt_loop3_loop0.body
-  (workers : Std.Usize) (filled : alloc.vec.Vec Std.Usize) (chosen : Std.Usize)
-  (worker : Std.Usize) :
-  Result (ControlFlow (Std.Usize × Std.Usize) Std.Usize)
-  := do
-  if worker < workers
-  then
-    let i ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-        filled worker
-    let i1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-        filled chosen
-    let chosen1 ←
-      if i < i1
-      then ok worker
-      else
-        if i = i1
-        then if worker < chosen
-             then ok worker
-             else ok chosen
-        else ok chosen
-    let worker1 ← worker + 1#usize
-    ok (cont (chosen1, worker1))
-  else ok (done chosen)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 5:
-    Source: '../../src/map/table/partition.rs', lines 574:12-581:13 -/
-@[rust_loop]
-def table.partition.Schedule.lpt_loop3_loop0
-  (workers : Std.Usize) (filled : alloc.vec.Vec Std.Usize) (chosen : Std.Usize)
-  (worker : Std.Usize) :
-  Result Std.Usize
-  := do
-  loop
-    (fun (chosen1, worker1) => table.partition.Schedule.lpt_loop3_loop0.body
-      workers filled chosen1 worker1)
-    (chosen, worker)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop body 4:
-    Source: '../../src/map/table/partition.rs', lines 570:8-585:9 -/
-@[rust_loop_body]
-def table.partition.Schedule.lpt_loop3.body
-  (loads : Array Std.Usize 256#usize) (workers : Std.Usize)
-  (order : alloc.vec.Vec Std.Usize)
-  (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize))
-  (filled : alloc.vec.Vec Std.Usize) (order_at : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec Std.Usize)) ×
-    (alloc.vec.Vec Std.Usize) × Std.Usize) (alloc.vec.Vec (alloc.vec.Vec
-    Std.Usize)))
-  := do
-  let i := alloc.vec.Vec.len order
-  if order_at < i
-  then
-    let s ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-        order order_at
-    let chosen ←
-      table.partition.Schedule.lpt_loop3_loop0 workers filled 0#usize 1#usize
-    let (v, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-        (alloc.vec.Vec Std.Usize)) bins chosen
-    let v1 ← alloc.vec.Vec.push v s
-    let i1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-        filled chosen
-    let i2 ← Array.index_usize loads s
-    let i3 ← lift (core.num.Usize.saturating_add i1 i2)
-    let (_, index_mut_back1) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-        filled chosen
-    let order_at1 ← order_at + 1#usize
-    let filled1 := index_mut_back1 i3
-    let bins1 := index_mut_back v1
-    ok (cont (bins1, filled1, order_at1))
-  else ok (done bins)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]: loop 4:
-    Source: '../../src/map/table/partition.rs', lines 570:8-585:9 -/
-@[rust_loop]
-def table.partition.Schedule.lpt_loop3
-  (loads : Array Std.Usize 256#usize) (workers : Std.Usize)
-  (order : alloc.vec.Vec Std.Usize)
-  (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize))
-  (filled : alloc.vec.Vec Std.Usize) (order_at : Std.Usize) :
-  Result (alloc.vec.Vec (alloc.vec.Vec Std.Usize))
-  := do
-  loop
-    (fun (bins1, filled1, order_at1) => table.partition.Schedule.lpt_loop3.body
-      loads workers order bins1 filled1 order_at1)
-    (bins, filled, order_at)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::lpt]:
-    Source: '../../src/map/table/partition.rs', lines 534:4-587:5 -/
-def table.partition.Schedule.lpt
-  (loads : Array Std.Usize 256#usize) (workers : Std.Usize) :
-  Result table.partition.Schedule
-  := do
-  let workers1 ← if workers = 0#usize
-                   then ok 1#usize
-                   else ok workers
-  let order ←
-    table.partition.Schedule.lpt_loop0 (alloc.vec.Vec.new Std.Usize) 0#usize
-  let order1 ← table.partition.Schedule.lpt_loop1 loads order 0#usize
-  let (bins, filled) ←
-    table.partition.Schedule.lpt_loop2 workers1 (alloc.vec.Vec.new
-      (alloc.vec.Vec Std.Usize)) (alloc.vec.Vec.new Std.Usize) 0#usize
-  let bins1 ←
-    table.partition.Schedule.lpt_loop3 loads workers1 order1 bins filled
-      0#usize
-  ok { bins := bins1 }
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::len]:
-    Source: '../../src/map/table/partition.rs', lines 593:4-595:5 -/
-def table.partition.Schedule.len
-  (self : table.partition.Schedule) : Result Std.Usize := do
-  ok (alloc.vec.Vec.len self.bins)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::bin]:
-    Source: '../../src/map/table/partition.rs', lines 597:4-599:5 -/
-def table.partition.Schedule.bin
-  (self : table.partition.Schedule) (worker : Std.Usize) :
-  Result (Slice Std.Usize)
-  := do
-  let v ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec
-      Std.Usize)) self.bins worker
-  ok (alloc.vec.Vec.deref v)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop body 1:
-    Source: '../../src/map/table/partition.rs', lines 610:12-618:13 -/
-@[rust_loop_body]
-def table.partition.Schedule.is_complete_loop0_loop0.body
-  (bin : alloc.vec.Vec Std.Usize) (seen : Array Bool 256#usize)
-  (complete : Bool) («at» : Std.Usize) :
-  Result (ControlFlow ((Array Bool 256#usize) × Bool × Std.Usize) ((Array
-    Bool 256#usize) × Bool))
-  := do
-  let i := alloc.vec.Vec.len bin
-  if «at» < i
-  then
-    if complete
-    then
-      let s ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-          bin «at»
-      let i1 ← table.partition.SHARDS
-      let (seen1, complete1) ←
-        if s >= i1
-        then ok (seen, false)
-        else
-          do
-          let b ← Array.index_usize seen s
-          if b
-          then ok (seen, false)
-          else let a ← Array.update seen s true
-               ok (a, true)
-      let at1 ← «at» + 1#usize
-      ok (cont (seen1, complete1, at1))
-    else ok (done (seen, false))
-  else ok (done (seen, complete))
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop 1:
-    Source: '../../src/map/table/partition.rs', lines 610:12-618:13 -/
-@[rust_loop]
-def table.partition.Schedule.is_complete_loop0_loop0
-  (seen : Array Bool 256#usize) (complete : Bool)
-  (bin : alloc.vec.Vec Std.Usize) («at» : Std.Usize) :
-  Result ((Array Bool 256#usize) × Bool)
-  := do
-  loop
-    (fun (seen1, complete1, at1) =>
-      table.partition.Schedule.is_complete_loop0_loop0.body bin seen1 complete1
-      at1)
-    (seen, complete, «at»)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop body 0:
-    Source: '../../src/map/table/partition.rs', lines 607:8-620:9 -/
-@[rust_loop_body]
-def table.partition.Schedule.is_complete_loop0.body
-  (self : table.partition.Schedule) (seen : Array Bool 256#usize)
-  (complete : Bool) (worker : Std.Usize) :
-  Result (ControlFlow ((Array Bool 256#usize) × Bool × Std.Usize) ((Array
-    Bool 256#usize) × Bool))
-  := do
-  let i := alloc.vec.Vec.len self.bins
-  if worker < i
-  then
-    if complete
-    then
-      let bin ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-          (alloc.vec.Vec Std.Usize)) self.bins worker
-      let (seen1, complete1) ←
-        table.partition.Schedule.is_complete_loop0_loop0 seen true bin 0#usize
-      let worker1 ← worker + 1#usize
-      ok (cont (seen1, complete1, worker1))
-    else ok (done (seen, false))
-  else ok (done (seen, complete))
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop 0:
-    Source: '../../src/map/table/partition.rs', lines 607:8-620:9 -/
-@[rust_loop]
-def table.partition.Schedule.is_complete_loop0
-  (self : table.partition.Schedule) (seen : Array Bool 256#usize)
-  (complete : Bool) (worker : Std.Usize) :
-  Result ((Array Bool 256#usize) × Bool)
-  := do
-  loop
-    (fun (seen1, complete1, worker1) =>
-      table.partition.Schedule.is_complete_loop0.body self seen1 complete1
-      worker1)
-    (seen, complete, worker)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop body 2:
-    Source: '../../src/map/table/partition.rs', lines 622:8-627:9 -/
-@[rust_loop_body]
-def table.partition.Schedule.is_complete_loop1.body
-  (seen : Array Bool 256#usize) (complete : Bool) (shard : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize) Bool)
-  := do
-  let i ← table.partition.SHARDS
-  if shard < i
-  then
-    if complete
-    then
-      let b ← Array.index_usize seen shard
-      let complete1 ← if b
-                        then ok true
-                        else ok false
-      let shard1 ← shard + 1#usize
-      ok (cont (complete1, shard1))
-    else ok (done false)
-  else ok (done complete)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]: loop 2:
-    Source: '../../src/map/table/partition.rs', lines 622:8-627:9 -/
-@[rust_loop]
-def table.partition.Schedule.is_complete_loop1
-  (seen : Array Bool 256#usize) (complete : Bool) (shard : Std.Usize) :
-  Result Bool
-  := do
-  loop
-    (fun (complete1, shard1) => table.partition.Schedule.is_complete_loop1.body
-      seen complete1 shard1)
-    (complete, shard)
-
-/-- [apeiron_word::table::partition::{apeiron_word::table::partition::Schedule}::is_complete]:
-    Source: '../../src/map/table/partition.rs', lines 603:4-629:5 -/
-def table.partition.Schedule.is_complete
-  (self : table.partition.Schedule) : Result Bool := do
-  let seen := Array.repeat 256#usize false
-  let (seen1, complete) ←
-    table.partition.Schedule.is_complete_loop0 self seen true 0#usize
-  table.partition.Schedule.is_complete_loop1 seen1 complete 0#usize
-
-/-- [apeiron_word::table::SHARDS]
-    Source: '../../src/map/table.rs', lines 59:0-59:40 -/
-@[global_simps, irreducible]
-def table.SHARDS : Result Std.Usize := table.partition.SHARDS
-
-/-- [apeiron_word::table::slots_for]: loop body 0:
-    Source: '../../src/map/table/state.rs', lines 653:4-657:1 -/
-@[rust_loop_body]
-def table.slots_for_loop.body
-  (twice : Std.Usize) (capacity : Std.Usize) :
-  Result (ControlFlow Std.Usize (core.result.Result Std.Usize
-    table.StorageError))
-  := do
-  if capacity < twice
-  then
-    let o ← lift (Usize.checked_mul capacity 2#usize)
-    let r ← core.option.Option.ok_or o table.StorageError.SizeOverflow
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue val => ok (cont val)
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      let r1 ←
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          Std.Usize (core.convert.FromSame table.StorageError) residual
-      ok (done r1)
-  else ok (done (core.result.Result.Ok capacity))
-
-/-- [apeiron_word::table::slots_for]: loop 0:
-    Source: '../../src/map/table/state.rs', lines 653:4-657:1 -/
-@[rust_loop]
-def table.slots_for_loop
-  (twice : Std.Usize) (capacity : Std.Usize) :
-  Result (core.result.Result Std.Usize table.StorageError)
-  := do
-  loop
-    (fun capacity1 => table.slots_for_loop.body twice capacity1)
-    capacity
-
-/-- [apeiron_word::table::slots_for]:
-    Source: '../../src/map/table/state.rs', lines 641:0-657:1 -/
-def table.slots_for
-  (load : Std.Usize) (n : Std.Usize) :
-  Result (core.result.Result Std.Usize table.StorageError)
-  := do
-  if load = 0#usize
-  then ok (core.result.Result.Ok 0#usize)
-  else
-    let o ← lift (Usize.checked_mul load 2#usize)
-    let r ← core.option.Option.ok_or o table.StorageError.SizeOverflow
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue val =>
-      let i ← core.cmp.Ord.max.default core.cmp.OrdUsize n 2#usize
-      let o1 ← lift (Usize.checked_mul i 2#usize)
-      let r1 ← core.option.Option.ok_or o1 table.StorageError.SizeOverflow
-      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-      match cf1 with
-      | core.ops.control_flow.ControlFlow.Continue val1 =>
-        table.slots_for_loop val val1
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          Std.Usize (core.convert.FromSame table.StorageError) residual
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-        Std.Usize (core.convert.FromSame table.StorageError) residual
-
-/-- [apeiron_word::table::resources::try_reserve_exact::{closure}]
-    Source: '../../src/map/table/resources.rs', lines 200:17-200:51 -/
-@[reducible]
-def table.resources.try_reserve_exact.closure (T : Type) := Unit
-
-/-- [apeiron_word::table::resources::try_reserve_exact::{impl core::ops::function::FnOnce<(alloc::collections::TryReserveError,), apeiron_word::table::StorageError> for apeiron_word::table::resources::try_reserve_exact::{closure}<T>}::call_once]:
-    Source: '../../src/map/table/resources.rs', lines 200:17-200:51 -/
-def
-  table.resources.try_reserve_exact.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError.call_once
-  {T : Type} (c : table.resources.try_reserve_exact.closure T)
-  (tupled_args : alloc.collections.TryReserveError) :
-  Result table.StorageError
-  := do
-  ok table.StorageError.AllocationFailed
-
-/-- Trait implementation: [apeiron_word::table::resources::try_reserve_exact::{impl core::ops::function::FnOnce<(alloc::collections::TryReserveError,), apeiron_word::table::StorageError> for apeiron_word::table::resources::try_reserve_exact::{closure}<T>}]
-    Source: '../../src/map/table/resources.rs', lines 200:17-200:51 -/
-@[reducible]
-def
-  table.resources.try_reserve_exact.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError
-  (T : Type) : core.ops.function.FnOnce
-  (table.resources.try_reserve_exact.closure T)
-  alloc.collections.TryReserveError table.StorageError := {
-  call_once :=
-    table.resources.try_reserve_exact.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError.call_once
-}
-
-/-- [apeiron_word::table::resources::try_reserve_exact]:
-    Source: '../../src/map/table/resources.rs', lines 194:0-201:1 -/
-def table.resources.try_reserve_exact
-  {T : Type} (items : alloc.vec.Vec T) (additional : Std.Usize) :
-  Result ((core.result.Result Unit table.StorageError) × (alloc.vec.Vec T))
-  := do
-  let (r, items1) ← alloc.vec.Vec.try_reserve_exact Global items additional
-  let r1 ←
-    core.result.Result.map_err
-      (table.resources.try_reserve_exact.closure.Insts.CoreOpsFunctionFnOnceTupleTryReserveErrorStorageError
-      T) r ()
-  ok (r1, items1)
-
-/-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::reserve_empty]:
-    Source: '../../src/map/table/state.rs', lines 467:4-478:5 -/
-def table.Region.reserve_empty
-  {R : Type} {V : Type} (corecloneCloneInst : core.clone.Clone R)
-  (corecloneCloneInst1 : core.clone.Clone V) (capacity : Std.Usize) :
-  Result (core.result.Result (table.Region R V) table.StorageError)
-  := do
-  let (r, slots) ←
-    table.resources.try_reserve_exact (alloc.vec.Vec.new (table.SpillSlot R V))
-      capacity
-  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-  match cf with
-  | core.ops.control_flow.ControlFlow.Continue _ =>
-    let (r1, coords) ←
-      table.resources.try_reserve_exact (alloc.vec.Vec.new Std.U64) capacity
-    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-    match cf1 with
-    | core.ops.control_flow.ControlFlow.Continue _ =>
-      ok (core.result.Result.Ok
-        { slots, coords, bits := 0#u32, live := 0#usize })
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-        (table.Region R V) (core.convert.FromSame table.StorageError) residual
-  | core.ops.control_flow.ControlFlow.Break residual =>
-    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-      (table.Region R V) (core.convert.FromSame table.StorageError) residual
 
 /-- [apeiron_word::table::{apeiron_word::table::Region<R, V>}::empty]:
     Source: '../../src/map/table/state.rs', lines 354:4-361:5 -/
@@ -118974,6 +119936,175 @@ def hashtrinity_port.word_tregex_match_segs
   := do
   hashtrinity.tregex.match_segs segs hay pos
 
+/-- [apeiron_word::hashtrinity_port::word_alg_species]:
+    Source: 'hashtrinity_port.rs', lines 312:0-314:1
+    Visibility: public -/
+def hashtrinity_port.word_alg_species
+  (f : hashtrinity.algebra.Face) : Result hashtrinity.algebra.Species := do
+  hashtrinity.algebra.Face.species f
+
+/-- [apeiron_word::hashtrinity_port::word_alg_keep]:
+    Source: 'hashtrinity_port.rs', lines 317:0-319:1
+    Visibility: public -/
+def hashtrinity_port.word_alg_keep
+  (new : Bool) (old : Bool) : Result Bool := do
+  hashtrinity.algebra.keep new old
+
+/-- [apeiron_word::hashtrinity_port::word_alg_set]:
+    Source: 'hashtrinity_port.rs', lines 322:0-324:1
+    Visibility: public -/
+def hashtrinity_port.word_alg_set
+  (new : Std.U64) (old : Std.U64) : Result Std.U64 := do
+  hashtrinity.algebra.set new old
+
+/-- [apeiron_word::hashtrinity_port::word_alg_merge_count]:
+    Source: 'hashtrinity_port.rs', lines 327:0-329:1
+    Visibility: public -/
+def hashtrinity_port.word_alg_merge_count
+  (new : Std.I64) (old : Std.I64) : Result Std.I64 := do
+  hashtrinity.algebra.count I64.Insts.Apeiron_wordHashtrinityAlgebraMonoid new
+    old
+
+/-- [apeiron_word::hashtrinity_port::word_alg_merge_link]:
+    Source: 'hashtrinity_port.rs', lines 332:0-334:1
+    Visibility: public -/
+def hashtrinity_port.word_alg_merge_link
+  (new : alloc.vec.Vec Std.U64) (old : alloc.vec.Vec Std.U64) :
+  Result (alloc.vec.Vec Std.U64)
+  := do
+  hashtrinity.algebra.link new old
+
+/-- [apeiron_word::hashtrinity_port::word_alg_put]:
+    Source: 'hashtrinity_port.rs', lines 337:0-340:1
+    Visibility: public -/
+def hashtrinity_port.word_alg_put
+  (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
+  Std.U64)) (key : Std.U64) (v : Std.I64) :
+  Result (hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
+    Std.U64))
+  := do
+  hashtrinity.algebra.Table.put core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
+    (hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64) state key v
+
+/-- [apeiron_word::hashtrinity_port::word_alg_has]:
+    Source: 'hashtrinity_port.rs', lines 343:0-345:1
+    Visibility: public -/
+def hashtrinity_port.word_alg_has
+  (state : hashtrinity.Table Std.U64 Bool (hashtrinity.algebra.Stored Std.U64))
+  (key : Std.U64) :
+  Result Bool
+  := do
+  hashtrinity.algebra.TableKBoolKS.has core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
+    (hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64) state key
+
+/-- [apeiron_word::hashtrinity_port::word_alg_table_count]:
+    Source: 'hashtrinity_port.rs', lines 347:0-349:1
+    Visibility: public -/
+def hashtrinity_port.word_alg_table_count
+  (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
+  Std.U64)) (key : Std.U64) :
+  Result Std.I64
+  := do
+  hashtrinity.algebra.TableKI64KS.count core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
+    (hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64) state key
+
+/-- [apeiron_word::hashtrinity_port::word_alg_fold]:
+    Source: 'hashtrinity_port.rs', lines 352:0-354:1
+    Visibility: public -/
+def hashtrinity_port.word_alg_fold
+  (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
+  Std.U64)) (key : Std.U64) :
+  Result Std.I64
+  := do
+  hashtrinity.algebra.Table.fold core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
+    I64.Insts.Apeiron_wordHashtrinityAlgebraMonoid core.clone.CloneI64
+    (hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64) state key
+
+/-- [apeiron_word::hashtrinity_port::word_freq_stream_with_capacity]:
+    Source: 'hashtrinity_port.rs', lines 358:0-360:1
+    Visibility: public -/
+def hashtrinity_port.word_freq_stream_with_capacity
+  (cap : Std.Usize) : Result (hashtrinity.freq.FreqMap Std.U64 Std.I64) := do
+  hashtrinity.freq.FreqMap.stream_with_capacity Std.I64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord cap
+
+/-- [apeiron_word::hashtrinity_port::word_freq_insert_with::{closure}]
+    Source: 'hashtrinity_port.rs', lines 368:33-368:45 -/
+@[reducible]
+def hashtrinity_port.word_freq_insert_with.closure := Unit
+
+/-- [apeiron_word::hashtrinity_port::word_freq_insert_with::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity_port::word_freq_insert_with::{closure}}::call_once]:
+    Source: 'hashtrinity_port.rs', lines 368:33-368:45 -/
+def
+  hashtrinity_port.word_freq_insert_with.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64.call_once
+  (c : hashtrinity_port.word_freq_insert_with.closure)
+  (tupled_args : (Std.I64 × Std.I64)) :
+  Result Std.I64
+  := do
+  let (a, b) := tupled_args
+  a + b
+
+/-- Trait implementation: [apeiron_word::hashtrinity_port::word_freq_insert_with::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity_port::word_freq_insert_with::{closure}}]
+    Source: 'hashtrinity_port.rs', lines 368:33-368:45 -/
+@[reducible]
+def
+  hashtrinity_port.word_freq_insert_with.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64
+  : core.ops.function.FnOnce hashtrinity_port.word_freq_insert_with.closure
+  (Std.I64 × Std.I64) Std.I64 := {
+  call_once :=
+    hashtrinity_port.word_freq_insert_with.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64.call_once
+}
+
+/-- [apeiron_word::hashtrinity_port::word_freq_insert_with]:
+    Source: 'hashtrinity_port.rs', lines 363:0-370:1
+    Visibility: public -/
+def hashtrinity_port.word_freq_insert_with
+  (state : hashtrinity.freq.FreqMap Std.U64 Std.I64) (key : Std.U64)
+  (new : Std.I64) :
+  Result (hashtrinity.freq.FreqMap Std.U64 Std.I64)
+  := do
+  hashtrinity.freq.FreqMap.insert_with
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
+    hashtrinity_port.word_freq_insert_with.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64
+    state key new ()
+
+/-- [apeiron_word::hashtrinity_port::word_freq_insert]:
+    Source: 'hashtrinity_port.rs', lines 373:0-380:1
+    Visibility: public -/
+def hashtrinity_port.word_freq_insert
+  (state : hashtrinity.freq.FreqMap Std.U64 Std.I64) (key : Std.U64)
+  (v : Std.I64) :
+  Result (hashtrinity.freq.FreqMap Std.U64 Std.I64)
+  := do
+  hashtrinity.freq.FreqMap.insert U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
+    state key v
+
+/-- [apeiron_word::hashtrinity_port::word_freq_longest_probe]:
+    Source: 'hashtrinity_port.rs', lines 382:0-384:1
+    Visibility: public -/
+def hashtrinity_port.word_freq_longest_probe
+  (state : hashtrinity.freq.FreqMap Std.U64 Std.I64) : Result Std.Usize := do
+  hashtrinity.freq.FreqMap.longest_probe
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord state
+
+/-- [apeiron_word::hashtrinity_port::word_freq_primary_examinations]:
+    Source: 'hashtrinity_port.rs', lines 387:0-389:1
+    Visibility: public -/
+def hashtrinity_port.word_freq_primary_examinations
+  (state : hashtrinity.freq.FreqMap Std.U64 Std.I64) (key : Std.U64) :
+  Result Std.U32
+  := do
+  hashtrinity.freq.FreqMap.primary_examinations
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord state key
+
 /-- [apeiron_word::learn_port::word_dense_linear_fwd]:
     Source: 'learn_port.rs', lines 10:0-18:1
     Visibility: public -/
@@ -120592,59 +121723,59 @@ structure fold_finish_port.finish.plane.CodedPlane where
   pd : alloc.vec.Vec Std.I64
 
 /-- [apeiron_word::fold_finish_port::finish::train::BETA1_Q32]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 97:0-97:37 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 105:0-105:37 -/
 @[global_simps, irreducible]
 def fold_finish_port.finish.train.BETA1_Q32 : Std.I64 := 3865470566#i64
 
 /-- [apeiron_word::fold_finish_port::finish::train::ONE_MINUS_BETA1_Q32]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 100:0-100:45 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 108:0-108:45 -/
 @[global_simps, irreducible]
 def fold_finish_port.finish.train.ONE_MINUS_BETA1_Q32 : Std.I64 :=
   429496730#i64
 
 /-- [apeiron_word::fold_finish_port::finish::train::BETA2_Q32]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 103:0-103:37 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 111:0-111:37 -/
 @[global_simps, irreducible]
 def fold_finish_port.finish.train.BETA2_Q32 : Std.I64 := 4290672329#i64
 
 /-- [apeiron_word::fold_finish_port::finish::train::ONE_MINUS_BETA2_Q32]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 106:0-106:43 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 114:0-114:43 -/
 @[global_simps, irreducible]
 def fold_finish_port.finish.train.ONE_MINUS_BETA2_Q32 : Std.I64 := 4294967#i64
 
 /-- [apeiron_word::fold_finish_port::finish::train::ADAM_EPS_Q32]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 109:0-109:29 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 117:0-117:29 -/
 @[global_simps, irreducible]
 def fold_finish_port.finish.train.ADAM_EPS_Q32 : Std.I64 := 43#i64
 
 /-- [apeiron_word::fold_finish_port::finish::train::BIAS_SCALE_MIN_Q32]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 112:0-112:42 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 120:0-120:42 -/
 @[global_simps, irreducible]
 def fold_finish_port.finish.train.BIAS_SCALE_MIN_Q32 : Std.I64 := 4294967#i64
 
 /-- [apeiron_word::fold_finish_port::finish::train::TENTH_Q32]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 115:0-115:35 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 123:0-123:35 -/
 @[global_simps, irreducible]
 def fold_finish_port.finish.train.TENTH_Q32 : Std.I64 := 429496730#i64
 
 /-- [apeiron_word::fold_finish_port::finish::train::COS_AMPL_Q32]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 118:0-118:40 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 126:0-126:40 -/
 @[global_simps, irreducible]
 def fold_finish_port.finish.train.COS_AMPL_Q32 : Std.I64 := 1932735283#i64
 
 /-- [apeiron_word::fold_finish_port::finish::train::PI_Q32]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 121:0-121:35 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 129:0-129:35 -/
 @[global_simps, irreducible]
 def fold_finish_port.finish.train.PI_Q32 : Std.I64 := 13493037705#i64
 
 /-- [apeiron_word::fold_finish_port::finish::train::N_KINDS]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 124:0-124:29
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 132:0-132:29
     Visibility: public -/
 @[global_simps, irreducible]
 def fold_finish_port.finish.train.N_KINDS : Std.Usize := 7#usize
 
 /-- [apeiron_word::fold_finish_port::finish::train::TrainError]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 132:0-145:1
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 140:0-153:1
     Visibility: public -/
 @[discriminant isize]
 inductive fold_finish_port.finish.train.TrainError where
@@ -120660,7 +121791,7 @@ inductive fold_finish_port.finish.train.TrainError where
 | Head : learn_port.head.HeadError → fold_finish_port.finish.train.TrainError
 
 /-- [apeiron_word::fold_finish_port::finish::train::abs_sum]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 268:4-271:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 276:4-279:5 -/
 @[rust_loop_body]
 def fold_finish_port.finish.train.abs_sum_loop.body
   (base : Slice Std.I64) (acc : Std.I128) (i : Std.Usize) :
@@ -120678,7 +121809,7 @@ def fold_finish_port.finish.train.abs_sum_loop.body
   else ok (done acc)
 
 /-- [apeiron_word::fold_finish_port::finish::train::abs_sum]: loop 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 268:4-271:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 276:4-279:5 -/
 @[rust_loop]
 def fold_finish_port.finish.train.abs_sum_loop
   (base : Slice Std.I64) (acc : Std.I128) (i : Std.Usize) :
@@ -120690,14 +121821,14 @@ def fold_finish_port.finish.train.abs_sum_loop
     (acc, i)
 
 /-- [apeiron_word::fold_finish_port::finish::train::abs_sum]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 265:0-273:1 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 273:0-281:1 -/
 @[reducible]
 def fold_finish_port.finish.train.abs_sum
   (base : Slice Std.I64) : Result Std.I128 := do
   fold_finish_port.finish.train.abs_sum_loop base 0#i128 0#usize
 
 /-- [apeiron_word::fold_finish_port::finish::train::bias_scale]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 280:0-289:1 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 288:0-297:1 -/
 def fold_finish_port.finish.train.bias_scale
   (base : Slice Std.I64) : Result Std.I64 := do
   let b ← core.slice.Slice.is_empty base
@@ -120718,7 +121849,7 @@ def fold_finish_port.finish.train.bias_scale
       else ok fold_finish_port.finish.train.BIAS_SCALE_MIN_Q32
 
 /-- [apeiron_word::fold_finish_port::finish::train::Linear]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 294:0-303:1
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 302:0-311:1
     Visibility: public -/
 structure fold_finish_port.finish.train.Linear where
   planes : alloc.vec.Vec fold_finish_port.finish.plane.CodedPlane
@@ -120727,7 +121858,7 @@ structure fold_finish_port.finish.train.Linear where
   n : Std.Usize
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Linear}::new]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 307:4-314:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 315:4-322:5
     Visibility: public -/
 def fold_finish_port.finish.train.Linear.new
   (o_total : Std.Usize) (n : Std.Usize) :
@@ -120742,13 +121873,13 @@ def fold_finish_port.finish.train.Linear.new
     }
 
 /-- [apeiron_word::fold_finish_port::finish::train::Planes]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 320:0-323:1
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 328:0-331:1
     Visibility: public -/
 structure fold_finish_port.finish.train.Planes where
   layers : alloc.vec.Vec (alloc.vec.Vec fold_finish_port.finish.train.Linear)
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Planes}::new]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 327:4-329:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 335:4-337:5
     Visibility: public -/
 def fold_finish_port.finish.train.Planes.new
   (layers : alloc.vec.Vec (alloc.vec.Vec fold_finish_port.finish.train.Linear))
@@ -120758,7 +121889,7 @@ def fold_finish_port.finish.train.Planes.new
   ok { layers }
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Planes}::linear]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 335:4-350:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 343:4-358:5
     Visibility: public -/
 def fold_finish_port.finish.train.Planes.linear
   (self : fold_finish_port.finish.train.Planes) (l : Std.Usize) (k : Std.Usize)
@@ -120829,7 +121960,7 @@ def fold_finish_port.finish.train.Planes.linear
       | some lin => ok (core.result.Result.Ok lin)
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Planes}::linear_mut]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 356:4-371:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 364:4-379:5
     Visibility: public -/
 def fold_finish_port.finish.train.Planes.linear_mut
   (self : fold_finish_port.finish.train.Planes) (l : Std.Usize) (k : Std.Usize)
@@ -120927,7 +122058,7 @@ def fold_finish_port.finish.train.Planes.linear_mut
         ok (core.result.Result.Ok lin, back)
 
 /-- [apeiron_word::fold_finish_port::finish::train::LayerTuned]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 377:0-388:1
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 385:0-396:1
     Visibility: public -/
 structure fold_finish_port.finish.train.LayerTuned where
   ln1 : alloc.vec.Vec Std.I64
@@ -120937,7 +122068,7 @@ structure fold_finish_port.finish.train.LayerTuned where
   vb : alloc.vec.Vec Std.I64
 
 /-- [apeiron_word::fold_finish_port::finish::train::LayerTunables]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 392:0-413:1
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 400:0-421:1
     Visibility: public -/
 structure fold_finish_port.finish.train.LayerTunables where
   ln1 : alloc.vec.Vec Std.I64
@@ -120952,7 +122083,7 @@ structure fold_finish_port.finish.train.LayerTunables where
   vb_d : alloc.vec.Vec Std.I64
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::LayerTunables}::new]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 419:4-437:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 427:4-445:5
     Visibility: public -/
 def fold_finish_port.finish.train.LayerTunables.new
   (ln1 : Slice Std.I64) (ln2 : Slice Std.I64) (qb : Slice Std.I64)
@@ -120989,7 +122120,7 @@ def fold_finish_port.finish.train.LayerTunables.new
     }
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::LayerTunables}::bias_scale]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 440:4-446:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 448:4-454:5
     Visibility: public -/
 def fold_finish_port.finish.train.LayerTunables.bias_scale
   (self : fold_finish_port.finish.train.LayerTunables) (which : Std.Usize) :
@@ -121007,12 +122138,12 @@ def fold_finish_port.finish.train.LayerTunables.bias_scale
     fold_finish_port.finish.train.bias_scale s
 
 /-- [apeiron_word::fold_finish_port::finish::train::add_scaled::{closure}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 861:38-861:64 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 869:38-869:64 -/
 def fold_finish_port.finish.train.add_scaled.closure :=
   Slice Std.I64 × Std.Usize
 
 /-- [apeiron_word::fold_finish_port::finish::train::add_scaled::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::add_scaled::{closure}<'_0, '_1>}::call_once]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 861:38-861:64 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 869:38-869:64 -/
 def
   fold_finish_port.finish.train.add_scaled.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
   (c : fold_finish_port.finish.train.add_scaled.closure)
@@ -121024,7 +122155,7 @@ def
   ok (I64.checked_add i1 tupled_args)
 
 /-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::add_scaled::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::add_scaled::{closure}<'_0, '_1>}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 861:38-861:64 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 869:38-869:64 -/
 @[reducible]
 def
   fold_finish_port.finish.train.add_scaled.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
@@ -121035,7 +122166,7 @@ def
 }
 
 /-- [apeiron_word::fold_finish_port::finish::train::add_scaled]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 860:4-866:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 868:4-874:5 -/
 @[rust_loop_body]
 def fold_finish_port.finish.train.add_scaled_loop.body
   (base : Slice Std.I64) (off : Slice Std.I64) (s : Std.I64) (len : Std.Usize)
@@ -121065,7 +122196,7 @@ def fold_finish_port.finish.train.add_scaled_loop.body
   else ok (done (out, bad))
 
 /-- [apeiron_word::fold_finish_port::finish::train::add_scaled]: loop 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 860:4-866:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 868:4-874:5 -/
 @[rust_loop]
 def fold_finish_port.finish.train.add_scaled_loop
   (base : Slice Std.I64) (off : Slice Std.I64) (s : Std.I64) (len : Std.Usize)
@@ -121078,7 +122209,7 @@ def fold_finish_port.finish.train.add_scaled_loop
     (out, bad, i)
 
 /-- [apeiron_word::fold_finish_port::finish::train::add_scaled]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 852:0-871:1 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 860:0-879:1 -/
 def fold_finish_port.finish.train.add_scaled
   (base : Slice Std.I64) (off : Slice Std.I64) (s : Std.I64) :
   Result (alloc.vec.Vec Std.I64)
@@ -121098,12 +122229,12 @@ def fold_finish_port.finish.train.add_scaled
     else ok out1
 
 /-- [apeiron_word::fold_finish_port::finish::train::scale_exp::{closure}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 839:46-839:65 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 847:46-847:65 -/
 def fold_finish_port.finish.train.scale_exp.closure :=
   Slice Std.I64 × Std.Usize
 
 /-- [apeiron_word::fold_finish_port::finish::train::scale_exp::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::scale_exp::{closure}<'_0, '_1>}::call_once]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 839:46-839:65 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 847:46-847:65 -/
 def
   fold_finish_port.finish.train.scale_exp.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
   (c : fold_finish_port.finish.train.scale_exp.closure) (tupled_args : Std.I64)
@@ -121115,7 +122246,7 @@ def
   fold_finish_port.finish.plane.mul i1 tupled_args
 
 /-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::scale_exp::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::scale_exp::{closure}<'_0, '_1>}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 839:46-839:65 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 847:46-847:65 -/
 @[reducible]
 def
   fold_finish_port.finish.train.scale_exp.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
@@ -121126,7 +122257,7 @@ def
 }
 
 /-- [apeiron_word::fold_finish_port::finish::train::scale_exp]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 838:4-844:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 846:4-852:5 -/
 @[rust_loop_body]
 def fold_finish_port.finish.train.scale_exp_loop.body
   (base : Slice Std.I64) (off : Slice Std.I64) (len : Std.Usize)
@@ -121157,7 +122288,7 @@ def fold_finish_port.finish.train.scale_exp_loop.body
   else ok (done (out, bad))
 
 /-- [apeiron_word::fold_finish_port::finish::train::scale_exp]: loop 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 838:4-844:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 846:4-852:5 -/
 @[rust_loop]
 def fold_finish_port.finish.train.scale_exp_loop
   (base : Slice Std.I64) (off : Slice Std.I64) (len : Std.Usize)
@@ -121170,7 +122301,7 @@ def fold_finish_port.finish.train.scale_exp_loop
     (out, bad, i)
 
 /-- [apeiron_word::fold_finish_port::finish::train::scale_exp]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 830:0-849:1 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 838:0-857:1 -/
 def fold_finish_port.finish.train.scale_exp
   (base : Slice Std.I64) (off : Slice Std.I64) :
   Result (alloc.vec.Vec Std.I64)
@@ -121190,7 +122321,7 @@ def fold_finish_port.finish.train.scale_exp
     else ok out1
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::LayerTunables}::tuned]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 450:4-458:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 458:4-466:5
     Visibility: public -/
 def fold_finish_port.finish.train.LayerTunables.tuned
   (self : fold_finish_port.finish.train.LayerTunables) :
@@ -121220,7 +122351,7 @@ def fold_finish_port.finish.train.LayerTunables.tuned
   ok { ln1 := v, ln2 := v1, qb := v2, kb := v3, vb := v4 }
 
 /-- [apeiron_word::fold_finish_port::finish::train::Tunables]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 464:0-471:1
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 472:0-479:1
     Visibility: public -/
 structure fold_finish_port.finish.train.Tunables where
   layers : alloc.vec.Vec fold_finish_port.finish.train.LayerTunables
@@ -121228,7 +122359,7 @@ structure fold_finish_port.finish.train.Tunables where
   fn_d : alloc.vec.Vec Std.I64
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Tunables}::new]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 477:4-484:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 485:4-492:5
     Visibility: public -/
 def fold_finish_port.finish.train.Tunables.new
   (layers : alloc.vec.Vec fold_finish_port.finish.train.LayerTunables)
@@ -121241,7 +122372,7 @@ def fold_finish_port.finish.train.Tunables.new
   ok { layers, fn_base := base, fn_d := v }
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Tunables}::output_norm]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 487:4-489:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 495:4-497:5
     Visibility: public -/
 def fold_finish_port.finish.train.Tunables.output_norm
   (self : fold_finish_port.finish.train.Tunables) :
@@ -121252,14 +122383,14 @@ def fold_finish_port.finish.train.Tunables.output_norm
   fold_finish_port.finish.train.scale_exp s s1
 
 /-- [apeiron_word::fold_finish_port::finish::train::Frozen]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 495:0-500:1
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 503:0-508:1
     Visibility: public -/
 structure fold_finish_port.finish.train.Frozen where
   token_embd : alloc.vec.Vec Std.I64
   lm_head : alloc.vec.Vec Std.I64
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Frozen}::new]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 506:4-511:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 514:4-519:5
     Visibility: public -/
 def fold_finish_port.finish.train.Frozen.new
   (token_embd : Slice Std.I64) (lm_head : Slice Std.I64) :
@@ -121270,14 +122401,14 @@ def fold_finish_port.finish.train.Frozen.new
   ok { token_embd := v, lm_head := v1 }
 
 /-- [apeiron_word::fold_finish_port::finish::train::Schedule]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 518:0-523:1
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 526:0-531:1
     Visibility: public -/
 structure fold_finish_port.finish.train.Schedule where
   warmup : Std.U64
   steps : Std.U64
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Schedule}::new]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 527:4-529:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 535:4-537:5
     Visibility: public -/
 def fold_finish_port.finish.train.Schedule.new
   (warmup : Std.U64) (steps : Std.U64) :
@@ -121286,7 +122417,7 @@ def fold_finish_port.finish.train.Schedule.new
   ok { warmup, steps }
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Schedule}::factor]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 533:4-581:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 541:4-589:5
     Visibility: public -/
 def fold_finish_port.finish.train.Schedule.factor
   (self : fold_finish_port.finish.train.Schedule) (step : Std.U64) :
@@ -121356,7 +122487,7 @@ def fold_finish_port.finish.train.Schedule.factor
     | core.result.Result.Err _ => ok 0#i64
 
 /-- [apeiron_word::fold_finish_port::finish::train::Adam]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 592:0-596:1
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 600:0-604:1
     Visibility: public -/
 structure fold_finish_port.finish.train.Adam where
   m : alloc.vec.Vec Std.I64
@@ -121364,7 +122495,7 @@ structure fold_finish_port.finish.train.Adam where
   t : Std.U64
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::zeros]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 600:4-606:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 608:4-614:5
     Visibility: public -/
 def fold_finish_port.finish.train.Adam.zeros
   (n : Std.Usize) : Result fold_finish_port.finish.train.Adam := do
@@ -121373,21 +122504,21 @@ def fold_finish_port.finish.train.Adam.zeros
   ok { m := v, v := v1, t := 0#u64 }
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::len]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 609:4-611:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 617:4-619:5
     Visibility: public -/
 def fold_finish_port.finish.train.Adam.len
   (self : fold_finish_port.finish.train.Adam) : Result Std.Usize := do
   ok (alloc.vec.Vec.len self.m)
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::is_empty]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 614:4-616:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 622:4-624:5
     Visibility: public -/
 def fold_finish_port.finish.train.Adam.is_empty
   (self : fold_finish_port.finish.train.Adam) : Result Bool := do
   alloc.vec.Vec.is_empty Global self.m
 
 /-- [apeiron_word::fold_finish_port::finish::train::pow_q32]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 806:4-820:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 814:4-828:5 -/
 @[rust_loop_body]
 def fold_finish_port.finish.train.pow_q32_loop.body
   (e : Std.U64) (acc : Std.I64) (b : Std.I64) (bad : Bool) :
@@ -121423,7 +122554,7 @@ def fold_finish_port.finish.train.pow_q32_loop.body
   else ok (done (acc, bad))
 
 /-- [apeiron_word::fold_finish_port::finish::train::pow_q32]: loop 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 806:4-820:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 814:4-828:5 -/
 @[rust_loop]
 def fold_finish_port.finish.train.pow_q32_loop
   (e : Std.U64) (acc : Std.I64) (b : Std.I64) (bad : Bool) :
@@ -121435,7 +122566,7 @@ def fold_finish_port.finish.train.pow_q32_loop
     (e, acc, b, bad)
 
 /-- [apeiron_word::fold_finish_port::finish::train::pow_q32]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 802:0-826:1 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 810:0-834:1 -/
 def fold_finish_port.finish.train.pow_q32
   (base : Std.I64) (e : Std.U64) : Result (Option Std.I64) := do
   let acc ← fold_finish_port.finish.plane.ONE
@@ -121446,7 +122577,7 @@ def fold_finish_port.finish.train.pow_q32
   else ok (some acc1)
 
 /-- [apeiron_word::fold_finish_port::finish::train::ok]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 789:0-794:1 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 797:0-802:1 -/
 def fold_finish_port.finish.train.ok
   {T : Type} (v : Option T) :
   Result (core.result.Result T fold_finish_port.finish.train.TrainError)
@@ -121461,12 +122592,12 @@ def fold_finish_port.finish.train.ok
   | some x => ok (core.result.Result.Ok x)
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure#1}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 704:26-704:47 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 712:26-712:47 -/
 @[reducible]
 def fold_finish_port.finish.train.Adam.apply.closure_1 := Unit
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure#1}}::call_once]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 704:26-704:47 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 712:26-712:47 -/
 def
   fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   (c : fold_finish_port.finish.train.Adam.apply.closure_1)
@@ -121476,7 +122607,7 @@ def
   solve_port.q32.rshift_rne tupled_args 32#u32
 
 /-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure#1}}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 704:26-704:47 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 712:26-712:47 -/
 @[reducible]
 def
   fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
@@ -121487,12 +122618,12 @@ def
 }
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 694:26-694:47 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 702:26-702:47 -/
 @[reducible]
 def fold_finish_port.finish.train.Adam.apply.closure := Unit
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure}}::call_once]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 694:26-694:47 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 702:26-702:47 -/
 def
   fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   (c : fold_finish_port.finish.train.Adam.apply.closure)
@@ -121502,7 +122633,7 @@ def
   solve_port.q32.rshift_rne tupled_args 32#u32
 
 /-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure}}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 694:26-694:47 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 702:26-702:47 -/
 @[reducible]
 def
   fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
@@ -121513,7 +122644,7 @@ def
 }
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 665:8-780:9
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 673:8-788:9
     Visibility: public -/
 @[rust_loop_body]
 def fold_finish_port.finish.train.Adam.apply_loop.body
@@ -121693,7 +122824,7 @@ def fold_finish_port.finish.train.Adam.apply_loop.body
   else ok (done (v, v1, p, none))
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply]: loop 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 665:8-780:9
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 673:8-788:9
     Visibility: public -/
 @[rust_loop]
 def fold_finish_port.finish.train.Adam.apply_loop
@@ -121709,7 +122840,7 @@ def fold_finish_port.finish.train.Adam.apply_loop
     (v, v1, p, i)
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 627:4-785:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 635:4-793:5
     Visibility: public -/
 def fold_finish_port.finish.train.Adam.apply
   (self : fold_finish_port.finish.train.Adam) (lr : Std.I64)
@@ -121867,7 +122998,7 @@ def fold_finish_port.finish.train.Adam.apply
                         { m := v5, v := v6, t := i6 }, p1)
 
 /-- [apeiron_word::fold_finish_port::finish::train::kl_mean]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1062:4-1075:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1070:4-1083:5
     Visibility: public -/
 @[rust_loop_body]
 def fold_finish_port.finish.train.kl_mean_loop.body
@@ -121926,7 +123057,7 @@ def fold_finish_port.finish.train.kl_mean_loop.body
   else ok (done (dz, acc, err))
 
 /-- [apeiron_word::fold_finish_port::finish::train::kl_mean]: loop 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1062:4-1075:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1070:4-1083:5
     Visibility: public -/
 @[rust_loop]
 def fold_finish_port.finish.train.kl_mean_loop
@@ -121944,7 +123075,7 @@ def fold_finish_port.finish.train.kl_mean_loop
     (dz, acc, err, r)
 
 /-- [apeiron_word::fold_finish_port::finish::train::kl_mean]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1041:0-1083:1
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1049:0-1091:1
     Visibility: public -/
 def fold_finish_port.finish.train.kl_mean
   (cfg : grad_solve_port.model.Config) (logits : Slice Std.I64)
@@ -122096,7 +123227,7 @@ inductive fold_layer_port.layer.resq.ResqError where
   fold_layer_port.layer.resq.ResqError
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::TensorError]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 183:0-231:1
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 188:0-236:1
     Visibility: public -/
 @[discriminant isize]
 inductive fold_layer_port.layer.tensor.TensorError where
@@ -122239,7 +123370,7 @@ def fold_layer_port.layer.driver.layer_words
           })
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::SinkPlane]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 141:0-157:1
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 146:0-162:1
     Visibility: public -/
 structure fold_layer_port.layer.tensor.SinkPlane where
   s_rot : alloc.vec.Vec Std.I64
@@ -122251,7 +123382,7 @@ structure fold_layer_port.layer.tensor.SinkPlane where
   factors : Option fold_port.fit.corrector.Factors
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::TensorBits]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 123:0-134:1
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 128:0-139:1
     Visibility: public -/
 structure fold_layer_port.layer.tensor.TensorBits where
   nsign : Std.U64
@@ -122261,7 +123392,7 @@ structure fold_layer_port.layer.tensor.TensorBits where
   ncorr : Std.U64
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::TensorKind]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 70:0-85:1
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 75:0-90:1
     Visibility: public -/
 @[discriminant isize]
 inductive fold_layer_port.layer.tensor.TensorKind where
@@ -122274,7 +123405,7 @@ inductive fold_layer_port.layer.tensor.TensorKind where
 | Down : fold_layer_port.layer.tensor.TensorKind
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::TensorFit]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 163:0-179:1
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 168:0-184:1
     Visibility: public -/
 structure fold_layer_port.layer.tensor.TensorFit where
   kind : fold_layer_port.layer.tensor.TensorKind
@@ -122330,7 +123461,7 @@ structure fold_layer_port.layer.driver.ModelState where
   «partial» : Option fold_layer_port.layer.driver.LayerProgress
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::tri_sub]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1083:4-1085:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1088:4-1090:5 -/
 def fold_layer_port.layer.tensor.carrier.tri_sub
   (a : Std.I64) (b : Std.I64) (c : Std.I64) : Result (Option Std.I64) := do
   let o ← lift (I64.checked_sub a b)
@@ -122350,7 +123481,7 @@ def fold_layer_port.layer.tensor.carrier.tri_sub
       Std.I64 residual
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::Elem]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1041:4-1053:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1046:4-1058:5 -/
 @[discriminant isize]
 inductive fold_layer_port.layer.tensor.carrier.Elem where
 | Sub :
@@ -122383,7 +123514,7 @@ inductive fold_layer_port.layer.tensor.carrier.Elem where
   fold_layer_port.layer.tensor.carrier.Elem
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 963:4-970:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 968:4-975:5 -/
 def fold_layer_port.layer.tensor.carrier.ratio
   (num : Std.I128) (den : Std.I128) :
   Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
@@ -122397,7 +123528,7 @@ def fold_layer_port.layer.tensor.carrier.ratio
     core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::mul]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 954:4-956:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 959:4-961:5 -/
 def fold_layer_port.layer.tensor.carrier.mul
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
@@ -122408,7 +123539,7 @@ def fold_layer_port.layer.tensor.carrier.mul
   solve_port.q32.round_q32_even i2
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::eval]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1060:8-1075:9 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1065:8-1080:9 -/
 @[rust_loop_body]
 def fold_layer_port.layer.tensor.carrier.eval_loop.body
   (len : Std.Usize) (e : fold_layer_port.layer.tensor.carrier.Elem)
@@ -122480,7 +123611,7 @@ def fold_layer_port.layer.tensor.carrier.eval_loop.body
   else ok (done (out, err))
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::eval]: loop 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1060:8-1075:9 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1065:8-1080:9 -/
 @[rust_loop]
 def fold_layer_port.layer.tensor.carrier.eval_loop
   (len : Std.Usize) (e : fold_layer_port.layer.tensor.carrier.Elem)
@@ -122494,7 +123625,7 @@ def fold_layer_port.layer.tensor.carrier.eval_loop
     (out, err, i)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::eval]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1056:4-1080:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1061:4-1085:5 -/
 def fold_layer_port.layer.tensor.carrier.eval
   (len : Std.Usize) (e : fold_layer_port.layer.tensor.carrier.Elem) :
   Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.q32.Q32Error)
@@ -122507,7 +123638,7 @@ def fold_layer_port.layer.tensor.carrier.eval
   | some e2 => ok (core.result.Result.Err e2)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::sum_i128]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 977:8-983:9 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 982:8-988:9 -/
 @[rust_loop_body]
 def fold_layer_port.layer.tensor.carrier.sum_i128_loop.body
   (x : Slice Std.I64) (s : Std.I128) (failed : Bool) (i : Std.Usize) :
@@ -122531,7 +123662,7 @@ def fold_layer_port.layer.tensor.carrier.sum_i128_loop.body
   else ok (done (s, failed))
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::sum_i128]: loop 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 977:8-983:9 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 982:8-988:9 -/
 @[rust_loop]
 def fold_layer_port.layer.tensor.carrier.sum_i128_loop
   (x : Slice Std.I64) (s : Std.I128) (failed : Bool) (i : Std.Usize) :
@@ -122543,7 +123674,7 @@ def fold_layer_port.layer.tensor.carrier.sum_i128_loop
     (s, failed, i)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::sum_i128]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 973:4-988:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 978:4-993:5 -/
 def fold_layer_port.layer.tensor.carrier.sum_i128
   (x : Slice Std.I64) :
   Result (core.result.Result Std.I128 solve_port.q32.Q32Error)
@@ -122619,7 +123750,7 @@ def fold_layer_port.layer.driver.g_row_from_vec
         residual
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio_words]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1026:8-1032:9 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1031:8-1037:9 -/
 @[rust_loop_body]
 def fold_layer_port.layer.tensor.carrier.ratio_words_loop.body
   (x : Slice Std.I128) (den : Std.I64) (out : alloc.vec.Vec Std.I64)
@@ -122650,7 +123781,7 @@ def fold_layer_port.layer.tensor.carrier.ratio_words_loop.body
   else ok (done (out, err))
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio_words]: loop 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1026:8-1032:9 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1031:8-1037:9 -/
 @[rust_loop]
 def fold_layer_port.layer.tensor.carrier.ratio_words_loop
   (x : Slice Std.I128) (den : Std.I64) (out : alloc.vec.Vec Std.I64)
@@ -122664,7 +123795,7 @@ def fold_layer_port.layer.tensor.carrier.ratio_words_loop
     (out, err, i)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio_words]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1022:4-1037:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1027:4-1042:5 -/
 def fold_layer_port.layer.tensor.carrier.ratio_words
   (x : Slice Std.I128) (den : Std.I64) :
   Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.q32.Q32Error)
@@ -122679,7 +123810,7 @@ def fold_layer_port.layer.tensor.carrier.ratio_words
   | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop body 1:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 999:12-1009:13 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1004:12-1014:13 -/
 @[rust_loop_body]
 def fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0.body
   (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) (c : Std.Usize)
@@ -122712,7 +123843,7 @@ def fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0.body
   else ok (done (err, s))
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop 1:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 999:12-1009:13 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1004:12-1014:13 -/
 @[rust_loop]
 def fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0
   (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
@@ -122727,7 +123858,7 @@ def fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0
     (err, s, r)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 996:8-1014:9 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1001:8-1019:9 -/
 @[rust_loop_body]
 def fold_layer_port.layer.tensor.carrier.col_squares_loop0.body
   (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
@@ -122755,7 +123886,7 @@ def fold_layer_port.layer.tensor.carrier.col_squares_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 996:8-1014:9 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1001:8-1019:9 -/
 @[rust_loop]
 def fold_layer_port.layer.tensor.carrier.col_squares_loop0
   (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
@@ -122770,7 +123901,7 @@ def fold_layer_port.layer.tensor.carrier.col_squares_loop0
     (out, err, c)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 992:4-1019:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 997:4-1024:5 -/
 def fold_layer_port.layer.tensor.carrier.col_squares
   (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) :
   Result (core.result.Result (alloc.vec.Vec Std.I128) solve_port.q32.Q32Error)
@@ -122897,7 +124028,7 @@ def fold_layer_port.layer.driver.g_row_from_matrix
       fold_layer_port.layer.driver.DriverError) residual
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::default::Default for apeiron_word::fold_layer_port::layer::tensor::TensorBits}::default]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 122:29-122:36
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 127:29-127:36
     Visibility: public -/
 def fold_layer_port.layer.tensor.TensorBits.Insts.CoreDefaultDefault.default
   : Result fold_layer_port.layer.tensor.TensorBits := do
@@ -123338,18 +124469,18 @@ def fold_layer_port.layer.resq.rescale_hier_top
           fold_layer_port.layer.resq.ResqError) residual
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::groups]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 60:0-62:1 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 65:0-67:1 -/
 def fold_layer_port.layer.tensor.groups
   (n : Std.Usize) : Result Std.Usize := do
   n / fold_port.fit.fold_fit.GROUP
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::SINK_TOL]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 65:0-65:28 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 70:0-70:28 -/
 @[global_simps, irreducible]
 def fold_layer_port.layer.tensor.SINK_TOL : Std.I64 := 4295#i64
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::cmp::PartialEq<apeiron_word::fold_layer_port::layer::tensor::TensorKind> for apeiron_word::fold_layer_port::layer::tensor::TensorKind}::eq]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 69:29-69:38
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 74:29-74:38
     Visibility: public -/
 def fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind.eq
   (self : fold_layer_port.layer.tensor.TensorKind)
@@ -123361,7 +124492,7 @@ def fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind.eq
   ok (self1 = other1)
 
 /-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::cmp::PartialEq<apeiron_word::fold_layer_port::layer::tensor::TensorKind> for apeiron_word::fold_layer_port::layer::tensor::TensorKind}]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 69:29-69:38 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 74:29-74:38 -/
 @[reducible]
 impl_def
   fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind :
@@ -123374,7 +124505,7 @@ impl_def
 }
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}::from]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 283:4-285:5
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 288:4-290:5
     Visibility: public -/
 def
   fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError.from
@@ -123384,7 +124515,7 @@ def
   ok (fold_layer_port.layer.tensor.TensorError.Resq e)
 
 /-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 282:0-286:1 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 287:0-291:1 -/
 @[reducible]
 def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError :
   core.convert.From fold_layer_port.layer.tensor.TensorError
@@ -123394,7 +124525,7 @@ def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError :
 }
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}::from]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 298:4-300:5
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 303:4-305:5
     Visibility: public -/
 def
   fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError.from
@@ -123404,7 +124535,7 @@ def
   ok (fold_layer_port.layer.tensor.TensorError.Steps e)
 
 /-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 297:0-301:1 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 302:0-306:1 -/
 @[reducible]
 def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError :
   core.convert.From fold_layer_port.layer.tensor.TensorError
@@ -123414,7 +124545,7 @@ def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError :
 }
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::tensor::TensorError}::from]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 308:4-313:5
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 313:4-318:5
     Visibility: public -/
 def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error.from
   (e : solve_port.q32.Q32Error) :
@@ -123431,7 +124562,7 @@ def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error.from
     ok fold_layer_port.layer.tensor.TensorError.ShapeMismatch
 
 /-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::tensor::TensorError}]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 307:0-314:1 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 312:0-319:1 -/
 @[reducible]
 def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error :
   core.convert.From fold_layer_port.layer.tensor.TensorError
@@ -123441,7 +124572,7 @@ def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error :
 }
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::plane_of]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 418:0-428:1 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 423:0-433:1 -/
 def fold_layer_port.layer.tensor.plane_of
   (s_rot : alloc.vec.Vec Std.I64) (rh : alloc.vec.Vec Std.I64)
   (ch : alloc.vec.Vec Std.I64) (dh : alloc.vec.Vec Std.I64) :
@@ -123450,7 +124581,7 @@ def fold_layer_port.layer.tensor.plane_of
   ok { s_rot, rh, ch, dh, rows := none, dense := none, factors := none }
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::plane_shape]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 431:0-434:1 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 436:0-439:1 -/
 def fold_layer_port.layer.tensor.plane_shape
   (p : fold_layer_port.layer.tensor.SinkPlane) (rlen : Std.Usize)
   (n : Std.Usize) :
@@ -123474,7 +124605,7 @@ def fold_layer_port.layer.tensor.plane_shape
   else ok false
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 519:4-527:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 524:4-532:5 -/
 @[rust_loop_body]
 def fold_layer_port.layer.tensor.scatter_add_loop0.body
   (rows : Slice Std.Usize) (o : Std.Usize) (inv : alloc.vec.Vec Std.Usize)
@@ -123507,7 +124638,7 @@ def fold_layer_port.layer.tensor.scatter_add_loop0.body
   else ok (done (inv, bad))
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 519:4-527:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 524:4-532:5 -/
 @[rust_loop]
 def fold_layer_port.layer.tensor.scatter_add_loop0
   (rows : Slice Std.Usize) (o : Std.Usize) (inv : alloc.vec.Vec Std.Usize)
@@ -123520,7 +124651,7 @@ def fold_layer_port.layer.tensor.scatter_add_loop0
     (inv, bad, i)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop body 2:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 537:12-544:13 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 542:12-549:13 -/
 @[rust_loop_body]
 def fold_layer_port.layer.tensor.scatter_add_loop1_loop0.body
   (src : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (i : Std.Usize)
@@ -123554,7 +124685,7 @@ def fold_layer_port.layer.tensor.scatter_add_loop1_loop0.body
   else ok (done (dst, err))
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop 2:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 537:12-544:13 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 542:12-549:13 -/
 @[rust_loop]
 def fold_layer_port.layer.tensor.scatter_add_loop1_loop0
   (dst : Slice Std.I64) (src : Slice Std.I64) (n : Std.Usize)
@@ -123569,7 +124700,7 @@ def fold_layer_port.layer.tensor.scatter_add_loop1_loop0
     (dst, err, j)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop body 1:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 533:4-547:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 538:4-552:5 -/
 @[rust_loop_body]
 def fold_layer_port.layer.tensor.scatter_add_loop1.body
   (src : Slice Std.I64) (n : Std.Usize) (o : Std.Usize)
@@ -123600,7 +124731,7 @@ def fold_layer_port.layer.tensor.scatter_add_loop1.body
   else ok (done (dst, err))
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop 1:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 533:4-547:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 538:4-552:5 -/
 @[rust_loop]
 def fold_layer_port.layer.tensor.scatter_add_loop1
   (dst : Slice Std.I64) (src : Slice Std.I64) (n : Std.Usize) (o : Std.Usize)
@@ -123615,7 +124746,7 @@ def fold_layer_port.layer.tensor.scatter_add_loop1
     (dst, err, r)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 511:0-552:1 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 516:0-557:1 -/
 def fold_layer_port.layer.tensor.scatter_add
   (dst : Slice Std.I64) (src : Slice Std.I64) (rows : Slice Std.Usize)
   (n : Std.Usize) :
@@ -123654,7 +124785,7 @@ def fold_layer_port.layer.tensor.scatter_add
         | some e => ok (core.result.Result.Err e, dst1)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::plane_weight]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 473:12-478:13 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 478:12-483:13 -/
 @[rust_loop_body]
 def fold_layer_port.layer.tensor.plane_weight_loop.body
   (rs : alloc.vec.Vec Std.Usize) (o : Std.Usize) (bad : Bool) (q : Std.Usize) :
@@ -123674,7 +124805,7 @@ def fold_layer_port.layer.tensor.plane_weight_loop.body
   else ok (done bad)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::plane_weight]: loop 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 473:12-478:13 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 478:12-483:13 -/
 @[rust_loop]
 def fold_layer_port.layer.tensor.plane_weight_loop
   (rs : alloc.vec.Vec Std.Usize) (o : Std.Usize) (bad : Bool) (q : Std.Usize) :
@@ -123686,7 +124817,7 @@ def fold_layer_port.layer.tensor.plane_weight_loop
     (bad, q)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::plane_weight]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 458:0-502:1 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 463:0-507:1 -/
 def fold_layer_port.layer.tensor.plane_weight
   (p : fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize) (n : Std.Usize)
   :
@@ -123879,7 +125010,7 @@ def fold_layer_port.layer.tensor.plane_weight
         ok (core.result.Result.Ok v)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::recon_words]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 581:4-590:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 586:4-595:5 -/
 @[rust_loop_body]
 def fold_layer_port.layer.tensor.recon_words_loop.body
   (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
@@ -123921,7 +125052,7 @@ def fold_layer_port.layer.tensor.recon_words_loop.body
   else ok (done (w, err))
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::recon_words]: loop 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 581:4-590:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 586:4-595:5 -/
 @[rust_loop]
 def fold_layer_port.layer.tensor.recon_words_loop
   (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
@@ -123936,7 +125067,7 @@ def fold_layer_port.layer.tensor.recon_words_loop
     (w, err, i)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::recon_words]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 568:0-595:1 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 573:0-600:1 -/
 def fold_layer_port.layer.tensor.recon_words
   (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
   (n : Std.Usize) :
@@ -123982,7 +125113,7 @@ def fold_layer_port.layer.tensor.recon_words
           fold_layer_port.layer.tensor.TensorError.Width)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::recon]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 562:0-564:1
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 567:0-569:1
     Visibility: public -/
 def fold_layer_port.layer.tensor.recon
   (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
@@ -123993,12 +125124,12 @@ def fold_layer_port.layer.tensor.recon
   fold_layer_port.layer.tensor.recon_words planes o n
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::sink_check::{closure}]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 623:43-623:64 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 628:43-628:64 -/
 @[reducible]
 def fold_layer_port.layer.tensor.sink_check.closure := Unit
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::sink_check::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::tensor::TensorError> for apeiron_word::fold_layer_port::layer::tensor::sink_check::{closure}}::call_once]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 623:43-623:64 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 628:43-628:64 -/
 def
   fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError.call_once
   (c : fold_layer_port.layer.tensor.sink_check.closure)
@@ -124008,7 +125139,7 @@ def
   ok fold_layer_port.layer.tensor.TensorError.Grid
 
 /-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::sink_check::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::tensor::TensorError> for apeiron_word::fold_layer_port::layer::tensor::sink_check::{closure}}]
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 623:43-623:64 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 628:43-628:64 -/
 @[reducible]
 def
   fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError
@@ -124019,7 +125150,7 @@ def
 }
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::sink_check]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 608:4-620:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 613:4-625:5 -/
 @[rust_loop_body]
 def fold_layer_port.layer.tensor.sink_check_loop.body
   (recon_wp : Slice Std.I64) (wp : Slice Std.I64) (maxd : Std.I128)
@@ -124049,7 +125180,7 @@ def fold_layer_port.layer.tensor.sink_check_loop.body
   else ok (done (maxd, maxw))
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::sink_check]: loop 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 608:4-620:5 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 613:4-625:5 -/
 @[rust_loop]
 def fold_layer_port.layer.tensor.sink_check_loop
   (recon_wp : Slice Std.I64) (wp : Slice Std.I64) (maxd : Std.I128)
@@ -124063,7 +125194,7 @@ def fold_layer_port.layer.tensor.sink_check_loop
     (maxd, maxw, i)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::sink_check]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 602:0-635:1 -/
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 607:0-640:1 -/
 def fold_layer_port.layer.tensor.sink_check
   (recon_wp : Slice Std.I64) (wp : Slice Std.I64) :
   Result (core.result.Result Unit fold_layer_port.layer.tensor.TensorError)
@@ -124110,7 +125241,7 @@ def fold_layer_port.layer.tensor.sink_check
           (fold_layer_port.layer.tensor.TensorError.SinkMismatch val))
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::fold_row_scale]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 916:8-921:9
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 921:8-926:9
     Visibility: public -/
 @[rust_loop_body]
 def fold_layer_port.layer.tensor.fold_row_scale_loop.body
@@ -124132,7 +125263,7 @@ def fold_layer_port.layer.tensor.fold_row_scale_loop.body
   else ok (done bad)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::fold_row_scale]: loop 0:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 916:8-921:9
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 921:8-926:9
     Visibility: public -/
 @[rust_loop]
 def fold_layer_port.layer.tensor.fold_row_scale_loop
@@ -124146,7 +125277,7 @@ def fold_layer_port.layer.tensor.fold_row_scale_loop
     (bad, q)
 
 /-- [apeiron_word::fold_layer_port::layer::tensor::fold_row_scale]:
-    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 877:0-942:1
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 882:0-947:1
     Visibility: public -/
 def fold_layer_port.layer.tensor.fold_row_scale
   (fit : fold_layer_port.layer.tensor.TensorFit) (s_sol : Slice Std.I64)
@@ -124414,12 +125545,12 @@ def fold_layer_port.layer.tensor.fold_row_scale
             fold_layer_port.layer.tensor.TensorError.Width, fit)
 
 /-- [apeiron_word::fold_finish_port::convert::EXP_2_31]
-    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 53:0-53:26 -/
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 61:0-61:26 -/
 @[global_simps, irreducible]
 def fold_finish_port.convert.EXP_2_31 : Std.U32 := 158#u32
 
 /-- [apeiron_word::fold_finish_port::convert::ConvertError]
-    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 57:0-67:1
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 65:0-75:1
     Visibility: public -/
 @[discriminant isize]
 inductive fold_finish_port.convert.ConvertError where
@@ -124429,7 +125560,7 @@ inductive fold_finish_port.convert.ConvertError where
 | NonFinite : String → fold_finish_port.convert.ConvertError
 
 /-- [apeiron_word::fold_finish_port::convert::decode_f16]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 197:4-204:5
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 205:4-212:5
     Visibility: public -/
 @[rust_loop_body]
 def fold_finish_port.convert.decode_f16_loop.body
@@ -124476,7 +125607,7 @@ def fold_finish_port.convert.decode_f16_loop.body
   else ok (done (out, err))
 
 /-- [apeiron_word::fold_finish_port::convert::decode_f16]: loop 0:
-    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 197:4-204:5
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 205:4-212:5
     Visibility: public -/
 @[rust_loop]
 def fold_finish_port.convert.decode_f16_loop
@@ -124491,7 +125622,7 @@ def fold_finish_port.convert.decode_f16_loop
     (out, err, i)
 
 /-- [apeiron_word::fold_finish_port::convert::decode_f16]:
-    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 186:0-209:1
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 194:0-217:1
     Visibility: public -/
 def fold_finish_port.convert.decode_f16
   (raw : Slice Std.U8) :
@@ -124528,7 +125659,7 @@ def fold_finish_port.convert.decode_f16
       s1))
 
 /-- [apeiron_word::fold_finish_port::convert::f32_bits_to_q32]:
-    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 277:0-304:1 -/
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 285:0-312:1 -/
 def fold_finish_port.convert.f32_bits_to_q32
   (bits : Std.U32) :
   Result (core.result.Result Std.I64 fold_finish_port.convert.ConvertError)
@@ -124637,7 +125768,7 @@ def fold_finish_port.convert.f32_bits_to_q32
                 (fold_finish_port.convert.ConvertError.Range s1))
 
 /-- [apeiron_word::fold_finish_port::convert::decode_bf16]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 229:4-236:5
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 237:4-244:5
     Visibility: public -/
 @[rust_loop_body]
 def fold_finish_port.convert.decode_bf16_loop.body
@@ -124674,7 +125805,7 @@ def fold_finish_port.convert.decode_bf16_loop.body
   else ok (done (out, err))
 
 /-- [apeiron_word::fold_finish_port::convert::decode_bf16]: loop 0:
-    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 229:4-236:5
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 237:4-244:5
     Visibility: public -/
 @[rust_loop]
 def fold_finish_port.convert.decode_bf16_loop
@@ -124689,7 +125820,7 @@ def fold_finish_port.convert.decode_bf16_loop
     (out, err, i)
 
 /-- [apeiron_word::fold_finish_port::convert::decode_bf16]:
-    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 218:0-241:1
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 226:0-249:1
     Visibility: public -/
 def fold_finish_port.convert.decode_bf16
   (raw : Slice Std.U8) :
@@ -124727,7 +125858,7 @@ def fold_finish_port.convert.decode_bf16
       s1))
 
 /-- [apeiron_word::fold_finish_port::convert::decode_f32]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 260:4-267:5
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 268:4-275:5
     Visibility: public -/
 @[rust_loop_body]
 def fold_finish_port.convert.decode_f32_loop.body
@@ -124767,7 +125898,7 @@ def fold_finish_port.convert.decode_f32_loop.body
   else ok (done (out, err))
 
 /-- [apeiron_word::fold_finish_port::convert::decode_f32]: loop 0:
-    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 260:4-267:5
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 268:4-275:5
     Visibility: public -/
 @[rust_loop]
 def fold_finish_port.convert.decode_f32_loop
@@ -124782,7 +125913,7 @@ def fold_finish_port.convert.decode_f32_loop
     (out, err, i)
 
 /-- [apeiron_word::fold_finish_port::convert::decode_f32]:
-    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 249:0-272:1
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 257:0-280:1
     Visibility: public -/
 def fold_finish_port.convert.decode_f32
   (raw : Slice Std.U8) :
@@ -125442,6 +126573,101 @@ def format_port.word_bpe_find_sub
   Result (Option Std.Usize)
   := do
   format_port.bpe.find_sub hay needle
+
+/-- [apeiron_word::table_port::word_table_parallel_phase_absorb]:
+    Source: 'ports/table_port.rs', lines 63:0-69:1
+    Visibility: public -/
+def table_port.word_table_parallel_phase_absorb
+  (phases : table.parallel.PhaseNanos) (other : table.parallel.PhaseNanos) :
+  Result table.parallel.PhaseNanos
+  := do
+  table.parallel.PhaseNanos.absorb phases other
+
+/-- [apeiron_word::table_port::word_table_parallel_phase_total]:
+    Source: 'ports/table_port.rs', lines 72:0-74:1
+    Visibility: public -/
+def table_port.word_table_parallel_phase_total
+  (phases : table.parallel.PhaseNanos) : Result Std.U64 := do
+  table.parallel.PhaseNanos.total phases
+
+/-- [apeiron_word::table_port::word_table_parallel_reserve_handle_table]:
+    Source: 'ports/table_port.rs', lines 79:0-83:1
+    Visibility: public -/
+def table_port.word_table_parallel_reserve_handle_table
+  (len : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec (Option Std.U32))
+    table.StorageError)
+  := do
+  table.parallel.reserve_handle_table len
+
+/-- [apeiron_word::table_port::word_table_parallel_reserve_all_shards]:
+    Source: 'ports/table_port.rs', lines 86:0-90:1
+    Visibility: public -/
+def table_port.word_table_parallel_reserve_all_shards
+  (loads : Array Std.Usize 256#usize) :
+  Result (core.result.Result (alloc.vec.Vec (Option (table.Region
+    (table.keyrep.Stored Std.I64) Std.I64))) table.StorageError)
+  := do
+  table.parallel.reserve_all_shards 16#usize
+    (table.keyrep.Stored.Insts.CoreCloneClone core.clone.CloneI64)
+    core.clone.CloneI64 loads
+
+/-- [apeiron_word::table_port::word_table_parallel_reserve_placement_records]:
+    Source: 'ports/table_port.rs', lines 93:0-97:1
+    Visibility: public -/
+def table_port.word_table_parallel_reserve_placement_records
+  (loads : Array Std.Usize 256#usize) :
+  Result (core.result.Result (alloc.vec.Vec (alloc.vec.Vec (Std.Usize ×
+    Std.Usize))) table.StorageError)
+  := do
+  table.parallel.reserve_placement_records loads
+
+/-- [apeiron_word::table_port::word_table_parallel_schedule_bins_with_regions]:
+    Source: 'ports/table_port.rs', lines 100:0-107:1
+    Visibility: public -/
+def table_port.word_table_parallel_schedule_bins_with_regions
+  (loads : Array Std.Usize 256#usize) (tasks : Std.Usize)
+  (reserved : Slice (Option (table.Region (table.keyrep.Stored Std.I64)
+  Std.I64))) (record_bufs : Slice (alloc.vec.Vec (Std.Usize × Std.Usize))) :
+  Result ((core.result.Result (alloc.vec.Vec (alloc.vec.Vec (Std.Usize ×
+    (Option (table.Region (table.keyrep.Stored Std.I64) Std.I64)) ×
+    (alloc.vec.Vec (Std.Usize × Std.Usize))))) table.StorageError) × (Slice
+    (Option (table.Region (table.keyrep.Stored Std.I64) Std.I64))) × (Slice
+    (alloc.vec.Vec (Std.Usize × Std.Usize))))
+  := do
+  table.parallel.schedule_bins_with_regions loads tasks reserved record_bufs
+
+/-- [apeiron_word::table_port::word_table_parallel_reserve_worker_outcomes]:
+    Source: 'ports/table_port.rs', lines 110:0-114:1
+    Visibility: public -/
+def table_port.word_table_parallel_reserve_worker_outcomes
+  (bins_with_regions : Slice (alloc.vec.Vec (Std.Usize × (Option (table.Region
+  (table.keyrep.Stored Std.I64) Std.I64)) × (alloc.vec.Vec (Std.Usize ×
+  Std.Usize))))) :
+  Result (core.result.Result ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize ×
+    (core.result.Result (table.Region (table.keyrep.Stored Std.I64) Std.I64)
+    table.StorageError) × Std.Usize × (alloc.vec.Vec (Std.Usize ×
+    Std.Usize))))) × (alloc.vec.Vec (alloc.vec.Vec (Std.Usize ×
+    (core.result.Result (table.Region (table.keyrep.Stored Std.I64) Std.I64)
+    table.StorageError) × Std.Usize × (alloc.vec.Vec (Std.Usize ×
+    Std.Usize)))))) table.StorageError)
+  := do
+  table.parallel.reserve_worker_outcomes bins_with_regions
+
+/-- [apeiron_word::table_port::word_table_parallel_distribute_regions]:
+    Source: 'ports/table_port.rs', lines 117:0-123:1
+    Visibility: public -/
+def table_port.word_table_parallel_distribute_regions
+  (bins : alloc.vec.Vec (alloc.vec.Vec Std.Usize))
+  (reserved : Slice (Option (table.Region (table.keyrep.Stored Std.I64)
+  Std.I64))) (record_bufs : Slice (alloc.vec.Vec (Std.Usize × Std.Usize))) :
+  Result ((alloc.vec.Vec (alloc.vec.Vec (Std.Usize × (Option (table.Region
+    (table.keyrep.Stored Std.I64) Std.I64)) × (alloc.vec.Vec (Std.Usize ×
+    Std.Usize))))) × (Slice (Option (table.Region (table.keyrep.Stored
+    Std.I64) Std.I64))) × (Slice (alloc.vec.Vec (Std.Usize × Std.Usize))))
+  := do
+  let s := alloc.vec.Vec.deref bins
+  table.parallel.distribute_regions s reserved record_bufs
 
 /-- [apeiron_word::solve_port::word_solve_gemm_nn]:
     Source: 'solve_port.rs', lines 22:0-30:1

@@ -84,7 +84,7 @@ pub struct PhaseNanos {
 }
 
 impl PhaseNanos {
-    fn absorb(&mut self, other: Self) {
+    pub(crate) fn absorb(&mut self, other: Self) {
         self.qualify += other.qualify;
         self.partition += other.partition;
         self.validate += other.validate;
@@ -335,26 +335,40 @@ type WorkerStorage<R, V> = (Vec<WorkerOutcomes<R, V>>, Vec<WorkerOutcomes<R, V>>
 /// [`build_prepared_shard`] entry on the worker, which reserves nothing and holds nothing for zero
 /// load. A seam hit or a checked sizing/allocation refusal returns `Err` with no hold, clone,
 /// merge, relocation or spawned worker.
-fn reserve_all_shards<R: Clone, V: Clone, const N: usize>(
+pub(crate) fn reserve_all_shards<R: Clone, V: Clone, const N: usize>(
     loads: &[usize; SHARDS],
 ) -> Result<Vec<ReservedRegion<R, V>>, StorageError> {
     let mut reserved = Vec::with_capacity(SHARDS);
+    // The first refusal is carried beside the index: no `?` or early return in the loop.
+    let mut refusal = None;
     let mut s = 0;
     while s < SHARDS {
         #[cfg(feature = "injection")]
-        if reservation_failure::consume(s) {
-            return Err(StorageError::AllocationFailed);
+        let armed = refusal.is_none() && reservation_failure::consume(s);
+        #[cfg(not(feature = "injection"))]
+        let armed = false;
+        if armed {
+            refusal = Some(StorageError::AllocationFailed);
         }
-        if loads[s] == 0 {
-            reserved.push(None);
-        } else {
-            let slots = slots_for(loads[s], N)?;
-            let region = Region::reserve_empty(slots)?;
-            reserved.push(Some(region));
+        if refusal.is_none() {
+            if loads[s] == 0 {
+                reserved.push(None);
+            } else {
+                match slots_for(loads[s], N) {
+                    Ok(slots) => match Region::reserve_empty(slots) {
+                        Ok(region) => reserved.push(Some(region)),
+                        Err(error) => refusal = Some(error),
+                    },
+                    Err(error) => refusal = Some(error),
+                }
+            }
         }
         s += 1;
     }
-    Ok(reserved)
+    match refusal {
+        Some(error) => Err(error),
+        None => Ok(reserved),
+    }
 }
 
 /// Reserves the per-input terminal-handle table before any worker starts.
@@ -362,7 +376,7 @@ fn reserve_all_shards<R: Clone, V: Clone, const N: usize>(
 /// Entry `i` later holds the locator handle of input `kvs[i]`'s key: `Some` for every locator-face
 /// entry (repeated keys share their handle) and `None` for the locator-free elliptic face. The
 /// entries start `None` and are overwritten in order by the preassembly pass.
-fn reserve_handle_table(len: usize) -> Result<Vec<Option<u32>>, StorageError> {
+pub(crate) fn reserve_handle_table(len: usize) -> Result<Vec<Option<u32>>, StorageError> {
     let mut handles: Vec<Option<u32>> = Vec::new();
     try_reserve_exact(&mut handles, len)?;
     handles.resize(len, None);
@@ -376,23 +390,39 @@ fn reserve_handle_table(len: usize) -> Result<Vec<Option<u32>>, StorageError> {
 /// zero-load shard carries no buffer. The buffers move with their shard's region into its one
 /// worker. A seam hit or a reservation refusal returns `Err` with no worker started and no hold,
 /// clone, merge or relocation run.
-fn reserve_placement_records(loads: &[usize; SHARDS]) -> Result<Vec<ShardRecords>, StorageError> {
+pub(crate) fn reserve_placement_records(
+    loads: &[usize; SHARDS],
+) -> Result<Vec<ShardRecords>, StorageError> {
     let mut record_bufs: Vec<ShardRecords> = Vec::new();
     try_reserve_exact(&mut record_bufs, SHARDS)?;
+    // The first refusal is carried beside the index: no `?` or early return in the loop.
+    let mut refusal = None;
     let mut s = 0;
     while s < SHARDS {
         #[cfg(feature = "injection")]
-        if reservation_failure::consume_records(s) {
-            return Err(StorageError::AllocationFailed);
+        let armed = refusal.is_none() && reservation_failure::consume_records(s);
+        #[cfg(not(feature = "injection"))]
+        let armed = false;
+        if armed {
+            refusal = Some(StorageError::AllocationFailed);
         }
-        let mut records = Vec::new();
-        if loads[s] > 0 {
-            try_reserve_exact(&mut records, loads[s])?;
+        if refusal.is_none() {
+            let mut records = Vec::new();
+            if loads[s] > 0 {
+                match try_reserve_exact(&mut records, loads[s]) {
+                    Ok(()) => record_bufs.push(records),
+                    Err(error) => refusal = Some(error),
+                }
+            } else {
+                record_bufs.push(records);
+            }
         }
-        record_bufs.push(records);
         s += 1;
     }
-    Ok(record_bufs)
+    match refusal {
+        Some(error) => Err(error),
+        None => Ok(record_bufs),
+    }
 }
 
 /// Derives the shard schedule from the scatter plan's loads and hands each reserved region and its
@@ -401,7 +431,7 @@ fn reserve_placement_records(loads: &[usize; SHARDS]) -> Result<Vec<ShardRecords
 /// Runs on the calling thread before the first scatter worker; the plan's loads are the assembled
 /// partition's per-shard counts, and `Schedule::is_complete` checks that the bins partition the
 /// shards, so every region and record buffer is taken exactly once.
-fn schedule_bins_with_regions<R, V>(
+pub(crate) fn schedule_bins_with_regions<R, V>(
     loads: &[usize; SHARDS],
     tasks: usize,
     reserved: &mut [ReservedRegion<R, V>],
@@ -411,8 +441,22 @@ fn schedule_bins_with_regions<R, V>(
     if !schedule.is_complete() {
         return Err(StorageError::SizeOverflow);
     }
-    let bins: Vec<Vec<usize>> = schedule.bins().map(ToOwned::to_owned).collect();
-    Ok(distribute_regions(bins, reserved, record_bufs))
+    // The schedule's bins are copied by index: `bins()` is an iterator adapter the extraction
+    // fragment does not carry.
+    let mut bins: Vec<Vec<usize>> = Vec::new();
+    let mut worker = 0;
+    while worker < schedule.len() {
+        let bin = schedule.bin(worker);
+        let mut row: Vec<usize> = Vec::new();
+        let mut at = 0;
+        while at < bin.len() {
+            row.push(bin[at]);
+            at += 1;
+        }
+        bins.push(row);
+        worker += 1;
+    }
+    Ok(distribute_regions(&bins, reserved, record_bufs))
 }
 
 /// Reserves one outcome buffer per worker bin and the joined-results sink on the calling thread.
@@ -420,21 +464,33 @@ fn schedule_bins_with_regions<R, V>(
 /// Runs before the first scatter worker: the injectable seam consumes at each bin before its
 /// reservation, so a refusal starts no worker, and the workers only append to storage that already
 /// exists.
-fn reserve_worker_outcomes<R, V>(
+pub(crate) fn reserve_worker_outcomes<R, V>(
     bins_with_regions: &[WorkerRegions<R, V>],
 ) -> Result<WorkerStorage<R, V>, StorageError> {
     let mut outcomes: Vec<WorkerOutcomes<R, V>> = Vec::new();
     try_reserve_exact(&mut outcomes, bins_with_regions.len())?;
+    // The first refusal is carried beside the index: no `?` or early return in the loop.
+    let mut refusal = None;
     let mut bin_index = 0;
     while bin_index < bins_with_regions.len() {
         #[cfg(feature = "injection")]
-        if reservation_failure::consume_output(bin_index) {
-            return Err(StorageError::AllocationFailed);
+        let armed = refusal.is_none() && reservation_failure::consume_output(bin_index);
+        #[cfg(not(feature = "injection"))]
+        let armed = false;
+        if armed {
+            refusal = Some(StorageError::AllocationFailed);
         }
-        let mut buffer: WorkerOutcomes<R, V> = Vec::new();
-        try_reserve_exact(&mut buffer, bins_with_regions[bin_index].len())?;
-        outcomes.push(buffer);
+        if refusal.is_none() {
+            let mut buffer: WorkerOutcomes<R, V> = Vec::new();
+            match try_reserve_exact(&mut buffer, bins_with_regions[bin_index].len()) {
+                Ok(()) => outcomes.push(buffer),
+                Err(error) => refusal = Some(error),
+            }
+        }
         bin_index += 1;
+    }
+    if let Some(error) = refusal {
+        return Err(error);
     }
     let mut sink: Vec<WorkerOutcomes<R, V>> = Vec::new();
     try_reserve_exact(&mut sink, outcomes.len())?;
@@ -443,24 +499,32 @@ fn reserve_worker_outcomes<R, V>(
 
 /// Moves each reserved region and its placement-record buffer into the one worker bin that owns its
 /// shard.
-fn distribute_regions<R, V>(
-    bins: Vec<Vec<usize>>,
+pub(crate) fn distribute_regions<R, V>(
+    bins: &[Vec<usize>],
     reserved: &mut [ReservedRegion<R, V>],
     record_bufs: &mut [ShardRecords],
 ) -> Vec<WorkerRegions<R, V>> {
-    bins.into_iter()
-        .map(|bin| {
-            bin.into_iter()
-                .map(|shard_at| {
-                    (
-                        shard_at,
-                        reserved[shard_at].take(),
-                        core::mem::take(&mut record_bufs[shard_at]),
-                    )
-                })
-                .collect()
-        })
-        .collect()
+    // Index loops, not the iterator chain: the extraction fragment carries neither `into_iter`
+    // closures nor `collect`.
+    let mut regions: Vec<WorkerRegions<R, V>> = Vec::new();
+    let mut worker = 0;
+    while worker < bins.len() {
+        let bin = &bins[worker];
+        let mut owned: WorkerRegions<R, V> = Vec::new();
+        let mut at = 0;
+        while at < bin.len() {
+            let shard_at = bin[at];
+            owned.push((
+                shard_at,
+                reserved[shard_at].take(),
+                core::mem::take(&mut record_bufs[shard_at]),
+            ));
+            at += 1;
+        }
+        regions.push(owned);
+        worker += 1;
+    }
+    regions
 }
 
 impl<K, V, H, const N: usize, R> Table<K, V, H, N, R>

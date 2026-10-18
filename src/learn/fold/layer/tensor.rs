@@ -44,6 +44,11 @@
               types repeat the module name (`tensor::TensorKind`) by the brief's naming, and \
               `fit_tensor` takes the reference's eight arguments, measured in f64 multiply-adds"
 )]
+#![allow(
+    clippy::manual_unwrap_or,
+    reason = "the extraction fragment carries the match arm the translator accepts; a combinator \
+              rewrite changes the MIR"
+)]
 
 use self::carrier::{eval, Elem};
 use crate::learn::fold::fit::corrector::{lowrank_corrector, CorrectorError, Factors, Mode};
