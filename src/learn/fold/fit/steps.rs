@@ -23,8 +23,7 @@
 //! computing path: the module's boundary is words in and words out. Pool dispatch is reserved for
 //! matrix-sized work: [`limb::gemm_q32`], [`hadamard_into`], [`chol_solve`] and
 //! [`crate::engine::fwht_fixed`] inside [`fwht_words`] pool in their own drivers (a nested
-//! dispatch would deadlock), and the transposes ([`transpose_grid`]) run on the pool; every
-//! per-row, per-column and per-entry loop is serial.
+//! dispatch would deadlock); every per-row, per-column, per-entry and transpose loop is serial.
 //!
 //! # Accuracy, stated
 //! The limb expansion is a 21-bit balanced-digit mantissa per 32-word block under one power-of-two
@@ -55,8 +54,6 @@
               small `i32`; steps take their operands directly rather than through a bundle struct."
 )]
 
-use crate::engine::chart::pool::chunks_mut_global;
-use crate::engine::chart::task::ChunkTask;
 use crate::engine::kern::limb::{self, LimbError};
 use crate::engine::{fwht_fixed, HadamardError};
 use crate::learn::solve::chol::{chol_solve, SolveError};
@@ -324,33 +321,19 @@ fn map_hadamard(_: HadamardError) -> StepsError {
     StepsError::ShapeMismatch
 }
 
-/// One output row of a transpose; the caller's chunk is a whole row.
-struct TransposeTask<'a, T> {
-    m: &'a [T],
-    rows: usize,
-    cols: usize,
-}
-
-impl<T: Copy + Send + Sync> ChunkTask<T> for TransposeTask<'_, T> {
-    fn run(&self, _c: usize, start: usize, piece: &mut [T]) {
-        let r = start / self.cols;
-        for (c, slot) in piece.iter_mut().enumerate() {
-            *slot = self.m[c * self.rows + r];
-        }
-    }
-}
-
 /// # Complexity
-/// Transpose of a row-major `cols × rows` matrix into `rows × cols`, one output row per pool task:
-/// `rows·cols` copies per call, pooled; an `n × n` transpose at production `n = 4864` is `2.4·10^7`
+/// Transpose of a row-major `cols × rows` matrix into `rows × cols`, serially:
+/// `rows·cols` copies per call; an `n × n` transpose at production `n = 4864` is `2.4·10^7`
 /// copies, two calls per [`had_gram`]. Spatial: `rows·cols` words.
 ///
 /// The two arguments name the *output* shape (`t[r·cols + c] = m[c·rows + r]`); a square call is
 /// its own inverse, a rectangular one needs the source's shape swapped.
 fn transpose_grid(m: &[i64], rows: usize, cols: usize) -> Vec<i64> {
     let mut t = vec![0i64; rows * cols];
-    if rows > 0 && cols > 0 {
-        chunks_mut_global(&mut t, cols, &TransposeTask { m, rows, cols });
+    for r in 0..rows {
+        for c in 0..cols {
+            t[r * cols + c] = m[c * rows + r];
+        }
     }
     t
 }
@@ -449,10 +432,20 @@ pub fn compose(
 /// `x ⊙ c`, `c` broadcast down the columns: `O(len)` rounded multiplies, `O(len)` words.
 fn col_scale(x: &[i64], c: &[i64], n: usize) -> Result<Vec<i64>, StepsError> {
     let mut out = vec![0i64; x.len()];
+    let mut ok = true;
     for i in 0..x.len() {
-        out[i] = mul_word(x[i], c[i % n])?;
+        if ok {
+            match mul_word(x[i], c[i % n]) {
+                Ok(v) => out[i] = v,
+                Err(_) => ok = false,
+            }
+        }
     }
-    Ok(out)
+    if ok {
+        Ok(out)
+    } else {
+        Err(StepsError::ShapeMismatch)
+    }
 }
 
 /// # Complexity

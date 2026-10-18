@@ -231,6 +231,7 @@ $EXTRACT_DIR/grad_solve_port.rs
 $EXTRACT_DIR/hashtrinity_port.rs
 $EXTRACT_DIR/format_port.rs
 $EXTRACT_DIR/coord_port.rs
+$EXTRACT_DIR/fit_port.rs
 $REPO_DIR/src/map/hashtrinity/side.rs
 $REPO_DIR/src/map/hashtrinity/overflow.rs
 $EXTRACT_DIR/Cargo.toml
@@ -450,6 +451,10 @@ run_extract() {
         --start-from crate::coord_port::word_identity_nodes_get \
         --start-from crate::coord_port::word_identity_nodes_iter \
         --start-from crate::coord_port::word_identity_nodes_into_iter \
+        --start-from crate::fit_port::word_fit_steps_fwht_words \
+        --start-from crate::fit_port::word_fit_steps_had_gram \
+        --start-from crate::fit_port::word_fit_steps_compose \
+        --start-from crate::fit_port::word_fit_gptq_e8_carrier_feedback_u \
         --start-from crate::coord_port::word_identity_node_iter_next \
         --start-from crate::word_silu_fixed \
         --start-from crate::word_rms_norm_fixed \

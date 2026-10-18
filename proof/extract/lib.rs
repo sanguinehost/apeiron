@@ -1490,5 +1490,9 @@ pub mod format_port;
 // The map coordinate roots (`src/map/coord*`).
 #[path = "coord_port.rs"]
 pub mod coord_port;
+// The closed-form weight-fit roots beyond `fold_port.rs`: steps, the E8 quantiser, the fold fit,
+// `nb_refine` and the RMSNorm-gain fit.
+#[path = "fit_port.rs"]
+pub mod fit_port;
 /// Mirror of `crate::learn` for this extraction unit, carried in `fold_port.rs`.
 pub use fold_port::learn;
