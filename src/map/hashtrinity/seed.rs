@@ -64,7 +64,9 @@ impl CoordSeed {
     /// A coordinate seed whose home window is `bits` wide (the table has `2^bits` slots).
     #[inline]
     pub fn new(bits: u32) -> Self {
-        debug_assert!((1..=64).contains(&bits), "bits must be in 1..=64");
+        // `bits >= 1 && bits <= 64`, not `(1..=64).contains(&bits)`: the range's `contains` is an
+        // unmodeled external in the extraction, and the two tests are the same predicate.
+        debug_assert!(bits >= 1 && bits <= 64, "bits must be in 1..=64");
         CoordSeed { bits }
     }
 

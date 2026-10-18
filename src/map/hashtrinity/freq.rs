@@ -901,7 +901,12 @@ impl<V> FreqLine<V> {
         if found {
             Some(unsafe { self.slots.get_unchecked(i).1.assume_init_ref() })
         } else if blocked {
-            self.overflow.as_ref().and_then(|o| o.get(f, &f))
+            // A `match`, not `Option::and_then(closure)`: a closure argument is an arrow type,
+            // which the extraction's first-order boundary does not carry.
+            match &self.overflow {
+                Some(o) => o.get(f, &f),
+                None => None,
+            }
         } else {
             None
         }
@@ -1305,9 +1310,13 @@ impl<K: Coord, V> FreqMap<K, V> {
     /// The number of live frequencies: primary lanes, reserved-frequency side entries and overflow
     /// entries.
     pub fn len(&self) -> usize {
-        self.inner.len
-            + self.inner.side.len()
-            + self.inner.overflow.as_ref().map_or(0, Overflow::len)
+        // A `match`, not `Option::map_or(Overflow::len)`: a `fn` item argument is an arrow type,
+        // which the extraction's first-order boundary does not carry.
+        let overflow_len = match &self.inner.overflow {
+            Some(o) => o.len(),
+            None => 0,
+        };
+        self.inner.len + self.inner.side.len() + overflow_len
     }
     /// Whether the map is empty.
     pub fn is_empty(&self) -> bool {
@@ -1343,13 +1352,19 @@ impl<K: Coord, V> FreqMap<K, V> {
     /// The number of frequencies held in the overflow tree (blocked past the probe cap). Diagnostic.
     #[doc(hidden)]
     pub fn overflow_len(&self) -> usize {
-        self.inner.overflow.as_ref().map_or(0, Overflow::len)
+        match &self.inner.overflow {
+            Some(o) => o.len(),
+            None => 0,
+        }
     }
 
     /// The overflow tree's height (`0` when no frequency was blocked). Diagnostic.
     #[doc(hidden)]
     pub fn overflow_height(&self) -> u32 {
-        self.inner.overflow.as_ref().map_or(0, Overflow::height)
+        match &self.inner.overflow {
+            Some(o) => o.height(),
+            None => 0,
+        }
     }
 
     /// Iterate the live values (arbitrary order). The key is not recoverable from the NB fold —

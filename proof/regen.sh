@@ -204,6 +204,9 @@ $REPO_DIR/src/learn/solve/inv.rs
 $REPO_DIR/src/learn/solve/eig.rs
 $EXTRACT_DIR/learn_port.rs
 $EXTRACT_DIR/solve_port.rs
+$EXTRACT_DIR/hashtrinity_port.rs
+$REPO_DIR/src/map/hashtrinity/side.rs
+$REPO_DIR/src/map/hashtrinity/overflow.rs
 $EXTRACT_DIR/Cargo.toml
 $EXTRACT_DIR/Cargo.lock
 $EXTRACT_DIR/lib.rs
@@ -408,6 +411,30 @@ run_extract() {
         --start-from crate::solve_port::word_solve_q32_bfp_from_i128 \
         --start-from crate::solve_port::word_solve_q32_spd_from_q32 \
         --start-from crate::solve_port::word_solve_q32_round_f16 \
+        --start-from crate::hashtrinity_port::word_seed_new \
+        --start-from crate::hashtrinity_port::word_seed_fold \
+        --start-from crate::hashtrinity_port::word_seed_unfold \
+        --start-from crate::hashtrinity_port::word_seed_home \
+        --start-from crate::hashtrinity_port::word_seed_residual \
+        --start-from crate::hashtrinity_port::word_seed_regrow_coord \
+        --start-from crate::hashtrinity_port::word_seed_regrow \
+        --start-from crate::hashtrinity_port::word_seed_seed_of \
+        --start-from crate::hashtrinity_port::word_coord_u128 \
+        --start-from crate::hashtrinity_port::word_coord_i128 \
+        --start-from crate::hashtrinity_port::word_coord_bool \
+        --start-from crate::hashtrinity_port::word_coord_bytes \
+        --start-from crate::hashtrinity_port::word_table_len \
+        --start-from crate::hashtrinity_port::word_table_is_empty \
+        --start-from crate::hashtrinity_port::word_table_capacity \
+        --start-from crate::hashtrinity_port::word_table_tombstones \
+        --start-from crate::hashtrinity_port::word_table_coord_seed \
+        --start-from crate::hashtrinity_port::word_table_get_exact \
+        --start-from crate::hashtrinity_port::word_freq_get \
+        --start-from crate::hashtrinity_port::word_freq_len \
+        --start-from crate::hashtrinity_port::word_freq_is_empty \
+        --start-from crate::hashtrinity_port::word_freq_capacity \
+        --start-from crate::hashtrinity_port::word_freq_overflow_len \
+        --start-from crate::hashtrinity_port::word_freq_overflow_height \
         --start-from crate::word_engine_open \
         --start-from crate::word_engine_prefill_state \
         --start-from crate::word_engine_next_token_state \
