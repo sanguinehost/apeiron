@@ -333,22 +333,37 @@ fn rotate(mut x: Vec<i64>) -> Result<Vec<i64>, FoldFitError> {
 /// entries, so the pool would buy nothing.
 fn metric(h: &[i64], n: usize, ridge: i64) -> Result<Vec<i64>, FoldFitError> {
     let mut sum: i128 = 0;
+    let mut ok = true;
     for i in 0..n {
-        sum = sum
-            .checked_add(i128::from(h[i * n + i]))
-            .ok_or(FoldFitError::Overflow)?;
+        if ok {
+            match sum.checked_add(i128::from(h[i * n + i])) {
+                Some(v) => sum = v,
+                None => ok = false,
+            }
+        }
+    }
+    if !ok {
+        return Err(FoldFitError::Overflow);
     }
     let add = mul_word(
         ridge,
         div_int(sum, n as i128).ok_or(FoldFitError::Overflow)?,
     )?;
     let mut hl = h.to_vec();
+    let mut ok = true;
     for i in 0..n {
-        hl[i * n + i] = hl[i * n + i]
-            .checked_add(add)
-            .ok_or(FoldFitError::Overflow)?;
+        if ok {
+            match hl[i * n + i].checked_add(add) {
+                Some(v) => hl[i * n + i] = v,
+                None => ok = false,
+            }
+        }
     }
-    Ok(hl)
+    if ok {
+        Ok(hl)
+    } else {
+        Err(FoldFitError::Overflow)
+    }
 }
 
 /// `x[:, i] *= v[i]` for a row-major `[o, n]` buffer, one rounded product per entry. Time
@@ -356,12 +371,22 @@ fn metric(h: &[i64], n: usize, ridge: i64) -> Result<Vec<i64>, FoldFitError> {
 /// (`4.8·10⁶` at `o = n = 896`), each one round of a contiguous word pair, so a row-band dispatch
 /// would add a task per band without cutting per-entry work; serial.
 fn scale_columns(x: &mut [i64], o: usize, n: usize, v: &[i64]) -> Result<(), FoldFitError> {
+    let mut ok = true;
     for row in 0..o {
         for k in 0..n {
-            x[row * n + k] = mul_word(x[row * n + k], v[k])?;
+            if ok {
+                match mul_word(x[row * n + k], v[k]) {
+                    Ok(y) => x[row * n + k] = y,
+                    Err(_) => ok = false,
+                }
+            }
         }
     }
-    Ok(())
+    if ok {
+        Ok(())
+    } else {
+        Err(FoldFitError::Overflow)
+    }
 }
 
 /// The per-column sign of `d` with the 8-block parity fix (lines 871–878): the sign vector has an
@@ -402,35 +427,64 @@ fn group_norm(d: &[i64], sign: &[i64], n: usize) -> Result<(Vec<i64>, Vec<i64>),
     let g = n / GROUP;
     let mut dn = vec![0_i64; n];
     let mut gmax = vec![0_i64; g];
+    let mut ok = true;
     for gi in 0..g {
-        let b0 = gi * GROUP;
-        let mut mx = 0_u64;
-        for k in 0..GROUP {
-            dn[b0 + k] = mul_word(d[b0 + k], sign[b0 + k])?;
-            let a = dn[b0 + k].unsigned_abs();
-            if a > mx {
-                mx = a;
+        if ok {
+            let b0 = gi * GROUP;
+            let mut mx = 0_u64;
+            for k in 0..GROUP {
+                if ok {
+                    match mul_word(d[b0 + k], sign[b0 + k]) {
+                        Ok(v) => {
+                            dn[b0 + k] = v;
+                            let a = v.unsigned_abs();
+                            if a > mx {
+                                mx = a;
+                            }
+                        }
+                        Err(_) => ok = false,
+                    }
+                }
             }
+            let mx = i64::try_from(mx).unwrap_or(i64::MAX).max(EPS_W);
+            for k in 0..GROUP {
+                if ok {
+                    match div_word(dn[b0 + k], mx) {
+                        Ok(v) => dn[b0 + k] = v,
+                        Err(_) => ok = false,
+                    }
+                }
+            }
+            gmax[gi] = mx;
         }
-        let mx = i64::try_from(mx).unwrap_or(i64::MAX).max(EPS_W);
-        for k in 0..GROUP {
-            dn[b0 + k] = div_word(dn[b0 + k], mx)?;
-        }
-        gmax[gi] = mx;
     }
-    Ok((dn, gmax))
+    if ok {
+        Ok((dn, gmax))
+    } else {
+        Err(FoldFitError::Overflow)
+    }
 }
 
 /// `r[:, i] *= v[i]` for a row-major `[o, g]` buffer. Time `O(o·g)`, space `O(1)`; `g = n/128`
 /// leaves a handful of columns per row, `o·n/128` words, below a dispatch.
 fn scale_group_columns(r: &mut [i64], o: usize, g: usize, v: &[i64]) -> Result<(), FoldFitError> {
+    let mut ok = true;
     for row in 0..o {
         for k in 0..g {
-            let i = row * g + k;
-            r[i] = mul_word(r[i], v[k])?;
+            if ok {
+                let i = row * g + k;
+                match mul_word(r[i], v[k]) {
+                    Ok(y) => r[i] = y,
+                    Err(_) => ok = false,
+                }
+            }
         }
     }
-    Ok(())
+    if ok {
+        Ok(())
+    } else {
+        Err(FoldFitError::Overflow)
+    }
 }
 
 /// `x[*] /= d` for a word buffer, one rounded quotient per entry. Time `O(len)`, space `O(1)`;

@@ -77,7 +77,11 @@ fn to_word(v: i128) -> Result<i64, QuantError> {
 /// The real value of an exact integer carrier `m·2^e` as a Q32.32 word. Time `O(1)`.
 fn fx_word(x: &Fx) -> Result<i64, QuantError> {
     let shift = i64::from(x.e) + 32;
-    let s = u32::try_from(shift.unsigned_abs()).map_err(|_| QuantError::LengthOverflow)?;
+    let mag = shift.unsigned_abs();
+    if mag > 127 {
+        return Err(QuantError::LengthOverflow);
+    }
+    let s = mag as u32;
     let v = if shift >= 0 {
         i128::from(x.m) << s
     } else {
@@ -97,7 +101,8 @@ fn f16_word(w: i64) -> Result<i64, QuantError> {
 fn min_max(words: &[i64]) -> (i64, i64) {
     let mut lo = words[0];
     let mut hi = lo;
-    for &w in &words[1..] {
+    for i in 1..words.len() {
+        let w = words[i];
         lo = lo.min(w);
         hi = hi.max(w);
     }
@@ -106,7 +111,7 @@ fn min_max(words: &[i64]) -> (i64, i64) {
 
 /// The grid value of code `k` on `(lo, sp)`: `lo + (k / 15)·sp`. Time `O(1)`.
 fn decode_word(lo: i64, sp: i64, k: u8) -> i128 {
-    i128::from(lo) + div_rne_pos(i128::from(k) * i128::from(sp), 15)
+    i128::from(lo) + div_rne_pos(i128::from(i64::from(k)) * i128::from(sp), 15)
 }
 
 /// [`decode_word`] on the stored row grid `(lo, sp)`: the level that [`quant_r_hier`] stores for
@@ -150,13 +155,25 @@ pub fn quant_c_u8(c: &[i64], bits: u32) -> Result<(Vec<i64>, u64), QuantError> {
     let levels = ((1_u64 << bits) - 1) as i64;
 
     let mut out = vec![0_i64; c.len()];
-    for (slot, &w) in out.iter_mut().zip(c) {
-        let x = i128::from(w) - i128::from(c_min);
-        let q = div_rne_pos(x * i128::from(levels), i128::from(span)).clamp(0, i128::from(levels));
-        let off = div_rne_pos(q * i128::from(span), i128::from(levels));
-        *slot = to_word(i128::from(c_min) + off)?;
+    let mut ok = true;
+    for i in 0..c.len() {
+        if ok {
+            let w = c[i];
+            let x = i128::from(w) - i128::from(c_min);
+            let q =
+                div_rne_pos(x * i128::from(levels), i128::from(span)).clamp(0, i128::from(levels));
+            let off = div_rne_pos(q * i128::from(span), i128::from(levels));
+            match to_word(i128::from(c_min) + off) {
+                Ok(v) => out[i] = v,
+                Err(_) => ok = false,
+            }
+        }
     }
-    Ok((out, total))
+    if ok {
+        Ok((out, total))
+    } else {
+        Err(QuantError::LengthOverflow)
+    }
 }
 
 /// A hierarchical row-scale quantization result: the codes and the values they decode to,
@@ -193,10 +210,19 @@ impl RHier {
         if g == 0 {
             return out;
         }
-        for (idx, slot) in out.iter_mut().enumerate() {
+        for idx in 0..out.len() {
             let row = idx / g;
             let w = decode_word(self.r_lo[row], self.r_sp[row], self.k[idx]);
-            *slot = i64::try_from(w).unwrap_or(if w < 0 { i64::MIN } else { i64::MAX });
+            out[idx] = match i64::try_from(w) {
+                Ok(v) => v,
+                Err(_) => {
+                    if w < 0 {
+                        i64::MIN
+                    } else {
+                        i64::MAX
+                    }
+                }
+            };
         }
         out
     }
@@ -213,38 +239,84 @@ struct HierHeader {
     sp_levels: [i64; 4],
 }
 
+/// Ascending sort of `values` by bottom-up merge: each pass reads `src` and writes `dst`, so no
+/// pass reads the buffer it mutates. Time `O(n log n)` comparisons, space `O(n)`.
+#[allow(
+    clippy::manual_swap,
+    reason = "a `mem::swap` call would put an unmodelled core function in the extracted body; the \
+              three-line exchange of two whole buffers is the extracted form"
+)]
+fn sort_ascending(values: &[i64]) -> Vec<i64> {
+    let n = values.len();
+    let mut src = values.to_vec();
+    let mut dst = vec![0_i64; n];
+    let mut width = 1usize;
+    while width < n {
+        let mut lo = 0usize;
+        while lo < n {
+            let mid = if lo + width < n { lo + width } else { n };
+            let hi = if lo + 2 * width < n {
+                lo + 2 * width
+            } else {
+                n
+            };
+            let (mut i, mut j, mut k) = (lo, mid, lo);
+            while k < hi {
+                if j >= hi || (i < mid && src[i] <= src[j]) {
+                    dst[k] = src[i];
+                    i += 1;
+                } else {
+                    dst[k] = src[j];
+                    j += 1;
+                }
+                k += 1;
+            }
+            lo += 2 * width;
+        }
+        let t = src;
+        src = dst;
+        dst = t;
+        width *= 2;
+    }
+    src
+}
+
 /// The linear-interpolation 5% quantile of `values` on the Q32.32 grid: `idx = (n−1)/20`, then the
 /// blend of the two bracketing order statistics with weight `rem/20`. Time `O(n log n)` word
 /// comparisons for the sort, space `O(n)`.
 fn quantile_05(values: &[i64]) -> i64 {
     let n = values.len();
     if n < 2 {
-        return values.first().copied().unwrap_or(0);
+        if n == 0 {
+            return 0;
+        }
+        return values[0];
     }
-    let mut sorted = values.to_vec();
-    sorted.sort_unstable();
+    let sorted = sort_ascending(values);
     // `q = 0.05 = 1/20`, so `idx·20 = n−1` exactly; the integer split avoids an f64 quotient.
-    let idx = n as i128 - 1;
-    let Ok(lo_i) = usize::try_from(idx / 20) else {
-        return sorted[n - 1];
-    };
+    let idx = n - 1;
+    let lo_i = idx / 20;
     if lo_i >= n - 1 {
         return sorted[n - 1];
     }
     let rem = idx % 20;
     let diff = i128::from(sorted[lo_i + 1]) - i128::from(sorted[lo_i]);
     // The blend stays between the two order statistics, so the narrowing is exact.
-    (i128::from(sorted[lo_i]) + div_rne_pos(diff * rem, 20)) as i64
+    (i128::from(sorted[lo_i]) + div_rne_pos(diff * rem as i128, 20)) as i64
 }
 
 /// Build the row-mean grid and spread levels for [`quant_r_hier`].
 /// # Complexity
 /// Time `O(o·g + o log o)` word ops (three passes plus the sort), space `O(o)`.
 fn hier_header(r: &[i64], o: usize, g: usize) -> Result<HierHeader, QuantError> {
-    let rm: Vec<i64> = r
-        .chunks_exact(g)
-        .map(|row| div_rne_pos(row.iter().map(|&x| i128::from(x)).sum(), g as i128) as i64)
-        .collect();
+    let mut rm = vec![0_i64; o];
+    for i in 0..o {
+        let mut sum: i128 = 0;
+        for j in 0..g {
+            sum += i128::from(r[i * g + j]);
+        }
+        rm[i] = div_rne_pos(sum, g as i128) as i64;
+    }
 
     let (mu_lo, mu_hi) = min_max(&rm);
     let mu_min = f16_word(mu_lo)?;
@@ -253,24 +325,35 @@ fn hier_header(r: &[i64], o: usize, g: usize) -> Result<HierHeader, QuantError> 
 
     let mut u6_base = vec![0_u8; o];
     let mut dev = vec![0_i64; o];
-    for (i, (u, slot)) in u6_base.iter_mut().zip(dev.iter_mut()).enumerate() {
-        let mean = i128::from(rm[i]);
-        *u = div_rne_pos((mean - i128::from(mu_min)) * 63, i128::from(mu_span)).clamp(0, 63) as u8;
-        let mut mx: i128 = 0;
-        for j in 0..g {
-            mx = mx.max((i128::from(r[i * g + j]) - mean).abs());
+    let mut ok = true;
+    for i in 0..o {
+        if ok {
+            let mean = i128::from(rm[i]);
+            u6_base[i] = div_rne_pos((mean - i128::from(mu_min)) * 63, i128::from(mu_span))
+                .clamp(0, 63) as u8;
+            let mut mx: i128 = 0;
+            for j in 0..g {
+                mx = mx.max((i128::from(r[i * g + j]) - mean).abs());
+            }
+            let den = if mean.abs() > 1 { mean.abs() } else { 1 };
+            match to_word(div_rne_pos(mx << 32, den)) {
+                Ok(v) => dev[i] = v,
+                Err(_) => ok = false,
+            }
         }
-        let den = if mean.abs() > 1 { mean.abs() } else { 1 };
-        *slot = to_word(div_rne_pos(mx << 32, den))?;
+    }
+    if !ok {
+        return Err(QuantError::LengthOverflow);
     }
 
     let sp_min = f16_word(quantile_05(&dev).max(DEV_MIN))?;
     let sp_max = f16_word(min_max(&dev).1.max(sp_min.saturating_add(DEV_MIN)))?;
-    let span = i128::from(sp_max) - i128::from(sp_min);
+    let sp_min_w = i128::from(sp_min);
+    let span = i128::from(sp_max) - sp_min_w;
     let mut sp_levels = [sp_min; 4];
-    for (s, level) in sp_levels.iter_mut().enumerate().skip(1) {
-        *level = to_word(i128::from(sp_min) + div_rne_pos(span * s as i128, 3))?;
-    }
+    sp_levels[1] = to_word(sp_min_w + div_rne_pos(span, 3))?;
+    sp_levels[2] = to_word(sp_min_w + div_rne_pos(span * 2, 3))?;
+    sp_levels[3] = to_word(sp_min_w + div_rne_pos(span * 3, 3))?;
 
     Ok(HierHeader {
         mu_min,
@@ -303,14 +386,25 @@ fn grid(mu: i64, sp: i64) -> Result<(i64, i64), QuantError> {
 /// refused when a square or the sum leaves `i128`. Time `O(g)` word ops, space `O(1)`.
 fn row_err(r: &[i64], g: usize, i: usize, lo: i64, sp: i64) -> Result<i128, QuantError> {
     let mut err: i128 = 0;
+    let mut ok = true;
     for j in 0..g {
-        let x = i128::from(r[i * g + j]);
-        let d = x - (i128::from(lo) + div_rne_pos(code(x, lo, sp) * i128::from(sp), 15));
-        err = err
-            .checked_add(d.checked_mul(d).ok_or(QuantError::LengthOverflow)?)
-            .ok_or(QuantError::LengthOverflow)?;
+        if ok {
+            let x = i128::from(r[i * g + j]);
+            let d = x - (i128::from(lo) + div_rne_pos(code(x, lo, sp) * i128::from(sp), 15));
+            match d.checked_mul(d) {
+                Some(sq) => match err.checked_add(sq) {
+                    Some(e) => err = e,
+                    None => ok = false,
+                },
+                None => ok = false,
+            }
+        }
     }
-    Ok(err)
+    if ok {
+        Ok(err)
+    } else {
+        Err(QuantError::LengthOverflow)
+    }
 }
 
 /// Score the twelve candidates of row `i` (`du ∈ {−1, 0, 1}` × four spreads) and keep the least
@@ -323,26 +417,43 @@ fn row_best(r: &[i64], g: usize, i: usize, h: &HierHeader) -> Result<RowBest, Qu
         u6: 0,
         sp_idx: 0,
     };
-    for &du in &[-1_i32, 0, 1] {
-        let u6 = (i32::from(h.u6_base[i]) + du).clamp(0, 63);
-        let mu = to_word(
-            i128::from(h.mu_min) + div_rne_pos(i128::from(u6) * i128::from(h.mu_span), 63),
-        )?;
-        for (sp_idx, &sp) in h.sp_levels.iter().enumerate() {
-            let (lo, span) = grid(mu, sp)?;
-            let err = row_err(r, g, i, lo, span)?;
-            if err < best.err {
-                best = RowBest {
-                    err,
-                    lo,
-                    sp: span,
-                    u6: u6 as u8,
-                    sp_idx: sp_idx as u8,
-                };
+    let mut ok = true;
+    for t in 0..3 {
+        for sp_idx in 0..4 {
+            if ok {
+                let du = t - 1;
+                let u6 = (i32::from(h.u6_base[i]) + du).clamp(0, 63);
+                let mu =
+                    i128::from(h.mu_min) + div_rne_pos(i128::from(u6) * i128::from(h.mu_span), 63);
+                let sp = h.sp_levels[sp_idx];
+                match to_word(mu) {
+                    Ok(m) => match grid(m, sp) {
+                        Ok((lo, span)) => match row_err(r, g, i, lo, span) {
+                            Ok(err) => {
+                                if err < best.err {
+                                    best = RowBest {
+                                        err,
+                                        lo,
+                                        sp: span,
+                                        u6: u6 as u8,
+                                        sp_idx: sp_idx as u8,
+                                    };
+                                }
+                            }
+                            Err(_) => ok = false,
+                        },
+                        Err(_) => ok = false,
+                    },
+                    Err(_) => ok = false,
+                }
             }
         }
     }
-    Ok(best)
+    if ok {
+        Ok(best)
+    } else {
+        Err(QuantError::LengthOverflow)
+    }
 }
 
 /// Hierarchical group-scale quantization: a per-row 6-bit mean, a 2-bit spread and 4-bit codes.
@@ -356,7 +467,7 @@ fn row_best(r: &[i64], g: usize, i: usize, h: &HierHeader) -> Result<RowBest, Qu
 /// # Errors
 /// [`QuantError::Empty`] for `o == 0` or `g == 0`; [`QuantError::ShapeMismatch`] for a length that
 /// is not `o·g` (or can't be, on overflow); [`QuantError::LengthOverflow`] for an f16 endpoint at
-/// binary16 infinity, or a squared error leaving `i128`.
+/// binary16 infinity, or a squared error leaving the accumulator.
 /// # Complexity
 /// Time `O(o·g)` word ops (`12·g` per row for the candidates, then one `g` pass for the codes and
 /// one for the decode) plus `O(o log o)` for the quantile; space `O(o·g)`.
@@ -370,29 +481,59 @@ pub fn quant_r_hier(r: &[i64], o: usize, g: usize) -> Result<RHier, QuantError> 
     }
 
     let header = hier_header(r, o, g)?;
-    let best = (0..o)
-        .map(|i| row_best(r, g, i, &header))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut best: Vec<RowBest> = Vec::with_capacity(o);
+    let mut ok = true;
+    for i in 0..o {
+        if ok {
+            match row_best(r, g, i, &header) {
+                Ok(b) => best.push(b),
+                Err(_) => ok = false,
+            }
+        }
+    }
+    if !ok {
+        return Err(QuantError::LengthOverflow);
+    }
 
     let mut best_k = vec![0_u8; n];
-    for (idx, slot) in best_k.iter_mut().enumerate() {
+    for idx in 0..n {
         let b = &best[idx / g];
-        *slot = code(i128::from(r[idx]), b.lo, b.sp) as u8;
+        best_k[idx] = code(i128::from(r[idx]), b.lo, b.sp) as u8;
     }
 
     let mut rq = vec![0_i64; n];
-    for (idx, slot) in rq.iter_mut().enumerate() {
-        let b = &best[idx / g];
-        *slot = to_word(decode_word(b.lo, b.sp, best_k[idx]))?;
+    let mut ok = true;
+    for idx in 0..n {
+        if ok {
+            let b = &best[idx / g];
+            match to_word(decode_word(b.lo, b.sp, best_k[idx])) {
+                Ok(v) => rq[idx] = v,
+                Err(_) => ok = false,
+            }
+        }
+    }
+    if !ok {
+        return Err(QuantError::LengthOverflow);
+    }
+
+    let mut r_lo = vec![0_i64; o];
+    let mut r_sp = vec![0_i64; o];
+    let mut u6 = vec![0_u8; o];
+    let mut sp_idx = vec![0_u8; o];
+    for i in 0..o {
+        r_lo[i] = best[i].lo;
+        r_sp[i] = best[i].sp;
+        u6[i] = best[i].u6;
+        sp_idx[i] = best[i].sp_idx;
     }
 
     Ok(RHier {
         rq,
         bits: 4 * n as u64 + 8 * o as u64 + 64,
-        r_lo: best.iter().map(|b| b.lo).collect(),
-        r_sp: best.iter().map(|b| b.sp).collect(),
+        r_lo,
+        r_sp,
         k: best_k,
-        u6: best.iter().map(|b| b.u6).collect(),
-        sp_idx: best.iter().map(|b| b.sp_idx).collect(),
+        u6,
+        sp_idx,
     })
 }

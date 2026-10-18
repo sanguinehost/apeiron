@@ -175,15 +175,20 @@ fn u8_bits(o: usize, n: usize, rank: usize) -> u64 {
 /// `v·2^e` on the grid with the pre-flip `to_grid` rounding — nearest, ties away from zero — so
 /// the word scale reproduces the `f64` read-back path bit-for-bit; `Overflow` when the result
 /// leaves `i64` or the shift leaves `i128`. `O(1)`.
+#[allow(
+    clippy::cast_sign_loss,
+    reason = "both casts are guarded: `e` is compared against `127` before the left shift and is \
+              negative at the `(-e)` cast, so on this path the sign is already `+`"
+)]
 fn scale_word(v: i64, e: i32) -> Result<i64, CorrectorError> {
     if e >= 0 {
-        let s = u32::try_from(e).map_err(|_| CorrectorError::Overflow)?;
-        let w = i128::from(v)
-            .checked_shl(s)
-            .ok_or(CorrectorError::Overflow)?;
+        if e > 127 {
+            return Err(CorrectorError::Overflow);
+        }
+        let w = i128::from(v) << (e as u32);
         return i64::try_from(w).map_err(|_| CorrectorError::Overflow);
     }
-    let s = u32::try_from(-e).map_err(|_| CorrectorError::Overflow)?;
+    let s = (-e) as u32;
     if s > 126 {
         return Err(CorrectorError::Overflow);
     }
@@ -191,7 +196,13 @@ fn scale_word(v: i64, e: i32) -> Result<i64, CorrectorError> {
     let x = i128::from(v);
     let (q, r) = (x / d, x % d);
     let mag = if r < 0 { -r } else { r };
-    let step = if mag < half { 0 } else { r.signum() };
+    let step = if mag < half {
+        0
+    } else if r > 0 {
+        1
+    } else {
+        -1
+    };
     i64::try_from(q + step).map_err(|_| CorrectorError::Overflow)
 }
 
@@ -223,9 +234,10 @@ pub fn eigen_parts(
         return Err(CorrectorError::RankOutOfRange);
     }
     let (m, km) = eigen_gram(delta_w, hl, o, n)?;
-    let max = m
-        .iter()
-        .fold(0u128, |a, &v| a.max(u128::from(v.unsigned_abs())));
+    let mut max = 0u128;
+    for &v in &m {
+        max = max.max(u128::from(v.unsigned_abs()));
+    }
     if max == 0 {
         // `M = 0`: the full `eigh` of the zero matrix returns the identity basis; reproduce it.
         let mut u = vec![0i64; o * rank];
@@ -239,22 +251,36 @@ pub fn eigen_parts(
         return Ok((u, 0));
     }
     let e = gram_scale(&m);
-    let m_q = m
-        .iter()
-        .map(|&x| scale_word(x, e))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut m_q = vec![0_i64; m.len()];
+    let mut ok = true;
+    for i in 0..m.len() {
+        if ok {
+            match scale_word(m[i], e) {
+                Ok(v) => m_q[i] = v,
+                Err(_) => ok = false,
+            }
+        }
+    }
+    if !ok {
+        return Err(CorrectorError::Overflow);
+    }
     let top = top_eigh_report(&m_q, o, rank).map_err(|s| CorrectorError::Eigensolver {
         cause: s.error,
         iters: s.iters,
         residual_ratio: s.residual_ratio,
     })?;
     let mut sum: i128 = 0;
+    let mut ok = true;
     for k in 0..rank {
-        if top.evals[k] > 0 {
-            sum = sum
-                .checked_add(i128::from(top.evals[k]))
-                .ok_or(CorrectorError::Overflow)?;
+        if ok && top.evals[k] > 0 {
+            match sum.checked_add(i128::from(top.evals[k])) {
+                Some(v) => sum = v,
+                None => ok = false,
+            }
         }
+    }
+    if !ok {
+        return Err(CorrectorError::Overflow);
     }
     let ws = i64::try_from(sum).map_err(|_| CorrectorError::Overflow)?;
     // `μ = λ·2^{e−km}·2³²`, so the Q32.32 word of `λ` is `μ·2^{km−e}`.
@@ -263,13 +289,95 @@ pub fn eigen_parts(
 
 /// `x` rounded to binary16 and back to Q32.32 ([`round_f16`] then one grid shift); `Overflow` at
 /// binary16's range (`2¹⁶`) or on a shift that leaves `i64`. `O(1)`.
+#[allow(
+    clippy::cast_sign_loss,
+    reason = "the cast is guarded: `sh < 0` returns `Overflow` before `sh as u32`, and `f.e` is a \
+              binary16 exponent"
+)]
 fn f16_word(v: i64) -> Result<i64, CorrectorError> {
     let f = round_f16(Fx { m: v, e: -32 }).map_err(|_| CorrectorError::Overflow)?;
-    let s = u32::try_from(f.e + 32).map_err(|_| CorrectorError::Overflow)?;
-    let w = i128::from(f.m)
-        .checked_shl(s)
-        .ok_or(CorrectorError::Overflow)?;
+    let sh = f.e + 32;
+    if sh < 0 {
+        return Err(CorrectorError::Overflow);
+    }
+    if sh >= 128 {
+        return Err(CorrectorError::Overflow);
+    }
+    let s = sh as u32;
+    let w = i128::from(f.m) << s;
     i64::try_from(w).map_err(|_| CorrectorError::Overflow)
+}
+
+/// [`f16_word`] on every word, refusing at the first entry that leaves the carrier. `O(len)`.
+fn f16_words(xs: &[i64]) -> Result<Vec<i64>, CorrectorError> {
+    let mut out = vec![0_i64; xs.len()];
+    let mut ok = true;
+    for i in 0..xs.len() {
+        if ok {
+            match f16_word(xs[i]) {
+                Ok(x) => out[i] = x,
+                Err(_) => ok = false,
+            }
+        }
+    }
+    if ok {
+        Ok(out)
+    } else {
+        Err(CorrectorError::Overflow)
+    }
+}
+
+/// The [`Mode::U8`] carrier: column `k` of `U` is quantized independently on the word carrier, the
+/// ridge solve runs on the quantized `Uh`, and row `k` of `V` is quantized independently. `O(rank·o
+/// + rank·n)` word ops plus [`ridge_solve`].
+fn u8_carrier(
+    uq: &[i64],
+    delta_w: &[i64],
+    o: usize,
+    n: usize,
+    rank: usize,
+) -> Result<(Vec<i64>, Vec<i64>), CorrectorError> {
+    let mut uh = vec![0_i64; o * rank];
+    let mut col = vec![0_i64; o];
+    let mut ok = true;
+    for k in 0..rank {
+        if ok {
+            for i in 0..o {
+                col[i] = uq[i * rank + k];
+            }
+            match quant_c_u8(&col, U8_BITS) {
+                Ok((q, _)) => {
+                    for i in 0..o {
+                        uh[i * rank + k] = q[i];
+                    }
+                }
+                Err(_) => ok = false,
+            }
+        }
+    }
+    if !ok {
+        return Err(CorrectorError::ShapeMismatch);
+    }
+    let v = ridge_solve(&uh, delta_w, o, n, rank)?;
+    let mut vh = vec![0_i64; rank * n];
+    let mut ok = true;
+    for k in 0..rank {
+        if ok {
+            match quant_c_u8(&v[k * n..k * n + n], U8_BITS) {
+                Ok((q, _)) => {
+                    for i in 0..n {
+                        vh[k * n + i] = q[i];
+                    }
+                }
+                Err(_) => ok = false,
+            }
+        }
+    }
+    if ok {
+        Ok((uh, vh))
+    } else {
+        Err(CorrectorError::ShapeMismatch)
+    }
 }
 
 /// Solve the rank×rank ridge system `(Uhᵀ Uh + RIDGE_Q·I)·V = Uhᵀ ΔW` for `V`, row-major
@@ -294,14 +402,24 @@ fn ridge_solve(
 ) -> Result<Vec<i64>, CorrectorError> {
     // A = Uhᵀ Uh + RIDGE_Q·I (rank × rank), one rounding per entry on the upper triangle, mirrored.
     let mut a = wsyrk(u, None, o, rank).map_err(|_| CorrectorError::Overflow)?;
+    let mut ok = true;
     for i in 0..rank {
-        a[i * rank + i] = a[i * rank + i]
-            .checked_add(RIDGE_Q)
-            .ok_or(CorrectorError::Overflow)?;
+        if ok {
+            match a[i * rank + i].checked_add(RIDGE_Q) {
+                Some(v) => a[i * rank + i] = v,
+                None => ok = false,
+            }
+        }
+    }
+    if !ok {
+        return Err(CorrectorError::Overflow);
     }
     // B = Uhᵀ ΔW (rank × n) through the pooled kernel on the transposed `Uh`, the exact panel
     // shift undone once so `B` is the grid word.
-    let ut: Vec<i64> = (0..rank * o).map(|t| u[(t % o) * rank + t / o]).collect();
+    let mut ut = vec![0_i64; rank * o];
+    for t in 0..rank * o {
+        ut[t] = u[(t % o) * rank + t / o];
+    }
     let (dw, kd) = panel(delta_w).ok_or(CorrectorError::Overflow)?;
     let mut b = gemm_nn(&ut, &dw, rank, o, n).map_err(|_| CorrectorError::Overflow)?;
     shift(&mut b, -kd).ok_or(CorrectorError::Overflow)?;
@@ -350,10 +468,14 @@ pub fn lowrank_corrector(
             corr: vec![0; o * n],
             bits: 0,
             top_sum: 0,
-            factors: factors.then_some(Factors {
-                u: Vec::new(),
-                v: Vec::new(),
-            }),
+            factors: if factors {
+                Some(Factors {
+                    u: Vec::new(),
+                    v: Vec::new(),
+                })
+            } else {
+                None
+            },
         });
     }
     if mode == Mode::Exact {
@@ -362,40 +484,26 @@ pub fn lowrank_corrector(
             corr: c.corr,
             bits: f16_bits(o, n, rank),
             top_sum: c.top_sum,
-            factors: factors.then_some(Factors { u: c.u, v: c.v }),
+            factors: if factors {
+                Some(Factors { u: c.u, v: c.v })
+            } else {
+                None
+            },
         });
     }
 
     let (uq, top_sum) = eigen_parts(delta_w, hl, o, n, rank)?;
     let (uh, vh, bits) = match mode {
         Mode::F16 => {
-            let uh: Vec<i64> = uq.iter().map(|&x| f16_word(x)).collect::<Result<_, _>>()?;
+            // A serial round of each eigenvector and of each solved row: the fragment carries no
+            // `Iterator::map(..).collect(..)` adapters.
+            let uh = f16_words(&uq)?;
             let v = ridge_solve(&uh, delta_w, o, n, rank)?;
-            let vh: Vec<i64> = v.iter().map(|&x| f16_word(x)).collect::<Result<_, _>>()?;
+            let vh = f16_words(&v)?;
             (uh, vh, f16_bits(o, n, rank))
         }
         Mode::U8 => {
-            // Column `k` of `U` is quantized independently on the word carrier.
-            let mut uh = vec![0_i64; o * rank];
-            let mut col = vec![0_i64; o];
-            for k in 0..rank {
-                for (i, c) in col.iter_mut().enumerate() {
-                    *c = uq[i * rank + k];
-                }
-                let (q, _) =
-                    quant_c_u8(&col, U8_BITS).map_err(|_| CorrectorError::ShapeMismatch)?;
-                for i in 0..o {
-                    uh[i * rank + k] = q[i];
-                }
-            }
-            let v = ridge_solve(&uh, delta_w, o, n, rank)?;
-            // Row `k` of `V` is quantized independently.
-            let mut vh = vec![0_i64; rank * n];
-            for (k, slot) in vh.chunks_mut(n).enumerate() {
-                let (q, _) = quant_c_u8(&v[k * n..k * n + n], U8_BITS)
-                    .map_err(|_| CorrectorError::ShapeMismatch)?;
-                slot.copy_from_slice(&q);
-            }
+            let (uh, vh) = u8_carrier(&uq, delta_w, o, n, rank)?;
             (uh, vh, u8_bits(o, n, rank))
         }
         Mode::Exact => unreachable!("handled above"),
@@ -414,6 +522,10 @@ pub fn lowrank_corrector(
         corr,
         bits,
         top_sum,
-        factors: factors.then_some(Factors { u: uh, v: vh }),
+        factors: if factors {
+            Some(Factors { u: uh, v: vh })
+        } else {
+            None
+        },
     })
 }

@@ -384,16 +384,6 @@ unextracted = 46
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
-path = "src/learn/fold/fit/corrector.rs"
-unextracted = 8
-row = "EXTRACT-COVERAGE"
-
-[[debt]]
-path = "src/learn/fold/fit/eigh.rs"
-unextracted = 13
-row = "EXTRACT-COVERAGE"
-
-[[debt]]
 path = "src/learn/fold/fit/fnorm.rs"
 unextracted = 7
 row = "EXTRACT-COVERAGE"
@@ -421,11 +411,6 @@ row = "EXTRACT-COVERAGE"
 [[debt]]
 path = "src/learn/fold/fit/nb_refine.rs"
 unextracted = 9
-row = "EXTRACT-COVERAGE"
-
-[[debt]]
-path = "src/learn/fold/fit/quant.rs"
-unextracted = 16
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -480,7 +465,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/stats/budget.rs"
-unextracted = 8
+unextracted = 3
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -505,12 +490,12 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/stats/lw.rs"
-unextracted = 5
+unextracted = 2
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/stats/parts.rs"
-unextracted = 25
+unextracted = 9
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -726,11 +711,6 @@ row = "EXTRACT-COVERAGE"
 [[debt]]
 path = "src/map/table/state.rs"
 unextracted = 24
-row = "EXTRACT-COVERAGE"
-
-[[debt]]
-path = "src/numeric/fixed_ln.rs"
-unextracted = 1
 row = "EXTRACT-COVERAGE"
 
 [[debt]]

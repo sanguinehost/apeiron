@@ -204,6 +204,27 @@ $REPO_DIR/src/learn/solve/gemm.rs
 $REPO_DIR/src/learn/solve/chol.rs
 $REPO_DIR/src/learn/solve/inv.rs
 $REPO_DIR/src/learn/solve/eig.rs
+$REPO_DIR/src/learn/fold/stats/mod.rs
+$REPO_DIR/src/learn/fold/stats/basis.rs
+$REPO_DIR/src/learn/fold/stats/budget.rs
+$REPO_DIR/src/learn/fold/stats/capture.rs
+$REPO_DIR/src/learn/fold/stats/heldout.rs
+$REPO_DIR/src/learn/fold/stats/hocapture.rs
+$REPO_DIR/src/learn/fold/stats/kldbase.rs
+$REPO_DIR/src/learn/fold/stats/lw.rs
+$REPO_DIR/src/learn/fold/stats/parts.rs
+$REPO_DIR/src/learn/fold/fit/mod.rs
+$REPO_DIR/src/learn/fold/fit/corrector.rs
+$REPO_DIR/src/learn/fold/fit/eigh.rs
+$REPO_DIR/src/learn/fold/fit/fnorm.rs
+$REPO_DIR/src/learn/fold/fit/fold_fit.rs
+$REPO_DIR/src/learn/fold/fit/gptq_e8.rs
+$REPO_DIR/src/learn/fold/fit/gptq_e8_carrier.rs
+$REPO_DIR/src/learn/fold/fit/icm.rs
+$REPO_DIR/src/learn/fold/fit/nb_refine.rs
+$REPO_DIR/src/learn/fold/fit/quant.rs
+$REPO_DIR/src/learn/fold/fit/steps.rs
+$EXTRACT_DIR/fold_port.rs
 $EXTRACT_DIR/learn_port.rs
 $EXTRACT_DIR/solve_port.rs
 $EXTRACT_DIR/grad_solve_port.rs
@@ -457,6 +478,32 @@ run_extract() {
         --start-from crate::hashtrinity_port::word_freq_capacity \
         --start-from crate::hashtrinity_port::word_freq_overflow_len \
         --start-from crate::hashtrinity_port::word_freq_overflow_height \
+        --start-from crate::fold_port::word_stats_budget_bytes_ceil \
+        --start-from crate::fold_port::word_stats_budget_max_body_bpw \
+        --start-from crate::fold_port::word_stats_lw_intensity \
+        --start-from crate::fold_port::word_stats_lw_block_intensity \
+        --start-from crate::fold_port::word_stats_parts_mul \
+        --start-from crate::fold_port::word_stats_parts_sqrt \
+        --start-from crate::fold_port::word_stats_parts_sin_cos \
+        --start-from crate::fold_port::word_stats_parts_shift \
+        --start-from crate::fold_port::word_stats_parts_panel \
+        --start-from crate::fold_port::word_stats_parts_rms \
+        --start-from crate::fold_port::word_stats_parts_rope_apply \
+        --start-from crate::fold_port::word_stats_parts_silu \
+        --start-from crate::fold_port::word_stats_parts_silu_mul \
+        --start-from crate::fold_port::word_stats_parts_rope_head_dim \
+        --start-from crate::fold_port::word_stats_parts_rope_t_max \
+        --start-from crate::fold_port::word_fit_lowrank_corrector \
+        --start-from crate::fold_port::word_fit_eigen_parts \
+        --start-from crate::fold_port::word_fit_eigh \
+        --start-from crate::fold_port::word_fit_eigen_gram \
+        --start-from crate::fold_port::word_fit_lowrank_corrector_exact \
+        --start-from crate::fold_port::word_fit_quant_r_hier \
+        --start-from crate::fold_port::word_fit_quant_c_u8 \
+        --start-from crate::fold_port::word_fit_f16r \
+        --start-from crate::fold_port::word_fit_r_level \
+        --start-from crate::fold_port::word_fit_r_hier_reconstruct \
+        --start-from crate::fold_port::word_fit_gram_scale \
         --start-from crate::word_engine_open \
         --start-from crate::word_engine_prefill_state \
         --start-from crate::word_engine_next_token_state \

@@ -117,7 +117,7 @@ pub fn div_rne(num: i128, den: i128) -> Option<i128> {
         Some(v) => v,
         None => return None,
     };
-    let (mag, den_mag) = (twice.unsigned_abs(), den.unsigned_abs());
+    let (mag, den_mag) = (if twice < 0 { -twice } else { twice }, den);
     let step: i128 = if mag > den_mag || (mag == den_mag && q % 2 != 0) {
         1
     } else {

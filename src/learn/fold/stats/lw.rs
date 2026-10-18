@@ -40,12 +40,16 @@
 //! that produces `S4`, `Q`, `H` or the block stacks, nor any GPU/`torch` codegen.
 
 #![allow(
+    clippy::cast_lossless,
     clippy::many_single_char_names,
+    clippy::manual_clamp,
     clippy::needless_range_loop,
     clippy::similar_names,
     reason = "the estimators index the row-major `[o, o]` scatter and the `[t, o]` blocks by \
               `i/j/a/b`, name the scalars `num`/`nf`/`off` and the intensity `lambda` as the \
-              reference does"
+              reference does; the three-way lambda branch is the clamp the pinned extraction \
+              fragment models, not `Ord::clamp`; the sample counts cast with `as` because the \
+              fallible conversion from `usize` is an unmodeled external"
 )]
 
 use crate::learn::solve::q32::{div_rne, narrow, round_q32_even};
@@ -92,9 +96,9 @@ fn off_of(h: &[i64], o: usize, n: usize) -> Result<i64, LwError> {
             }
         }
     }
-    let n2 = i128::try_from(n)
-        .ok()
-        .and_then(|v| v.checked_mul(v))
+    let ni = n as i128;
+    let n2 = ni
+        .checked_mul(ni)
         .and_then(|v| v.checked_mul(1_i128 << 32))
         .ok_or(LwError::OutOfRange)?;
     narrow(div_rne(total, n2).ok_or(LwError::OutOfRange)?).ok_or(LwError::OutOfRange)
@@ -131,14 +135,21 @@ pub fn lw_intensity(
     for &v in q {
         q_sum += i128::from(v);
     }
-    let nf = i128::try_from(n).map_err(|_| LwError::OutOfRange)?;
+    let nf = n as i128;
     let acc = i128::from(s4) - q_sum - nf * i128::from(off);
     let num = narrow(div_rne(acc, nf * (nf - 1)).ok_or(LwError::OutOfRange)?)
         .ok_or(LwError::OutOfRange)?;
     let lambda = div_rne(i128::from(num) << 32, i128::from(off))
         .and_then(narrow)
         .ok_or(LwError::OutOfRange)?;
-    Ok((num, lambda.clamp(0, ONE)))
+    let lambda = if lambda < 0 {
+        0
+    } else if lambda > ONE {
+        ONE
+    } else {
+        lambda
+    };
+    Ok((num, lambda))
 }
 
 /// `off(H_b) = ‖H_b‖_F² − Σ_i (H_b)_ii²` of ONE block, with `H_b = Σ_k S_kᵀ S_k`
@@ -153,10 +164,15 @@ pub fn lw_intensity(
 /// [`LwError::ShapeMismatch`] if any block's length is not `t·o`; [`LwError::OutOfRange`] when a
 /// primitive bound is violated or a rounded square leaves `i64`.
 pub fn block_off(sk: &[&[i64]], t: usize, o: usize) -> Result<i64, LwError> {
+    // Flag form: no early return inside a loop in the extraction fragment.
+    let mut shape_ok = true;
     for s in sk {
         if s.len() != t * o {
-            return Err(LwError::ShapeMismatch);
+            shape_ok = false;
         }
+    }
+    if !shape_ok {
+        return Err(LwError::ShapeMismatch);
     }
     if o == 0 || t == 0 || sk.is_empty() {
         return Ok(0);
@@ -212,12 +228,19 @@ pub fn lw_block_intensity(
     if off <= 0 {
         return Ok((0, 0));
     }
-    let bf = i128::try_from(b).map_err(|_| LwError::OutOfRange)?;
+    let bf = b as i128;
     let acc = i128::from(p) - bf * i128::from(off);
     let num = narrow(div_rne(acc, bf * (bf - 1)).ok_or(LwError::OutOfRange)?)
         .ok_or(LwError::OutOfRange)?;
     let lambda = div_rne(i128::from(num) << 32, i128::from(off))
         .and_then(narrow)
         .ok_or(LwError::OutOfRange)?;
-    Ok((num, lambda.clamp(0, ONE)))
+    let lambda = if lambda < 0 {
+        0
+    } else if lambda > ONE {
+        ONE
+    } else {
+        lambda
+    };
+    Ok((num, lambda))
 }

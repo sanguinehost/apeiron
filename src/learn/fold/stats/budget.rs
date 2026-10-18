@@ -153,9 +153,23 @@ fn add_rational(acc: (u128, u128), term: (u128, u128)) -> Option<(u128, u128)> {
 /// O(n) time and O(1) space over `n = classes.len()`, with one `gcd` per added term.
 #[must_use]
 pub fn total_bits(classes: &[TensorClass]) -> Option<u128> {
+    // Flag form rather than `?`: the pinned extraction fragment has no `?` inside a loop. A
+    // refused term stops the sum, so the later iterations are skipped exactly as the `?` would.
     let mut acc = (0u128, 1u128);
+    let mut ok = true;
     for c in classes {
-        acc = add_rational(acc, class_term(c)?)?;
+        if ok {
+            match class_term(c) {
+                Some(term) => match add_rational(acc, term) {
+                    Some(next) => acc = next,
+                    None => ok = false,
+                },
+                None => ok = false,
+            }
+        }
+    }
+    if !ok {
+        return None;
     }
     let (num, den) = acc;
     num.checked_add(den.checked_sub(1)?)?.checked_div(den)
@@ -214,5 +228,19 @@ pub fn max_body_bpw(
     } else {
         (remaining, body_raw)
     };
-    Some((u64::try_from(num).ok()?, u64::try_from(den).ok()?))
+    Some((u64_word(num)?, u64_word(den)?))
+}
+
+/// `v` as a `u64`, `None` when it exceeds `u64::MAX`.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the bound test above is the only guard the cast needs, and `u64::try_from(u128)` is \
+              an unmodeled external in the pinned extraction"
+)]
+fn u64_word(v: u128) -> Option<u64> {
+    if v > u128::from(u64::MAX) {
+        None
+    } else {
+        Some(v as u64)
+    }
 }

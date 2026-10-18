@@ -100,7 +100,7 @@ fn div(a: i64, b: i64) -> Option<i64> {
 
 /// `sqrt x` for `x >= 0`: the floored integer root of `x*2^32` from the numeric root kernel, at
 /// most one grid quantum below the true root. `None` for `x < 0`. `O(1)`.
-fn sqrt(x: i64) -> Option<i64> {
+pub(crate) fn sqrt(x: i64) -> Option<i64> {
     if x < 0 {
         return None;
     }
@@ -110,7 +110,7 @@ fn sqrt(x: i64) -> Option<i64> {
 /// `e^x` with the top clamped at `e^21`; below the kernel's `-16` lower edge the value is flushed to
 /// zero, where `e^-16 < 2^-23` is below the grid quantum of the logistic it feeds.
 fn exp_sat(x: i64) -> Option<i64> {
-    let x = x.min(21 * ONE);
+    let x = if x < 21 * ONE { x } else { 21 * ONE };
     match fixed_exp(x) {
         Ok(v) => Some(v),
         Err(_) if x < -16 * ONE => Some(0),
@@ -120,12 +120,13 @@ fn exp_sat(x: i64) -> Option<i64> {
 
 /// `(sin t, cos t)` from the numeric kernel at an angle `t` reduced modulo one turn, so every
 /// position reaches the total turn entry point inside the kernel's `+-4096` radian window. `O(1)`.
-fn sin_cos(t: i64) -> Option<(i64, i64)> {
+pub(crate) fn sin_cos(t: i64) -> Option<(i64, i64)> {
     let turns = narrow(div_rne(i128::from(t) << 32, i128::from(TWO_PI_Q32))?)?;
     let phase = (turns as u64) << 32;
-    fixed_sin_cos(turn_to_radians(phase))
-        .ok()
-        .map(|v| (v.sin, v.cos))
+    match fixed_sin_cos(turn_to_radians(phase)) {
+        Ok(v) => Some((v.sin, v.cos)),
+        Err(_) => None,
+    }
 }
 
 /// The geometry of one `Qwen2` decoder layer.
@@ -320,7 +321,10 @@ fn grid1(x: f64) -> Result<i64, PartsError> {
 
 /// The least `k ≥ 0` with `max·2⁻ᵏ < 2³⁵` raw: one bit below the `gemm`/`wsyrk` bound `2³⁶`.
 fn panel_shift(max_mag: u128) -> u32 {
-    ilog2_pos(max_mag).map_or(0, |b| (b + 1).saturating_sub(35))
+    match ilog2_pos(max_mag) {
+        Some(b) => (b + 1).saturating_sub(35),
+        None => 0,
+    }
 }
 
 /// A power-of-two shift of a grid slice: right by `k > 0` (round-to-nearest, ties to even), an
@@ -330,23 +334,57 @@ pub(crate) fn shift(a: &mut [i64], k: i32) -> Option<()> {
     if k == 0 {
         return Some(());
     }
-    for v in a {
-        *v = if k > 0 {
-            narrow(rshift_rne(i128::from(*v), u32::try_from(k).ok()?)?)?
-        } else {
-            narrow(i128::from(*v).checked_shl(k.unsigned_abs())?)?
-        };
+    // Flag form: the fragment has no `?` inside a loop, and a `for v in a` over `&mut [i64]`
+    // reaches `IntoIterator`'s `into_iter`, which the model does not carry. The first refused entry
+    // stops the shift and leaves every later entry untouched, as the early return did.
+    let mut ok = true;
+    for i in 0..a.len() {
+        if ok {
+            let v = a[i];
+            let shifted = if k > 0 {
+                // `k > 0`: the `u32` shift amount selects the model's wrapping shift.
+                match rshift_rne(i128::from(v), k as u32) {
+                    Some(r) => narrow(r),
+                    None => None,
+                }
+            } else {
+                // `k < 0`: `-k` is exact in `i64` (`i32::MIN` included) and fits `u32`; the
+                // 128-bit shift wraps the value bits exactly as `checked_shl` did, and `narrow`
+                // keeps the off-grid refusal.
+                let s = (0i64 - i64::from(k)) as u32;
+                if s >= 128 {
+                    None
+                } else {
+                    narrow(i128::from(v) << s)
+                }
+            };
+            match shifted {
+                Some(x) => a[i] = x,
+                None => ok = false,
+            }
+        }
     }
-    Some(())
+    if ok {
+        Some(())
+    } else {
+        None
+    }
 }
 
 /// `v` brought inside the `gemm` input bound: the exact `2⁻ᵏ` shift from [`panel_shift`], and `k`
 /// to undo on the product. `O(len)` time and space.
 pub(crate) fn panel(v: &[i64]) -> Option<(Vec<i64>, i32)> {
-    let max = v
-        .iter()
-        .fold(0_u128, |m, &x| m.max(i128::from(x).unsigned_abs()));
-    let k = i32::try_from(panel_shift(max)).ok()?;
+    // Serial maximum without the closure the fragment does not model; `max` starts at the identity.
+    let mut max: u128 = 0;
+    for &x in v {
+        let y = i128::from(x);
+        let m = if y < 0 { -y } else { y };
+        let m = m as u128;
+        if m > max {
+            max = m;
+        }
+    }
+    let k = panel_shift(max) as i32;
     let mut out = v.to_vec();
     shift(&mut out, k)?;
     Some((out, k))
@@ -402,8 +440,19 @@ pub fn linear(
     let mut out = gemm_nt(&xs, &ws, t, in_w, out_w).map_err(map_gemm)?;
     shift(&mut out, -(kx + kw)).ok_or(PartsError::OutOfRange)?;
     if let Some(b) = bias {
-        for (slot, &bias) in out.iter_mut().zip(b.iter().cycle().take(t * out_w)) {
-            *slot = slot.checked_add(bias).ok_or(PartsError::OutOfRange)?;
+        // Indexed rather than `zip(b.iter().cycle())`: the fragment models no `Cycle` adaptor. The
+        // bias of output column `i % out_w` is the one the cycle visits at that position.
+        let mut err = false;
+        for (i, slot) in out.iter_mut().enumerate() {
+            if !err {
+                match slot.checked_add(b[i % out_w]) {
+                    Some(v) => *slot = v,
+                    None => err = true,
+                }
+            }
+        }
+        if err {
+            return Err(PartsError::OutOfRange);
         }
     }
     Ok(out)
@@ -434,19 +483,36 @@ pub fn rms(x: &[i64], w: &[i64], eps: i64, t: usize, width: usize) -> Result<Vec
         return Err(PartsError::Shape);
     }
     let mut out = vec![0_i64; n];
+    // Error slot rather than `?` inside the row loop: the fragment has no early return there. The
+    // first refusal stops the accumulation and leaves the later rows unwritten, as the `?` did.
+    let mut err: Option<PartsError> = None;
     for r in 0..t {
-        let row = &x[r * width..][..width];
-        let norm = rms_norm_fixed(row, eps).map_err(map_norm)?;
-        for (slot, (&v, &wj)) in out[r * width..][..width].iter_mut().zip(norm.iter().zip(w)) {
-            *slot = mul(wj, v).ok_or(PartsError::OutOfRange)?;
+        if err.is_none() {
+            let row = &x[r * width..][..width];
+            match rms_norm_fixed(row, eps) {
+                Ok(norm) => {
+                    for j in 0..width {
+                        if err.is_none() {
+                            match mul(w[j], norm[j]) {
+                                Some(v) => out[r * width + j] = v,
+                                None => err = Some(PartsError::OutOfRange),
+                            }
+                        }
+                    }
+                }
+                Err(e) => err = Some(map_norm(e)),
+            }
         }
     }
-    Ok(out)
+    match err {
+        Some(e) => Err(e),
+        None => Ok(out),
+    }
 }
 
 /// The `RoPE` half-rotation: `dst = src·cos(emb) + rot(src)·sin(emb)`, two rounded products and one
 /// rounded sum per entry. `O(t·n_head·head_dim)`, serial as one pass over a projection's output.
-fn rope_apply(
+pub(crate) fn rope_apply(
     dst: &mut [i64],
     src: &[i64],
     t: usize,
@@ -455,23 +521,37 @@ fn rope_apply(
     rope: &RopeTables,
 ) -> Result<(), PartsError> {
     let half = hd / 2;
+    // Error slot rather than `?` inside the position loop: the fragment has no early return there.
+    let mut err: Option<PartsError> = None;
     for p in 0..t {
-        let cb = p * hd;
-        for h in 0..n_head {
-            let base = p * n_head * hd + h * hd;
-            for d in 0..hd {
-                let r = if d < half {
-                    -src[base + d + half]
-                } else {
-                    src[base + d - half]
-                };
-                dst[base + d] = mul(src[base + d], rope.cos[cb + d])
-                    .and_then(|a| mul(r, rope.sin[cb + d]).and_then(|b| a.checked_add(b)))
-                    .ok_or(PartsError::OutOfRange)?;
+        if err.is_none() {
+            let cb = p * hd;
+            for h in 0..n_head {
+                if err.is_none() {
+                    let base = p * n_head * hd + h * hd;
+                    for d in 0..hd {
+                        if err.is_none() {
+                            let r = if d < half {
+                                -src[base + d + half]
+                            } else {
+                                src[base + d - half]
+                            };
+                            match mul(src[base + d], rope.cos[cb + d]).and_then(|a| {
+                                mul(r, rope.sin[cb + d]).and_then(|b| a.checked_add(b))
+                            }) {
+                                Some(v) => dst[base + d] = v,
+                                None => err = Some(PartsError::OutOfRange),
+                            }
+                        }
+                    }
+                }
             }
         }
     }
-    Ok(())
+    match err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
 }
 
 /// Query positions per causal band: the kernel's output-row count for one score product, and the
@@ -649,7 +729,7 @@ pub fn attn_a(
 /// negative `g` gives `g·(1+e²¹)⁻¹` with an error below `8·10⁻¹⁰·|g|`. `None` off the grid. `O(1)`.
 #[must_use]
 pub fn silu(g: i64) -> Option<i64> {
-    let den = exp_sat(g.checked_neg()?)?.checked_add(ONE)?;
+    let den = exp_sat(0i64.checked_sub(g)?)?.checked_add(ONE)?;
     div(g, den)
 }
 
