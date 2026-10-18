@@ -55,8 +55,25 @@
 
 use super::gemm::gemm_q8_0;
 use super::matmat::matmat_q8act;
+use crate::engine::chart::pool::{chunks_mut_global, width_global};
+use crate::engine::chart::task::ChunkTask;
 use crate::engine::chart::QuantAct;
 use crate::format::quant::{GGML_TYPE_Q8_0, Q8_0_BLOCK_BYTES, Q8_0_QK};
+
+/// Element count below which a phase runs on the calling thread.
+const POOL_MIN: usize = 1 << 15;
+
+/// Rows (or bytes, columns) per pooled task for `len` units: two tasks per pool worker, so a
+/// worker that finishes early claims another piece and the tail does not idle the pool.
+///
+/// # Complexity
+///
+/// `O(1)`.
+#[must_use]
+fn pool_chunk(len: usize) -> usize {
+    let workers = width_global().max(1);
+    len.div_ceil(workers * 2).max(1)
+}
 
 /// Lanes of one limb block, the kernel's activation block width.
 const ACT_QK: usize = Q8_0_QK;
@@ -185,15 +202,13 @@ pub(crate) fn syrk_q32(a: &[i64], m: usize, n: usize, limbs: u32) -> Result<Vec<
         let j1 = (j0 + SYRK_COLS).min(m);
         let width = j1 - j0;
         let block = plane.product_rows(&plane, 0, j1, j0, width, n)?;
+        // Row `i` keeps the contiguous run `j ∈ [max(i, j0), j1)` of the tile.
         let mut i = 0usize;
         while i < j1 {
-            let mut col = 0usize;
-            while col < width {
-                let j = j0 + col;
-                if i <= j {
-                    c[i * m + j] = block[i * width + col];
-                }
-                col += 1;
+            let lo = j0.max(i);
+            if lo < j1 {
+                let from = i * width + (lo - j0);
+                c[i * m + lo..i * m + j1].copy_from_slice(&block[from..from + (j1 - lo)]);
             }
             i += 1;
         }
@@ -245,9 +260,12 @@ pub(crate) fn gemv_q32(
 
 /// Batched row-pair dots: `y[i] = Σ_l a[i·n + l]·b[i·n + l]`.
 ///
-/// A pooled per-row call of the same limb planes: row `i` runs one [`gemm_q8_0`] call with one
-/// weight row and one activation column, so the diagonal is the same plane and grouping as
-/// [`gemm_q32`]'s and the words are bit-equal.
+/// The diagonal of the same planes and the same pair grouping as [`gemm_q32`], taken from
+/// [`ROWDOT_TILE`]-square diagonal tiles: each tile is one [`gemm_q8_0`] call over its own row
+/// block against its own column block, so the words are the per-entry words of [`gemm_q32`] and
+/// bit-equal to them. A kernel call's every entry depends only on its weight row, its activation
+/// column and the contraction planes, never on the other columns of the call, which is what lets
+/// one tile replace `tile` separate one-row calls.
 ///
 /// # Error bound
 ///
@@ -255,13 +273,14 @@ pub(crate) fn gemv_q32(
 ///
 /// # Errors
 ///
-/// As [`gemm_q32`], at the first refusing row.
+/// As [`gemm_q32`], at the first refusing tile.
 ///
 /// # Complexity
 ///
-/// Temporal `O((m + m)·n·limbs + m·P·n)` byte multiply-adds — `m` kernel calls of one row against
-/// one column, each `O(P·n)` — plus `m` pool dispatches; spatial `O((m + m)·n·limbs)` limb bytes
-/// and one `i128` accumulator.
+/// Temporal `O((m + m)·n·limbs)` plane packing plus `⌈m/ROWDOT_TILE⌉` calls of
+/// `O(P·ROWDOT_TILE²·n)` byte multiply-adds each — `m·ROWDOT_TILE·P·n` in total, a factor
+/// `ROWDOT_TILE/P` over the per-row calls' `m·P·n`, paid for `⌈m/ROWDOT_TILE⌉` dispatches instead
+/// of `m`. Spatial `O((m + m)·n·limbs)` limb bytes and one tile's `i128` accumulators.
 pub(crate) fn rowdot_q32(
     a: &[i64],
     b: &[i64],
@@ -275,12 +294,18 @@ pub(crate) fn rowdot_q32(
     }
     let pa = Plane::build(a, m, n, limbs)?;
     let pb = Plane::build(b, m, n, limbs)?;
-    let mut y = Vec::with_capacity(m);
-    let mut i = 0usize;
-    while i < m {
-        let row = pa.product_rows(&pb, i, 1, i, 1, n)?;
-        y.push(row[0]);
-        i += 1;
+    let mut y = vec![0i64; m];
+    let mut i0 = 0usize;
+    while i0 < m {
+        let i1 = (i0 + ROWDOT_TILE).min(m);
+        let w = i1 - i0;
+        let tile = pa.product_rows(&pb, i0, w, i0, w, n)?;
+        let mut i = 0usize;
+        while i < w {
+            y[i0 + i] = tile[i * w + i];
+            i += 1;
+        }
+        i0 = i1;
     }
     Ok(y)
 }
@@ -288,6 +313,10 @@ pub(crate) fn rowdot_q32(
 /// Columns per [`syrk_q32`] kernel call: the row band the upper triangle needs at that column,
 /// small enough that the discarded lower-triangle rows stay a sixth of the work.
 const SYRK_COLS: usize = 16;
+
+/// Rows and columns per [`rowdot_q32`] diagonal tile: the work multiplier is `ROWDOT_TILE/P`
+/// (8/6 at the default 3 limbs) and the number of kernel calls is `⌈m/ROWDOT_TILE⌉`.
+const ROWDOT_TILE: usize = 8;
 
 /// The per-block limb expansion of one operand matrix.
 struct Plane {
@@ -398,41 +427,134 @@ fn block_exp(absmax: u64) -> u32 {
 
 /// The `limbs` balanced digits of `x` at block exponent `e`, written to `out`.
 ///
-/// `x = 2^e·Σ_s d_s·2^{−7(s+1)} + ρ` with `|d_s| ≤ 64`, `|ρ| ≤ 2^{e−7·limbs}/2`. The residual is
-/// carried in units of `2^{e−7·limbs}` so every step is an integer shift: digit `s` is the nearest
-/// integer to `rem/2^{e+7(limbs−1−s)}` with ties away from zero, the same tie rule `quant_act`
-/// uses.
+/// `x = 2^e·Σ_s d_s·2^{−7(s+1)} + ρ` with `|d_s| ≤ 64`, `|ρ| ≤ 2^{e−7·limbs}/2`. Digit `s` is
+/// `⌊(u_s·2^7 + 2^{e−1})/2^e⌋` on the running residual `u_0 = x`, `u_{s+1} = u_s − d_s·2^{e−7}`;
+/// that closed form is the same value the earlier residual recurrence
+/// `⌊(rem_s + 2^{sh−1})/2^{sh}⌋` computed in units of `2^{e−7·limbs}`, with the `2^{7(limbs−1−s)}`
+/// common factor cancelled, so the digits are unchanged. It states the step in the operand's own
+/// scale: an `i128` for the first digit only (where `x + 2^{e−8}` can pass `i64::MAX`), and `i64`
+/// shifts with the block exponent for the rest, each bounded by `|u_s| ≤ 2^{e−1−7s}`.
 ///
 /// # Complexity
 ///
-/// `O(limbs)` shifts on `i128`, no allocation.
-#[must_use]
+/// `O(limbs)` integer shifts, no allocation.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    reason = "|d_s| ≤ 64 by the block-exponent choice, so the i128-to-i8 cast is exact; the `as \
-              u32` shift amounts are bounded by e + 7(limbs−1) ≤ 120"
+    reason = "|d_s| ≤ 64 by the block-exponent choice, so the i64-to-i8 cast is exact; the shift \
+              amounts are bounded by e ≤ 65"
 )]
-fn split_digits(x: i64, e: u32, limbs: u32, out: &mut [i8]) -> i128 {
-    let mut rem: i128 = i128::from(x) << (LIMB_BITS as u32 * limbs);
+fn split_digits(x: i64, e: u32, limbs: u32, out: &mut [i8]) {
+    // u_s carries the residual at the operand's own scale; the first step needs i128 because
+    // `x + 2^{e−8}` cannot leave [−2^63, 2^63) for the largest block exponent.
+    let mut u = x;
     let mut s = 0u32;
     while s < limbs {
-        let sh = e + (LIMB_BITS as u32) * (limbs - 1 - s);
-        let d = (rem + (1i128 << (sh - 1))) >> sh;
+        let k = i32::try_from(e).unwrap_or(64) - LIMB_BITS * (i32::try_from(s).unwrap_or(0) + 1);
+        let d = if s == 0 {
+            let num = (i128::from(u) << LIMB_BITS) + (1i128 << (e - 1));
+            i64::try_from(num >> e).unwrap_or(0)
+        } else if k >= 1 {
+            u.wrapping_add(1i64 << (k - 1)) >> k
+        } else {
+            // The residual is an exact multiple of the (fractional) step: the remaining digits
+            // are the whole residual and the residual is zero.
+            u << u32::try_from(-k).unwrap_or(0)
+        };
         out[s as usize] = d as i8;
-        rem -= d << sh;
+        if k >= 1 {
+            u = u.wrapping_sub(d << k);
+        } else {
+            u = 0;
+        }
         s += 1;
     }
-    rem
+}
+
+/// Pass one of [`Plane::build`]: the per-row block exponents, written as `[row][block]` so the
+/// caller can take the per-block maximum.
+struct RowExpTask<'a> {
+    data: &'a [i64],
+    n: usize,
+    blocks: usize,
+}
+
+impl ChunkTask<u32> for RowExpTask<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [u32]) {
+        let row0 = start / self.blocks;
+        let mut k = 0usize;
+        while k < piece.len() {
+            let r = row0 + k / self.blocks;
+            let b = k % self.blocks;
+            let base = r * self.n;
+            let lo = base + b * ACT_QK;
+            let hi = (lo + ACT_QK).min(base + self.n);
+            piece[k] = block_exp(block_absmax(&self.data[lo..hi]));
+            k += 1;
+        }
+    }
+}
+
+/// Pass two of [`Plane::build`]: the digits of the rows in the piece.
+struct DigitsTask<'a> {
+    data: &'a [i64],
+    n: usize,
+    blocks: usize,
+    lane_words: usize,
+    limbs: u32,
+    e: &'a [u32],
+}
+
+impl ChunkTask<i8> for DigitsTask<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i8]) {
+        let per_row = self.blocks * self.lane_words;
+        let row0 = start / per_row;
+        let mut tmp = [0i8; MAX_LIMBS as usize];
+        let row_count = piece.len() / per_row;
+        let mut k = 0usize;
+        while k < row_count {
+            let r = row0 + k;
+            let base = r * self.n;
+            let out = &mut piece[k * per_row..(k + 1) * per_row];
+            let mut b = 0usize;
+            while b < self.blocks {
+                let lo = base + b * ACT_QK;
+                let hi = (lo + ACT_QK).min(base + self.n);
+                let at = b * self.lane_words;
+                let mut lane = 0usize;
+                while lane < ACT_QK {
+                    let x = if lo + lane < hi {
+                        self.data[lo + lane]
+                    } else {
+                        0
+                    };
+                    split_digits(x, self.e[b], self.limbs, &mut tmp);
+                    let mut s = 0usize;
+                    while s < self.limbs as usize {
+                        out[at + s * ACT_QK + lane] = tmp[s];
+                        s += 1;
+                    }
+                    lane += 1;
+                }
+                b += 1;
+            }
+            k += 1;
+        }
+    }
 }
 
 impl Plane {
     /// The limb expansion of `data` (`rows × n`, row-major), or the shape refusal.
     ///
+    /// Both passes are pooled over rows when the operand holds at least [`POOL_MIN`] elements;
+    /// each task writes its own rows of the per-row exponents or of the digit plane, and the
+    /// per-block maximum over rows is the serial fold of the first pass's output.
+    ///
     /// # Complexity
     ///
-    /// Temporal `O(rows·n·limbs)` digit steps in two passes (block maxima, then digits);
-    /// spatial `O(rows·⌈n/32⌉·limbs·32)` bytes for the digits plus `O(⌈n/32⌉)` exponents.
+    /// Temporal `O(rows·n·limbs)` digit steps in two passes (block maxima, then digits), split
+    /// into `⌈rows·n / 32·CHUNK⌉` pool tasks; spatial `O(rows·⌈n/32⌉·limbs·32)` bytes for the
+    /// digits plus `O(rows·⌈n/32⌉)` per-row exponents and `O(⌈n/32⌉)` block exponents.
     fn build(data: &[i64], rows: usize, n: usize, limbs: u32) -> Result<Self, LimbError> {
         if rows == 0 || n == 0 || limbs == 0 || limbs > MAX_LIMBS || n > MAX_INNER {
             return Err(LimbError::Shape);
@@ -442,15 +564,20 @@ impl Plane {
         }
         let blocks = n.div_ceil(ACT_QK);
         let padded = blocks * ACT_QK;
+        let mut row_e = vec![0u32; rows * blocks];
+        let max = RowExpTask { data, n, blocks };
+        if data.len() >= POOL_MIN {
+            let chunk = pool_chunk(rows) * blocks;
+            chunks_mut_global(&mut row_e, chunk, &max);
+        } else {
+            max.run(0, 0, &mut row_e);
+        }
         let mut e = vec![1u32; blocks];
         let mut r = 0usize;
         while r < rows {
-            let base = r * n;
             let mut b = 0usize;
             while b < blocks {
-                let lo = base + b * ACT_QK;
-                let hi = (lo + ACT_QK).min(base + n);
-                let cand = block_exp(block_absmax(&data[lo..hi]));
+                let cand = row_e[r * blocks + b];
                 if cand > e[b] {
                     e[b] = cand;
                 }
@@ -459,30 +586,21 @@ impl Plane {
             r += 1;
         }
         let lane_words = limbs as usize * ACT_QK;
-        let mut dig = vec![0i8; rows * blocks * lane_words];
-        let mut tmp = vec![0i8; limbs as usize];
-        let mut r = 0usize;
-        while r < rows {
-            let base = r * n;
-            let mut b = 0usize;
-            while b < blocks {
-                let lo = base + b * ACT_QK;
-                let hi = (lo + ACT_QK).min(base + n);
-                let at = (r * blocks + b) * lane_words;
-                let mut lane = 0usize;
-                while lane < ACT_QK {
-                    let x = if lo + lane < hi { data[lo + lane] } else { 0 };
-                    let _ = split_digits(x, e[b], limbs, &mut tmp);
-                    let mut s = 0usize;
-                    while s < limbs as usize {
-                        dig[at + s * ACT_QK + lane] = tmp[s];
-                        s += 1;
-                    }
-                    lane += 1;
-                }
-                b += 1;
-            }
-            r += 1;
+        let per_row = blocks * lane_words;
+        let mut dig = vec![0i8; rows * per_row];
+        let digits = DigitsTask {
+            data,
+            n,
+            blocks,
+            lane_words,
+            limbs,
+            e: &e,
+        };
+        if data.len() >= POOL_MIN {
+            let chunk = pool_chunk(rows) * per_row;
+            chunks_mut_global(&mut dig, chunk, &digits);
+        } else {
+            digits.run(0, 0, &mut dig);
         }
         Ok(Self {
             rows,
@@ -495,15 +613,31 @@ impl Plane {
         })
     }
 
-    /// The digit of `(row, block, limb, lane)`.
+    /// The 32 limb bytes of `(row, block, limb)`, the block's `lane` order contiguous.
     ///
     /// # Complexity
     ///
     /// `O(1)`.
     #[must_use]
-    fn digit(&self, row: usize, block: usize, limb: u32, lane: usize) -> i8 {
+    fn digit_block(&self, row: usize, block: usize, limb: u32) -> &[i8] {
         let lane_words = self.limbs as usize * ACT_QK;
-        self.dig[(row * self.blocks + block) * lane_words + limb as usize * ACT_QK + lane]
+        let at = (row * self.blocks + block) * lane_words + limb as usize * ACT_QK;
+        &self.dig[at..at + ACT_QK]
+    }
+
+    /// The same bytes read as the `Q8_0` code bytes: `i8` and `u8` share layout and every `i8`
+    /// bit pattern is a `u8`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)`.
+    #[must_use]
+    fn digit_block_u8(&self, row: usize, block: usize, limb: u32) -> &[u8] {
+        // SAFETY: `digit_block` returns `ACT_QK` initialised `i8` inside `dig`; `i8` and `u8`
+        // have the same size, alignment and validity, so the reinterpretation is sound.
+        unsafe {
+            std::slice::from_raw_parts(self.digit_block(row, block, limb).as_ptr().cast(), ACT_QK)
+        }
     }
 }
 
@@ -585,36 +719,25 @@ impl Layout<'_> {
     ///
     /// # Complexity
     ///
-    /// `O(ra·ng·blocks·32)` bytes written; one allocation of `ra·ng·blocks·34`.
+    /// `O(ra·ng·blocks·32)` bytes written, one 32-byte copy per live limb block, split into
+    /// `⌈ra·row_bytes / POOL_BYTES⌉` pool tasks; one allocation of `ra·ng·blocks·34`.
     fn weight_payload(&self, a0: usize, ra: usize, g0: usize, g1: usize) -> Vec<u8> {
         let blocks = self.a.blocks;
         let row_bytes = (g1 - g0) * blocks * Q8_0_BLOCK_BYTES;
         let mut raw = vec![0u8; ra * row_bytes];
-        let mut r = 0usize;
-        while r < ra {
-            let row = a0 + r;
-            let mut g = g0;
-            while g < g1 {
-                let (s, _) = self.pairs[g];
-                let mut blk = 0usize;
-                while blk < blocks {
-                    let at = r * row_bytes + ((g - g0) * blocks + blk) * Q8_0_BLOCK_BYTES;
-                    let p = self.place[g * blocks + blk];
-                    raw[at..at + 2].copy_from_slice(&f16_pow2(p.dw).to_le_bytes());
-                    let mut lane = 0usize;
-                    while lane < ACT_QK {
-                        raw[at + 2 + lane] = if p.live {
-                            self.a.digit(row, blk, s, lane).cast_unsigned()
-                        } else {
-                            0
-                        };
-                        lane += 1;
-                    }
-                    blk += 1;
-                }
-                g += 1;
-            }
-            r += 1;
+        let task = PayloadTask {
+            layout: self,
+            a0,
+            g0,
+            g1,
+            blocks,
+            row_bytes,
+        };
+        if raw.len() >= POOL_MIN {
+            let chunk = pool_chunk(ra) * row_bytes;
+            chunks_mut_global(&mut raw, chunk, &task);
+        } else {
+            task.run(0, 0, &mut raw);
         }
         raw
     }
@@ -624,51 +747,224 @@ impl Layout<'_> {
     ///
     /// # Complexity
     ///
-    /// `O(rb·ng·blocks·32)` bytes written; `rb` allocations of `ng·32·blocks` codes.
+    /// `O(rb·ng·blocks·32)` bytes written, one 32-byte copy per live limb block, split into
+    /// `⌈rb·col_bytes / POOL_BYTES⌉` pool tasks; `rb` allocations of `ng·32·blocks` codes.
     fn columns(&self, b0: usize, rb: usize, g0: usize, g1: usize) -> Vec<QuantAct> {
         let blocks = self.b.blocks;
         let padded = self.b.padded;
-        let mut qs = Vec::with_capacity(rb);
-        let mut c = 0usize;
-        while c < rb {
-            let row = b0 + c;
-            let mut codes = vec![0i8; (g1 - g0) * padded];
-            let mut scales = vec![0i64; (g1 - g0) * blocks];
-            let mut g = g0;
-            while g < g1 {
-                let (_, t) = self.pairs[g];
+        let ng = g1 - g0;
+        // Empty headers; the pool task allocates and zeroes each column's blocks, so the fill and
+        // the zeroing both run off the calling thread.
+        let mut parts: Vec<(Vec<i64>, Vec<i8>)> =
+            (0..rb).map(|_| (Vec::new(), Vec::new())).collect();
+        let task = ColumnsTask {
+            layout: self,
+            b0,
+            g0,
+            g1,
+            blocks,
+            padded,
+        };
+        let col_bytes = ng * padded;
+        if rb * col_bytes >= POOL_MIN {
+            let chunk = pool_chunk(rb);
+            chunks_mut_global(&mut parts, chunk, &task);
+        } else {
+            task.run(0, 0, &mut parts);
+        }
+        parts
+            .into_iter()
+            .map(|(scales, codes)| QuantAct::from_parts(scales, codes))
+            .collect()
+    }
+}
+
+/// Fill one piece of the weight payload: rows `[a0 + start/row_bytes, …)`.
+struct PayloadTask<'a> {
+    layout: &'a Layout<'a>,
+    a0: usize,
+    g0: usize,
+    g1: usize,
+    blocks: usize,
+    row_bytes: usize,
+}
+
+impl ChunkTask<u8> for PayloadTask<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [u8]) {
+        let blocks = self.blocks;
+        let row0 = start / self.row_bytes;
+        let row_count = piece.len() / self.row_bytes;
+        let mut k = 0usize;
+        while k < row_count {
+            let row = self.a0 + row0 + k;
+            let out = &mut piece[k * self.row_bytes..(k + 1) * self.row_bytes];
+            let mut g = self.g0;
+            while g < self.g1 {
+                let (s, _) = self.layout.pairs[g];
                 let mut blk = 0usize;
                 while blk < blocks {
-                    let p = self.place[g * blocks + blk];
-                    scales[(g - g0) * blocks + blk] = 1i64 << p.sigma;
+                    let p = self.layout.place[g * blocks + blk];
                     if p.live {
-                        let at = (g - g0) * padded + blk * ACT_QK;
-                        let mut lane = 0usize;
-                        while lane < ACT_QK {
-                            codes[at + lane] = self.b.digit(row, blk, t, lane);
-                            lane += 1;
-                        }
+                        let at = (g - self.g0) * blocks * Q8_0_BLOCK_BYTES + blk * Q8_0_BLOCK_BYTES;
+                        out[at..at + 2].copy_from_slice(&f16_pow2(p.dw).to_le_bytes());
+                        out[at + 2..at + Q8_0_BLOCK_BYTES]
+                            .copy_from_slice(self.layout.a.digit_block_u8(row, blk, s));
                     }
                     blk += 1;
                 }
                 g += 1;
             }
-            qs.push(QuantAct::from_parts(scales, codes));
-            c += 1;
+            k += 1;
         }
-        qs
     }
+}
+
+/// Fill one piece of the activation columns: columns `[start, start + piece.len())`.
+struct ColumnsTask<'a> {
+    layout: &'a Layout<'a>,
+    b0: usize,
+    g0: usize,
+    g1: usize,
+    blocks: usize,
+    padded: usize,
+}
+
+impl ChunkTask<(Vec<i64>, Vec<i8>)> for ColumnsTask<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [(Vec<i64>, Vec<i8>)]) {
+        let blocks = self.blocks;
+        let mut k = 0usize;
+        while k < piece.len() {
+            let row = self.b0 + start + k;
+            let (scales, codes) = &mut piece[k];
+            *scales = vec![0i64; (self.g1 - self.g0) * blocks];
+            *codes = vec![0i8; (self.g1 - self.g0) * self.padded];
+            let mut g = self.g0;
+            while g < self.g1 {
+                let (_, t) = self.layout.pairs[g];
+                let mut blk = 0usize;
+                while blk < blocks {
+                    let p = self.layout.place[g * blocks + blk];
+                    scales[(g - self.g0) * blocks + blk] = 1i64 << p.sigma;
+                    if p.live {
+                        let at = (g - self.g0) * self.padded + blk * ACT_QK;
+                        codes[at..at + ACT_QK]
+                            .copy_from_slice(self.layout.b.digit_block(row, blk, t));
+                    }
+                    blk += 1;
+                }
+                g += 1;
+            }
+            k += 1;
+        }
+    }
+}
+
+/// One kernel projection on the packed planes, or the `Q8_0` contract on the same planes.
+///
+/// # Complexity
+///
+/// `gemm_q8_0`'s `O(ra·rb·n_in)` byte multiply-adds.
+fn projection(
+    raw: &[u8],
+    ra: usize,
+    n_in: usize,
+    qs: &[QuantAct],
+) -> Result<Vec<Vec<i64>>, LimbError> {
+    match gemm_q8_0(GGML_TYPE_Q8_0, raw, ra, n_in, qs) {
+        Some(cols) => Ok(cols),
+        // No AVX-VNNI, an unsupported width or a non-finite scale: the same planes go to the
+        // `Q8_0` contract itself, never to a scalar Q32.32 loop.
+        None => matmat_q8act(GGML_TYPE_Q8_0, raw, ra, n_in, qs).map_err(|_| LimbError::Range),
+    }
+}
+
+/// Row-major `out[i·rb + j] = cols[j][i]` for `i < ra`, tiled [`TRANSPOSE_TILE`] square so both
+/// sides stay in cache.
+///
+/// # Complexity
+///
+/// `O(ra·rb)` word moves; pooled over rows into `⌈ra·rb / POOL_WORDS⌉` tasks when the output is
+/// at least [`POOL_MIN`] words.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "POOL_MIN/8 is a constant word count; the chunk is rounded to a whole row count"
+)]
+fn transpose_rows(out: &mut [i64], cols: &[Vec<i64>], ra: usize, rb: usize) {
+    const TRANSPOSE_TILE: usize = 32;
+    struct TransposeTask<'a> {
+        cols: &'a [Vec<i64>],
+        rb: usize,
+    }
+    impl ChunkTask<i64> for TransposeTask<'_> {
+        fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
+            let rb = self.rb;
+            let row0 = start / rb;
+            let row_count = piece.len() / rb;
+            let mut j0 = 0usize;
+            while j0 < rb {
+                let j1 = (j0 + TRANSPOSE_TILE).min(rb);
+                let mut i = 0usize;
+                while i < row_count {
+                    let i1 = (i + TRANSPOSE_TILE).min(row_count);
+                    let mut j = j0;
+                    while j < j1 {
+                        let col = &self.cols[j];
+                        let mut r = i;
+                        while r < i1 {
+                            piece[r * rb + j] = col[row0 + r];
+                            r += 1;
+                        }
+                        j += 1;
+                    }
+                    i = i1;
+                }
+                j0 = j1;
+            }
+        }
+    }
+    if ra * rb < POOL_MIN {
+        let mut j0 = 0usize;
+        while j0 < rb {
+            let j1 = (j0 + TRANSPOSE_TILE).min(rb);
+            let mut i0 = 0usize;
+            while i0 < ra {
+                let i1 = (i0 + TRANSPOSE_TILE).min(ra);
+                let mut j = j0;
+                while j < j1 {
+                    let col = &cols[j];
+                    let mut i = i0;
+                    while i < i1 {
+                        out[i * rb + j] = col[i];
+                        i += 1;
+                    }
+                    j += 1;
+                }
+                i0 = i1;
+            }
+            j0 = j1;
+        }
+        return;
+    }
+    // A band of at least one tile: every column's band slice then shares cache lines across the
+    // tile's rows, so each column is read once over the whole transpose.
+    let rows_per_task = pool_chunk(ra).max(TRANSPOSE_TILE);
+    chunks_mut_global(out, rows_per_task * rb, &TransposeTask { cols, rb });
 }
 
 impl Plane {
     /// The kernel product of rows `a0..a0+ra` against rows `b0..b0+rb` (both over the same `n`),
     /// row-major `ra × rb`.
     ///
+    /// The one-group case (every kept pair in a single kernel call, which the default 3 limbs and
+    /// the production widths always take) transposes the kernel's columns straight into the output
+    /// with no accumulator; a multi-group call keeps a column-major `i128` accumulator, one
+    /// contiguous add per kernel output word, and converts once.
+    ///
     /// # Complexity
     ///
     /// Temporal `O(ra·n·limbs)` plane-to-payload packing plus `O(P·ra·rb·n)` byte multiply-adds
     /// over `⌈P/g⌉` kernel calls, `g = ⌊16384/padded⌋` pairs per call; spatial `O(ra·g·n)` payload
-    /// bytes plus `O(ra·rb)` `i128` accumulators.
+    /// bytes plus `O(ra·rb)` output words (`i128` only when the call spans several groups).
     fn product_rows(
         &self,
         b: &Plane,
@@ -697,6 +993,17 @@ impl Plane {
             place,
         };
         let group = (MAX_INNER / self.padded).max(1).min(layout.pairs.len());
+        let mut out = vec![0i64; ra * rb];
+        if layout.pairs.len() <= group {
+            let n_in = layout.pairs.len() * self.padded;
+            let raw = layout.weight_payload(a0, ra, 0, layout.pairs.len());
+            let qs = layout.columns(b0, rb, 0, layout.pairs.len());
+            let cols = projection(&raw, ra, n_in, &qs)?;
+            transpose_rows(&mut out, &cols, ra, rb);
+            return Ok(out);
+        }
+        // Column-major `[j·ra + i]`: the kernel output and its accumulator are both contiguous in
+        // `i`, and the transpose happens once on the finished words.
         let mut acc = vec![0i128; ra * rb];
         let mut g0 = 0usize;
         while g0 < layout.pairs.len() {
@@ -704,30 +1011,28 @@ impl Plane {
             let n_in = (g1 - g0) * self.padded;
             let raw = layout.weight_payload(a0, ra, g0, g1);
             let qs = layout.columns(b0, rb, g0, g1);
-            let cols = match gemm_q8_0(GGML_TYPE_Q8_0, &raw, ra, n_in, &qs) {
-                Some(cols) => cols,
-                // No AVX-VNNI, an unsupported width or a non-finite scale: the same planes go to
-                // the `Q8_0` contract itself, never to a scalar Q32.32 loop.
-                None => matmat_q8act(GGML_TYPE_Q8_0, &raw, ra, n_in, &qs)
-                    .map_err(|_| LimbError::Range)?,
-            };
+            let cols = projection(&raw, ra, n_in, &qs)?;
             let mut j = 0usize;
             while j < rb {
                 let col = &cols[j];
+                let base = j * ra;
                 let mut i = 0usize;
                 while i < ra {
-                    acc[i * rb + j] += i128::from(col[i]);
+                    acc[base + i] += i128::from(col[i]);
                     i += 1;
                 }
                 j += 1;
             }
             g0 = g1;
         }
-        let mut out = Vec::with_capacity(ra * rb);
-        let mut k = 0usize;
-        while k < acc.len() {
-            out.push(i64::try_from(acc[k]).map_err(|_| LimbError::Range)?);
-            k += 1;
+        let mut i = 0usize;
+        while i < ra {
+            let mut j = 0usize;
+            while j < rb {
+                out[i * rb + j] = i64::try_from(acc[j * ra + i]).map_err(|_| LimbError::Range)?;
+                j += 1;
+            }
+            i += 1;
         }
         Ok(out)
     }
@@ -1002,6 +1307,180 @@ mod tests {
         }
     }
 
+    /// FNV-1a over the little-endian bytes of a word vector.
+    fn digest(words: &[i64]) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for w in words {
+            for b in w.to_le_bytes() {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        h
+    }
+
+    /// (g) The four entry points' outputs at three seeded shapes are pinned bit for bit: the
+    /// digests below were taken from the body before the packing and accumulator were pooled, so a
+    /// change to any limb, scale, pairing, grouping or rounding step shows up here.
+    #[test]
+    fn outputs_are_pinned_bit_identical() {
+        let mut seed = 0x243f_6a88_85a3_08d3u64;
+        let shapes = [(7usize, 5usize, 33usize), (64, 17, 896), (3, 3, 31)];
+        // Pinned from the unoptimised body (commit b2d7587d) before the packing, accumulation and
+        // `rowdot` batching were pooled; the values are the FNV-1a digests of the four outputs.
+        let pinned: [[u64; 4]; 3] = [
+            [
+                0xbbb9_5d9a_a115_3673,
+                0x14ee_6180_bd2a_afb6,
+                0x3ff7_f88f_1cc7_a542,
+                0xd65a_476e_1f9e_3e56,
+            ],
+            [
+                0xd24f_fc48_7b6a_421e,
+                0xcc66_5fd0_e2ac_4d68,
+                0x47c7_120f_c529_242c,
+                0xa412_c316_63ff_5d51,
+            ],
+            [
+                0x8e0b_b844_9ee0_9b55,
+                0xd9bc_4d2e_c2ab_3487,
+                0xe98f_eb33_6c9f_c184,
+                0xc942_6dd7_def7_050a,
+            ],
+        ];
+        let mut all: Vec<[u64; 4]> = Vec::new();
+        for &(m, p, n) in &shapes {
+            let a = operand(&mut seed, m, n, 3);
+            let b = operand(&mut seed, p, n, -2);
+            let c = operand(&mut seed, m, n, 1);
+            let out_prod = gemm_q32(&a, m, &b, p, n, 3).expect("carried");
+            let out_gram = syrk_q32(&c, m, n, 3).expect("carried");
+            let out_vec = gemv_q32(&a[..n], &b, p, n, 3).expect("carried");
+            let out_dots = rowdot_q32(&a, &c, m, n, 3).expect("carried");
+            let got = [
+                digest(&out_prod),
+                digest(&out_gram),
+                digest(&out_vec),
+                digest(&out_dots),
+            ];
+            println!(
+                "shape {m} {p} {n}: gemm {:#018x} syrk {:#018x} gemv {:#018x} rowdot {:#018x}",
+                got[0], got[1], got[2], got[3]
+            );
+            all.push(got);
+        }
+        for (t, got) in all.iter().enumerate() {
+            assert_eq!(*got, pinned[t], "shape {:?} drifted", shapes[t]);
+        }
+    }
+
+    /// (R8) Phase table: the cost of building the two limb planes, the weight payload, the
+    /// activation columns, the kernel call and the `i128` accumulation, at the production shapes.
+    #[test]
+    #[ignore = "measurement: the phase table at the production shapes"]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "m·p·n ≤ 2^32, exactly representable in f64, and only used to print ns/MAC"
+    )]
+    fn limb_phase_profile() {
+        let shapes = [(512usize, 896usize, 896usize), (512, 4864, 896)];
+        let mut seed = 0xabcd_ef01_2345_6789u64;
+        for (m, p, n) in shapes {
+            let a = operand(&mut seed, m, n, 3);
+            let b = operand(&mut seed, p, n, 3);
+            // Warm the pool, the allocator and the page tables before the phase table.
+            let warm = gemm_q32(&a, m, &b, p, n, 3).expect("carried");
+            drop(warm);
+            let t = std::time::Instant::now();
+            let pa = Plane::build(&a, m, n, 3).expect("carried");
+            let build_a = t.elapsed().as_secs_f64();
+            let t = std::time::Instant::now();
+            let pb = Plane::build(&b, p, n, 3).expect("carried");
+            let build_b = t.elapsed().as_secs_f64();
+            let t = std::time::Instant::now();
+            let pairs = kept_pairs(3);
+            let place = Layout::placement(&pa, &pb, &pairs).expect("placed");
+            let layout = Layout {
+                a: &pa,
+                b: &pb,
+                pairs,
+                place,
+            };
+            let place_s = t.elapsed().as_secs_f64();
+            let group = (MAX_INNER / pa.padded).max(1).min(layout.pairs.len());
+            // The same branch `product_rows` takes: one kernel call means the transpose is the
+            // whole output stage, several calls mean the `i128` accumulator and its conversion.
+            let single = layout.pairs.len() <= group;
+            let mut out = vec![0i64; m * p];
+            let mut acc = vec![0i128; m * p];
+            let (mut payload, mut columns, mut kernel, mut accumulate) = (0.0, 0.0, 0.0, 0.0);
+            let mut g0 = 0usize;
+            while g0 < layout.pairs.len() {
+                let g1 = (g0 + group).min(layout.pairs.len());
+                let n_in = (g1 - g0) * pa.padded;
+                let t = std::time::Instant::now();
+                let raw = layout.weight_payload(0, m, g0, g1);
+                payload += t.elapsed().as_secs_f64();
+                let t = std::time::Instant::now();
+                let qs = layout.columns(0, p, g0, g1);
+                columns += t.elapsed().as_secs_f64();
+                let t = std::time::Instant::now();
+                let cols = gemm_q8_0(GGML_TYPE_Q8_0, &raw, m, n_in, &qs).expect("kernel");
+                kernel += t.elapsed().as_secs_f64();
+                let t = std::time::Instant::now();
+                if single {
+                    transpose_rows(&mut out, &cols, m, p);
+                } else {
+                    let mut j = 0usize;
+                    while j < p {
+                        let col = &cols[j];
+                        let base = j * m;
+                        let mut i = 0usize;
+                        while i < m {
+                            acc[base + i] += i128::from(col[i]);
+                            i += 1;
+                        }
+                        j += 1;
+                    }
+                }
+                accumulate += t.elapsed().as_secs_f64();
+                g0 = g1;
+            }
+            if !single {
+                let t = std::time::Instant::now();
+                let mut i = 0usize;
+                while i < m {
+                    let mut j = 0usize;
+                    while j < p {
+                        out[i * p + j] = i64::try_from(acc[j * m + i]).expect("carried");
+                        j += 1;
+                    }
+                    i += 1;
+                }
+                accumulate += t.elapsed().as_secs_f64();
+            }
+            let total = build_a + build_b + place_s + payload + columns + kernel + accumulate;
+            let macs = (m * p * n) as f64;
+            for (name, v) in [
+                ("build_a", build_a),
+                ("build_b", build_b),
+                ("placement", place_s),
+                ("payload", payload),
+                ("columns", columns),
+                ("kernel", kernel),
+                ("accumulate", accumulate),
+                ("total", total),
+            ] {
+                println!(
+                    "m {m} p {p} n {n} {name:>10}: {:8.3} ms {:5.1}%  {:.4} ns/MAC",
+                    v * 1e3,
+                    100.0 * v / total,
+                    v * 1e9 / macs
+                );
+            }
+        }
+    }
+
     /// (R8) Paired microbench at the Qwen2.5-0.5B shapes: 5 alternating runs of the limb product
     /// and of the scalar `i128` loop, mean and spread in ns per MAC.
     #[test]
@@ -1011,7 +1490,11 @@ mod tests {
         reason = "m·p·n ≤ 2^32, exactly representable in f64, and only used to print ns/MAC"
     )]
     fn limb_bench() {
-        let shapes = [(512usize, 896usize, 896usize), (512, 4864, 896)];
+        let shapes = [
+            (512usize, 896usize, 896usize),
+            (512, 4864, 896),
+            (512, 896, 4864),
+        ];
         let mut seed = 0xabcd_ef01_2345_6789u64;
         for (m, p, n) in shapes {
             let a = operand(&mut seed, m, n, 3);
