@@ -555,22 +555,22 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/coord.rs"
-unextracted = 25
+unextracted = 14
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/coord/address.rs"
-unextracted = 36
+unextracted = 19
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/coord/locator.rs"
-unextracted = 31
+unextracted = 2
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/coord/locator_core.rs"
-unextracted = 64
+unextracted = 51
 row = "EXTRACT-COVERAGE"
 
 [[debt]]

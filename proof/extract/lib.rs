@@ -1478,21 +1478,17 @@ pub mod solve_port;
 // only the monomorphic `word_*` roots, so no body is translated twice.
 #[path = "hashtrinity_port.rs"]
 pub mod hashtrinity_port;
-
-// The GGUF writer and the serial solve/Gram cores (`src/learn/{gguf,gram,grad/model}` and the
-// `solve_port` copies); `grad_solve_port.rs` roots the concrete `word_*` entry points.
+// The GGUF writer and the serial solve/Gram cores (`src/learn/{gguf,gram,grad/model}`).
 #[path = "grad_solve_port.rs"]
 pub mod grad_solve_port;
-
-// The fold statistics and the closed-form weight-fit steps (`src/learn/fold/{stats,fit}/`),
-// reached through `fold_port.rs`.
+// The fold statistics and the closed-form weight-fit steps (`src/learn/fold/{stats,fit}/`).
 #[path = "fold_port.rs"]
 pub mod fold_port;
-
-// The format import/encode roots (`src/format/{packing,bpe}.rs`), reached through `format_port.rs`.
+// The format import/encode roots (`src/format/{packing,bpe}.rs`).
 #[path = "format_port.rs"]
 pub mod format_port;
-
-/// Mirror of `crate::learn` for this extraction unit, carried in `fold_port.rs` so this file
-/// stays under the tree's line limit.
+// The map coordinate roots (`src/map/coord*`).
+#[path = "coord_port.rs"]
+pub mod coord_port;
+/// Mirror of `crate::learn` for this extraction unit, carried in `fold_port.rs`.
 pub use fold_port::learn;
