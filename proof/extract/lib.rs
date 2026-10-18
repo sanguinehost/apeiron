@@ -1490,5 +1490,8 @@ pub mod fit_port;
 // The hashtrinity crypto roots (`src/map/hashtrinity/crypto.rs`).
 #[path = "crypto_port.rs"]
 pub mod crypto_port;
+// The fold finishing step and the run glue's `transfer`/`convert` (`src/learn/fold/{finish,run}/`).
+#[path = "fold_finish_port.rs"]
+pub mod fold_finish_port;
 /// Mirror of `crate::learn` for this extraction unit, carried in `fold_port.rs`.
 pub use fold_port::learn;

@@ -74,7 +74,7 @@
 id       = "docs/plan.md"
 kind     = "doc"
 path     = "docs/plan.md"
-sha256   = "fcbc4d90d7b39659ab3b09750ed5e8624a1213bf57637d581aef6769b07b865d"
+sha256   = "5b8cc293514ab635645ecfd9fbb3ca8bdb3114ab3e1b35b08903797c46ace3f3"
 gate     = "python3 tools/check-claims.py"
 control  = "python3 tools/check-claims.py --self-test"
 budget_s = 540
@@ -82,7 +82,7 @@ budget_s = 540
 id       = "tools/gate"
 kind     = "rust"
 path     = "tools/gate/"
-sha256   = "3b66e4a888e915b92c3a7688100ea628b3a442e05fcea6f326c9db1eb77f19ed"
+sha256   = "f4712e604b6e8fbb827e6fc992ce1defec221909355cce17fbc96ffe488d0fca"
 gate     = "cargo test --manifest-path tools/gate/Cargo.toml --all-targets"
 control  = "cargo test --manifest-path tools/gate/Cargo.toml --all-targets repeated_id_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets digest_mismatch_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets missing_path_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets over_budget_run_is_refused && cargo test --manifest-path tools/gate/Cargo.toml --all-targets run_records_exit_status_and_output_digest"
 budget_s = 540

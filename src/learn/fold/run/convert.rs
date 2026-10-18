@@ -190,12 +190,22 @@ pub fn decode_f16(raw: &[u8]) -> Result<Vec<i64>, ConvertError> {
             raw.len()
         )));
     }
-    raw.chunks_exact(2)
-        .map(|c| {
-            let h = u16::from_le_bytes([c[0], c[1]]);
-            f16_to_fixed(h).map_err(|_| ConvertError::NonFinite(format!("f16 {h:#06x}")))
-        })
-        .collect()
+    let n = raw.len() / 2;
+    let mut out = Vec::with_capacity(n);
+    let mut err: Option<ConvertError> = None;
+    let mut i = 0;
+    while i < n && err.is_none() {
+        let h = u16::from_le_bytes([raw[2 * i], raw[2 * i + 1]]);
+        match f16_to_fixed(h) {
+            Ok(v) => out.push(v),
+            Err(_) => err = Some(ConvertError::NonFinite(format!("f16 {h:#06x}"))),
+        }
+        i += 1;
+    }
+    match err {
+        Some(e) => Err(e),
+        None => Ok(out),
+    }
 }
 
 /// Read whole little-endian `bf16`s from `raw` into `Q32.32` words: the top 16 bits of the `f32`
@@ -212,9 +222,22 @@ pub fn decode_bf16(raw: &[u8]) -> Result<Vec<i64>, ConvertError> {
             raw.len()
         )));
     }
-    raw.chunks_exact(2)
-        .map(|c| f32_bits_to_q32(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16))
-        .collect()
+    let n = raw.len() / 2;
+    let mut out = Vec::with_capacity(n);
+    let mut err: Option<ConvertError> = None;
+    let mut i = 0;
+    while i < n && err.is_none() {
+        let bits = u32::from(u16::from_le_bytes([raw[2 * i], raw[2 * i + 1]])) << 16;
+        match f32_bits_to_q32(bits) {
+            Ok(v) => out.push(v),
+            Err(e) => err = Some(e),
+        }
+        i += 1;
+    }
+    match err {
+        Some(e) => Err(e),
+        None => Ok(out),
+    }
 }
 
 /// Read whole little-endian `f32`s from `raw` into `Q32.32` words, rounded half-even at `2^-32`.
@@ -230,9 +253,22 @@ pub fn decode_f32(raw: &[u8]) -> Result<Vec<i64>, ConvertError> {
             raw.len()
         )));
     }
-    raw.chunks_exact(4)
-        .map(|c| f32_bits_to_q32(u32::from_le_bytes([c[0], c[1], c[2], c[3]])))
-        .collect()
+    let n = raw.len() / 4;
+    let mut out = Vec::with_capacity(n);
+    let mut err: Option<ConvertError> = None;
+    let mut i = 0;
+    while i < n && err.is_none() {
+        let bits = u32::from_le_bytes([raw[4 * i], raw[4 * i + 1], raw[4 * i + 2], raw[4 * i + 3]]);
+        match f32_bits_to_q32(bits) {
+            Ok(v) => out.push(v),
+            Err(e) => err = Some(e),
+        }
+        i += 1;
+    }
+    match err {
+        Some(e) => Err(e),
+        None => Ok(out),
+    }
 }
 
 /// One binary32 bit pattern as a `Q32.32` word: the 24-bit significand `2^23 + m` shifted onto the
@@ -241,24 +277,29 @@ pub fn decode_f32(raw: &[u8]) -> Result<Vec<i64>, ConvertError> {
 fn f32_bits_to_q32(bits: u32) -> Result<i64, ConvertError> {
     let e = (bits >> 23) & 0xff;
     if e == 0xff {
-        return Err(ConvertError::NonFinite(format!("f32 {bits:#010x}")));
+        return Err(ConvertError::NonFinite(format!("f32 {bits}")));
     }
     if e == 0 {
         return Ok(0);
     }
-    let refuse = || ConvertError::Range(format!("f32 {bits:#010x}"));
     if e >= EXP_2_31 {
-        return Err(refuse());
+        return Err(ConvertError::Range(format!("f32 {bits}")));
     }
-    let m = i128::from((bits & 0x007f_ffff) | (1 << 23));
+    let m = i128::from(u64::from((bits & 0x007f_ffff) | (1 << 23)));
     // `value·2^32 = ±m·2^k`; `e <= 157` bounds the shift so the word stays below `2^63`.
-    let k = i32::try_from(e).map_err(|_| refuse())? - 118;
+    let k = e as i32 - 118;
     let mag = if k >= 0 {
         m << k
     } else {
-        rshift_rne(m, k.unsigned_abs()).ok_or_else(refuse)?
+        match rshift_rne(m, (-k) as u32) {
+            Some(v) => v,
+            None => return Err(ConvertError::Range(format!("f32 {bits}"))),
+        }
     };
-    let y = i64::try_from(mag).map_err(|_| refuse())?;
+    let y = match i64::try_from(mag) {
+        Ok(v) => v,
+        Err(_) => return Err(ConvertError::Range(format!("f32 {bits}"))),
+    };
     Ok(if bits >> 31 == 0 { y } else { -y })
 }
 
@@ -281,7 +322,7 @@ fn f16_bits(x: &Fx) -> Result<u16, ConvertError> {
     if e == -24 && a < 1024 {
         return Ok(sign | (a as u16));
     }
-    if !((1024..2048).contains(&a) && (1..=30).contains(&(e + 25))) {
+    if !(a >= 1024 && a < 2048 && e + 25 >= 1 && e + 25 <= 30) {
         return Err(ConvertError::Range(format!("f16 {x:?}")));
     }
     Ok(sign | (((e + 25) as u16) << 10) | ((a - 1024) as u16))
@@ -289,22 +330,37 @@ fn f16_bits(x: &Fx) -> Result<u16, ConvertError> {
 
 /// The little-endian binary16 payload of one `Q32.32` word.
 fn f16_pair(word: i64) -> Result<[u8; 2], ConvertError> {
-    let r = Fx::from_i128(i128::from(word), -32).and_then(round_f16);
-    let refuse = |e| ConvertError::Range(format!("{word}: {e:?}"));
-    Ok(f16_bits(&r.map_err(refuse)?)?.to_le_bytes())
+    let r = match Fx::from_i128(i128::from(word), -32) {
+        Ok(x) => x,
+        Err(e) => return Err(ConvertError::Range(format!("{word}: {e:?}"))),
+    };
+    let r = match round_f16(r) {
+        Ok(x) => x,
+        Err(e) => return Err(ConvertError::Range(format!("{word}: {e:?}"))),
+    };
+    match f16_bits(&r) {
+        Ok(b) => Ok(b.to_le_bytes()),
+        Err(e) => Err(e),
+    }
 }
 
 /// `a · b` or [`ConvertError::Shape`] when the product leaves `usize`.
 fn area(a: usize, b: usize, what: &str) -> Result<usize, ConvertError> {
-    a.checked_mul(b)
-        .ok_or_else(|| ConvertError::Shape(format!("{what}: {a}·{b} overflow")))
+    match a.checked_mul(b) {
+        Some(v) => Ok(v),
+        None => Err(ConvertError::Shape(format!("{what}: {a}·{b} overflow"))),
+    }
 }
 
 /// `actual == expected` or [`ConvertError::Shape`].
 fn expect_len(actual: usize, expected: usize, what: &str) -> Result<(), ConvertError> {
-    (actual == expected)
-        .then_some(())
-        .ok_or_else(|| ConvertError::Shape(format!("{what}: {actual} != {expected}")))
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(ConvertError::Shape(format!(
+            "{what}: {actual} != {expected}"
+        )))
+    }
 }
 
 /// Lift the engine-loaded `Q32.32` [`Weights`] into the word [`Teacher`] the fold driver consumes.

@@ -63,6 +63,11 @@ pub mod learn {
     }
     pub mod fold {
         pub use crate::fold_port::{fit, stats};
+        pub use crate::fold_finish_port::{convert, finish};
+        /// The `run` sources name `crate::learn::fold::run::convert`; only `convert` is declared.
+        pub mod run {
+            pub use crate::fold_finish_port::convert;
+        }
     }
     pub mod grad {
         pub use crate::grad_solve_port::model;

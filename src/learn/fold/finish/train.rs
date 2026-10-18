@@ -263,8 +263,13 @@ fn bias_grad(a: &[i64], s: i64, t: i64) -> Vec<i64> {
 
 /// `Σ|base[i]|` in `i128`, serial `O(n)`.
 fn abs_sum(base: &[i64]) -> i128 {
-    base.iter()
-        .fold(0_i128, |acc, &v| acc + i128::from(v).abs())
+    let mut acc = 0_i128;
+    let mut i = 0;
+    while i < base.len() {
+        acc += i128::from(base[i]).abs();
+        i += 1;
+    }
+    acc
 }
 
 /// The bias scale `max(mean|base|, 1e-3)` of one zero-bit bias vector, Q32.32; an empty base gives
@@ -331,10 +336,17 @@ impl Planes {
         if k >= N_KINDS {
             return Err(TrainError::Shape(format!("linear kind {k} >= {N_KINDS}")));
         }
-        self.layers
-            .get(l)
-            .and_then(|row| row.get(k))
-            .ok_or_else(|| TrainError::Shape(format!("plane layer {l} kind {k} absent")))
+        match self.layers.get(l) {
+            Some(row) => match row.get(k) {
+                Some(lin) => Ok(lin),
+                None => Err(TrainError::Shape(format!(
+                    "plane layer {l} kind {k} absent"
+                ))),
+            },
+            None => Err(TrainError::Shape(format!(
+                "plane layer {l} kind {k} absent"
+            ))),
+        }
     }
 
     /// Linear `k` of layer `l`, mutable.
@@ -345,10 +357,17 @@ impl Planes {
         if k >= N_KINDS {
             return Err(TrainError::Shape(format!("linear kind {k} >= {N_KINDS}")));
         }
-        self.layers
-            .get_mut(l)
-            .and_then(|row| row.get_mut(k))
-            .ok_or_else(|| TrainError::Shape(format!("plane layer {l} kind {k} absent")))
+        match self.layers.get_mut(l) {
+            Some(row) => match row.get_mut(k) {
+                Some(lin) => Ok(lin),
+                None => Err(TrainError::Shape(format!(
+                    "plane layer {l} kind {k} absent"
+                ))),
+            },
+            None => Err(TrainError::Shape(format!(
+                "plane layer {l} kind {k} absent"
+            ))),
+        }
     }
 }
 
@@ -513,22 +532,52 @@ impl Schedule {
     /// is reachable; a refused word returns `0`. `O(1)`.
     pub fn factor(&self, step: u64) -> i64 {
         // `step/den` in Q32.32; a zero denominator is the full fraction.
-        let frac_of = |den: u64| -> i64 {
-            if den == 0 {
-                return ONE;
+        let wu = if self.warmup == 0 {
+            ONE
+        } else {
+            match div_ne(i128::from(step) << 32, i128::from(self.warmup)) {
+                Some(q) => match narrow(q) {
+                    Some(v) => v,
+                    None => ONE,
+                },
+                None => ONE,
             }
-            div_ne(i128::from(step) << 32, i128::from(den))
-                .and_then(narrow)
-                .unwrap_or(ONE)
         };
-        let word = || -> Option<i64> {
-            let wu = frac_of(self.warmup).clamp(0, ONE);
-            let angle = mul(PI_Q32, frac_of(self.steps))?;
-            let sc = fixed_sin_cos(angle).ok()?;
-            let term = mul(COS_AMPL_Q32, ONE.checked_add(sc.cos)?)?;
-            mul(wu, TENTH_Q32.checked_add(term)?)
+        let wu = wu.clamp(0, ONE);
+        let frac = if self.steps == 0 {
+            ONE
+        } else {
+            match div_ne(i128::from(step) << 32, i128::from(self.steps)) {
+                Some(q) => match narrow(q) {
+                    Some(v) => v,
+                    None => ONE,
+                },
+                None => ONE,
+            }
         };
-        word().unwrap_or(0)
+        let angle = match mul(PI_Q32, frac) {
+            Some(v) => v,
+            None => return 0,
+        };
+        let sc = match fixed_sin_cos(angle) {
+            Ok(v) => v,
+            Err(_) => return 0,
+        };
+        let one_cos = match ONE.checked_add(sc.cos) {
+            Some(v) => v,
+            None => return 0,
+        };
+        let term = match mul(COS_AMPL_Q32, one_cos) {
+            Some(v) => v,
+            None => return 0,
+        };
+        match TENTH_Q32.checked_add(term) {
+            Some(t) => match mul(wu, t) {
+                Some(v) => v,
+                None => 0,
+            },
+            None => 0,
+        }
     }
 }
 
@@ -585,17 +634,21 @@ impl Adam {
             )));
         }
         self.t = self.t.saturating_add(1);
-        let Some(b1) = pow_q32(BETA1_Q32, self.t) else {
-            return Err(TrainError::Range("beta_1^t".to_string()));
+        let b1 = match pow_q32(BETA1_Q32, self.t) {
+            Some(v) => v,
+            None => return Err(TrainError::Range("beta_1^t".to_string())),
         };
-        let Some(b2) = pow_q32(BETA2_Q32, self.t) else {
-            return Err(TrainError::Range("beta_2^t".to_string()));
+        let b2 = match pow_q32(BETA2_Q32, self.t) {
+            Some(v) => v,
+            None => return Err(TrainError::Range("beta_2^t".to_string())),
         };
-        let Some(bc1) = ONE.checked_sub(b1) else {
-            return Err(TrainError::Range("1 - beta_1^t".to_string()));
+        let bc1 = match ONE.checked_sub(b1) {
+            Some(v) => v,
+            None => return Err(TrainError::Range("1 - beta_1^t".to_string())),
         };
-        let Some(bc2) = ONE.checked_sub(b2) else {
-            return Err(TrainError::Range("1 - beta_2^t".to_string()));
+        let bc2 = match ONE.checked_sub(b2) {
+            Some(v) => v,
+            None => return Err(TrainError::Range("1 - beta_2^t".to_string())),
         };
         if bc2 <= 0 {
             return Err(TrainError::Range("1 - beta_2^t".to_string()));
@@ -603,44 +656,141 @@ impl Adam {
         // `√(1 − β₂^t)` in Q32.32, so the denominator is `√v/√bc2 + ε` rather than
         // `√(v/bc2) + ε`: the division is deferred until after the square root, where the
         // exponent no longer underflows.
-        let root_bc2 = narrow(isqrt(i128::from(bc2) << 32))
-            .ok_or_else(|| TrainError::Range("sqrt(1 - beta_2^t)".to_string()))?;
-        for i in 0..p.len() {
+        let root_bc2 = match narrow(isqrt(i128::from(bc2) << 32)) {
+            Some(v) => v,
+            None => return Err(TrainError::Range("sqrt(1 - beta_2^t)".to_string())),
+        };
+        let mut err: Option<TrainError> = None;
+        let mut i = 0;
+        while i < p.len() {
             let gi = g[i];
-            let mi = ok(mul(BETA1_Q32, self.m[i]))?;
-            let m2 = ok(mul(ONE_MINUS_BETA1_Q32, gi))?;
-            let mi = ok(mi.checked_add(m2))?;
+            let mi = match ok(mul(BETA1_Q32, self.m[i])) {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
+            let m2 = match ok(mul(ONE_MINUS_BETA1_Q32, gi)) {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
+            let mi = match ok(mi.checked_add(m2)) {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
             self.m[i] = mi;
             // Second moment in Q64.64: `β₂·v + (1−β₂)·g²`, where `g²` is the exact `i128` square
             // of the Q32.32 word.
             let g2 = i128::from(gi) * i128::from(gi);
-            let t1 = ok(i128::from(BETA2_Q32)
+            let t1 = match ok(i128::from(BETA2_Q32)
                 .checked_mul(self.v[i])
-                .and_then(|x| rshift_rne(x, 32)))?;
-            let t2 = ok(i128::from(ONE_MINUS_BETA2_Q32)
+                .and_then(|x| rshift_rne(x, 32)))
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
+            let t2 = match ok(i128::from(ONE_MINUS_BETA2_Q32)
                 .checked_mul(g2)
-                .and_then(|x| rshift_rne(x, 32)))?;
-            let vi = ok(t1.checked_add(t2))?;
+                .and_then(|x| rshift_rne(x, 32)))
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
+            let vi = match ok(t1.checked_add(t2)) {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
             if vi < 0 {
-                return Err(TrainError::Range("adam second moment".to_string()));
+                err = Some(TrainError::Range("adam second moment".to_string()));
+                break;
             }
             self.v[i] = vi;
-            let mhat = ok(div(mi, bc1))?;
+            let mhat = match ok(div(mi, bc1)) {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
             // `√v̂ = √v / √bc2`, both square roots in Q32.32 from the Q64.64 word.
-            let root_v = ok(narrow(isqrt(vi)))?;
-            let root = ok(div(root_v, root_bc2))?;
-            let denom = ok(root.checked_add(ADAM_EPS_Q32))?;
-            let num = ok(mul(lr, mhat))?;
-            let step = if denom == 0 { 0 } else { ok(div(num, denom))? };
-            p[i] = ok(p[i].checked_sub(step))?;
+            let root_v = match ok(narrow(isqrt(vi))) {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
+            let root = match ok(div(root_v, root_bc2)) {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
+            let denom = match ok(root.checked_add(ADAM_EPS_Q32)) {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
+            let num = match ok(mul(lr, mhat)) {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
+            let step = if denom == 0 {
+                0
+            } else {
+                match ok(div(num, denom)) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        err = Some(e);
+                        break;
+                    }
+                }
+            };
+            let next = match ok(p[i].checked_sub(step)) {
+                Ok(v) => v,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            };
+            p[i] = next;
+            i += 1;
         }
-        Ok(())
+        match err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 }
 
 /// `result` or [`TrainError::Range`], for the checked-word chains above.
 fn ok<T>(v: Option<T>) -> Result<T, TrainError> {
-    v.ok_or_else(|| TrainError::Range("q32 word".to_string()))
+    match v {
+        Some(x) => Ok(x),
+        None => Err(TrainError::Range("q32 word".to_string())),
+    }
 }
 
 /// [`TrainError::Shape`] for an absent table entry `what` at `i`.
@@ -652,16 +802,27 @@ fn absent(what: &str, i: usize) -> TrainError {
 fn pow_q32(base: i64, mut e: u64) -> Option<i64> {
     let mut acc = ONE;
     let mut b = base;
-    while e > 0 {
+    let mut bad = false;
+    while e > 0 && !bad {
         if e & 1 == 1 {
-            acc = mul(acc, b)?;
+            match mul(acc, b) {
+                Some(v) => acc = v,
+                None => bad = true,
+            }
         }
         e >>= 1;
-        if e > 0 {
-            b = mul(b, b)?;
+        if e > 0 && !bad {
+            match mul(b, b) {
+                Some(v) => b = v,
+                None => bad = true,
+            }
         }
     }
-    Some(acc)
+    if bad {
+        None
+    } else {
+        Some(acc)
+    }
 }
 
 /// `base[i]·exp(off[i])` over `min` of the two lengths; an empty vector signals a refusal, serial
@@ -672,11 +833,17 @@ fn scale_exp(base: &[i64], off: &[i64]) -> Vec<i64> {
         return Vec::new();
     }
     let mut out = Vec::with_capacity(len);
-    for i in 0..len {
+    let mut bad = false;
+    let mut i = 0;
+    while i < len && !bad {
         match fixed_exp(off[i]).ok().and_then(|e| mul(base[i], e)) {
             Some(v) => out.push(v),
-            None => return Vec::new(),
+            None => bad = true,
         }
+        i += 1;
+    }
+    if bad {
+        return Vec::new();
     }
     out
 }
@@ -688,11 +855,17 @@ fn add_scaled(base: &[i64], off: &[i64], s: i64) -> Vec<i64> {
         return Vec::new();
     }
     let mut out = Vec::with_capacity(len);
-    for i in 0..len {
+    let mut bad = false;
+    let mut i = 0;
+    while i < len && !bad {
         match mul(off[i], s).and_then(|v| base[i].checked_add(v)) {
             Some(v) => out.push(v),
-            None => return Vec::new(),
+            None => bad = true,
         }
+        i += 1;
+    }
+    if bad {
+        return Vec::new();
     }
     out
 }
@@ -884,13 +1057,25 @@ pub fn kl_mean(
     }
     let mut dz = vec![0_i64; logits.len()];
     let mut acc = 0_i128;
-    for r in 0..t {
+    let mut err: Option<TrainError> = None;
+    let mut r = 0;
+    while r < t && err.is_none() {
         let base = r * v;
-        let (loss, g) = kl_row(&logits[base..base + v], &teacher[base..base + v])?;
-        acc = acc
-            .checked_add(i128::from(loss))
-            .ok_or(TrainError::Overflow)?;
-        dz[base..base + v].copy_from_slice(&g[..v]);
+        match kl_row(&logits[base..base + v], &teacher[base..base + v]) {
+            Ok((loss, g)) => match acc.checked_add(i128::from(loss)) {
+                Some(a) => {
+                    acc = a;
+                    dz[base..base + v].copy_from_slice(&g[..v]);
+                }
+                None => err = Some(TrainError::Overflow),
+            },
+            Err(e) => err = Some(TrainError::Head(e)),
+        }
+        r += 1;
+    }
+    match err {
+        Some(e) => return Err(e),
+        None => {}
     }
     let mean = div_ne(acc, t as i128).ok_or(TrainError::Overflow)?;
     let mean = narrow(mean).ok_or(TrainError::Overflow)?;

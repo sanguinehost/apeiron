@@ -375,12 +375,12 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/finish/plane.rs"
-unextracted = 27
+unextracted = 24
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/finish/train.rs"
-unextracted = 46
+unextracted = 23
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -440,7 +440,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/run/convert.rs"
-unextracted = 15
+unextracted = 11
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
