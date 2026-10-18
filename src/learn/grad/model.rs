@@ -352,7 +352,7 @@ impl Weights {
 ///
 /// # Complexity
 /// `O(1)`.
-fn expect(t: usize, w: usize, len: usize, what: &str) -> Result<usize, ModelError> {
+pub(crate) fn expect(t: usize, w: usize, len: usize, what: &str) -> Result<usize, ModelError> {
     match t.checked_mul(w) {
         Some(n) if n == len => Ok(n),
         Some(n) => Err(ModelError::Shape(format!("{what}: {len} != {t}·{w} = {n}"))),
@@ -364,7 +364,7 @@ fn expect(t: usize, w: usize, len: usize, what: &str) -> Result<usize, ModelErro
 ///
 /// # Complexity
 /// `O(len)`.
-fn add_flat(a: &mut [i64], b: &[i64]) -> Result<(), ModelError> {
+pub(crate) fn add_flat(a: &mut [i64], b: &[i64]) -> Result<(), ModelError> {
     if a.len() != b.len() {
         return Err(ModelError::Shape("add width".to_string()));
     }
@@ -378,15 +378,28 @@ fn add_flat(a: &mut [i64], b: &[i64]) -> Result<(), ModelError> {
 ///
 /// # Complexity
 /// `O(t·w)`.
-fn col_sum(x: &[i64], t: usize, w: usize) -> Result<Vec<i64>, ModelError> {
+pub(crate) fn col_sum(x: &[i64], t: usize, w: usize) -> Result<Vec<i64>, ModelError> {
     expect(t, w, x.len(), "col_sum")?;
     let mut out = vec![0i64; w];
-    for r in 0..t {
-        for c in 0..w {
-            out[c] = out[c]
-                .checked_add(x[r * w + c])
-                .ok_or(ModelError::Overflow)?;
+    // Flag loops: a `?` inside these nested sweeps has no fixed point in the pinned Charon/Aeneas
+    // fragment, so the first refusal is carried in `err`, both loop conditions are guarded by
+    // `err.is_none()`, and one `return` follows the sweep. The column order and the first-refusal
+    // order are unchanged.
+    let mut err: Option<ModelError> = None;
+    let mut r = 0usize;
+    while r < t && err.is_none() {
+        let mut c = 0usize;
+        while c < w && err.is_none() {
+            match out[c].checked_add(x[r * w + c]) {
+                Some(v) => out[c] = v,
+                None => err = Some(ModelError::Overflow),
+            }
+            c += 1;
         }
+        r += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(out)
 }
@@ -395,7 +408,7 @@ fn col_sum(x: &[i64], t: usize, w: usize) -> Result<Vec<i64>, ModelError> {
 ///
 /// # Complexity
 /// `O(t·w)`; one [`dense::rmsnorm_fwd`] per row.
-fn rmsnorm_rows(
+pub(crate) fn rmsnorm_rows(
     x: &[i64],
     gamma: &[i64],
     t: usize,
@@ -417,7 +430,7 @@ fn rmsnorm_rows(
 ///
 /// # Complexity
 /// `O(t·w)`; one [`dense::rmsnorm_bwd`] per row.
-fn rmsnorm_bwd_rows(
+pub(crate) fn rmsnorm_bwd_rows(
     x: &[i64],
     gamma: &[i64],
     eps: i64,
@@ -429,13 +442,29 @@ fn rmsnorm_bwd_rows(
     expect(t, w, dy.len(), "rmsnorm_bwd_rows dy")?;
     let mut dx = vec![0i64; x.len()];
     let mut dg = vec![0i64; w];
-    for r in 0..t {
-        let (dxr, dgr) =
-            dense::rmsnorm_bwd(&x[r * w..r * w + w], gamma, eps, &dy[r * w..r * w + w])?;
-        dx[r * w..r * w + w].copy_from_slice(&dxr);
-        for c in 0..w {
-            dg[c] = dg[c].checked_add(dgr[c]).ok_or(ModelError::Overflow)?;
+    // Flag loops as in `col_sum`; the kernel's refusal maps through the same `ModelError::Dense`
+    // arm its `From<DenseError>` impl names, so the error value and the row order are unchanged.
+    let mut err: Option<ModelError> = None;
+    let mut r = 0usize;
+    while r < t && err.is_none() {
+        match dense::rmsnorm_bwd(&x[r * w..r * w + w], gamma, eps, &dy[r * w..r * w + w]) {
+            Err(e) => err = Some(ModelError::Dense(e)),
+            Ok((dxr, dgr)) => {
+                dx[r * w..r * w + w].copy_from_slice(&dxr);
+                let mut c = 0usize;
+                while c < w && err.is_none() {
+                    match dg[c].checked_add(dgr[c]) {
+                        Some(v) => dg[c] = v,
+                        None => err = Some(ModelError::Overflow),
+                    }
+                    c += 1;
+                }
+            }
         }
+        r += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok((dx, dg))
 }
@@ -444,7 +473,7 @@ fn rmsnorm_bwd_rows(
 ///
 /// # Complexity
 /// `O(t·row)`; one [`attn::rope_fwd`] per token.
-fn rope_rows_fwd(
+pub(crate) fn rope_rows_fwd(
     x: &[i64],
     t: usize,
     row: usize,
@@ -463,7 +492,7 @@ fn rope_rows_fwd(
 ///
 /// # Complexity
 /// `O(t·row)`; one [`attn::rope_bwd`] per token.
-fn rope_rows_bwd(
+pub(crate) fn rope_rows_bwd(
     dy: &[i64],
     t: usize,
     row: usize,
@@ -482,7 +511,12 @@ fn rope_rows_bwd(
 ///
 /// # Complexity
 /// `O(t·w)`.
-fn add_bias(x: &mut [i64], bias: Option<&[i64]>, t: usize, w: usize) -> Result<(), ModelError> {
+pub(crate) fn add_bias(
+    x: &mut [i64],
+    bias: Option<&[i64]>,
+    t: usize,
+    w: usize,
+) -> Result<(), ModelError> {
     let Some(b) = bias else {
         return Ok(());
     };
@@ -490,11 +524,22 @@ fn add_bias(x: &mut [i64], bias: Option<&[i64]>, t: usize, w: usize) -> Result<(
         return Err(ModelError::Shape("bias width".to_string()));
     }
     expect(t, w, x.len(), "add_bias")?;
-    for r in 0..t {
-        for c in 0..w {
+    let mut err: Option<ModelError> = None;
+    let mut r = 0usize;
+    while r < t && err.is_none() {
+        let mut c = 0usize;
+        while c < w && err.is_none() {
             let i = r * w + c;
-            x[i] = x[i].checked_add(b[c]).ok_or(ModelError::Overflow)?;
+            match x[i].checked_add(b[c]) {
+                Some(v) => x[i] = v,
+                None => err = Some(ModelError::Overflow),
+            }
+            c += 1;
         }
+        r += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(())
 }
@@ -683,7 +728,7 @@ pub struct Grads {
 ///
 /// # Complexity
 /// `O(t·w)`.
-fn embedding_grad(
+pub(crate) fn embedding_grad(
     dh: &[i64],
     tokens: &[u32],
     t: usize,
@@ -692,16 +737,30 @@ fn embedding_grad(
 ) -> Result<Vec<i64>, ModelError> {
     expect(t, w, dh.len(), "embedding_grad")?;
     let mut out = vec![0i64; vocab * w];
-    for r in 0..t {
-        let id = usize::try_from(tokens[r]).map_err(|_| ModelError::Overflow)?;
-        if id >= vocab {
-            return Err(ModelError::Shape(format!("token {} >= vocab", tokens[r])));
+    let mut err: Option<ModelError> = None;
+    let mut r = 0usize;
+    while r < t && err.is_none() {
+        match usize::try_from(tokens[r]) {
+            Err(_) => err = Some(ModelError::Overflow),
+            Ok(id) => {
+                if id >= vocab {
+                    err = Some(ModelError::Shape(format!("token {} >= vocab", tokens[r])));
+                } else {
+                    let mut c = 0usize;
+                    while c < w && err.is_none() {
+                        match out[id * w + c].checked_add(dh[r * w + c]) {
+                            Some(v) => out[id * w + c] = v,
+                            None => err = Some(ModelError::Overflow),
+                        }
+                        c += 1;
+                    }
+                }
+            }
         }
-        for c in 0..w {
-            out[id * w + c] = out[id * w + c]
-                .checked_add(dh[r * w + c])
-                .ok_or(ModelError::Overflow)?;
-        }
+        r += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(out)
 }

@@ -176,20 +176,20 @@ def Usize.Insts.CoreFmtDisplay : core.fmt.Display Std.Usize := {
   fmt := core.fmt.num.imp.DisplayUsize.fmt
 }
 
-/-- Trait implementation: [core::fmt::num::imp::{impl core::fmt::Display for u64}]
-    Source: '/rustc/library/core/src/fmt/num.rs', lines 134:8-134:39
-    Name pattern: [core::fmt::Display<u64>] -/
-@[reducible, rust_trait_impl "core::fmt::Display<u64>"]
-def U64.Insts.CoreFmtDisplay : core.fmt.Display Std.U64 := {
-  fmt := core.fmt.num.imp.DisplayU64.fmt
-}
-
 /-- Trait implementation: [core::fmt::num::imp::{impl core::fmt::Display for u32}]
     Source: '/rustc/library/core/src/fmt/num.rs', lines 134:8-134:39
     Name pattern: [core::fmt::Display<u32>] -/
 @[reducible, rust_trait_impl "core::fmt::Display<u32>"]
 def U32.Insts.CoreFmtDisplay : core.fmt.Display Std.U32 := {
   fmt := core.fmt.num.imp.DisplayU32.fmt
+}
+
+/-- Trait implementation: [core::fmt::num::imp::{impl core::fmt::Display for u64}]
+    Source: '/rustc/library/core/src/fmt/num.rs', lines 134:8-134:39
+    Name pattern: [core::fmt::Display<u64>] -/
+@[reducible, rust_trait_impl "core::fmt::Display<u64>"]
+def U64.Insts.CoreFmtDisplay : core.fmt.Display Std.U64 := {
+  fmt := core.fmt.num.imp.DisplayU64.fmt
 }
 
 /-- Trait implementation: [core::fmt::num::imp::{impl core::fmt::Display for i64}]
@@ -495,6 +495,24 @@ impl_def Slice.Insts.CoreCmpPartialEqSlice {T : Type} {U : Type}
   eq := core.slice.cmp.PartialEqSlice.eq cmpPartialEqInst
   ne := core.cmp.PartialEq.ne.trait_default (Slice.Insts.CoreCmpPartialEqSlice
     cmpPartialEqInst)
+}
+
+/-- Trait implementation: [core::slice::iter::{impl core::iter::traits::iterator::Iterator<&'a mut T> for core::slice::iter::IterMut<'a, T>}]
+    Source: '/rustc/library/core/src/slice/iter/macros.rs', lines 153:8-153:45
+    Name pattern: [core::iter::traits::iterator::Iterator<core::slice::iter::IterMut<'a, @T>, &'a mut @T>] -/
+@[reducible, rust_trait_impl
+  "core::iter::traits::iterator::Iterator<core::slice::iter::IterMut<'a, @T>, &'a mut @T>"]
+impl_def core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT (T :
+  Type) : core.iter.traits.iterator.Iterator (core.slice.iter.IterMut T) T := {
+  next := core.slice.iter.IteratorIterMut.next
+  zip := fun {U : Type} {Clause0_Item : Type} {Clause0_IntoIter : Type}
+    (collectIntoIteratorInst : core.iter.traits.collect.IntoIterator U
+    Clause0_Item Clause0_IntoIter) =>
+    core.iter.traits.iterator.Iterator.zip.trait_default
+    (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT T)
+    collectIntoIteratorInst
+  enumerate := core.iter.traits.iterator.Iterator.enumerate.trait_default
+    (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT T)
 }
 
 /-- [core::slice::{[T]}::first]:
@@ -5401,12 +5419,12 @@ def attn.plane_at
       Std.Usize (core.convert.FromSame attn.AttnError) residual
 
 /-- [apeiron_word::engine::FIXED_FRAC_BITS]
-    Source: 'lib.rs', lines 143:4-143:40
+    Source: 'lib.rs', lines 146:4-146:40
     Visibility: public -/
 @[global_simps, irreducible] def engine.FIXED_FRAC_BITS : Std.U32 := 32#u32
 
 /-- [apeiron_word::engine::ONE]
-    Source: 'lib.rs', lines 145:4-145:46
+    Source: 'lib.rs', lines 148:4-148:46
     Visibility: public -/
 @[global_simps, irreducible]
 def engine.ONE : Result Std.I64 := 1#i64 <<< engine.FIXED_FRAC_BITS
@@ -64991,6 +65009,1011 @@ def learn_port.e8.nearest
   let i ← engine.ONE
   learn_port.e8.nearest_scaled x i
 
+/-- [apeiron_word::grad_solve_port::gguf::ALIGN_BYTES]
+    Source: '../../src/learn/gguf.rs', lines 24:0-24:52 -/
+@[global_simps, irreducible]
+def grad_solve_port.gguf.ALIGN_BYTES : Array Std.U8 17#usize :=
+  Array.make 17#usize [
+    103#u8, 101#u8, 110#u8, 101#u8, 114#u8, 97#u8, 108#u8, 46#u8, 97#u8,
+    108#u8, 105#u8, 103#u8, 110#u8, 109#u8, 101#u8, 110#u8, 116#u8
+    ]
+
+/-- [apeiron_word::grad_solve_port::gguf::ALIGN_LEN]
+    Source: '../../src/learn/gguf.rs', lines 25:0-25:28 -/
+@[global_simps, irreducible]
+def grad_solve_port.gguf.ALIGN_LEN : Std.Usize := 17#usize
+
+/-- [apeiron_word::grad_solve_port::gguf::TYPE_BOOL]
+    Source: '../../src/learn/gguf.rs', lines 34:0-34:25 -/
+@[global_simps, irreducible]
+def grad_solve_port.gguf.TYPE_BOOL : Std.U32 := 7#u32
+
+/-- [apeiron_word::grad_solve_port::gguf::TYPE_STRING]
+    Source: '../../src/learn/gguf.rs', lines 35:0-35:27 -/
+@[global_simps, irreducible]
+def grad_solve_port.gguf.TYPE_STRING : Std.U32 := 8#u32
+
+/-- [apeiron_word::grad_solve_port::gguf::TYPE_ARRAY]
+    Source: '../../src/learn/gguf.rs', lines 36:0-36:26 -/
+@[global_simps, irreducible]
+def grad_solve_port.gguf.TYPE_ARRAY : Std.U32 := 9#u32
+
+/-- [apeiron_word::grad_solve_port::gguf::write_string::{closure}]
+    Source: '../../src/learn/gguf.rs', lines 46:43-46:72 -/
+@[reducible]
+def grad_solve_port.gguf.write_string.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_string::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_string::{closure}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 46:43-46:72 -/
+def
+  grad_solve_port.gguf.write_string.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_string.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_string::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_string::{closure}}]
+    Source: '../../src/learn/gguf.rs', lines 46:43-46:72 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_string.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_string.closure
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_string.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_string]:
+    Source: '../../src/learn/gguf.rs', lines 45:0-50:1 -/
+def grad_solve_port.gguf.write_string
+  (out : alloc.vec.Vec Std.U8) (s : Slice Std.U8) :
+  Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
+  := do
+  let i := Slice.len s
+  let r ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+  let r1 ←
+    core.result.Result.map_err
+      grad_solve_port.gguf.write_string.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+      r ()
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let a ← lift (core.num.U64.to_le_bytes val)
+    let s1 ← lift (Array.to_slice a)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s1
+    let out2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out1 s
+    ok (core.result.Result.Ok (), out2)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    let r2 ←
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Unit (core.convert.FromSame gguf.GgufError) residual
+    ok (r2, out)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_int]:
+    Source: '../../src/learn/gguf.rs', lines 57:0-111:1 -/
+def grad_solve_port.gguf.write_int
+  (out : alloc.vec.Vec Std.U8) (t : Std.U32) (x : Std.I128) :
+  Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
+  := do
+  match t with
+  | 0#uscalar =>
+    if x < 0#i128
+    then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+    else
+      if x > 255#i128
+      then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+      else
+        let i ← lift (IScalar.hcast .U8 x)
+        let out1 ← alloc.vec.Vec.push out i
+        ok (core.result.Result.Ok (), out1)
+  | 1#uscalar =>
+    if x < (-128)#i128
+    then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+    else
+      if x > 127#i128
+      then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+      else
+        let i ← lift (IScalar.cast .I8 x)
+        let a ← lift (core.num.I8.to_le_bytes i)
+        let s ← lift (Array.to_slice a)
+        let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+        ok (core.result.Result.Ok (), out1)
+  | 2#uscalar =>
+    if x < 0#i128
+    then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+    else
+      if x > 65535#i128
+      then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+      else
+        let i ← lift (IScalar.hcast .U16 x)
+        let a ← lift (core.num.U16.to_le_bytes i)
+        let s ← lift (Array.to_slice a)
+        let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+        ok (core.result.Result.Ok (), out1)
+  | 3#uscalar =>
+    if x < (-32768)#i128
+    then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+    else
+      if x > 32767#i128
+      then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+      else
+        let i ← lift (IScalar.cast .I16 x)
+        let a ← lift (core.num.I16.to_le_bytes i)
+        let s ← lift (Array.to_slice a)
+        let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+        ok (core.result.Result.Ok (), out1)
+  | 4#uscalar =>
+    if x < 0#i128
+    then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+    else
+      if x > 4294967295#i128
+      then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+      else
+        let i ← lift (IScalar.hcast .U32 x)
+        let a ← lift (core.num.U32.to_le_bytes i)
+        let s ← lift (Array.to_slice a)
+        let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+        ok (core.result.Result.Ok (), out1)
+  | 5#uscalar =>
+    if x < (-2147483648)#i128
+    then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+    else
+      if x > 2147483647#i128
+      then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+      else
+        let i ← lift (IScalar.cast .I32 x)
+        let a ← lift (core.num.I32.to_le_bytes i)
+        let s ← lift (Array.to_slice a)
+        let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+        ok (core.result.Result.Ok (), out1)
+  | 10#uscalar =>
+    if x < 0#i128
+    then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+    else
+      if x > 18446744073709551615#i128
+      then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+      else
+        let i ← lift (IScalar.hcast .U64 x)
+        let a ← lift (core.num.U64.to_le_bytes i)
+        let s ← lift (Array.to_slice a)
+        let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+        ok (core.result.Result.Ok (), out1)
+  | 11#uscalar =>
+    let r ← I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from x
+    match r with
+    | core.result.Result.Ok v =>
+      let a ← lift (core.num.I64.to_le_bytes v)
+      let s ← lift (Array.to_slice a)
+      let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+      ok (core.result.Result.Ok (), out1)
+    | core.result.Result.Err _ =>
+      ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
+  | _ => ok (core.result.Result.Err (gguf.GgufError.UnknownType t), out)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload::{closure}]
+    Source: '../../src/learn/gguf.rs', lines 127:55-127:84 -/
+@[reducible]
+def grad_solve_port.gguf.write_payload.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload::{closure}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 127:55-127:84 -/
+def
+  grad_solve_port.gguf.write_payload.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_payload.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_payload::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload::{closure}}]
+    Source: '../../src/learn/gguf.rs', lines 127:55-127:84 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_payload.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_payload.closure
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_payload.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+mutual
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload]: loop 0:
+    Source: '../../src/learn/gguf.rs', lines 134:12-140:13 -/
+@[rust_loop]
+def grad_solve_port.gguf.write_payload_loop
+  (out : alloc.vec.Vec Std.U8) (elems : alloc.vec.Vec gguf.GVal)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError))
+  := do
+  loop
+    (fun (out1, err1, i1) => grad_solve_port.gguf.write_payload_loop.body elems
+      out1 err1 i1)
+    (out, err, i)
+partial_fixpoint
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload]: loop body 0:
+    Source: '../../src/learn/gguf.rs', lines 134:12-140:13 -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_payload_loop.body
+  (elems : alloc.vec.Vec gguf.GVal) (out : alloc.vec.Vec Std.U8)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError) ×
+    Std.Usize) ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError)))
+  := do
+  let i1 := alloc.vec.Vec.len elems
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let g ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice gguf.GVal)
+          elems i
+      let (r, out1) ← grad_solve_port.gguf.write_payload out g
+      let err1 ←
+        match r with
+        | core.result.Result.Ok _ => ok err
+        | core.result.Result.Err e => ok (some e)
+      let i2 ← i + 1#usize
+      ok (cont (out1, err1, i2))
+    else ok (done (out, err))
+  else ok (done (out, err))
+partial_fixpoint
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload]:
+    Source: '../../src/learn/gguf.rs', lines 118:0-147:1 -/
+def grad_solve_port.gguf.write_payload
+  (out : alloc.vec.Vec Std.U8) (v : gguf.GVal) :
+  Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
+  := do
+  match v with
+  | gguf.GVal.Int x t =>
+    let (r, out1) ← grad_solve_port.gguf.write_int out t x
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      ok (core.result.Result.Ok (), out1)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame gguf.GgufError) residual
+      ok (r1, out1)
+  | gguf.GVal.F32Bits bits _ =>
+    let a ← lift (core.num.U32.to_le_bytes bits)
+    let s ← lift (Array.to_slice a)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+    ok (core.result.Result.Ok (), out1)
+  | gguf.GVal.F64Bits bits _ =>
+    let a ← lift (core.num.U64.to_le_bytes bits)
+    let s ← lift (Array.to_slice a)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+    ok (core.result.Result.Ok (), out1)
+  | gguf.GVal.Bool b =>
+    let i ← lift (core.convert.num.FromU8Bool.from b)
+    let out1 ← alloc.vec.Vec.push out i
+    ok (core.result.Result.Ok (), out1)
+  | gguf.GVal.Str s =>
+    let s1 := alloc.vec.Vec.deref s
+    let (r, out1) ← grad_solve_port.gguf.write_string out s1
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      ok (core.result.Result.Ok (), out1)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame gguf.GgufError) residual
+      ok (r1, out1)
+  | gguf.GVal.Arr et elems =>
+    let a ← lift (core.num.U32.to_le_bytes et)
+    let s ← lift (Array.to_slice a)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+    let i := alloc.vec.Vec.len elems
+    let r ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+    let r1 ←
+      core.result.Result.map_err
+        grad_solve_port.gguf.write_payload.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+        r ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let a1 ← lift (core.num.U64.to_le_bytes val)
+      let s1 ← lift (Array.to_slice a1)
+      let out2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out1 s1
+      let (out3, err) ←
+        grad_solve_port.gguf.write_payload_loop out2 elems none 0#usize
+      match err with
+      | none => ok (core.result.Result.Ok (), out3)
+      | some e => ok (core.result.Result.Err e, out3)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame gguf.GgufError) residual
+      ok (r2, out1)
+partial_fixpoint
+
+end
+
+/-- [apeiron_word::grad_solve_port::gguf::write_value]:
+    Source: '../../src/learn/gguf.rs', lines 152:0-161:1 -/
+def grad_solve_port.gguf.write_value
+  (out : alloc.vec.Vec Std.U8) (v : gguf.GVal) :
+  Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
+  := do
+  let t ←
+    match v with
+    | gguf.GVal.Int _ t1 => ok t1
+    | gguf.GVal.F32Bits _ t1 => ok t1
+    | gguf.GVal.F64Bits _ t1 => ok t1
+    | gguf.GVal.Bool _ => ok grad_solve_port.gguf.TYPE_BOOL
+    | gguf.GVal.Str _ => ok grad_solve_port.gguf.TYPE_STRING
+    | gguf.GVal.Arr _ _ => ok grad_solve_port.gguf.TYPE_ARRAY
+  let a ← lift (core.num.U32.to_le_bytes t)
+  let s ← lift (Array.to_slice a)
+  let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+  grad_solve_port.gguf.write_payload out1 v
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header::{closure#3}]
+    Source: '../../src/learn/gguf.rs', lines 278:43-278:72 -/
+@[reducible]
+def grad_solve_port.gguf.write_header.closure_3 := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure#3}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 278:43-278:72 -/
+def
+  grad_solve_port.gguf.write_header.closure_3.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_header.closure_3)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure#3}}]
+    Source: '../../src/learn/gguf.rs', lines 278:43-278:72 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_header.closure_3.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_header.closure_3
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_header.closure_3.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header::{closure#2}]
+    Source: '../../src/learn/gguf.rs', lines 266:54-266:83 -/
+@[reducible]
+def grad_solve_port.gguf.write_header.closure_2 := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure#2}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 266:54-266:83 -/
+def
+  grad_solve_port.gguf.write_header.closure_2.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_header.closure_2)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure#2}}]
+    Source: '../../src/learn/gguf.rs', lines 266:54-266:83 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_header.closure_2.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_header.closure_2
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_header.closure_2.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header::{closure#1}]
+    Source: '../../src/learn/gguf.rs', lines 188:54-188:83 -/
+@[reducible]
+def grad_solve_port.gguf.write_header.closure_1 := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure#1}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 188:54-188:83 -/
+def
+  grad_solve_port.gguf.write_header.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_header.closure_1)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure#1}}]
+    Source: '../../src/learn/gguf.rs', lines 188:54-188:83 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_header.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_header.closure_1
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_header.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header::{closure}]
+    Source: '../../src/learn/gguf.rs', lines 187:64-187:93 -/
+@[reducible]
+def grad_solve_port.gguf.write_header.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 187:64-187:93 -/
+def
+  grad_solve_port.gguf.write_header.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_header.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure}}]
+    Source: '../../src/learn/gguf.rs', lines 187:64-187:93 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_header.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_header.closure
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_header.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header]: loop body 0:
+    Source: '../../src/learn/gguf.rs', lines 198:4-208:5
+    Visibility: public -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_header_loop0.body
+  (v : alloc.vec.Vec ((alloc.vec.Vec Std.U8) × gguf.GVal))
+  (out : alloc.vec.Vec Std.U8) (err : Option gguf.GgufError) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError) ×
+    Std.Usize) ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError)))
+  := do
+  let i := alloc.vec.Vec.len v
+  if k < i
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (key, val) ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          ((alloc.vec.Vec Std.U8) × gguf.GVal)) v k
+      let s := alloc.vec.Vec.deref key
+      let (r, out1) ← grad_solve_port.gguf.write_string out s
+      let (out2, err1) ←
+        match r with
+        | core.result.Result.Ok _ =>
+          do
+          let (r1, out3) ← grad_solve_port.gguf.write_value out1 val
+          let o ←
+            match r1 with
+            | core.result.Result.Ok _ => ok err
+            | core.result.Result.Err e => ok (some e)
+          ok (out3, o)
+        | core.result.Result.Err e => ok (out1, some e)
+      let k1 ← k + 1#usize
+      ok (cont (out2, err1, k1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header]: loop 0:
+    Source: '../../src/learn/gguf.rs', lines 198:4-208:5
+    Visibility: public -/
+@[rust_loop]
+def grad_solve_port.gguf.write_header_loop0
+  (v : alloc.vec.Vec ((alloc.vec.Vec Std.U8) × gguf.GVal))
+  (out : alloc.vec.Vec Std.U8) (err : Option gguf.GgufError) (k : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError))
+  := do
+  loop
+    (fun (out1, err1, k1) => grad_solve_port.gguf.write_header_loop0.body v
+      out1 err1 k1)
+    (out, err, k)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header]: loop body 2:
+    Source: '../../src/learn/gguf.rs', lines 223:24-226:25
+    Visibility: public -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_header_loop1_loop0.body
+  (v : alloc.vec.Vec Std.U64) (out : alloc.vec.Vec Std.U8) (d : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i := alloc.vec.Vec.len v
+  if d < i
+  then
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64) v d
+    let a ← lift (core.num.U64.to_le_bytes i1)
+    let s ← lift (Array.to_slice a)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+    let d1 ← d + 1#usize
+    ok (cont (out1, d1))
+  else ok (done out)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header]: loop 2:
+    Source: '../../src/learn/gguf.rs', lines 223:24-226:25
+    Visibility: public -/
+@[rust_loop]
+def grad_solve_port.gguf.write_header_loop1_loop0
+  (out : alloc.vec.Vec Std.U8) (v : alloc.vec.Vec Std.U64) (d : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, d1) => grad_solve_port.gguf.write_header_loop1_loop0.body v
+      out1 d1)
+    (out, d)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header]: loop body 1:
+    Source: '../../src/learn/gguf.rs', lines 211:4-234:5
+    Visibility: public -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_header_loop1.body
+  (v : alloc.vec.Vec gguf.TensorDesc) (out : alloc.vec.Vec Std.U8)
+  (err : Option gguf.GgufError) (t : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError) ×
+    Std.Usize) ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError)))
+  := do
+  let i := alloc.vec.Vec.len v
+  if t < i
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let td ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          gguf.TensorDesc) v t
+      let r ← gguf.TensorDesc.n_elements td
+      match r with
+      | core.result.Result.Ok _ =>
+        let s := alloc.vec.Vec.deref td.name
+        let (r1, out1) ← grad_solve_port.gguf.write_string out s
+        match r1 with
+        | core.result.Result.Ok _ =>
+          let i1 := alloc.vec.Vec.len td.dims
+          let r2 ←
+            core.convert.num.ptr_try_from_impls.TryFromU32Usize.try_from i1
+          match r2 with
+          | core.result.Result.Ok nd =>
+            let a ← lift (core.num.U32.to_le_bytes nd)
+            let s1 ← lift (Array.to_slice a)
+            let out2 ←
+              alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out1 s1
+            let out3 ←
+              grad_solve_port.gguf.write_header_loop1_loop0 out2 td.dims
+                0#usize
+            let a1 ← lift (core.num.U32.to_le_bytes td.ggml_type)
+            let s2 ← lift (Array.to_slice a1)
+            let out4 ←
+              alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out3 s2
+            let a2 ← lift (core.num.U64.to_le_bytes td.offset)
+            let s3 ← lift (Array.to_slice a2)
+            let out5 ←
+              alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out4 s3
+            let t1 ← t + 1#usize
+            ok (cont (out5, err, t1))
+          | core.result.Result.Err _ =>
+            let t1 ← t + 1#usize
+            ok (cont (out1, some gguf.GgufError.LengthOverflow, t1))
+        | core.result.Result.Err e =>
+          let t1 ← t + 1#usize
+          ok (cont (out1, some e, t1))
+      | core.result.Result.Err e =>
+        let t1 ← t + 1#usize
+        ok (cont (out, some e, t1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header]: loop 1:
+    Source: '../../src/learn/gguf.rs', lines 211:4-234:5
+    Visibility: public -/
+@[rust_loop]
+def grad_solve_port.gguf.write_header_loop1
+  (v : alloc.vec.Vec gguf.TensorDesc) (out : alloc.vec.Vec Std.U8)
+  (err : Option gguf.GgufError) (t : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError))
+  := do
+  loop
+    (fun (out1, err1, t1) => grad_solve_port.gguf.write_header_loop1.body v
+      out1 err1 t1)
+    (out, err, t)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header]: loop body 4:
+    Source: '../../src/learn/gguf.rs', lines 247:12-252:13
+    Visibility: public -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_header_loop2_loop0.body
+  (v : alloc.vec.Vec ((alloc.vec.Vec Std.U8) × gguf.GVal)) (ai : Std.Usize)
+  (j : Std.Usize) (same : Bool) :
+  Result (ControlFlow (Std.Usize × Bool) Bool)
+  := do
+  if j < grad_solve_port.gguf.ALIGN_LEN
+  then
+    let (v1, _) ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        ((alloc.vec.Vec Std.U8) × gguf.GVal)) v ai
+    let i ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) v1 j
+    let i1 ← Array.index_usize grad_solve_port.gguf.ALIGN_BYTES j
+    let same1 ← if i != i1
+                  then ok false
+                  else ok same
+    let j1 ← j + 1#usize
+    ok (cont (j1, same1))
+  else ok (done same)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header]: loop 4:
+    Source: '../../src/learn/gguf.rs', lines 247:12-252:13
+    Visibility: public -/
+@[rust_loop]
+def grad_solve_port.gguf.write_header_loop2_loop0
+  (v : alloc.vec.Vec ((alloc.vec.Vec Std.U8) × gguf.GVal)) (ai : Std.Usize)
+  (j : Std.Usize) (same : Bool) :
+  Result Bool
+  := do
+  loop
+    (fun (j1, same1) => grad_solve_port.gguf.write_header_loop2_loop0.body v ai
+      j1 same1)
+    (j, same)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header]: loop body 3:
+    Source: '../../src/learn/gguf.rs', lines 243:4-265:5
+    Visibility: public -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_header_loop2.body
+  (v : alloc.vec.Vec ((alloc.vec.Vec Std.U8) × gguf.GVal)) (align : Std.U64)
+  (ai : Std.Usize) :
+  Result (ControlFlow (Std.U64 × Std.Usize) Std.U64)
+  := do
+  let i := alloc.vec.Vec.len v
+  if ai < i
+  then
+    let (v1, _) ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        ((alloc.vec.Vec Std.U8) × gguf.GVal)) v ai
+    let i1 := alloc.vec.Vec.len v1
+    if i1 = grad_solve_port.gguf.ALIGN_LEN
+    then
+      let same ←
+        grad_solve_port.gguf.write_header_loop2_loop0 v ai 0#usize true
+      let align1 ←
+        if same
+        then
+          do
+          let (_, g) ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+              ((alloc.vec.Vec Std.U8) × gguf.GVal)) v ai
+          let o ← gguf.GVal.as_i64 g
+          match o with
+          | none => ok align
+          | some a => if a > 0#i64
+                      then ok (IScalar.hcast .U64 a)
+                      else ok align
+        else ok align
+      let ai1 ← ai + 1#usize
+      ok (cont (align1, ai1))
+    else let ai1 ← ai + 1#usize
+         ok (cont (align, ai1))
+  else ok (done align)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header]: loop 3:
+    Source: '../../src/learn/gguf.rs', lines 243:4-265:5
+    Visibility: public -/
+@[rust_loop]
+def grad_solve_port.gguf.write_header_loop2
+  (v : alloc.vec.Vec ((alloc.vec.Vec Std.U8) × gguf.GVal)) (align : Std.U64)
+  (ai : Std.Usize) :
+  Result Std.U64
+  := do
+  loop
+    (fun (align1, ai1) => grad_solve_port.gguf.write_header_loop2.body v align1
+      ai1)
+    (align, ai)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_header]:
+    Source: '../../src/learn/gguf.rs', lines 183:0-285:1
+    Visibility: public -/
+def grad_solve_port.gguf.write_header
+  (header : gguf.GgufHeader) :
+  Result (core.result.Result (alloc.vec.Vec Std.U8) gguf.GgufError)
+  := do
+  let s ← lift (Array.to_slice gguf.GGUF_MAGIC)
+  let out ←
+    alloc.vec.Vec.extend_from_slice core.clone.CloneU8 (alloc.vec.Vec.new
+      Std.U8) s
+  let a ← lift (core.num.U32.to_le_bytes header.version)
+  let s1 ← lift (Array.to_slice a)
+  let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s1
+  let i := alloc.vec.Vec.len header.tensors
+  let r ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+  let r1 ←
+    core.result.Result.map_err
+      grad_solve_port.gguf.write_header.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+      r ()
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let i1 := alloc.vec.Vec.len header.kv
+    let r2 ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i1
+    let r3 ←
+      core.result.Result.map_err
+        grad_solve_port.gguf.write_header.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+        r2 ()
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r3
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let a1 ← lift (core.num.U64.to_le_bytes val)
+      let s2 ← lift (Array.to_slice a1)
+      let out2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out1 s2
+      let a2 ← lift (core.num.U64.to_le_bytes val1)
+      let s3 ← lift (Array.to_slice a2)
+      let out3 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out2 s3
+      let (out4, err) ←
+        grad_solve_port.gguf.write_header_loop0 header.kv out3 none 0#usize
+      let (out5, err1) ←
+        grad_solve_port.gguf.write_header_loop1 header.tensors out4 err 0#usize
+      match err1 with
+      | none =>
+        let align ←
+          grad_solve_port.gguf.write_header_loop2 header.kv
+            gguf.DEFAULT_ALIGNMENT 0#usize
+        let i2 := alloc.vec.Vec.len out5
+        let r4 ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i2
+        let r5 ←
+          core.result.Result.map_err
+            grad_solve_port.gguf.write_header.closure_2.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+            r4 ()
+        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r5
+        match cf2 with
+        | core.ops.control_flow.ControlFlow.Continue val2 =>
+          let whole ← val2 / align
+          let rem ← val2 % align
+          if rem = 0#u64
+          then
+            let o ← lift (U64.checked_mul whole align)
+            let r6 ← core.option.Option.ok_or o gguf.GgufError.LengthOverflow
+            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r6
+            match cf3 with
+            | core.ops.control_flow.ControlFlow.Continue val3 =>
+              let o1 ← lift (U64.checked_sub val3 val2)
+              let r7 ←
+                core.option.Option.ok_or o1 gguf.GgufError.LengthOverflow
+              let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r7
+              match cf4 with
+              | core.ops.control_flow.ControlFlow.Continue val4 =>
+                let r8 ←
+                  Usize.Insts.CoreConvertTryFromU64TryFromIntError.try_from
+                    val4
+                let r9 ←
+                  core.result.Result.map_err
+                    grad_solve_port.gguf.write_header.closure_3.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+                    r8 ()
+                let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r9
+                match cf5 with
+                | core.ops.control_flow.ControlFlow.Continue val5 =>
+                  let i3 := alloc.vec.Vec.len out5
+                  let o2 ← lift (Usize.checked_add i3 val5)
+                  let r10 ←
+                    core.option.Option.ok_or o2 gguf.GgufError.LengthOverflow
+                  let cf6 ← core.result.Result.Insts.CoreOpsTry.branch r10
+                  match cf6 with
+                  | core.ops.control_flow.ControlFlow.Continue val6 =>
+                    let out6 ←
+                      alloc.vec.Vec.resize core.clone.CloneU8 out5 val6 0#u8
+                    ok (core.result.Result.Ok out6)
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      (alloc.vec.Vec Std.U8) (core.convert.FromSame
+                      gguf.GgufError) residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    (alloc.vec.Vec Std.U8) (core.convert.FromSame
+                    gguf.GgufError) residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  (alloc.vec.Vec Std.U8) (core.convert.FromSame gguf.GgufError)
+                  residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                (alloc.vec.Vec Std.U8) (core.convert.FromSame gguf.GgufError)
+                residual
+          else
+            let o ← lift (U64.checked_add whole 1#u64)
+            let r6 ← core.option.Option.ok_or o gguf.GgufError.LengthOverflow
+            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r6
+            match cf3 with
+            | core.ops.control_flow.ControlFlow.Continue val3 =>
+              let o1 ← lift (U64.checked_mul val3 align)
+              let r7 ←
+                core.option.Option.ok_or o1 gguf.GgufError.LengthOverflow
+              let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r7
+              match cf4 with
+              | core.ops.control_flow.ControlFlow.Continue val4 =>
+                let o2 ← lift (U64.checked_sub val4 val2)
+                let r8 ←
+                  core.option.Option.ok_or o2 gguf.GgufError.LengthOverflow
+                let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r8
+                match cf5 with
+                | core.ops.control_flow.ControlFlow.Continue val5 =>
+                  let r9 ←
+                    Usize.Insts.CoreConvertTryFromU64TryFromIntError.try_from
+                      val5
+                  let r10 ←
+                    core.result.Result.map_err
+                      grad_solve_port.gguf.write_header.closure_3.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+                      r9 ()
+                  let cf6 ← core.result.Result.Insts.CoreOpsTry.branch r10
+                  match cf6 with
+                  | core.ops.control_flow.ControlFlow.Continue val6 =>
+                    let i3 := alloc.vec.Vec.len out5
+                    let o3 ← lift (Usize.checked_add i3 val6)
+                    let r11 ←
+                      core.option.Option.ok_or o3 gguf.GgufError.LengthOverflow
+                    let cf7 ← core.result.Result.Insts.CoreOpsTry.branch r11
+                    match cf7 with
+                    | core.ops.control_flow.ControlFlow.Continue val7 =>
+                      let out6 ←
+                        alloc.vec.Vec.resize core.clone.CloneU8 out5 val7 0#u8
+                      ok (core.result.Result.Ok out6)
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        (alloc.vec.Vec Std.U8) (core.convert.FromSame
+                        gguf.GgufError) residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      (alloc.vec.Vec Std.U8) (core.convert.FromSame
+                      gguf.GgufError) residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    (alloc.vec.Vec Std.U8) (core.convert.FromSame
+                    gguf.GgufError) residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  (alloc.vec.Vec Std.U8) (core.convert.FromSame gguf.GgufError)
+                  residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                (alloc.vec.Vec Std.U8) (core.convert.FromSame gguf.GgufError)
+                residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.U8) (core.convert.FromSame gguf.GgufError)
+            residual
+      | some e => ok (core.result.Result.Err e)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.U8) (core.convert.FromSame gguf.GgufError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.U8) (core.convert.FromSame gguf.GgufError) residual
+
+/-- [apeiron_word::grad_solve_port::gguf::write_file::{closure}]
+    Source: '../../src/learn/gguf.rs', lines 304:53-304:82 -/
+@[reducible]
+def grad_solve_port.gguf.write_file.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_file::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_file::{closure}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 304:53-304:82 -/
+def
+  grad_solve_port.gguf.write_file.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_file.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_file::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_file::{closure}}]
+    Source: '../../src/learn/gguf.rs', lines 304:53-304:82 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_file.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_file.closure
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_file.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_file]: loop body 0:
+    Source: '../../src/learn/gguf.rs', lines 310:4-329:5
+    Visibility: public -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_file_loop.body
+  (header : gguf.GgufHeader) (data_len : Std.U64) (err : Option gguf.GgufError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Option gguf.GgufError) × Std.Usize) (Option
+    gguf.GgufError))
+  := do
+  let i1 := alloc.vec.Vec.len header.tensors
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let t ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          gguf.TensorDesc) header.tensors i
+      let r ← gguf.TensorDesc.n_bytes t
+      let err1 ←
+        match r with
+        | core.result.Result.Ok o =>
+          match o with
+          | none => ok err
+          | some n =>
+            do
+            let o1 ← lift (U64.checked_add t.offset n)
+            match o1 with
+            | none => ok (some gguf.GgufError.LengthOverflow)
+            | some «end» =>
+              if «end» > data_len
+              then ok (some (gguf.GgufError.OutOfBounds t.offset n data_len))
+              else ok err
+        | core.result.Result.Err e => ok (some e)
+      let i2 ← i + 1#usize
+      ok (cont (err1, i2))
+    else ok (done err)
+  else ok (done err)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_file]: loop 0:
+    Source: '../../src/learn/gguf.rs', lines 310:4-329:5
+    Visibility: public -/
+@[rust_loop]
+def grad_solve_port.gguf.write_file_loop
+  (header : gguf.GgufHeader) (data_len : Std.U64) (err : Option gguf.GgufError)
+  (i : Std.Usize) :
+  Result (Option gguf.GgufError)
+  := do
+  loop
+    (fun (err1, i1) => grad_solve_port.gguf.write_file_loop.body header
+      data_len err1 i1)
+    (err, i)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_file]:
+    Source: '../../src/learn/gguf.rs', lines 302:0-341:1
+    Visibility: public -/
+def grad_solve_port.gguf.write_file
+  (header : gguf.GgufHeader) (data : Slice Std.U8) :
+  Result (core.result.Result (alloc.vec.Vec Std.U8) gguf.GgufError)
+  := do
+  let r ← grad_solve_port.gguf.write_header header
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let i := Slice.len data
+    let r1 ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+    let r2 ←
+      core.result.Result.map_err
+        grad_solve_port.gguf.write_file.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+        r1 ()
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r2
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let err ← grad_solve_port.gguf.write_file_loop header val1 none 0#usize
+      match err with
+      | none =>
+        let i1 := alloc.vec.Vec.len val
+        let i2 := Slice.len data
+        let o ← lift (Usize.checked_add i1 i2)
+        let r3 ← core.option.Option.ok_or o gguf.GgufError.LengthOverflow
+        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r3
+        match cf2 with
+        | core.ops.control_flow.ControlFlow.Continue _ =>
+          let i3 := Slice.len data
+          let out ← alloc.vec.Vec.reserve Global val i3
+          let out1 ←
+            alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out data
+          ok (core.result.Result.Ok out1)
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.U8) (core.convert.FromSame gguf.GgufError)
+            residual
+      | some e => ok (core.result.Result.Err e)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.U8) (core.convert.FromSame gguf.GgufError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.U8) (core.convert.FromSame gguf.GgufError) residual
+
 /-- [apeiron_word::learn_port::attn::AttnError]
     Source: '../../src/learn/grad/attn.rs', lines 47:0-61:1
     Visibility: public -/
@@ -69357,6 +70380,1114 @@ def learn_port.head.head_chunked
             | core.result.Result.Err x1 => ok (core.result.Result.Err x1)
           | core.result.Result.Err x => ok (core.result.Result.Err x)
 
+/-- [apeiron_word::grad_solve_port::model::ModelError]
+    Source: '../../src/learn/grad/model.rs', lines 60:0-75:1
+    Visibility: public -/
+@[discriminant isize]
+inductive grad_solve_port.model.ModelError where
+| Shape : String → grad_solve_port.model.ModelError
+| Overflow : grad_solve_port.model.ModelError
+| Missing : String → grad_solve_port.model.ModelError
+| Engine : error.EngineError → grad_solve_port.model.ModelError
+| Config : String → grad_solve_port.model.ModelError
+| Dense : learn_port.dense.DenseError → grad_solve_port.model.ModelError
+| Attn : learn_port.attn.AttnError → grad_solve_port.model.ModelError
+
+/-- [apeiron_word::grad_solve_port::model::{impl core::convert::From<apeiron_word::learn_port::dense::DenseError> for apeiron_word::grad_solve_port::model::ModelError}::from]:
+    Source: '../../src/learn/grad/model.rs', lines 84:4-86:5
+    Visibility: public -/
+def grad_solve_port.model.ModelError.Insts.CoreConvertFromDenseError.from
+  (e : learn_port.dense.DenseError) :
+  Result grad_solve_port.model.ModelError
+  := do
+  ok (grad_solve_port.model.ModelError.Dense e)
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::model::{impl core::convert::From<apeiron_word::learn_port::dense::DenseError> for apeiron_word::grad_solve_port::model::ModelError}]
+    Source: '../../src/learn/grad/model.rs', lines 83:0-87:1 -/
+@[reducible]
+def grad_solve_port.model.ModelError.Insts.CoreConvertFromDenseError :
+  core.convert.From grad_solve_port.model.ModelError
+  learn_port.dense.DenseError := {
+  «from» :=
+    grad_solve_port.model.ModelError.Insts.CoreConvertFromDenseError.from
+}
+
+/-- [apeiron_word::grad_solve_port::model::{impl core::convert::From<apeiron_word::learn_port::attn::AttnError> for apeiron_word::grad_solve_port::model::ModelError}::from]:
+    Source: '../../src/learn/grad/model.rs', lines 90:4-92:5
+    Visibility: public -/
+def grad_solve_port.model.ModelError.Insts.CoreConvertFromAttnError.from
+  (e : learn_port.attn.AttnError) :
+  Result grad_solve_port.model.ModelError
+  := do
+  ok (grad_solve_port.model.ModelError.Attn e)
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::model::{impl core::convert::From<apeiron_word::learn_port::attn::AttnError> for apeiron_word::grad_solve_port::model::ModelError}]
+    Source: '../../src/learn/grad/model.rs', lines 89:0-93:1 -/
+@[reducible]
+def grad_solve_port.model.ModelError.Insts.CoreConvertFromAttnError :
+  core.convert.From grad_solve_port.model.ModelError learn_port.attn.AttnError
+  := {
+  «from» :=
+    grad_solve_port.model.ModelError.Insts.CoreConvertFromAttnError.from
+}
+
+/-- [apeiron_word::grad_solve_port::model::Config]
+    Source: '../../src/learn/grad/model.rs', lines 97:0-116:1
+    Visibility: public -/
+structure grad_solve_port.model.Config where
+  n_layer : Std.Usize
+  n_head : Std.Usize
+  n_head_kv : Std.Usize
+  n_embd : Std.Usize
+  n_ff : Std.Usize
+  vocab : Std.Usize
+  head_dim : Std.Usize
+  eps : Std.I64
+  rope_theta : F64
+
+/-- [apeiron_word::grad_solve_port::model::{apeiron_word::grad_solve_port::model::Config}::q_out]:
+    Source: '../../src/learn/grad/model.rs', lines 127:4-131:5
+    Visibility: public -/
+def grad_solve_port.model.Config.q_out
+  (self : grad_solve_port.model.Config) :
+  Result (core.result.Result Std.Usize grad_solve_port.model.ModelError)
+  := do
+  let o ← lift (Usize.checked_mul self.n_head self.head_dim)
+  core.option.Option.ok_or o grad_solve_port.model.ModelError.Overflow
+
+/-- [apeiron_word::grad_solve_port::model::{apeiron_word::grad_solve_port::model::Config}::kv_out]:
+    Source: '../../src/learn/grad/model.rs', lines 141:4-145:5
+    Visibility: public -/
+def grad_solve_port.model.Config.kv_out
+  (self : grad_solve_port.model.Config) :
+  Result (core.result.Result Std.Usize grad_solve_port.model.ModelError)
+  := do
+  let o ← lift (Usize.checked_mul self.n_head_kv self.head_dim)
+  core.option.Option.ok_or o grad_solve_port.model.ModelError.Overflow
+
+/-- [apeiron_word::grad_solve_port::model::{apeiron_word::grad_solve_port::model::Config}::checked]:
+    Source: '../../src/learn/grad/model.rs', lines 156:4-166:5
+    Visibility: public -/
+def grad_solve_port.model.Config.checked
+  (self : grad_solve_port.model.Config) :
+  Result (core.result.Result Unit grad_solve_port.model.ModelError)
+  := do
+  if self.n_layer = 0#usize
+  then
+    let s ←
+      alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay (toStr
+        "zero model dimension")
+    ok (core.result.Result.Err (grad_solve_port.model.ModelError.Shape s))
+  else
+    if self.n_embd = 0#usize
+    then
+      let s ←
+        alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay (toStr
+          "zero model dimension")
+      ok (core.result.Result.Err (grad_solve_port.model.ModelError.Shape s))
+    else
+      if self.n_ff = 0#usize
+      then
+        let s ←
+          alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay
+            (toStr "zero model dimension")
+        ok (core.result.Result.Err (grad_solve_port.model.ModelError.Shape s))
+      else
+        if self.head_dim = 0#usize
+        then
+          let s ←
+            alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay
+              (toStr "zero model dimension")
+          ok (core.result.Result.Err (grad_solve_port.model.ModelError.Shape
+            s))
+        else
+          if self.n_head_kv = 0#usize
+          then
+            let s ←
+              alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay
+                (toStr "GQA head counts")
+            ok (core.result.Result.Err (grad_solve_port.model.ModelError.Shape
+              s))
+          else
+            let b ← core.num.Usize.is_multiple_of self.n_head self.n_head_kv
+            if b
+            then
+              let r ← grad_solve_port.model.Config.q_out self
+              let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+              match cf with
+              | core.ops.control_flow.ControlFlow.Continue _ =>
+                let r1 ← grad_solve_port.model.Config.kv_out self
+                let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+                match cf1 with
+                | core.ops.control_flow.ControlFlow.Continue _ =>
+                  ok (core.result.Result.Ok ())
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    Unit (core.convert.FromSame
+                    grad_solve_port.model.ModelError) residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  Unit (core.convert.FromSame grad_solve_port.model.ModelError)
+                  residual
+            else
+              let s ←
+                alloc.string.ToString.Blanket.to_string
+                  Str.Insts.CoreFmtDisplay (toStr "GQA head counts")
+              ok (core.result.Result.Err
+                (grad_solve_port.model.ModelError.Shape s))
+
+/-- [apeiron_word::grad_solve_port::model::expect]:
+    Source: '../../src/learn/grad/model.rs', lines 355:0-361:1 -/
+def grad_solve_port.model.expect
+  (t : Std.Usize) (w : Std.Usize) (len : Std.Usize) (what : Str) :
+  Result (core.result.Result Std.Usize grad_solve_port.model.ModelError)
+  := do
+  let o ← lift (Usize.checked_mul t w)
+  match o with
+  | none =>
+    ok (core.result.Result.Err grad_solve_port.model.ModelError.Overflow)
+  | some n =>
+    if n = len
+    then ok (core.result.Result.Ok n)
+    else
+      let a ←
+        core.fmt.rt.Argument.new_display (Shared0T.Insts.CoreFmtDisplay
+          Str.Insts.CoreFmtDisplay) what
+      let a1 ←
+        core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay len
+      let a2 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay t
+      let a3 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay w
+      let a4 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay n
+      let a5 ←
+        core.fmt.Arguments.new
+          (Array.make 21#usize [
+            192#u8, 2#u8, 58#u8, 32#u8, 192#u8, 4#u8, 32#u8, 33#u8, 61#u8,
+            32#u8, 192#u8, 2#u8, 194#u8, 183#u8, 192#u8, 3#u8, 32#u8, 61#u8,
+            32#u8, 192#u8, 0#u8
+            ]) (Array.make 5#usize [ a, a1, a2, a3, a4 ])
+      let s ← alloc.fmt.format a5
+      let s1 ← core.hint.must_use s
+      ok (core.result.Result.Err (grad_solve_port.model.ModelError.Shape s1))
+
+/-- [apeiron_word::grad_solve_port::model::add_flat]: loop body 0:
+    Source: '../../src/learn/grad/model.rs', lines 371:4-375:1 -/
+@[rust_loop_body]
+def grad_solve_port.model.add_flat_loop.body
+  (iter : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+  (core.slice.iter.Iter Std.I64))
+  (back : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+  (core.slice.iter.Iter Std.I64) → core.iter.adapters.zip.Zip
+  (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64)) :
+  Result (ControlFlow ((core.iter.adapters.zip.Zip (core.slice.iter.IterMut
+    Std.I64) (core.slice.iter.Iter Std.I64)) × (core.iter.adapters.zip.Zip
+    (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64) →
+    core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+    (core.slice.iter.Iter Std.I64))) ((core.result.Result Unit
+    grad_solve_port.model.ModelError) × (core.iter.adapters.zip.Zip
+    (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64))))
+  := do
+  let (o, iter1, next_back) ←
+    core.iter.adapters.zip.Zip.Insts.CoreIterTraitsIteratorIteratorPair.next
+      (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT
+      Std.I64) (core.iter.traits.iterator.IteratorSliceIter Std.I64) iter
+  match o with
+  | none =>
+    ok (done (core.result.Result.Ok (), let z := next_back iter1 none
+                                        back z))
+  | some p =>
+    let (x, y) := p
+    let o1 ← lift (I64.checked_add x y)
+    let r ←
+      core.option.Option.ok_or o1 grad_solve_port.model.ModelError.Overflow
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      ok (cont (iter1, fun z => let z1 := next_back z (some (val, y))
+                                back z1))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame grad_solve_port.model.ModelError)
+          residual
+      ok (done (r1, let z := next_back iter1 o
+                    back z))
+
+/-- [apeiron_word::grad_solve_port::model::add_flat]: loop 0:
+    Source: '../../src/learn/grad/model.rs', lines 371:4-375:1 -/
+@[rust_loop]
+def grad_solve_port.model.add_flat_loop
+  (iter : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+  (core.slice.iter.Iter Std.I64))
+  (back : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+  (core.slice.iter.Iter Std.I64) → core.iter.adapters.zip.Zip
+  (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64)) :
+  Result ((core.result.Result Unit grad_solve_port.model.ModelError) ×
+    (core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+    (core.slice.iter.Iter Std.I64)))
+  := do
+  loop
+    (fun (iter1, back1) => grad_solve_port.model.add_flat_loop.body iter1
+      back1)
+    (iter, back)
+
+/-- [apeiron_word::grad_solve_port::model::add_flat]:
+    Source: '../../src/learn/grad/model.rs', lines 367:0-375:1 -/
+def grad_solve_port.model.add_flat
+  (a : Slice Std.I64) (b : Slice Std.I64) :
+  Result ((core.result.Result Unit grad_solve_port.model.ModelError) × (Slice
+    Std.I64))
+  := do
+  let i := Slice.len a
+  let i1 := Slice.len b
+  if i != i1
+  then
+    let s ←
+      alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay (toStr
+        "add width")
+    ok (core.result.Result.Err (grad_solve_port.model.ModelError.Shape s), a)
+  else
+    let (im, iter_mut_back) ← core.slice.Slice.iter_mut a
+    let (iter, trait_default_back) ←
+      core.iter.traits.iterator.Iterator.zip.trait_default
+        (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT
+        Std.I64) (SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter
+        Std.I64) im b
+    let (r, back) ← grad_solve_port.model.add_flat_loop iter (fun z => z)
+    let im1 := trait_default_back back
+    let a1 := iter_mut_back im1
+    ok (r, a1)
+
+/-- [apeiron_word::grad_solve_port::model::col_sum]: loop body 1:
+    Source: '../../src/learn/grad/model.rs', lines 392:8-398:9 -/
+@[rust_loop_body]
+def grad_solve_port.model.col_sum_loop0_loop0.body
+  (x : Slice Std.I64) (w : Std.Usize) (r : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (err : Option grad_solve_port.model.ModelError)
+  (c : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    grad_solve_port.model.ModelError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option grad_solve_port.model.ModelError)))
+  := do
+  if c < w
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) out
+          c
+      let i1 ← r * w
+      let i2 ← i1 + c
+      let i3 ← Slice.index_usize x i2
+      let o ← lift (I64.checked_add i i3)
+      let (out1, err1) ←
+        match o with
+        | none => ok (out, some grad_solve_port.model.ModelError.Overflow)
+        | some v =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) out c
+          let out2 := index_mut_back v
+          ok (out2, err)
+      let c1 ← c + 1#usize
+      ok (cont (out1, err1, c1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::model::col_sum]: loop 1:
+    Source: '../../src/learn/grad/model.rs', lines 392:8-398:9 -/
+@[rust_loop]
+def grad_solve_port.model.col_sum_loop0_loop0
+  (x : Slice Std.I64) (w : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option grad_solve_port.model.ModelError) (r : Std.Usize)
+  (c : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option grad_solve_port.model.ModelError))
+  := do
+  loop
+    (fun (out1, err1, c1) => grad_solve_port.model.col_sum_loop0_loop0.body x w
+      r out1 err1 c1)
+    (out, err, c)
+
+/-- [apeiron_word::grad_solve_port::model::col_sum]: loop body 0:
+    Source: '../../src/learn/grad/model.rs', lines 390:4-400:5 -/
+@[rust_loop_body]
+def grad_solve_port.model.col_sum_loop0.body
+  (x : Slice Std.I64) (t : Std.Usize) (w : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (err : Option grad_solve_port.model.ModelError)
+  (r : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    grad_solve_port.model.ModelError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option grad_solve_port.model.ModelError)))
+  := do
+  if r < t
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (out1, err1) ←
+        grad_solve_port.model.col_sum_loop0_loop0 x w out err r 0#usize
+      let r1 ← r + 1#usize
+      ok (cont (out1, err1, r1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::model::col_sum]: loop 0:
+    Source: '../../src/learn/grad/model.rs', lines 390:4-400:5 -/
+@[rust_loop]
+def grad_solve_port.model.col_sum_loop0
+  (x : Slice Std.I64) (t : Std.Usize) (w : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (err : Option grad_solve_port.model.ModelError)
+  (r : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option grad_solve_port.model.ModelError))
+  := do
+  loop
+    (fun (out1, err1, r1) => grad_solve_port.model.col_sum_loop0.body x t w
+      out1 err1 r1)
+    (out, err, r)
+
+/-- [apeiron_word::grad_solve_port::model::col_sum]:
+    Source: '../../src/learn/grad/model.rs', lines 381:0-405:1 -/
+def grad_solve_port.model.col_sum
+  (x : Slice Std.I64) (t : Std.Usize) (w : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  let i := Slice.len x
+  let r ← grad_solve_port.model.expect t w i (toStr "col_sum")
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 w
+    let (out1, err) ←
+      grad_solve_port.model.col_sum_loop0 x t w out none 0#usize
+    match err with
+    | none => ok (core.result.Result.Ok out1)
+    | some e => ok (core.result.Result.Err e)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      grad_solve_port.model.ModelError) residual
+
+/-- [apeiron_word::grad_solve_port::model::rmsnorm_rows]: loop body 0:
+    Source: '../../src/learn/grad/model.rs', lines 423:4-427:1 -/
+@[rust_loop_body]
+def grad_solve_port.model.rmsnorm_rows_loop.body
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (w : Std.Usize) (eps : Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (core.result.Result.Ok out))
+  | some r =>
+    let i ← r * w
+    let i1 ← i + w
+    let s ←
+      core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.I64) x { start := i, «end» := i1 }
+    let r1 ← learn_port.dense.rmsnorm_fwd s gamma eps
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let s1 := alloc.vec.Vec.deref val
+      let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneI64 out s1
+      ok (cont (iter1, out1))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64)
+          grad_solve_port.model.ModelError.Insts.CoreConvertFromDenseError
+          residual
+      ok (done r2)
+
+/-- [apeiron_word::grad_solve_port::model::rmsnorm_rows]: loop 0:
+    Source: '../../src/learn/grad/model.rs', lines 423:4-427:1 -/
+@[rust_loop]
+def grad_solve_port.model.rmsnorm_rows_loop
+  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64)
+  (gamma : Slice Std.I64) (w : Std.Usize) (eps : Std.I64)
+  (out : alloc.vec.Vec Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  loop
+    (fun (iter1, out1) => grad_solve_port.model.rmsnorm_rows_loop.body x gamma
+      w eps iter1 out1)
+    (iter, out)
+
+/-- [apeiron_word::grad_solve_port::model::rmsnorm_rows]:
+    Source: '../../src/learn/grad/model.rs', lines 411:0-427:1 -/
+def grad_solve_port.model.rmsnorm_rows
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (t : Std.Usize) (w : Std.Usize)
+  (eps : Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  let i := Slice.len x
+  let r ← grad_solve_port.model.expect t w i (toStr "rmsnorm_rows")
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let b ← core.slice.Slice.is_empty x
+    if b
+    then
+      let s ←
+        alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay (toStr
+          "rmsnorm_rows empty")
+      ok (core.result.Result.Err (grad_solve_port.model.ModelError.Shape s))
+    else
+      let i1 := Slice.len x
+      let out := alloc.vec.Vec.with_capacity Std.I64 i1
+      grad_solve_port.model.rmsnorm_rows_loop
+        { start := 0#usize, «end» := t } x gamma w eps out
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      grad_solve_port.model.ModelError) residual
+
+/-- [apeiron_word::grad_solve_port::model::rmsnorm_bwd_rows]: loop body 1:
+    Source: '../../src/learn/grad/model.rs', lines 455:16-461:17 -/
+@[rust_loop_body]
+def grad_solve_port.model.rmsnorm_bwd_rows_loop0_loop0.body
+  (w : Std.Usize) (dgr : alloc.vec.Vec Std.I64) (dg : alloc.vec.Vec Std.I64)
+  (err : Option grad_solve_port.model.ModelError) (c : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    grad_solve_port.model.ModelError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option grad_solve_port.model.ModelError)))
+  := do
+  if c < w
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) dg
+          c
+      let i1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) dgr
+          c
+      let o ← lift (I64.checked_add i i1)
+      let (dg1, err1) ←
+        match o with
+        | none => ok (dg, some grad_solve_port.model.ModelError.Overflow)
+        | some v =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) dg c
+          let dg2 := index_mut_back v
+          ok (dg2, err)
+      let c1 ← c + 1#usize
+      ok (cont (dg1, err1, c1))
+    else ok (done (dg, err))
+  else ok (done (dg, err))
+
+/-- [apeiron_word::grad_solve_port::model::rmsnorm_bwd_rows]: loop 1:
+    Source: '../../src/learn/grad/model.rs', lines 455:16-461:17 -/
+@[rust_loop]
+def grad_solve_port.model.rmsnorm_bwd_rows_loop0_loop0
+  (w : Std.Usize) (dg : alloc.vec.Vec Std.I64)
+  (err : Option grad_solve_port.model.ModelError) (dgr : alloc.vec.Vec Std.I64)
+  (c : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option grad_solve_port.model.ModelError))
+  := do
+  loop
+    (fun (dg1, err1, c1) =>
+      grad_solve_port.model.rmsnorm_bwd_rows_loop0_loop0.body w dgr dg1 err1
+      c1)
+    (dg, err, c)
+
+/-- [apeiron_word::grad_solve_port::model::rmsnorm_bwd_rows]: loop body 0:
+    Source: '../../src/learn/grad/model.rs', lines 449:4-465:5 -/
+@[rust_loop_body]
+def grad_solve_port.model.rmsnorm_bwd_rows_loop0.body
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (eps : Std.I64)
+  (dy : Slice Std.I64) (t : Std.Usize) (w : Std.Usize)
+  (dx : alloc.vec.Vec Std.I64) (dg : alloc.vec.Vec Std.I64)
+  (err : Option grad_solve_port.model.ModelError) (r : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (Option grad_solve_port.model.ModelError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    grad_solve_port.model.ModelError)))
+  := do
+  if r < t
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← r * w
+      let i1 ← i + w
+      let s ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) x
+          { start := i, «end» := i1 }
+      let i2 ← i + w
+      let s1 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) dy
+          { start := i, «end» := i2 }
+      let r1 ← learn_port.dense.rmsnorm_bwd s gamma eps s1
+      match r1 with
+      | core.result.Result.Ok p =>
+        let (dxr, dgr) := p
+        let i3 ← i + w
+        let (s2, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeUsizeSlice
+            Std.I64) dx { start := i, «end» := i3 }
+        let s3 := alloc.vec.Vec.deref dxr
+        let s4 ← core.slice.Slice.copy_from_slice core.marker.CopyI64 s2 s3
+        let dx1 := index_mut_back s4
+        let (dg1, err1) ←
+          grad_solve_port.model.rmsnorm_bwd_rows_loop0_loop0 w dg err dgr
+            0#usize
+        let r2 ← r + 1#usize
+        ok (cont (dx1, dg1, err1, r2))
+      | core.result.Result.Err e =>
+        let r2 ← r + 1#usize
+        ok (cont (dx, dg, some (grad_solve_port.model.ModelError.Dense e), r2))
+    else ok (done (dx, dg, err))
+  else ok (done (dx, dg, err))
+
+/-- [apeiron_word::grad_solve_port::model::rmsnorm_bwd_rows]: loop 0:
+    Source: '../../src/learn/grad/model.rs', lines 449:4-465:5 -/
+@[rust_loop]
+def grad_solve_port.model.rmsnorm_bwd_rows_loop0
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (eps : Std.I64)
+  (dy : Slice Std.I64) (t : Std.Usize) (w : Std.Usize)
+  (dx : alloc.vec.Vec Std.I64) (dg : alloc.vec.Vec Std.I64)
+  (err : Option grad_solve_port.model.ModelError) (r : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    grad_solve_port.model.ModelError))
+  := do
+  loop
+    (fun (dx1, dg1, err1, r1) =>
+      grad_solve_port.model.rmsnorm_bwd_rows_loop0.body x gamma eps dy t w dx1
+      dg1 err1 r1)
+    (dx, dg, err, r)
+
+/-- [apeiron_word::grad_solve_port::model::rmsnorm_bwd_rows]:
+    Source: '../../src/learn/grad/model.rs', lines 433:0-470:1 -/
+def grad_solve_port.model.rmsnorm_bwd_rows
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (eps : Std.I64)
+  (dy : Slice Std.I64) (t : Std.Usize) (w : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) grad_solve_port.model.ModelError)
+  := do
+  let i := Slice.len x
+  let r ← grad_solve_port.model.expect t w i (toStr "rmsnorm_bwd_rows x")
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let i1 := Slice.len dy
+    let r1 ←
+      grad_solve_port.model.expect t w i1 (toStr "rmsnorm_bwd_rows dy")
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let i2 := Slice.len x
+      let dx ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i2
+      let dg ← alloc.vec.from_elem core.clone.CloneI64 0#i64 w
+      let (dx1, dg1, err) ←
+        grad_solve_port.model.rmsnorm_bwd_rows_loop0 x gamma eps dy t w dx dg
+          none 0#usize
+      match err with
+      | none => ok (core.result.Result.Ok (dx1, dg1))
+      | some e => ok (core.result.Result.Err e)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+        (core.convert.FromSame grad_solve_port.model.ModelError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+      (core.convert.FromSame grad_solve_port.model.ModelError) residual
+
+/-- [apeiron_word::grad_solve_port::model::rope_rows_fwd::{closure}]
+    Source: '../../src/learn/grad/model.rs', lines 485:43-485:67 -/
+@[reducible]
+def grad_solve_port.model.rope_rows_fwd.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::model::rope_rows_fwd::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::grad_solve_port::model::ModelError> for apeiron_word::grad_solve_port::model::rope_rows_fwd::{closure}}::call_once]:
+    Source: '../../src/learn/grad/model.rs', lines 485:43-485:67 -/
+def
+  grad_solve_port.model.rope_rows_fwd.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorModelError.call_once
+  (c : grad_solve_port.model.rope_rows_fwd.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result grad_solve_port.model.ModelError
+  := do
+  ok grad_solve_port.model.ModelError.Overflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::model::rope_rows_fwd::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::grad_solve_port::model::ModelError> for apeiron_word::grad_solve_port::model::rope_rows_fwd::{closure}}]
+    Source: '../../src/learn/grad/model.rs', lines 485:43-485:67 -/
+@[reducible]
+def
+  grad_solve_port.model.rope_rows_fwd.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorModelError
+  : core.ops.function.FnOnce grad_solve_port.model.rope_rows_fwd.closure
+  core.num.error.TryFromIntError grad_solve_port.model.ModelError := {
+  call_once :=
+    grad_solve_port.model.rope_rows_fwd.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorModelError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::model::rope_rows_fwd]: loop body 0:
+    Source: '../../src/learn/grad/model.rs', lines 484:4-489:1 -/
+@[rust_loop_body]
+def grad_solve_port.model.rope_rows_fwd_loop.body
+  (x : Slice Std.I64) (row : Std.Usize) (rope : rope.RopeTable)
+  (iter : core.ops.range.Range Std.Usize) (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (core.result.Result.Ok out))
+  | some r =>
+    let r1 ← core.convert.num.ptr_try_from_impls.TryFromU32Usize.try_from r
+    let r2 ←
+      core.result.Result.map_err
+        grad_solve_port.model.rope_rows_fwd.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorModelError
+        r1 ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r2
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let i ← r * row
+      let i1 ← i + row
+      let s ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) x
+          { start := i, «end» := i1 }
+      let r3 ← learn_port.attn.rope_fwd s val rope
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r3
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        let s1 := alloc.vec.Vec.deref val1
+        let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneI64 out s1
+        ok (cont (iter1, out1))
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        let r4 ←
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64)
+            grad_solve_port.model.ModelError.Insts.CoreConvertFromAttnError
+            residual
+        ok (done r4)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r3 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          grad_solve_port.model.ModelError) residual
+      ok (done r3)
+
+/-- [apeiron_word::grad_solve_port::model::rope_rows_fwd]: loop 0:
+    Source: '../../src/learn/grad/model.rs', lines 484:4-489:1 -/
+@[rust_loop]
+def grad_solve_port.model.rope_rows_fwd_loop
+  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) (row : Std.Usize)
+  (rope : rope.RopeTable) (out : alloc.vec.Vec Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  loop
+    (fun (iter1, out1) => grad_solve_port.model.rope_rows_fwd_loop.body x row
+      rope iter1 out1)
+    (iter, out)
+
+/-- [apeiron_word::grad_solve_port::model::rope_rows_fwd]:
+    Source: '../../src/learn/grad/model.rs', lines 476:0-489:1 -/
+def grad_solve_port.model.rope_rows_fwd
+  (x : Slice Std.I64) (t : Std.Usize) (row : Std.Usize) (rope : rope.RopeTable)
+  :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  let i := Slice.len x
+  let r ← grad_solve_port.model.expect t row i (toStr "rope_rows_fwd")
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let i1 := Slice.len x
+    let out := alloc.vec.Vec.with_capacity Std.I64 i1
+    grad_solve_port.model.rope_rows_fwd_loop { start := 0#usize, «end» := t }
+      x row rope out
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      grad_solve_port.model.ModelError) residual
+
+/-- [apeiron_word::grad_solve_port::model::rope_rows_bwd::{closure}]
+    Source: '../../src/learn/grad/model.rs', lines 504:43-504:67 -/
+@[reducible]
+def grad_solve_port.model.rope_rows_bwd.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::model::rope_rows_bwd::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::grad_solve_port::model::ModelError> for apeiron_word::grad_solve_port::model::rope_rows_bwd::{closure}}::call_once]:
+    Source: '../../src/learn/grad/model.rs', lines 504:43-504:67 -/
+def
+  grad_solve_port.model.rope_rows_bwd.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorModelError.call_once
+  (c : grad_solve_port.model.rope_rows_bwd.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result grad_solve_port.model.ModelError
+  := do
+  ok grad_solve_port.model.ModelError.Overflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::model::rope_rows_bwd::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::grad_solve_port::model::ModelError> for apeiron_word::grad_solve_port::model::rope_rows_bwd::{closure}}]
+    Source: '../../src/learn/grad/model.rs', lines 504:43-504:67 -/
+@[reducible]
+def
+  grad_solve_port.model.rope_rows_bwd.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorModelError
+  : core.ops.function.FnOnce grad_solve_port.model.rope_rows_bwd.closure
+  core.num.error.TryFromIntError grad_solve_port.model.ModelError := {
+  call_once :=
+    grad_solve_port.model.rope_rows_bwd.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorModelError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::model::rope_rows_bwd]: loop body 0:
+    Source: '../../src/learn/grad/model.rs', lines 503:4-508:1 -/
+@[rust_loop_body]
+def grad_solve_port.model.rope_rows_bwd_loop.body
+  (dy : Slice Std.I64) (row : Std.Usize) (rope : rope.RopeTable)
+  (iter : core.ops.range.Range Std.Usize) (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (core.result.Result.Ok out))
+  | some r =>
+    let r1 ← core.convert.num.ptr_try_from_impls.TryFromU32Usize.try_from r
+    let r2 ←
+      core.result.Result.map_err
+        grad_solve_port.model.rope_rows_bwd.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorModelError
+        r1 ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r2
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let i ← r * row
+      let i1 ← i + row
+      let s ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) dy
+          { start := i, «end» := i1 }
+      let r3 ← learn_port.attn.rope_bwd s val rope
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r3
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        let s1 := alloc.vec.Vec.deref val1
+        let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneI64 out s1
+        ok (cont (iter1, out1))
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        let r4 ←
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64)
+            grad_solve_port.model.ModelError.Insts.CoreConvertFromAttnError
+            residual
+        ok (done r4)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r3 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          grad_solve_port.model.ModelError) residual
+      ok (done r3)
+
+/-- [apeiron_word::grad_solve_port::model::rope_rows_bwd]: loop 0:
+    Source: '../../src/learn/grad/model.rs', lines 503:4-508:1 -/
+@[rust_loop]
+def grad_solve_port.model.rope_rows_bwd_loop
+  (iter : core.ops.range.Range Std.Usize) (dy : Slice Std.I64)
+  (row : Std.Usize) (rope : rope.RopeTable) (out : alloc.vec.Vec Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  loop
+    (fun (iter1, out1) => grad_solve_port.model.rope_rows_bwd_loop.body dy row
+      rope iter1 out1)
+    (iter, out)
+
+/-- [apeiron_word::grad_solve_port::model::rope_rows_bwd]:
+    Source: '../../src/learn/grad/model.rs', lines 495:0-508:1 -/
+def grad_solve_port.model.rope_rows_bwd
+  (dy : Slice Std.I64) (t : Std.Usize) (row : Std.Usize)
+  (rope : rope.RopeTable) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  let i := Slice.len dy
+  let r ← grad_solve_port.model.expect t row i (toStr "rope_rows_bwd")
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let i1 := Slice.len dy
+    let out := alloc.vec.Vec.with_capacity Std.I64 i1
+    grad_solve_port.model.rope_rows_bwd_loop { start := 0#usize, «end» := t }
+      dy row rope out
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      grad_solve_port.model.ModelError) residual
+
+/-- [apeiron_word::grad_solve_port::model::add_bias]: loop body 1:
+    Source: '../../src/learn/grad/model.rs', lines 531:8-538:9 -/
+@[rust_loop_body]
+def grad_solve_port.model.add_bias_loop0_loop0.body
+  (b : Slice Std.I64) (w : Std.Usize) (r : Std.Usize) (x : Slice Std.I64)
+  (err : Option grad_solve_port.model.ModelError) (c : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option
+    grad_solve_port.model.ModelError) × Std.Usize) ((Slice Std.I64) × (Option
+    grad_solve_port.model.ModelError)))
+  := do
+  if c < w
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let i ← r * w
+      let i1 ← i + c
+      let i2 ← Slice.index_usize x i1
+      let i3 ← Slice.index_usize b c
+      let o ← lift (I64.checked_add i2 i3)
+      match o with
+      | none =>
+        let c1 ← c + 1#usize
+        ok (cont (x, some grad_solve_port.model.ModelError.Overflow, c1))
+      | some v =>
+        let s ← Slice.update x i1 v
+        let c1 ← c + 1#usize
+        ok (cont (s, err, c1))
+    else ok (done (x, err))
+  else ok (done (x, err))
+
+/-- [apeiron_word::grad_solve_port::model::add_bias]: loop 1:
+    Source: '../../src/learn/grad/model.rs', lines 531:8-538:9 -/
+@[rust_loop]
+def grad_solve_port.model.add_bias_loop0_loop0
+  (x : Slice Std.I64) (b : Slice Std.I64) (w : Std.Usize)
+  (err : Option grad_solve_port.model.ModelError) (r : Std.Usize)
+  (c : Std.Usize) :
+  Result ((Slice Std.I64) × (Option grad_solve_port.model.ModelError))
+  := do
+  loop
+    (fun (x1, err1, c1) => grad_solve_port.model.add_bias_loop0_loop0.body b w
+      r x1 err1 c1)
+    (x, err, c)
+
+/-- [apeiron_word::grad_solve_port::model::add_bias]: loop body 0:
+    Source: '../../src/learn/grad/model.rs', lines 529:4-540:5 -/
+@[rust_loop_body]
+def grad_solve_port.model.add_bias_loop0.body
+  (b : Slice Std.I64) (t : Std.Usize) (w : Std.Usize) (x : Slice Std.I64)
+  (err : Option grad_solve_port.model.ModelError) (r : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option
+    grad_solve_port.model.ModelError) × Std.Usize) ((Slice Std.I64) × (Option
+    grad_solve_port.model.ModelError)))
+  := do
+  if r < t
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let (x1, err1) ←
+        grad_solve_port.model.add_bias_loop0_loop0 x b w err r 0#usize
+      let r1 ← r + 1#usize
+      ok (cont (x1, err1, r1))
+    else ok (done (x, err))
+  else ok (done (x, err))
+
+/-- [apeiron_word::grad_solve_port::model::add_bias]: loop 0:
+    Source: '../../src/learn/grad/model.rs', lines 529:4-540:5 -/
+@[rust_loop]
+def grad_solve_port.model.add_bias_loop0
+  (x : Slice Std.I64) (b : Slice Std.I64) (t : Std.Usize) (w : Std.Usize)
+  (err : Option grad_solve_port.model.ModelError) (r : Std.Usize) :
+  Result ((Slice Std.I64) × (Option grad_solve_port.model.ModelError))
+  := do
+  loop
+    (fun (x1, err1, r1) => grad_solve_port.model.add_bias_loop0.body b t w x1
+      err1 r1)
+    (x, err, r)
+
+/-- [apeiron_word::grad_solve_port::model::add_bias]:
+    Source: '../../src/learn/grad/model.rs', lines 514:0-545:1 -/
+def grad_solve_port.model.add_bias
+  (x : Slice Std.I64) (bias : Option (Slice Std.I64)) (t : Std.Usize)
+  (w : Std.Usize) :
+  Result ((core.result.Result Unit grad_solve_port.model.ModelError) × (Slice
+    Std.I64))
+  := do
+  match bias with
+  | none => ok (core.result.Result.Ok (), x)
+  | some b =>
+    let i := Slice.len b
+    if i != w
+    then
+      let s ←
+        alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay (toStr
+          "bias width")
+      ok (core.result.Result.Err (grad_solve_port.model.ModelError.Shape s), x)
+    else
+      let i1 := Slice.len x
+      let r ← grad_solve_port.model.expect t w i1 (toStr "add_bias")
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue _ =>
+        let (x1, err) ←
+          grad_solve_port.model.add_bias_loop0 x b t w none 0#usize
+        match err with
+        | none => ok (core.result.Result.Ok (), x1)
+        | some e => ok (core.result.Result.Err e, x1)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        let r1 ←
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            Unit (core.convert.FromSame grad_solve_port.model.ModelError)
+            residual
+        ok (r1, x)
+
+/-- [apeiron_word::grad_solve_port::model::embedding_grad]: loop body 1:
+    Source: '../../src/learn/grad/model.rs', lines 750:20-756:21 -/
+@[rust_loop_body]
+def grad_solve_port.model.embedding_grad_loop0_loop0.body
+  (dh : Slice Std.I64) (w : Std.Usize) (r : Std.Usize) (id : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (err : Option grad_solve_port.model.ModelError)
+  (c : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    grad_solve_port.model.ModelError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option grad_solve_port.model.ModelError)))
+  := do
+  if c < w
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← id * w
+      let i1 ← i + c
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) out
+          i1
+      let i3 ← r * w
+      let i4 ← i3 + c
+      let i5 ← Slice.index_usize dh i4
+      let o ← lift (I64.checked_add i2 i5)
+      let (out1, err1) ←
+        match o with
+        | none => ok (out, some grad_solve_port.model.ModelError.Overflow)
+        | some v =>
+          do
+          let i6 ← i + c
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) out i6
+          let out2 := index_mut_back v
+          ok (out2, err)
+      let c1 ← c + 1#usize
+      ok (cont (out1, err1, c1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::model::embedding_grad]: loop 1:
+    Source: '../../src/learn/grad/model.rs', lines 750:20-756:21 -/
+@[rust_loop]
+def grad_solve_port.model.embedding_grad_loop0_loop0
+  (dh : Slice Std.I64) (w : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option grad_solve_port.model.ModelError) (r : Std.Usize)
+  (id : Std.Usize) (c : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option grad_solve_port.model.ModelError))
+  := do
+  loop
+    (fun (out1, err1, c1) =>
+      grad_solve_port.model.embedding_grad_loop0_loop0.body dh w r id out1 err1
+      c1)
+    (out, err, c)
+
+/-- [apeiron_word::grad_solve_port::model::embedding_grad]: loop body 0:
+    Source: '../../src/learn/grad/model.rs', lines 742:4-761:5 -/
+@[rust_loop_body]
+def grad_solve_port.model.embedding_grad_loop0.body
+  (dh : Slice Std.I64) (tokens : Slice Std.U32) (t : Std.Usize) (w : Std.Usize)
+  (vocab : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option grad_solve_port.model.ModelError) (r : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    grad_solve_port.model.ModelError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option grad_solve_port.model.ModelError)))
+  := do
+  if r < t
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← Slice.index_usize tokens r
+      let r1 ← Usize.Insts.CoreConvertTryFromU32TryFromIntError.try_from i
+      match r1 with
+      | core.result.Result.Ok id =>
+        if id >= vocab
+        then
+          let a ← core.fmt.rt.Argument.new_display U32.Insts.CoreFmtDisplay i
+          let a1 ←
+            core.fmt.Arguments.new
+              (Array.make 19#usize [
+                6#u8, 116#u8, 111#u8, 107#u8, 101#u8, 110#u8, 32#u8, 192#u8,
+                9#u8, 32#u8, 62#u8, 61#u8, 32#u8, 118#u8, 111#u8, 99#u8, 97#u8,
+                98#u8, 0#u8
+                ]) (Array.make 1#usize [ a ])
+          let s ← alloc.fmt.format a1
+          let s1 ← core.hint.must_use s
+          let r2 ← r + 1#usize
+          ok (cont (out, some (grad_solve_port.model.ModelError.Shape s1), r2))
+        else
+          let (out1, err1) ←
+            grad_solve_port.model.embedding_grad_loop0_loop0 dh w out err r id
+              0#usize
+          let r2 ← r + 1#usize
+          ok (cont (out1, err1, r2))
+      | core.result.Result.Err _ =>
+        let r2 ← r + 1#usize
+        ok (cont (out, some grad_solve_port.model.ModelError.Overflow, r2))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::model::embedding_grad]: loop 0:
+    Source: '../../src/learn/grad/model.rs', lines 742:4-761:5 -/
+@[rust_loop]
+def grad_solve_port.model.embedding_grad_loop0
+  (dh : Slice Std.I64) (tokens : Slice Std.U32) (t : Std.Usize) (w : Std.Usize)
+  (vocab : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option grad_solve_port.model.ModelError) (r : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option grad_solve_port.model.ModelError))
+  := do
+  loop
+    (fun (out1, err1, r1) => grad_solve_port.model.embedding_grad_loop0.body dh
+      tokens t w vocab out1 err1 r1)
+    (out, err, r)
+
+/-- [apeiron_word::grad_solve_port::model::embedding_grad]:
+    Source: '../../src/learn/grad/model.rs', lines 731:0-766:1 -/
+def grad_solve_port.model.embedding_grad
+  (dh : Slice Std.I64) (tokens : Slice Std.U32) (t : Std.Usize) (w : Std.Usize)
+  (vocab : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  let i := Slice.len dh
+  let r ← grad_solve_port.model.expect t w i (toStr "embedding_grad")
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let i1 ← vocab * w
+    let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
+    let (out1, err) ←
+      grad_solve_port.model.embedding_grad_loop0 dh tokens t w vocab out none
+        0#usize
+    match err with
+    | none => ok (core.result.Result.Ok out1)
+    | some e => ok (core.result.Result.Err e)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      grad_solve_port.model.ModelError) residual
+
 /-- [apeiron_word::gram::GramError]
     Source: '../../src/learn/gram.rs', lines 27:0-32:1
     Visibility: public -/
@@ -69553,6 +71684,184 @@ def gram.gram_fold_i8
       | none => ok (core.result.Result.Ok g1)
       | some e => ok (core.result.Result.Err e)
 
+/-- [apeiron_word::gram::I8_PRODUCT_MAX]
+    Source: '../../src/learn/gram.rs', lines 146:0-146:35 -/
+@[global_simps, irreducible] def gram.I8_PRODUCT_MAX : Std.U64 := 16384#u64
+
+/-- [apeiron_word::gram::gram_accumulator_clear::{closure}]
+    Source: '../../src/learn/gram.rs', lines 161:18-161:51 -/
+@[reducible]
+def gram.gram_accumulator_clear.closure := Unit
+
+/-- [apeiron_word::gram::gram_accumulator_clear::{impl core::ops::function::FnOnce<(u64,), core::option::Option<u64>> for apeiron_word::gram::gram_accumulator_clear::{closure}}::call_once]:
+    Source: '../../src/learn/gram.rs', lines 161:18-161:51 -/
+def
+  gram.gram_accumulator_clear.closure.Insts.CoreOpsFunctionFnOnceTupleU64OptionU64.call_once
+  (c : gram.gram_accumulator_clear.closure) (tupled_args : Std.U64) :
+  Result (Option Std.U64)
+  := do
+  ok (U64.checked_mul tupled_args gram.I8_PRODUCT_MAX)
+
+/-- Trait implementation: [apeiron_word::gram::gram_accumulator_clear::{impl core::ops::function::FnOnce<(u64,), core::option::Option<u64>> for apeiron_word::gram::gram_accumulator_clear::{closure}}]
+    Source: '../../src/learn/gram.rs', lines 161:18-161:51 -/
+@[reducible]
+def
+  gram.gram_accumulator_clear.closure.Insts.CoreOpsFunctionFnOnceTupleU64OptionU64
+  : core.ops.function.FnOnce gram.gram_accumulator_clear.closure Std.U64
+  (Option Std.U64) := {
+  call_once :=
+    gram.gram_accumulator_clear.closure.Insts.CoreOpsFunctionFnOnceTupleU64OptionU64.call_once
+}
+
+/-- [apeiron_word::gram::gram_accumulator_clear]: loop body 0:
+    Source: '../../src/learn/gram.rs', lines 169:4-176:1 -/
+@[rust_loop_body]
+def gram.gram_accumulator_clear_loop.body
+  (g : Slice Std.I64) (limit : Std.U64) (idx : Std.Usize) :
+  Result (ControlFlow Std.Usize Bool)
+  := do
+  let i := Slice.len g
+  if idx < i
+  then
+    let i1 ← Slice.index_usize g idx
+    let i2 ← core.num.I64.unsigned_abs i1
+    if i2 > limit
+    then ok (done false)
+    else let idx1 ← idx + 1#usize
+         ok (cont idx1)
+  else ok (done true)
+
+/-- [apeiron_word::gram::gram_accumulator_clear]: loop 0:
+    Source: '../../src/learn/gram.rs', lines 169:4-176:1 -/
+@[rust_loop]
+def gram.gram_accumulator_clear_loop
+  (g : Slice Std.I64) (limit : Std.U64) (idx : Std.Usize) : Result Bool := do
+  loop
+    (fun idx1 => gram.gram_accumulator_clear_loop.body g limit idx1)
+    idx
+
+/-- [apeiron_word::gram::gram_accumulator_clear]:
+    Source: '../../src/learn/gram.rs', lines 158:0-176:1 -/
+def gram.gram_accumulator_clear
+  (g : Slice Std.I64) (rows : Std.Usize) : Result Bool := do
+  let r ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from rows
+  let o ← core.result.Result.ok r
+  let o1 ←
+    core.option.Option.and_then
+      gram.gram_accumulator_clear.closure.Insts.CoreOpsFunctionFnOnceTupleU64OptionU64
+      o ()
+  match o1 with
+  | none => ok false
+  | some slack =>
+    let i ← core.num.I64.unsigned_abs core.num.I64.MAX
+    let o2 ← lift (U64.checked_sub i slack)
+    match o2 with
+    | none => ok false
+    | some limit => gram.gram_accumulator_clear_loop g limit 0#usize
+
+/-- [apeiron_word::gram::gram_accumulate]: loop body 1:
+    Source: '../../src/learn/gram.rs', lines 261:8-268:9 -/
+@[rust_loop_body]
+def gram.gram_accumulate_loop0_loop0.body
+  (d : Std.Usize) (j : Std.Usize) (col : alloc.vec.Vec Std.I64)
+  (g : alloc.vec.Vec Std.I64) (err : Option gram.GramError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option gram.GramError) ×
+    Std.Usize) ((alloc.vec.Vec Std.I64) × (Option gram.GramError)))
+  := do
+  if i < d
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * d
+      let idx ← i1 + j
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) g
+          idx
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) col
+          i
+      let o ← lift (I64.checked_add i2 i3)
+      let (g1, err1) ←
+        match o with
+        | none => ok (g, some gram.GramError.Overflow)
+        | some sum =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) g idx
+          let g2 := index_mut_back sum
+          ok (g2, err)
+      let i4 ← i + 1#usize
+      ok (cont (g1, err1, i4))
+    else ok (done (g, err))
+  else ok (done (g, err))
+
+/-- [apeiron_word::gram::gram_accumulate]: loop 1:
+    Source: '../../src/learn/gram.rs', lines 261:8-268:9 -/
+@[rust_loop]
+def gram.gram_accumulate_loop0_loop0
+  (g : alloc.vec.Vec Std.I64) (d : Std.Usize) (err : Option gram.GramError)
+  (j : Std.Usize) (col : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option gram.GramError))
+  := do
+  loop
+    (fun (g1, err1, i1) => gram.gram_accumulate_loop0_loop0.body d j col g1
+      err1 i1)
+    (g, err, i)
+
+/-- [apeiron_word::gram::gram_accumulate]: loop body 0:
+    Source: '../../src/learn/gram.rs', lines 258:4-270:5 -/
+@[rust_loop_body]
+def gram.gram_accumulate_loop0.body
+  (cols : Slice (alloc.vec.Vec Std.I64)) (d : Std.Usize)
+  (g : alloc.vec.Vec Std.I64) (err : Option gram.GramError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option gram.GramError) ×
+    Std.Usize) ((alloc.vec.Vec Std.I64) × (Option gram.GramError)))
+  := do
+  if j < d
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let col ← Slice.index_usize cols j
+      let (g1, err1) ← gram.gram_accumulate_loop0_loop0 g d err j col 0#usize
+      let j1 ← j + 1#usize
+      ok (cont (g1, err1, j1))
+    else ok (done (g, err))
+  else ok (done (g, err))
+
+/-- [apeiron_word::gram::gram_accumulate]: loop 0:
+    Source: '../../src/learn/gram.rs', lines 258:4-270:5 -/
+@[rust_loop]
+def gram.gram_accumulate_loop0
+  (g : alloc.vec.Vec Std.I64) (cols : Slice (alloc.vec.Vec Std.I64))
+  (d : Std.Usize) (err : Option gram.GramError) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option gram.GramError))
+  := do
+  loop
+    (fun (g1, err1, j1) => gram.gram_accumulate_loop0.body cols d g1 err1 j1)
+    (g, err, j)
+
+/-- [apeiron_word::gram::gram_accumulate]:
+    Source: '../../src/learn/gram.rs', lines 246:0-275:1 -/
+def gram.gram_accumulate
+  (g : alloc.vec.Vec Std.I64) (cols : Slice (alloc.vec.Vec Std.I64))
+  (d : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) gram.GramError)
+  := do
+  let left_val := Slice.len cols
+  if left_val = d
+  then
+    let (g1, err) ← gram.gram_accumulate_loop0 g cols d none 0#usize
+    match err with
+    | none => ok (core.result.Result.Ok g1)
+    | some e => ok (core.result.Result.Err e)
+  else
+    let _ ←
+      core.fmt.Arguments.from_str (toStr "one kernel column per Gram row")
+    fail panic
+
 /-- [apeiron_word::onebit_bits::Cfg]
     Source: '../../src/learn/onebit_bits.rs', lines 35:0-70:1
     Visibility: public -/
@@ -69574,6 +71883,31 @@ structure onebit_bits.Cfg where
   rank_down : Std.U64
   index_sets : Std.U64
   index_bits_per_set : Std.U64
+
+/-- [apeiron_word::onebit_bits::{apeiron_word::onebit_bits::Cfg}::qwen25_05b_nb]:
+    Source: '../../src/learn/onebit_bits.rs', lines 76:4-96:5
+    Visibility: public -/
+def onebit_bits.Cfg.qwen25_05b_nb : Result onebit_bits.Cfg := do
+  ok
+    {
+      d_model := 896#u64,
+      kv := 128#u64,
+      ff := 4864#u64,
+      layers := 24#u64,
+      k_rows := 416#u64,
+      group := 128#u64,
+      header_bits := 32#u64,
+      r_level_bits := 4#u64,
+      r_mu_bits := 6#u64,
+      r_sp_bits := 2#u64,
+      c_bits := 6#u64,
+      d_bits := 5#u64,
+      corr_bits := 8#u64,
+      rank_q := 2#u64,
+      rank_down := 1#u64,
+      index_sets := 2#u64,
+      index_bits_per_set := 2044#u64
+    }
 
 /-- [apeiron_word::onebit_bits::add]:
     Source: '../../src/learn/onebit_bits.rs', lines 100:0-102:1 -/
@@ -75487,15 +77821,39 @@ def solve_port.q32.round_q32_even
     let o1 ← solve_port.q32.narrow r
     core.option.Option.ok_or o1 solve_port.q32.Q32Error.Overflow
 
+/-- [apeiron_word::solve_port::q32::div_rne_pos]:
+    Source: '../../src/learn/solve/q32.rs', lines 281:0-291:1 -/
+def solve_port.q32.div_rne_pos
+  (num : Std.I128) (den : Std.I128) : Result Std.I128 := do
+  let q ← num / den
+  let r ← num % den
+  let step ← if r > 0#i128
+               then ok 1#i128
+               else ok (-1)#i128
+  let i ← core.num.I128.abs r
+  let i1 ← 2#i128 * i
+  let o ← lift (core.cmp.impls.OrdI128.cmp i1 den)
+  let step1 ←
+    match o with
+    | Ordering.lt => ok 0#i128
+    | Ordering.eq =>
+      do
+      let i2 ← q % 2#i128
+      if i2 != 0#i128
+      then ok step
+      else ok 0#i128
+    | Ordering.gt => ok step
+  q + step1
+
 /-- [apeiron_word::solve_port::q32::Fx]
-    Source: '../../src/learn/solve/q32.rs', lines 292:0-297:1
+    Source: '../../src/learn/solve/q32.rs', lines 295:0-300:1
     Visibility: public -/
 structure solve_port.q32.Fx where
   m : Std.I64
   e : Std.I32
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Fx}::from_i128]:
-    Source: '../../src/learn/solve/q32.rs', lines 316:4-353:5
+    Source: '../../src/learn/solve/q32.rs', lines 319:4-356:5
     Visibility: public -/
 def solve_port.q32.Fx.from_i128
   (v : Std.I128) (e : Std.I32) :
@@ -75563,14 +77921,14 @@ def solve_port.q32.Fx.from_i128
               ok (core.result.Result.Ok { m := x1, e := i3 })
 
 /-- [apeiron_word::solve_port::q32::Bfp]
-    Source: '../../src/learn/solve/q32.rs', lines 358:0-364:1
+    Source: '../../src/learn/solve/q32.rs', lines 361:0-367:1
     Visibility: public -/
 structure solve_port.q32.Bfp where
   m : alloc.vec.Vec Std.I64
   e : Std.I32
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]: loop body 0:
-    Source: '../../src/learn/solve/q32.rs', lines 390:8-397:9
+    Source: '../../src/learn/solve/q32.rs', lines 393:8-400:9
     Visibility: public -/
 @[rust_loop_body]
 def solve_port.q32.Bfp.from_i128_loop0.body
@@ -75592,7 +77950,7 @@ def solve_port.q32.Bfp.from_i128_loop0.body
   else ok (done (max_mag, max_val))
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]: loop 0:
-    Source: '../../src/learn/solve/q32.rs', lines 390:8-397:9
+    Source: '../../src/learn/solve/q32.rs', lines 393:8-400:9
     Visibility: public -/
 @[rust_loop]
 def solve_port.q32.Bfp.from_i128_loop0
@@ -75606,7 +77964,7 @@ def solve_port.q32.Bfp.from_i128_loop0
     (max_mag, max_val, i)
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]: loop body 1:
-    Source: '../../src/learn/solve/q32.rs', lines 412:12-415:13
+    Source: '../../src/learn/solve/q32.rs', lines 415:12-418:13
     Visibility: public -/
 @[rust_loop_body]
 def solve_port.q32.Bfp.from_i128_loop1.body
@@ -75629,7 +77987,7 @@ def solve_port.q32.Bfp.from_i128_loop1.body
   else ok (done out)
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]: loop 1:
-    Source: '../../src/learn/solve/q32.rs', lines 412:12-415:13
+    Source: '../../src/learn/solve/q32.rs', lines 415:12-418:13
     Visibility: public -/
 @[rust_loop]
 def solve_port.q32.Bfp.from_i128_loop1
@@ -75642,7 +78000,7 @@ def solve_port.q32.Bfp.from_i128_loop1
     (out, i)
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]: loop body 2:
-    Source: '../../src/learn/solve/q32.rs', lines 429:8-435:9
+    Source: '../../src/learn/solve/q32.rs', lines 432:8-438:9
     Visibility: public -/
 @[rust_loop_body]
 def solve_port.q32.Bfp.from_i128_loop2.body
@@ -75677,7 +78035,7 @@ def solve_port.q32.Bfp.from_i128_loop2.body
   else ok (done (out, err))
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]: loop 2:
-    Source: '../../src/learn/solve/q32.rs', lines 429:8-435:9
+    Source: '../../src/learn/solve/q32.rs', lines 432:8-438:9
     Visibility: public -/
 @[rust_loop]
 def solve_port.q32.Bfp.from_i128_loop2
@@ -75691,7 +78049,7 @@ def solve_port.q32.Bfp.from_i128_loop2
     (out, err, i)
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Bfp}::from_i128]:
-    Source: '../../src/learn/solve/q32.rs', lines 385:4-443:5
+    Source: '../../src/learn/solve/q32.rs', lines 388:4-446:5
     Visibility: public -/
 def solve_port.q32.Bfp.from_i128
   (v : Slice Std.I128) (e : Std.I32) :
@@ -75741,7 +78099,7 @@ def solve_port.q32.Bfp.from_i128
           | some er => ok (core.result.Result.Err er)
 
 /-- [apeiron_word::solve_port::q32::scale_q32]:
-    Source: '../../src/learn/solve/q32.rs', lines 448:0-463:1 -/
+    Source: '../../src/learn/solve/q32.rs', lines 451:0-466:1 -/
 def solve_port.q32.scale_q32
   (v : Std.I64) (shift : Std.I32) :
   Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
@@ -75770,14 +78128,14 @@ def solve_port.q32.scale_q32
     else ok (core.result.Result.Ok v)
 
 /-- [apeiron_word::solve_port::q32::SpdQ]
-    Source: '../../src/learn/solve/q32.rs', lines 468:0-473:1
+    Source: '../../src/learn/solve/q32.rs', lines 471:0-476:1
     Visibility: public -/
 structure solve_port.q32.SpdQ where
   hat : alloc.vec.Vec Std.I64
   d : alloc.vec.Vec Std.I32
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop body 0:
-    Source: '../../src/learn/solve/q32.rs', lines 510:8-517:9
+    Source: '../../src/learn/solve/q32.rs', lines 513:8-520:9
     Visibility: public -/
 @[rust_loop_body]
 def solve_port.q32.SpdQ.from_q32_loop0.body
@@ -75806,7 +78164,7 @@ def solve_port.q32.SpdQ.from_q32_loop0.body
   else ok (done symmetric)
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop 0:
-    Source: '../../src/learn/solve/q32.rs', lines 510:8-517:9
+    Source: '../../src/learn/solve/q32.rs', lines 513:8-520:9
     Visibility: public -/
 @[rust_loop]
 def solve_port.q32.SpdQ.from_q32_loop0
@@ -75820,7 +78178,7 @@ def solve_port.q32.SpdQ.from_q32_loop0
     (symmetric, idx)
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop body 1:
-    Source: '../../src/learn/solve/q32.rs', lines 524:8-535:9
+    Source: '../../src/learn/solve/q32.rs', lines 527:8-538:9
     Visibility: public -/
 @[rust_loop_body]
 def solve_port.q32.SpdQ.from_q32_loop1.body
@@ -75862,7 +78220,7 @@ def solve_port.q32.SpdQ.from_q32_loop1.body
   else ok (done (d, err))
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop 1:
-    Source: '../../src/learn/solve/q32.rs', lines 524:8-535:9
+    Source: '../../src/learn/solve/q32.rs', lines 527:8-538:9
     Visibility: public -/
 @[rust_loop]
 def solve_port.q32.SpdQ.from_q32_loop1
@@ -75876,7 +78234,7 @@ def solve_port.q32.SpdQ.from_q32_loop1
     (d, err, i)
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop body 2:
-    Source: '../../src/learn/solve/q32.rs', lines 542:8-550:9
+    Source: '../../src/learn/solve/q32.rs', lines 545:8-553:9
     Visibility: public -/
 @[rust_loop_body]
 def solve_port.q32.SpdQ.from_q32_loop2.body
@@ -75917,7 +78275,7 @@ def solve_port.q32.SpdQ.from_q32_loop2.body
   else ok (done (hat, err))
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop 2:
-    Source: '../../src/learn/solve/q32.rs', lines 542:8-550:9
+    Source: '../../src/learn/solve/q32.rs', lines 545:8-553:9
     Visibility: public -/
 @[rust_loop]
 def solve_port.q32.SpdQ.from_q32_loop2
@@ -75932,7 +78290,7 @@ def solve_port.q32.SpdQ.from_q32_loop2
     (hat, err, idx)
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]:
-    Source: '../../src/learn/solve/q32.rs', lines 497:4-555:5
+    Source: '../../src/learn/solve/q32.rs', lines 500:4-558:5
     Visibility: public -/
 def solve_port.q32.SpdQ.from_q32
   (h : Slice Std.I64) (n : Std.Usize) :
@@ -75966,8 +78324,92 @@ def solve_port.q32.SpdQ.from_q32
           | some er => ok (core.result.Result.Err er)
         else ok (core.result.Result.Err solve_port.q32.Q32Error.Asymmetric)
 
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::to_q32]: loop body 0:
+    Source: '../../src/learn/solve/q32.rs', lines 584:8-592:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.q32.SpdQ.to_q32_loop.body
+  (v : alloc.vec.Vec Std.I64) (v1 : alloc.vec.Vec Std.I32) (n : Std.Usize)
+  (nn : Std.Usize) (h : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.q32.Q32Error) (idx : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error)))
+  := do
+  if idx < nn
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← idx / n
+      let j ← idx % n
+      let i1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) v
+          idx
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I32) v1
+          i
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I32) v1
+          j
+      let i4 ← i2 + i3
+      let i5 ← -. i4
+      let r ← solve_port.q32.scale_q32 i1 i5
+      let (h1, err1) ←
+        match r with
+        | core.result.Result.Ok x =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) h idx
+          let h2 := index_mut_back x
+          ok (h2, err)
+        | core.result.Result.Err er => ok (h, some er)
+      let idx1 ← idx + 1#usize
+      ok (cont (h1, err1, idx1))
+    else ok (done (h, err))
+  else ok (done (h, err))
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::to_q32]: loop 0:
+    Source: '../../src/learn/solve/q32.rs', lines 584:8-592:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.q32.SpdQ.to_q32_loop
+  (v : alloc.vec.Vec Std.I64) (v1 : alloc.vec.Vec Std.I32) (n : Std.Usize)
+  (nn : Std.Usize) (h : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.q32.Q32Error) (idx : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.q32.Q32Error))
+  := do
+  loop
+    (fun (h1, err1, idx1) => solve_port.q32.SpdQ.to_q32_loop.body v v1 n nn h1
+      err1 idx1)
+    (h, err, idx)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::to_q32]:
+    Source: '../../src/learn/solve/q32.rs', lines 572:4-597:5
+    Visibility: public -/
+def solve_port.q32.SpdQ.to_q32
+  (self : solve_port.q32.SpdQ) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.q32.Q32Error)
+  := do
+  let n := alloc.vec.Vec.len self.d
+  let o ← lift (Usize.checked_mul n n)
+  match o with
+  | none => ok (core.result.Result.Err solve_port.q32.Q32Error.ShapeMismatch)
+  | some v =>
+    let i := alloc.vec.Vec.len self.hat
+    if i != v
+    then ok (core.result.Result.Err solve_port.q32.Q32Error.ShapeMismatch)
+    else
+      let h ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
+      let (h1, err) ←
+        solve_port.q32.SpdQ.to_q32_loop self.hat self.d n v h none 0#usize
+      match err with
+      | none => ok (core.result.Result.Ok h1)
+      | some er => ok (core.result.Result.Err er)
+
 /-- [apeiron_word::solve_port::q32::round_f16]:
-    Source: '../../src/learn/solve/q32.rs', lines 615:0-654:1
+    Source: '../../src/learn/solve/q32.rs', lines 618:0-657:1
     Visibility: public -/
 def solve_port.q32.round_f16
   (x : solve_port.q32.Fx) :
@@ -91545,6 +93987,185 @@ def I64.Insts.Apeiron_wordScalarRing : scalar.Ring Std.I64 := {
   from_i64 := I64.Insts.Apeiron_wordScalarRing.from_i64
 }
 
+/-- [apeiron_word::grad_solve_port::word_learn_gguf_write_header]:
+    Source: 'grad_solve_port.rs', lines 30:0-34:1
+    Visibility: public -/
+def grad_solve_port.word_learn_gguf_write_header
+  (header : gguf.GgufHeader) :
+  Result (core.result.Result (alloc.vec.Vec Std.U8) gguf.GgufError)
+  := do
+  grad_solve_port.gguf.write_header header
+
+/-- [apeiron_word::grad_solve_port::word_learn_gguf_write_file]:
+    Source: 'grad_solve_port.rs', lines 37:0-42:1
+    Visibility: public -/
+def grad_solve_port.word_learn_gguf_write_file
+  (header : gguf.GgufHeader) (data : Slice Std.U8) :
+  Result (core.result.Result (alloc.vec.Vec Std.U8) gguf.GgufError)
+  := do
+  grad_solve_port.gguf.write_file header data
+
+/-- [apeiron_word::grad_solve_port::word_learn_gram_accumulator_clear]:
+    Source: 'grad_solve_port.rs', lines 45:0-47:1
+    Visibility: public -/
+def grad_solve_port.word_learn_gram_accumulator_clear
+  (g : Slice Std.I64) (rows : Std.Usize) : Result Bool := do
+  gram.gram_accumulator_clear g rows
+
+/-- [apeiron_word::grad_solve_port::word_learn_gram_accumulate]:
+    Source: 'grad_solve_port.rs', lines 50:0-56:1
+    Visibility: public -/
+def grad_solve_port.word_learn_gram_accumulate
+  (g : alloc.vec.Vec Std.I64) (cols : Slice (alloc.vec.Vec Std.I64))
+  (d : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) gram.GramError)
+  := do
+  gram.gram_accumulate g cols d
+
+/-- [apeiron_word::grad_solve_port::word_solve_q32_div_rne_pos]:
+    Source: 'grad_solve_port.rs', lines 60:0-62:1
+    Visibility: public -/
+def grad_solve_port.word_solve_q32_div_rne_pos
+  (num : Std.I128) (den : Std.I128) : Result Std.I128 := do
+  solve_port.q32.div_rne_pos num den
+
+/-- [apeiron_word::grad_solve_port::word_solve_q32_spd_to_q32]:
+    Source: 'grad_solve_port.rs', lines 65:0-67:1
+    Visibility: public -/
+def grad_solve_port.word_solve_q32_spd_to_q32
+  (h : solve_port.q32.SpdQ) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.q32.Q32Error)
+  := do
+  solve_port.q32.SpdQ.to_q32 h
+
+/-- [apeiron_word::grad_solve_port::word_model_config_q_out]:
+    Source: 'grad_solve_port.rs', lines 70:0-72:1
+    Visibility: public -/
+def grad_solve_port.word_model_config_q_out
+  (cfg : grad_solve_port.model.Config) :
+  Result (core.result.Result Std.Usize grad_solve_port.model.ModelError)
+  := do
+  grad_solve_port.model.Config.q_out cfg
+
+/-- [apeiron_word::grad_solve_port::word_model_config_kv_out]:
+    Source: 'grad_solve_port.rs', lines 75:0-77:1
+    Visibility: public -/
+def grad_solve_port.word_model_config_kv_out
+  (cfg : grad_solve_port.model.Config) :
+  Result (core.result.Result Std.Usize grad_solve_port.model.ModelError)
+  := do
+  grad_solve_port.model.Config.kv_out cfg
+
+/-- [apeiron_word::grad_solve_port::word_model_config_checked]:
+    Source: 'grad_solve_port.rs', lines 80:0-82:1
+    Visibility: public -/
+def grad_solve_port.word_model_config_checked
+  (cfg : grad_solve_port.model.Config) :
+  Result (core.result.Result Unit grad_solve_port.model.ModelError)
+  := do
+  grad_solve_port.model.Config.checked cfg
+
+/-- [apeiron_word::grad_solve_port::word_model_expect]:
+    Source: 'grad_solve_port.rs', lines 85:0-92:1
+    Visibility: public -/
+def grad_solve_port.word_model_expect
+  (t : Std.Usize) (w : Std.Usize) (len : Std.Usize) (what : Str) :
+  Result (core.result.Result Std.Usize grad_solve_port.model.ModelError)
+  := do
+  grad_solve_port.model.expect t w len what
+
+/-- [apeiron_word::grad_solve_port::word_model_add_flat]:
+    Source: 'grad_solve_port.rs', lines 95:0-97:1
+    Visibility: public -/
+def grad_solve_port.word_model_add_flat
+  (a : Slice Std.I64) (b : Slice Std.I64) :
+  Result ((core.result.Result Unit grad_solve_port.model.ModelError) × (Slice
+    Std.I64))
+  := do
+  grad_solve_port.model.add_flat a b
+
+/-- [apeiron_word::grad_solve_port::word_model_col_sum]:
+    Source: 'grad_solve_port.rs', lines 100:0-102:1
+    Visibility: public -/
+def grad_solve_port.word_model_col_sum
+  (x : Slice Std.I64) (t : Std.Usize) (w : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  grad_solve_port.model.col_sum x t w
+
+/-- [apeiron_word::grad_solve_port::word_model_rmsnorm_rows]:
+    Source: 'grad_solve_port.rs', lines 105:0-113:1
+    Visibility: public -/
+def grad_solve_port.word_model_rmsnorm_rows
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (t : Std.Usize) (w : Std.Usize)
+  (eps : Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  grad_solve_port.model.rmsnorm_rows x gamma t w eps
+
+/-- [apeiron_word::grad_solve_port::word_model_rmsnorm_bwd_rows]:
+    Source: 'grad_solve_port.rs', lines 116:0-125:1
+    Visibility: public -/
+def grad_solve_port.word_model_rmsnorm_bwd_rows
+  (x : Slice Std.I64) (gamma : Slice Std.I64) (eps : Std.I64)
+  (dy : Slice Std.I64) (t : Std.Usize) (w : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) grad_solve_port.model.ModelError)
+  := do
+  grad_solve_port.model.rmsnorm_bwd_rows x gamma eps dy t w
+
+/-- [apeiron_word::grad_solve_port::word_model_rope_rows_fwd]:
+    Source: 'grad_solve_port.rs', lines 128:0-135:1
+    Visibility: public -/
+def grad_solve_port.word_model_rope_rows_fwd
+  (x : Slice Std.I64) (t : Std.Usize) (row : Std.Usize) (rope : rope.RopeTable)
+  :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  grad_solve_port.model.rope_rows_fwd x t row rope
+
+/-- [apeiron_word::grad_solve_port::word_model_rope_rows_bwd]:
+    Source: 'grad_solve_port.rs', lines 138:0-145:1
+    Visibility: public -/
+def grad_solve_port.word_model_rope_rows_bwd
+  (dy : Slice Std.I64) (t : Std.Usize) (row : Std.Usize)
+  (rope : rope.RopeTable) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  grad_solve_port.model.rope_rows_bwd dy t row rope
+
+/-- [apeiron_word::grad_solve_port::word_model_add_bias]:
+    Source: 'grad_solve_port.rs', lines 148:0-155:1
+    Visibility: public -/
+def grad_solve_port.word_model_add_bias
+  (x : Slice Std.I64) (bias : Option (Slice Std.I64)) (t : Std.Usize)
+  (w : Std.Usize) :
+  Result ((core.result.Result Unit grad_solve_port.model.ModelError) × (Slice
+    Std.I64))
+  := do
+  grad_solve_port.model.add_bias x bias t w
+
+/-- [apeiron_word::grad_solve_port::word_model_embedding_grad]:
+    Source: 'grad_solve_port.rs', lines 158:0-166:1
+    Visibility: public -/
+def grad_solve_port.word_model_embedding_grad
+  (dh : Slice Std.I64) (tokens : Slice Std.U32) (t : Std.Usize) (w : Std.Usize)
+  (vocab : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    grad_solve_port.model.ModelError)
+  := do
+  grad_solve_port.model.embedding_grad dh tokens t w vocab
+
+/-- [apeiron_word::grad_solve_port::word_onebit_qwen25_05b_nb]:
+    Source: 'grad_solve_port.rs', lines 169:0-171:1
+    Visibility: public -/
+def grad_solve_port.word_onebit_qwen25_05b_nb : Result onebit_bits.Cfg := do
+  onebit_bits.Cfg.qwen25_05b_nb
+
 /-- [apeiron_word::hashtrinity_port::word_seed_new]:
     Source: 'hashtrinity_port.rs', lines 24:0-26:1
     Visibility: public -/
@@ -91951,7 +94572,7 @@ def learn_port.word_e8_nearest_scaled
   learn_port.e8.nearest_scaled x scale
 
 /-- [apeiron_word::word_mul]:
-    Source: 'lib.rs', lines 178:0-180:1
+    Source: 'lib.rs', lines 181:0-183:1
     Visibility: public -/
 def word_mul
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) (b : cell.Cell Std.I64) :
@@ -91960,14 +94581,14 @@ def word_mul
   cell.Cell.mul I64.Insts.Apeiron_wordScalarRing a sigma b
 
 /-- [apeiron_word::word_norm]:
-    Source: 'lib.rs', lines 183:0-185:1
+    Source: 'lib.rs', lines 186:0-188:1
     Visibility: public -/
 def word_norm
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) : Result Std.I64 := do
   cell.Cell.norm_form I64.Insts.Apeiron_wordScalarRing a sigma
 
 /-- [apeiron_word::word_point_density]:
-    Source: 'lib.rs', lines 192:0-194:1
+    Source: 'lib.rs', lines 195:0-197:1
     Visibility: public -/
 def word_point_density
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64) :
@@ -91977,7 +94598,7 @@ def word_point_density
     direction
 
 /-- [apeiron_word::word_point_flux]:
-    Source: 'lib.rs', lines 197:0-205:1
+    Source: 'lib.rs', lines 200:0-208:1
     Visibility: public -/
 def word_point_flux
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64)
@@ -91988,7 +94609,7 @@ def word_point_flux
     previous next
 
 /-- [apeiron_word::word_conservative_density_step]:
-    Source: 'lib.rs', lines 209:0-216:1
+    Source: 'lib.rs', lines 212:0-219:1
     Visibility: public -/
 def word_conservative_density_step
   (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
@@ -91998,14 +94619,14 @@ def word_conservative_density_step
   carrier.conservative_density_step density incoming outgoing source
 
 /-- [apeiron_word::word_diffusive_flux_half]:
-    Source: 'lib.rs', lines 219:0-221:1
+    Source: 'lib.rs', lines 222:0-224:1
     Visibility: public -/
 def word_diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
   carrier.diffusive_flux_half left right
 
 /-- [apeiron_word::word_diffusive_line3_step]:
-    Source: 'lib.rs', lines 225:0-230:1
+    Source: 'lib.rs', lines 228:0-233:1
     Visibility: public -/
 def word_diffusive_line3_step
   (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
@@ -92014,7 +94635,7 @@ def word_diffusive_line3_step
   carrier.diffusive_line3_step old source
 
 /-- [apeiron_word::word_exchange_impulse]:
-    Source: 'lib.rs', lines 233:0-235:1
+    Source: 'lib.rs', lines 236:0-238:1
     Visibility: public -/
 def word_exchange_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -92023,7 +94644,7 @@ def word_exchange_impulse
   exchange.exchange_impulse I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_elastic_exchange]:
-    Source: 'lib.rs', lines 238:0-240:1
+    Source: 'lib.rs', lines 241:0-243:1
     Visibility: public -/
 def word_elastic_exchange
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -92032,7 +94653,7 @@ def word_elastic_exchange
   exchange.elastic_exchange I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_accept_derived_impulse]:
-    Source: 'lib.rs', lines 247:0-253:1
+    Source: 'lib.rs', lines 250:0-256:1
     Visibility: public -/
 def word_accept_derived_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) (claimed : cell.Cell Std.I64)
@@ -92042,7 +94663,7 @@ def word_accept_derived_impulse
   exchange.accept_derived_impulse I64.Insts.Apeiron_wordScalarRing p q claimed
 
 /-- [apeiron_word::word_i64_codec_encode]:
-    Source: 'lib.rs', lines 294:0-300:1
+    Source: 'lib.rs', lines 297:0-303:1
     Visibility: public -/
 def word_i64_codec_encode
   (sigma : cell.Sigma) (key : Std.I64) : Result Std.U64 := do
@@ -92052,7 +94673,7 @@ def word_i64_codec_encode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma key address
 
 /-- [apeiron_word::word_i64_codec_decode]:
-    Source: 'lib.rs', lines 303:0-307:1
+    Source: 'lib.rs', lines 306:0-310:1
     Visibility: public -/
 def word_i64_codec_decode
   (sigma : cell.Sigma) (identity : Std.U64) : Result Std.I64 := do
@@ -92060,7 +94681,7 @@ def word_i64_codec_decode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma identity
 
 /-- [apeiron_word::word_regen_hold]:
-    Source: 'lib.rs', lines 310:0-320:1
+    Source: 'lib.rs', lines 313:0-323:1
     Visibility: public -/
 def word_regen_hold
   (sigma : cell.Sigma) (key : Std.I64) :
@@ -92075,7 +94696,7 @@ def word_regen_hold
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma key address
 
 /-- [apeiron_word::word_regen_matches]:
-    Source: 'lib.rs', lines 323:0-334:1
+    Source: 'lib.rs', lines 326:0-337:1
     Visibility: public -/
 def word_regen_matches
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec)
@@ -92091,7 +94712,7 @@ def word_regen_matches
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held key address
 
 /-- [apeiron_word::word_regen_key_owned]:
-    Source: 'lib.rs', lines 337:0-345:1
+    Source: 'lib.rs', lines 340:0-348:1
     Visibility: public -/
 def word_regen_key_owned
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -92104,7 +94725,7 @@ def word_regen_key_owned
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held
 
 /-- [apeiron_word::word_regen_address_held]:
-    Source: 'lib.rs', lines 348:0-357:1
+    Source: 'lib.rs', lines 351:0-360:1
     Visibility: public -/
 def word_regen_address_held
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -92117,7 +94738,7 @@ def word_regen_address_held
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) () sigma held
 
 /-- [apeiron_word::word_stored_table_get_at]:
-    Source: 'lib.rs', lines 370:0-372:1
+    Source: 'lib.rs', lines 373:0-375:1
     Visibility: public -/
 def word_stored_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -92131,7 +94752,7 @@ def word_stored_table_get_at
     state sigma key
 
 /-- [apeiron_word::word_stored_table_build_at]:
-    Source: 'lib.rs', lines 386:0-391:1
+    Source: 'lib.rs', lines 389:0-394:1
     Visibility: public -/
 def word_stored_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -92146,7 +94767,7 @@ def word_stored_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_regen_table_get_at]:
-    Source: 'lib.rs', lines 403:0-405:1
+    Source: 'lib.rs', lines 406:0-408:1
     Visibility: public -/
 def word_regen_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -92161,7 +94782,7 @@ def word_regen_table_get_at
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_table_build_at]:
-    Source: 'lib.rs', lines 420:0-425:1
+    Source: 'lib.rs', lines 423:0-428:1
     Visibility: public -/
 def word_regen_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -92179,7 +94800,7 @@ def word_regen_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_stored_prepared_shard_get]:
-    Source: 'lib.rs', lines 428:0-434:1
+    Source: 'lib.rs', lines 431:0-437:1
     Visibility: public -/
 def word_stored_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -92194,7 +94815,7 @@ def word_stored_prepared_shard_get
     state sigma key
 
 /-- [apeiron_word::word_stored_prepared_shard_apply]:
-    Source: 'lib.rs', lines 438:0-446:1
+    Source: 'lib.rs', lines 441:0-449:1
     Visibility: public -/
 def word_stored_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -92212,7 +94833,7 @@ def word_stored_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_regen_prepared_shard_get]:
-    Source: 'lib.rs', lines 449:0-451:1
+    Source: 'lib.rs', lines 452:0-454:1
     Visibility: public -/
 def word_regen_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -92228,7 +94849,7 @@ def word_regen_prepared_shard_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_prepared_shard_apply]:
-    Source: 'lib.rs', lines 455:0-463:1
+    Source: 'lib.rs', lines 458:0-466:1
     Visibility: public -/
 def word_regen_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -92250,7 +94871,7 @@ def word_regen_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_stored_apply_get]:
-    Source: 'lib.rs', lines 471:0-473:1
+    Source: 'lib.rs', lines 474:0-476:1
     Visibility: public -/
 def word_stored_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -92264,7 +94885,7 @@ def word_stored_apply_get
     state decision
 
 /-- [apeiron_word::word_stored_apply_insert]:
-    Source: 'lib.rs', lines 480:0-492:1
+    Source: 'lib.rs', lines 483:0-495:1
     Visibility: public -/
 def word_stored_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -92287,7 +94908,7 @@ def word_stored_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_regen_apply_get]:
-    Source: 'lib.rs', lines 495:0-497:1
+    Source: 'lib.rs', lines 498:0-500:1
     Visibility: public -/
 def word_regen_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -92302,7 +94923,7 @@ def word_regen_apply_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state decision
 
 /-- [apeiron_word::word_regen_apply_insert]:
-    Source: 'lib.rs', lines 500:0-512:1
+    Source: 'lib.rs', lines 503:0-515:1
     Visibility: public -/
 def word_regen_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -92328,7 +94949,7 @@ def word_regen_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_schedule_is_complete]:
-    Source: 'lib.rs', lines 515:0-520:1
+    Source: 'lib.rs', lines 518:0-523:1
     Visibility: public -/
 def word_schedule_is_complete
   (loads : Array Std.Usize 256#usize) (workers : Std.Usize) : Result Bool := do
@@ -92336,37 +94957,37 @@ def word_schedule_is_complete
   table.partition.Schedule.is_complete s
 
 /-- [apeiron_word::word_coord_finish]:
-    Source: 'lib.rs', lines 525:0-527:1
+    Source: 'lib.rs', lines 528:0-530:1
     Visibility: public -/
 def word_coord_finish (h : Std.U64) : Result Std.U64 := do
   coord.finish h
 
 /-- [apeiron_word::word_coord_spread]:
-    Source: 'lib.rs', lines 533:0-535:1
+    Source: 'lib.rs', lines 536:0-538:1
     Visibility: public -/
 def word_coord_spread (x : Std.U64) : Result coord.Addr := do
   coord.spread x
 
 /-- [apeiron_word::word_coord_unspread]:
-    Source: 'lib.rs', lines 538:0-540:1
+    Source: 'lib.rs', lines 541:0-543:1
     Visibility: public -/
 def word_coord_unspread (id : Std.U64) : Result Std.U64 := do
   coord.unspread id
 
 /-- [apeiron_word::word_coord_id]:
-    Source: 'lib.rs', lines 546:0-548:1
+    Source: 'lib.rs', lines 549:0-551:1
     Visibility: public -/
 def word_coord_id (address : coord.Addr) : Result Std.U64 := do
   ok address.id
 
 /-- [apeiron_word::word_coord_place]:
-    Source: 'lib.rs', lines 554:0-556:1
+    Source: 'lib.rs', lines 557:0-559:1
     Visibility: public -/
 def word_coord_place (address : coord.Addr) : Result Std.U64 := do
   ok address.place
 
 /-- [apeiron_word::word_stored_relocate_entry]:
-    Source: 'lib.rs', lines 564:0-575:1
+    Source: 'lib.rs', lines 567:0-578:1
     Visibility: public -/
 def word_stored_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -92385,7 +95006,7 @@ def word_stored_relocate_entry
     state plan reserved entry_at
 
 /-- [apeiron_word::word_regen_relocate_entry]:
-    Source: 'lib.rs', lines 581:0-592:1
+    Source: 'lib.rs', lines 584:0-595:1
     Visibility: public -/
 def word_regen_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -92406,7 +95027,7 @@ def word_regen_relocate_entry
     entry_at
 
 /-- [apeiron_word::word_stored_relocate_all]:
-    Source: 'lib.rs', lines 600:0-610:1
+    Source: 'lib.rs', lines 603:0-613:1
     Visibility: public -/
 def word_stored_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -92424,7 +95045,7 @@ def word_stored_relocate_all
     state plan reserved
 
 /-- [apeiron_word::word_regen_relocate_all]:
-    Source: 'lib.rs', lines 615:0-625:1
+    Source: 'lib.rs', lines 618:0-628:1
     Visibility: public -/
 def word_regen_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -92444,7 +95065,7 @@ def word_regen_relocate_all
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state plan reserved
 
 /-- [apeiron_word::word_stored_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 634:0-653:1
+    Source: 'lib.rs', lines 637:0-656:1
     Visibility: public -/
 def word_stored_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -92464,7 +95085,7 @@ def word_stored_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_regen_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 659:0-678:1
+    Source: 'lib.rs', lines 662:0-681:1
     Visibility: public -/
 def word_regen_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -92488,7 +95109,7 @@ def word_regen_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_stored_publish_prepared]:
-    Source: 'lib.rs', lines 686:0-693:1
+    Source: 'lib.rs', lines 689:0-696:1
     Visibility: public -/
 def word_stored_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -92499,7 +95120,7 @@ def word_stored_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_regen_publish_prepared]:
-    Source: 'lib.rs', lines 699:0-706:1
+    Source: 'lib.rs', lines 702:0-709:1
     Visibility: public -/
 def word_regen_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -92512,7 +95133,7 @@ def word_regen_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_capacity_bound_holds]:
-    Source: 'lib.rs', lines 711:0-713:1
+    Source: 'lib.rs', lines 714:0-716:1
     Visibility: public -/
 def word_capacity_bound_holds
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
@@ -92521,40 +95142,40 @@ def word_capacity_bound_holds
   table.resources.capacity_bound_holds required_len observed_capacity
 
 /-- [apeiron_word::word_fixed_exp]:
-    Source: 'lib.rs', lines 720:0-722:1
+    Source: 'lib.rs', lines 723:0-725:1
     Visibility: public -/
 def word_fixed_exp
   (x : Std.I64) : Result (core.result.Result Std.I64 fixed_exp.ExpError) := do
   fixed_exp.fixed_exp x
 
 /-- [apeiron_word::word_act_scale]:
-    Source: 'lib.rs', lines 727:0-729:1
+    Source: 'lib.rs', lines 730:0-732:1
     Visibility: public -/
 def word_act_scale (absmax : Std.U64) : Result (Option Std.U64) := do
   pow2.act_scale absmax
 
 /-- [apeiron_word::word_f16_split]:
-    Source: 'lib.rs', lines 734:0-736:1
+    Source: 'lib.rs', lines 737:0-739:1
     Visibility: public -/
 def word_f16_split (h : Std.U16) : Result (Option (Std.I32 × Std.U32)) := do
   pow2.f16_split h
 
 /-- [apeiron_word::word_pow2_finish]:
-    Source: 'lib.rs', lines 741:0-743:1
+    Source: 'lib.rs', lines 744:0-746:1
     Visibility: public -/
 def word_pow2_finish
   (acc : Std.I64) (s : Std.U32) : Result (Option Std.I64) := do
   pow2.finish acc s
 
 /-- [apeiron_word::word_silu_fixed]:
-    Source: 'lib.rs', lines 750:0-752:1
+    Source: 'lib.rs', lines 753:0-755:1
     Visibility: public -/
 def word_silu_fixed
   (v : Std.I64) : Result (core.result.Result Std.I64 silu.SiluError) := do
   silu.silu_fixed v
 
 /-- [apeiron_word::word_rms_norm_fixed]:
-    Source: 'lib.rs', lines 760:0-765:1
+    Source: 'lib.rs', lines 763:0-768:1
     Visibility: public -/
 def word_rms_norm_fixed
   (row : Slice Std.I64) (eps_fixed : Std.I64) :
@@ -92563,7 +95184,7 @@ def word_rms_norm_fixed
   norm.rms_norm_fixed row eps_fixed
 
 /-- [apeiron_word::word_rope_rotate_fixed]:
-    Source: 'lib.rs', lines 772:0-779:1
+    Source: 'lib.rs', lines 775:0-782:1
     Visibility: public -/
 def word_rope_rotate_fixed
   (q : Slice Std.I64) (k : Slice Std.I64) (pos : Std.U32)
@@ -92574,7 +95195,7 @@ def word_rope_rotate_fixed
   rope.rope_rotate_fixed q k pos table
 
 /-- [apeiron_word::word_fixed_rsqrt]:
-    Source: 'lib.rs', lines 783:0-785:1
+    Source: 'lib.rs', lines 786:0-788:1
     Visibility: public -/
 def word_fixed_rsqrt
   (x : Std.I64) :
@@ -92583,7 +95204,7 @@ def word_fixed_rsqrt
   fixed_rsqrt.fixed_rsqrt x
 
 /-- [apeiron_word::word_fixed_sin_cos]:
-    Source: 'lib.rs', lines 789:0-791:1
+    Source: 'lib.rs', lines 792:0-794:1
     Visibility: public -/
 def word_fixed_sin_cos
   (x : Std.I64) :
@@ -92592,7 +95213,7 @@ def word_fixed_sin_cos
   fixed_trig.fixed_sin_cos x
 
 /-- [apeiron_word::word_gguf_parse_header]:
-    Source: 'lib.rs', lines 797:0-799:1
+    Source: 'lib.rs', lines 800:0-802:1
     Visibility: public -/
 def word_gguf_parse_header
   (buf : Slice Std.U8) :
@@ -92603,7 +95224,7 @@ def word_gguf_parse_header
   gguf.parse_header buf i1
 
 /-- [apeiron_word::word_q4_k_codes]:
-    Source: 'lib.rs', lines 805:0-807:1
+    Source: 'lib.rs', lines 808:0-810:1
     Visibility: public -/
 def word_q4_k_codes
   (blk : Slice Std.U8) :
@@ -92612,7 +95233,7 @@ def word_q4_k_codes
   quant.q4_k_codes blk
 
 /-- [apeiron_word::word_q6_k_codes]:
-    Source: 'lib.rs', lines 823:0-825:1
+    Source: 'lib.rs', lines 826:0-828:1
     Visibility: public -/
 def word_q6_k_codes
   (blk : Slice Std.U8) :
@@ -92621,7 +95242,7 @@ def word_q6_k_codes
   quant.q6_k_codes blk
 
 /-- [apeiron_word::word_packing_decode_block]:
-    Source: 'lib.rs', lines 842:0-847:1
+    Source: 'lib.rs', lines 845:0-850:1
     Visibility: public -/
 def word_packing_decode_block
   (p : packing.Packing) (raw : Slice Std.U8) :
@@ -92630,7 +95251,7 @@ def word_packing_decode_block
   packing.Packing.decode_block p raw
 
 /-- [apeiron_word::word_route_topk]:
-    Source: 'lib.rs', lines 853:0-855:1
+    Source: 'lib.rs', lines 856:0-858:1
     Visibility: public -/
 def word_route_topk
   (logits : Slice Std.I64) (k : Std.Usize) :
@@ -92639,7 +95260,7 @@ def word_route_topk
   moe.route_topk logits k
 
 /-- [apeiron_word::word_gate_weights]:
-    Source: 'lib.rs', lines 861:0-867:1
+    Source: 'lib.rs', lines 864:0-870:1
     Visibility: public -/
 def word_gate_weights
   (logits : Slice Std.I64) (sel : Slice Std.U32) (renorm : Bool) :
@@ -92648,7 +95269,7 @@ def word_gate_weights
   moe.gate_weights logits sel renorm
 
 /-- [apeiron_word::word_fwht_fixed]:
-    Source: 'lib.rs', lines 873:0-879:1
+    Source: 'lib.rs', lines 876:0-882:1
     Visibility: public -/
 def word_fwht_fixed
   (x : Slice Std.I64) (signs : Option (Slice Std.I8)) (block : Std.Usize) :
@@ -92657,7 +95278,7 @@ def word_fwht_fixed
   hadamard.fwht_fixed x signs block
 
 /-- [apeiron_word::word_stage_mul]:
-    Source: 'lib.rs', lines 886:0-893:1
+    Source: 'lib.rs', lines 889:0-896:1
     Visibility: public -/
 def word_stage_mul
   (x : Slice Std.I64) (span : Std.Usize) (w : cell.Cell Std.I64)
@@ -92667,7 +95288,7 @@ def word_stage_mul
   register.stage_mul x span w sigma
 
 /-- [apeiron_word::word_matvec_fixed]:
-    Source: 'lib.rs', lines 901:0-909:1
+    Source: 'lib.rs', lines 904:0-912:1
     Visibility: public -/
 def word_matvec_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (n_out : Std.Usize)
@@ -92677,7 +95298,7 @@ def word_matvec_fixed
   matvec.matvec_fixed ggml_type raw n_out n_in x
 
 /-- [apeiron_word::word_row_dot_fixed]:
-    Source: 'lib.rs', lines 916:0-918:1
+    Source: 'lib.rs', lines 919:0-921:1
     Visibility: public -/
 def word_row_dot_fixed
   (w_row : Slice Std.I64) (x : Slice Std.I64) :
@@ -92686,7 +95307,7 @@ def word_row_dot_fixed
   matvec.row_dot_fixed w_row x
 
 /-- [apeiron_word::word_lm_head_fixed]:
-    Source: 'lib.rs', lines 928:0-936:1
+    Source: 'lib.rs', lines 931:0-939:1
     Visibility: public -/
 def word_lm_head_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (vocab : Std.Usize)
@@ -92696,7 +95317,7 @@ def word_lm_head_fixed
   lm_head.lm_head_fixed ggml_type raw vocab n_embd x
 
 /-- [apeiron_word::word_kv_state_new]:
-    Source: 'lib.rs', lines 953:0-968:1
+    Source: 'lib.rs', lines 956:0-971:1
     Visibility: public -/
 def word_kv_state_new
   (n_layer : Std.Usize) (n_head : Std.Usize) (n_head_kv : Std.Usize)
@@ -92707,7 +95328,7 @@ def word_kv_state_new
     mixer.Carrier.Q32
 
 /-- [apeiron_word::word_engine_open]:
-    Source: 'lib.rs', lines 973:0-975:1
+    Source: 'lib.rs', lines 976:0-978:1
     Visibility: public -/
 def word_engine_open
   (path : Str) :
@@ -92716,7 +95337,7 @@ def word_engine_open
   loader.Engine.open path
 
 /-- [apeiron_word::word_engine_prefill_state]:
-    Source: 'lib.rs', lines 979:0-986:1
+    Source: 'lib.rs', lines 982:0-989:1
     Visibility: public -/
 def word_engine_prefill_state
   (engine : loader.Engine) (st : step.DecodeState) (tokens : Slice Std.U32)
@@ -92726,7 +95347,7 @@ def word_engine_prefill_state
   step.Engine.prefill_state engine st tokens mode
 
 /-- [apeiron_word::word_engine_next_token_state]:
-    Source: 'lib.rs', lines 990:0-997:1
+    Source: 'lib.rs', lines 993:0-1000:1
     Visibility: public -/
 def word_engine_next_token_state
   (engine : loader.Engine) (st : step.DecodeState) (token_id : Std.U32)
@@ -92736,7 +95357,7 @@ def word_engine_next_token_state
   step.Engine.next_token_state engine st token_id mode
 
 /-- [apeiron_word::word_engine_generate_speculative]:
-    Source: 'lib.rs', lines 1001:0-1008:1
+    Source: 'lib.rs', lines 1004:0-1011:1
     Visibility: public -/
 def word_engine_generate_speculative
   (engine : loader.Engine) (prompt : Slice Std.U32) (n : Std.Usize)
@@ -92747,7 +95368,7 @@ def word_engine_generate_speculative
   step.spec.Engine.generate_speculative engine prompt n draft_rows
 
 /-- [apeiron_word::word_kv_append]:
-    Source: 'lib.rs', lines 1014:0-1021:1
+    Source: 'lib.rs', lines 1017:0-1024:1
     Visibility: public -/
 def word_kv_append
   (state : attn.KvState) (layer : Std.Usize) (k_rows : Slice Std.I64)
@@ -92757,7 +95378,7 @@ def word_kv_append
   attn.KvState.append state layer k_rows v_rows
 
 /-- [apeiron_word::word_attn_head]:
-    Source: 'lib.rs', lines 1028:0-1037:1
+    Source: 'lib.rs', lines 1031:0-1040:1
     Visibility: public -/
 def word_attn_head
   (state : attn.KvState) (layer : Std.Usize) (q_head : Std.Usize)
@@ -92767,7 +95388,7 @@ def word_attn_head
   attn.KvState.attn_head state layer q_head q pos out
 
 /-- [apeiron_word::word_argmax_fixed]:
-    Source: 'lib.rs', lines 1043:0-1045:1
+    Source: 'lib.rs', lines 1046:0-1048:1
     Visibility: public -/
 def word_argmax_fixed
   (logits : Slice Std.I64) :
@@ -92776,7 +95397,7 @@ def word_argmax_fixed
   sampler.argmax_fixed logits
 
 /-- [apeiron_word::word_check_fragment]:
-    Source: 'lib.rs', lines 1069:0-1071:1
+    Source: 'lib.rs', lines 1072:0-1074:1
     Visibility: public -/
 def word_check_fragment
   (words : Slice Std.U32) :
@@ -92785,7 +95406,7 @@ def word_check_fragment
   spirv.check.check_fragment words
 
 /-- [apeiron_word::word_policy_decide]:
-    Source: 'lib.rs', lines 1087:0-1096:1
+    Source: 'lib.rs', lines 1090:0-1099:1
     Visibility: public -/
 def word_policy_decide
   (rules : Slice policy.decide.Rule) (atoms : Slice policy.decide.Atom)
@@ -92796,38 +95417,38 @@ def word_policy_decide
   policy.decide.decide rules atoms facts known action want
 
 /-- [apeiron_word::word_keccakf]:
-    Source: 'lib.rs', lines 1156:0-1158:1
+    Source: 'lib.rs', lines 1159:0-1161:1
     Visibility: public -/
 def word_keccakf
   (state : Array Std.U64 25#usize) : Result (Array Std.U64 25#usize) := do
   crypto.keccak_f1600 state
 
 /-- [apeiron_word::word_sha3_256]:
-    Source: 'lib.rs', lines 1163:0-1165:1
+    Source: 'lib.rs', lines 1166:0-1168:1
     Visibility: public -/
 def word_sha3_256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   crypto.sha3_256 msg
 
 /-- [apeiron_word::word_sha3_512]:
-    Source: 'lib.rs', lines 1168:0-1170:1
+    Source: 'lib.rs', lines 1171:0-1173:1
     Visibility: public -/
 def word_sha3_512 (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
   crypto.sha3_512 msg
 
 /-- [apeiron_word::word_sha256]:
-    Source: 'lib.rs', lines 1176:0-1178:1
+    Source: 'lib.rs', lines 1179:0-1181:1
     Visibility: public -/
 def word_sha256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   sha256.sha256 msg
 
 /-- [apeiron_word::word_sha256d]:
-    Source: 'lib.rs', lines 1184:0-1186:1
+    Source: 'lib.rs', lines 1187:0-1189:1
     Visibility: public -/
 def word_sha256d (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   sha256.sha256d msg
 
 /-- [apeiron_word::word_chacha20poly1305_encrypt]:
-    Source: 'lib.rs', lines 1199:0-1206:1
+    Source: 'lib.rs', lines 1202:0-1209:1
     Visibility: public -/
 def word_chacha20poly1305_encrypt
   (key : Array Std.U8 32#usize) (nonce : Array Std.U8 12#usize)
@@ -92837,7 +95458,7 @@ def word_chacha20poly1305_encrypt
   chacha.chacha20poly1305_encrypt key nonce aad plaintext
 
 /-- [apeiron_word::word_chacha20poly1305_decrypt]:
-    Source: 'lib.rs', lines 1214:0-1221:1
+    Source: 'lib.rs', lines 1217:0-1224:1
     Visibility: public -/
 def word_chacha20poly1305_decrypt
   (key : Array Std.U8 32#usize) (nonce : Array Std.U8 12#usize)
@@ -92847,7 +95468,7 @@ def word_chacha20poly1305_decrypt
   chacha.chacha20poly1305_decrypt key nonce aad ciphertext_and_tag
 
 /-- [apeiron_word::word_aes128_encrypt_block]:
-    Source: 'lib.rs', lines 1234:0-1239:1
+    Source: 'lib.rs', lines 1237:0-1242:1
     Visibility: public -/
 def word_aes128_encrypt_block
   (key : Array Std.U8 16#usize) (block : Array Std.U8 16#usize) :
@@ -92856,7 +95477,7 @@ def word_aes128_encrypt_block
   aes.aes128_encrypt_block key block
 
 /-- [apeiron_word::word_aes128_decrypt_block]:
-    Source: 'lib.rs', lines 1247:0-1252:1
+    Source: 'lib.rs', lines 1250:0-1255:1
     Visibility: public -/
 def word_aes128_decrypt_block
   (key : Array Std.U8 16#usize) (block : Array Std.U8 16#usize) :
@@ -92865,7 +95486,7 @@ def word_aes128_decrypt_block
   aes.aes128_decrypt_block key block
 
 /-- [apeiron_word::word_hashtrinity_new]:
-    Source: 'lib.rs', lines 1292:0-1294:1
+    Source: 'lib.rs', lines 1295:0-1297:1
     Visibility: public -/
 def word_hashtrinity_new
   :
@@ -92876,7 +95497,7 @@ def word_hashtrinity_new
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
 
 /-- [apeiron_word::word_hashtrinity_with_capacity]:
-    Source: 'lib.rs', lines 1297:0-1299:1
+    Source: 'lib.rs', lines 1300:0-1302:1
     Visibility: public -/
 def word_hashtrinity_with_capacity
   (cap : Std.Usize) :
@@ -92887,7 +95508,7 @@ def word_hashtrinity_with_capacity
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord cap
 
 /-- [apeiron_word::word_hashtrinity_get]:
-    Source: 'lib.rs', lines 1302:0-1307:1
+    Source: 'lib.rs', lines 1305:0-1310:1
     Visibility: public -/
 def word_hashtrinity_get
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
@@ -92904,7 +95525,7 @@ def word_hashtrinity_get
   | some _ => ok o
 
 /-- [apeiron_word::word_hashtrinity_insert]:
-    Source: 'lib.rs', lines 1311:0-1318:1
+    Source: 'lib.rs', lines 1314:0-1321:1
     Visibility: public -/
 def word_hashtrinity_insert
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
@@ -92919,7 +95540,7 @@ def word_hashtrinity_insert
     value
 
 /-- [apeiron_word::word_coordmap_coordinate_with_capacity]:
-    Source: 'lib.rs', lines 1321:0-1323:1
+    Source: 'lib.rs', lines 1324:0-1326:1
     Visibility: public -/
 def word_coordmap_coordinate_with_capacity
   (cap : Std.Usize) :
@@ -92930,7 +95551,7 @@ def word_coordmap_coordinate_with_capacity
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv core.cmp.EqU64 cap
 
 /-- [apeiron_word::word_coordmap_get]:
-    Source: 'lib.rs', lines 1326:0-1331:1
+    Source: 'lib.rs', lines 1329:0-1334:1
     Visibility: public -/
 def word_coordmap_get
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Regen
@@ -92948,7 +95569,7 @@ def word_coordmap_get
   | some _ => ok o
 
 /-- [apeiron_word::word_coordmap_insert]:
-    Source: 'lib.rs', lines 1334:0-1341:1
+    Source: 'lib.rs', lines 1337:0-1344:1
     Visibility: public -/
 def word_coordmap_insert
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Regen
@@ -92963,21 +95584,21 @@ def word_coordmap_insert
     value
 
 /-- [apeiron_word::word_count_home]:
-    Source: 'lib.rs', lines 1347:0-1349:1
+    Source: 'lib.rs', lines 1350:0-1352:1
     Visibility: public -/
 def word_count_home (c : Std.U64) : Result Std.Usize := do
   hashtrinity.freq.FreqMapKI64.count_home
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord c
 
 /-- [apeiron_word::word_count_admit]:
-    Source: 'lib.rs', lines 1352:0-1354:1
+    Source: 'lib.rs', lines 1355:0-1357:1
     Visibility: public -/
 def word_count_admit (n : Std.Usize) (count_max : Std.U64) : Result Bool := do
   hashtrinity.freq.FreqMapKI64.count_admit
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord n count_max
 
 /-- [apeiron_word::word_count_histogram]:
-    Source: 'lib.rs', lines 1357:0-1359:1
+    Source: 'lib.rs', lines 1360:0-1362:1
     Visibility: public -/
 def word_count_histogram
   (keys : Slice Std.U64) (homes : Slice Std.U8) (hist : Slice Std.U32) :
@@ -92987,7 +95608,7 @@ def word_count_histogram
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord keys homes hist
 
 /-- [apeiron_word::word_count_offsets]:
-    Source: 'lib.rs', lines 1362:0-1370:1
+    Source: 'lib.rs', lines 1365:0-1373:1
     Visibility: public -/
 def word_count_offsets
   (counts : Slice Std.U32) (w : Std.Usize) (n : Std.Usize)
@@ -92998,7 +95619,7 @@ def word_count_offsets
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord counts w n bstart woff
 
 /-- [apeiron_word::word_count_slot]:
-    Source: 'lib.rs', lines 1373:0-1375:1
+    Source: 'lib.rs', lines 1376:0-1378:1
     Visibility: public -/
 def word_count_slot
   (off : Slice Std.Usize) (h : Std.U8) :
@@ -93008,7 +95629,7 @@ def word_count_slot
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord off h
 
 /-- [apeiron_word::word_count_aggregate]:
-    Source: 'lib.rs', lines 1378:0-1380:1
+    Source: 'lib.rs', lines 1381:0-1383:1
     Visibility: public -/
 def word_count_aggregate
   (routed : Slice Std.U64) (lo : Std.Usize) (hi : Std.Usize) :
@@ -93018,7 +95639,7 @@ def word_count_aggregate
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord routed lo hi
 
 /-- [apeiron_word::word_gram_fold_i8]:
-    Source: 'lib.rs', lines 1390:0-1397:1
+    Source: 'lib.rs', lines 1393:0-1400:1
     Visibility: public -/
 def word_gram_fold_i8
   (g : alloc.vec.Vec Std.I64) (x : Slice Std.I8) (rows : Std.Usize)
@@ -93028,7 +95649,7 @@ def word_gram_fold_i8
   gram.gram_fold_i8 g x rows d
 
 /-- [apeiron_word::word_sd_binary_block]:
-    Source: 'lib.rs', lines 1409:0-1411:1
+    Source: 'lib.rs', lines 1412:0-1414:1
     Visibility: public -/
 def word_sd_binary_block
   (w : Slice Std.I64) (a : Std.I64) (s : Slice Std.I8) :
@@ -93037,50 +95658,50 @@ def word_sd_binary_block
   sigma_delta.sd_binary_block w a s
 
 /-- [apeiron_word::word_onebit_total_bits]:
-    Source: 'lib.rs', lines 1421:0-1423:1
+    Source: 'lib.rs', lines 1424:0-1426:1
     Visibility: public -/
 def word_onebit_total_bits
   (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.total_bits c
 
 /-- [apeiron_word::word_onebit_bits_sign]:
-    Source: 'lib.rs', lines 1426:0-1428:1
+    Source: 'lib.rs', lines 1429:0-1431:1
     Visibility: public -/
 def word_onebit_bits_sign (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_sign c
 
 /-- [apeiron_word::word_onebit_bits_r]:
-    Source: 'lib.rs', lines 1431:0-1433:1
+    Source: 'lib.rs', lines 1434:0-1436:1
     Visibility: public -/
 def word_onebit_bits_r (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_r c
 
 /-- [apeiron_word::word_onebit_bits_c]:
-    Source: 'lib.rs', lines 1436:0-1438:1
+    Source: 'lib.rs', lines 1439:0-1441:1
     Visibility: public -/
 def word_onebit_bits_c (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_c c
 
 /-- [apeiron_word::word_onebit_bits_d]:
-    Source: 'lib.rs', lines 1441:0-1443:1
+    Source: 'lib.rs', lines 1444:0-1446:1
     Visibility: public -/
 def word_onebit_bits_d (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_d c
 
 /-- [apeiron_word::word_onebit_bits_corr]:
-    Source: 'lib.rs', lines 1446:0-1448:1
+    Source: 'lib.rs', lines 1449:0-1451:1
     Visibility: public -/
 def word_onebit_bits_corr (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_corr c
 
 /-- [apeiron_word::word_onebit_params]:
-    Source: 'lib.rs', lines 1451:0-1453:1
+    Source: 'lib.rs', lines 1454:0-1456:1
     Visibility: public -/
 def word_onebit_params (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.params c
 
 /-- [apeiron_word::word_onebit_index_bits]:
-    Source: 'lib.rs', lines 1456:0-1458:1
+    Source: 'lib.rs', lines 1459:0-1461:1
     Visibility: public -/
 def word_onebit_index_bits
   (c : onebit_bits.Cfg) : Result (Option Std.U64) := do

@@ -155,7 +155,7 @@ const KERNEL_MAX_BLOCKS: usize = 512;
 /// # Complexity
 ///
 /// `O(d²)` compares and `O(1)` extra space.
-fn gram_accumulator_clear(g: &[i64], rows: usize) -> bool {
+pub(crate) fn gram_accumulator_clear(g: &[i64], rows: usize) -> bool {
     let Some(slack) = u64::try_from(rows)
         .ok()
         .and_then(|r| r.checked_mul(I8_PRODUCT_MAX))
@@ -243,21 +243,33 @@ fn gram_columns(x: &[i8], rows: usize, d: usize) -> Option<Vec<Vec<i64>>> {
 /// # Complexity
 ///
 /// `O(d²)` checked `i64` additions and `O(1)` extra words.
-fn gram_accumulate(mut g: Vec<i64>, cols: &[Vec<i64>], d: usize) -> Result<Vec<i64>, GramError> {
+pub(crate) fn gram_accumulate(
+    mut g: Vec<i64>,
+    cols: &[Vec<i64>],
+    d: usize,
+) -> Result<Vec<i64>, GramError> {
     debug_assert_eq!(cols.len(), d, "one kernel column per Gram row");
+    // Flag loops: a `return` inside these nested sweeps has no fixed point in the pinned
+    // Charon/Aeneas fragment, so the first refusal is carried in `err`, both loop conditions are
+    // guarded by `err.is_none()`, and one `return` follows the outer sweep. The accumulation order
+    // and the first-refusal order are unchanged.
+    let mut err: Option<GramError> = None;
     let mut j = 0usize;
-    while j < d {
+    while j < d && err.is_none() {
         let col = &cols[j];
         let mut i = 0usize;
-        while i < d {
+        while i < d && err.is_none() {
             let idx = i * d + j;
-            let Some(sum) = g[idx].checked_add(col[i]) else {
-                return Err(GramError::Overflow);
-            };
-            g[idx] = sum;
+            match g[idx].checked_add(col[i]) {
+                Some(sum) => g[idx] = sum,
+                None => err = Some(GramError::Overflow),
+            }
             i += 1;
         }
         j += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(g)
 }

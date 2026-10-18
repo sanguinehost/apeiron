@@ -280,9 +280,12 @@ pub use crate::numeric::fixed_ln::div_rne;
 #[must_use]
 pub(crate) fn div_rne_pos(num: i128, den: i128) -> i128 {
     let (q, r) = (num / den, num % den);
+    // `sign(r)` is written out: the pinned Aeneas models `I128::abs` but not `I128::signum`, and
+    // both `r.signum()` arms below have `r != 0` by the guard.
+    let step = if r > 0 { 1 } else { -1 };
     q + match (2 * r.abs()).cmp(&den) {
-        Ordering::Greater => r.signum(),
-        Ordering::Equal if q % 2 != 0 => r.signum(),
+        Ordering::Greater => step,
+        Ordering::Equal if q % 2 != 0 => step,
         _ => 0,
     }
 }

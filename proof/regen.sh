@@ -195,6 +195,8 @@ $REPO_DIR/src/learn/onebit_bits.rs
 $REPO_DIR/src/learn/grad/dense.rs
 $REPO_DIR/src/learn/grad/attn.rs
 $REPO_DIR/src/learn/grad/head.rs
+$REPO_DIR/src/learn/grad/model.rs
+$REPO_DIR/src/learn/gguf.rs
 $REPO_DIR/src/learn/code/e8.rs
 $REPO_DIR/src/learn/solve/q32.rs
 $REPO_DIR/src/learn/solve/syrk.rs
@@ -204,6 +206,7 @@ $REPO_DIR/src/learn/solve/inv.rs
 $REPO_DIR/src/learn/solve/eig.rs
 $EXTRACT_DIR/learn_port.rs
 $EXTRACT_DIR/solve_port.rs
+$EXTRACT_DIR/grad_solve_port.rs
 $EXTRACT_DIR/hashtrinity_port.rs
 $REPO_DIR/src/map/hashtrinity/side.rs
 $REPO_DIR/src/map/hashtrinity/overflow.rs
@@ -411,6 +414,25 @@ run_extract() {
         --start-from crate::solve_port::word_solve_q32_bfp_from_i128 \
         --start-from crate::solve_port::word_solve_q32_spd_from_q32 \
         --start-from crate::solve_port::word_solve_q32_round_f16 \
+        --start-from crate::grad_solve_port::word_learn_gguf_write_header \
+        --start-from crate::grad_solve_port::word_learn_gguf_write_file \
+        --start-from crate::grad_solve_port::word_learn_gram_accumulator_clear \
+        --start-from crate::grad_solve_port::word_learn_gram_accumulate \
+        --start-from crate::grad_solve_port::word_onebit_qwen25_05b_nb \
+        --start-from crate::grad_solve_port::word_solve_q32_div_rne_pos \
+        --start-from crate::grad_solve_port::word_solve_q32_spd_to_q32 \
+        --start-from crate::grad_solve_port::word_model_config_q_out \
+        --start-from crate::grad_solve_port::word_model_config_kv_out \
+        --start-from crate::grad_solve_port::word_model_config_checked \
+        --start-from crate::grad_solve_port::word_model_expect \
+        --start-from crate::grad_solve_port::word_model_add_flat \
+        --start-from crate::grad_solve_port::word_model_col_sum \
+        --start-from crate::grad_solve_port::word_model_rmsnorm_rows \
+        --start-from crate::grad_solve_port::word_model_rmsnorm_bwd_rows \
+        --start-from crate::grad_solve_port::word_model_rope_rows_fwd \
+        --start-from crate::grad_solve_port::word_model_rope_rows_bwd \
+        --start-from crate::grad_solve_port::word_model_add_bias \
+        --start-from crate::grad_solve_port::word_model_embedding_grad \
         --start-from crate::hashtrinity_port::word_seed_new \
         --start-from crate::hashtrinity_port::word_seed_fold \
         --start-from crate::hashtrinity_port::word_seed_unfold \

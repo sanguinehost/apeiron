@@ -106,6 +106,9 @@ pub mod engine {
         moe, norm, par, rope, sampler, silu, step, trace, value,
     };
     pub use super::rope::{RopeError, RopeTable};
+    /// `src/learn/grad/model.rs` names `crate::engine::dequant_row_fixed`, the real crate's
+    /// re-export; mirror it over the extracted `dequant` module.
+    pub use super::dequant::dequant_row_fixed;
 
     /// The real `src/engine/num/` and `src/engine/ops/` parents, mirrored over the crate-root
     /// modules so the absolute `crate::engine::{num,ops}::*` paths in the mirrored files resolve.
@@ -1468,6 +1471,11 @@ pub mod solve_port;
 // only the monomorphic `word_*` roots, so no body is translated twice.
 #[path = "hashtrinity_port.rs"]
 pub mod hashtrinity_port;
+
+// The GGUF writer and the serial solve/Gram cores (`src/learn/{gguf,gram,grad/model}` and the
+// `solve_port` copies); `grad_solve_port.rs` roots the concrete `word_*` entry points.
+#[path = "grad_solve_port.rs"]
+pub mod grad_solve_port;
 
 /// Mirror of `crate::learn::solve` for this extraction unit: `src/learn/grad/dense.rs` names
 /// `crate::learn::solve::q32::narrow`, which resolves to the `solve_port` copy of `q32`.

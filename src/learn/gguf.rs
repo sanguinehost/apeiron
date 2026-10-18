@@ -18,6 +18,12 @@
 
 use crate::format::gguf::{GVal, GgufError, GgufHeader, DEFAULT_ALIGNMENT, GGUF_MAGIC};
 
+/// Bytes of the `general.alignment` key and its length; matched in a dedicated pass so the
+/// metadata sweeps above carry no second loop (the extractor's "could not match the contexts"
+/// shape is a second loop under one index).
+const ALIGN_BYTES: [u8; 17] = *b"general.alignment";
+const ALIGN_LEN: usize = 17;
+
 /// Metadata type ids, as written on disk and as the reader tags [`GVal`].
 const TYPE_UINT8: u32 = 0;
 const TYPE_INT8: u32 = 1;
@@ -45,47 +51,60 @@ fn write_string(out: &mut Vec<u8>, s: &[u8]) -> Result<(), GgufError> {
 
 /// Append one integer payload in the width and signedness its metadata type id declares.
 ///
-/// The value is range-checked with `try_from` for its declared type; a value outside that type
-/// refuses with [`GgufError::LengthOverflow`] rather than wrapping. A type id that is not one of the
-/// eight integer ids refuses with [`GgufError::UnknownType`].
+/// The value is range-checked against its declared type's bounds and then cast; a value outside
+/// that range refuses with [`GgufError::LengthOverflow`] rather than wrapping. A type id that is
+/// not one of the eight integer ids refuses with [`GgufError::UnknownType`].
 fn write_int(out: &mut Vec<u8>, t: u32, x: i128) -> Result<(), GgufError> {
+    // The bound tests are written out and the payload follows the `as` cast: the pinned Aeneas
+    // models `try_from` only for the wide-to-word casts and no `signum`, so the explicit comparison
+    // is the form the fragment accepts. The refused values and the emitted bytes are unchanged.
     match t {
-        TYPE_UINT8 => out.push(u8::try_from(x).map_err(|_| GgufError::LengthOverflow)?),
-        TYPE_INT8 => out.extend_from_slice(
-            &i8::try_from(x)
-                .map_err(|_| GgufError::LengthOverflow)?
-                .to_le_bytes(),
-        ),
-        TYPE_UINT16 => out.extend_from_slice(
-            &u16::try_from(x)
-                .map_err(|_| GgufError::LengthOverflow)?
-                .to_le_bytes(),
-        ),
-        TYPE_INT16 => out.extend_from_slice(
-            &i16::try_from(x)
-                .map_err(|_| GgufError::LengthOverflow)?
-                .to_le_bytes(),
-        ),
-        TYPE_UINT32 => out.extend_from_slice(
-            &u32::try_from(x)
-                .map_err(|_| GgufError::LengthOverflow)?
-                .to_le_bytes(),
-        ),
-        TYPE_INT32 => out.extend_from_slice(
-            &i32::try_from(x)
-                .map_err(|_| GgufError::LengthOverflow)?
-                .to_le_bytes(),
-        ),
-        TYPE_UINT64 => out.extend_from_slice(
-            &u64::try_from(x)
-                .map_err(|_| GgufError::LengthOverflow)?
-                .to_le_bytes(),
-        ),
-        TYPE_INT64 => out.extend_from_slice(
-            &i64::try_from(x)
-                .map_err(|_| GgufError::LengthOverflow)?
-                .to_le_bytes(),
-        ),
+        TYPE_UINT8 => {
+            if x < 0 || x > 255 {
+                return Err(GgufError::LengthOverflow);
+            }
+            out.push(x as u8);
+        }
+        TYPE_INT8 => {
+            if x < -128 || x > 127 {
+                return Err(GgufError::LengthOverflow);
+            }
+            out.extend_from_slice(&(x as i8).to_le_bytes());
+        }
+        TYPE_UINT16 => {
+            if x < 0 || x > 65_535 {
+                return Err(GgufError::LengthOverflow);
+            }
+            out.extend_from_slice(&(x as u16).to_le_bytes());
+        }
+        TYPE_INT16 => {
+            if x < -32_768 || x > 32_767 {
+                return Err(GgufError::LengthOverflow);
+            }
+            out.extend_from_slice(&(x as i16).to_le_bytes());
+        }
+        TYPE_UINT32 => {
+            if x < 0 || x > 4_294_967_295 {
+                return Err(GgufError::LengthOverflow);
+            }
+            out.extend_from_slice(&(x as u32).to_le_bytes());
+        }
+        TYPE_INT32 => {
+            if x < -2_147_483_648 || x > 2_147_483_647 {
+                return Err(GgufError::LengthOverflow);
+            }
+            out.extend_from_slice(&(x as i32).to_le_bytes());
+        }
+        TYPE_UINT64 => {
+            if x < 0 || x > 18_446_744_073_709_551_615 {
+                return Err(GgufError::LengthOverflow);
+            }
+            out.extend_from_slice(&(x as u64).to_le_bytes());
+        }
+        TYPE_INT64 => match i64::try_from(x) {
+            Ok(v) => out.extend_from_slice(&v.to_le_bytes()),
+            Err(_) => return Err(GgufError::LengthOverflow),
+        },
         _ => return Err(GgufError::UnknownType(t)),
     }
     Ok(())
@@ -107,8 +126,20 @@ fn write_payload(out: &mut Vec<u8>, v: &GVal) -> Result<(), GgufError> {
             out.extend_from_slice(&et.to_le_bytes());
             let n = u64::try_from(elems.len()).map_err(|_| GgufError::LengthOverflow)?;
             out.extend_from_slice(&n.to_le_bytes());
-            for e in elems {
-                write_payload(out, e)?;
+            // Flag loop: a `?` inside a loop has no fixed point in the pinned Charon/Aeneas
+            // fragment, so the first refusal is carried in `err` and a single `return` follows
+            // the loop. The write order is the element order, unchanged.
+            let mut err: Option<GgufError> = None;
+            let mut i = 0usize;
+            while i < elems.len() && err.is_none() {
+                match write_payload(out, &elems[i]) {
+                    Ok(()) => {}
+                    Err(e) => err = Some(e),
+                }
+                i += 1;
+            }
+            if let Some(e) = err {
+                return Err(e);
             }
         }
     }
@@ -158,33 +189,79 @@ pub fn write_header(header: &GgufHeader) -> Result<Vec<u8>, GgufError> {
     out.extend_from_slice(&n_tensors.to_le_bytes());
     out.extend_from_slice(&n_kv.to_le_bytes());
 
-    for (key, val) in &header.kv {
-        write_string(&mut out, key)?;
-        write_value(&mut out, val)?;
+    // Flag loops: a `?` inside a loop has no fixed point in the pinned Charon/Aeneas fragment, so
+    // each sweep carries its first refusal in `err`, every loop condition is guarded by
+    // `err.is_none()`, and one `return` follows the sweeps. The byte order and the first-refusal
+    // order are the sequential order, unchanged.
+    let mut err: Option<GgufError> = None;
+    let mut k = 0usize;
+    while k < header.kv.len() && err.is_none() {
+        let (key, val) = &header.kv[k];
+        match write_string(&mut out, key) {
+            Ok(()) => match write_value(&mut out, val) {
+                Ok(()) => {}
+                Err(e) => err = Some(e),
+            },
+            Err(e) => err = Some(e),
+        }
+        k += 1;
     }
 
-    for t in &header.tensors {
+    let mut t = 0usize;
+    while t < header.tensors.len() && err.is_none() {
+        let td = &header.tensors[t];
         // Checked dimension product: an overflowing `u64` product refuses here.
-        let _ = t.n_elements()?;
-        write_string(&mut out, &t.name)?;
-        let nd = u32::try_from(t.dims.len()).map_err(|_| GgufError::LengthOverflow)?;
-        out.extend_from_slice(&nd.to_le_bytes());
-        for &d in &t.dims {
-            out.extend_from_slice(&d.to_le_bytes());
+        match td.n_elements() {
+            Err(e) => err = Some(e),
+            Ok(_) => match write_string(&mut out, &td.name) {
+                Err(e) => err = Some(e),
+                Ok(()) => match u32::try_from(td.dims.len()) {
+                    Err(_) => err = Some(GgufError::LengthOverflow),
+                    Ok(nd) => {
+                        out.extend_from_slice(&nd.to_le_bytes());
+                        let mut d = 0usize;
+                        while d < td.dims.len() {
+                            out.extend_from_slice(&td.dims[d].to_le_bytes());
+                            d += 1;
+                        }
+                        out.extend_from_slice(&td.ggml_type.to_le_bytes());
+                        out.extend_from_slice(&td.offset.to_le_bytes());
+                    }
+                },
+            },
         }
-        out.extend_from_slice(&t.ggml_type.to_le_bytes());
-        out.extend_from_slice(&t.offset.to_le_bytes());
+        t += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
 
     // Alignment padding, the same quotient/remainder ceiling the reader uses (no `div_ceil`, which
     // is an unmodeled external in the extraction). Every step is checked.
     let mut align = DEFAULT_ALIGNMENT;
-    for (key, val) in &header.kv {
-        if key.as_slice() == b"general.alignment" {
-            if let Some(a) = val.as_i64().filter(|&a| a > 0) {
-                align = u64::try_from(a).map_err(|_| GgufError::LengthOverflow)?;
+    let mut ai = 0usize;
+    while ai < header.kv.len() {
+        if header.kv[ai].0.len() == ALIGN_LEN {
+            let mut j = 0usize;
+            let mut same = true;
+            while j < ALIGN_LEN {
+                if header.kv[ai].0[j] != ALIGN_BYTES[j] {
+                    same = false;
+                }
+                j += 1;
+            }
+            if same {
+                match header.kv[ai].1.as_i64() {
+                    Some(a) => {
+                        if a > 0 {
+                            align = a as u64;
+                        }
+                    }
+                    None => {}
+                }
             }
         }
+        ai += 1;
     }
     let header_end = u64::try_from(out.len()).map_err(|_| GgufError::LengthOverflow)?;
     let whole = header_end / align;
@@ -226,20 +303,32 @@ pub fn write_file(header: &GgufHeader, data: &[u8]) -> Result<Vec<u8>, GgufError
     let mut out = write_header(header)?;
     let data_len = u64::try_from(data.len()).map_err(|_| GgufError::LengthOverflow)?;
 
+    // Flag loop: the first refusal is carried in `err` so no `?` or `return` sits inside the
+    // sweep; the refusal order (n_bytes, offset overflow, out of bounds) is unchanged.
+    let mut err: Option<GgufError> = None;
     let mut i = 0usize;
-    while i < header.tensors.len() {
+    while i < header.tensors.len() && err.is_none() {
         let t = &header.tensors[i];
-        if let Some(n) = t.n_bytes()? {
-            let end = t.offset.checked_add(n).ok_or(GgufError::LengthOverflow)?;
-            if end > data_len {
-                return Err(GgufError::OutOfBounds {
-                    at: t.offset,
-                    n,
-                    file_len: data_len,
-                });
-            }
+        match t.n_bytes() {
+            Err(e) => err = Some(e),
+            Ok(None) => {}
+            Ok(Some(n)) => match t.offset.checked_add(n) {
+                None => err = Some(GgufError::LengthOverflow),
+                Some(end) => {
+                    if end > data_len {
+                        err = Some(GgufError::OutOfBounds {
+                            at: t.offset,
+                            n,
+                            file_len: data_len,
+                        });
+                    }
+                }
+            },
         }
         i += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
 
     let _total = out
