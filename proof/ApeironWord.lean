@@ -485,14 +485,6 @@ axiom core.result.Result.and_then
   (core.result.Result U E)) :
   core.result.Result T E → F → Result (core.result.Result U E)
 
-/-- [core::result::{core::result::Result<T, E>}::unwrap_or]:
-    Source: '/rustc/library/core/src/result.rs', lines 1589:4-1592:28
-    Name pattern: [core::result::{core::result::Result<@T, @E>}::unwrap_or]
-    Visibility: public -/
-@[rust_fun "core::result::{core::result::Result<@T, @E>}::unwrap_or"]
-axiom core.result.Result.unwrap_or
-  {T : Type} {E : Type} : core.result.Result T E → T → Result T
-
 /-- Trait implementation: [core::slice::cmp::{impl core::cmp::PartialEq<[U]> for [T]}]
     Source: '/rustc/library/core/src/slice/cmp.rs', lines 14:0-16:28
     Name pattern: [core::cmp::PartialEq<[@T], [@U]>] -/
@@ -563,30 +555,6 @@ axiom core.slice.raw.from_ref {T : Type} : T → Result (Slice T)
     Visibility: public -/
 @[rust_fun "core::str::{str}::as_bytes"]
 axiom core.str.Str.as_bytes : Str → Result (Slice Std.U8)
-
-/-- [std::sync::once::Once]
-    Source: '/rustc/library/std/src/sync/once.rs', lines 35:0-35:15
-    Name pattern: [std::sync::once::Once]
-    Visibility: public -/
-@[rust_type "std::sync::once::Once"]
-axiom std.sync.once.Once : Type
-
-/-- [std::sync::once::{std::sync::once::Once}::new]:
-    Source: '/rustc/library/std/src/sync/once.rs', lines 83:4-83:30
-    Name pattern: [std::sync::once::{std::sync::once::Once}::new]
-    Visibility: public -/
-@[rust_fun "std::sync::once::{std::sync::once::Once}::new"]
-axiom std.sync.once.Once.new : Result std.sync.once.Once
-
-/-- [std::sync::once::{std::sync::once::Once}::call_once]:
-    Source: '/rustc/library/std/src/sync/once.rs', lines 156:4-158:20
-    Name pattern: [std::sync::once::{std::sync::once::Once}::call_once]
-    Visibility: public -/
-@[rust_fun "std::sync::once::{std::sync::once::Once}::call_once"]
-axiom std.sync.once.Once.call_once
-  {F : Type} (coreopsfunctionFnOnceFTupleTupleInst : core.ops.function.FnOnce F
-  Unit Unit) :
-  std.sync.once.Once → F → Result Unit
 
 /-- [std::sync::once_lock::OnceLock]
     Source: '/rustc/library/std/src/sync/once_lock.rs', lines 109:0-109:22
@@ -979,28 +947,6 @@ def alloc.vec.Vec.Insts.CoreDefaultDefault (T : Type) : core.default.Default
   (alloc.vec.Vec T) := {
   default := alloc.vec.Vec.Insts.CoreDefaultDefault.default T
 }
-
-/-- [libc#1::unix::linux_like::linux::gnu::M_TRIM_THRESHOLD]
-    Source: '/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189/src/unix/linux_like/linux/gnu/mod.rs', lines 882:0-882:33
-    Name pattern: [libc#1::unix::linux_like::linux::gnu::M_TRIM_THRESHOLD]
-    Visibility: public -/
-@[rust_const "libc#1::unix::linux_like::linux::gnu::M_TRIM_THRESHOLD"]
-axiom libc_1.unix.linux_like.linux.gnu.M_TRIM_THRESHOLD : Result Std.I32
-
-/-- [libc#1::unix::linux_like::linux::gnu::M_MMAP_THRESHOLD]
-    Source: '/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189/src/unix/linux_like/linux/gnu/mod.rs', lines 884:0-884:33
-    Name pattern: [libc#1::unix::linux_like::linux::gnu::M_MMAP_THRESHOLD]
-    Visibility: public -/
-@[rust_const "libc#1::unix::linux_like::linux::gnu::M_MMAP_THRESHOLD"]
-axiom libc_1.unix.linux_like.linux.gnu.M_MMAP_THRESHOLD : Result Std.I32
-
-/-- [libc#1::unix::linux_like::linux::gnu::mallopt]:
-    Source: '/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189/src/unix/linux_like/linux/gnu/mod.rs', lines 1060:4-1060:56
-    Name pattern: [libc#1::unix::linux_like::linux::gnu::mallopt]
-    Visibility: public -/
-@[rust_fun "libc#1::unix::linux_like::linux::gnu::mallopt"]
-axiom libc_1.unix.linux_like.linux.gnu.mallopt
-  : Std.I32 → Std.I32 → Result Std.I32
 
 
 /-- [std_detect::detect::arch::x86::__is_feature_detected::avxvnni]:
@@ -32938,43 +32884,10 @@ def loader.build_table
     | some e => ok (core.result.Result.Err e)
   | some e => ok (core.result.Result.Err e)
 
-/-- [apeiron_word::loader::hold_heap::{closure}]
-    Source: '../../src/engine/loader.rs', lines 883:23-890:9 -/
-@[reducible]
-def loader.hold_heap.closure := Unit
-
-/-- [apeiron_word::loader::hold_heap::{impl core::ops::function::FnOnce<(), ()> for apeiron_word::loader::hold_heap::{closure}}::call_once]:
-    Source: '../../src/engine/loader.rs', lines 883:23-890:9 -/
-def loader.hold_heap.closure.Insts.CoreOpsFunctionFnOnceTupleTuple.call_once
-  (c : loader.hold_heap.closure) (_ : Unit) : Result Unit := do
-  let i ← 64#i32 <<< 20#i32
-  let i1 ← libc_1.unix.linux_like.linux.gnu.M_MMAP_THRESHOLD
-  let _ ← libc_1.unix.linux_like.linux.gnu.mallopt i1 i
-  let i2 ← 1#i32 <<< 30#i32
-  let i3 ← libc_1.unix.linux_like.linux.gnu.M_TRIM_THRESHOLD
-  let _ ← libc_1.unix.linux_like.linux.gnu.mallopt i3 i2
-  ok ()
-
-/-- Trait implementation: [apeiron_word::loader::hold_heap::{impl core::ops::function::FnOnce<(), ()> for apeiron_word::loader::hold_heap::{closure}}]
-    Source: '../../src/engine/loader.rs', lines 883:23-890:9 -/
-@[reducible]
-def loader.hold_heap.closure.Insts.CoreOpsFunctionFnOnceTupleTuple :
-  core.ops.function.FnOnce loader.hold_heap.closure Unit Unit := {
-  call_once :=
-    loader.hold_heap.closure.Insts.CoreOpsFunctionFnOnceTupleTuple.call_once
-}
-
-/-- [apeiron_word::loader::hold_heap::ONCE]
-    Source: '../../src/engine/loader.rs', lines 882:8-882:62 -/
-@[global_simps, irreducible]
-def loader.hold_heap.ONCE : Result std.sync.once.Once := std.sync.once.Once.new
-
 /-- [apeiron_word::loader::hold_heap]:
-    Source: '../../src/engine/loader.rs', lines 879:0-892:1 -/
+    Source: '../../src/engine/loader.rs', lines 884:0-897:1 -/
 def loader.hold_heap : Result Unit := do
-  let o ← loader.hold_heap.ONCE
-  std.sync.once.Once.call_once
-    loader.hold_heap.closure.Insts.CoreOpsFunctionFnOnceTupleTuple o ()
+  ok ()
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Gguf}::open::{closure}]
     Source: '../../src/format/gguf.rs', lines 731:53-731:94 -/
@@ -34551,12 +34464,12 @@ def step.bytes_eq (a : Slice Std.U8) (b : Slice Std.U8) : Result Bool := do
   else ok false
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::payload::{closure#1}]
-    Source: '../../src/engine/loader.rs', lines 1305:48-1305:79 -/
+    Source: '../../src/engine/loader.rs', lines 1310:48-1310:79 -/
 @[reducible]
 def loader.Engine.payload.closure_1 := Unit
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::payload::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::payload::{closure#1}}::call_once]:
-    Source: '../../src/engine/loader.rs', lines 1305:48-1305:79 -/
+    Source: '../../src/engine/loader.rs', lines 1310:48-1310:79 -/
 def
   loader.Engine.payload.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorEngineError.call_once
   (c : loader.Engine.payload.closure_1)
@@ -34566,7 +34479,7 @@ def
   ok error.EngineError.LengthOverflow
 
 /-- Trait implementation: [apeiron_word::loader::{apeiron_word::loader::Engine}::payload::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::payload::{closure#1}}]
-    Source: '../../src/engine/loader.rs', lines 1305:48-1305:79 -/
+    Source: '../../src/engine/loader.rs', lines 1310:48-1310:79 -/
 @[reducible]
 def
   loader.Engine.payload.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorEngineError
@@ -34577,12 +34490,12 @@ def
 }
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::payload::{closure}]
-    Source: '../../src/engine/loader.rs', lines 1304:48-1304:79 -/
+    Source: '../../src/engine/loader.rs', lines 1309:48-1309:79 -/
 @[reducible]
 def loader.Engine.payload.closure := Unit
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::payload::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::payload::{closure}}::call_once]:
-    Source: '../../src/engine/loader.rs', lines 1304:48-1304:79 -/
+    Source: '../../src/engine/loader.rs', lines 1309:48-1309:79 -/
 def
   loader.Engine.payload.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorEngineError.call_once
   (c : loader.Engine.payload.closure)
@@ -34592,7 +34505,7 @@ def
   ok error.EngineError.LengthOverflow
 
 /-- Trait implementation: [apeiron_word::loader::{apeiron_word::loader::Engine}::payload::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::payload::{closure}}]
-    Source: '../../src/engine/loader.rs', lines 1304:48-1304:79 -/
+    Source: '../../src/engine/loader.rs', lines 1309:48-1309:79 -/
 @[reducible]
 def
   loader.Engine.payload.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorEngineError
@@ -34603,7 +34516,7 @@ def
 }
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::payload]:
-    Source: '../../src/engine/loader.rs', lines 1295:4-1309:5
+    Source: '../../src/engine/loader.rs', lines 1300:4-1314:5
     Visibility: public -/
 def loader.Engine.payload
   (self : loader.Engine) («at» : Std.U64) (n : Std.U64) :
@@ -34652,7 +34565,7 @@ def loader.Engine.payload
       (Slice Std.U8) (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::build_pq2_luts]: loop body 0:
-    Source: '../../src/engine/loader.rs', lines 1223:8-1237:9 -/
+    Source: '../../src/engine/loader.rs', lines 1228:8-1242:9 -/
 @[rust_loop_body]
 def loader.Engine.build_pq2_luts_loop.body
   (s : String) (i : Std.U64) (ec : loader.EngineConfig)
@@ -34728,7 +34641,7 @@ def loader.Engine.build_pq2_luts_loop.body
     ok (cont (iter2, out1))
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::build_pq2_luts]: loop 0:
-    Source: '../../src/engine/loader.rs', lines 1223:8-1237:9 -/
+    Source: '../../src/engine/loader.rs', lines 1228:8-1242:9 -/
 @[rust_loop]
 def loader.Engine.build_pq2_luts_loop
   (iter : core.slice.iter.Iter loader.TensorEntry) (s : String) (i : Std.U64)
@@ -34750,7 +34663,7 @@ def loader.Engine.build_pq2_luts_loop
     (iter, out)
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::build_pq2_luts]:
-    Source: '../../src/engine/loader.rs', lines 1220:4-1239:5 -/
+    Source: '../../src/engine/loader.rs', lines 1225:4-1244:5 -/
 def loader.Engine.build_pq2_luts
   (self : loader.Engine) :
   Result (alloc.vec.Vec (Option (core.result.Result kern.lut.Pq2Lut
@@ -34903,12 +34816,12 @@ axiom gguf.host_read_at
     Std.U8) String)
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::read_range::{closure}]
-    Source: '../../src/engine/loader.rs', lines 1276:45-1276:76 -/
+    Source: '../../src/engine/loader.rs', lines 1281:45-1281:76 -/
 @[reducible]
 def loader.Engine.read_range.closure := Unit
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::read_range::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::read_range::{closure}}::call_once]:
-    Source: '../../src/engine/loader.rs', lines 1276:45-1276:76 -/
+    Source: '../../src/engine/loader.rs', lines 1281:45-1281:76 -/
 def
   loader.Engine.read_range.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorEngineError.call_once
   (c : loader.Engine.read_range.closure)
@@ -34918,7 +34831,7 @@ def
   ok error.EngineError.LengthOverflow
 
 /-- Trait implementation: [apeiron_word::loader::{apeiron_word::loader::Engine}::read_range::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::read_range::{closure}}]
-    Source: '../../src/engine/loader.rs', lines 1276:45-1276:76 -/
+    Source: '../../src/engine/loader.rs', lines 1281:45-1281:76 -/
 @[reducible]
 def
   loader.Engine.read_range.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorEngineError
@@ -34929,7 +34842,7 @@ def
 }
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::read_range]:
-    Source: '../../src/engine/loader.rs', lines 1267:4-1278:5
+    Source: '../../src/engine/loader.rs', lines 1272:4-1283:5
     Visibility: public -/
 def loader.Engine.read_range
   (self : loader.Engine) («at» : Std.U64) (n : Std.U64) :
@@ -34968,12 +34881,12 @@ def loader.Engine.read_range
       (alloc.vec.Vec Std.U8) (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::read_f32_vector::{closure}]
-    Source: '../../src/engine/loader.rs', lines 968:50-968:81 -/
+    Source: '../../src/engine/loader.rs', lines 973:50-973:81 -/
 @[reducible]
 def loader.Engine.read_f32_vector.closure := Unit
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::read_f32_vector::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::read_f32_vector::{closure}}::call_once]:
-    Source: '../../src/engine/loader.rs', lines 968:50-968:81 -/
+    Source: '../../src/engine/loader.rs', lines 973:50-973:81 -/
 def
   loader.Engine.read_f32_vector.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorEngineError.call_once
   (c : loader.Engine.read_f32_vector.closure)
@@ -34983,7 +34896,7 @@ def
   ok error.EngineError.LengthOverflow
 
 /-- Trait implementation: [apeiron_word::loader::{apeiron_word::loader::Engine}::read_f32_vector::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::read_f32_vector::{closure}}]
-    Source: '../../src/engine/loader.rs', lines 968:50-968:81 -/
+    Source: '../../src/engine/loader.rs', lines 973:50-973:81 -/
 @[reducible]
 def
   loader.Engine.read_f32_vector.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorEngineError
@@ -34994,7 +34907,7 @@ def
 }
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::read_f32_vector]:
-    Source: '../../src/engine/loader.rs', lines 964:4-989:5 -/
+    Source: '../../src/engine/loader.rs', lines 969:4-994:5 -/
 def loader.Engine.read_f32_vector
   (self : loader.Engine) («name» : Str) (len : Std.Usize) :
   Result (core.result.Result (Option (alloc.vec.Vec Std.I64))
@@ -35087,7 +35000,7 @@ def loader.Engine.read_f32_vector
         error.EngineError) residual
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::layer_decode_vectors]:
-    Source: '../../src/engine/loader.rs', lines 1089:4-1118:5 -/
+    Source: '../../src/engine/loader.rs', lines 1094:4-1123:5 -/
 def loader.Engine.layer_decode_vectors
   (self : loader.Engine) (layer : Std.Usize) (q_out : Std.Usize)
   (kv_out : Std.Usize) :
@@ -35383,7 +35296,7 @@ def loader.Engine.layer_decode_vectors
       Std.I64)) 2#usize)) (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::read_f32_matrix]:
-    Source: '../../src/engine/loader.rs', lines 1056:4-1086:5 -/
+    Source: '../../src/engine/loader.rs', lines 1061:4-1091:5 -/
 def loader.Engine.read_f32_matrix
   (self : loader.Engine) («name» : Str) (d0 : Std.Usize) (d1 : Std.Usize) :
   Result (core.result.Result (Option (alloc.vec.Vec Std.I64))
@@ -35489,12 +35402,12 @@ def loader.Engine.read_f32_matrix
                 error.EngineError) residual
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_affine_vectors::{closure#1}]
-    Source: '../../src/engine/loader.rs', lines 1031:23-1033:13 -/
+    Source: '../../src/engine/loader.rs', lines 1036:23-1038:13 -/
 @[reducible]
 def loader.Engine.load_affine_vectors.closure_1 := Std.Usize
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_affine_vectors::{impl core::ops::function::Fn<(u8, core::option::Option<alloc::vec::Vec<i64>>), core::result::Result<alloc::vec::Vec<i64>, apeiron_word::error::EngineError>> for apeiron_word::loader::{apeiron_word::loader::Engine}::load_affine_vectors::{closure#1}<'_0>}::call]:
-    Source: '../../src/engine/loader.rs', lines 1031:23-1033:13 -/
+    Source: '../../src/engine/loader.rs', lines 1036:23-1038:13 -/
 def
   loader.Engine.load_affine_vectors.closure_1.Insts.CoreOpsFunctionFnPairU8OptionVecI64ResultVecI64EngineError.call
   (c : loader.Engine.load_affine_vectors.closure_1)
@@ -35506,12 +35419,12 @@ def
   core.option.Option.ok_or v (error.EngineError.MissingTensor tk)
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_affine_vectors::{closure}]
-    Source: '../../src/engine/loader.rs', lines 1029:28-1029:89 -/
+    Source: '../../src/engine/loader.rs', lines 1034:28-1034:89 -/
 @[reducible]
 def loader.Engine.load_affine_vectors.closure := Unit
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_affine_vectors::{impl core::ops::function::FnOnce<(), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::load_affine_vectors::{closure}}::call_once]:
-    Source: '../../src/engine/loader.rs', lines 1029:28-1029:89 -/
+    Source: '../../src/engine/loader.rs', lines 1034:28-1034:89 -/
 def
   loader.Engine.load_affine_vectors.closure.Insts.CoreOpsFunctionFnOnceTupleEngineError.call_once
   (c : loader.Engine.load_affine_vectors.closure) (_ : Unit) :
@@ -35523,7 +35436,7 @@ def
   ok (error.EngineError.ConfigMismatch s)
 
 /-- Trait implementation: [apeiron_word::loader::{apeiron_word::loader::Engine}::load_affine_vectors::{impl core::ops::function::FnOnce<(), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::load_affine_vectors::{closure}}]
-    Source: '../../src/engine/loader.rs', lines 1029:28-1029:89 -/
+    Source: '../../src/engine/loader.rs', lines 1034:28-1034:89 -/
 @[reducible]
 def
   loader.Engine.load_affine_vectors.closure.Insts.CoreOpsFunctionFnOnceTupleEngineError
@@ -35534,7 +35447,7 @@ def
 }
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_affine_vectors]: loop body 0:
-    Source: '../../src/engine/loader.rs', lines 1021:8-1051:5 -/
+    Source: '../../src/engine/loader.rs', lines 1026:8-1056:5 -/
 @[rust_loop_body]
 def loader.Engine.load_affine_vectors_loop.body
   (s : String) (i : Std.U64) (s1 : String) (i1 : Std.Usize) (i2 : Std.Usize)
@@ -35857,7 +35770,7 @@ def loader.Engine.load_affine_vectors_loop.body
   else ok (done (core.result.Result.Ok out))
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_affine_vectors]: loop 0:
-    Source: '../../src/engine/loader.rs', lines 1021:8-1051:5 -/
+    Source: '../../src/engine/loader.rs', lines 1026:8-1056:5 -/
 @[rust_loop]
 def loader.Engine.load_affine_vectors_loop
   (s : String) (i : Std.U64) (s1 : String) (i1 : Std.Usize) (i2 : Std.Usize)
@@ -35883,7 +35796,7 @@ def loader.Engine.load_affine_vectors_loop
     (out, l)
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_affine_vectors]:
-    Source: '../../src/engine/loader.rs', lines 1017:4-1051:5 -/
+    Source: '../../src/engine/loader.rs', lines 1022:4-1056:5 -/
 def loader.Engine.load_affine_vectors
   (self : loader.Engine) :
   Result (core.result.Result (alloc.vec.Vec (Option loader.AffineVectors))
@@ -35903,7 +35816,7 @@ def loader.Engine.load_affine_vectors
     self.config.mixers self.config.affine out 0#usize
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_nextn_vectors]: loop body 0:
-    Source: '../../src/engine/loader.rs', lines 996:8-1009:5 -/
+    Source: '../../src/engine/loader.rs', lines 1001:8-1014:5 -/
 @[rust_loop_body]
 def loader.Engine.load_nextn_vectors_loop.body
   (s : String) (i : Std.U64) (s1 : String) (i1 : Std.Usize) (i2 : Std.Usize)
@@ -36093,7 +36006,7 @@ def loader.Engine.load_nextn_vectors_loop.body
   else ok (done (core.result.Result.Ok out))
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_nextn_vectors]: loop 0:
-    Source: '../../src/engine/loader.rs', lines 996:8-1009:5 -/
+    Source: '../../src/engine/loader.rs', lines 1001:8-1014:5 -/
 @[rust_loop]
 def loader.Engine.load_nextn_vectors_loop
   (s : String) (i : Std.U64) (s1 : String) (i1 : Std.Usize) (i2 : Std.Usize)
@@ -36120,7 +36033,7 @@ def loader.Engine.load_nextn_vectors_loop
     (out, i15)
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_nextn_vectors]:
-    Source: '../../src/engine/loader.rs', lines 992:4-1009:5 -/
+    Source: '../../src/engine/loader.rs', lines 997:4-1014:5 -/
 def loader.Engine.load_nextn_vectors
   (self : loader.Engine) :
   Result (core.result.Result (alloc.vec.Vec (Array (Option (alloc.vec.Vec
@@ -36140,7 +36053,7 @@ def loader.Engine.load_nextn_vectors
     self.config.n_embd self.config.n_nextn out 0#usize
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_decode_vectors]: loop body 0:
-    Source: '../../src/engine/loader.rs', lines 1140:8-1150:9 -/
+    Source: '../../src/engine/loader.rs', lines 1145:8-1155:9 -/
 @[rust_loop_body]
 def loader.Engine.load_decode_vectors_loop.body
   (s : String) (i : Std.U64) (s1 : String) (i1 : Std.Usize) (i2 : Std.Usize)
@@ -36221,7 +36134,7 @@ def loader.Engine.load_decode_vectors_loop.body
   else ok (done (norms, biases, qk_norms, err))
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_decode_vectors]: loop 0:
-    Source: '../../src/engine/loader.rs', lines 1140:8-1150:9 -/
+    Source: '../../src/engine/loader.rs', lines 1145:8-1155:9 -/
 @[rust_loop]
 def loader.Engine.load_decode_vectors_loop
   (s : String) (i : Std.U64) (s1 : String) (i1 : Std.Usize) (i2 : Std.Usize)
@@ -36253,7 +36166,7 @@ def loader.Engine.load_decode_vectors_loop
     (norms, biases, qk_norms, layer, err)
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::load_decode_vectors]:
-    Source: '../../src/engine/loader.rs', lines 1125:4-1165:5 -/
+    Source: '../../src/engine/loader.rs', lines 1130:4-1170:5 -/
 def loader.Engine.load_decode_vectors
   (self : loader.Engine) :
   Result (core.result.Result loader.DecodeVectors error.EngineError)
@@ -36335,7 +36248,7 @@ def loader.Engine.load_decode_vectors
       loader.DecodeVectors (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::open]: loop body 0:
-    Source: '../../src/engine/loader.rs', lines 921:8-925:9
+    Source: '../../src/engine/loader.rs', lines 926:8-930:9
     Visibility: public -/
 @[rust_loop_body]
 def loader.Engine.open_loop.body
@@ -36361,7 +36274,7 @@ def loader.Engine.open_loop.body
   else ok (done token_embd)
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::open]: loop 0:
-    Source: '../../src/engine/loader.rs', lines 921:8-925:9
+    Source: '../../src/engine/loader.rs', lines 926:8-930:9
     Visibility: public -/
 @[rust_loop]
 def loader.Engine.open_loop
@@ -36373,7 +36286,7 @@ def loader.Engine.open_loop
     token_embd
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::open]:
-    Source: '../../src/engine/loader.rs', lines 903:4-945:5
+    Source: '../../src/engine/loader.rs', lines 908:4-950:5
     Visibility: public -/
 def loader.Engine.open
   (path : Str) :
@@ -36522,14 +36435,14 @@ def loader.Engine.open
       loader.Engine error.EngineError.Insts.CoreConvertFromGgufError residual
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::decode_vectors]:
-    Source: '../../src/engine/loader.rs', lines 949:4-951:5
+    Source: '../../src/engine/loader.rs', lines 954:4-956:5
     Visibility: public -/
 def loader.Engine.decode_vectors
   (self : loader.Engine) : Result loader.DecodeVectors := do
   ok self.vectors
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::hadamard]:
-    Source: '../../src/engine/loader.rs', lines 955:4-957:5
+    Source: '../../src/engine/loader.rs', lines 960:4-962:5
     Visibility: public -/
 def loader.Engine.impl.hadamard
   (self : loader.Engine) : Result (Option loader.hadamard.HadamardMeta) := do
@@ -36541,7 +36454,7 @@ def loader.Engine.impl.hadamard
 def step.Engine.lm_head.closure := loader.Engine
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::token_embd]:
-    Source: '../../src/engine/loader.rs', lines 1249:4-1251:5
+    Source: '../../src/engine/loader.rs', lines 1254:4-1256:5
     Visibility: public -/
 def loader.Engine.impl.token_embd
   (self : loader.Engine) : Result loader.TensorEntry := do
@@ -36569,7 +36482,7 @@ def
 }
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::table]:
-    Source: '../../src/engine/loader.rs', lines 1243:4-1245:5
+    Source: '../../src/engine/loader.rs', lines 1248:4-1250:5
     Visibility: public -/
 def loader.Engine.impl.table
   (self : loader.Engine) : Result loader.TensorTable := do
@@ -36587,12 +36500,12 @@ def step.Engine.lm_head
     o self
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::bitplane_head::{closure}]
-    Source: '../../src/engine/loader.rs', lines 1171:25-1183:13 -/
+    Source: '../../src/engine/loader.rs', lines 1176:25-1188:13 -/
 @[reducible]
 def loader.Engine.bitplane_head.closure := loader.Engine
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::bitplane_head::{impl core::ops::function::FnOnce<(), core::option::Option<alloc::sync::Arc<apeiron_word::kern::bitplane::BitplaneHead>>> for apeiron_word::loader::{apeiron_word::loader::Engine}::bitplane_head::{closure}<'_0>}::call_once]:
-    Source: '../../src/engine/loader.rs', lines 1171:25-1183:13 -/
+    Source: '../../src/engine/loader.rs', lines 1176:25-1188:13 -/
 def
   loader.Engine.bitplane_head.closure.Insts.CoreOpsFunctionFnOnceTupleOptionArcBitplaneHead.call_once
   (c : loader.Engine.bitplane_head.closure) (_ : Unit) :
@@ -36621,7 +36534,7 @@ def
         (alloc.sync.Arc kern.bitplane.BitplaneHead) residual
 
 /-- Trait implementation: [apeiron_word::loader::{apeiron_word::loader::Engine}::bitplane_head::{impl core::ops::function::FnOnce<(), core::option::Option<alloc::sync::Arc<apeiron_word::kern::bitplane::BitplaneHead>>> for apeiron_word::loader::{apeiron_word::loader::Engine}::bitplane_head::{closure}<'_0>}]
-    Source: '../../src/engine/loader.rs', lines 1171:25-1183:13 -/
+    Source: '../../src/engine/loader.rs', lines 1176:25-1188:13 -/
 @[reducible]
 def
   loader.Engine.bitplane_head.closure.Insts.CoreOpsFunctionFnOnceTupleOptionArcBitplaneHead
@@ -36632,7 +36545,7 @@ def
 }
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::bitplane_head]:
-    Source: '../../src/engine/loader.rs', lines 1169:4-1185:5 -/
+    Source: '../../src/engine/loader.rs', lines 1174:4-1190:5 -/
 def loader.Engine.bitplane_head
   (self : loader.Engine) :
   Result (Option (alloc.sync.Arc kern.bitplane.BitplaneHead))
@@ -36646,7 +36559,7 @@ def loader.Engine.bitplane_head
     alloc.alloc.Global.Insts.CoreAllocAllocatorClone) o
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::pq2_lut]:
-    Source: '../../src/engine/loader.rs', lines 1198:4-1206:5 -/
+    Source: '../../src/engine/loader.rs', lines 1203:4-1211:5 -/
 def loader.Engine.pq2_lut
   (self : loader.Engine) (idx : Std.Usize) :
   Result (core.result.Result kern.lut.Pq2Lut matvec.MatvecError)
@@ -36672,7 +36585,7 @@ def loader.Engine.pq2_lut
         ok (core.result.Result.Err me)
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::pq2_luts]:
-    Source: '../../src/engine/loader.rs', lines 1209:4-1211:5 -/
+    Source: '../../src/engine/loader.rs', lines 1214:4-1216:5 -/
 def loader.Engine.impl.pq2_luts
   (self : loader.Engine) :
   Result (Slice (Option (core.result.Result kern.lut.Pq2Lut
@@ -36681,18 +36594,18 @@ def loader.Engine.impl.pq2_luts
   ok (alloc.vec.Vec.deref self.pq2_luts)
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::token_embd_index]:
-    Source: '../../src/engine/loader.rs', lines 1254:4-1256:5 -/
+    Source: '../../src/engine/loader.rs', lines 1259:4-1261:5 -/
 def loader.Engine.token_embd_index
   (self : loader.Engine) : Result Std.Usize := do
   ok self.token_embd
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::payload_ref::{closure#1}]
-    Source: '../../src/engine/loader.rs', lines 1327:48-1327:79 -/
+    Source: '../../src/engine/loader.rs', lines 1332:48-1332:79 -/
 @[reducible]
 def loader.Engine.payload_ref.closure_1 := Unit
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::payload_ref::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::payload_ref::{closure#1}}::call_once]:
-    Source: '../../src/engine/loader.rs', lines 1327:48-1327:79 -/
+    Source: '../../src/engine/loader.rs', lines 1332:48-1332:79 -/
 def
   loader.Engine.payload_ref.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorEngineError.call_once
   (c : loader.Engine.payload_ref.closure_1)
@@ -36702,7 +36615,7 @@ def
   ok error.EngineError.LengthOverflow
 
 /-- Trait implementation: [apeiron_word::loader::{apeiron_word::loader::Engine}::payload_ref::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::payload_ref::{closure#1}}]
-    Source: '../../src/engine/loader.rs', lines 1327:48-1327:79 -/
+    Source: '../../src/engine/loader.rs', lines 1332:48-1332:79 -/
 @[reducible]
 def
   loader.Engine.payload_ref.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorEngineError
@@ -36713,12 +36626,12 @@ def
 }
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::payload_ref::{closure}]
-    Source: '../../src/engine/loader.rs', lines 1326:48-1326:79 -/
+    Source: '../../src/engine/loader.rs', lines 1331:48-1331:79 -/
 @[reducible]
 def loader.Engine.payload_ref.closure := Unit
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::payload_ref::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::payload_ref::{closure}}::call_once]:
-    Source: '../../src/engine/loader.rs', lines 1326:48-1326:79 -/
+    Source: '../../src/engine/loader.rs', lines 1331:48-1331:79 -/
 def
   loader.Engine.payload_ref.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorEngineError.call_once
   (c : loader.Engine.payload_ref.closure)
@@ -36728,7 +36641,7 @@ def
   ok error.EngineError.LengthOverflow
 
 /-- Trait implementation: [apeiron_word::loader::{apeiron_word::loader::Engine}::payload_ref::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::error::EngineError> for apeiron_word::loader::{apeiron_word::loader::Engine}::payload_ref::{closure}}]
-    Source: '../../src/engine/loader.rs', lines 1326:48-1326:79 -/
+    Source: '../../src/engine/loader.rs', lines 1331:48-1331:79 -/
 @[reducible]
 def
   loader.Engine.payload_ref.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorEngineError
@@ -36739,7 +36652,7 @@ def
 }
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::payload_ref]:
-    Source: '../../src/engine/loader.rs', lines 1317:4-1335:5
+    Source: '../../src/engine/loader.rs', lines 1322:4-1340:5
     Visibility: public -/
 def loader.Engine.payload_ref
   (self : loader.Engine) («at» : Std.U64) (n : Std.U64) :
@@ -36794,7 +36707,7 @@ def loader.Engine.payload_ref
       loader.PayloadRef (core.convert.FromSame error.EngineError) residual
 
 /-- [apeiron_word::loader::{apeiron_word::loader::Engine}::resident]:
-    Source: '../../src/engine/loader.rs', lines 1339:4-1341:5
+    Source: '../../src/engine/loader.rs', lines 1344:4-1346:5
     Visibility: public -/
 def loader.Engine.resident (self : loader.Engine) : Result (Slice Std.U8) := do
   ok self.data
@@ -65079,7 +64992,7 @@ def learn_port.e8.nearest
   learn_port.e8.nearest_scaled x i
 
 /-- [apeiron_word::learn_port::attn::AttnError]
-    Source: '../../src/learn/grad/attn.rs', lines 46:0-60:1
+    Source: '../../src/learn/grad/attn.rs', lines 47:0-61:1
     Visibility: public -/
 @[discriminant isize]
 inductive learn_port.attn.AttnError where
@@ -65090,14 +65003,14 @@ inductive learn_port.attn.AttnError where
 | Rope : rope.RopeError → learn_port.attn.AttnError
 
 /-- [apeiron_word::learn_port::attn::round32]:
-    Source: '../../src/learn/grad/attn.rs', lines 63:0-65:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 64:0-66:1 -/
 def learn_port.attn.round32 (v : Std.I128) : Result Std.I128 := do
   let i ← 1#i128 <<< 31#i32
   let i1 ← v + i
   i1 >>> 32#i32
 
 /-- [apeiron_word::learn_port::attn::acc_round]:
-    Source: '../../src/learn/grad/attn.rs', lines 68:0-75:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 69:0-76:1 -/
 def learn_port.attn.acc_round
   (acc : Std.I128) :
   Result (core.result.Result Std.I64 learn_port.attn.AttnError)
@@ -65114,7 +65027,7 @@ def learn_port.attn.acc_round
          ok (core.result.Result.Ok i2)
 
 /-- [apeiron_word::learn_port::attn::mul_round]:
-    Source: '../../src/learn/grad/attn.rs', lines 78:0-83:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 79:0-84:1 -/
 def learn_port.attn.mul_round
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 learn_port.attn.AttnError)
@@ -65127,7 +65040,7 @@ def learn_port.attn.mul_round
   | some p => learn_port.attn.acc_round p
 
 /-- [apeiron_word::learn_port::attn::dot_round]: loop body 0:
-    Source: '../../src/learn/grad/attn.rs', lines 91:4-100:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 92:4-101:5 -/
 @[rust_loop_body]
 def learn_port.attn.dot_round_loop.body
   (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (acc : Std.I128)
@@ -65158,7 +65071,7 @@ def learn_port.attn.dot_round_loop.body
   else ok (done (acc, ok1))
 
 /-- [apeiron_word::learn_port::attn::dot_round]: loop 0:
-    Source: '../../src/learn/grad/attn.rs', lines 91:4-100:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 92:4-101:5 -/
 @[rust_loop]
 def learn_port.attn.dot_round_loop
   (a : Slice Std.I64) (b : Slice Std.I64) (n : Std.Usize) (acc : Std.I128)
@@ -65171,7 +65084,7 @@ def learn_port.attn.dot_round_loop
     (acc, i, ok1)
 
 /-- [apeiron_word::learn_port::attn::dot_round]:
-    Source: '../../src/learn/grad/attn.rs', lines 86:0-106:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 87:0-107:1 -/
 def learn_port.attn.dot_round
   (a : Slice Std.I64) (b : Slice Std.I64) :
   Result (core.result.Result Std.I64 learn_port.attn.AttnError)
@@ -65183,7 +65096,7 @@ def learn_port.attn.dot_round
   else ok (core.result.Result.Err learn_port.attn.AttnError.Overflow)
 
 /-- [apeiron_word::learn_port::attn::dim_product]:
-    Source: '../../src/learn/grad/attn.rs', lines 109:0-114:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 110:0-115:1 -/
 def learn_port.attn.dim_product
   (a : Std.Usize) (b : Std.Usize) :
   Result (core.result.Result Std.Usize learn_port.attn.AttnError)
@@ -65194,7 +65107,7 @@ def learn_port.attn.dim_product
   | some x => ok (core.result.Result.Ok x)
 
 /-- [apeiron_word::learn_port::attn::rows_of]:
-    Source: '../../src/learn/grad/attn.rs', lines 120:0-126:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 121:0-127:1 -/
 def learn_port.attn.rows_of
   (len : Std.Usize) (row : Std.Usize) :
   Result (core.result.Result Std.Usize learn_port.attn.AttnError)
@@ -65212,7 +65125,7 @@ def learn_port.attn.rows_of
       else ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
 
 /-- [apeiron_word::learn_port::attn::rsqrt_scale]:
-    Source: '../../src/learn/grad/attn.rs', lines 132:0-143:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 133:0-144:1 -/
 def learn_port.attn.rsqrt_scale
   (hd : Std.Usize) :
   Result (core.result.Result Std.I64 learn_port.attn.AttnError)
@@ -65236,7 +65149,7 @@ def learn_port.attn.rsqrt_scale
         ok (core.result.Result.Err learn_port.attn.AttnError.RsqrtOutOfRange)
 
 /-- [apeiron_word::learn_port::attn::gqa_shape]:
-    Source: '../../src/learn/grad/attn.rs', lines 146:0-152:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 147:0-153:1 -/
 def learn_port.attn.gqa_shape
   (nh : Std.Usize) (nkv : Std.Usize) (hd : Std.Usize) :
   Result (core.result.Result Unit learn_port.attn.AttnError)
@@ -65256,7 +65169,7 @@ def learn_port.attn.gqa_shape
         else ok (core.result.Result.Err learn_port.attn.AttnError.BadShape)
 
 /-- [apeiron_word::learn_port::attn::rope_fwd]:
-    Source: '../../src/learn/grad/attn.rs', lines 166:0-175:1
+    Source: '../../src/learn/grad/attn.rs', lines 167:0-176:1
     Visibility: public -/
 def learn_port.attn.rope_fwd
   (x : Slice Std.I64) (pos : Std.U32) (table : rope.RopeTable) :
@@ -65277,7 +65190,7 @@ def learn_port.attn.rope_fwd
       ok (core.result.Result.Err (learn_port.attn.AttnError.Rope e))
 
 /-- [apeiron_word::learn_port::attn::rope_elem_bwd]:
-    Source: '../../src/learn/grad/attn.rs', lines 222:0-241:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 223:0-242:1 -/
 def learn_port.attn.rope_elem_bwd
   (dy : Slice Std.I64) (i : Std.Usize) (hd : Std.Usize) (turn : Std.U64)
   (pos : Std.U32) :
@@ -65325,7 +65238,7 @@ def learn_port.attn.rope_elem_bwd
       rope.RopeError.OutOfRange))
 
 /-- [apeiron_word::learn_port::attn::rope_bwd]: loop body 0:
-    Source: '../../src/learn/grad/attn.rs', lines 203:4-209:5
+    Source: '../../src/learn/grad/attn.rs', lines 204:4-210:5
     Visibility: public -/
 @[rust_loop_body]
 def learn_port.attn.rope_bwd_loop.body
@@ -65359,7 +65272,7 @@ def learn_port.attn.rope_bwd_loop.body
   else ok (done (dx, ok1))
 
 /-- [apeiron_word::learn_port::attn::rope_bwd]: loop 0:
-    Source: '../../src/learn/grad/attn.rs', lines 203:4-209:5
+    Source: '../../src/learn/grad/attn.rs', lines 204:4-210:5
     Visibility: public -/
 @[rust_loop]
 def learn_port.attn.rope_bwd_loop
@@ -65373,7 +65286,7 @@ def learn_port.attn.rope_bwd_loop
     (dx, i, ok1)
 
 /-- [apeiron_word::learn_port::attn::rope_bwd]:
-    Source: '../../src/learn/grad/attn.rs', lines 190:0-215:1
+    Source: '../../src/learn/grad/attn.rs', lines 191:0-216:1
     Visibility: public -/
 def learn_port.attn.rope_bwd
   (dy : Slice Std.I64) (pos : Std.U32) (table : rope.RopeTable) :
@@ -65403,7 +65316,7 @@ def learn_port.attn.rope_bwd
           rope.RopeError.OutOfRange))
 
 /-- [apeiron_word::learn_port::attn::score_scaled]:
-    Source: '../../src/learn/grad/attn.rs', lines 247:0-261:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 248:0-262:1 -/
 def learn_port.attn.score_scaled
   (qi : Slice Std.I64) (k : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize)
   (hd : Std.Usize) (j : Std.Usize) (scale : Std.I64) :
@@ -65422,7 +65335,7 @@ def learn_port.attn.score_scaled
   | core.result.Result.Err _ => ok r
 
 /-- [apeiron_word::learn_port::attn::exp_gap]:
-    Source: '../../src/learn/grad/attn.rs', lines 272:0-281:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 273:0-282:1 -/
 def learn_port.attn.exp_gap
   (s : Std.I64) (m : Std.I64) :
   Result (core.result.Result Std.I64 learn_port.attn.AttnError)
@@ -65447,7 +65360,7 @@ def learn_port.attn.exp_gap
       Std.I64 (core.convert.FromSame learn_port.attn.AttnError) residual
 
 /-- [apeiron_word::learn_port::attn::prob]:
-    Source: '../../src/learn/grad/attn.rs', lines 287:0-299:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 288:0-300:1 -/
 def learn_port.attn.prob
   (e : Std.I64) (z : Std.I128) :
   Result (core.result.Result Std.I64 learn_port.attn.AttnError)
@@ -65473,7 +65386,7 @@ def learn_port.attn.prob
            ok (core.result.Result.Ok i7)
 
 /-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop body 0:
-    Source: '../../src/learn/grad/attn.rs', lines 330:4-344:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 331:4-345:5 -/
 @[rust_loop_body]
 def learn_port.attn.attn_row_fwd_loop0.body
   (qi : Slice Std.I64) (k : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize)
@@ -65505,7 +65418,7 @@ def learn_port.attn.attn_row_fwd_loop0.body
   else ok (done (prow, m, ok1, err))
 
 /-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop 0:
-    Source: '../../src/learn/grad/attn.rs', lines 330:4-344:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 331:4-345:5 -/
 @[rust_loop]
 def learn_port.attn.attn_row_fwd_loop0
   (qi : Slice Std.I64) (k : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize)
@@ -65520,7 +65433,7 @@ def learn_port.attn.attn_row_fwd_loop0
     (prow, m, j, ok1, err)
 
 /-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop body 1:
-    Source: '../../src/learn/grad/attn.rs', lines 347:4-362:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 348:4-363:5 -/
 @[rust_loop_body]
 def learn_port.attn.attn_row_fwd_loop1.body
   (n : Std.Usize) (m : Std.I64) (prow : Slice Std.I64) (j : Std.Usize)
@@ -65553,7 +65466,7 @@ def learn_port.attn.attn_row_fwd_loop1.body
   else ok (done (prow, ok1, err, z))
 
 /-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop 1:
-    Source: '../../src/learn/grad/attn.rs', lines 347:4-362:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 348:4-363:5 -/
 @[rust_loop]
 def learn_port.attn.attn_row_fwd_loop1
   (n : Std.Usize) (prow : Slice Std.I64) (m : Std.I64) (j : Std.Usize)
@@ -65566,7 +65479,7 @@ def learn_port.attn.attn_row_fwd_loop1
     (prow, j, ok1, err, z)
 
 /-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop body 2:
-    Source: '../../src/learn/grad/attn.rs', lines 364:4-373:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 365:4-374:5 -/
 @[rust_loop_body]
 def learn_port.attn.attn_row_fwd_loop2.body
   (n : Std.Usize) (z : Std.I128) (prow : Slice Std.I64) (j : Std.Usize)
@@ -65593,7 +65506,7 @@ def learn_port.attn.attn_row_fwd_loop2.body
   else ok (done (prow, ok1, err))
 
 /-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop 2:
-    Source: '../../src/learn/grad/attn.rs', lines 364:4-373:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 365:4-374:5 -/
 @[rust_loop]
 def learn_port.attn.attn_row_fwd_loop2
   (n : Std.Usize) (prow : Slice Std.I64) (j : Std.Usize) (ok1 : Bool)
@@ -65606,7 +65519,7 @@ def learn_port.attn.attn_row_fwd_loop2
     (prow, j, ok1, err)
 
 /-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop body 4:
-    Source: '../../src/learn/grad/attn.rs', lines 378:8-388:9 -/
+    Source: '../../src/learn/grad/attn.rs', lines 379:8-389:9 -/
 @[rust_loop_body]
 def learn_port.attn.attn_row_fwd_loop3_loop0.body
   (v : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize) (hd : Std.Usize)
@@ -65642,7 +65555,7 @@ def learn_port.attn.attn_row_fwd_loop3_loop0.body
   else ok (done (ok1, acc))
 
 /-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop 4:
-    Source: '../../src/learn/grad/attn.rs', lines 378:8-388:9 -/
+    Source: '../../src/learn/grad/attn.rs', lines 379:8-389:9 -/
 @[rust_loop]
 def learn_port.attn.attn_row_fwd_loop3_loop0
   (v : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize) (hd : Std.Usize)
@@ -65656,7 +65569,7 @@ def learn_port.attn.attn_row_fwd_loop3_loop0
     (ok1, acc, jj)
 
 /-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop body 3:
-    Source: '../../src/learn/grad/attn.rs', lines 375:4-399:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 376:4-400:5 -/
 @[rust_loop_body]
 def learn_port.attn.attn_row_fwd_loop3.body
   (v : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize) (hd : Std.Usize)
@@ -65689,7 +65602,7 @@ def learn_port.attn.attn_row_fwd_loop3.body
   else ok (done (orow, ok1, err))
 
 /-- [apeiron_word::learn_port::attn::attn_row_fwd]: loop 3:
-    Source: '../../src/learn/grad/attn.rs', lines 375:4-399:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 376:4-400:5 -/
 @[rust_loop]
 def learn_port.attn.attn_row_fwd_loop3
   (v : Slice Std.I64) (kvh : Std.Usize) (nkv : Std.Usize) (hd : Std.Usize)
@@ -65703,7 +65616,7 @@ def learn_port.attn.attn_row_fwd_loop3
     (orow, ok1, err, d)
 
 /-- [apeiron_word::learn_port::attn::attn_row_fwd]:
-    Source: '../../src/learn/grad/attn.rs', lines 314:0-405:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 315:0-406:1 -/
 def learn_port.attn.attn_row_fwd
   (qi : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64)
   (kvh : Std.Usize) (nkv : Std.Usize) (hd : Std.Usize) (n : Std.Usize)
@@ -65726,7 +65639,7 @@ def learn_port.attn.attn_row_fwd
   else ok (core.result.Result.Err err3, prow3, orow1)
 
 /-- [apeiron_word::learn_port::attn::attn_fwd]: loop body 1:
-    Source: '../../src/learn/grad/attn.rs', lines 451:8-474:9
+    Source: '../../src/learn/grad/attn.rs', lines 452:8-475:9
     Visibility: public -/
 @[rust_loop_body]
 def learn_port.attn.attn_fwd_loop0_loop0.body
@@ -65779,7 +65692,7 @@ def learn_port.attn.attn_fwd_loop0_loop0.body
   else ok (done (p, out, ok1, err))
 
 /-- [apeiron_word::learn_port::attn::attn_fwd]: loop 1:
-    Source: '../../src/learn/grad/attn.rs', lines 451:8-474:9
+    Source: '../../src/learn/grad/attn.rs', lines 452:8-475:9
     Visibility: public -/
 @[rust_loop]
 def learn_port.attn.attn_fwd_loop0_loop0
@@ -65797,7 +65710,7 @@ def learn_port.attn.attn_fwd_loop0_loop0
     (p, out, ok1, err, i)
 
 /-- [apeiron_word::learn_port::attn::attn_fwd]: loop body 0:
-    Source: '../../src/learn/grad/attn.rs', lines 448:4-476:5
+    Source: '../../src/learn/grad/attn.rs', lines 449:4-477:5
     Visibility: public -/
 @[rust_loop_body]
 def learn_port.attn.attn_fwd_loop0.body
@@ -65823,7 +65736,7 @@ def learn_port.attn.attn_fwd_loop0.body
   else ok (done (p, out, ok1, err))
 
 /-- [apeiron_word::learn_port::attn::attn_fwd]: loop 0:
-    Source: '../../src/learn/grad/attn.rs', lines 448:4-476:5
+    Source: '../../src/learn/grad/attn.rs', lines 449:4-477:5
     Visibility: public -/
 @[rust_loop]
 def learn_port.attn.attn_fwd_loop0
@@ -65840,7 +65753,7 @@ def learn_port.attn.attn_fwd_loop0
     (p, out, h, ok1, err)
 
 /-- [apeiron_word::learn_port::attn::attn_fwd]:
-    Source: '../../src/learn/grad/attn.rs', lines 424:0-482:1
+    Source: '../../src/learn/grad/attn.rs', lines 425:0-483:1
     Visibility: public -/
 def learn_port.attn.attn_fwd
   (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64) (nh : Std.Usize)
@@ -65948,7 +65861,7 @@ def learn_port.attn.attn_fwd
       (core.convert.FromSame learn_port.attn.AttnError) residual
 
 /-- [apeiron_word::learn_port::attn::attn_row_ds]: loop body 0:
-    Source: '../../src/learn/grad/attn.rs', lines 510:4-520:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 511:4-521:5 -/
 @[rust_loop_body]
 def learn_port.attn.attn_row_ds_loop0.body
   (dout_i : Slice Std.I64) (v : Slice Std.I64) (kvh : Std.Usize)
@@ -65984,7 +65897,7 @@ def learn_port.attn.attn_row_ds_loop0.body
   else ok (done (dprow, ok1, err))
 
 /-- [apeiron_word::learn_port::attn::attn_row_ds]: loop 0:
-    Source: '../../src/learn/grad/attn.rs', lines 510:4-520:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 511:4-521:5 -/
 @[rust_loop]
 def learn_port.attn.attn_row_ds_loop0
   (dout_i : Slice Std.I64) (v : Slice Std.I64) (kvh : Std.Usize)
@@ -65998,7 +65911,7 @@ def learn_port.attn.attn_row_ds_loop0
     (dprow, j, ok1, err)
 
 /-- [apeiron_word::learn_port::attn::attn_row_ds]: loop body 1:
-    Source: '../../src/learn/grad/attn.rs', lines 523:4-532:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 524:4-533:5 -/
 @[rust_loop_body]
 def learn_port.attn.attn_row_ds_loop1.body
   (n : Std.Usize) (prow : Slice Std.I64) (dprow : Slice Std.I64)
@@ -66029,7 +65942,7 @@ def learn_port.attn.attn_row_ds_loop1.body
   else ok (done (ok1, acc))
 
 /-- [apeiron_word::learn_port::attn::attn_row_ds]: loop 1:
-    Source: '../../src/learn/grad/attn.rs', lines 523:4-532:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 524:4-533:5 -/
 @[rust_loop]
 def learn_port.attn.attn_row_ds_loop1
   (n : Std.Usize) (prow : Slice Std.I64) (dprow : Slice Std.I64)
@@ -66042,7 +65955,7 @@ def learn_port.attn.attn_row_ds_loop1
     (j, ok1, acc)
 
 /-- [apeiron_word::learn_port::attn::attn_row_ds]: loop body 2:
-    Source: '../../src/learn/grad/attn.rs', lines 544:4-558:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 545:4-559:5 -/
 @[rust_loop_body]
 def learn_port.attn.attn_row_ds_loop2.body
   (n : Std.Usize) (prow : Slice Std.I64) (rsum : Std.I64)
@@ -66077,7 +65990,7 @@ def learn_port.attn.attn_row_ds_loop2.body
   else ok (done (dprow, ok1, err))
 
 /-- [apeiron_word::learn_port::attn::attn_row_ds]: loop 2:
-    Source: '../../src/learn/grad/attn.rs', lines 544:4-558:5 -/
+    Source: '../../src/learn/grad/attn.rs', lines 545:4-559:5 -/
 @[rust_loop]
 def learn_port.attn.attn_row_ds_loop2
   (n : Std.Usize) (prow : Slice Std.I64) (dprow : Slice Std.I64)
@@ -66091,7 +66004,7 @@ def learn_port.attn.attn_row_ds_loop2
     (dprow, j, ok1, err)
 
 /-- [apeiron_word::learn_port::attn::attn_row_ds]:
-    Source: '../../src/learn/grad/attn.rs', lines 497:0-564:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 498:0-565:1 -/
 def learn_port.attn.attn_row_ds
   (dout_i : Slice Std.I64) (v : Slice Std.I64) (kvh : Std.Usize)
   (nkv : Std.Usize) (hd : Std.Usize) (n : Std.Usize) (prow : Slice Std.I64)
@@ -66120,7 +66033,7 @@ def learn_port.attn.attn_row_ds
   else ok (core.result.Result.Err err2, dprow2)
 
 /-- [apeiron_word::learn_port::attn::acc_add]:
-    Source: '../../src/learn/grad/attn.rs', lines 570:0-581:1 -/
+    Source: '../../src/learn/grad/attn.rs', lines 571:0-582:1 -/
 def learn_port.attn.acc_add
   (acc : Slice Std.I128) (idx : Std.Usize) (a : Std.I64) (b : Std.I64) :
   Result ((core.result.Result Unit learn_port.attn.AttnError) × (Slice
@@ -66142,7 +66055,7 @@ def learn_port.attn.acc_add
       ok (core.result.Result.Ok (), acc1)
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 3:
-    Source: '../../src/learn/grad/attn.rs', lines 672:16-699:17
+    Source: '../../src/learn/grad/attn.rs', lines 673:16-700:17
     Visibility: public -/
 @[rust_loop_body]
 def learn_port.attn.attn_bwd_loop0_loop0_loop0_loop0.body
@@ -66208,7 +66121,7 @@ def learn_port.attn.attn_bwd_loop0_loop0_loop0_loop0.body
   else ok (done (dq_acc, dk_acc, dv_acc, ok1, err))
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop 3:
-    Source: '../../src/learn/grad/attn.rs', lines 672:16-699:17
+    Source: '../../src/learn/grad/attn.rs', lines 673:16-700:17
     Visibility: public -/
 @[rust_loop]
 def learn_port.attn.attn_bwd_loop0_loop0_loop0_loop0
@@ -66227,7 +66140,7 @@ def learn_port.attn.attn_bwd_loop0_loop0_loop0_loop0
     (dq_acc, dk_acc, dv_acc, ok1, err, d)
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 2:
-    Source: '../../src/learn/grad/attn.rs', lines 667:12-701:13
+    Source: '../../src/learn/grad/attn.rs', lines 668:12-702:13
     Visibility: public -/
 @[rust_loop_body]
 def learn_port.attn.attn_bwd_loop0_loop0_loop0.body
@@ -66263,7 +66176,7 @@ def learn_port.attn.attn_bwd_loop0_loop0_loop0.body
   else ok (done (dq_acc, dk_acc, dv_acc, ok1, err))
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop 2:
-    Source: '../../src/learn/grad/attn.rs', lines 667:12-701:13
+    Source: '../../src/learn/grad/attn.rs', lines 668:12-702:13
     Visibility: public -/
 @[rust_loop]
 def learn_port.attn.attn_bwd_loop0_loop0_loop0
@@ -66283,7 +66196,7 @@ def learn_port.attn.attn_bwd_loop0_loop0_loop0
     (dq_acc, dk_acc, dv_acc, ok1, err, j)
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 1:
-    Source: '../../src/learn/grad/attn.rs', lines 646:8-703:9
+    Source: '../../src/learn/grad/attn.rs', lines 647:8-704:9
     Visibility: public -/
 @[rust_loop_body]
 def learn_port.attn.attn_bwd_loop0_loop0.body
@@ -66338,7 +66251,7 @@ def learn_port.attn.attn_bwd_loop0_loop0.body
   else ok (done (ds, dq_acc, dk_acc, dv_acc, ok1, err))
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop 1:
-    Source: '../../src/learn/grad/attn.rs', lines 646:8-703:9
+    Source: '../../src/learn/grad/attn.rs', lines 647:8-704:9
     Visibility: public -/
 @[rust_loop]
 def learn_port.attn.attn_bwd_loop0_loop0
@@ -66358,7 +66271,7 @@ def learn_port.attn.attn_bwd_loop0_loop0
     (ds, dq_acc, dk_acc, dv_acc, ok1, err, i)
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 0:
-    Source: '../../src/learn/grad/attn.rs', lines 643:4-705:5
+    Source: '../../src/learn/grad/attn.rs', lines 644:4-706:5
     Visibility: public -/
 @[rust_loop_body]
 def learn_port.attn.attn_bwd_loop0.body
@@ -66388,7 +66301,7 @@ def learn_port.attn.attn_bwd_loop0.body
   else ok (done (dq_acc, dk_acc, dv_acc, ok1, err))
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop 0:
-    Source: '../../src/learn/grad/attn.rs', lines 643:4-705:5
+    Source: '../../src/learn/grad/attn.rs', lines 644:4-706:5
     Visibility: public -/
 @[rust_loop]
 def learn_port.attn.attn_bwd_loop0
@@ -66408,7 +66321,7 @@ def learn_port.attn.attn_bwd_loop0
     (ds, dq_acc, dk_acc, dv_acc, h, ok1, err)
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 4:
-    Source: '../../src/learn/grad/attn.rs', lines 710:4-725:5
+    Source: '../../src/learn/grad/attn.rs', lines 711:4-726:5
     Visibility: public -/
 @[rust_loop_body]
 def learn_port.attn.attn_bwd_loop1.body
@@ -66447,7 +66360,7 @@ def learn_port.attn.attn_bwd_loop1.body
   else ok (done (ok1, err, dq))
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop 4:
-    Source: '../../src/learn/grad/attn.rs', lines 710:4-725:5
+    Source: '../../src/learn/grad/attn.rs', lines 711:4-726:5
     Visibility: public -/
 @[rust_loop]
 def learn_port.attn.attn_bwd_loop1
@@ -66462,7 +66375,7 @@ def learn_port.attn.attn_bwd_loop1
     (ok1, err, dq, x)
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 5:
-    Source: '../../src/learn/grad/attn.rs', lines 727:4-742:5
+    Source: '../../src/learn/grad/attn.rs', lines 728:4-743:5
     Visibility: public -/
 @[rust_loop_body]
 def learn_port.attn.attn_bwd_loop2.body
@@ -66501,7 +66414,7 @@ def learn_port.attn.attn_bwd_loop2.body
   else ok (done (ok1, err, dk))
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop 5:
-    Source: '../../src/learn/grad/attn.rs', lines 727:4-742:5
+    Source: '../../src/learn/grad/attn.rs', lines 728:4-743:5
     Visibility: public -/
 @[rust_loop]
 def learn_port.attn.attn_bwd_loop2
@@ -66516,7 +66429,7 @@ def learn_port.attn.attn_bwd_loop2
     (ok1, err, dk, x)
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop body 6:
-    Source: '../../src/learn/grad/attn.rs', lines 744:4-753:5
+    Source: '../../src/learn/grad/attn.rs', lines 745:4-754:5
     Visibility: public -/
 @[rust_loop_body]
 def learn_port.attn.attn_bwd_loop3.body
@@ -66551,7 +66464,7 @@ def learn_port.attn.attn_bwd_loop3.body
   else ok (done (ok1, err, dv))
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]: loop 6:
-    Source: '../../src/learn/grad/attn.rs', lines 744:4-753:5
+    Source: '../../src/learn/grad/attn.rs', lines 745:4-754:5
     Visibility: public -/
 @[rust_loop]
 def learn_port.attn.attn_bwd_loop3
@@ -66566,7 +66479,7 @@ def learn_port.attn.attn_bwd_loop3
     (ok1, err, dv, x)
 
 /-- [apeiron_word::learn_port::attn::attn_bwd]:
-    Source: '../../src/learn/grad/attn.rs', lines 611:0-759:1
+    Source: '../../src/learn/grad/attn.rs', lines 612:0-760:1
     Visibility: public -/
 def learn_port.attn.attn_bwd
   (q : Slice Std.I64) (k : Slice Std.I64) (v : Slice Std.I64)
@@ -74399,22 +74312,22 @@ inductive solve_port.gemm.GemmError where
 | InputBound : solve_port.gemm.GemmError
 | Overflow : solve_port.gemm.GemmError
 
-/-- [apeiron_word::solve_port::eig::gemm_err]:
+/-- [apeiron_word::solve_port::eig::eig_error]:
     Source: '../../src/learn/solve/eig.rs', lines 741:0-743:1 -/
-def solve_port.eig.gemm_err
+def solve_port.eig.eig_error
   (ge : solve_port.gemm.GemmError) : Result solve_port.eig.EigError := do
   ok solve_port.eig.EigError.Overflow
 
-/-- [apeiron_word::solve_port::eig::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::gemm::GemmError,), apeiron_word::solve_port::eig::EigError> for apeiron_word::solve_port::eig::gemm_err}::call_once]:
+/-- [apeiron_word::solve_port::eig::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::gemm::GemmError,), apeiron_word::solve_port::eig::EigError> for apeiron_word::solve_port::eig::eig_error}::call_once]:
     Source: '../../src/learn/solve/eig.rs', lines 741:0-743:1 -/
 def P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorEigError.call_once
   (state : solve_port.gemm.GemmError → Result solve_port.eig.EigError)
   (args : solve_port.gemm.GemmError) :
   Result solve_port.eig.EigError
   := do
-  solve_port.eig.gemm_err args
+  solve_port.eig.eig_error args
 
-/-- Trait implementation: [apeiron_word::solve_port::eig::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::gemm::GemmError,), apeiron_word::solve_port::eig::EigError> for apeiron_word::solve_port::eig::gemm_err}]
+/-- Trait implementation: [apeiron_word::solve_port::eig::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::gemm::GemmError,), apeiron_word::solve_port::eig::EigError> for apeiron_word::solve_port::eig::eig_error}]
     Source: '../../src/learn/solve/eig.rs', lines 741:0-743:1 -/
 @[reducible]
 def P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorEigError :
@@ -74612,7 +74525,7 @@ def solve_port.eig.ritz_step
   let r2 ←
     core.result.Result.map_err
       P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorEigError r1
-      (solve_port.eig.gemm_err)
+      (solve_port.eig.eig_error)
   let cf ← core.result.Result.Insts.CoreOpsTry.branch r2
   match cf with
   | core.ops.control_flow.ControlFlow.Continue val =>
@@ -74674,7 +74587,7 @@ def solve_port.eig.ritz_step
                   let r10 ←
                     core.result.Result.map_err
                       P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorEigError r9
-                      (solve_port.eig.gemm_err)
+                      (solve_port.eig.eig_error)
                   let cf7 ← core.result.Result.Insts.CoreOpsTry.branch r10
                   match cf7 with
                   | core.ops.control_flow.ControlFlow.Continue val7 =>
@@ -74773,7 +74686,7 @@ def solve_port.eig.ritz_step
       residual
 
 /-- [apeiron_word::solve_port::eig::residual_ratio]:
-    Source: '../../src/learn/solve/eig.rs', lines 846:0-852:1 -/
+    Source: '../../src/learn/solve/eig.rs', lines 852:0-863:1 -/
 def solve_port.eig.residual_ratio
   (residual : Std.I64) (lambda_max : Std.I64) : Result Std.I64 := do
   if lambda_max <= 0#i64
@@ -74783,11 +74696,13 @@ def solve_port.eig.residual_ratio
     let i1 ← i <<< 32#i32
     let i2 ← lift (core.convert.num.FromI128I64.from lambda_max)
     let r ← i1 / i2
-    let r1 ← I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from r
-    core.result.Result.unwrap_or r1 core.num.I64.MAX
+    let o ← solve_port.q32.narrow r
+    match o with
+    | none => ok core.num.I64.MAX
+    | some v => ok v
 
 /-- [apeiron_word::solve_port::eig::top_eigh_report]: loop body 0:
-    Source: '../../src/learn/solve/eig.rs', lines 890:4-905:5 -/
+    Source: '../../src/learn/solve/eig.rs', lines 901:4-916:5 -/
 @[rust_loop_body]
 def solve_port.eig.top_eigh_report_loop.body
   (m : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (s : Std.Usize)
@@ -74829,7 +74744,7 @@ def solve_port.eig.top_eigh_report_loop.body
   else ok (done (last, last_lambda, err, done1))
 
 /-- [apeiron_word::solve_port::eig::top_eigh_report]: loop 0:
-    Source: '../../src/learn/solve/eig.rs', lines 890:4-905:5 -/
+    Source: '../../src/learn/solve/eig.rs', lines 901:4-916:5 -/
 @[rust_loop]
 def solve_port.eig.top_eigh_report_loop
   (m : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (s : Std.Usize)
@@ -74846,7 +74761,7 @@ def solve_port.eig.top_eigh_report_loop
     (q, last, last_lambda, err, done1, iters)
 
 /-- [apeiron_word::solve_port::eig::top_eigh_report]:
-    Source: '../../src/learn/solve/eig.rs', lines 863:0-917:1 -/
+    Source: '../../src/learn/solve/eig.rs', lines 874:0-928:1 -/
 def solve_port.eig.top_eigh_report
   (m : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) :
   Result (core.result.Result solve_port.eig.TopEig solve_port.eig.EigStall)

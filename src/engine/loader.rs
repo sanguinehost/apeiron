@@ -876,8 +876,13 @@ fn build_table(header: &GgufHeader, file_len: u64) -> Result<TensorTable, Engine
 /// trimmed or unmapped and the next layer's call faults its pages in again (~77K minor
 /// faults per pp200 run, ~3.7 faults per page; with the thresholds held, ~9K). Process-wide and
 /// set once; a refused `mallopt` leaves the default and changes no result.
+///
+/// Release-only: the thresholds tune the allocator and change no computed value, while the
+/// Charon/Aeneas extraction unit builds the debug profile (`debug_assertions` is on). Keeping the
+/// call out of that profile keeps `libc::mallopt` and its `M_*` arguments out of the extracted
+/// closure, where they arrive as unmodeled external axioms.
 fn hold_heap() {
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[cfg(all(target_os = "linux", target_env = "gnu", not(debug_assertions)))]
     {
         static ONCE: std::sync::Once = std::sync::Once::new();
         ONCE.call_once(|| {

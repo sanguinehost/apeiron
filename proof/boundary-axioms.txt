@@ -113,9 +113,6 @@ alloc.fmt.format	host boundary: process flag, file, thread, allocator, CPU featu
 gguf.host_read_all	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 gguf.host_read_at	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 gguf.host_read_prefix	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
-libc.unix.linux_like.linux.gnu.mallopt	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
-libc.unix.linux_like.linux.gnu.M_MMAP_THRESHOLD	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
-libc.unix.linux_like.linux.gnu.M_TRIM_THRESHOLD	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 loader.optional_f64	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 mixer.carrier_from_env	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 mixer.exact_scan	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
@@ -125,9 +122,6 @@ par.online_threads	host boundary: process flag, file, thread, allocator, CPU fea
 std.sync.once_lock.OnceLock	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 std.sync.once_lock.OnceLock.get_or_init	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 std.sync.once_lock.OnceLock.new	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
-std.sync.once.Once	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
-std.sync.once.Once.call_once	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
-std.sync.once.Once.new	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 step.bitplane_enabled	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 step.prefill_block	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
 step.softmax.exact_scan_enabled	host boundary: process flag, file, thread, allocator, CPU feature, tracing or formatting; no value of the extracted computation depends on its internals. Grade tested.
