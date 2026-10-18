@@ -405,7 +405,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/fit/icm.rs"
-unextracted = 52
+unextracted = 5
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
