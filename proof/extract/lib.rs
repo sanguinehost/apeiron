@@ -1480,18 +1480,18 @@ pub mod hashtrinity_port;
 pub mod grad_solve_port;
 #[path = "fold_port.rs"]
 pub mod fold_port;
-#[path = "format_port.rs"]
+#[path = "ports/format_port.rs"]
 pub mod format_port;
 #[path = "coord_port.rs"]
 pub mod coord_port;
-#[path = "fit_port.rs"]
+#[path = "ports/fit_port.rs"]
 pub mod fit_port;
-#[path = "crypto_port.rs"]
+#[path = "ports/crypto_port.rs"]
 pub mod crypto_port;
-#[path = "fold_finish_port.rs"]
+#[path = "ports/fold_finish_port.rs"]
 pub mod fold_finish_port;
 // The per-layer fold transfer (`src/learn/fold/layer/`).
-#[path = "fold_layer_port.rs"]
+#[path = "ports/fold_layer_port.rs"]
 pub mod fold_layer_port;
 /// Mirror of `crate::learn` for this extraction unit, carried in `fold_port.rs`.
 pub use fold_port::learn;

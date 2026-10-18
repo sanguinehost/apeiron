@@ -5,7 +5,7 @@
 //! `format` mirror needs the real `src/format/bpe.rs` under a name the crate root does not already
 //! carry. Every wrapper calls the real body and restates no formula.
 
-#[path = "../../src/format/bpe.rs"]
+#[path = "../../../src/format/bpe.rs"]
 pub mod bpe;
 
 /// `PackingError::from(QuantError)`, the real `From` impl body.

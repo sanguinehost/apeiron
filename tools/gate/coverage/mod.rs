@@ -469,11 +469,12 @@ fn load(root: &Path) -> Result<Inputs, String> {
         "hashtrinity_port.rs",
         "map_table_port.rs",
         "fold_port.rs",
-        "format_port.rs",
-        "fold_finish_port.rs",
-        "fold_layer_port.rs",
+        "ports/format_port.rs",
+        "ports/fold_finish_port.rs",
+        "ports/fold_layer_port.rs",
     ] {
-        let prefix = ex.strip_suffix(".rs").filter(|_| ex != "lib.rs");
+        let stem = ex.rsplit('/').next().unwrap_or(ex);
+        let prefix = stem.strip_suffix(".rs").filter(|_| ex != "lib.rs");
         // A port file that this revision does not carry contributes no modules; `lib.rs` is always
         // present and fails the read like every other required input.
         let Ok(text) = rd(&format!("proof/extract/{ex}")) else {

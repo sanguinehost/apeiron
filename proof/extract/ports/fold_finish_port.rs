@@ -30,12 +30,12 @@
 //! (`proof/extract/lib.rs`), which has no `sha256` child; `run/mod.rs` would pull all three in.
 
 /// The real `src/learn/fold/finish/`: the frozen-code weight plane and the P-step over it.
-#[path = "../../src/learn/fold/finish/mod.rs"]
+#[path = "../../../src/learn/fold/finish/mod.rs"]
 pub mod finish;
 
 /// The real `src/learn/fold/run/convert.rs`: the engine-weight/fold-driver conversion and the
 /// `GGUF` scalar encoders.
-#[path = "../../src/learn/fold/run/convert.rs"]
+#[path = "../../../src/learn/fold/run/convert.rs"]
 pub mod convert;
 
 // ── `learn::fold::finish::train` ──────────────────────────────────────────────────────────────
