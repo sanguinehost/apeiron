@@ -5,6 +5,9 @@ rows that track them. The programme thesis is in [direction](direction.md); laye
 trust boundary are in [kernel-boundary](kernel-boundary.md). Where this file disagrees with the source
 or a gate, the source and the gate win.
 
+Current performance is in [`docs/evidence/perf-predictions.md` § Current](evidence/perf-predictions.md#current).
+That section is the only performance record; this plan cites it and records no competing number.
+
 The previous plan (hash-table ladder L0–L3, inference track, learning track) is
 `git show 2f15d6a9:docs/plan.md`. Its receipts stay under `docs/evidence/`; nothing here re-grades them.
 

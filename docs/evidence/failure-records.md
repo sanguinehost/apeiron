@@ -232,7 +232,7 @@ BASE:        `FreqMap` shard structure (subsumed hashtrinity line).
 MODEL-GAP:   "moving work out of the lookup column is a lookup win." Cost moved between columns is
              not removed; "every column" is the objective.
 DISPOSITION: parked; no code installed.
-EVIDENCE:    docs/plan.md:109 (`APEIRON-BEAT`); docs/evidence/perf-move-ledger.md COUNT-06.
+EVIDENCE:    docs/plan.md:109 (`APEIRON-BEAT`).
 ```
 
 ### [FAIL-11] `APEIRON-BEAT-17` — a branch-free key confirm
@@ -308,7 +308,7 @@ WHY:         walk cycles overlap the DRAM latency of the same lookup; the bindin
 BASE:        `count_par` shard allocation.
 MODEL-GAP:   "a counter's active cycles are additive cycles." Only cycles on the critical path are.
 DISPOSITION: parked; an install needs code (madvise or 2 MB-aligned storage) and its own prediction.
-EVIDENCE:    docs/evidence/perf-predictions.md P74; perf-move-ledger.md COUNT-12.
+EVIDENCE:    docs/evidence/perf-predictions.md P74.
 ```
 
 ## 3 · The model of speed, corrected

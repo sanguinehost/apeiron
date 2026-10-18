@@ -1,5 +1,8 @@
 # Benchmark ledger
 
+> Historical receipts. Current inference performance is recorded only in
+> [`perf-predictions.md` § Current](perf-predictions.md#current); this ledger is not a status.
+
 Consolidated from the per-run receipts in `docs/evidence/bench/` (27 runs, 54 files). One
 section per run; the id is the original filename, so old links resolve as `bench-ledger.md#<id>`.
 Machine receipts are in `bench-ledger.json` (`runs[]`).

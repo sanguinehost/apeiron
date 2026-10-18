@@ -6,7 +6,9 @@ Baselines: `llama-bench -p 0 -n 64 -r 5 -t 8`, run back to back. Grade `measured
 Every row keeps `generated_ids` equal to the exact-path reference (`/tmp/opencode/t9/q8act-1.txt` for Qwen,
 `/tmp/opencode/idle/bonsai-1.txt` for Bonsai).
 
-## Current standing (load 1.0–2.4)
+## Historical standing (load 1.0–2.4; superseded)
+
+Current inference performance is recorded only in [`perf-predictions.md` § Current](perf-predictions.md#current).
 
 | model | ours, 5 reps | baseline tg64 | median ratio |
 |---|---|---|---|

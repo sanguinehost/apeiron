@@ -98,7 +98,9 @@ These files are parsed by gates. They are not merged or reformatted:
 
 ## Evidence (`evidence/`)
 
-Receipts, one per wave or finding. The roll-ups are:
+Receipts, one per wave or finding. The only current performance status is
+[`perf-predictions.md` § Current](evidence/perf-predictions.md#current); the ledgers below are historical
+receipts, not status. The roll-ups are:
 - [`perf-ledger.md`](evidence/perf-ledger.md): every `perf-*` receipt;
 - [`security-spikes.md`](evidence/security-spikes.md): the security spike stubs;
 - [`anative.md`](evidence/anative.md): the algebra-native addressing receipts.

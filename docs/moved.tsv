@@ -103,3 +103,10 @@ docs/templates/spec.md	docs/templates/epic.md
 docs/intent/policy-engine.md	docs/epics/policy-engine.md
 docs/plan/policy-engine.md	docs/epics/policy-engine.md
 docs/spec/policy-engine.md	docs/epics/policy-engine.md
+docs/evidence/perf-move-ledger.md	docs/evidence/perf-predictions.md
+docs/evidence/gpu-prefill-vs-llamacpp.md	docs/evidence/perf-predictions.md
+docs/evidence/gpu-decode-vs-llamacpp.md	docs/evidence/perf-predictions.md
+docs/evidence/gpu-prefill/matched-cuda-baseline.md	docs/evidence/perf-predictions.md
+docs/evidence/gpu-prefill/cuda-primitive-latency.md	docs/evidence/perf-predictions.md
+docs/evidence/gpu-prefill/gpu-occupancy-analysis.md	docs/evidence/perf-predictions.md
+docs/evidence/gpu-prefill/primitive-latency.md	docs/evidence/perf-predictions.md

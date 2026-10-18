@@ -29,10 +29,10 @@ The map face is the control for the thesis: ap executes fewer instructions than 
 - A cost model stated in prose: no gate reads it (AGENTS.md §1a).
 
 **Completion condition.**
-1. `docs/evidence/perf-move-ledger.md`: every measured move, with receipt path, before/after, spread, binding resource, location (layer, kernel, shape) and licensing identity or `none`; refuted moves included.
+1. `docs/evidence/perf-predictions.md` § Current and its P-row history: every measured move, with receipt path, before/after, spread, binding resource, location (layer, kernel, shape) and licensing identity or `none`; refuted moves included. The separate move ledger is retired.
 2. `proof/corpus/Perf/`: one resource carrier and machine record, the time lower bound, the move preorder, and one theorem per move class in the ledger (fusion on a use-count-1 edge, tiling reuse, instruction width `dpw = 8/b`, walk count, line count, hot/cold split), under the closed axiom cone.
 3. A predictions table written before the measurement is read, for held-out cases (head_dim 128 attention, the one `b`-parameterised prefill GEMM, a map layout change): predicted ratio versus measured, per case. A miss outside the measured spread refutes or refines the row, and the row says which.
-4. The model names the binding resource and the next move for each red cell: CUDA decode (0.88×), qwen2.5-1.5b pp512 (0.65× Vulkan), map CoordMap columns.
+4. The model names the binding resource and the next move for each red cell: CUDA decode and prefill are at parity or better (`perf-predictions.md` § Current); the qwen2.5-1.5b CPU pp512 cell and the map CoordMap columns remain red.
 5. Cost counted over the real Aeneas-extracted bodies (pattern of `proof/corpus/Growable/CostModel.lean`) and over the emitted SPIR-V module structure (pattern of `Dispatch.dpw` and `emittedAccessChains`), for one family beyond the map.
 
 **Non-goals.** A Lean cost proof is not a hardware speed measurement (AGENTS.md §9.1). No device microarchitecture beyond named, measured capacity parameters. No kernel change in this epic except through its own rows. No claim of CUDA parity from the model.
@@ -64,7 +64,7 @@ Lean sources of the lineage contain `Real` and Mathlib imports; the port decides
 
 | wave | task | files | gate | control |
 |---|---|---|---|---|
-| W0 | PERF-LEDGER: move ledger from the receipts and the plan rows | `docs/evidence/perf-move-ledger.md` | `python3 tools/check-claims.py` (every row names a resolving receipt) | a row with an unresolvable receipt path fails the checker |
+| W0 | PERF-LEDGER: the measured record in the one performance location | `docs/evidence/perf-predictions.md` § Current and its P-rows | `python3 tools/check-claims.py` (every row names a resolving receipt) | a row with an unresolvable receipt path fails the checker |
 | W1 | PERF-PORT: classify the lineage files; port `FusionCost`/`FusionHidesLatency` into `Perf/Roofline.lean` over the carrier | `proof/corpus/Perf/Roofline.lean`, `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build` | drop the use-count-1 side condition: `fanout_forces_cost` analogue goes red |
 | W2 | PERF-INSTANCES: one theorem per move class; one task each (instruction width from `Carrier.lean`; walk count; line count from `Growable/CostModel.lean`; hot/cold split) | `proof/corpus/Perf/*.lean` | `cd proof/corpus && lake build` | change the field the move claims to relieve: red |
 | W3 | PERF-PREDICT: predictions table before measurement; ATTN-HD128, the `b`-parameterised prefill GEMM and a map layout change are the held-out cases | `docs/evidence/perf-predictions.md` | the same command that measures each case (paired, 5 rounds) | a prediction recorded after the measurement is rejected by commit order |

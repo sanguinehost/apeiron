@@ -97,7 +97,7 @@ budgets. These retain their grades and source identities; this ownership change 
 | Actual native emitted-body / canonical / source-cost correspondence | open |
 | Optimisation admission | closed to dispatch until accepted registration |
 | Native serving, hybrid recurrence, state continuation | open |
-| Matched llama.cpp GPU whole-prefill gain | baseline measured, gain unmeasured: llama.cpp CUDA pp200 = 22947 tok/s on the same 200 ids (`docs/evidence/gpu-prefill/matched-cuda-baseline.md`); no Apeiron resident GPU prefill exists to compare |
+| Matched llama.cpp GPU whole-prefill gain | current in `perf-predictions.md` § Current; the old pp200 baseline receipt is retired |
 | Shared Rust/extraction/both Lean barriers and trust inventory | open |
 
 SCOPE: this document, resource-guided-evolution.md, native-boundary-review.md; lead documentation exception.

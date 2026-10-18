@@ -1,5 +1,22 @@
 # Performance predictions
 
+## Current
+
+This is the only current performance record. A newer measurement replaces its row here; the P-rows
+below are the prediction/measurement history, not a second current status.
+
+| metric | model / device | Apeiron | llama.cpp CUDA | ratio | commit |
+|---|---|---:|---:|---:|---|
+| pp512 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 113,099 tok/s | 63,018.5 tok/s | 1.795x | `021ab9d5` (P31) |
+| tg128 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 973.8 tok/s | 880.9 tok/s | 1.105x | `392e08e6` (P71) |
+
+The CUDA comparators are `llama-bench -ngl 99` runs: decode 880.9 tok/s (P62), prefill 63,018.5 tok/s
+(pp512 campaign at `b82ae99`, 15 samples, contended host). The ratios are quotients of recorded medians,
+not paired-round medians; the prefill comparator is the weaker of the two because its host was loaded.
+
+The P-rows below are historical. A `red` verdict in a row is relative to that row's measured revision and
+is not current status; § Current supersedes every one of them.
+
 Row `perf-theory-formal-cost-HiI4vx6ezYPSHkfGWbq7YX` (W3). A prediction is committed before the measurement it concerns is read; the commit order is the evidence. The model under test is the roofline of `proof/corpus/Perf/Roofline.lean` (`timeLB f = max_r d_r(f)/c_r`, chain term inside the max per `Perf/Concurrency.lean`). Grade of every row until its measurement is read: `anchor`.
 
 | id | case | cost equation | prediction | refuted if | measured | verdict | Lean |
@@ -155,7 +172,7 @@ Lane `DECODE-PROLOGUE-INSTALL` (DeepSeek Flash; diff `/home/socol/oc-tmp/escalat
 - Live-tree token (5 interleaved rounds, `--gen 128 --reps 5 --carrier q4`, copied dial binary at `DEC_PROLOGUE=0` as the HEAD kernel against a fresh live build, quiet host): base 701.9, 696.1, 715.6, 723.9, 746.4; live 748.3, 729.1, 758.6, 767.7, 743.4. Mean 716.8 to 749.4 tok/s, ratio 1.045. Per-run minima reach 523-704 on a shared desktop; use the mean ratio, not a single run.
 - The lane's own 5 rounds gave 730.5 to 768.3 (ratio 1.052); the lane and live ratios agree within the round-to-round spread (0.996 to 1.087).
 - Correctness: `SEQHASH` `414708724a03be6e` and 0 argmax mismatches on both arms. Order control: reversing the per-lane sum order gives `6a875c4cad4d3370`.
-- CUDA reference 856.0: the ratio moves from 0.84 to about 0.88 (749.4 / 856.0 = 0.875, using the live mean). Decode remains red; the prologue floor is launch plus first load (1.47 us warm), and the same shape is still unlowered in `silu_mul_q_module`, `quantize_vec_module` and `rmsnorm_module`.
+- CUDA reference 856.0 at this revision: the ratio moves from 0.84 to about 0.88 (749.4 / 856.0 = 0.875, using the live mean). Decode was red here; P71 supersedes it at 973.8 against 880.9 (1.105×). The prologue is launch plus first load (1.47 us warm), and the same shape is still unlowered in `silu_mul_q_module`, `quantize_vec_module` and `rmsnorm_module`.
 - Trust boundary: RADV/ACO codegen and scheduling are not visible in SPIR-V; one shared RTX 5080; argmax over 128 steps; Q4 carrier only; F16/F32 not exercised.
 
 ## P7 outcome

@@ -84,6 +84,12 @@ that resolves; run the path before citing it.
 order. Where a document disagrees with the source or a gate, the source and the gate win; fix the
 document.
 
+**One performance record.** Every current inference/benchmark number and its ratio is recorded only in
+[`docs/evidence/perf-predictions.md` § Current](docs/evidence/perf-predictions.md#current). A measurement
+replaces its row there in the same commit. No other document records a current performance number or a
+second performance ledger; retired performance receipts are registered in `docs/moved.tsv` and are not a
+status.
+
 **This order is enforced, not assumed.** [`tools/rooting/read_gate.py`](tools/rooting/read_gate.py)
 `--check` reddens by name when a stage document is missing or is not referenced in this file;
 `--receipt` pins each stage document's sha256 into a dispatch, and `--verify` reddens on drift
