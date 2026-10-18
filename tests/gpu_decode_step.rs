@@ -25,8 +25,8 @@ use apeiron::engine::{Engine, KernelMode};
 use apeiron::format::bpe::Bpe;
 use apeiron::format::gguf::Gguf;
 use apeiron::gpu::decode::GpuDecode;
+use apeiron::gpu::simt::Carrier;
 use apeiron::gpu::vulkan::Vk;
-use apeiron::simt::Carrier;
 use std::time::Instant;
 
 const MODEL: &str = "models/gguf/qwen05b-Q4_K_M.gguf";

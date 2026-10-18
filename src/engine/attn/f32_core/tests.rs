@@ -19,8 +19,8 @@
 
 use super::*;
 use crate::engine::attn::KvState;
-use crate::engine::fp::F64;
 use crate::engine::mixer::Carrier;
+use crate::engine::num::fp::F64;
 
 fn fv(x: &[f32]) -> Vec<F32> {
     x.iter().map(|&v| F32::from_bits(v.to_bits())).collect()
@@ -567,9 +567,9 @@ fn attn_layer_segments_k200() {
     use crate::engine::chart::ffn::attn_heads;
     use crate::engine::chart::task::FnHead;
     use crate::engine::loader::qk_norm_heads;
-    use crate::engine::rope::RopeTable;
+    use crate::engine::num::value::mul_q32;
+    use crate::engine::ops::rope::RopeTable;
     use crate::engine::step::attn_block::{rotate_pair_prefixes, sigmoid_gate};
-    use crate::engine::value::mul_q32;
     use crate::numeric::fixed_ln::fixed_sigmoid;
     use std::time::Instant;
 

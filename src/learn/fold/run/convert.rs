@@ -43,7 +43,7 @@
 use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;
 use crate::engine::f16_to_fixed;
-use crate::engine::fp::F32;
+use crate::engine::num::fp::F32;
 use crate::learn::fold::stats::parts::LayerCfg;
 use crate::learn::grad::model::{Config, LayerWeights, Weights};
 use crate::learn::solve::q32::{from_grid, round_f16, rshift_rne, Fx};

@@ -257,7 +257,7 @@ TERMINATION_ELEMENTS = (
 ROOT_PREREQUISITE = "this specification gate"
 
 SOURCES = {
-    "src/table/table.slang": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d",
+    "src/map/table/table.slang": "bf5d19e6eb5d127100e777dee054dcbebaebcd7c305fffc748f93e54b5525e1d",
     "src/kernel/std.slang": "e24b0e360f26794fab0fe1332c32455143d22d2059e871b8c012b4e8a89a6cae",
     "src/kernel/mem/cell.slang": "35e3e46c5b7820c67f9c92f2af07a16bf581964b90acf7c508c5b13570d9b3cc",
     "src/front/parser.slang": "e643bd85ca34b195888a0c64ec3662ce75c0c770d365b360285a9e0af2e4a882",

@@ -1,6 +1,6 @@
-use super::dequant::dequant_row_fixed;
 use super::*;
-use crate::engine::fp::F64;
+use crate::engine::num::dequant::dequant_row_fixed;
+use crate::engine::num::fp::F64;
 use crate::engine::testdata::model_path;
 use crate::format::quant::{
     self, Q2_K_BLOCK_BYTES, Q3_K_BLOCK_BYTES, Q4_K_BLOCK_BYTES, Q5_0_BLOCK_BYTES, Q6_K_BLOCK_BYTES,
@@ -1740,7 +1740,7 @@ fn bench_qwen35_head() {
         .payload(t.byte_range.start, t.n_bytes.expect("bytes"))
         .expect("payload");
     let (vocab, n) = (engine.config.vocab_size, engine.config.n_embd);
-    let budget = super::par::row_chunk_budget(vocab);
+    let budget = crate::engine::ops::par::row_chunk_budget(vocab);
     let t0 = std::time::Instant::now();
     for q in &states {
         let l =

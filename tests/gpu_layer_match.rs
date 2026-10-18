@@ -20,8 +20,8 @@ use apeiron::gpu::decode::layer::{embed_step, final_norm_step, rec_nodes, record
 use apeiron::gpu::decode::pack::pack_proj_f32;
 use apeiron::gpu::decode::state::{dequant_rows, LayerCfg, LayerW, Scratch, Stream};
 use apeiron::gpu::decode::{rec_step, GpuCtx};
+use apeiron::gpu::simt::Carrier;
 use apeiron::gpu::vulkan::*;
-use apeiron::simt::Carrier;
 
 const MODEL: &str = "models/gguf/qwen05b-Q4_K_M.gguf";
 /// Token ids fed at positions 0 and 1.

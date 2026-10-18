@@ -7,7 +7,7 @@
 //! instead of `loader.rs`. The type, its variants, derives and trait impls are unchanged; the
 //! loader re-exports it at its former path.
 
-use crate::engine::f32_convert::F32Error;
+use crate::engine::num::f32_convert::F32Error;
 use crate::format::gguf::GgufError;
 use crate::format::quant::QuantError;
 

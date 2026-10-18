@@ -6,11 +6,11 @@ runtime. The runtime loads `libvulkan.so.1` with `dlopen` and depends on no crat
 
 | layer | location | role |
 |---|---|---|
-| module builders | `src/simt/` | `_bytes` functions that emit SPIR-V words: GEMV, DP4A GEMV, batch GEMM, reductions, elementwise ops |
+| module builders | `src/gpu/simt/` | `_bytes` functions that emit SPIR-V words: GEMV, DP4A GEMV, batch GEMM, reductions, elementwise ops |
 | runtime | `src/gpu/` | device, buffer, pipeline and dispatch; `Gpu::upload`, `pipeline`, `bind`, `run` |
 | whole-model decode | `src/gpu/decode/` | `GpuDecode`: model upload, per-layer step, prefill |
-| fragment checker | `src/spirv/` | `check_fragment`: a pure check of an emitted module |
-| shaders | `src/spirv/*.comp`, `*.spv` | cooperative-matrix GEMM and attention, split-K reduce |
+| fragment checker | `src/gpu/spirv/` | `check_fragment`: a pure check of an emitted module |
+| shaders | `src/gpu/spirv/*.comp`, `*.spv` | cooperative-matrix GEMM and attention, split-K reduce |
 
 The builders stay compiled without the `gpu` feature, so a module can be generated and checked on a
 machine with no Vulkan device.

@@ -114,31 +114,31 @@ echo "tool-identity: OK translator $SELECTED_TRANSLATOR_SHA256 == pinned"
 echo "== source =="
 # Every listed source must exist: a missing live source fails the digest stage instead of being
 # skipped, so a stale path (for example a deleted module) cannot pass silently.
-# `src/table.rs` textually includes `table/{state,locator,prepared}.rs`; `src/coord.rs`
-# pulls `src/coord/address.rs` and `src/coord/locator.rs` by `#[path]`, and `src/coord/locator.rs`
-# pulls `src/coord/locator_core.rs`. All are extraction source and carry a digest. Every `#[path]`
+# `src/map/table.rs` textually includes `table/{state,locator,prepared}.rs`; `src/map/coord.rs`
+# pulls `src/map/coord/address.rs` and `src/map/coord/locator.rs` by `#[path]`, and `src/map/coord/locator.rs`
+# pulls `src/map/coord/locator_core.rs`. All are extraction source and carry a digest. Every `#[path]`
 # target of `proof/extract/lib.rs` is listed: the engine closure `loader/step/chart/kern/trace`, the
 # `mixer.rs` and `hadamard.rs` roots, `moe.rs`, `numeric/fixed_ln.rs` and `crypto.rs` are pulled too, so a change
-# to any of them moves the generated Lean and moves this digest list with it. `src/table/tests.rs`
+# to any of them moves the generated Lean and moves this digest list with it. `src/map/table/tests.rs`
 # is `#[cfg(test)]` and is not part of the Charon unit; it is deliberately excluded here.
 SOURCE_FILES="
 $REPO_DIR/src/scalar.rs
 $REPO_DIR/src/cell.rs
 $REPO_DIR/src/exchange.rs
 $REPO_DIR/src/carrier.rs
-$REPO_DIR/src/table.rs
-$REPO_DIR/src/table/state.rs
-$REPO_DIR/src/table/locator.rs
-$REPO_DIR/src/table/prepared.rs
-$REPO_DIR/src/table/probe.rs
-$REPO_DIR/src/coord.rs
-$REPO_DIR/src/coord/address.rs
-$REPO_DIR/src/coord/locator.rs
-$REPO_DIR/src/coord/locator_core.rs
-$REPO_DIR/src/table/keyrep.rs
-$REPO_DIR/src/table/partition.rs
-$REPO_DIR/src/table/resources.rs
-$REPO_DIR/src/table/parallel.rs
+$REPO_DIR/src/map/table.rs
+$REPO_DIR/src/map/table/state.rs
+$REPO_DIR/src/map/table/locator.rs
+$REPO_DIR/src/map/table/prepared.rs
+$REPO_DIR/src/map/table/probe.rs
+$REPO_DIR/src/map/coord.rs
+$REPO_DIR/src/map/coord/address.rs
+$REPO_DIR/src/map/coord/locator.rs
+$REPO_DIR/src/map/coord/locator_core.rs
+$REPO_DIR/src/map/table/keyrep.rs
+$REPO_DIR/src/map/table/partition.rs
+$REPO_DIR/src/map/table/resources.rs
+$REPO_DIR/src/map/table/parallel.rs
 $REPO_DIR/src/numeric/fixed_exp.rs
 $REPO_DIR/src/numeric/register.rs
 $REPO_DIR/src/numeric/fixed_rsqrt.rs
@@ -147,26 +147,26 @@ $REPO_DIR/src/format/gguf.rs
 $REPO_DIR/src/format/quant.rs
 $REPO_DIR/src/format/packing.rs
 $REPO_DIR/src/engine/mod.rs
-$REPO_DIR/src/engine/value.rs
-$REPO_DIR/src/engine/silu.rs
-$REPO_DIR/src/engine/norm.rs
-$REPO_DIR/src/engine/rope.rs
+$REPO_DIR/src/engine/num/value.rs
+$REPO_DIR/src/engine/ops/silu.rs
+$REPO_DIR/src/engine/ops/norm.rs
+$REPO_DIR/src/engine/ops/rope.rs
 $REPO_DIR/src/engine/error.rs
-$REPO_DIR/src/engine/f32_convert.rs
-$REPO_DIR/src/engine/dequant.rs
-$REPO_DIR/src/engine/matvec.rs
+$REPO_DIR/src/engine/num/f32_convert.rs
+$REPO_DIR/src/engine/num/dequant.rs
+$REPO_DIR/src/engine/ops/matvec.rs
 $REPO_DIR/src/engine/attn.rs
 $REPO_DIR/src/engine/mixer.rs
-$REPO_DIR/src/engine/lm_head.rs
-$REPO_DIR/src/engine/sampler.rs
-$REPO_DIR/src/engine/hadamard.rs
-$REPO_DIR/src/engine/ffn.rs
-$REPO_DIR/src/engine/moe.rs
-$REPO_DIR/src/engine/fused.rs
-$REPO_DIR/src/engine/par.rs
+$REPO_DIR/src/engine/ops/lm_head.rs
+$REPO_DIR/src/engine/ops/sampler.rs
+$REPO_DIR/src/engine/ops/hadamard.rs
+$REPO_DIR/src/engine/ops/ffn.rs
+$REPO_DIR/src/engine/ops/moe.rs
+$REPO_DIR/src/engine/ops/fused.rs
+$REPO_DIR/src/engine/ops/par.rs
 $REPO_DIR/src/engine/kern/pow2.rs
-$REPO_DIR/src/spirv/mod.rs
-$REPO_DIR/src/spirv/check.rs
+$REPO_DIR/src/gpu/spirv/mod.rs
+$REPO_DIR/src/gpu/spirv/check.rs
 $REPO_DIR/src/policy/mod.rs
 $REPO_DIR/src/policy/decide.rs
 $REPO_DIR/src/engine/loader.rs
@@ -175,20 +175,20 @@ $REPO_DIR/src/engine/chart/mod.rs
 $REPO_DIR/src/engine/kern/mod.rs
 $REPO_DIR/src/engine/trace.rs
 $REPO_DIR/src/numeric/fixed_ln.rs
-$REPO_DIR/src/crypto.rs
-$REPO_DIR/src/sha256.rs
-$REPO_DIR/src/chacha.rs
-$REPO_DIR/src/aes.rs
-$REPO_DIR/src/hashtrinity/mod.rs
-$REPO_DIR/src/hashtrinity/algebra.rs
-$REPO_DIR/src/hashtrinity/freq.rs
-$REPO_DIR/src/hashtrinity/hex.rs
-$REPO_DIR/src/hashtrinity/base64.rs
-$REPO_DIR/src/hashtrinity/seed.rs
-$REPO_DIR/src/hashtrinity/tregex.rs
-$REPO_DIR/src/hashtrinity/par.rs
-$REPO_DIR/src/hashtrinity/face.rs
-$REPO_DIR/src/hashtrinity/crypto.rs
+$REPO_DIR/src/crypto/keccak.rs
+$REPO_DIR/src/crypto/sha256.rs
+$REPO_DIR/src/crypto/chacha.rs
+$REPO_DIR/src/crypto/aes.rs
+$REPO_DIR/src/map/hashtrinity/mod.rs
+$REPO_DIR/src/map/hashtrinity/algebra.rs
+$REPO_DIR/src/map/hashtrinity/freq.rs
+$REPO_DIR/src/map/hashtrinity/hex.rs
+$REPO_DIR/src/map/hashtrinity/base64.rs
+$REPO_DIR/src/map/hashtrinity/seed.rs
+$REPO_DIR/src/map/hashtrinity/tregex.rs
+$REPO_DIR/src/map/hashtrinity/par.rs
+$REPO_DIR/src/map/hashtrinity/face.rs
+$REPO_DIR/src/map/hashtrinity/crypto.rs
 $REPO_DIR/src/learn/gram.rs
 $REPO_DIR/src/learn/sigma_delta.rs
 $REPO_DIR/src/learn/onebit_bits.rs

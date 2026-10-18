@@ -36,9 +36,9 @@ use crate::engine::chart::task::IndexTask;
 use crate::engine::chart::{
     q8act_plan, q8act_row_i128_fast, q8act_rows, quant_act, Q8ActFast, Q8ActPlan, QuantAct,
 };
-use crate::engine::ffn::{silu_fixed, FfnError, ProjWeights};
-use crate::engine::matvec::MatvecError;
-use crate::engine::value::round_shift_32;
+use crate::engine::num::value::round_shift_32;
+use crate::engine::ops::ffn::{silu_fixed, FfnError, ProjWeights};
+use crate::engine::ops::matvec::MatvecError;
 use crate::engine::EngineError;
 use crate::format::quant;
 

@@ -32,7 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SONG_ROOT = REPO_ROOT.parent / "song"
 DEFAULT_OUTPUT = REPO_ROOT / "proof/corpus/Iota/Generated/Table.lean"
 DEFAULT_DERIVATION_OUTPUT = REPO_ROOT / "proof/corpus/Iota/Generated/TableDerivation.lean"
-ENTRY = "src/table/table.slang"
+ENTRY = "src/map/table/table.slang"
 USE = re.compile(rb'(?m)^use[ \t]+"([^"\r\n]+)"[ \t]*(?://[^\r\n]*)?$')
 
 
@@ -212,13 +212,13 @@ def song_revision(song_root: Path) -> str:
 def render(song_root: Path) -> tuple[str, dict[str, str]]:
     closure = resolve_closure(song_root)
     if [path for path, _ in closure] != [
-        "src/table/table.slang",
+        "src/map/table/table.slang",
         "src/kernel/mem/cell.slang",
         "src/kernel/std.slang",
     ]:
         raise ValueError("selected table import closure differs")
     names = {
-        "src/table/table.slang": "tableBytes",
+        "src/map/table/table.slang": "tableBytes",
         "src/kernel/mem/cell.slang": "cellBytes",
         "src/kernel/std.slang": "stdBytes",
     }

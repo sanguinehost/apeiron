@@ -52,7 +52,7 @@
 
 use super::attn::{self, AttnError};
 use super::dense::{self, DenseError};
-use crate::engine::fp::F64;
+use crate::engine::num::fp::F64;
 use crate::engine::{dequant_row_fixed, Engine, EngineError, RopeTable};
 
 /// A refused whole-model forward or backward evaluation.

@@ -20,7 +20,7 @@
 //! `±√8`, irrational, and are carried as [`SQRT8_Q32`]; they are not in E8.
 //!
 //! Rounding: a scaled codeword `round(a·c / ONE)` is round-half-up `(n + 2^31) >> 32`, the rule of
-//! `round_shift_32` in `src/engine/value.rs`. Distances are exact `i128` sums of squares.
+//! `round_shift_32` in `src/engine/num/value.rs`. Distances are exact `i128` sums of squares.
 //!
 //! This module is dependency-free apart from [`crate::engine::ONE`] so that it can be pulled in by
 //! `#[path]` into the extraction.

@@ -10,7 +10,7 @@
 //! `each_face_gets_the_fold_it_needs.rs` for the explicit collision, and use `Packed` where the
 //! address has to determine the key.
 
-use apeiron::coord::Coord;
+use apeiron::map::coord::Coord;
 use std::collections::HashSet;
 
 fn distinct<K: Coord>(keys: &[K]) -> usize {

@@ -7,7 +7,7 @@
 //! Counts scale under Miri, as the rest of the crate's tests do: these are arithmetic identities
 //! with no unsafe in them, so a Miri run wants the path taken, not the sample size.
 
-use apeiron::coord::{spread, PHI};
+use apeiron::map::coord::{spread, PHI};
 
 #[expect(
     clippy::cast_possible_truncation,

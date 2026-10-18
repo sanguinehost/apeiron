@@ -1,4 +1,4 @@
-//! Panic safety and churn cost of the map table (`apeiron::freq::Table`).
+//! Panic safety and churn cost of the map table (`apeiron::map::freq::Table`).
 //!
 //! A merge that panics removes its key: `len` drops by one, a main slot reads `TOMB` (never `EMPTY`,
 //! so other keys' probe chains survive), a side entry is swap-removed, an overflow entry is deleted,
@@ -8,7 +8,7 @@
 //! The reproductions are the independent review's (F1–F5), turned into assertions. A counting
 //! global allocator (per thread) observes leaks; a counting value type observes double drops.
 
-use apeiron::freq::{Coord, Table};
+use apeiron::map::freq::{Coord, Table};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::panic::{catch_unwind, AssertUnwindSafe};

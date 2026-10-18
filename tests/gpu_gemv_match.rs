@@ -17,9 +17,9 @@ use apeiron::format::quant::{
 use apeiron::gpu::decode::layer::make_actq_gemv;
 use apeiron::gpu::decode::pack::{pack_proj_f32, pack_q5_0_raw, pack_q6_k_raw, pack_tensor_desc};
 use apeiron::gpu::decode::{make_gemv, make_step_named, rec_gemv, rec_step, segs, GpuCtx};
+use apeiron::gpu::nn::{quantize_vec_bytes, ActQ, ScaleFace};
+use apeiron::gpu::simt::Carrier;
 use apeiron::gpu::vulkan::*;
-use apeiron::simt::Carrier;
-use apeiron::simt_nn::{quantize_vec_bytes, ActQ, ScaleFace};
 
 const MODEL: &str = "models/gguf/qwen05b-Q4_K_M.gguf";
 
@@ -575,8 +575,8 @@ fn q6_chart_actq_gemv_matches_cpu() {
 }
 
 /// The served activation quantizer's scale formula, restated here so the lossless construction below
-/// can be checked against it. From `Kb::emit_quantize_to_shared_win` (`src/simt_nn/mod.rs:1195-1200`)
-/// and `Kb::int8_code` (`src/simt_nn/attn_dp4a.rs:60-81`), per 32-block `b`:
+/// can be checked against it. From `Kb::emit_quantize_to_shared_win` (`src/gpu/nn/mod.rs:1195-1200`)
+/// and `Kb::int8_code` (`src/gpu/nn/attn/attn_dp4a.rs:60-81`), per 32-block `b`:
 ///
 /// ```text
 /// mx   = fmax(1e-12, max_j |x_j|)              // f32, floor 1e-12

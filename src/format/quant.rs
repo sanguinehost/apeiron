@@ -11,7 +11,7 @@
 //!
 //! Implements the `F32`, `F16`, `Q8_0`, `Q5_0`, `Q2_K`, `Q3_K`, `Q4_K` and `Q6_K` formats, and the
 //! geometry and type ids of the six low-bit faces `Q1_0`, `Q2_0`, `PQ2_0`, `TQ2_0`, `TQ1_0` and
-//! `PTQ1_0` (whose fixed-point row dequantizers live in `crate::engine::dequant`). The codebook
+//! `PTQ1_0` (whose fixed-point row dequantizers live in `crate::engine::num::dequant`). The codebook
 //! `IQ*` i-quants need their lookup grids and are not ported here.
 
 /// Weights per k-quant super-block (ggml `QK_K`).

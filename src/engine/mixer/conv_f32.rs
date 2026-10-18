@@ -16,7 +16,7 @@
 use super::{alloc_cols, col_writers, f32_carrier, AffineLayer, ColWriters, ConvState, Flat};
 use crate::engine::chart::pool::{set_written_len, set_written_lens};
 use crate::engine::chart::task::IndexTask;
-use crate::engine::fp::F32;
+use crate::engine::num::fp::F32;
 use crate::engine::step::StepError;
 
 #[cfg(test)]
@@ -597,10 +597,10 @@ mod tests {
     use super::super::flatten_cols;
     use super::super::{AffineGeom, AffineState, Carrier, ConvState};
     use super::{conv_silu_cols_f32, seg};
-    use crate::engine::fp::F32;
     use crate::engine::mixer::f32_carrier::{
         conv_silu_tap4_scalar, f32_readout_to_q32, q32_to_f32, readout8_avx2,
     };
+    use crate::engine::num::fp::F32;
     use std::sync::atomic::Ordering::Relaxed;
     use std::time::Instant;
 

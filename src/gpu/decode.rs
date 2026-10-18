@@ -8,9 +8,9 @@
     reason = "faithful port of fold's bedrock/src/serve/gpu.rs; lint profile is fold's, not apeiron's"
 )]
 
+use crate::gpu::nn::*;
+use crate::gpu::simt::{gemv_bytes, Carrier};
 use crate::gpu::vulkan::*;
-use crate::simt::{gemv_bytes, Carrier};
-use crate::simt_nn::*;
 use std::sync::OnceLock;
 
 pub mod layer;

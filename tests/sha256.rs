@@ -1,4 +1,4 @@
-//! FIPS 180-4 known-answer tests for the SHA-256 port in `apeiron::sha256`.
+//! FIPS 180-4 known-answer tests for the SHA-256 port in `apeiron::crypto::sha256`.
 //!
 //! The four vectors are the FIPS 180-4 Appendix B examples: SHA-256 of `""` and `"abc"`, of the
 //! 56-byte `"abcdbcde...nopq"` (which forces the two-block padding path), and the NIST million-`a`
@@ -7,7 +7,7 @@
 
 use std::fmt::Write as _;
 
-use apeiron::sha256::sha256;
+use apeiron::crypto::sha256::sha256;
 
 fn hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2);

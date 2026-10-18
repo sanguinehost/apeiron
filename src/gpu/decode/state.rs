@@ -520,7 +520,7 @@ mod tests {
         use crate::engine::loader::Engine;
         use crate::gpu::decode::pack::pack_proj_f32;
         use crate::gpu::decode::upload::layer_cfg;
-        use crate::simt::Carrier;
+        use crate::gpu::simt::Carrier;
 
         let Some(path) = model_path(QWEN05B_PATH) else {
             eprintln!("skip qwen05b_upload_bytes_match_inventory: {QWEN05B_PATH} absent");

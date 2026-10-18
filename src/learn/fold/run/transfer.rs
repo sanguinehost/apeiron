@@ -65,6 +65,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
+use crate::crypto::sha256::sha256;
 use crate::format::gguf::{Gguf, GgufError};
 use crate::format::quant;
 use crate::learn::fold::layer::driver::{
@@ -74,7 +75,6 @@ use crate::learn::fold::layer::tensor::{SinkPlane, TensorBits, TensorFit, Tensor
 use crate::learn::fold::run::convert::{encode_f16, encode_f32, ConvertError, Teacher};
 use crate::learn::gguf::write_file;
 use crate::learn::grad::model::Weights;
-use crate::sha256::sha256;
 
 /// The checkpoint manifest file name.
 const MANIFEST: &str = "manifest.txt";

@@ -1,4 +1,4 @@
-//! `apeiron::fold` behind a C ABI, so SMHasher can test it.
+//! `apeiron::map::fold` behind a C ABI, so SMHasher can test it.
 //!
 //! SMHasher calls `hash(key, len, seed, out)` and reads 8 bytes from `out`. The seed becomes the
 //! fold's pepper, which is what SMHasher varies to drive its differential and seed tests.
@@ -14,6 +14,6 @@ pub unsafe extern "C" fn apeiron_fold(key: *const c_void, len: i32, seed: u32, o
     } else {
         std::slice::from_raw_parts(key.cast::<u8>(), len as usize)
     };
-    let h = apeiron::fold::fold_bytes_with(u64::from(seed), bytes);
+    let h = apeiron::map::fold::fold_bytes_with(u64::from(seed), bytes);
     std::ptr::copy_nonoverlapping(h.to_le_bytes().as_ptr(), out.cast::<u8>(), 8);
 }

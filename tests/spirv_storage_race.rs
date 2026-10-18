@@ -12,13 +12,13 @@
 //! `OpAccessChain`) followed in program order by an `OpControlBarrier` and then an `OpLoad` from
 //! `V`, unless `V` is `Coherent` and that barrier carries `UniformMemory`.
 //!
-//! Negative control: run this file against `git show HEAD:src/simt_nn/batch.rs` /
+//! Negative control: run this file against `git show HEAD:src/gpu/nn/batch.rs` /
 //! `mod.rs` in a throwaway copy — it must flag `quantize_at` and the `RoPE` exchange. The
 //! `detector_flags_the_known_race` unit control below fires the same analyser on a hand-built
 //! module, so the detector cannot pass by finding nothing.
 
-use apeiron::simt::Carrier;
-use apeiron::simt_nn::*;
+use apeiron::gpu::nn::*;
+use apeiron::gpu::simt::Carrier;
 use std::collections::{HashMap, HashSet};
 
 const SC_UNIFORM: u32 = 2;
@@ -496,10 +496,10 @@ fn modules() -> Vec<(&'static str, Vec<u32>)> {
 /// lane's element later is flagged even though no other invocation's value is observed. Each name
 /// below is proved per-invocation in the comment and in the kernel source:
 ///
-/// * `fusedropekv` (`src/simt_nn/glue.rs::fused_rope_kv_fold_module`) is no longer here: the
+/// * `fusedropekv` (`src/gpu/nn/glue.rs::fused_rope_kv_fold_module`) is no longer here: the
 ///   rope-leader hand-off now crosses invocations through workgroup memory (`red`/`sval`), as
-///   `src/simt_nn/batch.rs::qkv_rope_batch_module` does.
-/// * `rmsqsb` (`src/simt_nn/batch.rs`): the `residual` prologue folds `x[idx] += res[idx]` in
+///   `src/gpu/nn/batch.rs::qkv_rope_batch_module` does.
+/// * `rmsqsb` (`src/gpu/nn/batch.rs`): the `residual` prologue folds `x[idx] += res[idx]` in
 ///   `loop_step(tid, n, WG)` at `idx = i·n + j`, and the later sumsq/scale loops read `x` at the
 ///   identical `idx` with the identical `tid`/`WG` stride. Same lane, same element; the separating
 ///   barriers order the shared reduction, not this read.
@@ -613,7 +613,7 @@ fn detector_flags_the_known_race() {
 /// The committed `attn_coopmat.spv` is what `glslc` makes of the committed `attn_coopmat.comp`.
 #[test]
 fn attn_coopmat_spirv_is_the_glsl() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/spirv");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/spirv");
     let out = std::env::temp_dir().join(format!("attn_coopmat_{}.spv", std::process::id()));
     let st = std::process::Command::new("glslc")
         .args(GLSLC_ARGS)
@@ -628,14 +628,14 @@ fn attn_coopmat_spirv_is_the_glsl() {
     let committed = std::fs::read(dir.join("attn_coopmat.spv")).expect("committed spv");
     assert!(
         fresh == committed,
-        "src/spirv/attn_coopmat.spv is stale: recompile with glslc {GLSLC_ARGS:?}"
+        "src/gpu/spirv/attn_coopmat.spv is stale: recompile with glslc {GLSLC_ARGS:?}"
     );
 }
 
 /// The committed `splitk_reduce.spv` is what `glslc` makes of the committed `splitk_reduce.comp`.
 #[test]
 fn splitk_reduce_spirv_is_the_glsl() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/spirv");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/spirv");
     let out = std::env::temp_dir().join(format!("splitk_reduce_{}.spv", std::process::id()));
     let st = std::process::Command::new("glslc")
         .args(GLSLC_ARGS)
@@ -650,6 +650,6 @@ fn splitk_reduce_spirv_is_the_glsl() {
     let committed = std::fs::read(dir.join("splitk_reduce.spv")).expect("committed spv");
     assert!(
         fresh == committed,
-        "src/spirv/splitk_reduce.spv is stale: recompile with glslc {GLSLC_ARGS:?}"
+        "src/gpu/spirv/splitk_reduce.spv is stale: recompile with glslc {GLSLC_ARGS:?}"
     );
 }

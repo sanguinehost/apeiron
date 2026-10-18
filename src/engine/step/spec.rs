@@ -314,7 +314,7 @@ impl Engine {
                 rows,
                 n_embd,
                 &qs[0],
-                crate::engine::par::row_chunk_budget(rows),
+                crate::engine::ops::par::row_chunk_budget(rows),
             )
             .map_err(StepError::Matvec)?]
         } else {

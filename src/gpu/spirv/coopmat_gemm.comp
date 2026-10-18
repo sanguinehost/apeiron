@@ -1,0 +1,513 @@
+#version 460
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_integer_dot_product : require
+
+// Cooperative-matrix (tensor-core) chart GEMM for prefill: the drop-in for
+// `simt::gemv_dp4a_batch_rt_module` (src/gpu/simt/superblock.rs), same six bindings, same chart, same
+// per-32-block f32 epilogue `acc += ((d*q)*sx + lo*xs)` in block order. Only the per-block integer dot
+// `q` changes engine: the rt x bt grid of OpSUDot becomes signed-int8 M16N16K32 MMAs, K32 == one chart
+// block, so no two blocks with unequal scales ever share an integer accumulator.
+//
+// Signedness. The device lists s8*s8->s32 and u8*u8->u32 only (no mixed entry), while OpSUDot is
+// signed(x) * unsigned(w). Q4/Q2 codes (<= 15) are already valid s8. Q8 codes are recentred
+// s = q - 128 (byte XOR 0x80) and the exact correction  sum_k q*x = sum_k s*x + 128*sum_k x  is added
+// in the integer ring before the f32 conversion, so q is the same i32 the DP4A kernel forms.
+//
+// Tile: one workgroup owns BM rows x BN tokens; SGM x SGN subgroups, each WM x WN 16x16 fragments.
+// Per stage of KB blocks: stage each BMx32 weight tile (chart words -> s8, k order = the activation
+// byte order) and 32xBN activation tile in shared memory, then MMA + epilogue per fragment, block by
+// block. The next stage's global words are fetched into registers before this stage's MMAs, so their
+// latency overlaps them. Defaults (128 x 64, 2 x 2 subgroups, KB 2) are the measured choice of
+// examples/gemm_bench.rs --variants on the RTX 5080.
+//
+// Fused SwiGLU epilogue (`FUSE != 0`, the gate/up projection only; precedent `attn_coopmat.comp`). The tile's
+// 128 rows are remapped in-kernel: rows 0..63 are gate rows `64x + r`, rows 64..127 the matching up rows
+// `M/2 + 64x + r - 64` (accumulation per element is unchanged, so the pre-activations are the bits the
+// unfused kernel stores). Subgroups with `sg % 2 == 0` then hold gate and `sg % 2 == 1` up fragments of the
+// same 32 tokens; per 32-feature block the gate tile is staged in `sA`, the up subgroup forms
+// `silu(g) * u` in the fragment (the expression of `simt_nn::swiglu_quant_batch_module`, operation for
+// operation), and the per-32-block activation chart (absmax/127 scale, serial f32 sum, round-half-away codes
+// in the down projection's `dpw = FUSE` word order) is written into the buffer bound at O, which no longer
+// holds the gate/up row. The down GEMM reads that chart through its X, XS and SX bindings with `SMOFF` and
+// `SCOFF` as the sum and scale offsets (zero for every other GEMM).
+//
+// Split-K: `KSPLIT > 1` is for the unfused (FUSE == 0) GEMM; the SwiGLU epilogue does not split.
+//
+// Preconditions (the Rust builder asserts the static ones): M % 16 == 0; K % (32*KB) == 0; the activation,
+// XS and SX buffers hold ceil(tokens/BN)*BN rows (zero padded, as the DP4A path pads to its bt) and
+// OUT holds as many rows of M floats. Dispatch (ceil(M/BM), ceil(tokens/BN), 1).
+
+#ifndef BM
+#define BM 128
+#endif
+#ifndef BN
+#define BN 64
+#endif
+#ifndef SGM
+#define SGM 2
+#endif
+#ifndef SGN
+#define SGN 2
+#endif
+// chart blocks staged per barrier pair
+#ifndef KB
+#define KB 2
+#endif
+#ifndef EPI
+#define EPI 1
+#endif
+
+// the fused epilogue assumes the committed tile: gate = subgroup row 0, up = subgroup row 1, 32 tokens a subgroup
+#define SWIGLU_TILE (BM == 128 && BN == 64 && SGM == 2 && SGN == 2 && KB == 2)
+
+#define NSG (SGM * SGN)
+#define NT (32 * NSG)
+#define WM (BM / 16 / SGM)
+#define WN (BN / 16 / SGN)
+// work items per thread per block: A = BM rows x 2 halves, B = BN tokens x 2 halves
+#define IA ((BM * 2 + NT - 1) / NT)
+#define IB ((BN * 2 + NT - 1) / NT)
+#define IR ((BM + NT - 1) / NT)
+#if (BM * 2) % NT != 0 || BM % NT != 0
+#error fetch/commit carry no bound check: BM*2 and BM must be multiples of NT
+#endif
+#define IT ((BN + NT - 1) / NT)
+// shared row stride in uvec4 units: 32 data bytes + 16 pad -> conflict-free 16-byte stores
+#define AS4 3u
+
+layout(local_size_x = NT, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint M = 16;
+layout(constant_id = 1) const uint BLOCKS = 1; // a multiple of KB (the Rust builder asserts it)
+layout(constant_id = 2) const uint PACK = 4;   // codes per chart word: Q8 4, Q4 8, Q2 16
+// SwiGLU fusion (gate/up node only): FUSE = the down chart's dpw (0 = off); SCOFF/SMOFF = float offsets of the
+// scale and sum streams in the buffer bound at SX/XS (reading GEMM) or O (the fused writer)
+layout(constant_id = 3) const uint FUSE = 0;
+layout(constant_id = 4) const uint SCOFF = 0;
+layout(constant_id = 5) const uint SMOFF = 0;
+// Split-K (the down GEMM): workgroup z in 0..KSPLIT accumulates KB-block stages [z*U/KSPLIT, (z+1)*U/KSPLIT),
+// U = BLOCKS/KB, in the serial per-32-block order, and stores its partial tile at row offset
+// z * (workgroups y * BN) of the buffer bound at O (partials [KSPLIT][rows][M]; `splitk_reduce.comp` sums them).
+// KSPLIT == 1 is the unsplit kernel: the same loop bounds, the same store offset.
+layout(constant_id = 6) const uint KSPLIT = 1;
+// Two-plane Q5 chart (PACK == 8 with PLANEB != 0): word offset of plane B, `(K/8) * M`, one u32 per (32-block,
+// row) at `PLANEB + b*M + row`. Plane A is the Q4 nibble plane. Code j of a block has its fifth bit at bit
+// `cj*8 + 4*l + i` (chart word cj, DP4A phase l, byte i), so the four codes of a phase are one 4-bit field.
+// 0 = single-plane chart.
+layout(constant_id = 7) const uint PLANEB = 0;
+// Two-plane Q6 chart (PACK == 8 with PLANEB != 0 and Q6 == 1): plane B is TWO u32 per (32-block, row) at
+// `PLANEB + (2b + wi)M + row`, `wi = p >> 2` the half of DP4A phase `p`. The code `u = code + 32` in 0..63
+// has its low 4 bits in plane A (Q4's nibble plane) and its high 2 at bit `i*8 + 2*(p&3)` of byte i of word
+// `wi`. A half h covers chart words `2h, 2h+1`, so it reads only word `wi = h`, its four k-words at shifts
+// `2q`. Codes are signed (`u - 32`), the MMA is `s8*s8 -> s32`, the per-16 scale split rides in `dm`, and
+// `sBias` is unused (A and B are both signed: no recentring). 0 = Q5's one-word plane B or a single plane.
+layout(constant_id = 8) const uint Q6 = 0;
+// the fused writer reads its own input chart at offset 0; SCOFF/SMOFF address its output
+const uint RDSC = FUSE == 0u ? SCOFF : 0u;
+const uint RDSM = FUSE == 0u ? SMOFF : 0u;
+const uint DPW = PACK / 4u;                    // activation words per chart word
+const uint WBITS = 32u / PACK;                 // bits per code
+const uint QMASK = (1u << WBITS) - 1u;
+const uint BMASK = 0x01010101u * QMASK;
+const uint CPB = 32u / PACK;                   // chart words per row per block
+const uint CPH = CPB / 2u;                     // chart words per half row (16 k positions)
+const uint XW4 = BLOCKS * 2u;                  // uvec4 activation words per token row
+
+layout(set = 0, binding = 0, std430) readonly buffer W_ { uint w[]; };
+layout(set = 0, binding = 1, std430) readonly buffer X_ { uvec4 xq[]; };
+layout(set = 0, binding = 2, std430) writeonly buffer O_ { float o[]; };
+layout(set = 0, binding = 2, std430) writeonly buffer OQ_ { uint oq[]; };
+layout(set = 0, binding = 3, std430) readonly buffer D_ { uint dm[]; };
+layout(set = 0, binding = 4, std430) readonly buffer XS_ { float xs[]; };
+layout(set = 0, binding = 5, std430) readonly buffer SX_ { float sx[]; };
+
+shared uvec4 sA[KB * BM * AS4];
+shared uvec4 sB[KB * BN * AS4];
+shared float sD[KB * BM];
+shared float sLo[KB * BM];
+shared float sSx[KB * BN];
+shared float sXs[KB * BN];
+// 128 * sum_k x per token (Q8 recentring) plus the bias of the exact int -> f32 conversion below
+shared int sBias[KB * BN];
+shared int sScA[KB * BM]; // Q6: signed per-16 code scale sc_a of a row's half 0 (dm bits 16..23)
+shared int sScB[KB * BM]; // Q6: sc_b of half 1 (dm bits 24..31)
+
+#define FRAG_F coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+#define FRAG_I coopmat<int32_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+
+// float(q) for |q| < 2^22 without I2F: the bits of 1.5*2^23 plus q are the float 1.5*2^23 + q,
+// exactly, and subtracting 1.5*2^23 is exact. |q| <= 32*255*127 < 2^22 for every chart carrier (Q5 codes are <= 31:
+// |q| <= 32*31*127 < 2^17).
+const int MAGIC_BITS = 0x4B400000;
+const float MAGIC_F = 12582912.0;
+const float INV127 = 1.0 / 127.0;
+
+// registers holding the next stage while this one computes
+uint pa[KB][IA][4];
+uvec4 pb[KB][IB];
+uint pd[KB][IR];
+float pxs[KB][IT];
+float psx[KB][IT];
+
+int bsum(uint v) {
+    // Signed byte sum of the four lanes: dotPacked4x8EXT with an all-ones operand is
+    // exactly sum of the four signed-8-bit lanes. One SPIR-V OpSDot, one IDP.4A on SM120.
+    return dotPacked4x8EXT(int(v), 0x01010101);
+}
+
+// Weight row of tile row r (0 <= r < BM) of workgroup column gx: the tile itself, or with FUSE the gate half
+// then the matching up half.
+uint tile_row(uint gx, uint r) {
+    if (FUSE == 0u) {
+        return min(gx * BM + r, M - 1u);
+    }
+    const uint hb = BM / 2u;
+    return r < hb ? gx * hb + r : M / 2u + gx * hb + (r - hb);
+}
+
+// Global loads of blocks b0 .. b0+KB-1 into registers.
+void fetch(uint b0, uint lid, uint row0, uint tok0,
+           uint ah[IA], uint arow[IA], uint drow[IR]) {
+    [[unroll]] for (uint kb = 0u; kb < KB; ++kb) {
+        uint b = b0 + kb;
+        [[unroll]] for (uint it = 0u; it < IA; ++it) {
+            uint h = ah[it];
+            uint row = arow[it];
+            [[unroll]] for (uint c = 0u; c < CPH; ++c) {
+                pa[kb][it][c] = w[(b * CPB + h * CPH + c) * M + row];
+            }
+            // slot CPH (== 2 for PACK 8) is free: plane B of the same (block, physical row) as plane A.
+            // Q6 has two plane-B words per (block, row); a half's four k-words read only its own word.
+            if (PACK == 8u && PLANEB != 0u) {
+                pa[kb][it][CPH] = Q6 != 0u ? w[PLANEB + (2u * b + h) * M + row]
+                                           : w[PLANEB + b * M + row];
+            }
+        }
+        [[unroll]] for (uint it = 0u; it < IB; ++it) {
+            uint idx = lid + it * NT;
+            if (idx < BN * 2u) {
+                pb[kb][it] = xq[(tok0 + (idx >> 1)) * XW4 + b * 2u + (idx & 1u)];
+            }
+        }
+        [[unroll]] for (uint it = 0u; it < IR; ++it) {
+            pd[kb][it] = dm[b * M + drow[it]];
+        }
+        [[unroll]] for (uint it = 0u; it < IT; ++it) {
+            uint j = lid + it * NT;
+            if (j < BN) {
+                uint t = (tok0 + j) * BLOCKS + b;
+                pxs[kb][it] = xs[RDSM + t];
+                psx[kb][it] = sx[RDSC + t];
+            }
+        }
+    }
+}
+
+// Registers -> shared: chart words to s8 k-words, activation sums, scales.
+void commit(uint lid, uint ar[IA], uint ah[IA]) {
+    [[unroll]] for (uint kb = 0u; kb < KB; ++kb) {
+        [[unroll]] for (uint it = 0u; it < IA; ++it) {
+            uint r = ar[it];
+            uint h = ah[it];
+            uvec4 v;
+            [[unroll]] for (uint q = 0u; q < 4u; ++q) {
+                // k-word q of this half: chart word q / DPW, phase q % DPW
+                uint word = pa[kb][it][q / DPW];
+                uint val = PACK == 4u ? word ^ 0x80808080u : (word >> (WBITS * (q % DPW))) & BMASK;
+                if (PACK == 8u && PLANEB != 0u) {
+                    if (Q6 != 0u) {
+                        // Q6 code u = code + 32: low 4 bits plane A, high 2 plane B word wi = h at shift 2q
+                        // (p & 3 == q for the half's four k-words), then the signed byte (u + 0x60) ^ 0x80
+                        uint hi2 = ((pa[kb][it][CPH] >> (2u * q)) & 0x03030303u) << 4;
+                        val = ((val | hi2) + 0x60606060u) ^ 0x80808080u;
+                    } else {
+                        // chart word cj of the block, phase l: byte i of val takes bit i of the 4-bit field at
+                        // cj*8 + 4*l, expanded into bit 4 of its byte (the Q5 code's fifth bit)
+                        uint nib = (pa[kb][it][CPH] >> ((h * CPH + q / DPW) * 8u + 4u * (q % DPW))) & 0xFu;
+                        val |= (nib * 0x02040810u) & 0x10101010u;
+                    }
+                }
+                v[q] = val;
+            }
+            if (Q6 != 0u) {
+                // Q6 half h occupies slot 2h; slot 1 is zero so the 16-wide A fragment starting at slot 1 is
+                // the other half alone (the per-half scale split needs two MMAs, no cross-term)
+                sA[(kb * BM + r) * AS4 + 2u * h] = v;
+                if (h == 0u) {
+                    sA[(kb * BM + r) * AS4 + 1u] = uvec4(0u);
+                }
+            } else {
+                sA[(kb * BM + r) * AS4 + h] = v;
+            }
+        }
+        [[unroll]] for (uint it = 0u; it < IB; ++it) {
+            uint idx = lid + it * NT;
+            // BN * 2 is a multiple of 32: a subgroup is all-in or all-out, the shuffle is uniform
+            if (idx < BN * 2u) {
+                uint j = idx >> 1;
+                uvec4 v = pb[kb][it];
+                sB[(kb * BN + j) * AS4 + (idx & 1u)] = v;
+                int s = 0;
+                if (PACK == 4u) {
+                    s = bsum(v.x) + bsum(v.y) + bsum(v.z) + bsum(v.w);
+                    s += subgroupShuffleXor(s, 1u);
+                }
+                if ((idx & 1u) == 0u) {
+                    sBias[kb * BN + j] = s * 128 + MAGIC_BITS;
+                }
+            }
+        }
+        [[unroll]] for (uint it = 0u; it < IR; ++it) {
+            uint r = lid + it * NT;
+            if (r < BM) {
+                vec2 p = unpackHalf2x16(pd[kb][it]);
+                sD[kb * BM + r] = p.x;
+                sLo[kb * BM + r] = Q6 != 0u ? 0.0 : p.y;
+                if (Q6 != 0u) {
+                    // dm = f16(d) | sc_a << 16 | sc_b << 24: signed per-16 code scales (lo is not used)
+                    int dp = int(pd[kb][it]);
+                    sScA[kb * BM + r] = bitfieldExtract(dp, 16, 8);
+                    sScB[kb * BM + r] = bitfieldExtract(dp, 24, 8);
+                }
+            }
+        }
+        [[unroll]] for (uint it = 0u; it < IT; ++it) {
+            uint j = lid + it * NT;
+            if (j < BN) {
+                sXs[kb * BN + j] = pxs[kb][it];
+                sSx[kb * BN + j] = psx[kb][it];
+            }
+        }
+    }
+}
+
+#if SWIGLU_TILE
+// Per-token chart scale of the block being quantized, handed from the scale walk to the code lanes.
+shared float sQs[BN];
+
+float tile_f(uint i) {
+    return uintBitsToFloat(sA[i >> 2][i & 3u]);
+}
+
+// The FUSE epilogue: `acc` holds gate fragments (sg % 2 == 0) or the matching up fragments (sg % 2 == 1) of
+// the 32 tokens `tbase ..`; frag i = features 16 i .. 16 i + 15 of the workgroup's 64.
+// Per 32-feature block b: stage the gate tile (32 features x 32 tokens, f32, `sA`, row stride 8 uvec4), the up
+// subgroup forms silu(g) * u in the fragment and stores it back, 64 lanes walk one token's 32 features
+// serially (max, sum: the order of `quantize_at`), then all 128 lanes pack 8 code words per token.
+// Cost per workgroup: 2 blocks x (4 barriers, 16 fragment stores + 8 loads, 32-iteration walk, 4 words a
+// lane), plus 64 exp + div per up lane; shared reuses `sA`.
+void swiglu_epilogue(FRAG_F acc[WM * WN], uint lid, uint sg) {
+    const uint gx = gl_WorkGroupID.x;
+    const uint tok0 = gl_WorkGroupID.y * BN;
+    const uint dff = M / 2u;
+    const uint side = sg % SGM;
+    const uint th = sg / SGM;
+    [[unroll]] for (uint b = 0u; b < 2u; ++b) {
+        if (side == 0u) {
+            [[unroll]] for (uint fi = 0u; fi < 2u; ++fi) {
+                [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                    coopMatStore(acc[(2u * b + fi) * WN + j], sA, th * 256u + fi * 128u + j * 4u, 8u,
+                                 gl_CooperativeMatrixLayoutRowMajor);
+                }
+            }
+        }
+        barrier();
+        if (side == 1u) {
+            [[unroll]] for (uint fi = 0u; fi < 2u; ++fi) {
+                [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                    const uint at = th * 256u + fi * 128u + j * 4u;
+                    FRAG_F g;
+                    coopMatLoad(g, sA, at, 8u, gl_CooperativeMatrixLayoutRowMajor);
+                    FRAG_F a = acc[(2u * b + fi) * WN + j];
+                    [[unroll]] for (uint e = 0u; e < a.length(); ++e) {
+                        precise float ge = g[e];
+                        precise float ng = -ge;
+                        precise float ex = exp(ng);
+                        precise float den = 1.0 + ex;
+                        precise float sil = ge / den;
+                        precise float v = sil * a[e];
+                        a[e] = v;
+                    }
+                    coopMatStore(a, sA, at, 8u, gl_CooperativeMatrixLayoutRowMajor);
+                }
+            }
+        }
+        barrier();
+        if (lid < BN) {
+            const uint tb = (lid >> 5) * 1024u + (lid & 31u);
+            float mx = 1.0e-12;
+            float sm = 0.0;
+            for (uint j = 0u; j < 32u; ++j) {
+                float v = tile_f(tb + j * 32u);
+                mx = max(mx, abs(v));
+                sm = sm + v;
+            }
+            const float sc = mx * INV127;
+            sQs[lid] = sc;
+            const uint gi = (tok0 + lid) * (dff / 32u) + gx * 2u + b;
+            o[SCOFF + gi] = sc;
+            o[SMOFF + gi] = sm;
+        }
+        barrier();
+        [[unroll]] for (uint it = 0u; it < 4u; ++it) {
+            const uint idx = lid + it * NT;
+            const uint tl = idx & 63u;
+            const uint w = idx >> 6;
+            const uint cc = w / FUSE;
+            const uint base = cc * 4u * FUSE + (w % FUSE);
+            const float sx = sQs[tl];
+            const uint tb = (tl >> 5) * 1024u + (tl & 31u);
+            uint word = 0u;
+            [[unroll]] for (uint k = 0u; k < 4u; ++k) {
+                float q = tile_f(tb + (base + k * FUSE) * 32u) / sx;
+                q = q + (q > 0.0 ? 0.5 : -0.5);
+                q = max(min(q, 127.0), -127.0);
+                word |= (uint(int(q)) & 0xFFu) << (8u * k);
+            }
+            oq[(tok0 + tl) * (dff / 4u) + gx * 16u + b * 8u + w] = word;
+        }
+        barrier();
+    }
+}
+#endif
+
+void main() {
+    const uint lid = gl_LocalInvocationIndex;
+    const uint sg = gl_SubgroupID;
+    const uint row0 = gl_WorkGroupID.x * BM;
+    const uint tok0 = gl_WorkGroupID.y * BN;
+    const uint rbase = (sg % SGM) * (WM * 16u);
+    const uint tbase = (sg / SGM) * (WN * 16u);
+
+    FRAG_F acc[WM * WN];
+    [[unroll]] for (uint f = 0u; f < WM * WN; ++f) {
+        acc[f] = FRAG_F(0.0);
+    }
+
+    // b0-invariant per-thread row/half/row-clamp, computed once a workgroup instead of per stage.
+    uint ar[IA];
+    uint ah[IA];
+    uint arow[IA];
+    uint drow[IR];
+    [[unroll]] for (uint it = 0u; it < IA; ++it) {
+        uint idx = lid + it * NT;
+        ar[it] = idx % BM;
+        ah[it] = idx / BM;
+        arow[it] = tile_row(gl_WorkGroupID.x, ar[it]);
+    }
+    [[unroll]] for (uint it = 0u; it < IR; ++it) {
+        drow[it] = tile_row(gl_WorkGroupID.x, lid + it * NT);
+    }
+
+    const uint units = BLOCKS / KB;
+    const uint bbeg = (gl_WorkGroupID.z * units / KSPLIT) * KB;
+    const uint bend = ((gl_WorkGroupID.z + 1u) * units / KSPLIT) * KB;
+    fetch(bbeg, lid, row0, tok0, ah, arow, drow);
+    for (uint b0 = bbeg; b0 < bend; b0 += KB) {
+        commit(lid, ar, ah);
+        barrier();
+        if (b0 + KB < bend) {
+            fetch(b0 + KB, lid, row0, tok0, ah, arow, drow);
+        }
+        [[unroll]] for (uint kb = 0u; kb < KB; ++kb) {
+            coopmat<int8_t, gl_ScopeSubgroup, 32, 16, gl_MatrixUseB> bm[WN];
+            FRAG_F fsx[WN];
+            FRAG_F fxs[WN];
+            FRAG_I fbias[WN];
+            [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                uint t = kb * BN + tbase + 16u * j;
+                coopMatLoad(bm[j], sB, t * AS4, AS4, gl_CooperativeMatrixLayoutColumnMajor);
+                coopMatLoad(fsx[j], sSx, t, 0u, gl_CooperativeMatrixLayoutRowMajor);
+                coopMatLoad(fxs[j], sXs, t, 0u, gl_CooperativeMatrixLayoutRowMajor);
+                coopMatLoad(fbias[j], sBias, t, 0u, gl_CooperativeMatrixLayoutRowMajor);
+            }
+            [[unroll]] for (uint i = 0u; i < WM; ++i) {
+                uint r = kb * BM + rbase + 16u * i;
+                FRAG_F fd;
+                FRAG_F flo;
+                coopMatLoad(fd, sD, r, 0u, gl_CooperativeMatrixLayoutColumnMajor);
+                coopMatLoad(flo, sLo, r, 0u, gl_CooperativeMatrixLayoutColumnMajor);
+                // non-Q6: one 16x32 A fragment holding both halves. Q6: two, the two 16-wide halves of the
+                // 32-block in separate K ranges so their per-16 scales never mix in one accumulator.
+                coopmat<int8_t, gl_ScopeSubgroup, 16, 32, gl_MatrixUseA> am;
+                coopmat<int8_t, gl_ScopeSubgroup, 16, 32, gl_MatrixUseA> am1;
+                FRAG_I fsa;
+                FRAG_I fsb;
+                coopMatLoad(am, sA, r * AS4, AS4, gl_CooperativeMatrixLayoutRowMajor);
+                if (Q6 != 0u) {
+                    coopMatLoad(am1, sA, r * AS4 + 1u, AS4, gl_CooperativeMatrixLayoutRowMajor);
+                    coopMatLoad(fsa, sScA, r, 0u, gl_CooperativeMatrixLayoutColumnMajor);
+                    coopMatLoad(fsb, sScB, r, 0u, gl_CooperativeMatrixLayoutColumnMajor);
+                }
+                [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                    FRAG_F a = acc[i * WN + j];
+                    if (Q6 != 0u) {
+                        // qa/qb are the signed half dots (s8*s8 -> s32); the exact per-half integer scales
+                        // combine in the integer ring: qi = sc_a*qa + sc_b*qb is the block's code dot, and
+                        // d*qi*sx matches `d*sc_h*(u-32)*x*sx` summed over the 32 positions.
+                        FRAG_I qa = coopMatMulAdd(am, bm[j], FRAG_I(0));
+                        FRAG_I qb = coopMatMulAdd(am1, bm[j], FRAG_I(0));
+#if EPI
+                        [[unroll]] for (uint e = 0u; e < qa.length(); ++e) {
+                            int qi = fsa[e] * qa[e] + fsb[e] * qb[e];
+                            // |qi| <= 2*128*(16*32*127) = 16,646,144 < 2^24 is exact in f32 but exceeds 2^22, so
+                            // MAGIC_BITS is unsound here: convert the integer directly, lo = 0.
+                            precise float qf = float(qi);
+                            precise float dqs = (fd[e] * qf) * fsx[j][e];
+                            a[e] = a[e] + dqs;
+                        }
+#else
+                        [[unroll]] for (uint e = 0u; e < qa.length(); ++e) {
+                            a[e] = a[e] + float(fsa[e] * qa[e] + fsb[e] * qb[e]);
+                        }
+#endif
+                    } else {
+                        // seeded with the bias: q + 128*sum x + MAGIC_BITS, one integer add for both
+                        FRAG_I q = coopMatMulAdd(am, bm[j], fbias[j]);
+#if EPI
+                        // The DP4A kernel's association, contraction pinned: its SPIR-V is
+                        // FMul,FMul,FMul,FAdd,FAdd and the driver fuses it to acc + fma(lo, xs, (d*q)*sx)
+                        // (tests/gpu_coopmat_gemm.rs checks every cell bit for bit). Element e of every
+                        // fragment here is the same (row, token): all are one accumulator type.
+                        [[unroll]] for (uint e = 0u; e < q.length(); ++e) {
+                            precise float qf = intBitsToFloat(q[e]) - MAGIC_F;
+                            precise float dqs = (fd[e] * qf) * fsx[j][e];
+                            precise float s2 = fma(flo[e], fxs[j][e], dqs);
+                            a[e] = a[e] + s2;
+                        }
+#else
+                        [[unroll]] for (uint e = 0u; e < q.length(); ++e) {
+                            a[e] = a[e] + intBitsToFloat(q[e]);
+                        }
+#endif
+                    }
+                    acc[i * WN + j] = a;
+                }
+            }
+        }
+        barrier();
+    }
+
+#if SWIGLU_TILE
+    if (FUSE != 0u) {
+        swiglu_epilogue(acc, lid, sg);
+        return;
+    }
+#endif
+    const uint poff = gl_WorkGroupID.z * gl_NumWorkGroups.y * BN;
+    [[unroll]] for (uint i = 0u; i < WM; ++i) {
+        uint r = row0 + rbase + 16u * i;
+        if (r < M) {
+            [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                uint t = poff + tok0 + tbase + 16u * j;
+                coopMatStore(acc[i * WN + j], o, t * M + r, M, gl_CooperativeMatrixLayoutColumnMajor);
+            }
+        }
+    }
+}

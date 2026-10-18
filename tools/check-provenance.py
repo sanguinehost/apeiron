@@ -161,7 +161,7 @@ def self_test():
             clean = recompile(Path(tmp), cfg)
             expect.append(not clean)
             print(f"{'ok  ' if not clean else 'FAIL'} recompile baseline: {len(clean)} failures")
-            victim = Path(tmp) / "src/spirv/splitk_reduce.spv"
+            victim = Path(tmp) / "src/gpu/spirv/splitk_reduce.spv"
             b = victim.read_bytes()
             victim.write_bytes(b[:-1] + bytes([b[-1] ^ 0xFF]))
             control("spv byte changed", recompile(Path(tmp), cfg), "splitk_reduce.spv: not the glslc output")

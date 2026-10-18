@@ -14,7 +14,7 @@
 //!   second merge to be: a merge cannot be licensed on one face and refused on another.
 
 use apeiron::cell::{fold, Cell, Sigma};
-use apeiron::keystore::{after_storing, after_storing_exact, key_cell};
+use apeiron::map::keystore::{after_storing, after_storing_exact, key_cell};
 
 const FACES: [Sigma; 3] = [Sigma::Elliptic, Sigma::Parabolic, Sigma::Hyperbolic];
 

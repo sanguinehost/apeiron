@@ -1,11 +1,11 @@
 //! Attention: the per-layer key/value cache and one causal query head (port-map row 5).
 
-use super::matvec::row_dot_fixed;
-use super::value::{div_round_nearest, round_shift_32};
 use super::ONE;
-use crate::engine::fp::F32;
 use crate::engine::mixer::f32_carrier::q32_to_f32;
 use crate::engine::mixer::{carrier_from_env, Carrier};
+use crate::engine::num::fp::F32;
+use crate::engine::num::value::{div_round_nearest, round_shift_32};
+use crate::engine::ops::matvec::row_dot_fixed;
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_rsqrt::fixed_rsqrt;
 use std::cell::Cell;

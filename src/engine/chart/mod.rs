@@ -24,13 +24,13 @@ use crate::format::quant::{
     Q8_0_BLOCK_BYTES, Q8_0_QK, QK_K,
 };
 
-use super::fused::{
+use super::EngineError;
+use crate::engine::num::value::round_shift_32;
+use crate::engine::ops::fused::{
     abs_i128, finish_row, fold_group, fused_type, group_take, max_abs_code, q2_k_fields,
     q3_k_fields, q4_k_fields, q5_0_fields, q6_k_fields, q8_0_fields,
 };
-use super::matvec::{matvec_fixed, MatvecError};
-use super::value::round_shift_32;
-use super::EngineError;
+use crate::engine::ops::matvec::{matvec_fixed, MatvecError};
 
 #[cfg(target_arch = "x86_64")]
 mod x86;

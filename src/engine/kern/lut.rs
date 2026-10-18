@@ -23,7 +23,7 @@
 
 use crate::engine::chart::task::{ChunkTask, Task3};
 use crate::engine::chart::QuantAct;
-use crate::engine::value::round_shift_32;
+use crate::engine::num::value::round_shift_32;
 use crate::engine::{f16_to_fixed, matvec_fixed, EngineError, MatvecError};
 use crate::format::quant::{self, PQ2_0_BLOCK_BYTES, PQ2_0_QK};
 

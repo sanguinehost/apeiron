@@ -77,9 +77,9 @@ use std::mem::MaybeUninit;
 
 use super::chart::ffn::attn_heads;
 use super::step::StepError;
-use super::value::{mul_q32, round_shift_32};
 use super::{rms_norm_fixed, silu_fixed, AffineGeom, AffineVectors};
-use crate::engine::fp::F32;
+use crate::engine::num::fp::F32;
+use crate::engine::num::value::{mul_q32, round_shift_32};
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_ln::{fixed_sigmoid, fixed_softplus};
 use crate::numeric::fixed_rsqrt::{fixed_rsqrt, isqrt};
@@ -859,7 +859,7 @@ fn conv_silu_cols_f32_stage(
             let first: crate::engine::chart::pool::FirstErr<usize, StepError> =
                 crate::engine::chart::pool::FirstErr::new();
             let per = ch
-                .div_ceil(crate::engine::par::row_chunk_budget(ch))
+                .div_ceil(crate::engine::ops::par::row_chunk_budget(ch))
                 .max(128);
             let per = per.div_ceil(8) * 8;
             let tasks = ch.div_ceil(per).max(1);
@@ -1144,7 +1144,7 @@ fn conv_silu_cols_q32(
     let first: crate::engine::chart::pool::FirstErr<usize, StepError> =
         crate::engine::chart::pool::FirstErr::new();
     let per = ch
-        .div_ceil(crate::engine::par::row_chunk_budget(ch))
+        .div_ceil(crate::engine::ops::par::row_chunk_budget(ch))
         .max(64);
     let tasks = ch.div_ceil(per);
     let ctx = Q32Ctx {

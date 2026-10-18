@@ -1,0 +1,819 @@
+//! Folding a key of unbounded width into a `u64` address.
+//!
+//! `Coord` for an integer is the identity. For bytes there is no such luck, so this folds them:
+//! `mix2(a, b)` is the folded 128-bit product `lo ^ hi`, plus a guard term `a - b`.
+//!
+//! **The guard is not optional.** A bare folded multiply returns zero whenever either operand is
+//! zero, so an attacker who cancels the seed gets one address for every tail. `wyhash` closes this
+//! with a secret seed; this crate cannot (a per-run seed denies deterministic replay), so it
+//! closes it structurally -- when the product annihilates the guard term is all that is left, and
+//! it is injective in the free operand. The guard is `a - b` and the coefficients being **both
+//! odd** is the whole of its design; see [`mix2`]. `hashtrinity` shipped without one: 4,096 keys built from
+//! published constants gave it **one** address, and its table answered 4,095 of 4,096 lookups
+//! with another key's value.
+//!
+//! Inputs enter `mix2` with `wrapping_add`, never XOR -- see [`crate::map::coord`] for why.
+//!
+//! **Length ladder:** <= 16 bytes, one `mix2`; 17..=32, two overlapping halves; above that,
+//! 32-byte rounds of two `mix2`s, one per lane. Sixteen bytes per `mix2` is the input-rate
+//! ceiling.
+//!
+//! **Cost**, instructions per hash (`examples/fold_instr.rs`):
+//!
+//! | corpus | apeiron | foldhash |
+//! |---|---|---|
+//! | resref, 13 B | **23.1** | 24.1 |
+//! | path, 42 B | **68.1** | 74.1 |
+//! | long, 231 B | 199.3 | **180.3** |
+//!
+//! It cannot promise collision resistance: the constants are public and `2^64` addresses meet a
+//! birthday bound at `2^32` keys. What it changes is what a collision *costs* -- see
+//! [`crate::map::pepper`].
+
+use crate::map::coord::{Coord, PHI, PSI};
+
+/// A second odd multiplier, independent of [`PHI`]. Odd, so multiplication by it is a bijection on
+/// `Z/2^64` and no input is mapped to zero except zero.
+pub const NU: u64 = 0xD6E8_FEB8_6659_FD93;
+
+/// The default address offset: none.
+///
+/// A pepper is a process-wide constant mixed into every byte fold. Zero is the default because a
+/// game engine replaying a recorded session must address keys the same way it did when it recorded
+/// it, and because a table that is never shown untrusted keys gains nothing from one.
+///
+/// A server that accepts keys from the network should set one. See [`crate::map::pepper`].
+pub const NO_PEPPER: u64 = 0;
+
+/// Two words to one, with no fiber an attacker can name.
+///
+/// The product's halves are folded together, and then a term of the inputs is laid over the
+/// result. The second half is the guard: `a` or `b` equal to zero kills the product entirely, and
+/// without the guard every key in that family would share address zero.
+#[inline]
+#[must_use]
+pub const fn mix2(a: u64, b: u64) -> u64 {
+    let w = (a as u128).wrapping_mul(b as u128);
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "The fold *is* the truncation: `lo ^ hi` of a 128-bit product keeps 64 bits on purpose, \
+                      which is what makes a widening multiply a mixing step rather than a widening one."
+    )]
+    let p = ((w >> 64) as u64) ^ (w as u64);
+    // The guard is `a - b`: **both coefficients odd**, which is the whole design.
+    //
+    // For a linear guard `alpha*a + beta*b` on `Z/2^64` each property the fold wants is a parity
+    // condition -- injective in each argument iff both are odd; symmetric only on `ker(alpha-beta)`;
+    // and the *diagonal* `t -> g(t+s1, t+s2)` non-injective iff `alpha+beta` is even. Two odds sum
+    // to an even, so per-argument injectivity **implies** the diagonal collapse, and those two are
+    // the same condition rather than opposed ones.
+    //
+    // It replaced `a + rotl(b, 32)`, which is not linear and which bought that non-linearity at a
+    // price nobody had measured. `g(x,y) == g(y,x)` iff `f(x) == f(y)` for `f(v) = v - rotl(v,32)`,
+    // and writing `x = h*2^32 + l` gives `f(x) = (h-l)*(2^32 - 1)`, whose multiplier is **odd** and
+    // therefore invertible: `f` collapses every word with the same half difference onto one value,
+    // fibers of size `2^32`. Incrementing both halves of any word produces a swap partner, so
+    // `fold_long`'s round `mix2(x_acc + a0, NU + a1)` handed a pepper-zero attacker a constructible
+    // collision. `proofs::the_shipped_guard_swaps_whenever_the_half_differences_agree` and
+    // `every_word_has_a_swap_partner_under_the_shipped_guard` prove it; `the_guard_is_not_symmetric`
+    // tested a handful of values and passed, which is why it stood.
+    //
+    // `a + 3b` swaps on exactly two points -- `y == x` and `y == x + 2^63`, proved in
+    // `the_odd_pair_guard_swaps_only_on_a_two_element_coset` -- so this is thirty-one bits of
+    // improvement, not a trade. It also fixes `SMHasher`'s `MomentChi2` derivative, the crate's last
+    // failing test, because that failure *is* the diagonal: see `examples/moment_chi2.rs`. And `3b`
+    // is one `lea` where `rotl(b, 32)` is one `rol`.
+    p ^ a.wrapping_sub(b)
+}
+
+#[inline]
+fn word(b: &[u8]) -> u64 {
+    // Callers only ever pass exactly eight bytes; the fallback keeps the function total rather
+    // than adding a panic to a hot loop.
+    b.try_into().map_or(0, u64::from_le_bytes)
+}
+
+#[inline]
+fn half(b: &[u8]) -> u64 {
+    b.try_into().map_or(0, |a| u64::from(u32::from_le_bytes(a)))
+}
+
+/// The address of a byte string, with no pepper.
+#[inline]
+#[must_use]
+pub fn fold_bytes(b: &[u8]) -> u64 {
+    fold_bytes_with(NO_PEPPER, b)
+}
+
+/// The address of a byte string.
+///
+/// Length is folded in first, so `"ab"` and `"ab\0"` are not near neighbours, and every branch
+/// reads its input through overlapping reads rather than a copy -- a key of 5..=7 bytes is two
+/// overlapping `u32`s, one of 9..=16 is two overlapping `u64`s, and neither needs a buffer.
+///
+/// Long keys run two independent lanes, sixteen bytes a round. Independent, not chained: the two
+/// multiplies of a round do not read each other's output, so the multiplier is issued twice per
+/// round rather than serialised behind itself.
+///
+/// `#[inline]` is load-bearing, the same way it was on the probe internals: this function is not
+/// generic, so without it every caller outside the crate pays a call and the spills around it.
+/// Measured on the `String` hit loop: 112.3 instructions and 25.7 cycles a lookup outlined, 97.3
+/// and 22.2 inlined (one instruction of that step is `map::Geom`'s, landed together) -- most of
+/// what stood between this fold and fxhash was the call.
+#[inline]
+#[must_use]
+pub fn fold_bytes_with(pepper: u64, b: &[u8]) -> u64 {
+    absorb(pepper, b)
+}
+
+/// The last step, and it is not optional: a multiply then an xor-shift.
+///
+/// Multiplication in `Z/2^64` carries information **upward only**, so the top bits of a product
+/// are the ones no later multiply can bring back. `2^63` is a zero divisor there with annihilator
+/// `2Z`, which means flipping the top bit of a `mix2` operand moves the product by
+/// `2^63 * (b & 1)` -- a function of the *other* operand's low bit and not of the flipped one at
+/// all. The differences then cluster, which is what `SMHasher`'s `DiffDist` reports at bit 63:
+/// 642,947 high-32 collisions against 512 expected, and 99.7% distribution bias.
+///
+/// No further multiply repairs that. The repair has to come from the other structure -- a
+/// `GF(2)`-linear shift that moves information *down*, which is why splitmix alternates the two
+/// algebras and why [`crate::map::coord::spread`] ends in `rotl(hi, 32) ^ lo`. Measured, distinct
+/// high-32 differences over 200,000 keys with the top bit flipped:
+///
+/// | final step | bit 63 | |
+/// |---|---|---|
+/// | none | 167,240 | |
+/// | `h ^ (h >> 32)` | 167,240 | a `GF(2)`-linear map permutes differences, it cannot unclump them |
+/// | `h ^ rotr(h, 32)` | 199,947 | **unusable**: sends `(hi, lo)` to `(hi^lo, hi^lo)`, so the range is `2^32` |
+/// | **`h * PHI` then `x ^ (x >> 32)`** | **199,997** | bijective, one multiply |
+/// | `finish` (splitmix) | 199,995 | bijective, two multiplies |
+///
+/// A finalizer must be a bijection or it manufactures collisions of its own -- which is what the
+/// rotate does, and why the best-scoring candidate was the wrong one.
+#[expect(
+    clippy::inline_always,
+    reason = "the split into `absorb` and `settle` exists for readability; neither may become a \
+              call, and `fold_bytes_with` is on every string lookup"
+)]
+#[inline(always)]
+fn settle(h: u64) -> u64 {
+    let x = h.wrapping_mul(PHI);
+    x ^ (x >> 32)
+}
+
+/// The fold proper, before [`settle`].
+///
+/// Temporal O(len): the length ladder is O(1) branches and [`fold_long`] consumes 32 bytes a round,
+/// so the whole fold is O(len) with a small constant. Spatial O(1): overlapping in-place reads, no
+/// buffer.
+#[expect(clippy::inline_always, reason = "as `settle`")]
+#[inline(always)]
+fn absorb(pepper: u64, b: &[u8]) -> u64 {
+    let len = b.len();
+    // The length enters through a multiply, so it changes every bit of the seed rather than the
+    // low ones. Two keys of different lengths therefore start from unrelated states.
+    // The pepper enters **multiplicatively**, and by two different odd constants, one per lane.
+    //
+    // Adding it made the key and the pepper interchangeable: with `mix2(a + seed, c + NU)` the
+    // hash is a function of `a + seed` whenever two keys share `c`, so every pair with the same
+    // sum collides. At one to three bytes `c` was always zero and *every* pair did -- SMHasher's
+    // PerlinNoise keyset found 14,741,760 collisions in 16,777,216 hashes.
+    //
+    // Two weaker repairs failed and are worth recording. Making `c` key-derived at short lengths
+    // fixed those but left it alive wherever `c` happens to be zero: a five-byte key reads `c`
+    // from bytes 1..5, so key 0 under pepper 1 still met key 1 under pepper 0. Seeding the second
+    // lane with `seed.rotate_left(32)` failed too, because a rotate is a bit permutation and so
+    // commutes with the addition it was meant to break: key 0 under pepper 257 met key 256 under
+    // pepper 0.
+    //
+    // A multiply does not commute with a translation. A collision now needs
+    // `a1 + p1*PHI == a2 + p2*PHI` *and* `c1 + p1*PSI == c2 + p2*PSI`; for equal `c` the second
+    // forces `p1 == p2` because `PSI` is odd and invertible, and then the first forces `a1 == a2`.
+    // This is exactly the rule `Salt` records for the address bijection -- an additive secret is a
+    // translation and buys nothing -- which the fold was not following.
+    // Both lanes keep a constant offset and a length term; only the *pepper* changed, from
+    // additive to multiplicative.
+    //
+    // Two cheaper shapes were tried and rejected. Dropping `PHI` from one lane and the length from
+    // the other traded PerlinNoise's collisions for new ones in Sparse, Permutation and TwoBytes.
+    // Deriving the second lane as `seed * PSI` -- one multiply instead of two -- fails
+    // `every_input_bit_moves_half_the_output_at_every_length`, which averages over 512 keys and so
+    // is measuring a real correlation between the lanes rather than a lucky draw.
+    let seed = pepper
+        .wrapping_mul(PHI)
+        .wrapping_add(PHI)
+        .wrapping_add((len as u64).wrapping_mul(NU));
+    let seed2 = pepper
+        .wrapping_mul(PSI)
+        .wrapping_add(PSI)
+        .wrapping_add((len as u64).wrapping_mul(PHI));
+
+    // **Sixteen bytes and below.** `settle` is not repairing the fold, it is repairing the
+    // *dependence between the two `mix2` operands*: this branch reads `b[..8]` and `b[len-8..]`,
+    // which coincide at eight bytes and overlap below sixteen, so one `mix2` of two correlated
+    // words is not enough.
+    //
+    // **Sixteen is the boundary and belongs on this side of it.** There the two reads are
+    // `b[..8]` and `b[8..16]` -- disjoint, and together the whole key -- which is the best case
+    // this branch has. The `16..=32` branch handled it before and did strictly more work for it:
+    // at exactly sixteen its second `mix2` re-reads `b[len-16..len-8]` and `b[len-8..]`, which are
+    // *the same two words again*, so it paid three multiplies to fold two words that one `mix2`
+    // already covers.
+    //
+    // Measured at sixteen bytes -- the shape Lyrium keys its resource index on, since a `ResRef`
+    // is a padded `[u8; 16]` -- calling the fold through one `#[inline(never)]` frame per arm,
+    // with foldhash in the same binary and the same frame shape, instructions per call:
+    //
+    // | len | 13 | **16** | 17 | 20 | 32 |
+    // |---|---|---|---|---|---|
+    // | before | 43.09 | **52.10** | 52.10 | 52.11 | 52.14 |
+    // | after | 43.09 | **43.10** | 52.10 | 52.11 | 52.14 |
+    // | foldhash | 21.09 | 21.10 | 51.10 | 51.11 | 54.14 |
+    //
+    // 9.39 cycles to 7.68. Sixteen was this fold's worst point against foldhash at any length
+    // (2.52x) and is now 2.05x, level with thirteen. Nothing else moved: the branch below still
+    // owns 17..=32, where we are within 2% of foldhash, and 33 and up, where we are ahead.
+    //
+    // Measured with `examples/diffdist.rs`, worst window ratio with `settle` removed:
+    //
+    // | len | 8 | 13 | **15** | **16** | 17 | 24 | 32 | 48 | 64 |
+    // |---|---|---|---|---|---|---|---|---|---|
+    // | ratio | 8919 | 1311 | **5.84** | **1.22** | 1.25 | 1.27 | 1.22 | 1.31 | 1.27 |
+    //
+    // The cliff is exactly where the reads stop overlapping, at sixteen. That is an argument about
+    // **`settle`**, not about which branch owns sixteen, and the two are independent: sixteen is
+    // handled here because one `mix2` covers its two disjoint words, and it is settled here
+    // because every branch through `32` is. Read the `1.22` at sixteen as "the cliff has ended by
+    // here", not as "sixteen does not need the finalizer it gets".
+    //
+    // DiffDist is also not the only thing the finalizer answers to: the `17..=32` branch below
+    // keeps it as well, on `Avalanche`'s evidence, and only `33` and up are free of it. See there.
+    //
+    // Re-screened after the boundary moved, at the changed length and its neighbours: DiffDist
+    // worst window `2.27x` at 15, **`1.23x` at 16**, `1.34x` at 17 -- sixteen is the best of the
+    // three -- and `examples/avalanche_bias.rs` reads **0.78%** at sixteen against a 1% threshold,
+    // inside the 0.59-0.85% band every other length sits in.
+    if len <= 16 {
+        let (a, c) = if len >= 8 {
+            (word(&b[..8]), word(&b[len - 8..]))
+        } else if len >= 4 {
+            (half(&b[..4]), half(&b[len - 4..]))
+        } else if len > 0 {
+            // Three reads cover 1, 2 and 3 bytes without a branch per length: first, middle and
+            // last, which are distinct positions for every length in range.
+            let a = (u64::from(b[0]) << 16) | (u64::from(b[len >> 1]) << 8) | u64::from(b[len - 1]);
+            // The second operand is the key again, rotated -- **not** zero, which is what it was.
+            //
+            // With `c = 0` the whole hash is `mix2(a + seed, NU)`, a function of `a + seed` alone,
+            // so the key and the seed are additively interchangeable and any two pairs with the
+            // same sum collide. SMHasher's PerlinNoise keyset hashes one key under many seeds and
+            // found 14,741,760 collisions in 16,777,216 hashes; `examples/perlin.rs` reproduces
+            // the number exactly. It is also a broken pepper, not merely a bad distribution: one
+            // known (key, hash) pair on a short key yields `a + pepper`, hence the pepper, hence
+            // every other short-key address.
+            //
+            // Longer keys never had it because `c` is key-derived there -- at four bytes `c == a`,
+            // which is enough to tie the key into both operands. This is the same lesson `Salt`
+            // records for the address bijection, in the fold: an additive secret is a translation.
+            (a, a.rotate_left(32))
+        } else {
+            (0, 0)
+        };
+        return settle(mix2(a.wrapping_add(seed), c.wrapping_add(seed2)));
+    }
+
+    // 17..=32 bytes: two overlapping halves, one `mix2` each. The overlap is what avoids a padded
+    // tail -- the middle bytes are read twice, which is harmless, and there is no branch per length.
+    // At exactly sixteen the overlap is total rather than partial, which is why sixteen is handled
+    // above instead: the two halves would be the same two words, and folding them twice buys
+    // nothing that the branch above does not already get from one `mix2`.
+    if len <= 32 {
+        let x = mix2(
+            word(&b[..8]).wrapping_add(seed),
+            word(&b[8..16]).wrapping_add(seed2),
+        );
+        // Settled too, and `SMHasher` is why. This branch's **last** `mix2` takes raw key words as
+        // operands, so its guard `(w2 + x) - (w3 + PHI)` is affine in bytes of the key itself. At
+        // thirty-three and above, and in `fold_long`, the last mix is `mix2(x, y + NU)` -- affine
+        // only in state that is already folded -- and needs no finalizer.
+        //
+        // Routing on sixteen instead of thirty-two passed `examples/diffdist.rs` at 17, 24 and 32
+        // bytes (1.25x, 1.27x, 1.22x) and then failed `SMHasher`'s `Avalanche` at twenty bytes with
+        // a **13.62%** worst bias against the shipped fold's 0.699%. `examples/avalanche_bias.rs`
+        // exists because of that, and reads 13.9 / 16.0 / 15.9% at 20 / 24 / 32 bytes unsettled.
+        return settle(mix2(
+            word(&b[len - 16..len - 8]).wrapping_add(x),
+            word(&b[len - 8..]).wrapping_add(PHI),
+        ));
+    }
+
+    // 33..=64 is exactly one round of the loop below plus its overlapping tail, so it is written
+    // out here rather than reached through a call. Peeled, not rewritten: the operations and their
+    // order are the loop's, so the output is bit-identical and no fold test or SMHasher run moves.
+    //
+    // The threshold is 64 and not 32 because Lyrium keys maps on both shapes -- a 13-byte resref
+    // and a ~42-byte `VPath` -- and splitting at 32 put the path shape on the wrong side: measured,
+    // resref lookups gained 10.0 instructions and path lookups lost 12.0.
+    if len <= 64 {
+        let x = mix2(
+            seed.wrapping_add(word(&b[..8])),
+            NU.wrapping_add(word(&b[8..16])),
+        );
+        let y = mix2(
+            seed2.wrapping_add(word(&b[16..24])),
+            PHI.wrapping_add(word(&b[24..32])),
+        );
+        let tail = &b[len - 32..];
+        let x = mix2(
+            x.wrapping_add(word(&tail[..8])),
+            NU.wrapping_add(word(&tail[8..16])),
+        );
+        let y = mix2(
+            y.wrapping_add(word(&tail[16..24])),
+            PHI.wrapping_add(word(&tail[24..])),
+        );
+        return mix2(x, y.wrapping_add(NU));
+    }
+    fold_long(seed, seed2, b)
+}
+
+/// The `len > 32` path, deliberately **out of line**.
+#[inline(never)]
+fn fold_long(seed: u64, seed2: u64, b: &[u8]) -> u64 {
+    let len = b.len();
+    // Longer: **thirty-two** bytes a round, two `mix2`s, one per sixteen.
+    //
+    // It was sixteen bytes a round with two `mix2`s, because the two lanes were made independent
+    // for instruction-level parallelism and each read *both* words -- so the fold spent two
+    // widening multiplies on every sixteen bytes where the input rate allows one. A `mix2` consumes
+    // two words, so one per sixteen bytes is the ceiling and this now sits on it.
+    //
+    // Measured, 231-byte keys: **359.8 instructions per fold against foldhash's 179.3** before,
+    // and the ratio in time was 2.20x. Instruction counts are the honest instrument here -- they do
+    // not move with machine load, and the cycle measurements this was first diagnosed from were
+    // taken on a busy machine and were not trustworthy.
+    //
+    // The lanes stay independent: `x` reads the round's first sixteen bytes, `y` the second, and
+    // neither reads the other's output, so the multiplier is issued twice per round rather than
+    // serialised behind itself.
+    let mut x = seed;
+    let mut y = seed2;
+    let mut rest = b;
+    while rest.len() > 32 {
+        let a0 = word(&rest[..8]);
+        let a1 = word(&rest[8..16]);
+        let b0 = word(&rest[16..24]);
+        let b1 = word(&rest[24..32]);
+        let nx = mix2(x.wrapping_add(a0), NU.wrapping_add(a1));
+        let ny = mix2(y.wrapping_add(b0), PHI.wrapping_add(b1));
+        x = nx;
+        y = ny;
+        rest = &rest[32..];
+    }
+    // The last thirty-two bytes, overlapping whatever the loop consumed. `len > 32` here, so the
+    // slice exists; the overlap covers those bytes twice rather than once, which is harmless and is
+    // what a padded tail would otherwise cost.
+    let tail = &b[len - 32..];
+    let x = mix2(
+        x.wrapping_add(word(&tail[..8])),
+        NU.wrapping_add(word(&tail[8..16])),
+    );
+    let y = mix2(
+        y.wrapping_add(word(&tail[16..24])),
+        PHI.wrapping_add(word(&tail[24..])),
+    );
+    mix2(x, y.wrapping_add(NU))
+}
+
+impl Coord for str {
+    const SPREAD: bool = true;
+    #[inline]
+    fn coord(&self) -> u64 {
+        fold_bytes(self.as_bytes())
+    }
+    #[inline]
+    fn coord_with(&self, pepper: u64) -> u64 {
+        fold_bytes_with(pepper, self.as_bytes())
+    }
+}
+
+impl Coord for String {
+    const SPREAD: bool = true;
+    #[inline]
+    fn coord(&self) -> u64 {
+        fold_bytes(self.as_bytes())
+    }
+    #[inline]
+    fn coord_with(&self, pepper: u64) -> u64 {
+        fold_bytes_with(pepper, self.as_bytes())
+    }
+}
+
+impl Coord for [u8] {
+    const SPREAD: bool = true;
+    #[inline]
+    fn coord(&self) -> u64 {
+        fold_bytes(self)
+    }
+    #[inline]
+    fn coord_with(&self, pepper: u64) -> u64 {
+        fold_bytes_with(pepper, self)
+    }
+}
+
+impl Coord for Vec<u8> {
+    const SPREAD: bool = true;
+    #[inline]
+    fn coord(&self) -> u64 {
+        fold_bytes(self)
+    }
+    #[inline]
+    fn coord_with(&self, pepper: u64) -> u64 {
+        fold_bytes_with(pepper, self)
+    }
+}
+
+impl<const N: usize> Coord for [u8; N] {
+    const SPREAD: bool = true;
+    /// An inline byte key up to sixteen bytes compares in at most two register compares, and no
+    /// pointer is chased to do it, so an identity-word early reject in front of that cannot pay --
+    /// the same argument the integers make. Above sixteen the compare becomes a real `memcmp` and
+    /// the reject is worth its two instructions again.
+    const CHEAP_EQ: bool = N <= 16;
+    #[inline]
+    fn coord(&self) -> u64 {
+        fold_bytes(self)
+    }
+    #[inline]
+    fn coord_with(&self, pepper: u64) -> u64 {
+        fold_bytes_with(pepper, self)
+    }
+}
+
+impl<T: Coord + ?Sized> Coord for &T {
+    const SPREAD: bool = T::SPREAD;
+    const CHEAP_EQ: bool = T::CHEAP_EQ;
+    #[inline]
+    fn coord(&self) -> u64 {
+        (**self).coord()
+    }
+    #[inline]
+    fn coord_with(&self, pepper: u64) -> u64 {
+        (**self).coord_with(pepper)
+    }
+}
+
+impl Coord for char {
+    /// Two register compares at worst; an identity word beside it would be a third.
+    const CHEAP_EQ: bool = true;
+    #[inline]
+    fn coord(&self) -> u64 {
+        u64::from(*self as u32)
+    }
+}
+
+impl Coord for bool {
+    /// Two register compares at worst; an identity word beside it would be a third.
+    const CHEAP_EQ: bool = true;
+    #[inline]
+    fn coord(&self) -> u64 {
+        u64::from(*self)
+    }
+}
+
+/// Wider than a word, so it folds rather than packs.
+impl Coord for u128 {
+    /// Two register compares at worst; an identity word beside it would be a third.
+    const CHEAP_EQ: bool = true;
+    #[inline]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Both halves of the `u128` are consumed -- `as u64` takes the low one, the shift takes \
+                      the high one -- so nothing is dropped; the cast is how each half is named."
+    )]
+    fn coord(&self) -> u64 {
+        mix2(
+            (*self as u64).wrapping_add(PHI),
+            ((*self >> 64) as u64).wrapping_add(NU),
+        )
+    }
+}
+
+impl Coord for i128 {
+    /// Two register compares at worst; an identity word beside it would be a third.
+    const CHEAP_EQ: bool = true;
+    #[inline]
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "An `i128` is folded through the `u128` impl by reinterpretation, so a negative key and \
+                      its two's-complement bit pattern get the same address. That is required, not tolerated: \
+                      `Eq` agrees with the bit pattern here."
+    )]
+    fn coord(&self) -> u64 {
+        (*self as u128).coord()
+    }
+}
+
+impl<T: Coord> Coord for Option<T> {
+    const CHEAP_EQ: bool = T::CHEAP_EQ;
+    #[inline]
+    fn coord(&self) -> u64 {
+        self.coord_with(0)
+    }
+    #[inline]
+    fn coord_with(&self, pepper: u64) -> u64 {
+        // `None` is not zero: a `None` and a `Some(0)` are different keys and must be able to have
+        // different addresses.
+        match self {
+            None => NU.wrapping_add(pepper),
+            Some(v) => v.coord_with(pepper).wrapping_mul(PHI).wrapping_add(1),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The defect the guard exists to prevent, stated as a test rather than as a comment.
+    ///
+    /// Without the guard a folded multiply returns zero whenever either operand is zero, so an
+    /// [`settle`] is a bijection, shown by exhibiting its inverse rather than by sampling for
+    /// collisions.
+    ///
+    /// This is the gate the candidate table needed and did not have. `h ^ rotr(h, 32)` scored
+    /// **best of the cheap finalizers on differential spread** -- 199,947 distinct high-32
+    /// differences against the shipped step's 199,997 -- and is unusable, because it sends
+    /// `(hi, lo)` to `(hi ^ lo, hi ^ lo)` and so has a range of `2^32`. A difference measurement
+    /// cannot see a collapsed range; it was caught by hand. A left inverse can see it, because a
+    /// non-injective map has none.
+    ///
+    /// `settle` is `x = h * PHI` then `x ^ (x >> 32)`. The second step is an involution -- shifting
+    /// right by half the width leaves the top half untouched, so applying it twice cancels -- and
+    /// the first inverts by `PHI_INV`. Both halves are also machine-checked, in
+    /// `proofs::a_xor_shift_step_is_injective` and
+    /// `proofs::multiplying_by_an_odd_constant_is_injective`.
+    #[test]
+    fn the_finalizer_is_a_bijection_and_the_rejected_one_is_not() {
+        fn unsettle(y: u64) -> u64 {
+            (y ^ (y >> 32)).wrapping_mul(crate::map::coord::PHI_INV)
+        }
+        let mut s = 0x243F_6A88_85A3_08D3u64;
+        for _ in 0..if cfg!(miri) { 500 } else { 500_000 } {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            for h in [s, !s, s << 32, s >> 32, 0, u64::MAX] {
+                assert_eq!(unsettle(settle(h)), h, "settle lost {h:#x}");
+            }
+        }
+        // And the candidate that measured best: two words whose halves differ but whose xor does
+        // not, so the rotate maps them together. One witness is a disproof.
+        let rot = |h: u64| h ^ h.rotate_right(32);
+        assert_eq!(rot(0x0000_0001_0000_0000), rot(0x0000_0000_0000_0001));
+    }
+
+    /// attacker who fixes the first eight bytes to cancel the seed gets one address for every
+    /// possible tail.
+    #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "`N` is 4,096 at most and `usize` is at least 32 bits on every target this \
+                  builds for"
+    )]
+    fn a_zeroed_operand_does_not_collapse_the_fold() {
+        const N: u64 = if cfg!(miri) { 256 } else { 4096 };
+
+        let mut seen = std::collections::HashSet::new();
+        for c in 0..N {
+            seen.insert(mix2(0, c));
+        }
+        assert_eq!(seen.len(), N as usize, "mix2(0, .) must stay injective");
+
+        let mut seen = std::collections::HashSet::new();
+        for a in 0..N {
+            seen.insert(mix2(a, 0));
+        }
+        assert_eq!(seen.len(), N as usize, "mix2(., 0) must stay injective");
+    }
+
+    /// Swapping the two words is a different key and must be a different address -- **and this
+    /// test used to assert that with two hardcoded pairs.**
+    ///
+    /// It passed on the previous guard `a + rotl(b, 32)`, which swaps for *every* pair of words
+    /// with the same half difference: classes of size `2^32`, and a constructible collision in
+    /// `fold_long`. Two samples cannot see a structure that large, so this asserts the
+    /// characterisation instead -- `g(x,y) == g(y,x)` exactly on `y == x` and `y == x + 2^63`,
+    /// proved over all inputs in `proofs::the_odd_pair_guard_swaps_only_on_a_two_element_coset`.
+    #[test]
+    fn the_guard_swaps_only_on_the_two_element_coset() {
+        assert_ne!(mix2(1, 2), mix2(2, 1));
+        assert_ne!(mix2(PHI, NU), mix2(NU, PHI));
+        // The coset that must swap, because `2 * 2^63 == 0`.
+        for x in [0u64, 1, PHI, NU, u64::MAX, 0x5EED] {
+            let y = x ^ (1 << 63);
+            assert_eq!(
+                mix2(x, y),
+                mix2(y, x),
+                "the two-element coset must swap at {x:#x}"
+            );
+        }
+        // And nothing outside it, over a sweep wide enough to have caught the old guard.
+        let mut s = 0x243F_6A88_85A3_08D3u64;
+        for _ in 0..200_000 {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            let (x, y) = (s, s.rotate_left(32).wrapping_mul(NU));
+            let d = y.wrapping_sub(x);
+            if d != 0 && d != 1 << 63 {
+                assert_ne!(mix2(x, y), mix2(y, x), "unexpected swap at {x:#x},{y:#x}");
+            }
+        }
+        // The rejected guard, exhibited: same half difference, so it swaps.
+        let old = |a: u64, b: u64| a.wrapping_add(b.rotate_left(32));
+        let (u, v) = (0x0000_0001_0000_0000u64, 0x0000_0002_0000_0001u64);
+        assert_eq!(
+            old(u, v),
+            old(v, u),
+            "the rejected guard's 2^32-wide swap class"
+        );
+    }
+
+    #[test]
+    fn length_is_part_of_the_key() {
+        assert_ne!(fold_bytes(b"ab"), fold_bytes(b"ab\0"));
+        assert_ne!(fold_bytes(b""), fold_bytes(b"\0"));
+        assert_ne!(fold_bytes(&[0u8; 16]), fold_bytes(&[0u8; 17]));
+        assert_ne!(fold_bytes(&[0u8; 32]), fold_bytes(&[0u8; 33]));
+    }
+
+    #[test]
+    fn a_pepper_moves_every_address() {
+        let keys = [
+            "",
+            "a",
+            "abcd",
+            "abcdefgh",
+            "the quick brown fox jumps over the lazy dog",
+        ];
+        for k in keys {
+            assert_ne!(
+                fold_bytes_with(0, k.as_bytes()),
+                fold_bytes_with(0x5EED, k.as_bytes()),
+                "pepper did nothing for {k:?}"
+            );
+        }
+    }
+
+    /// Every branch of the length ladder must actually be exercised by the corpus below, or the
+    /// distribution test is measuring one branch and reporting on five.
+    #[test]
+    fn no_two_of_a_hundred_thousand_distinct_strings_share_an_address() {
+        let mut seen = std::collections::HashSet::new();
+        let mut lengths = [false; 5];
+        #[cfg(miri)]
+        let n = 2_000u32;
+        #[cfg(not(miri))]
+        // Miri interprets every fold, and a hundred thousand of them is a ten-minute test. The
+        // birthday bound is what this checks and it is a property of the fold, not of the count.
+        let n = if cfg!(miri) { 2_000u32 } else { 100_000u32 };
+        for i in 0..n {
+            // Lengths from 0 to ~40, so all five branches run.
+            let s = format!("{}{}", "resref_".repeat((i % 6) as usize), i);
+            match s.len() {
+                0 => lengths[0] = true,
+                1..=3 => lengths[1] = true,
+                4..=7 => lengths[2] = true,
+                8..=16 => lengths[3] = true,
+                _ => lengths[4] = true,
+            }
+            assert!(seen.insert(fold_bytes(s.as_bytes())), "collision on {s:?}");
+        }
+        assert!(lengths[1] && lengths[2] && lengths[3] && lengths[4]);
+    }
+
+    /// A key and the pepper must not be interchangeable.
+    ///
+    /// The defect `SMHasher`'s `PerlinNoise` keyset found: at one to three bytes the second `mix2`
+    /// operand was `0`, so the whole hash was `mix2(a + seed, NU)` -- a function of `a + seed`,
+    /// with the key and the seed additively swappable. Two pairs with the same sum collided, and a
+    /// single known short key gave up the pepper.
+    #[test]
+    fn a_short_key_and_the_pepper_are_not_interchangeable() {
+        // 512 x 512 x 8 folds is a second natively and minutes under Miri, where the point is
+        // the unsafe and not the coverage. The crate's convention, as in `fold_is_deterministic`.
+        const N: u64 = if cfg!(miri) { 48 } else { 512 };
+        for len in 1..=8usize {
+            let mut seen = std::collections::HashMap::new();
+            for k in 0..N {
+                let key = &k.to_le_bytes()[..len];
+                for pepper in 0..N {
+                    let h = fold_bytes_with(pepper, key);
+                    let id = (
+                        u64::from_le_bytes({
+                            let mut w = [0u8; 8];
+                            w[..len].copy_from_slice(key);
+                            w
+                        }),
+                        pepper,
+                    );
+                    if let Some(prev) = seen.insert(h, id) {
+                        assert_eq!(prev, id, "len {len}: {prev:?} and {id:?} share an address");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Each input bit must move about half the output bits, **averaged over many keys**.
+    ///
+    /// One base key per length is one Bernoulli sample per bit: the fraction has a standard
+    /// deviation of `sqrt(0.25 / 64) = 0.0625`, so over a few hundred bit positions the worst will
+    /// stray past 0.75 by luck and the test passes or fails on which key it happened to pick. That
+    /// is what it used to do.
+    ///
+    /// Averaging over `KEYS` base keys cuts the deviation by `sqrt(KEYS)` and lets the band be
+    /// tight enough to mean something: a real bias shows, a lucky draw does not.
+    #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a key byte is a byte of a mixed word"
+    )]
+    fn every_input_bit_moves_half_the_output_at_every_length() {
+        const KEYS: u32 = if cfg!(miri) { 8 } else { 96 };
+        const LENS: &[usize] = if cfg!(miri) {
+            &[1, 4, 8, 16, 33, 64]
+        } else {
+            &[1, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 200]
+        };
+        for &len in LENS {
+            let mut worst = (0usize, 0.5f64);
+            for bit in 0..len * 8 {
+                let mut moved = 0u32;
+                for k in 0..KEYS {
+                    let base: Vec<u8> = (0..len)
+                        .map(|i| {
+                            let x = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                                ^ u64::from(k).wrapping_mul(0xD1B5_4A32_D192_ED03);
+                            (x >> 24) as u8
+                        })
+                        .collect();
+                    let mut flipped = base.clone();
+                    flipped[bit / 8] ^= 1 << (bit % 8);
+                    moved += (fold_bytes(&flipped) ^ fold_bytes(&base)).count_ones();
+                }
+                let frac = f64::from(moved) / f64::from(KEYS * 64);
+                if (frac - 0.5).abs() > (worst.1 - 0.5f64).abs() {
+                    worst = (bit, frac);
+                }
+            }
+            // The band widens with the sample: 96 keys is 6144 bit-observations per input bit and
+            // 0.44..=0.56 is tight on that; 8 keys is 512 and the same band would fail on sampling
+            // noise alone. Miri runs this for the code path, not the statistic.
+            let band = if cfg!(miri) { 0.36..=0.64 } else { 0.44..=0.56 };
+            assert!(
+                band.contains(&worst.1),
+                "len {len}: bit {} moved {:.3} of the output, averaged over {KEYS} keys",
+                worst.0,
+                worst.1
+            );
+        }
+    }
+
+    /// Every length in the ladder must separate keys, including across a boundary. A round that
+    /// consumed the wrong bytes would collide two keys that differ only in the region it skipped.
+    #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the truncation is the point: the key bytes are a repeating pattern derived from \
+                  the index, and wrapping is what makes it repeat"
+    )]
+    fn no_two_keys_collide_across_the_length_ladder() {
+        let mut seen = std::collections::HashMap::new();
+        let (max_len, variants) = if cfg!(miri) {
+            (40usize, 8u8)
+        } else {
+            (140usize, 64u8)
+        };
+        for len in 0..=max_len {
+            for variant in 0..variants {
+                let mut k: Vec<u8> = (0..len).map(|i| (i as u8).wrapping_mul(17)).collect();
+                if len > 0 {
+                    // Vary a byte at each end and in the middle, so a round that dropped a slice
+                    // of the input shows up rather than being averaged away.
+                    k[0] ^= variant;
+                    k[len / 2] ^= variant.rotate_left(3);
+                    k[len - 1] ^= variant.rotate_left(5);
+                }
+                let a = fold_bytes(&k);
+                if let Some(prev) = seen.insert(a, k.clone()) {
+                    assert_eq!(
+                        prev, k,
+                        "two distinct keys share an address: {prev:?} and {k:?}"
+                    );
+                }
+            }
+        }
+    }
+}

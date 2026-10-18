@@ -236,25 +236,25 @@ pub unsafe fn make_fused_gemv(
     // `[DEC-PDL]` the node's role set. `gu` consumes `o → gu` (counter at 7, overflow 8) and
     // produces `gu → dn` (counter at 9); `qkv` consumes `dn → qkv` (counter 7, overflow 8). The
     // host appends in the emitter's binding order; a node with no role emits the unchanged kernel.
-    let pdl = crate::simt_nn::pdl_info();
-    if pdl.flags & crate::simt_nn::PDL_CONSUMER != 0 {
+    let pdl = crate::gpu::nn::pdl_info();
+    if pdl.flags & crate::gpu::nn::PDL_CONSUMER != 0 {
         bufs.push(pdl.cons);
         bufs.push(pdl.ovf);
     }
-    if pdl.flags & crate::simt_nn::PDL_PRODUCER != 0 {
+    if pdl.flags & crate::gpu::nn::PDL_PRODUCER != 0 {
         bufs.push(pdl.prod);
     }
-    if pdl.flags & crate::simt_nn::PDL_GRIDBAR != 0 {
+    if pdl.flags & crate::gpu::nn::PDL_GRIDBAR != 0 {
         bufs.push(pdl.bar);
     }
     let (l1, d1) = g.vk.ssbo_set(&bufs);
     let spv = spec
         .emit(m, k, FWG)
         .unwrap_or_else(|e| panic!("illegal fused gemv spec at {m}x{k}: {e}"));
-    crate::simt_nn::pdl_clear();
+    crate::gpu::nn::pdl_clear();
     let pipe = g.vk.pipeline(&spv, l1);
     // rows per workgroup of the emitted kernel (`gemv_norm_tile`): the grid must match it
-    let (rows, _) = crate::simt_nn::gemv_norm_tile(
+    let (rows, _) = crate::gpu::nn::gemv_norm_tile(
         m,
         s,
         spec.carrier,
@@ -335,26 +335,26 @@ pub unsafe fn make_actq_gemv(
     // `[DEC-PDL]` append the node's counters in the order the emitter reads them, by shape:
     //   o  (FlashCombine aux at 4/5): [producer 6, reset0 7, reset1 8]
     //   dn (no aux):                  [reset0 4, consumer 5, overflow 6, producer 7]
-    let pdl = crate::simt_nn::pdl_info();
+    let pdl = crate::gpu::nn::pdl_info();
     if aux.is_some() {
-        if pdl.flags & crate::simt_nn::PDL_PRODUCER != 0 {
+        if pdl.flags & crate::gpu::nn::PDL_PRODUCER != 0 {
             bufs.push(pdl.prod);
         }
-        if pdl.flags & crate::simt_nn::PDL_RESET != 0 {
+        if pdl.flags & crate::gpu::nn::PDL_RESET != 0 {
             bufs.push(pdl.r0);
         }
-        if pdl.flags & crate::simt_nn::PDL_RESET2 != 0 {
+        if pdl.flags & crate::gpu::nn::PDL_RESET2 != 0 {
             bufs.push(pdl.r1);
         }
     } else {
-        if pdl.flags & crate::simt_nn::PDL_RESET != 0 {
+        if pdl.flags & crate::gpu::nn::PDL_RESET != 0 {
             bufs.push(pdl.r0);
         }
-        if pdl.flags & crate::simt_nn::PDL_CONSUMER != 0 {
+        if pdl.flags & crate::gpu::nn::PDL_CONSUMER != 0 {
             bufs.push(pdl.cons);
             bufs.push(pdl.ovf);
         }
-        if pdl.flags & crate::simt_nn::PDL_PRODUCER != 0 {
+        if pdl.flags & crate::gpu::nn::PDL_PRODUCER != 0 {
             bufs.push(pdl.prod);
         }
     }
@@ -362,7 +362,7 @@ pub unsafe fn make_actq_gemv(
     let spv = spec
         .emit(m, k, FWG)
         .unwrap_or_else(|e| panic!("illegal actq gemv spec at {m}x{k}: {e}"));
-    crate::simt_nn::pdl_clear();
+    crate::gpu::nn::pdl_clear();
     let pipe = g.vk.pipeline(&spv, layout);
     Gemv {
         pipe,
@@ -458,14 +458,14 @@ pub unsafe fn record_layer(
         gm.stage2 = None;
         nodes.push(Node::Gemv(gm));
     } else {
-        let mut qkv_role = crate::simt_nn::Pdl::NONE;
+        let mut qkv_role = crate::gpu::nn::Pdl::NONE;
         if e3 {
-            qkv_role.flags = crate::simt_nn::PDL_CONSUMER;
+            qkv_role.flags = crate::gpu::nn::PDL_CONSUMER;
             qkv_role.cons = prev_c3;
             qkv_role.ovf = ovf;
             qkv_role.target = prev_dn_target;
         }
-        crate::simt_nn::pdl_begin(qkv_role);
+        crate::gpu::nn::pdl_begin(qkv_role);
         let mut gm = make_fused_gemv(
             g,
             l.qkv_c,
@@ -570,20 +570,20 @@ pub unsafe fn record_layer(
     // the split-K attention merge IS the o-projection's activation
     // `o` produces the `o → gu` counter and resets the previous layer's `gu → dn` / `dn → qkv`
     // counters (bindings 6/7/8 on the FlashCombine-aux shape).
-    let mut o_role = crate::simt_nn::Pdl::NONE;
+    let mut o_role = crate::gpu::nn::Pdl::NONE;
     if e1 {
-        o_role.flags |= crate::simt_nn::PDL_PRODUCER;
+        o_role.flags |= crate::gpu::nn::PDL_PRODUCER;
         o_role.prod = c1;
     }
     if e2 && li > 0 {
-        o_role.flags |= crate::simt_nn::PDL_RESET;
+        o_role.flags |= crate::gpu::nn::PDL_RESET;
         o_role.r0 = prev_c2;
     }
     if e3 && li > 0 {
-        o_role.flags |= crate::simt_nn::PDL_RESET2;
+        o_role.flags |= crate::gpu::nn::PDL_RESET2;
         o_role.r1 = prev_c3;
     }
-    crate::simt_nn::pdl_begin(o_role);
+    crate::gpu::nn::pdl_begin(o_role);
     let mut o_gm = make_actq_gemv(
         g,
         l.o_c,
@@ -603,24 +603,24 @@ pub unsafe fn record_layer(
     nodes.push(Node::Gemv(o_gm));
     // residual + FFN RMSNorm ride the gate/up projection's transport. `gu` consumes `o → gu`
     // (counter 7 / overflow 8) and produces `gu → dn` (counter 9) on the residual fused-norm shape.
-    let mut gu_role = crate::simt_nn::Pdl::NONE;
+    let mut gu_role = crate::gpu::nn::Pdl::NONE;
     if e1 {
-        gu_role.flags |= crate::simt_nn::PDL_CONSUMER;
+        gu_role.flags |= crate::gpu::nn::PDL_CONSUMER;
         gu_role.cons = c1;
         gu_role.ovf = ovf;
         gu_role.target = o_target;
     }
     if e2 {
-        gu_role.flags |= crate::simt_nn::PDL_PRODUCER;
+        gu_role.flags |= crate::gpu::nn::PDL_PRODUCER;
         gu_role.prod = c2;
     }
     // `gu` reduces the residual once across its workgroups and joins them on a grid barrier (needs
     // the `o → gu` consumer for the shared overflow word)
     if e1 {
-        gu_role.flags |= crate::simt_nn::PDL_GRIDBAR;
+        gu_role.flags |= crate::gpu::nn::PDL_GRIDBAR;
         gu_role.bar = g.dev_zeroed(4);
     }
-    crate::simt_nn::pdl_begin(gu_role);
+    crate::gpu::nn::pdl_begin(gu_role);
     let mut gu_gm = make_fused_gemv(
         g,
         l.gu_c,
@@ -650,22 +650,22 @@ pub unsafe fn record_layer(
     // the spin) or its barrier kept (not `n2`, ordered by the barrier); on the E2 ceiling arm
     // (`n2`, no barrier, no counter) no node orders after `gu`, so `c1` is left unmaintained
     // (wrong output, no cap trip) rather than reset into the spin.
-    let mut dn_role = crate::simt_nn::Pdl::NONE;
+    let mut dn_role = crate::gpu::nn::Pdl::NONE;
     if e1 && (e2 || !n2) {
-        dn_role.flags |= crate::simt_nn::PDL_RESET;
+        dn_role.flags |= crate::gpu::nn::PDL_RESET;
         dn_role.r0 = c1;
     }
     if e2 {
-        dn_role.flags |= crate::simt_nn::PDL_CONSUMER;
+        dn_role.flags |= crate::gpu::nn::PDL_CONSUMER;
         dn_role.cons = c2;
         dn_role.ovf = ovf;
         dn_role.target = gu_target;
     }
     if e3 {
-        dn_role.flags |= crate::simt_nn::PDL_PRODUCER;
+        dn_role.flags |= crate::gpu::nn::PDL_PRODUCER;
         dn_role.prod = c3;
     }
-    crate::simt_nn::pdl_begin(dn_role);
+    crate::gpu::nn::pdl_begin(dn_role);
     let mut dn_gm = make_actq_gemv(
         g,
         l.dn_c,
@@ -732,25 +732,25 @@ pub unsafe fn final_norm_step(
         let (a, b, _) = p.get();
         (a, b)
     });
-    let mut role = crate::simt_nn::Pdl::NONE;
+    let mut role = crate::gpu::nn::Pdl::NONE;
     if lc2 != 0 {
-        role.flags |= crate::simt_nn::PDL_RESET;
+        role.flags |= crate::gpu::nn::PDL_RESET;
         role.r0 = lc2;
     }
     if lc3 != 0 {
-        role.flags |= crate::simt_nn::PDL_RESET2;
+        role.flags |= crate::gpu::nn::PDL_RESET2;
         role.r1 = lc3;
     }
-    crate::simt_nn::pdl_begin(role);
+    crate::gpu::nn::pdl_begin(role);
     let bytes = rmsnorm_add_seg_bytes(c.hidden, c.eps, st.prev_ffn_segs);
     let mut bufs = vec![st.cur, gain, sc.d, out];
-    if role.flags & crate::simt_nn::PDL_RESET != 0 {
+    if role.flags & crate::gpu::nn::PDL_RESET != 0 {
         bufs.push(lc2);
     }
-    if role.flags & crate::simt_nn::PDL_RESET2 != 0 {
+    if role.flags & crate::gpu::nn::PDL_RESET2 != 0 {
         bufs.push(lc3);
     }
-    crate::simt_nn::pdl_clear();
+    crate::gpu::nn::pdl_clear();
     make_step_named(g, &bytes, &bufs, 1, 1, "rmsnorm_add_seg")
 }
 

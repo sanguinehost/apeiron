@@ -11,7 +11,7 @@
 //! `d98bd5994eaa7ed18c557765f7df80c900e9b5403b5b80e094825de69772092a` (`676` words). It exercises
 //! 42 distinct served opcodes including `OpSUDot`.
 
-use apeiron::spirv::{check_fragment, CheckError};
+use apeiron::gpu::spirv::{check_fragment, CheckError};
 
 /// Captured `gemv_dp4a_module_dyn` word stream (served Q4, split-K, dynamic activation scale).
 const CAPTURED_GEMV_DP4A_MODULE_DYN: [u32; 676] = [

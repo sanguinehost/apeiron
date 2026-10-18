@@ -23,6 +23,7 @@
 use std::fs;
 use std::time::Instant;
 
+use apeiron::crypto::sha256::sha256;
 use apeiron::engine::{Engine, KernelMode};
 use apeiron::learn::fold::finish::train::{assemble, Frozen};
 use apeiron::learn::fold::fit::corrector::Factors;
@@ -43,7 +44,6 @@ use apeiron::learn::fold::run::transfer::{
 use apeiron::learn::fold::stats::parts::{parts, LayerCfg, RopeTables};
 use apeiron::learn::grad::model::{Config, LayerWeights, Weights};
 use apeiron::learn::solve::q32::{to_grid, GRID_BOUND};
-use apeiron::sha256::sha256;
 
 const HID: usize = 128;
 const N_HEAD: usize = 2;

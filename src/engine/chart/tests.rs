@@ -886,7 +886,7 @@ fn bench_pooled_shapes() {
             .map(|c| random_payload(t, n_out, n_in, 0x2000, 0x2000, 7 + c as u64))
             .collect();
         let x = random_x(n_in, 99);
-        let chunks = crate::engine::par::row_chunk_budget(n_out);
+        let chunks = crate::engine::ops::par::row_chunk_budget(n_out);
         let _ = super::ffn::matvec_q8act_chunked(t, &mats[0], n_out, n_in, &x, chunks);
         let reps = 3 * copies;
         let start = Instant::now();

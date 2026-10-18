@@ -1,4 +1,4 @@
-//! NIST known-answer tests for the FIPS-202 port in `apeiron::crypto`.
+//! NIST known-answer tests for the FIPS-202 port in `apeiron::crypto::keccak`.
 //!
 //! The five vectors are the FIPS-202 Appendix A examples (SHA3-256 of `""` and `"abc"`, SHA3-512 of
 //! `""`, and 32-byte SHAKE128 / SHAKE256 of `""`). The expected strings are the published digests,
@@ -6,7 +6,7 @@
 
 use std::fmt::Write as _;
 
-use apeiron::crypto::{sha3_256, sha3_512, shake128, shake256};
+use apeiron::crypto::keccak::{sha3_256, sha3_512, shake128, shake256};
 
 fn hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2);

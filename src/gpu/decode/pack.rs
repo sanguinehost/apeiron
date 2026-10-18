@@ -9,7 +9,7 @@
 
 use crate::format::gguf::{Gguf, GgufError, TensorDesc};
 use crate::format::quant::f16_to_f32;
-use crate::simt::Carrier;
+use crate::gpu::simt::Carrier;
 
 /// Convert `f32` to IEEE 754 half-precision `f16` bit pattern with round-to-nearest-even.
 pub fn f32_to_f16(x: f32) -> u16 {
@@ -383,7 +383,7 @@ mod tests {
     use crate::format::quant::{
         f16_to_f32, q5_0_codes, q5_0_d, GGML_TYPE_Q5_0, Q5_0_BLOCK_BYTES, Q5_0_QK,
     };
-    use crate::simt::Carrier;
+    use crate::gpu::simt::Carrier;
 
     const QWEN05B_PATH: &str = "models/gguf/qwen05b-Q4_K_M.gguf";
 
