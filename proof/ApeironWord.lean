@@ -75471,6 +75471,1433 @@ def fold_port.fit.eigh.eigh
       else
         ok (core.result.Result.Err fold_port.fit.eigh.EighError.NotConverged)
 
+/-- [apeiron_word::fold_port::fit::gptq_e8::GptqE8Error]
+    Source: '../../src/learn/fold/fit/gptq_e8.rs', lines 128:0-147:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.fit.gptq_e8.GptqE8Error where
+| ShapeMismatch : fold_port.fit.gptq_e8.GptqE8Error
+| ZeroDim : fold_port.fit.gptq_e8.GptqE8Error
+| BlockMisaligned : fold_port.fit.gptq_e8.GptqE8Error
+| InvalidDamping : fold_port.fit.gptq_e8.GptqE8Error
+| NotPositiveDefinite : fold_port.fit.gptq_e8.GptqE8Error
+| NonFinite : fold_port.fit.gptq_e8.GptqE8Error
+| Overflow : fold_port.fit.gptq_e8.GptqE8Error
+| Codebook : fold_port.fit.gptq_e8.GptqE8Error
+| BeamOutOfRange : fold_port.fit.gptq_e8.GptqE8Error
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::mag_u128]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 28:0-35:1 -/
+def fold_port.fit.gptq_e8_carrier.mag_u128
+  (v : Std.I128) : Result Std.U128 := do
+  if v < 0#i128
+  then
+    let i ← v + 1#i128
+    let i1 ← -. i
+    let i2 ← lift (IScalar.hcast .U128 i1)
+    i2 + 1#u128
+  else ok (IScalar.hcast .U128 v)
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::narrow_q]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 38:0-44:1 -/
+def fold_port.fit.gptq_e8_carrier.narrow_q
+  (v : Std.I128) :
+  Result (core.result.Result Std.I64 fold_port.fit.gptq_e8.GptqE8Error)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+  if v > i
+  then ok (core.result.Result.Err fold_port.fit.gptq_e8.GptqE8Error.Overflow)
+  else
+    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+    if v < i1
+    then ok (core.result.Result.Err fold_port.fit.gptq_e8.GptqE8Error.Overflow)
+    else let i2 ← lift (IScalar.cast .I64 v)
+         ok (core.result.Result.Ok i2)
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::MIN_G]
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 48:0-48:23 -/
+@[global_simps, irreducible]
+def fold_port.fit.gptq_e8_carrier.MIN_G : Std.I32 := (-30)#i32
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::blen]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 675:0-684:1 -/
+def fold_port.fit.gptq_e8_carrier.blen (v : Std.I128) : Result Std.I32 := do
+  if v = 0#i128
+  then ok 0#i32
+  else
+    let i ← fold_port.fit.gptq_e8_carrier.mag_u128 v
+    let o ← solve_port.q32.ilog2_pos i
+    match o with
+    | none => ok 0#i32
+    | some b => let i1 ← core.num.U32.cast_signed b
+                i1 + 1#i32
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::even_g]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 59:0-65:1 -/
+def fold_port.fit.gptq_e8_carrier.even_g
+  (max_abs : Std.U64) : Result Std.I32 := do
+  if max_abs = 0#u64
+  then ok 0#i32
+  else
+    let i ← I128.Insts.CoreConvertFromU64.from max_abs
+    let i1 ← fold_port.fit.gptq_e8_carrier.blen i
+    let l ← i1 - 33#i32
+    let i2 ← l - 29#i32
+    let i3 ← lift (~~~ 1#i32)
+    let i4 ← lift (i2 &&& i3)
+    core.cmp.Ord.max.default core.cmp.OrdI32 i4
+      fold_port.fit.gptq_e8_carrier.MIN_G
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::shift_left_i128]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 696:0-704:1 -/
+def fold_port.fit.gptq_e8_carrier.shift_left_i128
+  (v : Std.I128) (k : Std.I32) : Result (Option Std.I128) := do
+  if v = 0#i128
+  then ok (some 0#i128)
+  else
+    if k < 0#i32
+    then ok none
+    else
+      if k >= 127#i32
+      then ok none
+      else let i ← 1#i128 <<< k
+           ok (I128.checked_mul v i)
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::round_at]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 708:0-720:1 -/
+def fold_port.fit.gptq_e8_carrier.round_at
+  (v : Std.I128) (k : Std.I64) :
+  Result (core.result.Result Std.I128 fold_port.fit.gptq_e8.GptqE8Error)
+  := do
+  if k >= 0#i64
+  then
+    let i ← lift (core.convert.num.FromI64I32.from core.num.I32.MAX)
+    if k > i
+    then ok (core.result.Result.Err fold_port.fit.gptq_e8.GptqE8Error.Overflow)
+    else
+      let i1 ← lift (IScalar.cast .I32 k)
+      let o ← fold_port.fit.gptq_e8_carrier.shift_left_i128 v i1
+      core.option.Option.ok_or o fold_port.fit.gptq_e8.GptqE8Error.Overflow
+  else
+    let i ← -. k
+    let i1 ← I64.Insts.CoreConvertFromU32.from core.num.U32.MAX
+    if i > i1
+    then ok (core.result.Result.Err fold_port.fit.gptq_e8.GptqE8Error.Overflow)
+    else
+      let i2 ← lift (IScalar.hcast .U32 i)
+      let o ← solve_port.q32.rshift_rne v i2
+      core.option.Option.ok_or o fold_port.fit.gptq_e8.GptqE8Error.Overflow
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::to_words]: loop body 0:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 82:4-92:5 -/
+@[rust_loop_body]
+def fold_port.fit.gptq_e8_carrier.to_words_loop.body
+  (x : Slice Std.I64) (shift : Std.I64) (iter : core.ops.range.Range Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (ok1 : Bool) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64) × Bool) ((alloc.vec.Vec Std.I64) × Bool))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (out, ok1))
+  | some j =>
+    if ok1
+    then
+      let i ← Slice.index_usize x j
+      let i1 ← lift (core.convert.num.FromI128I64.from i)
+      let r ← fold_port.fit.gptq_e8_carrier.round_at i1 shift
+      match r with
+      | core.result.Result.Ok v =>
+        let r1 ← fold_port.fit.gptq_e8_carrier.narrow_q v
+        match r1 with
+        | core.result.Result.Ok w =>
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) out j
+          let out1 := index_mut_back w
+          ok (cont (iter1, out1, true))
+        | core.result.Result.Err _ => ok (cont (iter1, out, false))
+      | core.result.Result.Err _ => ok (cont (iter1, out, false))
+    else ok (cont (iter1, out, false))
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::to_words]: loop 0:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 82:4-92:5 -/
+@[rust_loop]
+def fold_port.fit.gptq_e8_carrier.to_words_loop
+  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64)
+  (out : alloc.vec.Vec Std.I64) (shift : Std.I64) (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I64) × Bool)
+  := do
+  loop
+    (fun (iter1, out1, ok2) => fold_port.fit.gptq_e8_carrier.to_words_loop.body
+      x shift iter1 out1 ok2)
+    (iter, out, ok1)
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::to_words]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 78:0-98:1 -/
+def fold_port.fit.gptq_e8_carrier.to_words
+  (x : Slice Std.I64) (g : Std.I32) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.gptq_e8.GptqE8Error)
+  := do
+  let i := Slice.len x
+  let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let i1 ← lift (core.convert.num.FromI64I32.from g)
+  let shift ← -. i1
+  let i2 := Slice.len x
+  let (out1, ok1) ←
+    fold_port.fit.gptq_e8_carrier.to_words_loop
+      { start := 0#usize, «end» := i2 } x out shift true
+  if ok1
+  then ok (core.result.Result.Ok out1)
+  else ok (core.result.Result.Err fold_port.fit.gptq_e8.GptqE8Error.Overflow)
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::h_words]: loop body 0:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 113:4-115:5 -/
+@[rust_loop_body]
+def fold_port.fit.gptq_e8_carrier.h_words_loop.body
+  (iter : core.slice.iter.Iter Std.I64) (max_abs : Std.U64) :
+  Result (ControlFlow ((core.slice.iter.Iter Std.I64) × Std.U64) Std.U64)
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done max_abs)
+  | some x =>
+    let i ← core.num.I64.unsigned_abs x
+    let max_abs1 ← core.cmp.Ord.max.default core.cmp.OrdU64 max_abs i
+    ok (cont (iter1, max_abs1))
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::h_words]: loop 0:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 113:4-115:5 -/
+@[rust_loop]
+def fold_port.fit.gptq_e8_carrier.h_words_loop
+  (iter : core.slice.iter.Iter Std.I64) (max_abs : Std.U64) :
+  Result Std.U64
+  := do
+  loop
+    (fun (iter1, max_abs1) => fold_port.fit.gptq_e8_carrier.h_words_loop.body
+      iter1 max_abs1)
+    (iter, max_abs)
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::h_words]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 111:0-118:1 -/
+def fold_port.fit.gptq_e8_carrier.h_words
+  (h : Slice Std.I64) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × Std.I32)
+    fold_port.fit.gptq_e8.GptqE8Error)
+  := do
+  let iter ←
+    SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter h
+  let max_abs ← fold_port.fit.gptq_e8_carrier.h_words_loop iter 0#u64
+  let g ← fold_port.fit.gptq_e8_carrier.even_g max_abs
+  let r ← fold_port.fit.gptq_e8_carrier.to_words h g
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    ok (core.result.Result.Ok (val, g))
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      ((alloc.vec.Vec Std.I64) × Std.I32) (core.convert.FromSame
+      fold_port.fit.gptq_e8.GptqE8Error) residual
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::word_pow2]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 122:0-130:1 -/
+def fold_port.fit.gptq_e8_carrier.word_pow2
+  (k : Std.I32) :
+  Result (core.result.Result Std.I64 fold_port.fit.gptq_e8.GptqE8Error)
+  := do
+  if k < 0#i32
+  then ok (core.result.Result.Ok 0#i64)
+  else
+    if k > 62#i32
+    then ok (core.result.Result.Err fold_port.fit.gptq_e8.GptqE8Error.Overflow)
+    else let i ← 1#i64 <<< k
+         ok (core.result.Result.Ok i)
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::map_q32]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 135:0-141:1 -/
+def fold_port.fit.gptq_e8_carrier.map_q32
+  (e : solve_port.q32.Q32Error) :
+  Result fold_port.fit.gptq_e8.GptqE8Error
+  := do
+  match e with
+  | solve_port.q32.Q32Error.Overflow =>
+    ok fold_port.fit.gptq_e8.GptqE8Error.Overflow
+  | solve_port.q32.Q32Error.NotSpd =>
+    ok fold_port.fit.gptq_e8.GptqE8Error.NotPositiveDefinite
+  | solve_port.q32.Q32Error.Asymmetric =>
+    ok fold_port.fit.gptq_e8.GptqE8Error.ShapeMismatch
+  | solve_port.q32.Q32Error.ShapeMismatch =>
+    ok fold_port.fit.gptq_e8.GptqE8Error.ShapeMismatch
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_port::fit::gptq_e8::GptqE8Error> for apeiron_word::fold_port::fit::gptq_e8_carrier::map_q32}::call_once]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 135:0-141:1 -/
+def P.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorGptqE8Error.call_once
+  (state : solve_port.q32.Q32Error → Result
+  fold_port.fit.gptq_e8.GptqE8Error) (args : solve_port.q32.Q32Error) :
+  Result fold_port.fit.gptq_e8.GptqE8Error
+  := do
+  fold_port.fit.gptq_e8_carrier.map_q32 args
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::gptq_e8_carrier::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_port::fit::gptq_e8::GptqE8Error> for apeiron_word::fold_port::fit::gptq_e8_carrier::map_q32}]
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 135:0-141:1 -/
+@[reducible]
+def P.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorGptqE8Error :
+  core.ops.function.FnOnce (solve_port.q32.Q32Error → Result
+  fold_port.fit.gptq_e8.GptqE8Error) solve_port.q32.Q32Error
+  fold_port.fit.gptq_e8.GptqE8Error := {
+  call_once := P.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorGptqE8Error.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::map_inv]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 145:0-154:1 -/
+def fold_port.fit.gptq_e8_carrier.map_inv
+  (e : solve_port.chol.SolveError) :
+  Result fold_port.fit.gptq_e8.GptqE8Error
+  := do
+  match e with
+  | solve_port.chol.SolveError.ShapeMismatch =>
+    ok fold_port.fit.gptq_e8.GptqE8Error.ShapeMismatch
+  | solve_port.chol.SolveError.Empty =>
+    ok fold_port.fit.gptq_e8.GptqE8Error.ZeroDim
+  | solve_port.chol.SolveError.NonPositiveDiagonal =>
+    ok fold_port.fit.gptq_e8.GptqE8Error.NotPositiveDefinite
+  | solve_port.chol.SolveError.NotPositiveDefinite =>
+    ok fold_port.fit.gptq_e8.GptqE8Error.NotPositiveDefinite
+  | solve_port.chol.SolveError.Overflow =>
+    ok fold_port.fit.gptq_e8.GptqE8Error.Overflow
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::chol::SolveError,), apeiron_word::fold_port::fit::gptq_e8::GptqE8Error> for apeiron_word::fold_port::fit::gptq_e8_carrier::map_inv}::call_once]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 145:0-154:1 -/
+def P.Insts.CoreOpsFunctionFnOnceTupleSolveErrorGptqE8Error.call_once
+  (state : solve_port.chol.SolveError → Result
+  fold_port.fit.gptq_e8.GptqE8Error) (args : solve_port.chol.SolveError) :
+  Result fold_port.fit.gptq_e8.GptqE8Error
+  := do
+  fold_port.fit.gptq_e8_carrier.map_inv args
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::gptq_e8_carrier::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::chol::SolveError,), apeiron_word::fold_port::fit::gptq_e8::GptqE8Error> for apeiron_word::fold_port::fit::gptq_e8_carrier::map_inv}]
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 145:0-154:1 -/
+@[reducible]
+def P.Insts.CoreOpsFunctionFnOnceTupleSolveErrorGptqE8Error :
+  core.ops.function.FnOnce (solve_port.chol.SolveError → Result
+  fold_port.fit.gptq_e8.GptqE8Error) solve_port.chol.SolveError
+  fold_port.fit.gptq_e8.GptqE8Error := {
+  call_once :=
+    P.Insts.CoreOpsFunctionFnOnceTupleSolveErrorGptqE8Error.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::UFac]
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 159:0-166:1
+    Visibility: public -/
+structure fold_port.fit.gptq_e8_carrier.UFac where
+  hat : alloc.vec.Vec Std.I64
+  d : alloc.vec.Vec Std.I32
+  n : Std.Usize
+
+/-- [apeiron_word::solve_port::q32::SpdQ]
+    Source: '../../src/learn/solve/q32.rs', lines 471:0-476:1
+    Visibility: public -/
+structure solve_port.q32.SpdQ where
+  hat : alloc.vec.Vec Std.I64
+  d : alloc.vec.Vec Std.I32
+
+/-- [apeiron_word::solve_port::q32::scale_q32]:
+    Source: '../../src/learn/solve/q32.rs', lines 451:0-466:1 -/
+def solve_port.q32.scale_q32
+  (v : Std.I64) (shift : Std.I32) :
+  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
+  := do
+  if shift > 0#i32
+  then
+    let i ← lift (core.convert.num.FromI128I64.from v)
+    let i1 ← lift (IScalar.hcast .U32 shift)
+    let o ← solve_port.q32.rshift_rne i i1
+    match o with
+    | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+    | some x =>
+      let o1 ← solve_port.q32.narrow x
+      core.option.Option.ok_or o1 solve_port.q32.Q32Error.Overflow
+  else
+    if shift < 0#i32
+    then
+      let k ← -. shift
+      if k > 64#i32
+      then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+      else
+        let i ← lift (core.convert.num.FromI128I64.from v)
+        let i1 ← i <<< k
+        let o ← solve_port.q32.narrow i1
+        core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
+    else ok (core.result.Result.Ok v)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop body 0:
+    Source: '../../src/learn/solve/q32.rs', lines 513:8-520:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.q32.SpdQ.from_q32_loop0.body
+  (h : Slice Std.I64) (n : Std.Usize) (nn : Std.Usize) (symmetric : Bool)
+  (idx : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if idx < nn
+  then
+    let i ← idx / n
+    let j ← idx % n
+    let symmetric1 ←
+      if i < j
+      then
+        do
+        let i1 ← Slice.index_usize h idx
+        let i2 ← j * n
+        let i3 ← i2 + i
+        let i4 ← Slice.index_usize h i3
+        if i1 != i4
+        then ok false
+        else ok symmetric
+      else ok symmetric
+    let idx1 ← idx + 1#usize
+    ok (cont (symmetric1, idx1))
+  else ok (done symmetric)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop 0:
+    Source: '../../src/learn/solve/q32.rs', lines 513:8-520:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.q32.SpdQ.from_q32_loop0
+  (h : Slice Std.I64) (n : Std.Usize) (nn : Std.Usize) (symmetric : Bool)
+  (idx : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (symmetric1, idx1) => solve_port.q32.SpdQ.from_q32_loop0.body h n nn
+      symmetric1 idx1)
+    (symmetric, idx)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop body 1:
+    Source: '../../src/learn/solve/q32.rs', lines 527:8-538:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.q32.SpdQ.from_q32_loop1.body
+  (h : Slice Std.I64) (n : Std.Usize) (d : alloc.vec.Vec Std.I32)
+  (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I32) × (Option
+    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I32) × (Option
+    solve_port.q32.Q32Error)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + i
+      let hii ← Slice.index_usize h i2
+      let (d1, err1) ←
+        if hii < 1#i64
+        then ok (d, some solve_port.q32.Q32Error.NotSpd)
+        else
+          do
+          let i3 ← lift (IScalar.hcast .U128 hii)
+          let o ← solve_port.q32.ilog2_pos i3
+          match o with
+          | none => ok (d, some solve_port.q32.Q32Error.NotSpd)
+          | some bl =>
+            let i4 ← lift (UScalar.hcast .I32 bl)
+            let i5 ← i4 - 32#i32
+            let i6 ← i5 >>> 1#i32
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I32) d i
+            let d2 := index_mut_back i6
+            ok (d2, err)
+      let i3 ← i + 1#usize
+      ok (cont (d1, err1, i3))
+    else ok (done (d, err))
+  else ok (done (d, err))
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop 1:
+    Source: '../../src/learn/solve/q32.rs', lines 527:8-538:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.q32.SpdQ.from_q32_loop1
+  (h : Slice Std.I64) (n : Std.Usize) (d : alloc.vec.Vec Std.I32)
+  (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I32) × (Option solve_port.q32.Q32Error))
+  := do
+  loop
+    (fun (d1, err1, i1) => solve_port.q32.SpdQ.from_q32_loop1.body h n d1 err1
+      i1)
+    (d, err, i)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop body 2:
+    Source: '../../src/learn/solve/q32.rs', lines 545:8-553:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.q32.SpdQ.from_q32_loop2.body
+  (h : Slice Std.I64) (n : Std.Usize) (nn : Std.Usize)
+  (d : alloc.vec.Vec Std.I32) (hat : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.q32.Q32Error) (idx : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error)))
+  := do
+  if idx < nn
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← idx / n
+      let j ← idx % n
+      let i1 ← Slice.index_usize h idx
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I32) d i
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I32) d j
+      let i4 ← i2 + i3
+      let r ← solve_port.q32.scale_q32 i1 i4
+      let (hat1, err1) ←
+        match r with
+        | core.result.Result.Ok x =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) hat idx
+          let hat2 := index_mut_back x
+          ok (hat2, err)
+        | core.result.Result.Err er => ok (hat, some er)
+      let idx1 ← idx + 1#usize
+      ok (cont (hat1, err1, idx1))
+    else ok (done (hat, err))
+  else ok (done (hat, err))
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop 2:
+    Source: '../../src/learn/solve/q32.rs', lines 545:8-553:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.q32.SpdQ.from_q32_loop2
+  (h : Slice Std.I64) (n : Std.Usize) (nn : Std.Usize)
+  (d : alloc.vec.Vec Std.I32) (hat : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.q32.Q32Error) (idx : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.q32.Q32Error))
+  := do
+  loop
+    (fun (hat1, err1, idx1) => solve_port.q32.SpdQ.from_q32_loop2.body h n nn d
+      hat1 err1 idx1)
+    (hat, err, idx)
+
+/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]:
+    Source: '../../src/learn/solve/q32.rs', lines 500:4-558:5
+    Visibility: public -/
+def solve_port.q32.SpdQ.from_q32
+  (h : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result solve_port.q32.SpdQ solve_port.q32.Q32Error)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err solve_port.q32.Q32Error.ShapeMismatch)
+  else
+    let o ← lift (Usize.checked_mul n n)
+    match o with
+    | none => ok (core.result.Result.Err solve_port.q32.Q32Error.ShapeMismatch)
+    | some v =>
+      let i := Slice.len h
+      if i != v
+      then ok (core.result.Result.Err solve_port.q32.Q32Error.ShapeMismatch)
+      else
+        let symmetric ← solve_port.q32.SpdQ.from_q32_loop0 h n v true 0#usize
+        if symmetric
+        then
+          let d ← alloc.vec.from_elem core.clone.CloneI32 0#i32 n
+          let (d1, err) ←
+            solve_port.q32.SpdQ.from_q32_loop1 h n d none 0#usize
+          match err with
+          | none =>
+            let hat ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
+            let (hat1, err1) ←
+              solve_port.q32.SpdQ.from_q32_loop2 h n v d1 hat none 0#usize
+            match err1 with
+            | none => ok (core.result.Result.Ok { hat := hat1, d := d1 })
+            | some er => ok (core.result.Result.Err er)
+          | some er => ok (core.result.Result.Err er)
+        else ok (core.result.Result.Err solve_port.q32.Q32Error.Asymmetric)
+
+/-- [apeiron_word::solve_port::q32::round_q32_even]:
+    Source: '../../src/learn/solve/q32.rs', lines 250:0-255:1
+    Visibility: public -/
+def solve_port.q32.round_q32_even
+  (v : Std.I128) :
+  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
+  := do
+  let o ← solve_port.q32.rshift_rne v 32#u32
+  match o with
+  | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+  | some r =>
+    let o1 ← solve_port.q32.narrow r
+    core.option.Option.ok_or o1 solve_port.q32.Q32Error.Overflow
+
+/-- [apeiron_word::solve_port::inv::rotate_180]: loop body 1:
+    Source: '../../src/learn/solve/inv.rs', lines 276:8-278:9 -/
+@[rust_loop_body]
+def solve_port.inv.rotate_180_loop0_loop0.body
+  (n : Std.Usize) (i : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (x : Slice Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (Slice Std.I64))
+    (Slice Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done x)
+  | some j =>
+    let i1 ← i * n
+    let i2 ← i1 + j
+    let i3 ← n - 1#usize
+    let i4 ← i3 - i
+    let i5 ← i4 * n
+    let i6 ← i3 - j
+    let i7 ← i5 + i6
+    let x1 ← core.slice.Slice.swap x i2 i7
+    ok (cont (iter1, x1))
+
+/-- [apeiron_word::solve_port::inv::rotate_180]: loop 1:
+    Source: '../../src/learn/solve/inv.rs', lines 276:8-278:9 -/
+@[rust_loop]
+def solve_port.inv.rotate_180_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) (n : Std.Usize)
+  (i : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (iter1, x1) => solve_port.inv.rotate_180_loop0_loop0.body n i iter1
+      x1)
+    (iter, x)
+
+/-- [apeiron_word::solve_port::inv::rotate_180]: loop body 0:
+    Source: '../../src/learn/solve/inv.rs', lines 275:4-279:5 -/
+@[rust_loop_body]
+def solve_port.inv.rotate_180_loop0.body
+  (n : Std.Usize) (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (Slice Std.I64))
+    (Slice Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done x)
+  | some i =>
+    let x1 ←
+      solve_port.inv.rotate_180_loop0_loop0 { start := 0#usize, «end» := n }
+        x n i
+    ok (cont (iter1, x1))
+
+/-- [apeiron_word::solve_port::inv::rotate_180]: loop 0:
+    Source: '../../src/learn/solve/inv.rs', lines 275:4-279:5 -/
+@[rust_loop]
+def solve_port.inv.rotate_180_loop0
+  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) (n : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (iter1, x1) => solve_port.inv.rotate_180_loop0.body n iter1 x1)
+    (iter, x)
+
+/-- [apeiron_word::solve_port::inv::rotate_180]: loop body 2:
+    Source: '../../src/learn/solve/inv.rs', lines 282:8-284:9 -/
+@[rust_loop_body]
+def solve_port.inv.rotate_180_loop1.body
+  (n : Std.Usize) (i : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (x : Slice Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (Slice Std.I64))
+    (Slice Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done x)
+  | some j =>
+    let i1 ← i * n
+    let i2 ← i1 + j
+    let i3 ← n - 1#usize
+    let i4 ← i3 - j
+    let i5 ← i1 + i4
+    let x1 ← core.slice.Slice.swap x i2 i5
+    ok (cont (iter1, x1))
+
+/-- [apeiron_word::solve_port::inv::rotate_180]: loop 2:
+    Source: '../../src/learn/solve/inv.rs', lines 282:8-284:9 -/
+@[rust_loop]
+def solve_port.inv.rotate_180_loop1
+  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) (n : Std.Usize)
+  (i : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (iter1, x1) => solve_port.inv.rotate_180_loop1.body n i iter1 x1)
+    (iter, x)
+
+/-- [apeiron_word::solve_port::inv::rotate_180]:
+    Source: '../../src/learn/solve/inv.rs', lines 274:0-286:1 -/
+def solve_port.inv.rotate_180
+  (x : Slice Std.I64) (n : Std.Usize) : Result (Slice Std.I64) := do
+  let i ← n / 2#usize
+  let x1 ←
+    solve_port.inv.rotate_180_loop0 { start := 0#usize, «end» := i } x n
+  let i1 ← n % 2#usize
+  if i1 = 1#usize
+  then
+    let i2 ← n / 2#usize
+    solve_port.inv.rotate_180_loop1 { start := 0#usize, «end» := i2 } x1 n i2
+  else ok x1
+
+/-- [apeiron_word::solve_port::inv::invert_columns_pool]:
+    Source: '../../src/learn/solve/inv.rs', lines 215:0-232:1 -/
+axiom solve_port.inv.invert_columns_pool
+  :
+  Slice Std.I64 → Std.Usize → Slice Std.I64 → Result ((core.result.Result
+    Unit solve_port.chol.SolveError) × (Slice Std.I64))
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop body 1:
+    Source: '../../src/learn/solve/inv.rs', lines 259:8-261:9 -/
+@[rust_loop_body]
+def solve_port.inv.inverse_upper_par_loop0_loop0.body
+  (n : Std.Usize) (ut : alloc.vec.Vec Std.I64) (c : Std.Usize)
+  (iter : core.ops.range.RangeInclusive Std.Usize) (u : alloc.vec.Vec Std.I64)
+  :
+  Result (ControlFlow ((core.ops.range.RangeInclusive Std.Usize) ×
+    (alloc.vec.Vec Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.ops.range.RangeInclusive.Insts.CoreIterTraitsIteratorIterator.next
+      core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done u)
+  | some r =>
+    let i ← c * n
+    let i1 ← i + r
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) ut i1
+    let i3 ← r * n
+    let i4 ← i3 + c
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) u
+        i4
+    let u1 := index_mut_back i2
+    ok (cont (iter1, u1))
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop 1:
+    Source: '../../src/learn/solve/inv.rs', lines 259:8-261:9 -/
+@[rust_loop]
+def solve_port.inv.inverse_upper_par_loop0_loop0
+  (iter : core.ops.range.RangeInclusive Std.Usize) (n : Std.Usize)
+  (ut : alloc.vec.Vec Std.I64) (u : alloc.vec.Vec Std.I64) (c : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, u1) => solve_port.inv.inverse_upper_par_loop0_loop0.body n ut
+      c iter1 u1)
+    (iter, u)
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop body 0:
+    Source: '../../src/learn/solve/inv.rs', lines 258:4-262:5 -/
+@[rust_loop_body]
+def solve_port.inv.inverse_upper_par_loop0.body
+  (n : Std.Usize) (ut : alloc.vec.Vec Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (u : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done u)
+  | some c =>
+    let iter2 ← core.ops.range.RangeInclusive.new 0#usize c
+    let u1 ← solve_port.inv.inverse_upper_par_loop0_loop0 iter2 n ut u c
+    ok (cont (iter1, u1))
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop 0:
+    Source: '../../src/learn/solve/inv.rs', lines 258:4-262:5 -/
+@[rust_loop]
+def solve_port.inv.inverse_upper_par_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (ut : alloc.vec.Vec Std.I64) (u : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, u1) => solve_port.inv.inverse_upper_par_loop0.body n ut iter1
+      u1)
+    (iter, u)
+
+/-- [apeiron_word::solve_port::inv::inverse_upper_par]:
+    Source: '../../src/learn/solve/inv.rs', lines 249:0-264:1 -/
+def solve_port.inv.inverse_upper_par
+  (v : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    solve_port.chol.SolveError)
+  := do
+  let o ← lift (Usize.checked_mul n n)
+  let r ← core.option.Option.ok_or o solve_port.chol.SolveError.Overflow
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let i := Slice.len v
+    if i != val
+    then ok (core.result.Result.Err solve_port.chol.SolveError.ShapeMismatch)
+    else
+      let ut ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+      let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut ut)
+      let (r1, s1) ← solve_port.inv.invert_columns_pool v n s
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue _ =>
+        let ut1 := deref_mut_back s1
+        let u ←
+          solve_port.inv.inverse_upper_par_loop0
+            { start := 0#usize, «end» := n } n ut1 ut
+        ok (core.result.Result.Ok u)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          solve_port.chol.SolveError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      solve_port.chol.SolveError) residual
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop body 1:
+    Source: '../../src/learn/solve/inv.rs', lines 319:8-321:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.inv.inv_factor_upper_loop0_loop0.body
+  (n : Std.Usize) (a_hat : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (rev : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done rev)
+  | some j =>
+    let i1 ← n - 1#usize
+    let i2 ← i1 - i
+    let i3 ← i2 * n
+    let i4 ← i1 - j
+    let i5 ← i3 + i4
+    let i6 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) a_hat
+        i5
+    let i7 ← i * n
+    let i8 ← i7 + j
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        rev i8
+    let rev1 := index_mut_back i6
+    ok (cont (iter1, rev1))
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop 1:
+    Source: '../../src/learn/solve/inv.rs', lines 319:8-321:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.inv.inv_factor_upper_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (a_hat : alloc.vec.Vec Std.I64) (rev : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, rev1) => solve_port.inv.inv_factor_upper_loop0_loop0.body n
+      a_hat i iter1 rev1)
+    (iter, rev)
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop body 0:
+    Source: '../../src/learn/solve/inv.rs', lines 318:4-322:5
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.inv.inv_factor_upper_loop0.body
+  (n : Std.Usize) (a_hat : alloc.vec.Vec Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (rev : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done rev)
+  | some i =>
+    let rev1 ←
+      solve_port.inv.inv_factor_upper_loop0_loop0
+        { start := 0#usize, «end» := n } n a_hat rev i
+    ok (cont (iter1, rev1))
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop 0:
+    Source: '../../src/learn/solve/inv.rs', lines 318:4-322:5
+    Visibility: public -/
+@[rust_loop]
+def solve_port.inv.inv_factor_upper_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (a_hat : alloc.vec.Vec Std.I64) (rev : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, rev1) => solve_port.inv.inv_factor_upper_loop0.body n a_hat
+      iter1 rev1)
+    (iter, rev)
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop body 3:
+    Source: '../../src/learn/solve/inv.rs', lines 338:8-344:9
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.inv.inv_factor_upper_loop1_loop0.body
+  (n : Std.Usize) (d : alloc.vec.Vec Std.I64) (binv : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) (u : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.chol.SolveError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if j < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + j
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          binv i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let i5 ← i4 <<< 32#i32
+      let i6 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) d j
+      let i7 ← lift (core.convert.num.FromI128I64.from i6)
+      let o ← solve_port.chol.div_to_i64 i5 i7
+      let (u1, err1) ←
+        match o with
+        | none => ok (u, some solve_port.chol.SolveError.Overflow)
+        | some w =>
+          do
+          let i8 ← i1 + j
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) u i8
+          let u2 := index_mut_back w
+          ok (u2, err)
+      let j1 ← j + 1#usize
+      ok (cont (u1, err1, j1))
+    else ok (done (u, err))
+  else ok (done (u, err))
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop 3:
+    Source: '../../src/learn/solve/inv.rs', lines 338:8-344:9
+    Visibility: public -/
+@[rust_loop]
+def solve_port.inv.inv_factor_upper_loop1_loop0
+  (n : Std.Usize) (d : alloc.vec.Vec Std.I64) (binv : alloc.vec.Vec Std.I64)
+  (u : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (i : Std.Usize) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (u1, err1, j1) => solve_port.inv.inv_factor_upper_loop1_loop0.body n d
+      binv i u1 err1 j1)
+    (u, err, j)
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop body 2:
+    Source: '../../src/learn/solve/inv.rs', lines 336:4-346:5
+    Visibility: public -/
+@[rust_loop_body]
+def solve_port.inv.inv_factor_upper_loop1.body
+  (n : Std.Usize) (d : alloc.vec.Vec Std.I64) (binv : alloc.vec.Vec Std.I64)
+  (u : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option solve_port.chol.SolveError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (u1, err1) ←
+        solve_port.inv.inv_factor_upper_loop1_loop0 n d binv u err i i
+      let i1 ← i + 1#usize
+      ok (cont (u1, err1, i1))
+    else ok (done (u, err))
+  else ok (done (u, err))
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop 2:
+    Source: '../../src/learn/solve/inv.rs', lines 336:4-346:5
+    Visibility: public -/
+@[rust_loop]
+def solve_port.inv.inv_factor_upper_loop1
+  (n : Std.Usize) (d : alloc.vec.Vec Std.I64) (binv : alloc.vec.Vec Std.I64)
+  (u : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
+  := do
+  loop
+    (fun (u1, err1, i1) => solve_port.inv.inv_factor_upper_loop1.body n d binv
+      u1 err1 i1)
+    (u, err, i)
+
+/-- [apeiron_word::solve_port::inv::inv_factor_upper]:
+    Source: '../../src/learn/solve/inv.rs', lines 307:0-351:1
+    Visibility: public -/
+def solve_port.inv.inv_factor_upper
+  (h : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    solve_port.chol.SolveError)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err solve_port.chol.SolveError.Empty)
+  else
+    let o ← lift (Usize.checked_mul n n)
+    let r ← core.option.Option.ok_or o solve_port.chol.SolveError.Overflow
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let i := Slice.len h
+      if i != val
+      then ok (core.result.Result.Err solve_port.chol.SolveError.ShapeMismatch)
+      else
+        let r1 ← solve_port.chol.equilibrate h n
+        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let (a_hat, d) := val1
+          let rev ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+          let rev1 ←
+            solve_port.inv.inv_factor_upper_loop0
+              { start := 0#usize, «end» := n } n a_hat rev
+          core.mem.drop a_hat
+          let s := alloc.vec.Vec.deref rev1
+          let r2 ← solve_port.chol.factor_scaled s n
+          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            core.mem.drop rev1
+            let (s1, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut val2)
+            let s2 ← solve_port.inv.rotate_180 s1 n
+            let val3 := deref_mut_back s2
+            let s3 := alloc.vec.Vec.deref val3
+            let r3 ← solve_port.inv.inverse_upper_par s3 n
+            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+            match cf3 with
+            | core.ops.control_flow.ControlFlow.Continue val4 =>
+              core.mem.drop val3
+              let u ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+              let (u1, err) ←
+                solve_port.inv.inv_factor_upper_loop1 n d val4 u none 0#usize
+              match err with
+              | none => ok (core.result.Result.Ok u1)
+              | some e => ok (core.result.Result.Err e)
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                (alloc.vec.Vec Std.I64) (core.convert.FromSame
+                solve_port.chol.SolveError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              solve_port.chol.SolveError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64) (core.convert.FromSame
+            solve_port.chol.SolveError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+        solve_port.chol.SolveError) residual
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::div_rne_i128::{closure#1}]
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 652:33-652:42 -/
+@[reducible]
+def fold_port.fit.gptq_e8_carrier.div_rne_i128.closure_1 := Std.I128
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::div_rne_i128::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::gptq_e8_carrier::div_rne_i128::{closure#1}<'_0>}::call_once]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 652:33-652:42 -/
+def
+  fold_port.fit.gptq_e8_carrier.div_rne_i128.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
+  (c : fold_port.fit.gptq_e8_carrier.div_rne_i128.closure_1)
+  (tupled_args : Std.I128) :
+  Result Std.I128
+  := do
+  tupled_args / c
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::gptq_e8_carrier::div_rne_i128::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::gptq_e8_carrier::div_rne_i128::{closure#1}<'_0>}]
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 652:33-652:42 -/
+@[reducible]
+def
+  fold_port.fit.gptq_e8_carrier.div_rne_i128.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128I128
+  : core.ops.function.FnOnce
+  fold_port.fit.gptq_e8_carrier.div_rne_i128.closure_1 Std.I128 Std.I128 := {
+  call_once :=
+    fold_port.fit.gptq_e8_carrier.div_rne_i128.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::div_rne_i128::{closure}]
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 650:33-650:42 -/
+@[reducible]
+def fold_port.fit.gptq_e8_carrier.div_rne_i128.closure := Std.I128
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::div_rne_i128::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::gptq_e8_carrier::div_rne_i128::{closure}<'_0>}::call_once]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 650:33-650:42 -/
+def
+  fold_port.fit.gptq_e8_carrier.div_rne_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
+  (c : fold_port.fit.gptq_e8_carrier.div_rne_i128.closure)
+  (tupled_args : Std.I128) :
+  Result Std.I128
+  := do
+  tupled_args / c
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::gptq_e8_carrier::div_rne_i128::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::gptq_e8_carrier::div_rne_i128::{closure}<'_0>}]
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 650:33-650:42 -/
+@[reducible]
+def
+  fold_port.fit.gptq_e8_carrier.div_rne_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128
+  : core.ops.function.FnOnce fold_port.fit.gptq_e8_carrier.div_rne_i128.closure
+  Std.I128 Std.I128 := {
+  call_once :=
+    fold_port.fit.gptq_e8_carrier.div_rne_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::div_rne_i128]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 645:0-654:1 -/
+def fold_port.fit.gptq_e8_carrier.div_rne_i128
+  (v : Std.I128) (d : Std.I128) : Result (Option Std.I128) := do
+  if d <= 0#i128
+  then ok none
+  else
+    if v >= 0#i128
+    then
+      let i ← d / 2#i128
+      let o ← lift (I128.checked_add v i)
+      core.option.Option.map
+        fold_port.fit.gptq_e8_carrier.div_rne_i128.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128
+        o d
+    else
+      let i ← d / 2#i128
+      let o ← lift (I128.checked_sub v i)
+      core.option.Option.map
+        fold_port.fit.gptq_e8_carrier.div_rne_i128.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128I128
+        o d
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::feedback_u]: loop body 0:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 199:4-201:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.fit.gptq_e8_carrier.feedback_u_loop0.body
+  (n : Std.Usize) (w : alloc.vec.Vec Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (sum : Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128) Std.I128)
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done sum)
+  | some i =>
+    let i1 ← i * n
+    let i2 ← i1 + i
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) w i2
+    let i4 ← lift (core.convert.num.FromI128I64.from i3)
+    let sum1 ← sum + i4
+    ok (cont (iter1, sum1))
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::feedback_u]: loop 0:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 199:4-201:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.fit.gptq_e8_carrier.feedback_u_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (w : alloc.vec.Vec Std.I64) (sum : Std.I128) :
+  Result Std.I128
+  := do
+  loop
+    (fun (iter1, sum1) => fold_port.fit.gptq_e8_carrier.feedback_u_loop0.body n
+      w iter1 sum1)
+    (iter, sum)
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::feedback_u]: loop body 2:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 214:12-216:13
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.fit.gptq_e8_carrier.feedback_u_loop1_loop0.body
+  (n : Std.Usize) (w : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (sym : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done sym)
+  | some j =>
+    let i1 ←
+      if j > i
+      then
+        do
+        let i2 ← j * n
+        let i3 ← i2 + i
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) w
+          i3
+      else
+        do
+        let i2 ← i * n
+        let i3 ← i2 + j
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) w
+          i3
+    let i2 ← i * n
+    let i3 ← i2 + j
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        sym i3
+    let sym1 := index_mut_back i1
+    ok (cont (iter1, sym1))
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::feedback_u]: loop 2:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 214:12-216:13
+    Visibility: public -/
+@[rust_loop]
+def fold_port.fit.gptq_e8_carrier.feedback_u_loop1_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (w : alloc.vec.Vec Std.I64) (sym : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, sym1) =>
+      fold_port.fit.gptq_e8_carrier.feedback_u_loop1_loop0.body n w i iter1
+      sym1)
+    (iter, sym)
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::feedback_u]: loop body 1:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 212:4-222:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.fit.gptq_e8_carrier.feedback_u_loop1.body
+  (n : Std.Usize) (w : alloc.vec.Vec Std.I64) (dlt : Std.I64) (one : Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (sym : alloc.vec.Vec Std.I64)
+  (ok1 : Bool) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64) × Bool) ((alloc.vec.Vec Std.I64) × Bool))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (sym, ok1))
+  | some i =>
+    if ok1
+    then
+      let sym1 ←
+        fold_port.fit.gptq_e8_carrier.feedback_u_loop1_loop0
+          { start := 0#usize, «end» := n } n w sym i
+      let i1 ← i * n
+      let i2 ← i1 + i
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) w
+          i2
+      let o1 ← lift (I64.checked_add i3 dlt)
+      match o1 with
+      | none => ok (cont (iter1, sym1, false))
+      | some v =>
+        let v1 ← if v = 0#i64
+                   then ok one
+                   else ok v
+        let i4 ← i1 + i
+        let (_, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            Std.I64) sym1 i4
+        let sym2 := index_mut_back v1
+        ok (cont (iter1, sym2, true))
+    else ok (cont (iter1, sym, false))
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::feedback_u]: loop 1:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 212:4-222:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.fit.gptq_e8_carrier.feedback_u_loop1
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (w : alloc.vec.Vec Std.I64) (dlt : Std.I64) (one : Std.I64)
+  (sym : alloc.vec.Vec Std.I64) (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I64) × Bool)
+  := do
+  loop
+    (fun (iter1, sym1, ok2) =>
+      fold_port.fit.gptq_e8_carrier.feedback_u_loop1.body n w dlt one iter1
+      sym1 ok2)
+    (iter, sym, ok1)
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::feedback_u]: loop body 3:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 231:4-238:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.fit.gptq_e8_carrier.feedback_u_loop2.body
+  (v : alloc.vec.Vec Std.I32) (half : Std.I32)
+  (iter : core.ops.range.Range Std.Usize) (d : alloc.vec.Vec Std.I32)
+  (ok1 : Bool) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I32) × Bool) ((alloc.vec.Vec Std.I32) × Bool))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (d, ok1))
+  | some i =>
+    if ok1
+    then
+      let i1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I32) v i
+      let o1 ← lift (I32.checked_add i1 half)
+      match o1 with
+      | none => ok (cont (iter1, d, false))
+      | some v1 =>
+        let (_, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            Std.I32) d i
+        let d1 := index_mut_back v1
+        ok (cont (iter1, d1, true))
+    else ok (cont (iter1, d, false))
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::feedback_u]: loop 3:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 231:4-238:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.fit.gptq_e8_carrier.feedback_u_loop2
+  (iter : core.ops.range.Range Std.Usize) (v : alloc.vec.Vec Std.I32)
+  (half : Std.I32) (d : alloc.vec.Vec Std.I32) (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I32) × Bool)
+  := do
+  loop
+    (fun (iter1, d1, ok2) =>
+      fold_port.fit.gptq_e8_carrier.feedback_u_loop2.body v half iter1 d1 ok2)
+    (iter, d, ok1)
+
+/-- [apeiron_word::fold_port::fit::gptq_e8_carrier::feedback_u]:
+    Source: '../../src/learn/fold/fit/gptq_e8_carrier.rs', lines 188:0-244:1
+    Visibility: public -/
+def fold_port.fit.gptq_e8_carrier.feedback_u
+  (h : Slice Std.I64) (n : Std.Usize) (damp : Std.I64) :
+  Result (core.result.Result fold_port.fit.gptq_e8_carrier.UFac
+    fold_port.fit.gptq_e8.GptqE8Error)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err fold_port.fit.gptq_e8.GptqE8Error.ZeroDim)
+  else
+    let i := Slice.len h
+    let i1 ← n * n
+    if i != i1
+    then
+      ok (core.result.Result.Err
+        fold_port.fit.gptq_e8.GptqE8Error.ShapeMismatch)
+    else
+      let r ← fold_port.fit.gptq_e8_carrier.h_words h
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let (w, g) := val
+        let sum ←
+          fold_port.fit.gptq_e8_carrier.feedback_u_loop0
+            { start := 0#usize, «end» := n } n w 0#i128
+        let i2 ← lift (UScalar.cast .U64 n)
+        let nn ← I128.Insts.CoreConvertFromU64.from i2
+        let o ← fold_port.fit.gptq_e8_carrier.div_rne_i128 sum nn
+        let r1 ←
+          core.option.Option.ok_or o fold_port.fit.gptq_e8.GptqE8Error.Overflow
+        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let damp_w ← lift (core.convert.num.FromI128I64.from damp)
+          let o1 ← lift (I128.checked_mul val1 damp_w)
+          let r2 ←
+            core.option.Option.ok_or o1
+              fold_port.fit.gptq_e8.GptqE8Error.Overflow
+          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            let r3 ← solve_port.q32.round_q32_even val2
+            let r4 ←
+              core.result.Result.map_err
+                P.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorGptqE8Error r3
+                (fold_port.fit.gptq_e8_carrier.map_q32)
+            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r4
+            match cf3 with
+            | core.ops.control_flow.ControlFlow.Continue val3 =>
+              let i3 ← 32#i32 - g
+              let r5 ← fold_port.fit.gptq_e8_carrier.word_pow2 i3
+              let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r5
+              match cf4 with
+              | core.ops.control_flow.ControlFlow.Continue val4 =>
+                let i4 ← n * n
+                let sym ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i4
+                let (sym1, ok1) ←
+                  fold_port.fit.gptq_e8_carrier.feedback_u_loop1
+                    { start := 0#usize, «end» := n } n w val3 val4 sym true
+                if ok1
+                then
+                  let s := alloc.vec.Vec.deref sym1
+                  let r6 ← solve_port.q32.SpdQ.from_q32 s n
+                  let r7 ←
+                    core.result.Result.map_err
+                      P.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorGptqE8Error r6
+                      (fold_port.fit.gptq_e8_carrier.map_q32)
+                  let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r7
+                  match cf5 with
+                  | core.ops.control_flow.ControlFlow.Continue val5 =>
+                    let s1 := alloc.vec.Vec.deref val5.hat
+                    let r8 ← solve_port.inv.inv_factor_upper s1 n
+                    let r9 ←
+                      core.result.Result.map_err
+                        P.Insts.CoreOpsFunctionFnOnceTupleSolveErrorGptqE8Error
+                        r8 (fold_port.fit.gptq_e8_carrier.map_inv)
+                    let cf6 ← core.result.Result.Insts.CoreOpsTry.branch r9
+                    match cf6 with
+                    | core.ops.control_flow.ControlFlow.Continue val6 =>
+                      let half ← g / 2#i32
+                      let d ← alloc.vec.from_elem core.clone.CloneI32 0#i32 n
+                      let (d1, ok2) ←
+                        fold_port.fit.gptq_e8_carrier.feedback_u_loop2
+                          { start := 0#usize, «end» := n } val5.d half d true
+                      if ok2
+                      then
+                        ok (core.result.Result.Ok { hat := val6, d := d1, n })
+                      else
+                        ok (core.result.Result.Err
+                          fold_port.fit.gptq_e8.GptqE8Error.Overflow)
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        fold_port.fit.gptq_e8_carrier.UFac
+                        (core.convert.FromSame
+                        fold_port.fit.gptq_e8.GptqE8Error) residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      fold_port.fit.gptq_e8_carrier.UFac (core.convert.FromSame
+                      fold_port.fit.gptq_e8.GptqE8Error) residual
+                else
+                  ok (core.result.Result.Err
+                    fold_port.fit.gptq_e8.GptqE8Error.Overflow)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  fold_port.fit.gptq_e8_carrier.UFac (core.convert.FromSame
+                  fold_port.fit.gptq_e8.GptqE8Error) residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                fold_port.fit.gptq_e8_carrier.UFac (core.convert.FromSame
+                fold_port.fit.gptq_e8.GptqE8Error) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              fold_port.fit.gptq_e8_carrier.UFac (core.convert.FromSame
+              fold_port.fit.gptq_e8.GptqE8Error) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            fold_port.fit.gptq_e8_carrier.UFac (core.convert.FromSame
+            fold_port.fit.gptq_e8.GptqE8Error) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          fold_port.fit.gptq_e8_carrier.UFac (core.convert.FromSame
+          fold_port.fit.gptq_e8.GptqE8Error) residual
+
 /-- [apeiron_word::fold_port::fit::quant::DEV_MIN]
     Source: '../../src/learn/fold/fit/quant.rs', lines 43:0-43:29 -/
 @[global_simps, irreducible]
@@ -76676,21 +78103,61 @@ def fold_port.fit.quant.quant_r_hier
           fold_port.fit.quant.QuantError) residual
 
 /-- [apeiron_word::fold_port::fit::steps::GROUP]
-    Source: '../../src/learn/fold/fit/steps.rs', lines 67:0-67:29
+    Source: '../../src/learn/fold/fit/steps.rs', lines 64:0-64:29
     Visibility: public -/
 @[global_simps, irreducible]
 def fold_port.fit.steps.GROUP : Std.Usize := 128#usize
 
 /-- [apeiron_word::fold_port::fit::steps::StepsError]
-    Source: '../../src/learn/fold/fit/steps.rs', lines 151:0-158:1
+    Source: '../../src/learn/fold/fit/steps.rs', lines 148:0-155:1
     Visibility: public -/
 @[discriminant isize]
 inductive fold_port.fit.steps.StepsError where
 | ShapeMismatch : fold_port.fit.steps.StepsError
 | NotPositiveDefinite : fold_port.fit.steps.StepsError
 
+/-- [apeiron_word::fold_port::fit::steps::mul_word::{closure}]
+    Source: '../../src/learn/fold/fit/steps.rs', lines 84:63-84:92 -/
+@[reducible]
+def fold_port.fit.steps.mul_word.closure := Unit
+
+/-- [apeiron_word::fold_port::fit::steps::mul_word::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_port::fit::steps::mul_word::{closure}}::call_once]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 84:63-84:92 -/
+def
+  fold_port.fit.steps.mul_word.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorStepsError.call_once
+  (c : fold_port.fit.steps.mul_word.closure)
+  (tupled_args : solve_port.q32.Q32Error) :
+  Result fold_port.fit.steps.StepsError
+  := do
+  ok fold_port.fit.steps.StepsError.ShapeMismatch
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::steps::mul_word::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_port::fit::steps::mul_word::{closure}}]
+    Source: '../../src/learn/fold/fit/steps.rs', lines 84:63-84:92 -/
+@[reducible]
+def
+  fold_port.fit.steps.mul_word.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorStepsError
+  : core.ops.function.FnOnce fold_port.fit.steps.mul_word.closure
+  solve_port.q32.Q32Error fold_port.fit.steps.StepsError := {
+  call_once :=
+    fold_port.fit.steps.mul_word.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorStepsError.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::steps::mul_word]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 83:0-85:1 -/
+def fold_port.fit.steps.mul_word
+  (a : Std.I64) (b : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.fit.steps.StepsError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from a)
+  let i1 ← lift (core.convert.num.FromI128I64.from b)
+  let i2 ← i * i1
+  let r ← solve_port.q32.round_q32_even i2
+  core.result.Result.map_err
+    fold_port.fit.steps.mul_word.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorStepsError
+    r ()
+
 /-- [apeiron_word::fold_port::fit::steps::{impl core::fmt::Debug for apeiron_word::fold_port::fit::steps::StepsError}::fmt]:
-    Source: '../../src/learn/fold/fit/steps.rs', lines 150:22-150:27
+    Source: '../../src/learn/fold/fit/steps.rs', lines 147:22-147:27
     Visibility: public -/
 def fold_port.fit.steps.StepsError.Insts.CoreFmtDebug.fmt
   (self : fold_port.fit.steps.StepsError) (f : core.fmt.Formatter) :
@@ -76703,7 +78170,7 @@ def fold_port.fit.steps.StepsError.Insts.CoreFmtDebug.fmt
     core.fmt.Formatter.write_str f (toStr "NotPositiveDefinite")
 
 /-- Trait implementation: [apeiron_word::fold_port::fit::steps::{impl core::fmt::Debug for apeiron_word::fold_port::fit::steps::StepsError}]
-    Source: '../../src/learn/fold/fit/steps.rs', lines 150:22-150:27 -/
+    Source: '../../src/learn/fold/fit/steps.rs', lines 147:22-147:27 -/
 @[reducible]
 def fold_port.fit.steps.StepsError.Insts.CoreFmtDebug : core.fmt.Debug
   fold_port.fit.steps.StepsError := {
@@ -76711,13 +78178,13 @@ def fold_port.fit.steps.StepsError.Insts.CoreFmtDebug : core.fmt.Debug
 }
 
 /-- [apeiron_word::fold_port::fit::steps::map_hadamard]:
-    Source: '../../src/learn/fold/fit/steps.rs', lines 323:0-325:1 -/
+    Source: '../../src/learn/fold/fit/steps.rs', lines 320:0-322:1 -/
 def fold_port.fit.steps.map_hadamard
   (he : hadamard.HadamardError) : Result fold_port.fit.steps.StepsError := do
   ok fold_port.fit.steps.StepsError.ShapeMismatch
 
 /-- [apeiron_word::fold_port::fit::steps::{impl core::ops::function::FnOnce<(apeiron_word::hadamard::HadamardError,), apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_port::fit::steps::map_hadamard}::call_once]:
-    Source: '../../src/learn/fold/fit/steps.rs', lines 323:0-325:1 -/
+    Source: '../../src/learn/fold/fit/steps.rs', lines 320:0-322:1 -/
 def P.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorStepsError.call_once
   (state : hadamard.HadamardError → Result fold_port.fit.steps.StepsError)
   (args : hadamard.HadamardError) :
@@ -76726,7 +78193,7 @@ def P.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorStepsError.call_once
   fold_port.fit.steps.map_hadamard args
 
 /-- Trait implementation: [apeiron_word::fold_port::fit::steps::{impl core::ops::function::FnOnce<(apeiron_word::hadamard::HadamardError,), apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_port::fit::steps::map_hadamard}]
-    Source: '../../src/learn/fold/fit/steps.rs', lines 323:0-325:1 -/
+    Source: '../../src/learn/fold/fit/steps.rs', lines 320:0-322:1 -/
 @[reducible]
 def P.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorStepsError :
   core.ops.function.FnOnce (hadamard.HadamardError → Result
@@ -76737,7 +78204,7 @@ def P.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorStepsError :
 }
 
 /-- [apeiron_word::fold_port::fit::steps::fwht_words]:
-    Source: '../../src/learn/fold/fit/steps.rs', lines 315:0-320:1
+    Source: '../../src/learn/fold/fit/steps.rs', lines 312:0-317:1
     Visibility: public -/
 def fold_port.fit.steps.fwht_words
   (x : Slice Std.I64) :
@@ -76756,6 +78223,367 @@ def fold_port.fit.steps.fwht_words
     ok (r1, x1)
   else
     ok (core.result.Result.Err fold_port.fit.steps.StepsError.ShapeMismatch, x)
+
+/-- [apeiron_word::fold_port::fit::steps::transpose_grid]: loop body 1:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 334:8-336:9 -/
+@[rust_loop_body]
+def fold_port.fit.steps.transpose_grid_loop0_loop0.body
+  (m : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) (r : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (t : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done t)
+  | some c =>
+    let i ← c * rows
+    let i1 ← i + r
+    let i2 ← Slice.index_usize m i1
+    let i3 ← r * cols
+    let i4 ← i3 + c
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) t
+        i4
+    let t1 := index_mut_back i2
+    ok (cont (iter1, t1))
+
+/-- [apeiron_word::fold_port::fit::steps::transpose_grid]: loop 1:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 334:8-336:9 -/
+@[rust_loop]
+def fold_port.fit.steps.transpose_grid_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (m : Slice Std.I64)
+  (rows : Std.Usize) (cols : Std.Usize) (t : alloc.vec.Vec Std.I64)
+  (r : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, t1) => fold_port.fit.steps.transpose_grid_loop0_loop0.body m
+      rows cols r iter1 t1)
+    (iter, t)
+
+/-- [apeiron_word::fold_port::fit::steps::transpose_grid]: loop body 0:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 333:4-337:5 -/
+@[rust_loop_body]
+def fold_port.fit.steps.transpose_grid_loop0.body
+  (m : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (t : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done t)
+  | some r =>
+    let t1 ←
+      fold_port.fit.steps.transpose_grid_loop0_loop0
+        { start := 0#usize, «end» := cols } m rows cols t r
+    ok (cont (iter1, t1))
+
+/-- [apeiron_word::fold_port::fit::steps::transpose_grid]: loop 0:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 333:4-337:5 -/
+@[rust_loop]
+def fold_port.fit.steps.transpose_grid_loop0
+  (iter : core.ops.range.Range Std.Usize) (m : Slice Std.I64)
+  (rows : Std.Usize) (cols : Std.Usize) (t : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, t1) => fold_port.fit.steps.transpose_grid_loop0.body m rows
+      cols iter1 t1)
+    (iter, t)
+
+/-- [apeiron_word::fold_port::fit::steps::transpose_grid]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 331:0-339:1 -/
+def fold_port.fit.steps.transpose_grid
+  (m : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  let i ← rows * cols
+  let t ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  fold_port.fit.steps.transpose_grid_loop0
+    { start := 0#usize, «end» := rows } m rows cols t
+
+/-- [apeiron_word::fold_port::fit::steps::had_gram_grid]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 349:0-355:1 -/
+def fold_port.fit.steps.had_gram_grid
+  (h : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.steps.StepsError)
+  := do
+  let t ← alloc.slice.Slice.to_vec core.clone.CloneI64 h
+  let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut t)
+  let (r, s1) ← fold_port.fit.steps.fwht_words s
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let t1 := deref_mut_back s1
+    let s2 := alloc.vec.Vec.deref t1
+    let u ← fold_port.fit.steps.transpose_grid s2 n n
+    let (s3, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut u)
+    let (r1, s4) ← fold_port.fit.steps.fwht_words s3
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let u1 := deref_mut_back1 s4
+      let s5 := alloc.vec.Vec.deref u1
+      let v ← fold_port.fit.steps.transpose_grid s5 n n
+      ok (core.result.Result.Ok v)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+        fold_port.fit.steps.StepsError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.fit.steps.StepsError) residual
+
+/-- [apeiron_word::fold_port::fit::steps::had_gram]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 364:0-369:1
+    Visibility: public -/
+def fold_port.fit.steps.had_gram
+  (h : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.steps.StepsError)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err fold_port.fit.steps.StepsError.ShapeMismatch)
+  else
+    let b ← core.num.Usize.is_multiple_of n fold_port.fit.steps.GROUP
+    if b
+    then
+      let i := Slice.len h
+      let i1 ← n * n
+      if i != i1
+      then
+        ok (core.result.Result.Err
+          fold_port.fit.steps.StepsError.ShapeMismatch)
+      else fold_port.fit.steps.had_gram_grid h n
+    else
+      ok (core.result.Result.Err fold_port.fit.steps.StepsError.ShapeMismatch)
+
+/-- [apeiron_word::fold_port::fit::steps::group_scale]: loop body 1:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 377:8-384:9 -/
+@[rust_loop_body]
+def fold_port.fit.steps.group_scale_loop0_loop0.body
+  (s : Slice Std.I64) (r : Slice Std.I64) (n : Std.Usize) (g : Std.Usize)
+  (oo : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (b : alloc.vec.Vec Std.I64) (ok1 : Bool) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64) × Bool) ((alloc.vec.Vec Std.I64) × Bool))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (b, ok1))
+  | some i =>
+    if ok1
+    then
+      let i1 ← oo * n
+      let i2 ← i1 + i
+      let i3 ← Slice.index_usize s i2
+      let i4 ← oo * g
+      let i5 ← i / fold_port.fit.steps.GROUP
+      let i6 ← i4 + i5
+      let i7 ← Slice.index_usize r i6
+      let r1 ← fold_port.fit.steps.mul_word i3 i7
+      match r1 with
+      | core.result.Result.Ok v =>
+        let i8 ← i1 + i
+        let (_, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            Std.I64) b i8
+        let b1 := index_mut_back v
+        ok (cont (iter1, b1, true))
+      | core.result.Result.Err _ => ok (cont (iter1, b, false))
+    else ok (cont (iter1, b, false))
+
+/-- [apeiron_word::fold_port::fit::steps::group_scale]: loop 1:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 377:8-384:9 -/
+@[rust_loop]
+def fold_port.fit.steps.group_scale_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (s : Slice Std.I64)
+  (r : Slice Std.I64) (n : Std.Usize) (g : Std.Usize)
+  (b : alloc.vec.Vec Std.I64) (ok1 : Bool) (oo : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × Bool)
+  := do
+  loop
+    (fun (iter1, b1, ok2) => fold_port.fit.steps.group_scale_loop0_loop0.body s
+      r n g oo iter1 b1 ok2)
+    (iter, b, ok1)
+
+/-- [apeiron_word::fold_port::fit::steps::group_scale]: loop body 0:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 376:4-385:5 -/
+@[rust_loop_body]
+def fold_port.fit.steps.group_scale_loop0.body
+  (s : Slice Std.I64) (r : Slice Std.I64) (n : Std.Usize) (g : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (b : alloc.vec.Vec Std.I64)
+  (ok1 : Bool) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64) × Bool) ((alloc.vec.Vec Std.I64) × Bool))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (b, ok1))
+  | some oo =>
+    let (b1, ok2) ←
+      fold_port.fit.steps.group_scale_loop0_loop0
+        { start := 0#usize, «end» := n } s r n g b ok1 oo
+    ok (cont (iter1, b1, ok2))
+
+/-- [apeiron_word::fold_port::fit::steps::group_scale]: loop 0:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 376:4-385:5 -/
+@[rust_loop]
+def fold_port.fit.steps.group_scale_loop0
+  (iter : core.ops.range.Range Std.Usize) (s : Slice Std.I64)
+  (r : Slice Std.I64) (n : Std.Usize) (g : Std.Usize)
+  (b : alloc.vec.Vec Std.I64) (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I64) × Bool)
+  := do
+  loop
+    (fun (iter1, b1, ok2) => fold_port.fit.steps.group_scale_loop0.body s r n g
+      iter1 b1 ok2)
+    (iter, b, ok1)
+
+/-- [apeiron_word::fold_port::fit::steps::group_scale]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 373:0-391:1 -/
+def fold_port.fit.steps.group_scale
+  (s : Slice Std.I64) (r : Slice Std.I64) (o : Std.Usize) (n : Std.Usize)
+  (g : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.steps.StepsError)
+  := do
+  let i ← o * n
+  let b ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let (b1, ok1) ←
+    fold_port.fit.steps.group_scale_loop0 { start := 0#usize, «end» := o } s
+      r n g b true
+  if ok1
+  then ok (core.result.Result.Ok b1)
+  else ok (core.result.Result.Err fold_port.fit.steps.StepsError.ShapeMismatch)
+
+/-- [apeiron_word::fold_port::fit::steps::col_scale]: loop body 0:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 436:4-443:5 -/
+@[rust_loop_body]
+def fold_port.fit.steps.col_scale_loop.body
+  (x : Slice Std.I64) (c : Slice Std.I64) (n : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (ok1 : Bool) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64) × Bool) ((alloc.vec.Vec Std.I64) × Bool))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (out, ok1))
+  | some i =>
+    if ok1
+    then
+      let i1 ← Slice.index_usize x i
+      let i2 ← i % n
+      let i3 ← Slice.index_usize c i2
+      let r ← fold_port.fit.steps.mul_word i1 i3
+      match r with
+      | core.result.Result.Ok v =>
+        let (_, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            Std.I64) out i
+        let out1 := index_mut_back v
+        ok (cont (iter1, out1, true))
+      | core.result.Result.Err _ => ok (cont (iter1, out, false))
+    else ok (cont (iter1, out, false))
+
+/-- [apeiron_word::fold_port::fit::steps::col_scale]: loop 0:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 436:4-443:5 -/
+@[rust_loop]
+def fold_port.fit.steps.col_scale_loop
+  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64)
+  (c : Slice Std.I64) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (ok1 : Bool) :
+  Result ((alloc.vec.Vec Std.I64) × Bool)
+  := do
+  loop
+    (fun (iter1, out1, ok2) => fold_port.fit.steps.col_scale_loop.body x c n
+      iter1 out1 ok2)
+    (iter, out, ok1)
+
+/-- [apeiron_word::fold_port::fit::steps::col_scale]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 433:0-449:1 -/
+def fold_port.fit.steps.col_scale
+  (x : Slice Std.I64) (c : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.steps.StepsError)
+  := do
+  let i := Slice.len x
+  let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let i1 := Slice.len x
+  let (out1, ok1) ←
+    fold_port.fit.steps.col_scale_loop { start := 0#usize, «end» := i1 } x c
+      n out true
+  if ok1
+  then ok (core.result.Result.Ok out1)
+  else ok (core.result.Result.Err fold_port.fit.steps.StepsError.ShapeMismatch)
+
+/-- [apeiron_word::fold_port::fit::steps::compose_grid]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 395:0-404:1 -/
+def fold_port.fit.steps.compose_grid
+  (s : Slice Std.I64) (r : Slice Std.I64) (c : Slice Std.I64) (o : Std.Usize)
+  (n : Std.Usize) (g : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.steps.StepsError)
+  := do
+  let r1 ← fold_port.fit.steps.group_scale s r o n g
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let s1 := alloc.vec.Vec.deref val
+    fold_port.fit.steps.col_scale s1 c n
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.fit.steps.StepsError) residual
+
+/-- [apeiron_word::fold_port::fit::steps::compose]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 414:0-429:1
+    Visibility: public -/
+def fold_port.fit.steps.compose
+  (s : Slice Std.I64) (r : Slice Std.I64) (c : Slice Std.I64) (o : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.steps.StepsError)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err fold_port.fit.steps.StepsError.ShapeMismatch)
+  else
+    let b ← core.num.Usize.is_multiple_of n fold_port.fit.steps.GROUP
+    if b
+    then
+      let g ← n / fold_port.fit.steps.GROUP
+      let i := Slice.len s
+      let i1 ← o * n
+      if i != i1
+      then
+        ok (core.result.Result.Err
+          fold_port.fit.steps.StepsError.ShapeMismatch)
+      else
+        let i2 := Slice.len r
+        let i3 ← o * g
+        if i2 != i3
+        then
+          ok (core.result.Result.Err
+            fold_port.fit.steps.StepsError.ShapeMismatch)
+        else
+          let i4 := Slice.len c
+          if i4 != n
+          then
+            ok (core.result.Result.Err
+              fold_port.fit.steps.StepsError.ShapeMismatch)
+          else fold_port.fit.steps.compose_grid s r c o n g
+    else
+      ok (core.result.Result.Err fold_port.fit.steps.StepsError.ShapeMismatch)
 
 /-- [apeiron_word::fixed_ln::div_rne]:
     Source: '../../src/numeric/fixed_ln.rs', lines 107:0-127:1
@@ -77027,20 +78855,6 @@ def fold_port.stats.basis.expect_blocks
       let s ← alloc.fmt.format a2
       let s1 ← core.hint.must_use s
       ok (core.result.Result.Err (fold_port.stats.basis.BasisError.Shape s1))
-
-/-- [apeiron_word::solve_port::q32::round_q32_even]:
-    Source: '../../src/learn/solve/q32.rs', lines 250:0-255:1
-    Visibility: public -/
-def solve_port.q32.round_q32_even
-  (v : Std.I128) :
-  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
-  := do
-  let o ← solve_port.q32.rshift_rne v 32#u32
-  match o with
-  | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
-  | some r =>
-    let o1 ← solve_port.q32.narrow r
-    core.option.Option.ok_or o1 solve_port.q32.Q32Error.Overflow
 
 /-- [apeiron_word::fold_port::stats::basis::round64::{closure}]
     Source: '../../src/learn/fold/stats/basis.rs', lines 193:32-193:58 -/
@@ -90461,481 +92275,6 @@ def sigma_delta.sd_binary_block
     then ok (some (e, peak), s1)
     else ok (none, s1)
 
-/-- [apeiron_word::solve_port::inv::invert_columns_pool]:
-    Source: '../../src/learn/solve/inv.rs', lines 215:0-232:1 -/
-axiom solve_port.inv.invert_columns_pool
-  :
-  Slice Std.I64 → Std.Usize → Slice Std.I64 → Result ((core.result.Result
-    Unit solve_port.chol.SolveError) × (Slice Std.I64))
-
-/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop body 1:
-    Source: '../../src/learn/solve/inv.rs', lines 259:8-261:9 -/
-@[rust_loop_body]
-def solve_port.inv.inverse_upper_par_loop0_loop0.body
-  (n : Std.Usize) (ut : alloc.vec.Vec Std.I64) (c : Std.Usize)
-  (iter : core.ops.range.RangeInclusive Std.Usize) (u : alloc.vec.Vec Std.I64)
-  :
-  Result (ControlFlow ((core.ops.range.RangeInclusive Std.Usize) ×
-    (alloc.vec.Vec Std.I64)) (alloc.vec.Vec Std.I64))
-  := do
-  let (o, iter1) ←
-    core.ops.range.RangeInclusive.Insts.CoreIterTraitsIteratorIterator.next
-      core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done u)
-  | some r =>
-    let i ← c * n
-    let i1 ← i + r
-    let i2 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) ut i1
-    let i3 ← r * n
-    let i4 ← i3 + c
-    let (_, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) u
-        i4
-    let u1 := index_mut_back i2
-    ok (cont (iter1, u1))
-
-/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop 1:
-    Source: '../../src/learn/solve/inv.rs', lines 259:8-261:9 -/
-@[rust_loop]
-def solve_port.inv.inverse_upper_par_loop0_loop0
-  (iter : core.ops.range.RangeInclusive Std.Usize) (n : Std.Usize)
-  (ut : alloc.vec.Vec Std.I64) (u : alloc.vec.Vec Std.I64) (c : Std.Usize) :
-  Result (alloc.vec.Vec Std.I64)
-  := do
-  loop
-    (fun (iter1, u1) => solve_port.inv.inverse_upper_par_loop0_loop0.body n ut
-      c iter1 u1)
-    (iter, u)
-
-/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop body 0:
-    Source: '../../src/learn/solve/inv.rs', lines 258:4-262:5 -/
-@[rust_loop_body]
-def solve_port.inv.inverse_upper_par_loop0.body
-  (n : Std.Usize) (ut : alloc.vec.Vec Std.I64)
-  (iter : core.ops.range.Range Std.Usize) (u : alloc.vec.Vec Std.I64) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
-    Std.I64)) (alloc.vec.Vec Std.I64))
-  := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done u)
-  | some c =>
-    let iter2 ← core.ops.range.RangeInclusive.new 0#usize c
-    let u1 ← solve_port.inv.inverse_upper_par_loop0_loop0 iter2 n ut u c
-    ok (cont (iter1, u1))
-
-/-- [apeiron_word::solve_port::inv::inverse_upper_par]: loop 0:
-    Source: '../../src/learn/solve/inv.rs', lines 258:4-262:5 -/
-@[rust_loop]
-def solve_port.inv.inverse_upper_par_loop0
-  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
-  (ut : alloc.vec.Vec Std.I64) (u : alloc.vec.Vec Std.I64) :
-  Result (alloc.vec.Vec Std.I64)
-  := do
-  loop
-    (fun (iter1, u1) => solve_port.inv.inverse_upper_par_loop0.body n ut iter1
-      u1)
-    (iter, u)
-
-/-- [apeiron_word::solve_port::inv::inverse_upper_par]:
-    Source: '../../src/learn/solve/inv.rs', lines 249:0-264:1 -/
-def solve_port.inv.inverse_upper_par
-  (v : Slice Std.I64) (n : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    solve_port.chol.SolveError)
-  := do
-  let o ← lift (Usize.checked_mul n n)
-  let r ← core.option.Option.ok_or o solve_port.chol.SolveError.Overflow
-  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-  match cf with
-  | core.ops.control_flow.ControlFlow.Continue val =>
-    let i := Slice.len v
-    if i != val
-    then ok (core.result.Result.Err solve_port.chol.SolveError.ShapeMismatch)
-    else
-      let ut ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
-      let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut ut)
-      let (r1, s1) ← solve_port.inv.invert_columns_pool v n s
-      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-      match cf1 with
-      | core.ops.control_flow.ControlFlow.Continue _ =>
-        let ut1 := deref_mut_back s1
-        let u ←
-          solve_port.inv.inverse_upper_par_loop0
-            { start := 0#usize, «end» := n } n ut1 ut
-        ok (core.result.Result.Ok u)
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          (alloc.vec.Vec Std.I64) (core.convert.FromSame
-          solve_port.chol.SolveError) residual
-  | core.ops.control_flow.ControlFlow.Break residual =>
-    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-      (alloc.vec.Vec Std.I64) (core.convert.FromSame
-      solve_port.chol.SolveError) residual
-
-/-- [apeiron_word::solve_port::inv::rotate_180]: loop body 1:
-    Source: '../../src/learn/solve/inv.rs', lines 276:8-278:9 -/
-@[rust_loop_body]
-def solve_port.inv.rotate_180_loop0_loop0.body
-  (n : Std.Usize) (i : Std.Usize) (iter : core.ops.range.Range Std.Usize)
-  (x : Slice Std.I64) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (Slice Std.I64))
-    (Slice Std.I64))
-  := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done x)
-  | some j =>
-    let i1 ← i * n
-    let i2 ← i1 + j
-    let i3 ← n - 1#usize
-    let i4 ← i3 - i
-    let i5 ← i4 * n
-    let i6 ← i3 - j
-    let i7 ← i5 + i6
-    let x1 ← core.slice.Slice.swap x i2 i7
-    ok (cont (iter1, x1))
-
-/-- [apeiron_word::solve_port::inv::rotate_180]: loop 1:
-    Source: '../../src/learn/solve/inv.rs', lines 276:8-278:9 -/
-@[rust_loop]
-def solve_port.inv.rotate_180_loop0_loop0
-  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) (n : Std.Usize)
-  (i : Std.Usize) :
-  Result (Slice Std.I64)
-  := do
-  loop
-    (fun (iter1, x1) => solve_port.inv.rotate_180_loop0_loop0.body n i iter1
-      x1)
-    (iter, x)
-
-/-- [apeiron_word::solve_port::inv::rotate_180]: loop body 0:
-    Source: '../../src/learn/solve/inv.rs', lines 275:4-279:5 -/
-@[rust_loop_body]
-def solve_port.inv.rotate_180_loop0.body
-  (n : Std.Usize) (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (Slice Std.I64))
-    (Slice Std.I64))
-  := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done x)
-  | some i =>
-    let x1 ←
-      solve_port.inv.rotate_180_loop0_loop0 { start := 0#usize, «end» := n }
-        x n i
-    ok (cont (iter1, x1))
-
-/-- [apeiron_word::solve_port::inv::rotate_180]: loop 0:
-    Source: '../../src/learn/solve/inv.rs', lines 275:4-279:5 -/
-@[rust_loop]
-def solve_port.inv.rotate_180_loop0
-  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) (n : Std.Usize) :
-  Result (Slice Std.I64)
-  := do
-  loop
-    (fun (iter1, x1) => solve_port.inv.rotate_180_loop0.body n iter1 x1)
-    (iter, x)
-
-/-- [apeiron_word::solve_port::inv::rotate_180]: loop body 2:
-    Source: '../../src/learn/solve/inv.rs', lines 282:8-284:9 -/
-@[rust_loop_body]
-def solve_port.inv.rotate_180_loop1.body
-  (n : Std.Usize) (i : Std.Usize) (iter : core.ops.range.Range Std.Usize)
-  (x : Slice Std.I64) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (Slice Std.I64))
-    (Slice Std.I64))
-  := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done x)
-  | some j =>
-    let i1 ← i * n
-    let i2 ← i1 + j
-    let i3 ← n - 1#usize
-    let i4 ← i3 - j
-    let i5 ← i1 + i4
-    let x1 ← core.slice.Slice.swap x i2 i5
-    ok (cont (iter1, x1))
-
-/-- [apeiron_word::solve_port::inv::rotate_180]: loop 2:
-    Source: '../../src/learn/solve/inv.rs', lines 282:8-284:9 -/
-@[rust_loop]
-def solve_port.inv.rotate_180_loop1
-  (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) (n : Std.Usize)
-  (i : Std.Usize) :
-  Result (Slice Std.I64)
-  := do
-  loop
-    (fun (iter1, x1) => solve_port.inv.rotate_180_loop1.body n i iter1 x1)
-    (iter, x)
-
-/-- [apeiron_word::solve_port::inv::rotate_180]:
-    Source: '../../src/learn/solve/inv.rs', lines 274:0-286:1 -/
-def solve_port.inv.rotate_180
-  (x : Slice Std.I64) (n : Std.Usize) : Result (Slice Std.I64) := do
-  let i ← n / 2#usize
-  let x1 ←
-    solve_port.inv.rotate_180_loop0 { start := 0#usize, «end» := i } x n
-  let i1 ← n % 2#usize
-  if i1 = 1#usize
-  then
-    let i2 ← n / 2#usize
-    solve_port.inv.rotate_180_loop1 { start := 0#usize, «end» := i2 } x1 n i2
-  else ok x1
-
-/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop body 1:
-    Source: '../../src/learn/solve/inv.rs', lines 319:8-321:9
-    Visibility: public -/
-@[rust_loop_body]
-def solve_port.inv.inv_factor_upper_loop0_loop0.body
-  (n : Std.Usize) (a_hat : alloc.vec.Vec Std.I64) (i : Std.Usize)
-  (iter : core.ops.range.Range Std.Usize) (rev : alloc.vec.Vec Std.I64) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
-    Std.I64)) (alloc.vec.Vec Std.I64))
-  := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done rev)
-  | some j =>
-    let i1 ← n - 1#usize
-    let i2 ← i1 - i
-    let i3 ← i2 * n
-    let i4 ← i1 - j
-    let i5 ← i3 + i4
-    let i6 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) a_hat
-        i5
-    let i7 ← i * n
-    let i8 ← i7 + j
-    let (_, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
-        rev i8
-    let rev1 := index_mut_back i6
-    ok (cont (iter1, rev1))
-
-/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop 1:
-    Source: '../../src/learn/solve/inv.rs', lines 319:8-321:9
-    Visibility: public -/
-@[rust_loop]
-def solve_port.inv.inv_factor_upper_loop0_loop0
-  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
-  (a_hat : alloc.vec.Vec Std.I64) (rev : alloc.vec.Vec Std.I64) (i : Std.Usize)
-  :
-  Result (alloc.vec.Vec Std.I64)
-  := do
-  loop
-    (fun (iter1, rev1) => solve_port.inv.inv_factor_upper_loop0_loop0.body n
-      a_hat i iter1 rev1)
-    (iter, rev)
-
-/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop body 0:
-    Source: '../../src/learn/solve/inv.rs', lines 318:4-322:5
-    Visibility: public -/
-@[rust_loop_body]
-def solve_port.inv.inv_factor_upper_loop0.body
-  (n : Std.Usize) (a_hat : alloc.vec.Vec Std.I64)
-  (iter : core.ops.range.Range Std.Usize) (rev : alloc.vec.Vec Std.I64) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
-    Std.I64)) (alloc.vec.Vec Std.I64))
-  := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done rev)
-  | some i =>
-    let rev1 ←
-      solve_port.inv.inv_factor_upper_loop0_loop0
-        { start := 0#usize, «end» := n } n a_hat rev i
-    ok (cont (iter1, rev1))
-
-/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop 0:
-    Source: '../../src/learn/solve/inv.rs', lines 318:4-322:5
-    Visibility: public -/
-@[rust_loop]
-def solve_port.inv.inv_factor_upper_loop0
-  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
-  (a_hat : alloc.vec.Vec Std.I64) (rev : alloc.vec.Vec Std.I64) :
-  Result (alloc.vec.Vec Std.I64)
-  := do
-  loop
-    (fun (iter1, rev1) => solve_port.inv.inv_factor_upper_loop0.body n a_hat
-      iter1 rev1)
-    (iter, rev)
-
-/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop body 3:
-    Source: '../../src/learn/solve/inv.rs', lines 338:8-344:9
-    Visibility: public -/
-@[rust_loop_body]
-def solve_port.inv.inv_factor_upper_loop1_loop0.body
-  (n : Std.Usize) (d : alloc.vec.Vec Std.I64) (binv : alloc.vec.Vec Std.I64)
-  (i : Std.Usize) (u : alloc.vec.Vec Std.I64)
-  (err : Option solve_port.chol.SolveError) (j : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
-    (Option solve_port.chol.SolveError)))
-  := do
-  if j < n
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i1 ← i * n
-      let i2 ← i1 + j
-      let i3 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
-          binv i2
-      let i4 ← lift (core.convert.num.FromI128I64.from i3)
-      let i5 ← i4 <<< 32#i32
-      let i6 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) d j
-      let i7 ← lift (core.convert.num.FromI128I64.from i6)
-      let o ← solve_port.chol.div_to_i64 i5 i7
-      let (u1, err1) ←
-        match o with
-        | none => ok (u, some solve_port.chol.SolveError.Overflow)
-        | some w =>
-          do
-          let i8 ← i1 + j
-          let (_, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.I64) u i8
-          let u2 := index_mut_back w
-          ok (u2, err)
-      let j1 ← j + 1#usize
-      ok (cont (u1, err1, j1))
-    else ok (done (u, err))
-  else ok (done (u, err))
-
-/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop 3:
-    Source: '../../src/learn/solve/inv.rs', lines 338:8-344:9
-    Visibility: public -/
-@[rust_loop]
-def solve_port.inv.inv_factor_upper_loop1_loop0
-  (n : Std.Usize) (d : alloc.vec.Vec Std.I64) (binv : alloc.vec.Vec Std.I64)
-  (u : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
-  (i : Std.Usize) (j : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
-  := do
-  loop
-    (fun (u1, err1, j1) => solve_port.inv.inv_factor_upper_loop1_loop0.body n d
-      binv i u1 err1 j1)
-    (u, err, j)
-
-/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop body 2:
-    Source: '../../src/learn/solve/inv.rs', lines 336:4-346:5
-    Visibility: public -/
-@[rust_loop_body]
-def solve_port.inv.inv_factor_upper_loop1.body
-  (n : Std.Usize) (d : alloc.vec.Vec Std.I64) (binv : alloc.vec.Vec Std.I64)
-  (u : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
-  (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    solve_port.chol.SolveError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
-    (Option solve_port.chol.SolveError)))
-  := do
-  if i < n
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let (u1, err1) ←
-        solve_port.inv.inv_factor_upper_loop1_loop0 n d binv u err i i
-      let i1 ← i + 1#usize
-      ok (cont (u1, err1, i1))
-    else ok (done (u, err))
-  else ok (done (u, err))
-
-/-- [apeiron_word::solve_port::inv::inv_factor_upper]: loop 2:
-    Source: '../../src/learn/solve/inv.rs', lines 336:4-346:5
-    Visibility: public -/
-@[rust_loop]
-def solve_port.inv.inv_factor_upper_loop1
-  (n : Std.Usize) (d : alloc.vec.Vec Std.I64) (binv : alloc.vec.Vec Std.I64)
-  (u : alloc.vec.Vec Std.I64) (err : Option solve_port.chol.SolveError)
-  (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.chol.SolveError))
-  := do
-  loop
-    (fun (u1, err1, i1) => solve_port.inv.inv_factor_upper_loop1.body n d binv
-      u1 err1 i1)
-    (u, err, i)
-
-/-- [apeiron_word::solve_port::inv::inv_factor_upper]:
-    Source: '../../src/learn/solve/inv.rs', lines 307:0-351:1
-    Visibility: public -/
-def solve_port.inv.inv_factor_upper
-  (h : Slice Std.I64) (n : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    solve_port.chol.SolveError)
-  := do
-  if n = 0#usize
-  then ok (core.result.Result.Err solve_port.chol.SolveError.Empty)
-  else
-    let o ← lift (Usize.checked_mul n n)
-    let r ← core.option.Option.ok_or o solve_port.chol.SolveError.Overflow
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue val =>
-      let i := Slice.len h
-      if i != val
-      then ok (core.result.Result.Err solve_port.chol.SolveError.ShapeMismatch)
-      else
-        let r1 ← solve_port.chol.equilibrate h n
-        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-        match cf1 with
-        | core.ops.control_flow.ControlFlow.Continue val1 =>
-          let (a_hat, d) := val1
-          let rev ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
-          let rev1 ←
-            solve_port.inv.inv_factor_upper_loop0
-              { start := 0#usize, «end» := n } n a_hat rev
-          core.mem.drop a_hat
-          let s := alloc.vec.Vec.deref rev1
-          let r2 ← solve_port.chol.factor_scaled s n
-          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
-          match cf2 with
-          | core.ops.control_flow.ControlFlow.Continue val2 =>
-            core.mem.drop rev1
-            let (s1, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut val2)
-            let s2 ← solve_port.inv.rotate_180 s1 n
-            let val3 := deref_mut_back s2
-            let s3 := alloc.vec.Vec.deref val3
-            let r3 ← solve_port.inv.inverse_upper_par s3 n
-            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
-            match cf3 with
-            | core.ops.control_flow.ControlFlow.Continue val4 =>
-              core.mem.drop val3
-              let u ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
-              let (u1, err) ←
-                solve_port.inv.inv_factor_upper_loop1 n d val4 u none 0#usize
-              match err with
-              | none => ok (core.result.Result.Ok u1)
-              | some e => ok (core.result.Result.Err e)
-            | core.ops.control_flow.ControlFlow.Break residual =>
-              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                (alloc.vec.Vec Std.I64) (core.convert.FromSame
-                solve_port.chol.SolveError) residual
-          | core.ops.control_flow.ControlFlow.Break residual =>
-            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-              (alloc.vec.Vec Std.I64) (core.convert.FromSame
-              solve_port.chol.SolveError) residual
-        | core.ops.control_flow.ControlFlow.Break residual =>
-          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-            (alloc.vec.Vec Std.I64) (core.convert.FromSame
-            solve_port.chol.SolveError) residual
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-        (alloc.vec.Vec Std.I64) (core.convert.FromSame
-        solve_port.chol.SolveError) residual
-
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Fx}::from_i128]:
     Source: '../../src/learn/solve/q32.rs', lines 319:4-356:5
     Visibility: public -/
@@ -91181,232 +92520,6 @@ def solve_port.q32.Bfp.from_i128
             let i1 ← e + i
             ok (core.result.Result.Ok { m := out1, e := i1 })
           | some er => ok (core.result.Result.Err er)
-
-/-- [apeiron_word::solve_port::q32::scale_q32]:
-    Source: '../../src/learn/solve/q32.rs', lines 451:0-466:1 -/
-def solve_port.q32.scale_q32
-  (v : Std.I64) (shift : Std.I32) :
-  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
-  := do
-  if shift > 0#i32
-  then
-    let i ← lift (core.convert.num.FromI128I64.from v)
-    let i1 ← lift (IScalar.hcast .U32 shift)
-    let o ← solve_port.q32.rshift_rne i i1
-    match o with
-    | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
-    | some x =>
-      let o1 ← solve_port.q32.narrow x
-      core.option.Option.ok_or o1 solve_port.q32.Q32Error.Overflow
-  else
-    if shift < 0#i32
-    then
-      let k ← -. shift
-      if k > 64#i32
-      then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
-      else
-        let i ← lift (core.convert.num.FromI128I64.from v)
-        let i1 ← i <<< k
-        let o ← solve_port.q32.narrow i1
-        core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
-    else ok (core.result.Result.Ok v)
-
-/-- [apeiron_word::solve_port::q32::SpdQ]
-    Source: '../../src/learn/solve/q32.rs', lines 471:0-476:1
-    Visibility: public -/
-structure solve_port.q32.SpdQ where
-  hat : alloc.vec.Vec Std.I64
-  d : alloc.vec.Vec Std.I32
-
-/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop body 0:
-    Source: '../../src/learn/solve/q32.rs', lines 513:8-520:9
-    Visibility: public -/
-@[rust_loop_body]
-def solve_port.q32.SpdQ.from_q32_loop0.body
-  (h : Slice Std.I64) (n : Std.Usize) (nn : Std.Usize) (symmetric : Bool)
-  (idx : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize) Bool)
-  := do
-  if idx < nn
-  then
-    let i ← idx / n
-    let j ← idx % n
-    let symmetric1 ←
-      if i < j
-      then
-        do
-        let i1 ← Slice.index_usize h idx
-        let i2 ← j * n
-        let i3 ← i2 + i
-        let i4 ← Slice.index_usize h i3
-        if i1 != i4
-        then ok false
-        else ok symmetric
-      else ok symmetric
-    let idx1 ← idx + 1#usize
-    ok (cont (symmetric1, idx1))
-  else ok (done symmetric)
-
-/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop 0:
-    Source: '../../src/learn/solve/q32.rs', lines 513:8-520:9
-    Visibility: public -/
-@[rust_loop]
-def solve_port.q32.SpdQ.from_q32_loop0
-  (h : Slice Std.I64) (n : Std.Usize) (nn : Std.Usize) (symmetric : Bool)
-  (idx : Std.Usize) :
-  Result Bool
-  := do
-  loop
-    (fun (symmetric1, idx1) => solve_port.q32.SpdQ.from_q32_loop0.body h n nn
-      symmetric1 idx1)
-    (symmetric, idx)
-
-/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop body 1:
-    Source: '../../src/learn/solve/q32.rs', lines 527:8-538:9
-    Visibility: public -/
-@[rust_loop_body]
-def solve_port.q32.SpdQ.from_q32_loop1.body
-  (h : Slice Std.I64) (n : Std.Usize) (d : alloc.vec.Vec Std.I32)
-  (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I32) × (Option
-    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I32) × (Option
-    solve_port.q32.Q32Error)))
-  := do
-  if i < n
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i1 ← i * n
-      let i2 ← i1 + i
-      let hii ← Slice.index_usize h i2
-      let (d1, err1) ←
-        if hii < 1#i64
-        then ok (d, some solve_port.q32.Q32Error.NotSpd)
-        else
-          do
-          let i3 ← lift (IScalar.hcast .U128 hii)
-          let o ← solve_port.q32.ilog2_pos i3
-          match o with
-          | none => ok (d, some solve_port.q32.Q32Error.NotSpd)
-          | some bl =>
-            let i4 ← lift (UScalar.hcast .I32 bl)
-            let i5 ← i4 - 32#i32
-            let i6 ← i5 >>> 1#i32
-            let (_, index_mut_back) ←
-              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-                Std.I32) d i
-            let d2 := index_mut_back i6
-            ok (d2, err)
-      let i3 ← i + 1#usize
-      ok (cont (d1, err1, i3))
-    else ok (done (d, err))
-  else ok (done (d, err))
-
-/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop 1:
-    Source: '../../src/learn/solve/q32.rs', lines 527:8-538:9
-    Visibility: public -/
-@[rust_loop]
-def solve_port.q32.SpdQ.from_q32_loop1
-  (h : Slice Std.I64) (n : Std.Usize) (d : alloc.vec.Vec Std.I32)
-  (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I32) × (Option solve_port.q32.Q32Error))
-  := do
-  loop
-    (fun (d1, err1, i1) => solve_port.q32.SpdQ.from_q32_loop1.body h n d1 err1
-      i1)
-    (d, err, i)
-
-/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop body 2:
-    Source: '../../src/learn/solve/q32.rs', lines 545:8-553:9
-    Visibility: public -/
-@[rust_loop_body]
-def solve_port.q32.SpdQ.from_q32_loop2.body
-  (h : Slice Std.I64) (n : Std.Usize) (nn : Std.Usize)
-  (d : alloc.vec.Vec Std.I32) (hat : alloc.vec.Vec Std.I64)
-  (err : Option solve_port.q32.Q32Error) (idx : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
-    solve_port.q32.Q32Error)))
-  := do
-  if idx < nn
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i ← idx / n
-      let j ← idx % n
-      let i1 ← Slice.index_usize h idx
-      let i2 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I32) d i
-      let i3 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I32) d j
-      let i4 ← i2 + i3
-      let r ← solve_port.q32.scale_q32 i1 i4
-      let (hat1, err1) ←
-        match r with
-        | core.result.Result.Ok x =>
-          do
-          let (_, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.I64) hat idx
-          let hat2 := index_mut_back x
-          ok (hat2, err)
-        | core.result.Result.Err er => ok (hat, some er)
-      let idx1 ← idx + 1#usize
-      ok (cont (hat1, err1, idx1))
-    else ok (done (hat, err))
-  else ok (done (hat, err))
-
-/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]: loop 2:
-    Source: '../../src/learn/solve/q32.rs', lines 545:8-553:9
-    Visibility: public -/
-@[rust_loop]
-def solve_port.q32.SpdQ.from_q32_loop2
-  (h : Slice Std.I64) (n : Std.Usize) (nn : Std.Usize)
-  (d : alloc.vec.Vec Std.I32) (hat : alloc.vec.Vec Std.I64)
-  (err : Option solve_port.q32.Q32Error) (idx : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.q32.Q32Error))
-  := do
-  loop
-    (fun (hat1, err1, idx1) => solve_port.q32.SpdQ.from_q32_loop2.body h n nn d
-      hat1 err1 idx1)
-    (hat, err, idx)
-
-/-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::from_q32]:
-    Source: '../../src/learn/solve/q32.rs', lines 500:4-558:5
-    Visibility: public -/
-def solve_port.q32.SpdQ.from_q32
-  (h : Slice Std.I64) (n : Std.Usize) :
-  Result (core.result.Result solve_port.q32.SpdQ solve_port.q32.Q32Error)
-  := do
-  if n = 0#usize
-  then ok (core.result.Result.Err solve_port.q32.Q32Error.ShapeMismatch)
-  else
-    let o ← lift (Usize.checked_mul n n)
-    match o with
-    | none => ok (core.result.Result.Err solve_port.q32.Q32Error.ShapeMismatch)
-    | some v =>
-      let i := Slice.len h
-      if i != v
-      then ok (core.result.Result.Err solve_port.q32.Q32Error.ShapeMismatch)
-      else
-        let symmetric ← solve_port.q32.SpdQ.from_q32_loop0 h n v true 0#usize
-        if symmetric
-        then
-          let d ← alloc.vec.from_elem core.clone.CloneI32 0#i32 n
-          let (d1, err) ←
-            solve_port.q32.SpdQ.from_q32_loop1 h n d none 0#usize
-          match err with
-          | none =>
-            let hat ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
-            let (hat1, err1) ←
-              solve_port.q32.SpdQ.from_q32_loop2 h n v d1 hat none 0#usize
-            match err1 with
-            | none => ok (core.result.Result.Ok { hat := hat1, d := d1 })
-            | some er => ok (core.result.Result.Err er)
-          | some er => ok (core.result.Result.Err er)
-        else ok (core.result.Result.Err solve_port.q32.Q32Error.Asymmetric)
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::SpdQ}::to_q32]: loop body 0:
     Source: '../../src/learn/solve/q32.rs', lines 584:8-592:9
@@ -109127,6 +110240,47 @@ def coord_port.word_identity_node_iter_next
   := do
   coord.locator.locator_core.IdentityNodeIter.Insts.CoreIterTraitsIteratorIteratorIdentityNode.next
     iter
+
+/-- [apeiron_word::fit_port::word_fit_steps_fwht_words]:
+    Source: 'fit_port.rs', lines 17:0-19:1
+    Visibility: public -/
+def fit_port.word_fit_steps_fwht_words
+  (x : Slice Std.I64) :
+  Result ((core.result.Result Unit fold_port.fit.steps.StepsError) × (Slice
+    Std.I64))
+  := do
+  fold_port.fit.steps.fwht_words x
+
+/-- [apeiron_word::fit_port::word_fit_steps_had_gram]:
+    Source: 'fit_port.rs', lines 22:0-27:1
+    Visibility: public -/
+def fit_port.word_fit_steps_had_gram
+  (h : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.steps.StepsError)
+  := do
+  fold_port.fit.steps.had_gram h n
+
+/-- [apeiron_word::fit_port::word_fit_steps_compose]:
+    Source: 'fit_port.rs', lines 30:0-38:1
+    Visibility: public -/
+def fit_port.word_fit_steps_compose
+  (s : Slice Std.I64) (r : Slice Std.I64) (c : Slice Std.I64) (o : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.steps.StepsError)
+  := do
+  fold_port.fit.steps.compose s r c o n
+
+/-- [apeiron_word::fit_port::word_fit_gptq_e8_carrier_feedback_u]:
+    Source: 'fit_port.rs', lines 41:0-47:1
+    Visibility: public -/
+def fit_port.word_fit_gptq_e8_carrier_feedback_u
+  (h : Slice Std.I64) (n : Std.Usize) (damp : Std.I64) :
+  Result (core.result.Result fold_port.fit.gptq_e8_carrier.UFac
+    fold_port.fit.gptq_e8.GptqE8Error)
+  := do
+  fold_port.fit.gptq_e8_carrier.feedback_u h n damp
 
 /-- [apeiron_word::fold_port::word_stats_budget_bytes_ceil]:
     Source: 'fold_port.rs', lines 80:0-82:1

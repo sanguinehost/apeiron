@@ -400,7 +400,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/fit/gptq_e8_carrier.rs"
-unextracted = 34
+unextracted = 19
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -415,7 +415,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/fit/steps.rs"
-unextracted = 39
+unextracted = 30
 row = "EXTRACT-COVERAGE"
 
 [[debt]]

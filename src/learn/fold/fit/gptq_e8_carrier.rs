@@ -4,9 +4,8 @@
 //! Hessian ([`h_words`]) and of the weight ([`w_to_rows`]). Every pass is exact integer arithmetic,
 //! damping included; the boundary quantities are Q32.32 `i64` words, not reals.
 //!
-//! [`h_words`] and the whole-weight pass [`w_to_rows`] are matrix-sized and run on the engine pool;
-//! every other pass is a serial integer loop. The test module exercises the full-body passes
-//! against their one-row forms.
+//! Every pass is a serial integer loop; [`h_words`] and the whole-weight pass [`w_to_rows`] visit
+//! their entries once. The test module exercises the full-body passes against their one-row forms.
 
 #![allow(
     clippy::many_single_char_names,
@@ -20,8 +19,6 @@
 )]
 
 use super::gptq_e8::{GptqE8Error, BLOCK, E8_SCALE, GROUP};
-use crate::engine::chart::pool::{for_chunks, for_chunks2, width_global};
-use crate::engine::chart::task::{Task1, Task2};
 use crate::learn::solve::chol::SolveError;
 use crate::learn::solve::inv::inv_factor_upper;
 use crate::learn::solve::q32::{ilog2_pos, round_q32_even, rshift_rne, Fx, Q32Error, SpdQ};
@@ -29,7 +26,12 @@ use crate::numeric::fixed_rsqrt::isqrt;
 
 /// `|v|` as a `u128` (`i128::MIN` included).
 pub(super) fn mag_u128(v: i128) -> u128 {
-    v.unsigned_abs()
+    if v < 0 {
+        // `-(v + 1)` is exact for `i128::MIN`, so the magnitude of every `i128` is represented.
+        (-(v + 1)) as u128 + 1
+    } else {
+        v as u128
+    }
 }
 
 /// `v` as `i64`, or [`GptqE8Error::Overflow`] outside `i64`.
@@ -62,24 +64,6 @@ pub(super) fn even_g(max_abs: u64) -> i32 {
     ((l - 29) & !1).max(MIN_G)
 }
 
-/// Pool task context for [`to_words`]: the source words, the shift and the entries per task.
-struct WordsTask<'a> {
-    x: &'a [i64],
-    shift: i64,
-    per: usize,
-}
-
-impl Task1<i64, GptqE8Error> for WordsTask<'_> {
-    /// The renormalisation of [`to_words`] over this task's entries.
-    fn run(&self, t: usize, out: &mut [i64]) -> Result<(), GptqE8Error> {
-        let lo = t * self.per;
-        for (j, w) in out.iter_mut().enumerate() {
-            *w = narrow_q(round_at(i128::from(self.x[lo + j]), self.shift)?)?;
-        }
-        Ok(())
-    }
-}
-
 /// The Q32.32 words `RNE(w · 2^-g)` of the words `x`, split across the pool by entry range; each
 /// entry reads only itself.
 ///
@@ -93,10 +77,24 @@ impl Task1<i64, GptqE8Error> for WordsTask<'_> {
 /// from [`block_order`]); space `O(len)`.
 pub(super) fn to_words(x: &[i64], g: i32) -> Result<Vec<i64>, GptqE8Error> {
     let mut out = vec![0i64; x.len()];
-    let per = x.len().div_ceil(width_global()).max(1);
     let shift = -i64::from(g);
-    for_chunks(&mut out, per, &WordsTask { x, shift, per })?;
-    Ok(out)
+    let mut ok = true;
+    for j in 0..x.len() {
+        if ok {
+            match round_at(i128::from(x[j]), shift) {
+                Ok(v) => match narrow_q(v) {
+                    Ok(w) => out[j] = w,
+                    Err(_) => ok = false,
+                },
+                Err(_) => ok = false,
+            }
+        }
+    }
+    if ok {
+        Ok(out)
+    } else {
+        Err(GptqE8Error::Overflow)
+    }
 }
 
 /// The Q32.32 words of the row-major `[n, n]` `h` at the even global exponent [`even_g`] of its
@@ -201,7 +199,8 @@ pub fn feedback_u(h: &[i64], n: usize, damp: i64) -> Result<UFac, GptqE8Error> {
     for i in 0..n {
         sum += i128::from(w[i * n + i]);
     }
-    let nn = i128::try_from(n).map_err(|_| GptqE8Error::Overflow)?;
+    // `usize` is 64-bit on the target, so this widening is exact; the model lacks `TryFrom<usize>`.
+    let nn = i128::from(n as u64);
     let mean = div_rne_i128(sum, nn).ok_or(GptqE8Error::Overflow)?;
     let damp_w = i128::from(damp);
     let dlt =
@@ -209,21 +208,39 @@ pub fn feedback_u(h: &[i64], n: usize, damp: i64) -> Result<UFac, GptqE8Error> {
     // `1.0` at the same `2^(g − 32)` scale as the renormalised words.
     let one = word_pow2(32 - g)?;
     let mut sym = vec![0i64; n * n];
+    let mut ok = true;
     for i in 0..n {
-        for j in 0..n {
-            sym[i * n + j] = if j > i { w[j * n + i] } else { w[i * n + j] };
+        if ok {
+            for j in 0..n {
+                sym[i * n + j] = if j > i { w[j * n + i] } else { w[i * n + j] };
+            }
+            match w[i * n + i].checked_add(dlt) {
+                Some(v) => sym[i * n + i] = if v == 0 { one } else { v },
+                None => ok = false,
+            }
         }
-        let v = w[i * n + i].checked_add(dlt).ok_or(GptqE8Error::Overflow)?;
-        sym[i * n + i] = if v == 0 { one } else { v };
+    }
+    if !ok {
+        return Err(GptqE8Error::Overflow);
     }
     let spdq = SpdQ::from_q32(&sym, n).map_err(map_q32)?;
     let hat = inv_factor_upper(&spdq.hat, n).map_err(map_inv)?;
     let half = g / 2;
     let mut d = vec![0i32; n];
-    for (di, &d0) in d.iter_mut().zip(&spdq.d) {
-        *di = d0.checked_add(half).ok_or(GptqE8Error::Overflow)?;
+    let mut ok = true;
+    for i in 0..n {
+        if ok {
+            match spdq.d[i].checked_add(half) {
+                Some(v) => d[i] = v,
+                None => ok = false,
+            }
+        }
     }
-    Ok(UFac { hat, d, n })
+    if ok {
+        Ok(UFac { hat, d, n })
+    } else {
+        Err(GptqE8Error::Overflow)
+    }
 }
 
 /// Solve `x·U_blk = e` in place for the group's upper-triangular block `U_blk` of the carrier: with
@@ -293,41 +310,6 @@ pub(super) fn tri_upper_solve(
     Ok(())
 }
 
-/// Pool task context for [`w_to_rows`]: the word weight, the row length and the rows per task.
-struct RowsTask<'a> {
-    w: &'a [i64],
-    n: usize,
-    per: usize,
-}
-
-impl Task2<i64, i32, GptqE8Error> for RowsTask<'_> {
-    /// The block floating point of [`w_to_rows`] over this task's rows.
-    fn run(&self, t: usize, mant: &mut [i64], e_row: &mut [i32]) -> Result<(), GptqE8Error> {
-        let n = self.n;
-        for (r, er_slot) in e_row.iter_mut().enumerate() {
-            let r0 = t * self.per + r;
-            let row = &self.w[r0 * n..(r0 + 1) * n];
-            let mut max_abs = 0u64;
-            for &v in row {
-                max_abs = max_abs.max(v.unsigned_abs());
-            }
-            if max_abs == 0 {
-                continue;
-            }
-            // `er = floor(log2 max|x|) − 34`; on the word grid `x = word·2⁻³²`, so the mantissa is
-            // `RNE(word·2^(35 − lw))` with `lw = ⌈log2(|word|+1)⌉`.
-            let lw = blen(i128::from(max_abs));
-            let er = lw - 67;
-            *er_slot = er;
-            let shift = i64::from(35 - lw);
-            for j in 0..n {
-                mant[r * n + j] = narrow_q(round_at(i128::from(row[j]), shift)?)?;
-            }
-        }
-        Ok(())
-    }
-}
-
 /// The per-row block floating point of the word weight `w` (row-major `[o, n]`): mantissas `mant`
 /// and per-row exponents `e_row` with `max |mant[r]| ∈ [2^34, 2^35)` (all-zero row: zeros, `e = 0`),
 /// so `w[r][j] = mant[r·n+j]·2^e_row[r]` up to the rounding. The **only** renormalisation of the
@@ -347,9 +329,40 @@ pub(super) fn w_to_rows(
 ) -> Result<(Vec<i64>, Vec<i32>), GptqE8Error> {
     let mut mant = vec![0i64; o * n];
     let mut e_row = vec![0i32; o];
-    let per = o.div_ceil(width_global()).max(1);
-    for_chunks2(&mut mant, per * n, &mut e_row, per, &RowsTask { w, n, per })?;
-    Ok((mant, e_row))
+    let mut ok = true;
+    for r in 0..o {
+        if ok {
+            let row = &w[r * n..(r + 1) * n];
+            let mut max_abs = 0u64;
+            for &v in row {
+                max_abs = max_abs.max(v.unsigned_abs());
+            }
+            if max_abs != 0 {
+                // `er = floor(log2 max|x|) − 34`; on the word grid `x = word·2⁻³²`, so the
+                // mantissa is `RNE(word·2^(35 − lw))` with `lw = ⌈log2(|word|+1)⌉`.
+                let lw = blen(i128::from(max_abs));
+                let er = lw - 67;
+                e_row[r] = er;
+                let shift = i64::from(35 - lw);
+                for j in 0..n {
+                    if ok {
+                        match round_at(i128::from(row[j]), shift) {
+                            Ok(v) => match narrow_q(v) {
+                                Ok(w) => mant[r * n + j] = w,
+                                Err(_) => ok = false,
+                            },
+                            Err(_) => ok = false,
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if ok {
+        Ok((mant, e_row))
+    } else {
+        Err(GptqE8Error::Overflow)
+    }
 }
 
 /// The renormalisation precision of a row that enters an inner product, a sum of squares or the
@@ -675,11 +688,16 @@ pub(super) fn blen(v: i128) -> i32 {
 /// # Complexity
 ///
 /// `O(1)`.
+#[allow(
+    clippy::manual_range_contains,
+    reason = "the comparison form is the one the pinned Aeneas translates; `Range::contains` \
+              does not appear in the extracted fragment"
+)]
 pub(super) fn shift_left_i128(v: i128, k: i32) -> Option<i128> {
     if v == 0 {
         return Some(0);
     }
-    if !(0..127).contains(&k) {
+    if k < 0 || k >= 127 {
         return None;
     }
     v.checked_mul(1_i128 << k)
@@ -689,11 +707,15 @@ pub(super) fn shift_left_i128(v: i128, k: i32) -> Option<i128> {
 /// the cast. `O(1)`.
 fn round_at(v: i128, k: i64) -> Result<i128, GptqE8Error> {
     if k >= 0 {
-        shift_left_i128(v, i32::try_from(k).map_err(|_| GptqE8Error::Overflow)?)
-            .ok_or(GptqE8Error::Overflow)
+        if k > i64::from(i32::MAX) {
+            return Err(GptqE8Error::Overflow);
+        }
+        shift_left_i128(v, k as i32).ok_or(GptqE8Error::Overflow)
     } else {
-        rshift_rne(v, u32::try_from(-k).map_err(|_| GptqE8Error::Overflow)?)
-            .ok_or(GptqE8Error::Overflow)
+        if -k > i64::from(u32::MAX) {
+            return Err(GptqE8Error::Overflow);
+        }
+        rshift_rne(v, (-k) as u32).ok_or(GptqE8Error::Overflow)
     }
 }
 
