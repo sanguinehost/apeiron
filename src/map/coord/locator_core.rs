@@ -469,7 +469,8 @@ pub(crate) struct Edge {
 /// sibling-edge arena.
 ///
 /// Reading a record copies at most one edge; no `Vec` is materialized and no borrow outlives a
-/// step. [`EdgeList::len`] walks the sibling chain for the cold validators.
+/// step. [`EdgeList::len`] walks the sibling chain for the cold validators, and
+/// [`EdgeList::windows`] is the copied pair iterator the table's storage checker consumes.
 #[derive(Clone, Copy)]
 pub(crate) struct EdgeList<'a> {
     edge_words: &'a [u32],
@@ -479,13 +480,7 @@ pub(crate) struct EdgeList<'a> {
 impl EdgeList<'_> {
     /// The number of edges on the sibling chain.
     pub(crate) fn len(&self) -> usize {
-        let mut len = 0;
-        let mut edge = self.first_edge;
-        while edge != NO_CHILD {
-            len += 1;
-            edge = read_word(self.edge_words, EDGE_STRIDE * edge as usize + EDGE_NEXT);
-        }
-        len
+        edge_chain_len(self.edge_words, self.first_edge)
     }
 
     /// Consecutive adjacent-pair windows over the sorted chain.
@@ -1674,6 +1669,20 @@ fn find_edge(identity_words: &[u32], edge_words: &[u32], node: u32, label: u8) -
         edge = read_word(edge_words, at + EDGE_NEXT);
     }
     found
+}
+
+/// The number of edges on `first_edge`'s sibling chain.
+///
+/// Single-exit scalar `while`, one indexed load per record. The arena arrives as a parameter, not
+/// as a slice-typed local: the pinned translator rejects the latter inside a loop body.
+fn edge_chain_len(edge_words: &[u32], first_edge: u32) -> usize {
+    let mut len = 0;
+    let mut edge = first_edge;
+    while edge != NO_CHILD {
+        len += 1;
+        edge = read_word(edge_words, EDGE_STRIDE * edge as usize + EDGE_NEXT);
+    }
+    len
 }
 
 #[cfg(test)]

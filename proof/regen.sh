@@ -230,6 +230,7 @@ $EXTRACT_DIR/solve_port.rs
 $EXTRACT_DIR/grad_solve_port.rs
 $EXTRACT_DIR/hashtrinity_port.rs
 $EXTRACT_DIR/format_port.rs
+$EXTRACT_DIR/coord_port.rs
 $REPO_DIR/src/map/hashtrinity/side.rs
 $REPO_DIR/src/map/hashtrinity/overflow.rs
 $EXTRACT_DIR/Cargo.toml
@@ -369,6 +370,87 @@ run_extract() {
         --start-from crate::format_port::word_bpe_contains_nul \
         --start-from crate::format_port::word_bpe_is_nl \
         --start-from crate::format_port::word_bpe_find_sub \
+        --start-from crate::coord_port::word_coord_with \
+        --start-from crate::coord_port::word_coord_inverse_odd \
+        --start-from crate::coord_port::word_coord_bucket \
+        --start-from crate::coord_port::word_coord_mix \
+        --start-from crate::coord_port::word_coord_pack \
+        --start-from crate::coord_port::word_coord_i21_new \
+        --start-from crate::coord_port::word_coord_i21_get \
+        --start-from crate::coord_port::word_coord_i21_coord \
+        --start-from crate::coord_port::word_coord_i21_tuple_packed \
+        --start-from crate::coord_port::word_coord_i21_tuple_unpack \
+        --start-from crate::coord_port::word_h3_40_new \
+        --start-from crate::coord_port::word_h3_40_q \
+        --start-from crate::coord_port::word_h3_40_inverse_of_two \
+        --start-from crate::coord_port::word_h3_40_r \
+        --start-from crate::coord_port::word_h3_40_s \
+        --start-from crate::coord_port::word_h3_40_version \
+        --start-from crate::coord_port::word_residue_new \
+        --start-from crate::coord_port::word_parabolic_dual_scalar \
+        --start-from crate::coord_port::word_parabolic_dual_nilpotent \
+        --start-from crate::coord_port::word_address_value_face \
+        --start-from crate::coord_port::word_address_value_elliptic_word \
+        --start-from crate::coord_port::word_address_value_word \
+        --start-from crate::coord_port::word_address_value_residue \
+        --start-from crate::coord_port::word_address_value_profile \
+        --start-from crate::coord_port::word_face_table_address_value \
+        --start-from crate::coord_port::word_face_table_address_face \
+        --start-from crate::coord_port::word_locator_sigma_dial \
+        --start-from crate::coord_port::word_face_index_policy \
+        --start-from crate::coord_port::word_word_face_parabolic_dual_u64 \
+        --start-from crate::coord_port::word_word_face_hyperbolic_scalar_u64 \
+        --start-from crate::coord_port::word_word_face_parabolic_dual_i64 \
+        --start-from crate::coord_port::word_word_face_hyperbolic_scalar_i64 \
+        --start-from crate::coord_port::word_word_face_elliptic_pack_u64 \
+        --start-from crate::coord_port::word_word_face_elliptic_unpack_u64 \
+        --start-from crate::coord_port::word_word_face_elliptic_pack_i64 \
+        --start-from crate::coord_port::word_word_face_elliptic_unpack_i64 \
+        --start-from crate::coord_port::word_sigma_face_domain_sigma \
+        --start-from crate::coord_port::word_sigma_face_domain_from_sigma \
+        --start-from crate::coord_port::word_sigma_face_domain_encode \
+        --start-from crate::coord_port::word_locator_sigma_face_domain_sigma \
+        --start-from crate::coord_port::word_locator_sigma_face_domain_from_sigma \
+        --start-from crate::coord_port::word_locator_sigma_face_domain_encode \
+        --start-from crate::coord_port::word_word_face_coord_u64 \
+        --start-from crate::coord_port::word_locator_new \
+        --start-from crate::coord_port::word_locator_with_max_reps \
+        --start-from crate::coord_port::word_locator_profile \
+        --start-from crate::coord_port::word_locator_len \
+        --start-from crate::coord_port::word_locator_is_empty \
+        --start-from crate::coord_port::word_locator_coverage_established \
+        --start-from crate::coord_port::word_locator_residue_node_count \
+        --start-from crate::coord_port::word_locator_parabolic_node_count \
+        --start-from crate::coord_port::word_locator_identity_node_count \
+        --start-from crate::coord_port::word_locator_edge_count \
+        --start-from crate::coord_port::word_locator_max_identity_fanout \
+        --start-from crate::coord_port::word_locator_invalidate_coverage \
+        --start-from crate::coord_port::word_locator_insert \
+        --start-from crate::coord_port::word_locator_get \
+        --start-from crate::coord_port::word_locator_lookup_absent \
+        --start-from crate::coord_port::word_face_index_face \
+        --start-from crate::coord_port::word_residue_digits \
+        --start-from crate::coord_port::word_coefficient_bits \
+        --start-from crate::coord_port::word_covered_scope_index \
+        --start-from crate::coord_port::word_covered_scope_face \
+        --start-from crate::coord_port::word_covered_scope_residue \
+        --start-from crate::coord_port::word_covered_scope_coefficient \
+        --start-from crate::coord_port::word_covered_scope_residue_levels \
+        --start-from crate::coord_port::word_covered_scope_identity_bytes \
+        --start-from crate::coord_port::word_directory_new \
+        --start-from crate::coord_port::word_directory_arena_len_residue \
+        --start-from crate::coord_port::word_directory_arena_len_parabolic \
+        --start-from crate::coord_port::word_directory_max_identity_fanout \
+        --start-from crate::coord_port::word_directory_identity_nodes_get \
+        --start-from crate::coord_port::word_directory_representative_terminal_residue \
+        --start-from crate::coord_port::word_directory_reserve_or_linked_residue \
+        --start-from crate::coord_port::word_edge_list_len \
+        --start-from crate::coord_port::word_edge_list_windows \
+        --start-from crate::coord_port::word_edge_windows_next \
+        --start-from crate::coord_port::word_identity_nodes_get \
+        --start-from crate::coord_port::word_identity_nodes_iter \
+        --start-from crate::coord_port::word_identity_nodes_into_iter \
+        --start-from crate::coord_port::word_identity_node_iter_next \
         --start-from crate::word_silu_fixed \
         --start-from crate::word_rms_norm_fixed \
         --start-from crate::word_rope_rotate_fixed \
