@@ -546,10 +546,7 @@ fn load(root: &Path) -> Result<Inputs, String> {
     }
 
     let lean = rd("proof/ApeironWord.lean")?;
-    let lean_defs = lean
-        .lines()
-        .filter_map(lean_def_name)
-        .collect::<BTreeSet<_>>();
+    let lean_defs = lean_def_names(&lean);
 
     let mut corpus = String::new();
     let mut stack = vec![root.join("proof")];
@@ -592,6 +589,44 @@ fn tokens(s: &str) -> BTreeSet<String> {
         .filter(|t| !t.is_empty())
         .map(|t| t.trim_matches('.').to_string())
         .collect()
+}
+
+/// Every `def` name in a Lean module. The pretty-printer splits a long or instance name onto the
+/// line after a bare `def`; that form names the same body and counts as extracted.
+pub(crate) fn lean_def_names(text: &str) -> BTreeSet<String> {
+    let mut defs = BTreeSet::new();
+    let mut lines = text.lines().peekable();
+    while let Some(line) = lines.next() {
+        if let Some(n) = lean_def_name(line) {
+            defs.insert(n);
+            continue;
+        }
+        if is_bare_def(line) {
+            if let Some(next) = lines.peek() {
+                if !is_bare_def(next) {
+                    if let Some(n) = lean_def_name(&format!("def {}", next.trim_start())) {
+                        defs.insert(n);
+                    }
+                }
+            }
+        }
+    }
+    defs
+}
+
+/// True when the line is a `def` head with no name on it, after attributes and modifiers.
+fn is_bare_def(line: &str) -> bool {
+    let mut s = line.trim_start();
+    while s.starts_with("@[") {
+        match s.find(']') {
+            Some(i) => s = s[i + 1..].trim_start(),
+            None => return false,
+        }
+    }
+    for w in ["noncomputable ", "partial ", "private ", "unsafe "] {
+        s = s.strip_prefix(w).unwrap_or(s);
+    }
+    s.trim_end() == "def"
 }
 
 /// `def NAME` at the head of a line, after any `@[…]` attribute and `partial`/`private` words.

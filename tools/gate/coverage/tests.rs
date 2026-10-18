@@ -197,6 +197,13 @@ fn parsers() {
         Some("step.f".into())
     );
     assert_eq!(lean_def_name("theorem x"), None);
+    let defs = lean_def_names(
+        "def a.f\n\ndef\n  coord.address.LocatorSigma.Insts.f.from_sigma\n\ndef b.g : U8\n",
+    );
+    assert!(defs.contains("a.f"));
+    assert!(defs.contains("coord.address.LocatorSigma.Insts.f.from_sigma"));
+    assert!(defs.contains("b.g"));
+    assert_eq!(defs.len(), 3);
     let m = parse_path_mods("#[path = \"../../src/cell.rs\"]\npub mod cell;\n#[path = \"../../src/map/table.rs\"]\n#[allow(x)]\npub mod table;\n");
     assert_eq!(
         m,

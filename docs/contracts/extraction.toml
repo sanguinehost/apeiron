@@ -35,7 +35,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/engine/chart/mod.rs"
-unextracted = 17
+unextracted = 13
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -70,7 +70,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/engine/kern/bitplane.rs"
-unextracted = 12
+unextracted = 10
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -190,7 +190,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/engine/step/softmax.rs"
-unextracted = 3
+unextracted = 1
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -560,7 +560,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/coord/address.rs"
-unextracted = 19
+unextracted = 10
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -570,7 +570,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/coord/locator_core.rs"
-unextracted = 51
+unextracted = 48
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -585,7 +585,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/algebra.rs"
-unextracted = 68
+unextracted = 56
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -620,7 +620,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/overflow.rs"
-unextracted = 21
+unextracted = 20
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -660,7 +660,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/table.rs"
-unextracted = 17
+unextracted = 13
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -675,7 +675,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/table/keyrep.rs"
-unextracted = 18
+unextracted = 14
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
