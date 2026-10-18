@@ -210,7 +210,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/format/bpe.rs"
-unextracted = 41
+unextracted = 37
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -220,12 +220,12 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/format/packing.rs"
-unextracted = 20
+unextracted = 1
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/format/quant.rs"
-unextracted = 13
+unextracted = 11
 row = "EXTRACT-COVERAGE"
 
 [[debt]]

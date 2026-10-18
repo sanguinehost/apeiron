@@ -415,7 +415,7 @@ fn is_punct(c: char) -> bool {
     !c.is_whitespace() && !c.is_alphabetic() && !c.is_numeric()
 }
 
-fn is_nl(c: char) -> bool {
+pub(crate) fn is_nl(c: char) -> bool {
     c == '\r' || c == '\n'
 }
 
@@ -657,12 +657,15 @@ fn bytes_to_unicode() -> [char; 256] {
     reason = "the extraction discipline keeps the `len() == 0` form; `is_empty` is one of the \
               container calls the refinement lane excludes"
 )]
-fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
+pub(crate) fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.len() == 0 || needle.len() > hay.len() {
         return None;
     }
+    let mut found: Option<usize> = None;
     let mut i = 0;
-    while i + needle.len() <= hay.len() {
+    // The first complete match is carried out of the scan instead of returned from inside it; the
+    // cursor stops advancing on the match, so the result is the same index for every input.
+    while i + needle.len() <= hay.len() && found.is_none() {
         let mut k = 0;
         let mut ok = true;
         while k < needle.len() {
@@ -673,23 +676,26 @@ fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
             k += 1;
         }
         if ok {
-            return Some(i);
+            found = Some(i);
         }
         i += 1;
     }
-    None
+    found
 }
 
-fn contains_nul(s: &str) -> bool {
+pub(crate) fn contains_nul(s: &str) -> bool {
     let b = s.as_bytes();
     let mut i = 0;
+    let mut found = false;
+    // A carried flag instead of an early `return`: the scan always reads the whole slice and the
+    // result is the same at every length, so no refusal ordering changes.
     while i < b.len() {
         if b[i] == 0 {
-            return true;
+            found = true;
         }
         i += 1;
     }
-    false
+    found
 }
 
 /// One merge entry as `(a, b)`: a `"a b"` string or a two-element array of strings.
@@ -813,7 +819,7 @@ fn as_u32(j: &Json) -> Option<u32> {
     }
 }
 
-fn hex_val(c: u8) -> Option<u32> {
+pub(crate) fn hex_val(c: u8) -> Option<u32> {
     match c {
         b'0'..=b'9' => Some((c - b'0') as u32),
         b'a'..=b'f' => Some((c - b'a') as u32 + 10),

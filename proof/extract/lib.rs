@@ -45,6 +45,12 @@ pub mod numeric {
 /// aliases name the crate-root modules declared below.
 pub mod format {
     pub use super::{gguf, packing, quant};
+
+    /// The real `src/format/bpe.rs`, declared in `format_port.rs`; this alias names it at its
+    /// `crate::format::bpe` path so a mirrored reader resolves there.
+    pub mod bpe {
+        pub use crate::format_port::bpe;
+    }
 }
 
 /// Mirror of the real `src/map/` parent over the crate-root modules, so the absolute
@@ -1482,6 +1488,10 @@ pub mod grad_solve_port;
 // reached through `fold_port.rs`.
 #[path = "fold_port.rs"]
 pub mod fold_port;
+
+// The format import/encode roots (`src/format/{packing,bpe}.rs`), reached through `format_port.rs`.
+#[path = "format_port.rs"]
+pub mod format_port;
 
 /// Mirror of `crate::learn` for this extraction unit, carried in `fold_port.rs` so this file
 /// stays under the tree's line limit.

@@ -229,6 +229,7 @@ $EXTRACT_DIR/learn_port.rs
 $EXTRACT_DIR/solve_port.rs
 $EXTRACT_DIR/grad_solve_port.rs
 $EXTRACT_DIR/hashtrinity_port.rs
+$EXTRACT_DIR/format_port.rs
 $REPO_DIR/src/map/hashtrinity/side.rs
 $REPO_DIR/src/map/hashtrinity/overflow.rs
 $EXTRACT_DIR/Cargo.toml
@@ -355,6 +356,19 @@ run_extract() {
         --start-from crate::word_q4_k_codes \
         --start-from crate::word_q6_k_codes \
         --start-from crate::word_packing_decode_block \
+        --start-from crate::format_port::word_packing_error_from_quant \
+        --start-from crate::format_port::word_packing_validate \
+        --start-from crate::format_port::word_packing_from_gguf_kind \
+        --start-from crate::format_port::word_packing_encode_block \
+        --start-from crate::format_port::word_packing_row_decode_fixed \
+        --start-from crate::format_port::word_packing_import_row \
+        --start-from crate::format_port::word_packing_convert_row \
+        --start-from crate::format_port::word_quant_q4_k_scale_mins \
+        --start-from crate::format_port::word_quant_ggml_type_name \
+        --start-from crate::format_port::word_bpe_hex_val \
+        --start-from crate::format_port::word_bpe_contains_nul \
+        --start-from crate::format_port::word_bpe_is_nl \
+        --start-from crate::format_port::word_bpe_find_sub \
         --start-from crate::word_silu_fixed \
         --start-from crate::word_rms_norm_fixed \
         --start-from crate::word_rope_rotate_fixed \
