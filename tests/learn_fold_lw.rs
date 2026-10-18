@@ -61,8 +61,9 @@ const N: usize = 12;
 /// `Q32.32` one.
 const ONE: i64 = 1 << 32;
 
-/// One input literal on the grid, halved so a fourth power stays inside `i128` by construction
-/// (`|v| ≤ 2³¹` → `v⁴ ≤ 2¹²⁴`).
+/// One input literal on the grid. The random draws are halved by their callers (`|v| ≤ 2³¹`), which
+/// puts [`word_moments`] on its exact `i128` path; the diagonal literals `0.5 + t` exceed that and
+/// take its rounded-through-`v²` path, which is also inside the stated bound.
 fn word(x: f64) -> i64 {
     to_grid(x, GRID_BOUND).expect("on grid")
 }
@@ -91,7 +92,10 @@ fn scatter_words(s: &[i64], rows: usize, o: usize) -> Vec<i64> {
 }
 
 /// `Σ_t ‖s_t‖⁴` and `Σ_t s_t⁴` as words. `‖s_t‖²` and each `s_ti⁴` are rounded once to a word
-/// before the sum, keeping every intermediate inside `i128` for `|v| ≤ 2³¹`.
+/// before the sum. For `|s_ti| ≤ 2³¹` (`s_ti⁴ ≤ 2¹²⁴`) the fourth power is the exact `i128`
+/// product; a larger grid word rounds `s_ti²` to a word first and squares that — one extra `2⁻³²`
+/// relative rounding, the same word boundary the source consumes — keeping the product inside
+/// `i128` for `|s_ti| < 2⁴⁷`. Beyond that the moment leaves `i64` and the final narrowing refuses.
 fn word_moments(s: &[i64], rows: usize, o: usize) -> (i64, Vec<i64>) {
     let mut s4: i128 = 0;
     let mut q = vec![0_i128; o];
@@ -101,7 +105,14 @@ fn word_moments(s: &[i64], rows: usize, o: usize) -> (i64, Vec<i64>) {
             let v = i128::from(s[t * o + i]);
             let v2 = v * v;
             n2 += v2;
-            q[i] += rshift_rne(v2 * v2, 96).unwrap();
+            let v4 = match v2.checked_mul(v2) {
+                Some(x) => rshift_rne(x, 96),
+                None => rshift_rne(v2, 32)
+                    .and_then(|w| w.checked_mul(w))
+                    .and_then(|w2| rshift_rne(w2, 32)),
+            }
+            .unwrap();
+            q[i] += v4;
         }
         let n2w = rshift_rne(n2, 32).unwrap();
         s4 += rshift_rne(n2w * n2w, 32).unwrap();
