@@ -800,7 +800,12 @@ pub mod term {
     }
 
     pub(crate) fn is_word(b: u8) -> bool {
-        b.is_ascii_alphanumeric() || b == b'_'
+        // The ASCII alphanumeric ranges, spelled out: `u8::is_ascii_alphanumeric` is not in the
+        // pinned model, and this is exactly that predicate.
+        (b >= b'0' && b <= b'9')
+            || (b >= b'a' && b <= b'z')
+            || (b >= b'A' && b <= b'Z')
+            || b == b'_'
     }
 
     // ── parser: surface syntax → `Re` (the universal Term) ───────────────────────
@@ -1170,7 +1175,7 @@ fn lead_idx(segs: &[Seg]) -> Option<usize> {
 
 // ── matcher ─────────────────────────────────────────────────────────────────
 /// match a linear segment program at `pos`; return the end offset of the (greedy) match.
-fn match_segs(segs: &[Seg], hay: &[u8], pos: usize) -> Option<usize> {
+pub(crate) fn match_segs(segs: &[Seg], hay: &[u8], pos: usize) -> Option<usize> {
     fn go(segs: &[Seg], si: usize, hay: &[u8], pos: usize) -> Option<usize> {
         if si == segs.len() {
             return Some(pos);

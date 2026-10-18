@@ -345,10 +345,21 @@ pub fn rescale_hier(rh: &[i64], s: &[i64], o: usize, g: usize) -> Result<RHier, 
         return Err(ResqError::ShapeMismatch);
     }
     let mut scaled = vec![0_i64; n];
-    for i in 0..o {
-        for j in 0..g {
-            scaled[i * g + j] = mul_q32(rh[i * g + j], s[i])?;
+    let mut err: Option<ResqError> = None;
+    let mut i = 0;
+    while i < o && err.is_none() {
+        let mut j = 0;
+        while j < g && err.is_none() {
+            match mul_q32(rh[i * g + j], s[i]) {
+                Ok(v) => scaled[i * g + j] = v,
+                Err(e) => err = Some(e),
+            }
+            j += 1;
         }
+        i += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(quant_r_hier(&scaled, o, g)?)
 }
@@ -376,14 +387,34 @@ pub fn rescale_hier_top(
     if rh.len() != n {
         return Err(ResqError::ShapeMismatch);
     }
-    if rows.iter().any(|&r| r >= s.len()) {
+    let mut bad = false;
+    let mut q = 0;
+    while q < rows.len() {
+        if rows[q] >= s.len() {
+            bad = true;
+        }
+        q += 1;
+    }
+    if bad {
         return Err(ResqError::ShapeMismatch);
     }
     let mut scaled = vec![0_i64; n];
-    for (i, &r) in rows.iter().enumerate() {
-        for j in 0..g {
-            scaled[i * g + j] = mul_q32(rh[i * g + j], s[r])?;
+    let mut err: Option<ResqError> = None;
+    let mut i = 0;
+    while i < o && err.is_none() {
+        let r = rows[i];
+        let mut j = 0;
+        while j < g && err.is_none() {
+            match mul_q32(rh[i * g + j], s[r]) {
+                Ok(v) => scaled[i * g + j] = v,
+                Err(e) => err = Some(e),
+            }
+            j += 1;
         }
+        i += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(quant_r_hier(&scaled, o, g)?)
 }
