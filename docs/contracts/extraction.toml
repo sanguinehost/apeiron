@@ -1,0 +1,760 @@
+[[debt]]
+path = "src/attn_cut.rs"
+unextracted = 6
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/cell.rs"
+unextracted = 15
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/crypto/chacha.rs"
+unextracted = 2
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/crypto/keccak.rs"
+unextracted = 2
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/attn.rs"
+unextracted = 6
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/attn/f32_core.rs"
+unextracted = 6
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/chart/ffn.rs"
+unextracted = 3
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/chart/mod.rs"
+unextracted = 17
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/chart/pool.rs"
+unextracted = 42
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/chart/pool/chunks.rs"
+unextracted = 12
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/chart/portable.rs"
+unextracted = 5
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/chart/task.rs"
+unextracted = 9
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/chart/x86.rs"
+unextracted = 36
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/error.rs"
+unextracted = 2
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/kern/bitplane.rs"
+unextracted = 12
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/kern/gemm.rs"
+unextracted = 15
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/kern/limb.rs"
+unextracted = 25
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/kern/lut.rs"
+unextracted = 9
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/kern/matmat.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/kern/tp.rs"
+unextracted = 4
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/loader.rs"
+unextracted = 4
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/mixer.rs"
+unextracted = 15
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/mixer/conv_f32.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/mixer/f32_carrier.rs"
+unextracted = 10
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/num/f32_convert.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/num/fp.rs"
+unextracted = 33
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/num/value.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/ops/fused.rs"
+unextracted = 13
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/ops/lm_head.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/ops/matvec.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/ops/moe.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/ops/norm.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/ops/par.rs"
+unextracted = 3
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/ops/rope.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/ops/sampler.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/prefix/mod.rs"
+unextracted = 26
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/prefix/tests.rs"
+unextracted = 16
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/step.rs"
+unextracted = 12
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/step/softmax.rs"
+unextracted = 3
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/testdata.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/tests.rs"
+unextracted = 21
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/engine/trace.rs"
+unextracted = 12
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/format/bpe.rs"
+unextracted = 41
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/format/gguf.rs"
+unextracted = 10
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/format/packing.rs"
+unextracted = 20
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/format/quant.rs"
+unextracted = 13
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/decode.rs"
+unextracted = 27
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/decode/layer.rs"
+unextracted = 9
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/decode/model.rs"
+unextracted = 9
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/decode/pack.rs"
+unextracted = 11
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/decode/prefill.rs"
+unextracted = 10
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/decode/state.rs"
+unextracted = 18
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/decode/upload.rs"
+unextracted = 5
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/attn/attn_dp4a.rs"
+unextracted = 14
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/attn/pool.rs"
+unextracted = 3
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/attn/prefill.rs"
+unextracted = 11
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/attn/prefill_glue.rs"
+unextracted = 4
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/attn/sparse.rs"
+unextracted = 14
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/batch.rs"
+unextracted = 25
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/coop.rs"
+unextracted = 8
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+unextracted = 15
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/deltanet.rs"
+unextracted = 13
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/glue.rs"
+unextracted = 44
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/gridsync.rs"
+unextracted = 6
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/mod.rs"
+unextracted = 62
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/moe.rs"
+unextracted = 4
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/norm.rs"
+unextracted = 24
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/spec.rs"
+unextracted = 18
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/runtime.rs"
+unextracted = 25
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/simt/dp4a.rs"
+unextracted = 12
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/simt/gemv.rs"
+unextracted = 12
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/simt/mod.rs"
+unextracted = 18
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/simt/superblock.rs"
+unextracted = 12
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/vulkan.rs"
+unextracted = 35
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/kepler.rs"
+unextracted = 23
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/finish/plane.rs"
+unextracted = 27
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/finish/train.rs"
+unextracted = 46
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/fit/corrector.rs"
+unextracted = 8
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/fit/eigh.rs"
+unextracted = 13
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/fit/fnorm.rs"
+unextracted = 7
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/fit/fold_fit.rs"
+unextracted = 18
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/fit/gptq_e8.rs"
+unextracted = 11
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/fit/gptq_e8_carrier.rs"
+unextracted = 34
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/fit/icm.rs"
+unextracted = 52
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/fit/nb_refine.rs"
+unextracted = 9
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/fit/quant.rs"
+unextracted = 16
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/fit/steps.rs"
+unextracted = 41
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/layer/driver.rs"
+unextracted = 46
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/layer/resq.rs"
+unextracted = 13
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/layer/stage.rs"
+unextracted = 32
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/layer/tensor.rs"
+unextracted = 37
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/run/convert.rs"
+unextracted = 15
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/run/finish.rs"
+unextracted = 16
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/run/npy.rs"
+unextracted = 8
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/run/transfer.rs"
+unextracted = 40
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/stats/basis.rs"
+unextracted = 48
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/stats/budget.rs"
+unextracted = 8
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/stats/capture.rs"
+unextracted = 11
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/stats/heldout.rs"
+unextracted = 13
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/stats/hocapture.rs"
+unextracted = 43
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/stats/kldbase.rs"
+unextracted = 7
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/stats/lw.rs"
+unextracted = 5
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/fold/stats/parts.rs"
+unextracted = 25
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/gguf.rs"
+unextracted = 6
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/grad/attn.rs"
+unextracted = 6
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/grad/model.rs"
+unextracted = 20
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/grad/model/tests.rs"
+unextracted = 19
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/gram.rs"
+unextracted = 4
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/imatrix.rs"
+unextracted = 11
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/iq1s.rs"
+unextracted = 6
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/onebit_bits.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/seal.rs"
+unextracted = 19
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/solve/chol.rs"
+unextracted = 3
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/solve/gemm.rs"
+unextracted = 7
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/solve/inv.rs"
+unextracted = 4
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/solve/q32.rs"
+unextracted = 7
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/solve/syrk.rs"
+unextracted = 3
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/coord.rs"
+unextracted = 25
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/coord/address.rs"
+unextracted = 36
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/coord/locator.rs"
+unextracted = 31
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/coord/locator_core.rs"
+unextracted = 64
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/count.rs"
+unextracted = 18
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/fold.rs"
+unextracted = 24
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/hashtrinity/algebra.rs"
+unextracted = 70
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/hashtrinity/base64.rs"
+unextracted = 9
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/hashtrinity/crypto.rs"
+unextracted = 454
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/hashtrinity/face.rs"
+unextracted = 73
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/hashtrinity/freq.rs"
+unextracted = 45
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/hashtrinity/hex.rs"
+unextracted = 18
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/hashtrinity/mod.rs"
+unextracted = 24
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/hashtrinity/overflow.rs"
+unextracted = 24
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/hashtrinity/par.rs"
+unextracted = 12
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/hashtrinity/seed.rs"
+unextracted = 18
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/hashtrinity/side.rs"
+unextracted = 4
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/hashtrinity/tregex.rs"
+unextracted = 45
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/keystore.rs"
+unextracted = 5
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/merge.rs"
+unextracted = 22
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/pepper.rs"
+unextracted = 6
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/table.rs"
+unextracted = 17
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/table/geteach.rs"
+unextracted = 6
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/table/getexact.rs"
+unextracted = 3
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/table/keyrep.rs"
+unextracted = 18
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/table/locator.rs"
+unextracted = 41
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/table/parallel.rs"
+unextracted = 32
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/table/partition.rs"
+unextracted = 16
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/table/prepared.rs"
+unextracted = 9
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/table/probe.rs"
+unextracted = 11
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/table/reduce.rs"
+unextracted = 16
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/map/table/state.rs"
+unextracted = 24
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/numeric/fixed_ln.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/numeric/fixed_trig.rs"
+unextracted = 2
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/scalar.rs"
+unextracted = 30
+row = "EXTRACT-COVERAGE"
+

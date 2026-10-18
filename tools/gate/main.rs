@@ -22,6 +22,7 @@
 mod adapter;
 mod aggregate;
 mod cli;
+mod coverage;
 mod docs;
 mod hold;
 mod registry;
@@ -49,6 +50,7 @@ fn main() -> ExitCode {
         },
         Some("run") => runner::run_command(&args[1..]),
         Some("structure") => structure::structure_command(&args[1..]),
+        Some("coverage") => coverage::coverage_command(&args[1..]),
         Some(other) => {
             eprintln!("gate: unknown subcommand `{other}`; known: docs, hold, run");
             ExitCode::from(2)
@@ -59,7 +61,8 @@ fn main() -> ExitCode {
                  --controls run each selected row's control in a throwaway copy\n  \
                  run <id>     execute one registry row's gate command under its budget\n  \
                  hold         refuse while a HOLD marker is in force\n  \
-                 structure --check  refuse a tracked layout that breaks docs/contracts/tree.toml"
+                 structure --check  refuse a tracked layout that breaks docs/contracts/tree.toml\n  \
+                 coverage (--check | --report | --baseline)  extraction coverage of src/ fns"
             );
             ExitCode::from(2)
         }
