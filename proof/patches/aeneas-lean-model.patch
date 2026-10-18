@@ -570,7 +570,7 @@ diff --color -ruN a/Aeneas/Std/RawPtr.lean b/Aeneas/Std/RawPtr.lean
 diff --color -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
 --- a/Aeneas/Std/Scalar/Casts.lean	2026-10-16 08:19:21.373608338 +1100
 +++ b/Aeneas/Std/Scalar/Casts.lean	2026-10-16 12:10:58.663869448 +1100
-@@ -6,6 +6,15 @@
+@@ -6,6 +6,23 @@
  
  open Result Error Arith
  
@@ -582,6 +582,14 @@ diff --color -ruN a/Aeneas/Std/Scalar/Casts.lean b/Aeneas/Std/Scalar/Casts.lean
 +
 +/-- Bare `F32`, as used by the generated `core.f32.F32.is_finite` axiom under `open Aeneas.Std`. -/
 +abbrev F32 := core.f32.F32
++
++/-- MODEL: the Rust `f64` value type, opaque: the extracted roots carry it only as
++    `Config::rope_theta`, a field no extracted body reads. -/
++@[rust_type "core::f64::{f64}"]
++structure core.f64.F64 where
++
++/-- Bare `F64`, as the pinned emitter prints Rust `f64` under `open Aeneas.Std`. -/
++abbrev F64 := core.f64.F64
 +
  
  /-!

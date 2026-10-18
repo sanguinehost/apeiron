@@ -29,7 +29,9 @@
               one `GVal` arm at a time"
 )]
 
-use crate::format::gguf::{GVal, GgufError, GgufHeader, DEFAULT_ALIGNMENT, GGUF_MAGIC};
+use crate::format::gguf::{
+    GVal, GgufError, GgufHeader, DEFAULT_ALIGNMENT, GGUF_MAGIC, MAX_ARRAY_DEPTH,
+};
 
 /// Bytes of the `general.alignment` key and its length; matched in a dedicated pass so the
 /// metadata sweeps above carry no second loop (the extractor's "could not match the contexts"
@@ -65,8 +67,10 @@ fn write_string(out: &mut Vec<u8>, s: &[u8]) -> Result<(), GgufError> {
 /// Append one integer payload in the width and signedness its metadata type id declares.
 ///
 /// The value is range-checked against its declared type's bounds and then cast; a value outside
-/// that range refuses with [`GgufError::LengthOverflow`] rather than wrapping. A type id that is
-/// not one of the eight integer ids refuses with [`GgufError::UnknownType`].
+/// that range refuses with [`GgufError::LengthOverflow`] rather than wrapping. The signed widths
+/// are cast through their unsigned width (two's-complement, byte-identical) so the pinned model's
+/// signed `to_le_bytes` (`Array I8`) is not reached. A type id that is not one of the eight
+/// integer ids refuses with [`GgufError::UnknownType`].
 fn write_int(out: &mut Vec<u8>, t: u32, x: i128) -> Result<(), GgufError> {
     // The bound tests are written out and the payload follows the `as` cast: the pinned Aeneas
     // models `try_from` only for the wide-to-word casts and no `signum`, so the explicit comparison
@@ -82,7 +86,7 @@ fn write_int(out: &mut Vec<u8>, t: u32, x: i128) -> Result<(), GgufError> {
             if x < -128 || x > 127 {
                 return Err(GgufError::LengthOverflow);
             }
-            out.extend_from_slice(&(x as i8).to_le_bytes());
+            out.extend_from_slice(&(x as i8 as u8).to_le_bytes());
         }
         TYPE_UINT16 => {
             if x < 0 || x > 65_535 {
@@ -94,7 +98,7 @@ fn write_int(out: &mut Vec<u8>, t: u32, x: i128) -> Result<(), GgufError> {
             if x < -32_768 || x > 32_767 {
                 return Err(GgufError::LengthOverflow);
             }
-            out.extend_from_slice(&(x as i16).to_le_bytes());
+            out.extend_from_slice(&(x as i16 as u16).to_le_bytes());
         }
         TYPE_UINT32 => {
             if x < 0 || x > 4_294_967_295 {
@@ -106,7 +110,7 @@ fn write_int(out: &mut Vec<u8>, t: u32, x: i128) -> Result<(), GgufError> {
             if x < -2_147_483_648 || x > 2_147_483_647 {
                 return Err(GgufError::LengthOverflow);
             }
-            out.extend_from_slice(&(x as i32).to_le_bytes());
+            out.extend_from_slice(&(x as i32 as u32).to_le_bytes());
         }
         TYPE_UINT64 => {
             if x < 0 || x > 18_446_744_073_709_551_615 {
@@ -115,7 +119,7 @@ fn write_int(out: &mut Vec<u8>, t: u32, x: i128) -> Result<(), GgufError> {
             out.extend_from_slice(&(x as u64).to_le_bytes());
         }
         TYPE_INT64 => match i64::try_from(x) {
-            Ok(v) => out.extend_from_slice(&v.to_le_bytes()),
+            Ok(v) => out.extend_from_slice(&(v as u64).to_le_bytes()),
             Err(_) => return Err(GgufError::LengthOverflow),
         },
         _ => return Err(GgufError::UnknownType(t)),
@@ -123,41 +127,84 @@ fn write_int(out: &mut Vec<u8>, t: u32, x: i128) -> Result<(), GgufError> {
     Ok(())
 }
 
-/// Append one value's payload, without its leading type id.
+/// Append a non-array payload. An array reaching this function is at the ninth nesting level: the
+/// reader refuses that depth, so the writer refuses it with [`GgufError::TooDeep`].
 ///
-/// A scalar uses its own type tag; an array writes its declared element type and element count, then
-/// each element's payload. Array elements carry no per-element type tag on disk, so this recurses on
-/// the element variants (the reader accepts nested arrays up to its depth bound). Cost is O(bytes).
-fn write_payload(out: &mut Vec<u8>, v: &GVal) -> Result<(), GgufError> {
+/// # Complexity
+///
+/// O(bytes of the value), one write and one copy per byte.
+fn write_payload_scalar(out: &mut Vec<u8>, v: &GVal) -> Result<(), GgufError> {
     match v {
-        GVal::Int(x, t) => write_int(out, *t, *x)?,
-        GVal::F32Bits(bits, _) => out.extend_from_slice(&bits.to_le_bytes()),
-        GVal::F64Bits(bits, _) => out.extend_from_slice(&bits.to_le_bytes()),
-        GVal::Bool(b) => out.push(u8::from(*b)),
-        GVal::Str(s) => write_string(out, s)?,
-        GVal::Arr(et, elems) => {
-            out.extend_from_slice(&et.to_le_bytes());
-            let n = u64::try_from(elems.len()).map_err(|_| GgufError::LengthOverflow)?;
-            out.extend_from_slice(&n.to_le_bytes());
-            // Flag loop: a `?` inside a loop has no fixed point in the pinned Charon/Aeneas
-            // fragment, so the first refusal is carried in `err` and a single `return` follows
-            // the loop. The write order is the element order, unchanged.
-            let mut err: Option<GgufError> = None;
-            let mut i = 0usize;
-            while i < elems.len() && err.is_none() {
-                match write_payload(out, &elems[i]) {
-                    Ok(()) => {}
-                    Err(e) => err = Some(e),
+        GVal::Int(x, t) => write_int(out, *t, *x),
+        GVal::F32Bits(bits, _) => {
+            out.extend_from_slice(&bits.to_le_bytes());
+            Ok(())
+        }
+        GVal::F64Bits(bits, _) => {
+            out.extend_from_slice(&bits.to_le_bytes());
+            Ok(())
+        }
+        GVal::Bool(b) => {
+            out.push(u8::from(*b));
+            Ok(())
+        }
+        GVal::Str(s) => write_string(out, s),
+        GVal::Arr(_, _) => Err(GgufError::TooDeep {
+            depth: MAX_ARRAY_DEPTH,
+        }),
+    }
+}
+
+/// One nesting level of the payload writer; `$next` writes an array element at the next level.
+///
+/// The chain is `write_payload`, `write_payload_2` … `write_payload_8`, then
+/// [`write_payload_scalar`]. It is unrolled because the pinned Charon/Aeneas emitter cannot
+/// elaborate a recursion whose call sits inside a loop, and refuses a container of references
+/// (`ty_regions shouldn't be called on erased or body regions`); the bound is the reader's
+/// [`MAX_ARRAY_DEPTH`].
+///
+/// # Complexity
+///
+/// One level writes O(bytes of its subtree); the fixed chain is O(bytes).
+macro_rules! payload_level {
+    ($name:ident, $next:ident) => {
+        fn $name(out: &mut Vec<u8>, v: &GVal) -> Result<(), GgufError> {
+            match v {
+                GVal::Arr(et, elems) => {
+                    out.extend_from_slice(&et.to_le_bytes());
+                    let n = u64::try_from(elems.len()).map_err(|_| GgufError::LengthOverflow)?;
+                    out.extend_from_slice(&n.to_le_bytes());
+                    // Flag loop: a `?` inside a loop has no fixed point in the pinned
+                    // Charon/Aeneas fragment, so the first refusal is carried in `err` and a
+                    // single `return` follows the loop. The write order is the element order.
+                    let mut err: Option<GgufError> = None;
+                    let mut i = 0usize;
+                    while i < elems.len() && err.is_none() {
+                        match $next(out, &elems[i]) {
+                            Ok(()) => {}
+                            Err(e) => err = Some(e),
+                        }
+                        i += 1;
+                    }
+                    if let Some(e) = err {
+                        return Err(e);
+                    }
+                    Ok(())
                 }
-                i += 1;
-            }
-            if let Some(e) = err {
-                return Err(e);
+                _ => write_payload_scalar(out, v),
             }
         }
-    }
-    Ok(())
+    };
 }
+
+payload_level!(write_payload, write_payload_2);
+payload_level!(write_payload_2, write_payload_3);
+payload_level!(write_payload_3, write_payload_4);
+payload_level!(write_payload_4, write_payload_5);
+payload_level!(write_payload_5, write_payload_6);
+payload_level!(write_payload_6, write_payload_7);
+payload_level!(write_payload_7, write_payload_8);
+payload_level!(write_payload_8, write_payload_scalar);
 
 /// Append one value: its `u32` type id, then its payload.
 ///

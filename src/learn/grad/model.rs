@@ -368,8 +368,20 @@ pub(crate) fn add_flat(a: &mut [i64], b: &[i64]) -> Result<(), ModelError> {
     if a.len() != b.len() {
         return Err(ModelError::Shape("add width".to_string()));
     }
-    for (x, y) in a.iter_mut().zip(b) {
-        *x = x.checked_add(*y).ok_or(ModelError::Overflow)?;
+    // Flag loop: a `?` inside a loop has no fixed point in the pinned Charon/Aeneas fragment, so
+    // the first refusal is carried in `err` and one `return` follows the sweep. The element order
+    // and the first-refusal order are unchanged.
+    let mut err: Option<ModelError> = None;
+    let mut i = 0usize;
+    while i < a.len() && err.is_none() {
+        match a[i].checked_add(b[i]) {
+            Some(v) => a[i] = v,
+            None => err = Some(ModelError::Overflow),
+        }
+        i += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(())
 }

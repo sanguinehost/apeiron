@@ -497,24 +497,6 @@ impl_def Slice.Insts.CoreCmpPartialEqSlice {T : Type} {U : Type}
     cmpPartialEqInst)
 }
 
-/-- Trait implementation: [core::slice::iter::{impl core::iter::traits::iterator::Iterator<&'a mut T> for core::slice::iter::IterMut<'a, T>}]
-    Source: '/rustc/library/core/src/slice/iter/macros.rs', lines 153:8-153:45
-    Name pattern: [core::iter::traits::iterator::Iterator<core::slice::iter::IterMut<'a, @T>, &'a mut @T>] -/
-@[reducible, rust_trait_impl
-  "core::iter::traits::iterator::Iterator<core::slice::iter::IterMut<'a, @T>, &'a mut @T>"]
-impl_def core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT (T :
-  Type) : core.iter.traits.iterator.Iterator (core.slice.iter.IterMut T) T := {
-  next := core.slice.iter.IteratorIterMut.next
-  zip := fun {U : Type} {Clause0_Item : Type} {Clause0_IntoIter : Type}
-    (collectIntoIteratorInst : core.iter.traits.collect.IntoIterator U
-    Clause0_Item Clause0_IntoIter) =>
-    core.iter.traits.iterator.Iterator.zip.trait_default
-    (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT T)
-    collectIntoIteratorInst
-  enumerate := core.iter.traits.iterator.Iterator.enumerate.trait_default
-    (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT T)
-}
-
 /-- [core::slice::{[T]}::first]:
     Source: '/rustc/library/core/src/slice/mod.rs', lines 155:4-155:43
     Name pattern: [core::slice::{[@T]}::first]
@@ -5872,7 +5854,7 @@ inductive gguf.GgufField where
 | KvTensorCount : gguf.GgufField
 
 /-- [apeiron_word::gguf::GgufError]
-    Source: '../../src/format/gguf.rs', lines 79:0-110:1
+    Source: '../../src/format/gguf.rs', lines 79:0-115:1
     Visibility: public -/
 @[discriminant isize]
 inductive gguf.GgufError where
@@ -5881,6 +5863,7 @@ inductive gguf.GgufError where
 | UnsupportedVersion : Std.U32 → gguf.GgufError
 | Truncated : gguf.GgufField → gguf.GgufError
 | TooManyDims : Std.U32 → gguf.GgufError
+| TooDeep : Std.U32 → gguf.GgufError
 | LengthOverflow : gguf.GgufError
 | UnknownType : Std.U32 → gguf.GgufError
 | OutOfBounds : Std.U64 → Std.U64 → Std.U64 → gguf.GgufError
@@ -18013,6 +17996,9 @@ def gguf.GgufError.Insts.CoreCloneClone.clone
   | gguf.GgufError.TooManyDims __self_0 =>
     let i ← lift (core.clone.impls.CloneU32.clone __self_0)
     ok (gguf.GgufError.TooManyDims i)
+  | gguf.GgufError.TooDeep __self_0 =>
+    let i ← lift (core.clone.impls.CloneU32.clone __self_0)
+    ok (gguf.GgufError.TooDeep i)
   | gguf.GgufError.LengthOverflow => ok gguf.GgufError.LengthOverflow
   | gguf.GgufError.UnknownType __self_0 =>
     let i ← lift (core.clone.impls.CloneU32.clone __self_0)
@@ -27452,7 +27438,7 @@ structure loader.hadamard.HadamardMeta where
   signs : Option (alloc.vec.Vec (Std.U32 × (alloc.vec.Vec Std.I8)))
 
 /-- [apeiron_word::gguf::TensorDesc]
-    Source: '../../src/format/gguf.rs', lines 191:0-200:1
+    Source: '../../src/format/gguf.rs', lines 199:0-208:1
     Visibility: public -/
 structure gguf.TensorDesc where
   «name» : alloc.vec.Vec Std.U8
@@ -27461,7 +27447,7 @@ structure gguf.TensorDesc where
   offset : Std.U64
 
 /-- [apeiron_word::gguf::GVal]
-    Source: '../../src/format/gguf.rs', lines 148:0-161:1
+    Source: '../../src/format/gguf.rs', lines 156:0-169:1
     Visibility: public -/
 @[discriminant isize]
 inductive gguf.GVal where
@@ -27473,7 +27459,7 @@ inductive gguf.GVal where
 | Arr : Std.U32 → alloc.vec.Vec gguf.GVal → gguf.GVal
 
 /-- [apeiron_word::gguf::GgufHeader]
-    Source: '../../src/format/gguf.rs', lines 452:0-465:1
+    Source: '../../src/format/gguf.rs', lines 460:0-473:1
     Visibility: public -/
 structure gguf.GgufHeader where
   version : Std.U32
@@ -27484,7 +27470,7 @@ structure gguf.GgufHeader where
   data0 : Std.U64
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::GgufHeader}::meta]: loop body 0:
-    Source: '../../src/format/gguf.rs', lines 472:8-479:5
+    Source: '../../src/format/gguf.rs', lines 480:8-487:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.GgufHeader.meta_loop.body
@@ -27506,7 +27492,7 @@ def gguf.GgufHeader.meta_loop.body
   else ok (done none)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::GgufHeader}::meta]: loop 0:
-    Source: '../../src/format/gguf.rs', lines 472:8-479:5
+    Source: '../../src/format/gguf.rs', lines 480:8-487:5
     Visibility: public -/
 @[rust_loop]
 def gguf.GgufHeader.meta_loop
@@ -27518,7 +27504,7 @@ def gguf.GgufHeader.meta_loop
     i
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::GgufHeader}::meta]:
-    Source: '../../src/format/gguf.rs', lines 469:4-479:5
+    Source: '../../src/format/gguf.rs', lines 477:4-487:5
     Visibility: public -/
 def gguf.GgufHeader.meta
   (self : gguf.GgufHeader) (key : Str) : Result (Option gguf.GVal) := do
@@ -27981,7 +27967,7 @@ def loader.hadamard.hadamard_string_array
       | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::GVal}::as_i64]:
-    Source: '../../src/format/gguf.rs', lines 165:4-177:5
+    Source: '../../src/format/gguf.rs', lines 173:4-185:5
     Visibility: public -/
 def gguf.GVal.as_i64 (self : gguf.GVal) : Result (Option Std.I64) := do
   match self with
@@ -30868,7 +30854,7 @@ structure loader.Engine where
     kern.bitplane.BitplaneHead))
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::GgufHeader}::meta_i64]:
-    Source: '../../src/format/gguf.rs', lines 481:4-486:5
+    Source: '../../src/format/gguf.rs', lines 489:4-494:5
     Visibility: public -/
 def gguf.GgufHeader.meta_i64
   (self : gguf.GgufHeader) (key : Str) : Result (Option Std.I64) := do
@@ -30949,7 +30935,7 @@ def loader.positive_usize
       r key
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::GVal}::as_bytes]:
-    Source: '../../src/format/gguf.rs', lines 179:4-184:5
+    Source: '../../src/format/gguf.rs', lines 187:4-192:5
     Visibility: public -/
 def gguf.GVal.as_bytes
   (self : gguf.GVal) : Result (Option (Slice Std.U8)) := do
@@ -30963,7 +30949,7 @@ def gguf.GVal.as_bytes
   | gguf.GVal.Arr _ _ => ok none
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::GgufHeader}::meta_str]:
-    Source: '../../src/format/gguf.rs', lines 488:4-493:5
+    Source: '../../src/format/gguf.rs', lines 496:4-501:5
     Visibility: public -/
 def gguf.GgufHeader.meta_str
   (self : gguf.GgufHeader) (key : Str) : Result (Option (Slice Std.U8)) := do
@@ -30973,7 +30959,7 @@ def gguf.GgufHeader.meta_str
   | some v => gguf.GVal.as_bytes v
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::GgufHeader}::arch]:
-    Source: '../../src/format/gguf.rs', lines 495:4-500:5
+    Source: '../../src/format/gguf.rs', lines 503:4-508:5
     Visibility: public -/
 def gguf.GgufHeader.arch (self : gguf.GgufHeader) : Result String := do
   let o ← gguf.GgufHeader.meta_str self (toStr "general.architecture")
@@ -30993,7 +30979,7 @@ structure loader.AttentionMeta where
   attn_gate : Bool
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::GgufHeader}::tensor]: loop body 0:
-    Source: '../../src/format/gguf.rs', lines 510:8-515:9
+    Source: '../../src/format/gguf.rs', lines 518:8-523:9
     Visibility: public -/
 @[rust_loop_body]
 def gguf.GgufHeader.tensor_loop.body
@@ -31023,7 +31009,7 @@ def gguf.GgufHeader.tensor_loop.body
   else ok (done found)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::GgufHeader}::tensor]: loop 0:
-    Source: '../../src/format/gguf.rs', lines 510:8-515:9
+    Source: '../../src/format/gguf.rs', lines 518:8-523:9
     Visibility: public -/
 @[rust_loop]
 def gguf.GgufHeader.tensor_loop
@@ -31037,7 +31023,7 @@ def gguf.GgufHeader.tensor_loop
     (found, i)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::GgufHeader}::tensor]:
-    Source: '../../src/format/gguf.rs', lines 507:4-517:5
+    Source: '../../src/format/gguf.rs', lines 515:4-525:5
     Visibility: public -/
 @[reducible]
 def gguf.GgufHeader.tensor
@@ -32436,7 +32422,7 @@ def quant.required_bytes
       Std.U64 (core.convert.FromSame quant.QuantError) residual
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::TensorDesc}::n_elements]: loop body 0:
-    Source: '../../src/format/gguf.rs', lines 206:8-210:5
+    Source: '../../src/format/gguf.rs', lines 214:8-218:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.TensorDesc.n_elements_loop.body
@@ -32460,7 +32446,7 @@ def gguf.TensorDesc.n_elements_loop.body
       ok (done r1)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::TensorDesc}::n_elements]: loop 0:
-    Source: '../../src/format/gguf.rs', lines 206:8-210:5
+    Source: '../../src/format/gguf.rs', lines 214:8-218:5
     Visibility: public -/
 @[rust_loop]
 def gguf.TensorDesc.n_elements_loop
@@ -32472,7 +32458,7 @@ def gguf.TensorDesc.n_elements_loop
     (iter, acc)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::TensorDesc}::n_elements]:
-    Source: '../../src/format/gguf.rs', lines 204:4-210:5
+    Source: '../../src/format/gguf.rs', lines 212:4-218:5
     Visibility: public -/
 def gguf.TensorDesc.n_elements
   (self : gguf.TensorDesc) :
@@ -32484,14 +32470,14 @@ def gguf.TensorDesc.n_elements
   gguf.TensorDesc.n_elements_loop iter 1#u64
 
 /-- [apeiron_word::gguf::{impl core::convert::From<apeiron_word::quant::QuantError> for apeiron_word::gguf::GgufError}::from]:
-    Source: '../../src/format/gguf.rs', lines 134:4-136:5
+    Source: '../../src/format/gguf.rs', lines 142:4-144:5
     Visibility: public -/
 def gguf.GgufError.Insts.CoreConvertFromQuantError.from
   (e : quant.QuantError) : Result gguf.GgufError := do
   ok (gguf.GgufError.Quant e)
 
 /-- Trait implementation: [apeiron_word::gguf::{impl core::convert::From<apeiron_word::quant::QuantError> for apeiron_word::gguf::GgufError}]
-    Source: '../../src/format/gguf.rs', lines 133:0-137:1 -/
+    Source: '../../src/format/gguf.rs', lines 141:0-145:1 -/
 @[reducible]
 def gguf.GgufError.Insts.CoreConvertFromQuantError : core.convert.From
   gguf.GgufError quant.QuantError := {
@@ -32499,7 +32485,7 @@ def gguf.GgufError.Insts.CoreConvertFromQuantError : core.convert.From
 }
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::TensorDesc}::n_bytes]:
-    Source: '../../src/format/gguf.rs', lines 214:4-222:5
+    Source: '../../src/format/gguf.rs', lines 222:4-230:5
     Visibility: public -/
 def gguf.TensorDesc.n_bytes
   (self : gguf.TensorDesc) :
@@ -32908,12 +32894,12 @@ def loader.hold_heap : Result Unit := do
   ok ()
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Gguf}::open::{closure}]
-    Source: '../../src/format/gguf.rs', lines 731:53-731:94 -/
+    Source: '../../src/format/gguf.rs', lines 739:53-739:94 -/
 @[reducible]
 def gguf.Gguf.open.closure := Str
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Gguf}::open::{impl core::ops::function::FnOnce<(alloc::string::String,), apeiron_word::gguf::GgufError> for apeiron_word::gguf::{apeiron_word::gguf::Gguf}::open::{closure}<'_0, '_1>}::call_once]:
-    Source: '../../src/format/gguf.rs', lines 731:53-731:94 -/
+    Source: '../../src/format/gguf.rs', lines 739:53-739:94 -/
 def
   gguf.Gguf.open.closure.Insts.CoreOpsFunctionFnOnceTupleStringGgufError.call_once
   (c : gguf.Gguf.open.closure) (tupled_args : String) :
@@ -32934,7 +32920,7 @@ def
   ok (gguf.GgufError.Io s1)
 
 /-- Trait implementation: [apeiron_word::gguf::{apeiron_word::gguf::Gguf}::open::{impl core::ops::function::FnOnce<(alloc::string::String,), apeiron_word::gguf::GgufError> for apeiron_word::gguf::{apeiron_word::gguf::Gguf}::open::{closure}<'_0, '_1>}]
-    Source: '../../src/format/gguf.rs', lines 731:53-731:94 -/
+    Source: '../../src/format/gguf.rs', lines 739:53-739:94 -/
 @[reducible]
 def gguf.Gguf.open.closure.Insts.CoreOpsFunctionFnOnceTupleStringGgufError :
   core.ops.function.FnOnce gguf.Gguf.open.closure String gguf.GgufError := {
@@ -32943,7 +32929,7 @@ def gguf.Gguf.open.closure.Insts.CoreOpsFunctionFnOnceTupleStringGgufError :
 }
 
 /-- [apeiron_word::gguf::host_read_prefix]:
-    Source: '../../src/format/gguf.rs', lines 702:0-708:1
+    Source: '../../src/format/gguf.rs', lines 710:0-716:1
     Visibility: public -/
 axiom gguf.host_read_prefix
   :
@@ -32951,7 +32937,7 @@ axiom gguf.host_read_prefix
     Std.U64) String)
 
 /-- [apeiron_word::gguf::Gguf]
-    Source: '../../src/format/gguf.rs', lines 689:0-696:1
+    Source: '../../src/format/gguf.rs', lines 697:0-704:1
     Visibility: public -/
 structure gguf.Gguf where
   path : String
@@ -32959,13 +32945,13 @@ structure gguf.Gguf where
   file_len : Std.U64
 
 /-- [apeiron_word::gguf::Cur]
-    Source: '../../src/format/gguf.rs', lines 227:0-230:1 -/
+    Source: '../../src/format/gguf.rs', lines 235:0-238:1 -/
 structure gguf.Cur where
   b : Slice Std.U8
   i : Std.Usize
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::u8]:
-    Source: '../../src/format/gguf.rs', lines 233:4-237:5 -/
+    Source: '../../src/format/gguf.rs', lines 241:4-245:5 -/
 def gguf.Cur.u8 (self : gguf.Cur) : Result ((Option Std.U8) × gguf.Cur) := do
   let o ←
     core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8)
@@ -32982,7 +32968,7 @@ def gguf.Cur.u8 (self : gguf.Cur) : Result ((Option Std.U8) × gguf.Cur) := do
     ok (o1, self)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::u32]:
-    Source: '../../src/format/gguf.rs', lines 243:4-249:5 -/
+    Source: '../../src/format/gguf.rs', lines 251:4-257:5 -/
 def gguf.Cur.u32
   (self : gguf.Cur) : Result ((Option Std.U32) × gguf.Cur) := do
   let (o, self1) ← gguf.Cur.u8 self
@@ -33027,7 +33013,7 @@ def gguf.Cur.u32
     ok (o1, self1)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::u64]:
-    Source: '../../src/format/gguf.rs', lines 250:4-254:5 -/
+    Source: '../../src/format/gguf.rs', lines 258:4-262:5 -/
 def gguf.Cur.u64
   (self : gguf.Cur) : Result ((Option Std.U64) × gguf.Cur) := do
   let (o, self1) ← gguf.Cur.u32 self
@@ -33055,7 +33041,7 @@ def gguf.Cur.u64
     ok (o1, self1)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::string]: loop body 0:
-    Source: '../../src/format/gguf.rs', lines 280:8-283:9 -/
+    Source: '../../src/format/gguf.rs', lines 288:8-291:9 -/
 @[rust_loop_body]
 def gguf.Cur.string_loop.body
   (s : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
@@ -33072,7 +33058,7 @@ def gguf.Cur.string_loop.body
   else ok (done out)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::string]: loop 0:
-    Source: '../../src/format/gguf.rs', lines 280:8-283:9 -/
+    Source: '../../src/format/gguf.rs', lines 288:8-291:9 -/
 @[rust_loop]
 def gguf.Cur.string_loop
   (s : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
@@ -33084,7 +33070,7 @@ def gguf.Cur.string_loop
     (out, k)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::string]:
-    Source: '../../src/format/gguf.rs', lines 267:4-286:5 -/
+    Source: '../../src/format/gguf.rs', lines 275:4-294:5 -/
 def gguf.Cur.string
   (self : gguf.Cur) :
   Result ((Option (alloc.vec.Vec Std.U8)) × gguf.Cur)
@@ -33126,7 +33112,7 @@ def gguf.Cur.string
 @[global_simps, irreducible] def gguf.MAX_DIMS : Std.Usize := 4#usize
 
 /-- [apeiron_word::gguf::parse_tensor]: loop body 0:
-    Source: '../../src/format/gguf.rs', lines 556:4-564:5 -/
+    Source: '../../src/format/gguf.rs', lines 564:4-572:5 -/
 @[rust_loop_body]
 def gguf.parse_tensor_loop.body
   (nd : Std.U32) (c : gguf.Cur) (dims : alloc.vec.Vec Std.U64)
@@ -33153,7 +33139,7 @@ def gguf.parse_tensor_loop.body
   else ok (done (c.b, c.i, dims, dim_err))
 
 /-- [apeiron_word::gguf::parse_tensor]: loop 0:
-    Source: '../../src/format/gguf.rs', lines 556:4-564:5 -/
+    Source: '../../src/format/gguf.rs', lines 564:4-572:5 -/
 @[rust_loop]
 def gguf.parse_tensor_loop
   (c : gguf.Cur) (nd : Std.U32) (dims : alloc.vec.Vec Std.U64)
@@ -33167,7 +33153,7 @@ def gguf.parse_tensor_loop
     (c, dims, dim_err, k)
 
 /-- [apeiron_word::gguf::parse_tensor]:
-    Source: '../../src/format/gguf.rs', lines 543:0-578:1 -/
+    Source: '../../src/format/gguf.rs', lines 551:0-586:1 -/
 def gguf.parse_tensor
   (c : gguf.Cur) :
   Result ((core.result.Result gguf.TensorDesc gguf.GgufError) × gguf.Cur)
@@ -33241,7 +33227,7 @@ def gguf.parse_tensor
     ok (r1, c1)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::array_header]:
-    Source: '../../src/format/gguf.rs', lines 315:4-328:5 -/
+    Source: '../../src/format/gguf.rs', lines 323:4-336:5 -/
 def gguf.Cur.array_header
   (self : gguf.Cur) :
   Result ((Option (Std.U32 × Std.Usize)) × gguf.Cur)
@@ -33276,7 +33262,7 @@ def gguf.Cur.array_header
     ok (o1, self1)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::u16]:
-    Source: '../../src/format/gguf.rs', lines 238:4-242:5 -/
+    Source: '../../src/format/gguf.rs', lines 246:4-250:5 -/
 def gguf.Cur.u16
   (self : gguf.Cur) : Result ((Option Std.U16) × gguf.Cur) := do
   let (o, self1) ← gguf.Cur.u8 self
@@ -33302,7 +33288,7 @@ def gguf.Cur.u16
     ok (o1, self1)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::scalar]:
-    Source: '../../src/format/gguf.rs', lines 289:4-310:5 -/
+    Source: '../../src/format/gguf.rs', lines 297:4-318:5 -/
 def gguf.Cur.scalar
   (self : gguf.Cur) (t : Std.U32) :
   Result ((Option gguf.GVal) × gguf.Cur)
@@ -33468,7 +33454,7 @@ def gguf.Cur.scalar
   | _ => ok (none, self)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::value]: loop body 1:
-    Source: '../../src/format/gguf.rs', lines 392:20-395:21 -/
+    Source: '../../src/format/gguf.rs', lines 400:20-403:21 -/
 @[rust_loop_body]
 def gguf.Cur.value_loop0_loop0.body
   (s : Std.Usize) (flat : alloc.vec.Vec gguf.GVal)
@@ -33489,7 +33475,7 @@ def gguf.Cur.value_loop0_loop0.body
   else ok (done (flat, elems))
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::value]: loop 1:
-    Source: '../../src/format/gguf.rs', lines 392:20-395:21 -/
+    Source: '../../src/format/gguf.rs', lines 400:20-403:21 -/
 @[rust_loop]
 def gguf.Cur.value_loop0_loop0
   (flat : alloc.vec.Vec gguf.GVal) (s : Std.Usize)
@@ -33502,7 +33488,7 @@ def gguf.Cur.value_loop0_loop0
     (flat, elems, k)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::value]: loop body 0:
-    Source: '../../src/format/gguf.rs', lines 379:8-440:9 -/
+    Source: '../../src/format/gguf.rs', lines 387:8-448:9 -/
 @[rust_loop_body]
 def gguf.Cur.value_loop0.body
   (depth : Std.U32) (self : gguf.Cur) (flat : alloc.vec.Vec gguf.GVal)
@@ -33610,7 +33596,7 @@ def gguf.Cur.value_loop0.body
               0#u32, false, false, result))
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::value]: loop 0:
-    Source: '../../src/format/gguf.rs', lines 379:8-440:9 -/
+    Source: '../../src/format/gguf.rs', lines 387:8-448:9 -/
 @[rust_loop]
 def gguf.Cur.value_loop0
   (self : gguf.Cur) (depth : Std.U32) (flat : alloc.vec.Vec gguf.GVal)
@@ -33627,7 +33613,7 @@ def gguf.Cur.value_loop0
       result)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::value]:
-    Source: '../../src/format/gguf.rs', lines 346:4-445:5 -/
+    Source: '../../src/format/gguf.rs', lines 354:4-453:5 -/
 def gguf.Cur.value
   (self : gguf.Cur) (t : Std.U32) (depth : Std.U32) :
   Result ((Option gguf.GVal) × gguf.Cur)
@@ -33668,11 +33654,11 @@ def gguf.Cur.value
         ok (o1, self1)
 
 /-- [apeiron_word::gguf::MAX_ARRAY_DEPTH]
-    Source: '../../src/format/gguf.rs', lines 22:0-22:31 -/
+    Source: '../../src/format/gguf.rs', lines 22:0-22:42 -/
 @[global_simps, irreducible] def gguf.MAX_ARRAY_DEPTH : Std.U32 := 8#u32
 
 /-- [apeiron_word::gguf::parse_kv]:
-    Source: '../../src/format/gguf.rs', lines 530:0-537:1 -/
+    Source: '../../src/format/gguf.rs', lines 538:0-545:1 -/
 def gguf.parse_kv
   (c : gguf.Cur) :
   Result ((core.result.Result ((alloc.vec.Vec Std.U8) × gguf.GVal)
@@ -33719,11 +33705,11 @@ def gguf.parse_kv
     ok (r1, c1)
 
 /-- [apeiron_word::gguf::ALIGN_LEN]
-    Source: '../../src/format/gguf.rs', lines 523:0-523:28 -/
+    Source: '../../src/format/gguf.rs', lines 531:0-531:28 -/
 @[global_simps, irreducible] def gguf.ALIGN_LEN : Std.Usize := 17#usize
 
 /-- [apeiron_word::gguf::ALIGN_BYTES]
-    Source: '../../src/format/gguf.rs', lines 522:0-522:52 -/
+    Source: '../../src/format/gguf.rs', lines 530:0-530:52 -/
 @[global_simps, irreducible]
 def gguf.ALIGN_BYTES : Array Std.U8 17#usize :=
   Array.make 17#usize [
@@ -33732,7 +33718,7 @@ def gguf.ALIGN_BYTES : Array Std.U8 17#usize :=
     ]
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Cur<'_0>}::four]:
-    Source: '../../src/format/gguf.rs', lines 256:4-262:5 -/
+    Source: '../../src/format/gguf.rs', lines 264:4-270:5 -/
 def gguf.Cur.four
   (self : gguf.Cur) :
   Result ((Option (Array Std.U8 4#usize)) × gguf.Cur)
@@ -33788,7 +33774,7 @@ def gguf.GGUF_MAGIC : Array Std.U8 4#usize :=
   Array.make 4#usize [ 71#u8, 71#u8, 85#u8, 70#u8 ]
 
 /-- [apeiron_word::gguf::parse_header]: loop body 0:
-    Source: '../../src/format/gguf.rs', lines 611:4-619:5
+    Source: '../../src/format/gguf.rs', lines 619:4-627:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop0.body
@@ -33816,7 +33802,7 @@ def gguf.parse_header_loop0.body
   else ok (done (c.b, c.i, kv, kv_err))
 
 /-- [apeiron_word::gguf::parse_header]: loop 0:
-    Source: '../../src/format/gguf.rs', lines 611:4-619:5
+    Source: '../../src/format/gguf.rs', lines 619:4-627:5
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop0
@@ -33832,7 +33818,7 @@ def gguf.parse_header_loop0
     (c, kv, kv_err, ki)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 2:
-    Source: '../../src/format/gguf.rs', lines 632:12-637:13
+    Source: '../../src/format/gguf.rs', lines 640:12-645:13
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop1_loop0.body
@@ -33856,7 +33842,7 @@ def gguf.parse_header_loop1_loop0.body
   else ok (done same)
 
 /-- [apeiron_word::gguf::parse_header]: loop 2:
-    Source: '../../src/format/gguf.rs', lines 632:12-637:13
+    Source: '../../src/format/gguf.rs', lines 640:12-645:13
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop1_loop0
@@ -33869,7 +33855,7 @@ def gguf.parse_header_loop1_loop0
     (j, same)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 1:
-    Source: '../../src/format/gguf.rs', lines 628:4-646:5
+    Source: '../../src/format/gguf.rs', lines 636:4-654:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop1.body
@@ -33909,7 +33895,7 @@ def gguf.parse_header_loop1.body
   else ok (done alignment)
 
 /-- [apeiron_word::gguf::parse_header]: loop 1:
-    Source: '../../src/format/gguf.rs', lines 628:4-646:5
+    Source: '../../src/format/gguf.rs', lines 636:4-654:5
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop1
@@ -33922,7 +33908,7 @@ def gguf.parse_header_loop1
     (alignment, ai)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 3:
-    Source: '../../src/format/gguf.rs', lines 651:4-659:5
+    Source: '../../src/format/gguf.rs', lines 659:4-667:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop2.body
@@ -33949,7 +33935,7 @@ def gguf.parse_header_loop2.body
   else ok (done (c.i, tensors, ts_err))
 
 /-- [apeiron_word::gguf::parse_header]: loop 3:
-    Source: '../../src/format/gguf.rs', lines 651:4-659:5
+    Source: '../../src/format/gguf.rs', lines 659:4-667:5
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop2
@@ -33965,7 +33951,7 @@ def gguf.parse_header_loop2
     (c, tensors, ts_err, ti)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 4:
-    Source: '../../src/format/gguf.rs', lines 611:4-619:5
+    Source: '../../src/format/gguf.rs', lines 619:4-627:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop3.body
@@ -33993,7 +33979,7 @@ def gguf.parse_header_loop3.body
   else ok (done (c.b, c.i, kv, kv_err))
 
 /-- [apeiron_word::gguf::parse_header]: loop 4:
-    Source: '../../src/format/gguf.rs', lines 611:4-619:5
+    Source: '../../src/format/gguf.rs', lines 619:4-627:5
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop3
@@ -34009,7 +33995,7 @@ def gguf.parse_header_loop3
     (c, kv, kv_err, ki)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 6:
-    Source: '../../src/format/gguf.rs', lines 632:12-637:13
+    Source: '../../src/format/gguf.rs', lines 640:12-645:13
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop4_loop0.body
@@ -34033,7 +34019,7 @@ def gguf.parse_header_loop4_loop0.body
   else ok (done same)
 
 /-- [apeiron_word::gguf::parse_header]: loop 6:
-    Source: '../../src/format/gguf.rs', lines 632:12-637:13
+    Source: '../../src/format/gguf.rs', lines 640:12-645:13
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop4_loop0
@@ -34046,7 +34032,7 @@ def gguf.parse_header_loop4_loop0
     (j, same)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 5:
-    Source: '../../src/format/gguf.rs', lines 628:4-646:5
+    Source: '../../src/format/gguf.rs', lines 636:4-654:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop4.body
@@ -34086,7 +34072,7 @@ def gguf.parse_header_loop4.body
   else ok (done alignment)
 
 /-- [apeiron_word::gguf::parse_header]: loop 5:
-    Source: '../../src/format/gguf.rs', lines 628:4-646:5
+    Source: '../../src/format/gguf.rs', lines 636:4-654:5
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop4
@@ -34099,7 +34085,7 @@ def gguf.parse_header_loop4
     (alignment, ai)
 
 /-- [apeiron_word::gguf::parse_header]: loop body 7:
-    Source: '../../src/format/gguf.rs', lines 651:4-659:5
+    Source: '../../src/format/gguf.rs', lines 659:4-667:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.parse_header_loop5.body
@@ -34126,7 +34112,7 @@ def gguf.parse_header_loop5.body
   else ok (done (c.i, tensors, ts_err))
 
 /-- [apeiron_word::gguf::parse_header]: loop 7:
-    Source: '../../src/format/gguf.rs', lines 651:4-659:5
+    Source: '../../src/format/gguf.rs', lines 659:4-667:5
     Visibility: public -/
 @[rust_loop]
 def gguf.parse_header_loop5
@@ -34142,7 +34128,7 @@ def gguf.parse_header_loop5
     (c, tensors, ts_err, ti)
 
 /-- [apeiron_word::gguf::parse_header]:
-    Source: '../../src/format/gguf.rs', lines 582:0-684:1
+    Source: '../../src/format/gguf.rs', lines 590:0-692:1
     Visibility: public -/
 def gguf.parse_header
   (buf : Slice Std.U8) (file_len : Std.U64) :
@@ -34358,7 +34344,7 @@ def gguf.parse_header
       gguf.GgufHeader (core.convert.FromSame gguf.GgufError) residual
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Gguf}::open]: loop body 0:
-    Source: '../../src/format/gguf.rs', lines 729:8-748:5
+    Source: '../../src/format/gguf.rs', lines 737:8-756:5
     Visibility: public -/
 @[rust_loop_body]
 def gguf.Gguf.open_loop.body
@@ -34397,7 +34383,7 @@ def gguf.Gguf.open_loop.body
     ok (done r2)
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Gguf}::open]: loop 0:
-    Source: '../../src/format/gguf.rs', lines 729:8-748:5
+    Source: '../../src/format/gguf.rs', lines 737:8-756:5
     Visibility: public -/
 @[rust_loop]
 def gguf.Gguf.open_loop
@@ -34409,7 +34395,7 @@ def gguf.Gguf.open_loop
     want
 
 /-- [apeiron_word::gguf::{apeiron_word::gguf::Gguf}::open]:
-    Source: '../../src/format/gguf.rs', lines 727:4-748:5
+    Source: '../../src/format/gguf.rs', lines 735:4-756:5
     Visibility: public -/
 def gguf.Gguf.open
   (path : Str) : Result (core.result.Result gguf.Gguf gguf.GgufError) := do
@@ -34417,7 +34403,7 @@ def gguf.Gguf.open
   gguf.Gguf.open_loop path want
 
 /-- [apeiron_word::gguf::host_read_all]:
-    Source: '../../src/format/gguf.rs', lines 720:0-722:1
+    Source: '../../src/format/gguf.rs', lines 728:0-730:1
     Visibility: public -/
 axiom gguf.host_read_all
   : Str → Result (core.result.Result (alloc.vec.Vec Std.U8) String)
@@ -34826,7 +34812,7 @@ def f32_convert.dequant_f32_row
   f32_convert.dequant_f32_row_loop raw n_elems out 0#usize
 
 /-- [apeiron_word::gguf::host_read_at]:
-    Source: '../../src/format/gguf.rs', lines 711:0-717:1
+    Source: '../../src/format/gguf.rs', lines 719:0-725:1
     Visibility: public -/
 axiom gguf.host_read_at
   :
@@ -76180,7 +76166,7 @@ def fold_port.stats.parts.silu_mul
       Std.I64 residual
 
 /-- [apeiron_word::grad_solve_port::gguf::ALIGN_BYTES]
-    Source: '../../src/learn/gguf.rs', lines 37:0-37:52 -/
+    Source: '../../src/learn/gguf.rs', lines 39:0-39:52 -/
 @[global_simps, irreducible]
 def grad_solve_port.gguf.ALIGN_BYTES : Array Std.U8 17#usize :=
   Array.make 17#usize [
@@ -76189,32 +76175,32 @@ def grad_solve_port.gguf.ALIGN_BYTES : Array Std.U8 17#usize :=
     ]
 
 /-- [apeiron_word::grad_solve_port::gguf::ALIGN_LEN]
-    Source: '../../src/learn/gguf.rs', lines 38:0-38:28 -/
+    Source: '../../src/learn/gguf.rs', lines 40:0-40:28 -/
 @[global_simps, irreducible]
 def grad_solve_port.gguf.ALIGN_LEN : Std.Usize := 17#usize
 
 /-- [apeiron_word::grad_solve_port::gguf::TYPE_BOOL]
-    Source: '../../src/learn/gguf.rs', lines 47:0-47:25 -/
+    Source: '../../src/learn/gguf.rs', lines 49:0-49:25 -/
 @[global_simps, irreducible]
 def grad_solve_port.gguf.TYPE_BOOL : Std.U32 := 7#u32
 
 /-- [apeiron_word::grad_solve_port::gguf::TYPE_STRING]
-    Source: '../../src/learn/gguf.rs', lines 48:0-48:27 -/
+    Source: '../../src/learn/gguf.rs', lines 50:0-50:27 -/
 @[global_simps, irreducible]
 def grad_solve_port.gguf.TYPE_STRING : Std.U32 := 8#u32
 
 /-- [apeiron_word::grad_solve_port::gguf::TYPE_ARRAY]
-    Source: '../../src/learn/gguf.rs', lines 49:0-49:26 -/
+    Source: '../../src/learn/gguf.rs', lines 51:0-51:26 -/
 @[global_simps, irreducible]
 def grad_solve_port.gguf.TYPE_ARRAY : Std.U32 := 9#u32
 
 /-- [apeiron_word::grad_solve_port::gguf::write_string::{closure}]
-    Source: '../../src/learn/gguf.rs', lines 59:43-59:72 -/
+    Source: '../../src/learn/gguf.rs', lines 61:43-61:72 -/
 @[reducible]
 def grad_solve_port.gguf.write_string.closure := Unit
 
 /-- [apeiron_word::grad_solve_port::gguf::write_string::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_string::{closure}}::call_once]:
-    Source: '../../src/learn/gguf.rs', lines 59:43-59:72 -/
+    Source: '../../src/learn/gguf.rs', lines 61:43-61:72 -/
 def
   grad_solve_port.gguf.write_string.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
   (c : grad_solve_port.gguf.write_string.closure)
@@ -76224,7 +76210,7 @@ def
   ok gguf.GgufError.LengthOverflow
 
 /-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_string::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_string::{closure}}]
-    Source: '../../src/learn/gguf.rs', lines 59:43-59:72 -/
+    Source: '../../src/learn/gguf.rs', lines 61:43-61:72 -/
 @[reducible]
 def
   grad_solve_port.gguf.write_string.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
@@ -76235,7 +76221,7 @@ def
 }
 
 /-- [apeiron_word::grad_solve_port::gguf::write_string]:
-    Source: '../../src/learn/gguf.rs', lines 58:0-63:1 -/
+    Source: '../../src/learn/gguf.rs', lines 60:0-65:1 -/
 def grad_solve_port.gguf.write_string
   (out : alloc.vec.Vec Std.U8) (s : Slice Std.U8) :
   Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
@@ -76261,7 +76247,7 @@ def grad_solve_port.gguf.write_string
     ok (r2, out)
 
 /-- [apeiron_word::grad_solve_port::gguf::write_int]:
-    Source: '../../src/learn/gguf.rs', lines 70:0-124:1 -/
+    Source: '../../src/learn/gguf.rs', lines 74:0-128:1 -/
 def grad_solve_port.gguf.write_int
   (out : alloc.vec.Vec Std.U8) (t : Std.U32) (x : Std.I128) :
   Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
@@ -76285,7 +76271,8 @@ def grad_solve_port.gguf.write_int
       then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
       else
         let i ← lift (IScalar.cast .I8 x)
-        let a ← lift (core.num.I8.to_le_bytes i)
+        let i1 ← lift (IScalar.hcast .U8 i)
+        let a ← lift (core.num.U8.to_le_bytes i1)
         let s ← lift (Array.to_slice a)
         let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
         ok (core.result.Result.Ok (), out1)
@@ -76309,7 +76296,8 @@ def grad_solve_port.gguf.write_int
       then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
       else
         let i ← lift (IScalar.cast .I16 x)
-        let a ← lift (core.num.I16.to_le_bytes i)
+        let i1 ← lift (IScalar.hcast .U16 i)
+        let a ← lift (core.num.U16.to_le_bytes i1)
         let s ← lift (Array.to_slice a)
         let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
         ok (core.result.Result.Ok (), out1)
@@ -76333,7 +76321,8 @@ def grad_solve_port.gguf.write_int
       then ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
       else
         let i ← lift (IScalar.cast .I32 x)
-        let a ← lift (core.num.I32.to_le_bytes i)
+        let i1 ← lift (IScalar.hcast .U32 i)
+        let a ← lift (core.num.U32.to_le_bytes i1)
         let s ← lift (Array.to_slice a)
         let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
         ok (core.result.Result.Ok (), out1)
@@ -76353,7 +76342,8 @@ def grad_solve_port.gguf.write_int
     let r ← I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from x
     match r with
     | core.result.Result.Ok v =>
-      let a ← lift (core.num.I64.to_le_bytes v)
+      let i ← lift (IScalar.hcast .U64 v)
+      let a ← lift (core.num.U64.to_le_bytes i)
       let s ← lift (Array.to_slice a)
       let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
       ok (core.result.Result.Ok (), out1)
@@ -76361,95 +76351,14 @@ def grad_solve_port.gguf.write_int
       ok (core.result.Result.Err gguf.GgufError.LengthOverflow, out)
   | _ => ok (core.result.Result.Err (gguf.GgufError.UnknownType t), out)
 
-/-- [apeiron_word::grad_solve_port::gguf::write_payload::{closure}]
-    Source: '../../src/learn/gguf.rs', lines 140:55-140:84 -/
-@[reducible]
-def grad_solve_port.gguf.write_payload.closure := Unit
-
-/-- [apeiron_word::grad_solve_port::gguf::write_payload::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload::{closure}}::call_once]:
-    Source: '../../src/learn/gguf.rs', lines 140:55-140:84 -/
-def
-  grad_solve_port.gguf.write_payload.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
-  (c : grad_solve_port.gguf.write_payload.closure)
-  (tupled_args : core.num.error.TryFromIntError) :
-  Result gguf.GgufError
-  := do
-  ok gguf.GgufError.LengthOverflow
-
-/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_payload::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload::{closure}}]
-    Source: '../../src/learn/gguf.rs', lines 140:55-140:84 -/
-@[reducible]
-def
-  grad_solve_port.gguf.write_payload.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
-  : core.ops.function.FnOnce grad_solve_port.gguf.write_payload.closure
-  core.num.error.TryFromIntError gguf.GgufError := {
-  call_once :=
-    grad_solve_port.gguf.write_payload.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
-}
-
-mutual
-
-/-- [apeiron_word::grad_solve_port::gguf::write_payload]: loop 0:
-    Source: '../../src/learn/gguf.rs', lines 147:12-153:13 -/
-@[rust_loop]
-def grad_solve_port.gguf.write_payload_loop
-  (out : alloc.vec.Vec Std.U8) (elems : alloc.vec.Vec gguf.GVal)
-  (err : Option gguf.GgufError) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError))
-  := do
-  loop
-    (fun (out1, err1, i1) => grad_solve_port.gguf.write_payload_loop.body elems
-      out1 err1 i1)
-    (out, err, i)
-partial_fixpoint
-
-/-- [apeiron_word::grad_solve_port::gguf::write_payload]: loop body 0:
-    Source: '../../src/learn/gguf.rs', lines 147:12-153:13 -/
-@[rust_loop_body]
-def grad_solve_port.gguf.write_payload_loop.body
-  (elems : alloc.vec.Vec gguf.GVal) (out : alloc.vec.Vec Std.U8)
-  (err : Option gguf.GgufError) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError) ×
-    Std.Usize) ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError)))
-  := do
-  let i1 := alloc.vec.Vec.len elems
-  if i < i1
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let g ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice gguf.GVal)
-          elems i
-      let (r, out1) ← grad_solve_port.gguf.write_payload out g
-      let err1 ←
-        match r with
-        | core.result.Result.Ok _ => ok err
-        | core.result.Result.Err e => ok (some e)
-      let i2 ← i + 1#usize
-      ok (cont (out1, err1, i2))
-    else ok (done (out, err))
-  else ok (done (out, err))
-partial_fixpoint
-
-/-- [apeiron_word::grad_solve_port::gguf::write_payload]:
-    Source: '../../src/learn/gguf.rs', lines 131:0-160:1 -/
-def grad_solve_port.gguf.write_payload
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_scalar]:
+    Source: '../../src/learn/gguf.rs', lines 136:0-156:1 -/
+def grad_solve_port.gguf.write_payload_scalar
   (out : alloc.vec.Vec Std.U8) (v : gguf.GVal) :
   Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
   := do
   match v with
-  | gguf.GVal.Int x t =>
-    let (r, out1) ← grad_solve_port.gguf.write_int out t x
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue _ =>
-      ok (core.result.Result.Ok (), out1)
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      let r1 ←
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          Unit (core.convert.FromSame gguf.GgufError) residual
-      ok (r1, out1)
+  | gguf.GVal.Int x t => grad_solve_port.gguf.write_int out t x
   | gguf.GVal.F32Bits bits _ =>
     let a ← lift (core.num.U32.to_le_bytes bits)
     let s ← lift (Array.to_slice a)
@@ -76466,16 +76375,832 @@ def grad_solve_port.gguf.write_payload
     ok (core.result.Result.Ok (), out1)
   | gguf.GVal.Str s =>
     let s1 := alloc.vec.Vec.deref s
-    let (r, out1) ← grad_solve_port.gguf.write_string out s1
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    grad_solve_port.gguf.write_string out s1
+  | gguf.GVal.Arr _ _ =>
+    ok (core.result.Result.Err (gguf.GgufError.TooDeep gguf.MAX_ARRAY_DEPTH),
+      out)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload::{closure}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def grad_solve_port.gguf.write_payload.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload::{closure}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+def
+  grad_solve_port.gguf.write_payload.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_payload.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_payload::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload::{closure}}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_payload.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_payload.closure
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_payload.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_2::{closure}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def grad_solve_port.gguf.write_payload_2.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_2::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_2::{closure}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+def
+  grad_solve_port.gguf.write_payload_2.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_payload_2.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_payload_2::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_2::{closure}}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_payload_2.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_payload_2.closure
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_payload_2.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_3::{closure}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def grad_solve_port.gguf.write_payload_3.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_3::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_3::{closure}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+def
+  grad_solve_port.gguf.write_payload_3.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_payload_3.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_payload_3::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_3::{closure}}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_payload_3.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_payload_3.closure
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_payload_3.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_4::{closure}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def grad_solve_port.gguf.write_payload_4.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_4::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_4::{closure}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+def
+  grad_solve_port.gguf.write_payload_4.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_payload_4.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_payload_4::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_4::{closure}}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_payload_4.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_payload_4.closure
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_payload_4.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_5::{closure}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def grad_solve_port.gguf.write_payload_5.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_5::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_5::{closure}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+def
+  grad_solve_port.gguf.write_payload_5.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_payload_5.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_payload_5::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_5::{closure}}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_payload_5.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_payload_5.closure
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_payload_5.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_6::{closure}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def grad_solve_port.gguf.write_payload_6.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_6::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_6::{closure}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+def
+  grad_solve_port.gguf.write_payload_6.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_payload_6.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_payload_6::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_6::{closure}}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_payload_6.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_payload_6.closure
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_payload_6.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_7::{closure}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def grad_solve_port.gguf.write_payload_7.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_7::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_7::{closure}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+def
+  grad_solve_port.gguf.write_payload_7.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_payload_7.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_payload_7::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_7::{closure}}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_payload_7.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_payload_7.closure
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_payload_7.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_8::{closure}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def grad_solve_port.gguf.write_payload_8.closure := Unit
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_8::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_8::{closure}}::call_once]:
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+def
+  grad_solve_port.gguf.write_payload_8.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+  (c : grad_solve_port.gguf.write_payload_8.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result gguf.GgufError
+  := do
+  ok gguf.GgufError.LengthOverflow
+
+/-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_payload_8::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_payload_8::{closure}}]
+    Source: '../../src/learn/gguf.rs', lines 175:63-175:92 -/
+@[reducible]
+def
+  grad_solve_port.gguf.write_payload_8.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+  : core.ops.function.FnOnce grad_solve_port.gguf.write_payload_8.closure
+  core.num.error.TryFromIntError gguf.GgufError := {
+  call_once :=
+    grad_solve_port.gguf.write_payload_8.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
+}
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_8]: loop body 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_payload_8_loop.body
+  (elems : alloc.vec.Vec gguf.GVal) (out : alloc.vec.Vec Std.U8)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError) ×
+    Std.Usize) ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError)))
+  := do
+  let i1 := alloc.vec.Vec.len elems
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let g ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice gguf.GVal)
+          elems i
+      let (r, out1) ← grad_solve_port.gguf.write_payload_scalar out g
+      let err1 ←
+        match r with
+        | core.result.Result.Ok _ => ok err
+        | core.result.Result.Err e => ok (some e)
+      let i2 ← i + 1#usize
+      ok (cont (out1, err1, i2))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_8]: loop 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop]
+def grad_solve_port.gguf.write_payload_8_loop
+  (out : alloc.vec.Vec Std.U8) (elems : alloc.vec.Vec gguf.GVal)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError))
+  := do
+  loop
+    (fun (out1, err1, i1) => grad_solve_port.gguf.write_payload_8_loop.body
+      elems out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_8]:
+    Source: '../../src/learn/gguf.rs', lines 171:8-196:9 -/
+def grad_solve_port.gguf.write_payload_8
+  (out : alloc.vec.Vec Std.U8) (v : gguf.GVal) :
+  Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
+  := do
+  match v with
+  | gguf.GVal.Int _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F32Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F64Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Bool _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Str _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Arr et elems =>
+    let a ← lift (core.num.U32.to_le_bytes et)
+    let s ← lift (Array.to_slice a)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+    let i := alloc.vec.Vec.len elems
+    let r ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+    let r1 ←
+      core.result.Result.map_err
+        grad_solve_port.gguf.write_payload_8.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+        r ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
     match cf with
-    | core.ops.control_flow.ControlFlow.Continue _ =>
-      ok (core.result.Result.Ok (), out1)
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let a1 ← lift (core.num.U64.to_le_bytes val)
+      let s1 ← lift (Array.to_slice a1)
+      let out2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out1 s1
+      let (out3, err) ←
+        grad_solve_port.gguf.write_payload_8_loop out2 elems none 0#usize
+      match err with
+      | none => ok (core.result.Result.Ok (), out3)
+      | some e => ok (core.result.Result.Err e, out3)
     | core.ops.control_flow.ControlFlow.Break residual =>
-      let r1 ←
+      let r2 ←
         core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
           Unit (core.convert.FromSame gguf.GgufError) residual
-      ok (r1, out1)
+      ok (r2, out1)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_7]: loop body 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_payload_7_loop.body
+  (elems : alloc.vec.Vec gguf.GVal) (out : alloc.vec.Vec Std.U8)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError) ×
+    Std.Usize) ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError)))
+  := do
+  let i1 := alloc.vec.Vec.len elems
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let g ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice gguf.GVal)
+          elems i
+      let (r, out1) ← grad_solve_port.gguf.write_payload_8 out g
+      let err1 ←
+        match r with
+        | core.result.Result.Ok _ => ok err
+        | core.result.Result.Err e => ok (some e)
+      let i2 ← i + 1#usize
+      ok (cont (out1, err1, i2))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_7]: loop 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop]
+def grad_solve_port.gguf.write_payload_7_loop
+  (out : alloc.vec.Vec Std.U8) (elems : alloc.vec.Vec gguf.GVal)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError))
+  := do
+  loop
+    (fun (out1, err1, i1) => grad_solve_port.gguf.write_payload_7_loop.body
+      elems out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_7]:
+    Source: '../../src/learn/gguf.rs', lines 171:8-196:9 -/
+def grad_solve_port.gguf.write_payload_7
+  (out : alloc.vec.Vec Std.U8) (v : gguf.GVal) :
+  Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
+  := do
+  match v with
+  | gguf.GVal.Int _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F32Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F64Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Bool _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Str _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Arr et elems =>
+    let a ← lift (core.num.U32.to_le_bytes et)
+    let s ← lift (Array.to_slice a)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+    let i := alloc.vec.Vec.len elems
+    let r ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+    let r1 ←
+      core.result.Result.map_err
+        grad_solve_port.gguf.write_payload_7.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+        r ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let a1 ← lift (core.num.U64.to_le_bytes val)
+      let s1 ← lift (Array.to_slice a1)
+      let out2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out1 s1
+      let (out3, err) ←
+        grad_solve_port.gguf.write_payload_7_loop out2 elems none 0#usize
+      match err with
+      | none => ok (core.result.Result.Ok (), out3)
+      | some e => ok (core.result.Result.Err e, out3)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame gguf.GgufError) residual
+      ok (r2, out1)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_6]: loop body 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_payload_6_loop.body
+  (elems : alloc.vec.Vec gguf.GVal) (out : alloc.vec.Vec Std.U8)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError) ×
+    Std.Usize) ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError)))
+  := do
+  let i1 := alloc.vec.Vec.len elems
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let g ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice gguf.GVal)
+          elems i
+      let (r, out1) ← grad_solve_port.gguf.write_payload_7 out g
+      let err1 ←
+        match r with
+        | core.result.Result.Ok _ => ok err
+        | core.result.Result.Err e => ok (some e)
+      let i2 ← i + 1#usize
+      ok (cont (out1, err1, i2))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_6]: loop 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop]
+def grad_solve_port.gguf.write_payload_6_loop
+  (out : alloc.vec.Vec Std.U8) (elems : alloc.vec.Vec gguf.GVal)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError))
+  := do
+  loop
+    (fun (out1, err1, i1) => grad_solve_port.gguf.write_payload_6_loop.body
+      elems out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_6]:
+    Source: '../../src/learn/gguf.rs', lines 171:8-196:9 -/
+def grad_solve_port.gguf.write_payload_6
+  (out : alloc.vec.Vec Std.U8) (v : gguf.GVal) :
+  Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
+  := do
+  match v with
+  | gguf.GVal.Int _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F32Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F64Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Bool _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Str _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Arr et elems =>
+    let a ← lift (core.num.U32.to_le_bytes et)
+    let s ← lift (Array.to_slice a)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+    let i := alloc.vec.Vec.len elems
+    let r ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+    let r1 ←
+      core.result.Result.map_err
+        grad_solve_port.gguf.write_payload_6.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+        r ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let a1 ← lift (core.num.U64.to_le_bytes val)
+      let s1 ← lift (Array.to_slice a1)
+      let out2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out1 s1
+      let (out3, err) ←
+        grad_solve_port.gguf.write_payload_6_loop out2 elems none 0#usize
+      match err with
+      | none => ok (core.result.Result.Ok (), out3)
+      | some e => ok (core.result.Result.Err e, out3)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame gguf.GgufError) residual
+      ok (r2, out1)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_5]: loop body 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_payload_5_loop.body
+  (elems : alloc.vec.Vec gguf.GVal) (out : alloc.vec.Vec Std.U8)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError) ×
+    Std.Usize) ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError)))
+  := do
+  let i1 := alloc.vec.Vec.len elems
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let g ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice gguf.GVal)
+          elems i
+      let (r, out1) ← grad_solve_port.gguf.write_payload_6 out g
+      let err1 ←
+        match r with
+        | core.result.Result.Ok _ => ok err
+        | core.result.Result.Err e => ok (some e)
+      let i2 ← i + 1#usize
+      ok (cont (out1, err1, i2))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_5]: loop 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop]
+def grad_solve_port.gguf.write_payload_5_loop
+  (out : alloc.vec.Vec Std.U8) (elems : alloc.vec.Vec gguf.GVal)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError))
+  := do
+  loop
+    (fun (out1, err1, i1) => grad_solve_port.gguf.write_payload_5_loop.body
+      elems out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_5]:
+    Source: '../../src/learn/gguf.rs', lines 171:8-196:9 -/
+def grad_solve_port.gguf.write_payload_5
+  (out : alloc.vec.Vec Std.U8) (v : gguf.GVal) :
+  Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
+  := do
+  match v with
+  | gguf.GVal.Int _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F32Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F64Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Bool _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Str _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Arr et elems =>
+    let a ← lift (core.num.U32.to_le_bytes et)
+    let s ← lift (Array.to_slice a)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+    let i := alloc.vec.Vec.len elems
+    let r ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+    let r1 ←
+      core.result.Result.map_err
+        grad_solve_port.gguf.write_payload_5.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+        r ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let a1 ← lift (core.num.U64.to_le_bytes val)
+      let s1 ← lift (Array.to_slice a1)
+      let out2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out1 s1
+      let (out3, err) ←
+        grad_solve_port.gguf.write_payload_5_loop out2 elems none 0#usize
+      match err with
+      | none => ok (core.result.Result.Ok (), out3)
+      | some e => ok (core.result.Result.Err e, out3)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame gguf.GgufError) residual
+      ok (r2, out1)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_4]: loop body 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_payload_4_loop.body
+  (elems : alloc.vec.Vec gguf.GVal) (out : alloc.vec.Vec Std.U8)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError) ×
+    Std.Usize) ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError)))
+  := do
+  let i1 := alloc.vec.Vec.len elems
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let g ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice gguf.GVal)
+          elems i
+      let (r, out1) ← grad_solve_port.gguf.write_payload_5 out g
+      let err1 ←
+        match r with
+        | core.result.Result.Ok _ => ok err
+        | core.result.Result.Err e => ok (some e)
+      let i2 ← i + 1#usize
+      ok (cont (out1, err1, i2))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_4]: loop 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop]
+def grad_solve_port.gguf.write_payload_4_loop
+  (out : alloc.vec.Vec Std.U8) (elems : alloc.vec.Vec gguf.GVal)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError))
+  := do
+  loop
+    (fun (out1, err1, i1) => grad_solve_port.gguf.write_payload_4_loop.body
+      elems out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_4]:
+    Source: '../../src/learn/gguf.rs', lines 171:8-196:9 -/
+def grad_solve_port.gguf.write_payload_4
+  (out : alloc.vec.Vec Std.U8) (v : gguf.GVal) :
+  Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
+  := do
+  match v with
+  | gguf.GVal.Int _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F32Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F64Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Bool _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Str _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Arr et elems =>
+    let a ← lift (core.num.U32.to_le_bytes et)
+    let s ← lift (Array.to_slice a)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+    let i := alloc.vec.Vec.len elems
+    let r ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+    let r1 ←
+      core.result.Result.map_err
+        grad_solve_port.gguf.write_payload_4.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+        r ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let a1 ← lift (core.num.U64.to_le_bytes val)
+      let s1 ← lift (Array.to_slice a1)
+      let out2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out1 s1
+      let (out3, err) ←
+        grad_solve_port.gguf.write_payload_4_loop out2 elems none 0#usize
+      match err with
+      | none => ok (core.result.Result.Ok (), out3)
+      | some e => ok (core.result.Result.Err e, out3)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame gguf.GgufError) residual
+      ok (r2, out1)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_3]: loop body 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_payload_3_loop.body
+  (elems : alloc.vec.Vec gguf.GVal) (out : alloc.vec.Vec Std.U8)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError) ×
+    Std.Usize) ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError)))
+  := do
+  let i1 := alloc.vec.Vec.len elems
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let g ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice gguf.GVal)
+          elems i
+      let (r, out1) ← grad_solve_port.gguf.write_payload_4 out g
+      let err1 ←
+        match r with
+        | core.result.Result.Ok _ => ok err
+        | core.result.Result.Err e => ok (some e)
+      let i2 ← i + 1#usize
+      ok (cont (out1, err1, i2))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_3]: loop 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop]
+def grad_solve_port.gguf.write_payload_3_loop
+  (out : alloc.vec.Vec Std.U8) (elems : alloc.vec.Vec gguf.GVal)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError))
+  := do
+  loop
+    (fun (out1, err1, i1) => grad_solve_port.gguf.write_payload_3_loop.body
+      elems out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_3]:
+    Source: '../../src/learn/gguf.rs', lines 171:8-196:9 -/
+def grad_solve_port.gguf.write_payload_3
+  (out : alloc.vec.Vec Std.U8) (v : gguf.GVal) :
+  Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
+  := do
+  match v with
+  | gguf.GVal.Int _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F32Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F64Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Bool _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Str _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Arr et elems =>
+    let a ← lift (core.num.U32.to_le_bytes et)
+    let s ← lift (Array.to_slice a)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+    let i := alloc.vec.Vec.len elems
+    let r ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+    let r1 ←
+      core.result.Result.map_err
+        grad_solve_port.gguf.write_payload_3.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+        r ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let a1 ← lift (core.num.U64.to_le_bytes val)
+      let s1 ← lift (Array.to_slice a1)
+      let out2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out1 s1
+      let (out3, err) ←
+        grad_solve_port.gguf.write_payload_3_loop out2 elems none 0#usize
+      match err with
+      | none => ok (core.result.Result.Ok (), out3)
+      | some e => ok (core.result.Result.Err e, out3)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame gguf.GgufError) residual
+      ok (r2, out1)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_2]: loop body 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_payload_2_loop.body
+  (elems : alloc.vec.Vec gguf.GVal) (out : alloc.vec.Vec Std.U8)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError) ×
+    Std.Usize) ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError)))
+  := do
+  let i1 := alloc.vec.Vec.len elems
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let g ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice gguf.GVal)
+          elems i
+      let (r, out1) ← grad_solve_port.gguf.write_payload_3 out g
+      let err1 ←
+        match r with
+        | core.result.Result.Ok _ => ok err
+        | core.result.Result.Err e => ok (some e)
+      let i2 ← i + 1#usize
+      ok (cont (out1, err1, i2))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_2]: loop 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop]
+def grad_solve_port.gguf.write_payload_2_loop
+  (out : alloc.vec.Vec Std.U8) (elems : alloc.vec.Vec gguf.GVal)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError))
+  := do
+  loop
+    (fun (out1, err1, i1) => grad_solve_port.gguf.write_payload_2_loop.body
+      elems out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload_2]:
+    Source: '../../src/learn/gguf.rs', lines 171:8-196:9 -/
+def grad_solve_port.gguf.write_payload_2
+  (out : alloc.vec.Vec Std.U8) (v : gguf.GVal) :
+  Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
+  := do
+  match v with
+  | gguf.GVal.Int _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F32Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F64Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Bool _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Str _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Arr et elems =>
+    let a ← lift (core.num.U32.to_le_bytes et)
+    let s ← lift (Array.to_slice a)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s
+    let i := alloc.vec.Vec.len elems
+    let r ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+    let r1 ←
+      core.result.Result.map_err
+        grad_solve_port.gguf.write_payload_2.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
+        r ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let a1 ← lift (core.num.U64.to_le_bytes val)
+      let s1 ← lift (Array.to_slice a1)
+      let out2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out1 s1
+      let (out3, err) ←
+        grad_solve_port.gguf.write_payload_2_loop out2 elems none 0#usize
+      match err with
+      | none => ok (core.result.Result.Ok (), out3)
+      | some e => ok (core.result.Result.Err e, out3)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame gguf.GgufError) residual
+      ok (r2, out1)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload]: loop body 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop_body]
+def grad_solve_port.gguf.write_payload_loop.body
+  (elems : alloc.vec.Vec gguf.GVal) (out : alloc.vec.Vec Std.U8)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError) ×
+    Std.Usize) ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError)))
+  := do
+  let i1 := alloc.vec.Vec.len elems
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let g ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice gguf.GVal)
+          elems i
+      let (r, out1) ← grad_solve_port.gguf.write_payload_2 out g
+      let err1 ←
+        match r with
+        | core.result.Result.Ok _ => ok err
+        | core.result.Result.Err e => ok (some e)
+      let i2 ← i + 1#usize
+      ok (cont (out1, err1, i2))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload]: loop 0:
+    Source: '../../src/learn/gguf.rs', lines 182:20-188:21 -/
+@[rust_loop]
+def grad_solve_port.gguf.write_payload_loop
+  (out : alloc.vec.Vec Std.U8) (elems : alloc.vec.Vec gguf.GVal)
+  (err : Option gguf.GgufError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × (Option gguf.GgufError))
+  := do
+  loop
+    (fun (out1, err1, i1) => grad_solve_port.gguf.write_payload_loop.body elems
+      out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::grad_solve_port::gguf::write_payload]:
+    Source: '../../src/learn/gguf.rs', lines 171:8-196:9 -/
+def grad_solve_port.gguf.write_payload
+  (out : alloc.vec.Vec Std.U8) (v : gguf.GVal) :
+  Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
+  := do
+  match v with
+  | gguf.GVal.Int _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F32Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.F64Bits _ _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Bool _ => grad_solve_port.gguf.write_payload_scalar out v
+  | gguf.GVal.Str _ => grad_solve_port.gguf.write_payload_scalar out v
   | gguf.GVal.Arr et elems =>
     let a ← lift (core.num.U32.to_le_bytes et)
     let s ← lift (Array.to_slice a)
@@ -76502,12 +77227,9 @@ def grad_solve_port.gguf.write_payload
         core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
           Unit (core.convert.FromSame gguf.GgufError) residual
       ok (r2, out1)
-partial_fixpoint
-
-end
 
 /-- [apeiron_word::grad_solve_port::gguf::write_value]:
-    Source: '../../src/learn/gguf.rs', lines 165:0-174:1 -/
+    Source: '../../src/learn/gguf.rs', lines 212:0-221:1 -/
 def grad_solve_port.gguf.write_value
   (out : alloc.vec.Vec Std.U8) (v : gguf.GVal) :
   Result ((core.result.Result Unit gguf.GgufError) × (alloc.vec.Vec Std.U8))
@@ -76526,12 +77248,12 @@ def grad_solve_port.gguf.write_value
   grad_solve_port.gguf.write_payload out1 v
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header::{closure#3}]
-    Source: '../../src/learn/gguf.rs', lines 291:43-291:72 -/
+    Source: '../../src/learn/gguf.rs', lines 338:43-338:72 -/
 @[reducible]
 def grad_solve_port.gguf.write_header.closure_3 := Unit
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure#3}}::call_once]:
-    Source: '../../src/learn/gguf.rs', lines 291:43-291:72 -/
+    Source: '../../src/learn/gguf.rs', lines 338:43-338:72 -/
 def
   grad_solve_port.gguf.write_header.closure_3.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
   (c : grad_solve_port.gguf.write_header.closure_3)
@@ -76541,7 +77263,7 @@ def
   ok gguf.GgufError.LengthOverflow
 
 /-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure#3}}]
-    Source: '../../src/learn/gguf.rs', lines 291:43-291:72 -/
+    Source: '../../src/learn/gguf.rs', lines 338:43-338:72 -/
 @[reducible]
 def
   grad_solve_port.gguf.write_header.closure_3.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
@@ -76552,12 +77274,12 @@ def
 }
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header::{closure#2}]
-    Source: '../../src/learn/gguf.rs', lines 279:54-279:83 -/
+    Source: '../../src/learn/gguf.rs', lines 326:54-326:83 -/
 @[reducible]
 def grad_solve_port.gguf.write_header.closure_2 := Unit
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure#2}}::call_once]:
-    Source: '../../src/learn/gguf.rs', lines 279:54-279:83 -/
+    Source: '../../src/learn/gguf.rs', lines 326:54-326:83 -/
 def
   grad_solve_port.gguf.write_header.closure_2.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
   (c : grad_solve_port.gguf.write_header.closure_2)
@@ -76567,7 +77289,7 @@ def
   ok gguf.GgufError.LengthOverflow
 
 /-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure#2}}]
-    Source: '../../src/learn/gguf.rs', lines 279:54-279:83 -/
+    Source: '../../src/learn/gguf.rs', lines 326:54-326:83 -/
 @[reducible]
 def
   grad_solve_port.gguf.write_header.closure_2.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
@@ -76578,12 +77300,12 @@ def
 }
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header::{closure#1}]
-    Source: '../../src/learn/gguf.rs', lines 201:54-201:83 -/
+    Source: '../../src/learn/gguf.rs', lines 248:54-248:83 -/
 @[reducible]
 def grad_solve_port.gguf.write_header.closure_1 := Unit
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure#1}}::call_once]:
-    Source: '../../src/learn/gguf.rs', lines 201:54-201:83 -/
+    Source: '../../src/learn/gguf.rs', lines 248:54-248:83 -/
 def
   grad_solve_port.gguf.write_header.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
   (c : grad_solve_port.gguf.write_header.closure_1)
@@ -76593,7 +77315,7 @@ def
   ok gguf.GgufError.LengthOverflow
 
 /-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure#1}}]
-    Source: '../../src/learn/gguf.rs', lines 201:54-201:83 -/
+    Source: '../../src/learn/gguf.rs', lines 248:54-248:83 -/
 @[reducible]
 def
   grad_solve_port.gguf.write_header.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
@@ -76604,12 +77326,12 @@ def
 }
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header::{closure}]
-    Source: '../../src/learn/gguf.rs', lines 200:64-200:93 -/
+    Source: '../../src/learn/gguf.rs', lines 247:64-247:93 -/
 @[reducible]
 def grad_solve_port.gguf.write_header.closure := Unit
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure}}::call_once]:
-    Source: '../../src/learn/gguf.rs', lines 200:64-200:93 -/
+    Source: '../../src/learn/gguf.rs', lines 247:64-247:93 -/
 def
   grad_solve_port.gguf.write_header.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
   (c : grad_solve_port.gguf.write_header.closure)
@@ -76619,7 +77341,7 @@ def
   ok gguf.GgufError.LengthOverflow
 
 /-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_header::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_header::{closure}}]
-    Source: '../../src/learn/gguf.rs', lines 200:64-200:93 -/
+    Source: '../../src/learn/gguf.rs', lines 247:64-247:93 -/
 @[reducible]
 def
   grad_solve_port.gguf.write_header.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
@@ -76630,7 +77352,7 @@ def
 }
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header]: loop body 0:
-    Source: '../../src/learn/gguf.rs', lines 211:4-221:5
+    Source: '../../src/learn/gguf.rs', lines 258:4-268:5
     Visibility: public -/
 @[rust_loop_body]
 def grad_solve_port.gguf.write_header_loop0.body
@@ -76667,7 +77389,7 @@ def grad_solve_port.gguf.write_header_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header]: loop 0:
-    Source: '../../src/learn/gguf.rs', lines 211:4-221:5
+    Source: '../../src/learn/gguf.rs', lines 258:4-268:5
     Visibility: public -/
 @[rust_loop]
 def grad_solve_port.gguf.write_header_loop0
@@ -76681,7 +77403,7 @@ def grad_solve_port.gguf.write_header_loop0
     (out, err, k)
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header]: loop body 2:
-    Source: '../../src/learn/gguf.rs', lines 236:24-239:25
+    Source: '../../src/learn/gguf.rs', lines 283:24-286:25
     Visibility: public -/
 @[rust_loop_body]
 def grad_solve_port.gguf.write_header_loop1_loop0.body
@@ -76702,7 +77424,7 @@ def grad_solve_port.gguf.write_header_loop1_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header]: loop 2:
-    Source: '../../src/learn/gguf.rs', lines 236:24-239:25
+    Source: '../../src/learn/gguf.rs', lines 283:24-286:25
     Visibility: public -/
 @[rust_loop]
 def grad_solve_port.gguf.write_header_loop1_loop0
@@ -76715,7 +77437,7 @@ def grad_solve_port.gguf.write_header_loop1_loop0
     (out, d)
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header]: loop body 1:
-    Source: '../../src/learn/gguf.rs', lines 224:4-247:5
+    Source: '../../src/learn/gguf.rs', lines 271:4-294:5
     Visibility: public -/
 @[rust_loop_body]
 def grad_solve_port.gguf.write_header_loop1.body
@@ -76775,7 +77497,7 @@ def grad_solve_port.gguf.write_header_loop1.body
   else ok (done (out, err))
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header]: loop 1:
-    Source: '../../src/learn/gguf.rs', lines 224:4-247:5
+    Source: '../../src/learn/gguf.rs', lines 271:4-294:5
     Visibility: public -/
 @[rust_loop]
 def grad_solve_port.gguf.write_header_loop1
@@ -76789,7 +77511,7 @@ def grad_solve_port.gguf.write_header_loop1
     (out, err, t)
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header]: loop body 4:
-    Source: '../../src/learn/gguf.rs', lines 260:12-265:13
+    Source: '../../src/learn/gguf.rs', lines 307:12-312:13
     Visibility: public -/
 @[rust_loop_body]
 def grad_solve_port.gguf.write_header_loop2_loop0.body
@@ -76813,7 +77535,7 @@ def grad_solve_port.gguf.write_header_loop2_loop0.body
   else ok (done same)
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header]: loop 4:
-    Source: '../../src/learn/gguf.rs', lines 260:12-265:13
+    Source: '../../src/learn/gguf.rs', lines 307:12-312:13
     Visibility: public -/
 @[rust_loop]
 def grad_solve_port.gguf.write_header_loop2_loop0
@@ -76827,7 +77549,7 @@ def grad_solve_port.gguf.write_header_loop2_loop0
     (j, same)
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header]: loop body 3:
-    Source: '../../src/learn/gguf.rs', lines 256:4-278:5
+    Source: '../../src/learn/gguf.rs', lines 303:4-325:5
     Visibility: public -/
 @[rust_loop_body]
 def grad_solve_port.gguf.write_header_loop2.body
@@ -76867,7 +77589,7 @@ def grad_solve_port.gguf.write_header_loop2.body
   else ok (done align)
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header]: loop 3:
-    Source: '../../src/learn/gguf.rs', lines 256:4-278:5
+    Source: '../../src/learn/gguf.rs', lines 303:4-325:5
     Visibility: public -/
 @[rust_loop]
 def grad_solve_port.gguf.write_header_loop2
@@ -76881,7 +77603,7 @@ def grad_solve_port.gguf.write_header_loop2
     (align, ai)
 
 /-- [apeiron_word::grad_solve_port::gguf::write_header]:
-    Source: '../../src/learn/gguf.rs', lines 196:0-298:1
+    Source: '../../src/learn/gguf.rs', lines 243:0-345:1
     Visibility: public -/
 def grad_solve_port.gguf.write_header
   (header : gguf.GgufHeader) :
@@ -77058,12 +77780,12 @@ def grad_solve_port.gguf.write_header
       (alloc.vec.Vec Std.U8) (core.convert.FromSame gguf.GgufError) residual
 
 /-- [apeiron_word::grad_solve_port::gguf::write_file::{closure}]
-    Source: '../../src/learn/gguf.rs', lines 317:53-317:82 -/
+    Source: '../../src/learn/gguf.rs', lines 364:53-364:82 -/
 @[reducible]
 def grad_solve_port.gguf.write_file.closure := Unit
 
 /-- [apeiron_word::grad_solve_port::gguf::write_file::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_file::{closure}}::call_once]:
-    Source: '../../src/learn/gguf.rs', lines 317:53-317:82 -/
+    Source: '../../src/learn/gguf.rs', lines 364:53-364:82 -/
 def
   grad_solve_port.gguf.write_file.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError.call_once
   (c : grad_solve_port.gguf.write_file.closure)
@@ -77073,7 +77795,7 @@ def
   ok gguf.GgufError.LengthOverflow
 
 /-- Trait implementation: [apeiron_word::grad_solve_port::gguf::write_file::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::gguf::GgufError> for apeiron_word::grad_solve_port::gguf::write_file::{closure}}]
-    Source: '../../src/learn/gguf.rs', lines 317:53-317:82 -/
+    Source: '../../src/learn/gguf.rs', lines 364:53-364:82 -/
 @[reducible]
 def
   grad_solve_port.gguf.write_file.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorGgufError
@@ -77084,7 +77806,7 @@ def
 }
 
 /-- [apeiron_word::grad_solve_port::gguf::write_file]: loop body 0:
-    Source: '../../src/learn/gguf.rs', lines 323:4-342:5
+    Source: '../../src/learn/gguf.rs', lines 370:4-389:5
     Visibility: public -/
 @[rust_loop_body]
 def grad_solve_port.gguf.write_file_loop.body
@@ -77124,7 +77846,7 @@ def grad_solve_port.gguf.write_file_loop.body
   else ok (done err)
 
 /-- [apeiron_word::grad_solve_port::gguf::write_file]: loop 0:
-    Source: '../../src/learn/gguf.rs', lines 323:4-342:5
+    Source: '../../src/learn/gguf.rs', lines 370:4-389:5
     Visibility: public -/
 @[rust_loop]
 def grad_solve_port.gguf.write_file_loop
@@ -77138,7 +77860,7 @@ def grad_solve_port.gguf.write_file_loop
     (err, i)
 
 /-- [apeiron_word::grad_solve_port::gguf::write_file]:
-    Source: '../../src/learn/gguf.rs', lines 315:0-354:1
+    Source: '../../src/learn/gguf.rs', lines 362:0-401:1
     Visibility: public -/
 def grad_solve_port.gguf.write_file
   (header : gguf.GgufHeader) (data : Slice Std.U8) :
@@ -81726,68 +82448,50 @@ def grad_solve_port.model.expect
       ok (core.result.Result.Err (grad_solve_port.model.ModelError.Shape s1))
 
 /-- [apeiron_word::grad_solve_port::model::add_flat]: loop body 0:
-    Source: '../../src/learn/grad/model.rs', lines 371:4-375:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 376:4-382:5 -/
 @[rust_loop_body]
 def grad_solve_port.model.add_flat_loop.body
-  (iter : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-  (core.slice.iter.Iter Std.I64))
-  (back : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-  (core.slice.iter.Iter Std.I64) → core.iter.adapters.zip.Zip
-  (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64)) :
-  Result (ControlFlow ((core.iter.adapters.zip.Zip (core.slice.iter.IterMut
-    Std.I64) (core.slice.iter.Iter Std.I64)) × (core.iter.adapters.zip.Zip
-    (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64) →
-    core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-    (core.slice.iter.Iter Std.I64))) ((core.result.Result Unit
-    grad_solve_port.model.ModelError) × (core.iter.adapters.zip.Zip
-    (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64))))
+  (b : Slice Std.I64) (a : Slice Std.I64)
+  (err : Option grad_solve_port.model.ModelError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option
+    grad_solve_port.model.ModelError) × Std.Usize) ((Slice Std.I64) × (Option
+    grad_solve_port.model.ModelError)))
   := do
-  let (o, iter1, next_back) ←
-    core.iter.adapters.zip.Zip.Insts.CoreIterTraitsIteratorIteratorPair.next
-      (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT
-      Std.I64) (core.iter.traits.iterator.IteratorSliceIter Std.I64) iter
-  match o with
-  | none =>
-    ok (done (core.result.Result.Ok (), let z := next_back iter1 none
-                                        back z))
-  | some p =>
-    let (x, y) := p
-    let o1 ← lift (I64.checked_add x y)
-    let r ←
-      core.option.Option.ok_or o1 grad_solve_port.model.ModelError.Overflow
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue val =>
-      ok (cont (iter1, fun z => let z1 := next_back z (some (val, y))
-                                back z1))
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      let r1 ←
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          Unit (core.convert.FromSame grad_solve_port.model.ModelError)
-          residual
-      ok (done (r1, let z := next_back iter1 o
-                    back z))
+  let i1 := Slice.len a
+  if i < i1
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let i2 ← Slice.index_usize a i
+      let i3 ← Slice.index_usize b i
+      let o ← lift (I64.checked_add i2 i3)
+      match o with
+      | none =>
+        let i4 ← i + 1#usize
+        ok (cont (a, some grad_solve_port.model.ModelError.Overflow, i4))
+      | some v =>
+        let s ← Slice.update a i v
+        let i4 ← i + 1#usize
+        ok (cont (s, err, i4))
+    else ok (done (a, err))
+  else ok (done (a, err))
 
 /-- [apeiron_word::grad_solve_port::model::add_flat]: loop 0:
-    Source: '../../src/learn/grad/model.rs', lines 371:4-375:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 376:4-382:5 -/
 @[rust_loop]
 def grad_solve_port.model.add_flat_loop
-  (iter : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-  (core.slice.iter.Iter Std.I64))
-  (back : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-  (core.slice.iter.Iter Std.I64) → core.iter.adapters.zip.Zip
-  (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64)) :
-  Result ((core.result.Result Unit grad_solve_port.model.ModelError) ×
-    (core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-    (core.slice.iter.Iter Std.I64)))
+  (a : Slice Std.I64) (b : Slice Std.I64)
+  (err : Option grad_solve_port.model.ModelError) (i : Std.Usize) :
+  Result ((Slice Std.I64) × (Option grad_solve_port.model.ModelError))
   := do
   loop
-    (fun (iter1, back1) => grad_solve_port.model.add_flat_loop.body iter1
-      back1)
-    (iter, back)
+    (fun (a1, err1, i1) => grad_solve_port.model.add_flat_loop.body b a1 err1
+      i1)
+    (a, err, i)
 
 /-- [apeiron_word::grad_solve_port::model::add_flat]:
-    Source: '../../src/learn/grad/model.rs', lines 367:0-375:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 367:0-387:1 -/
 def grad_solve_port.model.add_flat
   (a : Slice Std.I64) (b : Slice Std.I64) :
   Result ((core.result.Result Unit grad_solve_port.model.ModelError) × (Slice
@@ -81802,19 +82506,13 @@ def grad_solve_port.model.add_flat
         "add width")
     ok (core.result.Result.Err (grad_solve_port.model.ModelError.Shape s), a)
   else
-    let (im, iter_mut_back) ← core.slice.Slice.iter_mut a
-    let (iter, trait_default_back) ←
-      core.iter.traits.iterator.Iterator.zip.trait_default
-        (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT
-        Std.I64) (SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter
-        Std.I64) im b
-    let (r, back) ← grad_solve_port.model.add_flat_loop iter (fun z => z)
-    let im1 := trait_default_back back
-    let a1 := iter_mut_back im1
-    ok (r, a1)
+    let (a1, err) ← grad_solve_port.model.add_flat_loop a b none 0#usize
+    match err with
+    | none => ok (core.result.Result.Ok (), a1)
+    | some e => ok (core.result.Result.Err e, a1)
 
 /-- [apeiron_word::grad_solve_port::model::col_sum]: loop body 1:
-    Source: '../../src/learn/grad/model.rs', lines 392:8-398:9 -/
+    Source: '../../src/learn/grad/model.rs', lines 404:8-410:9 -/
 @[rust_loop_body]
 def grad_solve_port.model.col_sum_loop0_loop0.body
   (x : Slice Std.I64) (w : Std.Usize) (r : Std.Usize)
@@ -81852,7 +82550,7 @@ def grad_solve_port.model.col_sum_loop0_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::grad_solve_port::model::col_sum]: loop 1:
-    Source: '../../src/learn/grad/model.rs', lines 392:8-398:9 -/
+    Source: '../../src/learn/grad/model.rs', lines 404:8-410:9 -/
 @[rust_loop]
 def grad_solve_port.model.col_sum_loop0_loop0
   (x : Slice Std.I64) (w : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -81866,7 +82564,7 @@ def grad_solve_port.model.col_sum_loop0_loop0
     (out, err, c)
 
 /-- [apeiron_word::grad_solve_port::model::col_sum]: loop body 0:
-    Source: '../../src/learn/grad/model.rs', lines 390:4-400:5 -/
+    Source: '../../src/learn/grad/model.rs', lines 402:4-412:5 -/
 @[rust_loop_body]
 def grad_solve_port.model.col_sum_loop0.body
   (x : Slice Std.I64) (t : Std.Usize) (w : Std.Usize)
@@ -81889,7 +82587,7 @@ def grad_solve_port.model.col_sum_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::grad_solve_port::model::col_sum]: loop 0:
-    Source: '../../src/learn/grad/model.rs', lines 390:4-400:5 -/
+    Source: '../../src/learn/grad/model.rs', lines 402:4-412:5 -/
 @[rust_loop]
 def grad_solve_port.model.col_sum_loop0
   (x : Slice Std.I64) (t : Std.Usize) (w : Std.Usize)
@@ -81903,7 +82601,7 @@ def grad_solve_port.model.col_sum_loop0
     (out, err, r)
 
 /-- [apeiron_word::grad_solve_port::model::col_sum]:
-    Source: '../../src/learn/grad/model.rs', lines 381:0-405:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 393:0-417:1 -/
 def grad_solve_port.model.col_sum
   (x : Slice Std.I64) (t : Std.Usize) (w : Std.Usize) :
   Result (core.result.Result (alloc.vec.Vec Std.I64)
@@ -81926,7 +82624,7 @@ def grad_solve_port.model.col_sum
       grad_solve_port.model.ModelError) residual
 
 /-- [apeiron_word::grad_solve_port::model::rmsnorm_rows]: loop body 0:
-    Source: '../../src/learn/grad/model.rs', lines 423:4-427:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 435:4-439:1 -/
 @[rust_loop_body]
 def grad_solve_port.model.rmsnorm_rows_loop.body
   (x : Slice Std.I64) (gamma : Slice Std.I64) (w : Std.Usize) (eps : Std.I64)
@@ -81961,7 +82659,7 @@ def grad_solve_port.model.rmsnorm_rows_loop.body
       ok (done r2)
 
 /-- [apeiron_word::grad_solve_port::model::rmsnorm_rows]: loop 0:
-    Source: '../../src/learn/grad/model.rs', lines 423:4-427:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 435:4-439:1 -/
 @[rust_loop]
 def grad_solve_port.model.rmsnorm_rows_loop
   (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64)
@@ -81976,7 +82674,7 @@ def grad_solve_port.model.rmsnorm_rows_loop
     (iter, out)
 
 /-- [apeiron_word::grad_solve_port::model::rmsnorm_rows]:
-    Source: '../../src/learn/grad/model.rs', lines 411:0-427:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 423:0-439:1 -/
 def grad_solve_port.model.rmsnorm_rows
   (x : Slice Std.I64) (gamma : Slice Std.I64) (t : Std.Usize) (w : Std.Usize)
   (eps : Std.I64) :
@@ -82006,7 +82704,7 @@ def grad_solve_port.model.rmsnorm_rows
       grad_solve_port.model.ModelError) residual
 
 /-- [apeiron_word::grad_solve_port::model::rmsnorm_bwd_rows]: loop body 1:
-    Source: '../../src/learn/grad/model.rs', lines 455:16-461:17 -/
+    Source: '../../src/learn/grad/model.rs', lines 467:16-473:17 -/
 @[rust_loop_body]
 def grad_solve_port.model.rmsnorm_bwd_rows_loop0_loop0.body
   (w : Std.Usize) (dgr : alloc.vec.Vec Std.I64) (dg : alloc.vec.Vec Std.I64)
@@ -82043,7 +82741,7 @@ def grad_solve_port.model.rmsnorm_bwd_rows_loop0_loop0.body
   else ok (done (dg, err))
 
 /-- [apeiron_word::grad_solve_port::model::rmsnorm_bwd_rows]: loop 1:
-    Source: '../../src/learn/grad/model.rs', lines 455:16-461:17 -/
+    Source: '../../src/learn/grad/model.rs', lines 467:16-473:17 -/
 @[rust_loop]
 def grad_solve_port.model.rmsnorm_bwd_rows_loop0_loop0
   (w : Std.Usize) (dg : alloc.vec.Vec Std.I64)
@@ -82058,7 +82756,7 @@ def grad_solve_port.model.rmsnorm_bwd_rows_loop0_loop0
     (dg, err, c)
 
 /-- [apeiron_word::grad_solve_port::model::rmsnorm_bwd_rows]: loop body 0:
-    Source: '../../src/learn/grad/model.rs', lines 449:4-465:5 -/
+    Source: '../../src/learn/grad/model.rs', lines 461:4-477:5 -/
 @[rust_loop_body]
 def grad_solve_port.model.rmsnorm_bwd_rows_loop0.body
   (x : Slice Std.I64) (gamma : Slice Std.I64) (eps : Std.I64)
@@ -82109,7 +82807,7 @@ def grad_solve_port.model.rmsnorm_bwd_rows_loop0.body
   else ok (done (dx, dg, err))
 
 /-- [apeiron_word::grad_solve_port::model::rmsnorm_bwd_rows]: loop 0:
-    Source: '../../src/learn/grad/model.rs', lines 449:4-465:5 -/
+    Source: '../../src/learn/grad/model.rs', lines 461:4-477:5 -/
 @[rust_loop]
 def grad_solve_port.model.rmsnorm_bwd_rows_loop0
   (x : Slice Std.I64) (gamma : Slice Std.I64) (eps : Std.I64)
@@ -82126,7 +82824,7 @@ def grad_solve_port.model.rmsnorm_bwd_rows_loop0
     (dx, dg, err, r)
 
 /-- [apeiron_word::grad_solve_port::model::rmsnorm_bwd_rows]:
-    Source: '../../src/learn/grad/model.rs', lines 433:0-470:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 445:0-482:1 -/
 def grad_solve_port.model.rmsnorm_bwd_rows
   (x : Slice Std.I64) (gamma : Slice Std.I64) (eps : Std.I64)
   (dy : Slice Std.I64) (t : Std.Usize) (w : Std.Usize) :
@@ -82163,12 +82861,12 @@ def grad_solve_port.model.rmsnorm_bwd_rows
       (core.convert.FromSame grad_solve_port.model.ModelError) residual
 
 /-- [apeiron_word::grad_solve_port::model::rope_rows_fwd::{closure}]
-    Source: '../../src/learn/grad/model.rs', lines 485:43-485:67 -/
+    Source: '../../src/learn/grad/model.rs', lines 497:43-497:67 -/
 @[reducible]
 def grad_solve_port.model.rope_rows_fwd.closure := Unit
 
 /-- [apeiron_word::grad_solve_port::model::rope_rows_fwd::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::grad_solve_port::model::ModelError> for apeiron_word::grad_solve_port::model::rope_rows_fwd::{closure}}::call_once]:
-    Source: '../../src/learn/grad/model.rs', lines 485:43-485:67 -/
+    Source: '../../src/learn/grad/model.rs', lines 497:43-497:67 -/
 def
   grad_solve_port.model.rope_rows_fwd.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorModelError.call_once
   (c : grad_solve_port.model.rope_rows_fwd.closure)
@@ -82178,7 +82876,7 @@ def
   ok grad_solve_port.model.ModelError.Overflow
 
 /-- Trait implementation: [apeiron_word::grad_solve_port::model::rope_rows_fwd::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::grad_solve_port::model::ModelError> for apeiron_word::grad_solve_port::model::rope_rows_fwd::{closure}}]
-    Source: '../../src/learn/grad/model.rs', lines 485:43-485:67 -/
+    Source: '../../src/learn/grad/model.rs', lines 497:43-497:67 -/
 @[reducible]
 def
   grad_solve_port.model.rope_rows_fwd.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorModelError
@@ -82189,7 +82887,7 @@ def
 }
 
 /-- [apeiron_word::grad_solve_port::model::rope_rows_fwd]: loop body 0:
-    Source: '../../src/learn/grad/model.rs', lines 484:4-489:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 496:4-501:1 -/
 @[rust_loop_body]
 def grad_solve_port.model.rope_rows_fwd_loop.body
   (x : Slice Std.I64) (row : Std.Usize) (rope : rope.RopeTable)
@@ -82239,7 +82937,7 @@ def grad_solve_port.model.rope_rows_fwd_loop.body
       ok (done r3)
 
 /-- [apeiron_word::grad_solve_port::model::rope_rows_fwd]: loop 0:
-    Source: '../../src/learn/grad/model.rs', lines 484:4-489:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 496:4-501:1 -/
 @[rust_loop]
 def grad_solve_port.model.rope_rows_fwd_loop
   (iter : core.ops.range.Range Std.Usize) (x : Slice Std.I64) (row : Std.Usize)
@@ -82253,7 +82951,7 @@ def grad_solve_port.model.rope_rows_fwd_loop
     (iter, out)
 
 /-- [apeiron_word::grad_solve_port::model::rope_rows_fwd]:
-    Source: '../../src/learn/grad/model.rs', lines 476:0-489:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 488:0-501:1 -/
 def grad_solve_port.model.rope_rows_fwd
   (x : Slice Std.I64) (t : Std.Usize) (row : Std.Usize) (rope : rope.RopeTable)
   :
@@ -82275,12 +82973,12 @@ def grad_solve_port.model.rope_rows_fwd
       grad_solve_port.model.ModelError) residual
 
 /-- [apeiron_word::grad_solve_port::model::rope_rows_bwd::{closure}]
-    Source: '../../src/learn/grad/model.rs', lines 504:43-504:67 -/
+    Source: '../../src/learn/grad/model.rs', lines 516:43-516:67 -/
 @[reducible]
 def grad_solve_port.model.rope_rows_bwd.closure := Unit
 
 /-- [apeiron_word::grad_solve_port::model::rope_rows_bwd::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::grad_solve_port::model::ModelError> for apeiron_word::grad_solve_port::model::rope_rows_bwd::{closure}}::call_once]:
-    Source: '../../src/learn/grad/model.rs', lines 504:43-504:67 -/
+    Source: '../../src/learn/grad/model.rs', lines 516:43-516:67 -/
 def
   grad_solve_port.model.rope_rows_bwd.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorModelError.call_once
   (c : grad_solve_port.model.rope_rows_bwd.closure)
@@ -82290,7 +82988,7 @@ def
   ok grad_solve_port.model.ModelError.Overflow
 
 /-- Trait implementation: [apeiron_word::grad_solve_port::model::rope_rows_bwd::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::grad_solve_port::model::ModelError> for apeiron_word::grad_solve_port::model::rope_rows_bwd::{closure}}]
-    Source: '../../src/learn/grad/model.rs', lines 504:43-504:67 -/
+    Source: '../../src/learn/grad/model.rs', lines 516:43-516:67 -/
 @[reducible]
 def
   grad_solve_port.model.rope_rows_bwd.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorModelError
@@ -82301,7 +82999,7 @@ def
 }
 
 /-- [apeiron_word::grad_solve_port::model::rope_rows_bwd]: loop body 0:
-    Source: '../../src/learn/grad/model.rs', lines 503:4-508:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 515:4-520:1 -/
 @[rust_loop_body]
 def grad_solve_port.model.rope_rows_bwd_loop.body
   (dy : Slice Std.I64) (row : Std.Usize) (rope : rope.RopeTable)
@@ -82351,7 +83049,7 @@ def grad_solve_port.model.rope_rows_bwd_loop.body
       ok (done r3)
 
 /-- [apeiron_word::grad_solve_port::model::rope_rows_bwd]: loop 0:
-    Source: '../../src/learn/grad/model.rs', lines 503:4-508:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 515:4-520:1 -/
 @[rust_loop]
 def grad_solve_port.model.rope_rows_bwd_loop
   (iter : core.ops.range.Range Std.Usize) (dy : Slice Std.I64)
@@ -82365,7 +83063,7 @@ def grad_solve_port.model.rope_rows_bwd_loop
     (iter, out)
 
 /-- [apeiron_word::grad_solve_port::model::rope_rows_bwd]:
-    Source: '../../src/learn/grad/model.rs', lines 495:0-508:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 507:0-520:1 -/
 def grad_solve_port.model.rope_rows_bwd
   (dy : Slice Std.I64) (t : Std.Usize) (row : Std.Usize)
   (rope : rope.RopeTable) :
@@ -82387,7 +83085,7 @@ def grad_solve_port.model.rope_rows_bwd
       grad_solve_port.model.ModelError) residual
 
 /-- [apeiron_word::grad_solve_port::model::add_bias]: loop body 1:
-    Source: '../../src/learn/grad/model.rs', lines 531:8-538:9 -/
+    Source: '../../src/learn/grad/model.rs', lines 543:8-550:9 -/
 @[rust_loop_body]
 def grad_solve_port.model.add_bias_loop0_loop0.body
   (b : Slice Std.I64) (w : Std.Usize) (r : Std.Usize) (x : Slice Std.I64)
@@ -82418,7 +83116,7 @@ def grad_solve_port.model.add_bias_loop0_loop0.body
   else ok (done (x, err))
 
 /-- [apeiron_word::grad_solve_port::model::add_bias]: loop 1:
-    Source: '../../src/learn/grad/model.rs', lines 531:8-538:9 -/
+    Source: '../../src/learn/grad/model.rs', lines 543:8-550:9 -/
 @[rust_loop]
 def grad_solve_port.model.add_bias_loop0_loop0
   (x : Slice Std.I64) (b : Slice Std.I64) (w : Std.Usize)
@@ -82432,7 +83130,7 @@ def grad_solve_port.model.add_bias_loop0_loop0
     (x, err, c)
 
 /-- [apeiron_word::grad_solve_port::model::add_bias]: loop body 0:
-    Source: '../../src/learn/grad/model.rs', lines 529:4-540:5 -/
+    Source: '../../src/learn/grad/model.rs', lines 541:4-552:5 -/
 @[rust_loop_body]
 def grad_solve_port.model.add_bias_loop0.body
   (b : Slice Std.I64) (t : Std.Usize) (w : Std.Usize) (x : Slice Std.I64)
@@ -82454,7 +83152,7 @@ def grad_solve_port.model.add_bias_loop0.body
   else ok (done (x, err))
 
 /-- [apeiron_word::grad_solve_port::model::add_bias]: loop 0:
-    Source: '../../src/learn/grad/model.rs', lines 529:4-540:5 -/
+    Source: '../../src/learn/grad/model.rs', lines 541:4-552:5 -/
 @[rust_loop]
 def grad_solve_port.model.add_bias_loop0
   (x : Slice Std.I64) (b : Slice Std.I64) (t : Std.Usize) (w : Std.Usize)
@@ -82467,7 +83165,7 @@ def grad_solve_port.model.add_bias_loop0
     (x, err, r)
 
 /-- [apeiron_word::grad_solve_port::model::add_bias]:
-    Source: '../../src/learn/grad/model.rs', lines 514:0-545:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 526:0-557:1 -/
 def grad_solve_port.model.add_bias
   (x : Slice Std.I64) (bias : Option (Slice Std.I64)) (t : Std.Usize)
   (w : Std.Usize) :
@@ -82503,7 +83201,7 @@ def grad_solve_port.model.add_bias
         ok (r1, x)
 
 /-- [apeiron_word::grad_solve_port::model::embedding_grad]: loop body 1:
-    Source: '../../src/learn/grad/model.rs', lines 750:20-756:21 -/
+    Source: '../../src/learn/grad/model.rs', lines 762:20-768:21 -/
 @[rust_loop_body]
 def grad_solve_port.model.embedding_grad_loop0_loop0.body
   (dh : Slice Std.I64) (w : Std.Usize) (r : Std.Usize) (id : Std.Usize)
@@ -82544,7 +83242,7 @@ def grad_solve_port.model.embedding_grad_loop0_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::grad_solve_port::model::embedding_grad]: loop 1:
-    Source: '../../src/learn/grad/model.rs', lines 750:20-756:21 -/
+    Source: '../../src/learn/grad/model.rs', lines 762:20-768:21 -/
 @[rust_loop]
 def grad_solve_port.model.embedding_grad_loop0_loop0
   (dh : Slice Std.I64) (w : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -82559,7 +83257,7 @@ def grad_solve_port.model.embedding_grad_loop0_loop0
     (out, err, c)
 
 /-- [apeiron_word::grad_solve_port::model::embedding_grad]: loop body 0:
-    Source: '../../src/learn/grad/model.rs', lines 742:4-761:5 -/
+    Source: '../../src/learn/grad/model.rs', lines 754:4-773:5 -/
 @[rust_loop_body]
 def grad_solve_port.model.embedding_grad_loop0.body
   (dh : Slice Std.I64) (tokens : Slice Std.U32) (t : Std.Usize) (w : Std.Usize)
@@ -82605,7 +83303,7 @@ def grad_solve_port.model.embedding_grad_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::grad_solve_port::model::embedding_grad]: loop 0:
-    Source: '../../src/learn/grad/model.rs', lines 742:4-761:5 -/
+    Source: '../../src/learn/grad/model.rs', lines 754:4-773:5 -/
 @[rust_loop]
 def grad_solve_port.model.embedding_grad_loop0
   (dh : Slice Std.I64) (tokens : Slice Std.U32) (t : Std.Usize) (w : Std.Usize)
@@ -82619,7 +83317,7 @@ def grad_solve_port.model.embedding_grad_loop0
     (out, err, r)
 
 /-- [apeiron_word::grad_solve_port::model::embedding_grad]:
-    Source: '../../src/learn/grad/model.rs', lines 731:0-766:1 -/
+    Source: '../../src/learn/grad/model.rs', lines 743:0-778:1 -/
 def grad_solve_port.model.embedding_grad
   (dh : Slice Std.I64) (tokens : Slice Std.U32) (t : Std.Usize) (w : Std.Usize)
   (vocab : Std.Usize) :

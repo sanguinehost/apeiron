@@ -19,7 +19,7 @@ pub const DEFAULT_ALIGNMENT: u64 = 32;
 /// Maximum tensor rank this reader accepts.
 pub const MAX_DIMS: usize = 4;
 /// Maximum nesting depth of a metadata array.
-const MAX_ARRAY_DEPTH: u32 = 8;
+pub(crate) const MAX_ARRAY_DEPTH: u32 = 8;
 
 /// The header or table field a read ran past (the payload of [`GgufError::Truncated`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +90,11 @@ pub enum GgufError {
         /// Rank declared by the file.
         dims: u32,
     },
+    /// A metadata value nests arrays deeper than [`MAX_ARRAY_DEPTH`].
+    TooDeep {
+        /// The nesting bound the reader and writer share.
+        depth: u32,
+    },
     /// A length or byte count did not fit the target integer width.
     LengthOverflow,
     /// The tensor's ggml type has no geometry here.
@@ -117,6 +122,9 @@ impl core::fmt::Display for GgufError {
             GgufError::UnsupportedVersion(v) => write!(f, "unsupported GGUF version {v}"),
             GgufError::Truncated(what) => write!(f, "truncated: {}", what.name()),
             GgufError::TooManyDims { dims } => write!(f, "tensor rank {dims} > {MAX_DIMS}"),
+            GgufError::TooDeep { depth } => {
+                write!(f, "metadata array nesting > {depth}")
+            }
             GgufError::LengthOverflow => write!(f, "length overflow"),
             GgufError::UnknownType(t) => write!(f, "unknown ggml type {t}"),
             GgufError::OutOfBounds { at, n, file_len } => {

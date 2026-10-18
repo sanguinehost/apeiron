@@ -31,6 +31,16 @@ fn sample_header() -> (GgufHeader, Vec<u8>) {
             b"k.arr_str".to_vec(),
             GVal::Arr(8, vec![GVal::Str(b"a".to_vec()), GVal::Str(b"bc".to_vec())]),
         ),
+        (
+            b"k.arr_nested".to_vec(),
+            GVal::Arr(
+                9,
+                vec![GVal::Arr(
+                    8,
+                    vec![GVal::Str(b"n".to_vec()), GVal::Str(b"o".to_vec())],
+                )],
+            ),
+        ),
     ];
     let tensors = vec![
         TensorDesc {
@@ -105,6 +115,38 @@ fn real_fixture_round_trips_byte_identical() {
             out[i], bytes[i]
         );
     }
+}
+
+/// The writer and the reader share one nesting bound: eight array levels round-trip, a ninth is
+/// refused on both sides.
+#[test]
+fn array_depth_bound_is_the_readers() {
+    let mut v = GVal::Arr(8, vec![GVal::Str(b"x".to_vec())]);
+    for _ in 1..8 {
+        v = GVal::Arr(9, vec![v]);
+    }
+    let header = GgufHeader {
+        version: 3,
+        kv: vec![
+            (b"general.alignment".to_vec(), GVal::Int(32, 4)),
+            (b"deep".to_vec(), v),
+        ],
+        tensors: Vec::new(),
+        alignment: 32,
+        header_end: 0,
+        data0: 0,
+    };
+    let out = write_header(&header).expect("eight levels write");
+    let h = parse_header(&out, out.len() as u64).expect("eight levels parse");
+    assert_eq!(h.kv, header.kv);
+
+    let mut deeper = GVal::Arr(8, vec![GVal::Str(b"x".to_vec())]);
+    for _ in 1..9 {
+        deeper = GVal::Arr(9, vec![deeper]);
+    }
+    let mut header = header;
+    header.kv[1].1 = deeper;
+    assert_eq!(write_header(&header), Err(GgufError::TooDeep { depth: 8 }));
 }
 
 /// The padding follows `general.alignment` in the metadata, as the reader does, not the
