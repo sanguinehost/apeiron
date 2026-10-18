@@ -25,13 +25,22 @@ Modes:
   --self-test   fixtures: each bad fixture red, each good fixture green
   --controls    mutate temporary copies of the live files: baseline green, each mutation red
 
-Cost: O(B + T) per run, B the bytes of the scanned files (one pass per file to split units, one regex
-pass per unit) and T the bytes of proof/**/*.lean read once to index theorem signatures.
+A staged hunk whose removed and added lines are equal after normalising the module/path token
+substitutions of the staged rename map (``src/simt`` -> ``src/gpu/simt``,
+``src/table.rs`` -> ``src/map/table.rs`` and their ``crate::`` module forms) changes no claim, so
+its added lines are not checked. A hunk that changes any other token is checked in full, including
+the path lines beside the change. A pure rename carries no hunk and is therefore not a claim change.
+
+Cost: O(B + T + D) per run, B the bytes of the scanned files (one pass per file to split units, one regex
+pass per unit), T the bytes of proof/**/*.lean read once to index theorem signatures, and D the
+staged diff bytes (the rename map and the docs hunks).
 """
 
 import argparse
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -167,17 +176,141 @@ def run_check(root):
     return run_check_with_index(root, theorem_index(root))
 
 
+def _staged_renames(root):
+    """``new_path -> old_path`` for every rename git detects in the staged index."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "diff", "--cached", "-M", "--name-status", "-z"],
+        capture_output=True,
+    )
+    fields = proc.stdout.decode("utf-8", "replace").split("\0")
+    renames = {}
+    i = 0
+    while i < len(fields):
+        status = fields[i]
+        if not status:
+            i += 1
+        elif status[0] in "RC":
+            if status[0] == "R" and i + 2 < len(fields):
+                renames[fields[i + 2]] = fields[i + 1]
+            i += 3
+        else:
+            i += 2
+    return renames
+
+
+def _module_path(path):
+    """``src/gpu/simt/mod.rs`` -> ``crate::gpu::simt``; None for a non-``src`` Rust path."""
+    if not (path.startswith("src/") and path.endswith(".rs")):
+        return None
+    rel = path[4:-3]
+    if rel == "mod":
+        rel = ""
+    elif rel.endswith("/mod"):
+        rel = rel[:-4]
+    return "crate::" + rel.replace("/", "::")
+
+
+def _substitutions(renames):
+    """Ordered ``old -> new`` path/module token pairs from the staged rename map.
+
+    Kept in step with ``tools/hooks/perf_gate_controls.py``: exact path, ``crate::`` module path
+    of a ``.rs`` rename, and a directory prefix whose every rename agrees on the destination.
+    """
+    pairs = []
+    for new, old in renames.items():
+        pairs.append((old, new))
+        old_mod, new_mod = _module_path(old), _module_path(new)
+        if old_mod is not None and new_mod is not None:
+            pairs.append((old_mod, new_mod))
+    moved = {}
+    for new, old in renames.items():
+        moved.setdefault(os.path.dirname(old), set()).add(os.path.dirname(new))
+    for old_dir, new_dirs in moved.items():
+        if len(new_dirs) == 1:
+            new_dir = next(iter(new_dirs))
+            if old_dir and new_dir and old_dir != new_dir:
+                pairs.append((old_dir + "/", new_dir + "/"))
+    pairs.sort(key=lambda pair: -len(pair[0]))
+    table = {}
+    for old, new in pairs:
+        table.setdefault(old, new)
+    return table
+
+
+def _normaliser(table):
+    """A one-pass substituter: a token is replaced at most once, so pairs cannot chain."""
+    pattern = None
+    if table:
+        pattern = re.compile("|".join(re.escape(token) for token in table))
+
+    def normalise(line):
+        line = _expand_braces(line)
+        if pattern is None:
+            return line
+        return pattern.sub(lambda m: table[m.group(0)], line)
+
+    return normalise
+
+
+BRACE = re.compile(
+    r"([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)*)/\{([A-Za-z0-9_,.\-]+)\}([A-Za-z0-9_.\-]*)"
+)
+
+
+def _expand_braces(line):
+    """``src/table/{a,b}.rs`` -> ``src/table/a.rs src/table/b.rs`` so each path normalises."""
+
+    def repl(match):
+        base, names, suffix = match.groups()
+        return " ".join(f"{base}/{name}{suffix}" for name in names.split(","))
+
+    return BRACE.sub(repl, line)
+
+
+HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@")
+
+
 def run_staged(root):
-    out = subprocess.run(["git", "-C", str(root), "diff", "--cached", "-U0", "--", "docs/*.md", "book/*.md",
-                          "docs/**/*.md", "book/**/*.md"], capture_output=True, text=True, check=True).stdout
-    added, path = {}, None
+    normalise = _normaliser(_substitutions(_staged_renames(root)))
+    out = subprocess.run(["git", "-C", str(root), "diff", "--cached", "-M", "-U0", "--", "docs/*.md",
+                          "book/*.md", "docs/**/*.md", "book/**/*.md"],
+                         capture_output=True, text=True, check=True).stdout
+    added, path, line_no = {}, None, 0
+    removed, added_lines = [], []
+
+    def flush():
+        """Record the hunk's added lines unless every one pairs with an equal removed line."""
+        path_only = len(removed) == len(added_lines) and all(
+            normalise(old) == normalise(new) for old, (_, new) in zip(removed, added_lines)
+        )
+        if not path_only:
+            for number, _ in added_lines:
+                added.setdefault(path, set()).add(number)
+        removed.clear()
+        added_lines.clear()
+
     for line in out.split("\n"):
         if line.startswith("+++ "):
+            flush()
             path = None if line.endswith("/dev/null") else line[6:]
-        m = re.match(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", line)
-        if m and path:
-            s, n = int(m.group(1)), int(m.group(2) or 1)
-            added.setdefault(path, set()).update(range(s, s + n))
+            continue
+        if line.startswith("--- "):
+            continue
+        m = HUNK.match(line)
+        if m:
+            flush()
+            line_no = int(m.group(1))
+            continue
+        if path is None:
+            continue
+        if line.startswith("-"):
+            removed.append(line[1:])
+        elif line.startswith("+"):
+            added_lines.append((line_no, line[1:]))
+            line_no += 1
+        elif line.startswith(" "):
+            line_no += 1
+    flush()
     idx, beaten = theorem_index(root), floor_literals(root)
     fails = []
     for path, lines in added.items():
@@ -210,6 +343,44 @@ FIXTURES = [
 ]
 
 
+STAGED_BASE = "## Results\n\n- the floor `src/simt/x.rs` cannot reach 1.18 b/w.\n"
+STAGED_RECEIPT = {
+    "variants": {
+        "had-fold-2plane-attn-bscale-e8-icm20-gin25-sink-fnorm-grow-res-qmlp-nb": {
+            "kl_insample_stats": {"mean": 0.35064}
+        }
+    }
+}
+
+
+def _staged_fixture(workdir, body, move_src=True, rename_doc=False):
+    """Stage a doc rewrite (and its source rename) in a throwaway repo; return the gate's exit."""
+    repo = workdir / "staged"
+    if repo.exists():
+        shutil.rmtree(repo)
+    (repo / "src" / "simt").mkdir(parents=True)
+    (repo / "src" / "simt" / "x.rs").write_text("pub struct X;\n")
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs" / "note.md").write_text(STAGED_BASE)
+    receipt = repo / "docs" / "evidence" / "receipts" / "onebit" / "t3-nb-3seed.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(json.dumps(STAGED_RECEIPT))
+    for args in (("init", "-q"), ("config", "user.email", "limit@example.invalid"),
+                 ("config", "user.name", "limit control"), ("add", "-A"), ("commit", "-q", "-m", "base")):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    if rename_doc:
+        subprocess.run(["git", "-C", str(repo), "mv", "docs/note.md", "docs/moved.md"],
+                       check=True, capture_output=True)
+    else:
+        if move_src:
+            (repo / "src" / "gpu" / "simt").mkdir(parents=True)
+            subprocess.run(["git", "-C", str(repo), "mv", "src/simt/x.rs", "src/gpu/simt/x.rs"],
+                           check=True, capture_output=True)
+        (repo / "docs" / "note.md").write_text(body)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    return 1 if run_staged(repo) else 0
+
+
 def self_test():
     idx = {"cond_thm": False, "free_thm": True}
     beaten = [("0.3887", "fixture.json", 0.35064)]
@@ -225,7 +396,23 @@ def self_test():
         got = 1 if check_lean("fixture.lean", text) else 0
         bad += got != want
         print(f"limit-check self-test: {'ok  ' if got == want else 'FAIL'} {name} -> {'red' if got else 'green'}")
-    print(f"limit-check self-test: {len(FIXTURES) + 2 - bad}/{len(FIXTURES) + 2}")
+    workdir = Path(tempfile.mkdtemp(dir="/home/socol/oc-tmp", prefix="limit-check-staged-"))
+    try:
+        staged = [
+            ("good: path-only rewrite", dict(body=STAGED_BASE.replace("src/simt/", "src/gpu/simt/")), 0),
+            ("bad: path rewrite plus one changed token",
+             dict(body=STAGED_BASE.replace("src/simt/", "src/gpu/simt/").replace("1.18", "1.19")), 1),
+            ("good: pure rename", dict(body=STAGED_BASE, move_src=False, rename_doc=True), 0),
+        ]
+        for name, kwargs, want in staged:
+            got = _staged_fixture(workdir, **kwargs)
+            ok = got == want
+            bad += not ok
+            print(f"limit-check self-test: {'ok  ' if ok else 'FAIL'} {name} -> {'red' if got else 'green'}")
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+    total = len(FIXTURES) + 2 + len(staged)
+    print(f"limit-check self-test: {total - bad}/{total}")
     return 1 if bad else 0
 
 

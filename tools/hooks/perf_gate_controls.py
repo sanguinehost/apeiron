@@ -13,9 +13,26 @@ staged change under a performance source path must carry, in the same commit:
 The parser, the row/column rules and the declaration resolution are taken from
 ``tools/check-claims.py`` so the hook and the claim checker cannot drift. There
 is no bypass flag and no environment override: the step refuses, naming the
-staged perf path and the missing piece. A staged diff of a perf path that adds and
-removes only ``//`` comment or blank lines changes no cost and is not a perf change;
-any other changed line keeps the obligation.
+staged perf path and the missing piece.
+
+A staged perf path that carries no code change is not a perf change. The staged
+content is compared with its base blob (the rename source when git reports the
+path as a rename destination) after normalising, token for token, the rewrites a
+file move forces and nothing else:
+
+  * the module/path token substitutions of the staged rename map (``crate::simt``
+    -> ``crate::gpu::simt``, ``src/spirv`` -> ``src/gpu/spirv``, from the actual
+    ``src/{ => gpu}/simt`` and ``src/{ => gpu}/spirv`` renames);
+  * ``pub(super)`` -> ``pub(crate)``, the visibility widening one directory deeper
+    forces;
+  * the leading ``../`` depth of an ``include_bytes!``/``include_str!`` path,
+    which is relative to the moved file;
+  * whitespace, line breaks and commas; and
+  * non-code lines: blank, ``//`` comment, import, module declaration, attribute.
+
+Any surviving token difference keeps the obligation, including a changed token in
+the same hunk as a path rewrite. A pure rename (identical bytes) is a no-op, and a
+path new to the index is a no-op only when it holds no executable token.
 
 Modes::
 
@@ -29,12 +46,16 @@ Modes::
 
 ``.githooks/pre-commit`` calls the ``--staged`` mode; print ``SKIP`` with the
 reason when no perf path is staged.
+
+Cost: O(S + B) per run, S the staged diff bytes git emits for the rename map and
+path list, and B the bytes of the staged perf blobs compared against their base.
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import re
 import shutil
 import subprocess
@@ -73,11 +94,19 @@ def staged_paths(root):
     return [line for line in proc.stdout.splitlines() if line.strip()]
 
 
-def file_at(root, rev, path):
-    proc = git(root, "show", f"{rev}:{path}")
+def blob_at(root, rev, path):
+    """Raw bytes of ``rev:path`` (``rev`` empty means the index), or None when absent."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "show", f"{rev}:{path}"], capture_output=True
+    )
     if proc.returncode != 0:
         return None
     return proc.stdout
+
+
+def file_at(root, rev, path):
+    data = blob_at(root, rev, path)
+    return None if data is None else data.decode("utf-8", "replace")
 
 
 def is_perf_path(path):
@@ -88,20 +117,145 @@ def is_perf_path(path):
     )
 
 
-def is_comment_only(root, path):
-    """True when the staged diff of ``path`` adds and removes only ``//`` comment or blank lines.
+def staged_renames(root):
+    """``new_path -> old_path`` for every rename git detects in the staged index."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "diff", "--cached", "-M", "--name-status", "-z"],
+        capture_output=True,
+    )
+    fields = proc.stdout.decode("utf-8", "replace").split("\0")
+    renames = {}
+    i = 0
+    while i < len(fields):
+        status = fields[i]
+        if not status:
+            i += 1
+        elif status[0] in "RC":
+            if status[0] == "R" and i + 2 < len(fields):
+                renames[fields[i + 2]] = fields[i + 1]
+            i += 3
+        else:
+            i += 2
+    return renames
 
-    A comment cannot change a cost, so it carries no formalisation obligation. Conservative: any
-    other changed line (code, a block comment delimiter, a trailing comment) makes the change
-    non-comment, and a file new to the index has only added code lines.
+
+def module_path(path):
+    """``src/gpu/simt/mod.rs`` -> ``crate::gpu::simt``; None for a non-``src`` Rust path."""
+    if not (path.startswith("src/") and path.endswith(".rs")):
+        return None
+    rel = path[4:-3]
+    if rel == "mod":
+        rel = ""
+    elif rel.endswith("/mod"):
+        rel = rel[:-4]
+    return "crate::" + rel.replace("/", "::")
+
+
+def substitutions(renames):
+    """Ordered ``old -> new`` token pairs derived from the staged rename map.
+
+    Covers the exact path, the ``crate::`` module path of a ``.rs`` rename, and a directory
+    prefix whose every rename agrees on the destination directory. Longest token first so an
+    exact path wins over its directory.
     """
-    proc = git(root, "diff", "--cached", "-U0", "--", path)
-    changed = [
-        line[1:].strip()
-        for line in proc.stdout.splitlines()
-        if line[:1] in "+-" and not line.startswith(("+++", "---"))
-    ]
-    return bool(changed) and all(not text or text.startswith("//") for text in changed)
+    pairs = []
+    for new, old in renames.items():
+        pairs.append((old, new))
+        old_mod, new_mod = module_path(old), module_path(new)
+        if old_mod is not None and new_mod is not None:
+            pairs.append((old_mod, new_mod))
+    moved = {}
+    for new, old in renames.items():
+        moved.setdefault(os.path.dirname(old), set()).add(os.path.dirname(new))
+    for old_dir, new_dirs in moved.items():
+        if len(new_dirs) == 1:
+            new_dir = next(iter(new_dirs))
+            if old_dir and new_dir and old_dir != new_dir:
+                pairs.append((old_dir + "/", new_dir + "/"))
+    pairs.sort(key=lambda pair: -len(pair[0]))
+    table = {}
+    for old, new in pairs:
+        table.setdefault(old, new)
+    return table
+
+
+def normaliser(table):
+    """A one-pass substituter: a token is replaced at most once, so pairs cannot chain."""
+    pattern = None
+    if table:
+        pattern = re.compile("|".join(re.escape(token) for token in table))
+
+    def normalise(line):
+        line = _expand_braces(line)
+        if pattern is None:
+            return line
+        return pattern.sub(lambda m: table[m.group(0)], line)
+
+    return normalise
+
+
+BRACE = re.compile(
+    r"([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)*)/\{([A-Za-z0-9_,.\-]+)\}([A-Za-z0-9_.\-]*)"
+)
+
+
+def _expand_braces(line):
+    """``src/table/{a,b}.rs`` -> ``src/table/a.rs src/table/b.rs`` so each path normalises."""
+
+    def repl(match):
+        base, names, suffix = match.groups()
+        return " ".join(f"{base}/{name}{suffix}" for name in names.split(","))
+
+    return BRACE.sub(repl, line)
+
+
+WIRING = re.compile(
+    r"^(?:#!?\[|use\b|pub\s+use\b|pub\([^)]*\)\s+use\b|mod\b|pub\s+mod\b|"
+    r"pub\([^)]*\)\s+mod\b|extern\s+crate\b)"
+)
+VISIBILITY = re.compile(r"pub\s*\(\s*super\s*\)")
+INCLUDE = re.compile(r'((?:include_bytes!|include_str!)\s*\(\s*")(?:\.\./)+')
+TOKEN = re.compile(r"[A-Za-z0-9_]+|[^\sA-Za-z0-9_]")
+
+
+def code_tokens(data, normalise):
+    """Executable token stream of ``data``; None for a binary blob.
+
+    Lines that cannot change an emitted kernel's cost are dropped: blank, ``//`` comment,
+    import, module declaration and attribute. The rewrites a file move forces are normalised:
+    path/module tokens, ``pub(super)`` visibility and ``include_*!`` relative depth. Whitespace,
+    line breaks and commas are not tokens, so a reformat is not a change.
+    """
+    if b"\0" in data:
+        return None
+    tokens = []
+    for line in data.decode("utf-8", "replace").splitlines():
+        text = line.strip()
+        if not text or text.startswith("//") or WIRING.match(text):
+            continue
+        text = VISIBILITY.sub("pub(crate)", text)
+        text = INCLUDE.sub(r"\1", text)
+        text = normalise(text)
+        tokens.extend(t for t in TOKEN.findall(text) if t != ",")
+    return tokens
+
+
+def is_no_cost_change(root, path, renames, normalise):
+    """True when ``path``'s staged content carries no code change against its base blob.
+
+    The base blob is the rename source when the staged path is a rename destination. A path new
+    to the index carries no change only when it holds no executable token.
+    """
+    staged = blob_at(root, "", path)
+    if staged is None:
+        return False
+    base = blob_at(root, "HEAD", renames.get(path, path))
+    if base is None:
+        return code_tokens(staged, normalise) == []
+    if base == staged:
+        return True
+    base_tokens = code_tokens(base, normalise)
+    return base_tokens is not None and base_tokens == code_tokens(staged, normalise)
 
 
 def perf_rows(text):
@@ -182,10 +336,12 @@ def refuse(message):
 def run_gate(root):
     root = Path(root).resolve()
     paths = staged_paths(root)
+    renames = staged_renames(root)
+    normalise = normaliser(substitutions(renames))
     perf = [
         path
         for path in paths
-        if is_perf_path(path) and not is_comment_only(root, path)
+        if is_perf_path(path) and not is_no_cost_change(root, path, renames, normalise)
     ]
     if not perf:
         print(
@@ -259,7 +415,11 @@ def _write(path, text):
 
 
 def build_repo(path):
-    _write(path / "src" / "gpu" / "nn" / "norm.rs", "// norm\n")
+    _write(
+        path / "src" / "gpu" / "nn" / "norm.rs",
+        "use crate::simt::Carrier;\n\nconst N: u32 = 4;\n",
+    )
+    _write(path / "src" / "simt" / "mod.rs", "pub struct Carrier;\n")
     _write(path / "docs" / "evidence" / "perf-predictions.md", BASE_PERF_TABLE)
     _write(path / "docs" / "evidence" / "perf-open-allowlist.txt", "# base\n")
     _write(path / "proof" / "corpus" / "Perf" / "Moves.lean", BASE_PERF_LEAN)
@@ -313,6 +473,26 @@ def case_comment_only(repo):
 def case_neg_e_comment_hides_code(repo):
     _touch_perf(repo, "// a comment\npub fn perf_change() {} // trailing\n")
     return _stage(repo)
+
+
+def _move_simt(repo, body):
+    """Rename ``src/simt`` -> ``src/gpu/simt`` and rewrite ``norm.rs`` to ``body``."""
+    (repo / "src" / "gpu" / "simt").mkdir(parents=True, exist_ok=True)
+    git(repo, "mv", "src/simt/mod.rs", "src/gpu/simt/mod.rs")
+    (repo / "src" / "gpu" / "nn" / "norm.rs").write_text(body, encoding="utf-8")
+    return _stage(repo)
+
+
+def case_path_rewrite_only(repo):
+    return _move_simt(
+        repo, "use crate::gpu::simt::Carrier;\n\nconst N: u32 = 4;\n"
+    )
+
+
+def case_neg_path_rewrite_plus_code(repo):
+    return _move_simt(
+        repo, "use crate::gpu::simt::Carrier;\n\nconst N: u32 = 8;\n"
+    )
 
 
 def case_neg_a_perf_only(repo):
@@ -384,6 +564,18 @@ CASES = (
     (
         "negative e: comment lines beside a code line -> refuse",
         case_neg_e_comment_hides_code,
+        1,
+        ("adds no P-row",),
+    ),
+    (
+        "path-only rewrite: module rename + rewritten reference -> skip",
+        case_path_rewrite_only,
+        0,
+        ("SKIP",),
+    ),
+    (
+        "negative f: path rewrite plus one changed token -> refuse",
+        case_neg_path_rewrite_plus_code,
         1,
         ("adds no P-row",),
     ),
