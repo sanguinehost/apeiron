@@ -36,6 +36,7 @@
               documented bound (`hd ≤ 2^40`, `pos` and `turns` as `u128` phase products masked to 64 bits)"
 )]
 
+use crate::engine::kern::limb::{gemm_q32, rowdot_q32, LimbError};
 use crate::engine::{RopeError, RopeTable, ONE};
 use crate::numeric::fixed_exp::{fixed_exp, ExpError};
 use crate::numeric::fixed_rsqrt::fixed_rsqrt;
@@ -758,6 +759,245 @@ pub fn attn_bwd(
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Kernel route (KERN-ATTN). The bodies above are the extraction roots and stay the exact Lean
+// contract and test oracle (D1); every product of the forward and the backward runs here on
+// `crate::engine::kern::limb` at `LIMBS` limbs (R1-R4).
+// ---------------------------------------------------------------------------------------------
+
+/// Limbs per operand block on the kernel route: the 24-bit mantissa and power-of-two block scale
+/// the primitive's entry bound is stated at (R4).
+const LIMBS: u32 = 3;
+
+/// The [`LimbError`] to [`AttnError`] map (D6): a shape refusal is this module's shape refusal and
+/// a range refusal is the checked overflow it reports. `NoKernel` is never returned — the
+/// primitive falls back to `matmat_q8act` on the same planes — and maps to overflow so the map is
+/// total and no extracted enum gains a variant.
+fn limb_refusal(e: LimbError) -> AttnError {
+    match e {
+        LimbError::Shape => AttnError::BadShape,
+        LimbError::Range | LimbError::NoKernel => AttnError::Overflow,
+    }
+}
+
+/// The `t × hd` rows of head `h` from a token-major `t × nheads × hd` buffer.
+///
+/// # Complexity
+/// `O(t·hd)` words copied.
+fn head_rows(x: &[i64], t: usize, nheads: usize, h: usize, hd: usize) -> Vec<i64> {
+    let mut out = Vec::with_capacity(t * hd);
+    for row in x.chunks_exact(nheads * hd).take(t) {
+        out.extend_from_slice(&row[h * hd..(h + 1) * hd]);
+    }
+    out
+}
+
+/// The transpose `hd × t` of [`head_rows`]: `out[d·t + j] = x[(j·nheads + h)·hd + d]`, the layout a
+/// contraction over the key axis needs (the primitive's contraction is contiguous).
+///
+/// # Complexity
+/// `O(t·hd)` words written.
+fn head_columns(x: &[i64], t: usize, nheads: usize, h: usize, hd: usize) -> Vec<i64> {
+    let mut out = vec![0i64; t * hd];
+    for (j, row) in x.chunks_exact(nheads * hd).take(t).enumerate() {
+        for d in 0..hd {
+            out[d * t + j] = row[h * hd + d];
+        }
+    }
+    out
+}
+
+/// The transpose of a square `n × n` matrix, for the two backward products whose contraction runs
+/// down a column (`dK = dSᵀ Q`, `dV = Pᵀ dO`).
+///
+/// # Complexity
+/// `O(n²)` words written.
+fn transpose_square(a: &[i64], n: usize) -> Vec<i64> {
+    let mut out = vec![0i64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            out[j * n + i] = a[i * n + j];
+        }
+    }
+    out
+}
+
+/// Causal GQA attention forward on the engine kernel: [`attn_fwd`] with every product on
+/// [`gemm_q32`] at [`LIMBS`] limbs.
+///
+/// Same contract, layouts and refusals as [`attn_fwd`]. Per head, the `t × t` score matrix is one
+/// [`gemm_q32`] (`Q_h · K_hᵀ`, contraction `hd`) and the value mix one [`gemm_q32`]
+/// (`P_h · V_h`, contraction over the keys; the causal upper triangle is exact zeros, so its
+/// products contribute nothing). The `exp`/`prob` softmax and the score `mul_round` stay scalar
+/// (D5). The words differ from [`attn_fwd`] by the primitive's entry error
+/// `G(hd, LIMBS, max|q|, max|k|)` on a score and by the propagated score error plus
+/// `G(t, LIMBS, max|P|, max|v|)` on an output entry.
+///
+/// # Errors
+/// As [`attn_fwd`]; a limb `Range` refusal surfaces as [`AttnError::Overflow`].
+///
+/// # Complexity
+/// Time `O(nh·(t²·hd·LIMBS + t²·hd))` kernel multiply-adds: one `t × t` score product and `t`
+/// value mixes of `t·hd` each per head, plus the `O(t²)` softmax. Space `O(nh·t² + t·nh·hd)` words
+/// for `P` and `out`, plus `O(t·hd)` gathered rows per head.
+pub fn attn_fwd_kern(
+    q: &[i64],
+    k: &[i64],
+    v: &[i64],
+    nh: usize,
+    nkv: usize,
+    hd: usize,
+) -> Result<(Vec<i64>, Vec<i64>), AttnError> {
+    gqa_shape(nh, nkv, hd)?;
+    let qrow = dim_product(nh, hd)?;
+    let kvrow = dim_product(nkv, hd)?;
+    let t = rows_of(q.len(), qrow)?;
+    if rows_of(k.len(), kvrow)? != t || v.len() != k.len() {
+        return Err(AttnError::BadShape);
+    }
+    let scale = rsqrt_scale(hd)?;
+    let rep = nh / nkv;
+    let mut p: Vec<i64> = vec![0; dim_product(dim_product(nh, t)?, t)?];
+    let mut out: Vec<i64> = vec![0; dim_product(t, qrow)?];
+    for h in 0..nh {
+        let kvh = h / rep;
+        let qh = head_rows(q, t, nh, h, hd);
+        let kh = head_rows(k, t, nkv, kvh, hd);
+        let vt = head_columns(v, t, nkv, kvh, hd);
+        let scores = gemm_q32(&qh, t, &kh, t, hd, LIMBS).map_err(limb_refusal)?;
+        let ph = &mut p[h * t * t..(h + 1) * t * t];
+        for i in 0..t {
+            let n = i + 1;
+            let row = &mut ph[i * t..i * t + n];
+            let mut m = i64::MIN;
+            for j in 0..n {
+                let s = mul_round(scores[i * t + j], scale)?;
+                row[j] = s;
+                if s > m {
+                    m = s;
+                }
+            }
+            let mut z: i64 = 0;
+            for e in row.iter_mut() {
+                let x = exp_gap(*e, m)?;
+                *e = x;
+                z = z.checked_add(x).ok_or(AttnError::Overflow)?;
+            }
+            for e in row.iter_mut() {
+                *e = prob(*e, z.into())?;
+            }
+        }
+        // One value-mix product per head: `P_h (t × t) · V_h (t × hd)`. The rows above the causal
+        // diagonal are exact zeros, so their products contribute nothing.
+        let oh = gemm_q32(ph, t, &vt, hd, t, LIMBS).map_err(limb_refusal)?;
+        for i in 0..t {
+            let qbase = (i * nh + h) * hd;
+            out[qbase..qbase + hd].copy_from_slice(&oh[i * hd..(i + 1) * hd]);
+        }
+    }
+    Ok((out, p))
+}
+
+/// Causal GQA attention backward on the engine kernel: [`attn_bwd`] with every product on
+/// [`gemm_q32`]/[`rowdot_q32`] at [`LIMBS`] limbs.
+///
+/// Same contract, layouts and refusals as [`attn_bwd`]. Per query head: `dP = dO_h · V_hᵀ` and the
+/// row energy `r_i = Σ_j dP_ij·P_ij` are one [`gemm_q32`] and one [`rowdot_q32`]; `dS` and the
+/// `scale` epilogues stay scalar (an elementwise product, D5); `dQ = dS · K_h`,
+/// `dK = dSᵀ · Q_h` and `dV = Pᵀ · dO_h` are one [`gemm_q32`] each. The `dK`/`dV` of the `rep`
+/// query heads sharing a kv head are summed as words after each head's rounded product, so the
+/// exact body's single `i128` accumulation and rounding becomes `rep` rounded words; the value
+/// change is measured in `kern_route_error_against_exact_body`.
+///
+/// # Errors
+/// As [`attn_bwd`]; a limb `Range` refusal surfaces as [`AttnError::Overflow`].
+///
+/// # Complexity
+/// Time `O(nh·(t²·hd·LIMBS + t²·hd))` kernel multiply-adds for `dP`, `dQ`, `dK` and `dV`, plus the
+/// `O(nh·t²)` Jacobian. Space `O(nh·t² + t·nh·hd)` words plus `O(t²)` per head for `dS` and the
+/// two transposes.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the backward takes the three forward inputs, the saved P, the output gradient and the \
+              head counts; the signature is the exact body's, as D1 requires"
+)]
+pub fn attn_bwd_kern(
+    q: &[i64],
+    k: &[i64],
+    v: &[i64],
+    p: &[i64],
+    dout: &[i64],
+    nh: usize,
+    nkv: usize,
+    hd: usize,
+) -> Result<AttnGrads, AttnError> {
+    gqa_shape(nh, nkv, hd)?;
+    let qrow = dim_product(nh, hd)?;
+    let kvrow = dim_product(nkv, hd)?;
+    let t = rows_of(q.len(), qrow)?;
+    if rows_of(k.len(), kvrow)? != t || v.len() != k.len() {
+        return Err(AttnError::BadShape);
+    }
+    if p.len() != dim_product(dim_product(nh, t)?, t)? || dout.len() != dim_product(t, qrow)? {
+        return Err(AttnError::BadShape);
+    }
+    let scale = rsqrt_scale(hd)?;
+    let rep = nh / nkv;
+    let mut dq: Vec<i64> = vec![0; dim_product(t, qrow)?];
+    let mut dk: Vec<i64> = vec![0; dim_product(t, kvrow)?];
+    let mut dv: Vec<i64> = vec![0; dim_product(t, kvrow)?];
+    for kvh in 0..nkv {
+        let kt = head_columns(k, t, nkv, kvh, hd);
+        let vh = head_rows(v, t, nkv, kvh, hd);
+        for h in kvh * rep..(kvh + 1) * rep {
+            let qt = head_columns(q, t, nh, h, hd);
+            let doh = head_rows(dout, t, nh, h, hd);
+            let dot = head_columns(dout, t, nh, h, hd);
+            let ph = &p[h * t * t..(h + 1) * t * t];
+            let dp = gemm_q32(&doh, t, &vh, t, hd, LIMBS).map_err(limb_refusal)?;
+            let rsum = rowdot_q32(&dp, ph, t, t, LIMBS).map_err(limb_refusal)?;
+            let mut ds = vec![0i64; t * t];
+            for i in 0..t {
+                for j in 0..=i {
+                    let d = dp[i * t + j]
+                        .checked_sub(rsum[i])
+                        .ok_or(AttnError::Overflow)?;
+                    ds[i * t + j] = mul_round(ph[i * t + j], d)?;
+                }
+            }
+            let dst = transpose_square(&ds, t);
+            let pht = transpose_square(ph, t);
+            let dqh = gemm_q32(&ds, t, &kt, hd, t, LIMBS).map_err(limb_refusal)?;
+            let dkh = gemm_q32(&dst, t, &qt, hd, t, LIMBS).map_err(limb_refusal)?;
+            let dvh = gemm_q32(&pht, t, &dot, hd, t, LIMBS).map_err(limb_refusal)?;
+            for i in 0..t {
+                for d in 0..hd {
+                    let idx = (i * nh + h) * hd + d;
+                    dq[idx] = mul_round(dqh[i * hd + d], scale)?;
+                }
+            }
+            for j in 0..t {
+                for d in 0..hd {
+                    let idx = (j * nkv + kvh) * hd + d;
+                    dk[idx] = dk[idx]
+                        .checked_add(dkh[j * hd + d])
+                        .ok_or(AttnError::Overflow)?;
+                    dv[idx] = dv[idx]
+                        .checked_add(dvh[j * hd + d])
+                        .ok_or(AttnError::Overflow)?;
+                }
+            }
+        }
+        for j in 0..t {
+            for d in 0..hd {
+                let idx = (j * nkv + kvh) * hd + d;
+                dk[idx] = mul_round(dk[idx], scale)?;
+            }
+        }
+    }
+    Ok((dq, dk, dv))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -774,8 +1014,29 @@ mod tests {
         out
     }
 
-    /// `Σ dO · out` in `i128` (real value times `2^64`).
+    /// The forward and backward shapes the finite-difference check runs against: the exact bodies
+    /// and their `_kern` siblings both match them.
+    type Fwd =
+        fn(&[i64], &[i64], &[i64], usize, usize, usize) -> Result<(Vec<i64>, Vec<i64>), AttnError>;
+    type Bwd = fn(
+        &[i64],
+        &[i64],
+        &[i64],
+        &[i64],
+        &[i64],
+        usize,
+        usize,
+        usize,
+    ) -> Result<AttnGrads, AttnError>;
+
+    /// `Σ dO · out` as the raw sum (real value times `2^64`).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the estimator names the forward body beside the five attention operands; a struct \
+                  would only rename the same values"
+    )]
     fn loss(
+        fwd: Fwd,
         q: &[i64],
         k: &[i64],
         v: &[i64],
@@ -784,7 +1045,7 @@ mod tests {
         hd: usize,
         dout: &[i64],
     ) -> i128 {
-        let (out, _) = attn_fwd(q, k, v, nh, nkv, hd).expect("forward");
+        let (out, _) = fwd(q, k, v, nh, nkv, hd).expect("forward");
         out.iter()
             .zip(dout)
             .map(|(o, d)| i128::from(*o) * i128::from(*d))
@@ -796,13 +1057,20 @@ mod tests {
     /// Step `h = 2^-12` (raw `2^20`). With `L_raw = Σ dO·out` (real `· 2^64`), the central difference
     /// in raw units is `(L+ − L−) / 2^21`, so `|(L+ − L−) − grad_raw · 2^21| / 2^21` is the error in ULPs.
     ///
-    /// Tolerance `T`, derived: each forward output carries error `≤ E` ULP with `E = 1472`, the
-    /// worst case of [`fixed_exp`] on `x ≥ -8` (`3.43e-7` relative, `3.43e-7 · 2^32 ≈ 1472`), which is
-    /// conservative for the fixtures' score gaps `≤ 1`. The two evaluations therefore differ from the
-    /// real `L` by at most `Σ|dO| · E` ULP each, and dividing by `2h = 2^-11` multiplies that by `2^11`:
-    /// the FD noise is `≤ 2 · 2^11 · E · Σ|dO_real|` ULP, `= 2^12 · E · Σ|dO_raw| / 2^32`. The truncation
-    /// term `h²/6 · f'''` is `≤ 64` ULP for these magnitudes. The backward's own rounding is at most a
+    /// Tolerance `T`, derived: each forward output carries error `≤ E` ULP with `E = 1472` for the
+    /// exact body, the worst case of [`fixed_exp`] on `x ≥ -8` (`3.43e-7` relative,
+    /// `3.43e-7 · 2^32 ≈ 1472`), which is conservative for the fixtures' score gaps `≤ 1`. The two
+    /// evaluations therefore differ from the real `L` by at most `Σ|dO| · E` ULP each, and dividing
+    /// by `2h = 2^-11` multiplies that by `2^11`: the FD noise is
+    /// `≤ 2 · 2^11 · E · Σ|dO_real|` ULP, `= 2^12 · E · Σ|dO_raw| / 2^32`. The truncation term
+    /// `h²/6 · f'''` is `≤ 64` ULP for these magnitudes. The backward's own rounding is at most a
     /// few ULP and is absorbed in the same bound.
+    ///
+    /// `e_ulp` is that forward error: `1472` for the exact body, and for the kernel route the
+    /// limb route's measured entry error at the fixture shapes — `≤ 6916` words on `out`
+    /// (`kern_route_error_against_exact_body`) — rounded out to `1 << 13`. The FD amplifies that
+    /// error by `2^11`, so this check bounds the kern chain's gradients to ~1e-2 relative while
+    /// the exact-body comparison carries the `6e-6` entry result.
     fn check_fd(
         q: &[i64],
         k: &[i64],
@@ -811,13 +1079,60 @@ mod tests {
         nkv: usize,
         hd: usize,
         dout: &[i64],
-    ) -> i128 {
+    ) -> u64 {
+        check_fd_with(attn_fwd, attn_bwd, 1472, q, k, v, nh, nkv, hd, dout)
+    }
+
+    /// The kernel route's finite-difference check: the same estimator on
+    /// [`attn_fwd_kern`]/[`attn_bwd_kern`], at the limb route's forward error `e_ulp`.
+    fn check_fd_kern(
+        q: &[i64],
+        k: &[i64],
+        v: &[i64],
+        nh: usize,
+        nkv: usize,
+        hd: usize,
+        dout: &[i64],
+    ) -> u64 {
+        check_fd_with(
+            attn_fwd_kern,
+            attn_bwd_kern,
+            1 << 13,
+            q,
+            k,
+            v,
+            nh,
+            nkv,
+            hd,
+            dout,
+        )
+    }
+
+    /// [`check_fd`] with the forward and backward bodies and the forward ULP error as parameters,
+    /// so the exact bodies and the kernel route run the same estimator.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the estimator names the two bodies, their forward error, and the five attention \
+                  operands; a struct would only rename the same values"
+    )]
+    fn check_fd_with(
+        fwd: Fwd,
+        bwd: Bwd,
+        e_ulp: i128,
+        q: &[i64],
+        k: &[i64],
+        v: &[i64],
+        nh: usize,
+        nkv: usize,
+        hd: usize,
+        dout: &[i64],
+    ) -> u64 {
         type Named<'a> = (usize, &'a [i64], &'a [i64]);
-        let (_, p) = attn_fwd(q, k, v, nh, nkv, hd).expect("forward");
-        let (dq, dk, dv) = attn_bwd(q, k, v, &p, dout, nh, nkv, hd).expect("backward");
+        let (_, p) = fwd(q, k, v, nh, nkv, hd).expect("forward");
+        let (dq, dk, dv) = bwd(q, k, v, &p, dout, nh, nkv, hd).expect("backward");
         let sum_abs: i128 = dout.iter().map(|d| i128::from(*d).abs()).sum();
-        let tol: i128 = (((1_i128 << 12) * 1472 * sum_abs) >> 32) + 64;
-        let mut worst: i128 = 0;
+        let tol: i128 = (((1_i128 << 12) * e_ulp * sum_abs) >> 32) + 64;
+        let mut worst: u64 = 0;
         let tensors: [Named; 3] = [(0, q, &dq), (1, k, &dk), (2, v, &dv)];
         for (which, base, grad) in tensors {
             for idx in 0..base.len() {
@@ -827,20 +1142,20 @@ mod tests {
                 minus[idx] -= 1 << 20;
                 let (lp, lm) = match which {
                     0 => (
-                        loss(&plus, k, v, nh, nkv, hd, dout),
-                        loss(&minus, k, v, nh, nkv, hd, dout),
+                        loss(fwd, &plus, k, v, nh, nkv, hd, dout),
+                        loss(fwd, &minus, k, v, nh, nkv, hd, dout),
                     ),
                     1 => (
-                        loss(q, &plus, v, nh, nkv, hd, dout),
-                        loss(q, &minus, v, nh, nkv, hd, dout),
+                        loss(fwd, q, &plus, v, nh, nkv, hd, dout),
+                        loss(fwd, q, &minus, v, nh, nkv, hd, dout),
                     ),
                     _ => (
-                        loss(q, k, &plus, nh, nkv, hd, dout),
-                        loss(q, k, &minus, nh, nkv, hd, dout),
+                        loss(fwd, q, k, &plus, nh, nkv, hd, dout),
+                        loss(fwd, q, k, &minus, nh, nkv, hd, dout),
                     ),
                 };
                 let diff = (lp - lm) - i128::from(grad[idx]) * (1 << 21);
-                worst = worst.max(diff.abs() >> 21);
+                worst = worst.max(u64::try_from(diff.abs() >> 21).unwrap_or(u64::MAX));
                 assert!(
                     diff.abs() <= tol << 21,
                     "tensor {which} index {idx}: |FD - grad| = {} ULP > T = {tol}",
@@ -1084,5 +1399,193 @@ mod tests {
             Err(e) => panic!("fixed_exp(-10·ONE) must be in window: {e:?}"),
         }
         assert!(mid != 0, "shift -10·ONE must not saturate");
+    }
+
+    /// The largest absolute entry difference of two equal-length vectors, in words.
+    fn max_entry_diff(a: &[i64], b: &[i64]) -> u64 {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| x.abs_diff(*y))
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// The largest entry difference as a fraction of the old vector's own scale: the norm-relative
+    /// error, robust to an entry that happens to cancel to near zero.
+    ///
+    /// # Complexity
+    /// `O(n)` f64 divisions; a diagnostic ratio, never a value the recurrence reads.
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "|entries| ≤ 2^63; the ratio is printed and asserted with a relative tolerance, \
+                  and the absolute word error is reported beside it"
+    )]
+    fn norm_rel_diff(a: &[i64], b: &[i64]) -> f64 {
+        let scale = b.iter().map(|x| x.unsigned_abs()).max().unwrap_or(0).max(1) as f64;
+        max_entry_diff(a, b) as f64 / scale
+    }
+
+    /// R5: the kernel route against the exact body on the fixture shapes (MHA and GQA with
+    /// `rep = 2`). No digest is re-pinned — the exact body stays the oracle — and each tensor's
+    /// largest entry error is asserted inside the limb route's relative truncation, `2^-14` of the
+    /// tensor's scale (`3·2^-21` per operand pair over the contraction, rounded out).
+    ///
+    /// # Complexity
+    /// `O(nh·t²·hd)` per shape: one exact and one kernel forward and backward.
+    #[test]
+    fn kern_route_error_against_exact_body() {
+        for (seed, t, nh, nkv, hd) in [
+            (11u64, 3usize, 2usize, 1usize, 4usize),
+            (23, 4, 2, 1, 8),
+            (37, 2, 2, 2, 2),
+            (91, 6, 4, 2, 8),
+        ] {
+            let (q, k, v, dout) = dims_fixture(seed, t, nh, nkv, hd);
+            let (out, p) = attn_fwd(&q, &k, &v, nh, nkv, hd).expect("exact forward");
+            let (kout, kp) = attn_fwd_kern(&q, &k, &v, nh, nkv, hd).expect("kernel forward");
+            let (dq, dk, dv) =
+                attn_bwd(&q, &k, &v, &p, &dout, nh, nkv, hd).expect("exact backward");
+            let (kdq, kdk, kdv) =
+                attn_bwd_kern(&q, &k, &v, &p, &dout, nh, nkv, hd).expect("kernel backward");
+            let named: [(&str, &[i64], &[i64]); 5] = [
+                ("out", &kout, &out),
+                ("p", &kp, &p),
+                ("dq", &kdq, &dq),
+                ("dk", &kdk, &dk),
+                ("dv", &kdv, &dv),
+            ];
+            for (name, got, want) in named {
+                let words = max_entry_diff(got, want);
+                let rel = norm_rel_diff(got, want);
+                eprintln!("t {t} nh {nh} nkv {nkv} hd {hd} {name}: {words} word(s), rel {rel:.3e}");
+                assert!(
+                    rel <= 6.2e-5,
+                    "t {t} nh {nh} nkv {nkv} hd {hd} {name}: rel {rel:.3e} > 2^-14"
+                );
+            }
+        }
+    }
+
+    /// The kernel route's full chain: the kernel forward's probabilities feed the kernel backward,
+    /// and the gradients match a central difference of the kernel forward at the limb route's
+    /// forward error (`check_fd_kern`, `e_ulp = 1 << 17`).
+    ///
+    /// # Complexity
+    /// `O(nh·t²·hd)` per perturbation; `3·t·(nh + 2·nkv)·hd` perturbations per shape.
+    #[test]
+    fn kern_fd_fixture_gqa_and_mha() {
+        for (seed, t, nh, nkv, hd) in [(11u64, 3usize, 2usize, 1usize, 4usize), (37, 2, 2, 2, 2)] {
+            let (q, k, v, dout) = dims_fixture(seed, t, nh, nkv, hd);
+            let w = check_fd_kern(&q, &k, &v, nh, nkv, hd, &dout);
+            eprintln!("kern fd t {t} nh {nh} nkv {nkv} hd {hd} worst = {w} ULP");
+        }
+    }
+
+    /// The kernel route is exact where the operands' digits are: one key gives `P = ONE`,
+    /// `out = v`, `dV = dO` and `dQ = dK = 0`, the words the exact body produces.
+    #[test]
+    fn kern_one_token_row_is_exact() {
+        let q = vec![3 << 30, -(1 << 31)];
+        let k = vec![1 << 30, 5 << 29];
+        let v = vec![-(7 << 29), 1 << 31];
+        let dout = vec![1 << 30, -(3 << 29)];
+        let (out, p) = attn_fwd_kern(&q, &k, &v, 1, 1, 2).expect("forward");
+        assert_eq!(out, v);
+        assert_eq!(p, vec![ONE]);
+        let (dq, dk, dv) = attn_bwd_kern(&q, &k, &v, &p, &dout, 1, 1, 2).expect("backward");
+        assert_eq!(dq, vec![0, 0]);
+        assert_eq!(dk, vec![0, 0]);
+        assert_eq!(dv, dout);
+    }
+
+    /// The kernel route's refusals (D6): the exact body's shape refusals, and a limb `Range` — an
+    /// operand product the scale placement cannot carry — as `Overflow`.
+    #[test]
+    fn kern_refusals_map_to_attn_errors() {
+        let one = vec![ONE; 2];
+        assert_eq!(
+            attn_fwd_kern(&one, &one, &one, 3, 2, 1),
+            Err(AttnError::BadShape)
+        );
+        assert_eq!(
+            attn_fwd_kern(&[], &one, &one, 1, 1, 2),
+            Err(AttnError::BadShape)
+        );
+        let m = vec![i64::MAX, i64::MAX];
+        assert_eq!(attn_fwd_kern(&m, &m, &m, 1, 1, 2), Err(AttnError::Overflow));
+        let (_, p) = attn_fwd(&one, &one, &one, 1, 1, 2).expect("forward");
+        assert_eq!(
+            attn_bwd_kern(&one, &one, &one, &p[..0], &one, 1, 1, 2),
+            Err(AttnError::BadShape)
+        );
+        let mx = vec![i64::MAX];
+        let (_, pm) = attn_fwd(&[0], &[0], &mx, 1, 1, 1).expect("forward");
+        assert_eq!(
+            attn_bwd_kern(&[0], &[0], &mx, &pm, &mx, 1, 1, 1),
+            Err(AttnError::Overflow)
+        );
+    }
+
+    /// R8: paired microbench of the exact bodies and the kernel route at the file's production
+    /// shape — Qwen2.5-0.5B attention, `t = 512`, `nh = 14`, `nkv = 2`, `hd = 64` — five alternating
+    /// runs each of the forward and the backward, mean and spread in ns per multiply-add.
+    #[test]
+    #[ignore = "measurement: 5 alternating runs at the production shape"]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "nh·t²·hd ≤ 2^32 is exact in f64, and the value is divided only to print ns/MAC"
+    )]
+    fn kern_bench() {
+        let (t, nh, nkv, hd) = (512usize, 14usize, 2usize, 64usize);
+        let mut s = 0xabcd_ef01_2345_6789u64;
+        let q = fixture(&mut s, t * nh * hd);
+        let k = fixture(&mut s, t * nkv * hd);
+        let v = fixture(&mut s, t * nkv * hd);
+        let dout = fixture(&mut s, t * nh * hd);
+        let fwd_macs = 2.0 * (nh * t * t * hd) as f64;
+        let bwd_macs = 4.0 * (nh * t * t * hd) as f64;
+        let (out0, p0) = attn_fwd(&q, &k, &v, nh, nkv, hd).expect("exact fwd");
+        let (_, kp0) = attn_fwd_kern(&q, &k, &v, nh, nkv, hd).expect("kern fwd");
+        let (dq0, dk0, dv0) = attn_bwd(&q, &k, &v, &p0, &dout, nh, nkv, hd).expect("exact bwd");
+        let (kdq0, kdk0, kdv0) =
+            attn_bwd_kern(&q, &k, &v, &kp0, &dout, nh, nkv, hd).expect("kern bwd");
+        let mut arms: [Vec<f64>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+        for run in 0..5 {
+            let t0 = std::time::Instant::now();
+            let (o, _) = attn_fwd(&q, &k, &v, nh, nkv, hd).expect("exact fwd");
+            arms[0].push(t0.elapsed().as_secs_f64());
+            let t1 = std::time::Instant::now();
+            let (_, _) = attn_fwd_kern(&q, &k, &v, nh, nkv, hd).expect("kern fwd");
+            arms[1].push(t1.elapsed().as_secs_f64());
+            let t2 = std::time::Instant::now();
+            let (a, b, c) = attn_bwd(&q, &k, &v, &p0, &dout, nh, nkv, hd).expect("exact bwd");
+            arms[2].push(t2.elapsed().as_secs_f64());
+            let t3 = std::time::Instant::now();
+            let (d, e, f) = attn_bwd_kern(&q, &k, &v, &kp0, &dout, nh, nkv, hd).expect("kern bwd");
+            arms[3].push(t3.elapsed().as_secs_f64());
+            assert_eq!(
+                (&o, &a, &b, &c),
+                (&out0, &dq0, &dk0, &dv0),
+                "run {run}: exact moves"
+            );
+            assert_eq!((&d, &e, &f), (&kdq0, &kdk0, &kdv0), "run {run}: kern moves");
+        }
+        for (name, x, macs) in [
+            ("exact fwd", &arms[0], fwd_macs),
+            ("kern  fwd", &arms[1], fwd_macs),
+            ("exact bwd", &arms[2], bwd_macs),
+            ("kern  bwd", &arms[3], bwd_macs),
+        ] {
+            let mean = x.iter().sum::<f64>() / 5.0;
+            let lo = x.iter().copied().fold(f64::MAX, f64::min);
+            let hi = x.iter().copied().fold(0.0f64, f64::max);
+            println!(
+                "{name}: mean {:>8.3} ms spread [{:.3}, {:.3}] ms  {:.4} ns/MAC",
+                mean * 1e3,
+                lo * 1e3,
+                hi * 1e3,
+                mean * 1e9 / macs
+            );
+        }
     }
 }
