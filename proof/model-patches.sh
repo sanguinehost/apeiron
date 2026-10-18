@@ -5,8 +5,8 @@
 # carries no capacity. `patches/aeneas-lean-model.patch` adds the model. This script materialises a
 # backend tree with that patch applied, which `proof/lakefile.lean` requires.
 #
-# The same patch declares the bare `F32` name the pinned emitter prints for Rust `f32`
-# (`ExtractBase.ml` `float_name`), as an opaque value with the float boundary left to the extracted
+# The same patch declares the bare `F32`/`F64` names the pinned emitter prints for Rust `f32`/`f64`
+# (`ExtractBase.ml` `float_name`), as opaque values with the float boundary left to the extracted
 # fragment's `axiom`s, plus the `From<u64> for i128` cast the attention fragment reaches; without
 # both the committed `ApeironWord.lean` cannot elaborate. They are in this one patch so that this
 # script alone reproduces the whole model.
