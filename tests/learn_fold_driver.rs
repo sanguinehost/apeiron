@@ -796,9 +796,13 @@ fn result_digest(res: &LayerResult) -> u64 {
 /// reproducing them bit-for-bit.
 #[test]
 fn h_one_shot_digest() {
+    // Regression pin of the kernel route, not an identity with the exact bodies: the attention
+    // forward (`stats::parts` on `engine::kern::limb::gemm_q32`, three limbs; 2.0e-6 relative against
+    // the exact body, `tests/learn_fold_attn_speed.rs`) and the fit steps (`fit::steps`) run on the
+    // limb kernel. `TensorBits` is unmoved from the exact-body pins; the residual and `hs` digests move.
     let want = [
-        (7_u64, 0x7219_6e64_09b9_7848_u64, 0x77ac_e2ba_69e5_117d_u64),
-        (11, 0x9415_2287_217d_18bf, 0xb476_185a_ceda_1b29),
+        (7_u64, 0x8a11_f4d4_dbff_984a_u64, 0xf14e_6cd0_a4dd_c1f3_u64),
+        (11, 0xfdb5_60f8_814d_5d0d, 0x6c3e_663c_ed60_2ce0),
     ];
     for &(seed, d_res, d_hs) in &want {
         let (cfg, rope, lt, ht, hs_in, ln_next) = fixture(seed, SLAB);

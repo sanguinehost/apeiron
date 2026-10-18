@@ -396,9 +396,16 @@ fn full_head_attention_equals_naive_triple_loop() {
     // `q`, `k`, `v` are the pre-rope projections; the reference rotates and attends independently.
     let reference = naive_attention(&cfg, &rope, &unq(&p.q), &unq(&p.k), &unq(&p.v), T);
     // Bound derivation: per output entry the score path costs one dot rounding, one scale rounding
-    // and an `exp` of ≤ 4 quanta; the value accumulation holds at most `t·head_dim = 48` rounded
-    // products, and the final division one more. With |entry| ≤ 2 that is ≤ 64·q·(1 + |entry|).
-    let tol: f64 = 64.0 * 2.328_306_436_538_696e-10 * 3.0;
+    // and an `exp` of ≤ 4 quanta; the value accumulation holds at most `t ≤ 8` rounded products,
+    // and the final division one more. With |entry| ≤ 5 that is ≤ 64·q.
+    //
+    // The attention products now run on `crate::engine::kern::limb` at three limbs (`parts::LIMBS`),
+    // which adds the block truncation `C₃ = 65·2⁻²¹` of each block exponent, summed over the `t`
+    // value terms the mix contracts: ≤ 2⁻¹⁵ of the output's own scale. Measured against the exact
+    // pre-port body on the `t = 512` fixtures it is 2.0e-6 absolute, 2.0e-6 relative
+    // (`tests/learn_fold_attn_speed.rs`); here it is 3.2e-5 absolute at a 4.6 output scale.
+    let scale = reference.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+    let tol: f64 = 64.0 * 2.328_306_436_538_696e-10 + 2f64.powi(-15) * scale;
     close(&unq(&p.a), &reference, tol);
     // And the standalone entry point agrees with the one embedded in `parts`.
     let direct = attn_a(&cfg, &rope, &p.q, &p.k, &p.v, T).unwrap();
