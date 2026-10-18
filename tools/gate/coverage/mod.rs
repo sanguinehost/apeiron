@@ -91,6 +91,12 @@ pub(crate) struct Counts {
 /// Lean def names that match a fn: `M.f` (and `M.f.<loop>`) for a free fn; `M.T.…f` for a method.
 fn def_for(f: &SrcFile, it: &Item, defs: &BTreeSet<String>) -> Option<String> {
     let m = f.module.as_ref()?;
+    let m = if it.mods.is_empty() {
+        m.clone()
+    } else {
+        format!("{m}.{}", it.mods.join("."))
+    };
+    let m = &m;
     match &it.ty {
         None => {
             let exact = format!("{m}.{}", it.name);

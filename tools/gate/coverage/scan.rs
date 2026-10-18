@@ -9,12 +9,14 @@
 pub(crate) struct Item {
     pub name: String,
     pub ty: Option<String>,
+    /// Inline `mod` names, outermost first, between the file's module and the item.
+    pub mods: Vec<String>,
     pub line: usize,
 }
 
 #[derive(Clone, PartialEq)]
 enum Frame {
-    Mod,
+    Mod(Option<String>),
     Impl(Option<String>),
     Test,
     Other,
@@ -128,8 +130,12 @@ pub(crate) fn scan_items(src: &str) -> Result<Vec<Item>, String> {
     let mut line = 1usize;
     let mut i = 0;
 
-    let item_level =
-        |s: &Vec<Frame>| matches!(s.last(), None | Some(Frame::Mod) | Some(Frame::Impl(_)));
+    let item_level = |s: &Vec<Frame>| {
+        matches!(
+            s.last(),
+            None | Some(Frame::Mod(_)) | Some(Frame::Impl(_))
+        )
+    };
     let ident = |ch: &Vec<char>, i: usize| -> Option<(String, usize)> {
         let mut j = i;
         while j < ch.len() && (ch[j].is_alphanumeric() || ch[j] == '_') {
@@ -219,7 +225,19 @@ pub(crate) fn scan_items(src: &str) -> Result<Vec<Item>, String> {
                                 Some(Frame::Impl(t)) => t.clone(),
                                 _ => None,
                             };
-                            items.push(Item { name, ty, line });
+                            let mods = stack
+                                .iter()
+                                .filter_map(|f| match f {
+                                    Frame::Mod(Some(n)) => Some(n.clone()),
+                                    _ => None,
+                                })
+                                .collect();
+                            items.push(Item {
+                                name,
+                                ty,
+                                mods,
+                                line,
+                            });
                         }
                         if ch[m] == '{' {
                             stack.push(if pending_test {
@@ -236,13 +254,13 @@ pub(crate) fn scan_items(src: &str) -> Result<Vec<Item>, String> {
                 }
                 "mod" if prev_ok => {
                     let k = skip_ws(&ch, j, &mut line);
-                    let (_, k2) = ident(&ch, k).unwrap_or((String::new(), k));
+                    let (name, k2) = ident(&ch, k).unwrap_or((String::new(), k));
                     let k3 = skip_ws(&ch, k2, &mut line);
                     if k3 < n && ch[k3] == '{' {
                         stack.push(if pending_test || !item_level(&stack) {
                             Frame::Test
                         } else {
-                            Frame::Mod
+                            Frame::Mod(Some(name))
                         });
                         i = k3 + 1;
                     } else {

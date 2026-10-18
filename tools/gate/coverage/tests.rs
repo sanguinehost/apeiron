@@ -4,6 +4,7 @@ fn item(name: &str, ty: Option<&str>) -> Item {
     Item {
         name: name.into(),
         ty: ty.map(String::from),
+        mods: Vec::new(),
         line: 1,
     }
 }
@@ -238,4 +239,13 @@ fn textual_includes_splice_into_the_including_module() {
     );
     assert_eq!(inc, ["table/state.rs", "table/locator.rs"]);
     assert_eq!(parse_includes("// include!(\"nope.rs\")\n"), Vec::<String>::new());
+}
+
+#[test]
+fn inline_modules_are_carried_on_the_item() {
+    let items = scan_items("pub mod rsa { fn a() {} mod inner { fn b() {} } }\nfn c() {}\n").unwrap();
+    let by = |n: &str| items.iter().find(|i| i.name == n).unwrap();
+    assert_eq!(by("a").mods, ["rsa"]);
+    assert_eq!(by("b").mods, ["rsa", "inner"]);
+    assert_eq!(by("c").mods, Vec::<String>::new());
 }
