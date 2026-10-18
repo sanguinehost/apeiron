@@ -5401,12 +5401,12 @@ def attn.plane_at
       Std.Usize (core.convert.FromSame attn.AttnError) residual
 
 /-- [apeiron_word::engine::FIXED_FRAC_BITS]
-    Source: 'lib.rs', lines 147:4-147:40
+    Source: 'lib.rs', lines 153:4-153:40
     Visibility: public -/
 @[global_simps, irreducible] def engine.FIXED_FRAC_BITS : Std.U32 := 32#u32
 
 /-- [apeiron_word::engine::ONE]
-    Source: 'lib.rs', lines 149:4-149:46
+    Source: 'lib.rs', lines 155:4-155:46
     Visibility: public -/
 @[global_simps, irreducible]
 def engine.ONE : Result Std.I64 := 1#i64 <<< engine.FIXED_FRAC_BITS
@@ -60751,6 +60751,206 @@ def exchange.accept_derived_impulse
        ok (some e)
   else ok none
 
+/-- [apeiron_word::format_port::bpe::is_nl]:
+    Source: '../../src/format/bpe.rs', lines 418:0-420:1 -/
+def format_port.bpe.is_nl (c : Char) : Result Bool := do
+  if c = '
+'
+  then ok true
+  else ok (c = '
+')
+
+/-- [apeiron_word::format_port::bpe::find_sub]: loop body 1:
+    Source: '../../src/format/bpe.rs', lines 671:8-677:9 -/
+@[rust_loop_body]
+def format_port.bpe.find_sub_loop0_loop0.body
+  (hay : Slice Std.U8) (needle : Slice Std.U8) (i : Std.Usize) (k : Std.Usize)
+  :
+  Result (ControlFlow Std.Usize Bool)
+  := do
+  let i1 := Slice.len needle
+  if k < i1
+  then
+    let i2 ← i + k
+    let i3 ← Slice.index_usize hay i2
+    let i4 ← Slice.index_usize needle k
+    if i3 != i4
+    then ok (done false)
+    else let k1 ← k + 1#usize
+         ok (cont k1)
+  else ok (done true)
+
+/-- [apeiron_word::format_port::bpe::find_sub]: loop 1:
+    Source: '../../src/format/bpe.rs', lines 671:8-677:9 -/
+@[rust_loop]
+def format_port.bpe.find_sub_loop0_loop0
+  (hay : Slice Std.U8) (needle : Slice Std.U8) (i : Std.Usize) (k : Std.Usize)
+  :
+  Result Bool
+  := do
+  loop
+    (fun k1 => format_port.bpe.find_sub_loop0_loop0.body hay needle i k1)
+    k
+
+/-- [apeiron_word::format_port::bpe::find_sub]: loop body 0:
+    Source: '../../src/format/bpe.rs', lines 668:4-682:5 -/
+@[rust_loop_body]
+def format_port.bpe.find_sub_loop0.body
+  (hay : Slice Std.U8) (needle : Slice Std.U8) (found : Option Std.Usize)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Option Std.Usize) × Std.Usize) (Option Std.Usize))
+  := do
+  let i1 := Slice.len needle
+  let i2 ← i + i1
+  let i3 := Slice.len hay
+  if i2 <= i3
+  then
+    let b := core.option.Option.is_none found
+    if b
+    then
+      let ok1 ← format_port.bpe.find_sub_loop0_loop0 hay needle i 0#usize
+      let found1 ← if ok1
+                     then ok (some i)
+                     else ok found
+      let i4 ← i + 1#usize
+      ok (cont (found1, i4))
+    else ok (done found)
+  else ok (done found)
+
+/-- [apeiron_word::format_port::bpe::find_sub]: loop 0:
+    Source: '../../src/format/bpe.rs', lines 668:4-682:5 -/
+@[rust_loop]
+def format_port.bpe.find_sub_loop0
+  (hay : Slice Std.U8) (needle : Slice Std.U8) (found : Option Std.Usize)
+  (i : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  loop
+    (fun (found1, i1) => format_port.bpe.find_sub_loop0.body hay needle found1
+      i1)
+    (found, i)
+
+/-- [apeiron_word::format_port::bpe::find_sub]:
+    Source: '../../src/format/bpe.rs', lines 660:0-684:1 -/
+def format_port.bpe.find_sub
+  (hay : Slice Std.U8) (needle : Slice Std.U8) :
+  Result (Option Std.Usize)
+  := do
+  let i := Slice.len needle
+  if i = 0#usize
+  then ok none
+  else
+    let i1 := Slice.len needle
+    let i2 := Slice.len hay
+    if i1 > i2
+    then ok none
+    else format_port.bpe.find_sub_loop0 hay needle none 0#usize
+
+/-- [apeiron_word::format_port::bpe::contains_nul]: loop body 0:
+    Source: '../../src/format/bpe.rs', lines 692:4-697:5 -/
+@[rust_loop_body]
+def format_port.bpe.contains_nul_loop.body
+  (b : Slice Std.U8) (i : Std.Usize) (found : Bool) :
+  Result (ControlFlow (Std.Usize × Bool) Bool)
+  := do
+  let i1 := Slice.len b
+  if i < i1
+  then
+    let i2 ← Slice.index_usize b i
+    let found1 ← if i2 = 0#u8
+                   then ok true
+                   else ok found
+    let i3 ← i + 1#usize
+    ok (cont (i3, found1))
+  else ok (done found)
+
+/-- [apeiron_word::format_port::bpe::contains_nul]: loop 0:
+    Source: '../../src/format/bpe.rs', lines 692:4-697:5 -/
+@[rust_loop]
+def format_port.bpe.contains_nul_loop
+  (b : Slice Std.U8) (i : Std.Usize) (found : Bool) : Result Bool := do
+  loop
+    (fun (i1, found1) => format_port.bpe.contains_nul_loop.body b i1 found1)
+    (i, found)
+
+/-- [apeiron_word::format_port::bpe::contains_nul]:
+    Source: '../../src/format/bpe.rs', lines 686:0-699:1 -/
+def format_port.bpe.contains_nul (s : Str) : Result Bool := do
+  let b ← core.str.Str.as_bytes s
+  format_port.bpe.contains_nul_loop b 0#usize false
+
+/-- [apeiron_word::format_port::bpe::hex_val]:
+    Source: '../../src/format/bpe.rs', lines 822:0-829:1 -/
+def format_port.bpe.hex_val (c : Std.U8) : Result (Option Std.U32) := do
+  if 48#u8 <= c
+  then
+    if c <= 57#u8
+    then let i ← c - 48#u8
+         let i1 ← lift (UScalar.cast .U32 i)
+         ok (some i1)
+    else
+      if 97#u8 <= c
+      then
+        if c <= 102#u8
+        then
+          let i ← c - 97#u8
+          let i1 ← lift (UScalar.cast .U32 i)
+          let i2 ← i1 + 10#u32
+          ok (some i2)
+        else
+          if 65#u8 <= c
+          then
+            if c <= 70#u8
+            then
+              let i ← c - 65#u8
+              let i1 ← lift (UScalar.cast .U32 i)
+              let i2 ← i1 + 10#u32
+              ok (some i2)
+            else ok none
+          else ok none
+      else
+        if 65#u8 <= c
+        then
+          if c <= 70#u8
+          then
+            let i ← c - 65#u8
+            let i1 ← lift (UScalar.cast .U32 i)
+            let i2 ← i1 + 10#u32
+            ok (some i2)
+          else ok none
+        else ok none
+  else
+    if 97#u8 <= c
+    then
+      if c <= 102#u8
+      then
+        let i ← c - 97#u8
+        let i1 ← lift (UScalar.cast .U32 i)
+        let i2 ← i1 + 10#u32
+        ok (some i2)
+      else
+        if 65#u8 <= c
+        then
+          if c <= 70#u8
+          then
+            let i ← c - 65#u8
+            let i1 ← lift (UScalar.cast .U32 i)
+            let i2 ← i1 + 10#u32
+            ok (some i2)
+          else ok none
+        else ok none
+    else
+      if 65#u8 <= c
+      then
+        if c <= 70#u8
+        then
+          let i ← c - 65#u8
+          let i1 ← lift (UScalar.cast .U32 i)
+          let i2 ← i1 + 10#u32
+          ok (some i2)
+        else ok none
+      else ok none
+
 /-- [apeiron_word::packing::ONE]
     Source: '../../src/format/packing.rs', lines 30:0-30:29
     Visibility: public -/
@@ -60819,6 +61019,21 @@ inductive packing.PackingError where
 | Overflow : packing.PackingError
 | UnsupportedKind : Std.U32 → packing.PackingError
 | Quant : quant.QuantError → packing.PackingError
+
+/-- [apeiron_word::packing::{impl core::convert::From<apeiron_word::quant::QuantError> for apeiron_word::packing::PackingError}::from]:
+    Source: '../../src/format/packing.rs', lines 118:4-120:5
+    Visibility: public -/
+def packing.PackingError.Insts.CoreConvertFromQuantError.from
+  (e : quant.QuantError) : Result packing.PackingError := do
+  ok (packing.PackingError.Quant e)
+
+/-- Trait implementation: [apeiron_word::packing::{impl core::convert::From<apeiron_word::quant::QuantError> for apeiron_word::packing::PackingError}]
+    Source: '../../src/format/packing.rs', lines 117:0-121:1 -/
+@[reducible]
+def packing.PackingError.Insts.CoreConvertFromQuantError : core.convert.From
+  packing.PackingError quant.QuantError := {
+  «from» := packing.PackingError.Insts.CoreConvertFromQuantError.from
+}
 
 /-- [apeiron_word::packing::f16_bits_to_fixed]:
     Source: '../../src/format/packing.rs', lines 155:0-171:1
@@ -61222,6 +61437,166 @@ def packing.Packing.block_bytes
     core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
       Std.Usize (core.convert.FromSame packing.PackingError) residual
 
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::validate]:
+    Source: '../../src/format/packing.rs', lines 435:4-441:5
+    Visibility: public -/
+def packing.Packing.validate
+  (self : packing.Packing) :
+  Result (core.result.Result Unit packing.PackingError)
+  := do
+  let r ← packing.Packing.total_code_bits self
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let r1 ← packing.Packing.block_size self
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let r2 ← packing.Packing.groups self
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue _ =>
+        let r3 ← packing.Packing.block_bytes self
+        let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue _ =>
+          ok (core.result.Result.Ok ())
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            Unit (core.convert.FromSame packing.PackingError) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame packing.PackingError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Unit (core.convert.FromSame packing.PackingError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      Unit (core.convert.FromSame packing.PackingError) residual
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::terminal]:
+    Source: '../../src/format/packing.rs', lines 445:4-459:5 -/
+def packing.Packing.terminal
+  (width : packing.CodeWidth) : Result packing.Packing := do
+  ok
+    {
+      width,
+      high_planes := 0#u8,
+      block := 1#u32,
+      group := 1#u32,
+      scale_kind := packing.ScaleKind.Identity,
+      has_min := false,
+      signed_code := false,
+      bias := 0#i32,
+      signed_coeff := false,
+      plane_order := packing.PlaneOrder.LsbFirst,
+      nibble_order := packing.NibbleOrder.LowHigh
+    }
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::from_gguf_kind]:
+    Source: '../../src/format/packing.rs', lines 470:4-555:5
+    Visibility: public -/
+def packing.Packing.from_gguf_kind
+  (kind : Std.U32) : Result (Option packing.Packing) := do
+  match kind with
+  | 0#uscalar =>
+    let p ← packing.Packing.terminal packing.CodeWidth.F32
+    ok (some p)
+  | 1#uscalar =>
+    let p ← packing.Packing.terminal packing.CodeWidth.F16
+    ok (some p)
+  | 8#uscalar =>
+    ok (some
+      {
+        width := (packing.CodeWidth.Fixed 8#u8),
+        high_planes := 0#u8,
+        block := 32#u32,
+        group := 32#u32,
+        scale_kind := packing.ScaleKind.F16,
+        has_min := false,
+        signed_code := true,
+        bias := 0#i32,
+        signed_coeff := false,
+        plane_order := packing.PlaneOrder.LsbFirst,
+        nibble_order := packing.NibbleOrder.LowHigh
+      })
+  | 6#uscalar =>
+    ok (some
+      {
+        width := (packing.CodeWidth.Fixed 4#u8),
+        high_planes := 1#u8,
+        block := 32#u32,
+        group := 32#u32,
+        scale_kind := packing.ScaleKind.F16,
+        has_min := false,
+        signed_code := false,
+        bias := (-16)#i32,
+        signed_coeff := false,
+        plane_order := packing.PlaneOrder.LsbFirst,
+        nibble_order := packing.NibbleOrder.LowHigh
+      })
+  | 10#uscalar =>
+    ok (some
+      {
+        width := (packing.CodeWidth.Fixed 2#u8),
+        high_planes := 0#u8,
+        block := 256#u32,
+        group := 16#u32,
+        scale_kind := packing.ScaleKind.F16,
+        has_min := true,
+        signed_code := false,
+        bias := 0#i32,
+        signed_coeff := false,
+        plane_order := packing.PlaneOrder.LsbFirst,
+        nibble_order := packing.NibbleOrder.LowHigh
+      })
+  | 11#uscalar =>
+    ok (some
+      {
+        width := (packing.CodeWidth.Fixed 3#u8),
+        high_planes := 0#u8,
+        block := 256#u32,
+        group := 16#u32,
+        scale_kind := packing.ScaleKind.F16,
+        has_min := false,
+        signed_code := false,
+        bias := (-4)#i32,
+        signed_coeff := true,
+        plane_order := packing.PlaneOrder.LsbFirst,
+        nibble_order := packing.NibbleOrder.LowHigh
+      })
+  | 12#uscalar =>
+    ok (some
+      {
+        width := (packing.CodeWidth.Fixed 4#u8),
+        high_planes := 0#u8,
+        block := 256#u32,
+        group := 32#u32,
+        scale_kind := packing.ScaleKind.F16,
+        has_min := true,
+        signed_code := false,
+        bias := 0#i32,
+        signed_coeff := false,
+        plane_order := packing.PlaneOrder.LsbFirst,
+        nibble_order := packing.NibbleOrder.LowHigh
+      })
+  | 14#uscalar =>
+    ok (some
+      {
+        width := (packing.CodeWidth.Fixed 4#u8),
+        high_planes := 2#u8,
+        block := 256#u32,
+        group := 16#u32,
+        scale_kind := packing.ScaleKind.F16,
+        has_min := false,
+        signed_code := false,
+        bias := (-32)#i32,
+        signed_coeff := true,
+        plane_order := packing.PlaneOrder.LsbFirst,
+        nibble_order := packing.NibbleOrder.LowHigh
+      })
+  | _ => ok none
+
 /-- [apeiron_word::packing::{apeiron_word::packing::Packing}::scale_to_fixed]:
     Source: '../../src/format/packing.rs', lines 562:4-568:5
     Visibility: public -/
@@ -61307,8 +61682,211 @@ def packing.Packing.unpack_code
     else ok v
   else ok v
 
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::pack_codes]: loop body 0:
+    Source: '../../src/format/packing.rs', lines 604:8-607:9 -/
+@[rust_loop_body]
+def packing.Packing.pack_codes_loop0.body
+  (nbytes : Std.Usize) (out : alloc.vec.Vec Std.U8) (z : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if z < nbytes
+  then
+    let out1 ← alloc.vec.Vec.push out 0#u8
+    let z1 ← z + 1#usize
+    ok (cont (out1, z1))
+  else ok (done out)
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::pack_codes]: loop 0:
+    Source: '../../src/format/packing.rs', lines 604:8-607:9 -/
+@[rust_loop]
+def packing.Packing.pack_codes_loop0
+  (out : alloc.vec.Vec Std.U8) (nbytes : Std.Usize) (z : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, z1) => packing.Packing.pack_codes_loop0.body nbytes out1 z1)
+    (out, z)
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::pack_codes]: loop body 2:
+    Source: '../../src/format/packing.rs', lines 612:12-621:13 -/
+@[rust_loop_body]
+def packing.Packing.pack_codes_loop1_loop0.body
+  (total : Std.Usize) (start : Std.Usize) (i : Std.Usize) (v : Std.I64)
+  (self : packing.Packing) (out : alloc.vec.Vec Std.U8) (k : Std.Usize) :
+  Result (ControlFlow (packing.Packing × (alloc.vec.Vec Std.U8) × Std.Usize)
+    (packing.Packing × (alloc.vec.Vec Std.U8)))
+  := do
+  if k < total
+  then
+    let (po, shift) ←
+      match self.plane_order with
+      | packing.PlaneOrder.LsbFirst => ok (packing.PlaneOrder.LsbFirst, k)
+      | packing.PlaneOrder.MsbFirst =>
+        do
+        let i1 ← total - 1#usize
+        let shift1 ← i1 - k
+        ok (packing.PlaneOrder.MsbFirst, shift1)
+    let i1 ← v >>> shift
+    let i2 ← lift (i1 &&& 1#i64)
+    let bit ← lift (IScalar.hcast .U8 i2)
+    let i3 ← i * total
+    let pos ← i3 + k
+    let i4 ← pos % 8#usize
+    let i5 ← bit <<< i4
+    let i6 ← pos / 8#usize
+    let i7 ← start + i6
+    let (i8, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U8)
+        out i7
+    let i9 ← lift (i8 ||| i5)
+    let k1 ← k + 1#usize
+    let out1 := index_mut_back i9
+    ok (cont ({ self with plane_order := po }, out1, k1))
+  else ok (done (self, out))
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::pack_codes]: loop 2:
+    Source: '../../src/format/packing.rs', lines 612:12-621:13 -/
+@[rust_loop]
+def packing.Packing.pack_codes_loop1_loop0
+  (self : packing.Packing) (out : alloc.vec.Vec Std.U8) (total : Std.Usize)
+  (start : Std.Usize) (i : Std.Usize) (v : Std.I64) (k : Std.Usize) :
+  Result (packing.Packing × (alloc.vec.Vec Std.U8))
+  := do
+  loop
+    (fun (self1, out1, k1) => packing.Packing.pack_codes_loop1_loop0.body total
+      start i v self1 out1 k1)
+    (self, out, k)
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::pack_codes]: loop body 1:
+    Source: '../../src/format/packing.rs', lines 609:8-623:9 -/
+@[rust_loop_body]
+def packing.Packing.pack_codes_loop1.body
+  (codes : Slice Std.I64) (total : Std.Usize) (block : Std.Usize)
+  (start : Std.Usize) (self : packing.Packing) (out : alloc.vec.Vec Std.U8)
+  (i : Std.Usize) :
+  Result (ControlFlow (packing.Packing × (alloc.vec.Vec Std.U8) × Std.Usize)
+    (packing.Packing × (alloc.vec.Vec Std.U8)))
+  := do
+  if i < block
+  then
+    let v ← Slice.index_usize codes i
+    let (self1, out1) ←
+      packing.Packing.pack_codes_loop1_loop0 self out total start i v 0#usize
+    let i1 ← i + 1#usize
+    ok (cont (self1, out1, i1))
+  else ok (done (self, out))
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::pack_codes]: loop 1:
+    Source: '../../src/format/packing.rs', lines 609:8-623:9 -/
+@[rust_loop]
+def packing.Packing.pack_codes_loop1
+  (self : packing.Packing) (codes : Slice Std.I64) (out : alloc.vec.Vec Std.U8)
+  (total : Std.Usize) (block : Std.Usize) (start : Std.Usize) (i : Std.Usize) :
+  Result (packing.Packing × (alloc.vec.Vec Std.U8))
+  := do
+  loop
+    (fun (self1, out1, i1) => packing.Packing.pack_codes_loop1.body codes total
+      block start self1 out1 i1)
+    (self, out, i)
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::pack_codes]: loop body 3:
+    Source: '../../src/format/packing.rs', lines 626:12-629:13 -/
+@[rust_loop_body]
+def packing.Packing.pack_codes_loop2.body
+  (nbytes : Std.Usize) (start : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if j < nbytes
+  then
+    let i ← start + j
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) out i
+    let i2 ← lift (core.num.U8.rotate_left i1 4#u32)
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U8)
+        out i
+    let j1 ← j + 1#usize
+    let out1 := index_mut_back i2
+    ok (cont (out1, j1))
+  else ok (done out)
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::pack_codes]: loop 3:
+    Source: '../../src/format/packing.rs', lines 626:12-629:13 -/
+@[rust_loop]
+def packing.Packing.pack_codes_loop2
+  (out : alloc.vec.Vec Std.U8) (nbytes : Std.Usize) (start : Std.Usize)
+  (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, j1) => packing.Packing.pack_codes_loop2.body nbytes start out1
+      j1)
+    (out, j)
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::pack_codes]:
+    Source: '../../src/format/packing.rs', lines 594:4-632:5 -/
+def packing.Packing.pack_codes
+  (self : packing.Packing) (codes : Slice Std.I64) (out : alloc.vec.Vec Std.U8)
+  :
+  Result ((core.result.Result Unit packing.PackingError) × (alloc.vec.Vec
+    Std.U8))
+  := do
+  let r ← packing.Packing.total_code_bits self
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← packing.Packing.block_size self
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let i := Slice.len codes
+      if i != val1
+      then ok (core.result.Result.Err packing.PackingError.BadBlockField, out)
+      else
+        let o ← lift (Usize.checked_mul val1 val)
+        let r2 ← core.option.Option.ok_or o packing.PackingError.Overflow
+        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+        match cf2 with
+        | core.ops.control_flow.ControlFlow.Continue val2 =>
+          let i1 ← val2 / 8#usize
+          let i2 ← val2 % 8#usize
+          let i3 ← lift (UScalar.cast_fromBool .Usize (i2 != 0#usize))
+          let nbytes ← i1 + i3
+          let start := alloc.vec.Vec.len out
+          let out1 ← packing.Packing.pack_codes_loop0 out nbytes 0#usize
+          let (self1, out2) ←
+            packing.Packing.pack_codes_loop1 self codes out1 val val1 start
+              0#usize
+          let b ←
+            packing.NibbleOrder.Insts.CoreCmpPartialEqNibbleOrder.eq
+              self1.nibble_order packing.NibbleOrder.HighLow
+          if b
+          then
+            let out3 ←
+              packing.Packing.pack_codes_loop2 out2 nbytes start 0#usize
+            ok (core.result.Result.Ok (), out3)
+          else ok (core.result.Result.Ok (), out2)
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          let r3 ←
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              Unit (core.convert.FromSame packing.PackingError) residual
+          ok (r3, out)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame packing.PackingError) residual
+      ok (r2, out)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    let r1 ←
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Unit (core.convert.FromSame packing.PackingError) residual
+    ok (r1, out)
+
 /-- [apeiron_word::packing::read_field]:
-    Source: '../../src/format/packing.rs', lines 934:0-940:1 -/
+    Source: '../../src/format/packing.rs', lines 944:0-950:1 -/
 def packing.read_field
   (raw : Slice Std.U8) («at» : Std.Usize) (n : Std.Usize) :
   Result Std.U16
@@ -61899,7 +62477,7 @@ def packing.Packing.decode_block_fields
       residual
 
 /-- [apeiron_word::packing::terminal_bits_to_fixed]:
-    Source: '../../src/format/packing.rs', lines 897:0-904:1 -/
+    Source: '../../src/format/packing.rs', lines 907:0-914:1 -/
 def packing.terminal_bits_to_fixed
   (width : packing.CodeWidth) (bits : Std.I64) :
   Result (core.result.Result Std.I64 packing.PackingError)
@@ -61917,7 +62495,7 @@ def packing.terminal_bits_to_fixed
     packing.f32_bits_to_fixed i
 
 /-- [apeiron_word::packing::sub]:
-    Source: '../../src/format/packing.rs', lines 929:0-931:1 -/
+    Source: '../../src/format/packing.rs', lines 939:0-941:1 -/
 def packing.sub
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 packing.PackingError)
@@ -61926,7 +62504,7 @@ def packing.sub
   core.option.Option.ok_or o packing.PackingError.Overflow
 
 /-- [apeiron_word::packing::mul]:
-    Source: '../../src/format/packing.rs', lines 924:0-926:1 -/
+    Source: '../../src/format/packing.rs', lines 934:0-936:1 -/
 def packing.mul
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 packing.PackingError)
@@ -61935,7 +62513,7 @@ def packing.mul
   core.option.Option.ok_or o packing.PackingError.Overflow
 
 /-- [apeiron_word::packing::balanced_trit]: loop body 0:
-    Source: '../../src/format/packing.rs', lines 911:4-921:1 -/
+    Source: '../../src/format/packing.rs', lines 921:4-931:1 -/
 @[rust_loop_body]
 def packing.balanced_trit_loop.body
   (field : Std.I64) (l : Std.U8) (acc : Std.I64) (weight : Std.I64)
@@ -61985,7 +62563,7 @@ def packing.balanced_trit_loop.body
   else ok (done (core.result.Result.Ok acc))
 
 /-- [apeiron_word::packing::balanced_trit]: loop 0:
-    Source: '../../src/format/packing.rs', lines 911:4-921:1 -/
+    Source: '../../src/format/packing.rs', lines 921:4-931:1 -/
 @[rust_loop]
 def packing.balanced_trit_loop
   (field : Std.I64) (l : Std.U8) (acc : Std.I64) (weight : Std.I64)
@@ -61998,7 +62576,7 @@ def packing.balanced_trit_loop
     (acc, weight, k)
 
 /-- [apeiron_word::packing::balanced_trit]:
-    Source: '../../src/format/packing.rs', lines 907:0-921:1 -/
+    Source: '../../src/format/packing.rs', lines 917:0-931:1 -/
 @[reducible]
 def packing.balanced_trit
   (field : Std.I64) (l : Std.U8) :
@@ -62478,6 +63056,1198 @@ def packing.Packing.decode_block
     core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
       (alloc.vec.Vec Std.I64) (core.convert.FromSame packing.PackingError)
       residual
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::row_decode_fixed]: loop body 1:
+    Source: '../../src/format/packing.rs', lines 848:20-851:21
+    Visibility: public -/
+@[rust_loop_body]
+def packing.Packing.row_decode_fixed_loop0_loop0.body
+  (vals : alloc.vec.Vec Std.I64) (take : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (lane : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if lane < take
+  then
+    let i ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) vals
+        lane
+    let out1 ← alloc.vec.Vec.push out i
+    let lane1 ← lane + 1#usize
+    ok (cont (out1, lane1))
+  else ok (done out)
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::row_decode_fixed]: loop 1:
+    Source: '../../src/format/packing.rs', lines 848:20-851:21
+    Visibility: public -/
+@[rust_loop]
+def packing.Packing.row_decode_fixed_loop0_loop0
+  (out : alloc.vec.Vec Std.I64) (vals : alloc.vec.Vec Std.I64)
+  (take : Std.Usize) (lane : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (out1, lane1) => packing.Packing.row_decode_fixed_loop0_loop0.body
+      vals take out1 lane1)
+    (out, lane)
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::row_decode_fixed]: loop body 0:
+    Source: '../../src/format/packing.rs', lines 843:8-856:9
+    Visibility: public -/
+@[rust_loop_body]
+def packing.Packing.row_decode_fixed_loop0.body
+  (self : packing.Packing) (raw : Slice Std.U8) (n : Std.Usize)
+  (bb : Std.Usize) (block : Std.Usize) (blocks : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (failed : Option packing.PackingError)
+  (b : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option packing.PackingError)
+    × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option packing.PackingError)))
+  := do
+  if b < blocks
+  then
+    let b1 := core.option.Option.is_none failed
+    if b1
+    then
+      let i ← b * bb
+      let i1 ← i + bb
+      let s ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.U8) raw
+          { start := i, «end» := i1 }
+      let r ← packing.Packing.decode_block self s
+      match r with
+      | core.result.Result.Ok vals =>
+        let i2 ← b * block
+        let i3 ← n - i2
+        let take ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize block i3
+        let out1 ←
+          packing.Packing.row_decode_fixed_loop0_loop0 out vals take 0#usize
+        let b2 ← b + 1#usize
+        ok (cont (out1, failed, b2))
+      | core.result.Result.Err e => ok (cont (out, some e, b))
+    else ok (done (out, failed))
+  else ok (done (out, failed))
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::row_decode_fixed]: loop 0:
+    Source: '../../src/format/packing.rs', lines 843:8-856:9
+    Visibility: public -/
+@[rust_loop]
+def packing.Packing.row_decode_fixed_loop0
+  (self : packing.Packing) (raw : Slice Std.U8) (n : Std.Usize)
+  (bb : Std.Usize) (block : Std.Usize) (blocks : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (failed : Option packing.PackingError)
+  (b : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option packing.PackingError))
+  := do
+  loop
+    (fun (out1, failed1, b1) => packing.Packing.row_decode_fixed_loop0.body
+      self raw n bb block blocks out1 failed1 b1)
+    (out, failed, b)
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::row_decode_fixed]:
+    Source: '../../src/format/packing.rs', lines 827:4-861:5
+    Visibility: public -/
+def packing.Packing.row_decode_fixed
+  (self : packing.Packing) (raw : Slice Std.U8) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) packing.PackingError)
+  := do
+  let r ← packing.Packing.block_bytes self
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← packing.Packing.block_size self
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let i ← n / val1
+      let i1 ← n % val1
+      let i2 ← lift (UScalar.cast_fromBool .Usize (i1 != 0#usize))
+      let blocks ← i + i2
+      let o ← lift (Usize.checked_mul blocks val)
+      let r2 ← core.option.Option.ok_or o packing.PackingError.Overflow
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let i3 := Slice.len raw
+        if i3 < val2
+        then
+          let i4 := Slice.len raw
+          ok (core.result.Result.Err (packing.PackingError.Truncated val2 i4))
+        else
+          let out := alloc.vec.Vec.with_capacity Std.I64 n
+          let (out1, failed) ←
+            packing.Packing.row_decode_fixed_loop0 self raw n val val1 blocks
+              out none 0#usize
+          match failed with
+          | none => ok (core.result.Result.Ok out1)
+          | some e => ok (core.result.Result.Err e)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame packing.PackingError)
+          residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame packing.PackingError)
+        residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame packing.PackingError)
+      residual
+
+/-- [apeiron_word::packing::write_field]:
+    Source: '../../src/format/packing.rs', lines 953:0-960:1 -/
+def packing.write_field
+  (out : alloc.vec.Vec Std.U8) (v : Std.U16) (n : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  if n = 1#usize
+  then
+    let i ← lift (v &&& 255#u16)
+    let i1 ← lift (UScalar.cast .U8 i)
+    alloc.vec.Vec.push out i1
+  else
+    let i ← lift (v &&& 255#u16)
+    let i1 ← lift (UScalar.cast .U8 i)
+    let out1 ← alloc.vec.Vec.push out i1
+    let i2 ← v >>> 8#i32
+    let i3 ← lift (UScalar.cast .U8 i2)
+    alloc.vec.Vec.push out1 i3
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::encode_block]: loop body 0:
+    Source: '../../src/format/packing.rs', lines 883:12-898:13
+    Visibility: public -/
+@[rust_loop_body]
+def packing.Packing.encode_block_loop.body
+  (b : Bool) (v : alloc.vec.Vec (Std.I32 × Std.I32)) (groups : Std.Usize)
+  (b1 : Bool) (out : alloc.vec.Vec Std.U8) (g : Std.Usize) :
+  Result (ControlFlow (Bool × (alloc.vec.Vec Std.U8) × Std.Usize) (Bool ×
+    (alloc.vec.Vec Std.U8)))
+  := do
+  if g < groups
+  then
+    let (a, mb) ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (Std.I32 ×
+        Std.I32)) v g
+    let out1 ←
+      if b1
+      then
+        do
+        let i ← lift (IScalar.cast .I8 a)
+        let i1 ← lift (IScalar.hcast .U8 i)
+        alloc.vec.Vec.push out i1
+      else
+        do
+        let i ← lift (IScalar.hcast .U8 a)
+        let i1 ← lift (i &&& 255#u8)
+        alloc.vec.Vec.push out i1
+    let (b2, out2) ←
+      if b
+      then
+        do
+        let v1 ←
+          if b1
+          then
+            do
+            let i ← lift (IScalar.cast .I8 mb)
+            let i1 ← lift (IScalar.hcast .U8 i)
+            alloc.vec.Vec.push out1 i1
+          else
+            do
+            let i ← lift (IScalar.hcast .U8 mb)
+            let i1 ← lift (i &&& 255#u8)
+            alloc.vec.Vec.push out1 i1
+        ok (b1, v1)
+      else ok (b1, out1)
+    let g1 ← g + 1#usize
+    ok (cont (b2, out2, g1))
+  else ok (done (b1, out))
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::encode_block]: loop 0:
+    Source: '../../src/format/packing.rs', lines 883:12-898:13
+    Visibility: public -/
+@[rust_loop]
+def packing.Packing.encode_block_loop
+  (b : Bool) (b1 : Bool) (v : alloc.vec.Vec (Std.I32 × Std.I32))
+  (groups : Std.Usize) (out : alloc.vec.Vec Std.U8) (g : Std.Usize) :
+  Result (Bool × (alloc.vec.Vec Std.U8))
+  := do
+  loop
+    (fun (b2, out1, g1) => packing.Packing.encode_block_loop.body b v groups b2
+      out1 g1)
+    (b1, out, g)
+
+/-- [apeiron_word::packing::{apeiron_word::packing::Packing}::encode_block]:
+    Source: '../../src/format/packing.rs', lines 869:4-902:5
+    Visibility: public -/
+def packing.Packing.encode_block
+  (self : packing.Packing) (b : packing.CanonicalBlock) :
+  Result (core.result.Result (alloc.vec.Vec Std.U8) packing.PackingError)
+  := do
+  let r ← packing.Packing.block_bytes self
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← packing.Packing.groups self
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let i := alloc.vec.Vec.len b.codes
+      let r2 ← packing.Packing.block_size self
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        if i != val2
+        then ok (core.result.Result.Err packing.PackingError.BadBlockField)
+        else
+          let i1 := alloc.vec.Vec.len b.coeffs
+          if i1 != val1
+          then ok (core.result.Result.Err packing.PackingError.BadBlockField)
+          else
+            let out := alloc.vec.Vec.with_capacity Std.U8 val
+            let b1 ← packing.Packing.is_terminal self
+            if b1
+            then
+              let s := alloc.vec.Vec.deref b.codes
+              let (r3, out1) ← packing.Packing.pack_codes self s out
+              let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+              match cf3 with
+              | core.ops.control_flow.ControlFlow.Continue _ =>
+                ok (core.result.Result.Ok out1)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  (alloc.vec.Vec Std.U8) (core.convert.FromSame
+                  packing.PackingError) residual
+            else
+              let sf ← packing.Packing.scale_field_bytes self
+              let out1 ← packing.write_field out b.scale sf
+              let (b2, out2) ←
+                if self.has_min
+                then
+                  do
+                  let out3 ← packing.write_field out1 b.min sf
+                  ok (true, out3)
+                else ok (false, out1)
+              let (b3, out3) ←
+                packing.Packing.encode_block_loop b2 self.signed_coeff
+                  b.coeffs val1 out2 0#usize
+              let s := alloc.vec.Vec.deref b.codes
+              let (r3, out4) ←
+                packing.Packing.pack_codes
+                  { self with has_min := b2, signed_coeff := b3 } s out3
+              let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+              match cf3 with
+              | core.ops.control_flow.ControlFlow.Continue _ =>
+                ok (core.result.Result.Ok out4)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  (alloc.vec.Vec Std.U8) (core.convert.FromSame
+                  packing.PackingError) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.U8) (core.convert.FromSame packing.PackingError)
+          residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.U8) (core.convert.FromSame packing.PackingError)
+        residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.U8) (core.convert.FromSame packing.PackingError)
+      residual
+
+/-- [apeiron_word::packing::block_slice]:
+    Source: '../../src/format/packing.rs', lines 1027:0-1034:1 -/
+def packing.block_slice
+  (raw : Slice Std.U8) (b : Std.Usize) (bb : Std.Usize) :
+  Result (core.result.Result (Slice Std.U8) packing.PackingError)
+  := do
+  let o ← lift (Usize.checked_mul b bb)
+  let r ← core.option.Option.ok_or o packing.PackingError.Overflow
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o1 ← lift (Usize.checked_add val bb)
+    let r1 ← core.option.Option.ok_or o1 packing.PackingError.Overflow
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let o2 ←
+        core.slice.Slice.get (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.U8) raw { start := val, «end» := val1 }
+      let i := Slice.len raw
+      core.option.Option.ok_or o2 (packing.PackingError.Truncated val1 i)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (Slice Std.U8) (core.convert.FromSame packing.PackingError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (Slice Std.U8) (core.convert.FromSame packing.PackingError) residual
+
+/-- [apeiron_word::packing::import_q6_k]: loop body 0:
+    Source: '../../src/format/packing.rs', lines 1205:4-1208:5 -/
+@[rust_loop_body]
+def packing.import_q6_k_loop0.body
+  (signed : Array Std.I8 256#usize) (codes : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < quant.QK_K
+  then
+    let i1 ← Array.index_usize signed i
+    let i2 ← lift (IScalar.cast .I64 i1)
+    let i3 ← i2 + 32#i64
+    let codes1 ← alloc.vec.Vec.push codes i3
+    let i4 ← i + 1#usize
+    ok (cont (codes1, i4))
+  else ok (done codes)
+
+/-- [apeiron_word::packing::import_q6_k]: loop 0:
+    Source: '../../src/format/packing.rs', lines 1205:4-1208:5 -/
+@[rust_loop]
+def packing.import_q6_k_loop0
+  (signed : Array Std.I8 256#usize) (codes : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (codes1, i1) => packing.import_q6_k_loop0.body signed codes1 i1)
+    (codes, i)
+
+/-- [apeiron_word::packing::import_q6_k]: loop body 1:
+    Source: '../../src/format/packing.rs', lines 1211:4-1214:5 -/
+@[rust_loop_body]
+def packing.import_q6_k_loop1.body
+  (scales : Array Std.I8 16#usize)
+  (coeffs : alloc.vec.Vec (Std.I32 × Std.I32)) (g : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (Std.I32 × Std.I32)) × Std.Usize)
+    (alloc.vec.Vec (Std.I32 × Std.I32)))
+  := do
+  if g < 16#usize
+  then
+    let i ← Array.index_usize scales g
+    let i1 ← lift (IScalar.cast .I32 i)
+    let coeffs1 ← alloc.vec.Vec.push coeffs (i1, 0#i32)
+    let g1 ← g + 1#usize
+    ok (cont (coeffs1, g1))
+  else ok (done coeffs)
+
+/-- [apeiron_word::packing::import_q6_k]: loop 1:
+    Source: '../../src/format/packing.rs', lines 1211:4-1214:5 -/
+@[rust_loop]
+def packing.import_q6_k_loop1
+  (scales : Array Std.I8 16#usize)
+  (coeffs : alloc.vec.Vec (Std.I32 × Std.I32)) (g : Std.Usize) :
+  Result (alloc.vec.Vec (Std.I32 × Std.I32))
+  := do
+  loop
+    (fun (coeffs1, g1) => packing.import_q6_k_loop1.body scales coeffs1 g1)
+    (coeffs, g)
+
+/-- [apeiron_word::packing::import_q6_k]:
+    Source: '../../src/format/packing.rs', lines 1199:0-1221:1 -/
+def packing.import_q6_k
+  (raw : Slice Std.U8) (b : Std.Usize) :
+  Result (core.result.Result packing.CanonicalBlock packing.PackingError)
+  := do
+  let i ← quant.Q6_K_BLOCK_BYTES
+  let r ← packing.block_slice raw b i
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← quant.q6_k_scales val
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let r2 ← quant.q6_k_codes val
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let codes := alloc.vec.Vec.with_capacity Std.I64 quant.QK_K
+        let codes1 ← packing.import_q6_k_loop0 val2 codes 0#usize
+        let coeffs := alloc.vec.Vec.with_capacity (Std.I32 × Std.I32) 16#usize
+        let coeffs1 ← packing.import_q6_k_loop1 val1 coeffs 0#usize
+        let r3 ← quant.q6_k_d val
+        let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val3 =>
+          ok (core.result.Result.Ok
+            { scale := val3, min := 0#u16, coeffs := coeffs1, codes := codes1 })
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            packing.CanonicalBlock
+            packing.PackingError.Insts.CoreConvertFromQuantError residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          packing.CanonicalBlock
+          packing.PackingError.Insts.CoreConvertFromQuantError residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        packing.CanonicalBlock
+        packing.PackingError.Insts.CoreConvertFromQuantError residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      packing.CanonicalBlock (core.convert.FromSame packing.PackingError)
+      residual
+
+/-- [apeiron_word::quant::q4_k_scale_mins]: loop body 0:
+    Source: '../../src/format/quant.rs', lines 516:4-519:5
+    Visibility: public -/
+@[rust_loop_body]
+def quant.q4_k_scale_mins_loop.body
+  (sc : Array Std.U8 12#usize) (out : Array (Std.U8 × Std.U8) 8#usize)
+  (j : Std.Usize) :
+  Result (ControlFlow ((Array (Std.U8 × Std.U8) 8#usize) × Std.Usize) (Array
+    (Std.U8 × Std.U8) 8#usize))
+  := do
+  if j < 8#usize
+  then
+    let p ← quant.q4_k_scale_min sc j
+    let a ← Array.update out j p
+    let j1 ← j + 1#usize
+    ok (cont (a, j1))
+  else ok (done out)
+
+/-- [apeiron_word::quant::q4_k_scale_mins]: loop 0:
+    Source: '../../src/format/quant.rs', lines 516:4-519:5
+    Visibility: public -/
+@[rust_loop]
+def quant.q4_k_scale_mins_loop
+  (sc : Array Std.U8 12#usize) (out : Array (Std.U8 × Std.U8) 8#usize)
+  (j : Std.Usize) :
+  Result (Array (Std.U8 × Std.U8) 8#usize)
+  := do
+  loop
+    (fun (out1, j1) => quant.q4_k_scale_mins_loop.body sc out1 j1)
+    (out, j)
+
+/-- [apeiron_word::quant::q4_k_scale_mins]:
+    Source: '../../src/format/quant.rs', lines 510:0-521:1
+    Visibility: public -/
+def quant.q4_k_scale_mins
+  (blk : Slice Std.U8) :
+  Result (core.result.Result (Array (Std.U8 × Std.U8) 8#usize)
+    quant.QuantError)
+  := do
+  let i ← 4#usize + quant.Q4_K_SCALE_SIZE
+  let r ← quant.need blk i
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let sc := Array.repeat 12#usize 0#u8
+    let (s, to_slice_mut_back) ← lift (Array.to_slice_mut sc)
+    let s1 ←
+      core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.U8) blk { start := 4#usize, «end» := i }
+    let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s s1
+    let out := Array.repeat 8#usize (0#u8, 0#u8)
+    let sc1 := to_slice_mut_back s2
+    let out1 ← quant.q4_k_scale_mins_loop sc1 out 0#usize
+    ok (core.result.Result.Ok out1)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (Array (Std.U8 × Std.U8) 8#usize) (core.convert.FromSame
+      quant.QuantError) residual
+
+/-- [apeiron_word::packing::import_q4_k]: loop body 0:
+    Source: '../../src/format/packing.rs', lines 1180:4-1183:5 -/
+@[rust_loop_body]
+def packing.import_q4_k_loop0.body
+  (packed : Array Std.U8 256#usize) (codes : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < quant.QK_K
+  then
+    let i1 ← Array.index_usize packed i
+    let i2 ← lift (UScalar.hcast .I64 i1)
+    let codes1 ← alloc.vec.Vec.push codes i2
+    let i3 ← i + 1#usize
+    ok (cont (codes1, i3))
+  else ok (done codes)
+
+/-- [apeiron_word::packing::import_q4_k]: loop 0:
+    Source: '../../src/format/packing.rs', lines 1180:4-1183:5 -/
+@[rust_loop]
+def packing.import_q4_k_loop0
+  (packed : Array Std.U8 256#usize) (codes : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (codes1, i1) => packing.import_q4_k_loop0.body packed codes1 i1)
+    (codes, i)
+
+/-- [apeiron_word::packing::import_q4_k]: loop body 1:
+    Source: '../../src/format/packing.rs', lines 1186:4-1190:5 -/
+@[rust_loop_body]
+def packing.import_q4_k_loop1.body
+  (pairs : Array (Std.U8 × Std.U8) 8#usize)
+  (coeffs : alloc.vec.Vec (Std.I32 × Std.I32)) (g : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (Std.I32 × Std.I32)) × Std.Usize)
+    (alloc.vec.Vec (Std.I32 × Std.I32)))
+  := do
+  if g < 8#usize
+  then
+    let p ← Array.index_usize pairs g
+    let (a, _) := p
+    let (_, mb) := p
+    let i ← lift (UScalar.hcast .I32 a)
+    let i1 ← lift (UScalar.hcast .I32 mb)
+    let coeffs1 ← alloc.vec.Vec.push coeffs (i, i1)
+    let g1 ← g + 1#usize
+    ok (cont (coeffs1, g1))
+  else ok (done coeffs)
+
+/-- [apeiron_word::packing::import_q4_k]: loop 1:
+    Source: '../../src/format/packing.rs', lines 1186:4-1190:5 -/
+@[rust_loop]
+def packing.import_q4_k_loop1
+  (pairs : Array (Std.U8 × Std.U8) 8#usize)
+  (coeffs : alloc.vec.Vec (Std.I32 × Std.I32)) (g : Std.Usize) :
+  Result (alloc.vec.Vec (Std.I32 × Std.I32))
+  := do
+  loop
+    (fun (coeffs1, g1) => packing.import_q4_k_loop1.body pairs coeffs1 g1)
+    (coeffs, g)
+
+/-- [apeiron_word::packing::import_q4_k]:
+    Source: '../../src/format/packing.rs', lines 1174:0-1197:1 -/
+def packing.import_q4_k
+  (raw : Slice Std.U8) (b : Std.Usize) :
+  Result (core.result.Result packing.CanonicalBlock packing.PackingError)
+  := do
+  let i ← quant.Q4_K_BLOCK_BYTES
+  let r ← packing.block_slice raw b i
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← quant.q4_k_scale_mins val
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let r2 ← quant.q4_k_codes val
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let codes := alloc.vec.Vec.with_capacity Std.I64 quant.QK_K
+        let codes1 ← packing.import_q4_k_loop0 val2 codes 0#usize
+        let coeffs := alloc.vec.Vec.with_capacity (Std.I32 × Std.I32) 8#usize
+        let coeffs1 ← packing.import_q4_k_loop1 val1 coeffs 0#usize
+        let i1 ← Slice.index_usize val 0#usize
+        let i2 ← Slice.index_usize val 1#usize
+        let i3 ←
+          lift (core.num.U16.from_le_bytes (Array.make 2#usize [ i1, i2 ]))
+        let i4 ← Slice.index_usize val 2#usize
+        let i5 ← Slice.index_usize val 3#usize
+        let i6 ←
+          lift (core.num.U16.from_le_bytes (Array.make 2#usize [ i4, i5 ]))
+        ok (core.result.Result.Ok
+          { scale := i3, min := i6, coeffs := coeffs1, codes := codes1 })
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          packing.CanonicalBlock
+          packing.PackingError.Insts.CoreConvertFromQuantError residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        packing.CanonicalBlock
+        packing.PackingError.Insts.CoreConvertFromQuantError residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      packing.CanonicalBlock (core.convert.FromSame packing.PackingError)
+      residual
+
+/-- [apeiron_word::packing::import_q3_k]: loop body 0:
+    Source: '../../src/format/packing.rs', lines 1156:4-1159:5 -/
+@[rust_loop_body]
+def packing.import_q3_k_loop0.body
+  (signed : Array Std.I8 256#usize) (codes : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < quant.QK_K
+  then
+    let i1 ← Array.index_usize signed i
+    let i2 ← lift (IScalar.cast .I64 i1)
+    let i3 ← i2 + 4#i64
+    let codes1 ← alloc.vec.Vec.push codes i3
+    let i4 ← i + 1#usize
+    ok (cont (codes1, i4))
+  else ok (done codes)
+
+/-- [apeiron_word::packing::import_q3_k]: loop 0:
+    Source: '../../src/format/packing.rs', lines 1156:4-1159:5 -/
+@[rust_loop]
+def packing.import_q3_k_loop0
+  (signed : Array Std.I8 256#usize) (codes : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (codes1, i1) => packing.import_q3_k_loop0.body signed codes1 i1)
+    (codes, i)
+
+/-- [apeiron_word::packing::import_q3_k]: loop body 1:
+    Source: '../../src/format/packing.rs', lines 1162:4-1165:5 -/
+@[rust_loop_body]
+def packing.import_q3_k_loop1.body
+  (scales : Array Std.I8 16#usize)
+  (coeffs : alloc.vec.Vec (Std.I32 × Std.I32)) (g : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (Std.I32 × Std.I32)) × Std.Usize)
+    (alloc.vec.Vec (Std.I32 × Std.I32)))
+  := do
+  if g < 16#usize
+  then
+    let i ← Array.index_usize scales g
+    let i1 ← lift (IScalar.cast .I32 i)
+    let i2 ← i1 - 32#i32
+    let coeffs1 ← alloc.vec.Vec.push coeffs (i2, 0#i32)
+    let g1 ← g + 1#usize
+    ok (cont (coeffs1, g1))
+  else ok (done coeffs)
+
+/-- [apeiron_word::packing::import_q3_k]: loop 1:
+    Source: '../../src/format/packing.rs', lines 1162:4-1165:5 -/
+@[rust_loop]
+def packing.import_q3_k_loop1
+  (scales : Array Std.I8 16#usize)
+  (coeffs : alloc.vec.Vec (Std.I32 × Std.I32)) (g : Std.Usize) :
+  Result (alloc.vec.Vec (Std.I32 × Std.I32))
+  := do
+  loop
+    (fun (coeffs1, g1) => packing.import_q3_k_loop1.body scales coeffs1 g1)
+    (coeffs, g)
+
+/-- [apeiron_word::packing::import_q3_k]:
+    Source: '../../src/format/packing.rs', lines 1150:0-1172:1 -/
+def packing.import_q3_k
+  (raw : Slice Std.U8) (b : Std.Usize) :
+  Result (core.result.Result packing.CanonicalBlock packing.PackingError)
+  := do
+  let i ← quant.Q3_K_BLOCK_BYTES
+  let r ← packing.block_slice raw b i
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← quant.q3_k_scales val
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let r2 ← quant.q3_k_codes val
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let codes := alloc.vec.Vec.with_capacity Std.I64 quant.QK_K
+        let codes1 ← packing.import_q3_k_loop0 val2 codes 0#usize
+        let coeffs := alloc.vec.Vec.with_capacity (Std.I32 × Std.I32) 16#usize
+        let coeffs1 ← packing.import_q3_k_loop1 val1 coeffs 0#usize
+        let r3 ← quant.q3_k_d val
+        let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val3 =>
+          ok (core.result.Result.Ok
+            { scale := val3, min := 0#u16, coeffs := coeffs1, codes := codes1 })
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            packing.CanonicalBlock
+            packing.PackingError.Insts.CoreConvertFromQuantError residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          packing.CanonicalBlock
+          packing.PackingError.Insts.CoreConvertFromQuantError residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        packing.CanonicalBlock
+        packing.PackingError.Insts.CoreConvertFromQuantError residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      packing.CanonicalBlock (core.convert.FromSame packing.PackingError)
+      residual
+
+/-- [apeiron_word::packing::import_q2_k]: loop body 0:
+    Source: '../../src/format/packing.rs', lines 1131:4-1134:5 -/
+@[rust_loop_body]
+def packing.import_q2_k_loop0.body
+  (packed : Array Std.U8 256#usize) (codes : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < quant.QK_K
+  then
+    let i1 ← Array.index_usize packed i
+    let i2 ← lift (UScalar.hcast .I64 i1)
+    let codes1 ← alloc.vec.Vec.push codes i2
+    let i3 ← i + 1#usize
+    ok (cont (codes1, i3))
+  else ok (done codes)
+
+/-- [apeiron_word::packing::import_q2_k]: loop 0:
+    Source: '../../src/format/packing.rs', lines 1131:4-1134:5 -/
+@[rust_loop]
+def packing.import_q2_k_loop0
+  (packed : Array Std.U8 256#usize) (codes : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (codes1, i1) => packing.import_q2_k_loop0.body packed codes1 i1)
+    (codes, i)
+
+/-- [apeiron_word::packing::import_q2_k]: loop body 1:
+    Source: '../../src/format/packing.rs', lines 1137:4-1141:5 -/
+@[rust_loop_body]
+def packing.import_q2_k_loop1.body
+  (scales : Array Std.U8 16#usize)
+  (coeffs : alloc.vec.Vec (Std.I32 × Std.I32)) (g : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (Std.I32 × Std.I32)) × Std.Usize)
+    (alloc.vec.Vec (Std.I32 × Std.I32)))
+  := do
+  if g < 16#usize
+  then
+    let i ← Array.index_usize scales g
+    let (a, mb) ← quant.q2_k_scale_min i
+    let i1 ← lift (UScalar.hcast .I32 a)
+    let i2 ← lift (UScalar.hcast .I32 mb)
+    let coeffs1 ← alloc.vec.Vec.push coeffs (i1, i2)
+    let g1 ← g + 1#usize
+    ok (cont (coeffs1, g1))
+  else ok (done coeffs)
+
+/-- [apeiron_word::packing::import_q2_k]: loop 1:
+    Source: '../../src/format/packing.rs', lines 1137:4-1141:5 -/
+@[rust_loop]
+def packing.import_q2_k_loop1
+  (scales : Array Std.U8 16#usize)
+  (coeffs : alloc.vec.Vec (Std.I32 × Std.I32)) (g : Std.Usize) :
+  Result (alloc.vec.Vec (Std.I32 × Std.I32))
+  := do
+  loop
+    (fun (coeffs1, g1) => packing.import_q2_k_loop1.body scales coeffs1 g1)
+    (coeffs, g)
+
+/-- [apeiron_word::packing::import_q2_k]:
+    Source: '../../src/format/packing.rs', lines 1125:0-1148:1 -/
+def packing.import_q2_k
+  (raw : Slice Std.U8) (b : Std.Usize) :
+  Result (core.result.Result packing.CanonicalBlock packing.PackingError)
+  := do
+  let i ← quant.Q2_K_BLOCK_BYTES
+  let r ← packing.block_slice raw b i
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← quant.q2_k_scales val
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let r2 ← quant.q2_k_codes val
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let codes := alloc.vec.Vec.with_capacity Std.I64 quant.QK_K
+        let codes1 ← packing.import_q2_k_loop0 val2 codes 0#usize
+        let coeffs := alloc.vec.Vec.with_capacity (Std.I32 × Std.I32) 16#usize
+        let coeffs1 ← packing.import_q2_k_loop1 val1 coeffs 0#usize
+        let r3 ← quant.q2_k_d val
+        let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val3 =>
+          let r4 ← quant.q2_k_dmin val
+          let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
+          match cf4 with
+          | core.ops.control_flow.ControlFlow.Continue val4 =>
+            ok (core.result.Result.Ok
+              { scale := val3, min := val4, coeffs := coeffs1, codes := codes1
+              })
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              packing.CanonicalBlock
+              packing.PackingError.Insts.CoreConvertFromQuantError residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            packing.CanonicalBlock
+            packing.PackingError.Insts.CoreConvertFromQuantError residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          packing.CanonicalBlock
+          packing.PackingError.Insts.CoreConvertFromQuantError residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        packing.CanonicalBlock
+        packing.PackingError.Insts.CoreConvertFromQuantError residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      packing.CanonicalBlock (core.convert.FromSame packing.PackingError)
+      residual
+
+/-- [apeiron_word::packing::import_q5_0]: loop body 0:
+    Source: '../../src/format/packing.rs', lines 1110:4-1114:5 -/
+@[rust_loop_body]
+def packing.import_q5_0_loop.body
+  (signed : Array Std.I8 32#usize) (codes : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < quant.Q5_0_QK
+  then
+    let i1 ← Array.index_usize signed i
+    let i2 ← lift (IScalar.cast .I64 i1)
+    let i3 ← i2 + 16#i64
+    let codes1 ← alloc.vec.Vec.push codes i3
+    let i4 ← i + 1#usize
+    ok (cont (codes1, i4))
+  else ok (done codes)
+
+/-- [apeiron_word::packing::import_q5_0]: loop 0:
+    Source: '../../src/format/packing.rs', lines 1110:4-1114:5 -/
+@[rust_loop]
+def packing.import_q5_0_loop
+  (signed : Array Std.I8 32#usize) (codes : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (codes1, i1) => packing.import_q5_0_loop.body signed codes1 i1)
+    (codes, i)
+
+/-- [apeiron_word::packing::import_q5_0]:
+    Source: '../../src/format/packing.rs', lines 1104:0-1123:1 -/
+def packing.import_q5_0
+  (raw : Slice Std.U8) (b : Std.Usize) :
+  Result (core.result.Result packing.CanonicalBlock packing.PackingError)
+  := do
+  let i ← quant.Q5_0_BLOCK_BYTES
+  let r ← packing.block_slice raw b i
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← quant.q5_0_d val
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let r2 ← quant.q5_0_codes val
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val2 =>
+        let codes := alloc.vec.Vec.with_capacity Std.I64 quant.Q5_0_QK
+        let codes1 ← packing.import_q5_0_loop val2 codes 0#usize
+        let coeffs := alloc.vec.Vec.with_capacity (Std.I32 × Std.I32) 1#usize
+        let coeffs1 ← alloc.vec.Vec.push coeffs (1#i32, 0#i32)
+        ok (core.result.Result.Ok
+          { scale := val1, min := 0#u16, coeffs := coeffs1, codes := codes1 })
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          packing.CanonicalBlock
+          packing.PackingError.Insts.CoreConvertFromQuantError residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        packing.CanonicalBlock
+        packing.PackingError.Insts.CoreConvertFromQuantError residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      packing.CanonicalBlock (core.convert.FromSame packing.PackingError)
+      residual
+
+/-- [apeiron_word::packing::import_q8_0]: loop body 0:
+    Source: '../../src/format/packing.rs', lines 1085:4-1088:5 -/
+@[rust_loop_body]
+def packing.import_q8_0_loop.body
+  (blk : Slice Std.U8) (codes : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < quant.Q8_0_QK
+  then
+    let i1 ← 2#usize + i
+    let i2 ← Slice.index_usize blk i1
+    let i3 ← lift (UScalar.hcast .I8 i2)
+    let i4 ← lift (IScalar.cast .I64 i3)
+    let codes1 ← alloc.vec.Vec.push codes i4
+    let i5 ← i + 1#usize
+    ok (cont (codes1, i5))
+  else ok (done codes)
+
+/-- [apeiron_word::packing::import_q8_0]: loop 0:
+    Source: '../../src/format/packing.rs', lines 1085:4-1088:5 -/
+@[rust_loop]
+def packing.import_q8_0_loop
+  (blk : Slice Std.U8) (codes : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (codes1, i1) => packing.import_q8_0_loop.body blk codes1 i1)
+    (codes, i)
+
+/-- [apeiron_word::packing::import_q8_0]:
+    Source: '../../src/format/packing.rs', lines 1081:0-1097:1 -/
+def packing.import_q8_0
+  (raw : Slice Std.U8) (b : Std.Usize) :
+  Result (core.result.Result packing.CanonicalBlock packing.PackingError)
+  := do
+  let i ← quant.Q8_0_BLOCK_BYTES
+  let r ← packing.block_slice raw b i
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let codes := alloc.vec.Vec.with_capacity Std.I64 quant.Q8_0_QK
+    let codes1 ← packing.import_q8_0_loop val codes 0#usize
+    let coeffs := alloc.vec.Vec.with_capacity (Std.I32 × Std.I32) 1#usize
+    let coeffs1 ← alloc.vec.Vec.push coeffs (1#i32, 0#i32)
+    let i1 ← Slice.index_usize val 0#usize
+    let i2 ← Slice.index_usize val 1#usize
+    let i3 ←
+      lift (core.num.U16.from_le_bytes (Array.make 2#usize [ i1, i2 ]))
+    ok (core.result.Result.Ok
+      { scale := i3, min := 0#u16, coeffs := coeffs1, codes := codes1 })
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      packing.CanonicalBlock (core.convert.FromSame packing.PackingError)
+      residual
+
+/-- [apeiron_word::packing::import_f32]:
+    Source: '../../src/format/packing.rs', lines 1062:0-1074:1 -/
+def packing.import_f32
+  (raw : Slice Std.U8) (b : Std.Usize) :
+  Result (core.result.Result packing.CanonicalBlock packing.PackingError)
+  := do
+  let r ← packing.block_slice raw b 4#usize
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let codes := alloc.vec.Vec.with_capacity Std.I64 1#usize
+    let i ← Slice.index_usize val 0#usize
+    let i1 ← Slice.index_usize val 1#usize
+    let i2 ← Slice.index_usize val 2#usize
+    let i3 ← Slice.index_usize val 3#usize
+    let i4 ←
+      lift (core.num.U32.from_le_bytes (Array.make 4#usize [ i, i1, i2, i3 ]))
+    let i5 ← lift (UScalar.hcast .I64 i4)
+    let codes1 ← alloc.vec.Vec.push codes i5
+    let coeffs := alloc.vec.Vec.with_capacity (Std.I32 × Std.I32) 1#usize
+    let coeffs1 ← alloc.vec.Vec.push coeffs (1#i32, 0#i32)
+    ok (core.result.Result.Ok
+      { scale := 0#u16, min := 0#u16, coeffs := coeffs1, codes := codes1 })
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      packing.CanonicalBlock (core.convert.FromSame packing.PackingError)
+      residual
+
+/-- [apeiron_word::packing::import_f16]:
+    Source: '../../src/format/packing.rs', lines 1042:0-1054:1 -/
+def packing.import_f16
+  (raw : Slice Std.U8) (b : Std.Usize) :
+  Result (core.result.Result packing.CanonicalBlock packing.PackingError)
+  := do
+  let r ← packing.block_slice raw b 2#usize
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let codes := alloc.vec.Vec.with_capacity Std.I64 1#usize
+    let i ← Slice.index_usize val 0#usize
+    let i1 ← Slice.index_usize val 1#usize
+    let i2 ← lift (core.num.U16.from_le_bytes (Array.make 2#usize [ i, i1 ]))
+    let i3 ← lift (UScalar.hcast .I64 i2)
+    let codes1 ← alloc.vec.Vec.push codes i3
+    let coeffs := alloc.vec.Vec.with_capacity (Std.I32 × Std.I32) 1#usize
+    let coeffs1 ← alloc.vec.Vec.push coeffs (1#i32, 0#i32)
+    ok (core.result.Result.Ok
+      { scale := 0#u16, min := 0#u16, coeffs := coeffs1, codes := codes1 })
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      packing.CanonicalBlock (core.convert.FromSame packing.PackingError)
+      residual
+
+/-- [apeiron_word::packing::import_row]: loop body 1:
+    Source: '../../src/format/packing.rs', lines 995:20-998:21
+    Visibility: public -/
+@[rust_loop_body]
+def packing.import_row_loop0_loop0.body
+  (bytes : alloc.vec.Vec Std.U8) (out : alloc.vec.Vec Std.U8) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i := alloc.vec.Vec.len bytes
+  if j < i
+  then
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) bytes
+        j
+    let out1 ← alloc.vec.Vec.push out i1
+    let j1 ← j + 1#usize
+    ok (cont (out1, j1))
+  else ok (done out)
+
+/-- [apeiron_word::packing::import_row]: loop 1:
+    Source: '../../src/format/packing.rs', lines 995:20-998:21
+    Visibility: public -/
+@[rust_loop]
+def packing.import_row_loop0_loop0
+  (out : alloc.vec.Vec Std.U8) (bytes : alloc.vec.Vec Std.U8) (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, j1) => packing.import_row_loop0_loop0.body bytes out1 j1)
+    (out, j)
+
+/-- [apeiron_word::packing::import_row]: loop body 0:
+    Source: '../../src/format/packing.rs', lines 979:4-1005:5
+    Visibility: public -/
+@[rust_loop_body]
+def packing.import_row_loop0.body
+  (kind : Std.U32) (p : packing.Packing) (raw : Slice Std.U8)
+  (blocks : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (failed : Option packing.PackingError) (b : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × (Option packing.PackingError)
+    × Std.Usize) ((alloc.vec.Vec Std.U8) × (Option packing.PackingError)))
+  := do
+  if b < blocks
+  then
+    let b1 := core.option.Option.is_none failed
+    if b1
+    then
+      let fields ←
+        match kind with
+        | 0#uscalar => packing.import_f32 raw b
+        | 1#uscalar => packing.import_f16 raw b
+        | 8#uscalar => packing.import_q8_0 raw b
+        | 6#uscalar => packing.import_q5_0 raw b
+        | 10#uscalar => packing.import_q2_k raw b
+        | 11#uscalar => packing.import_q3_k raw b
+        | 12#uscalar => packing.import_q4_k raw b
+        | 14#uscalar => packing.import_q6_k raw b
+        | _ =>
+          ok (core.result.Result.Err (packing.PackingError.UnsupportedKind
+            kind))
+      match fields with
+      | core.result.Result.Ok f =>
+        let r ← packing.Packing.encode_block p f
+        match r with
+        | core.result.Result.Ok bytes =>
+          let out1 ← packing.import_row_loop0_loop0 out bytes 0#usize
+          let b2 ← b + 1#usize
+          ok (cont (out1, failed, b2))
+        | core.result.Result.Err e => ok (cont (out, some e, b))
+      | core.result.Result.Err e => ok (cont (out, some e, b))
+    else ok (done (out, failed))
+  else ok (done (out, failed))
+
+/-- [apeiron_word::packing::import_row]: loop 0:
+    Source: '../../src/format/packing.rs', lines 979:4-1005:5
+    Visibility: public -/
+@[rust_loop]
+def packing.import_row_loop0
+  (kind : Std.U32) (p : packing.Packing) (raw : Slice Std.U8)
+  (blocks : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (failed : Option packing.PackingError) (b : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × (Option packing.PackingError))
+  := do
+  loop
+    (fun (out1, failed1, b1) => packing.import_row_loop0.body kind p raw blocks
+      out1 failed1 b1)
+    (out, failed, b)
+
+/-- [apeiron_word::packing::import_row]:
+    Source: '../../src/format/packing.rs', lines 970:0-1010:1
+    Visibility: public -/
+def packing.import_row
+  (kind : Std.U32) (p : packing.Packing) (raw : Slice Std.U8) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.U8) packing.PackingError)
+  := do
+  let r ← packing.Packing.block_size p
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← packing.Packing.block_bytes p
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let i ← n / val
+      let i1 ← n % val
+      let i2 ← lift (UScalar.cast_fromBool .Usize (i1 != 0#usize))
+      let blocks ← i + i2
+      let i3 ← blocks * val1
+      let out := alloc.vec.Vec.with_capacity Std.U8 i3
+      let (out1, failed) ←
+        packing.import_row_loop0 kind p raw blocks out none 0#usize
+      match failed with
+      | none => ok (core.result.Result.Ok out1)
+      | some e => ok (core.result.Result.Err e)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.U8) (core.convert.FromSame packing.PackingError)
+        residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.U8) (core.convert.FromSame packing.PackingError)
+      residual
+
+/-- [apeiron_word::packing::convert_row]:
+    Source: '../../src/format/packing.rs', lines 1020:0-1024:1
+    Visibility: public -/
+def packing.convert_row
+  (kind : Std.U32) (raw : Slice Std.U8) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) packing.PackingError)
+  := do
+  let o ← packing.Packing.from_gguf_kind kind
+  let r ←
+    core.option.Option.ok_or o (packing.PackingError.UnsupportedKind kind)
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← packing.import_row kind val raw n
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let s := alloc.vec.Vec.deref val1
+      packing.Packing.row_decode_fixed val s n
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame packing.PackingError)
+        residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame packing.PackingError)
+      residual
+
+/-- [apeiron_word::quant::ggml_type_name]:
+    Source: '../../src/format/quant.rs', lines 148:0-166:1
+    Visibility: public -/
+def quant.ggml_type_name (t : Std.U32) : Result String := do
+  match t with
+  | 0#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "F32")
+  | 1#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "F16")
+  | 8#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "Q8_0")
+  | 6#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "Q5_0")
+  | 10#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "Q2_K")
+  | 11#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "Q3_K")
+  | 12#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "Q4_K")
+  | 14#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "Q6_K")
+  | 41#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "Q1_0")
+  | 42#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "Q2_0")
+  | 142#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "PQ2_0")
+  | 35#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "TQ2_0")
+  | 34#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "TQ1_0")
+  | 143#uscalar =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "PTQ1_0")
+  | _ =>
+    alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "UNKNOWN")
 
 /-- [apeiron_word::spirv::check::HEADER_WORDS]
     Source: '../../src/gpu/spirv/check.rs', lines 34:0-34:30 -/
@@ -100577,6 +102347,108 @@ def fold_port.word_fit_r_hier_reconstruct
 def fold_port.word_fit_gram_scale (m : Slice Std.I64) : Result Std.I32 := do
   fold_port.fit.eigh.gram_scale m
 
+/-- [apeiron_word::format_port::word_packing_error_from_quant]:
+    Source: 'format_port.rs', lines 12:0-16:1
+    Visibility: public -/
+def format_port.word_packing_error_from_quant
+  (e : quant.QuantError) : Result packing.PackingError := do
+  packing.PackingError.Insts.CoreConvertFromQuantError.from e
+
+/-- [apeiron_word::format_port::word_packing_validate]:
+    Source: 'format_port.rs', lines 19:0-21:1
+    Visibility: public -/
+def format_port.word_packing_validate
+  (p : packing.Packing) :
+  Result (core.result.Result Unit packing.PackingError)
+  := do
+  packing.Packing.validate p
+
+/-- [apeiron_word::format_port::word_packing_from_gguf_kind]:
+    Source: 'format_port.rs', lines 24:0-26:1
+    Visibility: public -/
+def format_port.word_packing_from_gguf_kind
+  (kind : Std.U32) : Result (Option packing.Packing) := do
+  packing.Packing.from_gguf_kind kind
+
+/-- [apeiron_word::format_port::word_packing_encode_block]:
+    Source: 'format_port.rs', lines 29:0-34:1
+    Visibility: public -/
+def format_port.word_packing_encode_block
+  (p : packing.Packing) (b : packing.CanonicalBlock) :
+  Result (core.result.Result (alloc.vec.Vec Std.U8) packing.PackingError)
+  := do
+  packing.Packing.encode_block p b
+
+/-- [apeiron_word::format_port::word_packing_row_decode_fixed]:
+    Source: 'format_port.rs', lines 37:0-43:1
+    Visibility: public -/
+def format_port.word_packing_row_decode_fixed
+  (p : packing.Packing) (raw : Slice Std.U8) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) packing.PackingError)
+  := do
+  packing.Packing.row_decode_fixed p raw n
+
+/-- [apeiron_word::format_port::word_packing_import_row]:
+    Source: 'format_port.rs', lines 47:0-54:1
+    Visibility: public -/
+def format_port.word_packing_import_row
+  (kind : Std.U32) (p : packing.Packing) (raw : Slice Std.U8) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.U8) packing.PackingError)
+  := do
+  packing.import_row kind p raw n
+
+/-- [apeiron_word::format_port::word_packing_convert_row]:
+    Source: 'format_port.rs', lines 57:0-63:1
+    Visibility: public -/
+def format_port.word_packing_convert_row
+  (kind : Std.U32) (raw : Slice Std.U8) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) packing.PackingError)
+  := do
+  packing.convert_row kind raw n
+
+/-- [apeiron_word::format_port::word_quant_q4_k_scale_mins]:
+    Source: 'format_port.rs', lines 66:0-70:1
+    Visibility: public -/
+def format_port.word_quant_q4_k_scale_mins
+  (blk : Slice Std.U8) :
+  Result (core.result.Result (Array (Std.U8 × Std.U8) 8#usize)
+    quant.QuantError)
+  := do
+  quant.q4_k_scale_mins blk
+
+/-- [apeiron_word::format_port::word_quant_ggml_type_name]:
+    Source: 'format_port.rs', lines 73:0-75:1
+    Visibility: public -/
+def format_port.word_quant_ggml_type_name (t : Std.U32) : Result String := do
+  quant.ggml_type_name t
+
+/-- [apeiron_word::format_port::word_bpe_hex_val]:
+    Source: 'format_port.rs', lines 78:0-80:1
+    Visibility: public -/
+def format_port.word_bpe_hex_val (c : Std.U8) : Result (Option Std.U32) := do
+  format_port.bpe.hex_val c
+
+/-- [apeiron_word::format_port::word_bpe_contains_nul]:
+    Source: 'format_port.rs', lines 83:0-85:1
+    Visibility: public -/
+def format_port.word_bpe_contains_nul (s : Str) : Result Bool := do
+  format_port.bpe.contains_nul s
+
+/-- [apeiron_word::format_port::word_bpe_is_nl]:
+    Source: 'format_port.rs', lines 88:0-90:1
+    Visibility: public -/
+def format_port.word_bpe_is_nl (c : Char) : Result Bool := do
+  format_port.bpe.is_nl c
+
+/-- [apeiron_word::format_port::word_bpe_find_sub]:
+    Source: 'format_port.rs', lines 93:0-95:1
+    Visibility: public -/
+def format_port.word_bpe_find_sub
+  (hay : Slice Std.U8) (needle : Slice Std.U8) :
+  Result (Option Std.Usize)
+  := do
+  format_port.bpe.find_sub hay needle
+
 /-- [apeiron_word::grad_solve_port::word_learn_gguf_write_header]:
     Source: 'grad_solve_port.rs', lines 30:0-34:1
     Visibility: public -/
@@ -101162,7 +103034,7 @@ def learn_port.word_e8_nearest_scaled
   learn_port.e8.nearest_scaled x scale
 
 /-- [apeiron_word::word_mul]:
-    Source: 'lib.rs', lines 182:0-184:1
+    Source: 'lib.rs', lines 188:0-190:1
     Visibility: public -/
 def word_mul
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) (b : cell.Cell Std.I64) :
@@ -101171,14 +103043,14 @@ def word_mul
   cell.Cell.mul I64.Insts.Apeiron_wordScalarRing a sigma b
 
 /-- [apeiron_word::word_norm]:
-    Source: 'lib.rs', lines 187:0-189:1
+    Source: 'lib.rs', lines 193:0-195:1
     Visibility: public -/
 def word_norm
   (a : cell.Cell Std.I64) (sigma : cell.Sigma) : Result Std.I64 := do
   cell.Cell.norm_form I64.Insts.Apeiron_wordScalarRing a sigma
 
 /-- [apeiron_word::word_point_density]:
-    Source: 'lib.rs', lines 196:0-198:1
+    Source: 'lib.rs', lines 202:0-204:1
     Visibility: public -/
 def word_point_density
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64) :
@@ -101188,7 +103060,7 @@ def word_point_density
     direction
 
 /-- [apeiron_word::word_point_flux]:
-    Source: 'lib.rs', lines 201:0-209:1
+    Source: 'lib.rs', lines 207:0-215:1
     Visibility: public -/
 def word_point_flux
   (sigma : cell.Sigma) (amplitude : Std.I64) (direction : cell.Cell Std.I64)
@@ -101199,7 +103071,7 @@ def word_point_flux
     previous next
 
 /-- [apeiron_word::word_conservative_density_step]:
-    Source: 'lib.rs', lines 213:0-220:1
+    Source: 'lib.rs', lines 219:0-226:1
     Visibility: public -/
 def word_conservative_density_step
   (density : Std.I64) (incoming : Std.I64) (outgoing : Std.I64)
@@ -101209,14 +103081,14 @@ def word_conservative_density_step
   carrier.conservative_density_step density incoming outgoing source
 
 /-- [apeiron_word::word_diffusive_flux_half]:
-    Source: 'lib.rs', lines 223:0-225:1
+    Source: 'lib.rs', lines 229:0-231:1
     Visibility: public -/
 def word_diffusive_flux_half
   (left : Std.I64) (right : Std.I64) : Result (Option Std.I64) := do
   carrier.diffusive_flux_half left right
 
 /-- [apeiron_word::word_diffusive_line3_step]:
-    Source: 'lib.rs', lines 229:0-234:1
+    Source: 'lib.rs', lines 235:0-240:1
     Visibility: public -/
 def word_diffusive_line3_step
   (old : carrier.DensityLine3) (source : carrier.DensityLine3) :
@@ -101225,7 +103097,7 @@ def word_diffusive_line3_step
   carrier.diffusive_line3_step old source
 
 /-- [apeiron_word::word_exchange_impulse]:
-    Source: 'lib.rs', lines 237:0-239:1
+    Source: 'lib.rs', lines 243:0-245:1
     Visibility: public -/
 def word_exchange_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -101234,7 +103106,7 @@ def word_exchange_impulse
   exchange.exchange_impulse I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_elastic_exchange]:
-    Source: 'lib.rs', lines 242:0-244:1
+    Source: 'lib.rs', lines 248:0-250:1
     Visibility: public -/
 def word_elastic_exchange
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) :
@@ -101243,7 +103115,7 @@ def word_elastic_exchange
   exchange.elastic_exchange I64.Insts.Apeiron_wordScalarRing p q
 
 /-- [apeiron_word::word_accept_derived_impulse]:
-    Source: 'lib.rs', lines 251:0-257:1
+    Source: 'lib.rs', lines 257:0-263:1
     Visibility: public -/
 def word_accept_derived_impulse
   (p : cell.Cell Std.I64) (q : cell.Cell Std.I64) (claimed : cell.Cell Std.I64)
@@ -101253,7 +103125,7 @@ def word_accept_derived_impulse
   exchange.accept_derived_impulse I64.Insts.Apeiron_wordScalarRing p q claimed
 
 /-- [apeiron_word::word_i64_codec_encode]:
-    Source: 'lib.rs', lines 298:0-304:1
+    Source: 'lib.rs', lines 304:0-310:1
     Visibility: public -/
 def word_i64_codec_encode
   (sigma : cell.Sigma) (key : Std.I64) : Result Std.U64 := do
@@ -101263,7 +103135,7 @@ def word_i64_codec_encode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma key address
 
 /-- [apeiron_word::word_i64_codec_decode]:
-    Source: 'lib.rs', lines 307:0-311:1
+    Source: 'lib.rs', lines 313:0-317:1
     Visibility: public -/
 def word_i64_codec_decode
   (sigma : cell.Sigma) (identity : Std.U64) : Result Std.I64 := do
@@ -101271,7 +103143,7 @@ def word_i64_codec_decode
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma sigma identity
 
 /-- [apeiron_word::word_regen_hold]:
-    Source: 'lib.rs', lines 314:0-324:1
+    Source: 'lib.rs', lines 320:0-330:1
     Visibility: public -/
 def word_regen_hold
   (sigma : cell.Sigma) (key : Std.I64) :
@@ -101286,7 +103158,7 @@ def word_regen_hold
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma key address
 
 /-- [apeiron_word::word_regen_matches]:
-    Source: 'lib.rs', lines 327:0-338:1
+    Source: 'lib.rs', lines 333:0-344:1
     Visibility: public -/
 def word_regen_matches
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec)
@@ -101302,7 +103174,7 @@ def word_regen_matches
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held key address
 
 /-- [apeiron_word::word_regen_key_owned]:
-    Source: 'lib.rs', lines 341:0-349:1
+    Source: 'lib.rs', lines 347:0-355:1
     Visibility: public -/
 def word_regen_key_owned
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -101315,7 +103187,7 @@ def word_regen_key_owned
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) sigma held
 
 /-- [apeiron_word::word_regen_address_held]:
-    Source: 'lib.rs', lines 352:0-361:1
+    Source: 'lib.rs', lines 358:0-367:1
     Visibility: public -/
 def word_regen_address_held
   (sigma : cell.Sigma) (held : table.keyrep.Regen table.keyrep.I64WordCodec) :
@@ -101328,7 +103200,7 @@ def word_regen_address_held
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma) () sigma held
 
 /-- [apeiron_word::word_stored_table_get_at]:
-    Source: 'lib.rs', lines 374:0-376:1
+    Source: 'lib.rs', lines 380:0-382:1
     Visibility: public -/
 def word_stored_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -101342,7 +103214,7 @@ def word_stored_table_get_at
     state sigma key
 
 /-- [apeiron_word::word_stored_table_build_at]:
-    Source: 'lib.rs', lines 390:0-395:1
+    Source: 'lib.rs', lines 396:0-401:1
     Visibility: public -/
 def word_stored_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -101357,7 +103229,7 @@ def word_stored_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_regen_table_get_at]:
-    Source: 'lib.rs', lines 407:0-409:1
+    Source: 'lib.rs', lines 413:0-415:1
     Visibility: public -/
 def word_regen_table_get_at
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -101372,7 +103244,7 @@ def word_regen_table_get_at
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_table_build_at]:
-    Source: 'lib.rs', lines 424:0-429:1
+    Source: 'lib.rs', lines 430:0-435:1
     Visibility: public -/
 def word_regen_table_build_at
   (default : Std.I64) (kvs : Slice ((cell.Sigma × Std.I64) × Std.I64)) :
@@ -101390,7 +103262,7 @@ def word_regen_table_build_at
     table.WordMerge.Insts.Apeiron_wordTableMergeI64 () default kvs ()
 
 /-- [apeiron_word::word_stored_prepared_shard_get]:
-    Source: 'lib.rs', lines 432:0-438:1
+    Source: 'lib.rs', lines 438:0-444:1
     Visibility: public -/
 def word_stored_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -101405,7 +103277,7 @@ def word_stored_prepared_shard_get
     state sigma key
 
 /-- [apeiron_word::word_stored_prepared_shard_apply]:
-    Source: 'lib.rs', lines 442:0-450:1
+    Source: 'lib.rs', lines 448:0-456:1
     Visibility: public -/
 def word_stored_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -101423,7 +103295,7 @@ def word_stored_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_regen_prepared_shard_get]:
-    Source: 'lib.rs', lines 453:0-455:1
+    Source: 'lib.rs', lines 459:0-461:1
     Visibility: public -/
 def word_regen_prepared_shard_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -101439,7 +103311,7 @@ def word_regen_prepared_shard_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state sigma key
 
 /-- [apeiron_word::word_regen_prepared_shard_apply]:
-    Source: 'lib.rs', lines 459:0-467:1
+    Source: 'lib.rs', lines 465:0-473:1
     Visibility: public -/
 def word_regen_prepared_shard_apply
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -101461,7 +103333,7 @@ def word_regen_prepared_shard_apply
   ok (state1, result)
 
 /-- [apeiron_word::word_stored_apply_get]:
-    Source: 'lib.rs', lines 475:0-477:1
+    Source: 'lib.rs', lines 481:0-483:1
     Visibility: public -/
 def word_stored_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -101475,7 +103347,7 @@ def word_stored_apply_get
     state decision
 
 /-- [apeiron_word::word_stored_apply_insert]:
-    Source: 'lib.rs', lines 484:0-496:1
+    Source: 'lib.rs', lines 490:0-502:1
     Visibility: public -/
 def word_stored_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -101498,7 +103370,7 @@ def word_stored_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_regen_apply_get]:
-    Source: 'lib.rs', lines 499:0-501:1
+    Source: 'lib.rs', lines 505:0-507:1
     Visibility: public -/
 def word_regen_apply_get
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -101513,7 +103385,7 @@ def word_regen_apply_get
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state decision
 
 /-- [apeiron_word::word_regen_apply_insert]:
-    Source: 'lib.rs', lines 504:0-516:1
+    Source: 'lib.rs', lines 510:0-522:1
     Visibility: public -/
 def word_regen_apply_insert
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -101539,7 +103411,7 @@ def word_regen_apply_insert
     ok (state1, some (key1, value1))
 
 /-- [apeiron_word::word_schedule_is_complete]:
-    Source: 'lib.rs', lines 519:0-524:1
+    Source: 'lib.rs', lines 525:0-530:1
     Visibility: public -/
 def word_schedule_is_complete
   (loads : Array Std.Usize 256#usize) (workers : Std.Usize) : Result Bool := do
@@ -101547,37 +103419,37 @@ def word_schedule_is_complete
   table.partition.Schedule.is_complete s
 
 /-- [apeiron_word::word_coord_finish]:
-    Source: 'lib.rs', lines 529:0-531:1
+    Source: 'lib.rs', lines 535:0-537:1
     Visibility: public -/
 def word_coord_finish (h : Std.U64) : Result Std.U64 := do
   coord.finish h
 
 /-- [apeiron_word::word_coord_spread]:
-    Source: 'lib.rs', lines 537:0-539:1
+    Source: 'lib.rs', lines 543:0-545:1
     Visibility: public -/
 def word_coord_spread (x : Std.U64) : Result coord.Addr := do
   coord.spread x
 
 /-- [apeiron_word::word_coord_unspread]:
-    Source: 'lib.rs', lines 542:0-544:1
+    Source: 'lib.rs', lines 548:0-550:1
     Visibility: public -/
 def word_coord_unspread (id : Std.U64) : Result Std.U64 := do
   coord.unspread id
 
 /-- [apeiron_word::word_coord_id]:
-    Source: 'lib.rs', lines 550:0-552:1
+    Source: 'lib.rs', lines 556:0-558:1
     Visibility: public -/
 def word_coord_id (address : coord.Addr) : Result Std.U64 := do
   ok address.id
 
 /-- [apeiron_word::word_coord_place]:
-    Source: 'lib.rs', lines 558:0-560:1
+    Source: 'lib.rs', lines 564:0-566:1
     Visibility: public -/
 def word_coord_place (address : coord.Addr) : Result Std.U64 := do
   ok address.place
 
 /-- [apeiron_word::word_stored_relocate_entry]:
-    Source: 'lib.rs', lines 568:0-579:1
+    Source: 'lib.rs', lines 574:0-585:1
     Visibility: public -/
 def word_stored_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -101596,7 +103468,7 @@ def word_stored_relocate_entry
     state plan reserved entry_at
 
 /-- [apeiron_word::word_regen_relocate_entry]:
-    Source: 'lib.rs', lines 585:0-596:1
+    Source: 'lib.rs', lines 591:0-602:1
     Visibility: public -/
 def word_regen_relocate_entry
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -101617,7 +103489,7 @@ def word_regen_relocate_entry
     entry_at
 
 /-- [apeiron_word::word_stored_relocate_all]:
-    Source: 'lib.rs', lines 604:0-614:1
+    Source: 'lib.rs', lines 610:0-620:1
     Visibility: public -/
 def word_stored_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -101635,7 +103507,7 @@ def word_stored_relocate_all
     state plan reserved
 
 /-- [apeiron_word::word_regen_relocate_all]:
-    Source: 'lib.rs', lines 619:0-629:1
+    Source: 'lib.rs', lines 625:0-635:1
     Visibility: public -/
 def word_regen_relocate_all
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -101655,7 +103527,7 @@ def word_regen_relocate_all
     table.WordHome.Insts.Apeiron_wordTableHomeI64Sigma)) state plan reserved
 
 /-- [apeiron_word::word_stored_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 638:0-657:1
+    Source: 'lib.rs', lines 644:0-663:1
     Visibility: public -/
 def word_stored_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Stored
@@ -101675,7 +103547,7 @@ def word_stored_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_regen_apply_pending_and_commit]:
-    Source: 'lib.rs', lines 663:0-682:1
+    Source: 'lib.rs', lines 669:0-688:1
     Visibility: public -/
 def word_regen_apply_pending_and_commit
   (state : table.Table Std.I64 Std.I64 table.WordHome (table.keyrep.Regen
@@ -101699,7 +103571,7 @@ def word_regen_apply_pending_and_commit
     sigma value held address
 
 /-- [apeiron_word::word_stored_publish_prepared]:
-    Source: 'lib.rs', lines 690:0-697:1
+    Source: 'lib.rs', lines 696:0-703:1
     Visibility: public -/
 def word_stored_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -101710,7 +103582,7 @@ def word_stored_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_regen_publish_prepared]:
-    Source: 'lib.rs', lines 703:0-710:1
+    Source: 'lib.rs', lines 709:0-716:1
     Visibility: public -/
 def word_regen_publish_prepared
   (result : core.result.Result (table.RebuildPlan × (table.RebuildReserved
@@ -101723,7 +103595,7 @@ def word_regen_publish_prepared
   table.resources.publish_prepared result
 
 /-- [apeiron_word::word_capacity_bound_holds]:
-    Source: 'lib.rs', lines 715:0-717:1
+    Source: 'lib.rs', lines 721:0-723:1
     Visibility: public -/
 def word_capacity_bound_holds
   (required_len : Std.Usize) (observed_capacity : Std.Usize) :
@@ -101732,40 +103604,40 @@ def word_capacity_bound_holds
   table.resources.capacity_bound_holds required_len observed_capacity
 
 /-- [apeiron_word::word_fixed_exp]:
-    Source: 'lib.rs', lines 724:0-726:1
+    Source: 'lib.rs', lines 730:0-732:1
     Visibility: public -/
 def word_fixed_exp
   (x : Std.I64) : Result (core.result.Result Std.I64 fixed_exp.ExpError) := do
   fixed_exp.fixed_exp x
 
 /-- [apeiron_word::word_act_scale]:
-    Source: 'lib.rs', lines 731:0-733:1
+    Source: 'lib.rs', lines 737:0-739:1
     Visibility: public -/
 def word_act_scale (absmax : Std.U64) : Result (Option Std.U64) := do
   pow2.act_scale absmax
 
 /-- [apeiron_word::word_f16_split]:
-    Source: 'lib.rs', lines 738:0-740:1
+    Source: 'lib.rs', lines 744:0-746:1
     Visibility: public -/
 def word_f16_split (h : Std.U16) : Result (Option (Std.I32 × Std.U32)) := do
   pow2.f16_split h
 
 /-- [apeiron_word::word_pow2_finish]:
-    Source: 'lib.rs', lines 745:0-747:1
+    Source: 'lib.rs', lines 751:0-753:1
     Visibility: public -/
 def word_pow2_finish
   (acc : Std.I64) (s : Std.U32) : Result (Option Std.I64) := do
   pow2.finish acc s
 
 /-- [apeiron_word::word_silu_fixed]:
-    Source: 'lib.rs', lines 754:0-756:1
+    Source: 'lib.rs', lines 760:0-762:1
     Visibility: public -/
 def word_silu_fixed
   (v : Std.I64) : Result (core.result.Result Std.I64 silu.SiluError) := do
   silu.silu_fixed v
 
 /-- [apeiron_word::word_rms_norm_fixed]:
-    Source: 'lib.rs', lines 764:0-769:1
+    Source: 'lib.rs', lines 770:0-775:1
     Visibility: public -/
 def word_rms_norm_fixed
   (row : Slice Std.I64) (eps_fixed : Std.I64) :
@@ -101774,7 +103646,7 @@ def word_rms_norm_fixed
   norm.rms_norm_fixed row eps_fixed
 
 /-- [apeiron_word::word_rope_rotate_fixed]:
-    Source: 'lib.rs', lines 776:0-783:1
+    Source: 'lib.rs', lines 782:0-789:1
     Visibility: public -/
 def word_rope_rotate_fixed
   (q : Slice Std.I64) (k : Slice Std.I64) (pos : Std.U32)
@@ -101785,7 +103657,7 @@ def word_rope_rotate_fixed
   rope.rope_rotate_fixed q k pos table
 
 /-- [apeiron_word::word_fixed_rsqrt]:
-    Source: 'lib.rs', lines 787:0-789:1
+    Source: 'lib.rs', lines 793:0-795:1
     Visibility: public -/
 def word_fixed_rsqrt
   (x : Std.I64) :
@@ -101794,7 +103666,7 @@ def word_fixed_rsqrt
   fixed_rsqrt.fixed_rsqrt x
 
 /-- [apeiron_word::word_fixed_sin_cos]:
-    Source: 'lib.rs', lines 793:0-795:1
+    Source: 'lib.rs', lines 799:0-801:1
     Visibility: public -/
 def word_fixed_sin_cos
   (x : Std.I64) :
@@ -101803,7 +103675,7 @@ def word_fixed_sin_cos
   fixed_trig.fixed_sin_cos x
 
 /-- [apeiron_word::word_gguf_parse_header]:
-    Source: 'lib.rs', lines 801:0-803:1
+    Source: 'lib.rs', lines 807:0-809:1
     Visibility: public -/
 def word_gguf_parse_header
   (buf : Slice Std.U8) :
@@ -101814,7 +103686,7 @@ def word_gguf_parse_header
   gguf.parse_header buf i1
 
 /-- [apeiron_word::word_q4_k_codes]:
-    Source: 'lib.rs', lines 809:0-811:1
+    Source: 'lib.rs', lines 815:0-817:1
     Visibility: public -/
 def word_q4_k_codes
   (blk : Slice Std.U8) :
@@ -101823,7 +103695,7 @@ def word_q4_k_codes
   quant.q4_k_codes blk
 
 /-- [apeiron_word::word_q6_k_codes]:
-    Source: 'lib.rs', lines 827:0-829:1
+    Source: 'lib.rs', lines 833:0-835:1
     Visibility: public -/
 def word_q6_k_codes
   (blk : Slice Std.U8) :
@@ -101832,7 +103704,7 @@ def word_q6_k_codes
   quant.q6_k_codes blk
 
 /-- [apeiron_word::word_packing_decode_block]:
-    Source: 'lib.rs', lines 846:0-851:1
+    Source: 'lib.rs', lines 852:0-857:1
     Visibility: public -/
 def word_packing_decode_block
   (p : packing.Packing) (raw : Slice Std.U8) :
@@ -101841,7 +103713,7 @@ def word_packing_decode_block
   packing.Packing.decode_block p raw
 
 /-- [apeiron_word::word_route_topk]:
-    Source: 'lib.rs', lines 857:0-859:1
+    Source: 'lib.rs', lines 863:0-865:1
     Visibility: public -/
 def word_route_topk
   (logits : Slice Std.I64) (k : Std.Usize) :
@@ -101850,7 +103722,7 @@ def word_route_topk
   moe.route_topk logits k
 
 /-- [apeiron_word::word_gate_weights]:
-    Source: 'lib.rs', lines 865:0-871:1
+    Source: 'lib.rs', lines 871:0-877:1
     Visibility: public -/
 def word_gate_weights
   (logits : Slice Std.I64) (sel : Slice Std.U32) (renorm : Bool) :
@@ -101859,7 +103731,7 @@ def word_gate_weights
   moe.gate_weights logits sel renorm
 
 /-- [apeiron_word::word_fwht_fixed]:
-    Source: 'lib.rs', lines 877:0-883:1
+    Source: 'lib.rs', lines 883:0-889:1
     Visibility: public -/
 def word_fwht_fixed
   (x : Slice Std.I64) (signs : Option (Slice Std.I8)) (block : Std.Usize) :
@@ -101868,7 +103740,7 @@ def word_fwht_fixed
   hadamard.fwht_fixed x signs block
 
 /-- [apeiron_word::word_stage_mul]:
-    Source: 'lib.rs', lines 890:0-897:1
+    Source: 'lib.rs', lines 896:0-903:1
     Visibility: public -/
 def word_stage_mul
   (x : Slice Std.I64) (span : Std.Usize) (w : cell.Cell Std.I64)
@@ -101878,7 +103750,7 @@ def word_stage_mul
   register.stage_mul x span w sigma
 
 /-- [apeiron_word::word_matvec_fixed]:
-    Source: 'lib.rs', lines 905:0-913:1
+    Source: 'lib.rs', lines 911:0-919:1
     Visibility: public -/
 def word_matvec_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (n_out : Std.Usize)
@@ -101888,7 +103760,7 @@ def word_matvec_fixed
   matvec.matvec_fixed ggml_type raw n_out n_in x
 
 /-- [apeiron_word::word_row_dot_fixed]:
-    Source: 'lib.rs', lines 920:0-922:1
+    Source: 'lib.rs', lines 926:0-928:1
     Visibility: public -/
 def word_row_dot_fixed
   (w_row : Slice Std.I64) (x : Slice Std.I64) :
@@ -101897,7 +103769,7 @@ def word_row_dot_fixed
   matvec.row_dot_fixed w_row x
 
 /-- [apeiron_word::word_lm_head_fixed]:
-    Source: 'lib.rs', lines 932:0-940:1
+    Source: 'lib.rs', lines 938:0-946:1
     Visibility: public -/
 def word_lm_head_fixed
   (ggml_type : Std.U32) (raw : Slice Std.U8) (vocab : Std.Usize)
@@ -101907,7 +103779,7 @@ def word_lm_head_fixed
   lm_head.lm_head_fixed ggml_type raw vocab n_embd x
 
 /-- [apeiron_word::word_kv_state_new]:
-    Source: 'lib.rs', lines 957:0-972:1
+    Source: 'lib.rs', lines 963:0-978:1
     Visibility: public -/
 def word_kv_state_new
   (n_layer : Std.Usize) (n_head : Std.Usize) (n_head_kv : Std.Usize)
@@ -101918,7 +103790,7 @@ def word_kv_state_new
     mixer.Carrier.Q32
 
 /-- [apeiron_word::word_engine_open]:
-    Source: 'lib.rs', lines 977:0-979:1
+    Source: 'lib.rs', lines 983:0-985:1
     Visibility: public -/
 def word_engine_open
   (path : Str) :
@@ -101927,7 +103799,7 @@ def word_engine_open
   loader.Engine.open path
 
 /-- [apeiron_word::word_engine_prefill_state]:
-    Source: 'lib.rs', lines 983:0-990:1
+    Source: 'lib.rs', lines 989:0-996:1
     Visibility: public -/
 def word_engine_prefill_state
   (engine : loader.Engine) (st : step.DecodeState) (tokens : Slice Std.U32)
@@ -101937,7 +103809,7 @@ def word_engine_prefill_state
   step.Engine.prefill_state engine st tokens mode
 
 /-- [apeiron_word::word_engine_next_token_state]:
-    Source: 'lib.rs', lines 994:0-1001:1
+    Source: 'lib.rs', lines 1000:0-1007:1
     Visibility: public -/
 def word_engine_next_token_state
   (engine : loader.Engine) (st : step.DecodeState) (token_id : Std.U32)
@@ -101947,7 +103819,7 @@ def word_engine_next_token_state
   step.Engine.next_token_state engine st token_id mode
 
 /-- [apeiron_word::word_engine_generate_speculative]:
-    Source: 'lib.rs', lines 1005:0-1012:1
+    Source: 'lib.rs', lines 1011:0-1018:1
     Visibility: public -/
 def word_engine_generate_speculative
   (engine : loader.Engine) (prompt : Slice Std.U32) (n : Std.Usize)
@@ -101958,7 +103830,7 @@ def word_engine_generate_speculative
   step.spec.Engine.generate_speculative engine prompt n draft_rows
 
 /-- [apeiron_word::word_kv_append]:
-    Source: 'lib.rs', lines 1018:0-1025:1
+    Source: 'lib.rs', lines 1024:0-1031:1
     Visibility: public -/
 def word_kv_append
   (state : attn.KvState) (layer : Std.Usize) (k_rows : Slice Std.I64)
@@ -101968,7 +103840,7 @@ def word_kv_append
   attn.KvState.append state layer k_rows v_rows
 
 /-- [apeiron_word::word_attn_head]:
-    Source: 'lib.rs', lines 1032:0-1041:1
+    Source: 'lib.rs', lines 1038:0-1047:1
     Visibility: public -/
 def word_attn_head
   (state : attn.KvState) (layer : Std.Usize) (q_head : Std.Usize)
@@ -101978,7 +103850,7 @@ def word_attn_head
   attn.KvState.attn_head state layer q_head q pos out
 
 /-- [apeiron_word::word_argmax_fixed]:
-    Source: 'lib.rs', lines 1047:0-1049:1
+    Source: 'lib.rs', lines 1053:0-1055:1
     Visibility: public -/
 def word_argmax_fixed
   (logits : Slice Std.I64) :
@@ -101987,7 +103859,7 @@ def word_argmax_fixed
   sampler.argmax_fixed logits
 
 /-- [apeiron_word::word_check_fragment]:
-    Source: 'lib.rs', lines 1073:0-1075:1
+    Source: 'lib.rs', lines 1079:0-1081:1
     Visibility: public -/
 def word_check_fragment
   (words : Slice Std.U32) :
@@ -101996,7 +103868,7 @@ def word_check_fragment
   spirv.check.check_fragment words
 
 /-- [apeiron_word::word_policy_decide]:
-    Source: 'lib.rs', lines 1091:0-1100:1
+    Source: 'lib.rs', lines 1097:0-1106:1
     Visibility: public -/
 def word_policy_decide
   (rules : Slice policy.decide.Rule) (atoms : Slice policy.decide.Atom)
@@ -102007,38 +103879,38 @@ def word_policy_decide
   policy.decide.decide rules atoms facts known action want
 
 /-- [apeiron_word::word_keccakf]:
-    Source: 'lib.rs', lines 1160:0-1162:1
+    Source: 'lib.rs', lines 1166:0-1168:1
     Visibility: public -/
 def word_keccakf
   (state : Array Std.U64 25#usize) : Result (Array Std.U64 25#usize) := do
   crypto.keccak_f1600 state
 
 /-- [apeiron_word::word_sha3_256]:
-    Source: 'lib.rs', lines 1167:0-1169:1
+    Source: 'lib.rs', lines 1173:0-1175:1
     Visibility: public -/
 def word_sha3_256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   crypto.sha3_256 msg
 
 /-- [apeiron_word::word_sha3_512]:
-    Source: 'lib.rs', lines 1172:0-1174:1
+    Source: 'lib.rs', lines 1178:0-1180:1
     Visibility: public -/
 def word_sha3_512 (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
   crypto.sha3_512 msg
 
 /-- [apeiron_word::word_sha256]:
-    Source: 'lib.rs', lines 1180:0-1182:1
+    Source: 'lib.rs', lines 1186:0-1188:1
     Visibility: public -/
 def word_sha256 (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   sha256.sha256 msg
 
 /-- [apeiron_word::word_sha256d]:
-    Source: 'lib.rs', lines 1188:0-1190:1
+    Source: 'lib.rs', lines 1194:0-1196:1
     Visibility: public -/
 def word_sha256d (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
   sha256.sha256d msg
 
 /-- [apeiron_word::word_chacha20poly1305_encrypt]:
-    Source: 'lib.rs', lines 1203:0-1210:1
+    Source: 'lib.rs', lines 1209:0-1216:1
     Visibility: public -/
 def word_chacha20poly1305_encrypt
   (key : Array Std.U8 32#usize) (nonce : Array Std.U8 12#usize)
@@ -102048,7 +103920,7 @@ def word_chacha20poly1305_encrypt
   chacha.chacha20poly1305_encrypt key nonce aad plaintext
 
 /-- [apeiron_word::word_chacha20poly1305_decrypt]:
-    Source: 'lib.rs', lines 1218:0-1225:1
+    Source: 'lib.rs', lines 1224:0-1231:1
     Visibility: public -/
 def word_chacha20poly1305_decrypt
   (key : Array Std.U8 32#usize) (nonce : Array Std.U8 12#usize)
@@ -102058,7 +103930,7 @@ def word_chacha20poly1305_decrypt
   chacha.chacha20poly1305_decrypt key nonce aad ciphertext_and_tag
 
 /-- [apeiron_word::word_aes128_encrypt_block]:
-    Source: 'lib.rs', lines 1238:0-1243:1
+    Source: 'lib.rs', lines 1244:0-1249:1
     Visibility: public -/
 def word_aes128_encrypt_block
   (key : Array Std.U8 16#usize) (block : Array Std.U8 16#usize) :
@@ -102067,7 +103939,7 @@ def word_aes128_encrypt_block
   aes.aes128_encrypt_block key block
 
 /-- [apeiron_word::word_aes128_decrypt_block]:
-    Source: 'lib.rs', lines 1251:0-1256:1
+    Source: 'lib.rs', lines 1257:0-1262:1
     Visibility: public -/
 def word_aes128_decrypt_block
   (key : Array Std.U8 16#usize) (block : Array Std.U8 16#usize) :
@@ -102076,7 +103948,7 @@ def word_aes128_decrypt_block
   aes.aes128_decrypt_block key block
 
 /-- [apeiron_word::word_hashtrinity_new]:
-    Source: 'lib.rs', lines 1296:0-1298:1
+    Source: 'lib.rs', lines 1302:0-1304:1
     Visibility: public -/
 def word_hashtrinity_new
   :
@@ -102087,7 +103959,7 @@ def word_hashtrinity_new
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
 
 /-- [apeiron_word::word_hashtrinity_with_capacity]:
-    Source: 'lib.rs', lines 1301:0-1303:1
+    Source: 'lib.rs', lines 1307:0-1309:1
     Visibility: public -/
 def word_hashtrinity_with_capacity
   (cap : Std.Usize) :
@@ -102098,7 +103970,7 @@ def word_hashtrinity_with_capacity
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord cap
 
 /-- [apeiron_word::word_hashtrinity_get]:
-    Source: 'lib.rs', lines 1306:0-1311:1
+    Source: 'lib.rs', lines 1312:0-1317:1
     Visibility: public -/
 def word_hashtrinity_get
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
@@ -102115,7 +103987,7 @@ def word_hashtrinity_get
   | some _ => ok o
 
 /-- [apeiron_word::word_hashtrinity_insert]:
-    Source: 'lib.rs', lines 1315:0-1322:1
+    Source: 'lib.rs', lines 1321:0-1328:1
     Visibility: public -/
 def word_hashtrinity_insert
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
@@ -102130,7 +104002,7 @@ def word_hashtrinity_insert
     value
 
 /-- [apeiron_word::word_coordmap_coordinate_with_capacity]:
-    Source: 'lib.rs', lines 1325:0-1327:1
+    Source: 'lib.rs', lines 1331:0-1333:1
     Visibility: public -/
 def word_coordmap_coordinate_with_capacity
   (cap : Std.Usize) :
@@ -102141,7 +104013,7 @@ def word_coordmap_coordinate_with_capacity
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoordInv core.cmp.EqU64 cap
 
 /-- [apeiron_word::word_coordmap_get]:
-    Source: 'lib.rs', lines 1330:0-1335:1
+    Source: 'lib.rs', lines 1336:0-1341:1
     Visibility: public -/
 def word_coordmap_get
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Regen
@@ -102159,7 +104031,7 @@ def word_coordmap_get
   | some _ => ok o
 
 /-- [apeiron_word::word_coordmap_insert]:
-    Source: 'lib.rs', lines 1338:0-1345:1
+    Source: 'lib.rs', lines 1344:0-1351:1
     Visibility: public -/
 def word_coordmap_insert
   (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Regen
@@ -102174,21 +104046,21 @@ def word_coordmap_insert
     value
 
 /-- [apeiron_word::word_count_home]:
-    Source: 'lib.rs', lines 1351:0-1353:1
+    Source: 'lib.rs', lines 1357:0-1359:1
     Visibility: public -/
 def word_count_home (c : Std.U64) : Result Std.Usize := do
   hashtrinity.freq.FreqMapKI64.count_home
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord c
 
 /-- [apeiron_word::word_count_admit]:
-    Source: 'lib.rs', lines 1356:0-1358:1
+    Source: 'lib.rs', lines 1362:0-1364:1
     Visibility: public -/
 def word_count_admit (n : Std.Usize) (count_max : Std.U64) : Result Bool := do
   hashtrinity.freq.FreqMapKI64.count_admit
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord n count_max
 
 /-- [apeiron_word::word_count_histogram]:
-    Source: 'lib.rs', lines 1361:0-1363:1
+    Source: 'lib.rs', lines 1367:0-1369:1
     Visibility: public -/
 def word_count_histogram
   (keys : Slice Std.U64) (homes : Slice Std.U8) (hist : Slice Std.U32) :
@@ -102198,7 +104070,7 @@ def word_count_histogram
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord keys homes hist
 
 /-- [apeiron_word::word_count_offsets]:
-    Source: 'lib.rs', lines 1366:0-1374:1
+    Source: 'lib.rs', lines 1372:0-1380:1
     Visibility: public -/
 def word_count_offsets
   (counts : Slice Std.U32) (w : Std.Usize) (n : Std.Usize)
@@ -102209,7 +104081,7 @@ def word_count_offsets
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord counts w n bstart woff
 
 /-- [apeiron_word::word_count_slot]:
-    Source: 'lib.rs', lines 1377:0-1379:1
+    Source: 'lib.rs', lines 1383:0-1385:1
     Visibility: public -/
 def word_count_slot
   (off : Slice Std.Usize) (h : Std.U8) :
@@ -102219,7 +104091,7 @@ def word_count_slot
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord off h
 
 /-- [apeiron_word::word_count_aggregate]:
-    Source: 'lib.rs', lines 1382:0-1384:1
+    Source: 'lib.rs', lines 1388:0-1390:1
     Visibility: public -/
 def word_count_aggregate
   (routed : Slice Std.U64) (lo : Std.Usize) (hi : Std.Usize) :
@@ -102229,7 +104101,7 @@ def word_count_aggregate
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord routed lo hi
 
 /-- [apeiron_word::word_gram_fold_i8]:
-    Source: 'lib.rs', lines 1394:0-1401:1
+    Source: 'lib.rs', lines 1400:0-1407:1
     Visibility: public -/
 def word_gram_fold_i8
   (g : alloc.vec.Vec Std.I64) (x : Slice Std.I8) (rows : Std.Usize)
@@ -102239,7 +104111,7 @@ def word_gram_fold_i8
   gram.gram_fold_i8 g x rows d
 
 /-- [apeiron_word::word_sd_binary_block]:
-    Source: 'lib.rs', lines 1413:0-1415:1
+    Source: 'lib.rs', lines 1419:0-1421:1
     Visibility: public -/
 def word_sd_binary_block
   (w : Slice Std.I64) (a : Std.I64) (s : Slice Std.I8) :
@@ -102248,50 +104120,50 @@ def word_sd_binary_block
   sigma_delta.sd_binary_block w a s
 
 /-- [apeiron_word::word_onebit_total_bits]:
-    Source: 'lib.rs', lines 1425:0-1427:1
+    Source: 'lib.rs', lines 1431:0-1433:1
     Visibility: public -/
 def word_onebit_total_bits
   (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.total_bits c
 
 /-- [apeiron_word::word_onebit_bits_sign]:
-    Source: 'lib.rs', lines 1430:0-1432:1
+    Source: 'lib.rs', lines 1436:0-1438:1
     Visibility: public -/
 def word_onebit_bits_sign (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_sign c
 
 /-- [apeiron_word::word_onebit_bits_r]:
-    Source: 'lib.rs', lines 1435:0-1437:1
+    Source: 'lib.rs', lines 1441:0-1443:1
     Visibility: public -/
 def word_onebit_bits_r (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_r c
 
 /-- [apeiron_word::word_onebit_bits_c]:
-    Source: 'lib.rs', lines 1440:0-1442:1
+    Source: 'lib.rs', lines 1446:0-1448:1
     Visibility: public -/
 def word_onebit_bits_c (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_c c
 
 /-- [apeiron_word::word_onebit_bits_d]:
-    Source: 'lib.rs', lines 1445:0-1447:1
+    Source: 'lib.rs', lines 1451:0-1453:1
     Visibility: public -/
 def word_onebit_bits_d (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_d c
 
 /-- [apeiron_word::word_onebit_bits_corr]:
-    Source: 'lib.rs', lines 1450:0-1452:1
+    Source: 'lib.rs', lines 1456:0-1458:1
     Visibility: public -/
 def word_onebit_bits_corr (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.bits_corr c
 
 /-- [apeiron_word::word_onebit_params]:
-    Source: 'lib.rs', lines 1455:0-1457:1
+    Source: 'lib.rs', lines 1461:0-1463:1
     Visibility: public -/
 def word_onebit_params (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.params c
 
 /-- [apeiron_word::word_onebit_index_bits]:
-    Source: 'lib.rs', lines 1460:0-1462:1
+    Source: 'lib.rs', lines 1466:0-1468:1
     Visibility: public -/
 def word_onebit_index_bits
   (c : onebit_bits.Cfg) : Result (Option Std.U64) := do

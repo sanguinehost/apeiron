@@ -836,16 +836,26 @@ impl Packing {
             });
         }
         let mut out: Vec<i64> = Vec::with_capacity(n);
+        let mut failed: Option<PackingError> = None;
         let mut b = 0usize;
-        while b < blocks {
-            let vals = self.decode_block(&raw[b * bb..b * bb + bb])?;
-            let take = block.min(n - b * block);
-            let mut lane = 0usize;
-            while lane < take {
-                out.push(vals[lane]);
-                lane += 1;
+        // One carried error keeps `?` out of the loop; the first refusing block stops the walk
+        // and its error is returned after it, in the original block order.
+        while b < blocks && failed.is_none() {
+            match self.decode_block(&raw[b * bb..b * bb + bb]) {
+                Ok(vals) => {
+                    let take = block.min(n - b * block);
+                    let mut lane = 0usize;
+                    while lane < take {
+                        out.push(vals[lane]);
+                        lane += 1;
+                    }
+                    b += 1;
+                }
+                Err(e) => failed = Some(e),
             }
-            b += 1;
+        }
+        if let Some(e) = failed {
+            return Err(e);
         }
         Ok(out)
     }
@@ -962,26 +972,39 @@ pub fn import_row(kind: u32, p: &Packing, raw: &[u8], n: usize) -> Result<Vec<u8
     let bb = p.block_bytes()?;
     let blocks = n / block + (n % block != 0) as usize;
     let mut out: Vec<u8> = Vec::with_capacity(blocks * bb);
+    let mut failed: Option<PackingError> = None;
     let mut b = 0usize;
-    while b < blocks {
+    // The fallible import and encode sit behind one carried error so no `?` runs inside the loop;
+    // the first refusal stops the walk and is returned after it, in the original block order.
+    while b < blocks && failed.is_none() {
         let fields = match kind {
-            quant::GGML_TYPE_F32 => import_f32(raw, b)?,
-            quant::GGML_TYPE_F16 => import_f16(raw, b)?,
-            quant::GGML_TYPE_Q8_0 => import_q8_0(raw, b)?,
-            quant::GGML_TYPE_Q5_0 => import_q5_0(raw, b)?,
-            quant::GGML_TYPE_Q2_K => import_q2_k(raw, b)?,
-            quant::GGML_TYPE_Q3_K => import_q3_k(raw, b)?,
-            quant::GGML_TYPE_Q4_K => import_q4_k(raw, b)?,
-            quant::GGML_TYPE_Q6_K => import_q6_k(raw, b)?,
-            other => return Err(PackingError::UnsupportedKind(other)),
+            quant::GGML_TYPE_F32 => import_f32(raw, b),
+            quant::GGML_TYPE_F16 => import_f16(raw, b),
+            quant::GGML_TYPE_Q8_0 => import_q8_0(raw, b),
+            quant::GGML_TYPE_Q5_0 => import_q5_0(raw, b),
+            quant::GGML_TYPE_Q2_K => import_q2_k(raw, b),
+            quant::GGML_TYPE_Q3_K => import_q3_k(raw, b),
+            quant::GGML_TYPE_Q4_K => import_q4_k(raw, b),
+            quant::GGML_TYPE_Q6_K => import_q6_k(raw, b),
+            other => Err(PackingError::UnsupportedKind(other)),
         };
-        let bytes = p.encode_block(&fields)?;
-        let mut j = 0usize;
-        while j < bytes.len() {
-            out.push(bytes[j]);
-            j += 1;
+        match fields {
+            Ok(f) => match p.encode_block(&f) {
+                Ok(bytes) => {
+                    let mut j = 0usize;
+                    while j < bytes.len() {
+                        out.push(bytes[j]);
+                        j += 1;
+                    }
+                    b += 1;
+                }
+                Err(e) => failed = Some(e),
+            },
+            Err(e) => failed = Some(e),
         }
-        b += 1;
+    }
+    if let Some(e) = failed {
+        return Err(e);
     }
     Ok(out)
 }
@@ -1050,6 +1073,11 @@ fn import_f32(raw: &[u8], b: usize) -> Result<CanonicalBlock, PackingError> {
     })
 }
 
+#[allow(
+    clippy::vec_init_then_push,
+    reason = "explicit Vec::with_capacity plus push keeps the extracted body off the \
+              alloc::vec::from_elem external that `vec![x]` would introduce"
+)]
 fn import_q8_0(raw: &[u8], b: usize) -> Result<CanonicalBlock, PackingError> {
     let blk = block_slice(raw, b, quant::Q8_0_BLOCK_BYTES)?;
     let mut codes: Vec<i64> = Vec::with_capacity(quant::Q8_0_QK);
@@ -1058,14 +1086,21 @@ fn import_q8_0(raw: &[u8], b: usize) -> Result<CanonicalBlock, PackingError> {
         codes.push((blk[2 + i] as i8) as i64);
         i += 1;
     }
+    let mut coeffs: Vec<(i32, i32)> = Vec::with_capacity(1);
+    coeffs.push((1, 0));
     Ok(CanonicalBlock {
         scale: u16::from_le_bytes([blk[0], blk[1]]),
         min: 0,
-        coeffs: vec![(1, 0)],
+        coeffs,
         codes,
     })
 }
 
+#[allow(
+    clippy::vec_init_then_push,
+    reason = "explicit Vec::with_capacity plus push keeps the extracted body off the \
+              alloc::vec::from_elem external that `vec![x]` would introduce"
+)]
 fn import_q5_0(raw: &[u8], b: usize) -> Result<CanonicalBlock, PackingError> {
     let blk = block_slice(raw, b, quant::Q5_0_BLOCK_BYTES)?;
     let d = quant::q5_0_d(blk)?;
@@ -1077,10 +1112,12 @@ fn import_q5_0(raw: &[u8], b: usize) -> Result<CanonicalBlock, PackingError> {
         codes.push(signed[i] as i64 + 16);
         i += 1;
     }
+    let mut coeffs: Vec<(i32, i32)> = Vec::with_capacity(1);
+    coeffs.push((1, 0));
     Ok(CanonicalBlock {
         scale: d,
         min: 0,
-        coeffs: vec![(1, 0)],
+        coeffs,
         codes,
     })
 }
