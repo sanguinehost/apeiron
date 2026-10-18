@@ -494,6 +494,46 @@ run_extract() {
         --start-from crate::crypto_port::word_crypto_ecdsa_p384_verify \
         --start-from crate::crypto_port::word_crypto_rsa_pkcs1_sha256_verify \
         --start-from crate::crypto_port::word_crypto_bech32_convert_bits \
+        --start-from crate::crypto_port::word_crypto2_bn_from_u64 \
+        --start-from crate::crypto_port::word_crypto2_bn_is_zero \
+        --start-from crate::crypto_port::word_crypto2_bn_is_even \
+        --start-from crate::crypto_port::word_crypto2_bn_add \
+        --start-from crate::crypto_port::word_crypto2_bn_shr1 \
+        --start-from crate::crypto_port::word_crypto2_bn_sub1 \
+        --start-from crate::crypto_port::word_crypto2_bn_divmod \
+        --start-from crate::crypto_port::word_crypto2_bn_modexp_big \
+        --start-from crate::crypto_port::word_crypto2_mod_inverse \
+        --start-from crate::crypto_port::word_crypto2_bitlen \
+        --start-from crate::crypto_port::word_crypto2_mgf1 \
+        --start-from crate::crypto_port::word_crypto2_emsa_pss_encode \
+        --start-from crate::crypto_port::word_crypto2_rsa_pkcs1_sign_generic \
+        --start-from crate::crypto_port::word_crypto2_rsa_pkcs1_sha384_verify \
+        --start-from crate::crypto_port::word_crypto2_rsa_pkcs1_sha512_verify \
+        --start-from crate::crypto_port::word_crypto2_rsa_pkcs1_sha256_sign \
+        --start-from crate::crypto_port::word_crypto2_rsa_pkcs1_sha384_sign \
+        --start-from crate::crypto_port::word_crypto2_rsa_pkcs1_sha512_sign \
+        --start-from crate::crypto_port::word_crypto2_rsa_pss_sha256_sign \
+        --start-from crate::crypto_port::word_crypto2_rsa_pss_sha256_verify \
+        --start-from crate::crypto_port::word_crypto2_rsa_algid \
+        --start-from crate::crypto_port::word_crypto2_trim_int \
+        --start-from crate::crypto_port::word_crypto2_rsa_to_pkcs8_der \
+        --start-from crate::crypto_port::word_crypto2_rsa_from_pkcs8_der \
+        --start-from crate::crypto_port::word_crypto2_der_len \
+        --start-from crate::crypto_port::word_crypto2_der_tlv \
+        --start-from crate::crypto_port::word_crypto2_der_seq \
+        --start-from crate::crypto_port::word_crypto2_der_set \
+        --start-from crate::crypto_port::word_crypto2_der_int \
+        --start-from crate::crypto_port::word_crypto2_der_oid \
+        --start-from crate::crypto_port::word_crypto2_der_bitstr \
+        --start-from crate::crypto_port::word_crypto2_der_ctx_explicit \
+        --start-from crate::crypto_port::word_crypto2_der_algid_ed25519 \
+        --start-from crate::crypto_port::word_crypto2_der_name_cn \
+        --start-from crate::crypto_port::word_crypto2_der_validity \
+        --start-from crate::crypto_port::word_crypto2_der_spki \
+        --start-from crate::crypto_port::word_crypto2_x509_der_tlv \
+        --start-from crate::crypto_port::word_crypto2_x509_der_children \
+        --start-from crate::crypto_port::word_crypto2_age_b64d \
+        --start-from crate::crypto_port::word_crypto2_jwt_b64url_decode \
         --start-from crate::fold_finish_port::word_finish_train_linear_new \
         --start-from crate::fold_finish_port::word_finish_train_planes_new \
         --start-from crate::fold_finish_port::word_finish_train_planes_linear \

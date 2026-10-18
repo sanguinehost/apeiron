@@ -1356,28 +1356,40 @@ pub mod jwt {
         }
         s
     }
-    fn b64url_decode(s: &str) -> Option<Vec<u8>> {
-        let val = |c: u8| -> Option<u32> {
-            match c {
+    pub(crate) fn b64url_decode(s: &str) -> Option<Vec<u8>> {
+        let bytes = s.as_bytes();
+        let (mut acc, mut nbits) = (0u32, 0u32);
+        let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+        let mut i = 0;
+        let mut bad = false;
+        while i < bytes.len() && !bad {
+            let c = bytes[i];
+            let v = match c {
                 b'A'..=b'Z' => Some((c - b'A') as u32),
                 b'a'..=b'z' => Some((c - b'a' + 26) as u32),
                 b'0'..=b'9' => Some((c - b'0' + 52) as u32),
                 b'-' => Some(62),
                 b'_' => Some(63),
                 _ => None,
+            };
+            match v {
+                Some(x) => {
+                    acc = (acc << 6) | x;
+                    nbits += 6;
+                    if nbits >= 8 {
+                        nbits -= 8;
+                        out.push((acc >> nbits) as u8);
+                    }
+                }
+                None => bad = true,
             }
-        };
-        let (mut acc, mut nbits) = (0u32, 0u32);
-        let mut out = Vec::with_capacity(s.len() * 3 / 4);
-        for c in s.bytes() {
-            acc = (acc << 6) | val(c)?;
-            nbits += 6;
-            if nbits >= 8 {
-                nbits -= 8;
-                out.push((acc >> nbits) as u8);
-            }
+            i += 1;
         }
-        Some(out)
+        if bad {
+            None
+        } else {
+            Some(out)
+        }
     }
 
     /// The verification key. HS256/EdDSA plus the SPIFFE JWT-SVID / WIMSE-WIT algorithms: **ES256** (raw
@@ -2233,17 +2245,22 @@ pub mod certgen {
             let mut b = Vec::new();
             let mut m = n;
             while m > 0 {
-                b.insert(0, (m & 0xff) as u8);
+                b.push((m & 0xff) as u8);
                 m >>= 8;
             }
             let mut o = vec![0x80 | b.len() as u8];
-            o.extend(b);
+            let mut i = b.len();
+            while i > 0 {
+                i -= 1;
+                o.push(b[i]);
+            }
             o
         }
     }
     pub(crate) fn tlv(tag: u8, c: &[u8]) -> Vec<u8> {
         let mut o = vec![tag];
-        o.extend(der_len(c.len()));
+        let l = der_len(c.len());
+        o.extend_from_slice(&l);
         o.extend_from_slice(c);
         o
     }
@@ -2254,29 +2271,31 @@ pub mod certgen {
         }
         tlv(0x30, &c)
     }
-    fn set(inner: &[u8]) -> Vec<u8> {
+    pub(crate) fn set(inner: &[u8]) -> Vec<u8> {
         tlv(0x31, inner)
     }
     /// INTEGER from big-endian magnitude bytes, forced non-negative (prepend 0x00 if the top bit is set).
     pub(crate) fn der_int(mag: &[u8]) -> Vec<u8> {
-        let mut v = mag.to_vec();
-        if v.is_empty() {
-            v = vec![0];
-        }
-        if v[0] & 0x80 != 0 {
-            v.insert(0, 0);
+        let mut v = Vec::new();
+        if mag.is_empty() {
+            v.push(0);
+        } else {
+            if mag[0] & 0x80 != 0 {
+                v.push(0);
+            }
+            v.extend_from_slice(mag);
         }
         tlv(0x02, &v)
     }
     pub(crate) fn oid(bytes: &[u8]) -> Vec<u8> {
         tlv(0x06, bytes)
     }
-    fn bitstr(data: &[u8]) -> Vec<u8> {
+    pub(crate) fn bitstr(data: &[u8]) -> Vec<u8> {
         let mut c = vec![0u8];
         c.extend_from_slice(data);
         tlv(0x03, &c)
     } // 0 unused bits
-    fn ctx_explicit(n: u8, inner: &[u8]) -> Vec<u8> {
+    pub(crate) fn ctx_explicit(n: u8, inner: &[u8]) -> Vec<u8> {
         tlv(0xA0 | n, inner)
     } // [n] EXPLICIT
 
@@ -2286,15 +2305,15 @@ pub mod certgen {
     pub(crate) fn algid_ed25519() -> Vec<u8> {
         seq(&[oid(&ED25519_OID)])
     } // no parameters for ed25519
-    fn name_cn(cn: &str) -> Vec<u8> {
+    pub(crate) fn name_cn(cn: &str) -> Vec<u8> {
         let attr = seq(&[oid(&CN_OID), tlv(0x0c, cn.as_bytes())]); // UTF8String
         seq(&[set(&attr)])
     }
-    fn validity() -> Vec<u8> {
+    pub(crate) fn validity() -> Vec<u8> {
         // fixed window 2020..2040, UTCTime "YYMMDDHHMMSSZ"
         seq(&[tlv(0x17, b"200101000000Z"), tlv(0x17, b"400101000000Z")])
     }
-    fn spki(pubkey: &[u8; 32]) -> Vec<u8> {
+    pub(crate) fn spki(pubkey: &[u8; 32]) -> Vec<u8> {
         seq(&[algid_ed25519(), bitstr(pubkey)])
     }
 
@@ -3494,20 +3513,29 @@ pub mod x509 {
             return None;
         }
         let tag = d[off];
-        let l0 = *d.get(off + 1)?;
-        let (len, hdr) = if l0 < 0x80 {
-            (l0 as usize, 2)
+        if off + 1 >= d.len() {
+            return None;
+        }
+        let l0 = d[off + 1];
+        let len: usize;
+        let hdr: usize;
+        if l0 < 0x80 {
+            len = l0 as usize;
+            hdr = 2;
         } else {
             let nb = (l0 & 0x7f) as usize;
             if nb == 0 || nb > 4 || off + 2 + nb > d.len() {
                 return None;
             }
             let mut v = 0usize;
-            for i in 0..nb {
+            let mut i = 0;
+            while i < nb {
                 v = (v << 8) | d[off + 2 + i] as usize;
+                i += 1;
             }
-            (v, 2 + nb)
-        };
+            len = v;
+            hdr = 2 + nb;
+        }
         let cs = off + hdr;
         let ce = cs + len;
         if ce > d.len() {
@@ -5470,7 +5498,7 @@ pub mod rsa {
     }
 
     /// `base^e mod m` with a full bignum exponent (RSA private `d`) — square-multiply over every bit of `e`.
-    fn bn_modexp_big(base: &Bn, e: &Bn, m: &Bn) -> Bn {
+    pub(crate) fn bn_modexp_big(base: &Bn, e: &Bn, m: &Bn) -> Bn {
         let mut r: Bn = vec![1u64];
         let mut b = bn_mod(base, m);
         for i in 0..e.len() * 64 {
@@ -5484,11 +5512,15 @@ pub mod rsa {
 
     /// General RSASSA-PKCS1-v1.5 sign: `sig = EM^d mod n`, `EM = 00 01 FF..FF 00 ‖ di ‖ hash` — the
     /// inverse of `rsa_pkcs1_verify_generic`, shared by SHA-256/384/512.
-    fn rsa_pkcs1_sign_generic(n_be: &[u8], d_be: &[u8], di: &[u8], hash: &[u8]) -> Vec<u8> {
+    pub(crate) fn rsa_pkcs1_sign_generic(n_be: &[u8], d_be: &[u8], di: &[u8], hash: &[u8]) -> Vec<u8> {
         let k = n_be.len();
         let t_len = di.len() + hash.len();
         let mut em = vec![0x00, 0x01];
-        em.extend(core::iter::repeat(0xff).take(k - t_len - 3)); // PS
+        let mut ps = k - t_len - 3;
+        while ps > 0 {
+            em.push(0xff);
+            ps -= 1;
+        }
         em.push(0x00);
         em.extend_from_slice(di);
         em.extend_from_slice(hash);
@@ -5507,15 +5539,21 @@ pub mod rsa {
         rsa_pkcs1_sign_generic(n_be, d_be, &SHA512_DI, msg_hash)
     }
 
-    fn bitlen(n_be: &[u8]) -> usize {
-        for (i, &b) in n_be.iter().enumerate() {
-            if b != 0 {
-                return (n_be.len() - i) * 8 - b.leading_zeros() as usize;
+    pub(crate) fn bitlen(n_be: &[u8]) -> usize {
+        let mut i = 0;
+        let mut bits = 0usize;
+        let mut found = false;
+        while i < n_be.len() {
+            let b = n_be[i];
+            if !found && b != 0 {
+                bits = (n_be.len() - i) * 8 - b.leading_zeros() as usize;
+                found = true;
             }
+            i += 1;
         }
-        0
+        bits
     }
-    fn mgf1(seed: &[u8], len: usize) -> Vec<u8> {
+    pub(crate) fn mgf1(seed: &[u8], len: usize) -> Vec<u8> {
         let mut out = Vec::new();
         let mut c = 0u32;
         while out.len() < len {
@@ -5527,7 +5565,7 @@ pub mod rsa {
         out.truncate(len);
         out
     }
-    fn emsa_pss_encode(m_hash: &[u8; 32], em_bits: usize, salt: &[u8]) -> Vec<u8> {
+    pub(crate) fn emsa_pss_encode(m_hash: &[u8; 32], em_bits: usize, salt: &[u8]) -> Vec<u8> {
         let (h_len, em_len, s_len) = (32, em_bits.div_ceil(8), salt.len());
         let mut mp = vec![0u8; 8];
         mp.extend_from_slice(m_hash);
@@ -5538,7 +5576,12 @@ pub mod rsa {
         db.push(0x01);
         db.extend_from_slice(salt);
         let mask = mgf1(&h, em_len - h_len - 1);
-        let mut mdb: Vec<u8> = db.iter().zip(mask.iter()).map(|(a, b)| a ^ b).collect();
+        let mut mdb = vec![0u8; db.len()];
+        let mut i = 0;
+        while i < db.len() {
+            mdb[i] = db[i] ^ mask[i];
+            i += 1;
+        }
         mdb[0] &= 0xff >> (8 * em_len - em_bits);
         let mut em = mdb;
         em.extend_from_slice(&h);
@@ -5584,10 +5627,23 @@ pub mod rsa {
             return false;
         }
         let mask = mgf1(h, em_len - h_len - 1);
-        let mut db: Vec<u8> = mdb.iter().zip(mask.iter()).map(|(a, b)| a ^ b).collect();
+        let mut db = vec![0u8; mdb.len()];
+        let mut i = 0;
+        while i < mdb.len() {
+            db[i] = mdb[i] ^ mask[i];
+            i += 1;
+        }
         db[0] &= 0xff >> zbits;
         let ps_len = em_len - h_len - s_len - 2;
-        if db[..ps_len].iter().any(|&x| x != 0) || db[ps_len] != 0x01 {
+        let mut i = 0;
+        let mut nonzero = false;
+        while i < ps_len {
+            if db[i] != 0 {
+                nonzero = true;
+            }
+            i += 1;
+        }
+        if nonzero || db[ps_len] != 0x01 {
             return false;
         }
         let mut mp = vec![0u8; 8];
@@ -5602,16 +5658,24 @@ pub mod rsa {
     // bit by bit, just discarded before; here it's kept), plus addition and a small signed wrapper for
     // the extended Euclidean algorithm's Bezout coefficients (which go negative mid-computation even
     // though the final answer, reduced mod `phi`, doesn't).
-    fn bn_from_u64(x: u64) -> Bn {
+    pub(crate) fn bn_from_u64(x: u64) -> Bn {
         vec![x]
     }
-    fn bn_is_zero(a: &Bn) -> bool {
-        a.iter().all(|&l| l == 0)
+    pub(crate) fn bn_is_zero(a: &Bn) -> bool {
+        let mut z = true;
+        let mut i = 0;
+        while i < a.len() {
+            if a[i] != 0 {
+                z = false;
+            }
+            i += 1;
+        }
+        z
     }
-    fn bn_is_even(a: &Bn) -> bool {
+    pub(crate) fn bn_is_even(a: &Bn) -> bool {
         a[0] & 1 == 0
     }
-    fn bn_add(a: &Bn, b: &Bn) -> Bn {
+    pub(crate) fn bn_add(a: &Bn, b: &Bn) -> Bn {
         let n = a.len().max(b.len());
         let mut r = vec![0u64; n + 1];
         let mut carry = 0u128;
@@ -5624,7 +5688,7 @@ pub mod rsa {
         bn_trim(&mut r);
         r
     }
-    fn bn_shr1(a: &Bn) -> Bn {
+    pub(crate) fn bn_shr1(a: &Bn) -> Bn {
         let mut r = vec![0u64; a.len()];
         let mut carry = 0u64;
         let mut i = a.len();
@@ -5636,7 +5700,7 @@ pub mod rsa {
         bn_trim(&mut r);
         r
     }
-    fn bn_sub1(a: &Bn) -> Bn {
+    pub(crate) fn bn_sub1(a: &Bn) -> Bn {
         let mut r = a.clone();
         bn_sub(&mut r, &vec![1]);
         bn_trim(&mut r);
@@ -5644,7 +5708,7 @@ pub mod rsa {
     }
     /// `(x / m, x % m)` — `bn_mod`'s bit-by-bit long division, generalized to also keep the quotient
     /// (one bit per iteration, set whenever the shifted remainder is big enough to subtract `m`).
-    fn bn_divmod(x: &Bn, m: &Bn) -> (Bn, Bn) {
+    pub(crate) fn bn_divmod(x: &Bn, m: &Bn) -> (Bn, Bn) {
         let mut rem = vec![0u64; m.len() + 1];
         let mut quot = vec![0u64; x.len()];
         let nbits = x.len() * 64;
@@ -5720,7 +5784,7 @@ pub mod rsa {
 
     /// Extended Euclidean algorithm: `e^-1 mod phi`, or `None` if `gcd(e, phi) != 1`. `e` is always small
     /// (65537) but `phi` is huge, so only the Bezout coefficient of `e` is tracked.
-    fn mod_inverse(e: u64, phi: &Bn) -> Option<Bn> {
+    pub(crate) fn mod_inverse(e: u64, phi: &Bn) -> Option<Bn> {
         let (mut r0, mut r1) = (phi.clone(), bn_from_u64(e));
         let (mut t0, mut t1) = (sbn(vec![0]), sbn(vec![1]));
         while !bn_is_zero(&r1) {
@@ -5856,12 +5920,12 @@ pub mod rsa {
     use crate::map::hashtrinity::crypto::x509::{der_children, der_tlv};
 
     const RSA_OID: [u8; 9] = [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01]; // 1.2.840.113549.1.1.1 rsaEncryption
-    fn rsa_algid() -> Vec<u8> {
+    pub(crate) fn rsa_algid() -> Vec<u8> {
         seq(&[oid(&RSA_OID), tlv(0x05, &[])])
     } // AlgorithmIdentifier { OID, NULL }
     /// Strip the single `0x00` sign-guard byte `der_int` prepends when the top bit is set (never more
     /// than one), leaving the raw magnitude.
-    fn trim_int(b: &[u8]) -> Vec<u8> {
+    pub(crate) fn trim_int(b: &[u8]) -> Vec<u8> {
         if b.len() > 1 && b[0] == 0 {
             b[1..].to_vec()
         } else {
@@ -5869,7 +5933,7 @@ pub mod rsa {
         }
     }
 
-    fn rsa_to_pkcs8_der(n_be: &[u8], e: u64, d_be: &[u8]) -> Vec<u8> {
+    pub(crate) fn rsa_to_pkcs8_der(n_be: &[u8], e: u64, d_be: &[u8]) -> Vec<u8> {
         let e_be = e.to_be_bytes();
         let e_trimmed = {
             let mut v = e_be.as_slice();
@@ -5886,17 +5950,29 @@ pub mod rsa {
         ]);
         seq(&[der_int(&[0]), rsa_algid(), tlv(0x04, &inner)])
     }
-    fn rsa_from_pkcs8_der(d: &[u8]) -> Option<(Vec<u8>, u64, Vec<u8>)> {
-        let (outer_tag, ocs, oce, _) = der_tlv(d, 0)?;
+    pub(crate) fn rsa_from_pkcs8_der(d: &[u8]) -> Option<(Vec<u8>, u64, Vec<u8>)> {
+        let outer = match der_tlv(d, 0) {
+            Some(v) => v,
+            None => return None,
+        };
+        let (outer_tag, ocs, oce, _) = outer;
         if outer_tag != 0x30 {
             return None;
         }
         let children = der_children(d, ocs, oce);
-        let (tag, cs, ce) = *children.get(2)?;
+        let third = match children.get(2) {
+            Some(v) => *v,
+            None => return None,
+        };
+        let (tag, cs, ce) = third;
         if tag != 0x04 {
             return None;
         }
-        let (inner_tag, ics, ice, _) = der_tlv(d, cs)?;
+        let inner = match der_tlv(d, cs) {
+            Some(v) => v,
+            None => return None,
+        };
+        let (inner_tag, ics, ice, _) = inner;
         if inner_tag != 0x30 || ice > ce {
             return None;
         }
@@ -5904,19 +5980,29 @@ pub mod rsa {
         if fields.len() < 4 {
             return None;
         }
-        let get_int = |i: usize| -> Option<Vec<u8>> {
-            let (t, s, e) = *fields.get(i)?;
-            if t != 0x02 {
-                return None;
-            }
-            Some(trim_int(&d[s..e]))
+        let f1 = match fields.get(1) {
+            Some(v) => *v,
+            None => return None,
         };
-        let n_be = get_int(1)?;
-        let e_bytes = get_int(2)?;
-        let d_be = get_int(3)?;
+        let f2 = match fields.get(2) {
+            Some(v) => *v,
+            None => return None,
+        };
+        let f3 = match fields.get(3) {
+            Some(v) => *v,
+            None => return None,
+        };
+        if f1.0 != 0x02 || f2.0 != 0x02 || f3.0 != 0x02 {
+            return None;
+        }
+        let n_be = trim_int(&d[f1.1..f1.2]);
+        let e_bytes = trim_int(&d[f2.1..f2.2]);
+        let d_be = trim_int(&d[f3.1..f3.2]);
         let mut e_val = 0u64;
-        for &b in &e_bytes {
-            e_val = (e_val << 8) | b as u64;
+        let mut j = 0;
+        while j < e_bytes.len() {
+            e_val = (e_val << 8) | e_bytes[j] as u64;
+            j += 1;
         }
         Some((n_be, e_val, d_be))
     }
@@ -6231,28 +6317,40 @@ pub mod age {
         }
         s
     }
-    fn b64d(s: &str) -> Option<Vec<u8>> {
-        let v = |c: u8| -> Option<u32> {
-            match c {
+    pub(crate) fn b64d(s: &str) -> Option<Vec<u8>> {
+        let bytes = s.as_bytes();
+        let (mut acc, mut nb) = (0u32, 0u32);
+        let mut o = Vec::new();
+        let mut i = 0;
+        let mut bad = false;
+        while i < bytes.len() && !bad {
+            let c = bytes[i];
+            let v = match c {
                 b'A'..=b'Z' => Some((c - b'A') as u32),
                 b'a'..=b'z' => Some((c - b'a' + 26) as u32),
                 b'0'..=b'9' => Some((c - b'0' + 52) as u32),
                 b'+' => Some(62),
                 b'/' => Some(63),
                 _ => None,
+            };
+            match v {
+                Some(x) => {
+                    acc = (acc << 6) | x;
+                    nb += 6;
+                    if nb >= 8 {
+                        nb -= 8;
+                        o.push((acc >> nb) as u8);
+                    }
+                }
+                None => bad = true,
             }
-        };
-        let (mut acc, mut nb) = (0u32, 0u32);
-        let mut o = Vec::new();
-        for c in s.bytes() {
-            acc = (acc << 6) | v(c)?;
-            nb += 6;
-            if nb >= 8 {
-                nb -= 8;
-                o.push((acc >> nb) as u8);
-            }
+            i += 1;
         }
-        Some(o)
+        if bad {
+            None
+        } else {
+            Some(o)
+        }
     }
 
     /// An X25519 identity: `(secret, public)`. `public = X25519(secret, 9)`.

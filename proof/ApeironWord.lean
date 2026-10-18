@@ -101935,8 +101935,186 @@ def hashtrinity.crypto.ecdsa.p256_pubkey
   let s6 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s4 s5
   ok (index_mut_back1 s6)
 
+/-- [apeiron_word::hashtrinity::crypto::jwt::b64url_decode]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 1365:8-1387:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.jwt.b64url_decode_loop.body
+  (bytes : Slice Std.U8) (acc : Std.U32) (nbits : Std.U32)
+  (out : alloc.vec.Vec Std.U8) (i : Std.Usize) (bad : Bool) :
+  Result (ControlFlow (Std.U32 × Std.U32 × (alloc.vec.Vec Std.U8) ×
+    Std.Usize × Bool) ((alloc.vec.Vec Std.U8) × Bool))
+  := do
+  let i1 := Slice.len bytes
+  if i < i1
+  then
+    if bad
+    then ok (done (out, true))
+    else
+      let c ← Slice.index_usize bytes i
+      let v ←
+        if 65#u8 <= c
+        then
+          if c <= 90#u8
+          then
+            do
+            let i2 ← c - 65#u8
+            let i3 ← lift (UScalar.cast .U32 i2)
+            ok (some i3)
+          else
+            if 97#u8 <= c
+            then
+              if c <= 122#u8
+              then
+                do
+                let i2 ← c - 97#u8
+                let i3 ← i2 + 26#u8
+                let i4 ← lift (UScalar.cast .U32 i3)
+                ok (some i4)
+              else
+                if 48#u8 <= c
+                then
+                  if c <= 57#u8
+                  then
+                    do
+                    let i2 ← c - 48#u8
+                    let i3 ← i2 + 52#u8
+                    let i4 ← lift (UScalar.cast .U32 i3)
+                    ok (some i4)
+                  else
+                    match c with
+                    | 45#uscalar => ok (some 62#u32)
+                    | 95#uscalar => ok (some 63#u32)
+                    | _ => ok none
+                else
+                  match c with
+                  | 45#uscalar => ok (some 62#u32)
+                  | 95#uscalar => ok (some 63#u32)
+                  | _ => ok none
+            else
+              if 48#u8 <= c
+              then
+                if c <= 57#u8
+                then
+                  do
+                  let i2 ← c - 48#u8
+                  let i3 ← i2 + 52#u8
+                  let i4 ← lift (UScalar.cast .U32 i3)
+                  ok (some i4)
+                else
+                  match c with
+                  | 45#uscalar => ok (some 62#u32)
+                  | 95#uscalar => ok (some 63#u32)
+                  | _ => ok none
+              else
+                match c with
+                | 45#uscalar => ok (some 62#u32)
+                | 95#uscalar => ok (some 63#u32)
+                | _ => ok none
+        else
+          if 97#u8 <= c
+          then
+            if c <= 122#u8
+            then
+              do
+              let i2 ← c - 97#u8
+              let i3 ← i2 + 26#u8
+              let i4 ← lift (UScalar.cast .U32 i3)
+              ok (some i4)
+            else
+              if 48#u8 <= c
+              then
+                if c <= 57#u8
+                then
+                  do
+                  let i2 ← c - 48#u8
+                  let i3 ← i2 + 52#u8
+                  let i4 ← lift (UScalar.cast .U32 i3)
+                  ok (some i4)
+                else
+                  match c with
+                  | 45#uscalar => ok (some 62#u32)
+                  | 95#uscalar => ok (some 63#u32)
+                  | _ => ok none
+              else
+                match c with
+                | 45#uscalar => ok (some 62#u32)
+                | 95#uscalar => ok (some 63#u32)
+                | _ => ok none
+          else
+            if 48#u8 <= c
+            then
+              if c <= 57#u8
+              then
+                do
+                let i2 ← c - 48#u8
+                let i3 ← i2 + 52#u8
+                let i4 ← lift (UScalar.cast .U32 i3)
+                ok (some i4)
+              else
+                match c with
+                | 45#uscalar => ok (some 62#u32)
+                | 95#uscalar => ok (some 63#u32)
+                | _ => ok none
+            else
+              match c with
+              | 45#uscalar => ok (some 62#u32)
+              | 95#uscalar => ok (some 63#u32)
+              | _ => ok none
+      let (acc1, nbits1, out1, bad1) ←
+        match v with
+        | none => ok (acc, nbits, out, true)
+        | some x =>
+          do
+          let i2 ← acc <<< 6#i32
+          let acc2 ← lift (i2 ||| x)
+          let nbits2 ← nbits + 6#u32
+          let (i3, v1) ←
+            if nbits2 >= 8#u32
+            then
+              do
+              let nbits3 ← nbits2 - 8#u32
+              let i4 ← acc2 >>> nbits3
+              let i5 ← lift (UScalar.cast .U8 i4)
+              let out2 ← alloc.vec.Vec.push out i5
+              ok (nbits3, out2)
+            else ok (nbits2, out)
+          ok (acc2, i3, v1, false)
+      let i2 ← i + 1#usize
+      ok (cont (acc1, nbits1, out1, i2, bad1))
+  else ok (done (out, bad))
+
+/-- [apeiron_word::hashtrinity::crypto::jwt::b64url_decode]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 1365:8-1387:9 -/
+@[rust_loop]
+def hashtrinity.crypto.jwt.b64url_decode_loop
+  (bytes : Slice Std.U8) (acc : Std.U32) (nbits : Std.U32)
+  (out : alloc.vec.Vec Std.U8) (i : Std.Usize) (bad : Bool) :
+  Result ((alloc.vec.Vec Std.U8) × Bool)
+  := do
+  loop
+    (fun (acc1, nbits1, out1, i1, bad1) =>
+      hashtrinity.crypto.jwt.b64url_decode_loop.body bytes acc1 nbits1 out1 i1
+      bad1)
+    (acc, nbits, out, i, bad)
+
+/-- [apeiron_word::hashtrinity::crypto::jwt::b64url_decode]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 1359:4-1393:5 -/
+def hashtrinity.crypto.jwt.b64url_decode
+  (s : Str) : Result (Option (alloc.vec.Vec Std.U8)) := do
+  let bytes ← core.str.Str.as_bytes s
+  let i := Slice.len bytes
+  let i1 ← i * 3#usize
+  let i2 ← i1 / 4#usize
+  let out := alloc.vec.Vec.with_capacity Std.U8 i2
+  let (out1, bad) ←
+    hashtrinity.crypto.jwt.b64url_decode_loop bytes 0#u32 0#u32 out 0#usize
+      false
+  if bad
+  then ok none
+  else ok (some out1)
+
 /-- [apeiron_word::hashtrinity::crypto::bech32::convert_bits]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2089:12-2092:13
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2101:12-2104:13
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.bech32.convert_bits_loop0_loop0.body
@@ -101956,7 +102134,7 @@ def hashtrinity.crypto.bech32.convert_bits_loop0_loop0.body
   else ok (done (bits, out))
 
 /-- [apeiron_word::hashtrinity::crypto::bech32::convert_bits]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2089:12-2092:13
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2101:12-2104:13
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.bech32.convert_bits_loop0_loop0
@@ -101971,7 +102149,7 @@ def hashtrinity.crypto.bech32.convert_bits_loop0_loop0
     (bits, out)
 
 /-- [apeiron_word::hashtrinity::crypto::bech32::convert_bits]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2083:8-2102:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2095:8-2114:5
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.bech32.convert_bits_loop0.body
@@ -102021,7 +102199,7 @@ def hashtrinity.crypto.bech32.convert_bits_loop0.body
       ok (cont (iter1, acc1, bits2, out1))
 
 /-- [apeiron_word::hashtrinity::crypto::bech32::convert_bits]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2083:8-2102:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2095:8-2114:5
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.bech32.convert_bits_loop0
@@ -102037,7 +102215,7 @@ def hashtrinity.crypto.bech32.convert_bits_loop0
     (iter, acc, bits, out)
 
 /-- [apeiron_word::hashtrinity::crypto::bech32::convert_bits]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2080:4-2102:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2092:4-2114:5
     Visibility: public -/
 def hashtrinity.crypto.bech32.convert_bits
   (data : Slice Std.U8) («from» : Std.U32) («to» : Std.U32) (pad : Bool) :
@@ -102052,7 +102230,7 @@ def hashtrinity.crypto.bech32.convert_bits
     0#u32 (alloc.vec.Vec.new Std.U8) maxv
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::IV]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2120:4-2129:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2132:4-2141:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.blake2.IV : Array Std.U64 8#usize :=
   Array.make 8#usize [
@@ -102062,7 +102240,7 @@ def hashtrinity.crypto.blake2.IV : Array Std.U64 8#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::SIGMA]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2130:4-2143:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2142:4-2155:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.blake2.SIGMA
   : Array (Array Std.Usize 16#usize) 12#usize :=
@@ -102130,7 +102308,7 @@ def hashtrinity.crypto.blake2.SIGMA
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::g]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2145:4-2154:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2157:4-2166:5 -/
 def hashtrinity.crypto.blake2.g
   (v : Array Std.U64 16#usize) (a : Std.Usize) (b : Std.Usize) (c : Std.Usize)
   (d : Std.Usize) (x : Std.U64) (y : Std.U64) :
@@ -102176,7 +102354,7 @@ def hashtrinity.crypto.blake2.g
   Array.update v7 b i29
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::compress]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2157:8-2159:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2169:8-2171:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.blake2.compress_loop0.body
   (block : Array Std.U8 128#usize) (iter : core.ops.range.Range Std.Usize)
@@ -102203,7 +102381,7 @@ def hashtrinity.crypto.blake2.compress_loop0.body
     ok (cont (iter1, a1))
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::compress]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2157:8-2159:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2169:8-2171:9 -/
 @[rust_loop]
 def hashtrinity.crypto.blake2.compress_loop0
   (iter : core.ops.range.Range Std.Usize) (block : Array Std.U8 128#usize)
@@ -102216,7 +102394,7 @@ def hashtrinity.crypto.blake2.compress_loop0
     (iter, m)
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::compress]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2168:8-2178:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2180:8-2190:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.blake2.compress_loop1.body
   (m : Array Std.U64 16#usize) (iter : core.ops.range.Range Std.Usize)
@@ -102281,7 +102459,7 @@ def hashtrinity.crypto.blake2.compress_loop1.body
     ok (cont (iter1, v8))
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::compress]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2168:8-2178:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2180:8-2190:9 -/
 @[rust_loop]
 def hashtrinity.crypto.blake2.compress_loop1
   (iter : core.ops.range.Range Std.Usize) (m : Array Std.U64 16#usize)
@@ -102294,7 +102472,7 @@ def hashtrinity.crypto.blake2.compress_loop1
     (iter, v)
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::compress]: loop body 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2179:8-2181:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2191:8-2193:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.blake2.compress_loop2.body
   (v : Array Std.U64 16#usize) (iter : core.ops.range.Range Std.Usize)
@@ -102317,7 +102495,7 @@ def hashtrinity.crypto.blake2.compress_loop2.body
     ok (cont (iter1, a))
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::compress]: loop 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2179:8-2181:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2191:8-2193:9 -/
 @[rust_loop]
 def hashtrinity.crypto.blake2.compress_loop2
   (iter : core.ops.range.Range Std.Usize) (h : Array Std.U64 8#usize)
@@ -102330,7 +102508,7 @@ def hashtrinity.crypto.blake2.compress_loop2
     (iter, h)
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::compress]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2155:4-2182:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2167:4-2194:5 -/
 def hashtrinity.crypto.blake2.compress
   (h : Array Std.U64 8#usize) (block : Array Std.U8 128#usize) (t : Std.U128)
   (last : Bool) :
@@ -102380,7 +102558,7 @@ def hashtrinity.crypto.blake2.compress
     { start := 0#usize, «end» := 8#usize } h v5
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::blake2b]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2194:8-2202:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2206:8-2214:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.blake2.blake2b_loop0.body
@@ -102406,7 +102584,7 @@ def hashtrinity.crypto.blake2.blake2b_loop0.body
     ok (cont (iter1, h1, t1))
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::blake2b]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2194:8-2202:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2206:8-2214:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.blake2.blake2b_loop0
@@ -102420,7 +102598,7 @@ def hashtrinity.crypto.blake2.blake2b_loop0
     (iter, h, t)
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::blake2b]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2209:8-2211:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2221:8-2223:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.blake2.blake2b_loop1.body
@@ -102438,7 +102616,7 @@ def hashtrinity.crypto.blake2.blake2b_loop1.body
     ok (cont (iter1, out1))
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::blake2b]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2209:8-2211:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2221:8-2223:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.blake2.blake2b_loop1
@@ -102451,7 +102629,7 @@ def hashtrinity.crypto.blake2.blake2b_loop1
     (iter, out)
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::blake2b]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2185:4-2214:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2197:4-2226:5
     Visibility: public -/
 def hashtrinity.crypto.blake2.blake2b
   (msg : Slice Std.U8) (out_len : Std.Usize) :
@@ -102497,7 +102675,7 @@ def hashtrinity.crypto.blake2.blake2b
   alloc.vec.Vec.truncate Global out1 out_len
 
 /-- [apeiron_word::hashtrinity::crypto::blake2::blake2b512]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2216:4-2220:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2228:4-2232:5
     Visibility: public -/
 def hashtrinity.crypto.blake2.blake2b512
   (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
@@ -102508,8 +102686,259 @@ def hashtrinity.crypto.blake2.blake2b512
   let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s s1
   ok (to_slice_mut_back s2)
 
+/-- [apeiron_word::hashtrinity::crypto::certgen::der_len]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2247:12-2250:13 -/
+@[rust_loop_body]
+def hashtrinity.crypto.certgen.der_len_loop0.body
+  (b : alloc.vec.Vec Std.U8) (m : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if m > 0#usize
+  then
+    let i ← lift (m &&& 255#usize)
+    let i1 ← lift (UScalar.cast .U8 i)
+    let b1 ← alloc.vec.Vec.push b i1
+    let m1 ← m >>> 8#i32
+    ok (cont (b1, m1))
+  else ok (done b)
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::der_len]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2247:12-2250:13 -/
+@[rust_loop]
+def hashtrinity.crypto.certgen.der_len_loop0
+  (b : alloc.vec.Vec Std.U8) (m : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (b1, m1) => hashtrinity.crypto.certgen.der_len_loop0.body b1 m1)
+    (b, m)
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::der_len]: loop body 1:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2253:12-2256:13 -/
+@[rust_loop_body]
+def hashtrinity.crypto.certgen.der_len_loop1.body
+  (b : alloc.vec.Vec Std.U8) (o : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if i > 0#usize
+  then
+    let i1 ← i - 1#usize
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) b i1
+    let o1 ← alloc.vec.Vec.push o i2
+    ok (cont (o1, i1))
+  else ok (done o)
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::der_len]: loop 1:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2253:12-2256:13 -/
+@[rust_loop]
+def hashtrinity.crypto.certgen.der_len_loop1
+  (b : alloc.vec.Vec Std.U8) (o : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (o1, i1) => hashtrinity.crypto.certgen.der_len_loop1.body b o1 i1)
+    (o, i)
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::der_len]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2241:4-2259:5 -/
+def hashtrinity.crypto.certgen.der_len
+  (n : Std.Usize) : Result (alloc.vec.Vec Std.U8) := do
+  if n < 128#usize
+  then
+    let i ← lift (UScalar.cast .U8 n)
+    let y ←
+      lift (Std.Array.to_slice (Array.make 1#usize [ i ] : Array Std.U8
+        1#usize))
+    ok (alloc.slice.Slice.into_vec y)
+  else
+    let b ←
+      hashtrinity.crypto.certgen.der_len_loop0 (alloc.vec.Vec.new Std.U8) n
+    let i := alloc.vec.Vec.len b
+    let i1 ← lift (UScalar.cast .U8 i)
+    let i2 ← lift (128#u8 ||| i1)
+    let y ←
+      lift (Std.Array.to_slice (Array.make 1#usize [ i2 ] : Array Std.U8
+        1#usize))
+    let ret := alloc.slice.Slice.into_vec y
+    let i3 := alloc.vec.Vec.len b
+    hashtrinity.crypto.certgen.der_len_loop1 b ret i3
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::tlv]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2260:4-2266:5 -/
+def hashtrinity.crypto.certgen.tlv
+  (tag : Std.U8) (c : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  let y ←
+    lift (Std.Array.to_slice (Array.make 1#usize [ tag ] : Array Std.U8
+      1#usize))
+  let ret := alloc.slice.Slice.into_vec y
+  let i := Slice.len c
+  let l ← hashtrinity.crypto.certgen.der_len i
+  let s := alloc.vec.Vec.deref l
+  let ret1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 ret s
+  alloc.vec.Vec.extend_from_slice core.clone.CloneU8 ret1 c
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::seq]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2269:8-2271:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.certgen.seq_loop.body
+  (iter : core.slice.iter.Iter (alloc.vec.Vec Std.U8))
+  (c : alloc.vec.Vec Std.U8) :
+  Result (ControlFlow ((core.slice.iter.Iter (alloc.vec.Vec Std.U8)) ×
+    (alloc.vec.Vec Std.U8)) (alloc.vec.Vec Std.U8))
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done c)
+  | some i =>
+    let s := alloc.vec.Vec.deref i
+    let c1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 c s
+    ok (cont (iter1, c1))
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::seq]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2269:8-2271:9 -/
+@[rust_loop]
+def hashtrinity.crypto.certgen.seq_loop
+  (iter : core.slice.iter.Iter (alloc.vec.Vec Std.U8))
+  (c : alloc.vec.Vec Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (iter1, c1) => hashtrinity.crypto.certgen.seq_loop.body iter1 c1)
+    (iter, c)
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::seq]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2267:4-2273:5 -/
+def hashtrinity.crypto.certgen.seq
+  (items : Slice (alloc.vec.Vec Std.U8)) : Result (alloc.vec.Vec Std.U8) := do
+  let iter ←
+    SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter
+      items
+  let c ← hashtrinity.crypto.certgen.seq_loop iter (alloc.vec.Vec.new Std.U8)
+  let s := alloc.vec.Vec.deref c
+  hashtrinity.crypto.certgen.tlv 48#u8 s
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::set]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2274:4-2276:5 -/
+def hashtrinity.crypto.certgen.set
+  (inner : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.tlv 49#u8 inner
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::der_int]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2278:4-2289:5 -/
+def hashtrinity.crypto.certgen.der_int
+  (mag : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  let b ← core.slice.Slice.is_empty mag
+  let v ←
+    if b
+    then alloc.vec.Vec.push (alloc.vec.Vec.new Std.U8) 0#u8
+    else
+      do
+      let i ← Slice.index_usize mag 0#usize
+      let i1 ← lift (i &&& 128#u8)
+      let v1 ←
+        if i1 != 0#u8
+        then alloc.vec.Vec.push (alloc.vec.Vec.new Std.U8) 0#u8
+        else ok (alloc.vec.Vec.new Std.U8)
+      alloc.vec.Vec.extend_from_slice core.clone.CloneU8 v1 mag
+  let s := alloc.vec.Vec.deref v
+  hashtrinity.crypto.certgen.tlv 2#u8 s
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::oid]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2290:4-2292:5 -/
+def hashtrinity.crypto.certgen.oid
+  (bytes : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.tlv 6#u8 bytes
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::bitstr]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2293:4-2297:5 -/
+def hashtrinity.crypto.certgen.bitstr
+  (data : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  let y ←
+    lift (Std.Array.to_slice (Array.make 1#usize [ 0#u8 ] : Array Std.U8
+      1#usize))
+  let ret := alloc.slice.Slice.into_vec y
+  let ret1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 ret data
+  let s := alloc.vec.Vec.deref ret1
+  hashtrinity.crypto.certgen.tlv 3#u8 s
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::ctx_explicit]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2298:4-2300:5 -/
+def hashtrinity.crypto.certgen.ctx_explicit
+  (n : Std.U8) (inner : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  let i ← lift (160#u8 ||| n)
+  hashtrinity.crypto.certgen.tlv i inner
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::ED25519_OID]
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2302:4-2302:63 -/
+@[global_simps, irreducible]
+def hashtrinity.crypto.certgen.ED25519_OID : Array Std.U8 3#usize :=
+  Array.make 3#usize [ 43#u8, 101#u8, 112#u8 ]
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::CN_OID]
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2303:4-2303:47 -/
+@[global_simps, irreducible]
+def hashtrinity.crypto.certgen.CN_OID : Array Std.U8 3#usize :=
+  Array.make 3#usize [ 85#u8, 4#u8, 3#u8 ]
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::algid_ed25519]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2305:4-2307:5 -/
+def hashtrinity.crypto.certgen.algid_ed25519
+  : Result (alloc.vec.Vec Std.U8) := do
+  let s ← lift (Array.to_slice hashtrinity.crypto.certgen.ED25519_OID)
+  let v ← hashtrinity.crypto.certgen.oid s
+  let s1 ← lift (Array.to_slice (Array.make 1#usize [ v ]))
+  hashtrinity.crypto.certgen.seq s1
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::name_cn]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2308:4-2311:5 -/
+def hashtrinity.crypto.certgen.name_cn
+  (cn : Str) : Result (alloc.vec.Vec Std.U8) := do
+  let s ← lift (Array.to_slice hashtrinity.crypto.certgen.CN_OID)
+  let v ← hashtrinity.crypto.certgen.oid s
+  let s1 ← core.str.Str.as_bytes cn
+  let v1 ← hashtrinity.crypto.certgen.tlv 12#u8 s1
+  let s2 ← lift (Array.to_slice (Array.make 2#usize [ v, v1 ]))
+  let attr ← hashtrinity.crypto.certgen.seq s2
+  let s3 := alloc.vec.Vec.deref attr
+  let v2 ← hashtrinity.crypto.certgen.set s3
+  let s4 ← lift (Array.to_slice (Array.make 1#usize [ v2 ]))
+  hashtrinity.crypto.certgen.seq s4
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::validity]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2312:4-2315:5 -/
+def hashtrinity.crypto.certgen.validity : Result (alloc.vec.Vec Std.U8) := do
+  let s ←
+    lift (Array.to_slice
+      (Array.make 13#usize [
+        50#u8, 48#u8, 48#u8, 49#u8, 48#u8, 49#u8, 48#u8, 48#u8, 48#u8, 48#u8,
+        48#u8, 48#u8, 90#u8
+        ]))
+  let v ← hashtrinity.crypto.certgen.tlv 23#u8 s
+  let s1 ←
+    lift (Array.to_slice
+      (Array.make 13#usize [
+        52#u8, 48#u8, 48#u8, 49#u8, 48#u8, 49#u8, 48#u8, 48#u8, 48#u8, 48#u8,
+        48#u8, 48#u8, 90#u8
+        ]))
+  let v1 ← hashtrinity.crypto.certgen.tlv 23#u8 s1
+  let s2 ← lift (Array.to_slice (Array.make 2#usize [ v, v1 ]))
+  hashtrinity.crypto.certgen.seq s2
+
+/-- [apeiron_word::hashtrinity::crypto::certgen::spki]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2316:4-2318:5 -/
+def hashtrinity.crypto.certgen.spki
+  (pubkey : Array Std.U8 32#usize) : Result (alloc.vec.Vec Std.U8) := do
+  let v ← hashtrinity.crypto.certgen.algid_ed25519
+  let s ← lift (Array.to_slice pubkey)
+  let v1 ← hashtrinity.crypto.certgen.bitstr s
+  let s1 ← lift (Array.to_slice (Array.make 2#usize [ v, v1 ]))
+  hashtrinity.crypto.certgen.seq s1
+
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::RL]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2901:4-2905:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2920:4-2924:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.ripemd160.RL : Array Std.Usize 80#usize :=
   Array.make 80#usize [
@@ -102527,7 +102956,7 @@ def hashtrinity.crypto.ripemd160.RL : Array Std.Usize 80#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::RR]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2906:4-2910:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2925:4-2929:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.ripemd160.RR : Array Std.Usize 80#usize :=
   Array.make 80#usize [
@@ -102544,7 +102973,7 @@ def hashtrinity.crypto.ripemd160.RR : Array Std.Usize 80#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::SL]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2911:4-2915:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2930:4-2934:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.ripemd160.SL : Array Std.U32 80#usize :=
   Array.make 80#usize [
@@ -102560,7 +102989,7 @@ def hashtrinity.crypto.ripemd160.SL : Array Std.U32 80#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::SR]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2916:4-2920:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2935:4-2939:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.ripemd160.SR : Array Std.U32 80#usize :=
   Array.make 80#usize [
@@ -102575,7 +103004,7 @@ def hashtrinity.crypto.ripemd160.SR : Array Std.U32 80#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::KL]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2921:4-2921:86 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2940:4-2940:86 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.ripemd160.KL : Array Std.U32 5#usize :=
   Array.make 5#usize [
@@ -102583,7 +103012,7 @@ def hashtrinity.crypto.ripemd160.KL : Array Std.U32 5#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::KR]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2922:4-2922:86 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2941:4-2941:86 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.ripemd160.KR : Array Std.U32 5#usize :=
   Array.make 5#usize [
@@ -102591,7 +103020,7 @@ def hashtrinity.crypto.ripemd160.KR : Array Std.U32 5#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::f]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2924:4-2932:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2943:4-2951:5 -/
 def hashtrinity.crypto.ripemd160.f
   (j : Std.Usize) (x : Std.U32) (y : Std.U32) (z : Std.U32) :
   Result Std.U32
@@ -102618,7 +103047,7 @@ def hashtrinity.crypto.ripemd160.f
          ok (x ^^^ i2)
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::compress]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2936:8-2938:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2955:8-2957:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.ripemd160.compress_loop0.body
   (block : Array Std.U8 64#usize) (iter : core.ops.range.Range Std.Usize)
@@ -102645,7 +103074,7 @@ def hashtrinity.crypto.ripemd160.compress_loop0.body
     ok (cont (iter1, a1))
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::compress]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2936:8-2938:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2955:8-2957:9 -/
 @[rust_loop]
 def hashtrinity.crypto.ripemd160.compress_loop0
   (iter : core.ops.range.Range Std.Usize) (block : Array Std.U8 64#usize)
@@ -102658,7 +103087,7 @@ def hashtrinity.crypto.ripemd160.compress_loop0
     (iter, m)
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::compress]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2941:8-2964:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2960:8-2983:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.ripemd160.compress_loop1.body
   (m : Array Std.U32 16#usize) (iter : core.ops.range.Range Std.Usize)
@@ -102701,7 +103130,7 @@ def hashtrinity.crypto.ripemd160.compress_loop1.body
     ok (cont (iter1, el, t, bl, dl1, dl, er, t1, br, dr1, dr))
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::compress]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2941:8-2964:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2960:8-2983:9 -/
 @[rust_loop]
 def hashtrinity.crypto.ripemd160.compress_loop1
   (iter : core.ops.range.Range Std.Usize) (m : Array Std.U32 16#usize)
@@ -102717,7 +103146,7 @@ def hashtrinity.crypto.ripemd160.compress_loop1
     (iter, al, bl, cl, dl, el, ar, br, cr, dr, er)
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::compress]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2934:4-2971:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2953:4-2990:5 -/
 def hashtrinity.crypto.ripemd160.compress
   (h : Array Std.U32 5#usize) (block : Array Std.U8 64#usize) :
   Result (Array Std.U32 5#usize)
@@ -102757,7 +103186,7 @@ def hashtrinity.crypto.ripemd160.compress
   Array.update h4 0#usize t
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::ripemd160]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2979:8-2981:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2998:8-3000:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.ripemd160.ripemd160_loop0.body
@@ -102772,7 +103201,7 @@ def hashtrinity.crypto.ripemd160.ripemd160_loop0.body
   else ok (done m)
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::ripemd160]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2979:8-2981:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2998:8-3000:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.ripemd160.ripemd160_loop0
@@ -102782,7 +103211,7 @@ def hashtrinity.crypto.ripemd160.ripemd160_loop0
     m
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::ripemd160]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2983:8-2985:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3002:8-3004:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.ripemd160.ripemd160_loop1.body
@@ -102800,7 +103229,7 @@ def hashtrinity.crypto.ripemd160.ripemd160_loop1.body
     ok (cont (iter1, h1))
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::ripemd160]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2983:8-2985:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3002:8-3004:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.ripemd160.ripemd160_loop1
@@ -102813,7 +103242,7 @@ def hashtrinity.crypto.ripemd160.ripemd160_loop1
     (iter, h)
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::ripemd160]: loop body 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2987:8-2989:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3006:8-3008:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.ripemd160.ripemd160_loop2.body
@@ -102841,7 +103270,7 @@ def hashtrinity.crypto.ripemd160.ripemd160_loop2.body
     ok (cont (iter1, o2))
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::ripemd160]: loop 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2987:8-2989:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3006:8-3008:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.ripemd160.ripemd160_loop2
@@ -102855,7 +103284,7 @@ def hashtrinity.crypto.ripemd160.ripemd160_loop2
     (iter, o)
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::ripemd160]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2974:4-2991:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 2993:4-3010:5
     Visibility: public -/
 def hashtrinity.crypto.ripemd160.ripemd160
   (msg : Slice Std.U8) : Result (Array Std.U8 20#usize) := do
@@ -102881,7 +103310,7 @@ def hashtrinity.crypto.ripemd160.ripemd160
     { start := 0#usize, «end» := 5#usize } h o
 
 /-- [apeiron_word::hashtrinity::crypto::Sha256]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6892:0-6897:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6990:0-6995:1
     Visibility: public -/
 structure hashtrinity.crypto.Sha256 where
   h : Array Std.U32 8#usize
@@ -102890,7 +103319,7 @@ structure hashtrinity.crypto.Sha256 where
   total : Std.U64
 
 /-- [apeiron_word::hashtrinity::crypto::K256]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6828:0-6837:2 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6926:0-6935:2 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.K256 : Array Std.U32 64#usize :=
   Array.make 64#usize [
@@ -102913,7 +103342,7 @@ def hashtrinity.crypto.K256 : Array Std.U32 64#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::compress256]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6843:4-6845:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6941:4-6943:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.compress256_loop0.body
   (blk : Slice Std.U8) (iter : core.ops.range.Range Std.Usize)
@@ -102940,7 +103369,7 @@ def hashtrinity.crypto.compress256_loop0.body
     ok (cont (iter1, a))
 
 /-- [apeiron_word::hashtrinity::crypto::compress256]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6843:4-6845:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6941:4-6943:5 -/
 @[rust_loop]
 def hashtrinity.crypto.compress256_loop0
   (iter : core.ops.range.Range Std.Usize) (blk : Slice Std.U8)
@@ -102952,7 +103381,7 @@ def hashtrinity.crypto.compress256_loop0
     (iter, w)
 
 /-- [apeiron_word::hashtrinity::crypto::compress256]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6846:4-6853:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6944:4-6951:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.compress256_loop1.body
   (iter : core.ops.range.Range Std.Usize) (w : Array Std.U32 64#usize) :
@@ -102993,7 +103422,7 @@ def hashtrinity.crypto.compress256_loop1.body
     ok (cont (iter1, a))
 
 /-- [apeiron_word::hashtrinity::crypto::compress256]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6846:4-6853:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6944:4-6951:5 -/
 @[rust_loop]
 def hashtrinity.crypto.compress256_loop1
   (iter : core.ops.range.Range Std.Usize) (w : Array Std.U32 64#usize) :
@@ -103004,7 +103433,7 @@ def hashtrinity.crypto.compress256_loop1
     (iter, w)
 
 /-- [apeiron_word::hashtrinity::crypto::compress256]: loop body 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6856:4-6875:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6954:4-6973:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.compress256_loop2.body
   (w : Array Std.U32 64#usize) (iter : core.ops.range.Range Std.Usize)
@@ -103051,7 +103480,7 @@ def hashtrinity.crypto.compress256_loop2.body
     ok (cont (iter1, a1, a, b, c, e1, e, f, g))
 
 /-- [apeiron_word::hashtrinity::crypto::compress256]: loop 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6856:4-6875:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6954:4-6973:5 -/
 @[rust_loop]
 def hashtrinity.crypto.compress256_loop2
   (iter : core.ops.range.Range Std.Usize) (w : Array Std.U32 64#usize)
@@ -103067,7 +103496,7 @@ def hashtrinity.crypto.compress256_loop2
     (iter, a, b, c, d, e, f, g, hh)
 
 /-- [apeiron_word::hashtrinity::crypto::compress256]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6841:0-6885:1 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6939:0-6983:1 -/
 def hashtrinity.crypto.compress256
   (h : Array Std.U32 8#usize) (blk : Slice Std.U8) :
   Result (Array Std.U32 8#usize)
@@ -103116,7 +103545,7 @@ def hashtrinity.crypto.compress256
   Array.update h7 7#usize i15
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha256}::finalize]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6939:8-6941:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7037:8-7039:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.Sha256.finalize_loop0.body
@@ -103131,7 +103560,7 @@ def hashtrinity.crypto.Sha256.finalize_loop0.body
   else ok (done tail)
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha256}::finalize]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6939:8-6941:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7037:8-7039:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.Sha256.finalize_loop0
@@ -103141,7 +103570,7 @@ def hashtrinity.crypto.Sha256.finalize_loop0
     tail
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha256}::finalize]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6944:8-6946:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7042:8-7044:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.Sha256.finalize_loop1.body
@@ -103157,7 +103586,7 @@ def hashtrinity.crypto.Sha256.finalize_loop1.body
     ok (cont (iter1, h1))
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha256}::finalize]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6944:8-6946:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7042:8-7044:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.Sha256.finalize_loop1
@@ -103169,7 +103598,7 @@ def hashtrinity.crypto.Sha256.finalize_loop1
     (iter, h)
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha256}::finalize]: loop body 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6948:8-6950:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7046:8-7048:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.Sha256.finalize_loop2.body
@@ -103197,7 +103626,7 @@ def hashtrinity.crypto.Sha256.finalize_loop2.body
     ok (cont (iter1, o2))
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha256}::finalize]: loop 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6948:8-6950:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7046:8-7048:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.Sha256.finalize_loop2
@@ -103211,7 +103640,7 @@ def hashtrinity.crypto.Sha256.finalize_loop2
     (iter, o)
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha256}::finalize]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6935:4-6952:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7033:4-7050:5
     Visibility: public -/
 def hashtrinity.crypto.Sha256.finalize
   (self : hashtrinity.crypto.Sha256) : Result (Array Std.U8 32#usize) := do
@@ -103234,7 +103663,7 @@ def hashtrinity.crypto.Sha256.finalize
     { start := 0#usize, «end» := 8#usize } h o
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha256}::update]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6925:8-6928:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7023:8-7026:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.Sha256.update_loop.body
@@ -103258,7 +103687,7 @@ def hashtrinity.crypto.Sha256.update_loop.body
   else ok (done (a, data))
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha256}::update]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6925:8-6928:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7023:8-7026:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.Sha256.update_loop
@@ -103270,7 +103699,7 @@ def hashtrinity.crypto.Sha256.update_loop
     (a, data)
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha256}::update]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6913:4-6933:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7011:4-7031:5
     Visibility: public -/
 def hashtrinity.crypto.Sha256.update
   (self : hashtrinity.crypto.Sha256) (data : Slice Std.U8) :
@@ -103328,7 +103757,7 @@ def hashtrinity.crypto.Sha256.update
     ok { h := a2, buf := a3, n := i5, total := i2 }
 
 /-- [apeiron_word::hashtrinity::crypto::H256]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6825:0-6827:2 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6923:0-6925:2 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.H256 : Array Std.U32 8#usize :=
   Array.make 8#usize [
@@ -103337,14 +103766,14 @@ def hashtrinity.crypto.H256 : Array Std.U32 8#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha256}::new]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6904:4-6911:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7002:4-7009:5
     Visibility: public -/
 def hashtrinity.crypto.Sha256.new : Result hashtrinity.crypto.Sha256 := do
   let a := Array.repeat 64#usize 0#u8
   ok { h := hashtrinity.crypto.H256, buf := a, n := 0#usize, total := 0#u64 }
 
 /-- [apeiron_word::hashtrinity::crypto::sha256]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6956:0-6960:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7054:0-7058:1
     Visibility: public -/
 def hashtrinity.crypto.sha256
   (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
@@ -103353,7 +103782,7 @@ def hashtrinity.crypto.sha256
   hashtrinity.crypto.Sha256.finalize s1
 
 /-- [apeiron_word::hashtrinity::crypto::ripemd160::hash160]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 2993:4-2995:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3012:4-3014:5
     Visibility: public -/
 def hashtrinity.crypto.ripemd160.hash160
   (data : Slice Std.U8) : Result (Array Std.U8 20#usize) := do
@@ -103362,7 +103791,7 @@ def hashtrinity.crypto.ripemd160.hash160
   hashtrinity.crypto.ripemd160.ripemd160 s
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::P]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3004:4-3009:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3023:4-3028:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.secp256k1.P : Array Std.U64 4#usize :=
   Array.make 4#usize [
@@ -103371,7 +103800,7 @@ def hashtrinity.crypto.secp256k1.P : Array Std.U64 4#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::GX]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3016:4-3021:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3035:4-3040:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.secp256k1.GX : Array Std.U64 4#usize :=
   Array.make 4#usize [
@@ -103380,7 +103809,7 @@ def hashtrinity.crypto.secp256k1.GX : Array Std.U64 4#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::GY]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3022:4-3027:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3041:4-3046:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.secp256k1.GY : Array Std.U64 4#usize :=
   Array.make 4#usize [
@@ -103389,7 +103818,7 @@ def hashtrinity.crypto.secp256k1.GY : Array Std.U64 4#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::from_be]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3031:8-3033:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3050:8-3052:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.from_be_loop.body
   (b : Slice Std.U8) (iter : core.ops.range.Range Std.Usize)
@@ -103416,7 +103845,7 @@ def hashtrinity.crypto.secp256k1.from_be_loop.body
     ok (cont (iter1, a1))
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::from_be]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3031:8-3033:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3050:8-3052:9 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.from_be_loop
   (iter : core.ops.range.Range Std.Usize) (b : Slice Std.U8)
@@ -103429,7 +103858,7 @@ def hashtrinity.crypto.secp256k1.from_be_loop
     (iter, r)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::from_be]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3029:4-3035:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3048:4-3054:5 -/
 def hashtrinity.crypto.secp256k1.from_be
   (b : Slice Std.U8) : Result (Array Std.U64 4#usize) := do
   let r := Array.repeat 4#usize 0#u64
@@ -103437,7 +103866,7 @@ def hashtrinity.crypto.secp256k1.from_be
     { start := 0#usize, «end» := 4#usize } b r
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::to_be]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3038:8-3040:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3057:8-3059:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.to_be_loop.body
   (u : Array Std.U64 4#usize) (iter : core.ops.range.Range Std.Usize)
@@ -103465,7 +103894,7 @@ def hashtrinity.crypto.secp256k1.to_be_loop.body
     ok (cont (iter1, b1))
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::to_be]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3038:8-3040:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3057:8-3059:9 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.to_be_loop
   (iter : core.ops.range.Range Std.Usize) (u : Array Std.U64 4#usize)
@@ -103478,7 +103907,7 @@ def hashtrinity.crypto.secp256k1.to_be_loop
     (iter, b)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::to_be]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3036:4-3042:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3055:4-3061:5 -/
 def hashtrinity.crypto.secp256k1.to_be
   (u : Array Std.U64 4#usize) : Result (Array Std.U8 32#usize) := do
   let b := Array.repeat 32#usize 0#u8
@@ -103486,14 +103915,14 @@ def hashtrinity.crypto.secp256k1.to_be
     { start := 0#usize, «end» := 4#usize } u b
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::is_zero]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3043:4-3045:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3062:4-3064:5 -/
 def hashtrinity.crypto.secp256k1.is_zero
   (a : Array Std.U64 4#usize) : Result Bool := do
   let a1 := Array.repeat 4#usize 0#u64
   core.array.equality.PartialEqArray.eq core.cmp.PartialEqU64 a a1
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::ge5]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3048:8-3055:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3067:8-3074:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.ge5_loop.body
   (a : Array Std.U64 5#usize) (m : Array Std.U64 5#usize) (i : Std.Usize) :
@@ -103510,7 +103939,7 @@ def hashtrinity.crypto.secp256k1.ge5_loop.body
   else ok (done true)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::ge5]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3048:8-3055:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3067:8-3074:5 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.ge5_loop
   (a : Array Std.U64 5#usize) (m : Array Std.U64 5#usize) (i : Std.Usize) :
@@ -103521,14 +103950,14 @@ def hashtrinity.crypto.secp256k1.ge5_loop
     i
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::ge5]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3046:4-3055:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3065:4-3074:5 -/
 @[reducible]
 def hashtrinity.crypto.secp256k1.ge5
   (a : Array Std.U64 5#usize) (m : Array Std.U64 5#usize) : Result Bool := do
   hashtrinity.crypto.secp256k1.ge5_loop a m 5#usize
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::sub5]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3058:8-3067:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3077:8-3086:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.sub5_loop.body
   (m : Array Std.U64 5#usize) (iter : core.ops.range.Range Std.Usize)
@@ -103560,7 +103989,7 @@ def hashtrinity.crypto.secp256k1.sub5_loop.body
       ok (cont (iter1, a1, 0#i128))
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::sub5]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3058:8-3067:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3077:8-3086:9 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.sub5_loop
   (iter : core.ops.range.Range Std.Usize) (a : Array Std.U64 5#usize)
@@ -103573,7 +104002,7 @@ def hashtrinity.crypto.secp256k1.sub5_loop
     (iter, a, br)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::sub5]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3056:4-3068:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3075:4-3087:5 -/
 @[reducible]
 def hashtrinity.crypto.secp256k1.sub5
   (a : Array Std.U64 5#usize) (m : Array Std.U64 5#usize) :
@@ -103583,7 +104012,7 @@ def hashtrinity.crypto.secp256k1.sub5
     { start := 0#usize, «end» := 5#usize } a m 0#i128
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::ge4]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3071:8-3078:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3090:8-3097:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.ge4_loop.body
   (a : Array Std.U64 4#usize) (m : Array Std.U64 4#usize) (i : Std.Usize) :
@@ -103600,7 +104029,7 @@ def hashtrinity.crypto.secp256k1.ge4_loop.body
   else ok (done true)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::ge4]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3071:8-3078:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3090:8-3097:5 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.ge4_loop
   (a : Array Std.U64 4#usize) (m : Array Std.U64 4#usize) (i : Std.Usize) :
@@ -103611,14 +104040,14 @@ def hashtrinity.crypto.secp256k1.ge4_loop
     i
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::ge4]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3069:4-3078:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3088:4-3097:5 -/
 @[reducible]
 def hashtrinity.crypto.secp256k1.ge4
   (a : Array Std.U64 4#usize) (m : Array Std.U64 4#usize) : Result Bool := do
   hashtrinity.crypto.secp256k1.ge4_loop a m 4#usize
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mul512]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3083:12-3087:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3102:12-3106:13 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.mul512_loop0_loop0.body
   (a : Array Std.U64 4#usize) (b : Array Std.U64 4#usize) (i : Std.Usize)
@@ -103648,7 +104077,7 @@ def hashtrinity.crypto.secp256k1.mul512_loop0_loop0.body
     ok (cont (iter1, a1, cr1))
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mul512]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3083:12-3087:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3102:12-3106:13 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.mul512_loop0_loop0
   (iter : core.ops.range.Range Std.Usize) (a : Array Std.U64 4#usize)
@@ -103662,7 +104091,7 @@ def hashtrinity.crypto.secp256k1.mul512_loop0_loop0
     (iter, p, cr)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mul512]: loop body 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3089:12-3094:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3108:12-3113:13 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.mul512_loop0_loop1.body
   (p : Array Std.U64 8#usize) (cr : Std.U128) (k : Std.Usize) :
@@ -103685,7 +104114,7 @@ def hashtrinity.crypto.secp256k1.mul512_loop0_loop1.body
   else ok (done p)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mul512]: loop 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3089:12-3094:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3108:12-3113:13 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.mul512_loop0_loop1
   (p : Array Std.U64 8#usize) (cr : Std.U128) (k : Std.Usize) :
@@ -103697,7 +104126,7 @@ def hashtrinity.crypto.secp256k1.mul512_loop0_loop1
     (p, cr, k)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mul512]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3081:8-3095:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3100:8-3114:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.mul512_loop0.body
   (a : Array Std.U64 4#usize) (b : Array Std.U64 4#usize)
@@ -103718,7 +104147,7 @@ def hashtrinity.crypto.secp256k1.mul512_loop0.body
     ok (cont (iter1, p2))
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mul512]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3081:8-3095:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3100:8-3114:9 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.mul512_loop0
   (iter : core.ops.range.Range Std.Usize) (a : Array Std.U64 4#usize)
@@ -103731,7 +104160,7 @@ def hashtrinity.crypto.secp256k1.mul512_loop0
     (iter, p)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mul512]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3079:4-3097:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3098:4-3116:5 -/
 def hashtrinity.crypto.secp256k1.mul512
   (a : Array Std.U64 4#usize) (b : Array Std.U64 4#usize) :
   Result (Array Std.U64 8#usize)
@@ -103741,7 +104170,7 @@ def hashtrinity.crypto.secp256k1.mul512
     { start := 0#usize, «end» := 4#usize } a b p
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mod_gen]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3106:12-3110:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3125:12-3129:13 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.mod_gen_loop0_loop0.body
   (iter : core.slice.iter.IterMut Std.U64)
@@ -103764,7 +104193,7 @@ def hashtrinity.crypto.secp256k1.mod_gen_loop0_loop0.body
                                back im1, nc))
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mod_gen]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3106:12-3110:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3125:12-3129:13 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.mod_gen_loop0_loop0
   (iter : core.slice.iter.IterMut Std.U64)
@@ -103779,7 +104208,7 @@ def hashtrinity.crypto.secp256k1.mod_gen_loop0_loop0
     (iter, back, c)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mod_gen]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3102:8-3114:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3121:8-3133:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.mod_gen_loop0.body
   (x : Array Std.U64 8#usize) (m5 : Array Std.U64 5#usize)
@@ -103812,7 +104241,7 @@ def hashtrinity.crypto.secp256k1.mod_gen_loop0.body
   else ok (done rem)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mod_gen]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3102:8-3114:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3121:8-3133:9 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.mod_gen_loop0
   (x : Array Std.U64 8#usize) (m5 : Array Std.U64 5#usize)
@@ -103825,7 +104254,7 @@ def hashtrinity.crypto.secp256k1.mod_gen_loop0
     (rem, i)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mod_gen]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3098:4-3116:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3117:4-3135:5 -/
 def hashtrinity.crypto.secp256k1.mod_gen
   (x : Array Std.U64 8#usize) (m : Array Std.U64 4#usize) :
   Result (Array Std.U64 4#usize)
@@ -103845,7 +104274,7 @@ def hashtrinity.crypto.secp256k1.mod_gen
   ok (Array.make 4#usize [ i4, i5, i6, i7 ])
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::mulmod]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3117:4-3119:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3136:4-3138:5 -/
 def hashtrinity.crypto.secp256k1.mulmod
   (a : Array Std.U64 4#usize) (b : Array Std.U64 4#usize)
   (m : Array Std.U64 4#usize) :
@@ -103855,7 +104284,7 @@ def hashtrinity.crypto.secp256k1.mulmod
   hashtrinity.crypto.secp256k1.mod_gen a1 m
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::addmod]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3123:8-3127:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3142:8-3146:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.addmod_loop.body
   (a : Array Std.U64 4#usize) (b : Array Std.U64 4#usize)
@@ -103881,7 +104310,7 @@ def hashtrinity.crypto.secp256k1.addmod_loop.body
     ok (cont (iter1, a1, c1))
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::addmod]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3123:8-3127:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3142:8-3146:9 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.addmod_loop
   (iter : core.ops.range.Range Std.Usize) (a : Array Std.U64 4#usize)
@@ -103894,7 +104323,7 @@ def hashtrinity.crypto.secp256k1.addmod_loop
     (iter, s, c)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::addmod]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3120:4-3134:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3139:4-3153:5 -/
 def hashtrinity.crypto.secp256k1.addmod
   (a : Array Std.U64 4#usize) (b : Array Std.U64 4#usize)
   (m : Array Std.U64 4#usize) :
@@ -103926,7 +104355,7 @@ def hashtrinity.crypto.secp256k1.addmod
   ok (Array.make 4#usize [ i5, i6, i7, i8 ])
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::submod]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3139:12-3148:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3158:12-3167:13 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.submod_loop.body
   (b : Array Std.U64 4#usize) (iter : core.ops.range.Range Std.Usize)
@@ -103958,7 +104387,7 @@ def hashtrinity.crypto.secp256k1.submod_loop.body
       ok (cont (iter1, a, 0#i128))
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::submod]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3139:12-3148:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3158:12-3167:13 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.submod_loop
   (iter : core.ops.range.Range Std.Usize) (b : Array Std.U64 4#usize)
@@ -103971,7 +104400,7 @@ def hashtrinity.crypto.secp256k1.submod_loop
     (iter, r, br)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::submod]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3135:4-3153:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3154:4-3172:5 -/
 def hashtrinity.crypto.secp256k1.submod
   (a : Array Std.U64 4#usize) (b : Array Std.U64 4#usize)
   (m : Array Std.U64 4#usize) :
@@ -103988,7 +104417,7 @@ def hashtrinity.crypto.secp256k1.submod
 partial_fixpoint
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::sub_small]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3157:8-3166:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3176:8-3185:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.sub_small_loop.body
   (iter : core.ops.range.Range Std.Usize) (r : Array Std.U64 4#usize)
@@ -104017,7 +104446,7 @@ def hashtrinity.crypto.secp256k1.sub_small_loop.body
       ok (cont (iter1, a, 0#i128))
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::sub_small]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3157:8-3166:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3176:8-3185:9 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.sub_small_loop
   (iter : core.ops.range.Range Std.Usize) (r : Array Std.U64 4#usize)
@@ -104030,7 +104459,7 @@ def hashtrinity.crypto.secp256k1.sub_small_loop
     (iter, r, br)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::sub_small]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3154:4-3168:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3173:4-3187:5 -/
 def hashtrinity.crypto.secp256k1.sub_small
   (a : Array Std.U64 4#usize) (k : Std.U64) :
   Result (Array Std.U64 4#usize)
@@ -104040,7 +104469,7 @@ def hashtrinity.crypto.secp256k1.sub_small
     { start := 0#usize, «end» := 4#usize } a br
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::powmod]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3172:8-3177:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3191:8-3196:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.powmod_loop.body
   (e : Array Std.U64 4#usize) (m : Array Std.U64 4#usize)
@@ -104067,7 +104496,7 @@ def hashtrinity.crypto.secp256k1.powmod_loop.body
     ok (cont (iter1, r1, base1))
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::powmod]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3172:8-3177:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3191:8-3196:9 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.powmod_loop
   (iter : core.ops.range.Range Std.Usize) (e : Array Std.U64 4#usize)
@@ -104081,7 +104510,7 @@ def hashtrinity.crypto.secp256k1.powmod_loop
     (iter, r, base)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::powmod]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3169:4-3179:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3188:4-3198:5 -/
 @[reducible]
 def hashtrinity.crypto.secp256k1.powmod
   (a : Array Std.U64 4#usize) (e : Array Std.U64 4#usize)
@@ -104093,7 +104522,7 @@ def hashtrinity.crypto.secp256k1.powmod
     (Array.make 4#usize [ 1#u64, 0#u64, 0#u64, 0#u64 ]) a
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::invmod]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3180:4-3182:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3199:4-3201:5 -/
 def hashtrinity.crypto.secp256k1.invmod
   (a : Array Std.U64 4#usize) (m : Array Std.U64 4#usize) :
   Result (Array Std.U64 4#usize)
@@ -104102,14 +104531,14 @@ def hashtrinity.crypto.secp256k1.invmod
   hashtrinity.crypto.secp256k1.powmod a a1 m
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::Jac]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3198:4-3202:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3217:4-3221:5 -/
 structure hashtrinity.crypto.secp256k1.Jac where
   x : Array Std.U64 4#usize
   y : Array Std.U64 4#usize
   z : Array Std.U64 4#usize
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::jinf]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3203:4-3209:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3222:4-3228:5 -/
 def hashtrinity.crypto.secp256k1.jinf
   : Result hashtrinity.crypto.secp256k1.Jac := do
   let a := Array.repeat 4#usize 0#u64
@@ -104121,7 +104550,7 @@ def hashtrinity.crypto.secp256k1.jinf
     }
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::fmul]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3210:4-3212:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3229:4-3231:5 -/
 def hashtrinity.crypto.secp256k1.fmul
   (a : Array Std.U64 4#usize) (b : Array Std.U64 4#usize) :
   Result (Array Std.U64 4#usize)
@@ -104129,13 +104558,13 @@ def hashtrinity.crypto.secp256k1.fmul
   hashtrinity.crypto.secp256k1.mulmod a b hashtrinity.crypto.secp256k1.P
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::fsq]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3213:4-3215:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3232:4-3234:5 -/
 def hashtrinity.crypto.secp256k1.fsq
   (a : Array Std.U64 4#usize) : Result (Array Std.U64 4#usize) := do
   hashtrinity.crypto.secp256k1.mulmod a a hashtrinity.crypto.secp256k1.P
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::fadd]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3216:4-3218:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3235:4-3237:5 -/
 def hashtrinity.crypto.secp256k1.fadd
   (a : Array Std.U64 4#usize) (b : Array Std.U64 4#usize) :
   Result (Array Std.U64 4#usize)
@@ -104143,7 +104572,7 @@ def hashtrinity.crypto.secp256k1.fadd
   hashtrinity.crypto.secp256k1.addmod a b hashtrinity.crypto.secp256k1.P
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::fsub]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3219:4-3221:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3238:4-3240:5 -/
 def hashtrinity.crypto.secp256k1.fsub
   (a : Array Std.U64 4#usize) (b : Array Std.U64 4#usize) :
   Result (Array Std.U64 4#usize)
@@ -104151,7 +104580,7 @@ def hashtrinity.crypto.secp256k1.fsub
   hashtrinity.crypto.secp256k1.submod a b hashtrinity.crypto.secp256k1.P
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::jdouble]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3223:4-3251:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3242:4-3270:5 -/
 def hashtrinity.crypto.secp256k1.jdouble
   (p : hashtrinity.crypto.secp256k1.Jac) :
   Result hashtrinity.crypto.secp256k1.Jac
@@ -104184,7 +104613,7 @@ def hashtrinity.crypto.secp256k1.jdouble
     ok { x := x3, y := y3, z := z3 }
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::jadd]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3252:4-3285:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3271:4-3304:5 -/
 def hashtrinity.crypto.secp256k1.jadd
   (p : hashtrinity.crypto.secp256k1.Jac) (q : hashtrinity.crypto.secp256k1.Jac)
   :
@@ -104240,7 +104669,7 @@ def hashtrinity.crypto.secp256k1.jadd
         ok { x := x3, y := y3, z := z3 }
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::jscalar]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3289:8-3295:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3308:8-3314:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.secp256k1.jscalar_loop.body
   (k : Array Std.U64 4#usize) (p : hashtrinity.crypto.secp256k1.Jac)
@@ -104264,7 +104693,7 @@ def hashtrinity.crypto.secp256k1.jscalar_loop.body
   else ok (done r)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::jscalar]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3289:8-3295:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3308:8-3314:9 -/
 @[rust_loop]
 def hashtrinity.crypto.secp256k1.jscalar_loop
   (k : Array Std.U64 4#usize) (p : hashtrinity.crypto.secp256k1.Jac)
@@ -104276,7 +104705,7 @@ def hashtrinity.crypto.secp256k1.jscalar_loop
     (r, i)
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::jscalar]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3286:4-3297:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3305:4-3316:5 -/
 def hashtrinity.crypto.secp256k1.jscalar
   (k : Array Std.U64 4#usize) (p : hashtrinity.crypto.secp256k1.Jac) :
   Result hashtrinity.crypto.secp256k1.Jac
@@ -104285,7 +104714,7 @@ def hashtrinity.crypto.secp256k1.jscalar
   hashtrinity.crypto.secp256k1.jscalar_loop k p r 256#usize
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::affine]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3298:4-3305:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3317:4-3324:5 -/
 def hashtrinity.crypto.secp256k1.affine
   (p : hashtrinity.crypto.secp256k1.Jac) :
   Result (Option ((Array Std.U64 4#usize) × (Array Std.U64 4#usize)))
@@ -104303,7 +104732,7 @@ def hashtrinity.crypto.secp256k1.affine
     ok (some (a, a2))
 
 /-- [apeiron_word::hashtrinity::crypto::secp256k1::pubkey]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 3344:4-3358:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3363:4-3377:5
     Visibility: public -/
 def hashtrinity.crypto.secp256k1.pubkey
   (secret : Array Std.U8 32#usize) : Result (Array Std.U8 64#usize) := do
@@ -104336,8 +104765,140 @@ def hashtrinity.crypto.secp256k1.pubkey
   let s6 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s4 s5
   ok (index_mut_back1 s6)
 
+/-- [apeiron_word::hashtrinity::crypto::x509::der_tlv]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3532:12-3535:13
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.crypto.x509.der_tlv_loop.body
+  (d : Slice Std.U8) (off : Std.Usize) (nb : Std.Usize) (v : Std.Usize)
+  (i : Std.Usize) :
+  Result (ControlFlow (Std.Usize × Std.Usize) Std.Usize)
+  := do
+  if i < nb
+  then
+    let i1 ← v <<< 8#i32
+    let i2 ← off + 2#usize
+    let i3 ← i2 + i
+    let i4 ← Slice.index_usize d i3
+    let i5 ← lift (UScalar.cast .Usize i4)
+    let v1 ← lift (i1 ||| i5)
+    let i6 ← i + 1#usize
+    ok (cont (v1, i6))
+  else ok (done v)
+
+/-- [apeiron_word::hashtrinity::crypto::x509::der_tlv]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3532:12-3535:13
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.crypto.x509.der_tlv_loop
+  (d : Slice Std.U8) (off : Std.Usize) (nb : Std.Usize) (v : Std.Usize)
+  (i : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun (v1, i1) => hashtrinity.crypto.x509.der_tlv_loop.body d off nb v1 i1)
+    (v, i)
+
+/-- [apeiron_word::hashtrinity::crypto::x509::der_tlv]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3511:4-3545:5
+    Visibility: public -/
+def hashtrinity.crypto.x509.der_tlv
+  (d : Slice Std.U8) (off : Std.Usize) :
+  Result (Option (Std.U8 × Std.Usize × Std.Usize × Std.Usize))
+  := do
+  let i := Slice.len d
+  if off >= i
+  then ok none
+  else
+    let tag ← Slice.index_usize d off
+    let i1 ← off + 1#usize
+    let i2 := Slice.len d
+    if i1 >= i2
+    then ok none
+    else
+      let l0 ← Slice.index_usize d i1
+      if l0 < 128#u8
+      then
+        let len ← lift (UScalar.cast .Usize l0)
+        let cs ← off + 2#usize
+        let ce ← cs + len
+        let i3 := Slice.len d
+        if ce > i3
+        then ok none
+        else ok (some (tag, cs, ce, ce))
+      else
+        let i3 ← lift (l0 &&& 127#u8)
+        let nb ← lift (UScalar.cast .Usize i3)
+        if nb = 0#usize
+        then ok none
+        else
+          if nb > 4#usize
+          then ok none
+          else
+            let i4 ← off + 2#usize
+            let i5 ← i4 + nb
+            let i6 := Slice.len d
+            if i5 > i6
+            then ok none
+            else
+              let v ←
+                hashtrinity.crypto.x509.der_tlv_loop d off nb 0#usize 0#usize
+              let hdr ← 2#usize + nb
+              let cs ← off + hdr
+              let ce ← cs + v
+              let i7 := Slice.len d
+              if ce > i7
+              then ok none
+              else ok (some (tag, cs, ce, ce))
+
+/-- [apeiron_word::hashtrinity::crypto::x509::der_children]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3550:8-3558:9
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.crypto.x509.der_children_loop.body
+  (d : Slice Std.U8) (ce : Std.Usize)
+  (out : alloc.vec.Vec (Std.U8 × Std.Usize × Std.Usize)) (o : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (Std.U8 × Std.Usize × Std.Usize)) ×
+    Std.Usize) (alloc.vec.Vec (Std.U8 × Std.Usize × Std.Usize)))
+  := do
+  if o < ce
+  then
+    let o1 ← hashtrinity.crypto.x509.der_tlv d o
+    match o1 with
+    | none => ok (done out)
+    | some t =>
+      let (t1, s, e, n) := t
+      let out1 ← alloc.vec.Vec.push out (t1, s, e)
+      ok (cont (out1, n))
+  else ok (done out)
+
+/-- [apeiron_word::hashtrinity::crypto::x509::der_children]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3550:8-3558:9
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.crypto.x509.der_children_loop
+  (d : Slice Std.U8) (ce : Std.Usize)
+  (out : alloc.vec.Vec (Std.U8 × Std.Usize × Std.Usize)) (o : Std.Usize) :
+  Result (alloc.vec.Vec (Std.U8 × Std.Usize × Std.Usize))
+  := do
+  loop
+    (fun (out1, o1) => hashtrinity.crypto.x509.der_children_loop.body d ce out1
+      o1)
+    (out, o)
+
+/-- [apeiron_word::hashtrinity::crypto::x509::der_children]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 3547:4-3560:5
+    Visibility: public -/
+@[reducible]
+def hashtrinity.crypto.x509.der_children
+  (d : Slice Std.U8) (cs : Std.Usize) (ce : Std.Usize) :
+  Result (alloc.vec.Vec (Std.U8 × Std.Usize × Std.Usize))
+  := do
+  hashtrinity.crypto.x509.der_children_loop d ce (alloc.vec.Vec.new (Std.U8 ×
+    Std.Usize × Std.Usize)) cs
+
 /-- [apeiron_word::hashtrinity::crypto::chacha_poly::qr]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4340:4-4353:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4368:4-4381:5 -/
 def hashtrinity.crypto.chacha_poly.qr
   (s : Array Std.U32 16#usize) (a : Std.Usize) (b : Std.Usize) (c : Std.Usize)
   (d : Std.Usize) :
@@ -104389,7 +104950,7 @@ def hashtrinity.crypto.chacha_poly.qr
   Array.update s11 b i31
 
 /-- [apeiron_word::hashtrinity::crypto::chacha_poly::chacha_block]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4360:8-4362:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4388:8-4390:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.chacha_poly.chacha_block_loop0.body
   (key : Array Std.U8 32#usize) (iter : core.ops.range.Range Std.Usize)
@@ -104417,7 +104978,7 @@ def hashtrinity.crypto.chacha_poly.chacha_block_loop0.body
     ok (cont (iter1, a1))
 
 /-- [apeiron_word::hashtrinity::crypto::chacha_poly::chacha_block]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4360:8-4362:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4388:8-4390:9 -/
 @[rust_loop]
 def hashtrinity.crypto.chacha_poly.chacha_block_loop0
   (iter : core.ops.range.Range Std.Usize) (key : Array Std.U8 32#usize)
@@ -104430,7 +104991,7 @@ def hashtrinity.crypto.chacha_poly.chacha_block_loop0
     (iter, s)
 
 /-- [apeiron_word::hashtrinity::crypto::chacha_poly::chacha_block]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4364:8-4366:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4392:8-4394:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.chacha_poly.chacha_block_loop1.body
   (nonce : Array Std.U8 12#usize) (iter : core.ops.range.Range Std.Usize)
@@ -104458,7 +105019,7 @@ def hashtrinity.crypto.chacha_poly.chacha_block_loop1.body
     ok (cont (iter1, a1))
 
 /-- [apeiron_word::hashtrinity::crypto::chacha_poly::chacha_block]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4364:8-4366:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4392:8-4394:9 -/
 @[rust_loop]
 def hashtrinity.crypto.chacha_poly.chacha_block_loop1
   (iter : core.ops.range.Range Std.Usize) (nonce : Array Std.U8 12#usize)
@@ -104471,7 +105032,7 @@ def hashtrinity.crypto.chacha_poly.chacha_block_loop1
     (iter, s)
 
 /-- [apeiron_word::hashtrinity::crypto::chacha_poly::chacha_block]: loop body 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4368:8-4377:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4396:8-4405:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.chacha_poly.chacha_block_loop2.body
   (iter : core.ops.range.Range Std.I32) (s : Array Std.U32 16#usize) :
@@ -104502,7 +105063,7 @@ def hashtrinity.crypto.chacha_poly.chacha_block_loop2.body
     ok (cont (iter1, s8))
 
 /-- [apeiron_word::hashtrinity::crypto::chacha_poly::chacha_block]: loop 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4368:8-4377:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4396:8-4405:9 -/
 @[rust_loop]
 def hashtrinity.crypto.chacha_poly.chacha_block_loop2
   (iter : core.ops.range.Range Std.I32) (s : Array Std.U32 16#usize) :
@@ -104514,7 +105075,7 @@ def hashtrinity.crypto.chacha_poly.chacha_block_loop2
     (iter, s)
 
 /-- [apeiron_word::hashtrinity::crypto::chacha_poly::chacha_block]: loop body 3:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4379:8-4381:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4407:8-4409:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.chacha_poly.chacha_block_loop3.body
   (s : Array Std.U32 16#usize) (init : Array Std.U32 16#usize)
@@ -104543,7 +105104,7 @@ def hashtrinity.crypto.chacha_poly.chacha_block_loop3.body
     ok (cont (iter1, out1))
 
 /-- [apeiron_word::hashtrinity::crypto::chacha_poly::chacha_block]: loop 3:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4379:8-4381:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4407:8-4409:9 -/
 @[rust_loop]
 def hashtrinity.crypto.chacha_poly.chacha_block_loop3
   (iter : core.ops.range.Range Std.Usize) (s : Array Std.U32 16#usize)
@@ -104556,7 +105117,7 @@ def hashtrinity.crypto.chacha_poly.chacha_block_loop3
     (iter, out)
 
 /-- [apeiron_word::hashtrinity::crypto::chacha_poly::chacha_block]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4354:4-4383:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4382:4-4411:5 -/
 def hashtrinity.crypto.chacha_poly.chacha_block
   (key : Array Std.U8 32#usize) (counter : Std.U32)
   (nonce : Array Std.U8 12#usize) :
@@ -104582,7 +105143,7 @@ def hashtrinity.crypto.chacha_poly.chacha_block
     { start := 0#usize, «end» := 16#usize } s5 init out
 
 /-- [apeiron_word::hashtrinity::crypto::chacha_poly::chacha20_block]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4582:4-4584:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4610:4-4612:5
     Visibility: public -/
 def hashtrinity.crypto.chacha_poly.chacha20_block
   (key : Array Std.U8 32#usize) (counter : Std.U32)
@@ -104592,7 +105153,7 @@ def hashtrinity.crypto.chacha_poly.chacha20_block
   hashtrinity.crypto.chacha_poly.chacha_block key counter nonce
 
 /-- [apeiron_word::hashtrinity::crypto::p384::P]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4595:4-4602:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4623:4-4630:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.p384.P : Array Std.U64 6#usize :=
   Array.make 6#usize [
@@ -104602,7 +105163,7 @@ def hashtrinity.crypto.p384.P : Array Std.U64 6#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::p384::N]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4603:4-4610:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4631:4-4638:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.p384.N : Array Std.U64 6#usize :=
   Array.make 6#usize [
@@ -104612,7 +105173,7 @@ def hashtrinity.crypto.p384.N : Array Std.U64 6#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::p384::GX]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4611:4-4618:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4639:4-4646:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.p384.GX : Array Std.U64 6#usize :=
   Array.make 6#usize [
@@ -104621,7 +105182,7 @@ def hashtrinity.crypto.p384.GX : Array Std.U64 6#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::p384::GY]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4619:4-4626:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4647:4-4654:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.p384.GY : Array Std.U64 6#usize :=
   Array.make 6#usize [
@@ -104630,7 +105191,7 @@ def hashtrinity.crypto.p384.GY : Array Std.U64 6#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::p384::from_be]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4630:8-4632:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4658:8-4660:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.from_be_loop.body
   (b : Slice Std.U8) (iter : core.ops.range.Range Std.Usize)
@@ -104657,7 +105218,7 @@ def hashtrinity.crypto.p384.from_be_loop.body
     ok (cont (iter1, a1))
 
 /-- [apeiron_word::hashtrinity::crypto::p384::from_be]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4630:8-4632:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4658:8-4660:9 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.from_be_loop
   (iter : core.ops.range.Range Std.Usize) (b : Slice Std.U8)
@@ -104669,7 +105230,7 @@ def hashtrinity.crypto.p384.from_be_loop
     (iter, r)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::from_be]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4628:4-4634:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4656:4-4662:5 -/
 def hashtrinity.crypto.p384.from_be
   (b : Slice Std.U8) : Result (Array Std.U64 6#usize) := do
   let r := Array.repeat 6#usize 0#u64
@@ -104677,14 +105238,14 @@ def hashtrinity.crypto.p384.from_be
     b r
 
 /-- [apeiron_word::hashtrinity::crypto::p384::is_zero]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4635:4-4637:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4663:4-4665:5 -/
 def hashtrinity.crypto.p384.is_zero
   (a : Array Std.U64 6#usize) : Result Bool := do
   let a1 := Array.repeat 6#usize 0#u64
   core.array.equality.PartialEqArray.eq core.cmp.PartialEqU64 a a1
 
 /-- [apeiron_word::hashtrinity::crypto::p384::ge7]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4640:8-4647:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4668:8-4675:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.ge7_loop.body
   (a : Array Std.U64 7#usize) (m : Array Std.U64 7#usize) (i : Std.Usize) :
@@ -104701,7 +105262,7 @@ def hashtrinity.crypto.p384.ge7_loop.body
   else ok (done true)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::ge7]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4640:8-4647:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4668:8-4675:5 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.ge7_loop
   (a : Array Std.U64 7#usize) (m : Array Std.U64 7#usize) (i : Std.Usize) :
@@ -104712,14 +105273,14 @@ def hashtrinity.crypto.p384.ge7_loop
     i
 
 /-- [apeiron_word::hashtrinity::crypto::p384::ge7]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4638:4-4647:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4666:4-4675:5 -/
 @[reducible]
 def hashtrinity.crypto.p384.ge7
   (a : Array Std.U64 7#usize) (m : Array Std.U64 7#usize) : Result Bool := do
   hashtrinity.crypto.p384.ge7_loop a m 7#usize
 
 /-- [apeiron_word::hashtrinity::crypto::p384::sub7]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4650:8-4659:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4678:8-4687:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.sub7_loop.body
   (m : Array Std.U64 7#usize) (iter : core.ops.range.Range Std.Usize)
@@ -104751,7 +105312,7 @@ def hashtrinity.crypto.p384.sub7_loop.body
       ok (cont (iter1, a1, 0#i128))
 
 /-- [apeiron_word::hashtrinity::crypto::p384::sub7]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4650:8-4659:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4678:8-4687:9 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.sub7_loop
   (iter : core.ops.range.Range Std.Usize) (a : Array Std.U64 7#usize)
@@ -104764,7 +105325,7 @@ def hashtrinity.crypto.p384.sub7_loop
     (iter, a, br)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::sub7]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4648:4-4660:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4676:4-4688:5 -/
 @[reducible]
 def hashtrinity.crypto.p384.sub7
   (a : Array Std.U64 7#usize) (m : Array Std.U64 7#usize) :
@@ -104774,7 +105335,7 @@ def hashtrinity.crypto.p384.sub7
     m 0#i128
 
 /-- [apeiron_word::hashtrinity::crypto::p384::ge6]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4663:8-4670:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4691:8-4698:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.ge6_loop.body
   (a : Array Std.U64 6#usize) (m : Array Std.U64 6#usize) (i : Std.Usize) :
@@ -104791,7 +105352,7 @@ def hashtrinity.crypto.p384.ge6_loop.body
   else ok (done true)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::ge6]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4663:8-4670:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4691:8-4698:5 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.ge6_loop
   (a : Array Std.U64 6#usize) (m : Array Std.U64 6#usize) (i : Std.Usize) :
@@ -104802,14 +105363,14 @@ def hashtrinity.crypto.p384.ge6_loop
     i
 
 /-- [apeiron_word::hashtrinity::crypto::p384::ge6]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4661:4-4670:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4689:4-4698:5 -/
 @[reducible]
 def hashtrinity.crypto.p384.ge6
   (a : Array Std.U64 6#usize) (m : Array Std.U64 6#usize) : Result Bool := do
   hashtrinity.crypto.p384.ge6_loop a m 6#usize
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mul]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4676:12-4680:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4704:12-4708:13 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.mul_loop0_loop0.body
   (a : Array Std.U64 6#usize) (b : Array Std.U64 6#usize) (i : Std.Usize)
@@ -104839,7 +105400,7 @@ def hashtrinity.crypto.p384.mul_loop0_loop0.body
     ok (cont (iter1, a1, cr1))
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mul]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4676:12-4680:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4704:12-4708:13 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.mul_loop0_loop0
   (iter : core.ops.range.Range Std.Usize) (a : Array Std.U64 6#usize)
@@ -104853,7 +105414,7 @@ def hashtrinity.crypto.p384.mul_loop0_loop0
     (iter, p, cr)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mul]: loop body 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4682:12-4687:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4710:12-4715:13 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.mul_loop0_loop1.body
   (p : Array Std.U64 12#usize) (cr : Std.U128) (k : Std.Usize) :
@@ -104876,7 +105437,7 @@ def hashtrinity.crypto.p384.mul_loop0_loop1.body
   else ok (done p)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mul]: loop 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4682:12-4687:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4710:12-4715:13 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.mul_loop0_loop1
   (p : Array Std.U64 12#usize) (cr : Std.U128) (k : Std.Usize) :
@@ -104888,7 +105449,7 @@ def hashtrinity.crypto.p384.mul_loop0_loop1
     (p, cr, k)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mul]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4674:8-4688:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4702:8-4716:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.mul_loop0.body
   (a : Array Std.U64 6#usize) (b : Array Std.U64 6#usize)
@@ -104909,7 +105470,7 @@ def hashtrinity.crypto.p384.mul_loop0.body
     ok (cont (iter1, p2))
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mul]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4674:8-4688:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4702:8-4716:9 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.mul_loop0
   (iter : core.ops.range.Range Std.Usize) (a : Array Std.U64 6#usize)
@@ -104921,7 +105482,7 @@ def hashtrinity.crypto.p384.mul_loop0
     (iter, p)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mul]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4672:4-4690:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4700:4-4718:5 -/
 def hashtrinity.crypto.p384.mul
   (a : Array Std.U64 6#usize) (b : Array Std.U64 6#usize) :
   Result (Array Std.U64 12#usize)
@@ -104931,7 +105492,7 @@ def hashtrinity.crypto.p384.mul
     b p
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mod_gen]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4699:12-4703:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4727:12-4731:13 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.mod_gen_loop0_loop0.body
   (iter : core.slice.iter.IterMut Std.U64)
@@ -104954,7 +105515,7 @@ def hashtrinity.crypto.p384.mod_gen_loop0_loop0.body
                                back im1, nc))
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mod_gen]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4699:12-4703:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4727:12-4731:13 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.mod_gen_loop0_loop0
   (iter : core.slice.iter.IterMut Std.U64)
@@ -104969,7 +105530,7 @@ def hashtrinity.crypto.p384.mod_gen_loop0_loop0
     (iter, back, c)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mod_gen]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4695:8-4707:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4723:8-4735:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.mod_gen_loop0.body
   (x : Array Std.U64 12#usize) (m7 : Array Std.U64 7#usize)
@@ -105000,7 +105561,7 @@ def hashtrinity.crypto.p384.mod_gen_loop0.body
   else ok (done rem)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mod_gen]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4695:8-4707:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4723:8-4735:9 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.mod_gen_loop0
   (x : Array Std.U64 12#usize) (m7 : Array Std.U64 7#usize)
@@ -105012,7 +105573,7 @@ def hashtrinity.crypto.p384.mod_gen_loop0
     (rem, i)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mod_gen]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4691:4-4709:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4719:4-4737:5 -/
 def hashtrinity.crypto.p384.mod_gen
   (x : Array Std.U64 12#usize) (m : Array Std.U64 6#usize) :
   Result (Array Std.U64 6#usize)
@@ -105036,7 +105597,7 @@ def hashtrinity.crypto.p384.mod_gen
   ok (Array.make 6#usize [ i6, i7, i8, i9, i10, i11 ])
 
 /-- [apeiron_word::hashtrinity::crypto::p384::mulmod]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4710:4-4712:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4738:4-4740:5 -/
 def hashtrinity.crypto.p384.mulmod
   (a : Array Std.U64 6#usize) (b : Array Std.U64 6#usize)
   (m : Array Std.U64 6#usize) :
@@ -105046,7 +105607,7 @@ def hashtrinity.crypto.p384.mulmod
   hashtrinity.crypto.p384.mod_gen a1 m
 
 /-- [apeiron_word::hashtrinity::crypto::p384::addmod]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4716:8-4720:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4744:8-4748:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.addmod_loop.body
   (a : Array Std.U64 6#usize) (b : Array Std.U64 6#usize)
@@ -105072,7 +105633,7 @@ def hashtrinity.crypto.p384.addmod_loop.body
     ok (cont (iter1, a1, c1))
 
 /-- [apeiron_word::hashtrinity::crypto::p384::addmod]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4716:8-4720:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4744:8-4748:9 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.addmod_loop
   (iter : core.ops.range.Range Std.Usize) (a : Array Std.U64 6#usize)
@@ -105085,7 +105646,7 @@ def hashtrinity.crypto.p384.addmod_loop
     (iter, s, c)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::addmod]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4713:4-4727:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4741:4-4755:5 -/
 def hashtrinity.crypto.p384.addmod
   (a : Array Std.U64 6#usize) (b : Array Std.U64 6#usize)
   (m : Array Std.U64 6#usize) :
@@ -105121,7 +105682,7 @@ def hashtrinity.crypto.p384.addmod
   ok (Array.make 6#usize [ i7, i8, i9, i10, i11, i12 ])
 
 /-- [apeiron_word::hashtrinity::crypto::p384::submod]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4732:12-4741:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4760:12-4769:13 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.submod_loop.body
   (b : Array Std.U64 6#usize) (iter : core.ops.range.Range Std.Usize)
@@ -105153,7 +105714,7 @@ def hashtrinity.crypto.p384.submod_loop.body
       ok (cont (iter1, a, 0#i128))
 
 /-- [apeiron_word::hashtrinity::crypto::p384::submod]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4732:12-4741:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4760:12-4769:13 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.submod_loop
   (iter : core.ops.range.Range Std.Usize) (b : Array Std.U64 6#usize)
@@ -105166,7 +105727,7 @@ def hashtrinity.crypto.p384.submod_loop
     (iter, r, br)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::submod]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4728:4-4746:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4756:4-4774:5 -/
 def hashtrinity.crypto.p384.submod
   (a : Array Std.U64 6#usize) (b : Array Std.U64 6#usize)
   (m : Array Std.U64 6#usize) :
@@ -105183,7 +105744,7 @@ def hashtrinity.crypto.p384.submod
 partial_fixpoint
 
 /-- [apeiron_word::hashtrinity::crypto::p384::sub_small]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4750:8-4759:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4778:8-4787:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.sub_small_loop.body
   (iter : core.ops.range.Range Std.Usize) (r : Array Std.U64 6#usize)
@@ -105212,7 +105773,7 @@ def hashtrinity.crypto.p384.sub_small_loop.body
       ok (cont (iter1, a, 0#i128))
 
 /-- [apeiron_word::hashtrinity::crypto::p384::sub_small]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4750:8-4759:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4778:8-4787:9 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.sub_small_loop
   (iter : core.ops.range.Range Std.Usize) (r : Array Std.U64 6#usize)
@@ -105225,7 +105786,7 @@ def hashtrinity.crypto.p384.sub_small_loop
     (iter, r, br)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::sub_small]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4747:4-4761:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4775:4-4789:5 -/
 def hashtrinity.crypto.p384.sub_small
   (a : Array Std.U64 6#usize) (k : Std.U64) :
   Result (Array Std.U64 6#usize)
@@ -105235,7 +105796,7 @@ def hashtrinity.crypto.p384.sub_small
     { start := 0#usize, «end» := 6#usize } a br
 
 /-- [apeiron_word::hashtrinity::crypto::p384::powmod]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4765:8-4770:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4793:8-4798:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.powmod_loop.body
   (e : Array Std.U64 6#usize) (m : Array Std.U64 6#usize)
@@ -105262,7 +105823,7 @@ def hashtrinity.crypto.p384.powmod_loop.body
     ok (cont (iter1, r1, base1))
 
 /-- [apeiron_word::hashtrinity::crypto::p384::powmod]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4765:8-4770:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4793:8-4798:9 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.powmod_loop
   (iter : core.ops.range.Range Std.Usize) (e : Array Std.U64 6#usize)
@@ -105276,7 +105837,7 @@ def hashtrinity.crypto.p384.powmod_loop
     (iter, r, base)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::powmod]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4762:4-4772:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4790:4-4800:5 -/
 @[reducible]
 def hashtrinity.crypto.p384.powmod
   (a : Array Std.U64 6#usize) (e : Array Std.U64 6#usize)
@@ -105288,7 +105849,7 @@ def hashtrinity.crypto.p384.powmod
     (Array.make 6#usize [ 1#u64, 0#u64, 0#u64, 0#u64, 0#u64, 0#u64 ]) a
 
 /-- [apeiron_word::hashtrinity::crypto::p384::invmod]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4773:4-4775:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4801:4-4803:5 -/
 def hashtrinity.crypto.p384.invmod
   (a : Array Std.U64 6#usize) (m : Array Std.U64 6#usize) :
   Result (Array Std.U64 6#usize)
@@ -105297,14 +105858,14 @@ def hashtrinity.crypto.p384.invmod
   hashtrinity.crypto.p384.powmod a a1 m
 
 /-- [apeiron_word::hashtrinity::crypto::p384::Jac]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4778:4-4782:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4806:4-4810:5 -/
 structure hashtrinity.crypto.p384.Jac where
   x : Array Std.U64 6#usize
   y : Array Std.U64 6#usize
   z : Array Std.U64 6#usize
 
 /-- [apeiron_word::hashtrinity::crypto::p384::jinf]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4783:4-4789:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4811:4-4817:5 -/
 def hashtrinity.crypto.p384.jinf : Result hashtrinity.crypto.p384.Jac := do
   let a := Array.repeat 6#usize 0#u64
   ok
@@ -105315,7 +105876,7 @@ def hashtrinity.crypto.p384.jinf : Result hashtrinity.crypto.p384.Jac := do
     }
 
 /-- [apeiron_word::hashtrinity::crypto::p384::fmul]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4790:4-4792:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4818:4-4820:5 -/
 def hashtrinity.crypto.p384.fmul
   (a : Array Std.U64 6#usize) (b : Array Std.U64 6#usize) :
   Result (Array Std.U64 6#usize)
@@ -105323,13 +105884,13 @@ def hashtrinity.crypto.p384.fmul
   hashtrinity.crypto.p384.mulmod a b hashtrinity.crypto.p384.P
 
 /-- [apeiron_word::hashtrinity::crypto::p384::fsq]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4793:4-4795:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4821:4-4823:5 -/
 def hashtrinity.crypto.p384.fsq
   (a : Array Std.U64 6#usize) : Result (Array Std.U64 6#usize) := do
   hashtrinity.crypto.p384.mulmod a a hashtrinity.crypto.p384.P
 
 /-- [apeiron_word::hashtrinity::crypto::p384::fadd]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4796:4-4798:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4824:4-4826:5 -/
 def hashtrinity.crypto.p384.fadd
   (a : Array Std.U64 6#usize) (b : Array Std.U64 6#usize) :
   Result (Array Std.U64 6#usize)
@@ -105337,7 +105898,7 @@ def hashtrinity.crypto.p384.fadd
   hashtrinity.crypto.p384.addmod a b hashtrinity.crypto.p384.P
 
 /-- [apeiron_word::hashtrinity::crypto::p384::fsub]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4799:4-4801:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4827:4-4829:5 -/
 def hashtrinity.crypto.p384.fsub
   (a : Array Std.U64 6#usize) (b : Array Std.U64 6#usize) :
   Result (Array Std.U64 6#usize)
@@ -105345,7 +105906,7 @@ def hashtrinity.crypto.p384.fsub
   hashtrinity.crypto.p384.submod a b hashtrinity.crypto.p384.P
 
 /-- [apeiron_word::hashtrinity::crypto::p384::jdouble]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4803:4-4834:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4831:4-4862:5 -/
 def hashtrinity.crypto.p384.jdouble
   (p : hashtrinity.crypto.p384.Jac) : Result hashtrinity.crypto.p384.Jac := do
   let b ← hashtrinity.crypto.p384.is_zero p.z
@@ -105380,7 +105941,7 @@ def hashtrinity.crypto.p384.jdouble
     ok { x := x3, y := y3, z := z3 }
 
 /-- [apeiron_word::hashtrinity::crypto::p384::jadd]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4835:4-4868:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4863:4-4896:5 -/
 def hashtrinity.crypto.p384.jadd
   (p : hashtrinity.crypto.p384.Jac) (q : hashtrinity.crypto.p384.Jac) :
   Result hashtrinity.crypto.p384.Jac
@@ -105435,7 +105996,7 @@ def hashtrinity.crypto.p384.jadd
         ok { x := x3, y := y3, z := z3 }
 
 /-- [apeiron_word::hashtrinity::crypto::p384::jscalar]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4872:8-4878:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4900:8-4906:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.p384.jscalar_loop.body
   (k : Array Std.U64 6#usize) (p : hashtrinity.crypto.p384.Jac)
@@ -105459,7 +106020,7 @@ def hashtrinity.crypto.p384.jscalar_loop.body
   else ok (done r)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::jscalar]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4872:8-4878:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4900:8-4906:9 -/
 @[rust_loop]
 def hashtrinity.crypto.p384.jscalar_loop
   (k : Array Std.U64 6#usize) (p : hashtrinity.crypto.p384.Jac)
@@ -105471,7 +106032,7 @@ def hashtrinity.crypto.p384.jscalar_loop
     (r, i)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::jscalar]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4869:4-4880:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4897:4-4908:5 -/
 def hashtrinity.crypto.p384.jscalar
   (k : Array Std.U64 6#usize) (p : hashtrinity.crypto.p384.Jac) :
   Result hashtrinity.crypto.p384.Jac
@@ -105480,7 +106041,7 @@ def hashtrinity.crypto.p384.jscalar
   hashtrinity.crypto.p384.jscalar_loop k p r 384#usize
 
 /-- [apeiron_word::hashtrinity::crypto::p384::affine_x]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4881:4-4887:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4909:4-4915:5 -/
 def hashtrinity.crypto.p384.affine_x
   (p : hashtrinity.crypto.p384.Jac) :
   Result (Option (Array Std.U64 6#usize))
@@ -105495,7 +106056,7 @@ def hashtrinity.crypto.p384.affine_x
     ok (some a1)
 
 /-- [apeiron_word::hashtrinity::crypto::p384::ecdsa_p384_verify]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 4891:4-4922:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 4919:4-4950:5
     Visibility: public -/
 def hashtrinity.crypto.p384.ecdsa_p384_verify
   (pubkey : Array Std.U8 96#usize) (hash : Array Std.U8 48#usize)
@@ -105584,7 +106145,7 @@ def hashtrinity.crypto.p384.ecdsa_p384_verify
             core.array.equality.PartialEqArray.eq core.cmp.PartialEqU64 a r
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_from_be]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5299:8-5301:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5327:8-5329:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_from_be_loop0.body
   (bytes : alloc.vec.Vec Std.U8) :
@@ -105598,7 +106159,7 @@ def hashtrinity.crypto.rsa.bn_from_be_loop0.body
   else ok (done bytes)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_from_be]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5299:8-5301:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5327:8-5329:9 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_from_be_loop0
   (bytes : alloc.vec.Vec Std.U8) : Result (alloc.vec.Vec Std.U8) := do
@@ -105607,7 +106168,7 @@ def hashtrinity.crypto.rsa.bn_from_be_loop0
     bytes
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_from_be]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5304:8-5306:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5332:8-5334:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_from_be_loop1.body
   (bytes : alloc.vec.Vec Std.U8) (n : Std.Usize)
@@ -105639,7 +106200,7 @@ def hashtrinity.crypto.rsa.bn_from_be_loop1.body
     ok (cont (iter1, r2))
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_from_be]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5304:8-5306:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5332:8-5334:9 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_from_be_loop1
   (iter : core.ops.range.Range Std.Usize) (bytes : alloc.vec.Vec Std.U8)
@@ -105652,7 +106213,7 @@ def hashtrinity.crypto.rsa.bn_from_be_loop1
     (iter, r)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_from_be]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5297:4-5308:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5325:4-5336:5 -/
 def hashtrinity.crypto.rsa.bn_from_be
   (b : Slice Std.U8) : Result (alloc.vec.Vec Std.U64) := do
   let bytes ← alloc.slice.Slice.to_vec core.clone.CloneU8 b
@@ -105664,7 +106225,7 @@ def hashtrinity.crypto.rsa.bn_from_be
     bytes1 n r
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_trim]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5311:8-5313:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5339:8-5341:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_trim_loop.body
   (a : alloc.vec.Vec Std.U64) :
@@ -105684,7 +106245,7 @@ def hashtrinity.crypto.rsa.bn_trim_loop.body
   else ok (done a)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_trim]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5311:8-5313:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5339:8-5341:9 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_trim_loop
   (a : alloc.vec.Vec Std.U64) : Result (alloc.vec.Vec Std.U64) := do
@@ -105693,14 +106254,14 @@ def hashtrinity.crypto.rsa.bn_trim_loop
     a
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_trim]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5309:4-5314:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5337:4-5342:5 -/
 @[reducible]
 def hashtrinity.crypto.rsa.bn_trim
   (a : alloc.vec.Vec Std.U64) : Result (alloc.vec.Vec Std.U64) := do
   hashtrinity.crypto.rsa.bn_trim_loop a
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_cmp]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5318:14-5320:77 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5346:14-5348:77 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_cmp_loop.body
   (a : alloc.vec.Vec Std.U64) (b : alloc.vec.Vec Std.U64) (i : Std.Usize) :
@@ -105725,7 +106286,7 @@ def hashtrinity.crypto.rsa.bn_cmp_loop.body
   else ok (done Ordering.eq)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_cmp]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5318:14-5320:77 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5346:14-5348:77 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_cmp_loop
   (a : alloc.vec.Vec Std.U64) (b : alloc.vec.Vec Std.U64) (i : Std.Usize) :
@@ -105736,7 +106297,7 @@ def hashtrinity.crypto.rsa.bn_cmp_loop
     i
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_cmp]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5315:4-5326:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5343:4-5354:5 -/
 def hashtrinity.crypto.rsa.bn_cmp
   (a : alloc.vec.Vec Std.U64) (b : alloc.vec.Vec Std.U64) :
   Result Ordering
@@ -105747,7 +106308,7 @@ def hashtrinity.crypto.rsa.bn_cmp
   hashtrinity.crypto.rsa.bn_cmp_loop a b m
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_ge]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5327:4-5333:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5355:4-5361:5 -/
 def hashtrinity.crypto.rsa.bn_ge
   (a : alloc.vec.Vec Std.U64) (b : alloc.vec.Vec Std.U64) : Result Bool := do
   let o ← hashtrinity.crypto.rsa.bn_cmp a b
@@ -105757,7 +106318,7 @@ def hashtrinity.crypto.rsa.bn_ge
   | Ordering.gt => ok true
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_mul]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5338:12-5342:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5366:12-5370:13 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_mul_loop0_loop0.body
   (a : alloc.vec.Vec Std.U64) (b : alloc.vec.Vec Std.U64) (i : Std.Usize)
@@ -105793,7 +106354,7 @@ def hashtrinity.crypto.rsa.bn_mul_loop0_loop0.body
     ok (cont (iter1, r1, cr1))
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_mul]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5338:12-5342:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5366:12-5370:13 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_mul_loop0_loop0
   (iter : core.ops.range.Range Std.Usize) (a : alloc.vec.Vec Std.U64)
@@ -105807,7 +106368,7 @@ def hashtrinity.crypto.rsa.bn_mul_loop0_loop0
     (iter, r, cr)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_mul]: loop body 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5344:12-5349:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5372:12-5377:13 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_mul_loop0_loop1.body
   (r : alloc.vec.Vec Std.U64) (cr : Std.U128) (k : Std.Usize) :
@@ -105831,7 +106392,7 @@ def hashtrinity.crypto.rsa.bn_mul_loop0_loop1.body
   else ok (done r)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_mul]: loop 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5344:12-5349:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5372:12-5377:13 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_mul_loop0_loop1
   (r : alloc.vec.Vec Std.U64) (cr : Std.U128) (k : Std.Usize) :
@@ -105843,7 +106404,7 @@ def hashtrinity.crypto.rsa.bn_mul_loop0_loop1
     (r, cr, k)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_mul]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5336:8-5350:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5364:8-5378:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_mul_loop0.body
   (a : alloc.vec.Vec Std.U64) (b : alloc.vec.Vec Std.U64)
@@ -105866,7 +106427,7 @@ def hashtrinity.crypto.rsa.bn_mul_loop0.body
     ok (cont (iter1, r2))
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_mul]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5336:8-5350:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5364:8-5378:9 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_mul_loop0
   (iter : core.ops.range.Range Std.Usize) (a : alloc.vec.Vec Std.U64)
@@ -105878,7 +106439,7 @@ def hashtrinity.crypto.rsa.bn_mul_loop0
     (iter, r)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_mul]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5334:4-5353:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5362:4-5381:5 -/
 def hashtrinity.crypto.rsa.bn_mul
   (a : alloc.vec.Vec Std.U64) (b : alloc.vec.Vec Std.U64) :
   Result (alloc.vec.Vec Std.U64)
@@ -105894,7 +106455,7 @@ def hashtrinity.crypto.rsa.bn_mul
   hashtrinity.crypto.rsa.bn_trim r1
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_sub]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5356:12-5357:44 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5384:12-5385:44 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_sub_loop.body
   (b : alloc.vec.Vec Std.U64) (iter : core.ops.range.Range Std.Usize)
@@ -105929,7 +106490,7 @@ def hashtrinity.crypto.rsa.bn_sub_loop.body
       ok (cont (iter1, s1, 0#i128))
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_sub]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5356:12-5357:44 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5384:12-5385:44 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_sub_loop
   (iter : core.ops.range.Range Std.Usize) (a : Slice Std.U64)
@@ -105942,7 +106503,7 @@ def hashtrinity.crypto.rsa.bn_sub_loop
     (iter, a, br)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_sub]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5354:4-5367:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5382:4-5395:5 -/
 def hashtrinity.crypto.rsa.bn_sub
   (a : Slice Std.U64) (b : alloc.vec.Vec Std.U64) :
   Result (Slice Std.U64)
@@ -105952,7 +106513,7 @@ def hashtrinity.crypto.rsa.bn_sub
     0#i128
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_mod]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5377:12-5381:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5405:12-5409:13 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_mod_loop0_loop0.body
   (iter : core.slice.iter.IterMut Std.U64)
@@ -105975,7 +106536,7 @@ def hashtrinity.crypto.rsa.bn_mod_loop0_loop0.body
                                back im1, nc))
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_mod]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5377:12-5381:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5405:12-5409:13 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_mod_loop0_loop0
   (iter : core.slice.iter.IterMut Std.U64)
@@ -105990,7 +106551,7 @@ def hashtrinity.crypto.rsa.bn_mod_loop0_loop0
     (iter, back, c)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_mod]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5373:8-5385:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5401:8-5413:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_mod_loop0.body
   (x : alloc.vec.Vec Std.U64) (m : alloc.vec.Vec Std.U64)
@@ -106025,7 +106586,7 @@ def hashtrinity.crypto.rsa.bn_mod_loop0.body
   else ok (done rem)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_mod]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5373:8-5385:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5401:8-5413:9 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_mod_loop0
   (x : alloc.vec.Vec Std.U64) (m : alloc.vec.Vec Std.U64)
@@ -106037,7 +106598,7 @@ def hashtrinity.crypto.rsa.bn_mod_loop0
     (rem, i)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_mod]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5369:4-5388:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5397:4-5416:5 -/
 def hashtrinity.crypto.rsa.bn_mod
   (x : alloc.vec.Vec Std.U64) (m : alloc.vec.Vec Std.U64) :
   Result (alloc.vec.Vec Std.U64)
@@ -106051,7 +106612,7 @@ def hashtrinity.crypto.rsa.bn_mod
   hashtrinity.crypto.rsa.bn_trim rem1
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_modexp]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5394:8-5402:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5422:8-5430:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_modexp_loop.body
   (m : alloc.vec.Vec Std.U64) (r : alloc.vec.Vec Std.U64)
@@ -106079,7 +106640,7 @@ def hashtrinity.crypto.rsa.bn_modexp_loop.body
   else ok (done r)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_modexp]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5394:8-5402:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5422:8-5430:9 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_modexp_loop
   (m : alloc.vec.Vec Std.U64) (r : alloc.vec.Vec Std.U64)
@@ -106092,7 +106653,7 @@ def hashtrinity.crypto.rsa.bn_modexp_loop
     (r, b, ee)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_modexp]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5390:4-5404:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5418:4-5432:5 -/
 def hashtrinity.crypto.rsa.bn_modexp
   (base : alloc.vec.Vec Std.U64) (e : Std.U64) (m : alloc.vec.Vec Std.U64) :
   Result (alloc.vec.Vec Std.U64)
@@ -106105,7 +106666,7 @@ def hashtrinity.crypto.rsa.bn_modexp
   hashtrinity.crypto.rsa.bn_modexp_loop m ret b e
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_to_be]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5409:12-5414:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5437:12-5442:13 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_to_be_loop0_loop0.body
   (len : Std.Usize) (i : Std.Usize)
@@ -106136,7 +106697,7 @@ def hashtrinity.crypto.rsa.bn_to_be_loop0_loop0.body
     else ok (cont (iter1, out))
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_to_be]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5409:12-5414:13 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5437:12-5442:13 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_to_be_loop0_loop0
   (iter : core.iter.adapters.enumerate.Enumerate (core.slice.iter.Iter Std.U8))
@@ -106149,7 +106710,7 @@ def hashtrinity.crypto.rsa.bn_to_be_loop0_loop0
     (iter, out)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_to_be]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5407:8-5415:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5435:8-5443:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.bn_to_be_loop0.body
   (a : alloc.vec.Vec Std.U64) (len : Std.Usize)
@@ -106174,7 +106735,7 @@ def hashtrinity.crypto.rsa.bn_to_be_loop0.body
     ok (cont (iter1, out1))
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_to_be]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5407:8-5415:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5435:8-5443:9 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.bn_to_be_loop0
   (iter : core.ops.range.Range Std.Usize) (a : alloc.vec.Vec Std.U64)
@@ -106187,7 +106748,7 @@ def hashtrinity.crypto.rsa.bn_to_be_loop0
     (iter, out)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::bn_to_be]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5405:4-5417:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5433:4-5445:5 -/
 def hashtrinity.crypto.rsa.bn_to_be
   (a : alloc.vec.Vec Std.U64) (len : Std.Usize) :
   Result (alloc.vec.Vec Std.U8)
@@ -106198,7 +106759,7 @@ def hashtrinity.crypto.rsa.bn_to_be
     len out
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::SHA256_DI]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5421:4-5424:6 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5449:4-5452:6 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.rsa.SHA256_DI : Array Std.U8 19#usize :=
   Array.make 19#usize [
@@ -106206,8 +106767,26 @@ def hashtrinity.crypto.rsa.SHA256_DI : Array Std.U8 19#usize :=
     3#u8, 4#u8, 2#u8, 1#u8, 5#u8, 0#u8, 4#u8, 32#u8
     ]
 
+/-- [apeiron_word::hashtrinity::crypto::rsa::SHA384_DI]
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5453:4-5456:6 -/
+@[global_simps, irreducible]
+def hashtrinity.crypto.rsa.SHA384_DI : Array Std.U8 19#usize :=
+  Array.make 19#usize [
+    48#u8, 65#u8, 48#u8, 13#u8, 6#u8, 9#u8, 96#u8, 134#u8, 72#u8, 1#u8, 101#u8,
+    3#u8, 4#u8, 2#u8, 2#u8, 5#u8, 0#u8, 4#u8, 48#u8
+    ]
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::SHA512_DI]
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5457:4-5460:6 -/
+@[global_simps, irreducible]
+def hashtrinity.crypto.rsa.SHA512_DI : Array Std.U8 19#usize :=
+  Array.make 19#usize [
+    48#u8, 81#u8, 48#u8, 13#u8, 6#u8, 9#u8, 96#u8, 134#u8, 72#u8, 1#u8, 101#u8,
+    3#u8, 4#u8, 2#u8, 3#u8, 5#u8, 0#u8, 4#u8, 64#u8
+    ]
+
 /-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pkcs1_verify_generic]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5449:8-5451:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5477:8-5479:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.rsa.rsa_pkcs1_verify_generic_loop.body
   (k : Std.Usize) (em : alloc.vec.Vec Std.U8) (i : Std.Usize) :
@@ -106224,7 +106803,7 @@ def hashtrinity.crypto.rsa.rsa_pkcs1_verify_generic_loop.body
   else ok (done i)
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pkcs1_verify_generic]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5449:8-5451:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5477:8-5479:9 -/
 @[rust_loop]
 def hashtrinity.crypto.rsa.rsa_pkcs1_verify_generic_loop
   (k : Std.Usize) (em : alloc.vec.Vec Std.U8) (i : Std.Usize) :
@@ -106236,7 +106815,7 @@ def hashtrinity.crypto.rsa.rsa_pkcs1_verify_generic_loop
     i
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pkcs1_verify_generic]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5436:4-5458:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5464:4-5486:5 -/
 def hashtrinity.crypto.rsa.rsa_pkcs1_verify_generic
   (n_be : Slice Std.U8) (e : Std.U64) (sig_be : Slice Std.U8)
   (di : Slice Std.U8) (hash : Slice Std.U8) :
@@ -106312,7 +106891,7 @@ def hashtrinity.crypto.rsa.rsa_pkcs1_verify_generic
                 else ok false
 
 /-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pkcs1_sha256_verify]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 5462:4-5464:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5490:4-5492:5
     Visibility: public -/
 def hashtrinity.crypto.rsa.rsa_pkcs1_sha256_verify
   (n_be : Slice Std.U8) (e : Std.U64) (sig_be : Slice Std.U8)
@@ -106323,8 +106902,1497 @@ def hashtrinity.crypto.rsa.rsa_pkcs1_sha256_verify
   let s1 ← lift (Array.to_slice msg_hash)
   hashtrinity.crypto.rsa.rsa_pkcs1_verify_generic n_be e sig_be s s1
 
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pkcs1_sha384_verify]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5493:4-5495:5
+    Visibility: public -/
+def hashtrinity.crypto.rsa.rsa_pkcs1_sha384_verify
+  (n_be : Slice Std.U8) (e : Std.U64) (sig_be : Slice Std.U8)
+  (msg_hash : Array Std.U8 48#usize) :
+  Result Bool
+  := do
+  let s ← lift (Array.to_slice hashtrinity.crypto.rsa.SHA384_DI)
+  let s1 ← lift (Array.to_slice msg_hash)
+  hashtrinity.crypto.rsa.rsa_pkcs1_verify_generic n_be e sig_be s s1
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pkcs1_sha512_verify]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5496:4-5498:5
+    Visibility: public -/
+def hashtrinity.crypto.rsa.rsa_pkcs1_sha512_verify
+  (n_be : Slice Std.U8) (e : Std.U64) (sig_be : Slice Std.U8)
+  (msg_hash : Array Std.U8 64#usize) :
+  Result Bool
+  := do
+  let s ← lift (Array.to_slice hashtrinity.crypto.rsa.SHA512_DI)
+  let s1 ← lift (Array.to_slice msg_hash)
+  hashtrinity.crypto.rsa.rsa_pkcs1_verify_generic n_be e sig_be s s1
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_modexp_big]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5504:8-5509:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.bn_modexp_big_loop.body
+  (e : alloc.vec.Vec Std.U64) (m : alloc.vec.Vec Std.U64)
+  (iter : core.ops.range.Range Std.Usize) (r : alloc.vec.Vec Std.U64)
+  (b : alloc.vec.Vec Std.U64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.U64) × (alloc.vec.Vec Std.U64)) (alloc.vec.Vec Std.U64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done r)
+  | some i =>
+    let i1 ← i / 64#usize
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64) e i1
+    let i3 ← i % 64#usize
+    let i4 ← i2 >>> i3
+    let i5 ← lift (i4 &&& 1#u64)
+    let r1 ←
+      if i5 = 1#u64
+      then
+        do
+        let v ← hashtrinity.crypto.rsa.bn_mul r b
+        hashtrinity.crypto.rsa.bn_mod v m
+      else ok r
+    let v ← hashtrinity.crypto.rsa.bn_mul b b
+    let b1 ← hashtrinity.crypto.rsa.bn_mod v m
+    ok (cont (iter1, r1, b1))
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_modexp_big]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5504:8-5509:9 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.bn_modexp_big_loop
+  (iter : core.ops.range.Range Std.Usize) (e : alloc.vec.Vec Std.U64)
+  (m : alloc.vec.Vec Std.U64) (r : alloc.vec.Vec Std.U64)
+  (b : alloc.vec.Vec Std.U64) :
+  Result (alloc.vec.Vec Std.U64)
+  := do
+  loop
+    (fun (iter1, r1, b1) => hashtrinity.crypto.rsa.bn_modexp_big_loop.body e m
+      iter1 r1 b1)
+    (iter, r, b)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_modexp_big]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5501:4-5511:5 -/
+def hashtrinity.crypto.rsa.bn_modexp_big
+  (base : alloc.vec.Vec Std.U64) (e : alloc.vec.Vec Std.U64)
+  (m : alloc.vec.Vec Std.U64) :
+  Result (alloc.vec.Vec Std.U64)
+  := do
+  let y ←
+    lift (Std.Array.to_slice (Array.make 1#usize [ 1#u64 ] : Array Std.U64
+      1#usize))
+  let ret := alloc.slice.Slice.into_vec y
+  let b ← hashtrinity.crypto.rsa.bn_mod base m
+  let i := alloc.vec.Vec.len e
+  let i1 ← i * 64#usize
+  hashtrinity.crypto.rsa.bn_modexp_big_loop { start := 0#usize, «end» := i1 }
+    e m ret b
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pkcs1_sign_generic]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5520:8-5523:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.rsa_pkcs1_sign_generic_loop.body
+  (em : alloc.vec.Vec Std.U8) (ps : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if ps > 0#usize
+  then
+    let em1 ← alloc.vec.Vec.push em 255#u8
+    let ps1 ← ps - 1#usize
+    ok (cont (em1, ps1))
+  else ok (done em)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pkcs1_sign_generic]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5520:8-5523:9 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.rsa_pkcs1_sign_generic_loop
+  (em : alloc.vec.Vec Std.U8) (ps : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (em1, ps1) => hashtrinity.crypto.rsa.rsa_pkcs1_sign_generic_loop.body
+      em1 ps1)
+    (em, ps)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pkcs1_sign_generic]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5515:4-5529:5 -/
+def hashtrinity.crypto.rsa.rsa_pkcs1_sign_generic
+  (n_be : Slice Std.U8) (d_be : Slice Std.U8) (di : Slice Std.U8)
+  (hash : Slice Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let k := Slice.len n_be
+  let i := Slice.len di
+  let i1 := Slice.len hash
+  let t_len ← i + i1
+  let y ←
+    lift (Std.Array.to_slice (Array.make 2#usize [ 0#u8, 1#u8 ] : Array Std.U8
+      2#usize))
+  let ret := alloc.slice.Slice.into_vec y
+  let i2 ← k - t_len
+  let ps ← i2 - 3#usize
+  let em ← hashtrinity.crypto.rsa.rsa_pkcs1_sign_generic_loop ret ps
+  let em1 ← alloc.vec.Vec.push em 0#u8
+  let em2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 em1 di
+  let em3 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 em2 hash
+  let s := alloc.vec.Vec.deref em3
+  let v ← hashtrinity.crypto.rsa.bn_from_be s
+  let v1 ← hashtrinity.crypto.rsa.bn_from_be d_be
+  let v2 ← hashtrinity.crypto.rsa.bn_from_be n_be
+  let sig ← hashtrinity.crypto.rsa.bn_modexp_big v v1 v2
+  hashtrinity.crypto.rsa.bn_to_be sig k
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pkcs1_sha256_sign]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5532:4-5534:5
+    Visibility: public -/
+def hashtrinity.crypto.rsa.rsa_pkcs1_sha256_sign
+  (n_be : Slice Std.U8) (d_be : Slice Std.U8)
+  (msg_hash : Array Std.U8 32#usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let s ← lift (Array.to_slice hashtrinity.crypto.rsa.SHA256_DI)
+  let s1 ← lift (Array.to_slice msg_hash)
+  hashtrinity.crypto.rsa.rsa_pkcs1_sign_generic n_be d_be s s1
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pkcs1_sha384_sign]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5535:4-5537:5
+    Visibility: public -/
+def hashtrinity.crypto.rsa.rsa_pkcs1_sha384_sign
+  (n_be : Slice Std.U8) (d_be : Slice Std.U8)
+  (msg_hash : Array Std.U8 48#usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let s ← lift (Array.to_slice hashtrinity.crypto.rsa.SHA384_DI)
+  let s1 ← lift (Array.to_slice msg_hash)
+  hashtrinity.crypto.rsa.rsa_pkcs1_sign_generic n_be d_be s s1
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pkcs1_sha512_sign]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5538:4-5540:5
+    Visibility: public -/
+def hashtrinity.crypto.rsa.rsa_pkcs1_sha512_sign
+  (n_be : Slice Std.U8) (d_be : Slice Std.U8)
+  (msg_hash : Array Std.U8 64#usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let s ← lift (Array.to_slice hashtrinity.crypto.rsa.SHA512_DI)
+  let s1 ← lift (Array.to_slice msg_hash)
+  hashtrinity.crypto.rsa.rsa_pkcs1_sign_generic n_be d_be s s1
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bitlen]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5546:8-5553:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.bitlen_loop.body
+  (n_be : Slice Std.U8) (i : Std.Usize) (bits : Std.Usize) (found : Bool) :
+  Result (ControlFlow (Std.Usize × Std.Usize × Bool) Std.Usize)
+  := do
+  let i1 := Slice.len n_be
+  if i < i1
+  then
+    let b ← Slice.index_usize n_be i
+    let (bits1, found1) ←
+      if found
+      then ok (bits, true)
+      else
+        if b != 0#u8
+        then
+          do
+          let i2 := Slice.len n_be
+          let i3 ← i2 - i
+          let i4 ← i3 * 8#usize
+          let i5 ← lift (core.num.U8.leading_zeros b)
+          let i6 ← lift (UScalar.cast .Usize i5)
+          let bits2 ← i4 - i6
+          ok (bits2, true)
+        else ok (bits, false)
+    let i2 ← i + 1#usize
+    ok (cont (i2, bits1, found1))
+  else ok (done bits)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bitlen]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5546:8-5553:9 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.bitlen_loop
+  (n_be : Slice Std.U8) (i : Std.Usize) (bits : Std.Usize) (found : Bool) :
+  Result Std.Usize
+  := do
+  loop
+    (fun (i1, bits1, found1) => hashtrinity.crypto.rsa.bitlen_loop.body n_be i1
+      bits1 found1)
+    (i, bits, found)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bitlen]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5542:4-5555:5 -/
+@[reducible]
+def hashtrinity.crypto.rsa.bitlen
+  (n_be : Slice Std.U8) : Result Std.Usize := do
+  hashtrinity.crypto.rsa.bitlen_loop n_be 0#usize 0#usize false
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::mgf1]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5559:8-5564:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.mgf1_loop.body
+  (seed : Slice Std.U8) (len : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (c : Std.U32) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.U32) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i := alloc.vec.Vec.len out
+  if i < len
+  then
+    let h ← alloc.slice.Slice.to_vec core.clone.CloneU8 seed
+    let a ← lift (core.num.U32.to_be_bytes c)
+    let s ← lift (Array.to_slice a)
+    let h1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 h s
+    let s1 := alloc.vec.Vec.deref h1
+    let a1 ← hashtrinity.crypto.sha256 s1
+    let s2 ← lift (Array.to_slice a1)
+    let out1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 out s2
+    let c1 ← c + 1#u32
+    ok (cont (out1, c1))
+  else ok (done out)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::mgf1]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5559:8-5564:9 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.mgf1_loop
+  (seed : Slice Std.U8) (len : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (c : Std.U32) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, c1) => hashtrinity.crypto.rsa.mgf1_loop.body seed len out1 c1)
+    (out, c)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::mgf1]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5556:4-5567:5 -/
+def hashtrinity.crypto.rsa.mgf1
+  (seed : Slice Std.U8) (len : Std.Usize) : Result (alloc.vec.Vec Std.U8) := do
+  let out ←
+    hashtrinity.crypto.rsa.mgf1_loop seed len (alloc.vec.Vec.new Std.U8) 0#u32
+  alloc.vec.Vec.truncate Global out len
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::emsa_pss_encode]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5581:8-5584:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.emsa_pss_encode_loop.body
+  (db : alloc.vec.Vec Std.U8) (mask : alloc.vec.Vec Std.U8)
+  (mdb : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := alloc.vec.Vec.len db
+  if i < i1
+  then
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) db i
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) mask i
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U8)
+        mdb i
+    let i4 ← lift (i2 ^^^ i3)
+    let i5 ← i + 1#usize
+    let mdb1 := index_mut_back i4
+    ok (cont (mdb1, i5))
+  else ok (done mdb)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::emsa_pss_encode]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5581:8-5584:9 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.emsa_pss_encode_loop
+  (db : alloc.vec.Vec Std.U8) (mask : alloc.vec.Vec Std.U8)
+  (mdb : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (mdb1, i1) => hashtrinity.crypto.rsa.emsa_pss_encode_loop.body db mask
+      mdb1 i1)
+    (mdb, i)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::emsa_pss_encode]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5568:4-5590:5 -/
+def hashtrinity.crypto.rsa.emsa_pss_encode
+  (m_hash : Array Std.U8 32#usize) (em_bits : Std.Usize) (salt : Slice Std.U8)
+  :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let em_len ← core.num.Usize.div_ceil em_bits 8#usize
+  let s_len := Slice.len salt
+  let mp ← alloc.vec.from_elem core.clone.CloneU8 0#u8 8#usize
+  let s ← lift (Array.to_slice m_hash)
+  let mp1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 mp s
+  let mp2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 mp1 salt
+  let s1 := alloc.vec.Vec.deref mp2
+  let h ← hashtrinity.crypto.sha256 s1
+  let i ← em_len - s_len
+  let i1 ← i - 32#usize
+  let ps_len ← i1 - 2#usize
+  let db ← alloc.vec.from_elem core.clone.CloneU8 0#u8 ps_len
+  let db1 ← alloc.vec.Vec.push db 1#u8
+  let db2 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 db1 salt
+  let s2 ← lift (Array.to_slice h)
+  let i2 ← em_len - 32#usize
+  let i3 ← i2 - 1#usize
+  let mask ← hashtrinity.crypto.rsa.mgf1 s2 i3
+  let i4 := alloc.vec.Vec.len db2
+  let mdb ← alloc.vec.from_elem core.clone.CloneU8 0#u8 i4
+  let mdb1 ← hashtrinity.crypto.rsa.emsa_pss_encode_loop db2 mask mdb 0#usize
+  let i5 ← 8#usize * em_len
+  let i6 ← i5 - em_bits
+  let i7 ← 255#u8 >>> i6
+  let (i8, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U8) mdb1
+      0#usize
+  let i9 ← lift (i8 &&& i7)
+  let mdb2 := index_mut_back i9
+  let s3 ← lift (Array.to_slice h)
+  let mdb3 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU8 mdb2 s3
+  alloc.vec.Vec.push mdb3 188#u8
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pss_sha256_sign]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5593:4-5600:5
+    Visibility: public -/
+def hashtrinity.crypto.rsa.rsa_pss_sha256_sign
+  (n_be : Slice Std.U8) (d_be : Slice Std.U8) (m_hash : Array Std.U8 32#usize)
+  (salt : Slice Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let k := Slice.len n_be
+  let i ← hashtrinity.crypto.rsa.bitlen n_be
+  let i1 ← i - 1#usize
+  let em ← hashtrinity.crypto.rsa.emsa_pss_encode m_hash i1 salt
+  let s := alloc.vec.Vec.deref em
+  let v ← hashtrinity.crypto.rsa.bn_from_be s
+  let v1 ← hashtrinity.crypto.rsa.bn_from_be d_be
+  let v2 ← hashtrinity.crypto.rsa.bn_from_be n_be
+  let v3 ← hashtrinity.crypto.rsa.bn_modexp_big v v1 v2
+  hashtrinity.crypto.rsa.bn_to_be v3 k
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pss_sha256_verify]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5632:8-5635:9
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop0.body
+  (mdb : Slice Std.U8) (mask : alloc.vec.Vec Std.U8)
+  (db : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len mdb
+  if i < i1
+  then
+    let i2 ← Slice.index_usize mdb i
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) mask i
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U8) db
+        i
+    let i4 ← lift (i2 ^^^ i3)
+    let i5 ← i + 1#usize
+    let db1 := index_mut_back i4
+    ok (cont (db1, i5))
+  else ok (done db)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pss_sha256_verify]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5632:8-5635:9
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop0
+  (mdb : Slice Std.U8) (mask : alloc.vec.Vec Std.U8)
+  (db : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (db1, i1) => hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop0.body
+      mdb mask db1 i1)
+    (db, i)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pss_sha256_verify]: loop body 1:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5640:8-5645:9
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop1.body
+  (db : alloc.vec.Vec Std.U8) (ps_len : Std.Usize) (i : Std.Usize)
+  (nonzero : Bool) :
+  Result (ControlFlow (Std.Usize × Bool) Bool)
+  := do
+  if i < ps_len
+  then
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) db i
+    let nonzero1 ← if i1 != 0#u8
+                     then ok true
+                     else ok nonzero
+    let i2 ← i + 1#usize
+    ok (cont (i2, nonzero1))
+  else ok (done nonzero)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pss_sha256_verify]: loop 1:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5640:8-5645:9
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop1
+  (db : alloc.vec.Vec Std.U8) (ps_len : Std.Usize) (i : Std.Usize)
+  (nonzero : Bool) :
+  Result Bool
+  := do
+  loop
+    (fun (i1, nonzero1) =>
+      hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop1.body db ps_len i1
+      nonzero1)
+    (i, nonzero)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pss_sha256_verify]: loop body 2:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5632:8-5635:9
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop2.body
+  (mdb : Slice Std.U8) (mask : alloc.vec.Vec Std.U8)
+  (db : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len mdb
+  if i < i1
+  then
+    let i2 ← Slice.index_usize mdb i
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) mask i
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U8) db
+        i
+    let i4 ← lift (i2 ^^^ i3)
+    let i5 ← i + 1#usize
+    let db1 := index_mut_back i4
+    ok (cont (db1, i5))
+  else ok (done db)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pss_sha256_verify]: loop 2:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5632:8-5635:9
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop2
+  (mdb : Slice Std.U8) (mask : alloc.vec.Vec Std.U8)
+  (db : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (db1, i1) => hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop2.body
+      mdb mask db1 i1)
+    (db, i)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pss_sha256_verify]: loop body 3:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5640:8-5645:9
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop3.body
+  (db : alloc.vec.Vec Std.U8) (ps_len : Std.Usize) (i : Std.Usize)
+  (nonzero : Bool) :
+  Result (ControlFlow (Std.Usize × Bool) Bool)
+  := do
+  if i < ps_len
+  then
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) db i
+    let nonzero1 ← if i1 != 0#u8
+                     then ok true
+                     else ok nonzero
+    let i2 ← i + 1#usize
+    ok (cont (i2, nonzero1))
+  else ok (done nonzero)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pss_sha256_verify]: loop 3:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5640:8-5645:9
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop3
+  (db : alloc.vec.Vec Std.U8) (ps_len : Std.Usize) (i : Std.Usize)
+  (nonzero : Bool) :
+  Result Bool
+  := do
+  loop
+    (fun (i1, nonzero1) =>
+      hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop3.body db ps_len i1
+      nonzero1)
+    (i, nonzero)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_pss_sha256_verify]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5602:4-5653:5
+    Visibility: public -/
+def hashtrinity.crypto.rsa.rsa_pss_sha256_verify
+  (n_be : Slice Std.U8) (e : Std.U64) (sig_be : Slice Std.U8)
+  (m_hash : Array Std.U8 32#usize) (s_len : Std.Usize) :
+  Result Bool
+  := do
+  let n ← hashtrinity.crypto.rsa.bn_from_be n_be
+  let s ← hashtrinity.crypto.rsa.bn_from_be sig_be
+  let b ← hashtrinity.crypto.rsa.bn_ge s n
+  if b
+  then ok false
+  else
+    let k := Slice.len n_be
+    let v ← hashtrinity.crypto.rsa.bn_modexp s e n
+    let em ← hashtrinity.crypto.rsa.bn_to_be v k
+    let i ← hashtrinity.crypto.rsa.bitlen n_be
+    let em_bits ← i - 1#usize
+    let em_len := alloc.vec.Vec.len em
+    let i1 ← 32#usize + s_len
+    let i2 ← i1 + 2#usize
+    if em_len < i2
+    then ok false
+    else
+      let i3 ← em_len - 1#usize
+      let i4 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) em
+          i3
+      if i4 != 188#u8
+      then ok false
+      else
+        let i5 ← em_len - 32#usize
+        let i6 ← i5 - 1#usize
+        let mdb ←
+          alloc.vec.Vec.index (core.slice.index.SliceIndexRangeToUsizeSlice
+            Std.U8) em { «end» := i6 }
+        let i7 ← i5 - 1#usize
+        let h ←
+          alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+            Std.U8) em { start := i7, «end» := i3 }
+        let i8 ← 8#usize * em_len
+        let zbits ← i8 - em_bits
+        if zbits < 8#usize
+        then
+          let i9 ← Slice.index_usize mdb 0#usize
+          let i10 ← 8#usize - zbits
+          let i11 ← 255#u8 <<< i10
+          let i12 ← lift (i9 &&& i11)
+          if i12 != 0#u8
+          then ok false
+          else
+            let i13 ← i5 - 1#usize
+            let mask ← hashtrinity.crypto.rsa.mgf1 h i13
+            let i14 := Slice.len mdb
+            let db ← alloc.vec.from_elem core.clone.CloneU8 0#u8 i14
+            let db1 ←
+              hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop0 mdb mask db
+                0#usize
+            let i15 ← 255#u8 >>> zbits
+            let (i16, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.U8) db1 0#usize
+            let i17 ← lift (i16 &&& i15)
+            let i18 ← em_len - 32#usize
+            let i19 ← i18 - s_len
+            let ps_len ← i19 - 2#usize
+            let db2 := index_mut_back i17
+            let nonzero ←
+              hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop1 db2 ps_len
+                0#usize false
+            if nonzero
+            then ok false
+            else
+              let i20 ←
+                alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+                  Std.U8) db2 ps_len
+              if i20 != 1#u8
+              then ok false
+              else
+                let mp ← alloc.vec.from_elem core.clone.CloneU8 0#u8 8#usize
+                let s1 ← lift (Array.to_slice m_hash)
+                let mp1 ←
+                  alloc.vec.Vec.extend_from_slice core.clone.CloneU8 mp s1
+                let i21 ← ps_len + 1#usize
+                let s2 ←
+                  alloc.vec.Vec.index
+                    (core.slice.index.SliceIndexRangeFromUsizeSlice Std.U8) db2
+                    { start := i21 }
+                let mp2 ←
+                  alloc.vec.Vec.extend_from_slice core.clone.CloneU8 mp1 s2
+                let s3 := alloc.vec.Vec.deref mp2
+                let a ← hashtrinity.crypto.sha256 s3
+                let s4 ←
+                  core.array.Array.index (core.ops.index.IndexSlice
+                    (core.slice.index.SliceIndexRangeFullSlice Std.U8)) a ()
+                core.slice.cmp.PartialEqSlice.eq core.cmp.PartialEqU8 s4 h
+        else
+          let i9 ← i5 - 1#usize
+          let mask ← hashtrinity.crypto.rsa.mgf1 h i9
+          let i10 := Slice.len mdb
+          let db ← alloc.vec.from_elem core.clone.CloneU8 0#u8 i10
+          let db1 ←
+            hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop2 mdb mask db
+              0#usize
+          let i11 ← 255#u8 >>> zbits
+          let (i12, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.U8) db1 0#usize
+          let i13 ← lift (i12 &&& i11)
+          let i14 ← em_len - 32#usize
+          let i15 ← i14 - s_len
+          let ps_len ← i15 - 2#usize
+          let db2 := index_mut_back i13
+          let nonzero ←
+            hashtrinity.crypto.rsa.rsa_pss_sha256_verify_loop3 db2 ps_len
+              0#usize false
+          if nonzero
+          then ok false
+          else
+            let i16 ←
+              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+                Std.U8) db2 ps_len
+            if i16 != 1#u8
+            then ok false
+            else
+              let mp ← alloc.vec.from_elem core.clone.CloneU8 0#u8 8#usize
+              let s1 ← lift (Array.to_slice m_hash)
+              let mp1 ←
+                alloc.vec.Vec.extend_from_slice core.clone.CloneU8 mp s1
+              let i17 ← ps_len + 1#usize
+              let s2 ←
+                alloc.vec.Vec.index
+                  (core.slice.index.SliceIndexRangeFromUsizeSlice Std.U8) db2
+                  { start := i17 }
+              let mp2 ←
+                alloc.vec.Vec.extend_from_slice core.clone.CloneU8 mp1 s2
+              let s3 := alloc.vec.Vec.deref mp2
+              let a ← hashtrinity.crypto.sha256 s3
+              let s4 ←
+                core.array.Array.index (core.ops.index.IndexSlice
+                  (core.slice.index.SliceIndexRangeFullSlice Std.U8)) a ()
+              core.slice.cmp.PartialEqSlice.eq core.cmp.PartialEqU8 s4 h
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_from_u64]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5661:4-5663:5 -/
+def hashtrinity.crypto.rsa.bn_from_u64
+  (x : Std.U64) : Result (alloc.vec.Vec Std.U64) := do
+  let y ←
+    lift (Std.Array.to_slice (Array.make 1#usize [ x ] : Array Std.U64
+      1#usize))
+  ok (alloc.slice.Slice.into_vec y)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_is_zero]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5667:8-5672:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.bn_is_zero_loop.body
+  (a : alloc.vec.Vec Std.U64) (z : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  let i1 := alloc.vec.Vec.len a
+  if i < i1
+  then
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64) a i
+    let z1 ← if i2 != 0#u64
+               then ok false
+               else ok z
+    let i3 ← i + 1#usize
+    ok (cont (z1, i3))
+  else ok (done z)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_is_zero]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5667:8-5672:9 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.bn_is_zero_loop
+  (a : alloc.vec.Vec Std.U64) (z : Bool) (i : Std.Usize) : Result Bool := do
+  loop
+    (fun (z1, i1) => hashtrinity.crypto.rsa.bn_is_zero_loop.body a z1 i1)
+    (z, i)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_is_zero]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5664:4-5674:5 -/
+@[reducible]
+def hashtrinity.crypto.rsa.bn_is_zero
+  (a : alloc.vec.Vec Std.U64) : Result Bool := do
+  hashtrinity.crypto.rsa.bn_is_zero_loop a true 0#usize
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_is_even]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5675:4-5677:5 -/
+def hashtrinity.crypto.rsa.bn_is_even
+  (a : alloc.vec.Vec Std.U64) : Result Bool := do
+  let i ←
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64) a
+      0#usize
+  let i1 ← lift (i &&& 1#u64)
+  ok (i1 = 0#u64)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_add]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5682:12-5683:85 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.bn_add_loop.body
+  (a : alloc.vec.Vec Std.U64) (b : alloc.vec.Vec Std.U64)
+  (iter : core.ops.range.Range Std.Usize) (r : alloc.vec.Vec Std.U64)
+  (carry : Std.U128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.U64) × Std.U128) ((alloc.vec.Vec Std.U64) × Std.U128))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (r, carry))
+  | some i =>
+    let s := alloc.vec.Vec.deref a
+    let o1 ←
+      core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U64) s i
+    let i1 ← lift (core.option.Option.unwrap_or o1 0#u64)
+    let i2 ← lift (UScalar.cast .U128 i1)
+    let s1 := alloc.vec.Vec.deref b
+    let o2 ←
+      core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U64) s1 i
+    let i3 ← lift (core.option.Option.unwrap_or o2 0#u64)
+    let i4 ← lift (UScalar.cast .U128 i3)
+    let i5 ← i2 + i4
+    let t ← i5 + carry
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U64) r
+        i
+    let i6 ← lift (UScalar.cast .U64 t)
+    let carry1 ← t >>> 64#i32
+    let r1 := index_mut_back i6
+    ok (cont (iter1, r1, carry1))
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_add]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5682:12-5683:85 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.bn_add_loop
+  (iter : core.ops.range.Range Std.Usize) (a : alloc.vec.Vec Std.U64)
+  (b : alloc.vec.Vec Std.U64) (r : alloc.vec.Vec Std.U64) (carry : Std.U128) :
+  Result ((alloc.vec.Vec Std.U64) × Std.U128)
+  := do
+  loop
+    (fun (iter1, r1, carry1) => hashtrinity.crypto.rsa.bn_add_loop.body a b
+      iter1 r1 carry1)
+    (iter, r, carry)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_add]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5678:4-5690:5 -/
+def hashtrinity.crypto.rsa.bn_add
+  (a : alloc.vec.Vec Std.U64) (b : alloc.vec.Vec Std.U64) :
+  Result (alloc.vec.Vec Std.U64)
+  := do
+  let i := alloc.vec.Vec.len a
+  let i1 := alloc.vec.Vec.len b
+  let n ← core.cmp.Ord.max.default core.cmp.OrdUsize i i1
+  let i2 ← n + 1#usize
+  let r ← alloc.vec.from_elem core.clone.CloneU64 0#u64 i2
+  let (r1, carry) ←
+    hashtrinity.crypto.rsa.bn_add_loop { start := 0#usize, «end» := n } a b r
+      0#u128
+  let (_, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U64) r1
+      n
+  let i3 ← lift (UScalar.cast .U64 carry)
+  let r2 := index_mut_back i3
+  hashtrinity.crypto.rsa.bn_trim r2
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_shr1]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5695:8-5699:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.bn_shr1_loop.body
+  (a : alloc.vec.Vec Std.U64) (r : alloc.vec.Vec Std.U64) (carry : Std.U64)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U64) × Std.U64 × Std.Usize)
+    (alloc.vec.Vec Std.U64))
+  := do
+  if i > 0#usize
+  then
+    let i1 ← i - 1#usize
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64) a i1
+    let i3 ← i2 >>> 1#i32
+    let i4 ← carry <<< 63#i32
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U64) r
+        i1
+    let i5 ← lift (i3 ||| i4)
+    let carry1 ← lift (i2 &&& 1#u64)
+    let r1 := index_mut_back i5
+    ok (cont (r1, carry1, i1))
+  else ok (done r)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_shr1]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5695:8-5699:9 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.bn_shr1_loop
+  (a : alloc.vec.Vec Std.U64) (r : alloc.vec.Vec Std.U64) (carry : Std.U64)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U64)
+  := do
+  loop
+    (fun (r1, carry1, i1) => hashtrinity.crypto.rsa.bn_shr1_loop.body a r1
+      carry1 i1)
+    (r, carry, i)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_shr1]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5691:4-5702:5 -/
+def hashtrinity.crypto.rsa.bn_shr1
+  (a : alloc.vec.Vec Std.U64) : Result (alloc.vec.Vec Std.U64) := do
+  let i := alloc.vec.Vec.len a
+  let r ← alloc.vec.from_elem core.clone.CloneU64 0#u64 i
+  let i1 := alloc.vec.Vec.len a
+  let r1 ← hashtrinity.crypto.rsa.bn_shr1_loop a r 0#u64 i1
+  hashtrinity.crypto.rsa.bn_trim r1
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_sub1]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5703:4-5708:5 -/
+def hashtrinity.crypto.rsa.bn_sub1
+  (a : alloc.vec.Vec Std.U64) : Result (alloc.vec.Vec Std.U64) := do
+  let r ← alloc.vec.CloneVec.clone core.clone.CloneU64 a
+  let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut r)
+  let y ←
+    lift (Std.Array.to_slice (Array.make 1#usize [ 1#u64 ] : Array Std.U64
+      1#usize))
+  let ret := alloc.slice.Slice.into_vec y
+  let s1 ← hashtrinity.crypto.rsa.bn_sub s ret
+  let r1 := deref_mut_back s1
+  hashtrinity.crypto.rsa.bn_trim r1
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_divmod]: loop body 1:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5720:12-5724:13 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.bn_divmod_loop0_loop0.body
+  (iter : core.slice.iter.IterMut Std.U64)
+  (back : core.slice.iter.IterMut Std.U64 → core.slice.iter.IterMut Std.U64)
+  (c : Std.U64) :
+  Result (ControlFlow ((core.slice.iter.IterMut Std.U64) ×
+    (core.slice.iter.IterMut Std.U64 → core.slice.iter.IterMut Std.U64) ×
+    Std.U64) ((core.slice.iter.IterMut Std.U64) × (core.slice.iter.IterMut
+    Std.U64 → core.slice.iter.IterMut Std.U64)))
+  := do
+  let (o, iter1, next_back) ← core.slice.iter.IteratorIterMut.next iter
+  match o with
+  | none => ok (done (iter1, fun im => let im1 := next_back im none
+                                       back im1))
+  | some l =>
+    let nc ← l >>> 63#i32
+    let i ← l <<< 1#i32
+    let l1 ← lift (i ||| c)
+    ok (cont (iter1, fun im => let im1 := next_back im (some l1)
+                               back im1, nc))
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_divmod]: loop 1:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5720:12-5724:13 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.bn_divmod_loop0_loop0
+  (iter : core.slice.iter.IterMut Std.U64)
+  (back : core.slice.iter.IterMut Std.U64 → core.slice.iter.IterMut Std.U64)
+  (c : Std.U64) :
+  Result ((core.slice.iter.IterMut Std.U64) × (core.slice.iter.IterMut Std.U64
+    → core.slice.iter.IterMut Std.U64))
+  := do
+  loop
+    (fun (iter1, back1, c1) =>
+      hashtrinity.crypto.rsa.bn_divmod_loop0_loop0.body iter1 back1 c1)
+    (iter, back, c)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_divmod]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5716:8-5729:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.bn_divmod_loop0.body
+  (x : alloc.vec.Vec Std.U64) (m : alloc.vec.Vec Std.U64)
+  (rem : alloc.vec.Vec Std.U64) (quot : alloc.vec.Vec Std.U64) (i : Std.Usize)
+  :
+  Result (ControlFlow ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec Std.U64) ×
+    Std.Usize) ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec Std.U64)))
+  := do
+  if i > 0#usize
+  then
+    let i1 ← i - 1#usize
+    let i2 ← i1 / 64#usize
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64) x i2
+    let i4 ← i1 % 64#usize
+    let i5 ← i3 >>> i4
+    let bit ← lift (i5 &&& 1#u64)
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut rem)
+    let (iter, iter_mut_back) ← core.slice.Slice.iter_mut s
+    let (im, back) ←
+      hashtrinity.crypto.rsa.bn_divmod_loop0_loop0 iter (fun im1 => im1) bit
+    let im1 := back im
+    let s1 := iter_mut_back im1
+    let rem1 := deref_mut_back s1
+    let b ← hashtrinity.crypto.rsa.bn_ge rem1 m
+    if b
+    then
+      let (s2, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut rem1)
+      let s3 ← hashtrinity.crypto.rsa.bn_sub s2 m
+      let i6 ← i1 % 64#usize
+      let i7 ← 1#u64 <<< i6
+      let i8 ← i1 / 64#usize
+      let (i9, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U64)
+          quot i8
+      let i10 ← lift (i9 ||| i7)
+      let quot1 := index_mut_back i10
+      let rem2 := deref_mut_back1 s3
+      ok (cont (rem2, quot1, i1))
+    else ok (cont (rem1, quot, i1))
+  else ok (done (rem, quot))
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_divmod]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5716:8-5729:9 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.bn_divmod_loop0
+  (x : alloc.vec.Vec Std.U64) (m : alloc.vec.Vec Std.U64)
+  (rem : alloc.vec.Vec Std.U64) (quot : alloc.vec.Vec Std.U64) (i : Std.Usize)
+  :
+  Result ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec Std.U64))
+  := do
+  loop
+    (fun (rem1, quot1, i1) => hashtrinity.crypto.rsa.bn_divmod_loop0.body x m
+      rem1 quot1 i1)
+    (rem, quot, i)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::bn_divmod]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5711:4-5733:5 -/
+def hashtrinity.crypto.rsa.bn_divmod
+  (x : alloc.vec.Vec Std.U64) (m : alloc.vec.Vec Std.U64) :
+  Result ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec Std.U64))
+  := do
+  let i := alloc.vec.Vec.len m
+  let i1 ← i + 1#usize
+  let rem ← alloc.vec.from_elem core.clone.CloneU64 0#u64 i1
+  let i2 := alloc.vec.Vec.len x
+  let quot ← alloc.vec.from_elem core.clone.CloneU64 0#u64 i2
+  let i3 := alloc.vec.Vec.len x
+  let nbits ← i3 * 64#usize
+  let (rem1, quot1) ←
+    hashtrinity.crypto.rsa.bn_divmod_loop0 x m rem quot nbits
+  let rem2 ← hashtrinity.crypto.rsa.bn_trim rem1
+  let quot2 ← hashtrinity.crypto.rsa.bn_trim quot1
+  ok (quot2, rem2)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::SBn]
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5736:4-5739:5 -/
+structure hashtrinity.crypto.rsa.SBn where
+  neg : Bool
+  mag : alloc.vec.Vec Std.U64
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::sbn]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5740:4-5742:5 -/
+def hashtrinity.crypto.rsa.sbn
+  (mag : alloc.vec.Vec Std.U64) : Result hashtrinity.crypto.rsa.SBn := do
+  ok { neg := false, mag }
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::sbn_sub]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5743:4-5777:5 -/
+def hashtrinity.crypto.rsa.sbn_sub
+  (a : hashtrinity.crypto.rsa.SBn) (b : hashtrinity.crypto.rsa.SBn) :
+  Result hashtrinity.crypto.rsa.SBn
+  := do
+  if a.neg
+  then
+    if b.neg
+    then
+      let v ← alloc.vec.CloneVec.clone core.clone.CloneU64 b.mag
+      let v1 ← alloc.vec.CloneVec.clone core.clone.CloneU64 a.mag
+      hashtrinity.crypto.rsa.sbn_sub { neg := false, mag := v }
+        { neg := false, mag := v1 }
+    else
+      let v ← hashtrinity.crypto.rsa.bn_add a.mag b.mag
+      ok { neg := true, mag := v }
+  else
+    if b.neg
+    then
+      let v ← hashtrinity.crypto.rsa.bn_add a.mag b.mag
+      ok { neg := false, mag := v }
+    else
+      let b1 ← hashtrinity.crypto.rsa.bn_ge a.mag b.mag
+      if b1
+      then
+        let m ← alloc.vec.CloneVec.clone core.clone.CloneU64 a.mag
+        let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut m)
+        let s1 ← hashtrinity.crypto.rsa.bn_sub s b.mag
+        let m1 := deref_mut_back s1
+        let m2 ← hashtrinity.crypto.rsa.bn_trim m1
+        ok { neg := false, mag := m2 }
+      else
+        let m ← alloc.vec.CloneVec.clone core.clone.CloneU64 b.mag
+        let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut m)
+        let s1 ← hashtrinity.crypto.rsa.bn_sub s a.mag
+        let m1 := deref_mut_back s1
+        let m2 ← hashtrinity.crypto.rsa.bn_trim m1
+        ok { neg := true, mag := m2 }
+partial_fixpoint
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::sbn_mul_bn]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5778:4-5783:5 -/
+def hashtrinity.crypto.rsa.sbn_mul_bn
+  (a : hashtrinity.crypto.rsa.SBn) (b : alloc.vec.Vec Std.U64) :
+  Result hashtrinity.crypto.rsa.SBn
+  := do
+  let v ← hashtrinity.crypto.rsa.bn_mul a.mag b
+  ok { a with mag := v }
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::mod_inverse]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5790:8-5797:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.mod_inverse_loop.body
+  (r0 : alloc.vec.Vec Std.U64) (r1 : alloc.vec.Vec Std.U64)
+  (t0 : hashtrinity.crypto.rsa.SBn) (t1 : hashtrinity.crypto.rsa.SBn) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec Std.U64) ×
+    hashtrinity.crypto.rsa.SBn × hashtrinity.crypto.rsa.SBn) ((alloc.vec.Vec
+    Std.U64) × hashtrinity.crypto.rsa.SBn))
+  := do
+  let b ← hashtrinity.crypto.rsa.bn_is_zero r1
+  if b
+  then ok (done (r0, t0))
+  else
+    let (q, r) ← hashtrinity.crypto.rsa.bn_divmod r0 r1
+    let s ← hashtrinity.crypto.rsa.sbn_mul_bn t1 q
+    let new_t1 ← hashtrinity.crypto.rsa.sbn_sub t0 s
+    ok (cont (r1, r, t1, new_t1))
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::mod_inverse]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5790:8-5797:9 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.mod_inverse_loop
+  (r0 : alloc.vec.Vec Std.U64) (r1 : alloc.vec.Vec Std.U64)
+  (t0 : hashtrinity.crypto.rsa.SBn) (t1 : hashtrinity.crypto.rsa.SBn) :
+  Result ((alloc.vec.Vec Std.U64) × hashtrinity.crypto.rsa.SBn)
+  := do
+  loop
+    (fun (r01, r11, t01, t11) => hashtrinity.crypto.rsa.mod_inverse_loop.body
+      r01 r11 t01 t11)
+    (r0, r1, t0, t1)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::mod_inverse]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5787:4-5810:5 -/
+def hashtrinity.crypto.rsa.mod_inverse
+  (e : Std.U64) (phi : alloc.vec.Vec Std.U64) :
+  Result (Option (alloc.vec.Vec Std.U64))
+  := do
+  let r0 ← alloc.vec.CloneVec.clone core.clone.CloneU64 phi
+  let r1 ← hashtrinity.crypto.rsa.bn_from_u64 e
+  let y ←
+    lift (Std.Array.to_slice (Array.make 1#usize [ 0#u64 ] : Array Std.U64
+      1#usize))
+  let ret := alloc.slice.Slice.into_vec y
+  let t0 ← hashtrinity.crypto.rsa.sbn ret
+  let y1 ←
+    lift (Std.Array.to_slice (Array.make 1#usize [ 1#u64 ] : Array Std.U64
+      1#usize))
+  let ret1 := alloc.slice.Slice.into_vec y1
+  let t1 ← hashtrinity.crypto.rsa.sbn ret1
+  let (r01, t01) ← hashtrinity.crypto.rsa.mod_inverse_loop r0 r1 t0 t1
+  let i := alloc.vec.Vec.len r01
+  if i = 1#usize
+  then
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64) r01
+        0#usize
+    if i1 = 1#u64
+    then
+      let reduced ← hashtrinity.crypto.rsa.bn_mod t01.mag phi
+      if t01.neg
+      then
+        let b ← hashtrinity.crypto.rsa.bn_is_zero reduced
+        if b
+        then ok (some reduced)
+        else
+          let d ← alloc.vec.CloneVec.clone core.clone.CloneU64 phi
+          let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut d)
+          let s1 ← hashtrinity.crypto.rsa.bn_sub s reduced
+          let d1 := deref_mut_back s1
+          let d2 ← hashtrinity.crypto.rsa.bn_trim d1
+          ok (some d2)
+      else ok (some reduced)
+    else ok none
+  else ok none
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::RSA_OID]
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5922:4-5922:84 -/
+@[global_simps, irreducible]
+def hashtrinity.crypto.rsa.RSA_OID : Array Std.U8 9#usize :=
+  Array.make 9#usize [
+    42#u8, 134#u8, 72#u8, 134#u8, 247#u8, 13#u8, 1#u8, 1#u8, 1#u8
+    ]
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_algid]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5923:4-5925:5 -/
+def hashtrinity.crypto.rsa.rsa_algid : Result (alloc.vec.Vec Std.U8) := do
+  let s ← lift (Array.to_slice hashtrinity.crypto.rsa.RSA_OID)
+  let v ← hashtrinity.crypto.certgen.oid s
+  let s1 ← lift (Array.to_slice (Std.Array.empty Std.U8))
+  let v1 ← hashtrinity.crypto.certgen.tlv 5#u8 s1
+  let s2 ← lift (Array.to_slice (Array.make 2#usize [ v, v1 ]))
+  hashtrinity.crypto.certgen.seq s2
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::trim_int]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5928:4-5934:5 -/
+def hashtrinity.crypto.rsa.trim_int
+  (b : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  let i := Slice.len b
+  if i > 1#usize
+  then
+    let i1 ← Slice.index_usize b 0#usize
+    if i1 = 0#u8
+    then
+      let s ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeFromUsizeSlice Std.U8) b
+          { start := 1#usize }
+      alloc.slice.Slice.to_vec core.clone.CloneU8 s
+    else alloc.slice.Slice.to_vec core.clone.CloneU8 b
+  else alloc.slice.Slice.to_vec core.clone.CloneU8 b
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_to_pkcs8_der]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5940:12-5942:13 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.rsa_to_pkcs8_der_loop.body
+  (v : Slice Std.U8) : Result (ControlFlow (Slice Std.U8) (Slice Std.U8)) := do
+  let i := Slice.len v
+  if i > 1#usize
+  then
+    let i1 ← Slice.index_usize v 0#usize
+    if i1 = 0#u8
+    then
+      let v1 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeFromUsizeSlice Std.U8) v
+          { start := 1#usize }
+      ok (cont v1)
+    else ok (done v)
+  else ok (done v)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_to_pkcs8_der]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5940:12-5942:13 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.rsa_to_pkcs8_der_loop
+  (v : Slice Std.U8) : Result (Slice Std.U8) := do
+  loop
+    (fun v1 => hashtrinity.crypto.rsa.rsa_to_pkcs8_der_loop.body v1)
+    v
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_to_pkcs8_der]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5936:4-5952:5 -/
+def hashtrinity.crypto.rsa.rsa_to_pkcs8_der
+  (n_be : Slice Std.U8) (e : Std.U64) (d_be : Slice Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let e_be ← lift (core.num.U64.to_be_bytes e)
+  let v ← lift (Array.to_slice e_be)
+  let e_trimmed ← hashtrinity.crypto.rsa.rsa_to_pkcs8_der_loop v
+  let s ← lift (Array.to_slice (Array.make 1#usize [ 0#u8 ]))
+  let v1 ← hashtrinity.crypto.certgen.der_int s
+  let v2 ← hashtrinity.crypto.certgen.der_int n_be
+  let v3 ← hashtrinity.crypto.certgen.der_int e_trimmed
+  let v4 ← hashtrinity.crypto.certgen.der_int d_be
+  let s1 ← lift (Array.to_slice (Array.make 4#usize [ v1, v2, v3, v4 ]))
+  let inner ← hashtrinity.crypto.certgen.seq s1
+  let s2 ← lift (Array.to_slice (Array.make 1#usize [ 0#u8 ]))
+  let v5 ← hashtrinity.crypto.certgen.der_int s2
+  let v6 ← hashtrinity.crypto.rsa.rsa_algid
+  let s3 := alloc.vec.Vec.deref inner
+  let v7 ← hashtrinity.crypto.certgen.tlv 4#u8 s3
+  let s4 ← lift (Array.to_slice (Array.make 3#usize [ v5, v6, v7 ]))
+  hashtrinity.crypto.certgen.seq s4
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_from_pkcs8_der]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6003:8-6006:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.rsa.rsa_from_pkcs8_der_loop.body
+  (e_bytes : alloc.vec.Vec Std.U8) (e_val : Std.U64) (j : Std.Usize) :
+  Result (ControlFlow (Std.U64 × Std.Usize) Std.U64)
+  := do
+  let i := alloc.vec.Vec.len e_bytes
+  if j < i
+  then
+    let i1 ← e_val <<< 8#i32
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8)
+        e_bytes j
+    let i3 ← lift (UScalar.cast .U64 i2)
+    let e_val1 ← lift (i1 ||| i3)
+    let j1 ← j + 1#usize
+    ok (cont (e_val1, j1))
+  else ok (done e_val)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_from_pkcs8_der]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6003:8-6006:9 -/
+@[rust_loop]
+def hashtrinity.crypto.rsa.rsa_from_pkcs8_der_loop
+  (e_bytes : alloc.vec.Vec Std.U8) (e_val : Std.U64) (j : Std.Usize) :
+  Result Std.U64
+  := do
+  loop
+    (fun (e_val1, j1) => hashtrinity.crypto.rsa.rsa_from_pkcs8_der_loop.body
+      e_bytes e_val1 j1)
+    (e_val, j)
+
+/-- [apeiron_word::hashtrinity::crypto::rsa::rsa_from_pkcs8_der]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 5953:4-6008:5 -/
+def hashtrinity.crypto.rsa.rsa_from_pkcs8_der
+  (d : Slice Std.U8) :
+  Result (Option ((alloc.vec.Vec Std.U8) × Std.U64 × (alloc.vec.Vec Std.U8)))
+  := do
+  let o ← hashtrinity.crypto.x509.der_tlv d 0#usize
+  match o with
+  | none => ok none
+  | some v =>
+    let (outer_tag, ocs, oce, _) := v
+    if outer_tag != 48#u8
+    then ok none
+    else
+      let children ← hashtrinity.crypto.x509.der_children d ocs oce
+      let s := alloc.vec.Vec.deref children
+      let o1 ←
+        core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice (Std.U8 ×
+          Std.Usize × Std.Usize)) s 2#usize
+      match o1 with
+      | none => ok none
+      | some v1 =>
+        let (tag, cs, ce) := v1
+        if tag != 4#u8
+        then ok none
+        else
+          let o2 ← hashtrinity.crypto.x509.der_tlv d cs
+          match o2 with
+          | none => ok none
+          | some v2 =>
+            let (inner_tag, ics, ice, _) := v2
+            if inner_tag != 48#u8
+            then ok none
+            else
+              if ice > ce
+              then ok none
+              else
+                let fields ← hashtrinity.crypto.x509.der_children d ics ice
+                let i := alloc.vec.Vec.len fields
+                if i < 4#usize
+                then ok none
+                else
+                  let s1 := alloc.vec.Vec.deref fields
+                  let o3 ←
+                    core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice
+                      (Std.U8 × Std.Usize × Std.Usize)) s1 1#usize
+                  match o3 with
+                  | none => ok none
+                  | some v3 =>
+                    let s2 := alloc.vec.Vec.deref fields
+                    let o4 ←
+                      core.slice.Slice.get
+                        (core.slice.index.SliceIndexUsizeSlice (Std.U8 ×
+                        Std.Usize × Std.Usize)) s2 2#usize
+                    match o4 with
+                    | none => ok none
+                    | some v4 =>
+                      let s3 := alloc.vec.Vec.deref fields
+                      let o5 ←
+                        core.slice.Slice.get
+                          (core.slice.index.SliceIndexUsizeSlice (Std.U8 ×
+                          Std.Usize × Std.Usize)) s3 3#usize
+                      match o5 with
+                      | none => ok none
+                      | some v5 =>
+                        let (i1, i2, i3) := v3
+                        if i1 != 2#u8
+                        then ok none
+                        else
+                          let (i4, i5, i6) := v4
+                          if i4 != 2#u8
+                          then ok none
+                          else
+                            let (i7, i8, i9) := v5
+                            if i7 != 2#u8
+                            then ok none
+                            else
+                              let s4 ←
+                                core.slice.index.Slice.index
+                                  (core.slice.index.SliceIndexRangeUsizeSlice
+                                  Std.U8) d { start := i2, «end» := i3 }
+                              let n_be ← hashtrinity.crypto.rsa.trim_int s4
+                              let s5 ←
+                                core.slice.index.Slice.index
+                                  (core.slice.index.SliceIndexRangeUsizeSlice
+                                  Std.U8) d { start := i5, «end» := i6 }
+                              let e_bytes ←
+                                hashtrinity.crypto.rsa.trim_int s5
+                              let s6 ←
+                                core.slice.index.Slice.index
+                                  (core.slice.index.SliceIndexRangeUsizeSlice
+                                  Std.U8) d { start := i8, «end» := i9 }
+                              let d_be ← hashtrinity.crypto.rsa.trim_int s6
+                              let e_val ←
+                                hashtrinity.crypto.rsa.rsa_from_pkcs8_der_loop
+                                  e_bytes 0#u64 0#usize
+                              ok (some (n_be, e_val, d_be))
+
+/-- [apeiron_word::hashtrinity::crypto::age::b64d]: loop body 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6326:8-6348:9 -/
+@[rust_loop_body]
+def hashtrinity.crypto.age.b64d_loop.body
+  (bytes : Slice Std.U8) (acc : Std.U32) (nb : Std.U32)
+  (o : alloc.vec.Vec Std.U8) (i : Std.Usize) (bad : Bool) :
+  Result (ControlFlow (Std.U32 × Std.U32 × (alloc.vec.Vec Std.U8) ×
+    Std.Usize × Bool) ((alloc.vec.Vec Std.U8) × Bool))
+  := do
+  let i1 := Slice.len bytes
+  if i < i1
+  then
+    if bad
+    then ok (done (o, true))
+    else
+      let c ← Slice.index_usize bytes i
+      let v ←
+        if 65#u8 <= c
+        then
+          if c <= 90#u8
+          then
+            do
+            let i2 ← c - 65#u8
+            let i3 ← lift (UScalar.cast .U32 i2)
+            ok (some i3)
+          else
+            if 97#u8 <= c
+            then
+              if c <= 122#u8
+              then
+                do
+                let i2 ← c - 97#u8
+                let i3 ← i2 + 26#u8
+                let i4 ← lift (UScalar.cast .U32 i3)
+                ok (some i4)
+              else
+                if 48#u8 <= c
+                then
+                  if c <= 57#u8
+                  then
+                    do
+                    let i2 ← c - 48#u8
+                    let i3 ← i2 + 52#u8
+                    let i4 ← lift (UScalar.cast .U32 i3)
+                    ok (some i4)
+                  else
+                    match c with
+                    | 43#uscalar => ok (some 62#u32)
+                    | 47#uscalar => ok (some 63#u32)
+                    | _ => ok none
+                else
+                  match c with
+                  | 43#uscalar => ok (some 62#u32)
+                  | 47#uscalar => ok (some 63#u32)
+                  | _ => ok none
+            else
+              if 48#u8 <= c
+              then
+                if c <= 57#u8
+                then
+                  do
+                  let i2 ← c - 48#u8
+                  let i3 ← i2 + 52#u8
+                  let i4 ← lift (UScalar.cast .U32 i3)
+                  ok (some i4)
+                else
+                  match c with
+                  | 43#uscalar => ok (some 62#u32)
+                  | 47#uscalar => ok (some 63#u32)
+                  | _ => ok none
+              else
+                match c with
+                | 43#uscalar => ok (some 62#u32)
+                | 47#uscalar => ok (some 63#u32)
+                | _ => ok none
+        else
+          if 97#u8 <= c
+          then
+            if c <= 122#u8
+            then
+              do
+              let i2 ← c - 97#u8
+              let i3 ← i2 + 26#u8
+              let i4 ← lift (UScalar.cast .U32 i3)
+              ok (some i4)
+            else
+              if 48#u8 <= c
+              then
+                if c <= 57#u8
+                then
+                  do
+                  let i2 ← c - 48#u8
+                  let i3 ← i2 + 52#u8
+                  let i4 ← lift (UScalar.cast .U32 i3)
+                  ok (some i4)
+                else
+                  match c with
+                  | 43#uscalar => ok (some 62#u32)
+                  | 47#uscalar => ok (some 63#u32)
+                  | _ => ok none
+              else
+                match c with
+                | 43#uscalar => ok (some 62#u32)
+                | 47#uscalar => ok (some 63#u32)
+                | _ => ok none
+          else
+            if 48#u8 <= c
+            then
+              if c <= 57#u8
+              then
+                do
+                let i2 ← c - 48#u8
+                let i3 ← i2 + 52#u8
+                let i4 ← lift (UScalar.cast .U32 i3)
+                ok (some i4)
+              else
+                match c with
+                | 43#uscalar => ok (some 62#u32)
+                | 47#uscalar => ok (some 63#u32)
+                | _ => ok none
+            else
+              match c with
+              | 43#uscalar => ok (some 62#u32)
+              | 47#uscalar => ok (some 63#u32)
+              | _ => ok none
+      let (acc1, nb1, o1, bad1) ←
+        match v with
+        | none => ok (acc, nb, o, true)
+        | some x =>
+          do
+          let i2 ← acc <<< 6#i32
+          let acc2 ← lift (i2 ||| x)
+          let nb2 ← nb + 6#u32
+          let (i3, v1) ←
+            if nb2 >= 8#u32
+            then
+              do
+              let nb3 ← nb2 - 8#u32
+              let i4 ← acc2 >>> nb3
+              let i5 ← lift (UScalar.cast .U8 i4)
+              let o2 ← alloc.vec.Vec.push o i5
+              ok (nb3, o2)
+            else ok (nb2, o)
+          ok (acc2, i3, v1, false)
+      let i2 ← i + 1#usize
+      ok (cont (acc1, nb1, o1, i2, bad1))
+  else ok (done (o, bad))
+
+/-- [apeiron_word::hashtrinity::crypto::age::b64d]: loop 0:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6326:8-6348:9 -/
+@[rust_loop]
+def hashtrinity.crypto.age.b64d_loop
+  (bytes : Slice Std.U8) (acc : Std.U32) (nb : Std.U32)
+  (o : alloc.vec.Vec Std.U8) (i : Std.Usize) (bad : Bool) :
+  Result ((alloc.vec.Vec Std.U8) × Bool)
+  := do
+  loop
+    (fun (acc1, nb1, o1, i1, bad1) => hashtrinity.crypto.age.b64d_loop.body
+      bytes acc1 nb1 o1 i1 bad1)
+    (acc, nb, o, i, bad)
+
+/-- [apeiron_word::hashtrinity::crypto::age::b64d]:
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 6320:4-6354:5 -/
+def hashtrinity.crypto.age.b64d
+  (s : Str) : Result (Option (alloc.vec.Vec Std.U8)) := do
+  let bytes ← core.str.Str.as_bytes s
+  let (o, bad) ←
+    hashtrinity.crypto.age.b64d_loop bytes 0#u32 0#u32 (alloc.vec.Vec.new
+      Std.U8) 0#usize false
+  if bad
+  then ok none
+  else ok (some o)
+
 /-- [apeiron_word::hashtrinity::crypto::hmac_sha256]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6976:4-6979:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7074:4-7077:5
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.hmac_sha256_loop.body
@@ -106347,7 +108415,7 @@ def hashtrinity.crypto.hmac_sha256_loop.body
     ok (cont (iter1, a, a1))
 
 /-- [apeiron_word::hashtrinity::crypto::hmac_sha256]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6976:4-6979:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7074:4-7077:5
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.hmac_sha256_loop
@@ -106361,7 +108429,7 @@ def hashtrinity.crypto.hmac_sha256_loop
     (iter, ipad, opad)
 
 /-- [apeiron_word::hashtrinity::crypto::hmac_sha256]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6966:0-6987:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7064:0-7085:1
     Visibility: public -/
 def hashtrinity.crypto.hmac_sha256
   (key : Slice Std.U8) (msg : Slice Std.U8) :
@@ -106407,7 +108475,7 @@ def hashtrinity.crypto.hmac_sha256
   hashtrinity.crypto.Sha256.finalize outer1
 
 /-- [apeiron_word::hashtrinity::crypto::pbkdf2_sha256]: loop body 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7002:12-7004:13
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7100:12-7102:13
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.pbkdf2_sha256_loop0_loop0_loop0.body
@@ -106428,7 +108496,7 @@ def hashtrinity.crypto.pbkdf2_sha256_loop0_loop0_loop0.body
     ok (cont (iter1, a))
 
 /-- [apeiron_word::hashtrinity::crypto::pbkdf2_sha256]: loop 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7002:12-7004:13
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7100:12-7102:13
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.pbkdf2_sha256_loop0_loop0_loop0
@@ -106442,7 +108510,7 @@ def hashtrinity.crypto.pbkdf2_sha256_loop0_loop0_loop0
     (iter, t)
 
 /-- [apeiron_word::hashtrinity::crypto::pbkdf2_sha256]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7000:8-7005:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7098:8-7103:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.pbkdf2_sha256_loop0_loop0.body
@@ -106464,7 +108532,7 @@ def hashtrinity.crypto.pbkdf2_sha256_loop0_loop0.body
     ok (cont (iter1, u1, t1))
 
 /-- [apeiron_word::hashtrinity::crypto::pbkdf2_sha256]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7000:8-7005:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7098:8-7103:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.pbkdf2_sha256_loop0_loop0
@@ -106478,7 +108546,7 @@ def hashtrinity.crypto.pbkdf2_sha256_loop0_loop0
     (iter, u, t)
 
 /-- [apeiron_word::hashtrinity::crypto::pbkdf2_sha256]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6995:4-7008:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7093:4-7106:5
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.pbkdf2_sha256_loop0.body
@@ -106506,7 +108574,7 @@ def hashtrinity.crypto.pbkdf2_sha256_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::hashtrinity::crypto::pbkdf2_sha256]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6995:4-7008:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7093:4-7106:5
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.pbkdf2_sha256_loop0
@@ -106520,7 +108588,7 @@ def hashtrinity.crypto.pbkdf2_sha256_loop0
     (out, i)
 
 /-- [apeiron_word::hashtrinity::crypto::pbkdf2_sha256]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 6992:0-7011:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7090:0-7109:1
     Visibility: public -/
 def hashtrinity.crypto.pbkdf2_sha256
   (pass : Slice Std.U8) (salt : Slice Std.U8) (iters : Std.U32)
@@ -106533,7 +108601,7 @@ def hashtrinity.crypto.pbkdf2_sha256
   alloc.vec.Vec.truncate Global out1 dklen
 
 /-- [apeiron_word::hashtrinity::crypto::hkdf_extract_sha256]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7016:0-7022:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7114:0-7120:1
     Visibility: public -/
 def hashtrinity.crypto.hkdf_extract_sha256
   (salt : Slice Std.U8) (ikm : Slice Std.U8) :
@@ -106548,7 +108616,7 @@ def hashtrinity.crypto.hkdf_extract_sha256
   else hashtrinity.crypto.hmac_sha256 salt ikm
 
 /-- [apeiron_word::hashtrinity::crypto::hkdf_expand_sha256]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7029:4-7037:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7127:4-7135:5
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.hkdf_expand_sha256_loop.body
@@ -106574,7 +108642,7 @@ def hashtrinity.crypto.hkdf_expand_sha256_loop.body
   else ok (done out)
 
 /-- [apeiron_word::hashtrinity::crypto::hkdf_expand_sha256]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7029:4-7037:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7127:4-7135:5
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.hkdf_expand_sha256_loop
@@ -106588,7 +108656,7 @@ def hashtrinity.crypto.hkdf_expand_sha256_loop
     (out, t, i)
 
 /-- [apeiron_word::hashtrinity::crypto::hkdf_expand_sha256]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7025:0-7040:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7123:0-7138:1
     Visibility: public -/
 def hashtrinity.crypto.hkdf_expand_sha256
   (prk : Slice Std.U8) (info : Slice Std.U8) (len : Std.Usize) :
@@ -106601,7 +108669,7 @@ def hashtrinity.crypto.hkdf_expand_sha256
   alloc.vec.Vec.truncate Global out1 len
 
 /-- [apeiron_word::hashtrinity::crypto::hkdf_sha256]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7043:0-7045:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7141:0-7143:1
     Visibility: public -/
 def hashtrinity.crypto.hkdf_sha256
   (salt : Slice Std.U8) (ikm : Slice Std.U8) (info : Slice Std.U8)
@@ -106613,7 +108681,7 @@ def hashtrinity.crypto.hkdf_sha256
   hashtrinity.crypto.hkdf_expand_sha256 s info len
 
 /-- [apeiron_word::hashtrinity::crypto::Sha512]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7235:0-7240:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7333:0-7338:1
     Visibility: public -/
 structure hashtrinity.crypto.Sha512 where
   h : Array Std.U64 8#usize
@@ -106622,7 +108690,7 @@ structure hashtrinity.crypto.Sha512 where
   total : Std.U128
 
 /-- [apeiron_word::hashtrinity::crypto::K512]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7092:0-7173:2 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7190:0-7271:2 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.K512 : Array Std.U64 80#usize :=
   Array.make 80#usize [
@@ -106660,7 +108728,7 @@ def hashtrinity.crypto.K512 : Array Std.U64 80#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::compress512]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7177:4-7179:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7275:4-7277:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.compress512_loop0.body
   (blk : Slice Std.U8) (iter : core.ops.range.Range Std.Usize)
@@ -106686,7 +108754,7 @@ def hashtrinity.crypto.compress512_loop0.body
     ok (cont (iter1, a1))
 
 /-- [apeiron_word::hashtrinity::crypto::compress512]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7177:4-7179:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7275:4-7277:5 -/
 @[rust_loop]
 def hashtrinity.crypto.compress512_loop0
   (iter : core.ops.range.Range Std.Usize) (blk : Slice Std.U8)
@@ -106698,7 +108766,7 @@ def hashtrinity.crypto.compress512_loop0
     (iter, w)
 
 /-- [apeiron_word::hashtrinity::crypto::compress512]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7180:4-7187:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7278:4-7285:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.compress512_loop1.body
   (iter : core.ops.range.Range Std.Usize) (w : Array Std.U64 80#usize) :
@@ -106739,7 +108807,7 @@ def hashtrinity.crypto.compress512_loop1.body
     ok (cont (iter1, a))
 
 /-- [apeiron_word::hashtrinity::crypto::compress512]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7180:4-7187:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7278:4-7285:5 -/
 @[rust_loop]
 def hashtrinity.crypto.compress512_loop1
   (iter : core.ops.range.Range Std.Usize) (w : Array Std.U64 80#usize) :
@@ -106750,7 +108818,7 @@ def hashtrinity.crypto.compress512_loop1
     (iter, w)
 
 /-- [apeiron_word::hashtrinity::crypto::compress512]: loop body 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7190:4-7209:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7288:4-7307:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.compress512_loop2.body
   (w : Array Std.U64 80#usize) (iter : core.ops.range.Range Std.Usize)
@@ -106797,7 +108865,7 @@ def hashtrinity.crypto.compress512_loop2.body
     ok (cont (iter1, a1, a, b, c, e1, e, f, g))
 
 /-- [apeiron_word::hashtrinity::crypto::compress512]: loop 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7190:4-7209:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7288:4-7307:5 -/
 @[rust_loop]
 def hashtrinity.crypto.compress512_loop2
   (iter : core.ops.range.Range Std.Usize) (w : Array Std.U64 80#usize)
@@ -106813,7 +108881,7 @@ def hashtrinity.crypto.compress512_loop2
     (iter, a, b, c, d, e, f, g, hh)
 
 /-- [apeiron_word::hashtrinity::crypto::compress512]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7175:0-7219:1 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7273:0-7317:1 -/
 def hashtrinity.crypto.compress512
   (h : Array Std.U64 8#usize) (blk : Slice Std.U8) :
   Result (Array Std.U64 8#usize)
@@ -106862,7 +108930,7 @@ def hashtrinity.crypto.compress512
   Array.update h7 7#usize i15
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::finish]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7288:8-7290:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7386:8-7388:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.Sha512.finish_loop0.body
   (tail : alloc.vec.Vec Std.U8) :
@@ -106876,7 +108944,7 @@ def hashtrinity.crypto.Sha512.finish_loop0.body
   else ok (done tail)
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::finish]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7288:8-7290:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7386:8-7388:9 -/
 @[rust_loop]
 def hashtrinity.crypto.Sha512.finish_loop0
   (tail : alloc.vec.Vec Std.U8) : Result (alloc.vec.Vec Std.U8) := do
@@ -106885,7 +108953,7 @@ def hashtrinity.crypto.Sha512.finish_loop0
     tail
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::finish]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7293:8-7295:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7391:8-7393:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.Sha512.finish_loop1.body
   (iter : core.slice.iter.ChunksExact Std.U8) (h : Array Std.U64 8#usize) :
@@ -106900,7 +108968,7 @@ def hashtrinity.crypto.Sha512.finish_loop1.body
     ok (cont (iter1, h1))
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::finish]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7293:8-7295:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7391:8-7393:9 -/
 @[rust_loop]
 def hashtrinity.crypto.Sha512.finish_loop1
   (iter : core.slice.iter.ChunksExact Std.U8) (h : Array Std.U64 8#usize) :
@@ -106911,7 +108979,7 @@ def hashtrinity.crypto.Sha512.finish_loop1
     (iter, h)
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::finish]: loop body 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7297:8-7299:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7395:8-7397:9 -/
 @[rust_loop_body]
 def hashtrinity.crypto.Sha512.finish_loop2.body
   (iter : core.slice.iter.Iter Std.U64) (o : alloc.vec.Vec Std.U8) :
@@ -106928,7 +108996,7 @@ def hashtrinity.crypto.Sha512.finish_loop2.body
     ok (cont (iter1, o2))
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::finish]: loop 2:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7297:8-7299:9 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7395:8-7397:9 -/
 @[rust_loop]
 def hashtrinity.crypto.Sha512.finish_loop2
   (iter : core.slice.iter.Iter Std.U64) (o : alloc.vec.Vec Std.U8) :
@@ -106939,7 +109007,7 @@ def hashtrinity.crypto.Sha512.finish_loop2
     (iter, o)
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::finish]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7284:4-7302:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7382:4-7400:5 -/
 def hashtrinity.crypto.Sha512.finish
   (self : hashtrinity.crypto.Sha512) (out : Std.Usize) :
   Result (alloc.vec.Vec Std.U8)
@@ -106965,7 +109033,7 @@ def hashtrinity.crypto.Sha512.finish
   alloc.vec.Vec.truncate Global o1 out
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::finalize_384]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7308:4-7312:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7406:4-7410:5
     Visibility: public -/
 def hashtrinity.crypto.Sha512.finalize_384
   (self : hashtrinity.crypto.Sha512) : Result (Array Std.U8 48#usize) := do
@@ -106977,7 +109045,7 @@ def hashtrinity.crypto.Sha512.finalize_384
   ok (to_slice_mut_back s2)
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::update]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7275:8-7278:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7373:8-7376:9
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.Sha512.update_loop.body
@@ -107001,7 +109069,7 @@ def hashtrinity.crypto.Sha512.update_loop.body
   else ok (done (a, data))
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::update]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7275:8-7278:9
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7373:8-7376:9
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.Sha512.update_loop
@@ -107013,7 +109081,7 @@ def hashtrinity.crypto.Sha512.update_loop
     (a, data)
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::update]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7263:4-7283:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7361:4-7381:5
     Visibility: public -/
 def hashtrinity.crypto.Sha512.update
   (self : hashtrinity.crypto.Sha512) (data : Slice Std.U8) :
@@ -107071,7 +109139,7 @@ def hashtrinity.crypto.Sha512.update
     ok { h := a2, buf := a3, n := i5, total := i2 }
 
 /-- [apeiron_word::hashtrinity::crypto::H384]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7221:0-7230:2 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7319:0-7328:2 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.H384 : Array Std.U64 8#usize :=
   Array.make 8#usize [
@@ -107081,14 +109149,14 @@ def hashtrinity.crypto.H384 : Array Std.U64 8#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::new_384]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7255:4-7262:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7353:4-7360:5
     Visibility: public -/
 def hashtrinity.crypto.Sha512.new_384 : Result hashtrinity.crypto.Sha512 := do
   let a := Array.repeat 128#usize 0#u8
   ok { h := hashtrinity.crypto.H384, buf := a, n := 0#usize, total := 0#u128 }
 
 /-- [apeiron_word::hashtrinity::crypto::sha384]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7322:0-7326:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7420:0-7424:1
     Visibility: public -/
 def hashtrinity.crypto.sha384
   (msg : Slice Std.U8) : Result (Array Std.U8 48#usize) := do
@@ -107097,7 +109165,7 @@ def hashtrinity.crypto.sha384
   hashtrinity.crypto.Sha512.finalize_384 s1
 
 /-- [apeiron_word::hashtrinity::crypto::hmac_sha384]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7363:4-7366:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7461:4-7464:5
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.hmac_sha384_loop.body
@@ -107120,7 +109188,7 @@ def hashtrinity.crypto.hmac_sha384_loop.body
     ok (cont (iter1, a, a1))
 
 /-- [apeiron_word::hashtrinity::crypto::hmac_sha384]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7363:4-7366:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7461:4-7464:5
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.hmac_sha384_loop
@@ -107134,7 +109202,7 @@ def hashtrinity.crypto.hmac_sha384_loop
     (iter, ipad, opad)
 
 /-- [apeiron_word::hashtrinity::crypto::hmac_sha384]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7353:0-7374:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7451:0-7472:1
     Visibility: public -/
 def hashtrinity.crypto.hmac_sha384
   (key : Slice Std.U8) (msg : Slice Std.U8) :
@@ -107180,7 +109248,7 @@ def hashtrinity.crypto.hmac_sha384
   hashtrinity.crypto.Sha512.finalize_384 outer1
 
 /-- [apeiron_word::hashtrinity::crypto::hkdf_sha384]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7051:4-7059:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7149:4-7157:5
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.hkdf_sha384_loop.body
@@ -107207,7 +109275,7 @@ def hashtrinity.crypto.hkdf_sha384_loop.body
   else ok (done out)
 
 /-- [apeiron_word::hashtrinity::crypto::hkdf_sha384]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7051:4-7059:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7149:4-7157:5
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.hkdf_sha384_loop
@@ -107221,7 +109289,7 @@ def hashtrinity.crypto.hkdf_sha384_loop
     (out, t, i)
 
 /-- [apeiron_word::hashtrinity::crypto::hkdf_sha384]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7048:0-7062:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7146:0-7160:1
     Visibility: public -/
 def hashtrinity.crypto.hkdf_sha384
   (salt : Slice Std.U8) (ikm : Slice Std.U8) (info : Slice Std.U8)
@@ -107242,7 +109310,7 @@ def hashtrinity.crypto.hkdf_sha384
   alloc.vec.Vec.truncate Global out1 len
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::finalize]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7303:4-7307:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7401:4-7405:5
     Visibility: public -/
 def hashtrinity.crypto.Sha512.finalize
   (self : hashtrinity.crypto.Sha512) : Result (Array Std.U8 64#usize) := do
@@ -107254,7 +109322,7 @@ def hashtrinity.crypto.Sha512.finalize
   ok (to_slice_mut_back s2)
 
 /-- [apeiron_word::hashtrinity::crypto::H512]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7082:0-7091:2 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7180:0-7189:2 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.H512 : Array Std.U64 8#usize :=
   Array.make 8#usize [
@@ -107264,14 +109332,14 @@ def hashtrinity.crypto.H512 : Array Std.U64 8#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::{apeiron_word::hashtrinity::crypto::Sha512}::new]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7247:4-7254:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7345:4-7352:5
     Visibility: public -/
 def hashtrinity.crypto.Sha512.new : Result hashtrinity.crypto.Sha512 := do
   let a := Array.repeat 128#usize 0#u8
   ok { h := hashtrinity.crypto.H512, buf := a, n := 0#usize, total := 0#u128 }
 
 /-- [apeiron_word::hashtrinity::crypto::sha512]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7316:0-7320:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7414:0-7418:1
     Visibility: public -/
 def hashtrinity.crypto.sha512
   (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
@@ -107280,7 +109348,7 @@ def hashtrinity.crypto.sha512
   hashtrinity.crypto.Sha512.finalize s1
 
 /-- [apeiron_word::hashtrinity::crypto::hmac_sha512]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7339:4-7342:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7437:4-7440:5
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.hmac_sha512_loop.body
@@ -107303,7 +109371,7 @@ def hashtrinity.crypto.hmac_sha512_loop.body
     ok (cont (iter1, a, a1))
 
 /-- [apeiron_word::hashtrinity::crypto::hmac_sha512]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7339:4-7342:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7437:4-7440:5
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.hmac_sha512_loop
@@ -107317,7 +109385,7 @@ def hashtrinity.crypto.hmac_sha512_loop
     (iter, ipad, opad)
 
 /-- [apeiron_word::hashtrinity::crypto::hmac_sha512]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7329:0-7350:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7427:0-7448:1
     Visibility: public -/
 def hashtrinity.crypto.hmac_sha512
   (key : Slice Std.U8) (msg : Slice Std.U8) :
@@ -107363,7 +109431,7 @@ def hashtrinity.crypto.hmac_sha512
   hashtrinity.crypto.Sha512.finalize outer1
 
 /-- [apeiron_word::hashtrinity::crypto::hkdf_sha512]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7067:4-7075:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7165:4-7173:5
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.hkdf_sha512_loop.body
@@ -107390,7 +109458,7 @@ def hashtrinity.crypto.hkdf_sha512_loop.body
   else ok (done out)
 
 /-- [apeiron_word::hashtrinity::crypto::hkdf_sha512]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7067:4-7075:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7165:4-7173:5
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.hkdf_sha512_loop
@@ -107404,7 +109472,7 @@ def hashtrinity.crypto.hkdf_sha512_loop
     (out, t, i)
 
 /-- [apeiron_word::hashtrinity::crypto::hkdf_sha512]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7064:0-7078:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7162:0-7176:1
     Visibility: public -/
 def hashtrinity.crypto.hkdf_sha512
   (salt : Slice Std.U8) (ikm : Slice Std.U8) (info : Slice Std.U8)
@@ -107425,7 +109493,7 @@ def hashtrinity.crypto.hkdf_sha512
   alloc.vec.Vec.truncate Global out1 len
 
 /-- [apeiron_word::hashtrinity::crypto::MD5_INIT]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7382:0-7382:80 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7480:0-7480:80 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.MD5_INIT : Array Std.U32 4#usize :=
   Array.make 4#usize [
@@ -107433,7 +109501,7 @@ def hashtrinity.crypto.MD5_INIT : Array Std.U32 4#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::MD5_K]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7383:0-7448:2 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7481:0-7546:2 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.MD5_K : Array Std.U32 64#usize :=
   Array.make 64#usize [
@@ -107456,7 +109524,7 @@ def hashtrinity.crypto.MD5_K : Array Std.U32 64#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::MD5_S]
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7449:0-7453:2 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7547:0-7551:2 -/
 @[global_simps, irreducible]
 def hashtrinity.crypto.MD5_S : Array Std.U32 64#usize :=
   Array.make 64#usize [
@@ -107470,7 +109538,7 @@ def hashtrinity.crypto.MD5_S : Array Std.U32 64#usize :=
     ]
 
 /-- [apeiron_word::hashtrinity::crypto::compress_md5]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7457:4-7459:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7555:4-7557:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.compress_md5_loop0.body
   (blk : Slice Std.U8) (iter : core.ops.range.Range Std.Usize)
@@ -107497,7 +109565,7 @@ def hashtrinity.crypto.compress_md5_loop0.body
     ok (cont (iter1, a))
 
 /-- [apeiron_word::hashtrinity::crypto::compress_md5]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7457:4-7459:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7555:4-7557:5 -/
 @[rust_loop]
 def hashtrinity.crypto.compress_md5_loop0
   (iter : core.ops.range.Range Std.Usize) (blk : Slice Std.U8)
@@ -107510,7 +109578,7 @@ def hashtrinity.crypto.compress_md5_loop0
     (iter, m)
 
 /-- [apeiron_word::hashtrinity::crypto::compress_md5]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7461:4-7473:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7559:4-7571:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.compress_md5_loop1.body
   (m : Array Std.U32 16#usize) (iter : core.ops.range.Range Std.Usize)
@@ -107697,7 +109765,7 @@ def hashtrinity.crypto.compress_md5_loop1.body
     ok (cont (iter2, d, b1, b, c))
 
 /-- [apeiron_word::hashtrinity::crypto::compress_md5]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7461:4-7473:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7559:4-7571:5 -/
 @[rust_loop]
 def hashtrinity.crypto.compress_md5_loop1
   (iter : core.ops.range.Range Std.Usize) (m : Array Std.U32 16#usize)
@@ -107710,7 +109778,7 @@ def hashtrinity.crypto.compress_md5_loop1
     (iter, a, b, c, d)
 
 /-- [apeiron_word::hashtrinity::crypto::compress_md5]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7455:0-7479:1 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7553:0-7577:1 -/
 def hashtrinity.crypto.compress_md5
   (h : Array Std.U32 4#usize) (blk : Slice Std.U8) :
   Result (Array Std.U32 4#usize)
@@ -107740,7 +109808,7 @@ def hashtrinity.crypto.compress_md5
   Array.update h3 3#usize i7
 
 /-- [apeiron_word::hashtrinity::crypto::pad64_le]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7485:4-7487:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7583:4-7585:5 -/
 @[rust_loop_body]
 def hashtrinity.crypto.pad64_le_loop.body
   (m : alloc.vec.Vec Std.U8) :
@@ -107754,7 +109822,7 @@ def hashtrinity.crypto.pad64_le_loop.body
   else ok (done m)
 
 /-- [apeiron_word::hashtrinity::crypto::pad64_le]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7485:4-7487:5 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7583:4-7585:5 -/
 @[rust_loop]
 def hashtrinity.crypto.pad64_le_loop
   (m : alloc.vec.Vec Std.U8) : Result (alloc.vec.Vec Std.U8) := do
@@ -107763,7 +109831,7 @@ def hashtrinity.crypto.pad64_le_loop
     m
 
 /-- [apeiron_word::hashtrinity::crypto::pad64_le]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7481:0-7490:1 -/
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7579:0-7588:1 -/
 def hashtrinity.crypto.pad64_le
   (msg : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
   let m ← alloc.slice.Slice.to_vec core.clone.CloneU8 msg
@@ -107777,7 +109845,7 @@ def hashtrinity.crypto.pad64_le
   alloc.vec.Vec.extend_from_slice core.clone.CloneU8 m2 s
 
 /-- [apeiron_word::hashtrinity::crypto::md5]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7499:4-7502:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7597:4-7600:5
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.md5_loop0.body
@@ -107797,7 +109865,7 @@ def hashtrinity.crypto.md5_loop0.body
   else ok (done h)
 
 /-- [apeiron_word::hashtrinity::crypto::md5]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7499:4-7502:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7597:4-7600:5
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.md5_loop0
@@ -107809,7 +109877,7 @@ def hashtrinity.crypto.md5_loop0
     (h, i)
 
 /-- [apeiron_word::hashtrinity::crypto::md5]: loop body 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7504:4-7506:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7602:4-7604:5
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.md5_loop1.body
@@ -107837,7 +109905,7 @@ def hashtrinity.crypto.md5_loop1.body
     ok (cont (iter1, o2))
 
 /-- [apeiron_word::hashtrinity::crypto::md5]: loop 1:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7504:4-7506:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7602:4-7604:5
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.md5_loop1
@@ -107850,7 +109918,7 @@ def hashtrinity.crypto.md5_loop1
     (iter, o)
 
 /-- [apeiron_word::hashtrinity::crypto::md5]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7493:0-7508:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7591:0-7606:1
     Visibility: public -/
 def hashtrinity.crypto.md5
   (msg : Slice Std.U8) : Result (Array Std.U8 16#usize) := do
@@ -107860,7 +109928,7 @@ def hashtrinity.crypto.md5
   hashtrinity.crypto.md5_loop1 { start := 0#usize, «end» := 4#usize } h o
 
 /-- [apeiron_word::hashtrinity::crypto::ct_eq]: loop body 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7523:4-7525:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7621:4-7623:5
     Visibility: public -/
 @[rust_loop_body]
 def hashtrinity.crypto.ct_eq_loop.body
@@ -107880,7 +109948,7 @@ def hashtrinity.crypto.ct_eq_loop.body
     ok (cont (iter1, d1))
 
 /-- [apeiron_word::hashtrinity::crypto::ct_eq]: loop 0:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7523:4-7525:5
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7621:4-7623:5
     Visibility: public -/
 @[rust_loop]
 def hashtrinity.crypto.ct_eq_loop
@@ -107893,7 +109961,7 @@ def hashtrinity.crypto.ct_eq_loop
     (iter, d)
 
 /-- [apeiron_word::hashtrinity::crypto::ct_eq]:
-    Source: '../../src/map/hashtrinity/crypto.rs', lines 7518:0-7527:1
+    Source: '../../src/map/hashtrinity/crypto.rs', lines 7616:0-7625:1
     Visibility: public -/
 def hashtrinity.crypto.ct_eq
   (a : Slice Std.U8) (b : Slice Std.U8) : Result Bool := do
@@ -126161,6 +128229,328 @@ def crypto_port.word_crypto_bech32_convert_bits
   Result (Option (alloc.vec.Vec Std.U8))
   := do
   hashtrinity.crypto.bech32.convert_bits data «from» «to» pad
+
+/-- [apeiron_word::crypto_port::word_crypto2_bn_from_u64]:
+    Source: 'ports/crypto_port.rs', lines 170:0-172:1
+    Visibility: public -/
+def crypto_port.word_crypto2_bn_from_u64
+  (x : Std.U64) : Result (alloc.vec.Vec Std.U64) := do
+  hashtrinity.crypto.rsa.bn_from_u64 x
+
+/-- [apeiron_word::crypto_port::word_crypto2_bn_is_zero]:
+    Source: 'ports/crypto_port.rs', lines 175:0-177:1
+    Visibility: public -/
+def crypto_port.word_crypto2_bn_is_zero
+  (a : alloc.vec.Vec Std.U64) : Result Bool := do
+  hashtrinity.crypto.rsa.bn_is_zero a
+
+/-- [apeiron_word::crypto_port::word_crypto2_bn_is_even]:
+    Source: 'ports/crypto_port.rs', lines 180:0-182:1
+    Visibility: public -/
+def crypto_port.word_crypto2_bn_is_even
+  (a : alloc.vec.Vec Std.U64) : Result Bool := do
+  hashtrinity.crypto.rsa.bn_is_even a
+
+/-- [apeiron_word::crypto_port::word_crypto2_bn_add]:
+    Source: 'ports/crypto_port.rs', lines 185:0-187:1
+    Visibility: public -/
+def crypto_port.word_crypto2_bn_add
+  (a : alloc.vec.Vec Std.U64) (b : alloc.vec.Vec Std.U64) :
+  Result (alloc.vec.Vec Std.U64)
+  := do
+  hashtrinity.crypto.rsa.bn_add a b
+
+/-- [apeiron_word::crypto_port::word_crypto2_bn_shr1]:
+    Source: 'ports/crypto_port.rs', lines 190:0-192:1
+    Visibility: public -/
+def crypto_port.word_crypto2_bn_shr1
+  (a : alloc.vec.Vec Std.U64) : Result (alloc.vec.Vec Std.U64) := do
+  hashtrinity.crypto.rsa.bn_shr1 a
+
+/-- [apeiron_word::crypto_port::word_crypto2_bn_sub1]:
+    Source: 'ports/crypto_port.rs', lines 195:0-197:1
+    Visibility: public -/
+def crypto_port.word_crypto2_bn_sub1
+  (a : alloc.vec.Vec Std.U64) : Result (alloc.vec.Vec Std.U64) := do
+  hashtrinity.crypto.rsa.bn_sub1 a
+
+/-- [apeiron_word::crypto_port::word_crypto2_bn_divmod]:
+    Source: 'ports/crypto_port.rs', lines 200:0-202:1
+    Visibility: public -/
+def crypto_port.word_crypto2_bn_divmod
+  (x : alloc.vec.Vec Std.U64) (m : alloc.vec.Vec Std.U64) :
+  Result ((alloc.vec.Vec Std.U64) × (alloc.vec.Vec Std.U64))
+  := do
+  hashtrinity.crypto.rsa.bn_divmod x m
+
+/-- [apeiron_word::crypto_port::word_crypto2_bn_modexp_big]:
+    Source: 'ports/crypto_port.rs', lines 205:0-207:1
+    Visibility: public -/
+def crypto_port.word_crypto2_bn_modexp_big
+  (base : alloc.vec.Vec Std.U64) (e : alloc.vec.Vec Std.U64)
+  (m : alloc.vec.Vec Std.U64) :
+  Result (alloc.vec.Vec Std.U64)
+  := do
+  hashtrinity.crypto.rsa.bn_modexp_big base e m
+
+/-- [apeiron_word::crypto_port::word_crypto2_mod_inverse]:
+    Source: 'ports/crypto_port.rs', lines 210:0-212:1
+    Visibility: public -/
+def crypto_port.word_crypto2_mod_inverse
+  (e : Std.U64) (phi : alloc.vec.Vec Std.U64) :
+  Result (Option (alloc.vec.Vec Std.U64))
+  := do
+  hashtrinity.crypto.rsa.mod_inverse e phi
+
+/-- [apeiron_word::crypto_port::word_crypto2_bitlen]:
+    Source: 'ports/crypto_port.rs', lines 215:0-217:1
+    Visibility: public -/
+def crypto_port.word_crypto2_bitlen
+  (n_be : Slice Std.U8) : Result Std.Usize := do
+  hashtrinity.crypto.rsa.bitlen n_be
+
+/-- [apeiron_word::crypto_port::word_crypto2_mgf1]:
+    Source: 'ports/crypto_port.rs', lines 220:0-222:1
+    Visibility: public -/
+def crypto_port.word_crypto2_mgf1
+  (seed : Slice Std.U8) (len : Std.Usize) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.rsa.mgf1 seed len
+
+/-- [apeiron_word::crypto_port::word_crypto2_emsa_pss_encode]:
+    Source: 'ports/crypto_port.rs', lines 225:0-227:1
+    Visibility: public -/
+def crypto_port.word_crypto2_emsa_pss_encode
+  (m_hash : Array Std.U8 32#usize) (em_bits : Std.Usize) (salt : Slice Std.U8)
+  :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.rsa.emsa_pss_encode m_hash em_bits salt
+
+/-- [apeiron_word::crypto_port::word_crypto2_rsa_pkcs1_sign_generic]:
+    Source: 'ports/crypto_port.rs', lines 230:0-237:1
+    Visibility: public -/
+def crypto_port.word_crypto2_rsa_pkcs1_sign_generic
+  (n_be : Slice Std.U8) (d_be : Slice Std.U8) (di : Slice Std.U8)
+  (hash : Slice Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.rsa.rsa_pkcs1_sign_generic n_be d_be di hash
+
+/-- [apeiron_word::crypto_port::word_crypto2_rsa_pkcs1_sha384_verify]:
+    Source: 'ports/crypto_port.rs', lines 240:0-247:1
+    Visibility: public -/
+def crypto_port.word_crypto2_rsa_pkcs1_sha384_verify
+  (n_be : Slice Std.U8) (e : Std.U64) (sig_be : Slice Std.U8)
+  (msg_hash : Array Std.U8 48#usize) :
+  Result Bool
+  := do
+  hashtrinity.crypto.rsa.rsa_pkcs1_sha384_verify n_be e sig_be msg_hash
+
+/-- [apeiron_word::crypto_port::word_crypto2_rsa_pkcs1_sha512_verify]:
+    Source: 'ports/crypto_port.rs', lines 250:0-257:1
+    Visibility: public -/
+def crypto_port.word_crypto2_rsa_pkcs1_sha512_verify
+  (n_be : Slice Std.U8) (e : Std.U64) (sig_be : Slice Std.U8)
+  (msg_hash : Array Std.U8 64#usize) :
+  Result Bool
+  := do
+  hashtrinity.crypto.rsa.rsa_pkcs1_sha512_verify n_be e sig_be msg_hash
+
+/-- [apeiron_word::crypto_port::word_crypto2_rsa_pkcs1_sha256_sign]:
+    Source: 'ports/crypto_port.rs', lines 260:0-266:1
+    Visibility: public -/
+def crypto_port.word_crypto2_rsa_pkcs1_sha256_sign
+  (n_be : Slice Std.U8) (d_be : Slice Std.U8)
+  (msg_hash : Array Std.U8 32#usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.rsa.rsa_pkcs1_sha256_sign n_be d_be msg_hash
+
+/-- [apeiron_word::crypto_port::word_crypto2_rsa_pkcs1_sha384_sign]:
+    Source: 'ports/crypto_port.rs', lines 269:0-275:1
+    Visibility: public -/
+def crypto_port.word_crypto2_rsa_pkcs1_sha384_sign
+  (n_be : Slice Std.U8) (d_be : Slice Std.U8)
+  (msg_hash : Array Std.U8 48#usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.rsa.rsa_pkcs1_sha384_sign n_be d_be msg_hash
+
+/-- [apeiron_word::crypto_port::word_crypto2_rsa_pkcs1_sha512_sign]:
+    Source: 'ports/crypto_port.rs', lines 278:0-284:1
+    Visibility: public -/
+def crypto_port.word_crypto2_rsa_pkcs1_sha512_sign
+  (n_be : Slice Std.U8) (d_be : Slice Std.U8)
+  (msg_hash : Array Std.U8 64#usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.rsa.rsa_pkcs1_sha512_sign n_be d_be msg_hash
+
+/-- [apeiron_word::crypto_port::word_crypto2_rsa_pss_sha256_sign]:
+    Source: 'ports/crypto_port.rs', lines 287:0-294:1
+    Visibility: public -/
+def crypto_port.word_crypto2_rsa_pss_sha256_sign
+  (n_be : Slice Std.U8) (d_be : Slice Std.U8) (m_hash : Array Std.U8 32#usize)
+  (salt : Slice Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.rsa.rsa_pss_sha256_sign n_be d_be m_hash salt
+
+/-- [apeiron_word::crypto_port::word_crypto2_rsa_pss_sha256_verify]:
+    Source: 'ports/crypto_port.rs', lines 297:0-305:1
+    Visibility: public -/
+def crypto_port.word_crypto2_rsa_pss_sha256_verify
+  (n_be : Slice Std.U8) (e : Std.U64) (sig_be : Slice Std.U8)
+  (m_hash : Array Std.U8 32#usize) (s_len : Std.Usize) :
+  Result Bool
+  := do
+  hashtrinity.crypto.rsa.rsa_pss_sha256_verify n_be e sig_be m_hash s_len
+
+/-- [apeiron_word::crypto_port::word_crypto2_rsa_algid]:
+    Source: 'ports/crypto_port.rs', lines 308:0-310:1
+    Visibility: public -/
+def crypto_port.word_crypto2_rsa_algid : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.rsa.rsa_algid
+
+/-- [apeiron_word::crypto_port::word_crypto2_trim_int]:
+    Source: 'ports/crypto_port.rs', lines 313:0-315:1
+    Visibility: public -/
+def crypto_port.word_crypto2_trim_int
+  (b : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.rsa.trim_int b
+
+/-- [apeiron_word::crypto_port::word_crypto2_rsa_to_pkcs8_der]:
+    Source: 'ports/crypto_port.rs', lines 318:0-320:1
+    Visibility: public -/
+def crypto_port.word_crypto2_rsa_to_pkcs8_der
+  (n_be : Slice Std.U8) (e : Std.U64) (d_be : Slice Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.rsa.rsa_to_pkcs8_der n_be e d_be
+
+/-- [apeiron_word::crypto_port::word_crypto2_rsa_from_pkcs8_der]:
+    Source: 'ports/crypto_port.rs', lines 323:0-325:1
+    Visibility: public -/
+def crypto_port.word_crypto2_rsa_from_pkcs8_der
+  (d : Slice Std.U8) :
+  Result (Option ((alloc.vec.Vec Std.U8) × Std.U64 × (alloc.vec.Vec Std.U8)))
+  := do
+  hashtrinity.crypto.rsa.rsa_from_pkcs8_der d
+
+/-- [apeiron_word::crypto_port::word_crypto2_der_len]:
+    Source: 'ports/crypto_port.rs', lines 330:0-332:1
+    Visibility: public -/
+def crypto_port.word_crypto2_der_len
+  (n : Std.Usize) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.der_len n
+
+/-- [apeiron_word::crypto_port::word_crypto2_der_tlv]:
+    Source: 'ports/crypto_port.rs', lines 335:0-337:1
+    Visibility: public -/
+def crypto_port.word_crypto2_der_tlv
+  (tag : Std.U8) (c : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.tlv tag c
+
+/-- [apeiron_word::crypto_port::word_crypto2_der_seq]:
+    Source: 'ports/crypto_port.rs', lines 340:0-342:1
+    Visibility: public -/
+def crypto_port.word_crypto2_der_seq
+  (items : Slice (alloc.vec.Vec Std.U8)) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.seq items
+
+/-- [apeiron_word::crypto_port::word_crypto2_der_set]:
+    Source: 'ports/crypto_port.rs', lines 345:0-347:1
+    Visibility: public -/
+def crypto_port.word_crypto2_der_set
+  (inner : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.set inner
+
+/-- [apeiron_word::crypto_port::word_crypto2_der_int]:
+    Source: 'ports/crypto_port.rs', lines 350:0-352:1
+    Visibility: public -/
+def crypto_port.word_crypto2_der_int
+  (mag : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.der_int mag
+
+/-- [apeiron_word::crypto_port::word_crypto2_der_oid]:
+    Source: 'ports/crypto_port.rs', lines 355:0-357:1
+    Visibility: public -/
+def crypto_port.word_crypto2_der_oid
+  (bytes : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.oid bytes
+
+/-- [apeiron_word::crypto_port::word_crypto2_der_bitstr]:
+    Source: 'ports/crypto_port.rs', lines 360:0-362:1
+    Visibility: public -/
+def crypto_port.word_crypto2_der_bitstr
+  (data : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.bitstr data
+
+/-- [apeiron_word::crypto_port::word_crypto2_der_ctx_explicit]:
+    Source: 'ports/crypto_port.rs', lines 365:0-367:1
+    Visibility: public -/
+def crypto_port.word_crypto2_der_ctx_explicit
+  (n : Std.U8) (inner : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.ctx_explicit n inner
+
+/-- [apeiron_word::crypto_port::word_crypto2_der_algid_ed25519]:
+    Source: 'ports/crypto_port.rs', lines 370:0-372:1
+    Visibility: public -/
+def crypto_port.word_crypto2_der_algid_ed25519
+  : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.algid_ed25519
+
+/-- [apeiron_word::crypto_port::word_crypto2_der_name_cn]:
+    Source: 'ports/crypto_port.rs', lines 375:0-377:1
+    Visibility: public -/
+def crypto_port.word_crypto2_der_name_cn
+  (cn : Str) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.name_cn cn
+
+/-- [apeiron_word::crypto_port::word_crypto2_der_validity]:
+    Source: 'ports/crypto_port.rs', lines 380:0-382:1
+    Visibility: public -/
+def crypto_port.word_crypto2_der_validity : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.validity
+
+/-- [apeiron_word::crypto_port::word_crypto2_der_spki]:
+    Source: 'ports/crypto_port.rs', lines 385:0-387:1
+    Visibility: public -/
+def crypto_port.word_crypto2_der_spki
+  (pubkey : Array Std.U8 32#usize) : Result (alloc.vec.Vec Std.U8) := do
+  hashtrinity.crypto.certgen.spki pubkey
+
+/-- [apeiron_word::crypto_port::word_crypto2_x509_der_tlv]:
+    Source: 'ports/crypto_port.rs', lines 390:0-392:1
+    Visibility: public -/
+def crypto_port.word_crypto2_x509_der_tlv
+  (d : Slice Std.U8) (off : Std.Usize) :
+  Result (Option (Std.U8 × Std.Usize × Std.Usize × Std.Usize))
+  := do
+  hashtrinity.crypto.x509.der_tlv d off
+
+/-- [apeiron_word::crypto_port::word_crypto2_x509_der_children]:
+    Source: 'ports/crypto_port.rs', lines 395:0-397:1
+    Visibility: public -/
+def crypto_port.word_crypto2_x509_der_children
+  (d : Slice Std.U8) (cs : Std.Usize) (ce : Std.Usize) :
+  Result (alloc.vec.Vec (Std.U8 × Std.Usize × Std.Usize))
+  := do
+  hashtrinity.crypto.x509.der_children d cs ce
+
+/-- [apeiron_word::crypto_port::word_crypto2_age_b64d]:
+    Source: 'ports/crypto_port.rs', lines 402:0-404:1
+    Visibility: public -/
+def crypto_port.word_crypto2_age_b64d
+  (s : Str) : Result (Option (alloc.vec.Vec Std.U8)) := do
+  hashtrinity.crypto.age.b64d s
+
+/-- [apeiron_word::crypto_port::word_crypto2_jwt_b64url_decode]:
+    Source: 'ports/crypto_port.rs', lines 407:0-409:1
+    Visibility: public -/
+def crypto_port.word_crypto2_jwt_b64url_decode
+  (s : Str) : Result (Option (alloc.vec.Vec Std.U8)) := do
+  hashtrinity.crypto.jwt.b64url_decode s
 
 /-- [apeiron_word::fit_port::word_fit_steps_fwht_words]:
     Source: 'ports/fit_port.rs', lines 17:0-19:1
