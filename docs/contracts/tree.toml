@@ -391,6 +391,11 @@ row = "DEL-KERN-PROBES"
 
 [[debt]]
 rule = "max_lines"
+path = "src/engine/kern/limb.rs"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
 path = "proof/corpus/AxiomAudit.lean"
 row = "STRUCT-SPLIT"
 
