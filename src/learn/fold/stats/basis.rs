@@ -100,13 +100,20 @@ fn exp2(t: i64) -> Option<i64> {
     let k = t >> 32;
     let y = mul(t - (k << 32), LN2_Q32)?;
     let e = fixed_exp(y).ok()?;
+    // The shift amounts are range-checked here rather than through `I128::checked_shl`, which the
+    // model does not carry; `<<` discards the value bits exactly as the checked shift did.
     if k >= 0 {
-        narrow(i128::from(e).checked_shl(u32::try_from(k).ok()?)?)
+        let s = u32::try_from(k).ok()?;
+        if s >= 128 {
+            return None;
+        }
+        narrow(i128::from(e) << s)
     } else {
-        narrow(rshift_rne(
-            i128::from(e),
-            u32::try_from(k.unsigned_abs()).ok()?,
-        )?)
+        let mag = k.unsigned_abs();
+        if mag > 126 {
+            return None;
+        }
+        narrow(rshift_rne(i128::from(e), mag as u32)?)
     }
 }
 
@@ -250,9 +257,12 @@ pub fn damped_gram(h: &[i64], n: usize) -> Result<Vec<i64>, BasisError> {
     for i in 0..n {
         sum += i128::from(out[i * n + i]);
     }
-    let mean = div_rne(sum, i128::try_from(n).map_err(|_| BasisError::Overflow)?)
-        .and_then(narrow)
-        .ok_or(BasisError::Overflow)?;
+    let mean = div_rne(
+        sum,
+        i128::from(u64::try_from(n).map_err(|_| BasisError::Overflow)?),
+    )
+    .and_then(narrow)
+    .ok_or(BasisError::Overflow)?;
     if mean <= 0 {
         return Err(BasisError::Shape(format!(
             "mean(diag H) word {mean} is not positive"
@@ -288,18 +298,34 @@ pub fn hadamard_basis(n: usize) -> Result<Vec<i64>, BasisError> {
     let blocks = expect_blocks(n)?;
     let mut q = vec![0_i64; square(n, n)?];
     let mut e = vec![0_i64; GROUP];
+    // Flag form: the fragment carries no early return inside a nested loop and no `Slice::fill`.
+    // The first refusing transform is kept and returned after the loop, in the original order.
+    let mut failed: Option<BasisError> = None;
     for b in 0..blocks {
         let off = b * GROUP;
         for j in 0..GROUP {
-            e.fill(0);
-            e[j] = ONE;
-            fwht_words(&mut e).map_err(|err| BasisError::Shape(format!("fwht: {err:?}")))?;
             for i in 0..GROUP {
-                q[(off + i) * n + off + j] = e[i];
+                e[i] = 0;
+            }
+            e[j] = ONE;
+            match fwht_words(&mut e) {
+                Ok(()) => {
+                    for i in 0..GROUP {
+                        q[(off + i) * n + off + j] = e[i];
+                    }
+                }
+                Err(err) => {
+                    if failed.is_none() {
+                        failed = Some(BasisError::Shape(format!("fwht: {err:?}")));
+                    }
+                }
             }
         }
     }
-    Ok(q)
+    match failed {
+        Some(err) => Err(err),
+        None => Ok(q),
+    }
 }
 
 /// Every entry of `q` outside a [`GROUP`]×[`GROUP`] diagonal block is zero.
@@ -487,7 +513,12 @@ pub fn sum_log_column_energies(c: &[i64]) -> i64 {
     let mut acc: i128 = 0;
     for &word in c {
         let word = if word > 0 { word } else { 1 };
-        acc += i128::from(fixed_ln(word).unwrap_or(LN2_Q32 * -32));
+        // The `Result` is matched here: `Result::unwrap_or` is not in the model's boundary.
+        let l = match fixed_ln(word) {
+            Ok(v) => v,
+            Err(_) => LN2_Q32 * -32,
+        };
+        acc += i128::from(l);
     }
     narrow(acc).unwrap_or(i64::MAX)
 }
@@ -738,6 +769,25 @@ pub enum Density {
     Oracle,
 }
 
+/// `σ²_ij = r_i·c_j/m` as a word, zero when the total energy `m` is zero; `O(1)`.
+fn separable_word(r: i64, c: i64, m: i64) -> Result<i64, BasisError> {
+    if m == 0 {
+        return Ok(0);
+    }
+    div_rne(i128::from(r) * i128::from(c), i128::from(m))
+        .and_then(narrow)
+        .ok_or(BasisError::OutOfRange)
+}
+
+/// One `TILE × TILE` tile mean of `Σ B²`: `narrow(div_rne(sum, count·2³²))`, zero for an empty
+/// tile; `O(1)`.
+fn tile_mean(sum: i128, count: i128) -> Result<i64, BasisError> {
+    if count <= 0 {
+        return Ok(0);
+    }
+    narrow(div_rne(sum, count << 32).ok_or(BasisError::OutOfRange)?).ok_or(BasisError::OutOfRange)
+}
+
 impl Density {
     /// The model's own side-information charge in bits, as a `Q32.32` word, counting rows/columns
     /// or tiles for the whole `O × n` coefficient matrix. `O(1)`.
@@ -759,29 +809,23 @@ impl Density {
     fn sigma_words(self, b: &[i64], o: usize, n: usize) -> Result<Vec<i64>, BasisError> {
         let len = expect(b.len(), o, n, "B")?;
         let mut out = vec![0_i64; len];
+        // One flat index pass per arm: the fragment carries no `?` inside a nested loop and no
+        // `Iterator::zip`, so the separable and tile maps call a helper at the loop's own depth.
         match self {
             Density::Oracle => {
-                for (slot, &v) in out.iter_mut().zip(b) {
-                    *slot = mul(v, v).ok_or(BasisError::OutOfRange)?;
+                for k in 0..len {
+                    out[k] = mul(b[k], b[k]).ok_or(BasisError::OutOfRange)?;
                 }
             }
             Density::Separable => {
                 let (r, c) = (energy_words(b, o, n, 0)?, energy_words(b, o, n, 1)?);
                 let mut total: i128 = 0;
-                for &v in &r {
-                    total += i128::from(v);
+                for k in 0..r.len() {
+                    total += i128::from(r[k]);
                 }
                 let m = narrow(total).ok_or(BasisError::OutOfRange)?;
-                for i in 0..o {
-                    for j in 0..n {
-                        out[i * n + j] = if m == 0 {
-                            0
-                        } else {
-                            div_rne(i128::from(r[i]) * i128::from(c[j]), i128::from(m))
-                                .and_then(narrow)
-                                .ok_or(BasisError::OutOfRange)?
-                        };
-                    }
+                for k in 0..len {
+                    out[k] = separable_word(r[k / n], c[k % n], m)?;
                 }
             }
             Density::Tile => {
@@ -798,12 +842,7 @@ impl Density {
                 }
                 let mut means = vec![0_i64; sums.len()];
                 for k in 0..sums.len() {
-                    if counts[k] > 0 {
-                        means[k] = narrow(
-                            div_rne(sums[k], counts[k] << 32).ok_or(BasisError::OutOfRange)?,
-                        )
-                        .ok_or(BasisError::OutOfRange)?;
-                    }
+                    means[k] = tile_mean(sums[k], counts[k])?;
                 }
                 for i in 0..o {
                     for j in 0..n {
@@ -853,19 +892,29 @@ fn distortion_words(lambda: &[i64], theta: i64) -> Result<i64, BasisError> {
 /// Costs `O(N·S)` time with `S` the fixed `log₂` series, and `O(1)` space.
 fn rate_words(lambda: &[i64], theta: i64) -> Result<i64, BasisError> {
     if theta <= 0 {
-        return Ok(if lambda.iter().any(|&l| l > 0) {
-            i64::MAX
-        } else {
-            0
-        });
+        // Flag form: `Iterator::any` is not in the model and a `?`/`continue` inside the loop is
+        // outside the fragment.
+        let mut any = false;
+        for &l in lambda {
+            if l > 0 {
+                any = true;
+            }
+        }
+        return Ok(if any { i64::MAX } else { 0 });
     }
     let t = log2(theta).ok_or(BasisError::OutOfRange)?;
     let mut acc: i128 = 0;
+    let mut failed = false;
     for &l in lambda {
-        if l > theta {
-            let li = log2(l).ok_or(BasisError::OutOfRange)?;
-            acc += i128::from(li.checked_sub(t).ok_or(BasisError::OutOfRange)?);
+        if !failed && l > theta {
+            match log2(l).and_then(|li| li.checked_sub(t)) {
+                Some(d) => acc += i128::from(d),
+                None => failed = true,
+            }
         }
+    }
+    if failed {
+        return Err(BasisError::OutOfRange);
     }
     narrow(acc >> 1).ok_or(BasisError::OutOfRange)
 }
@@ -878,18 +927,29 @@ fn rate_words(lambda: &[i64], theta: i64) -> Result<i64, BasisError> {
 fn water_fill_words(lambda: &[i64], budget: i64, side: i64) -> Result<WaterFill, BasisError> {
     let target = budget.checked_sub(side).ok_or(BasisError::OutOfRange)?;
     let ncoef = i64::try_from(lambda.len()).map_err(|_| BasisError::Overflow)?;
-    let (mut max, mut min_pos) = (0_i64, i64::MAX);
-    let mut logs = Vec::with_capacity(lambda.len());
-    for &l in lambda {
-        max = max.max(l);
+    let mut max = 0_i64;
+    let mut min_pos = i64::MAX;
+    let mut logs = vec![0_i64; lambda.len()];
+    // Flag form: the fragment carries no `?` inside a loop body, and `Ord::max` is written out as
+    // the comparison it is. The first refused log stops the pass, as the early return did.
+    let mut err: Option<BasisError> = None;
+    for k in 0..lambda.len() {
+        let l = lambda[k];
+        if l > max {
+            max = l;
+        }
         if l > 0 && l < min_pos {
             min_pos = l;
         }
-        logs.push(if l > 0 {
-            log2(l).ok_or(BasisError::OutOfRange)?
-        } else {
-            i64::MIN
-        });
+        if err.is_none() {
+            match water_log(l) {
+                Ok(t) => logs[k] = t,
+                Err(e) => err = Some(e),
+            }
+        }
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     if lambda.is_empty() || max <= 0 {
         return Ok(WaterFill {
@@ -899,8 +959,8 @@ fn water_fill_words(lambda: &[i64], budget: i64, side: i64) -> Result<WaterFill,
         });
     }
     let mut sum_lambda: i128 = 0;
-    for &l in lambda {
-        sum_lambda += i128::from(l);
+    for k in 0..lambda.len() {
+        sum_lambda += i128::from(lambda[k]);
     }
     if target <= 0 {
         return Ok(WaterFill {
@@ -909,44 +969,79 @@ fn water_fill_words(lambda: &[i64], budget: i64, side: i64) -> Result<WaterFill,
             rate: 0,
         });
     }
-    // R(t) from the precomputed logs: ½·Σ max(0, log₂ λ_i − t).
-    let rate_at_t = |t: i64| -> Option<i64> {
-        let mut acc: i128 = 0;
-        for &l in &logs {
-            if l != i64::MIN && l > t {
-                acc += i128::from(l.checked_sub(t)?);
-            }
-        }
-        narrow(acc >> 1)
-    };
     let mut t_hi = log2(max)
         .and_then(|v| v.checked_add(ONE))
         .ok_or(BasisError::OutOfRange)?;
     let mut t_lo = log2(min_pos)
         .and_then(|v| v.checked_sub(ONE))
         .ok_or(BasisError::OutOfRange)?;
+    // Flag form for both bisections: a `break`/`?` inside the body is outside the fragment, so each
+    // loop carries its exit and the first refusal out and returns them once after the loop.
     let mut gap = ONE;
+    let mut err: Option<BasisError> = None;
+    let mut walked = false;
     for _ in 0..BISECTION_ITERS {
-        if rate_at_t(t_lo).ok_or(BasisError::OutOfRange)? >= target {
-            break;
+        if !walked && err.is_none() {
+            match rate_at_logs(&logs, t_lo) {
+                Ok(r) => {
+                    if r >= target {
+                        walked = true;
+                    } else {
+                        match t_lo.checked_sub(gap) {
+                            Some(lo) => t_lo = lo,
+                            None => err = Some(BasisError::OutOfRange),
+                        }
+                        match gap.checked_mul(2) {
+                            Some(g) => gap = g,
+                            None => err = Some(BasisError::OutOfRange),
+                        }
+                    }
+                }
+                Err(e) => err = Some(e),
+            }
         }
-        t_lo = t_lo.checked_sub(gap).ok_or(BasisError::OutOfRange)?;
-        gap = gap.checked_mul(2).ok_or(BasisError::OutOfRange)?;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     let tol = RATE_TOL_Q.checked_mul(ncoef).ok_or(BasisError::Overflow)?;
     let mut t = t_hi;
+    let mut err = None;
+    let mut done = false;
     for _ in 0..BISECTION_ITERS {
-        t = narrow(i128::midpoint(i128::from(t_lo), i128::from(t_hi)))
-            .ok_or(BasisError::OutOfRange)?;
-        let r = rate_at_t(t).ok_or(BasisError::OutOfRange)?;
-        if r.checked_sub(target).ok_or(BasisError::OutOfRange)?.abs() <= tol {
-            break;
+        if !done && err.is_none() {
+            // `i128::midpoint` truncates toward zero and is not in the model; the floor shift plus
+            // the odd negative correction is that same average, exact for either sign.
+            let sum = i128::from(t_lo) + i128::from(t_hi);
+            let mid = if sum < 0 && (sum & 1) != 0 {
+                (sum >> 1) + 1
+            } else {
+                sum >> 1
+            };
+            match narrow(mid) {
+                Some(mid) => {
+                    t = mid;
+                    match rate_at_logs(&logs, t) {
+                        Ok(r) => match converged(r, target, tol) {
+                            Ok(true) => done = true,
+                            Ok(false) => {
+                                if r > target {
+                                    t_lo = t;
+                                } else {
+                                    t_hi = t;
+                                }
+                            }
+                            Err(e) => err = Some(e),
+                        },
+                        Err(e) => err = Some(e),
+                    }
+                }
+                None => err = Some(BasisError::OutOfRange),
+            }
         }
-        if r > target {
-            t_lo = t;
-        } else {
-            t_hi = t;
-        }
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     let theta = exp2(t).ok_or(BasisError::OutOfRange)?;
     Ok(WaterFill {
@@ -954,6 +1049,48 @@ fn water_fill_words(lambda: &[i64], budget: i64, side: i64) -> Result<WaterFill,
         distortion: distortion_words(lambda, theta)?,
         rate: rate_words(lambda, theta)?,
     })
+}
+
+/// `log₂ λ` in the water-filling log domain; a non-positive `λ` carries `i64::MIN`, contributing to
+/// neither bracket. `O(1)`.
+fn water_log(l: i64) -> Result<i64, BasisError> {
+    if l > 0 {
+        log2(l).ok_or(BasisError::OutOfRange)
+    } else {
+        Ok(i64::MIN)
+    }
+}
+
+/// `R(t) = ½·Σ max(0, log₂ λ_i − t)` from the precomputed logs: ½ of the exact sum of the positive
+/// differences, rounded once. `O(N)`; space `O(1)`.
+fn rate_at_logs(logs: &[i64], t: i64) -> Result<i64, BasisError> {
+    let mut acc: i128 = 0;
+    let mut failed = false;
+    for k in 0..logs.len() {
+        let l = logs[k];
+        if !failed && l != i64::MIN && l > t {
+            match l.checked_sub(t) {
+                Some(d) => acc += i128::from(d),
+                None => failed = true,
+            }
+        }
+    }
+    if failed {
+        return Err(BasisError::OutOfRange);
+    }
+    narrow(acc >> 1).ok_or(BasisError::OutOfRange)
+}
+
+/// `|r − target| ≤ tol`. A difference of `i64::MIN` is refused rather than reaching `abs`'s panic.
+fn converged(r: i64, target: i64, tol: i64) -> Result<bool, BasisError> {
+    let d = r.checked_sub(target).ok_or(BasisError::OutOfRange)?;
+    let mag = if d < 0 {
+        // `0 - d` rather than `checked_neg`, which the model does not carry.
+        0i64.checked_sub(d).ok_or(BasisError::OutOfRange)?
+    } else {
+        d
+    };
+    Ok(mag <= tol)
 }
 
 /// The reverse water-filling solution with `R(θ) + side_bits = budget_bits`, all in Q32.32 words; a
@@ -966,7 +1103,10 @@ pub fn solve_water_fill(lambda: &[i64], budget_bits: i64, side_bits: i64) -> Wat
         distortion: 0,
         rate: 0,
     };
-    water_fill_words(lambda, budget_bits, side_bits).unwrap_or(fallback)
+    match water_fill_words(lambda, budget_bits, side_bits) {
+        Ok(w) => w,
+        Err(_) => fallback,
+    }
 }
 
 /// `D(θ) = Σ min(λ, θ)`; `θ ≤ 0` gives zero. `O(N)` time, `O(1)` space.

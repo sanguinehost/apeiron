@@ -415,7 +415,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/fit/steps.rs"
-unextracted = 41
+unextracted = 39
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -460,7 +460,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/stats/basis.rs"
-unextracted = 48
+unextracted = 23
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -475,12 +475,12 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/stats/heldout.rs"
-unextracted = 13
+unextracted = 10
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/stats/hocapture.rs"
-unextracted = 43
+unextracted = 32
 row = "EXTRACT-COVERAGE"
 
 [[debt]]

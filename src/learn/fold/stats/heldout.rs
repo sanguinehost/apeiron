@@ -464,19 +464,30 @@ pub fn score_base_row(
     if target >= v {
         return Err(HeldOutError::Shape("base target past vocab".to_string()));
     }
-    let m = *z
-        .iter()
-        .max()
-        .ok_or_else(|| HeldOutError::Shape("empty".to_string()))?;
-    let mut sum: i128 = 0;
-    for &zi in z {
-        let u = i128::from(zi) - i128::from(m);
-        if u < FLUSH {
-            continue;
+    let mut m = z[0];
+    for &zk in z {
+        if zk > m {
+            m = zk;
         }
-        let e = fixed_exp(i64::try_from(u).map_err(|_| HeldOutError::Overflow)?)
-            .map_err(|_| HeldOutError::Overflow)?;
-        sum = add(sum, i128::from(e))?;
+    }
+    // Flat passes and flag forms: the fragment carries no `continue`, no `?` inside a nested block
+    // and no `Iterator::max`; `base_term` holds the flush edge and the two refusals.
+    let mut sum: i128 = 0;
+    let mut err: Option<HeldOutError> = None;
+    for &zk in z {
+        if err.is_none() {
+            let u = i128::from(zk) - i128::from(m);
+            match base_term(u) {
+                Ok(e) => match add(sum, i128::from(e)) {
+                    Ok(a) => sum = a,
+                    Err(x) => err = Some(x),
+                },
+                Err(x) => err = Some(x),
+            }
+        }
+    }
+    if let Some(x) = err {
+        return Err(x);
     }
     let s = i64::try_from(sum).map_err(|_| HeldOutError::Overflow)?;
     let ln_s = fixed_ln(s).map_err(|_| HeldOutError::Overflow)?;
@@ -486,20 +497,46 @@ pub fn score_base_row(
         .map_err(|_| HeldOutError::Overflow)?;
     let nll_base = 0i64.checked_sub(lp[target]).ok_or(HeldOutError::Overflow)?;
     let mut acc: i128 = 0;
+    let mut failed = false;
     for i in 0..v {
-        if i128::from(lp[i]) <= FLUSH {
-            continue;
+        if !failed && i128::from(lp[i]) > FLUSH {
+            let logp_s = i128::from(z[i]) - i128::from(lse);
+            match fixed_exp(lp[i]) {
+                Ok(p) => match add(acc, i128::from(p) * (i128::from(lp[i]) - logp_s)) {
+                    Ok(a) => acc = a,
+                    Err(_) => failed = true,
+                },
+                Err(_) => failed = true,
+            }
         }
-        let logp_s = i128::from(z[i]) - i128::from(lse);
-        let p = fixed_exp(lp[i]).map_err(|_| HeldOutError::Overflow)?;
-        acc = add(acc, i128::from(p) * (i128::from(lp[i]) - logp_s))?;
     }
+    if failed {
+        return Err(HeldOutError::Overflow);
+    }
+    // The two-`Option` comparison is written out: the model carries no `PartialEq` for `Option`.
+    let hit = match argmax(z) {
+        Some(i) => match base_argmax {
+            Some(j) => i == j,
+            None => false,
+        },
+        None => false,
+    };
     Ok(RowSums {
         kl: round_q32_even(acc).map_err(|_| HeldOutError::Overflow)?,
         nll_student,
         nll_base,
-        top1: u64::from(argmax(z) == base_argmax),
+        top1: u64::from(hit),
     })
+}
+
+/// `exp(z_i − m)` for one shifted Q32.32 logit, zero below the [`FLUSH`] edge. `O(1)`;
+/// [`HeldOutError::Overflow`] when the shifted word leaves `i64` or [`fixed_exp`] refuses.
+fn base_term(u: i128) -> Result<i64, HeldOutError> {
+    if u < FLUSH {
+        return Ok(0);
+    }
+    fixed_exp(i64::try_from(u).map_err(|_| HeldOutError::Overflow)?)
+        .map_err(|_| HeldOutError::Overflow)
 }
 
 /// Score one chunk of a llama.cpp `--kl-divergence-base` file against the student engine.

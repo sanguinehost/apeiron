@@ -283,3 +283,158 @@ pub fn word_fit_r_hier_reconstruct(r: &fit::quant::RHier) -> Vec<i64> {
 pub fn word_fit_gram_scale(m: &[i64]) -> i32 {
     fit::eigh::gram_scale(m)
 }
+
+// ── `learn::fold::stats::basis` ─────────────────────────────────────────────────────────────
+
+/// The real damped input Gram `H + DAMP_Q·mean(diag H)·I`, rooted at the concrete words.
+pub fn word_stats_basis_damped_gram(
+    h: &[i64],
+    n: usize,
+) -> Result<Vec<i64>, stats::basis::BasisError> {
+    stats::basis::damped_gram(h, n)
+}
+
+/// The real `n × n` identity basis, rooted at the concrete Q32.32 words.
+pub fn word_stats_basis_identity_basis(n: usize) -> Result<Vec<i64>, stats::basis::BasisError> {
+    stats::basis::identity_basis(n)
+}
+
+/// The real normalised 128-block Hadamard basis, rooted at the concrete Q32.32 words.
+pub fn word_stats_basis_hadamard_basis(n: usize) -> Result<Vec<i64>, stats::basis::BasisError> {
+    stats::basis::hadamard_basis(n)
+}
+
+/// The real row energies `r_i = Σ_j B_ij²`, rooted at the concrete words.
+pub fn word_stats_basis_row_energies(
+    b: &[i64],
+    o: usize,
+    n: usize,
+) -> Result<Vec<i64>, stats::basis::BasisError> {
+    stats::basis::row_energies(b, o, n)
+}
+
+/// The real column energies `c_j = Σ_i B_ij²`, rooted at the concrete words.
+pub fn word_stats_basis_column_energies(
+    b: &[i64],
+    o: usize,
+    n: usize,
+) -> Result<Vec<i64>, stats::basis::BasisError> {
+    stats::basis::column_energies(b, o, n)
+}
+
+/// The real `Σ_j ln c_j` over the positive column energies, rooted at the concrete words.
+pub fn word_stats_basis_sum_log_column_energies(c: &[i64]) -> i64 {
+    stats::basis::sum_log_column_energies(c)
+}
+
+/// The real reverse water-filling distortion `D(θ) = Σ min(λ, θ)`, rooted at the concrete words.
+pub fn word_stats_basis_distortion_at(
+    lambda: &[i64],
+    theta: i64,
+) -> Result<i64, stats::basis::BasisError> {
+    stats::basis::distortion_at(lambda, theta)
+}
+
+/// The real reverse water-filling rate `R(θ)`, rooted at the concrete words.
+pub fn word_stats_basis_rate_at(
+    lambda: &[i64],
+    theta: i64,
+) -> Result<i64, stats::basis::BasisError> {
+    stats::basis::rate_at(lambda, theta)
+}
+
+/// The real fixed-rate distortion `D_u`, rooted at the concrete words.
+pub fn word_stats_basis_uniform_distortion(
+    lambda: &[i64],
+    budget_bits: i64,
+    side_bits: i64,
+) -> Result<i64, stats::basis::BasisError> {
+    stats::basis::uniform_distortion(lambda, budget_bits, side_bits)
+}
+
+/// The real reverse water-filling solution at the target rate, rooted at the concrete words.
+pub fn word_stats_basis_solve_water_fill(
+    lambda: &[i64],
+    budget_bits: i64,
+    side_bits: i64,
+) -> stats::basis::WaterFill {
+    stats::basis::solve_water_fill(lambda, budget_bits, side_bits)
+}
+
+/// The real [`stats::basis::Density::side_bits`] charge at the concrete separable density.
+pub fn word_stats_basis_density_side_bits(o: usize, n: usize) -> i64 {
+    stats::basis::Density::Separable.side_bits(o, n)
+}
+
+/// The real [`stats::basis::Density::sigma`] coefficient-variance map at the separable density.
+pub fn word_stats_basis_density_sigma(
+    b: &[i64],
+    o: usize,
+    n: usize,
+) -> Result<Vec<i64>, stats::basis::BasisError> {
+    stats::basis::Density::Separable.sigma(b, o, n)
+}
+
+/// The real adapted-butterfly angle side charge, rooted at the concrete bit count.
+pub fn word_stats_basis_butterfly_side_bits(n: usize) -> i64 {
+    stats::basis::butterfly_side_bits(n)
+}
+
+// ── `learn::fold::stats::hocapture` ────────────────────────────────────────────────────────
+
+/// The real Q32.32 softmax row, rooted at the concrete words.
+pub fn word_stats_hocapture_softmax_row(
+    z: &[i64],
+) -> Result<Vec<i64>, stats::hocapture::HocaptureError> {
+    stats::hocapture::softmax_row(z)
+}
+
+/// The real sampled-label cross-entropy sum, rooted at the concrete logits and targets.
+pub fn word_stats_hocapture_cross_entropy_sum(
+    logits: &[i64],
+    t: usize,
+    vocab: usize,
+    targets: &[u32],
+) -> Result<i64, stats::hocapture::HocaptureError> {
+    stats::hocapture::cross_entropy_sum(logits, t, vocab, targets)
+}
+
+/// The real sampled-label logit gradient `p − onehot`, rooted at the concrete words.
+pub fn word_stats_hocapture_logits_grad_ce(
+    logits: &[i64],
+    targets: &[u32],
+    vocab: usize,
+    out: &mut [i64],
+) -> Result<(), stats::hocapture::HocaptureError> {
+    stats::hocapture::logits_grad_ce(logits, targets, vocab, out)
+}
+
+/// The real `K` sampled targets per token, rooted at the concrete words and seed.
+pub fn word_stats_hocapture_sample_targets(
+    logits: &[i64],
+    t: usize,
+    vocab: usize,
+    k: usize,
+    seed: u64,
+) -> Result<Vec<u32>, stats::hocapture::HocaptureError> {
+    stats::hocapture::sample_targets(logits, t, vocab, k, seed)
+}
+
+/// The real zero accumulator of width `O`, rooted at the concrete width.
+pub fn word_stats_hocapture_kind_stats_zeros(
+    o: usize,
+) -> Result<stats::hocapture::KindStats, stats::hocapture::HocaptureError> {
+    stats::hocapture::KindStats::zeros(o)
+}
+
+// ── `learn::fold::stats::heldout` ──────────────────────────────────────────────────────────
+
+/// The real per-row base scoring, rooted at the concrete Q32.32 words.
+pub fn word_stats_heldout_score_base_row(
+    z: &[i64],
+    lp: &[i64],
+    target: usize,
+    base_argmax: Option<usize>,
+) -> Result<stats::heldout::RowSums, stats::heldout::HeldOutError> {
+    stats::heldout::score_base_row(z, lp, target, base_argmax)
+}
