@@ -28,6 +28,7 @@ use apeiron::learn::fold::fit::steps::{
     r_step_wshl, StepsError, GROUP,
 };
 use apeiron::learn::solve::chol::chol_solve;
+use apeiron::learn::solve::gemm::gemm_nn;
 use apeiron::learn::solve::q32;
 use apeiron::learn::solve::syrk::{hadamard_into, wsyrk};
 
@@ -203,9 +204,13 @@ fn c_step_recovers_c0() {
     let ws = compose(&q(&s), &q(&r), &q(&c0), O, N).unwrap();
     let c = c_step(&ws, &q(&hl), &q(&s), &q(&r), O, N, None).unwrap();
     // The un-ridged normal system has c0 as its exact solution; the 1e-12·mean(diag) ridge moves the
-    // result off c0 by λ·(A+λI)⁻¹c0, far below this bound.
+    // result off c0 by λ·(A+λI)⁻¹c0, far below this bound. The remaining error is the three-limb
+    // kernel's (R5): measured `1.60e-5` against `max|c0| = 0.998`, i.e. `≈2⁻¹⁶` of the operand
+    // scale, asserted at `1e-4·(1+max|c0|)` — an order of magnitude above the measurement and four
+    // below the `O(1)` a lost shift, a transposed panel or a dropped weight returns.
     let err = max_abs_diff(&unq(&c), &c0);
-    assert!(err <= 1e-6 * (1.0 + max_abs(&c0)), "c recovery err {err}");
+    println!("R5 c recovery err {err:e} at max|c0| {:.3}", max_abs(&c0));
+    assert!(err <= 1e-4 * (1.0 + max_abs(&c0)), "c recovery err {err}");
     // An all-ones row weight is the unweighted step.
     let ones = q(&[1.0f64; O]);
     let c_w = c_step(&ws, &q(&hl), &q(&s), &q(&r), O, N, Some(&ones)).unwrap();
@@ -222,8 +227,11 @@ fn r_step_recovers_r0() {
     let ws = compose(&q(&s), &q(&r0), &q(&c), O, N).unwrap();
     let r = r_step(&ws, &q(&hl), &q(&s), &q(&c), O, N).unwrap();
     assert_eq!(r.len(), O * G);
+    // R5: the recovered `r` carries the three-limb kernel's error, measured `2.07e-6` with
+    // `max|r0| = 0.937`; asserted at `1e-4·(1+max|r0|)` for the reason `c_step_recovers_c0` states.
     let err = max_abs_diff(&unq(&r), &r0);
-    assert!(err <= 1e-6 * (1.0 + max_abs(&r0)), "r recovery err {err}");
+    println!("R5 r recovery err {err:e} at max|r0| {:.3}", max_abs(&r0));
+    assert!(err <= 1e-4 * (1.0 + max_abs(&r0)), "r recovery err {err}");
 }
 
 /// The forward model `run_variant` uses for the Hadamard-domain column scale:
@@ -269,8 +277,12 @@ fn d_step_is_stationary_and_descends() {
         let grad = (j_at(&dp) - j_at(&dm)) / (2.0 * h);
         max_grad = max_grad.max(grad.abs());
     }
+    // R5: the central difference now reads a three-limb `objective`, so its own noise floor is
+    // `≈2⁻¹⁶·J` divided by the step `2h = 2e-4`, not the exact grid's `2⁻³²`. Measured
+    // `max|dJ/dd_k| = 1.204` at `J(d=1) = 612` (`2.0e-3·J`), against `1e-2·J` asserted here; a
+    // `d_step` that does not solve its system returns a gradient of order `J`.
     assert!(
-        max_grad <= 1e-6 * j_ones,
+        max_grad <= 1e-2 * j_ones,
         "max |dJ/dd_k| {max_grad} vs J_scale {j_ones}"
     );
 }
@@ -523,22 +535,27 @@ fn old_r_step(ws: &[f64], hl: &[f64], s: &[f64], c: &[f64], o: usize, n: usize) 
     out
 }
 
-/// (b) `c_step` (grid primitives) against the test-local old `f64` formula, relative `1e-7`, with a
-/// positive `g_row`. The brief's stated shapes `(4,6),(16,40),(64,130)` are inadmissible: `c_step`
-/// requires `n` a whole number of 128-blocks, so the nearest admissible shapes are used. The last
-/// case draws `r ∈ [10,16)` so the panel crosses `8` and the `2⁻ᵏ` panel scaling is exercised
-/// (`k = 1`), still meeting `1e-7` after the scaling is undone; the fifth draws `|Ws| ≈ 1e2`, above
-/// `mul_metric`'s `gemm_nn` input bound, so the operand scale rule and its exact undo are exercised
-/// inside the step (dropping the undo turns this case red; `1e2` is chosen over `1e3` because the
-/// grid quantum propagates to the solved output — `mul_metric_matches_old_f64_formula` states that
-/// bound at `1e3`).
+/// (b) `c_step` (grid primitives) against the test-local old `f64` formula, at the relative
+/// tolerance `c_step_matches_old_f64_formula` derives from the three-limb kernel (`2⁻¹³·|Ws|`),
+/// with a positive `g_row`. The brief's stated shapes `(4,6),(16,40),(64,130)` are inadmissible:
+/// `c_step` requires `n` a whole number of 128-blocks, so the nearest admissible shapes are used.
+/// The fourth case draws `r ∈ [10,16)` so the panel crosses `8` and the `2⁻ᵏ` panel scaling is
+/// exercised (`k = 1`); the fifth draws `|Ws| ≈ 1e2`, above the product's operand bound, so the
+/// scale rule and its exact undo are exercised inside the step (dropping the undo turns this case
+/// red).
 ///
-/// The agreement bound, derived: every operand enters as a raw word rounded at half a unit
-/// (`2⁻³³` in the reals of its scaled space) and each product rounds once, so the relative input
-/// perturbation is `≈2⁻³²`; the solved system is `κ`-conditioned, and these fixtures'
-/// `spd_metric = AAᵀ/n + I` has eigenvalues in `[1, O(1)]` with `A = Hl ⊙ Gram` diagonally
-/// dominant, so the propagated relative error is `≲ n·2⁻³³·κ ≈ 1e-7` at `n ≤ 384`. The observed
-/// maximum is printed and stays below `5.4e-8`.
+/// The agreement bound, derived for the limb kernel (KERN-STEPS, R5). Every product runs on
+/// [`limb::gemm_q32`] at three limbs: each 32-word block of each operand keeps a 21-bit balanced
+/// digit expansion under one power-of-two block scale, so a product entry carries a relative
+/// truncation of `≈2⁻¹⁶` of the block's `2^{Ea+Eb}` word (`limb.rs`, `C_3 = 65·2⁻²¹` with the
+/// dropped-pair mass), and a scalar multiple of that bound reaches the solved `c`.
+///
+/// Measured against the old exact-`Q32.32` body, `max_rel_diff` (mixed `|Δ|/max(|old|,1)`):
+/// `(4,128) 1.65e-5`, `(16,256) 9.50e-6`, `(64,384) 6.17e-6`, `(8,128) big_r 3.38e-7`,
+/// `(8,128) |Ws|≈1e2 4.14e-4`. The last case fixes the rule: the absolute error scales with the
+/// operand magnitude, `4.14e-4 ≈ 2⁻¹⁶·|Ws|`, so the assertion is `2⁻¹³·|Ws|` (8× the measured
+/// cost, and 2⁻¹³ of the operand is four orders below the `O(1)` a transposed, mis-scaled or
+/// unshifted product produces).
 #[test]
 fn c_step_matches_old_f64_formula() {
     let cases: [(usize, usize, bool, f64); 5] = [
@@ -565,9 +582,10 @@ fn c_step_matches_old_f64_formula() {
         let old = old_c_step(&ws, &hl, &s, &r, o, n, Some(&gr));
         let rel = max_rel_diff(&new, &old);
         println!("c_step vs old f64 ({o},{n}) big_r={big_r} |Ws|~{ws_mag:e}: max rel {rel:e}");
+        let tol = 2f64.powi(-13) * ws_mag.max(1.0);
         assert!(
-            rel <= 1e-7,
-            "({o},{n}) |Ws|~{ws_mag:e} relative error {rel:e} > 1e-7"
+            rel <= tol,
+            "({o},{n}) |Ws|~{ws_mag:e} relative error {rel:e} > {tol:e}"
         );
     }
 }
@@ -852,16 +870,16 @@ fn refusals_are_reached() {
     );
 }
 
-/// (b) `d_step` (grid primitives) against the test-local old `f64` formula, relative `1e-7`. Every
-/// shape here is admissible to `d_step` (`n` a whole number of 128-blocks): the brief's `(4,128)`,
-/// `(16,256)`, `(64,384)`, plus `(8,128)` with `r ∈ [10,16)` so the panel crosses `8` and the `2⁻ᵏ`
-/// panel scaling is exercised (`k = 1`), still meeting `1e-7` after the scaling is undone, plus
-/// `(8,128)` with `|Ws| ≈ 1e2` so `mul_metric`'s operand scale rule and its exact undo are
-/// exercised inside the step (dropping the undo turns that case red).
+/// (b) `d_step` (grid primitives) against the test-local old `f64` formula. Every shape here is
+/// admissible to `d_step` (`n` a whole number of 128-blocks): the brief's `(4,128)`, `(16,256)`,
+/// `(64,384)`, plus `(8,128)` with `r ∈ [10,16)` so the panel crosses `8` and the `2⁻ᵏ` panel
+/// scaling is exercised (`k = 1`), plus `(8,128)` with `|Ws| ≈ 1e2` so the product's operand scale
+/// rule and its exact undo are exercised inside the step (dropping the undo turns that case red).
 ///
-/// The agreement bound is `c_step_matches_old_f64_formula`'s: the same `2⁻³²` input quantum and
-/// the same conditioning of `A = H_rot ⊙ Gram`, with the rotated metric adding one transform that
-/// is orthonormal up to `2⁻³³`; observed maximum below `5.4e-8`.
+/// R5 measured, mixed relative against the old exact body: `2.61e-5`, `1.39e-5`, `9.02e-6`,
+/// `5.60e-7`, `4.23e-4` in the order above; the same `2⁻¹³·|Ws|` tolerance as
+/// `c_step_matches_old_f64_formula`, with the rotated metric adding one `fwht128` whose rounding is
+/// `2⁻³³`.
 ///
 /// Mutation control: dropping the `H_rot`/`hadamard_into` rotation factor in `d_step` (passing the
 /// weighted Gram as `A`) turns this test red at the first shape.
@@ -902,17 +920,23 @@ fn d_step_matches_old_f64_formula() {
         let old = old_d_step(&ws, &hl, &s_rot, &r, &c, o, n, Some(&gr));
         let rel = max_rel_diff(&new, &old);
         println!("d_step vs old f64 ({o},{n}) big_r={big_r} |Ws|~{ws_mag:e}: max rel {rel:e}");
+        let tol = 2f64.powi(-13) * ws_mag.max(1.0);
         assert!(
-            rel <= 1e-7,
-            "({o},{n}) |Ws|~{ws_mag:e} relative error {rel:e} > 1e-7"
+            rel <= tol,
+            "({o},{n}) |Ws|~{ws_mag:e} relative error {rel:e} > {tol:e}"
         );
     }
 }
 
 /// (b) `r_step` (which forms `Ws·Hl` through `mul_metric` and solves one `G × G` system per out
-/// row) against the test-local old `f64` formula, relative `1e-7`, at the shapes the other step
-/// comparisons use. The last case draws `|Ws| ≈ 1e3`, so `mul_metric`'s operand scale rule and its
-/// exact undo are exercised inside `r_step`.
+/// row) against the test-local old `f64` formula at the shapes the other step comparisons use. The
+/// last case draws `|Ws| ≈ 1e3`, so `mul_metric`'s operand scale rule and its exact undo are
+/// exercised inside `r_step`.
+///
+/// R5 measured, mixed relative against the old exact body: `9.48e-7`, `2.23e-6`, `3.88e-6`,
+/// `8.93e-6` at the four shapes; the `G × G` systems are small and well-conditioned, so the
+/// three-limb cost lands an order below the `n × n` steps'. Tolerance `2⁻¹³·|Ws|` as in
+/// `c_step_matches_old_f64_formula`.
 ///
 /// Mutation control: dropping the exact undo power of two in `mul_metric` turns the `|Ws| ≈ 1e3`
 /// case red.
@@ -934,9 +958,10 @@ fn r_step_matches_old_f64_formula() {
         let old = old_r_step(&ws, &hl, &s, &c, o, n);
         let rel = max_rel_diff(&new, &old);
         println!("r_step vs old f64 ({o},{n}) |Ws|~{ws_mag:e}: max rel {rel:e}");
+        let tol = 2f64.powi(-13) * ws_mag.max(1.0);
         assert!(
-            rel <= 1e-7,
-            "({o},{n}) |Ws|~{ws_mag:e} relative error {rel:e} > 1e-7"
+            rel <= tol,
+            "({o},{n}) |Ws|~{ws_mag:e} relative error {rel:e} > {tol:e}"
         );
     }
 }
@@ -949,15 +974,15 @@ fn r_step_matches_old_f64_formula() {
 ///
 /// 1. `panel_shift` of the pinned largest magnitude is `7` at `1e3` and `0` at `1e-3`, so the
 ///    scaled panel is at most `8` (raw `2³⁵`, inside the bound with a factor of two of head-room);
-/// 2. the result is inside the boundary's propagated quantization bound. Each operand entry is
-///    rounded to a raw `Q32.32` word, i.e. to half a raw unit `2⁻³³` in the reals of the *scaled*
-///    space, so
-///    `|ΔC[o,j]| ≤ 2⁻³³·(2^{k_ws}·Σ_l |hl[l,j]| + 2^{k_hl}·Σ_l |ws[o,l]|)`.
-///    At `|Ws| ≈ 1e-3` the bound is `≈1.2e-9` and the crate's mixed absolute/relative
-///    `max_rel_diff` (`|new−old|/max(|old|,1)`) is asserted at `1e-7`; at `|Ws| ≈ 1e3` the bound
-///    itself is `≈1.6e-7` — the grid quantum `2⁻³²` is an *absolute* resolution, so a magnitude-`1e3`
-///    entry carries a relative quantum `≈2.3e-10` that the `1e3`-wide column mass of `Hl` turns into
-///    `≈1e-7` in the product, and the bound is the statement at that magnitude.
+/// 2. the result is inside the three-limb kernel's error (R5, KERN-STEPS). The product now runs on
+///    [`limb::gemm_q32`], whose block expansion keeps a 21-bit mantissa per 32-word block, so an
+///    entry carries a relative truncation of `≈2⁻¹⁶` of the block word rather than the exact
+///    `Q32.32` quantum `2⁻³³`. Measured against the old exact body, mixed relative: `3.11e-8`
+///    `(4,128) |Ws|≈1e-3`, `1.89e-3` `(4,128) |Ws|≈1e3`, `5.38e-8` `(16,256) |Ws|≈1e-3`,
+///    `1.49e-2` `(16,256) |Ws|≈1e3`; in absolute terms `|Δ| ≈ 2⁻¹⁶` of the largest entry, i.e.
+///    `3.11e-8` and `1.78e-2` at `1.98e-3` and `1.98e3`. The assertions are therefore `2⁻¹³` of the
+///    product's own largest entry, and `2⁻¹³·|Ws|` mixed relative: 8× the measured cost, four
+///    orders below the `O(1)` a transposed, mis-scaled or unshifted product returns.
 #[test]
 fn mul_metric_matches_old_f64_formula() {
     for &(o, n) in &[(4usize, 128usize), (16, 256)] {
@@ -987,27 +1012,29 @@ fn mul_metric_matches_old_f64_formula() {
             let row_mass = (0..o)
                 .map(|oo| ws[oo * n..oo * n + n].iter().map(|v| v.abs()).sum::<f64>())
                 .fold(0.0f64, f64::max);
-            let bound = 2f64.powi(-33) * (2f64.powi(k) * col_mass + 2f64.powi(k_hl) * row_mass);
+            // The exact-body quantum the limb kernel replaces, reported so its cost is visible
+            // next to the measured diff rather than as a pass/fail.
+            let quantum = 2f64.powi(-33) * (2f64.powi(k) * col_mass + 2f64.powi(k_hl) * row_mass);
             let new = unq(&mul_metric(&q(&ws), &q(&hl), o, n).unwrap());
             let old = old_mul_metric(&ws, &hl, o, n);
             assert_eq!(new.len(), o * n);
             let diff = max_abs_diff(&new, &old);
             let rel = max_rel_diff(&new, &old);
+            let limb_rel = 2f64.powi(-13) * max_abs(&new);
             println!(
                 "mul_metric vs old f64 ({o},{n}) |Ws|~{mag:e} k_ws={k} k_hl={k_hl}: max|diff| \
-                 {diff:e} ≤ bound {bound:e}, mixed rel {rel:e}, max|new| {:.3e}",
+                 {diff:e} ≤ limb bound {limb_rel:e} (old exact quantum {quantum:e}), mixed rel \
+                 {rel:e}, max|new| {:.3e}",
                 max_abs(&new)
             );
             assert!(
-                diff <= bound,
-                "({o},{n}) |Ws|~{mag:e}: |diff| {diff:e} above the quantization bound {bound:e}"
+                diff <= limb_rel,
+                "({o},{n}) |Ws|~{mag:e}: |diff| {diff:e} above the limb bound {limb_rel:e}"
             );
-            if mag < 1.0 {
-                assert!(
-                    rel <= 1e-7,
-                    "({o},{n}) |Ws|~{mag:e} mixed relative error {rel:e} > 1e-7"
-                );
-            }
+            assert!(
+                rel <= 2f64.powi(-13) * mag.max(1.0),
+                "({o},{n}) |Ws|~{mag:e} mixed relative error {rel:e} above the limb bound"
+            );
             assert!(max_abs(&new) > 0.0, "({o},{n}) |Ws|~{mag:e}: empty product");
         }
     }
@@ -1035,6 +1062,140 @@ fn mul_metric_refuses_shape() {
     );
     // Zero out rows: the empty product, as the deleted loop returned it.
     assert!(mul_metric(&[], &hl, 0, N).unwrap().is_empty());
+}
+
+/// `max|x|` as `u128` over grid words: the scan the steps' `panel_shift_words` takes.
+fn max_mag_words(x: &[i64]) -> u128 {
+    x.iter()
+        .fold(0u128, |m, &v| m.max(u128::from(v.unsigned_abs())))
+}
+
+/// The steps' exact panel fill `k` with `max·2⁻ᵏ ∈ (2³⁴, 2³⁵]` (`BOUND_BITS = 35`) over words: the
+/// test-local oracle for the private `panel_shift_words`.
+fn panel_fill_shift(x: &[i64]) -> i32 {
+    let m = max_mag_words(x);
+    if m == 0 {
+        0
+    } else {
+        let bits = 128 - i32::try_from(m.leading_zeros()).expect("leading zeros fit i32");
+        bits - 35
+    }
+}
+
+/// `v·2⁻ᵏ` per word under the steps' `shift_word` rule: round-to-nearest for `k > 0`, an exact left
+/// shift for `k < 0`, the same `i64` refusal.
+fn shift_words(x: &[i64], k: i32) -> Vec<i64> {
+    x.iter()
+        .map(|&v| match k.signum() {
+            1 => q32::narrow(
+                q32::rshift_rne(i128::from(v), u32::try_from(k).expect("k > 0")).expect("shift"),
+            )
+            .expect("shifted word"),
+            -1 => i64::try_from(i128::from(v) << (-k)).expect("shifted word"),
+            _ => v,
+        })
+        .collect()
+}
+
+/// The exact `Q32.32` product the port deleted (`steps::metric_grid`'s body): both operands' exact
+/// `2⁻ᵏ` panel fill, [`gemm_nn`]'s exact `i128` contraction with one rounding per entry, the exact
+/// undo. `a` is `m × n`, `b` is `n × n`, both `Q32.32` words; the result is `m × n`.
+fn old_metric_grid_exact(a: &[i64], b: &[i64], m: usize, n: usize) -> Vec<i64> {
+    let ka = panel_fill_shift(a);
+    let kb = panel_fill_shift(b);
+    let as_ = shift_words(a, ka);
+    let bs = shift_words(b, kb);
+    let out = gemm_nn(&as_, &bs, m, n, n).expect("exact product");
+    shift_words(&out, -(ka + kb))
+}
+
+/// R5 (KERN-STEPS): the limb product's relative entry error against the exact `Q32.32` body the
+/// port deleted, on this module's fixtures. `mul_metric` now runs [`limb::gemm_q32`] at three limbs
+/// (24-bit mantissa blocks); `old_metric_grid_exact` reproduces the deleted `gemm_nn` body with the
+/// same panel shift and undo, so the difference is the limb expansion alone, not the shift rule.
+///
+/// Measured mixed relative (`|new−old|/max(|old|,1)`), printed per shape: `(4,128)` `2.28e-5`,
+/// `(16,256)` `2.94e-5`. The assertion is `2⁻¹³`, 4× the measured cost and four orders below the
+/// `O(1)` a transposed, unshifted or mis-weighted product returns. No digest is pinned in this file
+/// or in `steps.rs`, so the port re-pins nothing.
+#[test]
+fn mul_metric_r5_error_against_old_exact_body() {
+    for &(m, n) in &[(4usize, 128usize), (16usize, 256usize)] {
+        let mut rng = Lcg::new(0x7250_0000_0000_0001 ^ ((m as u64) << 32) ^ n as u64);
+        let ws = q(&sym_vec(&mut rng, m * n));
+        let hl = q(&spd_metric(&mut rng, n));
+        let new = unq(&mul_metric(&ws, &hl, m, n).expect("limb product"));
+        let old = unq(&old_metric_grid_exact(&ws, &hl, m, n));
+        let rel = max_rel_diff(&new, &old);
+        println!("R5 mul_metric ({m},{n}) limb vs exact body: max mixed rel {rel:e}");
+        assert!(
+            rel <= 2f64.powi(-13),
+            "({m},{n}) R5 relative error {rel:e} above 2^-13"
+        );
+    }
+}
+
+/// R8 (KERN-STEPS): paired microbench of the ported product at this module's production shape,
+/// `o = 896`, `n = 4864` (the `c_step`/`d_step` timing fixture). Five alternating runs of the limb
+/// port and of the exact old body; `ns` per MAC is `t·10⁹/(m·n·n)`. Mean, min and max of each arm
+/// are printed, and the exact/limb ratio. A limb arm slower than the exact arm is a failed K5 lane,
+/// reported as measured. Run with `--release -- --ignored --nocapture`.
+#[test]
+#[ignore = "release-mode paired microbench at o=896 n=4864: run with --release -- --ignored --nocapture"]
+fn r8_mul_metric_paired_microbench() {
+    let (m, n) = (896usize, 4864usize);
+    let mut rng = Lcg::new(0x5eed_2222_b0b0_1234);
+    let ws = sym_vec(&mut rng, m * n);
+    // The same well-conditioned Kac–Murdock–Szegő Toeplitz metric the timing campaigns use
+    // (`ρ^|i−j|`, `ρ = 0.5`): building it is `O(n²)`, unlike `spd_metric`'s `O(n³)`.
+    let mut pw = vec![1.0f64; n];
+    for k in 1..n {
+        pw[k] = pw[k - 1] * 0.5;
+    }
+    let mut hl = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            hl[i * n + j] = pw[i.abs_diff(j)];
+        }
+    }
+    let ws_q = q(&ws);
+    let hl_q = q(&hl);
+    let macs = (m * n * n) as f64;
+    let mut limb: Vec<f64> = Vec::with_capacity(5);
+    let mut exact: Vec<f64> = Vec::with_capacity(5);
+    for run in 0..5 {
+        // Alternate the order so neither arm always runs into the same cache state.
+        let limb_first = run % 2 == 0;
+        for &is_limb in &[limb_first, !limb_first] {
+            let t0 = std::time::Instant::now();
+            if is_limb {
+                let v = mul_metric(&ws_q, &hl_q, m, n).expect("limb product");
+                std::hint::black_box(v);
+                limb.push(t0.elapsed().as_nanos() as f64 / macs);
+            } else {
+                let v = old_metric_grid_exact(&ws_q, &hl_q, m, n);
+                std::hint::black_box(v);
+                exact.push(t0.elapsed().as_nanos() as f64 / macs);
+            }
+        }
+    }
+    let stats = |xs: &[f64]| {
+        let mean = xs.iter().sum::<f64>() / xs.len() as f64;
+        let mn = xs.iter().copied().fold(f64::INFINITY, f64::min);
+        let mx = xs.iter().copied().fold(0.0f64, f64::max);
+        (mean, mn, mx)
+    };
+    let (lm, lmin, lmax) = stats(&limb);
+    let (em, emin, emax) = stats(&exact);
+    println!(
+        "R8 mul_metric o={m} n={n} MACs={macs:e}: limb mean {lm:.4} ns/MAC [min {lmin:.4} max \
+         {lmax:.4}] runs {limb:?}"
+    );
+    println!(
+        "R8 mul_metric o={m} n={n}: exact mean {em:.4} ns/MAC [min {emin:.4} max {emax:.4}] runs \
+         {exact:?}; exact/limb {:.3}",
+        em / lm
+    );
 }
 
 /// (c) A shape that disagrees with `d_step`'s declared geometry returns
