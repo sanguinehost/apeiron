@@ -469,6 +469,14 @@ run_extract() {
         --start-from crate::fit_port::word_fit_steps_had_gram \
         --start-from crate::fit_port::word_fit_steps_compose \
         --start-from crate::fit_port::word_fit_gptq_e8_carrier_feedback_u \
+        --start-from crate::fit_port::word_fit_icm_codebook \
+        --start-from crate::fit_port::word_fit_icm_nearest_index \
+        --start-from crate::fit_port::word_fit_icm_ridged_metric \
+        --start-from crate::fit_port::word_fit_icm_plane_w \
+        --start-from crate::fit_port::word_fit_icm_j_rows \
+        --start-from crate::fit_port::word_fit_icm_e8_icm_step \
+        --start-from crate::fit_port::word_fit_icm_r_step2 \
+        --start-from crate::fit_port::word_fit_icm_matmul \
         --start-from crate::crypto_port::word_crypto_ct_eq \
         --start-from crate::crypto_port::word_crypto_sha256 \
         --start-from crate::crypto_port::word_crypto_sha512 \

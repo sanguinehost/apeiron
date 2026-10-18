@@ -76748,6 +76748,23 @@ def fold_port.fit.gptq_e8_carrier.feedback_u
           fold_port.fit.gptq_e8_carrier.UFac (core.convert.FromSame
           fold_port.fit.gptq_e8.GptqE8Error) residual
 
+/-- [apeiron_word::fold_port::fit::icm::BLOCK]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 49:0-49:27
+    Visibility: public -/
+@[global_simps, irreducible] def fold_port.fit.icm.BLOCK : Std.Usize := 8#usize
+
+/-- [apeiron_word::fold_port::fit::icm::GROUP]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 51:0-51:29
+    Visibility: public -/
+@[global_simps, irreducible]
+def fold_port.fit.icm.GROUP : Std.Usize := 128#usize
+
+/-- [apeiron_word::fold_port::fit::icm::CODE_LEN]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 53:0-53:45
+    Visibility: public -/
+@[global_simps, irreducible]
+def fold_port.fit.icm.CODE_LEN : Std.Usize := learn_port.e8.CODEBOOK_LEN
+
 /-- [apeiron_word::fold_port::fit::icm::IcmError]
     Source: '../../src/learn/fold/fit/icm.rs', lines 57:0-70:1
     Visibility: public -/
@@ -76760,6 +76777,26 @@ inductive fold_port.fit.icm.IcmError where
 | Overflow : fold_port.fit.icm.IcmError
 | NotPositiveDefinite : fold_port.fit.icm.IcmError
 
+/-- [apeiron_word::fold_port::fit::icm::PlaneRef]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 74:0-85:1
+    Visibility: public -/
+structure fold_port.fit.icm.PlaneRef where
+  s : Slice Std.I64
+  idx : Slice Std.U16
+  r : Slice Std.I64
+  c : Slice Std.I64
+  d : Slice Std.I64
+
+/-- [apeiron_word::fold_port::fit::icm::Plane]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 89:0-100:1
+    Visibility: public -/
+structure fold_port.fit.icm.Plane where
+  s : alloc.vec.Vec Std.I64
+  idx : alloc.vec.Vec Std.U16
+  r : alloc.vec.Vec Std.I64
+  c : alloc.vec.Vec Std.I64
+  d : alloc.vec.Vec Std.I64
+
 /-- [apeiron_word::fold_port::fit::icm::JointStats]
     Source: '../../src/learn/fold/fit/icm.rs', lines 104:0-112:1
     Visibility: public -/
@@ -76767,6 +76804,3820 @@ structure fold_port.fit.icm.JointStats where
   j_before : Std.I64
   j_after : Std.I64
   moves : Std.Usize
+
+/-- [apeiron_word::fold_port::fit::icm::round_shift::{closure}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 117:44-117:66 -/
+@[reducible]
+def fold_port.fit.icm.round_shift.closure := Unit
+
+/-- [apeiron_word::fold_port::fit::icm::round_shift::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::round_shift::{closure}}::call_once]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 117:44-117:66 -/
+def
+  fold_port.fit.icm.round_shift.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError.call_once
+  (c : fold_port.fit.icm.round_shift.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result fold_port.fit.icm.IcmError
+  := do
+  ok fold_port.fit.icm.IcmError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::icm::round_shift::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::round_shift::{closure}}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 117:44-117:66 -/
+@[reducible]
+def
+  fold_port.fit.icm.round_shift.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError
+  : core.ops.function.FnOnce fold_port.fit.icm.round_shift.closure
+  core.num.error.TryFromIntError fold_port.fit.icm.IcmError := {
+  call_once :=
+    fold_port.fit.icm.round_shift.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::icm::round_shift]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 115:0-120:1 -/
+def fold_port.fit.icm.round_shift
+  (v : Std.I128) (s : Std.U32) :
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+  := do
+  let o ← solve_port.q32.rshift_rne v s
+  match o with
+  | none => ok (core.result.Result.Err fold_port.fit.icm.IcmError.Overflow)
+  | some x =>
+    let r ← I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from x
+    core.result.Result.map_err
+      fold_port.fit.icm.round_shift.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError
+      r ()
+
+/-- [apeiron_word::fold_port::fit::icm::add_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 123:0-125:1 -/
+def fold_port.fit.icm.add_q
+  (a : Std.I64) (b : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+  := do
+  let o ← lift (I64.checked_add a b)
+  core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
+
+/-- [apeiron_word::fold_port::fit::icm::sub_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 128:0-130:1 -/
+def fold_port.fit.icm.sub_q
+  (a : Std.I64) (b : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+  := do
+  let o ← lift (I64.checked_sub a b)
+  core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
+
+/-- [apeiron_word::fold_port::fit::icm::mul_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 133:0-135:1 -/
+def fold_port.fit.icm.mul_q
+  (a : Std.I64) (b : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from a)
+  let i1 ← lift (core.convert.num.FromI128I64.from b)
+  let i2 ← i * i1
+  fold_port.fit.icm.round_shift i2 32#u32
+
+/-- [apeiron_word::fold_port::fit::icm::qsum]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 138:0-140:1 -/
+def fold_port.fit.icm.qsum
+  (a : Std.I128) (b : Std.I128) :
+  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
+  := do
+  let o ← lift (I128.checked_add a b)
+  core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
+
+/-- [apeiron_word::fold_port::fit::icm::qsub]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 143:0-145:1 -/
+def fold_port.fit.icm.qsub
+  (a : Std.I128) (b : Std.I128) :
+  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
+  := do
+  let o ← lift (I128.checked_sub a b)
+  core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
+
+/-- [apeiron_word::fold_port::fit::icm::qmul]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 148:0-150:1 -/
+def fold_port.fit.icm.qmul
+  (a : Std.I128) (b : Std.I128) :
+  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
+  := do
+  let o ← lift (I128.checked_mul a b)
+  core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
+
+/-- [apeiron_word::fold_port::fit::icm::dot64]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 155:4-159:1 -/
+@[rust_loop_body]
+def fold_port.fit.icm.dot64_loop.body
+  (a : Slice Std.I64) (b : Slice Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (acc : Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128)
+    (core.result.Result Std.I128 fold_port.fit.icm.IcmError))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (core.result.Result.Ok acc))
+  | some k =>
+    let i ← Slice.index_usize a k
+    let i1 ← lift (core.convert.num.FromI128I64.from i)
+    let i2 ← Slice.index_usize b k
+    let i3 ← lift (core.convert.num.FromI128I64.from i2)
+    let i4 ← i1 * i3
+    let r ← fold_port.fit.icm.qsum acc i4
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val => ok (cont (iter1, val))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Std.I128 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+      ok (done r1)
+
+/-- [apeiron_word::fold_port::fit::icm::dot64]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 155:4-159:1 -/
+@[rust_loop]
+def fold_port.fit.icm.dot64_loop
+  (iter : core.ops.range.Range Std.Usize) (a : Slice Std.I64)
+  (b : Slice Std.I64) (acc : Std.I128) :
+  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (iter1, acc1) => fold_port.fit.icm.dot64_loop.body a b iter1 acc1)
+    (iter, acc)
+
+/-- [apeiron_word::fold_port::fit::icm::dot64]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 153:0-159:1 -/
+def fold_port.fit.icm.dot64
+  (a : Slice Std.I64) (b : Slice Std.I64) :
+  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
+  := do
+  let i := Slice.len a
+  fold_port.fit.icm.dot64_loop { start := 0#usize, «end» := i } a b 0#i128
+
+/-- [apeiron_word::fold_port::fit::icm::block_cost]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 164:0-166:1 -/
+def fold_port.fit.icm.block_cost
+  (aa : Std.I128) (two_a : Std.I128) (q : Std.I64) (dot : Std.I128) :
+  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from q)
+  let r ← fold_port.fit.icm.qmul aa i
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← fold_port.fit.icm.qmul two_a dot
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      fold_port.fit.icm.qsub val val1
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Std.I128 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      Std.I128 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::shl_q32::{closure}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 180:55-180:77 -/
+@[reducible]
+def fold_port.fit.icm.shl_q32.closure := Unit
+
+/-- [apeiron_word::fold_port::fit::icm::shl_q32::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::shl_q32::{closure}}::call_once]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 180:55-180:77 -/
+def
+  fold_port.fit.icm.shl_q32.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError.call_once
+  (c : fold_port.fit.icm.shl_q32.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result fold_port.fit.icm.IcmError
+  := do
+  ok fold_port.fit.icm.IcmError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::icm::shl_q32::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::shl_q32::{closure}}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 180:55-180:77 -/
+@[reducible]
+def
+  fold_port.fit.icm.shl_q32.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError
+  : core.ops.function.FnOnce fold_port.fit.icm.shl_q32.closure
+  core.num.error.TryFromIntError fold_port.fit.icm.IcmError := {
+  call_once :=
+    fold_port.fit.icm.shl_q32.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::icm::shl_q32]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 175:0-181:1 -/
+def fold_port.fit.icm.shl_q32
+  (v : Std.I64) (s : Std.U32) :
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+  := do
+  if s >= 128#u32
+  then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Overflow)
+  else
+    let scale ← 1#i128 <<< s
+    let i ← lift (core.convert.num.FromI128I64.from v)
+    let r ← fold_port.fit.icm.qmul i scale
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let r1 ← I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from val
+      core.result.Result.map_err
+        fold_port.fit.icm.shl_q32.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError
+        r1 ()
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::map_gemm]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 184:0-189:1 -/
+def fold_port.fit.icm.map_gemm
+  (e : solve_port.gemm.GemmError) : Result fold_port.fit.icm.IcmError := do
+  match e with
+  | solve_port.gemm.GemmError.ZeroDim => ok fold_port.fit.icm.IcmError.Shape
+  | solve_port.gemm.GemmError.ShapeMismatch =>
+    ok fold_port.fit.icm.IcmError.Shape
+  | solve_port.gemm.GemmError.InputBound =>
+    ok fold_port.fit.icm.IcmError.Overflow
+  | solve_port.gemm.GemmError.Overflow =>
+    ok fold_port.fit.icm.IcmError.Overflow
+
+/-- [apeiron_word::fold_port::fit::icm::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::gemm::GemmError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::map_gemm}::call_once]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 184:0-189:1 -/
+def P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorIcmError.call_once
+  (state : solve_port.gemm.GemmError → Result fold_port.fit.icm.IcmError)
+  (args : solve_port.gemm.GemmError) :
+  Result fold_port.fit.icm.IcmError
+  := do
+  fold_port.fit.icm.map_gemm args
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::icm::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::gemm::GemmError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::map_gemm}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 184:0-189:1 -/
+@[reducible]
+def P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorIcmError :
+  core.ops.function.FnOnce (solve_port.gemm.GemmError → Result
+  fold_port.fit.icm.IcmError) solve_port.gemm.GemmError
+  fold_port.fit.icm.IcmError := {
+  call_once := P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorIcmError.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::icm::map_solve]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 192:0-199:1 -/
+def fold_port.fit.icm.map_solve
+  (e : solve_port.chol.SolveError) : Result fold_port.fit.icm.IcmError := do
+  match e with
+  | solve_port.chol.SolveError.ShapeMismatch =>
+    ok fold_port.fit.icm.IcmError.Shape
+  | solve_port.chol.SolveError.Empty => ok fold_port.fit.icm.IcmError.Shape
+  | solve_port.chol.SolveError.NonPositiveDiagonal =>
+    ok fold_port.fit.icm.IcmError.NotPositiveDefinite
+  | solve_port.chol.SolveError.NotPositiveDefinite =>
+    ok fold_port.fit.icm.IcmError.NotPositiveDefinite
+  | solve_port.chol.SolveError.Overflow => ok fold_port.fit.icm.IcmError.Shape
+
+/-- [apeiron_word::fold_port::fit::icm::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::chol::SolveError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::map_solve}::call_once]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 192:0-199:1 -/
+def P.Insts.CoreOpsFunctionFnOnceTupleSolveErrorIcmError.call_once
+  (state : solve_port.chol.SolveError → Result fold_port.fit.icm.IcmError)
+  (args : solve_port.chol.SolveError) :
+  Result fold_port.fit.icm.IcmError
+  := do
+  fold_port.fit.icm.map_solve args
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::icm::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::chol::SolveError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::map_solve}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 192:0-199:1 -/
+@[reducible]
+def P.Insts.CoreOpsFunctionFnOnceTupleSolveErrorIcmError :
+  core.ops.function.FnOnce (solve_port.chol.SolveError → Result
+  fold_port.fit.icm.IcmError) solve_port.chol.SolveError
+  fold_port.fit.icm.IcmError := {
+  call_once := P.Insts.CoreOpsFunctionFnOnceTupleSolveErrorIcmError.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::icm::panel_shift]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 206:4-212:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.panel_shift_loop0.body
+  (x : Slice Std.I64) (mx : Std.U128) (i : Std.Usize) :
+  Result (ControlFlow (Std.U128 × Std.Usize) Std.U128)
+  := do
+  let i1 := Slice.len x
+  if i < i1
+  then
+    let i2 ← Slice.index_usize x i
+    let i3 ← core.num.I64.unsigned_abs i2
+    let m ← lift (core.convert.num.FromU128U64.from i3)
+    let mx1 ← if m > mx
+                then ok m
+                else ok mx
+    let i4 ← i + 1#usize
+    ok (cont (mx1, i4))
+  else ok (done mx)
+
+/-- [apeiron_word::fold_port::fit::icm::panel_shift]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 206:4-212:5 -/
+@[rust_loop]
+def fold_port.fit.icm.panel_shift_loop0
+  (x : Slice Std.I64) (mx : Std.U128) (i : Std.Usize) : Result Std.U128 := do
+  loop
+    (fun (mx1, i1) => fold_port.fit.icm.panel_shift_loop0.body x mx1 i1)
+    (mx, i)
+
+/-- [apeiron_word::fold_port::fit::icm::panel_shift]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 220:4-226:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.panel_shift_loop1.body
+  (x : Slice Std.I64) (s : Std.U32) (p : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option fold_port.fit.icm.IcmError)))
+  := do
+  let i1 := Slice.len x
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i2 ← Slice.index_usize x i
+      let i3 ← lift (core.convert.num.FromI128I64.from i2)
+      let r ← fold_port.fit.icm.round_shift i3 s
+      let (p1, err1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) p i
+          let p2 := index_mut_back v
+          ok (p2, err)
+        | core.result.Result.Err e => ok (p, some e)
+      let i4 ← i + 1#usize
+      ok (cont (p1, err1, i4))
+    else ok (done (p, err))
+  else ok (done (p, err))
+
+/-- [apeiron_word::fold_port::fit::icm::panel_shift]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 220:4-226:5 -/
+@[rust_loop]
+def fold_port.fit.icm.panel_shift_loop1
+  (x : Slice Std.I64) (s : Std.U32) (p : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (p1, err1, i1) => fold_port.fit.icm.panel_shift_loop1.body x s p1 err1
+      i1)
+    (p, err, i)
+
+/-- [apeiron_word::fold_port::fit::icm::panel_shift]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 203:0-231:1 -/
+def fold_port.fit.icm.panel_shift
+  (x : Slice Std.I64) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × Std.U32)
+    fold_port.fit.icm.IcmError)
+  := do
+  let mx ← fold_port.fit.icm.panel_shift_loop0 x 0#u128 0#usize
+  let o ← solve_port.q32.ilog2_pos mx
+  let s ←
+    match o with
+    | none => ok 0#u32
+    | some b =>
+      do
+      let i ← b + 1#u32
+      if i > 35#u32
+      then i - 35#u32
+      else ok 0#u32
+  let i := Slice.len x
+  let p ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let (p1, err) ← fold_port.fit.icm.panel_shift_loop1 x s p none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok (p1, s))
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::fold_port::fit::icm::product_panels]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 236:0-259:1 -/
+def fold_port.fit.icm.product_panels
+  (a : Slice Std.I64) (b : Slice Std.I64) (rows : Std.Usize)
+  (inner : Std.Usize) (cols : Std.Usize) (nt : Bool) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × Std.U32)
+    fold_port.fit.icm.IcmError)
+  := do
+  let o ← lift (Usize.checked_mul rows inner)
+  let o1 ← lift (Usize.checked_mul cols inner)
+  match o with
+  | none => ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+  | some ri =>
+    match o1 with
+    | none => ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+    | some bi =>
+      if rows = 0#usize
+      then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+      else
+        if inner = 0#usize
+        then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+        else
+          if cols = 0#usize
+          then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+          else
+            let i := Slice.len a
+            if i != ri
+            then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+            else
+              let i1 := Slice.len b
+              if i1 != bi
+              then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+              else
+                let r ← fold_port.fit.icm.panel_shift a
+                let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+                match cf with
+                | core.ops.control_flow.ControlFlow.Continue val =>
+                  let r1 ← fold_port.fit.icm.panel_shift b
+                  let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+                  match cf1 with
+                  | core.ops.control_flow.ControlFlow.Continue val1 =>
+                    let (pa, sa) := val
+                    let (pb, sb) := val1
+                    let r2 ←
+                      if nt
+                      then
+                        let s := alloc.vec.Vec.deref pa
+                        let s1 := alloc.vec.Vec.deref pb
+                        solve_port.gemm.gemm_nt s s1 rows inner cols
+                      else
+                        let s := alloc.vec.Vec.deref pa
+                        let s1 := alloc.vec.Vec.deref pb
+                        solve_port.gemm.gemm_nn s s1 rows inner cols
+                    let r3 ←
+                      core.result.Result.map_err
+                        P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorIcmError r2
+                        (fold_port.fit.icm.map_gemm)
+                    let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r3
+                    match cf2 with
+                    | core.ops.control_flow.ControlFlow.Continue val2 =>
+                      let i2 ← sa + sb
+                      ok (core.result.Result.Ok (val2, i2))
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        ((alloc.vec.Vec Std.I64) × Std.U32)
+                        (core.convert.FromSame fold_port.fit.icm.IcmError)
+                        residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      ((alloc.vec.Vec Std.I64) × Std.U32)
+                      (core.convert.FromSame fold_port.fit.icm.IcmError)
+                      residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    ((alloc.vec.Vec Std.I64) × Std.U32) (core.convert.FromSame
+                    fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::matmul_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 275:4-281:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.matmul_q_loop.body
+  (c : alloc.vec.Vec Std.I64) (back : Std.U32) (out : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option fold_port.fit.icm.IcmError)))
+  := do
+  let i1 := alloc.vec.Vec.len c
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) c i
+      let r ← fold_port.fit.icm.shl_q32 i2 back
+      let (out1, err1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) out i
+          let out2 := index_mut_back v
+          ok (out2, err)
+        | core.result.Result.Err e => ok (out, some e)
+      let i3 ← i + 1#usize
+      ok (cont (out1, err1, i3))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_port::fit::icm::matmul_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 275:4-281:5 -/
+@[rust_loop]
+def fold_port.fit.icm.matmul_q_loop
+  (c : alloc.vec.Vec Std.I64) (back : Std.U32) (out : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (out1, err1, i1) => fold_port.fit.icm.matmul_q_loop.body c back out1
+      err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::fold_port::fit::icm::matmul_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 263:0-286:1 -/
+def fold_port.fit.icm.matmul_q
+  (a : Slice Std.I64) (b : Slice Std.I64) (rows : Std.Usize)
+  (inner : Std.Usize) (cols : Std.Usize) (nt : Bool) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  let r ← fold_port.fit.icm.product_panels a b rows inner cols nt
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let (c, back) := val
+    let i := alloc.vec.Vec.len c
+    let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+    let (out1, err) ← fold_port.fit.icm.matmul_q_loop c back out none 0#usize
+    match err with
+    | none => ok (core.result.Result.Ok out1)
+    | some e => ok (core.result.Result.Err e)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::codebook_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 292:4-298:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.codebook_q_loop.body
+  (cb : Array (Array Std.I64 8#usize) 256#usize) (j : Std.Usize) :
+  Result (ControlFlow ((Array (Array Std.I64 8#usize) 256#usize) × Std.Usize)
+    (Array (Array Std.I64 8#usize) 256#usize))
+  := do
+  if j < fold_port.fit.icm.CODE_LEN
+  then
+    let r ← learn_port.e8.codeword j
+    let cb1 ←
+      match r with
+      | core.result.Result.Ok w => Array.update cb j w
+      | core.result.Result.Err _ =>
+        let a := Array.repeat 8#usize 0#i64
+        Array.update cb j a
+    let j1 ← j + 1#usize
+    ok (cont (cb1, j1))
+  else ok (done cb)
+
+/-- [apeiron_word::fold_port::fit::icm::codebook_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 292:4-298:5 -/
+@[rust_loop]
+def fold_port.fit.icm.codebook_q_loop
+  (cb : Array (Array Std.I64 8#usize) 256#usize) (j : Std.Usize) :
+  Result (Array (Array Std.I64 8#usize) 256#usize)
+  := do
+  loop
+    (fun (cb1, j1) => fold_port.fit.icm.codebook_q_loop.body cb1 j1)
+    (cb, j)
+
+/-- [apeiron_word::fold_port::fit::icm::codebook_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 289:0-300:1 -/
+def fold_port.fit.icm.codebook_q
+  : Result (Array (Array Std.I64 8#usize) 256#usize) := do
+  let a := Array.repeat 8#usize 0#i64
+  let cb := Array.repeat 256#usize a
+  fold_port.fit.icm.codebook_q_loop cb 0#usize
+
+/-- [apeiron_word::fold_port::fit::icm::block_of_q]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 308:8-311:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.block_of_q_loop0_loop0.body
+  (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize) (a : Std.Usize)
+  (b : Array (Array Std.I64 8#usize) 8#usize) (c : Std.Usize) :
+  Result (ControlFlow ((Array (Array Std.I64 8#usize) 8#usize) × Std.Usize)
+    (Array (Array Std.I64 8#usize) 8#usize))
+  := do
+  if c < fold_port.fit.icm.BLOCK
+  then
+    let i ← m * fold_port.fit.icm.BLOCK
+    let i1 ← i + a
+    let i2 ← i1 * n
+    let i3 ← i2 + i
+    let i4 ← i3 + c
+    let i5 ← Slice.index_usize h i4
+    let (a1, index_mut_back) ← Array.index_mut_usize b a
+    let a2 ← Array.update a1 c i5
+    let c1 ← c + 1#usize
+    let a3 := index_mut_back a2
+    ok (cont (a3, c1))
+  else ok (done b)
+
+/-- [apeiron_word::fold_port::fit::icm::block_of_q]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 308:8-311:9 -/
+@[rust_loop]
+def fold_port.fit.icm.block_of_q_loop0_loop0
+  (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize)
+  (b : Array (Array Std.I64 8#usize) 8#usize) (a : Std.Usize) (c : Std.Usize) :
+  Result (Array (Array Std.I64 8#usize) 8#usize)
+  := do
+  loop
+    (fun (b1, c1) => fold_port.fit.icm.block_of_q_loop0_loop0.body h n m a b1
+      c1)
+    (b, c)
+
+/-- [apeiron_word::fold_port::fit::icm::block_of_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 306:4-313:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.block_of_q_loop0.body
+  (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize)
+  (b : Array (Array Std.I64 8#usize) 8#usize) (a : Std.Usize) :
+  Result (ControlFlow ((Array (Array Std.I64 8#usize) 8#usize) × Std.Usize)
+    (Array (Array Std.I64 8#usize) 8#usize))
+  := do
+  if a < fold_port.fit.icm.BLOCK
+  then
+    let b1 ← fold_port.fit.icm.block_of_q_loop0_loop0 h n m b a 0#usize
+    let a1 ← a + 1#usize
+    ok (cont (b1, a1))
+  else ok (done b)
+
+/-- [apeiron_word::fold_port::fit::icm::block_of_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 306:4-313:5 -/
+@[rust_loop]
+def fold_port.fit.icm.block_of_q_loop0
+  (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize)
+  (b : Array (Array Std.I64 8#usize) 8#usize) (a : Std.Usize) :
+  Result (Array (Array Std.I64 8#usize) 8#usize)
+  := do
+  loop
+    (fun (b1, a1) => fold_port.fit.icm.block_of_q_loop0.body h n m b1 a1)
+    (b, a)
+
+/-- [apeiron_word::fold_port::fit::icm::block_of_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 303:0-315:1 -/
+def fold_port.fit.icm.block_of_q
+  (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize) :
+  Result (Array (Array Std.I64 8#usize) 8#usize)
+  := do
+  let a := Array.repeat 8#usize 0#i64
+  let b := Array.repeat 8#usize a
+  fold_port.fit.icm.block_of_q_loop0 h n m b 0#usize
+
+/-- [apeiron_word::fold_port::fit::icm::mat_blk_row]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 324:8-330:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.mat_blk_row_loop0_loop0.body
+  (c : Array Std.I64 8#usize) (h : Array (Array Std.I64 8#usize) 8#usize)
+  (a : Std.Usize) (out : Array Std.I128 8#usize)
+  (err : Option fold_port.fit.icm.IcmError) (b : Std.Usize) :
+  Result (ControlFlow ((Array Std.I128 8#usize) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((Array Std.I128 8#usize) ×
+    (Option fold_port.fit.icm.IcmError)))
+  := do
+  if b < fold_port.fit.icm.BLOCK
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let i ← Array.index_usize out b
+      let i1 ← Array.index_usize c a
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let a1 ← Array.index_usize h a
+      let i3 ← Array.index_usize a1 b
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let i5 ← i2 * i4
+      let r ← fold_port.fit.icm.qsum i i5
+      match r with
+      | core.result.Result.Ok v =>
+        let a2 ← Array.update out b v
+        let b2 ← b + 1#usize
+        ok (cont (a2, err, b2))
+      | core.result.Result.Err e =>
+        let b2 ← b + 1#usize
+        ok (cont (out, some e, b2))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_port::fit::icm::mat_blk_row]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 324:8-330:9 -/
+@[rust_loop]
+def fold_port.fit.icm.mat_blk_row_loop0_loop0
+  (c : Array Std.I64 8#usize) (h : Array (Array Std.I64 8#usize) 8#usize)
+  (out : Array Std.I128 8#usize) (err : Option fold_port.fit.icm.IcmError)
+  (a : Std.Usize) (b : Std.Usize) :
+  Result ((Array Std.I128 8#usize) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (out1, err1, b1) => fold_port.fit.icm.mat_blk_row_loop0_loop0.body c h
+      a out1 err1 b1)
+    (out, err, b)
+
+/-- [apeiron_word::fold_port::fit::icm::mat_blk_row]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 322:4-332:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.mat_blk_row_loop0.body
+  (c : Array Std.I64 8#usize) (h : Array (Array Std.I64 8#usize) 8#usize)
+  (out : Array Std.I128 8#usize) (err : Option fold_port.fit.icm.IcmError)
+  (a : Std.Usize) :
+  Result (ControlFlow ((Array Std.I128 8#usize) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((Array Std.I128 8#usize) ×
+    (Option fold_port.fit.icm.IcmError)))
+  := do
+  if a < fold_port.fit.icm.BLOCK
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (out1, err1) ←
+        fold_port.fit.icm.mat_blk_row_loop0_loop0 c h out err a 0#usize
+      let a1 ← a + 1#usize
+      ok (cont (out1, err1, a1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_port::fit::icm::mat_blk_row]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 322:4-332:5 -/
+@[rust_loop]
+def fold_port.fit.icm.mat_blk_row_loop0
+  (c : Array Std.I64 8#usize) (h : Array (Array Std.I64 8#usize) 8#usize)
+  (out : Array Std.I128 8#usize) (err : Option fold_port.fit.icm.IcmError)
+  (a : Std.Usize) :
+  Result ((Array Std.I128 8#usize) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (out1, err1, a1) => fold_port.fit.icm.mat_blk_row_loop0.body c h out1
+      err1 a1)
+    (out, err, a)
+
+/-- [apeiron_word::fold_port::fit::icm::mat_blk_row]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 318:0-337:1 -/
+def fold_port.fit.icm.mat_blk_row
+  (c : Array Std.I64 8#usize) (h : Array (Array Std.I64 8#usize) 8#usize) :
+  Result (core.result.Result (Array Std.I128 8#usize)
+    fold_port.fit.icm.IcmError)
+  := do
+  let out := Array.repeat 8#usize 0#i128
+  let (out1, err) ← fold_port.fit.icm.mat_blk_row_loop0 c h out none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok out1)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::fold_port::fit::icm::row_dot]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 342:4-346:1 -/
+@[rust_loop_body]
+def fold_port.fit.icm.row_dot_loop.body
+  (t : Array Std.I128 8#usize) (c : Array Std.I64 8#usize)
+  (iter : core.ops.range.Range Std.Usize) (acc : Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128)
+    (core.result.Result Std.I128 fold_port.fit.icm.IcmError))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (core.result.Result.Ok acc))
+  | some k =>
+    let i ← Array.index_usize t k
+    let i1 ← Array.index_usize c k
+    let i2 ← lift (core.convert.num.FromI128I64.from i1)
+    let r ← fold_port.fit.icm.qmul i i2
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let r1 ← fold_port.fit.icm.qsum acc val
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        ok (cont (iter1, val1))
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        let r2 ←
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            Std.I128 (core.convert.FromSame fold_port.fit.icm.IcmError)
+            residual
+        ok (done r2)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Std.I128 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+      ok (done r1)
+
+/-- [apeiron_word::fold_port::fit::icm::row_dot]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 342:4-346:1 -/
+@[rust_loop]
+def fold_port.fit.icm.row_dot_loop
+  (iter : core.ops.range.Range Std.Usize) (t : Array Std.I128 8#usize)
+  (c : Array Std.I64 8#usize) (acc : Std.I128) :
+  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (iter1, acc1) => fold_port.fit.icm.row_dot_loop.body t c iter1 acc1)
+    (iter, acc)
+
+/-- [apeiron_word::fold_port::fit::icm::row_dot]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 340:0-346:1 -/
+@[reducible]
+def fold_port.fit.icm.row_dot
+  (t : Array Std.I128 8#usize) (c : Array Std.I64 8#usize) :
+  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
+  := do
+  fold_port.fit.icm.row_dot_loop
+    { start := 0#usize, «end» := fold_port.fit.icm.BLOCK } t c 0#i128
+
+/-- [apeiron_word::fold_port::fit::icm::rows_per_task]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 349:0-351:1 -/
+def fold_port.fit.icm.rows_per_task (rows : Std.Usize) : Result Std.Usize := do
+  let i ← chart.pool.width_global
+  let i1 ← core.num.Usize.div_ceil rows i
+  core.cmp.Ord.max.default core.cmp.OrdUsize i1 1#usize
+
+/-- [apeiron_word::fold_port::fit::icm::BinOp]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 355:0-360:1 -/
+@[discriminant isize]
+inductive fold_port.fit.icm.BinOp where
+| Add : fold_port.fit.icm.BinOp
+| Sub : fold_port.fit.icm.BinOp
+
+/-- [apeiron_word::fold_port::fit::icm::bin_into]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 367:4-374:1 -/
+@[rust_loop_body]
+def fold_port.fit.icm.bin_into_loop.body
+  (iter : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+  (core.slice.iter.Iter Std.I64))
+  (back : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+  (core.slice.iter.Iter Std.I64) → core.iter.adapters.zip.Zip
+  (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64))
+  (op : fold_port.fit.icm.BinOp) :
+  Result (ControlFlow ((core.iter.adapters.zip.Zip (core.slice.iter.IterMut
+    Std.I64) (core.slice.iter.Iter Std.I64)) × (core.iter.adapters.zip.Zip
+    (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64) →
+    core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+    (core.slice.iter.Iter Std.I64)) × fold_port.fit.icm.BinOp)
+    ((core.result.Result Unit fold_port.fit.icm.IcmError) ×
+    (core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+    (core.slice.iter.Iter Std.I64))))
+  := do
+  let (o, iter1, next_back) ←
+    core.iter.adapters.zip.Zip.Insts.CoreIterTraitsIteratorIteratorPair.next
+      (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT
+      Std.I64) (core.iter.traits.iterator.IteratorSliceIter Std.I64) iter
+  match o with
+  | none =>
+    ok (done (core.result.Result.Ok (), let z := next_back iter1 none
+                                        back z))
+  | some p =>
+    let (d, s) := p
+    match op with
+    | fold_port.fit.icm.BinOp.Add =>
+      let r ← fold_port.fit.icm.add_q d s
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        ok (cont (iter1,
+          fun z => let z1 := next_back z (some (val, s))
+                   back z1, fold_port.fit.icm.BinOp.Add))
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        let r1 ←
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            Unit (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+        ok (done (r1, let z := next_back iter1 o
+                      back z))
+    | fold_port.fit.icm.BinOp.Sub =>
+      let r ← fold_port.fit.icm.sub_q d s
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        ok (cont (iter1,
+          fun z => let z1 := next_back z (some (val, s))
+                   back z1, fold_port.fit.icm.BinOp.Sub))
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        let r1 ←
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            Unit (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+        ok (done (r1, let z := next_back iter1 o
+                      back z))
+
+/-- [apeiron_word::fold_port::fit::icm::bin_into]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 367:4-374:1 -/
+@[rust_loop]
+def fold_port.fit.icm.bin_into_loop
+  (iter : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+  (core.slice.iter.Iter Std.I64))
+  (back : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+  (core.slice.iter.Iter Std.I64) → core.iter.adapters.zip.Zip
+  (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64))
+  (op : fold_port.fit.icm.BinOp) :
+  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) ×
+    (core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
+    (core.slice.iter.Iter Std.I64)))
+  := do
+  loop
+    (fun (iter1, back1, op1) => fold_port.fit.icm.bin_into_loop.body iter1
+      back1 op1)
+    (iter, back, op)
+
+/-- [apeiron_word::fold_port::fit::icm::bin_into]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 363:0-374:1 -/
+def fold_port.fit.icm.bin_into
+  (dst : Slice Std.I64) (src : Slice Std.I64) (op : fold_port.fit.icm.BinOp) :
+  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
+    Std.I64))
+  := do
+  let i := Slice.len dst
+  let i1 := Slice.len src
+  if i != i1
+  then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, dst)
+  else
+    let (im, iter_mut_back) ← core.slice.Slice.iter_mut dst
+    let (iter, trait_default_back) ←
+      core.iter.traits.iterator.Iterator.zip.trait_default
+        (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT
+        Std.I64) (SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter
+        Std.I64) im src
+    let (r, back) ← fold_port.fit.icm.bin_into_loop iter (fun z => z) op
+    let im1 := trait_default_back back
+    let dst1 := iter_mut_back im1
+    ok (r, dst1)
+
+/-- [apeiron_word::fold_port::fit::icm::ScaleBy]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 378:0-385:1 -/
+@[discriminant isize]
+inductive fold_port.fit.icm.ScaleBy where
+| Column : fold_port.fit.icm.ScaleBy
+| Group : fold_port.fit.icm.ScaleBy
+| Row : fold_port.fit.icm.ScaleBy
+
+/-- [apeiron_word::fold_port::fit::icm::scale_by]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 409:8-420:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.scale_by_loop0_loop0.body
+  (n : Std.Usize) (v : Slice Std.I64) (g : Std.Usize)
+  («by» : fold_port.fit.icm.ScaleBy) (row : Std.Usize) (x : Slice Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (col : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)
+    × Std.Usize) ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)))
+  := do
+  if col < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let f ←
+        match «by» with
+        | fold_port.fit.icm.ScaleBy.Column => Slice.index_usize v col
+        | fold_port.fit.icm.ScaleBy.Group =>
+          do
+          let i ← row * g
+          let i1 ← col / fold_port.fit.icm.GROUP
+          let i2 ← i + i1
+          Slice.index_usize v i2
+        | fold_port.fit.icm.ScaleBy.Row => Slice.index_usize v row
+      let i ← row * n
+      let i1 ← i + col
+      let i2 ← Slice.index_usize x i1
+      let r ← fold_port.fit.icm.mul_q i2 f
+      match r with
+      | core.result.Result.Ok z =>
+        let i3 ← i + col
+        let s ← Slice.update x i3 z
+        let col1 ← col + 1#usize
+        ok (cont (s, err, col1))
+      | core.result.Result.Err e =>
+        let col1 ← col + 1#usize
+        ok (cont (x, some e, col1))
+    else ok (done (x, err))
+  else ok (done (x, err))
+
+/-- [apeiron_word::fold_port::fit::icm::scale_by]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 409:8-420:9 -/
+@[rust_loop]
+def fold_port.fit.icm.scale_by_loop0_loop0
+  (x : Slice Std.I64) (n : Std.Usize) (v : Slice Std.I64) (g : Std.Usize)
+  («by» : fold_port.fit.icm.ScaleBy)
+  (err : Option fold_port.fit.icm.IcmError) (row : Std.Usize) (col : Std.Usize)
+  :
+  Result ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (x1, err1, col1) => fold_port.fit.icm.scale_by_loop0_loop0.body n v g
+      «by» row x1 err1 col1)
+    (x, err, col)
+
+/-- [apeiron_word::fold_port::fit::icm::scale_by]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 407:4-422:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.scale_by_loop0.body
+  (o : Std.Usize) (n : Std.Usize) (v : Slice Std.I64) (g : Std.Usize)
+  («by» : fold_port.fit.icm.ScaleBy) (x : Slice Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (row : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)
+    × Std.Usize) ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)))
+  := do
+  if row < o
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (x1, err1) ←
+        fold_port.fit.icm.scale_by_loop0_loop0 x n v g «by» err row 0#usize
+      let row1 ← row + 1#usize
+      ok (cont (x1, err1, row1))
+    else ok (done (x, err))
+  else ok (done (x, err))
+
+/-- [apeiron_word::fold_port::fit::icm::scale_by]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 407:4-422:5 -/
+@[rust_loop]
+def fold_port.fit.icm.scale_by_loop0
+  (x : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) (v : Slice Std.I64)
+  (g : Std.Usize) («by» : fold_port.fit.icm.ScaleBy)
+  (err : Option fold_port.fit.icm.IcmError) (row : Std.Usize) :
+  Result ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (x1, err1, row1) => fold_port.fit.icm.scale_by_loop0.body o n v g
+      «by» x1 err1 row1)
+    (x, err, row)
+
+/-- [apeiron_word::fold_port::fit::icm::scale_by]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 388:0-427:1 -/
+def fold_port.fit.icm.scale_by
+  (x : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) (v : Slice Std.I64)
+  (g : Std.Usize) («by» : fold_port.fit.icm.ScaleBy) :
+  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
+    Std.I64))
+  := do
+  let need ←
+    match «by» with
+    | fold_port.fit.icm.ScaleBy.Column => ok n
+    | fold_port.fit.icm.ScaleBy.Group => o * g
+    | fold_port.fit.icm.ScaleBy.Row => ok o
+  let b ←
+    match «by» with
+    | fold_port.fit.icm.ScaleBy.Column => ok false
+    | fold_port.fit.icm.ScaleBy.Group => ok true
+    | fold_port.fit.icm.ScaleBy.Row => ok false
+  let group_ok ←
+    if b
+    then do
+         let i ← g * fold_port.fit.icm.GROUP
+         ok (i = n)
+    else ok true
+  if o = 0#usize
+  then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, x)
+  else
+    if n = 0#usize
+    then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, x)
+    else
+      let i := Slice.len x
+      let i1 ← o * n
+      if i != i1
+      then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, x)
+      else
+        let i2 := Slice.len v
+        if i2 != need
+        then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, x)
+        else
+          if group_ok
+          then
+            let (x1, err) ←
+              fold_port.fit.icm.scale_by_loop0 x o n v g «by» none 0#usize
+            match err with
+            | none => ok (core.result.Result.Ok (), x1)
+            | some e => ok (core.result.Result.Err e, x1)
+          else ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, x)
+
+/-- [apeiron_word::fold_port::fit::icm::fwht_rows::{closure}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 437:39-440:5 -/
+@[reducible]
+def fold_port.fit.icm.fwht_rows.closure := Unit
+
+/-- [apeiron_word::fold_port::fit::icm::fwht_rows::{impl core::ops::function::FnOnce<(apeiron_word::hadamard::HadamardError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::fwht_rows::{closure}}::call_once]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 437:39-440:5 -/
+def
+  fold_port.fit.icm.fwht_rows.closure.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorIcmError.call_once
+  (c : fold_port.fit.icm.fwht_rows.closure)
+  (tupled_args : hadamard.HadamardError) :
+  Result fold_port.fit.icm.IcmError
+  := do
+  match tupled_args with
+  | hadamard.HadamardError.NotPowerOfTwo => ok fold_port.fit.icm.IcmError.Shape
+  | hadamard.HadamardError.LengthMismatch =>
+    ok fold_port.fit.icm.IcmError.Shape
+  | hadamard.HadamardError.BadSign => ok fold_port.fit.icm.IcmError.Shape
+  | hadamard.HadamardError.Overflow => ok fold_port.fit.icm.IcmError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::icm::fwht_rows::{impl core::ops::function::FnOnce<(apeiron_word::hadamard::HadamardError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::fwht_rows::{closure}}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 437:39-440:5 -/
+@[reducible]
+def
+  fold_port.fit.icm.fwht_rows.closure.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorIcmError
+  : core.ops.function.FnOnce fold_port.fit.icm.fwht_rows.closure
+  hadamard.HadamardError fold_port.fit.icm.IcmError := {
+  call_once :=
+    fold_port.fit.icm.fwht_rows.closure.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorIcmError.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::icm::fwht_rows]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 433:0-441:1 -/
+def fold_port.fit.icm.fwht_rows
+  (x : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
+  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
+    Std.I64))
+  := do
+  if o = 0#usize
+  then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, x)
+  else
+    if n = 0#usize
+    then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, x)
+    else
+      let b ← core.num.Usize.is_multiple_of n fold_port.fit.icm.GROUP
+      if b
+      then
+        let i := Slice.len x
+        let i1 ← o * n
+        if i != i1
+        then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, x)
+        else
+          let (r, x1) ← hadamard.fwht_fixed x none fold_port.fit.icm.GROUP
+          let r1 ←
+            core.result.Result.map_err
+              fold_port.fit.icm.fwht_rows.closure.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorIcmError
+              r ()
+          ok (r1, x1)
+      else ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, x)
+
+/-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 447:8-449:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.transpose_q_loop0_loop0.body
+  (h : Slice Std.I64) (n : Std.Usize) (r : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (t : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done t)
+  | some c =>
+    let i ← r * n
+    let i1 ← i + c
+    let i2 ← Slice.index_usize h i1
+    let i3 ← c * n
+    let i4 ← i3 + r
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) t
+        i4
+    let t1 := index_mut_back i2
+    ok (cont (iter1, t1))
+
+/-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 447:8-449:9 -/
+@[rust_loop]
+def fold_port.fit.icm.transpose_q_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (h : Slice Std.I64) (n : Std.Usize)
+  (t : alloc.vec.Vec Std.I64) (r : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, t1) => fold_port.fit.icm.transpose_q_loop0_loop0.body h n r
+      iter1 t1)
+    (iter, t)
+
+/-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 446:4-450:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.transpose_q_loop0.body
+  (h : Slice Std.I64) (n : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (t : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done t)
+  | some r =>
+    let t1 ←
+      fold_port.fit.icm.transpose_q_loop0_loop0
+        { start := 0#usize, «end» := n } h n t r
+    ok (cont (iter1, t1))
+
+/-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 446:4-450:5 -/
+@[rust_loop]
+def fold_port.fit.icm.transpose_q_loop0
+  (iter : core.ops.range.Range Std.Usize) (h : Slice Std.I64) (n : Std.Usize)
+  (t : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, t1) => fold_port.fit.icm.transpose_q_loop0.body h n iter1 t1)
+    (iter, t)
+
+/-- [apeiron_word::fold_port::fit::icm::transpose_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 444:0-452:1 -/
+def fold_port.fit.icm.transpose_q
+  (h : Slice Std.I64) (n : Std.Usize) : Result (alloc.vec.Vec Std.I64) := do
+  let i ← n * n
+  let t ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  fold_port.fit.icm.transpose_q_loop0 { start := 0#usize, «end» := n } h n t
+
+/-- [apeiron_word::fold_port::fit::icm::had_gram_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 457:0-466:1 -/
+def fold_port.fit.icm.had_gram_q
+  (h : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Width)
+  else
+    let b ← core.num.Usize.is_multiple_of n fold_port.fit.icm.GROUP
+    if b
+    then
+      let i := Slice.len h
+      let i1 ← n * n
+      if i != i1
+      then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Width)
+      else
+        let t ← alloc.slice.Slice.to_vec core.clone.CloneI64 h
+        let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut t)
+        let (r, s1) ← fold_port.fit.icm.fwht_rows s n n
+        let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+        match cf with
+        | core.ops.control_flow.ControlFlow.Continue _ =>
+          let t1 := deref_mut_back s1
+          let s2 := alloc.vec.Vec.deref t1
+          let u ← fold_port.fit.icm.transpose_q s2 n
+          let (s3, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut u)
+          let (r1, s4) ← fold_port.fit.icm.fwht_rows s3 n n
+          let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+          match cf1 with
+          | core.ops.control_flow.ControlFlow.Continue _ =>
+            let u1 := deref_mut_back1 s4
+            let s5 := alloc.vec.Vec.deref u1
+            let v ← fold_port.fit.icm.transpose_q s5 n
+            ok (core.result.Result.Ok v)
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              fold_port.fit.icm.IcmError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64) (core.convert.FromSame
+            fold_port.fit.icm.IcmError) residual
+    else ok (core.result.Result.Err fold_port.fit.icm.IcmError.Width)
+
+/-- [apeiron_word::fold_port::fit::icm::cross_metric_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 471:0-489:1 -/
+def fold_port.fit.icm.cross_metric_q
+  (hl : Slice Std.I64) (n : Std.Usize) (c1 : Slice Std.I64)
+  (c2 : Slice Std.I64) (d1 : Slice Std.I64) (d2 : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  let i := Slice.len hl
+  let i1 ← n * n
+  if i != i1
+  then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+  else
+    let h ← alloc.slice.Slice.to_vec core.clone.CloneI64 hl
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut h)
+    let (r, s1) ←
+      fold_port.fit.icm.scale_by s n n c2 1#usize
+        fold_port.fit.icm.ScaleBy.Column
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let h1 := deref_mut_back s1
+      let (s2, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut h1)
+      let (r1, s3) ←
+        fold_port.fit.icm.scale_by s2 n n c1 1#usize
+          fold_port.fit.icm.ScaleBy.Row
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue _ =>
+        let h2 := deref_mut_back1 s3
+        let s4 := alloc.vec.Vec.deref h2
+        let r2 ← fold_port.fit.icm.had_gram_q s4 n
+        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+        match cf2 with
+        | core.ops.control_flow.ControlFlow.Continue val =>
+          let (s5, deref_mut_back2) ← lift (alloc.vec.Vec.deref_mut val)
+          let (r3, s6) ←
+            fold_port.fit.icm.scale_by s5 n n d2 1#usize
+              fold_port.fit.icm.ScaleBy.Column
+          let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+          match cf3 with
+          | core.ops.control_flow.ControlFlow.Continue _ =>
+            let val1 := deref_mut_back2 s6
+            let (s7, deref_mut_back3) ← lift (alloc.vec.Vec.deref_mut val1)
+            let (r4, s8) ←
+              fold_port.fit.icm.scale_by s7 n n d1 1#usize
+                fold_port.fit.icm.ScaleBy.Row
+            let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
+            match cf4 with
+            | core.ops.control_flow.ControlFlow.Continue _ =>
+              let val2 := deref_mut_back3 s8
+              ok (core.result.Result.Ok val2)
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                (alloc.vec.Vec Std.I64) (core.convert.FromSame
+                fold_port.fit.icm.IcmError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              fold_port.fit.icm.IcmError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64) (core.convert.FromSame
+            fold_port.fit.icm.IcmError) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          fold_port.fit.icm.IcmError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+        fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::check_inputs]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 492:0-508:1 -/
+def fold_port.fit.icm.check_inputs
+  (ws : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize) (n : Std.Usize)
+  (g : Option (Slice Std.I64)) :
+  Result (core.result.Result Unit fold_port.fit.icm.IcmError)
+  := do
+  let i := Slice.len ws
+  let i1 ← o * n
+  if i != i1
+  then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+  else
+    let i2 := Slice.len hl
+    let i3 ← n * n
+    if i2 != i3
+    then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+    else
+      match g with
+      | none => ok (core.result.Result.Ok ())
+      | some g1 =>
+        let i4 := Slice.len g1
+        if i4 != o
+        then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+        else ok (core.result.Result.Ok ())
+
+/-- [apeiron_word::fold_port::fit::icm::into_plane]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 511:0-519:1 -/
+def fold_port.fit.icm.into_plane
+  (s : Slice Std.I64) (idx : alloc.vec.Vec Std.U16)
+  (p : fold_port.fit.icm.PlaneRef) :
+  Result fold_port.fit.icm.Plane
+  := do
+  let v ← alloc.slice.Slice.to_vec core.clone.CloneI64 s
+  let v1 ← alloc.slice.Slice.to_vec core.clone.CloneI64 p.r
+  let v2 ← alloc.slice.Slice.to_vec core.clone.CloneI64 p.c
+  let v3 ← alloc.slice.Slice.to_vec core.clone.CloneI64 p.d
+  ok { s := v, idx, r := v1, c := v2, d := v3 }
+
+/-- [apeiron_word::fold_port::fit::icm::codebook]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 523:0-525:1
+    Visibility: public -/
+def fold_port.fit.icm.codebook
+  : Result (Array (Array Std.I64 8#usize) 256#usize) := do
+  fold_port.fit.icm.codebook_q
+
+/-- [apeiron_word::fold_port::fit::icm::nearest_index::{closure}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 535:30-535:52 -/
+@[reducible]
+def fold_port.fit.icm.nearest_index.closure := Unit
+
+/-- [apeiron_word::fold_port::fit::icm::nearest_index::{impl core::ops::function::FnOnce<(apeiron_word::learn_port::e8::E8Error,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::nearest_index::{closure}}::call_once]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 535:30-535:52 -/
+def
+  fold_port.fit.icm.nearest_index.closure.Insts.CoreOpsFunctionFnOnceTupleE8ErrorIcmError.call_once
+  (c : fold_port.fit.icm.nearest_index.closure)
+  (tupled_args : learn_port.e8.E8Error) :
+  Result fold_port.fit.icm.IcmError
+  := do
+  ok fold_port.fit.icm.IcmError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::icm::nearest_index::{impl core::ops::function::FnOnce<(apeiron_word::learn_port::e8::E8Error,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::nearest_index::{closure}}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 535:30-535:52 -/
+@[reducible]
+def
+  fold_port.fit.icm.nearest_index.closure.Insts.CoreOpsFunctionFnOnceTupleE8ErrorIcmError
+  : core.ops.function.FnOnce fold_port.fit.icm.nearest_index.closure
+  learn_port.e8.E8Error fold_port.fit.icm.IcmError := {
+  call_once :=
+    fold_port.fit.icm.nearest_index.closure.Insts.CoreOpsFunctionFnOnceTupleE8ErrorIcmError.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::icm::nearest_index]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 534:0-536:1
+    Visibility: public -/
+def fold_port.fit.icm.nearest_index
+  (code : Array Std.I64 8#usize) :
+  Result (core.result.Result Std.Usize fold_port.fit.icm.IcmError)
+  := do
+  let r ← learn_port.e8.nearest code
+  core.result.Result.map_err
+    fold_port.fit.icm.nearest_index.closure.Insts.CoreOpsFunctionFnOnceTupleE8ErrorIcmError
+    r ()
+
+/-- [apeiron_word::fold_port::fit::icm::div_round::{closure#1}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 601:32-601:41 -/
+@[reducible]
+def fold_port.fit.icm.div_round.closure_1 := Std.I128
+
+/-- [apeiron_word::fold_port::fit::icm::div_round::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::icm::div_round::{closure#1}<'_0>}::call_once]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 601:32-601:41 -/
+def
+  fold_port.fit.icm.div_round.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
+  (c : fold_port.fit.icm.div_round.closure_1) (tupled_args : Std.I128) :
+  Result Std.I128
+  := do
+  tupled_args / c
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::icm::div_round::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::icm::div_round::{closure#1}<'_0>}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 601:32-601:41 -/
+@[reducible]
+def
+  fold_port.fit.icm.div_round.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128I128
+  : core.ops.function.FnOnce fold_port.fit.icm.div_round.closure_1 Std.I128
+  Std.I128 := {
+  call_once :=
+    fold_port.fit.icm.div_round.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::icm::div_round::{closure}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 599:32-599:41 -/
+@[reducible]
+def fold_port.fit.icm.div_round.closure := Std.I128
+
+/-- [apeiron_word::fold_port::fit::icm::div_round::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::icm::div_round::{closure}<'_0>}::call_once]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 599:32-599:41 -/
+def
+  fold_port.fit.icm.div_round.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
+  (c : fold_port.fit.icm.div_round.closure) (tupled_args : Std.I128) :
+  Result Std.I128
+  := do
+  tupled_args / c
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::icm::div_round::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::icm::div_round::{closure}<'_0>}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 599:32-599:41 -/
+@[reducible]
+def
+  fold_port.fit.icm.div_round.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128
+  : core.ops.function.FnOnce fold_port.fit.icm.div_round.closure Std.I128
+  Std.I128 := {
+  call_once :=
+    fold_port.fit.icm.div_round.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::icm::div_round]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 593:0-604:1 -/
+def fold_port.fit.icm.div_round
+  (v : Std.I128) (d : Std.I128) :
+  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
+  := do
+  if d <= 0#i128
+  then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Overflow)
+  else
+    let half ← d / 2#i128
+    let o ←
+      if v >= 0#i128
+      then
+        do
+        let o1 ← lift (I128.checked_add v half)
+        core.option.Option.map
+          fold_port.fit.icm.div_round.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128
+          o1 d
+      else
+        do
+        let o1 ← lift (I128.checked_sub v half)
+        core.option.Option.map
+          fold_port.fit.icm.div_round.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128I128
+          o1 d
+    core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
+
+/-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 560:8-566:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.ridged_metric_q_loop0.body
+  (hl : Slice Std.I64) (n : Std.Usize) (sum : Std.I128)
+  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result (ControlFlow (Std.I128 × (Option fold_port.fit.icm.IcmError) ×
+    Std.Usize) (Std.I128 × (Option fold_port.fit.icm.IcmError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + i
+      let i3 ← Slice.index_usize hl i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let r ← fold_port.fit.icm.qsum sum i4
+      let (sum1, err1) ←
+        match r with
+        | core.result.Result.Ok v => ok (v, err)
+        | core.result.Result.Err e => ok (sum, some e)
+      let i5 ← i + 1#usize
+      ok (cont (sum1, err1, i5))
+    else ok (done (sum, err))
+  else ok (done (sum, err))
+
+/-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 560:8-566:9 -/
+@[rust_loop]
+def fold_port.fit.icm.ridged_metric_q_loop0
+  (hl : Slice Std.I64) (n : Std.Usize) (sum : Std.I128)
+  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result (Std.I128 × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (sum1, err1, i1) => fold_port.fit.icm.ridged_metric_q_loop0.body hl n
+      sum1 err1 i1)
+    (sum, err, i)
+
+/-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 577:8-583:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.ridged_metric_q_loop1.body
+  (n : Std.Usize) (add : Std.I64) (h : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option fold_port.fit.icm.IcmError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + i
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) h
+          i2
+      let r ← fold_port.fit.icm.add_q i3 add
+      let (h1, err1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let i4 ← i1 + i
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) h i4
+          let h2 := index_mut_back v
+          ok (h2, err)
+        | core.result.Result.Err e => ok (h, some e)
+      let i4 ← i + 1#usize
+      ok (cont (h1, err1, i4))
+    else ok (done (h, err))
+  else ok (done (h, err))
+
+/-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 577:8-583:9 -/
+@[rust_loop]
+def fold_port.fit.icm.ridged_metric_q_loop1
+  (n : Std.Usize) (h : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (add : Std.I64) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (h1, err1, i1) => fold_port.fit.icm.ridged_metric_q_loop1.body n add
+      h1 err1 i1)
+    (h, err, i)
+
+/-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 554:0-589:1 -/
+def fold_port.fit.icm.ridged_metric_q
+  (hl : Slice Std.I64) (n : Std.Usize) (icm_ridge : Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  let h ← alloc.slice.Slice.to_vec core.clone.CloneI64 hl
+  if icm_ridge > 0#i64
+  then
+    let (sum, err) ←
+      fold_port.fit.icm.ridged_metric_q_loop0 hl n 0#i128 none 0#usize
+    match err with
+    | none =>
+      let i ← lift (UScalar.hcast .I128 n)
+      let r ← fold_port.fit.icm.div_round sum i
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let o ← solve_port.q32.narrow val
+        let r1 ←
+          core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
+        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let i1 ← lift (UScalar.hcast .I128 n)
+          let nq ← i1 * 4294967296#i128
+          let r2 ← fold_port.fit.icm.div_round nq 896#i128
+          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            let o1 ← solve_port.q32.narrow val2
+            let r3 ←
+              core.option.Option.ok_or o1 fold_port.fit.icm.IcmError.Overflow
+            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+            match cf3 with
+            | core.ops.control_flow.ControlFlow.Continue val3 =>
+              let r4 ← fold_port.fit.icm.mul_q icm_ridge val3
+              let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
+              match cf4 with
+              | core.ops.control_flow.ControlFlow.Continue val4 =>
+                let r5 ← fold_port.fit.icm.mul_q val4 val1
+                let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r5
+                match cf5 with
+                | core.ops.control_flow.ControlFlow.Continue val5 =>
+                  let add ←
+                    if val1 > 0#i64
+                    then if val5 < 1#i64
+                         then engine.ONE
+                         else ok val5
+                    else ok val5
+                  let (h1, err1) ←
+                    fold_port.fit.icm.ridged_metric_q_loop1 n h none add
+                      0#usize
+                  match err1 with
+                  | none => ok (core.result.Result.Ok h1)
+                  | some e => ok (core.result.Result.Err e)
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    (alloc.vec.Vec Std.I64) (core.convert.FromSame
+                    fold_port.fit.icm.IcmError) residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  (alloc.vec.Vec Std.I64) (core.convert.FromSame
+                  fold_port.fit.icm.IcmError) residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                (alloc.vec.Vec Std.I64) (core.convert.FromSame
+                fold_port.fit.icm.IcmError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              fold_port.fit.icm.IcmError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64) (core.convert.FromSame
+            fold_port.fit.icm.IcmError) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          fold_port.fit.icm.IcmError) residual
+    | some e => ok (core.result.Result.Err e)
+  else ok (core.result.Result.Ok h)
+
+/-- [apeiron_word::fold_port::fit::icm::ridged_metric]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 545:0-550:1
+    Visibility: public -/
+def fold_port.fit.icm.ridged_metric
+  (hl : Slice Std.I64) (n : Std.Usize) (icm_ridge : Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  if n = 0#usize
+  then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+  else
+    let i := Slice.len hl
+    let i1 ← n * n
+    if i != i1
+    then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+    else fold_port.fit.icm.ridged_metric_q hl n icm_ridge
+
+/-- [apeiron_word::fold_port::fit::icm::check_plane]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1747:0-1763:1 -/
+def fold_port.fit.icm.check_plane
+  (p : fold_port.fit.icm.PlaneRef) (o : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result Unit fold_port.fit.icm.IcmError)
+  := do
+  if o = 0#usize
+  then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+  else
+    if n = 0#usize
+    then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+    else
+      let b ← core.num.Usize.is_multiple_of n fold_port.fit.icm.BLOCK
+      if b
+      then
+        let b1 ← core.num.Usize.is_multiple_of n fold_port.fit.icm.GROUP
+        if b1
+        then
+          let i := Slice.len p.s
+          let i1 ← o * n
+          if i != i1
+          then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+          else
+            let i2 := Slice.len p.idx
+            let i3 ← n / fold_port.fit.icm.BLOCK
+            let i4 ← o * i3
+            if i2 != i4
+            then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+            else
+              let i5 := Slice.len p.r
+              let i6 ← n / fold_port.fit.icm.GROUP
+              let i7 ← o * i6
+              if i5 != i7
+              then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+              else
+                let i8 := Slice.len p.c
+                if i8 != n
+                then
+                  ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+                else
+                  let i9 := Slice.len p.d
+                  if i9 != n
+                  then
+                    ok (core.result.Result.Err
+                      fold_port.fit.icm.IcmError.Shape)
+                  else ok (core.result.Result.Ok ())
+        else ok (core.result.Result.Err fold_port.fit.icm.IcmError.Width)
+      else ok (core.result.Result.Err fold_port.fit.icm.IcmError.Width)
+
+/-- [apeiron_word::fold_port::fit::icm::code_transform_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 620:0-630:1 -/
+def fold_port.fit.icm.code_transform_q
+  (s : Slice Std.I64) (d : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  let t ← alloc.slice.Slice.to_vec core.clone.CloneI64 s
+  let (s1, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut t)
+  let i ← n / fold_port.fit.icm.GROUP
+  let (r, s2) ←
+    fold_port.fit.icm.scale_by s1 o n d i fold_port.fit.icm.ScaleBy.Column
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let t1 := deref_mut_back s2
+    let (s3, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut t1)
+    let (r1, s4) ← fold_port.fit.icm.fwht_rows s3 o n
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let t2 := deref_mut_back1 s4
+      ok (core.result.Result.Ok t2)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+        fold_port.fit.icm.IcmError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::plane_w_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 634:0-647:1 -/
+def fold_port.fit.icm.plane_w_q
+  (s : Slice Std.I64) (r : Slice Std.I64) (c : Slice Std.I64)
+  (d : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  let g ← n / fold_port.fit.icm.GROUP
+  let r1 ← fold_port.fit.icm.code_transform_q s d o n
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let (s1, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut val)
+    let (r2, s2) ←
+      fold_port.fit.icm.scale_by s1 o n c g fold_port.fit.icm.ScaleBy.Column
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r2
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let val1 := deref_mut_back s2
+      let (s3, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut val1)
+      let (r3, s4) ←
+        fold_port.fit.icm.scale_by s3 o n r g fold_port.fit.icm.ScaleBy.Group
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r3
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue _ =>
+        let val2 := deref_mut_back1 s4
+        ok (core.result.Result.Ok val2)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          fold_port.fit.icm.IcmError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+        fold_port.fit.icm.IcmError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::plane_w]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 613:0-616:1
+    Visibility: public -/
+def fold_port.fit.icm.plane_w
+  (p : fold_port.fit.icm.PlaneRef) (o : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  let r ← fold_port.fit.icm.check_plane p o n
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    fold_port.fit.icm.plane_w_q p.s p.r p.c p.d o n
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::j_rows_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 687:4-711:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.j_rows_q_loop.body
+  (o : Std.Usize) (n : Std.Usize) (d : alloc.vec.Vec Std.I64)
+  (prod : alloc.vec.Vec Std.I64) (g_row : Option (Slice Std.I64))
+  (total : Std.I128) (err : Option fold_port.fit.icm.IcmError)
+  (row : Std.Usize) :
+  Result (ControlFlow ((Option (Slice Std.I64)) × Std.I128 × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) (Std.I128 × (Option
+    fold_port.fit.icm.IcmError)))
+  := do
+  if row < o
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← row * n
+      let i1 ← row + 1#usize
+      let i2 ← i1 * n
+      let dr ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) d { start := i, «end» := i2 }
+      let i3 ← i1 * n
+      let pr ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) prod { start := i, «end» := i3 }
+      let r ← fold_port.fit.icm.dot64 dr pr
+      let (g_row1, total1, err1) ←
+        match r with
+        | core.result.Result.Ok dot =>
+          do
+          let r1 ← fold_port.fit.icm.round_shift dot 32#u32
+          match r1 with
+          | core.result.Result.Ok j0 =>
+            let (err2, j) ←
+              match g_row with
+              | none => ok (err, j0)
+              | some g =>
+                do
+                let i4 ← Slice.index_usize g row
+                let r2 ← fold_port.fit.icm.mul_q i4 j0
+                match r2 with
+                | core.result.Result.Ok v => ok (err, v)
+                | core.result.Result.Err e => ok (some e, j0)
+            let b1 := core.option.Option.is_none err2
+            let (i4, o1) ←
+              if b1
+              then
+                do
+                let i5 ← lift (core.convert.num.FromI128I64.from j)
+                let r2 ← fold_port.fit.icm.qsum total i5
+                match r2 with
+                | core.result.Result.Ok v => ok (v, err2)
+                | core.result.Result.Err e => ok (total, some e)
+              else ok (total, err2)
+            ok (g_row, i4, o1)
+          | core.result.Result.Err e => ok (g_row, total, some e)
+        | core.result.Result.Err e => ok (g_row, total, some e)
+      ok (cont (g_row1, total1, err1, i1))
+    else ok (done (total, err))
+  else ok (done (total, err))
+
+/-- [apeiron_word::fold_port::fit::icm::j_rows_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 687:4-711:5 -/
+@[rust_loop]
+def fold_port.fit.icm.j_rows_q_loop
+  (o : Std.Usize) (n : Std.Usize) (g_row : Option (Slice Std.I64))
+  (d : alloc.vec.Vec Std.I64) (prod : alloc.vec.Vec Std.I64) (total : Std.I128)
+  (err : Option fold_port.fit.icm.IcmError) (row : Std.Usize) :
+  Result (Std.I128 × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (g_row1, total1, err1, row1) => fold_port.fit.icm.j_rows_q_loop.body o
+      n d prod g_row1 total1 err1 row1)
+    (g_row, total, err, row)
+
+/-- [apeiron_word::fold_port::fit::icm::j_rows_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 673:0-716:1 -/
+def fold_port.fit.icm.j_rows_q
+  (ws : Slice Std.I64) (w : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize)
+  (n : Std.Usize) (g_row : Option (Slice Std.I64)) :
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+  := do
+  let d ← alloc.slice.Slice.to_vec core.clone.CloneI64 ws
+  let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut d)
+  let (r, s1) ← fold_port.fit.icm.bin_into s w fold_port.fit.icm.BinOp.Sub
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let d1 := deref_mut_back s1
+    let s2 := alloc.vec.Vec.deref d1
+    let r1 ← fold_port.fit.icm.matmul_q s2 hl o n n false
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let (total, err) ←
+        fold_port.fit.icm.j_rows_q_loop o n g_row d1 val 0#i128 none 0#usize
+      match err with
+      | none =>
+        let o1 ← solve_port.q32.narrow total
+        core.option.Option.ok_or o1 fold_port.fit.icm.IcmError.Overflow
+      | some e => ok (core.result.Result.Err e)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::j_rows]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 655:0-668:1
+    Visibility: public -/
+def fold_port.fit.icm.j_rows
+  (ws : Slice Std.I64) (w : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize)
+  (n : Std.Usize) (g_row : Option (Slice Std.I64)) :
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+  := do
+  let r ← fold_port.fit.icm.check_inputs ws hl o n g_row
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let i := Slice.len w
+    let i1 ← o * n
+    if i != i1
+    then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
+    else fold_port.fit.icm.j_rows_q ws w hl o n g_row
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::SweepCtx]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 859:0-866:1 -/
+structure fold_port.fit.icm.SweepCtx where
+  h_rot : Slice Std.I64
+  q_all : Slice Std.I64
+  cb : Array (Array Std.I64 8#usize) 256#usize
+  n : Std.Usize
+  g : Std.Usize
+  sweeps : Std.Usize
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 4:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 921:20-927:21 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0_loop0.body
+  (b0 : Std.Usize) (hb : Array (Array Std.I64 8#usize) 8#usize)
+  (s_row : Slice Std.I64) (k : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (acc : Std.I128) (l : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × Std.I128 ×
+    Std.Usize) ((Option fold_port.fit.icm.IcmError) × Std.I128))
+  := do
+  if l < fold_port.fit.icm.BLOCK
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← b0 + l
+      let i1 ← Slice.index_usize s_row i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let a ← Array.index_usize hb l
+      let i3 ← Array.index_usize a k
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let i5 ← i2 * i4
+      let r ← fold_port.fit.icm.qsum acc i5
+      let (err1, acc1) ←
+        match r with
+        | core.result.Result.Ok v => ok (err, v)
+        | core.result.Result.Err e => ok (some e, acc)
+      let l1 ← l + 1#usize
+      ok (cont (err1, acc1, l1))
+    else ok (done (err, acc))
+  else ok (done (err, acc))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 4:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 921:20-927:21 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0_loop0
+  (err : Option fold_port.fit.icm.IcmError) (b0 : Std.Usize)
+  (hb : Array (Array Std.I64 8#usize) 8#usize) (s_row : Slice Std.I64)
+  (k : Std.Usize) (acc : Std.I128) (l : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × Std.I128)
+  := do
+  loop
+    (fun (err1, acc1, l1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0_loop0.body b0 hb
+      s_row k err1 acc1 l1)
+    (err, acc, l)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 3:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 918:16-941:17 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0.body
+  (b0 : Std.Usize) (hb : Array (Array Std.I64 8#usize) 8#usize) (av : Std.I128)
+  (f_row : Slice Std.I64) (s_row : Slice Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (f_m : Array Std.I64 8#usize)
+  (k : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (Array Std.I64
+    8#usize) × Std.Usize) ((Option fold_port.fit.icm.IcmError) × (Array
+    Std.I64 8#usize)))
+  := do
+  if k < fold_port.fit.icm.BLOCK
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (err1, acc) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0_loop0 err b0 hb
+          s_row k 0#i128 0#usize
+      let b1 := core.option.Option.is_none err1
+      let (err2, f_m1) ←
+        if b1
+        then
+          do
+          let r ← fold_port.fit.icm.qmul av acc
+          match r with
+          | core.result.Result.Ok p =>
+            let r1 ← fold_port.fit.icm.round_shift p 64#u32
+            match r1 with
+            | core.result.Result.Ok q =>
+              let i ← b0 + k
+              let i1 ← Slice.index_usize f_row i
+              let r2 ← fold_port.fit.icm.add_q i1 q
+              match r2 with
+              | core.result.Result.Ok v =>
+                let a ← Array.update f_m k v
+                ok (err1, a)
+              | core.result.Result.Err e => ok (some e, f_m)
+            | core.result.Result.Err e => ok (some e, f_m)
+          | core.result.Result.Err e => ok (some e, f_m)
+        else ok (err1, f_m)
+      let k1 ← k + 1#usize
+      ok (cont (err2, f_m1, k1))
+    else ok (done (err, f_m))
+  else ok (done (err, f_m))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 3:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 918:16-941:17 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0
+  (err : Option fold_port.fit.icm.IcmError) (b0 : Std.Usize)
+  (hb : Array (Array Std.I64 8#usize) 8#usize) (av : Std.I128)
+  (f_row : Slice Std.I64) (s_row : Slice Std.I64) (f_m : Array Std.I64 8#usize)
+  (k : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × (Array Std.I64 8#usize))
+  := do
+  loop
+    (fun (err1, f_m1, k1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0.body b0 hb av f_row
+      s_row err1 f_m1 k1)
+    (err, f_m, k)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 5:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 944:16-958:17 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop1.body
+  (s : Slice Std.I64) (a : Array (Array Std.I64 8#usize) 256#usize)
+  (m : Std.Usize) (aa : Std.I128) (two_a : Std.I128)
+  (f_m : Array Std.I64 8#usize) (err : Option fold_port.fit.icm.IcmError)
+  (best : Std.U16) (best_cost : Std.I128) (j : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × Std.U16 ×
+    Std.I128 × Std.Usize) ((Option fold_port.fit.icm.IcmError) × Std.U16))
+  := do
+  if j < fold_port.fit.icm.CODE_LEN
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let s1 ← lift (Array.to_slice f_m)
+      let a1 ← Array.index_usize a j
+      let s2 ← lift (Array.to_slice a1)
+      let r ← fold_port.fit.icm.dot64 s1 s2
+      let (err1, best1, best_cost1) ←
+        match r with
+        | core.result.Result.Ok d =>
+          do
+          let i ← m * fold_port.fit.icm.CODE_LEN
+          let i1 ← i + j
+          let i2 ← Slice.index_usize s i1
+          let r1 ← fold_port.fit.icm.block_cost aa two_a i2 d
+          match r1 with
+          | core.result.Result.Ok cost =>
+            let (i3, i4) ←
+              if cost < best_cost
+              then do
+                   let best2 ← lift (UScalar.cast .U16 j)
+                   ok (best2, cost)
+              else ok (best, best_cost)
+            ok (err, i3, i4)
+          | core.result.Result.Err e => ok (some e, best, best_cost)
+        | core.result.Result.Err e => ok (some e, best, best_cost)
+      let j1 ← j + 1#usize
+      ok (cont (err1, best1, best_cost1, j1))
+    else ok (done (err, best))
+  else ok (done (err, best))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 5:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 944:16-958:17 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop1
+  (s : Slice Std.I64) (a : Array (Array Std.I64 8#usize) 256#usize)
+  (err : Option fold_port.fit.icm.IcmError) (m : Std.Usize) (aa : Std.I128)
+  (two_a : Std.I128) (f_m : Array Std.I64 8#usize) (best : Std.U16)
+  (best_cost : Std.I128) (j : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × Std.U16)
+  := do
+  loop
+    (fun (err1, best1, best_cost1, j1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop1.body s a m aa two_a
+      f_m err1 best1 best_cost1 j1)
+    (err, best, best_cost, j)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 6:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 963:16-973:17 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop2.body
+  (a : Array (Array Std.I64 8#usize) 256#usize) (b0 : Std.Usize)
+  (best : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
+  (s_row : Slice Std.I64) (diff : Array Std.I64 8#usize) (changed : Bool)
+  (k : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (Slice Std.I64)
+    × (Array Std.I64 8#usize) × Bool × Std.Usize) ((Option
+    fold_port.fit.icm.IcmError) × (Slice Std.I64) × (Array Std.I64 8#usize)
+    × Bool))
+  := do
+  if k < fold_port.fit.icm.BLOCK
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let a1 ← Array.index_usize a best
+      let i ← Array.index_usize a1 k
+      let i1 ← b0 + k
+      let i2 ← Slice.index_usize s_row i1
+      let r ← fold_port.fit.icm.sub_q i i2
+      match r with
+      | core.result.Result.Ok v =>
+        let a2 ← Array.update diff k v
+        let i3 ← Array.index_usize a1 k
+        let s ← Slice.update s_row i1 i3
+        let k1 ← k + 1#usize
+        ok (cont (err, s, a2, changed || (v != 0#i64), k1))
+      | core.result.Result.Err e =>
+        let k1 ← k + 1#usize
+        ok (cont (some e, s_row, diff, changed, k1))
+    else ok (done (err, s_row, diff, changed))
+  else ok (done (err, s_row, diff, changed))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 6:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 963:16-973:17 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop2
+  (a : Array (Array Std.I64 8#usize) 256#usize)
+  (err : Option fold_port.fit.icm.IcmError) (b0 : Std.Usize)
+  (s_row : Slice Std.I64) (best : Std.Usize) (diff : Array Std.I64 8#usize)
+  (changed : Bool) (k : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × (Slice Std.I64) × (Array
+    Std.I64 8#usize) × Bool)
+  := do
+  loop
+    (fun (err1, s_row1, diff1, changed1, k1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop2.body a b0 best err1
+      s_row1 diff1 changed1 k1)
+    (err, s_row, diff, changed, k)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 8:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 982:24-991:25 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3_loop0.body
+  (s : Slice Std.I64) (n : Std.Usize) (b0 : Std.Usize)
+  (diff : Array Std.I64 8#usize) (col : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (acc : Std.I128) (kk : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × Std.I128 ×
+    Std.Usize) ((Option fold_port.fit.icm.IcmError) × Std.I128))
+  := do
+  if kk < fold_port.fit.icm.BLOCK
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← Array.index_usize diff kk
+      let i1 ← lift (core.convert.num.FromI128I64.from i)
+      let i2 ← b0 + kk
+      let i3 ← i2 * n
+      let i4 ← i3 + col
+      let i5 ← Slice.index_usize s i4
+      let i6 ← lift (core.convert.num.FromI128I64.from i5)
+      let i7 ← i1 * i6
+      let r ← fold_port.fit.icm.qsum acc i7
+      let (err1, acc1) ←
+        match r with
+        | core.result.Result.Ok v => ok (err, v)
+        | core.result.Result.Err e => ok (some e, acc)
+      let kk1 ← kk + 1#usize
+      ok (cont (err1, acc1, kk1))
+    else ok (done (err, acc))
+  else ok (done (err, acc))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 8:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 982:24-991:25 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3_loop0
+  (s : Slice Std.I64) (n : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
+  (b0 : Std.Usize) (diff : Array Std.I64 8#usize) (col : Std.Usize)
+  (acc : Std.I128) (kk : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × Std.I128)
+  := do
+  loop
+    (fun (err1, acc1, kk1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3_loop0.body s n b0
+      diff col err1 acc1 kk1)
+    (err, acc, kk)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 7:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 979:20-1005:21 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3.body
+  (s : Slice Std.I64) (n : Std.Usize) (b0 : Std.Usize) (av : Std.I128)
+  (diff : Array Std.I64 8#usize) (err : Option fold_port.fit.icm.IcmError)
+  (f_row : Slice Std.I64) (col : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (Slice Std.I64)
+    × Std.Usize) ((Option fold_port.fit.icm.IcmError) × (Slice Std.I64)))
+  := do
+  if col < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (err1, acc) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3_loop0 s n err b0
+          diff col 0#i128 0#usize
+      let b1 := core.option.Option.is_none err1
+      if b1
+      then
+        let r ← fold_port.fit.icm.qmul av acc
+        match r with
+        | core.result.Result.Ok p =>
+          let r1 ← fold_port.fit.icm.round_shift p 64#u32
+          match r1 with
+          | core.result.Result.Ok q =>
+            let i ← Slice.index_usize f_row col
+            let r2 ← fold_port.fit.icm.sub_q i q
+            match r2 with
+            | core.result.Result.Ok v =>
+              let s1 ← Slice.update f_row col v
+              let col1 ← col + 1#usize
+              ok (cont (err1, s1, col1))
+            | core.result.Result.Err e =>
+              let col1 ← col + 1#usize
+              ok (cont (some e, f_row, col1))
+          | core.result.Result.Err e =>
+            let col1 ← col + 1#usize
+            ok (cont (some e, f_row, col1))
+        | core.result.Result.Err e =>
+          let col1 ← col + 1#usize
+          ok (cont (some e, f_row, col1))
+      else let col1 ← col + 1#usize
+           ok (cont (err1, f_row, col1))
+    else ok (done (err, f_row))
+  else ok (done (err, f_row))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 7:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 979:20-1005:21 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3
+  (s : Slice Std.I64) (n : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
+  (b0 : Std.Usize) (av : Std.I128) (f_row : Slice Std.I64)
+  (diff : Array Std.I64 8#usize) (col : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × (Slice Std.I64))
+  := do
+  loop
+    (fun (err1, f_row1, col1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3.body s n b0 av diff
+      err1 f_row1 col1)
+    (err, f_row, col)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 2:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 910:12-1008:13 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0.body
+  (s : Slice Std.I64) (s1 : Slice Std.I64)
+  (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize) (i : Std.Usize)
+  (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize) (m : Std.Usize)
+  (b0 : Std.Usize) (hb : Array (Array Std.I64 8#usize) 8#usize)
+  (f_res : Slice Std.I64) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
+  (err : Option fold_port.fit.icm.IcmError) (row : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) ×
+    (Option fold_port.fit.icm.IcmError) × Std.Usize) ((Slice Std.I64) ×
+    (Slice Std.I64) × (Slice Std.U16) × (Option fold_port.fit.icm.IcmError)))
+  := do
+  if row < rows
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← row * i
+      let i2 ← b0 / fold_port.fit.icm.GROUP
+      let i3 ← i1 + i2
+      let a1 ← Slice.index_usize r i3
+      let av ← lift (core.convert.num.FromI128I64.from a1)
+      let aa ← av * av
+      let two_a ← av * 2#i128
+      let i4 ← row * n
+      let i5 ← row + 1#usize
+      let i6 ← i5 * n
+      let (f_row, index_mut_back) ←
+        core.slice.index.Slice.index_mut
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) f_res
+          { start := i4, «end» := i6 }
+      let i7 ← i5 * n
+      let (s_row, index_mut_back1) ←
+        core.slice.index.Slice.index_mut
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) s_cur
+          { start := i4, «end» := i7 }
+      let f_m := Array.repeat 8#usize 0#i64
+      let (err1, f_m1) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0 err b0 hb av f_row
+          s_row f_m 0#usize
+      let (err2, best) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop1 s1 a err1 m aa
+          two_a f_m1 0#u16 core.num.I128.MAX 0#usize
+      let best1 ← lift (core.convert.num.FromUsizeU16.from best)
+      let diff := Array.repeat 8#usize 0#i64
+      let (err3, s_row1, diff1, changed) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop2 a err2 b0 s_row
+          best1 diff false 0#usize
+      let b1 := core.option.Option.is_none err3
+      let idx1 ←
+        if b1
+        then
+          do
+          let i8 ← row * nb
+          let i9 ← i8 + m
+          let i10 ← lift (UScalar.cast .U16 best1)
+          Slice.update idx i9 i10
+        else ok idx
+      if changed
+      then
+        let b2 := core.option.Option.is_none err3
+        if b2
+        then
+          let (err4, f_row1) ←
+            fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3 s n err3 b0 av
+              f_row diff1 0#usize
+          let row1 ← row + 1#usize
+          let s_cur1 := index_mut_back1 s_row1
+          let f_res1 := index_mut_back f_row1
+          ok (cont (f_res1, s_cur1, idx1, err4, row1))
+        else
+          let row1 ← row + 1#usize
+          let s_cur1 := index_mut_back1 s_row1
+          let f_res1 := index_mut_back f_row
+          ok (cont (f_res1, s_cur1, idx1, err3, row1))
+      else
+        let row1 ← row + 1#usize
+        let s_cur1 := index_mut_back1 s_row1
+        let f_res1 := index_mut_back f_row
+        ok (cont (f_res1, s_cur1, idx1, err3, row1))
+    else ok (done (f_res, s_cur, idx, err))
+  else ok (done (f_res, s_cur, idx, err))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 2:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 910:12-1008:13 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0
+  (s : Slice Std.I64) (s1 : Slice Std.I64)
+  (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize) (i : Std.Usize)
+  (f_res : Slice Std.I64) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
+  (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (m : Std.Usize) (b0 : Std.Usize)
+  (hb : Array (Array Std.I64 8#usize) 8#usize) (row : Std.Usize) :
+  Result ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) × (Option
+    fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (f_res1, s_cur1, idx1, err1, row1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0.body s s1 a n i r nb rows
+      m b0 hb f_res1 s_cur1 idx1 err1 row1)
+    (f_res, s_cur, idx, err, row)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 902:8-1010:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0.body
+  (s : Slice Std.I64) (s1 : Slice Std.I64)
+  (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize) (i : Std.Usize)
+  (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize) (sw : Std.Usize)
+  (f_res : Slice Std.I64) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
+  (err : Option fold_port.fit.icm.IcmError) (step : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) ×
+    (Option fold_port.fit.icm.IcmError) × Std.Usize) ((Slice Std.I64) ×
+    (Slice Std.I64) × (Slice Std.U16) × (Option fold_port.fit.icm.IcmError)))
+  := do
+  if step < nb
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← sw % 2#usize
+      let m ←
+        if i1 = 0#usize
+        then do
+             let i2 ← nb - 1#usize
+             i2 - step
+        else ok step
+      let b0 ← m * fold_port.fit.icm.BLOCK
+      let hb ← fold_port.fit.icm.block_of_q s n m
+      let (f_res1, s_cur1, idx1, err1) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0 s s1 a n i f_res s_cur
+          idx r nb rows err m b0 hb 0#usize
+      let step1 ← step + 1#usize
+      ok (cont (f_res1, s_cur1, idx1, err1, step1))
+    else ok (done (f_res, s_cur, idx, err))
+  else ok (done (f_res, s_cur, idx, err))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 902:8-1010:9 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0
+  (s : Slice Std.I64) (s1 : Slice Std.I64)
+  (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize) (i : Std.Usize)
+  (f_res : Slice Std.I64) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
+  (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (sw : Std.Usize) (step : Std.Usize)
+  :
+  Result ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) × (Option
+    fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (f_res1, s_cur1, idx1, err1, step1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0.body s s1 a n i r nb rows sw
+      f_res1 s_cur1 idx1 err1 step1)
+    (f_res, s_cur, idx, err, step)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 900:4-1012:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0.body
+  (s : Slice Std.I64) (s1 : Slice Std.I64)
+  (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize) (i : Std.Usize)
+  (i1 : Std.Usize) (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize)
+  (f_res : Slice Std.I64) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
+  (err : Option fold_port.fit.icm.IcmError) (sw : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) ×
+    (Option fold_port.fit.icm.IcmError) × Std.Usize) ((Slice Std.I64) ×
+    (Slice Std.I64) × (Slice Std.U16) × (Option fold_port.fit.icm.IcmError)))
+  := do
+  if sw < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (f_res1, s_cur1, idx1, err1) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0 s s1 a n i f_res s_cur idx r
+          nb rows err sw 0#usize
+      let sw1 ← sw + 1#usize
+      ok (cont (f_res1, s_cur1, idx1, err1, sw1))
+    else ok (done (f_res, s_cur, idx, err))
+  else ok (done (f_res, s_cur, idx, err))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 900:4-1012:5 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0
+  (s : Slice Std.I64) (s1 : Slice Std.I64)
+  (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize) (i : Std.Usize)
+  (i1 : Std.Usize) (f_res : Slice Std.I64) (s_cur : Slice Std.I64)
+  (idx : Slice Std.U16) (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (sw : Std.Usize) :
+  Result ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) × (Option
+    fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (f_res1, s_cur1, idx1, err1, sw1) =>
+      fold_port.fit.icm.sweep_rows_loop0.body s s1 a n i i1 r nb rows f_res1
+      s_cur1 idx1 err1 sw1)
+    (f_res, s_cur, idx, err, sw)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 889:0-1017:1 -/
+def fold_port.fit.icm.sweep_rows
+  (cx : fold_port.fit.icm.SweepCtx) (f_res : Slice Std.I64)
+  (s_cur : Slice Std.I64) (idx : Slice Std.U16) (r : Slice Std.I64) :
+  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
+    Std.I64) × (Slice Std.I64) × (Slice Std.U16))
+  := do
+  let nb ← cx.n / fold_port.fit.icm.BLOCK
+  let i := Slice.len r
+  let rows ← i / cx.g
+  let (f_res1, s_cur1, idx1, err) ←
+    fold_port.fit.icm.sweep_rows_loop0 cx.h_rot cx.q_all cx.cb cx.n cx.g
+      cx.sweeps f_res s_cur idx r nb rows none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok (), f_res1, s_cur1, idx1)
+  | some e => ok (core.result.Result.Err e, f_res1, s_cur1, idx1)
+
+/-- [apeiron_word::fold_port::fit::icm::SweepTask]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 869:0-873:1 -/
+structure fold_port.fit.icm.SweepTask where
+  cx : fold_port.fit.icm.SweepCtx
+  r : Slice Std.I64
+  per : Std.Usize
+
+/-- [apeiron_word::fold_port::fit::icm::{impl apeiron_word::chart::task::Task3<i64, i64, u16, apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::SweepTask<'_0>}::run]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 876:4-880:5 -/
+def
+  fold_port.fit.icm.SweepTask.Insts.Apeiron_wordChartTaskTask3I64I64U16IcmError.run
+  (self : fold_port.fit.icm.SweepTask) (t : Std.Usize) (f : Slice Std.I64)
+  (sc : Slice Std.I64) (ix : Slice Std.U16) :
+  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
+    Std.I64) × (Slice Std.I64) × (Slice Std.U16))
+  := do
+  let lo ← t * self.per
+  let i := Slice.len f
+  let i1 ← i / self.cx.n
+  let i2 ← lo + i1
+  let hi ← i2 * self.cx.g
+  let i3 ← lo * self.cx.g
+  let s ←
+    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+      Std.I64) self.r { start := i3, «end» := hi }
+  fold_port.fit.icm.sweep_rows self.cx f sc ix s
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::icm::{impl apeiron_word::chart::task::Task3<i64, i64, u16, apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::SweepTask<'_0>}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 875:0-881:1 -/
+@[reducible]
+def
+  fold_port.fit.icm.SweepTask.Insts.Apeiron_wordChartTaskTask3I64I64U16IcmError
+  : chart.task.Task3 fold_port.fit.icm.SweepTask Std.I64 Std.I64 Std.U16
+  fold_port.fit.icm.IcmError := {
+  run :=
+    fold_port.fit.icm.SweepTask.Insts.Apeiron_wordChartTaskTask3I64I64U16IcmError.run
+}
+
+/-- [apeiron_word::fold_port::fit::icm::block_quads_q]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 795:8-807:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.block_quads_q_loop0_loop0.body
+  (cb : Array (Array Std.I64 8#usize) 256#usize) (m : Std.Usize)
+  (hb : Array (Array Std.I64 8#usize) 8#usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option fold_port.fit.icm.IcmError)))
+  := do
+  if j < fold_port.fit.icm.CODE_LEN
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let a ← Array.index_usize cb j
+      let r ← fold_port.fit.icm.mat_blk_row a hb
+      let (out1, err1) ←
+        match r with
+        | core.result.Result.Ok t =>
+          do
+          let r1 ← fold_port.fit.icm.row_dot t a
+          match r1 with
+          | core.result.Result.Ok d =>
+            let r2 ← fold_port.fit.icm.round_shift d 64#u32
+            match r2 with
+            | core.result.Result.Ok v =>
+              let i ← m * fold_port.fit.icm.CODE_LEN
+              let i1 ← i + j
+              let (_, index_mut_back) ←
+                alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                  Std.I64) out i1
+              let out2 := index_mut_back v
+              ok (out2, err)
+            | core.result.Result.Err e => ok (out, some e)
+          | core.result.Result.Err e => ok (out, some e)
+        | core.result.Result.Err e => ok (out, some e)
+      let j1 ← j + 1#usize
+      ok (cont (out1, err1, j1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_port::fit::icm::block_quads_q]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 795:8-807:9 -/
+@[rust_loop]
+def fold_port.fit.icm.block_quads_q_loop0_loop0
+  (cb : Array (Array Std.I64 8#usize) 256#usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (m : Std.Usize)
+  (hb : Array (Array Std.I64 8#usize) 8#usize) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (out1, err1, j1) => fold_port.fit.icm.block_quads_q_loop0_loop0.body
+      cb m hb out1 err1 j1)
+    (out, err, j)
+
+/-- [apeiron_word::fold_port::fit::icm::block_quads_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 792:4-809:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.block_quads_q_loop0.body
+  (h : Slice Std.I64) (cb : Array (Array Std.I64 8#usize) 256#usize)
+  (nb : Std.Usize) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (m : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option fold_port.fit.icm.IcmError)))
+  := do
+  if m < nb
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let hb ← fold_port.fit.icm.block_of_q h n m
+      let (out1, err1) ←
+        fold_port.fit.icm.block_quads_q_loop0_loop0 cb out err m hb 0#usize
+      let m1 ← m + 1#usize
+      ok (cont (out1, err1, m1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_port::fit::icm::block_quads_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 792:4-809:5 -/
+@[rust_loop]
+def fold_port.fit.icm.block_quads_q_loop0
+  (h : Slice Std.I64) (cb : Array (Array Std.I64 8#usize) 256#usize)
+  (nb : Std.Usize) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (m : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (out1, err1, m1) => fold_port.fit.icm.block_quads_q_loop0.body h cb nb
+      n out1 err1 m1)
+    (out, err, m)
+
+/-- [apeiron_word::fold_port::fit::icm::block_quads_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 783:0-814:1 -/
+def fold_port.fit.icm.block_quads_q
+  (h : Slice Std.I64) (cb : Array (Array Std.I64 8#usize) 256#usize)
+  (nb : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  let i ← nb * fold_port.fit.icm.CODE_LEN
+  let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let (out1, err) ←
+    fold_port.fit.icm.block_quads_q_loop0 h cb nb n out none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok out1)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::fold_port::fit::icm::e8_icm_step]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 727:0-780:1
+    Visibility: public -/
+def fold_port.fit.icm.e8_icm_step
+  (ws : Slice Std.I64) (hl : Slice Std.I64) (p : fold_port.fit.icm.PlaneRef)
+  (o : Std.Usize) (n : Std.Usize) (sweeps : Std.Usize) (icm_ridge : Std.I64) :
+  Result (core.result.Result fold_port.fit.icm.Plane
+    fold_port.fit.icm.IcmError)
+  := do
+  let r ← fold_port.fit.icm.check_inputs ws hl o n none
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let r1 ← fold_port.fit.icm.check_plane p o n
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let r2 ← fold_port.fit.icm.ridged_metric_q hl n icm_ridge
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let g ← n / fold_port.fit.icm.GROUP
+        let nb ← n / fold_port.fit.icm.BLOCK
+        let cb ← fold_port.fit.icm.codebook_q
+        let s := alloc.vec.Vec.deref val
+        let r3 ← fold_port.fit.icm.matmul_q ws s o n n false
+        let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let (s1, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut val1)
+          let (r4, s2) ←
+            fold_port.fit.icm.scale_by s1 o n p.c g
+              fold_port.fit.icm.ScaleBy.Column
+          let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
+          match cf4 with
+          | core.ops.control_flow.ControlFlow.Continue _ =>
+            let val2 := deref_mut_back s2
+            let (s3, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut val2)
+            let (r5, s4) ← fold_port.fit.icm.fwht_rows s3 o n
+            let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r5
+            match cf5 with
+            | core.ops.control_flow.ControlFlow.Continue _ =>
+              let val3 := deref_mut_back1 s4
+              let (s5, deref_mut_back2) ← lift (alloc.vec.Vec.deref_mut val3)
+              let (r6, s6) ←
+                fold_port.fit.icm.scale_by s5 o n p.d g
+                  fold_port.fit.icm.ScaleBy.Column
+              let cf6 ← core.result.Result.Insts.CoreOpsTry.branch r6
+              match cf6 with
+              | core.ops.control_flow.ControlFlow.Continue _ =>
+                let s7 := alloc.vec.Vec.deref val
+                let r7 ←
+                  fold_port.fit.icm.cross_metric_q s7 n p.c p.c p.d p.d
+                let cf7 ← core.result.Result.Insts.CoreOpsTry.branch r7
+                match cf7 with
+                | core.ops.control_flow.ControlFlow.Continue val4 =>
+                  let b ← alloc.slice.Slice.to_vec core.clone.CloneI64 p.s
+                  let (s8, deref_mut_back3) ←
+                    lift (alloc.vec.Vec.deref_mut b)
+                  let (r8, s9) ←
+                    fold_port.fit.icm.scale_by s8 o n p.r g
+                      fold_port.fit.icm.ScaleBy.Group
+                  let cf8 ← core.result.Result.Insts.CoreOpsTry.branch r8
+                  match cf8 with
+                  | core.ops.control_flow.ControlFlow.Continue _ =>
+                    let val5 := deref_mut_back2 s6
+                    let (s10, deref_mut_back4) ←
+                      lift (alloc.vec.Vec.deref_mut val5)
+                    let b1 := deref_mut_back3 s9
+                    let s11 := alloc.vec.Vec.deref b1
+                    let s12 := alloc.vec.Vec.deref val4
+                    let r9 ← fold_port.fit.icm.matmul_q s11 s12 o n n false
+                    let cf9 ← core.result.Result.Insts.CoreOpsTry.branch r9
+                    match cf9 with
+                    | core.ops.control_flow.ControlFlow.Continue val6 =>
+                      let s13 := alloc.vec.Vec.deref val6
+                      let (r10, s14) ←
+                        fold_port.fit.icm.bin_into s10 s13
+                          fold_port.fit.icm.BinOp.Sub
+                      let cf10 ←
+                        core.result.Result.Insts.CoreOpsTry.branch r10
+                      match cf10 with
+                      | core.ops.control_flow.ControlFlow.Continue _ =>
+                        let s15 := alloc.vec.Vec.deref val4
+                        let r11 ← fold_port.fit.icm.block_quads_q s15 cb nb n
+                        let cf11 ←
+                          core.result.Result.Insts.CoreOpsTry.branch r11
+                        match cf11 with
+                        | core.ops.control_flow.ControlFlow.Continue val7 =>
+                          let idx_cur ←
+                            alloc.slice.Slice.to_vec core.clone.CloneU16 p.idx
+                          let s16 := alloc.vec.Vec.deref val4
+                          let s17 := alloc.vec.Vec.deref val7
+                          let per ← fold_port.fit.icm.rows_per_task o
+                          let val8 := deref_mut_back4 s14
+                          let (s18, _) ← lift (alloc.vec.Vec.deref_mut val8)
+                          let i ← per * n
+                          let (s19, deref_mut_back5) ←
+                            lift (alloc.vec.Vec.deref_mut b)
+                          let (s20, deref_mut_back6) ←
+                            lift (alloc.vec.Vec.deref_mut idx_cur)
+                          let i1 ← per * nb
+                          let (r12, _, s21, s22) ←
+                            chart.pool.chunks.for_chunks3
+                              fold_port.fit.icm.SweepTask.Insts.Apeiron_wordChartTaskTask3I64I64U16IcmError
+                              s18 i s19 i s20 i1
+                              {
+                                cx :=
+                                  {
+                                    h_rot := s16,
+                                    q_all := s17,
+                                    cb,
+                                    n,
+                                    g,
+                                    sweeps
+                                  },
+                                r := p.r,
+                                per
+                              }
+                          let cf12 ←
+                            core.result.Result.Insts.CoreOpsTry.branch r12
+                          match cf12 with
+                          | core.ops.control_flow.ControlFlow.Continue _ =>
+                            let s_cur := deref_mut_back5 s21
+                            let s23 := alloc.vec.Vec.deref s_cur
+                            let idx_cur1 := deref_mut_back6 s22
+                            let p1 ←
+                              fold_port.fit.icm.into_plane s23 idx_cur1 p
+                            ok (core.result.Result.Ok p1)
+                          | core.ops.control_flow.ControlFlow.Break residual =>
+                            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                              fold_port.fit.icm.Plane (core.convert.FromSame
+                              fold_port.fit.icm.IcmError) residual
+                        | core.ops.control_flow.ControlFlow.Break residual =>
+                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                            fold_port.fit.icm.Plane (core.convert.FromSame
+                            fold_port.fit.icm.IcmError) residual
+                      | core.ops.control_flow.ControlFlow.Break residual =>
+                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                          fold_port.fit.icm.Plane (core.convert.FromSame
+                          fold_port.fit.icm.IcmError) residual
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        fold_port.fit.icm.Plane (core.convert.FromSame
+                        fold_port.fit.icm.IcmError) residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      fold_port.fit.icm.Plane (core.convert.FromSame
+                      fold_port.fit.icm.IcmError) residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    fold_port.fit.icm.Plane (core.convert.FromSame
+                    fold_port.fit.icm.IcmError) residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  fold_port.fit.icm.Plane (core.convert.FromSame
+                  fold_port.fit.icm.IcmError) residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                fold_port.fit.icm.Plane (core.convert.FromSame
+                fold_port.fit.icm.IcmError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              fold_port.fit.icm.Plane (core.convert.FromSame
+              fold_port.fit.icm.IcmError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            fold_port.fit.icm.Plane (core.convert.FromSame
+            fold_port.fit.icm.IcmError) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          fold_port.fit.icm.Plane (core.convert.FromSame
+          fold_port.fit.icm.IcmError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        fold_port.fit.icm.Plane (core.convert.FromSame
+        fold_port.fit.icm.IcmError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      fold_port.fit.icm.Plane (core.convert.FromSame
+      fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::fill_panel]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1588:0-1597:1 -/
+def fold_port.fit.icm.fill_panel
+  (v : Std.I128) (k : Std.U32) :
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+  := do
+  if k <= 32#u32
+  then let i ← 32#u32 - k
+       fold_port.fit.icm.round_shift v i
+  else
+    let i ← k - 32#u32
+    let i1 ← 1#i128 <<< i
+    let r ← fold_port.fit.icm.qmul v i1
+    match r with
+    | core.result.Result.Ok w =>
+      let o ← solve_port.q32.narrow w
+      core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
+    | core.result.Result.Err e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::fold_port::fit::icm::dot_window]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1581:4-1585:1 -/
+@[rust_loop_body]
+def fold_port.fit.icm.dot_window_loop.body
+  (a : Slice Std.I64) (h : Slice Std.I64) (stride : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (acc : Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128)
+    (core.result.Result Std.I64 fold_port.fit.icm.IcmError))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => let r ← fold_port.fit.icm.round_shift acc 32#u32
+            ok (done r)
+  | some k =>
+    let i ← Slice.index_usize a k
+    let i1 ← lift (core.convert.num.FromI128I64.from i)
+    let i2 ← k * stride
+    let i3 ← Slice.index_usize h i2
+    let i4 ← lift (core.convert.num.FromI128I64.from i3)
+    let i5 ← i1 * i4
+    let r ← fold_port.fit.icm.qsum acc i5
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val => ok (cont (iter1, val))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+      ok (done r1)
+
+/-- [apeiron_word::fold_port::fit::icm::dot_window]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1581:4-1585:1 -/
+@[rust_loop]
+def fold_port.fit.icm.dot_window_loop
+  (iter : core.ops.range.Range Std.Usize) (a : Slice Std.I64)
+  (h : Slice Std.I64) (stride : Std.Usize) (acc : Std.I128) :
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (iter1, acc1) => fold_port.fit.icm.dot_window_loop.body a h stride
+      iter1 acc1)
+    (iter, acc)
+
+/-- [apeiron_word::fold_port::fit::icm::dot_window]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1579:0-1585:1 -/
+@[reducible]
+def fold_port.fit.icm.dot_window
+  (a : Slice Std.I64) (h : Slice Std.I64) (stride : Std.Usize) :
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+  := do
+  fold_port.fit.icm.dot_window_loop
+    { start := 0#usize, «end» := fold_port.fit.icm.GROUP } a h stride 0#i128
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1621:8-1626:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_row_q_loop0_loop0.body
+  (n : Std.Usize) (row : Std.Usize) (a_ : Std.Usize) (s : Slice Std.I64)
+  (c : Slice Std.I64) (aa : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (prod : alloc.vec.Vec Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I128)) (alloc.vec.Vec Std.I128))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done prod)
+  | some j =>
+    let i ← row * n
+    let i1 ← aa * fold_port.fit.icm.GROUP
+    let i2 ← i + i1
+    let i3 ← i2 + j
+    let sv ← Slice.index_usize s i3
+    let i4 ← i1 + j
+    let cv ← Slice.index_usize c i4
+    let i5 ← lift (core.convert.num.FromI128I64.from sv)
+    let i6 ← lift (core.convert.num.FromI128I64.from cv)
+    let p ← i5 * i6
+    let i7 ← a_ * fold_port.fit.icm.GROUP
+    let i8 ← i7 + j
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I128)
+        prod i8
+    let prod1 := index_mut_back p
+    ok (cont (iter1, prod1))
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1621:8-1626:9 -/
+@[rust_loop]
+def fold_port.fit.icm.r_row_q_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize) (row : Std.Usize)
+  (prod : alloc.vec.Vec Std.I128) (a_ : Std.Usize) (s : Slice Std.I64)
+  (c : Slice Std.I64) (aa : Std.Usize) :
+  Result (alloc.vec.Vec Std.I128)
+  := do
+  loop
+    (fun (iter1, prod1) => fold_port.fit.icm.r_row_q_loop0_loop0.body n row a_
+      s c aa iter1 prod1)
+    (iter, prod)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1618:4-1627:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_row_q_loop0.body
+  (s : Slice Std.I64) (s1 : Slice Std.I64) (s2 : Slice Std.I64)
+  (s3 : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (row : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (prod : alloc.vec.Vec Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I128)) (alloc.vec.Vec Std.I128))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done prod)
+  | some a_ =>
+    let (s4, c) ← if a_ < g
+                    then ok (s, s1)
+                    else ok (s2, s3)
+    let aa ← a_ % g
+    let prod1 ←
+      fold_port.fit.icm.r_row_q_loop0_loop0
+        { start := 0#usize, «end» := fold_port.fit.icm.GROUP } n row prod a_
+        s4 c aa
+    ok (cont (iter1, prod1))
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1618:4-1627:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_row_q_loop0
+  (iter : core.ops.range.Range Std.Usize) (s : Slice Std.I64)
+  (s1 : Slice Std.I64) (s2 : Slice Std.I64) (s3 : Slice Std.I64)
+  (n : Std.Usize) (g : Std.Usize) (row : Std.Usize)
+  (prod : alloc.vec.Vec Std.I128) :
+  Result (alloc.vec.Vec Std.I128)
+  := do
+  loop
+    (fun (iter1, prod1) => fold_port.fit.icm.r_row_q_loop0.body s s1 s2 s3 n g
+      row iter1 prod1)
+    (iter, prod)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 2:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1630:4-1644:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_row_q_loop1.body
+  (prod : alloc.vec.Vec Std.I128) (max : Std.U128) (idx : Std.Usize) :
+  Result (ControlFlow (Std.U128 × Std.Usize) Std.U128)
+  := do
+  let i := alloc.vec.Vec.len prod
+  if idx < i
+  then
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128) prod
+        idx
+    let i2 ← core.num.I128.abs i1
+    let m ← lift (IScalar.hcast .U128 i2)
+    let max1 ← if m > max
+                 then ok m
+                 else ok max
+    let idx1 ← idx + 1#usize
+    ok (cont (max1, idx1))
+  else ok (done max)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 2:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1630:4-1644:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_row_q_loop1
+  (prod : alloc.vec.Vec Std.I128) (max : Std.U128) (idx : Std.Usize) :
+  Result Std.U128
+  := do
+  loop
+    (fun (max1, idx1) => fold_port.fit.icm.r_row_q_loop1.body prod max1 idx1)
+    (max, idx)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 3:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1652:4-1658:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_row_q_loop2.body
+  (prod : alloc.vec.Vec Std.I128) (k : Std.U32)
+  (err : Option fold_port.fit.icm.IcmError) (pv : alloc.vec.Vec Std.I64)
+  (idx : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
+    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
+    (alloc.vec.Vec Std.I64)))
+  := do
+  let i := alloc.vec.Vec.len prod
+  if idx < i
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
+          prod idx
+      let r ← fold_port.fit.icm.fill_panel i1 k
+      let (err1, pv1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) pv idx
+          let pv2 := index_mut_back v
+          ok (err, pv2)
+        | core.result.Result.Err e => ok (some e, pv)
+      let idx1 ← idx + 1#usize
+      ok (cont (err1, pv1, idx1))
+    else ok (done (err, pv))
+  else ok (done (err, pv))
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 3:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1652:4-1658:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_row_q_loop2
+  (prod : alloc.vec.Vec Std.I128) (k : Std.U32)
+  (err : Option fold_port.fit.icm.IcmError) (pv : alloc.vec.Vec Std.I64)
+  (idx : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (err1, pv1, idx1) => fold_port.fit.icm.r_row_q_loop2.body prod k err1
+      pv1 idx1)
+    (err, pv, idx)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 6:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1670:12-1677:13 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_row_q_loop3_loop0_loop0.body
+  (hl : Slice Std.I64) (n : Std.Usize) (ga : Std.Usize) (pa : Slice Std.I64)
+  (gidx : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
+  (kvec : alloc.vec.Vec Std.I64) (j : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
+    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
+    (alloc.vec.Vec Std.I64)))
+  := do
+  if j < fold_port.fit.icm.GROUP
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← ga * fold_port.fit.icm.GROUP
+      let i1 ← i * n
+      let i2 ← gidx * fold_port.fit.icm.GROUP
+      let i3 ← i1 + i2
+      let i4 ← i3 + j
+      let h ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeFromUsizeSlice Std.I64) hl
+          { start := i4 }
+      let r ← fold_port.fit.icm.dot_window pa h n
+      let (err1, kvec1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let i5 ← i2 + j
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) kvec i5
+          let kvec2 := index_mut_back v
+          ok (err, kvec2)
+        | core.result.Result.Err e => ok (some e, kvec)
+      let j1 ← j + 1#usize
+      ok (cont (err1, kvec1, j1))
+    else ok (done (err, kvec))
+  else ok (done (err, kvec))
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 6:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1670:12-1677:13 -/
+@[rust_loop]
+def fold_port.fit.icm.r_row_q_loop3_loop0_loop0
+  (hl : Slice Std.I64) (n : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (kvec : alloc.vec.Vec Std.I64)
+  (ga : Std.Usize) (pa : Slice Std.I64) (gidx : Std.Usize) (j : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (err1, kvec1, j1) => fold_port.fit.icm.r_row_q_loop3_loop0_loop0.body
+      hl n ga pa gidx err1 kvec1 j1)
+    (err, kvec, j)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 5:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1668:8-1679:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_row_q_loop3_loop0.body
+  (hl : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (ga : Std.Usize)
+  (pa : Slice Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (kvec : alloc.vec.Vec Std.I64) (gidx : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
+    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
+    (alloc.vec.Vec Std.I64)))
+  := do
+  if gidx < g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (err1, kvec1) ←
+        fold_port.fit.icm.r_row_q_loop3_loop0_loop0 hl n err kvec ga pa gidx
+          0#usize
+      let gidx1 ← gidx + 1#usize
+      ok (cont (err1, kvec1, gidx1))
+    else ok (done (err, kvec))
+  else ok (done (err, kvec))
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 5:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1668:8-1679:9 -/
+@[rust_loop]
+def fold_port.fit.icm.r_row_q_loop3_loop0
+  (hl : Slice Std.I64) (n : Std.Usize) (g : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (kvec : alloc.vec.Vec Std.I64)
+  (ga : Std.Usize) (pa : Slice Std.I64) (gidx : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (err1, kvec1, gidx1) => fold_port.fit.icm.r_row_q_loop3_loop0.body hl
+      n g ga pa err1 kvec1 gidx1)
+    (err, kvec, gidx)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 7:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1681:8-1688:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_row_q_loop3_loop1.body
+  (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
+  (kvec : alloc.vec.Vec Std.I64) (a_ : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (mmat : alloc.vec.Vec Std.I64)
+  (bcol : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
+    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
+    (alloc.vec.Vec Std.I64)))
+  := do
+  if bcol < two_g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← bcol % g
+      let i1 ← i * fold_port.fit.icm.GROUP
+      let i2 ← i * fold_port.fit.icm.GROUP
+      let i3 ← i2 + fold_port.fit.icm.GROUP
+      let kb ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) kvec { start := i1, «end» := i3 }
+      let i4 ← bcol * fold_port.fit.icm.GROUP
+      let i5 ← bcol + 1#usize
+      let i6 ← i5 * fold_port.fit.icm.GROUP
+      let s ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) pv { start := i4, «end» := i6 }
+      let r ← fold_port.fit.icm.dot_window kb s 1#usize
+      let (err1, mmat1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let i7 ← a_ * two_g
+          let i8 ← i7 + bcol
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) mmat i8
+          let mmat2 := index_mut_back v
+          ok (err, mmat2)
+        | core.result.Result.Err e => ok (some e, mmat)
+      ok (cont (err1, mmat1, i5))
+    else ok (done (err, mmat))
+  else ok (done (err, mmat))
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 7:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1681:8-1688:9 -/
+@[rust_loop]
+def fold_port.fit.icm.r_row_q_loop3_loop1
+  (g : Std.Usize) (two_g : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
+  (pv : alloc.vec.Vec Std.I64) (kvec : alloc.vec.Vec Std.I64)
+  (mmat : alloc.vec.Vec Std.I64) (a_ : Std.Usize) (bcol : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (err1, mmat1, bcol1) => fold_port.fit.icm.r_row_q_loop3_loop1.body g
+      two_g pv kvec a_ err1 mmat1 bcol1)
+    (err, mmat, bcol)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 4:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1665:4-1690:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_row_q_loop3.body
+  (hl : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
+  (pv : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (kvec : alloc.vec.Vec Std.I64) (mmat : alloc.vec.Vec Std.I64)
+  (a_ : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64) × Std.Usize) ((Option
+    fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64)))
+  := do
+  if a_ < two_g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let ga ← a_ % g
+      let i ← a_ * fold_port.fit.icm.GROUP
+      let i1 ← a_ + 1#usize
+      let i2 ← i1 * fold_port.fit.icm.GROUP
+      let pa ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) pv { start := i, «end» := i2 }
+      let (err1, kvec1) ←
+        fold_port.fit.icm.r_row_q_loop3_loop0 hl n g err kvec ga pa 0#usize
+      let (err2, mmat1) ←
+        fold_port.fit.icm.r_row_q_loop3_loop1 g two_g err1 pv kvec1 mmat a_
+          0#usize
+      let a_1 ← a_ + 1#usize
+      ok (cont (err2, kvec1, mmat1, a_1))
+    else ok (done (err, mmat))
+  else ok (done (err, mmat))
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 4:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1665:4-1690:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_row_q_loop3
+  (hl : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (pv : alloc.vec.Vec Std.I64)
+  (kvec : alloc.vec.Vec Std.I64) (mmat : alloc.vec.Vec Std.I64)
+  (a_ : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (err1, kvec1, mmat1, a_1) => fold_port.fit.icm.r_row_q_loop3.body hl n
+      g two_g pv err1 kvec1 mmat1 a_1)
+    (err, kvec, mmat, a_)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 9:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1699:8-1705:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_row_q_loop4_loop0.body
+  (p : Slice Std.I64) (w : Slice Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (acc : Std.I128) (j : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × Std.I128 ×
+    Std.Usize) ((Option fold_port.fit.icm.IcmError) × Std.I128))
+  := do
+  if j < fold_port.fit.icm.GROUP
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← Slice.index_usize p j
+      let i1 ← lift (core.convert.num.FromI128I64.from i)
+      let i2 ← Slice.index_usize w j
+      let i3 ← lift (core.convert.num.FromI128I64.from i2)
+      let i4 ← i1 * i3
+      let r ← fold_port.fit.icm.qsum acc i4
+      let (err1, acc1) ←
+        match r with
+        | core.result.Result.Ok v => ok (err, v)
+        | core.result.Result.Err e => ok (some e, acc)
+      let j1 ← j + 1#usize
+      ok (cont (err1, acc1, j1))
+    else ok (done (err, acc))
+  else ok (done (err, acc))
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 9:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1699:8-1705:9 -/
+@[rust_loop]
+def fold_port.fit.icm.r_row_q_loop4_loop0
+  (err : Option fold_port.fit.icm.IcmError) (p : Slice Std.I64)
+  (w : Slice Std.I64) (acc : Std.I128) (j : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × Std.I128)
+  := do
+  loop
+    (fun (err1, acc1, j1) => fold_port.fit.icm.r_row_q_loop4_loop0.body p w
+      err1 acc1 j1)
+    (err, acc, j)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 8:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1693:4-1713:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_row_q_loop4.body
+  (wh : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (row : Std.Usize)
+  (two_g : Std.Usize) (k : Std.U32) (pv : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (tvec : alloc.vec.Vec Std.I64)
+  (a_ : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
+    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
+    (alloc.vec.Vec Std.I64)))
+  := do
+  if a_ < two_g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let ga ← a_ % g
+      let i ← a_ * fold_port.fit.icm.GROUP
+      let i1 ← a_ + 1#usize
+      let i2 ← i1 * fold_port.fit.icm.GROUP
+      let p ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) pv { start := i, «end» := i2 }
+      let i3 ← row * n
+      let i4 ← ga * fold_port.fit.icm.GROUP
+      let i5 ← i3 + i4
+      let w ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeFromUsizeSlice Std.I64) wh
+          { start := i5 }
+      let (err1, acc) ←
+        fold_port.fit.icm.r_row_q_loop4_loop0 err p w 0#i128 0#usize
+      let b1 := core.option.Option.is_none err1
+      let (err2, tvec1) ←
+        if b1
+        then
+          do
+          let r ← fold_port.fit.icm.fill_panel acc k
+          match r with
+          | core.result.Result.Ok v =>
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) tvec a_
+            let tvec2 := index_mut_back v
+            ok (err1, tvec2)
+          | core.result.Result.Err e => ok (some e, tvec)
+        else ok (err1, tvec)
+      let a_1 ← a_ + 1#usize
+      ok (cont (err2, tvec1, a_1))
+    else ok (done (err, tvec))
+  else ok (done (err, tvec))
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 8:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1693:4-1713:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_row_q_loop4
+  (wh : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (row : Std.Usize)
+  (two_g : Std.Usize) (k : Std.U32) (err : Option fold_port.fit.icm.IcmError)
+  (pv : alloc.vec.Vec Std.I64) (tvec : alloc.vec.Vec Std.I64) (a_ : Std.Usize)
+  :
+  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (err1, tvec1, a_1) => fold_port.fit.icm.r_row_q_loop4.body wh n g row
+      two_g k pv err1 tvec1 a_1)
+    (err, tvec, a_)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 10:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1716:4-1722:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_row_q_loop5.body
+  (two_g : Std.Usize) (mmat : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (mean : Std.I128) (kk : Std.Usize)
+  :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × Std.I128 ×
+    Std.Usize) ((Option fold_port.fit.icm.IcmError) × Std.I128))
+  := do
+  if kk < two_g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← kk * two_g
+      let i1 ← i + kk
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          mmat i1
+      let i3 ← lift (core.convert.num.FromI128I64.from i2)
+      let r ← fold_port.fit.icm.qsum mean i3
+      let (err1, mean1) ←
+        match r with
+        | core.result.Result.Ok v => ok (err, v)
+        | core.result.Result.Err e => ok (some e, mean)
+      let kk1 ← kk + 1#usize
+      ok (cont (err1, mean1, kk1))
+    else ok (done (err, mean))
+  else ok (done (err, mean))
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 10:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1716:4-1722:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_row_q_loop5
+  (two_g : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
+  (mmat : alloc.vec.Vec Std.I64) (mean : Std.I128) (kk : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × Std.I128)
+  := do
+  loop
+    (fun (err1, mean1, kk1) => fold_port.fit.icm.r_row_q_loop5.body two_g mmat
+      err1 mean1 kk1)
+    (err, mean, kk)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 11:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1732:4-1738:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_row_q_loop6.body
+  (two_g : Std.Usize) (add : Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (mmat : alloc.vec.Vec Std.I64) (kk : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
+    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
+    (alloc.vec.Vec Std.I64)))
+  := do
+  if kk < two_g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← kk * two_g
+      let i1 ← i + kk
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          mmat i1
+      let r ← fold_port.fit.icm.add_q i2 add
+      let (err1, mmat1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let i3 ← i + kk
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) mmat i3
+          let mmat2 := index_mut_back v
+          ok (err, mmat2)
+        | core.result.Result.Err e => ok (some e, mmat)
+      let kk1 ← kk + 1#usize
+      ok (cont (err1, mmat1, kk1))
+    else ok (done (err, mmat))
+  else ok (done (err, mmat))
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 11:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1732:4-1738:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_row_q_loop6
+  (two_g : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
+  (mmat : alloc.vec.Vec Std.I64) (add : Std.I64) (kk : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (err1, mmat1, kk1) => fold_port.fit.icm.r_row_q_loop6.body two_g add
+      err1 mmat1 kk1)
+    (err, mmat, kk)
+
+/-- [apeiron_word::fold_port::fit::icm::r_row_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1602:0-1744:1 -/
+def fold_port.fit.icm.r_row_q
+  (hl : Slice Std.I64) (wh : Slice Std.I64) (p1 : fold_port.fit.icm.PlaneRef)
+  (p2 : fold_port.fit.icm.PlaneRef) (n : Std.Usize) (g : Std.Usize)
+  (row : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) fold_port.fit.icm.IcmError)
+  := do
+  let two_g ← 2#usize * g
+  let i ← two_g * fold_port.fit.icm.GROUP
+  let prod ← alloc.vec.from_elem core.clone.CloneI128 0#i128 i
+  let prod1 ←
+    fold_port.fit.icm.r_row_q_loop0 { start := 0#usize, «end» := two_g }
+      p1.s p1.c p2.s p2.c n g row prod
+  let max ← fold_port.fit.icm.r_row_q_loop1 prod1 0#u128 0#usize
+  let o ← solve_port.q32.ilog2_pos max
+  let k ←
+    match o with
+    | none => ok 0#u32
+    | some l => ok (core.num.U32.saturating_sub 66#u32 l)
+  let i1 ← two_g * fold_port.fit.icm.GROUP
+  let pv ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
+  let (err, pv1) ← fold_port.fit.icm.r_row_q_loop2 prod1 k none pv 0#usize
+  match err with
+  | none =>
+    let i2 ← g * fold_port.fit.icm.GROUP
+    let kvec ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i2
+    let i3 ← two_g * two_g
+    let mmat ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i3
+    let (err1, mmat1) ←
+      fold_port.fit.icm.r_row_q_loop3 hl n g two_g none pv1 kvec mmat 0#usize
+    let tvec ← alloc.vec.from_elem core.clone.CloneI64 0#i64 two_g
+    let (err2, tvec1) ←
+      fold_port.fit.icm.r_row_q_loop4 wh n g row two_g k err1 pv1 tvec 0#usize
+    let (err3, mean) ←
+      fold_port.fit.icm.r_row_q_loop5 two_g err2 mmat1 0#i128 0#usize
+    match err3 with
+    | none =>
+      let i4 ← lift (UScalar.hcast .I128 two_g)
+      let r ← fold_port.fit.icm.div_round mean i4
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let o1 ← solve_port.q32.narrow val
+        let r1 ←
+          core.option.Option.ok_or o1 fold_port.fit.icm.IcmError.Overflow
+        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let i5 ← lift (core.convert.num.FromI128I64.from val1)
+          let r2 ← fold_port.fit.icm.div_round i5 1000000000000#i128
+          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            let o2 ← solve_port.q32.narrow val2
+            let r3 ←
+              core.option.Option.ok_or o2 fold_port.fit.icm.IcmError.Overflow
+            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+            match cf3 with
+            | core.ops.control_flow.ControlFlow.Continue val3 =>
+              let add ←
+                if val1 > 0#i64
+                then if val3 < 1#i64
+                     then ok 1#i64
+                     else ok val3
+                else ok val3
+              let (err4, mmat2) ←
+                fold_port.fit.icm.r_row_q_loop6 two_g none mmat1 add 0#usize
+              match err4 with
+              | none =>
+                let s := alloc.vec.Vec.deref mmat2
+                let s1 := alloc.vec.Vec.deref tvec1
+                let r4 ← solve_port.chol.chol_solve s s1 two_g 1#usize
+                let r5 ←
+                  core.result.Result.map_err
+                    P.Insts.CoreOpsFunctionFnOnceTupleSolveErrorIcmError r4
+                    (fold_port.fit.icm.map_solve)
+                let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r5
+                match cf4 with
+                | core.ops.control_flow.ControlFlow.Continue val4 =>
+                  let s2 ←
+                    alloc.vec.Vec.index
+                      (core.slice.index.SliceIndexRangeToUsizeSlice Std.I64)
+                      val4.x { «end» := g }
+                  let v ← alloc.slice.Slice.to_vec core.clone.CloneI64 s2
+                  let s3 ←
+                    alloc.vec.Vec.index
+                      (core.slice.index.SliceIndexRangeFromUsizeSlice Std.I64)
+                      val4.x { start := g }
+                  let v1 ← alloc.slice.Slice.to_vec core.clone.CloneI64 s3
+                  ok (core.result.Result.Ok (v, v1))
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+                    (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+              | some e => ok (core.result.Result.Err e)
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+                (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+              (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+            (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+          (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+    | some e => ok (core.result.Result.Err e)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::fold_port::fit::icm::r_step_rows]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1562:4-1571:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_step_rows_loop.body
+  (hl : Slice Std.I64) (wh : Slice Std.I64) (s : Slice Std.I64)
+  (s1 : Slice Std.U16) (s2 : Slice Std.I64) (s3 : Slice Std.I64)
+  (s4 : Slice Std.I64) (s5 : Slice Std.I64) (s6 : Slice Std.U16)
+  (s7 : Slice Std.I64) (s8 : Slice Std.I64) (s9 : Slice Std.I64)
+  (n : Std.Usize) (g : Std.Usize) (row0 : Std.Usize) (r1 : Slice Std.I64)
+  (r2 : Slice Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (rr : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((Slice Std.I64) × (Slice
+    Std.I64) × (Option fold_port.fit.icm.IcmError)))
+  := do
+  let i := Slice.len r1
+  let i1 ← i / g
+  if rr < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i2 ← row0 + rr
+      let r ←
+        fold_port.fit.icm.r_row_q hl wh
+          { s, idx := s1, r := s2, c := s3, d := s4 }
+          { s := s5, idx := s6, r := s7, c := s8, d := s9 } n g i2
+      let (r11, r21, err1) ←
+        match r with
+        | core.result.Result.Ok p =>
+          do
+          let (a, b1) := p
+          let i3 ← rr * g
+          let i4 ← rr + 1#usize
+          let i5 ← i4 * g
+          let (s10, index_mut_back) ←
+            core.slice.index.Slice.index_mut
+              (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) r1
+              { start := i3, «end» := i5 }
+          let s11 := alloc.vec.Vec.deref a
+          let s12 ←
+            core.slice.Slice.copy_from_slice core.marker.CopyI64 s10 s11
+          let i6 ← i4 * g
+          let (s13, index_mut_back1) ←
+            core.slice.index.Slice.index_mut
+              (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) r2
+              { start := i3, «end» := i6 }
+          let s14 := alloc.vec.Vec.deref b1
+          let s15 ←
+            core.slice.Slice.copy_from_slice core.marker.CopyI64 s13 s14
+          let r22 := index_mut_back1 s15
+          let r12 := index_mut_back s12
+          ok (r12, r22, err)
+        | core.result.Result.Err e => ok (r1, r2, some e)
+      let rr1 ← rr + 1#usize
+      ok (cont (r11, r21, err1, rr1))
+    else ok (done (r1, r2, err))
+  else ok (done (r1, r2, err))
+
+/-- [apeiron_word::fold_port::fit::icm::r_step_rows]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1562:4-1571:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_step_rows_loop
+  (hl : Slice Std.I64) (wh : Slice Std.I64) (s : Slice Std.I64)
+  (s1 : Slice Std.U16) (s2 : Slice Std.I64) (s3 : Slice Std.I64)
+  (s4 : Slice Std.I64) (s5 : Slice Std.I64) (s6 : Slice Std.U16)
+  (s7 : Slice Std.I64) (s8 : Slice Std.I64) (s9 : Slice Std.I64)
+  (n : Std.Usize) (g : Std.Usize) (row0 : Std.Usize) (r1 : Slice Std.I64)
+  (r2 : Slice Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (rr : Std.Usize) :
+  Result ((Slice Std.I64) × (Slice Std.I64) × (Option
+    fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (r11, r21, err1, rr1) => fold_port.fit.icm.r_step_rows_loop.body hl wh
+      s s1 s2 s3 s4 s5 s6 s7 s8 s9 n g row0 r11 r21 err1 rr1)
+    (r1, r2, err, rr)
+
+/-- [apeiron_word::fold_port::fit::icm::r_step_rows]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1549:0-1576:1 -/
+def fold_port.fit.icm.r_step_rows
+  (hl : Slice Std.I64) (wh : Slice Std.I64) (p1 : fold_port.fit.icm.PlaneRef)
+  (p2 : fold_port.fit.icm.PlaneRef) (n : Std.Usize) (g : Std.Usize)
+  (row0 : Std.Usize) (r1 : Slice Std.I64) (r2 : Slice Std.I64) :
+  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
+    Std.I64) × (Slice Std.I64))
+  := do
+  let (r11, r21, err) ←
+    fold_port.fit.icm.r_step_rows_loop hl wh p1.s p1.idx p1.r p1.c p1.d
+      p2.s p2.idx p2.r p2.c p2.d n g row0 r1 r2 none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok (), r11, r21)
+  | some e => ok (core.result.Result.Err e, r11, r21)
+
+/-- [apeiron_word::fold_port::fit::icm::RStepRows]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1516:0-1524:1 -/
+structure fold_port.fit.icm.RStepRows where
+  hl : Slice Std.I64
+  wh : Slice Std.I64
+  p1 : fold_port.fit.icm.PlaneRef
+  p2 : fold_port.fit.icm.PlaneRef
+  n : Std.Usize
+  g : Std.Usize
+  per : Std.Usize
+
+/-- [apeiron_word::fold_port::fit::icm::{impl apeiron_word::chart::task::Task2<i64, i64, apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::RStepRows<'_0>}::run]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1527:4-1539:5 -/
+def
+  fold_port.fit.icm.RStepRows.Insts.Apeiron_wordChartTaskTask2I64I64IcmError.run
+  (self : fold_port.fit.icm.RStepRows) (t : Std.Usize) (r1 : Slice Std.I64)
+  (r2 : Slice Std.I64) :
+  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
+    Std.I64) × (Slice Std.I64))
+  := do
+  let i ← t * self.per
+  fold_port.fit.icm.r_step_rows self.hl self.wh self.p1 self.p2 self.n
+    self.g i r1 r2
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::icm::{impl apeiron_word::chart::task::Task2<i64, i64, apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::RStepRows<'_0>}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1526:0-1540:1 -/
+@[reducible]
+def fold_port.fit.icm.RStepRows.Insts.Apeiron_wordChartTaskTask2I64I64IcmError
+  : chart.task.Task2 fold_port.fit.icm.RStepRows Std.I64 Std.I64
+  fold_port.fit.icm.IcmError := {
+  run :=
+    fold_port.fit.icm.RStepRows.Insts.Apeiron_wordChartTaskTask2I64I64IcmError.run
+}
+
+/-- [apeiron_word::fold_port::fit::icm::r_step2]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1487:0-1513:1
+    Visibility: public -/
+def fold_port.fit.icm.r_step2
+  (ws : Slice Std.I64) (hl : Slice Std.I64) (p1 : fold_port.fit.icm.PlaneRef)
+  (p2 : fold_port.fit.icm.PlaneRef) (o : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) fold_port.fit.icm.IcmError)
+  := do
+  let r ← fold_port.fit.icm.check_inputs ws hl o n none
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let r1 ← fold_port.fit.icm.check_plane p1 o n
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let r2 ← fold_port.fit.icm.check_plane p2 o n
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue _ =>
+        let g ← n / fold_port.fit.icm.GROUP
+        let per ← fold_port.fit.icm.rows_per_task o
+        let r3 ← fold_port.fit.icm.matmul_q ws hl o n n false
+        let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+        match cf3 with
+        | core.ops.control_flow.ControlFlow.Continue val =>
+          let i ← o * g
+          let r1_out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+          let r2_out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+          let s := alloc.vec.Vec.deref val
+          let (s1, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut r1_out)
+          let i1 ← per * g
+          let (s2, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut r2_out)
+          let (r4, s3, s4) ←
+            chart.pool.chunks.for_chunks2
+              fold_port.fit.icm.RStepRows.Insts.Apeiron_wordChartTaskTask2I64I64IcmError
+              s1 i1 s2 i1 { hl, wh := s, p1, p2, n, g, per }
+          let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
+          match cf4 with
+          | core.ops.control_flow.ControlFlow.Continue _ =>
+            let r1_out1 := deref_mut_back s3
+            let r2_out1 := deref_mut_back1 s4
+            ok (core.result.Result.Ok (r1_out1, r2_out1))
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+              (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+            (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+          (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+        (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+      (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::matmul]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1773:0-1781:1
+    Visibility: public -/
+def fold_port.fit.icm.matmul
+  (a : Slice Std.I64) (b : Slice Std.I64) (rows : Std.Usize)
+  (inner : Std.Usize) (cols : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  fold_port.fit.icm.matmul_q a b rows inner cols false
 
 /-- [apeiron_word::fold_port::fit::steps::StepsError]
     Source: '../../src/learn/fold/fit/steps.rs', lines 148:0-155:1
@@ -128592,6 +132443,85 @@ def fit_port.word_fit_gptq_e8_carrier_feedback_u
     fold_port.fit.gptq_e8.GptqE8Error)
   := do
   fold_port.fit.gptq_e8_carrier.feedback_u h n damp
+
+/-- [apeiron_word::fit_port::word_fit_icm_codebook]:
+    Source: 'ports/fit_port.rs', lines 52:0-54:1
+    Visibility: public -/
+def fit_port.word_fit_icm_codebook
+  : Result (Array (Array Std.I64 8#usize) 256#usize) := do
+  fold_port.fit.icm.codebook
+
+/-- [apeiron_word::fit_port::word_fit_icm_nearest_index]:
+    Source: 'ports/fit_port.rs', lines 57:0-61:1
+    Visibility: public -/
+def fit_port.word_fit_icm_nearest_index
+  (code : Array Std.I64 8#usize) :
+  Result (core.result.Result Std.Usize fold_port.fit.icm.IcmError)
+  := do
+  fold_port.fit.icm.nearest_index code
+
+/-- [apeiron_word::fit_port::word_fit_icm_ridged_metric]:
+    Source: 'ports/fit_port.rs', lines 64:0-70:1
+    Visibility: public -/
+def fit_port.word_fit_icm_ridged_metric
+  (hl : Slice Std.I64) (n : Std.Usize) (icm_ridge : Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  fold_port.fit.icm.ridged_metric hl n icm_ridge
+
+/-- [apeiron_word::fit_port::word_fit_icm_plane_w]:
+    Source: 'ports/fit_port.rs', lines 73:0-79:1
+    Visibility: public -/
+def fit_port.word_fit_icm_plane_w
+  (p : fold_port.fit.icm.PlaneRef) (o : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  fold_port.fit.icm.plane_w p o n
+
+/-- [apeiron_word::fit_port::word_fit_icm_j_rows]:
+    Source: 'ports/fit_port.rs', lines 82:0-91:1
+    Visibility: public -/
+def fit_port.word_fit_icm_j_rows
+  (ws : Slice Std.I64) (w : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize)
+  (n : Std.Usize) (g_row : Option (Slice Std.I64)) :
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+  := do
+  fold_port.fit.icm.j_rows ws w hl o n g_row
+
+/-- [apeiron_word::fit_port::word_fit_icm_e8_icm_step]:
+    Source: 'ports/fit_port.rs', lines 94:0-104:1
+    Visibility: public -/
+def fit_port.word_fit_icm_e8_icm_step
+  (ws : Slice Std.I64) (hl : Slice Std.I64) (p : fold_port.fit.icm.PlaneRef)
+  (o : Std.Usize) (n : Std.Usize) (sweeps : Std.Usize) (icm_ridge : Std.I64) :
+  Result (core.result.Result fold_port.fit.icm.Plane
+    fold_port.fit.icm.IcmError)
+  := do
+  fold_port.fit.icm.e8_icm_step ws hl p o n sweeps icm_ridge
+
+/-- [apeiron_word::fit_port::word_fit_icm_r_step2]:
+    Source: 'ports/fit_port.rs', lines 126:0-135:1
+    Visibility: public -/
+def fit_port.word_fit_icm_r_step2
+  (ws : Slice Std.I64) (hl : Slice Std.I64) (p1 : fold_port.fit.icm.PlaneRef)
+  (p2 : fold_port.fit.icm.PlaneRef) (o : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) fold_port.fit.icm.IcmError)
+  := do
+  fold_port.fit.icm.r_step2 ws hl p1 p2 o n
+
+/-- [apeiron_word::fit_port::word_fit_icm_matmul]:
+    Source: 'ports/fit_port.rs', lines 138:0-146:1
+    Visibility: public -/
+def fit_port.word_fit_icm_matmul
+  (a : Slice Std.I64) (b : Slice Std.I64) (rows : Std.Usize)
+  (inner : Std.Usize) (cols : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  fold_port.fit.icm.matmul a b rows inner cols
 
 /-- [apeiron_word::fold_finish_port::word_finish_train_linear_new]:
     Source: 'ports/fold_finish_port.rs', lines 50:0-52:1
