@@ -678,21 +678,50 @@ pub fn softmax_row(z: &[i64]) -> Result<Vec<i64>, HocaptureError> {
     }
     let mut e = vec![0i64; v];
     let mut sum: i128 = 0;
-    for (i, &zi) in z.iter().enumerate() {
-        let u = i128::from(zi) - i128::from(m);
-        if u < FLUSH {
-            continue;
+    // One flat pass: the fragment carries no `continue` and no `?` inside a loop body, so
+    // `softmax_term` holds the flush edge and the two refusals and each loop carries its exit.
+    let mut err: Option<HocaptureError> = None;
+    for i in 0..v {
+        if err.is_none() {
+            let u = i128::from(z[i]) - i128::from(m);
+            match softmax_term(u) {
+                Ok(ev) => {
+                    e[i] = ev;
+                    sum += i128::from(ev);
+                }
+                Err(e) => err = Some(e),
+            }
         }
-        let ev = fixed_exp(to64(u)?).map_err(|_| shape("fixed_exp refused"))?;
-        e[i] = ev;
-        sum += i128::from(ev);
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     let mut p = vec![0i64; v];
     let one = i128::from(ONE);
+    let mut err = None;
     for i in 0..v {
-        p[i] = to64(round_div(i128::from(e[i]) * one, sum))?;
+        if err.is_none() {
+            match to64(round_div(i128::from(e[i]) * one, sum)) {
+                Ok(pi) => p[i] = pi,
+                Err(e) => err = Some(e),
+            }
+        }
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(p)
+}
+
+/// `exp(z_i − m)` for one shifted Q32.32 logit, zero below the [`FLUSH`] edge. `O(1)`;
+/// [`HocaptureError::Overflow`] when the shifted word leaves `i64`, the shape refusal when
+/// [`fixed_exp`] refuses.
+fn softmax_term(u: i128) -> Result<i64, HocaptureError> {
+    if u < FLUSH {
+        return Ok(0);
+    }
+    let zi = to64(u)?;
+    fixed_exp(zi).map_err(|_| shape("fixed_exp refused"))
 }
 
 /// The chunked head's `Σ_t log p_t` read at the sampled targets, negated: the sampled-label
@@ -836,32 +865,51 @@ pub fn sample_targets(
     }
     let mut state = if seed == 0 { SEED_BIAS } else { seed };
     let mut out = vec![0u32; k * t];
+    // Flag form: the inverse-CDF walk is its own function (no `break` in a nested loop) and the
+    // narrowing refusal is carried out of the draw loop instead of returned inside it.
+    let mut failed = false;
     for j in 0..k {
         for r in 0..t {
-            let p = &rows[r * vocab..(r + 1) * vocab];
-            let draw = i128::from(xorshift64s(&mut state));
-            let mut cum: i128 = 0;
-            let mut pick = p.len() - 1;
-            let mut found = false;
-            for (i, &pi) in p.iter().enumerate() {
-                cum += i128::from(pi);
-                if draw < cum {
-                    pick = i;
-                    found = true;
-                    break;
+            if !failed {
+                let p = &rows[r * vocab..(r + 1) * vocab];
+                let draw = i128::from(xorshift64s(&mut state));
+                let pick = pick_from_row(p, draw);
+                match u32::try_from(pick) {
+                    Ok(v) => out[j * t + r] = v,
+                    Err(_) => failed = true,
                 }
             }
-            if !found {
-                for (i, &pi) in p.iter().enumerate() {
-                    if pi > 0 {
-                        pick = i;
-                    }
-                }
-            }
-            out[j * t + r] = u32::try_from(pick).map_err(|_| HocaptureError::Overflow)?;
         }
     }
+    if failed {
+        return Err(HocaptureError::Overflow);
+    }
     Ok(out)
+}
+
+/// The inverse-CDF draw on one Q32.32 row: the first index whose cumulative probability passes
+/// `draw`, else the last index of positive probability. `O(v)` comparisons; space `O(1)`.
+fn pick_from_row(p: &[i64], draw: i128) -> usize {
+    let mut cum: i128 = 0;
+    let mut pick = p.len() - 1;
+    let mut found = false;
+    let mut i = 0;
+    while i < p.len() && !found {
+        cum += i128::from(p[i]);
+        if draw < cum {
+            pick = i;
+            found = true;
+        }
+        i += 1;
+    }
+    if !found {
+        for i in 0..p.len() {
+            if p[i] > 0 {
+                pick = i;
+            }
+        }
+    }
+    pick
 }
 
 /// One `(layer, kind)` raw accumulator: the scatter `Σ_t w_t g_t g_tᵀ` and the two Schäfer–Strimmer

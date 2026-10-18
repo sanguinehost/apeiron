@@ -497,6 +497,24 @@ impl_def Slice.Insts.CoreCmpPartialEqSlice {T : Type} {U : Type}
     cmpPartialEqInst)
 }
 
+/-- Trait implementation: [core::slice::iter::{impl core::iter::traits::iterator::Iterator<&'a mut T> for core::slice::iter::IterMut<'a, T>}]
+    Source: '/rustc/library/core/src/slice/iter/macros.rs', lines 153:8-153:45
+    Name pattern: [core::iter::traits::iterator::Iterator<core::slice::iter::IterMut<'a, @T>, &'a mut @T>] -/
+@[reducible, rust_trait_impl
+  "core::iter::traits::iterator::Iterator<core::slice::iter::IterMut<'a, @T>, &'a mut @T>"]
+impl_def core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT (T :
+  Type) : core.iter.traits.iterator.Iterator (core.slice.iter.IterMut T) T := {
+  next := core.slice.iter.IteratorIterMut.next
+  zip := fun {U : Type} {Clause0_Item : Type} {Clause0_IntoIter : Type}
+    (collectIntoIteratorInst : core.iter.traits.collect.IntoIterator U
+    Clause0_Item Clause0_IntoIter) =>
+    core.iter.traits.iterator.Iterator.zip.trait_default
+    (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT T)
+    collectIntoIteratorInst
+  enumerate := core.iter.traits.iterator.Iterator.enumerate.trait_default
+    (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT T)
+}
+
 /-- [core::slice::{[T]}::first]:
     Source: '/rustc/library/core/src/slice/mod.rs', lines 155:4-155:43
     Name pattern: [core::slice::{[@T]}::first]
@@ -76657,6 +76675,2640 @@ def fold_port.fit.quant.quant_r_hier
           fold_port.fit.quant.RHier (core.convert.FromSame
           fold_port.fit.quant.QuantError) residual
 
+/-- [apeiron_word::fold_port::fit::steps::GROUP]
+    Source: '../../src/learn/fold/fit/steps.rs', lines 67:0-67:29
+    Visibility: public -/
+@[global_simps, irreducible]
+def fold_port.fit.steps.GROUP : Std.Usize := 128#usize
+
+/-- [apeiron_word::fold_port::fit::steps::StepsError]
+    Source: '../../src/learn/fold/fit/steps.rs', lines 151:0-158:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.fit.steps.StepsError where
+| ShapeMismatch : fold_port.fit.steps.StepsError
+| NotPositiveDefinite : fold_port.fit.steps.StepsError
+
+/-- [apeiron_word::fold_port::fit::steps::{impl core::fmt::Debug for apeiron_word::fold_port::fit::steps::StepsError}::fmt]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 150:22-150:27
+    Visibility: public -/
+def fold_port.fit.steps.StepsError.Insts.CoreFmtDebug.fmt
+  (self : fold_port.fit.steps.StepsError) (f : core.fmt.Formatter) :
+  Result ((core.result.Result Unit core.fmt.Error) × core.fmt.Formatter)
+  := do
+  match self with
+  | fold_port.fit.steps.StepsError.ShapeMismatch =>
+    core.fmt.Formatter.write_str f (toStr "ShapeMismatch")
+  | fold_port.fit.steps.StepsError.NotPositiveDefinite =>
+    core.fmt.Formatter.write_str f (toStr "NotPositiveDefinite")
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::steps::{impl core::fmt::Debug for apeiron_word::fold_port::fit::steps::StepsError}]
+    Source: '../../src/learn/fold/fit/steps.rs', lines 150:22-150:27 -/
+@[reducible]
+def fold_port.fit.steps.StepsError.Insts.CoreFmtDebug : core.fmt.Debug
+  fold_port.fit.steps.StepsError := {
+  fmt := fold_port.fit.steps.StepsError.Insts.CoreFmtDebug.fmt
+}
+
+/-- [apeiron_word::fold_port::fit::steps::map_hadamard]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 323:0-325:1 -/
+def fold_port.fit.steps.map_hadamard
+  (he : hadamard.HadamardError) : Result fold_port.fit.steps.StepsError := do
+  ok fold_port.fit.steps.StepsError.ShapeMismatch
+
+/-- [apeiron_word::fold_port::fit::steps::{impl core::ops::function::FnOnce<(apeiron_word::hadamard::HadamardError,), apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_port::fit::steps::map_hadamard}::call_once]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 323:0-325:1 -/
+def P.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorStepsError.call_once
+  (state : hadamard.HadamardError → Result fold_port.fit.steps.StepsError)
+  (args : hadamard.HadamardError) :
+  Result fold_port.fit.steps.StepsError
+  := do
+  fold_port.fit.steps.map_hadamard args
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::steps::{impl core::ops::function::FnOnce<(apeiron_word::hadamard::HadamardError,), apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_port::fit::steps::map_hadamard}]
+    Source: '../../src/learn/fold/fit/steps.rs', lines 323:0-325:1 -/
+@[reducible]
+def P.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorStepsError :
+  core.ops.function.FnOnce (hadamard.HadamardError → Result
+  fold_port.fit.steps.StepsError) hadamard.HadamardError
+  fold_port.fit.steps.StepsError := {
+  call_once :=
+    P.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorStepsError.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::steps::fwht_words]:
+    Source: '../../src/learn/fold/fit/steps.rs', lines 315:0-320:1
+    Visibility: public -/
+def fold_port.fit.steps.fwht_words
+  (x : Slice Std.I64) :
+  Result ((core.result.Result Unit fold_port.fit.steps.StepsError) × (Slice
+    Std.I64))
+  := do
+  let i := Slice.len x
+  let b ← core.num.Usize.is_multiple_of i fold_port.fit.steps.GROUP
+  if b
+  then
+    let (r, x1) ← hadamard.fwht_fixed x none fold_port.fit.steps.GROUP
+    let r1 ←
+      core.result.Result.map_err
+        P.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorStepsError r
+        (fold_port.fit.steps.map_hadamard)
+    ok (r1, x1)
+  else
+    ok (core.result.Result.Err fold_port.fit.steps.StepsError.ShapeMismatch, x)
+
+/-- [apeiron_word::fixed_ln::div_rne]:
+    Source: '../../src/numeric/fixed_ln.rs', lines 107:0-127:1
+    Visibility: public -/
+def fixed_ln.div_rne
+  (num : Std.I128) (den : Std.I128) : Result (Option Std.I128) := do
+  if den <= 0#i128
+  then ok none
+  else
+    let q ← num / den
+    let r ← num % den
+    if r = 0#i128
+    then ok (some q)
+    else
+      let o ← lift (I128.checked_mul r 2#i128)
+      match o with
+      | none => ok none
+      | some v =>
+        let mag ← if v < 0#i128
+                    then -. v
+                    else ok v
+        let step ←
+          if mag > den
+          then ok 1#i128
+          else
+            if mag = den
+            then
+              do
+              let i ← q % 2#i128
+              if i != 0#i128
+              then ok 1#i128
+              else ok 0#i128
+            else ok 0#i128
+        if r > 0#i128
+        then let i ← q + step
+             ok (some i)
+        else let i ← q - step
+             ok (some i)
+
+/-- [apeiron_word::fold_port::stats::basis::log2]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 91:0-94:1 -/
+def fold_port.stats.basis.log2 (x : Std.I64) : Result (Option Std.I64) := do
+  let r ← fixed_ln.fixed_ln x
+  let o ← core.result.Result.ok r
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let i ← lift (core.convert.num.FromI128I64.from val)
+    let i1 ← i <<< 32#i32
+    let i2 ← lift (core.convert.num.FromI128I64.from fixed_ln.LN2_Q32)
+    let o1 ← fixed_ln.div_rne i1 i2
+    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      solve_port.q32.narrow val1
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        Std.I64 residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.I64 residual
+
+/-- [apeiron_word::fold_port::stats::parts::mul]:
+    Source: '../../src/learn/fold/stats/parts.rs', lines 86:0-93:1 -/
+def fold_port.stats.parts.mul
+  (a : Std.I64) (b : Std.I64) : Result (Option Std.I64) := do
+  let i ← lift (core.convert.num.FromI128I64.from a)
+  let i1 ← lift (core.convert.num.FromI128I64.from b)
+  let p ← i * i1
+  let q ← p >>> 32#i32
+  let r ← lift (p &&& 4294967295#i128)
+  let half ← 1#i128 <<< 31#i32
+  let b1 ←
+    if r > half
+    then ok true
+    else
+      if r = half
+      then do
+           let i2 ← lift (q &&& 1#i128)
+           ok (i2 != 0#i128)
+      else ok false
+  let bump ← lift (core.convert.num.FromI128Bool.from b1)
+  let i2 ← q + bump
+  solve_port.q32.narrow i2
+
+/-- [apeiron_word::fold_port::stats::basis::exp2]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 99:0-118:1 -/
+def fold_port.stats.basis.exp2 (t : Std.I64) : Result (Option Std.I64) := do
+  let k ← t >>> 32#i32
+  let i ← k <<< 32#i32
+  let i1 ← t - i
+  let o ← fold_port.stats.parts.mul i1 fixed_ln.LN2_Q32
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r ← fixed_exp.fixed_exp val
+    let o1 ← core.result.Result.ok r
+    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      if k >= 0#i64
+      then
+        let r1 ← U32.Insts.CoreConvertTryFromI64TryFromIntError.try_from k
+        let o2 ← core.result.Result.ok r1
+        let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
+        match cf2 with
+        | core.ops.control_flow.ControlFlow.Continue val2 =>
+          if val2 >= 128#u32
+          then ok none
+          else
+            let i2 ← lift (core.convert.num.FromI128I64.from val1)
+            let i3 ← i2 <<< val2
+            solve_port.q32.narrow i3
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+            Std.I64 residual
+      else
+        let mag ← core.num.I64.unsigned_abs k
+        if mag > 126#u64
+        then ok none
+        else
+          let i2 ← lift (core.convert.num.FromI128I64.from val1)
+          let i3 ← lift (UScalar.cast .U32 mag)
+          let o2 ← solve_port.q32.rshift_rne i2 i3
+          let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            solve_port.q32.narrow val2
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+              Std.I64 residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        Std.I64 residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.I64 residual
+
+/-- [apeiron_word::fold_port::stats::basis::GROUP]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 122:0-122:29
+    Visibility: public -/
+@[global_simps, irreducible]
+def fold_port.stats.basis.GROUP : Std.Usize := 128#usize
+
+/-- [apeiron_word::fold_port::stats::basis::DAMP_Q]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 125:0-125:35
+    Visibility: public -/
+@[global_simps, irreducible]
+def fold_port.stats.basis.DAMP_Q : Std.I64 := 42949673#i64
+
+/-- [apeiron_word::fold_port::stats::basis::TILE]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 128:0-128:27
+    Visibility: public -/
+@[global_simps, irreducible]
+def fold_port.stats.basis.TILE : Std.Usize := 16#usize
+
+/-- [apeiron_word::fold_port::stats::basis::BISECTION_ITERS]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 131:0-131:35 -/
+@[global_simps, irreducible]
+def fold_port.stats.basis.BISECTION_ITERS : Std.Usize := 200#usize
+
+/-- [apeiron_word::fold_port::stats::basis::RATE_TOL_Q]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 134:0-134:26 -/
+@[global_simps, irreducible]
+def fold_port.stats.basis.RATE_TOL_Q : Std.I64 := 4#i64
+
+/-- [apeiron_word::fold_port::stats::basis::BasisError]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 141:0-153:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.stats.basis.BasisError where
+| Shape : String → fold_port.stats.basis.BasisError
+| Overflow : fold_port.stats.basis.BasisError
+| NotPositiveDefinite : fold_port.stats.basis.BasisError
+| Eigh : String → fold_port.stats.basis.BasisError
+| OutOfRange : fold_port.stats.basis.BasisError
+
+/-- [apeiron_word::fold_port::stats::basis::square]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 169:0-171:1 -/
+def fold_port.stats.basis.square
+  (rows : Std.Usize) (cols : Std.Usize) :
+  Result (core.result.Result Std.Usize fold_port.stats.basis.BasisError)
+  := do
+  let o ← lift (Usize.checked_mul rows cols)
+  core.option.Option.ok_or o fold_port.stats.basis.BasisError.Overflow
+
+/-- [apeiron_word::fold_port::stats::basis::expect]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 173:0-180:1 -/
+def fold_port.stats.basis.expect
+  (len : Std.Usize) (rows : Std.Usize) (cols : Std.Usize) (what : Str) :
+  Result (core.result.Result Std.Usize fold_port.stats.basis.BasisError)
+  := do
+  let r ← fold_port.stats.basis.square rows cols
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    if val = len
+    then ok (core.result.Result.Ok val)
+    else
+      let a ←
+        core.fmt.rt.Argument.new_display (Shared0T.Insts.CoreFmtDisplay
+          Str.Insts.CoreFmtDisplay) what
+      let a1 ←
+        core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay len
+      let a2 ←
+        core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay rows
+      let a3 ←
+        core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay cols
+      let a4 ←
+        core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay val
+      let a5 ←
+        core.fmt.Arguments.new
+          (Array.make 21#usize [
+            192#u8, 2#u8, 58#u8, 32#u8, 192#u8, 4#u8, 32#u8, 33#u8, 61#u8,
+            32#u8, 192#u8, 2#u8, 194#u8, 183#u8, 192#u8, 3#u8, 32#u8, 61#u8,
+            32#u8, 192#u8, 0#u8
+            ]) (Array.make 5#usize [ a, a1, a2, a3, a4 ])
+      let s ← alloc.fmt.format a5
+      let s1 ← core.hint.must_use s
+      ok (core.result.Result.Err (fold_port.stats.basis.BasisError.Shape s1))
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      Std.Usize (core.convert.FromSame fold_port.stats.basis.BasisError)
+      residual
+
+/-- [apeiron_word::fold_port::stats::basis::expect_blocks]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 182:0-189:1 -/
+def fold_port.stats.basis.expect_blocks
+  (n : Std.Usize) :
+  Result (core.result.Result Std.Usize fold_port.stats.basis.BasisError)
+  := do
+  if n = 0#usize
+  then
+    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay n
+    let a1 ←
+      core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay
+        fold_port.stats.basis.GROUP
+    let a2 ←
+      core.fmt.Arguments.new
+        (Array.make 40#usize [
+          4#u8, 110#u8, 32#u8, 61#u8, 32#u8, 192#u8, 31#u8, 32#u8, 105#u8,
+          115#u8, 32#u8, 110#u8, 111#u8, 116#u8, 32#u8, 97#u8, 32#u8, 112#u8,
+          111#u8, 115#u8, 105#u8, 116#u8, 105#u8, 118#u8, 101#u8, 32#u8,
+          109#u8, 117#u8, 108#u8, 116#u8, 105#u8, 112#u8, 108#u8, 101#u8,
+          32#u8, 111#u8, 102#u8, 32#u8, 192#u8, 0#u8
+          ]) (Array.make 2#usize [ a, a1 ])
+    let s ← alloc.fmt.format a2
+    let s1 ← core.hint.must_use s
+    ok (core.result.Result.Err (fold_port.stats.basis.BasisError.Shape s1))
+  else
+    let b ← core.num.Usize.is_multiple_of n fold_port.stats.basis.GROUP
+    if b
+    then let i ← n / fold_port.stats.basis.GROUP
+         ok (core.result.Result.Ok i)
+    else
+      let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay n
+      let a1 ←
+        core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay
+          fold_port.stats.basis.GROUP
+      let a2 ←
+        core.fmt.Arguments.new
+          (Array.make 40#usize [
+            4#u8, 110#u8, 32#u8, 61#u8, 32#u8, 192#u8, 31#u8, 32#u8, 105#u8,
+            115#u8, 32#u8, 110#u8, 111#u8, 116#u8, 32#u8, 97#u8, 32#u8, 112#u8,
+            111#u8, 115#u8, 105#u8, 116#u8, 105#u8, 118#u8, 101#u8, 32#u8,
+            109#u8, 117#u8, 108#u8, 116#u8, 105#u8, 112#u8, 108#u8, 101#u8,
+            32#u8, 111#u8, 102#u8, 32#u8, 192#u8, 0#u8
+            ]) (Array.make 2#usize [ a, a1 ])
+      let s ← alloc.fmt.format a2
+      let s1 ← core.hint.must_use s
+      ok (core.result.Result.Err (fold_port.stats.basis.BasisError.Shape s1))
+
+/-- [apeiron_word::solve_port::q32::round_q32_even]:
+    Source: '../../src/learn/solve/q32.rs', lines 250:0-255:1
+    Visibility: public -/
+def solve_port.q32.round_q32_even
+  (v : Std.I128) :
+  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
+  := do
+  let o ← solve_port.q32.rshift_rne v 32#u32
+  match o with
+  | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+  | some r =>
+    let o1 ← solve_port.q32.narrow r
+    core.option.Option.ok_or o1 solve_port.q32.Q32Error.Overflow
+
+/-- [apeiron_word::fold_port::stats::basis::round64::{closure}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 193:32-193:58 -/
+@[reducible]
+def fold_port.stats.basis.round64.closure := Unit
+
+/-- [apeiron_word::fold_port::stats::basis::round64::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::round64::{closure}}::call_once]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 193:32-193:58 -/
+def
+  fold_port.stats.basis.round64.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorBasisError.call_once
+  (c : fold_port.stats.basis.round64.closure)
+  (tupled_args : solve_port.q32.Q32Error) :
+  Result fold_port.stats.basis.BasisError
+  := do
+  ok fold_port.stats.basis.BasisError.OutOfRange
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::basis::round64::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::round64::{closure}}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 193:32-193:58 -/
+@[reducible]
+def
+  fold_port.stats.basis.round64.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorBasisError
+  : core.ops.function.FnOnce fold_port.stats.basis.round64.closure
+  solve_port.q32.Q32Error fold_port.stats.basis.BasisError := {
+  call_once :=
+    fold_port.stats.basis.round64.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorBasisError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::basis::round64]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 192:0-194:1 -/
+def fold_port.stats.basis.round64
+  (acc : Std.I128) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  let r ← solve_port.q32.round_q32_even acc
+  core.result.Result.map_err
+    fold_port.stats.basis.round64.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorBasisError
+    r ()
+
+/-- [apeiron_word::solve_port::q32::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i64>> for apeiron_word::solve_port::q32::narrow}::call_once]:
+    Source: '../../src/learn/solve/q32.rs', lines 222:0-228:1
+    Visibility: public -/
+def P.Insts.CoreOpsFunctionFnOnceTupleI128OptionI64.call_once
+  (state : Std.I128 → Result (Option Std.I64)) (args : Std.I128) :
+  Result (Option Std.I64)
+  := do
+  solve_port.q32.narrow args
+
+/-- Trait implementation: [apeiron_word::solve_port::q32::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i64>> for apeiron_word::solve_port::q32::narrow}]
+    Source: '../../src/learn/solve/q32.rs', lines 222:0-228:1 -/
+@[reducible]
+def P.Insts.CoreOpsFunctionFnOnceTupleI128OptionI64 : core.ops.function.FnOnce
+  (Std.I128 → Result (Option Std.I64)) Std.I128 (Option Std.I64) := {
+  call_once := P.Insts.CoreOpsFunctionFnOnceTupleI128OptionI64.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::basis::damped_gram::{closure}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 262:44-262:68 -/
+@[reducible]
+def fold_port.stats.basis.damped_gram.closure := Unit
+
+/-- [apeiron_word::fold_port::stats::basis::damped_gram::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::damped_gram::{closure}}::call_once]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 262:44-262:68 -/
+def
+  fold_port.stats.basis.damped_gram.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError.call_once
+  (c : fold_port.stats.basis.damped_gram.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result fold_port.stats.basis.BasisError
+  := do
+  ok fold_port.stats.basis.BasisError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::basis::damped_gram::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::damped_gram::{closure}}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 262:44-262:68 -/
+@[reducible]
+def
+  fold_port.stats.basis.damped_gram.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError
+  : core.ops.function.FnOnce fold_port.stats.basis.damped_gram.closure
+  core.num.error.TryFromIntError fold_port.stats.basis.BasisError := {
+  call_once :=
+    fold_port.stats.basis.damped_gram.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::basis::damped_gram]: loop body 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 257:4-259:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.basis.damped_gram_loop0.body
+  (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (sum : Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128) Std.I128)
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done sum)
+  | some i =>
+    let i1 ← i * n
+    let i2 ← i1 + i
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) out
+        i2
+    let i4 ← lift (core.convert.num.FromI128I64.from i3)
+    let sum1 ← sum + i4
+    ok (cont (iter1, sum1))
+
+/-- [apeiron_word::fold_port::stats::basis::damped_gram]: loop 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 257:4-259:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.basis.damped_gram_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (sum : Std.I128) :
+  Result Std.I128
+  := do
+  loop
+    (fun (iter1, sum1) => fold_port.stats.basis.damped_gram_loop0.body n out
+      iter1 sum1)
+    (iter, sum)
+
+/-- [apeiron_word::fold_port::stats::basis::damped_gram]: loop body 1:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 272:4-278:1
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.basis.damped_gram_loop1.body
+  (n : Std.Usize) (delta : Std.I64) (iter : core.ops.range.Range Std.Usize)
+  (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (core.result.Result.Ok out))
+  | some i =>
+    let i1 ← i * n
+    let i2 ← i1 + i
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) out
+        i2
+    let o1 ← lift (I64.checked_add i3 delta)
+    let r ←
+      core.option.Option.ok_or o1 fold_port.stats.basis.BasisError.OutOfRange
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let i4 ← i1 + i
+      let (_, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          out i4
+      let out1 := index_mut_back val
+      ok (cont (iter1, out1))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          fold_port.stats.basis.BasisError) residual
+      ok (done r1)
+
+/-- [apeiron_word::fold_port::stats::basis::damped_gram]: loop 1:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 272:4-278:1
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.basis.damped_gram_loop1
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (delta : Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  loop
+    (fun (iter1, out1) => fold_port.stats.basis.damped_gram_loop1.body n delta
+      iter1 out1)
+    (iter, out)
+
+/-- [apeiron_word::fold_port::stats::basis::damped_gram]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 253:0-278:1
+    Visibility: public -/
+def fold_port.stats.basis.damped_gram
+  (h : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  let i := Slice.len h
+  let r ← fold_port.stats.basis.expect i n n (toStr "H")
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let out ← alloc.slice.Slice.to_vec core.clone.CloneI64 h
+    let sum ←
+      fold_port.stats.basis.damped_gram_loop0
+        { start := 0#usize, «end» := n } n out 0#i128
+    let r1 ← U64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from n
+    let r2 ←
+      core.result.Result.map_err
+        fold_port.stats.basis.damped_gram.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError
+        r1 ()
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r2
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let i1 ← I128.Insts.CoreConvertFromU64.from val
+      let o ← fixed_ln.div_rne sum i1
+      let o1 ←
+        core.option.Option.and_then
+          P.Insts.CoreOpsFunctionFnOnceTupleI128OptionI64 o
+          (solve_port.q32.narrow)
+      let r3 ←
+        core.option.Option.ok_or o1 fold_port.stats.basis.BasisError.Overflow
+      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r3
+      match cf2 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        if val1 <= 0#i64
+        then
+          let a ←
+            core.fmt.rt.Argument.new_display I64.Insts.CoreFmtDisplay val1
+          let a1 ←
+            core.fmt.Arguments.new
+              (Array.make 38#usize [
+                18#u8, 109#u8, 101#u8, 97#u8, 110#u8, 40#u8, 100#u8, 105#u8,
+                97#u8, 103#u8, 32#u8, 72#u8, 41#u8, 32#u8, 119#u8, 111#u8,
+                114#u8, 100#u8, 32#u8, 192#u8, 16#u8, 32#u8, 105#u8, 115#u8,
+                32#u8, 110#u8, 111#u8, 116#u8, 32#u8, 112#u8, 111#u8, 115#u8,
+                105#u8, 116#u8, 105#u8, 118#u8, 101#u8, 0#u8
+                ]) (Array.make 1#usize [ a ])
+          let s ← alloc.fmt.format a1
+          let s1 ← core.hint.must_use s
+          ok (core.result.Result.Err (fold_port.stats.basis.BasisError.Shape
+            s1))
+        else
+          let o2 ←
+            fold_port.stats.parts.mul fold_port.stats.basis.DAMP_Q val1
+          let r4 ←
+            core.option.Option.ok_or o2
+              fold_port.stats.basis.BasisError.OutOfRange
+          let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r4
+          match cf3 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            fold_port.stats.basis.damped_gram_loop1
+              { start := 0#usize, «end» := n } n out val2
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              fold_port.stats.basis.BasisError) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          fold_port.stats.basis.BasisError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+        fold_port.stats.basis.BasisError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.stats.basis.BasisError) residual
+
+/-- [apeiron_word::fold_port::stats::basis::identity_basis]: loop body 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 285:4-287:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.basis.identity_basis_loop.body
+  (n : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (q : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done q)
+  | some i =>
+    let i1 ← i * n
+    let i2 ← i1 + i
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) q
+        i2
+    let i3 ← fixed_ln.ONE
+    let q1 := index_mut_back i3
+    ok (cont (iter1, q1))
+
+/-- [apeiron_word::fold_port::stats::basis::identity_basis]: loop 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 285:4-287:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.basis.identity_basis_loop
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (q : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, q1) => fold_port.stats.basis.identity_basis_loop.body n iter1
+      q1)
+    (iter, q)
+
+/-- [apeiron_word::fold_port::stats::basis::identity_basis]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 283:0-289:1
+    Visibility: public -/
+def fold_port.stats.basis.identity_basis
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  let r ← fold_port.stats.basis.square n n
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let q ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+    let q1 ←
+      fold_port.stats.basis.identity_basis_loop
+        { start := 0#usize, «end» := n } n q
+    ok (core.result.Result.Ok q1)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.stats.basis.BasisError) residual
+
+/-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop body 2:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 307:12-309:13
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.basis.hadamard_basis_loop0_loop0_loop0.body
+  (iter : core.ops.range.Range Std.Usize) (e : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done e)
+  | some i =>
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) e
+        i
+    let e1 := index_mut_back 0#i64
+    ok (cont (iter1, e1))
+
+/-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop 2:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 307:12-309:13
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.basis.hadamard_basis_loop0_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (e : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, e1) =>
+      fold_port.stats.basis.hadamard_basis_loop0_loop0_loop0.body iter1 e1)
+    (iter, e)
+
+/-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop body 3:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 313:20-315:21
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.basis.hadamard_basis_loop0_loop0_loop1.body
+  (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (off : Std.Usize) (j : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (q : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done q)
+  | some i =>
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) e i
+    let i2 ← off + i
+    let i3 ← i2 * n
+    let i4 ← i3 + off
+    let i5 ← i4 + j
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) q
+        i5
+    let q1 := index_mut_back i1
+    ok (cont (iter1, q1))
+
+/-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop 3:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 313:20-315:21
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.basis.hadamard_basis_loop0_loop0_loop1
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (q : alloc.vec.Vec Std.I64) (e : alloc.vec.Vec Std.I64) (off : Std.Usize)
+  (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, q1) =>
+      fold_port.stats.basis.hadamard_basis_loop0_loop0_loop1.body n e off j
+      iter1 q1)
+    (iter, q)
+
+/-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop body 1:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 306:8-323:9
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.basis.hadamard_basis_loop0_loop0.body
+  (n : Std.Usize) (off : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (q : alloc.vec.Vec Std.I64) (e : alloc.vec.Vec Std.I64)
+  (failed : Option fold_port.stats.basis.BasisError) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    fold_port.stats.basis.BasisError)) ((alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64) × (Option fold_port.stats.basis.BasisError)))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (q, e, failed))
+  | some j =>
+    let e1 ←
+      fold_port.stats.basis.hadamard_basis_loop0_loop0_loop0
+        { start := 0#usize, «end» := fold_port.stats.basis.GROUP } e
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        e1 j
+    let i ← fixed_ln.ONE
+    let e2 := index_mut_back i
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut e2)
+    let (r, s1) ← fold_port.fit.steps.fwht_words s
+    match r with
+    | core.result.Result.Ok _ =>
+      let v := deref_mut_back s1
+      let q1 ←
+        fold_port.stats.basis.hadamard_basis_loop0_loop0_loop1
+          { start := 0#usize, «end» := fold_port.stats.basis.GROUP } n q v
+          off j
+      ok (cont (iter1, q1, v, failed))
+    | core.result.Result.Err err =>
+      let b := core.option.Option.is_none failed
+      if b
+      then
+        let a ←
+          core.fmt.rt.Argument.new_debug
+            fold_port.fit.steps.StepsError.Insts.CoreFmtDebug err
+        let a1 ←
+          core.fmt.Arguments.new
+            (Array.make 9#usize [
+              6#u8, 102#u8, 119#u8, 104#u8, 116#u8, 58#u8, 32#u8, 192#u8, 0#u8
+              ]) (Array.make 1#usize [ a ])
+        let s2 ← alloc.fmt.format a1
+        let s3 ← core.hint.must_use s2
+        let e3 := deref_mut_back s1
+        ok (cont (iter1, q, e3, some (fold_port.stats.basis.BasisError.Shape
+          s3)))
+      else let e3 := deref_mut_back s1
+           ok (cont (iter1, q, e3, failed))
+
+/-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop 1:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 306:8-323:9
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.basis.hadamard_basis_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (q : alloc.vec.Vec Std.I64) (e : alloc.vec.Vec Std.I64)
+  (failed : Option fold_port.stats.basis.BasisError) (off : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    fold_port.stats.basis.BasisError))
+  := do
+  loop
+    (fun (iter1, q1, e1, failed1) =>
+      fold_port.stats.basis.hadamard_basis_loop0_loop0.body n off iter1 q1 e1
+      failed1)
+    (iter, q, e, failed)
+
+/-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop body 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 304:4-324:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.basis.hadamard_basis_loop0.body
+  (n : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (q : alloc.vec.Vec Std.I64) (e : alloc.vec.Vec Std.I64)
+  (failed : Option fold_port.stats.basis.BasisError) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    fold_port.stats.basis.BasisError)) ((alloc.vec.Vec Std.I64) × (Option
+    fold_port.stats.basis.BasisError)))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (q, failed))
+  | some b =>
+    let off ← b * fold_port.stats.basis.GROUP
+    let (q1, e1, failed1) ←
+      fold_port.stats.basis.hadamard_basis_loop0_loop0
+        { start := 0#usize, «end» := fold_port.stats.basis.GROUP } n q e
+        failed off
+    ok (cont (iter1, q1, e1, failed1))
+
+/-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 304:4-324:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.basis.hadamard_basis_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (q : alloc.vec.Vec Std.I64) (e : alloc.vec.Vec Std.I64)
+  (failed : Option fold_port.stats.basis.BasisError) :
+  Result ((alloc.vec.Vec Std.I64) × (Option fold_port.stats.basis.BasisError))
+  := do
+  loop
+    (fun (iter1, q1, e1, failed1) =>
+      fold_port.stats.basis.hadamard_basis_loop0.body n iter1 q1 e1 failed1)
+    (iter, q, e, failed)
+
+/-- [apeiron_word::fold_port::stats::basis::hadamard_basis]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 297:0-329:1
+    Visibility: public -/
+def fold_port.stats.basis.hadamard_basis
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  let r ← fold_port.stats.basis.expect_blocks n
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r1 ← fold_port.stats.basis.square n n
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let q ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val1
+      let e ←
+        alloc.vec.from_elem core.clone.CloneI64 0#i64
+          fold_port.stats.basis.GROUP
+      let (q1, failed) ←
+        fold_port.stats.basis.hadamard_basis_loop0
+          { start := 0#usize, «end» := val } n q e none
+      match failed with
+      | none => ok (core.result.Result.Ok q1)
+      | some err => ok (core.result.Result.Err err)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+        fold_port.stats.basis.BasisError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.stats.basis.BasisError) residual
+
+/-- [apeiron_word::fold_port::stats::basis::energy_words]: loop body 1:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 481:8-488:9 -/
+@[rust_loop_body]
+def fold_port.stats.basis.energy_words_loop0_loop0.body
+  (b : Slice Std.I64) (n : Std.Usize) (axis : Std.Usize) (k : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (acc : Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128) Std.I128)
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done acc)
+  | some j =>
+    let i ←
+      if axis = 0#usize
+      then do
+           let i1 ← k * n
+           let i2 ← i1 + j
+           Slice.index_usize b i2
+      else do
+           let i1 ← j * n
+           let i2 ← i1 + k
+           Slice.index_usize b i2
+    let v ← lift (core.convert.num.FromI128I64.from i)
+    let i1 ← v * v
+    let acc1 ← acc + i1
+    ok (cont (iter1, acc1))
+
+/-- [apeiron_word::fold_port::stats::basis::energy_words]: loop 1:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 481:8-488:9 -/
+@[rust_loop]
+def fold_port.stats.basis.energy_words_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (b : Slice Std.I64) (n : Std.Usize)
+  (axis : Std.Usize) (k : Std.Usize) (acc : Std.I128) :
+  Result Std.I128
+  := do
+  loop
+    (fun (iter1, acc1) => fold_port.stats.basis.energy_words_loop0_loop0.body b
+      n axis k iter1 acc1)
+    (iter, acc)
+
+/-- [apeiron_word::fold_port::stats::basis::energy_words]: loop body 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 479:4-492:1 -/
+@[rust_loop_body]
+def fold_port.stats.basis.energy_words_loop0.body
+  (deref_mut_back : Slice Std.I64 → alloc.vec.Vec Std.I64)
+  (iter_mut_back : core.slice.iter.IterMut Std.I64 → Slice Std.I64)
+  (trait_default_back : core.iter.adapters.enumerate.Enumerate
+  (core.slice.iter.IterMut Std.I64) → core.slice.iter.IterMut Std.I64)
+  (b : Slice Std.I64) (n : Std.Usize) (axis : Std.Usize) (inner : Std.Usize)
+  (iter : core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
+  Std.I64))
+  (back : core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
+  Std.I64) → core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
+  Std.I64)) :
+  Result (ControlFlow ((core.iter.adapters.enumerate.Enumerate
+    (core.slice.iter.IterMut Std.I64)) ×
+    (core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut Std.I64)
+    → core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
+    Std.I64))) (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError))
+  := do
+  let (o, iter1, next_back) ←
+    core.iter.adapters.enumerate.IteratorEnumerate.next
+      (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT
+      Std.I64) iter
+  match o with
+  | none =>
+    let iter2 := next_back iter1 none
+    let im := trait_default_back (back iter2)
+    let s := iter_mut_back im
+    let e := deref_mut_back s
+    ok (done (core.result.Result.Ok e))
+  | some p =>
+    let (k, _) := p
+    let acc ←
+      fold_port.stats.basis.energy_words_loop0_loop0
+        { start := 0#usize, «end» := inner } b n axis k 0#i128
+    let r ← fold_port.stats.basis.round64 acc
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      ok (cont (iter1, fun e => let e1 := next_back e (some (k, val))
+                                back e1))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          fold_port.stats.basis.BasisError) residual
+      ok (done r1)
+
+/-- [apeiron_word::fold_port::stats::basis::energy_words]: loop 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 479:4-492:1 -/
+@[rust_loop]
+def fold_port.stats.basis.energy_words_loop0
+  (deref_mut_back : Slice Std.I64 → alloc.vec.Vec Std.I64)
+  (iter_mut_back : core.slice.iter.IterMut Std.I64 → Slice Std.I64)
+  (trait_default_back : core.iter.adapters.enumerate.Enumerate
+  (core.slice.iter.IterMut Std.I64) → core.slice.iter.IterMut Std.I64)
+  (iter : core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
+  Std.I64))
+  (back : core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
+  Std.I64) → core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
+  Std.I64)) (b : Slice Std.I64) (n : Std.Usize) (axis : Std.Usize)
+  (inner : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  loop
+    (fun (iter1, back1) => fold_port.stats.basis.energy_words_loop0.body
+      deref_mut_back iter_mut_back trait_default_back b n axis inner iter1
+      back1)
+    (iter, back)
+
+/-- [apeiron_word::fold_port::stats::basis::energy_words]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 475:0-492:1 -/
+def fold_port.stats.basis.energy_words
+  (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) (axis : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  let i := Slice.len b
+  let r ← fold_port.stats.basis.expect i o n (toStr "B")
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let (len, inner) ← if axis = 0#usize
+                         then ok (o, n)
+                         else ok (n, o)
+    let e ← alloc.vec.from_elem core.clone.CloneI64 0#i64 len
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut e)
+    let (im, iter_mut_back) ← core.slice.Slice.iter_mut s
+    let (iter, trait_default_back) ←
+      core.iter.traits.iterator.Iterator.enumerate.trait_default
+        (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT
+        Std.I64) im
+    fold_port.stats.basis.energy_words_loop0 deref_mut_back iter_mut_back
+      trait_default_back iter (fun e1 => e1) b n axis inner
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.stats.basis.BasisError) residual
+
+/-- [apeiron_word::fold_port::stats::basis::row_energies]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 497:0-499:1
+    Visibility: public -/
+def fold_port.stats.basis.row_energies
+  (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.energy_words b o n 0#usize
+
+/-- [apeiron_word::fold_port::stats::basis::column_energies]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 504:0-506:1
+    Visibility: public -/
+def fold_port.stats.basis.column_energies
+  (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.energy_words b o n 1#usize
+
+/-- [apeiron_word::fold_port::stats::basis::sum_log_column_energies]: loop body 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 514:4-522:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.basis.sum_log_column_energies_loop.body
+  (iter : core.slice.iter.Iter Std.I64) (acc : Std.I128) :
+  Result (ControlFlow ((core.slice.iter.Iter Std.I64) × Std.I128) Std.I128)
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done acc)
+  | some word =>
+    let word1 ← if word > 0#i64
+                  then ok word
+                  else ok 1#i64
+    let r ← fixed_ln.fixed_ln word1
+    let l ←
+      match r with
+      | core.result.Result.Ok v => ok v
+      | core.result.Result.Err _ => fixed_ln.LN2_Q32 * (-32)#i64
+    let i ← lift (core.convert.num.FromI128I64.from l)
+    let acc1 ← acc + i
+    ok (cont (iter1, acc1))
+
+/-- [apeiron_word::fold_port::stats::basis::sum_log_column_energies]: loop 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 514:4-522:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.basis.sum_log_column_energies_loop
+  (iter : core.slice.iter.Iter Std.I64) (acc : Std.I128) :
+  Result Std.I128
+  := do
+  loop
+    (fun (iter1, acc1) =>
+      fold_port.stats.basis.sum_log_column_energies_loop.body iter1 acc1)
+    (iter, acc)
+
+/-- [apeiron_word::fold_port::stats::basis::sum_log_column_energies]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 512:0-524:1
+    Visibility: public -/
+def fold_port.stats.basis.sum_log_column_energies
+  (c : Slice Std.I64) : Result Std.I64 := do
+  let iter ←
+    SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter c
+  let acc ← fold_port.stats.basis.sum_log_column_energies_loop iter 0#i128
+  let o ← solve_port.q32.narrow acc
+  ok (core.option.Option.unwrap_or o core.num.I64.MAX)
+
+/-- [apeiron_word::fold_port::stats::basis::butterfly_side_bits::{closure}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 730:18-730:39 -/
+@[reducible]
+def fold_port.stats.basis.butterfly_side_bits.closure := Unit
+
+/-- [apeiron_word::fold_port::stats::basis::butterfly_side_bits::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::butterfly_side_bits::{closure}}::call_once]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 730:18-730:39 -/
+def
+  fold_port.stats.basis.butterfly_side_bits.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
+  (c : fold_port.stats.basis.butterfly_side_bits.closure)
+  (tupled_args : Std.I64) :
+  Result (Option Std.I64)
+  := do
+  core.num.I64.checked_shl tupled_args 35#u32
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::basis::butterfly_side_bits::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::butterfly_side_bits::{closure}}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 730:18-730:39 -/
+@[reducible]
+def
+  fold_port.stats.basis.butterfly_side_bits.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
+  : core.ops.function.FnOnce fold_port.stats.basis.butterfly_side_bits.closure
+  Std.I64 (Option Std.I64) := {
+  call_once :=
+    fold_port.stats.basis.butterfly_side_bits.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::basis::butterfly_side_bits]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 726:0-732:1
+    Visibility: public -/
+def fold_port.stats.basis.butterfly_side_bits
+  (n : Std.Usize) : Result Std.I64 := do
+  let i ← fold_port.stats.basis.GROUP / 2#usize
+  let i1 ← 7#usize * i
+  let i2 ← core.num.Usize.div_ceil n fold_port.stats.basis.GROUP
+  let nodes ← core.num.Usize.saturating_mul i1 i2
+  let r ← I64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from nodes
+  let o ← core.result.Result.ok r
+  let o1 ←
+    core.option.Option.and_then
+      fold_port.stats.basis.butterfly_side_bits.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
+      o ()
+  ok (core.option.Option.unwrap_or o1 core.num.I64.MAX)
+
+/-- [apeiron_word::fold_port::stats::basis::Density]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 763:0-770:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.stats.basis.Density where
+| Separable : fold_port.stats.basis.Density
+| Tile : fold_port.stats.basis.Density
+| Oracle : fold_port.stats.basis.Density
+
+/-- [apeiron_word::fold_port::stats::basis::separable_word]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 773:0-780:1 -/
+def fold_port.stats.basis.separable_word
+  (r : Std.I64) (c : Std.I64) (m : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  if m = 0#i64
+  then ok (core.result.Result.Ok 0#i64)
+  else
+    let i ← lift (core.convert.num.FromI128I64.from r)
+    let i1 ← lift (core.convert.num.FromI128I64.from c)
+    let i2 ← i * i1
+    let i3 ← lift (core.convert.num.FromI128I64.from m)
+    let o ← fixed_ln.div_rne i2 i3
+    let o1 ←
+      core.option.Option.and_then
+        P.Insts.CoreOpsFunctionFnOnceTupleI128OptionI64 o
+        (solve_port.q32.narrow)
+    core.option.Option.ok_or o1 fold_port.stats.basis.BasisError.OutOfRange
+
+/-- [apeiron_word::fold_port::stats::basis::tile_mean]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 784:0-789:1 -/
+def fold_port.stats.basis.tile_mean
+  (sum : Std.I128) (count : Std.I128) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  if count <= 0#i128
+  then ok (core.result.Result.Ok 0#i64)
+  else
+    let i ← count <<< 32#i32
+    let o ← fixed_ln.div_rne sum i
+    let r ←
+      core.option.Option.ok_or o fold_port.stats.basis.BasisError.OutOfRange
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let o1 ← solve_port.q32.narrow val
+      core.option.Option.ok_or o1 fold_port.stats.basis.BasisError.OutOfRange
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Std.I64 (core.convert.FromSame fold_port.stats.basis.BasisError)
+        residual
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::side_bits]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 794:4-801:5
+    Visibility: public -/
+def fold_port.stats.basis.Density.side_bits
+  (self : fold_port.stats.basis.Density) (o : Std.Usize) (n : Std.Usize) :
+  Result Std.I64
+  := do
+  let bits ←
+    match self with
+    | fold_port.stats.basis.Density.Separable =>
+      do
+      let i ← lift (UScalar.hcast .I128 o)
+      let i1 ← lift (UScalar.hcast .I128 n)
+      let i2 ← i + i1
+      16#i128 * i2
+    | fold_port.stats.basis.Density.Tile =>
+      do
+      let i ← core.num.Usize.div_ceil o fold_port.stats.basis.TILE
+      let i1 ← lift (UScalar.hcast .I128 i)
+      let i2 ← 8#i128 * i1
+      let i3 ← core.num.Usize.div_ceil n fold_port.stats.basis.TILE
+      let i4 ← lift (UScalar.hcast .I128 i3)
+      i2 * i4
+    | fold_port.stats.basis.Density.Oracle => ok 0#i128
+  let i ← bits <<< 32#i32
+  let o1 ← solve_port.q32.narrow i
+  ok (core.option.Option.unwrap_or o1 core.num.I64.MAX)
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 823:16-825:17 -/
+@[rust_loop_body]
+def fold_port.stats.basis.Density.sigma_words_loop0.body
+  (r : alloc.vec.Vec Std.I64) (iter : core.ops.range.Range Std.Usize)
+  (total : Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128) Std.I128)
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done total)
+  | some k =>
+    let i ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) r k
+    let i1 ← lift (core.convert.num.FromI128I64.from i)
+    let total1 ← total + i1
+    ok (cont (iter1, total1))
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 823:16-825:17 -/
+@[rust_loop]
+def fold_port.stats.basis.Density.sigma_words_loop0
+  (iter : core.ops.range.Range Std.Usize) (r : alloc.vec.Vec Std.I64)
+  (total : Std.I128) :
+  Result Std.I128
+  := do
+  loop
+    (fun (iter1, total1) =>
+      fold_port.stats.basis.Density.sigma_words_loop0.body r iter1 total1)
+    (iter, total)
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 1:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 827:16-855:5 -/
+@[rust_loop_body]
+def fold_port.stats.basis.Density.sigma_words_loop1.body
+  (n : Std.Usize) (r : alloc.vec.Vec Std.I64) (c : alloc.vec.Vec Std.I64)
+  (m : Std.I64) (iter : core.ops.range.Range Std.Usize)
+  (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (core.result.Result.Ok out))
+  | some k =>
+    let i ← k / n
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) r i
+    let i2 ← k % n
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) c i2
+    let r1 ← fold_port.stats.basis.separable_word i1 i3 m
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let (_, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          out k
+      let out1 := index_mut_back val
+      ok (cont (iter1, out1))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          fold_port.stats.basis.BasisError) residual
+      ok (done r2)
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 1:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 827:16-855:5 -/
+@[rust_loop]
+def fold_port.stats.basis.Density.sigma_words_loop1
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (r : alloc.vec.Vec Std.I64)
+  (c : alloc.vec.Vec Std.I64) (m : Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  loop
+    (fun (iter1, out1) => fold_port.stats.basis.Density.sigma_words_loop1.body
+      n r c m iter1 out1)
+    (iter, out)
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 3:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 836:20-841:21 -/
+@[rust_loop_body]
+def fold_port.stats.basis.Density.sigma_words_loop2_loop0.body
+  (b : Slice Std.I64) (n : Std.Usize) (ntj : Std.Usize) (i : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (sums : alloc.vec.Vec Std.I128)
+  (counts : alloc.vec.Vec Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I128) × (alloc.vec.Vec Std.I128)) ((alloc.vec.Vec Std.I128) ×
+    (alloc.vec.Vec Std.I128)))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (sums, counts))
+  | some j =>
+    let i1 ← i / fold_port.stats.basis.TILE
+    let i2 ← i1 * ntj
+    let i3 ← j / fold_port.stats.basis.TILE
+    let k ← i2 + i3
+    let i4 ← i * n
+    let i5 ← i4 + j
+    let i6 ← Slice.index_usize b i5
+    let v ← lift (core.convert.num.FromI128I64.from i6)
+    let i7 ← v * v
+    let (i8, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I128)
+        sums k
+    let i9 ← i8 + i7
+    let (i10, index_mut_back1) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I128)
+        counts k
+    let i11 ← i10 + 1#i128
+    let counts1 := index_mut_back1 i11
+    let sums1 := index_mut_back i9
+    ok (cont (iter1, sums1, counts1))
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 3:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 836:20-841:21 -/
+@[rust_loop]
+def fold_port.stats.basis.Density.sigma_words_loop2_loop0
+  (iter : core.ops.range.Range Std.Usize) (b : Slice Std.I64) (n : Std.Usize)
+  (ntj : Std.Usize) (sums : alloc.vec.Vec Std.I128)
+  (counts : alloc.vec.Vec Std.I128) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I128))
+  := do
+  loop
+    (fun (iter1, sums1, counts1) =>
+      fold_port.stats.basis.Density.sigma_words_loop2_loop0.body b n ntj i
+      iter1 sums1 counts1)
+    (iter, sums, counts)
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 2:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 835:16-842:17 -/
+@[rust_loop_body]
+def fold_port.stats.basis.Density.sigma_words_loop2.body
+  (b : Slice Std.I64) (n : Std.Usize) (ntj : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (sums : alloc.vec.Vec Std.I128)
+  (counts : alloc.vec.Vec Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I128) × (alloc.vec.Vec Std.I128)) ((alloc.vec.Vec Std.I128) ×
+    (alloc.vec.Vec Std.I128)))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (sums, counts))
+  | some i =>
+    let (sums1, counts1) ←
+      fold_port.stats.basis.Density.sigma_words_loop2_loop0
+        { start := 0#usize, «end» := n } b n ntj sums counts i
+    ok (cont (iter1, sums1, counts1))
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 2:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 835:16-842:17 -/
+@[rust_loop]
+def fold_port.stats.basis.Density.sigma_words_loop2
+  (iter : core.ops.range.Range Std.Usize) (b : Slice Std.I64) (n : Std.Usize)
+  (ntj : Std.Usize) (sums : alloc.vec.Vec Std.I128)
+  (counts : alloc.vec.Vec Std.I128) :
+  Result ((alloc.vec.Vec Std.I128) × (alloc.vec.Vec Std.I128))
+  := do
+  loop
+    (fun (iter1, sums1, counts1) =>
+      fold_port.stats.basis.Density.sigma_words_loop2.body b n ntj iter1 sums1
+      counts1)
+    (iter, sums, counts)
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 6:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 848:20-850:21 -/
+@[rust_loop_body]
+def fold_port.stats.basis.Density.sigma_words_loop3_loop0_loop0.body
+  (n : Std.Usize) (ntj : Std.Usize) (means : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) (iter : core.ops.range.Range Std.Usize)
+  (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done out)
+  | some j =>
+    let i1 ← i / fold_port.stats.basis.TILE
+    let i2 ← i1 * ntj
+    let i3 ← j / fold_port.stats.basis.TILE
+    let i4 ← i2 + i3
+    let i5 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) means
+        i4
+    let i6 ← i * n
+    let i7 ← i6 + j
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        out i7
+    let out1 := index_mut_back i5
+    ok (cont (iter1, out1))
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 6:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 848:20-850:21 -/
+@[rust_loop]
+def fold_port.stats.basis.Density.sigma_words_loop3_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (ntj : Std.Usize)
+  (means : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, out1) =>
+      fold_port.stats.basis.Density.sigma_words_loop3_loop0_loop0.body n ntj
+      means i iter1 out1)
+    (iter, out)
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 5:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 847:16-851:17 -/
+@[rust_loop_body]
+def fold_port.stats.basis.Density.sigma_words_loop3_loop0.body
+  (n : Std.Usize) (ntj : Std.Usize) (means : alloc.vec.Vec Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (alloc.vec.Vec Std.I64))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done out)
+  | some i =>
+    let out1 ←
+      fold_port.stats.basis.Density.sigma_words_loop3_loop0_loop0
+        { start := 0#usize, «end» := n } n out ntj means i
+    ok (cont (iter1, out1))
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 5:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 847:16-851:17 -/
+@[rust_loop]
+def fold_port.stats.basis.Density.sigma_words_loop3_loop0
+  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (ntj : Std.Usize)
+  (means : alloc.vec.Vec Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (iter1, out1) =>
+      fold_port.stats.basis.Density.sigma_words_loop3_loop0.body n ntj means
+      iter1 out1)
+    (iter, out)
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 4:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 844:16-855:5 -/
+@[rust_loop_body]
+def fold_port.stats.basis.Density.sigma_words_loop3.body
+  (o : Std.Usize) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (ntj : Std.Usize) (sums : alloc.vec.Vec Std.I128)
+  (counts : alloc.vec.Vec Std.I128) (iter : core.ops.range.Range Std.Usize)
+  (means : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError))
+  := do
+  let (o1, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o1 with
+  | none =>
+    let out1 ←
+      fold_port.stats.basis.Density.sigma_words_loop3_loop0
+        { start := 0#usize, «end» := o } n out ntj means
+    ok (done (core.result.Result.Ok out1))
+  | some k =>
+    let i ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128) sums
+        k
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
+        counts k
+    let r ← fold_port.stats.basis.tile_mean i i1
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let (_, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          means k
+      let means1 := index_mut_back val
+      ok (cont (iter1, means1))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          fold_port.stats.basis.BasisError) residual
+      ok (done r1)
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 4:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 844:16-855:5 -/
+@[rust_loop]
+def fold_port.stats.basis.Density.sigma_words_loop3
+  (iter : core.ops.range.Range Std.Usize) (o : Std.Usize) (n : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (ntj : Std.Usize)
+  (sums : alloc.vec.Vec Std.I128) (counts : alloc.vec.Vec Std.I128)
+  (means : alloc.vec.Vec Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  loop
+    (fun (iter1, means1) =>
+      fold_port.stats.basis.Density.sigma_words_loop3.body o n out ntj sums
+      counts iter1 means1)
+    (iter, means)
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 7:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 816:16-855:5 -/
+@[rust_loop_body]
+def fold_port.stats.basis.Density.sigma_words_loop4.body
+  (b : Slice Std.I64) (iter : core.ops.range.Range Std.Usize)
+  (out : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (core.result.Result.Ok out))
+  | some k =>
+    let i ← Slice.index_usize b k
+    let o1 ← fold_port.stats.parts.mul i i
+    let r ←
+      core.option.Option.ok_or o1 fold_port.stats.basis.BasisError.OutOfRange
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let (_, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          out k
+      let out1 := index_mut_back val
+      ok (cont (iter1, out1))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          fold_port.stats.basis.BasisError) residual
+      ok (done r1)
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 7:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 816:16-855:5 -/
+@[rust_loop]
+def fold_port.stats.basis.Density.sigma_words_loop4
+  (iter : core.ops.range.Range Std.Usize) (b : Slice Std.I64)
+  (out : alloc.vec.Vec Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  loop
+    (fun (iter1, out1) => fold_port.stats.basis.Density.sigma_words_loop4.body
+      b iter1 out1)
+    (iter, out)
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 809:4-855:5 -/
+def fold_port.stats.basis.Density.sigma_words
+  (self : fold_port.stats.basis.Density) (b : Slice Std.I64) (o : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  let i := Slice.len b
+  let r ← fold_port.stats.basis.expect i o n (toStr "B")
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+    match self with
+    | fold_port.stats.basis.Density.Separable =>
+      let r1 ← fold_port.stats.basis.energy_words b o n 0#usize
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        let r2 ← fold_port.stats.basis.energy_words b o n 1#usize
+        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+        match cf2 with
+        | core.ops.control_flow.ControlFlow.Continue val2 =>
+          let i1 := alloc.vec.Vec.len val1
+          let total ←
+            fold_port.stats.basis.Density.sigma_words_loop0
+              { start := 0#usize, «end» := i1 } val1 0#i128
+          let o1 ← solve_port.q32.narrow total
+          let r3 ←
+            core.option.Option.ok_or o1
+              fold_port.stats.basis.BasisError.OutOfRange
+          let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+          match cf3 with
+          | core.ops.control_flow.ControlFlow.Continue val3 =>
+            fold_port.stats.basis.Density.sigma_words_loop1
+              { start := 0#usize, «end» := val } n out val1 val2 val3
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              fold_port.stats.basis.BasisError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64) (core.convert.FromSame
+            fold_port.stats.basis.BasisError) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          fold_port.stats.basis.BasisError) residual
+    | fold_port.stats.basis.Density.Tile =>
+      let ntj ← core.num.Usize.div_ceil n fold_port.stats.basis.TILE
+      let i1 ← core.num.Usize.div_ceil o fold_port.stats.basis.TILE
+      let i2 ← i1 * ntj
+      let sums ← alloc.vec.from_elem core.clone.CloneI128 0#i128 i2
+      let i3 := alloc.vec.Vec.len sums
+      let counts ← alloc.vec.from_elem core.clone.CloneI128 0#i128 i3
+      let (sums1, counts1) ←
+        fold_port.stats.basis.Density.sigma_words_loop2
+          { start := 0#usize, «end» := o } b n ntj sums counts
+      let i4 := alloc.vec.Vec.len sums1
+      let means ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i4
+      let i5 := alloc.vec.Vec.len sums1
+      fold_port.stats.basis.Density.sigma_words_loop3
+        { start := 0#usize, «end» := i5 } o n out ntj sums1 counts1 means
+    | fold_port.stats.basis.Density.Oracle =>
+      fold_port.stats.basis.Density.sigma_words_loop4
+        { start := 0#usize, «end» := val } b out
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.stats.basis.BasisError) residual
+
+/-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 862:4-864:5
+    Visibility: public -/
+def fold_port.stats.basis.Density.sigma
+  (self : fold_port.stats.basis.Density) (b : Slice Std.I64) (o : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.Density.sigma_words self b o n
+
+/-- [apeiron_word::fold_port::stats::basis::WaterFill]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 870:0-877:1
+    Visibility: public -/
+structure fold_port.stats.basis.WaterFill where
+  theta : Std.I64
+  distortion : Std.I64
+  rate : Std.I64
+
+/-- [apeiron_word::fold_port::stats::basis::distortion_words]: loop body 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 885:4-887:5 -/
+@[rust_loop_body]
+def fold_port.stats.basis.distortion_words_loop.body
+  (theta : Std.I64) (iter : core.slice.iter.Iter Std.I64) (acc : Std.I128) :
+  Result (ControlFlow ((core.slice.iter.Iter Std.I64) × Std.I128) Std.I128)
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done acc)
+  | some l =>
+    let l1 ← if l < theta
+               then ok l
+               else ok theta
+    let i ← lift (core.convert.num.FromI128I64.from l1)
+    let acc1 ← acc + i
+    ok (cont (iter1, acc1))
+
+/-- [apeiron_word::fold_port::stats::basis::distortion_words]: loop 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 885:4-887:5 -/
+@[rust_loop]
+def fold_port.stats.basis.distortion_words_loop
+  (iter : core.slice.iter.Iter Std.I64) (theta : Std.I64) (acc : Std.I128) :
+  Result Std.I128
+  := do
+  loop
+    (fun (iter1, acc1) => fold_port.stats.basis.distortion_words_loop.body
+      theta iter1 acc1)
+    (iter, acc)
+
+/-- [apeiron_word::fold_port::stats::basis::distortion_words]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 880:0-889:1 -/
+def fold_port.stats.basis.distortion_words
+  (lambda : Slice Std.I64) (theta : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  if theta <= 0#i64
+  then ok (core.result.Result.Ok 0#i64)
+  else
+    let iter ←
+      SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter
+        lambda
+    let acc ← fold_port.stats.basis.distortion_words_loop iter theta 0#i128
+    let o ← solve_port.q32.narrow acc
+    core.option.Option.ok_or o fold_port.stats.basis.BasisError.OutOfRange
+
+/-- [apeiron_word::fold_port::stats::basis::rate_words::{closure}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 910:35-910:57 -/
+@[reducible]
+def fold_port.stats.basis.rate_words.closure := Std.I64
+
+/-- [apeiron_word::fold_port::stats::basis::rate_words::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::rate_words::{closure}<'_0>}::call_once]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 910:35-910:57 -/
+def
+  fold_port.stats.basis.rate_words.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
+  (c : fold_port.stats.basis.rate_words.closure) (tupled_args : Std.I64) :
+  Result (Option Std.I64)
+  := do
+  ok (I64.checked_sub tupled_args c)
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::basis::rate_words::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::rate_words::{closure}<'_0>}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 910:35-910:57 -/
+@[reducible]
+def
+  fold_port.stats.basis.rate_words.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
+  : core.ops.function.FnOnce fold_port.stats.basis.rate_words.closure Std.I64
+  (Option Std.I64) := {
+  call_once :=
+    fold_port.stats.basis.rate_words.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::basis::rate_words]: loop body 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 898:8-902:9 -/
+@[rust_loop_body]
+def fold_port.stats.basis.rate_words_loop0.body
+  (iter : core.slice.iter.Iter Std.I64) (any : Bool) :
+  Result (ControlFlow ((core.slice.iter.Iter Std.I64) × Bool) Bool)
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done any)
+  | some l =>
+    if l > 0#i64
+    then ok (cont (iter1, true))
+    else ok (cont (iter1, any))
+
+/-- [apeiron_word::fold_port::stats::basis::rate_words]: loop 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 898:8-902:9 -/
+@[rust_loop]
+def fold_port.stats.basis.rate_words_loop0
+  (iter : core.slice.iter.Iter Std.I64) (any : Bool) : Result Bool := do
+  loop
+    (fun (iter1, any1) => fold_port.stats.basis.rate_words_loop0.body iter1
+      any1)
+    (iter, any)
+
+/-- [apeiron_word::fold_port::stats::basis::rate_words]: loop body 1:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 908:4-915:5 -/
+@[rust_loop_body]
+def fold_port.stats.basis.rate_words_loop1.body
+  (theta : Std.I64) (t : Std.I64) (iter : core.slice.iter.Iter Std.I64)
+  (acc : Std.I128) (failed : Bool) :
+  Result (ControlFlow ((core.slice.iter.Iter Std.I64) × Std.I128 × Bool)
+    (Std.I128 × Bool))
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done (acc, failed))
+  | some l =>
+    if failed
+    then ok (cont (iter1, acc, true))
+    else
+      if l > theta
+      then
+        let o1 ← fold_port.stats.basis.log2 l
+        let o2 ←
+          core.option.Option.and_then
+            fold_port.stats.basis.rate_words.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
+            o1 t
+        match o2 with
+        | none => ok (cont (iter1, acc, true))
+        | some d =>
+          let i ← lift (core.convert.num.FromI128I64.from d)
+          let acc1 ← acc + i
+          ok (cont (iter1, acc1, false))
+      else ok (cont (iter1, acc, false))
+
+/-- [apeiron_word::fold_port::stats::basis::rate_words]: loop 1:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 908:4-915:5 -/
+@[rust_loop]
+def fold_port.stats.basis.rate_words_loop1
+  (iter : core.slice.iter.Iter Std.I64) (theta : Std.I64) (t : Std.I64)
+  (acc : Std.I128) (failed : Bool) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (iter1, acc1, failed1) => fold_port.stats.basis.rate_words_loop1.body
+      theta t iter1 acc1 failed1)
+    (iter, acc, failed)
+
+/-- [apeiron_word::fold_port::stats::basis::rate_words]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 893:0-920:1 -/
+def fold_port.stats.basis.rate_words
+  (lambda : Slice Std.I64) (theta : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  if theta <= 0#i64
+  then
+    let iter ←
+      SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter
+        lambda
+    let any ← fold_port.stats.basis.rate_words_loop0 iter false
+    if any
+    then ok (core.result.Result.Ok core.num.I64.MAX)
+    else ok (core.result.Result.Ok 0#i64)
+  else
+    let o ← fold_port.stats.basis.log2 theta
+    let r ←
+      core.option.Option.ok_or o fold_port.stats.basis.BasisError.OutOfRange
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let iter ←
+        SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter
+          lambda
+      let (acc, failed) ←
+        fold_port.stats.basis.rate_words_loop1 iter theta val 0#i128 false
+      if failed
+      then
+        ok (core.result.Result.Err fold_port.stats.basis.BasisError.OutOfRange)
+      else
+        let i ← acc >>> 1#i32
+        let o1 ← solve_port.q32.narrow i
+        core.option.Option.ok_or o1 fold_port.stats.basis.BasisError.OutOfRange
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Std.I64 (core.convert.FromSame fold_port.stats.basis.BasisError)
+        residual
+
+/-- [apeiron_word::fold_port::stats::basis::converged]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1085:0-1094:1 -/
+def fold_port.stats.basis.converged
+  (r : Std.I64) (target : Std.I64) (tol : Std.I64) :
+  Result (core.result.Result Bool fold_port.stats.basis.BasisError)
+  := do
+  let o ← lift (I64.checked_sub r target)
+  let r1 ←
+    core.option.Option.ok_or o fold_port.stats.basis.BasisError.OutOfRange
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    if val < 0#i64
+    then
+      let o1 ← lift (I64.checked_sub 0#i64 val)
+      let r2 ←
+        core.option.Option.ok_or o1 fold_port.stats.basis.BasisError.OutOfRange
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        ok (core.result.Result.Ok (val1 <= tol))
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Bool (core.convert.FromSame fold_port.stats.basis.BasisError)
+          residual
+    else ok (core.result.Result.Ok (val <= tol))
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      Bool (core.convert.FromSame fold_port.stats.basis.BasisError) residual
+
+/-- [apeiron_word::fold_port::stats::basis::rate_at_logs]: loop body 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1069:4-1077:5 -/
+@[rust_loop_body]
+def fold_port.stats.basis.rate_at_logs_loop.body
+  (logs : Slice Std.I64) (t : Std.I64) (iter : core.ops.range.Range Std.Usize)
+  (acc : Std.I128) (failed : Bool) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128 × Bool)
+    (Std.I128 × Bool))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (acc, failed))
+  | some k =>
+    let l ← Slice.index_usize logs k
+    if failed
+    then ok (cont (iter1, acc, true))
+    else
+      if l != core.num.I64.MIN
+      then
+        if l > t
+        then
+          let o1 ← lift (I64.checked_sub l t)
+          match o1 with
+          | none => ok (cont (iter1, acc, true))
+          | some d =>
+            let i ← lift (core.convert.num.FromI128I64.from d)
+            let acc1 ← acc + i
+            ok (cont (iter1, acc1, false))
+        else ok (cont (iter1, acc, false))
+      else ok (cont (iter1, acc, false))
+
+/-- [apeiron_word::fold_port::stats::basis::rate_at_logs]: loop 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1069:4-1077:5 -/
+@[rust_loop]
+def fold_port.stats.basis.rate_at_logs_loop
+  (iter : core.ops.range.Range Std.Usize) (logs : Slice Std.I64) (t : Std.I64)
+  (acc : Std.I128) (failed : Bool) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (iter1, acc1, failed1) => fold_port.stats.basis.rate_at_logs_loop.body
+      logs t iter1 acc1 failed1)
+    (iter, acc, failed)
+
+/-- [apeiron_word::fold_port::stats::basis::rate_at_logs]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1066:0-1082:1 -/
+def fold_port.stats.basis.rate_at_logs
+  (logs : Slice Std.I64) (t : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  let i := Slice.len logs
+  let (acc, failed) ←
+    fold_port.stats.basis.rate_at_logs_loop { start := 0#usize, «end» := i }
+      logs t 0#i128 false
+  if failed
+  then ok (core.result.Result.Err fold_port.stats.basis.BasisError.OutOfRange)
+  else
+    let i1 ← acc >>> 1#i32
+    let o ← solve_port.q32.narrow i1
+    core.option.Option.ok_or o fold_port.stats.basis.BasisError.OutOfRange
+
+/-- [apeiron_word::fold_port::stats::basis::water_log]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1056:0-1062:1 -/
+def fold_port.stats.basis.water_log
+  (l : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  if l > 0#i64
+  then
+    let o ← fold_port.stats.basis.log2 l
+    core.option.Option.ok_or o fold_port.stats.basis.BasisError.OutOfRange
+  else ok (core.result.Result.Ok core.num.I64.MIN)
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words::{closure#2}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 976:18-976:40 -/
+@[reducible]
+def fold_port.stats.basis.water_fill_words.closure_2 := Unit
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::water_fill_words::{closure#2}}::call_once]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 976:18-976:40 -/
+def
+  fold_port.stats.basis.water_fill_words.closure_2.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
+  (c : fold_port.stats.basis.water_fill_words.closure_2)
+  (tupled_args : Std.I64) :
+  Result (Option Std.I64)
+  := do
+  let i ← fixed_ln.ONE
+  ok (I64.checked_sub tupled_args i)
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::basis::water_fill_words::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::water_fill_words::{closure#2}}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 976:18-976:40 -/
+@[reducible]
+def
+  fold_port.stats.basis.water_fill_words.closure_2.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
+  : core.ops.function.FnOnce fold_port.stats.basis.water_fill_words.closure_2
+  Std.I64 (Option Std.I64) := {
+  call_once :=
+    fold_port.stats.basis.water_fill_words.closure_2.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words::{closure#1}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 973:18-973:40 -/
+@[reducible]
+def fold_port.stats.basis.water_fill_words.closure_1 := Unit
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::water_fill_words::{closure#1}}::call_once]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 973:18-973:40 -/
+def
+  fold_port.stats.basis.water_fill_words.closure_1.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
+  (c : fold_port.stats.basis.water_fill_words.closure_1)
+  (tupled_args : Std.I64) :
+  Result (Option Std.I64)
+  := do
+  let i ← fixed_ln.ONE
+  ok (I64.checked_add tupled_args i)
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::basis::water_fill_words::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::water_fill_words::{closure#1}}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 973:18-973:40 -/
+@[reducible]
+def
+  fold_port.stats.basis.water_fill_words.closure_1.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
+  : core.ops.function.FnOnce fold_port.stats.basis.water_fill_words.closure_1
+  Std.I64 (Option Std.I64) := {
+  call_once :=
+    fold_port.stats.basis.water_fill_words.closure_1.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words::{closure}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 929:52-929:76 -/
+@[reducible]
+def fold_port.stats.basis.water_fill_words.closure := Unit
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::water_fill_words::{closure}}::call_once]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 929:52-929:76 -/
+def
+  fold_port.stats.basis.water_fill_words.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError.call_once
+  (c : fold_port.stats.basis.water_fill_words.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result fold_port.stats.basis.BasisError
+  := do
+  ok fold_port.stats.basis.BasisError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::basis::water_fill_words::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::water_fill_words::{closure}}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 929:52-929:76 -/
+@[reducible]
+def
+  fold_port.stats.basis.water_fill_words.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError
+  : core.ops.function.FnOnce fold_port.stats.basis.water_fill_words.closure
+  core.num.error.TryFromIntError fold_port.stats.basis.BasisError := {
+  call_once :=
+    fold_port.stats.basis.water_fill_words.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop body 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 936:4-950:5 -/
+@[rust_loop_body]
+def fold_port.stats.basis.water_fill_words_loop0.body
+  (lambda : Slice Std.I64) (iter : core.ops.range.Range Std.Usize)
+  (max : Std.I64) (min_pos : Std.I64) (logs : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.stats.basis.BasisError) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I64 × Std.I64
+    × (alloc.vec.Vec Std.I64) × (Option fold_port.stats.basis.BasisError))
+    (Std.I64 × Std.I64 × (alloc.vec.Vec Std.I64) × (Option
+    fold_port.stats.basis.BasisError)))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (max, min_pos, logs, err))
+  | some k =>
+    let l ← Slice.index_usize lambda k
+    let max1 ← if l > max
+                 then ok l
+                 else ok max
+    let min_pos1 ←
+      if l > 0#i64
+      then if l < min_pos
+           then ok l
+           else ok min_pos
+      else ok min_pos
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let r ← fold_port.stats.basis.water_log l
+      match r with
+      | core.result.Result.Ok t =>
+        let (_, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            Std.I64) logs k
+        let logs1 := index_mut_back t
+        ok (cont (iter1, max1, min_pos1, logs1, err))
+      | core.result.Result.Err e =>
+        ok (cont (iter1, max1, min_pos1, logs, some e))
+    else ok (cont (iter1, max1, min_pos1, logs, err))
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 936:4-950:5 -/
+@[rust_loop]
+def fold_port.stats.basis.water_fill_words_loop0
+  (iter : core.ops.range.Range Std.Usize) (lambda : Slice Std.I64)
+  (max : Std.I64) (min_pos : Std.I64) (logs : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.stats.basis.BasisError) :
+  Result (Std.I64 × Std.I64 × (alloc.vec.Vec Std.I64) × (Option
+    fold_port.stats.basis.BasisError))
+  := do
+  loop
+    (fun (iter1, max1, min_pos1, logs1, err1) =>
+      fold_port.stats.basis.water_fill_words_loop0.body lambda iter1 max1
+      min_pos1 logs1 err1)
+    (iter, max, min_pos, logs, err)
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop body 1:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 962:4-964:5 -/
+@[rust_loop_body]
+def fold_port.stats.basis.water_fill_words_loop1.body
+  (lambda : Slice Std.I64) (iter : core.ops.range.Range Std.Usize)
+  (sum_lambda : Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128) Std.I128)
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done sum_lambda)
+  | some k =>
+    let i ← Slice.index_usize lambda k
+    let i1 ← lift (core.convert.num.FromI128I64.from i)
+    let sum_lambda1 ← sum_lambda + i1
+    ok (cont (iter1, sum_lambda1))
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop 1:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 962:4-964:5 -/
+@[rust_loop]
+def fold_port.stats.basis.water_fill_words_loop1
+  (iter : core.ops.range.Range Std.Usize) (lambda : Slice Std.I64)
+  (sum_lambda : Std.I128) :
+  Result Std.I128
+  := do
+  loop
+    (fun (iter1, sum_lambda1) =>
+      fold_port.stats.basis.water_fill_words_loop1.body lambda iter1
+      sum_lambda1)
+    (iter, sum_lambda)
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop body 2:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 983:4-1003:5 -/
+@[rust_loop_body]
+def fold_port.stats.basis.water_fill_words_loop2.body
+  (target : Std.I64) (logs : alloc.vec.Vec Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (t_lo : Std.I64) (gap : Std.I64)
+  (err : Option fold_port.stats.basis.BasisError) (walked : Bool) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I64 × Std.I64
+    × (Option fold_port.stats.basis.BasisError) × Bool) (Std.I64 × (Option
+    fold_port.stats.basis.BasisError)))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (t_lo, err))
+  | some _ =>
+    if walked
+    then ok (cont (iter1, t_lo, gap, err, true))
+    else
+      let b := core.option.Option.is_none err
+      if b
+      then
+        let s := alloc.vec.Vec.deref logs
+        let r ← fold_port.stats.basis.rate_at_logs s t_lo
+        match r with
+        | core.result.Result.Ok r1 =>
+          if r1 >= target
+          then ok (cont (iter1, t_lo, gap, err, true))
+          else
+            let o1 ← lift (I64.checked_sub t_lo gap)
+            let (t_lo1, err1) ←
+              match o1 with
+              | none =>
+                ok (t_lo, some fold_port.stats.basis.BasisError.OutOfRange)
+              | some lo => ok (lo, err)
+            let o2 ← lift (I64.checked_mul gap 2#i64)
+            match o2 with
+            | none =>
+              ok (cont (iter1, t_lo1, gap, some
+                fold_port.stats.basis.BasisError.OutOfRange, false))
+            | some g => ok (cont (iter1, t_lo1, g, err1, false))
+        | core.result.Result.Err e =>
+          ok (cont (iter1, t_lo, gap, some e, false))
+      else ok (cont (iter1, t_lo, gap, err, false))
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop 2:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 983:4-1003:5 -/
+@[rust_loop]
+def fold_port.stats.basis.water_fill_words_loop2
+  (iter : core.ops.range.Range Std.Usize) (target : Std.I64)
+  (logs : alloc.vec.Vec Std.I64) (t_lo : Std.I64) (gap : Std.I64)
+  (err : Option fold_port.stats.basis.BasisError) (walked : Bool) :
+  Result (Std.I64 × (Option fold_port.stats.basis.BasisError))
+  := do
+  loop
+    (fun (iter1, t_lo1, gap1, err1, walked1) =>
+      fold_port.stats.basis.water_fill_words_loop2.body target logs iter1 t_lo1
+      gap1 err1 walked1)
+    (iter, t_lo, gap, err, walked)
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop body 3:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1011:4-1042:5 -/
+@[rust_loop_body]
+def fold_port.stats.basis.water_fill_words_loop3.body
+  (target : Std.I64) (logs : alloc.vec.Vec Std.I64) (tol : Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (t_hi : Std.I64) (t_lo : Std.I64)
+  (t : Std.I64) (err : Option fold_port.stats.basis.BasisError) (done1 : Bool)
+  :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I64 × Std.I64
+    × Std.I64 × (Option fold_port.stats.basis.BasisError) × Bool) (Std.I64
+    × (Option fold_port.stats.basis.BasisError)))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (t, err))
+  | some _ =>
+    if done1
+    then ok (cont (iter1, t_hi, t_lo, t, err, true))
+    else
+      let b := core.option.Option.is_none err
+      if b
+      then
+        let i ← lift (core.convert.num.FromI128I64.from t_lo)
+        let i1 ← lift (core.convert.num.FromI128I64.from t_hi)
+        let sum ← i + i1
+        let (iter2, mid) ←
+          if sum < 0#i128
+          then
+            do
+            let i2 ← lift (sum &&& 1#i128)
+            let i3 ←
+              if i2 != 0#i128
+              then do
+                   let i4 ← sum >>> 1#i32
+                   i4 + 1#i128
+              else sum >>> 1#i32
+            ok (iter1, i3)
+          else do
+               let mid1 ← sum >>> 1#i32
+               ok (iter1, mid1)
+        let o1 ← solve_port.q32.narrow mid
+        match o1 with
+        | none =>
+          ok (cont (iter2, t_hi, t_lo, t, some
+            fold_port.stats.basis.BasisError.OutOfRange, false))
+        | some mid1 =>
+          let s := alloc.vec.Vec.deref logs
+          let r ← fold_port.stats.basis.rate_at_logs s mid1
+          match r with
+          | core.result.Result.Ok r1 =>
+            let r2 ← fold_port.stats.basis.converged r1 target tol
+            match r2 with
+            | core.result.Result.Ok b1 =>
+              if b1
+              then ok (cont (iter2, t_hi, t_lo, mid1, err, true))
+              else
+                if r1 > target
+                then ok (cont (iter2, t_hi, mid1, mid1, err, false))
+                else ok (cont (iter2, mid1, t_lo, mid1, err, false))
+            | core.result.Result.Err e =>
+              ok (cont (iter2, t_hi, t_lo, mid1, some e, false))
+          | core.result.Result.Err e =>
+            ok (cont (iter2, t_hi, t_lo, mid1, some e, false))
+      else ok (cont (iter1, t_hi, t_lo, t, err, false))
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop 3:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1011:4-1042:5 -/
+@[rust_loop]
+def fold_port.stats.basis.water_fill_words_loop3
+  (iter : core.ops.range.Range Std.Usize) (target : Std.I64)
+  (logs : alloc.vec.Vec Std.I64) (t_hi : Std.I64) (t_lo : Std.I64)
+  (tol : Std.I64) (t : Std.I64) (err : Option fold_port.stats.basis.BasisError)
+  (done1 : Bool) :
+  Result (Std.I64 × (Option fold_port.stats.basis.BasisError))
+  := do
+  loop
+    (fun (iter1, t_hi1, t_lo1, t1, err1, done2) =>
+      fold_port.stats.basis.water_fill_words_loop3.body target logs tol iter1
+      t_hi1 t_lo1 t1 err1 done2)
+    (iter, t_hi, t_lo, t, err, done1)
+
+/-- [apeiron_word::fold_port::stats::basis::water_fill_words]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 927:0-1052:1 -/
+def fold_port.stats.basis.water_fill_words
+  (lambda : Slice Std.I64) (budget : Std.I64) (side : Std.I64) :
+  Result (core.result.Result fold_port.stats.basis.WaterFill
+    fold_port.stats.basis.BasisError)
+  := do
+  let o ← lift (I64.checked_sub budget side)
+  let r ←
+    core.option.Option.ok_or o fold_port.stats.basis.BasisError.OutOfRange
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let i := Slice.len lambda
+    let r1 ← I64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+    let r2 ←
+      core.result.Result.map_err
+        fold_port.stats.basis.water_fill_words.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError
+        r1 ()
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r2
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let i1 := Slice.len lambda
+      let logs ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
+      let i2 := Slice.len lambda
+      let (max, min_pos, logs1, err) ←
+        fold_port.stats.basis.water_fill_words_loop0
+          { start := 0#usize, «end» := i2 } lambda 0#i64 core.num.I64.MAX
+          logs none
+      match err with
+      | none =>
+        let b ← core.slice.Slice.is_empty lambda
+        if b
+        then
+          ok (core.result.Result.Ok
+            { theta := 0#i64, distortion := 0#i64, rate := 0#i64 })
+        else
+          if max <= 0#i64
+          then
+            ok (core.result.Result.Ok
+              { theta := 0#i64, distortion := 0#i64, rate := 0#i64 })
+          else
+            let i3 := Slice.len lambda
+            let sum_lambda ←
+              fold_port.stats.basis.water_fill_words_loop1
+                { start := 0#usize, «end» := i3 } lambda 0#i128
+            if val <= 0#i64
+            then
+              let o1 ← solve_port.q32.narrow sum_lambda
+              let i4 ←
+                lift (core.option.Option.unwrap_or o1 core.num.I64.MAX)
+              ok (core.result.Result.Ok
+                { theta := max, distortion := i4, rate := 0#i64 })
+            else
+              let o1 ← fold_port.stats.basis.log2 max
+              let o2 ←
+                core.option.Option.and_then
+                  fold_port.stats.basis.water_fill_words.closure_1.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
+                  o1 ()
+              let r3 ←
+                core.option.Option.ok_or o2
+                  fold_port.stats.basis.BasisError.OutOfRange
+              let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r3
+              match cf2 with
+              | core.ops.control_flow.ControlFlow.Continue val2 =>
+                let o3 ← fold_port.stats.basis.log2 min_pos
+                let o4 ←
+                  core.option.Option.and_then
+                    fold_port.stats.basis.water_fill_words.closure_2.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
+                    o3 ()
+                let r4 ←
+                  core.option.Option.ok_or o4
+                    fold_port.stats.basis.BasisError.OutOfRange
+                let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r4
+                match cf3 with
+                | core.ops.control_flow.ControlFlow.Continue val3 =>
+                  let gap ← fixed_ln.ONE
+                  let (t_lo, err1) ←
+                    fold_port.stats.basis.water_fill_words_loop2
+                      {
+                        start := 0#usize,
+                        «end» := fold_port.stats.basis.BISECTION_ITERS
+                      } val logs1 val3 gap none false
+                  match err1 with
+                  | none =>
+                    let o5 ←
+                      lift (I64.checked_mul fold_port.stats.basis.RATE_TOL_Q
+                        val1)
+                    let r5 ←
+                      core.option.Option.ok_or o5
+                        fold_port.stats.basis.BasisError.Overflow
+                    let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r5
+                    match cf4 with
+                    | core.ops.control_flow.ControlFlow.Continue val4 =>
+                      let (t, err2) ←
+                        fold_port.stats.basis.water_fill_words_loop3
+                          {
+                            start := 0#usize,
+                            «end» := fold_port.stats.basis.BISECTION_ITERS
+                          } val logs1 val2 t_lo val4 val2 none false
+                      match err2 with
+                      | none =>
+                        let o6 ← fold_port.stats.basis.exp2 t
+                        let r6 ←
+                          core.option.Option.ok_or o6
+                            fold_port.stats.basis.BasisError.OutOfRange
+                        let cf5 ←
+                          core.result.Result.Insts.CoreOpsTry.branch r6
+                        match cf5 with
+                        | core.ops.control_flow.ControlFlow.Continue val5 =>
+                          let r7 ←
+                            fold_port.stats.basis.distortion_words lambda val5
+                          let cf6 ←
+                            core.result.Result.Insts.CoreOpsTry.branch r7
+                          match cf6 with
+                          | core.ops.control_flow.ControlFlow.Continue val6 =>
+                            let r8 ←
+                              fold_port.stats.basis.rate_words lambda val5
+                            let cf7 ←
+                              core.result.Result.Insts.CoreOpsTry.branch r8
+                            match cf7 with
+                            | core.ops.control_flow.ControlFlow.Continue val7
+                              =>
+                              ok (core.result.Result.Ok
+                                {
+                                  theta := val5,
+                                  distortion := val6,
+                                  rate := val7
+                                })
+                            | core.ops.control_flow.ControlFlow.Break residual
+                              =>
+                              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                fold_port.stats.basis.WaterFill
+                                (core.convert.FromSame
+                                fold_port.stats.basis.BasisError) residual
+                          | core.ops.control_flow.ControlFlow.Break residual =>
+                            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                              fold_port.stats.basis.WaterFill
+                              (core.convert.FromSame
+                              fold_port.stats.basis.BasisError) residual
+                        | core.ops.control_flow.ControlFlow.Break residual =>
+                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                            fold_port.stats.basis.WaterFill
+                            (core.convert.FromSame
+                            fold_port.stats.basis.BasisError) residual
+                      | some e => ok (core.result.Result.Err e)
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        fold_port.stats.basis.WaterFill (core.convert.FromSame
+                        fold_port.stats.basis.BasisError) residual
+                  | some e => ok (core.result.Result.Err e)
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    fold_port.stats.basis.WaterFill (core.convert.FromSame
+                    fold_port.stats.basis.BasisError) residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  fold_port.stats.basis.WaterFill (core.convert.FromSame
+                  fold_port.stats.basis.BasisError) residual
+      | some e => ok (core.result.Result.Err e)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        fold_port.stats.basis.WaterFill (core.convert.FromSame
+        fold_port.stats.basis.BasisError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      fold_port.stats.basis.WaterFill (core.convert.FromSame
+      fold_port.stats.basis.BasisError) residual
+
+/-- [apeiron_word::fold_port::stats::basis::solve_water_fill]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1100:0-1110:1
+    Visibility: public -/
+def fold_port.stats.basis.solve_water_fill
+  (lambda : Slice Std.I64) (budget_bits : Std.I64) (side_bits : Std.I64) :
+  Result fold_port.stats.basis.WaterFill
+  := do
+  let r ← fold_port.stats.basis.water_fill_words lambda budget_bits side_bits
+  match r with
+  | core.result.Result.Ok w => ok w
+  | core.result.Result.Err _ =>
+    ok { theta := 0#i64, distortion := 0#i64, rate := 0#i64 }
+
+/-- [apeiron_word::fold_port::stats::basis::distortion_at]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1115:0-1117:1
+    Visibility: public -/
+def fold_port.stats.basis.distortion_at
+  (lambda : Slice Std.I64) (theta : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.distortion_words lambda theta
+
+/-- [apeiron_word::fold_port::stats::basis::rate_at]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1124:0-1126:1
+    Visibility: public -/
+def fold_port.stats.basis.rate_at
+  (lambda : Slice Std.I64) (theta : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.rate_words lambda theta
+
+/-- [apeiron_word::fold_port::stats::basis::uniform_words::{closure}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1134:52-1134:76 -/
+@[reducible]
+def fold_port.stats.basis.uniform_words.closure := Unit
+
+/-- [apeiron_word::fold_port::stats::basis::uniform_words::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::uniform_words::{closure}}::call_once]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1134:52-1134:76 -/
+def
+  fold_port.stats.basis.uniform_words.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError.call_once
+  (c : fold_port.stats.basis.uniform_words.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result fold_port.stats.basis.BasisError
+  := do
+  ok fold_port.stats.basis.BasisError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::basis::uniform_words::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::uniform_words::{closure}}]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1134:52-1134:76 -/
+@[reducible]
+def
+  fold_port.stats.basis.uniform_words.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError
+  : core.ops.function.FnOnce fold_port.stats.basis.uniform_words.closure
+  core.num.error.TryFromIntError fold_port.stats.basis.BasisError := {
+  call_once :=
+    fold_port.stats.basis.uniform_words.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::basis::uniform_words]: loop body 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1146:4-1148:5 -/
+@[rust_loop_body]
+def fold_port.stats.basis.uniform_words_loop.body
+  (factor : Std.I64) (iter : core.slice.iter.Iter Std.I64) (acc : Std.I128) :
+  Result (ControlFlow ((core.slice.iter.Iter Std.I64) × Std.I128) Std.I128)
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done acc)
+  | some l =>
+    let i ← lift (core.convert.num.FromI128I64.from l)
+    let i1 ← lift (core.convert.num.FromI128I64.from factor)
+    let i2 ← i * i1
+    let acc1 ← acc + i2
+    ok (cont (iter1, acc1))
+
+/-- [apeiron_word::fold_port::stats::basis::uniform_words]: loop 0:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1146:4-1148:5 -/
+@[rust_loop]
+def fold_port.stats.basis.uniform_words_loop
+  (iter : core.slice.iter.Iter Std.I64) (factor : Std.I64) (acc : Std.I128) :
+  Result Std.I128
+  := do
+  loop
+    (fun (iter1, acc1) => fold_port.stats.basis.uniform_words_loop.body factor
+      iter1 acc1)
+    (iter, acc)
+
+/-- [apeiron_word::fold_port::stats::basis::uniform_words]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1130:0-1150:1 -/
+def fold_port.stats.basis.uniform_words
+  (lambda : Slice Std.I64) (budget : Std.I64) (side : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  let b ← core.slice.Slice.is_empty lambda
+  if b
+  then ok (core.result.Result.Ok 0#i64)
+  else
+    let i := Slice.len lambda
+    let r ← I64.Insts.CoreConvertTryFromUsizeTryFromIntError.try_from i
+    let r1 ←
+      core.result.Result.map_err
+        fold_port.stats.basis.uniform_words.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError
+        r ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let o ← lift (I64.checked_sub budget side)
+      let r2 ←
+        core.option.Option.ok_or o fold_port.stats.basis.BasisError.OutOfRange
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r2
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        let i1 ← lift (core.convert.num.FromI128I64.from val1)
+        let i2 ← lift (core.convert.num.FromI128I64.from val)
+        let o1 ← fixed_ln.div_rne i1 i2
+        let r3 ←
+          core.option.Option.ok_or o1
+            fold_port.stats.basis.BasisError.OutOfRange
+        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r3
+        match cf2 with
+        | core.ops.control_flow.ControlFlow.Continue val2 =>
+          let o2 ← solve_port.q32.narrow val2
+          let r4 ←
+            core.option.Option.ok_or o2
+              fold_port.stats.basis.BasisError.OutOfRange
+          let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r4
+          match cf3 with
+          | core.ops.control_flow.ControlFlow.Continue val3 =>
+            let o3 ← lift (I64.checked_mul val3 (-2)#i64)
+            let r5 ←
+              core.option.Option.ok_or o3
+                fold_port.stats.basis.BasisError.OutOfRange
+            let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r5
+            match cf4 with
+            | core.ops.control_flow.ControlFlow.Continue val4 =>
+              let o4 ← fold_port.stats.basis.exp2 val4
+              let r6 ←
+                core.option.Option.ok_or o4
+                  fold_port.stats.basis.BasisError.OutOfRange
+              let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r6
+              match cf5 with
+              | core.ops.control_flow.ControlFlow.Continue val5 =>
+                let iter ←
+                  SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter
+                    lambda
+                let acc ←
+                  fold_port.stats.basis.uniform_words_loop iter val5 0#i128
+                fold_port.stats.basis.round64 acc
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  Std.I64 (core.convert.FromSame
+                  fold_port.stats.basis.BasisError) residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                Std.I64 (core.convert.FromSame
+                fold_port.stats.basis.BasisError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              Std.I64 (core.convert.FromSame fold_port.stats.basis.BasisError)
+              residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            Std.I64 (core.convert.FromSame fold_port.stats.basis.BasisError)
+            residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Std.I64 (core.convert.FromSame fold_port.stats.basis.BasisError)
+          residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Std.I64 (core.convert.FromSame fold_port.stats.basis.BasisError)
+        residual
+
+/-- [apeiron_word::fold_port::stats::basis::uniform_distortion]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1156:0-1162:1
+    Visibility: public -/
+def fold_port.stats.basis.uniform_distortion
+  (lambda : Slice Std.I64) (budget_bits : Std.I64) (side_bits : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.uniform_words lambda budget_bits side_bits
+
 /-- [apeiron_word::fold_port::stats::budget::WEIGHT_UNIT]
     Source: '../../src/learn/fold/stats/budget.rs', lines 27:0-27:39
     Visibility: public -/
@@ -76960,6 +79612,2104 @@ def fold_port.stats.budget.max_body_bpw
     core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
       (Std.U64 × Std.U64) residual
 
+/-- [apeiron_word::learn_port::dense::DenseError]
+    Source: '../../src/learn/grad/dense.rs', lines 43:0-53:1
+    Visibility: public -/
+@[discriminant isize]
+inductive learn_port.dense.DenseError where
+| Empty : learn_port.dense.DenseError
+| Shape : learn_port.dense.DenseError
+| Overflow : learn_port.dense.DenseError
+| Range : learn_port.dense.DenseError
+
+/-- [apeiron_word::learn_port::attn::AttnError]
+    Source: '../../src/learn/grad/attn.rs', lines 47:0-61:1
+    Visibility: public -/
+@[discriminant isize]
+inductive learn_port.attn.AttnError where
+| BadShape : learn_port.attn.AttnError
+| Overflow : learn_port.attn.AttnError
+| ExpOutOfRange : learn_port.attn.AttnError
+| RsqrtOutOfRange : learn_port.attn.AttnError
+| Rope : rope.RopeError → learn_port.attn.AttnError
+
+/-- [apeiron_word::grad_solve_port::model::ModelError]
+    Source: '../../src/learn/grad/model.rs', lines 60:0-75:1
+    Visibility: public -/
+@[discriminant isize]
+inductive grad_solve_port.model.ModelError where
+| Shape : String → grad_solve_port.model.ModelError
+| Overflow : grad_solve_port.model.ModelError
+| Missing : String → grad_solve_port.model.ModelError
+| Engine : error.EngineError → grad_solve_port.model.ModelError
+| Config : String → grad_solve_port.model.ModelError
+| Dense : learn_port.dense.DenseError → grad_solve_port.model.ModelError
+| Attn : learn_port.attn.AttnError → grad_solve_port.model.ModelError
+
+/-- [apeiron_word::learn_port::head::HeadError]
+    Source: '../../src/learn/grad/head.rs', lines 52:0-63:1
+    Visibility: public -/
+@[discriminant isize]
+inductive learn_port.head.HeadError where
+| Shape : learn_port.head.HeadError
+| Overflow : learn_port.head.HeadError
+| Exp : fixed_exp.ExpError → learn_port.head.HeadError
+| Ln : fixed_ln.LnError → learn_port.head.HeadError
+
+/-- [apeiron_word::fold_port::stats::heldout::HeldOutError]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 66:0-81:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.stats.heldout.HeldOutError where
+| Model :
+  grad_solve_port.model.ModelError →
+  fold_port.stats.heldout.HeldOutError
+| Head : learn_port.head.HeadError → fold_port.stats.heldout.HeldOutError
+| Shape : String → fold_port.stats.heldout.HeldOutError
+| Overflow : fold_port.stats.heldout.HeldOutError
+| Engine : String → fold_port.stats.heldout.HeldOutError
+
+/-- [apeiron_word::fold_port::stats::heldout::FLUSH]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 123:0-123:41 -/
+@[global_simps, irreducible]
+def fold_port.stats.heldout.FLUSH : Result Std.I128 := do
+  let i ← 1#i128 <<< 32#i32
+  (-16)#i128 * i
+
+/-- [apeiron_word::fold_port::stats::heldout::argmax::{closure#1}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 149:13-149:23 -/
+@[reducible]
+def fold_port.stats.heldout.argmax.closure_1 := Unit
+
+/-- [apeiron_word::fold_port::stats::heldout::argmax::{impl core::ops::function::FnOnce<((usize, i64),), usize> for apeiron_word::fold_port::stats::heldout::argmax::{closure#1}}::call_once]:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 149:13-149:23 -/
+def
+  fold_port.stats.heldout.argmax.closure_1.Insts.CoreOpsFunctionFnOnceTuplePairUsizeI64Usize.call_once
+  (c : fold_port.stats.heldout.argmax.closure_1)
+  (tupled_args : (Std.Usize × Std.I64)) :
+  Result Std.Usize
+  := do
+  let (i, _) := tupled_args
+  ok i
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::heldout::argmax::{impl core::ops::function::FnOnce<((usize, i64),), usize> for apeiron_word::fold_port::stats::heldout::argmax::{closure#1}}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 149:13-149:23 -/
+@[reducible]
+def
+  fold_port.stats.heldout.argmax.closure_1.Insts.CoreOpsFunctionFnOnceTuplePairUsizeI64Usize
+  : core.ops.function.FnOnce fold_port.stats.heldout.argmax.closure_1
+  (Std.Usize × Std.I64) Std.Usize := {
+  call_once :=
+    fold_port.stats.heldout.argmax.closure_1.Insts.CoreOpsFunctionFnOnceTuplePairUsizeI64Usize.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::heldout::argmax::{closure}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 145:27-145:41 -/
+@[reducible]
+def fold_port.stats.heldout.argmax.closure := Std.I64
+
+/-- [apeiron_word::fold_port::stats::heldout::argmax::{impl core::ops::function::FnOnce<((usize, i64),), bool> for apeiron_word::fold_port::stats::heldout::argmax::{closure}<'_0>}::call_once]:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 145:27-145:41 -/
+def
+  fold_port.stats.heldout.argmax.closure.Insts.CoreOpsFunctionFnOnceTuplePairUsizeI64Bool.call_once
+  (c : fold_port.stats.heldout.argmax.closure)
+  (tupled_args : (Std.Usize × Std.I64)) :
+  Result Bool
+  := do
+  let (_, b) := tupled_args
+  ok (b < c)
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::heldout::argmax::{impl core::ops::function::FnOnce<((usize, i64),), bool> for apeiron_word::fold_port::stats::heldout::argmax::{closure}<'_0>}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 145:27-145:41 -/
+@[reducible]
+def
+  fold_port.stats.heldout.argmax.closure.Insts.CoreOpsFunctionFnOnceTuplePairUsizeI64Bool
+  : core.ops.function.FnOnce fold_port.stats.heldout.argmax.closure (Std.Usize
+  × Std.I64) Bool := {
+  call_once :=
+    fold_port.stats.heldout.argmax.closure.Insts.CoreOpsFunctionFnOnceTuplePairUsizeI64Bool.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::heldout::argmax]: loop body 0:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 144:4-148:5 -/
+@[rust_loop_body]
+def fold_port.stats.heldout.argmax_loop.body
+  (iter : core.iter.adapters.enumerate.Enumerate (core.slice.iter.Iter
+  Std.I64)) (best : Option (Std.Usize × Std.I64)) :
+  Result (ControlFlow ((core.iter.adapters.enumerate.Enumerate
+    (core.slice.iter.Iter Std.I64)) × (Option (Std.Usize × Std.I64))) (Option
+    (Std.Usize × Std.I64)))
+  := do
+  let (o, iter1) ←
+    core.iter.adapters.enumerate.IteratorEnumerate.next
+      (core.iter.traits.iterator.IteratorSliceIter Std.I64) iter
+  match o with
+  | none => ok (done best)
+  | some p =>
+    let (_, z) := p
+    let b ←
+      core.option.Option.is_none_or
+        fold_port.stats.heldout.argmax.closure.Insts.CoreOpsFunctionFnOnceTuplePairUsizeI64Bool
+        best z
+    if b
+    then ok (cont (iter1, o))
+    else ok (cont (iter1, best))
+
+/-- [apeiron_word::fold_port::stats::heldout::argmax]: loop 0:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 144:4-148:5 -/
+@[rust_loop]
+def fold_port.stats.heldout.argmax_loop
+  (iter : core.iter.adapters.enumerate.Enumerate (core.slice.iter.Iter
+  Std.I64)) (best : Option (Std.Usize × Std.I64)) :
+  Result (Option (Std.Usize × Std.I64))
+  := do
+  loop
+    (fun (iter1, best1) => fold_port.stats.heldout.argmax_loop.body iter1
+      best1)
+    (iter, best)
+
+/-- [apeiron_word::fold_port::stats::heldout::argmax]:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 142:0-150:1 -/
+def fold_port.stats.heldout.argmax
+  (row : Slice Std.I64) : Result (Option Std.Usize) := do
+  let i ← core.slice.Slice.iter row
+  let iter ←
+    core.iter.traits.iterator.Iterator.enumerate.trait_default
+      (core.iter.traits.iterator.IteratorSliceIter Std.I64) i
+  let best ← fold_port.stats.heldout.argmax_loop iter none
+  core.option.Option.map
+    fold_port.stats.heldout.argmax.closure_1.Insts.CoreOpsFunctionFnOnceTuplePairUsizeI64Usize
+    best ()
+
+/-- [apeiron_word::fold_port::stats::heldout::add]:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 153:0-155:1 -/
+def fold_port.stats.heldout.add
+  (a : Std.I128) (b : Std.I128) :
+  Result (core.result.Result Std.I128 fold_port.stats.heldout.HeldOutError)
+  := do
+  let o ← lift (I128.checked_add a b)
+  core.option.Option.ok_or o fold_port.stats.heldout.HeldOutError.Overflow
+
+/-- [apeiron_word::fold_port::stats::heldout::RowSums]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 427:0-436:1
+    Visibility: public -/
+structure fold_port.stats.heldout.RowSums where
+  kl : Std.I64
+  nll_student : Std.I64
+  nll_base : Std.I64
+  top1 : Std.U64
+
+/-- [apeiron_word::fold_port::stats::heldout::base_term::{closure#1}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 539:17-539:43 -/
+@[reducible]
+def fold_port.stats.heldout.base_term.closure_1 := Unit
+
+/-- [apeiron_word::fold_port::stats::heldout::base_term::{impl core::ops::function::FnOnce<(apeiron_word::fixed_exp::ExpError,), apeiron_word::fold_port::stats::heldout::HeldOutError> for apeiron_word::fold_port::stats::heldout::base_term::{closure#1}}::call_once]:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 539:17-539:43 -/
+def
+  fold_port.stats.heldout.base_term.closure_1.Insts.CoreOpsFunctionFnOnceTupleExpErrorHeldOutError.call_once
+  (c : fold_port.stats.heldout.base_term.closure_1)
+  (tupled_args : fixed_exp.ExpError) :
+  Result fold_port.stats.heldout.HeldOutError
+  := do
+  ok fold_port.stats.heldout.HeldOutError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::heldout::base_term::{impl core::ops::function::FnOnce<(apeiron_word::fixed_exp::ExpError,), apeiron_word::fold_port::stats::heldout::HeldOutError> for apeiron_word::fold_port::stats::heldout::base_term::{closure#1}}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 539:17-539:43 -/
+@[reducible]
+def
+  fold_port.stats.heldout.base_term.closure_1.Insts.CoreOpsFunctionFnOnceTupleExpErrorHeldOutError
+  : core.ops.function.FnOnce fold_port.stats.heldout.base_term.closure_1
+  fixed_exp.ExpError fold_port.stats.heldout.HeldOutError := {
+  call_once :=
+    fold_port.stats.heldout.base_term.closure_1.Insts.CoreOpsFunctionFnOnceTupleExpErrorHeldOutError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::heldout::base_term::{closure}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 538:39-538:65 -/
+@[reducible]
+def fold_port.stats.heldout.base_term.closure := Unit
+
+/-- [apeiron_word::fold_port::stats::heldout::base_term::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::heldout::HeldOutError> for apeiron_word::fold_port::stats::heldout::base_term::{closure}}::call_once]:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 538:39-538:65 -/
+def
+  fold_port.stats.heldout.base_term.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHeldOutError.call_once
+  (c : fold_port.stats.heldout.base_term.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result fold_port.stats.heldout.HeldOutError
+  := do
+  ok fold_port.stats.heldout.HeldOutError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::heldout::base_term::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::heldout::HeldOutError> for apeiron_word::fold_port::stats::heldout::base_term::{closure}}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 538:39-538:65 -/
+@[reducible]
+def
+  fold_port.stats.heldout.base_term.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHeldOutError
+  : core.ops.function.FnOnce fold_port.stats.heldout.base_term.closure
+  core.num.error.TryFromIntError fold_port.stats.heldout.HeldOutError := {
+  call_once :=
+    fold_port.stats.heldout.base_term.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHeldOutError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::heldout::base_term]:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 534:0-540:1 -/
+def fold_port.stats.heldout.base_term
+  (u : Std.I128) :
+  Result (core.result.Result Std.I64 fold_port.stats.heldout.HeldOutError)
+  := do
+  let i ← fold_port.stats.heldout.FLUSH
+  if u < i
+  then ok (core.result.Result.Ok 0#i64)
+  else
+    let r ← I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from u
+    let r1 ←
+      core.result.Result.map_err
+        fold_port.stats.heldout.base_term.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHeldOutError
+        r ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let r2 ← fixed_exp.fixed_exp val
+      core.result.Result.map_err
+        fold_port.stats.heldout.base_term.closure_1.Insts.CoreOpsFunctionFnOnceTupleExpErrorHeldOutError
+        r2 ()
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Std.I64 (core.convert.FromSame fold_port.stats.heldout.HeldOutError)
+        residual
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row::{closure#3}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 525:40-525:66 -/
+@[reducible]
+def fold_port.stats.heldout.score_base_row.closure_3 := Unit
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_port::stats::heldout::HeldOutError> for apeiron_word::fold_port::stats::heldout::score_base_row::{closure#3}}::call_once]:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 525:40-525:66 -/
+def
+  fold_port.stats.heldout.score_base_row.closure_3.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorHeldOutError.call_once
+  (c : fold_port.stats.heldout.score_base_row.closure_3)
+  (tupled_args : solve_port.q32.Q32Error) :
+  Result fold_port.stats.heldout.HeldOutError
+  := do
+  ok fold_port.stats.heldout.HeldOutError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::heldout::score_base_row::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_port::stats::heldout::HeldOutError> for apeiron_word::fold_port::stats::heldout::score_base_row::{closure#3}}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 525:40-525:66 -/
+@[reducible]
+def
+  fold_port.stats.heldout.score_base_row.closure_3.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorHeldOutError
+  : core.ops.function.FnOnce fold_port.stats.heldout.score_base_row.closure_3
+  solve_port.q32.Q32Error fold_port.stats.heldout.HeldOutError := {
+  call_once :=
+    fold_port.stats.heldout.score_base_row.closure_3.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorHeldOutError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row::{closure#2}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 497:17-497:43 -/
+@[reducible]
+def fold_port.stats.heldout.score_base_row.closure_2 := Unit
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::heldout::HeldOutError> for apeiron_word::fold_port::stats::heldout::score_base_row::{closure#2}}::call_once]:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 497:17-497:43 -/
+def
+  fold_port.stats.heldout.score_base_row.closure_2.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHeldOutError.call_once
+  (c : fold_port.stats.heldout.score_base_row.closure_2)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result fold_port.stats.heldout.HeldOutError
+  := do
+  ok fold_port.stats.heldout.HeldOutError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::heldout::score_base_row::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::heldout::HeldOutError> for apeiron_word::fold_port::stats::heldout::score_base_row::{closure#2}}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 497:17-497:43 -/
+@[reducible]
+def
+  fold_port.stats.heldout.score_base_row.closure_2.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHeldOutError
+  : core.ops.function.FnOnce fold_port.stats.heldout.score_base_row.closure_2
+  core.num.error.TryFromIntError fold_port.stats.heldout.HeldOutError := {
+  call_once :=
+    fold_port.stats.heldout.score_base_row.closure_2.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHeldOutError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row::{closure#1}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 493:35-493:61 -/
+@[reducible]
+def fold_port.stats.heldout.score_base_row.closure_1 := Unit
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row::{impl core::ops::function::FnOnce<(apeiron_word::fixed_ln::LnError,), apeiron_word::fold_port::stats::heldout::HeldOutError> for apeiron_word::fold_port::stats::heldout::score_base_row::{closure#1}}::call_once]:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 493:35-493:61 -/
+def
+  fold_port.stats.heldout.score_base_row.closure_1.Insts.CoreOpsFunctionFnOnceTupleLnErrorHeldOutError.call_once
+  (c : fold_port.stats.heldout.score_base_row.closure_1)
+  (tupled_args : fixed_ln.LnError) :
+  Result fold_port.stats.heldout.HeldOutError
+  := do
+  ok fold_port.stats.heldout.HeldOutError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::heldout::score_base_row::{impl core::ops::function::FnOnce<(apeiron_word::fixed_ln::LnError,), apeiron_word::fold_port::stats::heldout::HeldOutError> for apeiron_word::fold_port::stats::heldout::score_base_row::{closure#1}}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 493:35-493:61 -/
+@[reducible]
+def
+  fold_port.stats.heldout.score_base_row.closure_1.Insts.CoreOpsFunctionFnOnceTupleLnErrorHeldOutError
+  : core.ops.function.FnOnce fold_port.stats.heldout.score_base_row.closure_1
+  fixed_ln.LnError fold_port.stats.heldout.HeldOutError := {
+  call_once :=
+    fold_port.stats.heldout.score_base_row.closure_1.Insts.CoreOpsFunctionFnOnceTupleLnErrorHeldOutError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row::{closure}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 492:39-492:65 -/
+@[reducible]
+def fold_port.stats.heldout.score_base_row.closure := Unit
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::heldout::HeldOutError> for apeiron_word::fold_port::stats::heldout::score_base_row::{closure}}::call_once]:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 492:39-492:65 -/
+def
+  fold_port.stats.heldout.score_base_row.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHeldOutError.call_once
+  (c : fold_port.stats.heldout.score_base_row.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result fold_port.stats.heldout.HeldOutError
+  := do
+  ok fold_port.stats.heldout.HeldOutError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::heldout::score_base_row::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::heldout::HeldOutError> for apeiron_word::fold_port::stats::heldout::score_base_row::{closure}}]
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 492:39-492:65 -/
+@[reducible]
+def
+  fold_port.stats.heldout.score_base_row.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHeldOutError
+  : core.ops.function.FnOnce fold_port.stats.heldout.score_base_row.closure
+  core.num.error.TryFromIntError fold_port.stats.heldout.HeldOutError := {
+  call_once :=
+    fold_port.stats.heldout.score_base_row.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHeldOutError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row]: loop body 0:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 468:4-472:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.heldout.score_base_row_loop0.body
+  (iter : core.slice.iter.Iter Std.I64) (m : Std.I64) :
+  Result (ControlFlow ((core.slice.iter.Iter Std.I64) × Std.I64) Std.I64)
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done m)
+  | some zk => if zk > m
+               then ok (cont (iter1, zk))
+               else ok (cont (iter1, m))
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row]: loop 0:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 468:4-472:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.heldout.score_base_row_loop0
+  (iter : core.slice.iter.Iter Std.I64) (m : Std.I64) : Result Std.I64 := do
+  loop
+    (fun (iter1, m1) => fold_port.stats.heldout.score_base_row_loop0.body iter1
+      m1)
+    (iter, m)
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row]: loop body 1:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 477:4-488:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.heldout.score_base_row_loop1.body
+  (m : Std.I64) (iter : core.slice.iter.Iter Std.I64) (sum : Std.I128)
+  (err : Option fold_port.stats.heldout.HeldOutError) :
+  Result (ControlFlow ((core.slice.iter.Iter Std.I64) × Std.I128 × (Option
+    fold_port.stats.heldout.HeldOutError)) (Std.I128 × (Option
+    fold_port.stats.heldout.HeldOutError)))
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done (sum, err))
+  | some zk =>
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← lift (core.convert.num.FromI128I64.from zk)
+      let i1 ← lift (core.convert.num.FromI128I64.from m)
+      let u ← i - i1
+      let r ← fold_port.stats.heldout.base_term u
+      match r with
+      | core.result.Result.Ok e =>
+        let i2 ← lift (core.convert.num.FromI128I64.from e)
+        let r1 ← fold_port.stats.heldout.add sum i2
+        match r1 with
+        | core.result.Result.Ok a => ok (cont (iter1, a, err))
+        | core.result.Result.Err x => ok (cont (iter1, sum, some x))
+      | core.result.Result.Err x => ok (cont (iter1, sum, some x))
+    else ok (cont (iter1, sum, err))
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row]: loop 1:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 477:4-488:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.heldout.score_base_row_loop1
+  (iter : core.slice.iter.Iter Std.I64) (m : Std.I64) (sum : Std.I128)
+  (err : Option fold_port.stats.heldout.HeldOutError) :
+  Result (Std.I128 × (Option fold_port.stats.heldout.HeldOutError))
+  := do
+  loop
+    (fun (iter1, sum1, err1) =>
+      fold_port.stats.heldout.score_base_row_loop1.body m iter1 sum1 err1)
+    (iter, sum, err)
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row]: loop body 2:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 501:4-512:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.heldout.score_base_row_loop2.body
+  (z : Slice Std.I64) (lp : Slice Std.I64) (lse : Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (acc : Std.I128) (failed : Bool) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128 × Bool)
+    (Std.I128 × Bool))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (acc, failed))
+  | some i =>
+    if failed
+    then ok (cont (iter1, acc, true))
+    else
+      let i1 ← Slice.index_usize lp i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← fold_port.stats.heldout.FLUSH
+      if i2 > i3
+      then
+        let i4 ← Slice.index_usize z i
+        let i5 ← lift (core.convert.num.FromI128I64.from i4)
+        let i6 ← lift (core.convert.num.FromI128I64.from lse)
+        let logp_s ← i5 - i6
+        let r ← fixed_exp.fixed_exp i1
+        match r with
+        | core.result.Result.Ok p =>
+          let i7 ← lift (core.convert.num.FromI128I64.from p)
+          let i8 ← lift (core.convert.num.FromI128I64.from i1)
+          let i9 ← i8 - logp_s
+          let i10 ← i7 * i9
+          let r1 ← fold_port.stats.heldout.add acc i10
+          match r1 with
+          | core.result.Result.Ok a => ok (cont (iter1, a, false))
+          | core.result.Result.Err _ => ok (cont (iter1, acc, true))
+        | core.result.Result.Err _ => ok (cont (iter1, acc, true))
+      else ok (cont (iter1, acc, false))
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row]: loop 2:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 501:4-512:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.heldout.score_base_row_loop2
+  (iter : core.ops.range.Range Std.Usize) (z : Slice Std.I64)
+  (lp : Slice Std.I64) (lse : Std.I64) (acc : Std.I128) (failed : Bool) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (iter1, acc1, failed1) =>
+      fold_port.stats.heldout.score_base_row_loop2.body z lp lse iter1 acc1
+      failed1)
+    (iter, acc, failed)
+
+/-- [apeiron_word::fold_port::stats::heldout::score_base_row]:
+    Source: '../../src/learn/fold/stats/heldout.rs', lines 454:0-530:1
+    Visibility: public -/
+def fold_port.stats.heldout.score_base_row
+  (z : Slice Std.I64) (lp : Slice Std.I64) (target : Std.Usize)
+  (base_argmax : Option Std.Usize) :
+  Result (core.result.Result fold_port.stats.heldout.RowSums
+    fold_port.stats.heldout.HeldOutError)
+  := do
+  let v := Slice.len z
+  if v = 0#usize
+  then
+    let s ←
+      alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay (toStr
+        "base row width")
+    ok (core.result.Result.Err (fold_port.stats.heldout.HeldOutError.Shape s))
+  else
+    let i := Slice.len lp
+    if i != v
+    then
+      let s ←
+        alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay (toStr
+          "base row width")
+      ok (core.result.Result.Err (fold_port.stats.heldout.HeldOutError.Shape
+        s))
+    else
+      if target >= v
+      then
+        let s ←
+          alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay
+            (toStr "base target past vocab")
+        ok (core.result.Result.Err (fold_port.stats.heldout.HeldOutError.Shape
+          s))
+      else
+        let m ← Slice.index_usize z 0#usize
+        let iter ←
+          SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter
+            z
+        let m1 ← fold_port.stats.heldout.score_base_row_loop0 iter m
+        let iter1 ←
+          SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter
+            z
+        let (sum, err) ←
+          fold_port.stats.heldout.score_base_row_loop1 iter1 m1 0#i128 none
+        match err with
+        | none =>
+          let r ←
+            I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from sum
+          let r1 ←
+            core.result.Result.map_err
+              fold_port.stats.heldout.score_base_row.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHeldOutError
+              r ()
+          let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+          match cf with
+          | core.ops.control_flow.ControlFlow.Continue val =>
+            let r2 ← fixed_ln.fixed_ln val
+            let r3 ←
+              core.result.Result.map_err
+                fold_port.stats.heldout.score_base_row.closure_1.Insts.CoreOpsFunctionFnOnceTupleLnErrorHeldOutError
+                r2 ()
+            let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r3
+            match cf1 with
+            | core.ops.control_flow.ControlFlow.Continue val1 =>
+              let o ← lift (I64.checked_add m1 val1)
+              let r4 ←
+                core.option.Option.ok_or o
+                  fold_port.stats.heldout.HeldOutError.Overflow
+              let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r4
+              match cf2 with
+              | core.ops.control_flow.ControlFlow.Continue val2 =>
+                let i1 ← lift (core.convert.num.FromI128I64.from val2)
+                let i2 ← Slice.index_usize z target
+                let i3 ← lift (core.convert.num.FromI128I64.from i2)
+                let i4 ← i1 - i3
+                let r5 ←
+                  I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from i4
+                let r6 ←
+                  core.result.Result.map_err
+                    fold_port.stats.heldout.score_base_row.closure_2.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHeldOutError
+                    r5 ()
+                let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r6
+                match cf3 with
+                | core.ops.control_flow.ControlFlow.Continue val3 =>
+                  let i5 ← Slice.index_usize lp target
+                  let o1 ← lift (I64.checked_sub 0#i64 i5)
+                  let r7 ←
+                    core.option.Option.ok_or o1
+                      fold_port.stats.heldout.HeldOutError.Overflow
+                  let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r7
+                  match cf4 with
+                  | core.ops.control_flow.ControlFlow.Continue val4 =>
+                    let (acc, failed) ←
+                      fold_port.stats.heldout.score_base_row_loop2
+                        { start := 0#usize, «end» := v } z lp val2 0#i128
+                        false
+                    if failed
+                    then
+                      ok (core.result.Result.Err
+                        fold_port.stats.heldout.HeldOutError.Overflow)
+                    else
+                      let o2 ← fold_port.stats.heldout.argmax z
+                      let hit ←
+                        match o2 with
+                        | none => ok false
+                        | some i6 =>
+                          match base_argmax with
+                          | none => ok false
+                          | some j => ok (i6 = j)
+                      let r8 ← solve_port.q32.round_q32_even acc
+                      let r9 ←
+                        core.result.Result.map_err
+                          fold_port.stats.heldout.score_base_row.closure_3.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorHeldOutError
+                          r8 ()
+                      let cf5 ← core.result.Result.Insts.CoreOpsTry.branch r9
+                      match cf5 with
+                      | core.ops.control_flow.ControlFlow.Continue val5 =>
+                        let i6 ← lift (core.convert.num.FromU64Bool.from hit)
+                        ok (core.result.Result.Ok
+                          {
+                            kl := val5,
+                            nll_student := val3,
+                            nll_base := val4,
+                            top1 := i6
+                          })
+                      | core.ops.control_flow.ControlFlow.Break residual =>
+                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                          fold_port.stats.heldout.RowSums
+                          (core.convert.FromSame
+                          fold_port.stats.heldout.HeldOutError) residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      fold_port.stats.heldout.RowSums (core.convert.FromSame
+                      fold_port.stats.heldout.HeldOutError) residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    fold_port.stats.heldout.RowSums (core.convert.FromSame
+                    fold_port.stats.heldout.HeldOutError) residual
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  fold_port.stats.heldout.RowSums (core.convert.FromSame
+                  fold_port.stats.heldout.HeldOutError) residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                fold_port.stats.heldout.RowSums (core.convert.FromSame
+                fold_port.stats.heldout.HeldOutError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              fold_port.stats.heldout.RowSums (core.convert.FromSame
+              fold_port.stats.heldout.HeldOutError) residual
+        | some x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::fold_port::stats::hocapture::FLUSH]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 140:0-140:41 -/
+@[global_simps, irreducible]
+def fold_port.stats.hocapture.FLUSH : Result Std.I128 := do
+  let i ← 1#i128 <<< 32#i32
+  (-16)#i128 * i
+
+/-- [apeiron_word::fold_port::stats::hocapture::SEED_BIAS]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 146:0-146:45 -/
+@[global_simps, irreducible]
+def fold_port.stats.hocapture.SEED_BIAS : Std.U64 := 11400714819323198485#u64
+
+/-- [apeiron_word::fold_port::stats::hocapture::HocaptureError]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 269:0-277:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.stats.hocapture.HocaptureError where
+| Shape : String → fold_port.stats.hocapture.HocaptureError
+| Overflow : fold_port.stats.hocapture.HocaptureError
+| Model :
+  grad_solve_port.model.ModelError →
+  fold_port.stats.hocapture.HocaptureError
+
+/-- [apeiron_word::fold_port::stats::hocapture::shape]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 301:0-303:1 -/
+def fold_port.stats.hocapture.shape
+  (what : Str) : Result fold_port.stats.hocapture.HocaptureError := do
+  let s ←
+    alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay what
+  ok (fold_port.stats.hocapture.HocaptureError.Shape s)
+
+/-- [apeiron_word::fold_port::stats::hocapture::expect]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 306:0-312:1 -/
+def fold_port.stats.hocapture.expect
+  (t : Std.Usize) (w : Std.Usize) (len : Std.Usize) (what : Str) :
+  Result (core.result.Result Std.Usize
+    fold_port.stats.hocapture.HocaptureError)
+  := do
+  let o ← lift (Usize.checked_mul t w)
+  match o with
+  | none =>
+    ok (core.result.Result.Err
+      fold_port.stats.hocapture.HocaptureError.Overflow)
+  | some n =>
+    if n = len
+    then ok (core.result.Result.Ok n)
+    else
+      let a ←
+        core.fmt.rt.Argument.new_display (Shared0T.Insts.CoreFmtDisplay
+          Str.Insts.CoreFmtDisplay) what
+      let a1 ←
+        core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay len
+      let a2 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay t
+      let a3 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay w
+      let a4 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay n
+      let a5 ←
+        core.fmt.Arguments.new
+          (Array.make 21#usize [
+            192#u8, 2#u8, 58#u8, 32#u8, 192#u8, 4#u8, 32#u8, 33#u8, 61#u8,
+            32#u8, 192#u8, 2#u8, 194#u8, 183#u8, 192#u8, 3#u8, 32#u8, 61#u8,
+            32#u8, 192#u8, 0#u8
+            ]) (Array.make 5#usize [ a, a1, a2, a3, a4 ])
+      let s ← alloc.fmt.format a5
+      let s1 ← core.hint.must_use s
+      let s2 ← alloc.string.String.Insts.CoreOpsDerefDerefStr.deref s1
+      let he ← fold_port.stats.hocapture.shape s2
+      ok (core.result.Result.Err he)
+
+/-- [apeiron_word::fold_port::stats::hocapture::round_div]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 609:0-621:1 -/
+def fold_port.stats.hocapture.round_div
+  (n : Std.I128) (d : Std.I128) : Result Std.I128 := do
+  let q ← n / d
+  let r ← n % d
+  let mag ← if r < 0#i128
+              then 0#i128 - r
+              else ok r
+  let i ← 2#i128 * mag
+  if i >= d
+  then if n >= 0#i128
+       then q + 1#i128
+       else q - 1#i128
+  else ok q
+
+/-- [apeiron_word::fold_port::stats::hocapture::to64::{closure}]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 625:29-625:57 -/
+@[reducible]
+def fold_port.stats.hocapture.to64.closure := Unit
+
+/-- [apeiron_word::fold_port::stats::hocapture::to64::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::hocapture::HocaptureError> for apeiron_word::fold_port::stats::hocapture::to64::{closure}}::call_once]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 625:29-625:57 -/
+def
+  fold_port.stats.hocapture.to64.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHocaptureError.call_once
+  (c : fold_port.stats.hocapture.to64.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result fold_port.stats.hocapture.HocaptureError
+  := do
+  ok fold_port.stats.hocapture.HocaptureError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::hocapture::to64::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::hocapture::HocaptureError> for apeiron_word::fold_port::stats::hocapture::to64::{closure}}]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 625:29-625:57 -/
+@[reducible]
+def
+  fold_port.stats.hocapture.to64.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHocaptureError
+  : core.ops.function.FnOnce fold_port.stats.hocapture.to64.closure
+  core.num.error.TryFromIntError fold_port.stats.hocapture.HocaptureError := {
+  call_once :=
+    fold_port.stats.hocapture.to64.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHocaptureError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::hocapture::to64]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 624:0-626:1 -/
+def fold_port.stats.hocapture.to64
+  (x : Std.I128) :
+  Result (core.result.Result Std.I64 fold_port.stats.hocapture.HocaptureError)
+  := do
+  let r ← I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from x
+  core.result.Result.map_err
+    fold_port.stats.hocapture.to64.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHocaptureError
+    r ()
+
+/-- [apeiron_word::fold_port::stats::hocapture::softmax_term::{closure}]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 724:26-724:56 -/
+@[reducible]
+def fold_port.stats.hocapture.softmax_term.closure := Unit
+
+/-- [apeiron_word::fold_port::stats::hocapture::softmax_term::{impl core::ops::function::FnOnce<(apeiron_word::fixed_exp::ExpError,), apeiron_word::fold_port::stats::hocapture::HocaptureError> for apeiron_word::fold_port::stats::hocapture::softmax_term::{closure}}::call_once]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 724:26-724:56 -/
+def
+  fold_port.stats.hocapture.softmax_term.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorHocaptureError.call_once
+  (c : fold_port.stats.hocapture.softmax_term.closure)
+  (tupled_args : fixed_exp.ExpError) :
+  Result fold_port.stats.hocapture.HocaptureError
+  := do
+  fold_port.stats.hocapture.shape (toStr "fixed_exp refused")
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::hocapture::softmax_term::{impl core::ops::function::FnOnce<(apeiron_word::fixed_exp::ExpError,), apeiron_word::fold_port::stats::hocapture::HocaptureError> for apeiron_word::fold_port::stats::hocapture::softmax_term::{closure}}]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 724:26-724:56 -/
+@[reducible]
+def
+  fold_port.stats.hocapture.softmax_term.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorHocaptureError
+  : core.ops.function.FnOnce fold_port.stats.hocapture.softmax_term.closure
+  fixed_exp.ExpError fold_port.stats.hocapture.HocaptureError := {
+  call_once :=
+    fold_port.stats.hocapture.softmax_term.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorHocaptureError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::hocapture::softmax_term]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 719:0-725:1 -/
+def fold_port.stats.hocapture.softmax_term
+  (u : Std.I128) :
+  Result (core.result.Result Std.I64 fold_port.stats.hocapture.HocaptureError)
+  := do
+  let i ← fold_port.stats.hocapture.FLUSH
+  if u < i
+  then ok (core.result.Result.Ok 0#i64)
+  else
+    let r ← fold_port.stats.hocapture.to64 u
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let r1 ← fixed_exp.fixed_exp val
+      core.result.Result.map_err
+        fold_port.stats.hocapture.softmax_term.closure.Insts.CoreOpsFunctionFnOnceTupleExpErrorHocaptureError
+        r1 ()
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Std.I64 (core.convert.FromSame
+        fold_port.stats.hocapture.HocaptureError) residual
+
+/-- [apeiron_word::fold_port::stats::hocapture::softmax_row]: loop body 0:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 674:4-678:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.hocapture.softmax_row_loop0.body
+  (iter : core.slice.iter.Iter Std.I64) (m : Std.I64) :
+  Result (ControlFlow ((core.slice.iter.Iter Std.I64) × Std.I64) Std.I64)
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done m)
+  | some zi => if zi > m
+               then ok (cont (iter1, zi))
+               else ok (cont (iter1, m))
+
+/-- [apeiron_word::fold_port::stats::hocapture::softmax_row]: loop 0:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 674:4-678:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.hocapture.softmax_row_loop0
+  (iter : core.slice.iter.Iter Std.I64) (m : Std.I64) : Result Std.I64 := do
+  loop
+    (fun (iter1, m1) => fold_port.stats.hocapture.softmax_row_loop0.body iter1
+      m1)
+    (iter, m)
+
+/-- [apeiron_word::fold_port::stats::hocapture::softmax_row]: loop body 1:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 684:4-695:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.hocapture.softmax_row_loop1.body
+  (z : Slice Std.I64) (m : Std.I64) (iter : core.ops.range.Range Std.Usize)
+  (e : alloc.vec.Vec Std.I64) (sum : Std.I128)
+  (err : Option fold_port.stats.hocapture.HocaptureError) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64) × Std.I128 × (Option fold_port.stats.hocapture.HocaptureError))
+    ((alloc.vec.Vec Std.I64) × Std.I128 × (Option
+    fold_port.stats.hocapture.HocaptureError)))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (e, sum, err))
+  | some i =>
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← Slice.index_usize z i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← lift (core.convert.num.FromI128I64.from m)
+      let u ← i2 - i3
+      let r ← fold_port.stats.hocapture.softmax_term u
+      match r with
+      | core.result.Result.Ok ev =>
+        let (_, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            Std.I64) e i
+        let i4 ← lift (core.convert.num.FromI128I64.from ev)
+        let sum1 ← sum + i4
+        let e1 := index_mut_back ev
+        ok (cont (iter1, e1, sum1, err))
+      | core.result.Result.Err e1 => ok (cont (iter1, e, sum, some e1))
+    else ok (cont (iter1, e, sum, err))
+
+/-- [apeiron_word::fold_port::stats::hocapture::softmax_row]: loop 1:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 684:4-695:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.hocapture.softmax_row_loop1
+  (iter : core.ops.range.Range Std.Usize) (z : Slice Std.I64) (m : Std.I64)
+  (e : alloc.vec.Vec Std.I64) (sum : Std.I128)
+  (err : Option fold_port.stats.hocapture.HocaptureError) :
+  Result ((alloc.vec.Vec Std.I64) × Std.I128 × (Option
+    fold_port.stats.hocapture.HocaptureError))
+  := do
+  loop
+    (fun (iter1, e1, sum1, err1) =>
+      fold_port.stats.hocapture.softmax_row_loop1.body z m iter1 e1 sum1 err1)
+    (iter, e, sum, err)
+
+/-- [apeiron_word::fold_port::stats::hocapture::softmax_row]: loop body 2:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 702:4-709:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.hocapture.softmax_row_loop2.body
+  (e : alloc.vec.Vec Std.I64) (sum : Std.I128) (one : Std.I128)
+  (iter : core.ops.range.Range Std.Usize) (p : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.stats.hocapture.HocaptureError) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64) × (Option fold_port.stats.hocapture.HocaptureError))
+    ((alloc.vec.Vec Std.I64) × (Option
+    fold_port.stats.hocapture.HocaptureError)))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (p, err))
+  | some i =>
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) e i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← i2 * one
+      let i4 ← fold_port.stats.hocapture.round_div i3 sum
+      let r ← fold_port.stats.hocapture.to64 i4
+      match r with
+      | core.result.Result.Ok pi =>
+        let (_, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            Std.I64) p i
+        let p1 := index_mut_back pi
+        ok (cont (iter1, p1, err))
+      | core.result.Result.Err e1 => ok (cont (iter1, p, some e1))
+    else ok (cont (iter1, p, err))
+
+/-- [apeiron_word::fold_port::stats::hocapture::softmax_row]: loop 2:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 702:4-709:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.hocapture.softmax_row_loop2
+  (iter : core.ops.range.Range Std.Usize) (e : alloc.vec.Vec Std.I64)
+  (sum : Std.I128) (p : alloc.vec.Vec Std.I64) (one : Std.I128)
+  (err : Option fold_port.stats.hocapture.HocaptureError) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_port.stats.hocapture.HocaptureError))
+  := do
+  loop
+    (fun (iter1, p1, err1) => fold_port.stats.hocapture.softmax_row_loop2.body
+      e sum one iter1 p1 err1)
+    (iter, p, err)
+
+/-- [apeiron_word::fold_port::stats::hocapture::softmax_row]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 668:0-714:1
+    Visibility: public -/
+def fold_port.stats.hocapture.softmax_row
+  (z : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.hocapture.HocaptureError)
+  := do
+  let v := Slice.len z
+  if v = 0#usize
+  then
+    let he ← fold_port.stats.hocapture.shape (toStr "empty softmax row")
+    ok (core.result.Result.Err he)
+  else
+    let m ← Slice.index_usize z 0#usize
+    let iter ←
+      SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter z
+    let m1 ← fold_port.stats.hocapture.softmax_row_loop0 iter m
+    let e ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
+    let (e1, sum, err) ←
+      fold_port.stats.hocapture.softmax_row_loop1
+        { start := 0#usize, «end» := v } z m1 e 0#i128 none
+    match err with
+    | none =>
+      let p ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
+      let i ← engine.ONE
+      let one ← lift (core.convert.num.FromI128I64.from i)
+      let (p1, err1) ←
+        fold_port.stats.hocapture.softmax_row_loop2
+          { start := 0#usize, «end» := v } e1 sum p one none
+      match err1 with
+      | none => ok (core.result.Result.Ok p1)
+      | some e2 => ok (core.result.Result.Err e2)
+    | some e2 => ok (core.result.Result.Err e2)
+
+/-- [apeiron_word::learn_port::head::mul128]:
+    Source: '../../src/learn/grad/head.rs', lines 130:0-135:1 -/
+def learn_port.head.mul128
+  (a : Std.I128) (b : Std.I128) :
+  Result (core.result.Result Std.I128 learn_port.head.HeadError)
+  := do
+  let o ← lift (I128.checked_mul a b)
+  match o with
+  | none => ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+  | some s => ok (core.result.Result.Ok s)
+
+/-- [apeiron_word::learn_port::head::to64]:
+    Source: '../../src/learn/grad/head.rs', lines 115:0-121:1 -/
+def learn_port.head.to64
+  (x : Std.I128) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+  if x < i
+  then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+  else
+    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+    if x > i1
+    then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+    else let i2 ← lift (IScalar.cast .I64 x)
+         ok (core.result.Result.Ok i2)
+
+/-- [apeiron_word::learn_port::head::abs128]:
+    Source: '../../src/learn/grad/head.rs', lines 87:0-93:1 -/
+def learn_port.head.abs128 (x : Std.I128) : Result Std.I128 := do
+  if x < 0#i128
+  then 0#i128 - x
+  else ok x
+
+/-- [apeiron_word::learn_port::head::round_div]:
+    Source: '../../src/learn/grad/head.rs', lines 96:0-108:1 -/
+def learn_port.head.round_div
+  (n : Std.I128) (d : Std.I128) : Result Std.I128 := do
+  let q ← n / d
+  let r ← n % d
+  let i ← learn_port.head.abs128 r
+  let i1 ← 2#i128 * i
+  if i1 >= d
+  then if n >= 0#i128
+       then q + 1#i128
+       else q - 1#i128
+  else ok q
+
+/-- [apeiron_word::learn_port::head::p_entry]:
+    Source: '../../src/learn/grad/head.rs', lines 226:0-231:1 -/
+def learn_port.head.p_entry
+  (ei : Std.I64) (sum : Std.I128) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from ei)
+  let i1 ← engine.ONE
+  let i2 ← lift (core.convert.num.FromI128I64.from i1)
+  let r ← learn_port.head.mul128 i i2
+  match r with
+  | core.result.Result.Ok num =>
+    let i3 ← learn_port.head.round_div num sum
+    learn_port.head.to64 i3
+  | core.result.Result.Err x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::lp_entry]:
+    Source: '../../src/learn/grad/head.rs', lines 221:0-223:1 -/
+def learn_port.head.lp_entry
+  (zi : Std.I64) (m : Std.I64) (l : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from zi)
+  let i1 ← lift (core.convert.num.FromI128I64.from m)
+  let i2 ← i - i1
+  let i3 ← lift (core.convert.num.FromI128I64.from l)
+  let i4 ← i2 - i3
+  learn_port.head.to64 i4
+
+/-- [apeiron_word::learn_port::head::fill_lp_p]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 251:4-263:5 -/
+@[rust_loop_body]
+def learn_port.head.fill_lp_p_loop.body
+  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
+  (sum : Std.I128) (v : Std.Usize) (lp : Slice Std.I64) (p : Slice Std.I64)
+  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Option
+    learn_port.head.HeadError) × Std.Usize) ((Option
+    learn_port.head.HeadError) × (Slice Std.I64) × (Slice Std.I64)))
+  := do
+  if i < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i1 ← Slice.index_usize z i
+      let r ← learn_port.head.lp_entry i1 m l
+      let (lp1, fail2) ←
+        match r with
+        | core.result.Result.Ok x =>
+          do
+          let s ← Slice.update lp i x
+          ok (s, fail1)
+        | core.result.Result.Err x => ok (lp, some x)
+      let b1 := core.option.Option.is_none fail2
+      let (p1, fail3) ←
+        if b1
+        then
+          do
+          let i2 ← Slice.index_usize e i
+          let r1 ← learn_port.head.p_entry i2 sum
+          match r1 with
+          | core.result.Result.Ok x =>
+            let s ← Slice.update p i x
+            ok (s, fail2)
+          | core.result.Result.Err x => ok (p, some x)
+        else ok (p, fail2)
+      let i2 ← i + 1#usize
+      ok (cont (lp1, p1, fail3, i2))
+    else ok (done (fail1, lp, p))
+  else ok (done (fail1, lp, p))
+
+/-- [apeiron_word::learn_port::head::fill_lp_p]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 251:4-263:5 -/
+@[rust_loop]
+def learn_port.head.fill_lp_p_loop
+  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
+  (sum : Std.I128) (lp : Slice Std.I64) (p : Slice Std.I64) (v : Std.Usize)
+  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64) × (Slice
+    Std.I64))
+  := do
+  loop
+    (fun (lp1, p1, fail2, i1) => learn_port.head.fill_lp_p_loop.body z m l e
+      sum v lp1 p1 fail2 i1)
+    (lp, p, fail1, i)
+
+/-- [apeiron_word::learn_port::head::fill_lp_p]:
+    Source: '../../src/learn/grad/head.rs', lines 239:0-265:1 -/
+def learn_port.head.fill_lp_p
+  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
+  (sum : Std.I128) (lp : Slice Std.I64) (p : Slice Std.I64) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64) × (Slice
+    Std.I64))
+  := do
+  let v := Slice.len z
+  learn_port.head.fill_lp_p_loop z m l e sum lp p v none 0#usize
+
+/-- [apeiron_word::learn_port::head::FLUSH]
+    Source: '../../src/learn/grad/head.rs', lines 48:0-48:41 -/
+@[global_simps, irreducible]
+def learn_port.head.FLUSH : Result Std.I128 := do
+  let i ← 1#i128 <<< 32#i32
+  (-16)#i128 * i
+
+/-- [apeiron_word::learn_port::head::exp_entry]:
+    Source: '../../src/learn/grad/head.rs', lines 163:0-175:1 -/
+def learn_port.head.exp_entry
+  (zi : Std.I64) (m : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from zi)
+  let i1 ← lift (core.convert.num.FromI128I64.from m)
+  let ui ← i - i1
+  let i2 ← learn_port.head.FLUSH
+  if ui < i2
+  then ok (core.result.Result.Ok 0#i64)
+  else
+    let i3 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+    if ui > i3
+    then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+    else
+      let i4 ← lift (IScalar.cast .I64 ui)
+      let r ← fixed_exp.fixed_exp i4
+      match r with
+      | core.result.Result.Ok ev => ok (core.result.Result.Ok ev)
+      | core.result.Result.Err x =>
+        ok (core.result.Result.Err (learn_port.head.HeadError.Exp x))
+
+/-- [apeiron_word::learn_port::head::add128]:
+    Source: '../../src/learn/grad/head.rs', lines 123:0-128:1 -/
+def learn_port.head.add128
+  (a : Std.I128) (b : Std.I128) :
+  Result (core.result.Result Std.I128 learn_port.head.HeadError)
+  := do
+  let o ← lift (I128.checked_add a b)
+  match o with
+  | none => ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+  | some s => ok (core.result.Result.Ok s)
+
+/-- [apeiron_word::learn_port::head::exp_fill]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 201:4-213:5 -/
+@[rust_loop_body]
+def learn_port.head.exp_fill_loop.body
+  (z : Slice Std.I64) (m : Std.I64) (v : Std.Usize) (e : Slice Std.I64)
+  (sum : Std.I128) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.I128 × (Option
+    learn_port.head.HeadError) × Std.Usize) ((Slice Std.I64) × Std.I128 ×
+    (Option learn_port.head.HeadError)))
+  := do
+  if i < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i1 ← Slice.index_usize z i
+      let r ← learn_port.head.exp_entry i1 m
+      let (e1, sum1, fail2) ←
+        match r with
+        | core.result.Result.Ok ev =>
+          do
+          let s ← Slice.update e i ev
+          let i2 ← lift (core.convert.num.FromI128I64.from ev)
+          let r1 ← learn_port.head.add128 sum i2
+          let (i3, o) ←
+            match r1 with
+            | core.result.Result.Ok s1 => ok (s1, fail1)
+            | core.result.Result.Err x => ok (sum, some x)
+          ok (s, i3, o)
+        | core.result.Result.Err x => ok (e, sum, some x)
+      let i2 ← i + 1#usize
+      ok (cont (e1, sum1, fail2, i2))
+    else ok (done (e, sum, fail1))
+  else ok (done (e, sum, fail1))
+
+/-- [apeiron_word::learn_port::head::exp_fill]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 201:4-213:5 -/
+@[rust_loop]
+def learn_port.head.exp_fill_loop
+  (z : Slice Std.I64) (m : Std.I64) (e : Slice Std.I64) (v : Std.Usize)
+  (sum : Std.I128) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result ((Slice Std.I64) × Std.I128 × (Option learn_port.head.HeadError))
+  := do
+  loop
+    (fun (e1, sum1, fail2, i1) => learn_port.head.exp_fill_loop.body z m v e1
+      sum1 fail2 i1)
+    (e, sum, fail1, i)
+
+/-- [apeiron_word::learn_port::head::exp_fill]:
+    Source: '../../src/learn/grad/head.rs', lines 196:0-218:1 -/
+def learn_port.head.exp_fill
+  (z : Slice Std.I64) (m : Std.I64) (e : Slice Std.I64) :
+  Result ((core.result.Result Std.I128 learn_port.head.HeadError) × (Slice
+    Std.I64))
+  := do
+  let v := Slice.len z
+  let (e1, sum, fail1) ←
+    learn_port.head.exp_fill_loop z m e v 0#i128 none 0#usize
+  match fail1 with
+  | none => ok (core.result.Result.Ok sum, e1)
+  | some x => ok (core.result.Result.Err x, e1)
+
+/-- [apeiron_word::learn_port::head::row_max]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 182:4-187:5 -/
+@[rust_loop_body]
+def learn_port.head.row_max_loop.body
+  (z : Slice Std.I64) (v : Std.Usize) (m : Std.I64) (i : Std.Usize) :
+  Result (ControlFlow (Std.I64 × Std.Usize) Std.I64)
+  := do
+  if i < v
+  then
+    let i1 ← Slice.index_usize z i
+    let m1 ← if i1 > m
+               then ok i1
+               else ok m
+    let i2 ← i + 1#usize
+    ok (cont (m1, i2))
+  else ok (done m)
+
+/-- [apeiron_word::learn_port::head::row_max]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 182:4-187:5 -/
+@[rust_loop]
+def learn_port.head.row_max_loop
+  (z : Slice Std.I64) (v : Std.Usize) (m : Std.I64) (i : Std.Usize) :
+  Result Std.I64
+  := do
+  loop
+    (fun (m1, i1) => learn_port.head.row_max_loop.body z v m1 i1)
+    (m, i)
+
+/-- [apeiron_word::learn_port::head::row_max]:
+    Source: '../../src/learn/grad/head.rs', lines 178:0-189:1 -/
+def learn_port.head.row_max (z : Slice Std.I64) : Result Std.I64 := do
+  let v := Slice.len z
+  let m ← Slice.index_usize z 0#usize
+  learn_port.head.row_max_loop z v m 1#usize
+
+/-- [apeiron_word::learn_port::head::softmax_row]:
+    Source: '../../src/learn/grad/head.rs', lines 279:0-304:1 -/
+def learn_port.head.softmax_row
+  (z : Slice Std.I64) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) learn_port.head.HeadError)
+  := do
+  let v := Slice.len z
+  if v = 0#usize
+  then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+  else
+    let m ← learn_port.head.row_max z
+    let e ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut e)
+    let (r, s1) ← learn_port.head.exp_fill z m s
+    match r with
+    | core.result.Result.Ok s2 =>
+      let r1 ← learn_port.head.to64 s2
+      match r1 with
+      | core.result.Result.Ok s3 =>
+        let r2 ← fixed_ln.fixed_ln s3
+        match r2 with
+        | core.result.Result.Ok l =>
+          let e1 := deref_mut_back s1
+          let s4 := alloc.vec.Vec.deref e1
+          let (s5, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut e)
+          let (s6, deref_mut_back2) ← lift (alloc.vec.Vec.deref_mut e)
+          let (o, s7, s8) ← learn_port.head.fill_lp_p z m l s4 s2 s5 s6
+          match o with
+          | none =>
+            let lp := deref_mut_back1 s7
+            let p := deref_mut_back2 s8
+            ok (core.result.Result.Ok (lp, p))
+          | some x => ok (core.result.Result.Err x)
+        | core.result.Result.Err x =>
+          ok (core.result.Result.Err (learn_port.head.HeadError.Ln x))
+      | core.result.Result.Err x => ok (core.result.Result.Err x)
+    | core.result.Result.Err x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::log_softmax_row]:
+    Source: '../../src/learn/grad/head.rs', lines 319:0-324:1
+    Visibility: public -/
+def learn_port.head.log_softmax_row
+  (z : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) learn_port.head.HeadError)
+  := do
+  let r ← learn_port.head.softmax_row z
+  match r with
+  | core.result.Result.Ok p => let (lp, _) := p
+                               ok (core.result.Result.Ok lp)
+  | core.result.Result.Err x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::fold_port::stats::hocapture::cross_entropy_sum::{closure#1}]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 756:21-756:57 -/
+@[reducible]
+def fold_port.stats.hocapture.cross_entropy_sum.closure_1 := Unit
+
+/-- [apeiron_word::fold_port::stats::hocapture::cross_entropy_sum::{impl core::ops::function::FnOnce<(apeiron_word::learn_port::head::HeadError,), apeiron_word::fold_port::stats::hocapture::HocaptureError> for apeiron_word::fold_port::stats::hocapture::cross_entropy_sum::{closure#1}}::call_once]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 756:21-756:57 -/
+def
+  fold_port.stats.hocapture.cross_entropy_sum.closure_1.Insts.CoreOpsFunctionFnOnceTupleHeadErrorHocaptureError.call_once
+  (c : fold_port.stats.hocapture.cross_entropy_sum.closure_1)
+  (tupled_args : learn_port.head.HeadError) :
+  Result fold_port.stats.hocapture.HocaptureError
+  := do
+  fold_port.stats.hocapture.shape (toStr "log_softmax_row refused")
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::hocapture::cross_entropy_sum::{impl core::ops::function::FnOnce<(apeiron_word::learn_port::head::HeadError,), apeiron_word::fold_port::stats::hocapture::HocaptureError> for apeiron_word::fold_port::stats::hocapture::cross_entropy_sum::{closure#1}}]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 756:21-756:57 -/
+@[reducible]
+def
+  fold_port.stats.hocapture.cross_entropy_sum.closure_1.Insts.CoreOpsFunctionFnOnceTupleHeadErrorHocaptureError
+  : core.ops.function.FnOnce
+  fold_port.stats.hocapture.cross_entropy_sum.closure_1
+  learn_port.head.HeadError fold_port.stats.hocapture.HocaptureError := {
+  call_once :=
+    fold_port.stats.hocapture.cross_entropy_sum.closure_1.Insts.CoreOpsFunctionFnOnceTupleHeadErrorHocaptureError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::hocapture::cross_entropy_sum::{closure}]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 751:53-751:81 -/
+@[reducible]
+def fold_port.stats.hocapture.cross_entropy_sum.closure := Unit
+
+/-- [apeiron_word::fold_port::stats::hocapture::cross_entropy_sum::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::hocapture::HocaptureError> for apeiron_word::fold_port::stats::hocapture::cross_entropy_sum::{closure}}::call_once]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 751:53-751:81 -/
+def
+  fold_port.stats.hocapture.cross_entropy_sum.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHocaptureError.call_once
+  (c : fold_port.stats.hocapture.cross_entropy_sum.closure)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result fold_port.stats.hocapture.HocaptureError
+  := do
+  ok fold_port.stats.hocapture.HocaptureError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::hocapture::cross_entropy_sum::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::hocapture::HocaptureError> for apeiron_word::fold_port::stats::hocapture::cross_entropy_sum::{closure}}]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 751:53-751:81 -/
+@[reducible]
+def
+  fold_port.stats.hocapture.cross_entropy_sum.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHocaptureError
+  : core.ops.function.FnOnce
+  fold_port.stats.hocapture.cross_entropy_sum.closure
+  core.num.error.TryFromIntError fold_port.stats.hocapture.HocaptureError := {
+  call_once :=
+    fold_port.stats.hocapture.cross_entropy_sum.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHocaptureError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::hocapture::cross_entropy_sum]: loop body 0:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 750:4-760:1
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.hocapture.cross_entropy_sum_loop.body
+  (logits : Slice Std.I64) (vocab : Std.Usize) (targets : Slice Std.U32)
+  (iter : core.ops.range.Range Std.Usize) (acc : Std.I128) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128)
+    (core.result.Result Std.I64 fold_port.stats.hocapture.HocaptureError))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none =>
+    let i ← fold_port.stats.hocapture.round_div acc 1#i128
+    let r ← fold_port.stats.hocapture.to64 i
+    ok (done r)
+  | some r =>
+    let i ← Slice.index_usize targets r
+    let r1 ← Usize.Insts.CoreConvertTryFromU32TryFromIntError.try_from i
+    let r2 ←
+      core.result.Result.map_err
+        fold_port.stats.hocapture.cross_entropy_sum.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHocaptureError
+        r1 ()
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r2
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      if val >= vocab
+      then
+        let he ←
+          fold_port.stats.hocapture.shape (toStr
+            "cross_entropy target >= vocab")
+        ok (done (core.result.Result.Err he))
+      else
+        let i1 ← r * vocab
+        let i2 ← r + 1#usize
+        let i3 ← i2 * vocab
+        let s ←
+          core.slice.index.Slice.index
+            (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) logits
+            { start := i1, «end» := i3 }
+        let r3 ← learn_port.head.log_softmax_row s
+        let r4 ←
+          core.result.Result.map_err
+            fold_port.stats.hocapture.cross_entropy_sum.closure_1.Insts.CoreOpsFunctionFnOnceTupleHeadErrorHocaptureError
+            r3 ()
+        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r4
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let i4 ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+              val1 val
+          let i5 ← lift (core.convert.num.FromI128I64.from i4)
+          let acc1 ← acc - i5
+          ok (cont (iter1, acc1))
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          let r5 ←
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              Std.I64 (core.convert.FromSame
+              fold_port.stats.hocapture.HocaptureError) residual
+          ok (done r5)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r3 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Std.I64 (core.convert.FromSame
+          fold_port.stats.hocapture.HocaptureError) residual
+      ok (done r3)
+
+/-- [apeiron_word::fold_port::stats::hocapture::cross_entropy_sum]: loop 0:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 750:4-760:1
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.hocapture.cross_entropy_sum_loop
+  (iter : core.ops.range.Range Std.Usize) (logits : Slice Std.I64)
+  (vocab : Std.Usize) (targets : Slice Std.U32) (acc : Std.I128) :
+  Result (core.result.Result Std.I64 fold_port.stats.hocapture.HocaptureError)
+  := do
+  loop
+    (fun (iter1, acc1) => fold_port.stats.hocapture.cross_entropy_sum_loop.body
+      logits vocab targets iter1 acc1)
+    (iter, acc)
+
+/-- [apeiron_word::fold_port::stats::hocapture::cross_entropy_sum]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 739:0-760:1
+    Visibility: public -/
+def fold_port.stats.hocapture.cross_entropy_sum
+  (logits : Slice Std.I64) (t : Std.Usize) (vocab : Std.Usize)
+  (targets : Slice Std.U32) :
+  Result (core.result.Result Std.I64 fold_port.stats.hocapture.HocaptureError)
+  := do
+  let i := Slice.len logits
+  let r ←
+    fold_port.stats.hocapture.expect t vocab i (toStr "cross_entropy logits")
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let i1 := Slice.len targets
+    if i1 != t
+    then
+      let he ←
+        fold_port.stats.hocapture.shape (toStr "cross_entropy targets")
+      ok (core.result.Result.Err he)
+    else
+      fold_port.stats.hocapture.cross_entropy_sum_loop
+        { start := 0#usize, «end» := t } logits vocab targets 0#i128
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      Std.I64 (core.convert.FromSame fold_port.stats.hocapture.HocaptureError)
+      residual
+
+/-- [apeiron_word::fold_port::stats::hocapture::grad_row::{closure#1}]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 778:45-778:73 -/
+@[reducible]
+def fold_port.stats.hocapture.grad_row.closure_1 := Unit
+
+/-- [apeiron_word::fold_port::stats::hocapture::grad_row::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::hocapture::HocaptureError> for apeiron_word::fold_port::stats::hocapture::grad_row::{closure#1}}::call_once]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 778:45-778:73 -/
+def
+  fold_port.stats.hocapture.grad_row.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHocaptureError.call_once
+  (c : fold_port.stats.hocapture.grad_row.closure_1)
+  (tupled_args : core.num.error.TryFromIntError) :
+  Result fold_port.stats.hocapture.HocaptureError
+  := do
+  ok fold_port.stats.hocapture.HocaptureError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::hocapture::grad_row::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::hocapture::HocaptureError> for apeiron_word::fold_port::stats::hocapture::grad_row::{closure#1}}]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 778:45-778:73 -/
+@[reducible]
+def
+  fold_port.stats.hocapture.grad_row.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHocaptureError
+  : core.ops.function.FnOnce fold_port.stats.hocapture.grad_row.closure_1
+  core.num.error.TryFromIntError fold_port.stats.hocapture.HocaptureError := {
+  call_once :=
+    fold_port.stats.hocapture.grad_row.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHocaptureError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::hocapture::grad_row::{closure}]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 777:20-777:53 -/
+@[reducible]
+def fold_port.stats.hocapture.grad_row.closure := Unit
+
+/-- [apeiron_word::fold_port::stats::hocapture::grad_row::{impl core::ops::function::FnOnce<(), apeiron_word::fold_port::stats::hocapture::HocaptureError> for apeiron_word::fold_port::stats::hocapture::grad_row::{closure}}::call_once]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 777:20-777:53 -/
+def
+  fold_port.stats.hocapture.grad_row.closure.Insts.CoreOpsFunctionFnOnceTupleHocaptureError.call_once
+  (c : fold_port.stats.hocapture.grad_row.closure) (_ : Unit) :
+  Result fold_port.stats.hocapture.HocaptureError
+  := do
+  fold_port.stats.hocapture.shape (toStr "logits_grad_ce target")
+
+/-- Trait implementation: [apeiron_word::fold_port::stats::hocapture::grad_row::{impl core::ops::function::FnOnce<(), apeiron_word::fold_port::stats::hocapture::HocaptureError> for apeiron_word::fold_port::stats::hocapture::grad_row::{closure}}]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 777:20-777:53 -/
+@[reducible]
+def
+  fold_port.stats.hocapture.grad_row.closure.Insts.CoreOpsFunctionFnOnceTupleHocaptureError
+  : core.ops.function.FnOnce fold_port.stats.hocapture.grad_row.closure Unit
+  fold_port.stats.hocapture.HocaptureError := {
+  call_once :=
+    fold_port.stats.hocapture.grad_row.closure.Insts.CoreOpsFunctionFnOnceTupleHocaptureError.call_once
+}
+
+/-- [apeiron_word::fold_port::stats::hocapture::grad_row]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 769:0-786:1 -/
+def fold_port.stats.hocapture.grad_row
+  (logits : Slice Std.I64) (targets : Slice Std.U32) (vocab : Std.Usize)
+  (r : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.hocapture.HocaptureError)
+  := do
+  let o ←
+    core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U32)
+      targets r
+  let r1 ←
+    core.option.Option.ok_or_else
+      fold_port.stats.hocapture.grad_row.closure.Insts.CoreOpsFunctionFnOnceTupleHocaptureError
+      o ()
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let r2 ← Usize.Insts.CoreConvertTryFromU32TryFromIntError.try_from val
+    let r3 ←
+      core.result.Result.map_err
+        fold_port.stats.hocapture.grad_row.closure_1.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorHocaptureError
+        r2 ()
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r3
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      if val1 >= vocab
+      then
+        let he ←
+          fold_port.stats.hocapture.shape (toStr
+            "logits_grad_ce target >= vocab")
+        ok (core.result.Result.Err he)
+      else
+        let i ← r * vocab
+        let i1 ← r + 1#usize
+        let i2 ← i1 * vocab
+        let s ←
+          core.slice.index.Slice.index
+            (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) logits
+            { start := i, «end» := i2 }
+        let r4 ← fold_port.stats.hocapture.softmax_row s
+        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r4
+        match cf2 with
+        | core.ops.control_flow.ControlFlow.Continue val2 =>
+          let i3 ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+              val2 val1
+          let i4 ← engine.ONE
+          let o1 ← lift (I64.checked_sub i3 i4)
+          let r5 ←
+            core.option.Option.ok_or o1
+              fold_port.stats.hocapture.HocaptureError.Overflow
+          let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r5
+          match cf3 with
+          | core.ops.control_flow.ControlFlow.Continue val3 =>
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) val2 val1
+            let val4 := index_mut_back val3
+            ok (core.result.Result.Ok val4)
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              fold_port.stats.hocapture.HocaptureError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64) (core.convert.FromSame
+            fold_port.stats.hocapture.HocaptureError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+        fold_port.stats.hocapture.HocaptureError) residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.stats.hocapture.HocaptureError) residual
+
+/-- [apeiron_word::fold_port::stats::hocapture::logits_grad_ce]: loop body 0:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 810:4-815:1
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.hocapture.logits_grad_ce_loop.body
+  (logits : Slice Std.I64) (targets : Slice Std.U32) (vocab : Std.Usize)
+  (iter : core.ops.range.Range Std.Usize) (out : Slice Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (Slice Std.I64))
+    ((core.result.Result Unit fold_port.stats.hocapture.HocaptureError) ×
+    (Slice Std.I64)))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (core.result.Result.Ok (), out))
+  | some r =>
+    let r1 ← fold_port.stats.hocapture.grad_row logits targets vocab r
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let i ← r * vocab
+      let i1 ← r + 1#usize
+      let i2 ← i1 * vocab
+      let (s, index_mut_back) ←
+        core.slice.index.Slice.index_mut
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) out
+          { start := i, «end» := i2 }
+      let s1 := alloc.vec.Vec.deref val
+      let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyI64 s s1
+      let out1 := index_mut_back s2
+      ok (cont (iter1, out1))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame fold_port.stats.hocapture.HocaptureError)
+          residual
+      ok (done (r2, out))
+
+/-- [apeiron_word::fold_port::stats::hocapture::logits_grad_ce]: loop 0:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 810:4-815:1
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.hocapture.logits_grad_ce_loop
+  (iter : core.ops.range.Range Std.Usize) (logits : Slice Std.I64)
+  (targets : Slice Std.U32) (vocab : Std.Usize) (out : Slice Std.I64) :
+  Result ((core.result.Result Unit fold_port.stats.hocapture.HocaptureError) ×
+    (Slice Std.I64))
+  := do
+  loop
+    (fun (iter1, out1) => fold_port.stats.hocapture.logits_grad_ce_loop.body
+      logits targets vocab iter1 out1)
+    (iter, out)
+
+/-- [apeiron_word::fold_port::stats::hocapture::logits_grad_ce]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 798:0-815:1
+    Visibility: public -/
+def fold_port.stats.hocapture.logits_grad_ce
+  (logits : Slice Std.I64) (targets : Slice Std.U32) (vocab : Std.Usize)
+  (out : Slice Std.I64) :
+  Result ((core.result.Result Unit fold_port.stats.hocapture.HocaptureError) ×
+    (Slice Std.I64))
+  := do
+  let t := Slice.len targets
+  let i := Slice.len logits
+  let r ←
+    fold_port.stats.hocapture.expect t vocab i (toStr "logits_grad_ce logits")
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue _ =>
+    let i1 := Slice.len out
+    let r1 ←
+      fold_port.stats.hocapture.expect t vocab i1 (toStr "logits_grad_ce out")
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      if vocab = 0#usize
+      then
+        let he ←
+          fold_port.stats.hocapture.shape (toStr "logits_grad_ce dimensions")
+        ok (core.result.Result.Err he, out)
+      else
+        if t = 0#usize
+        then
+          let he ←
+            fold_port.stats.hocapture.shape (toStr "logits_grad_ce dimensions")
+          ok (core.result.Result.Err he, out)
+        else
+          fold_port.stats.hocapture.logits_grad_ce_loop
+            { start := 0#usize, «end» := t } logits targets vocab out
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame fold_port.stats.hocapture.HocaptureError)
+          residual
+      ok (r2, out)
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    let r1 ←
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Unit (core.convert.FromSame fold_port.stats.hocapture.HocaptureError)
+        residual
+    ok (r1, out)
+
+/-- [apeiron_word::fold_port::stats::hocapture::xorshift64s]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 822:0-833:1 -/
+def fold_port.stats.hocapture.xorshift64s
+  (state : Std.U64) : Result (Std.I64 × Std.U64) := do
+  let s ←
+    if state = 0#u64
+    then ok fold_port.stats.hocapture.SEED_BIAS
+    else ok state
+  let i ← s >>> 12#i32
+  let s1 ← lift (s ^^^ i)
+  let i1 ← s1 <<< 25#i32
+  let s2 ← lift (s1 ^^^ i1)
+  let i2 ← s2 >>> 27#i32
+  let s3 ← lift (s2 ^^^ i2)
+  let r ← lift (core.num.U64.wrapping_mul s3 2685821657736338717#u64)
+  let i3 ← r >>> 11#i32
+  let i4 ← 1#u64 <<< 20#i32
+  let i5 ← lift (core.num.U64.wrapping_add i3 i4)
+  let word ← i5 >>> 21#i32
+  let i6 ← engine.ONE
+  let i7 ← lift (IScalar.hcast .U64 i6)
+  let cap ← i7 - 1#u64
+  let w ← if word > cap
+            then ok cap
+            else ok word
+  let i8 ← lift (UScalar.hcast .I64 w)
+  ok (i8, s3)
+
+/-- [apeiron_word::fold_port::stats::hocapture::pick_from_row]: loop body 0:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 897:4-904:5 -/
+@[rust_loop_body]
+def fold_port.stats.hocapture.pick_from_row_loop0.body
+  (p : Slice Std.I64) (draw : Std.I128) (cum : Std.I128) (pick : Std.Usize)
+  (found : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Std.I128 × Std.Usize × Bool × Std.Usize) (Std.Usize
+    × Bool))
+  := do
+  let i1 := Slice.len p
+  if i < i1
+  then
+    if found
+    then ok (done (pick, true))
+    else
+      let i2 ← Slice.index_usize p i
+      let i3 ← lift (core.convert.num.FromI128I64.from i2)
+      let cum1 ← cum + i3
+      let (pick1, found1) ←
+        if draw < cum1
+        then ok (i, true)
+        else ok (pick, false)
+      let i4 ← i + 1#usize
+      ok (cont (cum1, pick1, found1, i4))
+  else ok (done (pick, found))
+
+/-- [apeiron_word::fold_port::stats::hocapture::pick_from_row]: loop 0:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 897:4-904:5 -/
+@[rust_loop]
+def fold_port.stats.hocapture.pick_from_row_loop0
+  (p : Slice Std.I64) (draw : Std.I128) (cum : Std.I128) (pick : Std.Usize)
+  (found : Bool) (i : Std.Usize) :
+  Result (Std.Usize × Bool)
+  := do
+  loop
+    (fun (cum1, pick1, found1, i1) =>
+      fold_port.stats.hocapture.pick_from_row_loop0.body p draw cum1 pick1
+      found1 i1)
+    (cum, pick, found, i)
+
+/-- [apeiron_word::fold_port::stats::hocapture::pick_from_row]: loop body 1:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 906:8-910:9 -/
+@[rust_loop_body]
+def fold_port.stats.hocapture.pick_from_row_loop1.body
+  (p : Slice Std.I64) (iter : core.ops.range.Range Std.Usize)
+  (pick : Std.Usize) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.Usize)
+    Std.Usize)
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done pick)
+  | some i =>
+    let i1 ← Slice.index_usize p i
+    if i1 > 0#i64
+    then ok (cont (iter1, i))
+    else ok (cont (iter1, pick))
+
+/-- [apeiron_word::fold_port::stats::hocapture::pick_from_row]: loop 1:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 906:8-910:9 -/
+@[rust_loop]
+def fold_port.stats.hocapture.pick_from_row_loop1
+  (iter : core.ops.range.Range Std.Usize) (p : Slice Std.I64)
+  (pick : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun (iter1, pick1) => fold_port.stats.hocapture.pick_from_row_loop1.body p
+      iter1 pick1)
+    (iter, pick)
+
+/-- [apeiron_word::fold_port::stats::hocapture::pick_from_row]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 892:0-913:1 -/
+def fold_port.stats.hocapture.pick_from_row
+  (p : Slice Std.I64) (draw : Std.I128) : Result Std.Usize := do
+  let i := Slice.len p
+  let pick ← i - 1#usize
+  let (pick1, found) ←
+    fold_port.stats.hocapture.pick_from_row_loop0 p draw 0#i128 pick false
+      0#usize
+  if found
+  then ok pick1
+  else
+    let i1 := Slice.len p
+    fold_port.stats.hocapture.pick_from_row_loop1
+      { start := 0#usize, «end» := i1 } p pick1
+
+/-- [apeiron_word::fold_port::stats::hocapture::sample_targets]: loop body 2:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 872:8-882:9
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.hocapture.sample_targets_loop0_loop0_loop0.body
+  (t : Std.Usize) (vocab : Std.Usize) (rows : alloc.vec.Vec Std.I64)
+  (j : Std.Usize) (iter : core.ops.range.Range Std.Usize) (state : Std.U64)
+  (out : alloc.vec.Vec Std.U32) (failed : Bool) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.U64 ×
+    (alloc.vec.Vec Std.U32) × Bool) (Std.U64 × (alloc.vec.Vec Std.U32) ×
+    Bool))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (state, out, failed))
+  | some r =>
+    if failed
+    then ok (cont (iter1, state, out, true))
+    else
+      let i ← r * vocab
+      let i1 ← r + 1#usize
+      let i2 ← i1 * vocab
+      let p ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) rows { start := i, «end» := i2 }
+      let (i3, state1) ← fold_port.stats.hocapture.xorshift64s state
+      let draw ← lift (core.convert.num.FromI128I64.from i3)
+      let pick ← fold_port.stats.hocapture.pick_from_row p draw
+      let r1 ←
+        core.convert.num.ptr_try_from_impls.TryFromU32Usize.try_from pick
+      match r1 with
+      | core.result.Result.Ok v =>
+        let i4 ← j * t
+        let i5 ← i4 + r
+        let (_, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            Std.U32) out i5
+        let out1 := index_mut_back v
+        ok (cont (iter1, state1, out1, false))
+      | core.result.Result.Err _ => ok (cont (iter1, state1, out, true))
+
+/-- [apeiron_word::fold_port::stats::hocapture::sample_targets]: loop 2:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 872:8-882:9
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.hocapture.sample_targets_loop0_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (t : Std.Usize) (vocab : Std.Usize)
+  (rows : alloc.vec.Vec Std.I64) (state : Std.U64)
+  (out : alloc.vec.Vec Std.U32) (failed : Bool) (j : Std.Usize) :
+  Result (Std.U64 × (alloc.vec.Vec Std.U32) × Bool)
+  := do
+  loop
+    (fun (iter1, state1, out1, failed1) =>
+      fold_port.stats.hocapture.sample_targets_loop0_loop0_loop0.body t vocab
+      rows j iter1 state1 out1 failed1)
+    (iter, state, out, failed)
+
+/-- [apeiron_word::fold_port::stats::hocapture::sample_targets]: loop body 1:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 871:4-883:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.hocapture.sample_targets_loop0_loop0.body
+  (t : Std.Usize) (vocab : Std.Usize) (rows : alloc.vec.Vec Std.I64)
+  (iter : core.ops.range.Range Std.Usize) (state : Std.U64)
+  (out : alloc.vec.Vec Std.U32) (failed : Bool) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.U64 ×
+    (alloc.vec.Vec Std.U32) × Bool) ((alloc.vec.Vec Std.U32) × Bool))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none => ok (done (out, failed))
+  | some j =>
+    let (state1, out1, failed1) ←
+      fold_port.stats.hocapture.sample_targets_loop0_loop0_loop0
+        { start := 0#usize, «end» := t } t vocab rows state out failed j
+    ok (cont (iter1, state1, out1, failed1))
+
+/-- [apeiron_word::fold_port::stats::hocapture::sample_targets]: loop 1:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 871:4-883:5
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.hocapture.sample_targets_loop0_loop0
+  (iter : core.ops.range.Range Std.Usize) (t : Std.Usize) (vocab : Std.Usize)
+  (rows : alloc.vec.Vec Std.I64) (state : Std.U64)
+  (out : alloc.vec.Vec Std.U32) (failed : Bool) :
+  Result ((alloc.vec.Vec Std.U32) × Bool)
+  := do
+  loop
+    (fun (iter1, state1, out1, failed1) =>
+      fold_port.stats.hocapture.sample_targets_loop0_loop0.body t vocab rows
+      iter1 state1 out1 failed1)
+    (iter, state, out, failed)
+
+/-- [apeiron_word::fold_port::stats::hocapture::sample_targets]: loop body 0:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 862:4-867:34
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.stats.hocapture.sample_targets_loop0.body
+  (logits : Slice Std.I64) (t : Std.Usize) (vocab : Std.Usize) (k : Std.Usize)
+  (seed : Std.U64) (iter : core.ops.range.Range Std.Usize)
+  (rows : alloc.vec.Vec Std.I64) :
+  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
+    Std.I64)) (core.result.Result (alloc.vec.Vec Std.U32)
+    fold_port.stats.hocapture.HocaptureError))
+  := do
+  let (o, iter1) ←
+    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
+  match o with
+  | none =>
+    let state ←
+      if seed = 0#u64
+      then ok fold_port.stats.hocapture.SEED_BIAS
+      else ok seed
+    let i ← k * t
+    let out ← alloc.vec.from_elem core.clone.CloneU32 0#u32 i
+    let (out1, failed) ←
+      fold_port.stats.hocapture.sample_targets_loop0_loop0
+        { start := 0#usize, «end» := k } t vocab rows state out false
+    if failed
+    then
+      ok (done (core.result.Result.Err
+        fold_port.stats.hocapture.HocaptureError.Overflow))
+    else ok (done (core.result.Result.Ok out1))
+  | some r =>
+    let i ← r * vocab
+    let i1 ← r + 1#usize
+    let i2 ← i1 * vocab
+    let s ←
+      core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.I64) logits { start := i, «end» := i2 }
+    let r1 ← fold_port.stats.hocapture.softmax_row s
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let i3 ← i1 * vocab
+      let (s1, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) rows { start := i, «end» := i3 }
+      let s2 := alloc.vec.Vec.deref val
+      let s3 ← core.slice.Slice.copy_from_slice core.marker.CopyI64 s1 s2
+      let rows1 := index_mut_back s3
+      ok (cont (iter1, rows1))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r2 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.U32) (core.convert.FromSame
+          fold_port.stats.hocapture.HocaptureError) residual
+      ok (done r2)
+
+/-- [apeiron_word::fold_port::stats::hocapture::sample_targets]: loop 0:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 862:4-867:34
+    Visibility: public -/
+@[rust_loop]
+def fold_port.stats.hocapture.sample_targets_loop0
+  (iter : core.ops.range.Range Std.Usize) (logits : Slice Std.I64)
+  (t : Std.Usize) (vocab : Std.Usize) (k : Std.Usize) (seed : Std.U64)
+  (rows : alloc.vec.Vec Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.U32)
+    fold_port.stats.hocapture.HocaptureError)
+  := do
+  loop
+    (fun (iter1, rows1) => fold_port.stats.hocapture.sample_targets_loop0.body
+      logits t vocab k seed iter1 rows1)
+    (iter, rows)
+
+/-- [apeiron_word::fold_port::stats::hocapture::sample_targets]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 850:0-888:1
+    Visibility: public -/
+def fold_port.stats.hocapture.sample_targets
+  (logits : Slice Std.I64) (t : Std.Usize) (vocab : Std.Usize) (k : Std.Usize)
+  (seed : Std.U64) :
+  Result (core.result.Result (alloc.vec.Vec Std.U32)
+    fold_port.stats.hocapture.HocaptureError)
+  := do
+  if k = 0#usize
+  then
+    let he ←
+      fold_port.stats.hocapture.shape (toStr "sample_targets dimensions")
+    ok (core.result.Result.Err he)
+  else
+    if vocab = 0#usize
+    then
+      let he ←
+        fold_port.stats.hocapture.shape (toStr "sample_targets dimensions")
+      ok (core.result.Result.Err he)
+    else
+      if t = 0#usize
+      then
+        let he ←
+          fold_port.stats.hocapture.shape (toStr "sample_targets dimensions")
+        ok (core.result.Result.Err he)
+      else
+        let i := Slice.len logits
+        let r ←
+          fold_port.stats.hocapture.expect t vocab i (toStr
+            "sample_targets logits")
+        let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+        match cf with
+        | core.ops.control_flow.ControlFlow.Continue _ =>
+          let i1 ← t * vocab
+          let rows ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
+          fold_port.stats.hocapture.sample_targets_loop0
+            { start := 0#usize, «end» := t } logits t vocab k seed rows
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.U32) (core.convert.FromSame
+            fold_port.stats.hocapture.HocaptureError) residual
+
+/-- [apeiron_word::fold_port::stats::hocapture::KindStats]
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 918:0-928:1
+    Visibility: public -/
+structure fold_port.stats.hocapture.KindStats where
+  ho : alloc.vec.Vec Std.I64
+  s4 : solve_port.q32.Fx
+  q : alloc.vec.Vec solve_port.q32.Fx
+  samples : Std.U64
+
+/-- [apeiron_word::solve_port::q32::{impl core::clone::Clone for apeiron_word::solve_port::q32::Fx}::clone]:
+    Source: '../../src/learn/solve/q32.rs', lines 294:9-294:14
+    Visibility: public -/
+def solve_port.q32.Fx.Insts.CoreCloneClone.clone
+  (self : solve_port.q32.Fx) : Result solve_port.q32.Fx := do
+  let i ← lift (core.clone.impls.CloneI64.clone self.m)
+  let i1 ← lift (core.clone.impls.CloneI32.clone self.e)
+  ok { m := i, e := i1 }
+
+/-- Trait implementation: [apeiron_word::solve_port::q32::{impl core::clone::Clone for apeiron_word::solve_port::q32::Fx}]
+    Source: '../../src/learn/solve/q32.rs', lines 294:9-294:14 -/
+@[reducible]
+impl_def solve_port.q32.Fx.Insts.CoreCloneClone : core.clone.Clone
+  solve_port.q32.Fx := {
+  clone := solve_port.q32.Fx.Insts.CoreCloneClone.clone
+  clone_from := core.clone.Clone.clone_from.default
+    solve_port.q32.Fx.Insts.CoreCloneClone
+}
+
+/-- [apeiron_word::fold_port::stats::hocapture::{apeiron_word::fold_port::stats::hocapture::KindStats}::zeros]:
+    Source: '../../src/learn/fold/stats/hocapture.rs', lines 938:4-946:5
+    Visibility: public -/
+def fold_port.stats.hocapture.KindStats.zeros
+  (o : Std.Usize) :
+  Result (core.result.Result fold_port.stats.hocapture.KindStats
+    fold_port.stats.hocapture.HocaptureError)
+  := do
+  let o1 ← lift (Usize.checked_mul o o)
+  let r ←
+    core.option.Option.ok_or o1
+      fold_port.stats.hocapture.HocaptureError.Overflow
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let v ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+    let v1 ←
+      alloc.vec.from_elem solve_port.q32.Fx.Insts.CoreCloneClone
+        { m := 0#i64, e := 0#i32 } o
+    ok (core.result.Result.Ok
+      { ho := v, s4 := { m := 0#i64, e := 0#i32 }, q := v1, samples := 0#u64 })
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      fold_port.stats.hocapture.KindStats (core.convert.FromSame
+      fold_port.stats.hocapture.HocaptureError) residual
+
 /-- [apeiron_word::fold_port::stats::lw::LwError]
     Source: '../../src/learn/fold/stats/lw.rs', lines 63:0-74:1
     Visibility: public -/
@@ -76968,44 +81718,6 @@ inductive fold_port.stats.lw.LwError where
 | ShapeMismatch : fold_port.stats.lw.LwError
 | TooFewSamples : fold_port.stats.lw.LwError
 | OutOfRange : fold_port.stats.lw.LwError
-
-/-- [apeiron_word::fixed_ln::div_rne]:
-    Source: '../../src/numeric/fixed_ln.rs', lines 107:0-127:1
-    Visibility: public -/
-def fixed_ln.div_rne
-  (num : Std.I128) (den : Std.I128) : Result (Option Std.I128) := do
-  if den <= 0#i128
-  then ok none
-  else
-    let q ← num / den
-    let r ← num % den
-    if r = 0#i128
-    then ok (some q)
-    else
-      let o ← lift (I128.checked_mul r 2#i128)
-      match o with
-      | none => ok none
-      | some v =>
-        let mag ← if v < 0#i128
-                    then -. v
-                    else ok v
-        let step ←
-          if mag > den
-          then ok 1#i128
-          else
-            if mag = den
-            then
-              do
-              let i ← q % 2#i128
-              if i != 0#i128
-              then ok 1#i128
-              else ok 0#i128
-            else ok 0#i128
-        if r > 0#i128
-        then let i ← q + step
-             ok (some i)
-        else let i ← q - step
-             ok (some i)
 
 /-- [apeiron_word::fold_port::stats::lw::off_of::{closure}]
     Source: '../../src/learn/fold/stats/lw.rs', lines 102:18-102:49 -/
@@ -77134,23 +81846,6 @@ def fold_port.stats.lw.off_of
   | core.ops.control_flow.ControlFlow.Break residual =>
     core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
       Std.I64 (core.convert.FromSame fold_port.stats.lw.LwError) residual
-
-/-- [apeiron_word::solve_port::q32::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i64>> for apeiron_word::solve_port::q32::narrow}::call_once]:
-    Source: '../../src/learn/solve/q32.rs', lines 222:0-228:1
-    Visibility: public -/
-def P.Insts.CoreOpsFunctionFnOnceTupleI128OptionI64.call_once
-  (state : Std.I128 → Result (Option Std.I64)) (args : Std.I128) :
-  Result (Option Std.I64)
-  := do
-  solve_port.q32.narrow args
-
-/-- Trait implementation: [apeiron_word::solve_port::q32::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i64>> for apeiron_word::solve_port::q32::narrow}]
-    Source: '../../src/learn/solve/q32.rs', lines 222:0-228:1 -/
-@[reducible]
-def P.Insts.CoreOpsFunctionFnOnceTupleI128OptionI64 : core.ops.function.FnOnce
-  (Std.I128 → Result (Option Std.I64)) Std.I128 (Option Std.I64) := {
-  call_once := P.Insts.CoreOpsFunctionFnOnceTupleI128OptionI64.call_once
-}
 
 /-- [apeiron_word::fold_port::stats::lw::lw_intensity]: loop body 0:
     Source: '../../src/learn/fold/stats/lw.rs', lines 135:4-137:5
@@ -77361,29 +82056,6 @@ def fold_port.stats.lw.lw_block_intensity
     Source: '../../src/learn/fold/stats/parts.rs', lines 75:0-75:39 -/
 @[global_simps, irreducible]
 def fold_port.stats.parts.TWO_PI_Q32 : Std.I64 := 26986075409#i64
-
-/-- [apeiron_word::fold_port::stats::parts::mul]:
-    Source: '../../src/learn/fold/stats/parts.rs', lines 86:0-93:1 -/
-def fold_port.stats.parts.mul
-  (a : Std.I64) (b : Std.I64) : Result (Option Std.I64) := do
-  let i ← lift (core.convert.num.FromI128I64.from a)
-  let i1 ← lift (core.convert.num.FromI128I64.from b)
-  let p ← i * i1
-  let q ← p >>> 32#i32
-  let r ← lift (p &&& 4294967295#i128)
-  let half ← 1#i128 <<< 31#i32
-  let b1 ←
-    if r > half
-    then ok true
-    else
-      if r = half
-      then do
-           let i2 ← lift (q &&& 1#i128)
-           ok (i2 != 0#i128)
-      else ok false
-  let bump ← lift (core.convert.num.FromI128Bool.from b1)
-  let i2 ← q + bump
-  solve_port.q32.narrow i2
 
 /-- [apeiron_word::fold_port::stats::parts::div]:
     Source: '../../src/learn/fold/stats/parts.rs', lines 97:0-99:1 -/
@@ -79676,17 +84348,6 @@ def grad_solve_port.gguf.write_file
     core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
       (alloc.vec.Vec Std.U8) (core.convert.FromSame gguf.GgufError) residual
 
-/-- [apeiron_word::learn_port::attn::AttnError]
-    Source: '../../src/learn/grad/attn.rs', lines 47:0-61:1
-    Visibility: public -/
-@[discriminant isize]
-inductive learn_port.attn.AttnError where
-| BadShape : learn_port.attn.AttnError
-| Overflow : learn_port.attn.AttnError
-| ExpOutOfRange : learn_port.attn.AttnError
-| RsqrtOutOfRange : learn_port.attn.AttnError
-| Rope : rope.RopeError → learn_port.attn.AttnError
-
 /-- [apeiron_word::learn_port::attn::round32]:
     Source: '../../src/learn/grad/attn.rs', lines 64:0-66:1 -/
 def learn_port.attn.round32 (v : Std.I128) : Result Std.I128 := do
@@ -81335,16 +85996,6 @@ def learn_port.attn.attn_bwd
       ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
       Std.I64)) (core.convert.FromSame learn_port.attn.AttnError) residual
 
-/-- [apeiron_word::learn_port::dense::DenseError]
-    Source: '../../src/learn/grad/dense.rs', lines 43:0-53:1
-    Visibility: public -/
-@[discriminant isize]
-inductive learn_port.dense.DenseError where
-| Empty : learn_port.dense.DenseError
-| Shape : learn_port.dense.DenseError
-| Overflow : learn_port.dense.DenseError
-| Range : learn_port.dense.DenseError
-
 /-- [apeiron_word::learn_port::dense::round32]:
     Source: '../../src/learn/grad/dense.rs', lines 57:0-62:1 -/
 def learn_port.dense.round32 (v : Std.I128) : Result (Option Std.I128) := do
@@ -82689,23 +87340,6 @@ def learn_port.dense.swiglu_bwd
         then ok (core.result.Result.Ok (dgate1, dup1))
         else ok (core.result.Result.Err err)
 
-/-- [apeiron_word::learn_port::head::FLUSH]
-    Source: '../../src/learn/grad/head.rs', lines 48:0-48:41 -/
-@[global_simps, irreducible]
-def learn_port.head.FLUSH : Result Std.I128 := do
-  let i ← 1#i128 <<< 32#i32
-  (-16)#i128 * i
-
-/-- [apeiron_word::learn_port::head::HeadError]
-    Source: '../../src/learn/grad/head.rs', lines 52:0-63:1
-    Visibility: public -/
-@[discriminant isize]
-inductive learn_port.head.HeadError where
-| Shape : learn_port.head.HeadError
-| Overflow : learn_port.head.HeadError
-| Exp : fixed_exp.ExpError → learn_port.head.HeadError
-| Ln : fixed_ln.LnError → learn_port.head.HeadError
-
 /-- [apeiron_word::learn_port::head::Objective]
     Source: '../../src/learn/grad/head.rs', lines 67:0-72:1
     Visibility: public -/
@@ -82721,65 +87355,6 @@ structure learn_port.head.Dims where
   n : Std.Usize
   d : Std.Usize
   v : Std.Usize
-
-/-- [apeiron_word::learn_port::head::abs128]:
-    Source: '../../src/learn/grad/head.rs', lines 87:0-93:1 -/
-def learn_port.head.abs128 (x : Std.I128) : Result Std.I128 := do
-  if x < 0#i128
-  then 0#i128 - x
-  else ok x
-
-/-- [apeiron_word::learn_port::head::round_div]:
-    Source: '../../src/learn/grad/head.rs', lines 96:0-108:1 -/
-def learn_port.head.round_div
-  (n : Std.I128) (d : Std.I128) : Result Std.I128 := do
-  let q ← n / d
-  let r ← n % d
-  let i ← learn_port.head.abs128 r
-  let i1 ← 2#i128 * i
-  if i1 >= d
-  then if n >= 0#i128
-       then q + 1#i128
-       else q - 1#i128
-  else ok q
-
-/-- [apeiron_word::learn_port::head::to64]:
-    Source: '../../src/learn/grad/head.rs', lines 115:0-121:1 -/
-def learn_port.head.to64
-  (x : Std.I128) :
-  Result (core.result.Result Std.I64 learn_port.head.HeadError)
-  := do
-  let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
-  if x < i
-  then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
-  else
-    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
-    if x > i1
-    then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
-    else let i2 ← lift (IScalar.cast .I64 x)
-         ok (core.result.Result.Ok i2)
-
-/-- [apeiron_word::learn_port::head::add128]:
-    Source: '../../src/learn/grad/head.rs', lines 123:0-128:1 -/
-def learn_port.head.add128
-  (a : Std.I128) (b : Std.I128) :
-  Result (core.result.Result Std.I128 learn_port.head.HeadError)
-  := do
-  let o ← lift (I128.checked_add a b)
-  match o with
-  | none => ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
-  | some s => ok (core.result.Result.Ok s)
-
-/-- [apeiron_word::learn_port::head::mul128]:
-    Source: '../../src/learn/grad/head.rs', lines 130:0-135:1 -/
-def learn_port.head.mul128
-  (a : Std.I128) (b : Std.I128) :
-  Result (core.result.Result Std.I128 learn_port.head.HeadError)
-  := do
-  let o ← lift (I128.checked_mul a b)
-  match o with
-  | none => ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
-  | some s => ok (core.result.Result.Ok s)
 
 /-- [apeiron_word::learn_port::head::dim128]:
     Source: '../../src/learn/grad/head.rs', lines 138:0-140:1 -/
@@ -82805,277 +87380,6 @@ def learn_port.head.sgn (x : Std.I128) : Result Std.I128 := do
   | Ordering.lt => ok (-1)#i128
   | Ordering.eq => ok 0#i128
   | Ordering.gt => ok 1#i128
-
-/-- [apeiron_word::learn_port::head::exp_entry]:
-    Source: '../../src/learn/grad/head.rs', lines 163:0-175:1 -/
-def learn_port.head.exp_entry
-  (zi : Std.I64) (m : Std.I64) :
-  Result (core.result.Result Std.I64 learn_port.head.HeadError)
-  := do
-  let i ← lift (core.convert.num.FromI128I64.from zi)
-  let i1 ← lift (core.convert.num.FromI128I64.from m)
-  let ui ← i - i1
-  let i2 ← learn_port.head.FLUSH
-  if ui < i2
-  then ok (core.result.Result.Ok 0#i64)
-  else
-    let i3 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
-    if ui > i3
-    then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
-    else
-      let i4 ← lift (IScalar.cast .I64 ui)
-      let r ← fixed_exp.fixed_exp i4
-      match r with
-      | core.result.Result.Ok ev => ok (core.result.Result.Ok ev)
-      | core.result.Result.Err x =>
-        ok (core.result.Result.Err (learn_port.head.HeadError.Exp x))
-
-/-- [apeiron_word::learn_port::head::row_max]: loop body 0:
-    Source: '../../src/learn/grad/head.rs', lines 182:4-187:5 -/
-@[rust_loop_body]
-def learn_port.head.row_max_loop.body
-  (z : Slice Std.I64) (v : Std.Usize) (m : Std.I64) (i : Std.Usize) :
-  Result (ControlFlow (Std.I64 × Std.Usize) Std.I64)
-  := do
-  if i < v
-  then
-    let i1 ← Slice.index_usize z i
-    let m1 ← if i1 > m
-               then ok i1
-               else ok m
-    let i2 ← i + 1#usize
-    ok (cont (m1, i2))
-  else ok (done m)
-
-/-- [apeiron_word::learn_port::head::row_max]: loop 0:
-    Source: '../../src/learn/grad/head.rs', lines 182:4-187:5 -/
-@[rust_loop]
-def learn_port.head.row_max_loop
-  (z : Slice Std.I64) (v : Std.Usize) (m : Std.I64) (i : Std.Usize) :
-  Result Std.I64
-  := do
-  loop
-    (fun (m1, i1) => learn_port.head.row_max_loop.body z v m1 i1)
-    (m, i)
-
-/-- [apeiron_word::learn_port::head::row_max]:
-    Source: '../../src/learn/grad/head.rs', lines 178:0-189:1 -/
-def learn_port.head.row_max (z : Slice Std.I64) : Result Std.I64 := do
-  let v := Slice.len z
-  let m ← Slice.index_usize z 0#usize
-  learn_port.head.row_max_loop z v m 1#usize
-
-/-- [apeiron_word::learn_port::head::exp_fill]: loop body 0:
-    Source: '../../src/learn/grad/head.rs', lines 201:4-213:5 -/
-@[rust_loop_body]
-def learn_port.head.exp_fill_loop.body
-  (z : Slice Std.I64) (m : Std.I64) (v : Std.Usize) (e : Slice Std.I64)
-  (sum : Std.I128) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
-  Result (ControlFlow ((Slice Std.I64) × Std.I128 × (Option
-    learn_port.head.HeadError) × Std.Usize) ((Slice Std.I64) × Std.I128 ×
-    (Option learn_port.head.HeadError)))
-  := do
-  if i < v
-  then
-    let b := core.option.Option.is_none fail1
-    if b
-    then
-      let i1 ← Slice.index_usize z i
-      let r ← learn_port.head.exp_entry i1 m
-      let (e1, sum1, fail2) ←
-        match r with
-        | core.result.Result.Ok ev =>
-          do
-          let s ← Slice.update e i ev
-          let i2 ← lift (core.convert.num.FromI128I64.from ev)
-          let r1 ← learn_port.head.add128 sum i2
-          let (i3, o) ←
-            match r1 with
-            | core.result.Result.Ok s1 => ok (s1, fail1)
-            | core.result.Result.Err x => ok (sum, some x)
-          ok (s, i3, o)
-        | core.result.Result.Err x => ok (e, sum, some x)
-      let i2 ← i + 1#usize
-      ok (cont (e1, sum1, fail2, i2))
-    else ok (done (e, sum, fail1))
-  else ok (done (e, sum, fail1))
-
-/-- [apeiron_word::learn_port::head::exp_fill]: loop 0:
-    Source: '../../src/learn/grad/head.rs', lines 201:4-213:5 -/
-@[rust_loop]
-def learn_port.head.exp_fill_loop
-  (z : Slice Std.I64) (m : Std.I64) (e : Slice Std.I64) (v : Std.Usize)
-  (sum : Std.I128) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
-  Result ((Slice Std.I64) × Std.I128 × (Option learn_port.head.HeadError))
-  := do
-  loop
-    (fun (e1, sum1, fail2, i1) => learn_port.head.exp_fill_loop.body z m v e1
-      sum1 fail2 i1)
-    (e, sum, fail1, i)
-
-/-- [apeiron_word::learn_port::head::exp_fill]:
-    Source: '../../src/learn/grad/head.rs', lines 196:0-218:1 -/
-def learn_port.head.exp_fill
-  (z : Slice Std.I64) (m : Std.I64) (e : Slice Std.I64) :
-  Result ((core.result.Result Std.I128 learn_port.head.HeadError) × (Slice
-    Std.I64))
-  := do
-  let v := Slice.len z
-  let (e1, sum, fail1) ←
-    learn_port.head.exp_fill_loop z m e v 0#i128 none 0#usize
-  match fail1 with
-  | none => ok (core.result.Result.Ok sum, e1)
-  | some x => ok (core.result.Result.Err x, e1)
-
-/-- [apeiron_word::learn_port::head::lp_entry]:
-    Source: '../../src/learn/grad/head.rs', lines 221:0-223:1 -/
-def learn_port.head.lp_entry
-  (zi : Std.I64) (m : Std.I64) (l : Std.I64) :
-  Result (core.result.Result Std.I64 learn_port.head.HeadError)
-  := do
-  let i ← lift (core.convert.num.FromI128I64.from zi)
-  let i1 ← lift (core.convert.num.FromI128I64.from m)
-  let i2 ← i - i1
-  let i3 ← lift (core.convert.num.FromI128I64.from l)
-  let i4 ← i2 - i3
-  learn_port.head.to64 i4
-
-/-- [apeiron_word::learn_port::head::p_entry]:
-    Source: '../../src/learn/grad/head.rs', lines 226:0-231:1 -/
-def learn_port.head.p_entry
-  (ei : Std.I64) (sum : Std.I128) :
-  Result (core.result.Result Std.I64 learn_port.head.HeadError)
-  := do
-  let i ← lift (core.convert.num.FromI128I64.from ei)
-  let i1 ← engine.ONE
-  let i2 ← lift (core.convert.num.FromI128I64.from i1)
-  let r ← learn_port.head.mul128 i i2
-  match r with
-  | core.result.Result.Ok num =>
-    let i3 ← learn_port.head.round_div num sum
-    learn_port.head.to64 i3
-  | core.result.Result.Err x => ok (core.result.Result.Err x)
-
-/-- [apeiron_word::learn_port::head::fill_lp_p]: loop body 0:
-    Source: '../../src/learn/grad/head.rs', lines 251:4-263:5 -/
-@[rust_loop_body]
-def learn_port.head.fill_lp_p_loop.body
-  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
-  (sum : Std.I128) (v : Std.Usize) (lp : Slice Std.I64) (p : Slice Std.I64)
-  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
-  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Option
-    learn_port.head.HeadError) × Std.Usize) ((Option
-    learn_port.head.HeadError) × (Slice Std.I64) × (Slice Std.I64)))
-  := do
-  if i < v
-  then
-    let b := core.option.Option.is_none fail1
-    if b
-    then
-      let i1 ← Slice.index_usize z i
-      let r ← learn_port.head.lp_entry i1 m l
-      let (lp1, fail2) ←
-        match r with
-        | core.result.Result.Ok x =>
-          do
-          let s ← Slice.update lp i x
-          ok (s, fail1)
-        | core.result.Result.Err x => ok (lp, some x)
-      let b1 := core.option.Option.is_none fail2
-      let (p1, fail3) ←
-        if b1
-        then
-          do
-          let i2 ← Slice.index_usize e i
-          let r1 ← learn_port.head.p_entry i2 sum
-          match r1 with
-          | core.result.Result.Ok x =>
-            let s ← Slice.update p i x
-            ok (s, fail2)
-          | core.result.Result.Err x => ok (p, some x)
-        else ok (p, fail2)
-      let i2 ← i + 1#usize
-      ok (cont (lp1, p1, fail3, i2))
-    else ok (done (fail1, lp, p))
-  else ok (done (fail1, lp, p))
-
-/-- [apeiron_word::learn_port::head::fill_lp_p]: loop 0:
-    Source: '../../src/learn/grad/head.rs', lines 251:4-263:5 -/
-@[rust_loop]
-def learn_port.head.fill_lp_p_loop
-  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
-  (sum : Std.I128) (lp : Slice Std.I64) (p : Slice Std.I64) (v : Std.Usize)
-  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
-  Result ((Option learn_port.head.HeadError) × (Slice Std.I64) × (Slice
-    Std.I64))
-  := do
-  loop
-    (fun (lp1, p1, fail2, i1) => learn_port.head.fill_lp_p_loop.body z m l e
-      sum v lp1 p1 fail2 i1)
-    (lp, p, fail1, i)
-
-/-- [apeiron_word::learn_port::head::fill_lp_p]:
-    Source: '../../src/learn/grad/head.rs', lines 239:0-265:1 -/
-def learn_port.head.fill_lp_p
-  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
-  (sum : Std.I128) (lp : Slice Std.I64) (p : Slice Std.I64) :
-  Result ((Option learn_port.head.HeadError) × (Slice Std.I64) × (Slice
-    Std.I64))
-  := do
-  let v := Slice.len z
-  learn_port.head.fill_lp_p_loop z m l e sum lp p v none 0#usize
-
-/-- [apeiron_word::learn_port::head::softmax_row]:
-    Source: '../../src/learn/grad/head.rs', lines 279:0-304:1 -/
-def learn_port.head.softmax_row
-  (z : Slice Std.I64) :
-  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
-    Std.I64)) learn_port.head.HeadError)
-  := do
-  let v := Slice.len z
-  if v = 0#usize
-  then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
-  else
-    let m ← learn_port.head.row_max z
-    let e ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
-    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut e)
-    let (r, s1) ← learn_port.head.exp_fill z m s
-    match r with
-    | core.result.Result.Ok s2 =>
-      let r1 ← learn_port.head.to64 s2
-      match r1 with
-      | core.result.Result.Ok s3 =>
-        let r2 ← fixed_ln.fixed_ln s3
-        match r2 with
-        | core.result.Result.Ok l =>
-          let e1 := deref_mut_back s1
-          let s4 := alloc.vec.Vec.deref e1
-          let (s5, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut e)
-          let (s6, deref_mut_back2) ← lift (alloc.vec.Vec.deref_mut e)
-          let (o, s7, s8) ← learn_port.head.fill_lp_p z m l s4 s2 s5 s6
-          match o with
-          | none =>
-            let lp := deref_mut_back1 s7
-            let p := deref_mut_back2 s8
-            ok (core.result.Result.Ok (lp, p))
-          | some x => ok (core.result.Result.Err x)
-        | core.result.Result.Err x =>
-          ok (core.result.Result.Err (learn_port.head.HeadError.Ln x))
-      | core.result.Result.Err x => ok (core.result.Result.Err x)
-    | core.result.Result.Err x => ok (core.result.Result.Err x)
-
-/-- [apeiron_word::learn_port::head::log_softmax_row]:
-    Source: '../../src/learn/grad/head.rs', lines 319:0-324:1
-    Visibility: public -/
-def learn_port.head.log_softmax_row
-  (z : Slice Std.I64) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64) learn_port.head.HeadError)
-  := do
-  let r ← learn_port.head.softmax_row z
-  match r with
-  | core.result.Result.Ok p => let (lp, _) := p
-                               ok (core.result.Result.Ok lp)
-  | core.result.Result.Err x => ok (core.result.Result.Err x)
 
 /-- [apeiron_word::learn_port::head::kl_acc]: loop body 0:
     Source: '../../src/learn/grad/head.rs', lines 336:4-346:5 -/
@@ -84027,19 +88331,6 @@ def learn_port.head.head_chunked
               | core.result.Result.Err x2 => ok (core.result.Result.Err x2)
             | core.result.Result.Err x1 => ok (core.result.Result.Err x1)
           | core.result.Result.Err x => ok (core.result.Result.Err x)
-
-/-- [apeiron_word::grad_solve_port::model::ModelError]
-    Source: '../../src/learn/grad/model.rs', lines 60:0-75:1
-    Visibility: public -/
-@[discriminant isize]
-inductive grad_solve_port.model.ModelError where
-| Shape : String → grad_solve_port.model.ModelError
-| Overflow : grad_solve_port.model.ModelError
-| Missing : String → grad_solve_port.model.ModelError
-| Engine : error.EngineError → grad_solve_port.model.ModelError
-| Config : String → grad_solve_port.model.ModelError
-| Dense : learn_port.dense.DenseError → grad_solve_port.model.ModelError
-| Attn : learn_port.attn.AttnError → grad_solve_port.model.ModelError
 
 /-- [apeiron_word::grad_solve_port::model::{impl core::convert::From<apeiron_word::learn_port::dense::DenseError> for apeiron_word::grad_solve_port::model::ModelError}::from]:
     Source: '../../src/learn/grad/model.rs', lines 84:4-86:5
@@ -86644,20 +90935,6 @@ def solve_port.inv.inv_factor_upper
       core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
         (alloc.vec.Vec Std.I64) (core.convert.FromSame
         solve_port.chol.SolveError) residual
-
-/-- [apeiron_word::solve_port::q32::round_q32_even]:
-    Source: '../../src/learn/solve/q32.rs', lines 250:0-255:1
-    Visibility: public -/
-def solve_port.q32.round_q32_even
-  (v : Std.I128) :
-  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
-  := do
-  let o ← solve_port.q32.rshift_rne v 32#u32
-  match o with
-  | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
-  | some r =>
-    let o1 ← solve_port.q32.narrow r
-    core.option.Option.ok_or o1 solve_port.q32.Q32Error.Overflow
 
 /-- [apeiron_word::solve_port::q32::{apeiron_word::solve_port::q32::Fx}::from_i128]:
     Source: '../../src/learn/solve/q32.rs', lines 319:4-356:5
@@ -102346,6 +106623,188 @@ def fold_port.word_fit_r_hier_reconstruct
     Visibility: public -/
 def fold_port.word_fit_gram_scale (m : Slice Std.I64) : Result Std.I32 := do
   fold_port.fit.eigh.gram_scale m
+
+/-- [apeiron_word::fold_port::word_stats_basis_damped_gram]:
+    Source: 'fold_port.rs', lines 290:0-295:1
+    Visibility: public -/
+def fold_port.word_stats_basis_damped_gram
+  (h : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.damped_gram h n
+
+/-- [apeiron_word::fold_port::word_stats_basis_identity_basis]:
+    Source: 'fold_port.rs', lines 298:0-300:1
+    Visibility: public -/
+def fold_port.word_stats_basis_identity_basis
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.identity_basis n
+
+/-- [apeiron_word::fold_port::word_stats_basis_hadamard_basis]:
+    Source: 'fold_port.rs', lines 303:0-305:1
+    Visibility: public -/
+def fold_port.word_stats_basis_hadamard_basis
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.hadamard_basis n
+
+/-- [apeiron_word::fold_port::word_stats_basis_row_energies]:
+    Source: 'fold_port.rs', lines 308:0-314:1
+    Visibility: public -/
+def fold_port.word_stats_basis_row_energies
+  (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.row_energies b o n
+
+/-- [apeiron_word::fold_port::word_stats_basis_column_energies]:
+    Source: 'fold_port.rs', lines 317:0-323:1
+    Visibility: public -/
+def fold_port.word_stats_basis_column_energies
+  (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.column_energies b o n
+
+/-- [apeiron_word::fold_port::word_stats_basis_sum_log_column_energies]:
+    Source: 'fold_port.rs', lines 326:0-328:1
+    Visibility: public -/
+def fold_port.word_stats_basis_sum_log_column_energies
+  (c : Slice Std.I64) : Result Std.I64 := do
+  fold_port.stats.basis.sum_log_column_energies c
+
+/-- [apeiron_word::fold_port::word_stats_basis_distortion_at]:
+    Source: 'fold_port.rs', lines 331:0-336:1
+    Visibility: public -/
+def fold_port.word_stats_basis_distortion_at
+  (lambda : Slice Std.I64) (theta : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.distortion_at lambda theta
+
+/-- [apeiron_word::fold_port::word_stats_basis_rate_at]:
+    Source: 'fold_port.rs', lines 339:0-344:1
+    Visibility: public -/
+def fold_port.word_stats_basis_rate_at
+  (lambda : Slice Std.I64) (theta : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.rate_at lambda theta
+
+/-- [apeiron_word::fold_port::word_stats_basis_uniform_distortion]:
+    Source: 'fold_port.rs', lines 347:0-353:1
+    Visibility: public -/
+def fold_port.word_stats_basis_uniform_distortion
+  (lambda : Slice Std.I64) (budget_bits : Std.I64) (side_bits : Std.I64) :
+  Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.uniform_distortion lambda budget_bits side_bits
+
+/-- [apeiron_word::fold_port::word_stats_basis_solve_water_fill]:
+    Source: 'fold_port.rs', lines 356:0-362:1
+    Visibility: public -/
+def fold_port.word_stats_basis_solve_water_fill
+  (lambda : Slice Std.I64) (budget_bits : Std.I64) (side_bits : Std.I64) :
+  Result fold_port.stats.basis.WaterFill
+  := do
+  fold_port.stats.basis.solve_water_fill lambda budget_bits side_bits
+
+/-- [apeiron_word::fold_port::word_stats_basis_density_side_bits]:
+    Source: 'fold_port.rs', lines 365:0-367:1
+    Visibility: public -/
+def fold_port.word_stats_basis_density_side_bits
+  (o : Std.Usize) (n : Std.Usize) : Result Std.I64 := do
+  fold_port.stats.basis.Density.side_bits
+    fold_port.stats.basis.Density.Separable o n
+
+/-- [apeiron_word::fold_port::word_stats_basis_density_sigma]:
+    Source: 'fold_port.rs', lines 370:0-376:1
+    Visibility: public -/
+def fold_port.word_stats_basis_density_sigma
+  (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.basis.BasisError)
+  := do
+  fold_port.stats.basis.Density.sigma fold_port.stats.basis.Density.Separable b
+    o n
+
+/-- [apeiron_word::fold_port::word_stats_basis_butterfly_side_bits]:
+    Source: 'fold_port.rs', lines 379:0-381:1
+    Visibility: public -/
+def fold_port.word_stats_basis_butterfly_side_bits
+  (n : Std.Usize) : Result Std.I64 := do
+  fold_port.stats.basis.butterfly_side_bits n
+
+/-- [apeiron_word::fold_port::word_stats_hocapture_softmax_row]:
+    Source: 'fold_port.rs', lines 386:0-390:1
+    Visibility: public -/
+def fold_port.word_stats_hocapture_softmax_row
+  (z : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.stats.hocapture.HocaptureError)
+  := do
+  fold_port.stats.hocapture.softmax_row z
+
+/-- [apeiron_word::fold_port::word_stats_hocapture_cross_entropy_sum]:
+    Source: 'fold_port.rs', lines 393:0-400:1
+    Visibility: public -/
+def fold_port.word_stats_hocapture_cross_entropy_sum
+  (logits : Slice Std.I64) (t : Std.Usize) (vocab : Std.Usize)
+  (targets : Slice Std.U32) :
+  Result (core.result.Result Std.I64 fold_port.stats.hocapture.HocaptureError)
+  := do
+  fold_port.stats.hocapture.cross_entropy_sum logits t vocab targets
+
+/-- [apeiron_word::fold_port::word_stats_hocapture_logits_grad_ce]:
+    Source: 'fold_port.rs', lines 403:0-410:1
+    Visibility: public -/
+def fold_port.word_stats_hocapture_logits_grad_ce
+  (logits : Slice Std.I64) (targets : Slice Std.U32) (vocab : Std.Usize)
+  (out : Slice Std.I64) :
+  Result ((core.result.Result Unit fold_port.stats.hocapture.HocaptureError) ×
+    (Slice Std.I64))
+  := do
+  fold_port.stats.hocapture.logits_grad_ce logits targets vocab out
+
+/-- [apeiron_word::fold_port::word_stats_hocapture_sample_targets]:
+    Source: 'fold_port.rs', lines 413:0-421:1
+    Visibility: public -/
+def fold_port.word_stats_hocapture_sample_targets
+  (logits : Slice Std.I64) (t : Std.Usize) (vocab : Std.Usize) (k : Std.Usize)
+  (seed : Std.U64) :
+  Result (core.result.Result (alloc.vec.Vec Std.U32)
+    fold_port.stats.hocapture.HocaptureError)
+  := do
+  fold_port.stats.hocapture.sample_targets logits t vocab k seed
+
+/-- [apeiron_word::fold_port::word_stats_hocapture_kind_stats_zeros]:
+    Source: 'fold_port.rs', lines 424:0-428:1
+    Visibility: public -/
+def fold_port.word_stats_hocapture_kind_stats_zeros
+  (o : Std.Usize) :
+  Result (core.result.Result fold_port.stats.hocapture.KindStats
+    fold_port.stats.hocapture.HocaptureError)
+  := do
+  fold_port.stats.hocapture.KindStats.zeros o
+
+/-- [apeiron_word::fold_port::word_stats_heldout_score_base_row]:
+    Source: 'fold_port.rs', lines 433:0-440:1
+    Visibility: public -/
+def fold_port.word_stats_heldout_score_base_row
+  (z : Slice Std.I64) (lp : Slice Std.I64) (target : Std.Usize)
+  (base_argmax : Option Std.Usize) :
+  Result (core.result.Result fold_port.stats.heldout.RowSums
+    fold_port.stats.heldout.HeldOutError)
+  := do
+  fold_port.stats.heldout.score_base_row z lp target base_argmax
 
 /-- [apeiron_word::format_port::word_packing_error_from_quant]:
     Source: 'format_port.rs', lines 12:0-16:1

@@ -518,6 +518,25 @@ run_extract() {
         --start-from crate::fold_port::word_fit_r_level \
         --start-from crate::fold_port::word_fit_r_hier_reconstruct \
         --start-from crate::fold_port::word_fit_gram_scale \
+        --start-from crate::fold_port::word_stats_basis_damped_gram \
+        --start-from crate::fold_port::word_stats_basis_identity_basis \
+        --start-from crate::fold_port::word_stats_basis_hadamard_basis \
+        --start-from crate::fold_port::word_stats_basis_row_energies \
+        --start-from crate::fold_port::word_stats_basis_column_energies \
+        --start-from crate::fold_port::word_stats_basis_sum_log_column_energies \
+        --start-from crate::fold_port::word_stats_basis_distortion_at \
+        --start-from crate::fold_port::word_stats_basis_rate_at \
+        --start-from crate::fold_port::word_stats_basis_uniform_distortion \
+        --start-from crate::fold_port::word_stats_basis_solve_water_fill \
+        --start-from crate::fold_port::word_stats_basis_density_side_bits \
+        --start-from crate::fold_port::word_stats_basis_density_sigma \
+        --start-from crate::fold_port::word_stats_basis_butterfly_side_bits \
+        --start-from crate::fold_port::word_stats_hocapture_softmax_row \
+        --start-from crate::fold_port::word_stats_hocapture_cross_entropy_sum \
+        --start-from crate::fold_port::word_stats_hocapture_logits_grad_ce \
+        --start-from crate::fold_port::word_stats_hocapture_sample_targets \
+        --start-from crate::fold_port::word_stats_hocapture_kind_stats_zeros \
+        --start-from crate::fold_port::word_stats_heldout_score_base_row \
         --start-from crate::word_engine_open \
         --start-from crate::word_engine_prefill_state \
         --start-from crate::word_engine_next_token_state \
