@@ -232,6 +232,7 @@ $EXTRACT_DIR/hashtrinity_port.rs
 $EXTRACT_DIR/format_port.rs
 $EXTRACT_DIR/coord_port.rs
 $EXTRACT_DIR/fit_port.rs
+$EXTRACT_DIR/crypto_port.rs
 $REPO_DIR/src/map/hashtrinity/side.rs
 $REPO_DIR/src/map/hashtrinity/overflow.rs
 $EXTRACT_DIR/Cargo.toml
@@ -455,6 +456,31 @@ run_extract() {
         --start-from crate::fit_port::word_fit_steps_had_gram \
         --start-from crate::fit_port::word_fit_steps_compose \
         --start-from crate::fit_port::word_fit_gptq_e8_carrier_feedback_u \
+        --start-from crate::crypto_port::word_crypto_ct_eq \
+        --start-from crate::crypto_port::word_crypto_sha256 \
+        --start-from crate::crypto_port::word_crypto_sha512 \
+        --start-from crate::crypto_port::word_crypto_sha384 \
+        --start-from crate::crypto_port::word_crypto_md5 \
+        --start-from crate::crypto_port::word_crypto_blake2b \
+        --start-from crate::crypto_port::word_crypto_blake2b512 \
+        --start-from crate::crypto_port::word_crypto_ripemd160 \
+        --start-from crate::crypto_port::word_crypto_hash160 \
+        --start-from crate::crypto_port::word_crypto_hmac_sha256 \
+        --start-from crate::crypto_port::word_crypto_hmac_sha512 \
+        --start-from crate::crypto_port::word_crypto_hmac_sha384 \
+        --start-from crate::crypto_port::word_crypto_pbkdf2_sha256 \
+        --start-from crate::crypto_port::word_crypto_hkdf_extract_sha256 \
+        --start-from crate::crypto_port::word_crypto_hkdf_expand_sha256 \
+        --start-from crate::crypto_port::word_crypto_hkdf_sha256 \
+        --start-from crate::crypto_port::word_crypto_hkdf_sha384 \
+        --start-from crate::crypto_port::word_crypto_hkdf_sha512 \
+        --start-from crate::crypto_port::word_crypto_chacha20_block \
+        --start-from crate::crypto_port::word_crypto_ecdsa_p256_verify \
+        --start-from crate::crypto_port::word_crypto_p256_pubkey \
+        --start-from crate::crypto_port::word_crypto_secp256k1_pubkey \
+        --start-from crate::crypto_port::word_crypto_ecdsa_p384_verify \
+        --start-from crate::crypto_port::word_crypto_rsa_pkcs1_sha256_verify \
+        --start-from crate::crypto_port::word_crypto_bech32_convert_bits \
         --start-from crate::coord_port::word_identity_node_iter_next \
         --start-from crate::word_silu_fixed \
         --start-from crate::word_rms_norm_fixed \
