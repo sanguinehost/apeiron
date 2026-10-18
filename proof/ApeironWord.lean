@@ -60788,206 +60788,6 @@ def exchange.accept_derived_impulse
        ok (some e)
   else ok none
 
-/-- [apeiron_word::format_port::bpe::is_nl]:
-    Source: '../../src/format/bpe.rs', lines 418:0-420:1 -/
-def format_port.bpe.is_nl (c : Char) : Result Bool := do
-  if c = '
-'
-  then ok true
-  else ok (c = '
-')
-
-/-- [apeiron_word::format_port::bpe::find_sub]: loop body 1:
-    Source: '../../src/format/bpe.rs', lines 671:8-677:9 -/
-@[rust_loop_body]
-def format_port.bpe.find_sub_loop0_loop0.body
-  (hay : Slice Std.U8) (needle : Slice Std.U8) (i : Std.Usize) (k : Std.Usize)
-  :
-  Result (ControlFlow Std.Usize Bool)
-  := do
-  let i1 := Slice.len needle
-  if k < i1
-  then
-    let i2 ← i + k
-    let i3 ← Slice.index_usize hay i2
-    let i4 ← Slice.index_usize needle k
-    if i3 != i4
-    then ok (done false)
-    else let k1 ← k + 1#usize
-         ok (cont k1)
-  else ok (done true)
-
-/-- [apeiron_word::format_port::bpe::find_sub]: loop 1:
-    Source: '../../src/format/bpe.rs', lines 671:8-677:9 -/
-@[rust_loop]
-def format_port.bpe.find_sub_loop0_loop0
-  (hay : Slice Std.U8) (needle : Slice Std.U8) (i : Std.Usize) (k : Std.Usize)
-  :
-  Result Bool
-  := do
-  loop
-    (fun k1 => format_port.bpe.find_sub_loop0_loop0.body hay needle i k1)
-    k
-
-/-- [apeiron_word::format_port::bpe::find_sub]: loop body 0:
-    Source: '../../src/format/bpe.rs', lines 668:4-682:5 -/
-@[rust_loop_body]
-def format_port.bpe.find_sub_loop0.body
-  (hay : Slice Std.U8) (needle : Slice Std.U8) (found : Option Std.Usize)
-  (i : Std.Usize) :
-  Result (ControlFlow ((Option Std.Usize) × Std.Usize) (Option Std.Usize))
-  := do
-  let i1 := Slice.len needle
-  let i2 ← i + i1
-  let i3 := Slice.len hay
-  if i2 <= i3
-  then
-    let b := core.option.Option.is_none found
-    if b
-    then
-      let ok1 ← format_port.bpe.find_sub_loop0_loop0 hay needle i 0#usize
-      let found1 ← if ok1
-                     then ok (some i)
-                     else ok found
-      let i4 ← i + 1#usize
-      ok (cont (found1, i4))
-    else ok (done found)
-  else ok (done found)
-
-/-- [apeiron_word::format_port::bpe::find_sub]: loop 0:
-    Source: '../../src/format/bpe.rs', lines 668:4-682:5 -/
-@[rust_loop]
-def format_port.bpe.find_sub_loop0
-  (hay : Slice Std.U8) (needle : Slice Std.U8) (found : Option Std.Usize)
-  (i : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  loop
-    (fun (found1, i1) => format_port.bpe.find_sub_loop0.body hay needle found1
-      i1)
-    (found, i)
-
-/-- [apeiron_word::format_port::bpe::find_sub]:
-    Source: '../../src/format/bpe.rs', lines 660:0-684:1 -/
-def format_port.bpe.find_sub
-  (hay : Slice Std.U8) (needle : Slice Std.U8) :
-  Result (Option Std.Usize)
-  := do
-  let i := Slice.len needle
-  if i = 0#usize
-  then ok none
-  else
-    let i1 := Slice.len needle
-    let i2 := Slice.len hay
-    if i1 > i2
-    then ok none
-    else format_port.bpe.find_sub_loop0 hay needle none 0#usize
-
-/-- [apeiron_word::format_port::bpe::contains_nul]: loop body 0:
-    Source: '../../src/format/bpe.rs', lines 692:4-697:5 -/
-@[rust_loop_body]
-def format_port.bpe.contains_nul_loop.body
-  (b : Slice Std.U8) (i : Std.Usize) (found : Bool) :
-  Result (ControlFlow (Std.Usize × Bool) Bool)
-  := do
-  let i1 := Slice.len b
-  if i < i1
-  then
-    let i2 ← Slice.index_usize b i
-    let found1 ← if i2 = 0#u8
-                   then ok true
-                   else ok found
-    let i3 ← i + 1#usize
-    ok (cont (i3, found1))
-  else ok (done found)
-
-/-- [apeiron_word::format_port::bpe::contains_nul]: loop 0:
-    Source: '../../src/format/bpe.rs', lines 692:4-697:5 -/
-@[rust_loop]
-def format_port.bpe.contains_nul_loop
-  (b : Slice Std.U8) (i : Std.Usize) (found : Bool) : Result Bool := do
-  loop
-    (fun (i1, found1) => format_port.bpe.contains_nul_loop.body b i1 found1)
-    (i, found)
-
-/-- [apeiron_word::format_port::bpe::contains_nul]:
-    Source: '../../src/format/bpe.rs', lines 686:0-699:1 -/
-def format_port.bpe.contains_nul (s : Str) : Result Bool := do
-  let b ← core.str.Str.as_bytes s
-  format_port.bpe.contains_nul_loop b 0#usize false
-
-/-- [apeiron_word::format_port::bpe::hex_val]:
-    Source: '../../src/format/bpe.rs', lines 822:0-829:1 -/
-def format_port.bpe.hex_val (c : Std.U8) : Result (Option Std.U32) := do
-  if 48#u8 <= c
-  then
-    if c <= 57#u8
-    then let i ← c - 48#u8
-         let i1 ← lift (UScalar.cast .U32 i)
-         ok (some i1)
-    else
-      if 97#u8 <= c
-      then
-        if c <= 102#u8
-        then
-          let i ← c - 97#u8
-          let i1 ← lift (UScalar.cast .U32 i)
-          let i2 ← i1 + 10#u32
-          ok (some i2)
-        else
-          if 65#u8 <= c
-          then
-            if c <= 70#u8
-            then
-              let i ← c - 65#u8
-              let i1 ← lift (UScalar.cast .U32 i)
-              let i2 ← i1 + 10#u32
-              ok (some i2)
-            else ok none
-          else ok none
-      else
-        if 65#u8 <= c
-        then
-          if c <= 70#u8
-          then
-            let i ← c - 65#u8
-            let i1 ← lift (UScalar.cast .U32 i)
-            let i2 ← i1 + 10#u32
-            ok (some i2)
-          else ok none
-        else ok none
-  else
-    if 97#u8 <= c
-    then
-      if c <= 102#u8
-      then
-        let i ← c - 97#u8
-        let i1 ← lift (UScalar.cast .U32 i)
-        let i2 ← i1 + 10#u32
-        ok (some i2)
-      else
-        if 65#u8 <= c
-        then
-          if c <= 70#u8
-          then
-            let i ← c - 65#u8
-            let i1 ← lift (UScalar.cast .U32 i)
-            let i2 ← i1 + 10#u32
-            ok (some i2)
-          else ok none
-        else ok none
-    else
-      if 65#u8 <= c
-      then
-        if c <= 70#u8
-        then
-          let i ← c - 65#u8
-          let i1 ← lift (UScalar.cast .U32 i)
-          let i2 ← i1 + 10#u32
-          ok (some i2)
-        else ok none
-      else ok none
-
 /-- [apeiron_word::packing::ONE]
     Source: '../../src/format/packing.rs', lines 30:0-30:29
     Visibility: public -/
@@ -66802,2212 +66602,6 @@ def learn_port.e8.nearest
   let i ← engine.ONE
   learn_port.e8.nearest_scaled x i
 
-/-- [apeiron_word::fold_finish_port::finish::plane::ONE]
-    Source: '../../src/learn/fold/finish/plane.rs', lines 61:0-61:36 -/
-@[global_simps, irreducible]
-def fold_finish_port.finish.plane.ONE : Result Std.I64 := 1#i64 <<< 32#i32
-
-/-- [apeiron_word::solve_port::q32::narrow]:
-    Source: '../../src/learn/solve/q32.rs', lines 222:0-228:1
-    Visibility: public -/
-def solve_port.q32.narrow (v : Std.I128) : Result (Option Std.I64) := do
-  let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
-  if v > i
-  then ok none
-  else
-    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
-    if v < i1
-    then ok none
-    else let i2 ← lift (IScalar.cast .I64 v)
-         ok (some i2)
-
-/-- [apeiron_word::solve_port::q32::rshift_rne]:
-    Source: '../../src/learn/solve/q32.rs', lines 183:0-212:1
-    Visibility: public -/
-def solve_port.q32.rshift_rne
-  (v : Std.I128) (s : Std.U32) : Result (Option Std.I128) := do
-  if s > 126#u32
-  then ok none
-  else
-    if s = 0#u32
-    then ok (some v)
-    else
-      let d ← 1#i128 <<< s
-      let i ← s - 1#u32
-      let half ← 1#i128 <<< i
-      let q ← v / d
-      let r ← v % d
-      if r = 0#i128
-      then ok (some q)
-      else
-        let mag ← if r > 0#i128
-                    then ok r
-                    else -. r
-        let step ←
-          if mag > half
-          then if r > 0#i128
-               then ok 1#i128
-               else ok (-1)#i128
-          else
-            if mag < half
-            then ok 0#i128
-            else
-              do
-              let i1 ← q % 2#i128
-              if i1 = 0#i128
-              then ok 0#i128
-              else if r > 0#i128
-                   then ok 1#i128
-                   else ok (-1)#i128
-        let i1 ← q + step
-        ok (some i1)
-
-/-- [apeiron_word::solve_port::q32::Q32Error]
-    Source: '../../src/learn/solve/q32.rs', lines 142:0-151:1
-    Visibility: public -/
-@[discriminant isize]
-inductive solve_port.q32.Q32Error where
-| Overflow : solve_port.q32.Q32Error
-| NotSpd : solve_port.q32.Q32Error
-| Asymmetric : solve_port.q32.Q32Error
-| ShapeMismatch : solve_port.q32.Q32Error
-
-/-- [apeiron_word::solve_port::q32::round_q32_even]:
-    Source: '../../src/learn/solve/q32.rs', lines 250:0-255:1
-    Visibility: public -/
-def solve_port.q32.round_q32_even
-  (v : Std.I128) :
-  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
-  := do
-  let o ← solve_port.q32.rshift_rne v 32#u32
-  match o with
-  | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
-  | some r =>
-    let o1 ← solve_port.q32.narrow r
-    core.option.Option.ok_or o1 solve_port.q32.Q32Error.Overflow
-
-/-- [apeiron_word::fold_finish_port::finish::plane::mul]:
-    Source: '../../src/learn/fold/finish/plane.rs', lines 67:0-69:1 -/
-def fold_finish_port.finish.plane.mul
-  (a : Std.I64) (b : Std.I64) : Result (Option Std.I64) := do
-  let i ← lift (core.convert.num.FromI128I64.from a)
-  let i1 ← lift (core.convert.num.FromI128I64.from b)
-  let i2 ← i * i1
-  let r ← solve_port.q32.round_q32_even i2
-  core.result.Result.ok r
-
-/-- [apeiron_word::fold_finish_port::finish::plane::div_ne]:
-    Source: '../../src/learn/fold/finish/plane.rs', lines 72:0-90:1 -/
-def fold_finish_port.finish.plane.div_ne
-  (n : Std.I128) (d : Std.I128) : Result (Option Std.I128) := do
-  if d = 0#i128
-  then ok none
-  else
-    let q ← n / d
-    let r ← n % d
-    if r = 0#i128
-    then ok (some q)
-    else
-      let i ← core.num.I128.abs r
-      let o ← lift (I128.checked_mul i 2#i128)
-      let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
-      match cf with
-      | core.ops.control_flow.ControlFlow.Continue val =>
-        let i1 ← core.num.I128.abs d
-        let up ←
-          if val > i1
-          then if (r < 0#i128) = (d < 0#i128)
-               then ok 1#i128
-               else ok (-1)#i128
-          else
-            do
-            let i2 ← i * 2#i128
-            if i2 = i1
-            then
-              let i3 ← q % 2#i128
-              if i3 != 0#i128
-              then
-                if (r < 0#i128) = (d < 0#i128)
-                then ok 1#i128
-                else ok (-1)#i128
-              else ok 0#i128
-            else ok 0#i128
-        ok (I128.checked_add q up)
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
-          Std.I128 residual
-
-/-- [apeiron_word::fold_finish_port::finish::plane::div]:
-    Source: '../../src/learn/fold/finish/plane.rs', lines 93:0-95:1 -/
-def fold_finish_port.finish.plane.div
-  (a : Std.I64) (b : Std.I64) : Result (Option Std.I64) := do
-  let i ← lift (core.convert.num.FromI128I64.from a)
-  let i1 ← i <<< 32#i32
-  let i2 ← lift (core.convert.num.FromI128I64.from b)
-  let o ← fold_finish_port.finish.plane.div_ne i1 i2
-  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
-  match cf with
-  | core.ops.control_flow.ControlFlow.Continue val => solve_port.q32.narrow val
-  | core.ops.control_flow.ControlFlow.Break residual =>
-    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
-      Std.I64 residual
-
-/-- [apeiron_word::fold_finish_port::finish::plane::PlaneError]
-    Source: '../../src/learn/fold/finish/plane.rs', lines 99:0-107:1
-    Visibility: public -/
-@[discriminant isize]
-inductive fold_finish_port.finish.plane.PlaneError where
-| Shape : fold_finish_port.finish.plane.PlaneError
-| RowOutOfRange : fold_finish_port.finish.plane.PlaneError
-| Range : fold_finish_port.finish.plane.PlaneError
-
-/-- [apeiron_word::fold_finish_port::finish::plane::CodedPlane]
-    Source: '../../src/learn/fold/finish/plane.rs', lines 116:0-143:1
-    Visibility: public -/
-structure fold_finish_port.finish.plane.CodedPlane where
-  o : Std.Usize
-  n : Std.Usize
-  idx : alloc.vec.Vec Std.U8
-  s_fix : Option (alloc.vec.Vec Std.I64)
-  rows : Option (alloc.vec.Vec Std.Usize)
-  lo : alloc.vec.Vec Std.I64
-  sp : alloc.vec.Vec Std.I64
-  r0 : alloc.vec.Vec Std.I64
-  c0 : alloc.vec.Vec Std.I64
-  d0 : alloc.vec.Vec Std.I64
-  pa : alloc.vec.Vec Std.I64
-  pb : alloc.vec.Vec Std.I64
-  pd : alloc.vec.Vec Std.I64
-
-/-- [apeiron_word::fold_finish_port::finish::train::BETA1_Q32]
-    Source: '../../src/learn/fold/finish/train.rs', lines 97:0-97:37 -/
-@[global_simps, irreducible]
-def fold_finish_port.finish.train.BETA1_Q32 : Std.I64 := 3865470566#i64
-
-/-- [apeiron_word::fold_finish_port::finish::train::ONE_MINUS_BETA1_Q32]
-    Source: '../../src/learn/fold/finish/train.rs', lines 100:0-100:45 -/
-@[global_simps, irreducible]
-def fold_finish_port.finish.train.ONE_MINUS_BETA1_Q32 : Std.I64 :=
-  429496730#i64
-
-/-- [apeiron_word::fold_finish_port::finish::train::BETA2_Q32]
-    Source: '../../src/learn/fold/finish/train.rs', lines 103:0-103:37 -/
-@[global_simps, irreducible]
-def fold_finish_port.finish.train.BETA2_Q32 : Std.I64 := 4290672329#i64
-
-/-- [apeiron_word::fold_finish_port::finish::train::ONE_MINUS_BETA2_Q32]
-    Source: '../../src/learn/fold/finish/train.rs', lines 106:0-106:43 -/
-@[global_simps, irreducible]
-def fold_finish_port.finish.train.ONE_MINUS_BETA2_Q32 : Std.I64 := 4294967#i64
-
-/-- [apeiron_word::fold_finish_port::finish::train::ADAM_EPS_Q32]
-    Source: '../../src/learn/fold/finish/train.rs', lines 109:0-109:29 -/
-@[global_simps, irreducible]
-def fold_finish_port.finish.train.ADAM_EPS_Q32 : Std.I64 := 43#i64
-
-/-- [apeiron_word::fold_finish_port::finish::train::BIAS_SCALE_MIN_Q32]
-    Source: '../../src/learn/fold/finish/train.rs', lines 112:0-112:42 -/
-@[global_simps, irreducible]
-def fold_finish_port.finish.train.BIAS_SCALE_MIN_Q32 : Std.I64 := 4294967#i64
-
-/-- [apeiron_word::fold_finish_port::finish::train::TENTH_Q32]
-    Source: '../../src/learn/fold/finish/train.rs', lines 115:0-115:35 -/
-@[global_simps, irreducible]
-def fold_finish_port.finish.train.TENTH_Q32 : Std.I64 := 429496730#i64
-
-/-- [apeiron_word::fold_finish_port::finish::train::COS_AMPL_Q32]
-    Source: '../../src/learn/fold/finish/train.rs', lines 118:0-118:40 -/
-@[global_simps, irreducible]
-def fold_finish_port.finish.train.COS_AMPL_Q32 : Std.I64 := 1932735283#i64
-
-/-- [apeiron_word::fold_finish_port::finish::train::PI_Q32]
-    Source: '../../src/learn/fold/finish/train.rs', lines 121:0-121:35 -/
-@[global_simps, irreducible]
-def fold_finish_port.finish.train.PI_Q32 : Std.I64 := 13493037705#i64
-
-/-- [apeiron_word::fold_finish_port::finish::train::N_KINDS]
-    Source: '../../src/learn/fold/finish/train.rs', lines 124:0-124:29
-    Visibility: public -/
-@[global_simps, irreducible]
-def fold_finish_port.finish.train.N_KINDS : Std.Usize := 7#usize
-
-/-- [apeiron_word::learn_port::dense::DenseError]
-    Source: '../../src/learn/grad/dense.rs', lines 43:0-53:1
-    Visibility: public -/
-@[discriminant isize]
-inductive learn_port.dense.DenseError where
-| Empty : learn_port.dense.DenseError
-| Shape : learn_port.dense.DenseError
-| Overflow : learn_port.dense.DenseError
-| Range : learn_port.dense.DenseError
-
-/-- [apeiron_word::learn_port::attn::AttnError]
-    Source: '../../src/learn/grad/attn.rs', lines 47:0-61:1
-    Visibility: public -/
-@[discriminant isize]
-inductive learn_port.attn.AttnError where
-| BadShape : learn_port.attn.AttnError
-| Overflow : learn_port.attn.AttnError
-| ExpOutOfRange : learn_port.attn.AttnError
-| RsqrtOutOfRange : learn_port.attn.AttnError
-| Rope : rope.RopeError → learn_port.attn.AttnError
-
-/-- [apeiron_word::grad_solve_port::model::ModelError]
-    Source: '../../src/learn/grad/model.rs', lines 60:0-75:1
-    Visibility: public -/
-@[discriminant isize]
-inductive grad_solve_port.model.ModelError where
-| Shape : String → grad_solve_port.model.ModelError
-| Overflow : grad_solve_port.model.ModelError
-| Missing : String → grad_solve_port.model.ModelError
-| Engine : error.EngineError → grad_solve_port.model.ModelError
-| Config : String → grad_solve_port.model.ModelError
-| Dense : learn_port.dense.DenseError → grad_solve_port.model.ModelError
-| Attn : learn_port.attn.AttnError → grad_solve_port.model.ModelError
-
-/-- [apeiron_word::learn_port::head::HeadError]
-    Source: '../../src/learn/grad/head.rs', lines 52:0-63:1
-    Visibility: public -/
-@[discriminant isize]
-inductive learn_port.head.HeadError where
-| Shape : learn_port.head.HeadError
-| Overflow : learn_port.head.HeadError
-| Exp : fixed_exp.ExpError → learn_port.head.HeadError
-| Ln : fixed_ln.LnError → learn_port.head.HeadError
-
-/-- [apeiron_word::fold_finish_port::finish::train::TrainError]
-    Source: '../../src/learn/fold/finish/train.rs', lines 132:0-145:1
-    Visibility: public -/
-@[discriminant isize]
-inductive fold_finish_port.finish.train.TrainError where
-| Shape : String → fold_finish_port.finish.train.TrainError
-| Range : String → fold_finish_port.finish.train.TrainError
-| Overflow : fold_finish_port.finish.train.TrainError
-| Plane :
-  fold_finish_port.finish.plane.PlaneError →
-  fold_finish_port.finish.train.TrainError
-| Model :
-  grad_solve_port.model.ModelError →
-  fold_finish_port.finish.train.TrainError
-| Head : learn_port.head.HeadError → fold_finish_port.finish.train.TrainError
-
-/-- [apeiron_word::fold_finish_port::finish::train::abs_sum]: loop body 0:
-    Source: '../../src/learn/fold/finish/train.rs', lines 268:4-271:5 -/
-@[rust_loop_body]
-def fold_finish_port.finish.train.abs_sum_loop.body
-  (base : Slice Std.I64) (acc : Std.I128) (i : Std.Usize) :
-  Result (ControlFlow (Std.I128 × Std.Usize) Std.I128)
-  := do
-  let i1 := Slice.len base
-  if i < i1
-  then
-    let i2 ← Slice.index_usize base i
-    let i3 ← lift (core.convert.num.FromI128I64.from i2)
-    let i4 ← core.num.I128.abs i3
-    let acc1 ← acc + i4
-    let i5 ← i + 1#usize
-    ok (cont (acc1, i5))
-  else ok (done acc)
-
-/-- [apeiron_word::fold_finish_port::finish::train::abs_sum]: loop 0:
-    Source: '../../src/learn/fold/finish/train.rs', lines 268:4-271:5 -/
-@[rust_loop]
-def fold_finish_port.finish.train.abs_sum_loop
-  (base : Slice Std.I64) (acc : Std.I128) (i : Std.Usize) :
-  Result Std.I128
-  := do
-  loop
-    (fun (acc1, i1) => fold_finish_port.finish.train.abs_sum_loop.body base
-      acc1 i1)
-    (acc, i)
-
-/-- [apeiron_word::fold_finish_port::finish::train::abs_sum]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 265:0-273:1 -/
-@[reducible]
-def fold_finish_port.finish.train.abs_sum
-  (base : Slice Std.I64) : Result Std.I128 := do
-  fold_finish_port.finish.train.abs_sum_loop base 0#i128 0#usize
-
-/-- [apeiron_word::fold_finish_port::finish::train::bias_scale]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 280:0-289:1 -/
-def fold_finish_port.finish.train.bias_scale
-  (base : Slice Std.I64) : Result Std.I64 := do
-  let b ← core.slice.Slice.is_empty base
-  if b
-  then ok fold_finish_port.finish.train.BIAS_SCALE_MIN_Q32
-  else
-    let i ← fold_finish_port.finish.train.abs_sum base
-    let i1 := Slice.len base
-    let i2 ← lift (UScalar.hcast .I128 i1)
-    let o ← fold_finish_port.finish.plane.div_ne i i2
-    let mean ← lift (core.option.Option.unwrap_or o 0#i128)
-    let o1 ← solve_port.q32.narrow mean
-    match o1 with
-    | none => ok fold_finish_port.finish.train.BIAS_SCALE_MIN_Q32
-    | some v =>
-      if v > fold_finish_port.finish.train.BIAS_SCALE_MIN_Q32
-      then ok v
-      else ok fold_finish_port.finish.train.BIAS_SCALE_MIN_Q32
-
-/-- [apeiron_word::fold_finish_port::finish::train::Linear]
-    Source: '../../src/learn/fold/finish/train.rs', lines 294:0-303:1
-    Visibility: public -/
-structure fold_finish_port.finish.train.Linear where
-  planes : alloc.vec.Vec fold_finish_port.finish.plane.CodedPlane
-  extra : Option (alloc.vec.Vec Std.I64)
-  o_total : Std.Usize
-  n : Std.Usize
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Linear}::new]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 307:4-314:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Linear.new
-  (o_total : Std.Usize) (n : Std.Usize) :
-  Result fold_finish_port.finish.train.Linear
-  := do
-  ok
-    {
-      planes := (alloc.vec.Vec.new fold_finish_port.finish.plane.CodedPlane),
-      extra := none,
-      o_total,
-      n
-    }
-
-/-- [apeiron_word::fold_finish_port::finish::train::Planes]
-    Source: '../../src/learn/fold/finish/train.rs', lines 320:0-323:1
-    Visibility: public -/
-structure fold_finish_port.finish.train.Planes where
-  layers : alloc.vec.Vec (alloc.vec.Vec fold_finish_port.finish.train.Linear)
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Planes}::new]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 327:4-329:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Planes.new
-  (layers : alloc.vec.Vec (alloc.vec.Vec fold_finish_port.finish.train.Linear))
-  :
-  Result fold_finish_port.finish.train.Planes
-  := do
-  ok { layers }
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Planes}::linear]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 335:4-350:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Planes.linear
-  (self : fold_finish_port.finish.train.Planes) (l : Std.Usize) (k : Std.Usize)
-  :
-  Result (core.result.Result fold_finish_port.finish.train.Linear
-    fold_finish_port.finish.train.TrainError)
-  := do
-  if k >= fold_finish_port.finish.train.N_KINDS
-  then
-    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay k
-    let a1 ←
-      core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay
-        fold_finish_port.finish.train.N_KINDS
-    let a2 ←
-      core.fmt.Arguments.new
-        (Array.make 21#usize [
-          12#u8, 108#u8, 105#u8, 110#u8, 101#u8, 97#u8, 114#u8, 32#u8, 107#u8,
-          105#u8, 110#u8, 100#u8, 32#u8, 192#u8, 4#u8, 32#u8, 62#u8, 61#u8,
-          32#u8, 192#u8, 0#u8
-          ]) (Array.make 2#usize [ a, a1 ])
-    let s ← alloc.fmt.format a2
-    let s1 ← core.hint.must_use s
-    ok (core.result.Result.Err (fold_finish_port.finish.train.TrainError.Shape
-      s1))
-  else
-    let s := alloc.vec.Vec.deref self.layers
-    let o ←
-      core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice
-        (alloc.vec.Vec fold_finish_port.finish.train.Linear)) s l
-    match o with
-    | none =>
-      let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay l
-      let a1 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay k
-      let a2 ←
-        core.fmt.Arguments.new
-          (Array.make 31#usize [
-            12#u8, 112#u8, 108#u8, 97#u8, 110#u8, 101#u8, 32#u8, 108#u8, 97#u8,
-            121#u8, 101#u8, 114#u8, 32#u8, 192#u8, 6#u8, 32#u8, 107#u8, 105#u8,
-            110#u8, 100#u8, 32#u8, 192#u8, 7#u8, 32#u8, 97#u8, 98#u8, 115#u8,
-            101#u8, 110#u8, 116#u8, 0#u8
-            ]) (Array.make 2#usize [ a, a1 ])
-      let s1 ← alloc.fmt.format a2
-      let s2 ← core.hint.must_use s1
-      ok (core.result.Result.Err
-        (fold_finish_port.finish.train.TrainError.Shape s2))
-    | some row =>
-      let s1 := alloc.vec.Vec.deref row
-      let o1 ←
-        core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice
-          fold_finish_port.finish.train.Linear) s1 k
-      match o1 with
-      | none =>
-        let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay l
-        let a1 ←
-          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay k
-        let a2 ←
-          core.fmt.Arguments.new
-            (Array.make 31#usize [
-              12#u8, 112#u8, 108#u8, 97#u8, 110#u8, 101#u8, 32#u8, 108#u8,
-              97#u8, 121#u8, 101#u8, 114#u8, 32#u8, 192#u8, 6#u8, 32#u8,
-              107#u8, 105#u8, 110#u8, 100#u8, 32#u8, 192#u8, 7#u8, 32#u8,
-              97#u8, 98#u8, 115#u8, 101#u8, 110#u8, 116#u8, 0#u8
-              ]) (Array.make 2#usize [ a, a1 ])
-        let s2 ← alloc.fmt.format a2
-        let s3 ← core.hint.must_use s2
-        ok (core.result.Result.Err
-          (fold_finish_port.finish.train.TrainError.Shape s3))
-      | some lin => ok (core.result.Result.Ok lin)
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Planes}::linear_mut]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 356:4-371:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Planes.linear_mut
-  (self : fold_finish_port.finish.train.Planes) (l : Std.Usize) (k : Std.Usize)
-  :
-  Result ((core.result.Result fold_finish_port.finish.train.Linear
-    fold_finish_port.finish.train.TrainError) × (core.result.Result
-    fold_finish_port.finish.train.Linear
-    fold_finish_port.finish.train.TrainError →
-    fold_finish_port.finish.train.Planes))
-  := do
-  if k >= fold_finish_port.finish.train.N_KINDS
-  then
-    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay k
-    let a1 ←
-      core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay
-        fold_finish_port.finish.train.N_KINDS
-    let a2 ←
-      core.fmt.Arguments.new
-        (Array.make 21#usize [
-          12#u8, 108#u8, 105#u8, 110#u8, 101#u8, 97#u8, 114#u8, 32#u8, 107#u8,
-          105#u8, 110#u8, 100#u8, 32#u8, 192#u8, 4#u8, 32#u8, 62#u8, 61#u8,
-          32#u8, 192#u8, 0#u8
-          ]) (Array.make 2#usize [ a, a1 ])
-    let s ← alloc.fmt.format a2
-    let s1 ← core.hint.must_use s
-    let back := fun r => self
-    ok (core.result.Result.Err (fold_finish_port.finish.train.TrainError.Shape
-      s1), back)
-  else
-    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut self.layers)
-    let (o, get_mut_back) ←
-      core.slice.Slice.get_mut (core.slice.index.SliceIndexUsizeSlice
-        (alloc.vec.Vec fold_finish_port.finish.train.Linear)) s l
-    match o with
-    | none =>
-      let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay l
-      let a1 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay k
-      let a2 ←
-        core.fmt.Arguments.new
-          (Array.make 31#usize [
-            12#u8, 112#u8, 108#u8, 97#u8, 110#u8, 101#u8, 32#u8, 108#u8, 97#u8,
-            121#u8, 101#u8, 114#u8, 32#u8, 192#u8, 6#u8, 32#u8, 107#u8, 105#u8,
-            110#u8, 100#u8, 32#u8, 192#u8, 7#u8, 32#u8, 97#u8, 98#u8, 115#u8,
-            101#u8, 110#u8, 116#u8, 0#u8
-            ]) (Array.make 2#usize [ a, a1 ])
-      let s1 ← alloc.fmt.format a2
-      let s2 ← core.hint.must_use s1
-      let back :=
-        fun r =>
-          let s3 := get_mut_back none
-          let v := deref_mut_back s3
-          ({ layers := v } : fold_finish_port.finish.train.Planes)
-      ok (core.result.Result.Err
-        (fold_finish_port.finish.train.TrainError.Shape s2), back)
-    | some row =>
-      let (s1, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut row)
-      let (o1, get_mut_back1) ←
-        core.slice.Slice.get_mut (core.slice.index.SliceIndexUsizeSlice
-          fold_finish_port.finish.train.Linear) s1 k
-      match o1 with
-      | none =>
-        let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay l
-        let a1 ←
-          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay k
-        let a2 ←
-          core.fmt.Arguments.new
-            (Array.make 31#usize [
-              12#u8, 112#u8, 108#u8, 97#u8, 110#u8, 101#u8, 32#u8, 108#u8,
-              97#u8, 121#u8, 101#u8, 114#u8, 32#u8, 192#u8, 6#u8, 32#u8,
-              107#u8, 105#u8, 110#u8, 100#u8, 32#u8, 192#u8, 7#u8, 32#u8,
-              97#u8, 98#u8, 115#u8, 101#u8, 110#u8, 116#u8, 0#u8
-              ]) (Array.make 2#usize [ a, a1 ])
-        let s2 ← alloc.fmt.format a2
-        let s3 ← core.hint.must_use s2
-        let back :=
-          fun r =>
-            let s4 := get_mut_back1 none
-            let row1 := deref_mut_back1 s4
-            let s5 := get_mut_back (some row1)
-            let v := deref_mut_back s5
-            ({ layers := v } : fold_finish_port.finish.train.Planes)
-        ok (core.result.Result.Err
-          (fold_finish_port.finish.train.TrainError.Shape s3), back)
-      | some lin =>
-        let back :=
-          fun r =>
-            let l1 := match r with
-                      | core.result.Result.Ok l2 => l2
-                      | _ => lin
-            let s2 := get_mut_back1 (some l1)
-            let row1 := deref_mut_back1 s2
-            let s3 := get_mut_back (some row1)
-            let v := deref_mut_back s3
-            ({ layers := v } : fold_finish_port.finish.train.Planes)
-        ok (core.result.Result.Ok lin, back)
-
-/-- [apeiron_word::fold_finish_port::finish::train::LayerTuned]
-    Source: '../../src/learn/fold/finish/train.rs', lines 377:0-388:1
-    Visibility: public -/
-structure fold_finish_port.finish.train.LayerTuned where
-  ln1 : alloc.vec.Vec Std.I64
-  ln2 : alloc.vec.Vec Std.I64
-  qb : alloc.vec.Vec Std.I64
-  kb : alloc.vec.Vec Std.I64
-  vb : alloc.vec.Vec Std.I64
-
-/-- [apeiron_word::fold_finish_port::finish::train::LayerTunables]
-    Source: '../../src/learn/fold/finish/train.rs', lines 392:0-413:1
-    Visibility: public -/
-structure fold_finish_port.finish.train.LayerTunables where
-  ln1 : alloc.vec.Vec Std.I64
-  ln1_d : alloc.vec.Vec Std.I64
-  ln2 : alloc.vec.Vec Std.I64
-  ln2_d : alloc.vec.Vec Std.I64
-  qb : alloc.vec.Vec Std.I64
-  qb_d : alloc.vec.Vec Std.I64
-  kb : alloc.vec.Vec Std.I64
-  kb_d : alloc.vec.Vec Std.I64
-  vb : alloc.vec.Vec Std.I64
-  vb_d : alloc.vec.Vec Std.I64
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::LayerTunables}::new]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 419:4-437:5
-    Visibility: public -/
-def fold_finish_port.finish.train.LayerTunables.new
-  (ln1 : Slice Std.I64) (ln2 : Slice Std.I64) (qb : Slice Std.I64)
-  (kb : Slice Std.I64) (vb : Slice Std.I64) :
-  Result fold_finish_port.finish.train.LayerTunables
-  := do
-  let q_ln1 ← alloc.slice.Slice.to_vec core.clone.CloneI64 ln1
-  let q_ln2 ← alloc.slice.Slice.to_vec core.clone.CloneI64 ln2
-  let q_qb ← alloc.slice.Slice.to_vec core.clone.CloneI64 qb
-  let q_kb ← alloc.slice.Slice.to_vec core.clone.CloneI64 kb
-  let q_vb ← alloc.slice.Slice.to_vec core.clone.CloneI64 vb
-  let i := alloc.vec.Vec.len q_ln1
-  let v ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
-  let i1 := alloc.vec.Vec.len q_ln2
-  let v1 ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
-  let i2 := alloc.vec.Vec.len q_qb
-  let v2 ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i2
-  let i3 := alloc.vec.Vec.len q_kb
-  let v3 ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i3
-  let i4 := alloc.vec.Vec.len q_vb
-  let v4 ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i4
-  ok
-    {
-      ln1 := q_ln1,
-      ln1_d := v,
-      ln2 := q_ln2,
-      ln2_d := v1,
-      qb := q_qb,
-      qb_d := v2,
-      kb := q_kb,
-      kb_d := v3,
-      vb := q_vb,
-      vb_d := v4
-    }
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::LayerTunables}::bias_scale]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 440:4-446:5
-    Visibility: public -/
-def fold_finish_port.finish.train.LayerTunables.bias_scale
-  (self : fold_finish_port.finish.train.LayerTunables) (which : Std.Usize) :
-  Result Std.I64
-  := do
-  match which.val with
-  | 0 =>
-    let s := alloc.vec.Vec.deref self.qb
-    fold_finish_port.finish.train.bias_scale s
-  | 1 =>
-    let s := alloc.vec.Vec.deref self.kb
-    fold_finish_port.finish.train.bias_scale s
-  | _ =>
-    let s := alloc.vec.Vec.deref self.vb
-    fold_finish_port.finish.train.bias_scale s
-
-/-- [apeiron_word::fold_finish_port::finish::train::add_scaled::{closure}]
-    Source: '../../src/learn/fold/finish/train.rs', lines 861:38-861:64 -/
-def fold_finish_port.finish.train.add_scaled.closure :=
-  Slice Std.I64 × Std.Usize
-
-/-- [apeiron_word::fold_finish_port::finish::train::add_scaled::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::add_scaled::{closure}<'_0, '_1>}::call_once]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 861:38-861:64 -/
-def
-  fold_finish_port.finish.train.add_scaled.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
-  (c : fold_finish_port.finish.train.add_scaled.closure)
-  (tupled_args : Std.I64) :
-  Result (Option Std.I64)
-  := do
-  let (s, i) := c
-  let i1 ← Slice.index_usize s i
-  ok (I64.checked_add i1 tupled_args)
-
-/-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::add_scaled::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::add_scaled::{closure}<'_0, '_1>}]
-    Source: '../../src/learn/fold/finish/train.rs', lines 861:38-861:64 -/
-@[reducible]
-def
-  fold_finish_port.finish.train.add_scaled.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
-  : core.ops.function.FnOnce fold_finish_port.finish.train.add_scaled.closure
-  Std.I64 (Option Std.I64) := {
-  call_once :=
-    fold_finish_port.finish.train.add_scaled.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
-}
-
-/-- [apeiron_word::fold_finish_port::finish::train::add_scaled]: loop body 0:
-    Source: '../../src/learn/fold/finish/train.rs', lines 860:4-866:5 -/
-@[rust_loop_body]
-def fold_finish_port.finish.train.add_scaled_loop.body
-  (base : Slice Std.I64) (off : Slice Std.I64) (s : Std.I64) (len : Std.Usize)
-  (out : alloc.vec.Vec Std.I64) (bad : Bool) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Bool × Std.Usize)
-    ((alloc.vec.Vec Std.I64) × Bool))
-  := do
-  if i < len
-  then
-    if bad
-    then ok (done (out, true))
-    else
-      let i1 ← Slice.index_usize off i
-      let o ← fold_finish_port.finish.plane.mul i1 s
-      let o1 ←
-        core.option.Option.and_then
-          fold_finish_port.finish.train.add_scaled.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
-          o (base, i)
-      let (out1, bad1) ←
-        match o1 with
-        | none => ok (out, true)
-        | some v => do
-                    let out2 ← alloc.vec.Vec.push out v
-                    ok (out2, false)
-      let i2 ← i + 1#usize
-      ok (cont (out1, bad1, i2))
-  else ok (done (out, bad))
-
-/-- [apeiron_word::fold_finish_port::finish::train::add_scaled]: loop 0:
-    Source: '../../src/learn/fold/finish/train.rs', lines 860:4-866:5 -/
-@[rust_loop]
-def fold_finish_port.finish.train.add_scaled_loop
-  (base : Slice Std.I64) (off : Slice Std.I64) (s : Std.I64) (len : Std.Usize)
-  (out : alloc.vec.Vec Std.I64) (bad : Bool) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × Bool)
-  := do
-  loop
-    (fun (out1, bad1, i1) => fold_finish_port.finish.train.add_scaled_loop.body
-      base off s len out1 bad1 i1)
-    (out, bad, i)
-
-/-- [apeiron_word::fold_finish_port::finish::train::add_scaled]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 852:0-871:1 -/
-def fold_finish_port.finish.train.add_scaled
-  (base : Slice Std.I64) (off : Slice Std.I64) (s : Std.I64) :
-  Result (alloc.vec.Vec Std.I64)
-  := do
-  let i := Slice.len base
-  let i1 := Slice.len off
-  let len ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i i1
-  if len = 0#usize
-  then ok (alloc.vec.Vec.new Std.I64)
-  else
-    let out := alloc.vec.Vec.with_capacity Std.I64 len
-    let (out1, bad) ←
-      fold_finish_port.finish.train.add_scaled_loop base off s len out false
-        0#usize
-    if bad
-    then ok (alloc.vec.Vec.new Std.I64)
-    else ok out1
-
-/-- [apeiron_word::fold_finish_port::finish::train::scale_exp::{closure}]
-    Source: '../../src/learn/fold/finish/train.rs', lines 839:46-839:65 -/
-def fold_finish_port.finish.train.scale_exp.closure :=
-  Slice Std.I64 × Std.Usize
-
-/-- [apeiron_word::fold_finish_port::finish::train::scale_exp::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::scale_exp::{closure}<'_0, '_1>}::call_once]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 839:46-839:65 -/
-def
-  fold_finish_port.finish.train.scale_exp.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
-  (c : fold_finish_port.finish.train.scale_exp.closure) (tupled_args : Std.I64)
-  :
-  Result (Option Std.I64)
-  := do
-  let (s, i) := c
-  let i1 ← Slice.index_usize s i
-  fold_finish_port.finish.plane.mul i1 tupled_args
-
-/-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::scale_exp::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::scale_exp::{closure}<'_0, '_1>}]
-    Source: '../../src/learn/fold/finish/train.rs', lines 839:46-839:65 -/
-@[reducible]
-def
-  fold_finish_port.finish.train.scale_exp.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
-  : core.ops.function.FnOnce fold_finish_port.finish.train.scale_exp.closure
-  Std.I64 (Option Std.I64) := {
-  call_once :=
-    fold_finish_port.finish.train.scale_exp.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
-}
-
-/-- [apeiron_word::fold_finish_port::finish::train::scale_exp]: loop body 0:
-    Source: '../../src/learn/fold/finish/train.rs', lines 838:4-844:5 -/
-@[rust_loop_body]
-def fold_finish_port.finish.train.scale_exp_loop.body
-  (base : Slice Std.I64) (off : Slice Std.I64) (len : Std.Usize)
-  (out : alloc.vec.Vec Std.I64) (bad : Bool) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Bool × Std.Usize)
-    ((alloc.vec.Vec Std.I64) × Bool))
-  := do
-  if i < len
-  then
-    if bad
-    then ok (done (out, true))
-    else
-      let i1 ← Slice.index_usize off i
-      let r ← fixed_exp.fixed_exp i1
-      let o ← core.result.Result.ok r
-      let o1 ←
-        core.option.Option.and_then
-          fold_finish_port.finish.train.scale_exp.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
-          o (base, i)
-      let (out1, bad1) ←
-        match o1 with
-        | none => ok (out, true)
-        | some v => do
-                    let out2 ← alloc.vec.Vec.push out v
-                    ok (out2, false)
-      let i2 ← i + 1#usize
-      ok (cont (out1, bad1, i2))
-  else ok (done (out, bad))
-
-/-- [apeiron_word::fold_finish_port::finish::train::scale_exp]: loop 0:
-    Source: '../../src/learn/fold/finish/train.rs', lines 838:4-844:5 -/
-@[rust_loop]
-def fold_finish_port.finish.train.scale_exp_loop
-  (base : Slice Std.I64) (off : Slice Std.I64) (len : Std.Usize)
-  (out : alloc.vec.Vec Std.I64) (bad : Bool) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × Bool)
-  := do
-  loop
-    (fun (out1, bad1, i1) => fold_finish_port.finish.train.scale_exp_loop.body
-      base off len out1 bad1 i1)
-    (out, bad, i)
-
-/-- [apeiron_word::fold_finish_port::finish::train::scale_exp]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 830:0-849:1 -/
-def fold_finish_port.finish.train.scale_exp
-  (base : Slice Std.I64) (off : Slice Std.I64) :
-  Result (alloc.vec.Vec Std.I64)
-  := do
-  let i := Slice.len base
-  let i1 := Slice.len off
-  let len ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i i1
-  if len = 0#usize
-  then ok (alloc.vec.Vec.new Std.I64)
-  else
-    let out := alloc.vec.Vec.with_capacity Std.I64 len
-    let (out1, bad) ←
-      fold_finish_port.finish.train.scale_exp_loop base off len out false
-        0#usize
-    if bad
-    then ok (alloc.vec.Vec.new Std.I64)
-    else ok out1
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::LayerTunables}::tuned]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 450:4-458:5
-    Visibility: public -/
-def fold_finish_port.finish.train.LayerTunables.tuned
-  (self : fold_finish_port.finish.train.LayerTunables) :
-  Result fold_finish_port.finish.train.LayerTuned
-  := do
-  let s := alloc.vec.Vec.deref self.ln1
-  let s1 := alloc.vec.Vec.deref self.ln1_d
-  let v ← fold_finish_port.finish.train.scale_exp s s1
-  let s2 := alloc.vec.Vec.deref self.ln2
-  let s3 := alloc.vec.Vec.deref self.ln2_d
-  let v1 ← fold_finish_port.finish.train.scale_exp s2 s3
-  let s4 := alloc.vec.Vec.deref self.qb
-  let s5 := alloc.vec.Vec.deref self.qb_d
-  let s6 := alloc.vec.Vec.deref self.qb
-  let i ← fold_finish_port.finish.train.bias_scale s6
-  let v2 ← fold_finish_port.finish.train.add_scaled s4 s5 i
-  let s7 := alloc.vec.Vec.deref self.kb
-  let s8 := alloc.vec.Vec.deref self.kb_d
-  let s9 := alloc.vec.Vec.deref self.kb
-  let i1 ← fold_finish_port.finish.train.bias_scale s9
-  let v3 ← fold_finish_port.finish.train.add_scaled s7 s8 i1
-  let s10 := alloc.vec.Vec.deref self.vb
-  let s11 := alloc.vec.Vec.deref self.vb_d
-  let s12 := alloc.vec.Vec.deref self.vb
-  let i2 ← fold_finish_port.finish.train.bias_scale s12
-  let v4 ← fold_finish_port.finish.train.add_scaled s10 s11 i2
-  ok { ln1 := v, ln2 := v1, qb := v2, kb := v3, vb := v4 }
-
-/-- [apeiron_word::fold_finish_port::finish::train::Tunables]
-    Source: '../../src/learn/fold/finish/train.rs', lines 464:0-471:1
-    Visibility: public -/
-structure fold_finish_port.finish.train.Tunables where
-  layers : alloc.vec.Vec fold_finish_port.finish.train.LayerTunables
-  fn_base : alloc.vec.Vec Std.I64
-  fn_d : alloc.vec.Vec Std.I64
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Tunables}::new]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 477:4-484:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Tunables.new
-  (layers : alloc.vec.Vec fold_finish_port.finish.train.LayerTunables)
-  (fn_base : Slice Std.I64) :
-  Result fold_finish_port.finish.train.Tunables
-  := do
-  let base ← alloc.slice.Slice.to_vec core.clone.CloneI64 fn_base
-  let i := alloc.vec.Vec.len base
-  let v ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
-  ok { layers, fn_base := base, fn_d := v }
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Tunables}::output_norm]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 487:4-489:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Tunables.output_norm
-  (self : fold_finish_port.finish.train.Tunables) :
-  Result (alloc.vec.Vec Std.I64)
-  := do
-  let s := alloc.vec.Vec.deref self.fn_base
-  let s1 := alloc.vec.Vec.deref self.fn_d
-  fold_finish_port.finish.train.scale_exp s s1
-
-/-- [apeiron_word::fold_finish_port::finish::train::Frozen]
-    Source: '../../src/learn/fold/finish/train.rs', lines 495:0-500:1
-    Visibility: public -/
-structure fold_finish_port.finish.train.Frozen where
-  token_embd : alloc.vec.Vec Std.I64
-  lm_head : alloc.vec.Vec Std.I64
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Frozen}::new]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 506:4-511:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Frozen.new
-  (token_embd : Slice Std.I64) (lm_head : Slice Std.I64) :
-  Result fold_finish_port.finish.train.Frozen
-  := do
-  let v ← alloc.slice.Slice.to_vec core.clone.CloneI64 token_embd
-  let v1 ← alloc.slice.Slice.to_vec core.clone.CloneI64 lm_head
-  ok { token_embd := v, lm_head := v1 }
-
-/-- [apeiron_word::fold_finish_port::finish::train::Schedule]
-    Source: '../../src/learn/fold/finish/train.rs', lines 518:0-523:1
-    Visibility: public -/
-structure fold_finish_port.finish.train.Schedule where
-  warmup : Std.U64
-  steps : Std.U64
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Schedule}::new]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 527:4-529:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Schedule.new
-  (warmup : Std.U64) (steps : Std.U64) :
-  Result fold_finish_port.finish.train.Schedule
-  := do
-  ok { warmup, steps }
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Schedule}::factor]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 533:4-581:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Schedule.factor
-  (self : fold_finish_port.finish.train.Schedule) (step : Std.U64) :
-  Result Std.I64
-  := do
-  let wu ←
-    if self.warmup = 0#u64
-    then fold_finish_port.finish.plane.ONE
-    else
-      do
-      let i ← I128.Insts.CoreConvertFromU64.from step
-      let i1 ← i <<< 32#i32
-      let i2 ← I128.Insts.CoreConvertFromU64.from self.warmup
-      let o ← fold_finish_port.finish.plane.div_ne i1 i2
-      match o with
-      | none => fold_finish_port.finish.plane.ONE
-      | some q =>
-        let o1 ← solve_port.q32.narrow q
-        match o1 with
-        | none => fold_finish_port.finish.plane.ONE
-        | some v => ok v
-  let i ← fold_finish_port.finish.plane.ONE
-  let wu1 ← core.cmp.impls.OrdI64.clamp wu 0#i64 i
-  let frac ←
-    if self.steps = 0#u64
-    then ok i
-    else
-      do
-      let i1 ← I128.Insts.CoreConvertFromU64.from step
-      let i2 ← i1 <<< 32#i32
-      let i3 ← I128.Insts.CoreConvertFromU64.from self.steps
-      let o ← fold_finish_port.finish.plane.div_ne i2 i3
-      match o with
-      | none => ok i
-      | some q =>
-        let o1 ← solve_port.q32.narrow q
-        match o1 with
-        | none => ok i
-        | some v => ok v
-  let o ←
-    fold_finish_port.finish.plane.mul fold_finish_port.finish.train.PI_Q32 frac
-  match o with
-  | none => ok 0#i64
-  | some v =>
-    let r ← fixed_trig.fixed_sin_cos v
-    match r with
-    | core.result.Result.Ok v1 =>
-      let o1 ← lift (I64.checked_add i v1.cos)
-      match o1 with
-      | none => ok 0#i64
-      | some v2 =>
-        let o2 ←
-          fold_finish_port.finish.plane.mul
-            fold_finish_port.finish.train.COS_AMPL_Q32 v2
-        match o2 with
-        | none => ok 0#i64
-        | some v3 =>
-          let o3 ←
-            lift (I64.checked_add fold_finish_port.finish.train.TENTH_Q32 v3)
-          match o3 with
-          | none => ok 0#i64
-          | some t =>
-            let o4 ← fold_finish_port.finish.plane.mul wu1 t
-            match o4 with
-            | none => ok 0#i64
-            | some v4 => ok v4
-    | core.result.Result.Err _ => ok 0#i64
-
-/-- [apeiron_word::fold_finish_port::finish::train::Adam]
-    Source: '../../src/learn/fold/finish/train.rs', lines 592:0-596:1
-    Visibility: public -/
-structure fold_finish_port.finish.train.Adam where
-  m : alloc.vec.Vec Std.I64
-  v : alloc.vec.Vec Std.I128
-  t : Std.U64
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::zeros]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 600:4-606:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Adam.zeros
-  (n : Std.Usize) : Result fold_finish_port.finish.train.Adam := do
-  let v ← alloc.vec.from_elem core.clone.CloneI64 0#i64 n
-  let v1 ← alloc.vec.from_elem core.clone.CloneI128 0#i128 n
-  ok { m := v, v := v1, t := 0#u64 }
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::len]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 609:4-611:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Adam.len
-  (self : fold_finish_port.finish.train.Adam) : Result Std.Usize := do
-  ok (alloc.vec.Vec.len self.m)
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::is_empty]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 614:4-616:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Adam.is_empty
-  (self : fold_finish_port.finish.train.Adam) : Result Bool := do
-  alloc.vec.Vec.is_empty Global self.m
-
-/-- [apeiron_word::fold_finish_port::finish::train::pow_q32]: loop body 0:
-    Source: '../../src/learn/fold/finish/train.rs', lines 806:4-820:5 -/
-@[rust_loop_body]
-def fold_finish_port.finish.train.pow_q32_loop.body
-  (e : Std.U64) (acc : Std.I64) (b : Std.I64) (bad : Bool) :
-  Result (ControlFlow (Std.U64 × Std.I64 × Std.I64 × Bool) (Std.I64 ×
-    Bool))
-  := do
-  if e > 0#u64
-  then
-    if bad
-    then ok (done (acc, true))
-    else
-      let i ← lift (e &&& 1#u64)
-      let (acc1, bad1) ←
-        if i = 1#u64
-        then
-          do
-          let o ← fold_finish_port.finish.plane.mul acc b
-          match o with
-          | none => ok (acc, true)
-          | some v => ok (v, false)
-        else ok (acc, false)
-      let e1 ← e >>> 1#i32
-      if e1 > 0#u64
-      then
-        if bad1
-        then ok (cont (e1, acc1, b, true))
-        else
-          let o ← fold_finish_port.finish.plane.mul b b
-          match o with
-          | none => ok (cont (e1, acc1, b, true))
-          | some v => ok (cont (e1, acc1, v, false))
-      else ok (cont (e1, acc1, b, bad1))
-  else ok (done (acc, bad))
-
-/-- [apeiron_word::fold_finish_port::finish::train::pow_q32]: loop 0:
-    Source: '../../src/learn/fold/finish/train.rs', lines 806:4-820:5 -/
-@[rust_loop]
-def fold_finish_port.finish.train.pow_q32_loop
-  (e : Std.U64) (acc : Std.I64) (b : Std.I64) (bad : Bool) :
-  Result (Std.I64 × Bool)
-  := do
-  loop
-    (fun (e1, acc1, b1, bad1) =>
-      fold_finish_port.finish.train.pow_q32_loop.body e1 acc1 b1 bad1)
-    (e, acc, b, bad)
-
-/-- [apeiron_word::fold_finish_port::finish::train::pow_q32]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 802:0-826:1 -/
-def fold_finish_port.finish.train.pow_q32
-  (base : Std.I64) (e : Std.U64) : Result (Option Std.I64) := do
-  let acc ← fold_finish_port.finish.plane.ONE
-  let (acc1, bad) ←
-    fold_finish_port.finish.train.pow_q32_loop e acc base false
-  if bad
-  then ok none
-  else ok (some acc1)
-
-/-- [apeiron_word::fold_finish_port::finish::train::ok]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 789:0-794:1 -/
-def fold_finish_port.finish.train.ok
-  {T : Type} (v : Option T) :
-  Result (core.result.Result T fold_finish_port.finish.train.TrainError)
-  := do
-  match v with
-  | none =>
-    let s ←
-      alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay (toStr
-        "q32 word")
-    ok (core.result.Result.Err (fold_finish_port.finish.train.TrainError.Range
-      s))
-  | some x => ok (core.result.Result.Ok x)
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure#1}]
-    Source: '../../src/learn/fold/finish/train.rs', lines 704:26-704:47 -/
-@[reducible]
-def fold_finish_port.finish.train.Adam.apply.closure_1 := Unit
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure#1}}::call_once]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 704:26-704:47 -/
-def
-  fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
-  (c : fold_finish_port.finish.train.Adam.apply.closure_1)
-  (tupled_args : Std.I128) :
-  Result (Option Std.I128)
-  := do
-  solve_port.q32.rshift_rne tupled_args 32#u32
-
-/-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure#1}}]
-    Source: '../../src/learn/fold/finish/train.rs', lines 704:26-704:47 -/
-@[reducible]
-def
-  fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
-  : core.ops.function.FnOnce fold_finish_port.finish.train.Adam.apply.closure_1
-  Std.I128 (Option Std.I128) := {
-  call_once :=
-    fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
-}
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure}]
-    Source: '../../src/learn/fold/finish/train.rs', lines 694:26-694:47 -/
-@[reducible]
-def fold_finish_port.finish.train.Adam.apply.closure := Unit
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure}}::call_once]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 694:26-694:47 -/
-def
-  fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
-  (c : fold_finish_port.finish.train.Adam.apply.closure)
-  (tupled_args : Std.I128) :
-  Result (Option Std.I128)
-  := do
-  solve_port.q32.rshift_rne tupled_args 32#u32
-
-/-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure}}]
-    Source: '../../src/learn/fold/finish/train.rs', lines 694:26-694:47 -/
-@[reducible]
-def
-  fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
-  : core.ops.function.FnOnce fold_finish_port.finish.train.Adam.apply.closure
-  Std.I128 (Option Std.I128) := {
-  call_once :=
-    fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
-}
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply]: loop body 0:
-    Source: '../../src/learn/fold/finish/train.rs', lines 665:8-780:9
-    Visibility: public -/
-@[rust_loop_body]
-def fold_finish_port.finish.train.Adam.apply_loop.body
-  (lr : Std.I64) (g : Slice Std.I64) (bc1 : Std.I64) (root_bc2 : Std.I64)
-  (v : alloc.vec.Vec Std.I64) (v1 : alloc.vec.Vec Std.I128) (p : Slice Std.I64)
-  (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I128) ×
-    (Slice Std.I64) × Std.Usize) ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
-    Std.I128) × (Slice Std.I64) × (Option
-    fold_finish_port.finish.train.TrainError)))
-  := do
-  let i1 := Slice.len p
-  if i < i1
-  then
-    let gi ← Slice.index_usize g i
-    let i2 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) v i
-    let o ←
-      fold_finish_port.finish.plane.mul fold_finish_port.finish.train.BETA1_Q32
-        i2
-    let r ← fold_finish_port.finish.train.ok o
-    match r with
-    | core.result.Result.Ok v2 =>
-      let o1 ←
-        fold_finish_port.finish.plane.mul
-          fold_finish_port.finish.train.ONE_MINUS_BETA1_Q32 gi
-      let r1 ← fold_finish_port.finish.train.ok o1
-      match r1 with
-      | core.result.Result.Ok v3 =>
-        let o2 ← lift (I64.checked_add v2 v3)
-        let r2 ← fold_finish_port.finish.train.ok o2
-        match r2 with
-        | core.result.Result.Ok v4 =>
-          let (_, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.I64) v i
-          let i3 ← lift (core.convert.num.FromI128I64.from gi)
-          let i4 ← lift (core.convert.num.FromI128I64.from gi)
-          let g2 ← i3 * i4
-          let i5 ←
-            lift (core.convert.num.FromI128I64.from
-              fold_finish_port.finish.train.BETA2_Q32)
-          let i6 ←
-            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-              Std.I128) v1 i
-          let o3 ← lift (I128.checked_mul i5 i6)
-          let o4 ←
-            core.option.Option.and_then
-              fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
-              o3 ()
-          let r3 ← fold_finish_port.finish.train.ok o4
-          match r3 with
-          | core.result.Result.Ok v5 =>
-            let i7 ←
-              lift (core.convert.num.FromI128I64.from
-                fold_finish_port.finish.train.ONE_MINUS_BETA2_Q32)
-            let o5 ← lift (I128.checked_mul i7 g2)
-            let o6 ←
-              core.option.Option.and_then
-                fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
-                o5 ()
-            let r4 ← fold_finish_port.finish.train.ok o6
-            match r4 with
-            | core.result.Result.Ok v6 =>
-              let o7 ← lift (I128.checked_add v5 v6)
-              let r5 ← fold_finish_port.finish.train.ok o7
-              match r5 with
-              | core.result.Result.Ok v7 =>
-                if v7 < 0#i128
-                then
-                  let s ←
-                    alloc.string.ToString.Blanket.to_string
-                      Str.Insts.CoreFmtDisplay (toStr "adam second moment")
-                  let v8 := index_mut_back v4
-                  ok (done (v8, v1, p, some
-                    (fold_finish_port.finish.train.TrainError.Range s)))
-                else
-                  let (_, index_mut_back1) ←
-                    alloc.vec.Vec.index_mut
-                      (core.slice.index.SliceIndexUsizeSlice Std.I128) v1 i
-                  let o8 ← fold_finish_port.finish.plane.div v4 bc1
-                  let r6 ← fold_finish_port.finish.train.ok o8
-                  match r6 with
-                  | core.result.Result.Ok v8 =>
-                    let i8 ← fixed_rsqrt.isqrt v7
-                    let o9 ← solve_port.q32.narrow i8
-                    let r7 ← fold_finish_port.finish.train.ok o9
-                    match r7 with
-                    | core.result.Result.Ok v9 =>
-                      let o10 ← fold_finish_port.finish.plane.div v9 root_bc2
-                      let r8 ← fold_finish_port.finish.train.ok o10
-                      match r8 with
-                      | core.result.Result.Ok v10 =>
-                        let o11 ←
-                          lift (I64.checked_add v10
-                            fold_finish_port.finish.train.ADAM_EPS_Q32)
-                        let r9 ← fold_finish_port.finish.train.ok o11
-                        match r9 with
-                        | core.result.Result.Ok v11 =>
-                          let o12 ← fold_finish_port.finish.plane.mul lr v8
-                          let r10 ← fold_finish_port.finish.train.ok o12
-                          match r10 with
-                          | core.result.Result.Ok v12 =>
-                            if v11 = 0#i64
-                            then
-                              let i9 ← Slice.index_usize p i
-                              let o13 ← lift (I64.checked_sub i9 0#i64)
-                              let r11 ← fold_finish_port.finish.train.ok o13
-                              match r11 with
-                              | core.result.Result.Ok v13 =>
-                                let s ← Slice.update p i v13
-                                let i10 ← i + 1#usize
-                                let v14 := index_mut_back1 v7
-                                let v15 := index_mut_back v4
-                                ok (cont (v15, v14, s, i10))
-                              | core.result.Result.Err e =>
-                                let v13 := index_mut_back1 v7
-                                let v14 := index_mut_back v4
-                                ok (done (v14, v13, p, some e))
-                            else
-                              let o13 ←
-                                fold_finish_port.finish.plane.div v12 v11
-                              let r11 ← fold_finish_port.finish.train.ok o13
-                              match r11 with
-                              | core.result.Result.Ok v13 =>
-                                let i9 ← Slice.index_usize p i
-                                let o14 ← lift (I64.checked_sub i9 v13)
-                                let r12 ←
-                                  fold_finish_port.finish.train.ok o14
-                                match r12 with
-                                | core.result.Result.Ok v14 =>
-                                  let s ← Slice.update p i v14
-                                  let i10 ← i + 1#usize
-                                  let v15 := index_mut_back1 v7
-                                  let v16 := index_mut_back v4
-                                  ok (cont (v16, v15, s, i10))
-                                | core.result.Result.Err e =>
-                                  let v14 := index_mut_back1 v7
-                                  let v15 := index_mut_back v4
-                                  ok (done (v15, v14, p, some e))
-                              | core.result.Result.Err e =>
-                                let v13 := index_mut_back1 v7
-                                let v14 := index_mut_back v4
-                                ok (done (v14, v13, p, some e))
-                          | core.result.Result.Err e =>
-                            let v12 := index_mut_back1 v7
-                            let v13 := index_mut_back v4
-                            ok (done (v13, v12, p, some e))
-                        | core.result.Result.Err e =>
-                          let v11 := index_mut_back1 v7
-                          let v12 := index_mut_back v4
-                          ok (done (v12, v11, p, some e))
-                      | core.result.Result.Err e =>
-                        let v10 := index_mut_back1 v7
-                        let v11 := index_mut_back v4
-                        ok (done (v11, v10, p, some e))
-                    | core.result.Result.Err e =>
-                      let v9 := index_mut_back1 v7
-                      let v10 := index_mut_back v4
-                      ok (done (v10, v9, p, some e))
-                  | core.result.Result.Err e =>
-                    let v8 := index_mut_back1 v7
-                    let v9 := index_mut_back v4
-                    ok (done (v9, v8, p, some e))
-              | core.result.Result.Err e =>
-                let v7 := index_mut_back v4
-                ok (done (v7, v1, p, some e))
-            | core.result.Result.Err e =>
-              let v6 := index_mut_back v4
-              ok (done (v6, v1, p, some e))
-          | core.result.Result.Err e =>
-            let v5 := index_mut_back v4
-            ok (done (v5, v1, p, some e))
-        | core.result.Result.Err e => ok (done (v, v1, p, some e))
-      | core.result.Result.Err e => ok (done (v, v1, p, some e))
-    | core.result.Result.Err e => ok (done (v, v1, p, some e))
-  else ok (done (v, v1, p, none))
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply]: loop 0:
-    Source: '../../src/learn/fold/finish/train.rs', lines 665:8-780:9
-    Visibility: public -/
-@[rust_loop]
-def fold_finish_port.finish.train.Adam.apply_loop
-  (v : alloc.vec.Vec Std.I64) (v1 : alloc.vec.Vec Std.I128) (lr : Std.I64)
-  (p : Slice Std.I64) (g : Slice Std.I64) (bc1 : Std.I64) (root_bc2 : Std.I64)
-  (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I128) × (Slice
-    Std.I64) × (Option fold_finish_port.finish.train.TrainError))
-  := do
-  loop
-    (fun (v2, v3, p1, i1) => fold_finish_port.finish.train.Adam.apply_loop.body
-      lr g bc1 root_bc2 v2 v3 p1 i1)
-    (v, v1, p, i)
-
-/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 627:4-785:5
-    Visibility: public -/
-def fold_finish_port.finish.train.Adam.apply
-  (self : fold_finish_port.finish.train.Adam) (lr : Std.I64)
-  (p : Slice Std.I64) (g : Slice Std.I64) :
-  Result ((core.result.Result Unit fold_finish_port.finish.train.TrainError) ×
-    fold_finish_port.finish.train.Adam × (Slice Std.I64))
-  := do
-  let i := Slice.len p
-  let i1 := Slice.len g
-  if i != i1
-  then
-    let i2 := Slice.len p
-    let i3 := Slice.len g
-    let i4 := alloc.vec.Vec.len self.m
-    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i2
-    let a1 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i3
-    let a2 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i4
-    let a3 ←
-      core.fmt.Arguments.new
-        (Array.make 26#usize [
-          11#u8, 97#u8, 100#u8, 97#u8, 109#u8, 32#u8, 119#u8, 105#u8, 100#u8,
-          116#u8, 104#u8, 32#u8, 192#u8, 4#u8, 32#u8, 118#u8, 115#u8, 32#u8,
-          192#u8, 4#u8, 32#u8, 118#u8, 115#u8, 32#u8, 192#u8, 0#u8
-          ]) (Array.make 3#usize [ a, a1, a2 ])
-    let s ← alloc.fmt.format a3
-    let s1 ← core.hint.must_use s
-    ok (core.result.Result.Err (fold_finish_port.finish.train.TrainError.Shape
-      s1), self, p)
-  else
-    let i2 := Slice.len p
-    let i3 := alloc.vec.Vec.len self.m
-    if i2 != i3
-    then
-      let i4 := Slice.len p
-      let i5 := Slice.len g
-      let i6 := alloc.vec.Vec.len self.m
-      let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i4
-      let a1 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i5
-      let a2 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i6
-      let a3 ←
-        core.fmt.Arguments.new
-          (Array.make 26#usize [
-            11#u8, 97#u8, 100#u8, 97#u8, 109#u8, 32#u8, 119#u8, 105#u8, 100#u8,
-            116#u8, 104#u8, 32#u8, 192#u8, 4#u8, 32#u8, 118#u8, 115#u8, 32#u8,
-            192#u8, 4#u8, 32#u8, 118#u8, 115#u8, 32#u8, 192#u8, 0#u8
-            ]) (Array.make 3#usize [ a, a1, a2 ])
-      let s ← alloc.fmt.format a3
-      let s1 ← core.hint.must_use s
-      ok (core.result.Result.Err
-        (fold_finish_port.finish.train.TrainError.Shape s1), self, p)
-    else
-      let i4 := Slice.len p
-      let i5 := alloc.vec.Vec.len self.v
-      if i4 != i5
-      then
-        let i6 := Slice.len p
-        let i7 := Slice.len g
-        let i8 := alloc.vec.Vec.len self.m
-        let a ←
-          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i6
-        let a1 ←
-          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i7
-        let a2 ←
-          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i8
-        let a3 ←
-          core.fmt.Arguments.new
-            (Array.make 26#usize [
-              11#u8, 97#u8, 100#u8, 97#u8, 109#u8, 32#u8, 119#u8, 105#u8,
-              100#u8, 116#u8, 104#u8, 32#u8, 192#u8, 4#u8, 32#u8, 118#u8,
-              115#u8, 32#u8, 192#u8, 4#u8, 32#u8, 118#u8, 115#u8, 32#u8,
-              192#u8, 0#u8
-              ]) (Array.make 3#usize [ a, a1, a2 ])
-        let s ← alloc.fmt.format a3
-        let s1 ← core.hint.must_use s
-        ok (core.result.Result.Err
-          (fold_finish_port.finish.train.TrainError.Shape s1), self, p)
-      else
-        let i6 ← lift (core.num.U64.saturating_add self.t 1#u64)
-        let o ←
-          fold_finish_port.finish.train.pow_q32
-            fold_finish_port.finish.train.BETA1_Q32 i6
-        match o with
-        | none =>
-          let s ←
-            alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay
-              (toStr "beta_1^t")
-          ok (core.result.Result.Err
-            (fold_finish_port.finish.train.TrainError.Range s),
-            { self with t := i6 }, p)
-        | some v =>
-          let o1 ←
-            fold_finish_port.finish.train.pow_q32
-              fold_finish_port.finish.train.BETA2_Q32 i6
-          match o1 with
-          | none =>
-            let s ←
-              alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay
-                (toStr "beta_2^t")
-            ok (core.result.Result.Err
-              (fold_finish_port.finish.train.TrainError.Range s),
-              { self with t := i6 }, p)
-          | some v1 =>
-            let i7 ← fold_finish_port.finish.plane.ONE
-            let o2 ← lift (I64.checked_sub i7 v)
-            match o2 with
-            | none =>
-              let s ←
-                alloc.string.ToString.Blanket.to_string
-                  Str.Insts.CoreFmtDisplay (toStr "1 - beta_1^t")
-              ok (core.result.Result.Err
-                (fold_finish_port.finish.train.TrainError.Range s),
-                { self with t := i6 }, p)
-            | some v2 =>
-              let o3 ← lift (I64.checked_sub i7 v1)
-              match o3 with
-              | none =>
-                let s ←
-                  alloc.string.ToString.Blanket.to_string
-                    Str.Insts.CoreFmtDisplay (toStr "1 - beta_2^t")
-                ok (core.result.Result.Err
-                  (fold_finish_port.finish.train.TrainError.Range s),
-                  { self with t := i6 }, p)
-              | some v3 =>
-                if v3 <= 0#i64
-                then
-                  let s ←
-                    alloc.string.ToString.Blanket.to_string
-                      Str.Insts.CoreFmtDisplay (toStr "1 - beta_2^t")
-                  ok (core.result.Result.Err
-                    (fold_finish_port.finish.train.TrainError.Range s),
-                    { self with t := i6 }, p)
-                else
-                  let i8 ← lift (core.convert.num.FromI128I64.from v3)
-                  let i9 ← i8 <<< 32#i32
-                  let i10 ← fixed_rsqrt.isqrt i9
-                  let o4 ← solve_port.q32.narrow i10
-                  match o4 with
-                  | none =>
-                    let s ←
-                      alloc.string.ToString.Blanket.to_string
-                        Str.Insts.CoreFmtDisplay (toStr "sqrt(1 - beta_2^t)")
-                    ok (core.result.Result.Err
-                      (fold_finish_port.finish.train.TrainError.Range s),
-                      { self with t := i6 }, p)
-                  | some v4 =>
-                    let (v5, v6, p1, err) ←
-                      fold_finish_port.finish.train.Adam.apply_loop self.m
-                        self.v lr p g v2 v4 0#usize
-                    match err with
-                    | none =>
-                      ok (core.result.Result.Ok (),
-                        { m := v5, v := v6, t := i6 }, p1)
-                    | some e =>
-                      ok (core.result.Result.Err e,
-                        { m := v5, v := v6, t := i6 }, p1)
-
-/-- [apeiron_word::grad_solve_port::model::Config]
-    Source: '../../src/learn/grad/model.rs', lines 97:0-116:1
-    Visibility: public -/
-structure grad_solve_port.model.Config where
-  n_layer : Std.Usize
-  n_head : Std.Usize
-  n_head_kv : Std.Usize
-  n_embd : Std.Usize
-  n_ff : Std.Usize
-  vocab : Std.Usize
-  head_dim : Std.Usize
-  eps : Std.I64
-  rope_theta : F64
-
-/-- [apeiron_word::learn_port::head::to64]:
-    Source: '../../src/learn/grad/head.rs', lines 115:0-121:1 -/
-def learn_port.head.to64
-  (x : Std.I128) :
-  Result (core.result.Result Std.I64 learn_port.head.HeadError)
-  := do
-  let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
-  if x < i
-  then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
-  else
-    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
-    if x > i1
-    then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
-    else let i2 ← lift (IScalar.cast .I64 x)
-         ok (core.result.Result.Ok i2)
-
-/-- [apeiron_word::learn_port::head::dz_diff]: loop body 0:
-    Source: '../../src/learn/grad/head.rs', lines 358:4-364:5 -/
-@[rust_loop_body]
-def learn_port.head.dz_diff_loop.body
-  (p_s : Slice Std.I64) (p_t : Slice Std.I64) (v : Std.Usize)
-  (dz : Slice Std.I64) (fail1 : Option learn_port.head.HeadError)
-  (i : Std.Usize) :
-  Result (ControlFlow ((Slice Std.I64) × (Option learn_port.head.HeadError) ×
-    Std.Usize) ((Option learn_port.head.HeadError) × (Slice Std.I64)))
-  := do
-  if i < v
-  then
-    let b := core.option.Option.is_none fail1
-    if b
-    then
-      let i1 ← Slice.index_usize p_s i
-      let i2 ← lift (core.convert.num.FromI128I64.from i1)
-      let i3 ← Slice.index_usize p_t i
-      let i4 ← lift (core.convert.num.FromI128I64.from i3)
-      let i5 ← i2 - i4
-      let r ← learn_port.head.to64 i5
-      let (dz1, fail2) ←
-        match r with
-        | core.result.Result.Ok g =>
-          do
-          let s ← Slice.update dz i g
-          ok (s, fail1)
-        | core.result.Result.Err x => ok (dz, some x)
-      let i6 ← i + 1#usize
-      ok (cont (dz1, fail2, i6))
-    else ok (done (fail1, dz))
-  else ok (done (fail1, dz))
-
-/-- [apeiron_word::learn_port::head::dz_diff]: loop 0:
-    Source: '../../src/learn/grad/head.rs', lines 358:4-364:5 -/
-@[rust_loop]
-def learn_port.head.dz_diff_loop
-  (p_s : Slice Std.I64) (p_t : Slice Std.I64) (dz : Slice Std.I64)
-  (v : Std.Usize) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
-  Result ((Option learn_port.head.HeadError) × (Slice Std.I64))
-  := do
-  loop
-    (fun (dz1, fail2, i1) => learn_port.head.dz_diff_loop.body p_s p_t v dz1
-      fail2 i1)
-    (dz, fail1, i)
-
-/-- [apeiron_word::learn_port::head::dz_diff]:
-    Source: '../../src/learn/grad/head.rs', lines 354:0-366:1 -/
-def learn_port.head.dz_diff
-  (p_s : Slice Std.I64) (p_t : Slice Std.I64) (dz : Slice Std.I64) :
-  Result ((Option learn_port.head.HeadError) × (Slice Std.I64))
-  := do
-  let v := Slice.len p_s
-  learn_port.head.dz_diff_loop p_s p_t dz v none 0#usize
-
-/-- [apeiron_word::learn_port::head::mul128]:
-    Source: '../../src/learn/grad/head.rs', lines 130:0-135:1 -/
-def learn_port.head.mul128
-  (a : Std.I128) (b : Std.I128) :
-  Result (core.result.Result Std.I128 learn_port.head.HeadError)
-  := do
-  let o ← lift (I128.checked_mul a b)
-  match o with
-  | none => ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
-  | some s => ok (core.result.Result.Ok s)
-
-/-- [apeiron_word::learn_port::head::add128]:
-    Source: '../../src/learn/grad/head.rs', lines 123:0-128:1 -/
-def learn_port.head.add128
-  (a : Std.I128) (b : Std.I128) :
-  Result (core.result.Result Std.I128 learn_port.head.HeadError)
-  := do
-  let o ← lift (I128.checked_add a b)
-  match o with
-  | none => ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
-  | some s => ok (core.result.Result.Ok s)
-
-/-- [apeiron_word::learn_port::head::kl_acc]: loop body 0:
-    Source: '../../src/learn/grad/head.rs', lines 336:4-346:5 -/
-@[rust_loop_body]
-def learn_port.head.kl_acc_loop.body
-  (p_t : Slice Std.I64) (lp_t : Slice Std.I64) (lp_s : Slice Std.I64)
-  (v : Std.Usize) (acc : Std.I128) (fail1 : Option learn_port.head.HeadError)
-  (i : Std.Usize) :
-  Result (ControlFlow (Std.I128 × (Option learn_port.head.HeadError) ×
-    Std.Usize) (Std.I128 × (Option learn_port.head.HeadError)))
-  := do
-  if i < v
-  then
-    let b := core.option.Option.is_none fail1
-    if b
-    then
-      let i1 ← Slice.index_usize lp_t i
-      let i2 ← lift (core.convert.num.FromI128I64.from i1)
-      let i3 ← Slice.index_usize lp_s i
-      let i4 ← lift (core.convert.num.FromI128I64.from i3)
-      let delta ← i2 - i4
-      let i5 ← Slice.index_usize p_t i
-      let i6 ← lift (core.convert.num.FromI128I64.from i5)
-      let r ← learn_port.head.mul128 i6 delta
-      let (acc1, fail2) ←
-        match r with
-        | core.result.Result.Ok term =>
-          do
-          let r1 ← learn_port.head.add128 acc term
-          match r1 with
-          | core.result.Result.Ok s => ok (s, fail1)
-          | core.result.Result.Err x => ok (acc, some x)
-        | core.result.Result.Err x => ok (acc, some x)
-      let i7 ← i + 1#usize
-      ok (cont (acc1, fail2, i7))
-    else ok (done (acc, fail1))
-  else ok (done (acc, fail1))
-
-/-- [apeiron_word::learn_port::head::kl_acc]: loop 0:
-    Source: '../../src/learn/grad/head.rs', lines 336:4-346:5 -/
-@[rust_loop]
-def learn_port.head.kl_acc_loop
-  (p_t : Slice Std.I64) (lp_t : Slice Std.I64) (lp_s : Slice Std.I64)
-  (v : Std.Usize) (acc : Std.I128) (fail1 : Option learn_port.head.HeadError)
-  (i : Std.Usize) :
-  Result (Std.I128 × (Option learn_port.head.HeadError))
-  := do
-  loop
-    (fun (acc1, fail2, i1) => learn_port.head.kl_acc_loop.body p_t lp_t lp_s v
-      acc1 fail2 i1)
-    (acc, fail1, i)
-
-/-- [apeiron_word::learn_port::head::kl_acc]:
-    Source: '../../src/learn/grad/head.rs', lines 331:0-351:1 -/
-def learn_port.head.kl_acc
-  (p_t : Slice Std.I64) (lp_t : Slice Std.I64) (lp_s : Slice Std.I64) :
-  Result (core.result.Result Std.I128 learn_port.head.HeadError)
-  := do
-  let v := Slice.len p_t
-  let (acc, fail1) ←
-    learn_port.head.kl_acc_loop p_t lp_t lp_s v 0#i128 none 0#usize
-  match fail1 with
-  | none => ok (core.result.Result.Ok acc)
-  | some x => ok (core.result.Result.Err x)
-
-/-- [apeiron_word::learn_port::head::abs128]:
-    Source: '../../src/learn/grad/head.rs', lines 87:0-93:1 -/
-def learn_port.head.abs128 (x : Std.I128) : Result Std.I128 := do
-  if x < 0#i128
-  then 0#i128 - x
-  else ok x
-
-/-- [apeiron_word::learn_port::head::round_div]:
-    Source: '../../src/learn/grad/head.rs', lines 96:0-108:1 -/
-def learn_port.head.round_div
-  (n : Std.I128) (d : Std.I128) : Result Std.I128 := do
-  let q ← n / d
-  let r ← n % d
-  let i ← learn_port.head.abs128 r
-  let i1 ← 2#i128 * i
-  if i1 >= d
-  then if n >= 0#i128
-       then q + 1#i128
-       else q - 1#i128
-  else ok q
-
-/-- [apeiron_word::learn_port::head::p_entry]:
-    Source: '../../src/learn/grad/head.rs', lines 226:0-231:1 -/
-def learn_port.head.p_entry
-  (ei : Std.I64) (sum : Std.I128) :
-  Result (core.result.Result Std.I64 learn_port.head.HeadError)
-  := do
-  let i ← lift (core.convert.num.FromI128I64.from ei)
-  let i1 ← engine.ONE
-  let i2 ← lift (core.convert.num.FromI128I64.from i1)
-  let r ← learn_port.head.mul128 i i2
-  match r with
-  | core.result.Result.Ok num =>
-    let i3 ← learn_port.head.round_div num sum
-    learn_port.head.to64 i3
-  | core.result.Result.Err x => ok (core.result.Result.Err x)
-
-/-- [apeiron_word::learn_port::head::lp_entry]:
-    Source: '../../src/learn/grad/head.rs', lines 221:0-223:1 -/
-def learn_port.head.lp_entry
-  (zi : Std.I64) (m : Std.I64) (l : Std.I64) :
-  Result (core.result.Result Std.I64 learn_port.head.HeadError)
-  := do
-  let i ← lift (core.convert.num.FromI128I64.from zi)
-  let i1 ← lift (core.convert.num.FromI128I64.from m)
-  let i2 ← i - i1
-  let i3 ← lift (core.convert.num.FromI128I64.from l)
-  let i4 ← i2 - i3
-  learn_port.head.to64 i4
-
-/-- [apeiron_word::learn_port::head::fill_lp_p]: loop body 0:
-    Source: '../../src/learn/grad/head.rs', lines 251:4-263:5 -/
-@[rust_loop_body]
-def learn_port.head.fill_lp_p_loop.body
-  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
-  (sum : Std.I128) (v : Std.Usize) (lp : Slice Std.I64) (p : Slice Std.I64)
-  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
-  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Option
-    learn_port.head.HeadError) × Std.Usize) ((Option
-    learn_port.head.HeadError) × (Slice Std.I64) × (Slice Std.I64)))
-  := do
-  if i < v
-  then
-    let b := core.option.Option.is_none fail1
-    if b
-    then
-      let i1 ← Slice.index_usize z i
-      let r ← learn_port.head.lp_entry i1 m l
-      let (lp1, fail2) ←
-        match r with
-        | core.result.Result.Ok x =>
-          do
-          let s ← Slice.update lp i x
-          ok (s, fail1)
-        | core.result.Result.Err x => ok (lp, some x)
-      let b1 := core.option.Option.is_none fail2
-      let (p1, fail3) ←
-        if b1
-        then
-          do
-          let i2 ← Slice.index_usize e i
-          let r1 ← learn_port.head.p_entry i2 sum
-          match r1 with
-          | core.result.Result.Ok x =>
-            let s ← Slice.update p i x
-            ok (s, fail2)
-          | core.result.Result.Err x => ok (p, some x)
-        else ok (p, fail2)
-      let i2 ← i + 1#usize
-      ok (cont (lp1, p1, fail3, i2))
-    else ok (done (fail1, lp, p))
-  else ok (done (fail1, lp, p))
-
-/-- [apeiron_word::learn_port::head::fill_lp_p]: loop 0:
-    Source: '../../src/learn/grad/head.rs', lines 251:4-263:5 -/
-@[rust_loop]
-def learn_port.head.fill_lp_p_loop
-  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
-  (sum : Std.I128) (lp : Slice Std.I64) (p : Slice Std.I64) (v : Std.Usize)
-  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
-  Result ((Option learn_port.head.HeadError) × (Slice Std.I64) × (Slice
-    Std.I64))
-  := do
-  loop
-    (fun (lp1, p1, fail2, i1) => learn_port.head.fill_lp_p_loop.body z m l e
-      sum v lp1 p1 fail2 i1)
-    (lp, p, fail1, i)
-
-/-- [apeiron_word::learn_port::head::fill_lp_p]:
-    Source: '../../src/learn/grad/head.rs', lines 239:0-265:1 -/
-def learn_port.head.fill_lp_p
-  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
-  (sum : Std.I128) (lp : Slice Std.I64) (p : Slice Std.I64) :
-  Result ((Option learn_port.head.HeadError) × (Slice Std.I64) × (Slice
-    Std.I64))
-  := do
-  let v := Slice.len z
-  learn_port.head.fill_lp_p_loop z m l e sum lp p v none 0#usize
-
-/-- [apeiron_word::learn_port::head::FLUSH]
-    Source: '../../src/learn/grad/head.rs', lines 48:0-48:41 -/
-@[global_simps, irreducible]
-def learn_port.head.FLUSH : Result Std.I128 := do
-  let i ← 1#i128 <<< 32#i32
-  (-16)#i128 * i
-
-/-- [apeiron_word::learn_port::head::exp_entry]:
-    Source: '../../src/learn/grad/head.rs', lines 163:0-175:1 -/
-def learn_port.head.exp_entry
-  (zi : Std.I64) (m : Std.I64) :
-  Result (core.result.Result Std.I64 learn_port.head.HeadError)
-  := do
-  let i ← lift (core.convert.num.FromI128I64.from zi)
-  let i1 ← lift (core.convert.num.FromI128I64.from m)
-  let ui ← i - i1
-  let i2 ← learn_port.head.FLUSH
-  if ui < i2
-  then ok (core.result.Result.Ok 0#i64)
-  else
-    let i3 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
-    if ui > i3
-    then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
-    else
-      let i4 ← lift (IScalar.cast .I64 ui)
-      let r ← fixed_exp.fixed_exp i4
-      match r with
-      | core.result.Result.Ok ev => ok (core.result.Result.Ok ev)
-      | core.result.Result.Err x =>
-        ok (core.result.Result.Err (learn_port.head.HeadError.Exp x))
-
-/-- [apeiron_word::learn_port::head::exp_fill]: loop body 0:
-    Source: '../../src/learn/grad/head.rs', lines 201:4-213:5 -/
-@[rust_loop_body]
-def learn_port.head.exp_fill_loop.body
-  (z : Slice Std.I64) (m : Std.I64) (v : Std.Usize) (e : Slice Std.I64)
-  (sum : Std.I128) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
-  Result (ControlFlow ((Slice Std.I64) × Std.I128 × (Option
-    learn_port.head.HeadError) × Std.Usize) ((Slice Std.I64) × Std.I128 ×
-    (Option learn_port.head.HeadError)))
-  := do
-  if i < v
-  then
-    let b := core.option.Option.is_none fail1
-    if b
-    then
-      let i1 ← Slice.index_usize z i
-      let r ← learn_port.head.exp_entry i1 m
-      let (e1, sum1, fail2) ←
-        match r with
-        | core.result.Result.Ok ev =>
-          do
-          let s ← Slice.update e i ev
-          let i2 ← lift (core.convert.num.FromI128I64.from ev)
-          let r1 ← learn_port.head.add128 sum i2
-          let (i3, o) ←
-            match r1 with
-            | core.result.Result.Ok s1 => ok (s1, fail1)
-            | core.result.Result.Err x => ok (sum, some x)
-          ok (s, i3, o)
-        | core.result.Result.Err x => ok (e, sum, some x)
-      let i2 ← i + 1#usize
-      ok (cont (e1, sum1, fail2, i2))
-    else ok (done (e, sum, fail1))
-  else ok (done (e, sum, fail1))
-
-/-- [apeiron_word::learn_port::head::exp_fill]: loop 0:
-    Source: '../../src/learn/grad/head.rs', lines 201:4-213:5 -/
-@[rust_loop]
-def learn_port.head.exp_fill_loop
-  (z : Slice Std.I64) (m : Std.I64) (e : Slice Std.I64) (v : Std.Usize)
-  (sum : Std.I128) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
-  Result ((Slice Std.I64) × Std.I128 × (Option learn_port.head.HeadError))
-  := do
-  loop
-    (fun (e1, sum1, fail2, i1) => learn_port.head.exp_fill_loop.body z m v e1
-      sum1 fail2 i1)
-    (e, sum, fail1, i)
-
-/-- [apeiron_word::learn_port::head::exp_fill]:
-    Source: '../../src/learn/grad/head.rs', lines 196:0-218:1 -/
-def learn_port.head.exp_fill
-  (z : Slice Std.I64) (m : Std.I64) (e : Slice Std.I64) :
-  Result ((core.result.Result Std.I128 learn_port.head.HeadError) × (Slice
-    Std.I64))
-  := do
-  let v := Slice.len z
-  let (e1, sum, fail1) ←
-    learn_port.head.exp_fill_loop z m e v 0#i128 none 0#usize
-  match fail1 with
-  | none => ok (core.result.Result.Ok sum, e1)
-  | some x => ok (core.result.Result.Err x, e1)
-
-/-- [apeiron_word::learn_port::head::row_max]: loop body 0:
-    Source: '../../src/learn/grad/head.rs', lines 182:4-187:5 -/
-@[rust_loop_body]
-def learn_port.head.row_max_loop.body
-  (z : Slice Std.I64) (v : Std.Usize) (m : Std.I64) (i : Std.Usize) :
-  Result (ControlFlow (Std.I64 × Std.Usize) Std.I64)
-  := do
-  if i < v
-  then
-    let i1 ← Slice.index_usize z i
-    let m1 ← if i1 > m
-               then ok i1
-               else ok m
-    let i2 ← i + 1#usize
-    ok (cont (m1, i2))
-  else ok (done m)
-
-/-- [apeiron_word::learn_port::head::row_max]: loop 0:
-    Source: '../../src/learn/grad/head.rs', lines 182:4-187:5 -/
-@[rust_loop]
-def learn_port.head.row_max_loop
-  (z : Slice Std.I64) (v : Std.Usize) (m : Std.I64) (i : Std.Usize) :
-  Result Std.I64
-  := do
-  loop
-    (fun (m1, i1) => learn_port.head.row_max_loop.body z v m1 i1)
-    (m, i)
-
-/-- [apeiron_word::learn_port::head::row_max]:
-    Source: '../../src/learn/grad/head.rs', lines 178:0-189:1 -/
-def learn_port.head.row_max (z : Slice Std.I64) : Result Std.I64 := do
-  let v := Slice.len z
-  let m ← Slice.index_usize z 0#usize
-  learn_port.head.row_max_loop z v m 1#usize
-
-/-- [apeiron_word::learn_port::head::softmax_row]:
-    Source: '../../src/learn/grad/head.rs', lines 279:0-304:1 -/
-def learn_port.head.softmax_row
-  (z : Slice Std.I64) :
-  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
-    Std.I64)) learn_port.head.HeadError)
-  := do
-  let v := Slice.len z
-  if v = 0#usize
-  then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
-  else
-    let m ← learn_port.head.row_max z
-    let e ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
-    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut e)
-    let (r, s1) ← learn_port.head.exp_fill z m s
-    match r with
-    | core.result.Result.Ok s2 =>
-      let r1 ← learn_port.head.to64 s2
-      match r1 with
-      | core.result.Result.Ok s3 =>
-        let r2 ← fixed_ln.fixed_ln s3
-        match r2 with
-        | core.result.Result.Ok l =>
-          let e1 := deref_mut_back s1
-          let s4 := alloc.vec.Vec.deref e1
-          let (s5, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut e)
-          let (s6, deref_mut_back2) ← lift (alloc.vec.Vec.deref_mut e)
-          let (o, s7, s8) ← learn_port.head.fill_lp_p z m l s4 s2 s5 s6
-          match o with
-          | none =>
-            let lp := deref_mut_back1 s7
-            let p := deref_mut_back2 s8
-            ok (core.result.Result.Ok (lp, p))
-          | some x => ok (core.result.Result.Err x)
-        | core.result.Result.Err x =>
-          ok (core.result.Result.Err (learn_port.head.HeadError.Ln x))
-      | core.result.Result.Err x => ok (core.result.Result.Err x)
-    | core.result.Result.Err x => ok (core.result.Result.Err x)
-
-/-- [apeiron_word::learn_port::head::kl_row]:
-    Source: '../../src/learn/grad/head.rs', lines 381:0-405:1
-    Visibility: public -/
-def learn_port.head.kl_row
-  (z_s : Slice Std.I64) (z_t : Slice Std.I64) :
-  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64))
-    learn_port.head.HeadError)
-  := do
-  let i := Slice.len z_s
-  let i1 := Slice.len z_t
-  if i != i1
-  then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
-  else
-    let r ← learn_port.head.softmax_row z_s
-    match r with
-    | core.result.Result.Ok pair =>
-      let (lp_s, p_s) := pair
-      let r1 ← learn_port.head.softmax_row z_t
-      match r1 with
-      | core.result.Result.Ok pair1 =>
-        let (lp_t, p_t) := pair1
-        let s := alloc.vec.Vec.deref p_t
-        let s1 := alloc.vec.Vec.deref lp_t
-        let s2 := alloc.vec.Vec.deref lp_s
-        let r2 ← learn_port.head.kl_acc s s1 s2
-        match r2 with
-        | core.result.Result.Ok a =>
-          let i2 := Slice.len z_s
-          let dz ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i2
-          let s3 := alloc.vec.Vec.deref p_s
-          let s4 := alloc.vec.Vec.deref p_t
-          let (s5, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut dz)
-          let (o, s6) ← learn_port.head.dz_diff s3 s4 s5
-          match o with
-          | none =>
-            let i3 ← engine.ONE
-            let i4 ← lift (core.convert.num.FromI128I64.from i3)
-            let i5 ← learn_port.head.round_div a i4
-            let r3 ← learn_port.head.to64 i5
-            match r3 with
-            | core.result.Result.Ok loss =>
-              let dz1 := deref_mut_back s6
-              ok (core.result.Result.Ok (loss, dz1))
-            | core.result.Result.Err x => ok (core.result.Result.Err x)
-          | some x => ok (core.result.Result.Err x)
-        | core.result.Result.Err x => ok (core.result.Result.Err x)
-      | core.result.Result.Err x => ok (core.result.Result.Err x)
-    | core.result.Result.Err x => ok (core.result.Result.Err x)
-
-/-- [apeiron_word::fold_finish_port::finish::train::kl_mean]: loop body 0:
-    Source: '../../src/learn/fold/finish/train.rs', lines 1062:4-1075:5
-    Visibility: public -/
-@[rust_loop_body]
-def fold_finish_port.finish.train.kl_mean_loop.body
-  (cfg : grad_solve_port.model.Config) (logits : Slice Std.I64)
-  (teacher : Slice Std.I64) (t : Std.Usize) (dz : alloc.vec.Vec Std.I64)
-  (acc : Std.I128) (err : Option fold_finish_port.finish.train.TrainError)
-  (r : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.I128 × (Option
-    fold_finish_port.finish.train.TrainError) × Std.Usize) ((alloc.vec.Vec
-    Std.I64) × Std.I128 × (Option fold_finish_port.finish.train.TrainError)))
-  := do
-  if r < t
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let base ← r * cfg.vocab
-      let i ← base + cfg.vocab
-      let s ←
-        core.slice.index.Slice.index
-          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) logits
-          { start := base, «end» := i }
-      let s1 ←
-        core.slice.index.Slice.index
-          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) teacher
-          { start := base, «end» := i }
-      let r1 ← learn_port.head.kl_row s s1
-      let (dz1, acc1, err1) ←
-        match r1 with
-        | core.result.Result.Ok p =>
-          do
-          let (loss, g) := p
-          let i1 ← lift (core.convert.num.FromI128I64.from loss)
-          let o ← lift (I128.checked_add acc i1)
-          match o with
-          | none =>
-            ok (dz, acc, some
-              fold_finish_port.finish.train.TrainError.Overflow)
-          | some a =>
-            let (s2, index_mut_back) ←
-              alloc.vec.Vec.index_mut
-                (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) dz
-                { start := base, «end» := i }
-            let s3 ←
-              alloc.vec.Vec.index (core.slice.index.SliceIndexRangeToUsizeSlice
-                Std.I64) g { «end» := cfg.vocab }
-            let s4 ←
-              core.slice.Slice.copy_from_slice core.marker.CopyI64 s2 s3
-            let dz2 := index_mut_back s4
-            ok (dz2, a, err)
-        | core.result.Result.Err e =>
-          ok (dz, acc, some (fold_finish_port.finish.train.TrainError.Head e))
-      let r2 ← r + 1#usize
-      ok (cont (dz1, acc1, err1, r2))
-    else ok (done (dz, acc, err))
-  else ok (done (dz, acc, err))
-
-/-- [apeiron_word::fold_finish_port::finish::train::kl_mean]: loop 0:
-    Source: '../../src/learn/fold/finish/train.rs', lines 1062:4-1075:5
-    Visibility: public -/
-@[rust_loop]
-def fold_finish_port.finish.train.kl_mean_loop
-  (cfg : grad_solve_port.model.Config) (logits : Slice Std.I64)
-  (teacher : Slice Std.I64) (t : Std.Usize) (dz : alloc.vec.Vec Std.I64)
-  (acc : Std.I128) (err : Option fold_finish_port.finish.train.TrainError)
-  (r : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × Std.I128 × (Option
-    fold_finish_port.finish.train.TrainError))
-  := do
-  loop
-    (fun (dz1, acc1, err1, r1) =>
-      fold_finish_port.finish.train.kl_mean_loop.body cfg logits teacher t dz1
-      acc1 err1 r1)
-    (dz, acc, err, r)
-
-/-- [apeiron_word::fold_finish_port::finish::train::kl_mean]:
-    Source: '../../src/learn/fold/finish/train.rs', lines 1041:0-1083:1
-    Visibility: public -/
-def fold_finish_port.finish.train.kl_mean
-  (cfg : grad_solve_port.model.Config) (logits : Slice Std.I64)
-  (teacher : Slice Std.I64) :
-  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64))
-    fold_finish_port.finish.train.TrainError)
-  := do
-  if cfg.vocab = 0#usize
-  then
-    let i := Slice.len logits
-    let i1 := Slice.len teacher
-    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i
-    let a1 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i1
-    let a2 ←
-      core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay cfg.vocab
-    let a3 ←
-      core.fmt.Arguments.new
-        (Array.make 50#usize [
-          7#u8, 108#u8, 111#u8, 103#u8, 105#u8, 116#u8, 115#u8, 32#u8, 192#u8,
-          11#u8, 32#u8, 47#u8, 32#u8, 116#u8, 101#u8, 97#u8, 99#u8, 104#u8,
-          101#u8, 114#u8, 32#u8, 192#u8, 25#u8, 32#u8, 110#u8, 111#u8, 116#u8,
-          32#u8, 97#u8, 32#u8, 109#u8, 117#u8, 108#u8, 116#u8, 105#u8, 112#u8,
-          108#u8, 101#u8, 32#u8, 111#u8, 102#u8, 32#u8, 118#u8, 111#u8, 99#u8,
-          97#u8, 98#u8, 32#u8, 192#u8, 0#u8
-          ]) (Array.make 3#usize [ a, a1, a2 ])
-    let s ← alloc.fmt.format a3
-    let s1 ← core.hint.must_use s
-    ok (core.result.Result.Err (fold_finish_port.finish.train.TrainError.Shape
-      s1))
-  else
-    let i := Slice.len logits
-    let i1 := Slice.len teacher
-    if i != i1
-    then
-      let i2 := Slice.len logits
-      let i3 := Slice.len teacher
-      let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i2
-      let a1 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i3
-      let a2 ←
-        core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay cfg.vocab
-      let a3 ←
-        core.fmt.Arguments.new
-          (Array.make 50#usize [
-            7#u8, 108#u8, 111#u8, 103#u8, 105#u8, 116#u8, 115#u8, 32#u8,
-            192#u8, 11#u8, 32#u8, 47#u8, 32#u8, 116#u8, 101#u8, 97#u8, 99#u8,
-            104#u8, 101#u8, 114#u8, 32#u8, 192#u8, 25#u8, 32#u8, 110#u8,
-            111#u8, 116#u8, 32#u8, 97#u8, 32#u8, 109#u8, 117#u8, 108#u8,
-            116#u8, 105#u8, 112#u8, 108#u8, 101#u8, 32#u8, 111#u8, 102#u8,
-            32#u8, 118#u8, 111#u8, 99#u8, 97#u8, 98#u8, 32#u8, 192#u8, 0#u8
-            ]) (Array.make 3#usize [ a, a1, a2 ])
-      let s ← alloc.fmt.format a3
-      let s1 ← core.hint.must_use s
-      ok (core.result.Result.Err
-        (fold_finish_port.finish.train.TrainError.Shape s1))
-    else
-      let i2 := Slice.len logits
-      let b ← core.num.Usize.is_multiple_of i2 cfg.vocab
-      if b
-      then
-        let i3 := Slice.len logits
-        let t ← i3 / cfg.vocab
-        if t = 0#usize
-        then
-          let s ←
-            alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay
-              (toStr "empty batch")
-          ok (core.result.Result.Err
-            (fold_finish_port.finish.train.TrainError.Shape s))
-        else
-          let i4 := Slice.len logits
-          let dz ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i4
-          let (dz1, acc, err) ←
-            fold_finish_port.finish.train.kl_mean_loop cfg logits teacher t dz
-              0#i128 none 0#usize
-          match err with
-          | none =>
-            let i5 ← lift (UScalar.hcast .I128 t)
-            let o ← fold_finish_port.finish.plane.div_ne acc i5
-            let r ←
-              core.option.Option.ok_or o
-                fold_finish_port.finish.train.TrainError.Overflow
-            let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-            match cf with
-            | core.ops.control_flow.ControlFlow.Continue val =>
-              let o1 ← solve_port.q32.narrow val
-              let r1 ←
-                core.option.Option.ok_or o1
-                  fold_finish_port.finish.train.TrainError.Overflow
-              let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-              match cf1 with
-              | core.ops.control_flow.ControlFlow.Continue val1 =>
-                ok (core.result.Result.Ok (val1, dz1))
-              | core.ops.control_flow.ControlFlow.Break residual =>
-                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                  (Std.I64 × (alloc.vec.Vec Std.I64)) (core.convert.FromSame
-                  fold_finish_port.finish.train.TrainError) residual
-            | core.ops.control_flow.ControlFlow.Break residual =>
-              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                (Std.I64 × (alloc.vec.Vec Std.I64)) (core.convert.FromSame
-                fold_finish_port.finish.train.TrainError) residual
-          | some e => ok (core.result.Result.Err e)
-      else
-        let i3 := Slice.len logits
-        let i4 := Slice.len teacher
-        let a ←
-          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i3
-        let a1 ←
-          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i4
-        let a2 ←
-          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay cfg.vocab
-        let a3 ←
-          core.fmt.Arguments.new
-            (Array.make 50#usize [
-              7#u8, 108#u8, 111#u8, 103#u8, 105#u8, 116#u8, 115#u8, 32#u8,
-              192#u8, 11#u8, 32#u8, 47#u8, 32#u8, 116#u8, 101#u8, 97#u8, 99#u8,
-              104#u8, 101#u8, 114#u8, 32#u8, 192#u8, 25#u8, 32#u8, 110#u8,
-              111#u8, 116#u8, 32#u8, 97#u8, 32#u8, 109#u8, 117#u8, 108#u8,
-              116#u8, 105#u8, 112#u8, 108#u8, 101#u8, 32#u8, 111#u8, 102#u8,
-              32#u8, 118#u8, 111#u8, 99#u8, 97#u8, 98#u8, 32#u8, 192#u8, 0#u8
-              ]) (Array.make 3#usize [ a, a1, a2 ])
-        let s ← alloc.fmt.format a3
-        let s1 ← core.hint.must_use s
-        ok (core.result.Result.Err
-          (fold_finish_port.finish.train.TrainError.Shape s1))
-
 /-- [apeiron_word::fold_port::fit::corrector::RIDGE_Q]
     Source: '../../src/learn/fold/fit/corrector.rs', lines 73:0-73:26 -/
 @[global_simps, irreducible]
@@ -69299,6 +66893,20 @@ def solve_port.syrk.within_bound
     | none => ok true
     | some ws => solve_port.syrk.all_below ws limit
   else ok false
+
+/-- [apeiron_word::solve_port::q32::narrow]:
+    Source: '../../src/learn/solve/q32.rs', lines 222:0-228:1
+    Visibility: public -/
+def solve_port.q32.narrow (v : Std.I128) : Result (Option Std.I64) := do
+  let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+  if v > i
+  then ok none
+  else
+    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+    if v < i1
+    then ok none
+    else let i2 ← lift (IScalar.cast .I64 v)
+         ok (some i2)
 
 /-- [apeiron_word::solve_port::eig::residual_ratio]:
     Source: '../../src/learn/solve/eig.rs', lines 852:0-863:1 -/
@@ -72225,6 +69833,47 @@ def solve_port.gemm.gemm_nt
   := do
   solve_port.gemm.run a b m k n false
 
+/-- [apeiron_word::solve_port::q32::rshift_rne]:
+    Source: '../../src/learn/solve/q32.rs', lines 183:0-212:1
+    Visibility: public -/
+def solve_port.q32.rshift_rne
+  (v : Std.I128) (s : Std.U32) : Result (Option Std.I128) := do
+  if s > 126#u32
+  then ok none
+  else
+    if s = 0#u32
+    then ok (some v)
+    else
+      let d ← 1#i128 <<< s
+      let i ← s - 1#u32
+      let half ← 1#i128 <<< i
+      let q ← v / d
+      let r ← v % d
+      if r = 0#i128
+      then ok (some q)
+      else
+        let mag ← if r > 0#i128
+                    then ok r
+                    else -. r
+        let step ←
+          if mag > half
+          then if r > 0#i128
+               then ok 1#i128
+               else ok (-1)#i128
+          else
+            if mag < half
+            then ok 0#i128
+            else
+              do
+              let i1 ← q % 2#i128
+              if i1 = 0#i128
+              then ok 0#i128
+              else if r > 0#i128
+                   then ok 1#i128
+                   else ok (-1)#i128
+        let i1 ← q + step
+        ok (some i1)
+
 /-- [apeiron_word::fold_port::stats::parts::shift]: loop body 0:
     Source: '../../src/learn/fold/stats/parts.rs', lines 341:4-366:5 -/
 @[rust_loop_body]
@@ -73230,6 +70879,16 @@ def solve_port.q32.magnitude_i128 (v : Std.I128) : Result Std.U128 := do
     let i1 ← lift (~~~ i)
     i1 + 1#u128
   else ok (IScalar.hcast .U128 v)
+
+/-- [apeiron_word::solve_port::q32::Q32Error]
+    Source: '../../src/learn/solve/q32.rs', lines 142:0-151:1
+    Visibility: public -/
+@[discriminant isize]
+inductive solve_port.q32.Q32Error where
+| Overflow : solve_port.q32.Q32Error
+| NotSpd : solve_port.q32.Q32Error
+| Asymmetric : solve_port.q32.Q32Error
+| ShapeMismatch : solve_port.q32.Q32Error
 
 /-- [apeiron_word::solve_port::q32::round_f16]:
     Source: '../../src/learn/solve/q32.rs', lines 618:0-657:1
@@ -78213,6 +75872,20 @@ def solve_port.q32.SpdQ.from_q32
           | some er => ok (core.result.Result.Err er)
         else ok (core.result.Result.Err solve_port.q32.Q32Error.Asymmetric)
 
+/-- [apeiron_word::solve_port::q32::round_q32_even]:
+    Source: '../../src/learn/solve/q32.rs', lines 250:0-255:1
+    Visibility: public -/
+def solve_port.q32.round_q32_even
+  (v : Std.I128) :
+  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
+  := do
+  let o ← solve_port.q32.rshift_rne v 32#u32
+  match o with
+  | none => ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+  | some r =>
+    let o1 ← solve_port.q32.narrow r
+    core.option.Option.ok_or o1 solve_port.q32.Q32Error.Overflow
+
 /-- [apeiron_word::solve_port::inv::rotate_180]: loop body 1:
     Source: '../../src/learn/solve/inv.rs', lines 276:8-278:9 -/
 @[rust_loop_body]
@@ -80802,2798 +78475,6 @@ def fold_port.fit.steps.compose
           else fold_port.fit.steps.compose_grid s r c o n g
     else
       ok (core.result.Result.Err fold_port.fit.steps.StepsError.ShapeMismatch)
-
-/-- [apeiron_word::fold_port::stats::parts::PartsError]
-    Source: '../../src/learn/fold/stats/parts.rs', lines 177:0-188:1
-    Visibility: public -/
-@[discriminant isize]
-inductive fold_port.stats.parts.PartsError where
-| Shape : fold_port.stats.parts.PartsError
-| NonFinite : fold_port.stats.parts.PartsError
-| RopeTooShort : fold_port.stats.parts.PartsError
-| OutOfRange : fold_port.stats.parts.PartsError
-
-/-- [apeiron_word::fold_layer_port::layer::stage::StageError]
-    Source: '../../src/learn/fold/layer/stage.rs', lines 62:0-75:1
-    Visibility: public -/
-@[discriminant isize]
-inductive fold_layer_port.layer.stage.StageError where
-| Shape : fold_layer_port.layer.stage.StageError
-| Empty : fold_layer_port.layer.stage.StageError
-| NonFinite : fold_layer_port.layer.stage.StageError
-| NotPositiveDefinite : fold_layer_port.layer.stage.StageError
-| Overflow : fold_layer_port.layer.stage.StageError
-| MissingCts : fold_layer_port.layer.stage.StageError
-
-/-- [apeiron_word::fold_layer_port::layer::resq::ResqError]
-    Source: '../../src/learn/fold/layer/resq.rs', lines 46:0-57:1
-    Visibility: public -/
-@[discriminant isize]
-inductive fold_layer_port.layer.resq.ResqError where
-| Empty : fold_layer_port.layer.resq.ResqError
-| ShapeMismatch : fold_layer_port.layer.resq.ResqError
-| NotPositiveDefinite : fold_layer_port.layer.resq.ResqError
-| Overflow : fold_layer_port.layer.resq.ResqError
-| Quant :
-  fold_port.fit.quant.QuantError →
-  fold_layer_port.layer.resq.ResqError
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::TensorError]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 183:0-231:1
-    Visibility: public -/
-@[discriminant isize]
-inductive fold_layer_port.layer.tensor.TensorError where
-| ShapeMismatch : fold_layer_port.layer.tensor.TensorError
-| ZeroDim : fold_layer_port.layer.tensor.TensorError
-| Width : fold_layer_port.layer.tensor.TensorError
-| QmlpRowsOutOfRange :
-  Std.Usize →
-  Std.Usize →
-  fold_layer_port.layer.tensor.TensorError
-| BiasKind : fold_layer_port.layer.tensor.TensorError
-| NotUp : fold_layer_port.layer.tensor.TensorError
-| PlaneShape : fold_layer_port.layer.tensor.TensorError
-| Grid : fold_layer_port.layer.tensor.TensorError
-| SinkMismatch : Std.I64 → fold_layer_port.layer.tensor.TensorError
-| Fit :
-  fold_port.fit.fold_fit.FoldFitError →
-  fold_layer_port.layer.tensor.TensorError
-| Nb :
-  fold_port.fit.nb_refine.NbError →
-  fold_layer_port.layer.tensor.TensorError
-| Corrector :
-  fold_port.fit.corrector.CorrectorError →
-  fold_layer_port.layer.tensor.TensorError
-| Resq :
-  fold_layer_port.layer.resq.ResqError →
-  fold_layer_port.layer.tensor.TensorError
-| Stage :
-  fold_layer_port.layer.stage.StageError →
-  fold_layer_port.layer.tensor.TensorError
-| Icm : fold_port.fit.icm.IcmError → fold_layer_port.layer.tensor.TensorError
-| Steps :
-  fold_port.fit.steps.StepsError →
-  fold_layer_port.layer.tensor.TensorError
-| Quant :
-  fold_port.fit.quant.QuantError →
-  fold_layer_port.layer.tensor.TensorError
-
-/-- [apeiron_word::fold_layer_port::layer::driver::DriverError]
-    Source: '../../src/learn/fold/layer/driver.rs', lines 63:0-86:1
-    Visibility: public -/
-@[discriminant isize]
-inductive fold_layer_port.layer.driver.DriverError where
-| Shape : fold_layer_port.layer.driver.DriverError
-| Geometry : fold_layer_port.layer.driver.DriverError
-| TinySeq : fold_layer_port.layer.driver.DriverError
-| NonFinite : fold_layer_port.layer.driver.DriverError
-| Grid : fold_layer_port.layer.driver.DriverError
-| Parts :
-  fold_port.stats.parts.PartsError →
-  fold_layer_port.layer.driver.DriverError
-| Stage :
-  fold_layer_port.layer.stage.StageError →
-  fold_layer_port.layer.driver.DriverError
-| Tensor :
-  fold_layer_port.layer.tensor.TensorError →
-  fold_layer_port.layer.driver.DriverError
-| Resq :
-  fold_layer_port.layer.resq.ResqError →
-  fold_layer_port.layer.driver.DriverError
-| Fnorm :
-  fold_port.fit.fnorm.FnormError →
-  fold_layer_port.layer.driver.DriverError
-
-/-- [apeiron_word::fold_layer_port::layer::driver::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::driver::DriverError}::from]:
-    Source: '../../src/learn/fold/layer/driver.rs', lines 119:4-124:5
-    Visibility: public -/
-def fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error.from
-  (e : solve_port.q32.Q32Error) :
-  Result fold_layer_port.layer.driver.DriverError
-  := do
-  match e with
-  | solve_port.q32.Q32Error.Overflow =>
-    ok fold_layer_port.layer.driver.DriverError.Grid
-  | solve_port.q32.Q32Error.NotSpd =>
-    ok fold_layer_port.layer.driver.DriverError.Grid
-  | solve_port.q32.Q32Error.Asymmetric =>
-    ok fold_layer_port.layer.driver.DriverError.Grid
-  | solve_port.q32.Q32Error.ShapeMismatch =>
-    ok fold_layer_port.layer.driver.DriverError.Shape
-
-/-- Trait implementation: [apeiron_word::fold_layer_port::layer::driver::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::driver::DriverError}]
-    Source: '../../src/learn/fold/layer/driver.rs', lines 118:0-125:1 -/
-@[reducible]
-def fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error :
-  core.convert.From fold_layer_port.layer.driver.DriverError
-  solve_port.q32.Q32Error := {
-  «from» :=
-    fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error.from
-}
-
-/-- [apeiron_word::grad_solve_port::model::LayerWeights]
-    Source: '../../src/learn/grad/model.rs', lines 171:0-196:1
-    Visibility: public -/
-structure grad_solve_port.model.LayerWeights where
-  attn_norm : alloc.vec.Vec Std.I64
-  wq : alloc.vec.Vec Std.I64
-  bq : Option (alloc.vec.Vec Std.I64)
-  wk : alloc.vec.Vec Std.I64
-  bk : Option (alloc.vec.Vec Std.I64)
-  wv : alloc.vec.Vec Std.I64
-  bv : Option (alloc.vec.Vec Std.I64)
-  wo : alloc.vec.Vec Std.I64
-  ffn_norm : alloc.vec.Vec Std.I64
-  w_gate : alloc.vec.Vec Std.I64
-  w_up : alloc.vec.Vec Std.I64
-  w_down : alloc.vec.Vec Std.I64
-
-/-- [apeiron_word::fold_port::stats::parts::LayerWords]
-    Source: '../../src/learn/fold/stats/parts.rs', lines 193:0-218:1
-    Visibility: public -/
-structure fold_port.stats.parts.LayerWords where
-  ln1 : Slice Std.I64
-  ln2 : Slice Std.I64
-  q : Slice Std.I64
-  qb : Slice Std.I64
-  k : Slice Std.I64
-  kb : Slice Std.I64
-  v : Slice Std.I64
-  vb : Slice Std.I64
-  o : Slice Std.I64
-  gate : Slice Std.I64
-  up : Slice Std.I64
-  down : Slice Std.I64
-
-/-- [apeiron_word::fold_layer_port::layer::driver::layer_words]:
-    Source: '../../src/learn/fold/layer/driver.rs', lines 156:0-183:1
-    Visibility: public -/
-def fold_layer_port.layer.driver.layer_words
-  (lt : grad_solve_port.model.LayerWeights) :
-  Result (core.result.Result fold_port.stats.parts.LayerWords
-    fold_layer_port.layer.driver.DriverError)
-  := do
-  match lt.bq with
-  | none =>
-    ok (core.result.Result.Err fold_layer_port.layer.driver.DriverError.Shape)
-  | some b =>
-    let qb ← alloc.vec.Vec.as_slice Global b
-    match lt.bk with
-    | none =>
-      ok (core.result.Result.Err
-        fold_layer_port.layer.driver.DriverError.Shape)
-    | some b1 =>
-      let kb ← alloc.vec.Vec.as_slice Global b1
-      match lt.bv with
-      | none =>
-        ok (core.result.Result.Err
-          fold_layer_port.layer.driver.DriverError.Shape)
-      | some b2 =>
-        let vb ← alloc.vec.Vec.as_slice Global b2
-        let s := alloc.vec.Vec.deref lt.attn_norm
-        let s1 := alloc.vec.Vec.deref lt.ffn_norm
-        let s2 := alloc.vec.Vec.deref lt.wq
-        let s3 := alloc.vec.Vec.deref lt.wk
-        let s4 := alloc.vec.Vec.deref lt.wv
-        let s5 := alloc.vec.Vec.deref lt.wo
-        let s6 := alloc.vec.Vec.deref lt.w_gate
-        let s7 := alloc.vec.Vec.deref lt.w_up
-        let s8 := alloc.vec.Vec.deref lt.w_down
-        ok (core.result.Result.Ok
-          {
-            ln1 := s,
-            ln2 := s1,
-            q := s2,
-            qb,
-            k := s3,
-            kb,
-            v := s4,
-            vb,
-            o := s5,
-            gate := s6,
-            up := s7,
-            down := s8
-          })
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::SinkPlane]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 141:0-157:1
-    Visibility: public -/
-structure fold_layer_port.layer.tensor.SinkPlane where
-  s_rot : alloc.vec.Vec Std.I64
-  rh : alloc.vec.Vec Std.I64
-  ch : alloc.vec.Vec Std.I64
-  dh : alloc.vec.Vec Std.I64
-  rows : Option (alloc.vec.Vec Std.Usize)
-  dense : Option (alloc.vec.Vec Std.I64)
-  factors : Option fold_port.fit.corrector.Factors
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::TensorBits]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 123:0-134:1
-    Visibility: public -/
-structure fold_layer_port.layer.tensor.TensorBits where
-  nsign : Std.U64
-  nr : Std.U64
-  nc : Std.U64
-  nd : Std.U64
-  ncorr : Std.U64
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::TensorKind]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 70:0-85:1
-    Visibility: public -/
-@[discriminant isize]
-inductive fold_layer_port.layer.tensor.TensorKind where
-| Q : fold_layer_port.layer.tensor.TensorKind
-| K : fold_layer_port.layer.tensor.TensorKind
-| V : fold_layer_port.layer.tensor.TensorKind
-| O : fold_layer_port.layer.tensor.TensorKind
-| Gate : fold_layer_port.layer.tensor.TensorKind
-| Up : fold_layer_port.layer.tensor.TensorKind
-| Down : fold_layer_port.layer.tensor.TensorKind
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::TensorFit]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 163:0-179:1
-    Visibility: public -/
-structure fold_layer_port.layer.tensor.TensorFit where
-  kind : fold_layer_port.layer.tensor.TensorKind
-  wp : alloc.vec.Vec Std.I64
-  planes : alloc.vec.Vec fold_layer_port.layer.tensor.SinkPlane
-  bits : fold_layer_port.layer.tensor.TensorBits
-  nb : Option fold_port.fit.nb_refine.NbLog
-  top_rows : Option (alloc.vec.Vec Std.Usize)
-  db : Option (alloc.vec.Vec Std.I64)
-
-/-- [apeiron_word::fold_layer_port::layer::driver::SlabParts]
-    Source: '../../src/learn/fold/layer/driver.rs', lines 397:0-412:1 -/
-structure fold_layer_port.layer.driver.SlabParts where
-  q : alloc.vec.Vec Std.I64
-  k : alloc.vec.Vec Std.I64
-  v : alloc.vec.Vec Std.I64
-  mid : alloc.vec.Vec Std.I64
-  g : alloc.vec.Vec Std.I64
-  u : alloc.vec.Vec Std.I64
-  out : alloc.vec.Vec Std.I64
-
-/-- [apeiron_word::fold_layer_port::layer::driver::LayerForward]
-    Source: '../../src/learn/fold/layer/driver.rs', lines 718:0-729:1
-    Visibility: public -/
-structure fold_layer_port.layer.driver.LayerForward where
-  pt : alloc.vec.Vec fold_layer_port.layer.driver.SlabParts
-  ln1 : alloc.vec.Vec Std.I64
-  ln2 : alloc.vec.Vec Std.I64
-  w_tok : Option (alloc.vec.Vec (alloc.vec.Vec Std.I64))
-  w_tok_mid : Option (alloc.vec.Vec (alloc.vec.Vec Std.I64))
-
-/-- [apeiron_word::fold_layer_port::layer::driver::LayerProgress]
-    Source: '../../src/learn/fold/layer/driver.rs', lines 1090:0-1107:1
-    Visibility: public -/
-structure fold_layer_port.layer.driver.LayerProgress where
-  stage : Std.Usize
-  lq : grad_solve_port.model.LayerWeights
-  fits : alloc.vec.Vec fold_layer_port.layer.tensor.TensorFit
-  bits : fold_layer_port.layer.tensor.TensorBits
-  hs_mid : alloc.vec.Vec Std.I64
-  forward : Option fold_layer_port.layer.driver.LayerForward
-
-/-- [apeiron_word::fold_layer_port::layer::driver::ModelState]
-    Source: '../../src/learn/fold/layer/driver.rs', lines 276:0-293:1
-    Visibility: public -/
-structure fold_layer_port.layer.driver.ModelState where
-  next : Std.Usize
-  ht : alloc.vec.Vec Std.I64
-  hs : alloc.vec.Vec Std.I64
-  layers : alloc.vec.Vec grad_solve_port.model.LayerWeights
-  bits : fold_layer_port.layer.tensor.TensorBits
-  fits : alloc.vec.Vec (alloc.vec.Vec fold_layer_port.layer.tensor.TensorFit)
-  «partial» : Option fold_layer_port.layer.driver.LayerProgress
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::tri_sub]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 1083:4-1085:5 -/
-def fold_layer_port.layer.tensor.carrier.tri_sub
-  (a : Std.I64) (b : Std.I64) (c : Std.I64) : Result (Option Std.I64) := do
-  let o ← lift (I64.checked_sub a b)
-  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
-  match cf with
-  | core.ops.control_flow.ControlFlow.Continue val =>
-    let o1 ← lift (I64.checked_sub b c)
-    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
-    match cf1 with
-    | core.ops.control_flow.ControlFlow.Continue val1 =>
-      ok (I64.checked_add val val1)
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
-        Std.I64 residual
-  | core.ops.control_flow.ControlFlow.Break residual =>
-    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
-      Std.I64 residual
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::Elem]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 1041:4-1053:5 -/
-@[discriminant isize]
-inductive fold_layer_port.layer.tensor.carrier.Elem where
-| Sub :
-  Slice Std.I64 →
-  Slice Std.I64 →
-  fold_layer_port.layer.tensor.carrier.Elem
-| Add :
-  Slice Std.I64 →
-  Slice Std.I64 →
-  fold_layer_port.layer.tensor.carrier.Elem
-| TriSub :
-  Slice Std.I64 →
-  Slice Std.I64 →
-  Slice Std.I64 →
-  fold_layer_port.layer.tensor.carrier.Elem
-| MulCol :
-  Slice Std.I64 →
-  Slice Std.I64 →
-  Std.Usize →
-  fold_layer_port.layer.tensor.carrier.Elem
-| Square : Slice Std.I64 → fold_layer_port.layer.tensor.carrier.Elem
-| SubBias :
-  Slice Std.I64 →
-  Slice Std.I64 →
-  Std.Usize →
-  fold_layer_port.layer.tensor.carrier.Elem
-| Ratio :
-  Slice Std.I64 →
-  Std.I64 →
-  fold_layer_port.layer.tensor.carrier.Elem
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 963:4-970:5 -/
-def fold_layer_port.layer.tensor.carrier.ratio
-  (num : Std.I128) (den : Std.I128) :
-  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
-  := do
-  if den <= 0#i128
-  then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
-  else
-    let shifted ← num <<< 32#i32
-    let i ← solve_port.q32.div_rne_pos shifted den
-    let o ← solve_port.q32.narrow i
-    core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::mul]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 954:4-956:5 -/
-def fold_layer_port.layer.tensor.carrier.mul
-  (a : Std.I64) (b : Std.I64) :
-  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
-  := do
-  let i ← lift (core.convert.num.FromI128I64.from a)
-  let i1 ← lift (core.convert.num.FromI128I64.from b)
-  let i2 ← i * i1
-  solve_port.q32.round_q32_even i2
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::eval]: loop body 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 1060:8-1075:9 -/
-@[rust_loop_body]
-def fold_layer_port.layer.tensor.carrier.eval_loop.body
-  (len : Std.Usize) (e : fold_layer_port.layer.tensor.carrier.Elem)
-  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.q32.Q32Error)
-  (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
-    solve_port.q32.Q32Error)))
-  := do
-  if i < len
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let step ←
-        match e with
-        | fold_layer_port.layer.tensor.carrier.Elem.Sub a b1 =>
-          do
-          let i1 ← Slice.index_usize a i
-          let i2 ← Slice.index_usize b1 i
-          let o ← lift (I64.checked_sub i1 i2)
-          core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
-        | fold_layer_port.layer.tensor.carrier.Elem.Add a b1 =>
-          do
-          let i1 ← Slice.index_usize a i
-          let i2 ← Slice.index_usize b1 i
-          let o ← lift (I64.checked_add i1 i2)
-          core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
-        | fold_layer_port.layer.tensor.carrier.Elem.TriSub a b1 c =>
-          do
-          let i1 ← Slice.index_usize a i
-          let i2 ← Slice.index_usize b1 i
-          let i3 ← Slice.index_usize c i
-          let o ← fold_layer_port.layer.tensor.carrier.tri_sub i1 i2 i3
-          core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
-        | fold_layer_port.layer.tensor.carrier.Elem.MulCol a b1 w =>
-          do
-          let i1 ← Slice.index_usize a i
-          let i2 ← i % w
-          let i3 ← Slice.index_usize b1 i2
-          fold_layer_port.layer.tensor.carrier.mul i1 i3
-        | fold_layer_port.layer.tensor.carrier.Elem.Square a =>
-          do
-          let i1 ← Slice.index_usize a i
-          fold_layer_port.layer.tensor.carrier.mul i1 i1
-        | fold_layer_port.layer.tensor.carrier.Elem.SubBias a b1 w =>
-          do
-          let i1 ← Slice.index_usize a i
-          let i2 ← i % w
-          let i3 ← Slice.index_usize b1 i2
-          let o ← lift (I64.checked_sub i1 i3)
-          core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
-        | fold_layer_port.layer.tensor.carrier.Elem.Ratio a d =>
-          do
-          let i1 ← Slice.index_usize a i
-          let i2 ← lift (core.convert.num.FromI128I64.from i1)
-          let i3 ← lift (core.convert.num.FromI128I64.from d)
-          fold_layer_port.layer.tensor.carrier.ratio i2 i3
-      let (out1, err1) ←
-        match step with
-        | core.result.Result.Ok v =>
-          do
-          let out2 ← alloc.vec.Vec.push out v
-          ok (out2, err)
-        | core.result.Result.Err e2 => ok (out, some e2)
-      let i1 ← i + 1#usize
-      ok (cont (out1, err1, i1))
-    else ok (done (out, err))
-  else ok (done (out, err))
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::eval]: loop 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 1060:8-1075:9 -/
-@[rust_loop]
-def fold_layer_port.layer.tensor.carrier.eval_loop
-  (len : Std.Usize) (e : fold_layer_port.layer.tensor.carrier.Elem)
-  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.q32.Q32Error)
-  (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.q32.Q32Error))
-  := do
-  loop
-    (fun (out1, err1, i1) =>
-      fold_layer_port.layer.tensor.carrier.eval_loop.body len e out1 err1 i1)
-    (out, err, i)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::eval]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 1056:4-1080:5 -/
-def fold_layer_port.layer.tensor.carrier.eval
-  (len : Std.Usize) (e : fold_layer_port.layer.tensor.carrier.Elem) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.q32.Q32Error)
-  := do
-  let out := alloc.vec.Vec.with_capacity Std.I64 len
-  let (out1, err) ←
-    fold_layer_port.layer.tensor.carrier.eval_loop len e out none 0#usize
-  match err with
-  | none => ok (core.result.Result.Ok out1)
-  | some e2 => ok (core.result.Result.Err e2)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::sum_i128]: loop body 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 977:8-983:9 -/
-@[rust_loop_body]
-def fold_layer_port.layer.tensor.carrier.sum_i128_loop.body
-  (x : Slice Std.I64) (s : Std.I128) (failed : Bool) (i : Std.Usize) :
-  Result (ControlFlow (Std.I128 × Bool × Std.Usize) (Std.I128 × Bool))
-  := do
-  let i1 := Slice.len x
-  if i < i1
-  then
-    if failed
-    then ok (done (s, true))
-    else
-      let i2 ← Slice.index_usize x i
-      let i3 ← lift (core.convert.num.FromI128I64.from i2)
-      let o ← lift (I128.checked_add s i3)
-      let (s1, failed1) ←
-        match o with
-        | none => ok (s, true)
-        | some v => ok (v, false)
-      let i4 ← i + 1#usize
-      ok (cont (s1, failed1, i4))
-  else ok (done (s, failed))
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::sum_i128]: loop 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 977:8-983:9 -/
-@[rust_loop]
-def fold_layer_port.layer.tensor.carrier.sum_i128_loop
-  (x : Slice Std.I64) (s : Std.I128) (failed : Bool) (i : Std.Usize) :
-  Result (Std.I128 × Bool)
-  := do
-  loop
-    (fun (s1, failed1, i1) =>
-      fold_layer_port.layer.tensor.carrier.sum_i128_loop.body x s1 failed1 i1)
-    (s, failed, i)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::sum_i128]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 973:4-988:5 -/
-def fold_layer_port.layer.tensor.carrier.sum_i128
-  (x : Slice Std.I64) :
-  Result (core.result.Result Std.I128 solve_port.q32.Q32Error)
-  := do
-  let (s, failed) ←
-    fold_layer_port.layer.tensor.carrier.sum_i128_loop x 0#i128 false 0#usize
-  if failed
-  then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
-  else ok (core.result.Result.Ok s)
-
-/-- [apeiron_word::fold_layer_port::layer::driver::g_row_from_vec]:
-    Source: '../../src/learn/fold/layer/driver.rs', lines 466:0-475:1
-    Visibility: public -/
-def fold_layer_port.layer.driver.g_row_from_vec
-  (v : Slice Std.I64) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_layer_port.layer.driver.DriverError)
-  := do
-  let b ← core.slice.Slice.is_empty v
-  if b
-  then
-    ok (core.result.Result.Err fold_layer_port.layer.driver.DriverError.Shape)
-  else
-    let i := Slice.len v
-    let r ←
-      fold_layer_port.layer.tensor.carrier.eval i
-        (fold_layer_port.layer.tensor.carrier.Elem.Square v)
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue val =>
-      let i1 := Slice.len v
-      let i2 ← lift (UScalar.cast .U64 i1)
-      let len ← I128.Insts.CoreConvertFromU64.from i2
-      let s := alloc.vec.Vec.deref val
-      let r1 ← fold_layer_port.layer.tensor.carrier.sum_i128 s
-      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-      match cf1 with
-      | core.ops.control_flow.ControlFlow.Continue val1 =>
-        let i3 ← len <<< 32#i32
-        let r2 ← fold_layer_port.layer.tensor.carrier.ratio val1 i3
-        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
-        match cf2 with
-        | core.ops.control_flow.ControlFlow.Continue val2 =>
-          let i4 := alloc.vec.Vec.len val
-          let s1 := alloc.vec.Vec.deref val
-          let i5 ← core.cmp.Ord.max.default core.cmp.OrdI64 val2 1#i64
-          let r3 ←
-            fold_layer_port.layer.tensor.carrier.eval i4
-              (fold_layer_port.layer.tensor.carrier.Elem.Ratio s1 i5)
-          let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
-          match cf3 with
-          | core.ops.control_flow.ControlFlow.Continue val3 =>
-            ok (core.result.Result.Ok val3)
-          | core.ops.control_flow.ControlFlow.Break residual =>
-            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-              (alloc.vec.Vec Std.I64)
-              fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
-              residual
-        | core.ops.control_flow.ControlFlow.Break residual =>
-          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-            (alloc.vec.Vec Std.I64)
-            fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
-            residual
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          (alloc.vec.Vec Std.I64)
-          fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
-          residual
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-        (alloc.vec.Vec Std.I64)
-        fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
-        residual
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio_words]: loop body 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 1026:8-1032:9 -/
-@[rust_loop_body]
-def fold_layer_port.layer.tensor.carrier.ratio_words_loop.body
-  (x : Slice Std.I128) (den : Std.I64) (out : alloc.vec.Vec Std.I64)
-  (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
-    solve_port.q32.Q32Error)))
-  := do
-  let i1 := Slice.len x
-  if i < i1
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i2 ← Slice.index_usize x i
-      let i3 ← lift (core.convert.num.FromI128I64.from den)
-      let r ← fold_layer_port.layer.tensor.carrier.ratio i2 i3
-      let (out1, err1) ←
-        match r with
-        | core.result.Result.Ok v =>
-          do
-          let out2 ← alloc.vec.Vec.push out v
-          ok (out2, err)
-        | core.result.Result.Err e => ok (out, some e)
-      let i4 ← i + 1#usize
-      ok (cont (out1, err1, i4))
-    else ok (done (out, err))
-  else ok (done (out, err))
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio_words]: loop 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 1026:8-1032:9 -/
-@[rust_loop]
-def fold_layer_port.layer.tensor.carrier.ratio_words_loop
-  (x : Slice Std.I128) (den : Std.I64) (out : alloc.vec.Vec Std.I64)
-  (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.q32.Q32Error))
-  := do
-  loop
-    (fun (out1, err1, i1) =>
-      fold_layer_port.layer.tensor.carrier.ratio_words_loop.body x den out1
-      err1 i1)
-    (out, err, i)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio_words]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 1022:4-1037:5 -/
-def fold_layer_port.layer.tensor.carrier.ratio_words
-  (x : Slice Std.I128) (den : Std.I64) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.q32.Q32Error)
-  := do
-  let i := Slice.len x
-  let out := alloc.vec.Vec.with_capacity Std.I64 i
-  let (out1, err) ←
-    fold_layer_port.layer.tensor.carrier.ratio_words_loop x den out none
-      0#usize
-  match err with
-  | none => ok (core.result.Result.Ok out1)
-  | some e => ok (core.result.Result.Err e)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop body 1:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 999:12-1009:13 -/
-@[rust_loop_body]
-def fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0.body
-  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) (c : Std.Usize)
-  (err : Option solve_port.q32.Q32Error) (s : Std.I128) (r : Std.Usize) :
-  Result (ControlFlow ((Option solve_port.q32.Q32Error) × Std.I128 ×
-    Std.Usize) ((Option solve_port.q32.Q32Error) × Std.I128))
-  := do
-  if r < rows
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i ← r * cols
-      let i1 ← i + c
-      let v ← Slice.index_usize w i1
-      let r1 ← fold_layer_port.layer.tensor.carrier.mul v v
-      let (err1, s1) ←
-        match r1 with
-        | core.result.Result.Ok m =>
-          do
-          let i2 ← lift (core.convert.num.FromI128I64.from m)
-          let o ← lift (I128.checked_add s i2)
-          match o with
-          | none => ok (some solve_port.q32.Q32Error.Overflow, s)
-          | some t => ok (err, t)
-        | core.result.Result.Err e => ok (some e, s)
-      let r2 ← r + 1#usize
-      ok (cont (err1, s1, r2))
-    else ok (done (err, s))
-  else ok (done (err, s))
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop 1:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 999:12-1009:13 -/
-@[rust_loop]
-def fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0
-  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
-  (err : Option solve_port.q32.Q32Error) (c : Std.Usize) (s : Std.I128)
-  (r : Std.Usize) :
-  Result ((Option solve_port.q32.Q32Error) × Std.I128)
-  := do
-  loop
-    (fun (err1, s1, r1) =>
-      fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0.body w rows
-      cols c err1 s1 r1)
-    (err, s, r)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop body 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 996:8-1014:9 -/
-@[rust_loop_body]
-def fold_layer_port.layer.tensor.carrier.col_squares_loop0.body
-  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
-  (out : alloc.vec.Vec Std.I128) (err : Option solve_port.q32.Q32Error)
-  (c : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I128) × (Option
-    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I128) × (Option
-    solve_port.q32.Q32Error)))
-  := do
-  if c < cols
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let (err1, s) ←
-        fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0 w rows
-          cols err c 0#i128 0#usize
-      let b1 := core.option.Option.is_none err1
-      let out1 ← if b1
-                   then alloc.vec.Vec.push out s
-                   else ok out
-      let c1 ← c + 1#usize
-      ok (cont (out1, err1, c1))
-    else ok (done (out, err))
-  else ok (done (out, err))
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 996:8-1014:9 -/
-@[rust_loop]
-def fold_layer_port.layer.tensor.carrier.col_squares_loop0
-  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
-  (out : alloc.vec.Vec Std.I128) (err : Option solve_port.q32.Q32Error)
-  (c : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I128) × (Option solve_port.q32.Q32Error))
-  := do
-  loop
-    (fun (out1, err1, c1) =>
-      fold_layer_port.layer.tensor.carrier.col_squares_loop0.body w rows cols
-      out1 err1 c1)
-    (out, err, c)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 992:4-1019:5 -/
-def fold_layer_port.layer.tensor.carrier.col_squares
-  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I128) solve_port.q32.Q32Error)
-  := do
-  let out := alloc.vec.Vec.with_capacity Std.I128 cols
-  let (out1, err) ←
-    fold_layer_port.layer.tensor.carrier.col_squares_loop0 w rows cols out none
-      0#usize
-  match err with
-  | none => ok (core.result.Result.Ok out1)
-  | some e => ok (core.result.Result.Err e)
-
-/-- [apeiron_word::fold_layer_port::layer::driver::g_row_from_matrix]: loop body 0:
-    Source: '../../src/learn/fold/layer/driver.rs', lines 493:4-499:5
-    Visibility: public -/
-@[rust_loop_body]
-def fold_layer_port.layer.driver.g_row_from_matrix_loop.body
-  (sums : alloc.vec.Vec Std.I128) (total : Std.I128) (failed : Bool)
-  (i : Std.Usize) :
-  Result (ControlFlow (Std.I128 × Bool × Std.Usize) (Std.I128 × Bool))
-  := do
-  let i1 := alloc.vec.Vec.len sums
-  if i < i1
-  then
-    if failed
-    then ok (done (total, true))
-    else
-      let i2 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
-          sums i
-      let o ← lift (I128.checked_add total i2)
-      let (total1, failed1) ←
-        match o with
-        | none => ok (total, true)
-        | some v => ok (v, false)
-      let i3 ← i + 1#usize
-      ok (cont (total1, failed1, i3))
-  else ok (done (total, failed))
-
-/-- [apeiron_word::fold_layer_port::layer::driver::g_row_from_matrix]: loop 0:
-    Source: '../../src/learn/fold/layer/driver.rs', lines 493:4-499:5
-    Visibility: public -/
-@[rust_loop]
-def fold_layer_port.layer.driver.g_row_from_matrix_loop
-  (sums : alloc.vec.Vec Std.I128) (total : Std.I128) (failed : Bool)
-  (i : Std.Usize) :
-  Result (Std.I128 × Bool)
-  := do
-  loop
-    (fun (total1, failed1, i1) =>
-      fold_layer_port.layer.driver.g_row_from_matrix_loop.body sums total1
-      failed1 i1)
-    (total, failed, i)
-
-/-- [apeiron_word::fold_layer_port::layer::driver::g_row_from_matrix]:
-    Source: '../../src/learn/fold/layer/driver.rs', lines 484:0-505:1
-    Visibility: public -/
-def fold_layer_port.layer.driver.g_row_from_matrix
-  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_layer_port.layer.driver.DriverError)
-  := do
-  let o ← lift (Usize.checked_mul rows cols)
-  let r ←
-    core.option.Option.ok_or o fold_layer_port.layer.driver.DriverError.Shape
-  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-  match cf with
-  | core.ops.control_flow.ControlFlow.Continue val =>
-    if cols = 0#usize
-    then
-      ok (core.result.Result.Err
-        fold_layer_port.layer.driver.DriverError.Shape)
-    else
-      let i := Slice.len w
-      if i != val
-      then
-        ok (core.result.Result.Err
-          fold_layer_port.layer.driver.DriverError.Shape)
-      else
-        let r1 ← fold_layer_port.layer.tensor.carrier.col_squares w rows cols
-        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-        match cf1 with
-        | core.ops.control_flow.ControlFlow.Continue val1 =>
-          let (total, failed) ←
-            fold_layer_port.layer.driver.g_row_from_matrix_loop val1 0#i128
-              false 0#usize
-          if failed
-          then
-            ok (core.result.Result.Err
-              fold_layer_port.layer.driver.DriverError.Grid)
-          else
-            let i1 ← lift (UScalar.cast .U64 cols)
-            let i2 ← I128.Insts.CoreConvertFromU64.from i1
-            let den ← i2 <<< 32#i32
-            let s := alloc.vec.Vec.deref val1
-            let r2 ← fold_layer_port.layer.tensor.carrier.ratio total den
-            let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
-            match cf2 with
-            | core.ops.control_flow.ControlFlow.Continue val2 =>
-              let i3 ← core.cmp.Ord.max.default core.cmp.OrdI64 val2 1#i64
-              let r3 ← fold_layer_port.layer.tensor.carrier.ratio_words s i3
-              let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
-              match cf3 with
-              | core.ops.control_flow.ControlFlow.Continue val3 =>
-                ok (core.result.Result.Ok val3)
-              | core.ops.control_flow.ControlFlow.Break residual =>
-                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                  (alloc.vec.Vec Std.I64)
-                  fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
-                  residual
-            | core.ops.control_flow.ControlFlow.Break residual =>
-              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                (alloc.vec.Vec Std.I64)
-                fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
-                residual
-        | core.ops.control_flow.ControlFlow.Break residual =>
-          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-            (alloc.vec.Vec Std.I64)
-            fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
-            residual
-  | core.ops.control_flow.ControlFlow.Break residual =>
-    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-      (alloc.vec.Vec Std.I64) (core.convert.FromSame
-      fold_layer_port.layer.driver.DriverError) residual
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::default::Default for apeiron_word::fold_layer_port::layer::tensor::TensorBits}::default]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 122:29-122:36
-    Visibility: public -/
-def fold_layer_port.layer.tensor.TensorBits.Insts.CoreDefaultDefault.default
-  : Result fold_layer_port.layer.tensor.TensorBits := do
-  ok
-    {
-      nsign := (core.default.DefaultU64.default),
-      nr := (core.default.DefaultU64.default),
-      nc := (core.default.DefaultU64.default),
-      nd := (core.default.DefaultU64.default),
-      ncorr := (core.default.DefaultU64.default)
-    }
-
-/-- [apeiron_word::fold_layer_port::layer::driver::model_init]:
-    Source: '../../src/learn/fold/layer/driver.rs', lines 1332:0-1342:1
-    Visibility: public -/
-def fold_layer_port.layer.driver.model_init
-  (h0 : Slice Std.I64) : Result fold_layer_port.layer.driver.ModelState := do
-  let v ← alloc.slice.Slice.to_vec core.clone.CloneI64 h0
-  let tb ←
-    fold_layer_port.layer.tensor.TensorBits.Insts.CoreDefaultDefault.default
-  ok
-    {
-      next := 0#usize,
-      ht := v,
-      hs := v,
-      layers := (alloc.vec.Vec.new grad_solve_port.model.LayerWeights),
-      bits := tb,
-      fits :=
-        (alloc.vec.Vec.new
-          (alloc.vec.Vec
-          fold_layer_port.layer.tensor.TensorFit)),
-      «partial» := none
-    }
-
-/-- [apeiron_word::fold_layer_port::layer::resq::{impl core::convert::From<apeiron_word::fold_port::fit::quant::QuantError> for apeiron_word::fold_layer_port::layer::resq::ResqError}::from]:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 60:4-62:5
-    Visibility: public -/
-def fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError.from
-  (e : fold_port.fit.quant.QuantError) :
-  Result fold_layer_port.layer.resq.ResqError
-  := do
-  ok (fold_layer_port.layer.resq.ResqError.Quant e)
-
-/-- Trait implementation: [apeiron_word::fold_layer_port::layer::resq::{impl core::convert::From<apeiron_word::fold_port::fit::quant::QuantError> for apeiron_word::fold_layer_port::layer::resq::ResqError}]
-    Source: '../../src/learn/fold/layer/resq.rs', lines 59:0-63:1 -/
-@[reducible]
-def fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError :
-  core.convert.From fold_layer_port.layer.resq.ResqError
-  fold_port.fit.quant.QuantError := {
-  «from» :=
-    fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError.from
-}
-
-/-- [apeiron_word::fold_layer_port::layer::resq::mul_q32::{closure}]
-    Source: '../../src/learn/fold/layer/resq.rs', lines 119:58-119:81 -/
-@[reducible]
-def fold_layer_port.layer.resq.mul_q32.closure := Unit
-
-/-- [apeiron_word::fold_layer_port::layer::resq::mul_q32::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::resq::mul_q32::{closure}}::call_once]:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 119:58-119:81 -/
-def
-  fold_layer_port.layer.resq.mul_q32.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorResqError.call_once
-  (c : fold_layer_port.layer.resq.mul_q32.closure)
-  (tupled_args : solve_port.q32.Q32Error) :
-  Result fold_layer_port.layer.resq.ResqError
-  := do
-  ok fold_layer_port.layer.resq.ResqError.Overflow
-
-/-- Trait implementation: [apeiron_word::fold_layer_port::layer::resq::mul_q32::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::resq::mul_q32::{closure}}]
-    Source: '../../src/learn/fold/layer/resq.rs', lines 119:58-119:81 -/
-@[reducible]
-def
-  fold_layer_port.layer.resq.mul_q32.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorResqError
-  : core.ops.function.FnOnce fold_layer_port.layer.resq.mul_q32.closure
-  solve_port.q32.Q32Error fold_layer_port.layer.resq.ResqError := {
-  call_once :=
-    fold_layer_port.layer.resq.mul_q32.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorResqError.call_once
-}
-
-/-- [apeiron_word::fold_layer_port::layer::resq::mul_q32]:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 118:0-120:1 -/
-def fold_layer_port.layer.resq.mul_q32
-  (a : Std.I64) (b : Std.I64) :
-  Result (core.result.Result Std.I64 fold_layer_port.layer.resq.ResqError)
-  := do
-  let i ← lift (core.convert.num.FromI128I64.from a)
-  let i1 ← lift (core.convert.num.FromI128I64.from b)
-  let i2 ← i * i1
-  let r ← solve_port.q32.round_q32_even i2
-  core.result.Result.map_err
-    fold_layer_port.layer.resq.mul_q32.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorResqError
-    r ()
-
-/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]: loop body 1:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 352:8-358:9
-    Visibility: public -/
-@[rust_loop_body]
-def fold_layer_port.layer.resq.rescale_hier_loop0_loop0.body
-  (rh : Slice Std.I64) (s : Slice Std.I64) (g : Std.Usize) (i : Std.Usize)
-  (scaled : alloc.vec.Vec Std.I64)
-  (err : Option fold_layer_port.layer.resq.ResqError) (j : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    fold_layer_port.layer.resq.ResqError) × Std.Usize) ((alloc.vec.Vec
-    Std.I64) × (Option fold_layer_port.layer.resq.ResqError)))
-  := do
-  if j < g
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i1 ← i * g
-      let i2 ← i1 + j
-      let i3 ← Slice.index_usize rh i2
-      let i4 ← Slice.index_usize s i
-      let r ← fold_layer_port.layer.resq.mul_q32 i3 i4
-      let (scaled1, err1) ←
-        match r with
-        | core.result.Result.Ok v =>
-          do
-          let i5 ← i1 + j
-          let (_, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.I64) scaled i5
-          let scaled2 := index_mut_back v
-          ok (scaled2, err)
-        | core.result.Result.Err e => ok (scaled, some e)
-      let j1 ← j + 1#usize
-      ok (cont (scaled1, err1, j1))
-    else ok (done (scaled, err))
-  else ok (done (scaled, err))
-
-/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]: loop 1:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 352:8-358:9
-    Visibility: public -/
-@[rust_loop]
-def fold_layer_port.layer.resq.rescale_hier_loop0_loop0
-  (rh : Slice Std.I64) (s : Slice Std.I64) (g : Std.Usize)
-  (scaled : alloc.vec.Vec Std.I64)
-  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize)
-  (j : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option
-    fold_layer_port.layer.resq.ResqError))
-  := do
-  loop
-    (fun (scaled1, err1, j1) =>
-      fold_layer_port.layer.resq.rescale_hier_loop0_loop0.body rh s g i scaled1
-      err1 j1)
-    (scaled, err, j)
-
-/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]: loop body 0:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 350:4-360:5
-    Visibility: public -/
-@[rust_loop_body]
-def fold_layer_port.layer.resq.rescale_hier_loop0.body
-  (rh : Slice Std.I64) (s : Slice Std.I64) (o : Std.Usize) (g : Std.Usize)
-  (scaled : alloc.vec.Vec Std.I64)
-  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    fold_layer_port.layer.resq.ResqError) × Std.Usize) ((alloc.vec.Vec
-    Std.I64) × (Option fold_layer_port.layer.resq.ResqError)))
-  := do
-  if i < o
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let (scaled1, err1) ←
-        fold_layer_port.layer.resq.rescale_hier_loop0_loop0 rh s g scaled err i
-          0#usize
-      let i1 ← i + 1#usize
-      ok (cont (scaled1, err1, i1))
-    else ok (done (scaled, err))
-  else ok (done (scaled, err))
-
-/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]: loop 0:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 350:4-360:5
-    Visibility: public -/
-@[rust_loop]
-def fold_layer_port.layer.resq.rescale_hier_loop0
-  (rh : Slice Std.I64) (s : Slice Std.I64) (o : Std.Usize) (g : Std.Usize)
-  (scaled : alloc.vec.Vec Std.I64)
-  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option
-    fold_layer_port.layer.resq.ResqError))
-  := do
-  loop
-    (fun (scaled1, err1, i1) =>
-      fold_layer_port.layer.resq.rescale_hier_loop0.body rh s o g scaled1 err1
-      i1)
-    (scaled, err, i)
-
-/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 339:0-365:1
-    Visibility: public -/
-def fold_layer_port.layer.resq.rescale_hier
-  (rh : Slice Std.I64) (s : Slice Std.I64) (o : Std.Usize) (g : Std.Usize) :
-  Result (core.result.Result fold_port.fit.quant.RHier
-    fold_layer_port.layer.resq.ResqError)
-  := do
-  if o = 0#usize
-  then ok (core.result.Result.Err fold_layer_port.layer.resq.ResqError.Empty)
-  else
-    if g = 0#usize
-    then ok (core.result.Result.Err fold_layer_port.layer.resq.ResqError.Empty)
-    else
-      let o1 ← lift (Usize.checked_mul o g)
-      let r ←
-        core.option.Option.ok_or o1
-          fold_layer_port.layer.resq.ResqError.ShapeMismatch
-      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-      match cf with
-      | core.ops.control_flow.ControlFlow.Continue val =>
-        let i := Slice.len rh
-        if i != val
-        then
-          ok (core.result.Result.Err
-            fold_layer_port.layer.resq.ResqError.ShapeMismatch)
-        else
-          let i1 := Slice.len s
-          if i1 != o
-          then
-            ok (core.result.Result.Err
-              fold_layer_port.layer.resq.ResqError.ShapeMismatch)
-          else
-            let scaled ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
-            let (scaled1, err) ←
-              fold_layer_port.layer.resq.rescale_hier_loop0 rh s o g scaled
-                none 0#usize
-            match err with
-            | none =>
-              let s1 := alloc.vec.Vec.deref scaled1
-              let r1 ← fold_port.fit.quant.quant_r_hier s1 o g
-              let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-              match cf1 with
-              | core.ops.control_flow.ControlFlow.Continue val1 =>
-                ok (core.result.Result.Ok val1)
-              | core.ops.control_flow.ControlFlow.Break residual =>
-                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                  fold_port.fit.quant.RHier
-                  fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError
-                  residual
-            | some e => ok (core.result.Result.Err e)
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          fold_port.fit.quant.RHier (core.convert.FromSame
-          fold_layer_port.layer.resq.ResqError) residual
-
-/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop body 0:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 392:4-397:5
-    Visibility: public -/
-@[rust_loop_body]
-def fold_layer_port.layer.resq.rescale_hier_top_loop0.body
-  (s : Slice Std.I64) (rows : Slice Std.Usize) (bad : Bool) (q : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize) Bool)
-  := do
-  let i := Slice.len rows
-  if q < i
-  then
-    let i1 ← Slice.index_usize rows q
-    let i2 := Slice.len s
-    let bad1 ← if i1 >= i2
-                 then ok true
-                 else ok bad
-    let q1 ← q + 1#usize
-    ok (cont (bad1, q1))
-  else ok (done bad)
-
-/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop 0:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 392:4-397:5
-    Visibility: public -/
-@[rust_loop]
-def fold_layer_port.layer.resq.rescale_hier_top_loop0
-  (s : Slice Std.I64) (rows : Slice Std.Usize) (bad : Bool) (q : Std.Usize) :
-  Result Bool
-  := do
-  loop
-    (fun (bad1, q1) => fold_layer_port.layer.resq.rescale_hier_top_loop0.body s
-      rows bad1 q1)
-    (bad, q)
-
-/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop body 2:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 407:8-413:9
-    Visibility: public -/
-@[rust_loop_body]
-def fold_layer_port.layer.resq.rescale_hier_top_loop1_loop0.body
-  (rh : Slice Std.I64) (s : Slice Std.I64) (g : Std.Usize) (i : Std.Usize)
-  (r : Std.Usize) (scaled : alloc.vec.Vec Std.I64)
-  (err : Option fold_layer_port.layer.resq.ResqError) (j : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    fold_layer_port.layer.resq.ResqError) × Std.Usize) ((alloc.vec.Vec
-    Std.I64) × (Option fold_layer_port.layer.resq.ResqError)))
-  := do
-  if j < g
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i1 ← i * g
-      let i2 ← i1 + j
-      let i3 ← Slice.index_usize rh i2
-      let i4 ← Slice.index_usize s r
-      let r1 ← fold_layer_port.layer.resq.mul_q32 i3 i4
-      let (scaled1, err1) ←
-        match r1 with
-        | core.result.Result.Ok v =>
-          do
-          let i5 ← i1 + j
-          let (_, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.I64) scaled i5
-          let scaled2 := index_mut_back v
-          ok (scaled2, err)
-        | core.result.Result.Err e => ok (scaled, some e)
-      let j1 ← j + 1#usize
-      ok (cont (scaled1, err1, j1))
-    else ok (done (scaled, err))
-  else ok (done (scaled, err))
-
-/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop 2:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 407:8-413:9
-    Visibility: public -/
-@[rust_loop]
-def fold_layer_port.layer.resq.rescale_hier_top_loop1_loop0
-  (rh : Slice Std.I64) (s : Slice Std.I64) (g : Std.Usize)
-  (scaled : alloc.vec.Vec Std.I64)
-  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize)
-  (r : Std.Usize) (j : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option
-    fold_layer_port.layer.resq.ResqError))
-  := do
-  loop
-    (fun (scaled1, err1, j1) =>
-      fold_layer_port.layer.resq.rescale_hier_top_loop1_loop0.body rh s g i r
-      scaled1 err1 j1)
-    (scaled, err, j)
-
-/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop body 1:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 404:4-415:5
-    Visibility: public -/
-@[rust_loop_body]
-def fold_layer_port.layer.resq.rescale_hier_top_loop1.body
-  (rh : Slice Std.I64) (s : Slice Std.I64) (rows : Slice Std.Usize)
-  (g : Std.Usize) (o : Std.Usize) (scaled : alloc.vec.Vec Std.I64)
-  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    fold_layer_port.layer.resq.ResqError) × Std.Usize) ((alloc.vec.Vec
-    Std.I64) × (Option fold_layer_port.layer.resq.ResqError)))
-  := do
-  if i < o
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let r ← Slice.index_usize rows i
-      let (scaled1, err1) ←
-        fold_layer_port.layer.resq.rescale_hier_top_loop1_loop0 rh s g scaled
-          err i r 0#usize
-      let i1 ← i + 1#usize
-      ok (cont (scaled1, err1, i1))
-    else ok (done (scaled, err))
-  else ok (done (scaled, err))
-
-/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop 1:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 404:4-415:5
-    Visibility: public -/
-@[rust_loop]
-def fold_layer_port.layer.resq.rescale_hier_top_loop1
-  (rh : Slice Std.I64) (s : Slice Std.I64) (rows : Slice Std.Usize)
-  (g : Std.Usize) (o : Std.Usize) (scaled : alloc.vec.Vec Std.I64)
-  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option
-    fold_layer_port.layer.resq.ResqError))
-  := do
-  loop
-    (fun (scaled1, err1, i1) =>
-      fold_layer_port.layer.resq.rescale_hier_top_loop1.body rh s rows g o
-      scaled1 err1 i1)
-    (scaled, err, i)
-
-/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]:
-    Source: '../../src/learn/fold/layer/resq.rs', lines 376:0-420:1
-    Visibility: public -/
-def fold_layer_port.layer.resq.rescale_hier_top
-  (rh : Slice Std.I64) (s : Slice Std.I64) (rows : Slice Std.Usize)
-  (g : Std.Usize) :
-  Result (core.result.Result fold_port.fit.quant.RHier
-    fold_layer_port.layer.resq.ResqError)
-  := do
-  let o := Slice.len rows
-  if o = 0#usize
-  then ok (core.result.Result.Err fold_layer_port.layer.resq.ResqError.Empty)
-  else
-    if g = 0#usize
-    then ok (core.result.Result.Err fold_layer_port.layer.resq.ResqError.Empty)
-    else
-      let o1 ← lift (Usize.checked_mul o g)
-      let r ←
-        core.option.Option.ok_or o1
-          fold_layer_port.layer.resq.ResqError.ShapeMismatch
-      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-      match cf with
-      | core.ops.control_flow.ControlFlow.Continue val =>
-        let i := Slice.len rh
-        if i != val
-        then
-          ok (core.result.Result.Err
-            fold_layer_port.layer.resq.ResqError.ShapeMismatch)
-        else
-          let bad ←
-            fold_layer_port.layer.resq.rescale_hier_top_loop0 s rows false
-              0#usize
-          if bad
-          then
-            ok (core.result.Result.Err
-              fold_layer_port.layer.resq.ResqError.ShapeMismatch)
-          else
-            let scaled ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
-            let (scaled1, err) ←
-              fold_layer_port.layer.resq.rescale_hier_top_loop1 rh s rows g o
-                scaled none 0#usize
-            match err with
-            | none =>
-              let s1 := alloc.vec.Vec.deref scaled1
-              let r1 ← fold_port.fit.quant.quant_r_hier s1 o g
-              let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-              match cf1 with
-              | core.ops.control_flow.ControlFlow.Continue val1 =>
-                ok (core.result.Result.Ok val1)
-              | core.ops.control_flow.ControlFlow.Break residual =>
-                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                  fold_port.fit.quant.RHier
-                  fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError
-                  residual
-            | some e => ok (core.result.Result.Err e)
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          fold_port.fit.quant.RHier (core.convert.FromSame
-          fold_layer_port.layer.resq.ResqError) residual
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::groups]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 60:0-62:1 -/
-def fold_layer_port.layer.tensor.groups
-  (n : Std.Usize) : Result Std.Usize := do
-  n / fold_port.fit.fold_fit.GROUP
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::SINK_TOL]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 65:0-65:28 -/
-@[global_simps, irreducible]
-def fold_layer_port.layer.tensor.SINK_TOL : Std.I64 := 4295#i64
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::cmp::PartialEq<apeiron_word::fold_layer_port::layer::tensor::TensorKind> for apeiron_word::fold_layer_port::layer::tensor::TensorKind}::eq]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 69:29-69:38
-    Visibility: public -/
-def fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind.eq
-  (self : fold_layer_port.layer.tensor.TensorKind)
-  (other : fold_layer_port.layer.tensor.TensorKind) :
-  Result Bool
-  := do
-  let self1 := read_discriminant self
-  let other1 := read_discriminant other
-  ok (self1 = other1)
-
-/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::cmp::PartialEq<apeiron_word::fold_layer_port::layer::tensor::TensorKind> for apeiron_word::fold_layer_port::layer::tensor::TensorKind}]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 69:29-69:38 -/
-@[reducible]
-impl_def
-  fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind :
-  core.cmp.PartialEq fold_layer_port.layer.tensor.TensorKind
-  fold_layer_port.layer.tensor.TensorKind := {
-  eq :=
-    fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind.eq
-  ne := core.cmp.PartialEq.ne.trait_default
-    fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind
-}
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}::from]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 283:4-285:5
-    Visibility: public -/
-def
-  fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError.from
-  (e : fold_layer_port.layer.resq.ResqError) :
-  Result fold_layer_port.layer.tensor.TensorError
-  := do
-  ok (fold_layer_port.layer.tensor.TensorError.Resq e)
-
-/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 282:0-286:1 -/
-@[reducible]
-def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError :
-  core.convert.From fold_layer_port.layer.tensor.TensorError
-  fold_layer_port.layer.resq.ResqError := {
-  «from» :=
-    fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError.from
-}
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}::from]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 298:4-300:5
-    Visibility: public -/
-def
-  fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError.from
-  (e : fold_port.fit.steps.StepsError) :
-  Result fold_layer_port.layer.tensor.TensorError
-  := do
-  ok (fold_layer_port.layer.tensor.TensorError.Steps e)
-
-/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 297:0-301:1 -/
-@[reducible]
-def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError :
-  core.convert.From fold_layer_port.layer.tensor.TensorError
-  fold_port.fit.steps.StepsError := {
-  «from» :=
-    fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError.from
-}
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::tensor::TensorError}::from]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 308:4-313:5
-    Visibility: public -/
-def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error.from
-  (e : solve_port.q32.Q32Error) :
-  Result fold_layer_port.layer.tensor.TensorError
-  := do
-  match e with
-  | solve_port.q32.Q32Error.Overflow =>
-    ok fold_layer_port.layer.tensor.TensorError.Grid
-  | solve_port.q32.Q32Error.NotSpd =>
-    ok fold_layer_port.layer.tensor.TensorError.Grid
-  | solve_port.q32.Q32Error.Asymmetric =>
-    ok fold_layer_port.layer.tensor.TensorError.Grid
-  | solve_port.q32.Q32Error.ShapeMismatch =>
-    ok fold_layer_port.layer.tensor.TensorError.ShapeMismatch
-
-/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::tensor::TensorError}]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 307:0-314:1 -/
-@[reducible]
-def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error :
-  core.convert.From fold_layer_port.layer.tensor.TensorError
-  solve_port.q32.Q32Error := {
-  «from» :=
-    fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error.from
-}
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::plane_of]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 418:0-428:1 -/
-def fold_layer_port.layer.tensor.plane_of
-  (s_rot : alloc.vec.Vec Std.I64) (rh : alloc.vec.Vec Std.I64)
-  (ch : alloc.vec.Vec Std.I64) (dh : alloc.vec.Vec Std.I64) :
-  Result fold_layer_port.layer.tensor.SinkPlane
-  := do
-  ok { s_rot, rh, ch, dh, rows := none, dense := none, factors := none }
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::plane_shape]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 431:0-434:1 -/
-def fold_layer_port.layer.tensor.plane_shape
-  (p : fold_layer_port.layer.tensor.SinkPlane) (rlen : Std.Usize)
-  (n : Std.Usize) :
-  Result Bool
-  := do
-  let g ← fold_layer_port.layer.tensor.groups n
-  let i := alloc.vec.Vec.len p.s_rot
-  let i1 ← rlen * n
-  if i = i1
-  then
-    let i2 := alloc.vec.Vec.len p.rh
-    let i3 ← rlen * g
-    if i2 = i3
-    then
-      let i4 := alloc.vec.Vec.len p.ch
-      if i4 = n
-      then let i5 := alloc.vec.Vec.len p.dh
-           ok (i5 = n)
-      else ok false
-    else ok false
-  else ok false
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop body 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 519:4-527:5 -/
-@[rust_loop_body]
-def fold_layer_port.layer.tensor.scatter_add_loop0.body
-  (rows : Slice Std.Usize) (o : Std.Usize) (inv : alloc.vec.Vec Std.Usize)
-  (bad : Bool) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.Usize) × Bool × Std.Usize)
-    ((alloc.vec.Vec Std.Usize) × Bool))
-  := do
-  let i1 := Slice.len rows
-  if i < i1
-  then
-    let r ← Slice.index_usize rows i
-    let (inv1, bad1) ←
-      if r >= o
-      then ok (inv, true)
-      else
-        do
-        let i2 ←
-          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-            inv r
-        if i2 != core.num.Usize.MAX
-        then ok (inv, true)
-        else
-          let (_, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.Usize) inv r
-          let inv2 := index_mut_back i
-          ok (inv2, bad)
-    let i2 ← i + 1#usize
-    ok (cont (inv1, bad1, i2))
-  else ok (done (inv, bad))
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 519:4-527:5 -/
-@[rust_loop]
-def fold_layer_port.layer.tensor.scatter_add_loop0
-  (rows : Slice Std.Usize) (o : Std.Usize) (inv : alloc.vec.Vec Std.Usize)
-  (bad : Bool) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.Usize) × Bool)
-  := do
-  loop
-    (fun (inv1, bad1, i1) =>
-      fold_layer_port.layer.tensor.scatter_add_loop0.body rows o inv1 bad1 i1)
-    (inv, bad, i)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop body 2:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 537:12-544:13 -/
-@[rust_loop_body]
-def fold_layer_port.layer.tensor.scatter_add_loop1_loop0.body
-  (src : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (i : Std.Usize)
-  (dst : Slice Std.I64) (err : Option fold_layer_port.layer.tensor.TensorError)
-  (j : Std.Usize) :
-  Result (ControlFlow ((Slice Std.I64) × (Option
-    fold_layer_port.layer.tensor.TensorError) × Std.Usize) ((Slice Std.I64) ×
-    (Option fold_layer_port.layer.tensor.TensorError)))
-  := do
-  if j < n
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i1 ← r * n
-      let k ← i1 + j
-      let i2 ← Slice.index_usize dst k
-      let i3 ← i * n
-      let i4 ← i3 + j
-      let i5 ← Slice.index_usize src i4
-      let o ← lift (I64.checked_add i2 i5)
-      match o with
-      | none =>
-        let j1 ← j + 1#usize
-        ok (cont (dst, some fold_layer_port.layer.tensor.TensorError.Grid, j1))
-      | some v =>
-        let s ← Slice.update dst k v
-        let j1 ← j + 1#usize
-        ok (cont (s, err, j1))
-    else ok (done (dst, err))
-  else ok (done (dst, err))
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop 2:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 537:12-544:13 -/
-@[rust_loop]
-def fold_layer_port.layer.tensor.scatter_add_loop1_loop0
-  (dst : Slice Std.I64) (src : Slice Std.I64) (n : Std.Usize)
-  (err : Option fold_layer_port.layer.tensor.TensorError) (r : Std.Usize)
-  (i : Std.Usize) (j : Std.Usize) :
-  Result ((Slice Std.I64) × (Option fold_layer_port.layer.tensor.TensorError))
-  := do
-  loop
-    (fun (dst1, err1, j1) =>
-      fold_layer_port.layer.tensor.scatter_add_loop1_loop0.body src n r i dst1
-      err1 j1)
-    (dst, err, j)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop body 1:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 533:4-547:5 -/
-@[rust_loop_body]
-def fold_layer_port.layer.tensor.scatter_add_loop1.body
-  (src : Slice Std.I64) (n : Std.Usize) (o : Std.Usize)
-  (inv : alloc.vec.Vec Std.Usize) (dst : Slice Std.I64)
-  (err : Option fold_layer_port.layer.tensor.TensorError) (r : Std.Usize) :
-  Result (ControlFlow ((Slice Std.I64) × (Option
-    fold_layer_port.layer.tensor.TensorError) × Std.Usize) ((Slice Std.I64) ×
-    (Option fold_layer_port.layer.tensor.TensorError)))
-  := do
-  if r < o
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-          inv r
-      if i != core.num.Usize.MAX
-      then
-        let (dst1, err1) ←
-          fold_layer_port.layer.tensor.scatter_add_loop1_loop0 dst src n err r
-            i 0#usize
-        let r1 ← r + 1#usize
-        ok (cont (dst1, err1, r1))
-      else let r1 ← r + 1#usize
-           ok (cont (dst, err, r1))
-    else ok (done (dst, err))
-  else ok (done (dst, err))
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop 1:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 533:4-547:5 -/
-@[rust_loop]
-def fold_layer_port.layer.tensor.scatter_add_loop1
-  (dst : Slice Std.I64) (src : Slice Std.I64) (n : Std.Usize) (o : Std.Usize)
-  (inv : alloc.vec.Vec Std.Usize)
-  (err : Option fold_layer_port.layer.tensor.TensorError) (r : Std.Usize) :
-  Result ((Slice Std.I64) × (Option fold_layer_port.layer.tensor.TensorError))
-  := do
-  loop
-    (fun (dst1, err1, r1) =>
-      fold_layer_port.layer.tensor.scatter_add_loop1.body src n o inv dst1 err1
-      r1)
-    (dst, err, r)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 511:0-552:1 -/
-def fold_layer_port.layer.tensor.scatter_add
-  (dst : Slice Std.I64) (src : Slice Std.I64) (rows : Slice Std.Usize)
-  (n : Std.Usize) :
-  Result ((core.result.Result Unit fold_layer_port.layer.tensor.TensorError) ×
-    (Slice Std.I64))
-  := do
-  if n = 0#usize
-  then
-    ok (core.result.Result.Err
-      fold_layer_port.layer.tensor.TensorError.ShapeMismatch, dst)
-  else
-    let i := Slice.len src
-    let i1 := Slice.len rows
-    let i2 ← i1 * n
-    if i != i2
-    then
-      ok (core.result.Result.Err
-        fold_layer_port.layer.tensor.TensorError.ShapeMismatch, dst)
-    else
-      let i3 := Slice.len dst
-      let o ← i3 / n
-      let inv ←
-        alloc.vec.from_elem core.clone.CloneUsize core.num.Usize.MAX o
-      let (inv1, bad) ←
-        fold_layer_port.layer.tensor.scatter_add_loop0 rows o inv false 0#usize
-      if bad
-      then
-        ok (core.result.Result.Err
-          fold_layer_port.layer.tensor.TensorError.PlaneShape, dst)
-      else
-        let (dst1, err) ←
-          fold_layer_port.layer.tensor.scatter_add_loop1 dst src n o inv1 none
-            0#usize
-        match err with
-        | none => ok (core.result.Result.Ok (), dst1)
-        | some e => ok (core.result.Result.Err e, dst1)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::plane_weight]: loop body 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 473:12-478:13 -/
-@[rust_loop_body]
-def fold_layer_port.layer.tensor.plane_weight_loop.body
-  (rs : alloc.vec.Vec Std.Usize) (o : Std.Usize) (bad : Bool) (q : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize) Bool)
-  := do
-  let i := alloc.vec.Vec.len rs
-  if q < i
-  then
-    let i1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize) rs
-        q
-    let bad1 ← if i1 >= o
-                 then ok true
-                 else ok bad
-    let q1 ← q + 1#usize
-    ok (cont (bad1, q1))
-  else ok (done bad)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::plane_weight]: loop 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 473:12-478:13 -/
-@[rust_loop]
-def fold_layer_port.layer.tensor.plane_weight_loop
-  (rs : alloc.vec.Vec Std.Usize) (o : Std.Usize) (bad : Bool) (q : Std.Usize) :
-  Result Bool
-  := do
-  loop
-    (fun (bad1, q1) => fold_layer_port.layer.tensor.plane_weight_loop.body rs o
-      bad1 q1)
-    (bad, q)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::plane_weight]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 458:0-502:1 -/
-def fold_layer_port.layer.tensor.plane_weight
-  (p : fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize) (n : Std.Usize)
-  :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_layer_port.layer.tensor.TensorError)
-  := do
-  match p.dense with
-  | none =>
-    let b ← core.num.Usize.is_multiple_of n fold_port.fit.fold_fit.GROUP
-    if b
-    then
-      let g ← fold_layer_port.layer.tensor.groups n
-      match p.rows with
-      | none =>
-        let i := alloc.vec.Vec.len p.s_rot
-        let i1 ← o * n
-        if i != i1
-        then
-          ok (core.result.Result.Err
-            fold_layer_port.layer.tensor.TensorError.PlaneShape)
-        else
-          let i2 := alloc.vec.Vec.len p.rh
-          let i3 ← o * g
-          if i2 != i3
-          then
-            ok (core.result.Result.Err
-              fold_layer_port.layer.tensor.TensorError.PlaneShape)
-          else
-            let i4 := alloc.vec.Vec.len p.ch
-            if i4 != n
-            then
-              ok (core.result.Result.Err
-                fold_layer_port.layer.tensor.TensorError.PlaneShape)
-            else
-              let i5 := alloc.vec.Vec.len p.dh
-              if i5 != n
-              then
-                ok (core.result.Result.Err
-                  fold_layer_port.layer.tensor.TensorError.PlaneShape)
-              else
-                let i6 := alloc.vec.Vec.len p.s_rot
-                let s := alloc.vec.Vec.deref p.s_rot
-                let s1 := alloc.vec.Vec.deref p.dh
-                let r ←
-                  fold_layer_port.layer.tensor.carrier.eval i6
-                    (fold_layer_port.layer.tensor.carrier.Elem.MulCol s s1 n)
-                let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-                match cf with
-                | core.ops.control_flow.ControlFlow.Continue val =>
-                  let (s2, deref_mut_back) ←
-                    lift (alloc.vec.Vec.deref_mut val)
-                  let (r1, s3) ← fold_port.fit.steps.fwht_words s2
-                  let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-                  match cf1 with
-                  | core.ops.control_flow.ControlFlow.Continue _ =>
-                    let val1 := deref_mut_back s3
-                    let s4 := alloc.vec.Vec.deref val1
-                    let s5 := alloc.vec.Vec.deref p.rh
-                    let s6 := alloc.vec.Vec.deref p.ch
-                    let r2 ← fold_port.fit.steps.compose s4 s5 s6 o n
-                    let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
-                    match cf2 with
-                    | core.ops.control_flow.ControlFlow.Continue val2 =>
-                      ok (core.result.Result.Ok val2)
-                    | core.ops.control_flow.ControlFlow.Break residual =>
-                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                        (alloc.vec.Vec Std.I64)
-                        fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError
-                        residual
-                  | core.ops.control_flow.ControlFlow.Break residual =>
-                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                      (alloc.vec.Vec Std.I64)
-                      fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError
-                      residual
-                | core.ops.control_flow.ControlFlow.Break residual =>
-                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                    (alloc.vec.Vec Std.I64)
-                    fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error
-                    residual
-      | some rs =>
-        let bad ←
-          fold_layer_port.layer.tensor.plane_weight_loop rs o false 0#usize
-        if bad
-        then
-          ok (core.result.Result.Err
-            fold_layer_port.layer.tensor.TensorError.PlaneShape)
-        else
-          let rlen := alloc.vec.Vec.len rs
-          let rs1 ← alloc.vec.Vec.as_slice Global rs
-          let i := alloc.vec.Vec.len p.s_rot
-          let i1 ← rlen * n
-          if i != i1
-          then
-            ok (core.result.Result.Err
-              fold_layer_port.layer.tensor.TensorError.PlaneShape)
-          else
-            let i2 := alloc.vec.Vec.len p.rh
-            let i3 ← rlen * g
-            if i2 != i3
-            then
-              ok (core.result.Result.Err
-                fold_layer_port.layer.tensor.TensorError.PlaneShape)
-            else
-              let i4 := alloc.vec.Vec.len p.ch
-              if i4 != n
-              then
-                ok (core.result.Result.Err
-                  fold_layer_port.layer.tensor.TensorError.PlaneShape)
-              else
-                let i5 := alloc.vec.Vec.len p.dh
-                if i5 != n
-                then
-                  ok (core.result.Result.Err
-                    fold_layer_port.layer.tensor.TensorError.PlaneShape)
-                else
-                  let i6 := alloc.vec.Vec.len p.s_rot
-                  let s := alloc.vec.Vec.deref p.s_rot
-                  let s1 := alloc.vec.Vec.deref p.dh
-                  let r ←
-                    fold_layer_port.layer.tensor.carrier.eval i6
-                      (fold_layer_port.layer.tensor.carrier.Elem.MulCol s s1 n)
-                  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-                  match cf with
-                  | core.ops.control_flow.ControlFlow.Continue val =>
-                    let (s2, deref_mut_back) ←
-                      lift (alloc.vec.Vec.deref_mut val)
-                    let (r1, s3) ← fold_port.fit.steps.fwht_words s2
-                    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-                    match cf1 with
-                    | core.ops.control_flow.ControlFlow.Continue _ =>
-                      let val1 := deref_mut_back s3
-                      let s4 := alloc.vec.Vec.deref val1
-                      let s5 := alloc.vec.Vec.deref p.rh
-                      let s6 := alloc.vec.Vec.deref p.ch
-                      let r2 ← fold_port.fit.steps.compose s4 s5 s6 rlen n
-                      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
-                      match cf2 with
-                      | core.ops.control_flow.ControlFlow.Continue val2 =>
-                        let i7 ← o * n
-                        let full ←
-                          alloc.vec.from_elem core.clone.CloneI64 0#i64 i7
-                        let (s7, deref_mut_back1) ←
-                          lift (alloc.vec.Vec.deref_mut full)
-                        let s8 := alloc.vec.Vec.deref val2
-                        let (r3, s9) ←
-                          fold_layer_port.layer.tensor.scatter_add s7 s8 rs1 n
-                        let cf3 ←
-                          core.result.Result.Insts.CoreOpsTry.branch r3
-                        match cf3 with
-                        | core.ops.control_flow.ControlFlow.Continue _ =>
-                          let full1 := deref_mut_back1 s9
-                          ok (core.result.Result.Ok full1)
-                        | core.ops.control_flow.ControlFlow.Break residual =>
-                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                            (alloc.vec.Vec Std.I64) (core.convert.FromSame
-                            fold_layer_port.layer.tensor.TensorError) residual
-                      | core.ops.control_flow.ControlFlow.Break residual =>
-                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                          (alloc.vec.Vec Std.I64)
-                          fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError
-                          residual
-                    | core.ops.control_flow.ControlFlow.Break residual =>
-                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                        (alloc.vec.Vec Std.I64)
-                        fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError
-                        residual
-                  | core.ops.control_flow.ControlFlow.Break residual =>
-                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                      (alloc.vec.Vec Std.I64)
-                      fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error
-                      residual
-    else
-      ok (core.result.Result.Err
-        fold_layer_port.layer.tensor.TensorError.Width)
-  | some dense =>
-    let b := core.option.Option.is_some p.rows
-    if b
-    then
-      ok (core.result.Result.Err
-        fold_layer_port.layer.tensor.TensorError.PlaneShape)
-    else
-      let i := alloc.vec.Vec.len dense
-      let i1 ← o * n
-      if i != i1
-      then
-        ok (core.result.Result.Err
-          fold_layer_port.layer.tensor.TensorError.PlaneShape)
-      else
-        let v ← alloc.vec.CloneVec.clone core.clone.CloneI64 dense
-        ok (core.result.Result.Ok v)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::recon_words]: loop body 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 581:4-590:5 -/
-@[rust_loop_body]
-def fold_layer_port.layer.tensor.recon_words_loop.body
-  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
-  (n : Std.Usize) (w : alloc.vec.Vec Std.I64)
-  (err : Option fold_layer_port.layer.tensor.TensorError) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    fold_layer_port.layer.tensor.TensorError) × Std.Usize) ((alloc.vec.Vec
-    Std.I64) × (Option fold_layer_port.layer.tensor.TensorError)))
-  := do
-  let i1 := Slice.len planes
-  if i < i1
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let sp ← Slice.index_usize planes i
-      let r ← fold_layer_port.layer.tensor.plane_weight sp o n
-      let (w1, err1) ←
-        match r with
-        | core.result.Result.Ok pw =>
-          do
-          let i2 := alloc.vec.Vec.len w
-          let s := alloc.vec.Vec.deref w
-          let s1 := alloc.vec.Vec.deref pw
-          let r1 ←
-            fold_layer_port.layer.tensor.carrier.eval i2
-              (fold_layer_port.layer.tensor.carrier.Elem.Add s s1)
-          match r1 with
-          | core.result.Result.Ok next => ok (next, err)
-          | core.result.Result.Err e =>
-            let te ←
-              fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error.from
-                e
-            ok (w, some te)
-        | core.result.Result.Err e => ok (w, some e)
-      let i2 ← i + 1#usize
-      ok (cont (w1, err1, i2))
-    else ok (done (w, err))
-  else ok (done (w, err))
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::recon_words]: loop 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 581:4-590:5 -/
-@[rust_loop]
-def fold_layer_port.layer.tensor.recon_words_loop
-  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
-  (n : Std.Usize) (w : alloc.vec.Vec Std.I64)
-  (err : Option fold_layer_port.layer.tensor.TensorError) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option
-    fold_layer_port.layer.tensor.TensorError))
-  := do
-  loop
-    (fun (w1, err1, i1) => fold_layer_port.layer.tensor.recon_words_loop.body
-      planes o n w1 err1 i1)
-    (w, err, i)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::recon_words]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 568:0-595:1 -/
-def fold_layer_port.layer.tensor.recon_words
-  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
-  (n : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_layer_port.layer.tensor.TensorError)
-  := do
-  if o = 0#usize
-  then
-    ok (core.result.Result.Err
-      fold_layer_port.layer.tensor.TensorError.ZeroDim)
-  else
-    if n = 0#usize
-    then
-      ok (core.result.Result.Err
-        fold_layer_port.layer.tensor.TensorError.ZeroDim)
-    else
-      let b ← core.num.Usize.is_multiple_of n fold_port.fit.fold_fit.GROUP
-      if b
-      then
-        let b1 ← core.slice.Slice.is_empty planes
-        if b1
-        then
-          ok (core.result.Result.Err
-            fold_layer_port.layer.tensor.TensorError.PlaneShape)
-        else
-          let sp ← Slice.index_usize planes 0#usize
-          let r ← fold_layer_port.layer.tensor.plane_weight sp o n
-          let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-          match cf with
-          | core.ops.control_flow.ControlFlow.Continue val =>
-            let (w, err) ←
-              fold_layer_port.layer.tensor.recon_words_loop planes o n val none
-                1#usize
-            match err with
-            | none => ok (core.result.Result.Ok w)
-            | some e => ok (core.result.Result.Err e)
-          | core.ops.control_flow.ControlFlow.Break residual =>
-            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-              (alloc.vec.Vec Std.I64) (core.convert.FromSame
-              fold_layer_port.layer.tensor.TensorError) residual
-      else
-        ok (core.result.Result.Err
-          fold_layer_port.layer.tensor.TensorError.Width)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::recon]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 562:0-564:1
-    Visibility: public -/
-def fold_layer_port.layer.tensor.recon
-  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
-  (n : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_layer_port.layer.tensor.TensorError)
-  := do
-  fold_layer_port.layer.tensor.recon_words planes o n
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check::{closure}]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 623:43-623:64 -/
-@[reducible]
-def fold_layer_port.layer.tensor.sink_check.closure := Unit
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::tensor::TensorError> for apeiron_word::fold_layer_port::layer::tensor::sink_check::{closure}}::call_once]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 623:43-623:64 -/
-def
-  fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError.call_once
-  (c : fold_layer_port.layer.tensor.sink_check.closure)
-  (tupled_args : solve_port.q32.Q32Error) :
-  Result fold_layer_port.layer.tensor.TensorError
-  := do
-  ok fold_layer_port.layer.tensor.TensorError.Grid
-
-/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::sink_check::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::tensor::TensorError> for apeiron_word::fold_layer_port::layer::tensor::sink_check::{closure}}]
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 623:43-623:64 -/
-@[reducible]
-def
-  fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError
-  : core.ops.function.FnOnce fold_layer_port.layer.tensor.sink_check.closure
-  solve_port.q32.Q32Error fold_layer_port.layer.tensor.TensorError := {
-  call_once :=
-    fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError.call_once
-}
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check]: loop body 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 608:4-620:5 -/
-@[rust_loop_body]
-def fold_layer_port.layer.tensor.sink_check_loop.body
-  (recon_wp : Slice Std.I64) (wp : Slice Std.I64) (maxd : Std.I128)
-  (maxw : Std.I128) (i : Std.Usize) :
-  Result (ControlFlow (Std.I128 × Std.I128 × Std.Usize) (Std.I128 ×
-    Std.I128))
-  := do
-  let i1 := Slice.len recon_wp
-  if i < i1
-  then
-    let a ← Slice.index_usize recon_wp i
-    let b ← Slice.index_usize wp i
-    let i2 ← lift (core.convert.num.FromI128I64.from a)
-    let i3 ← lift (core.convert.num.FromI128I64.from b)
-    let i4 ← i2 - i3
-    let d ← core.num.I128.abs i4
-    let maxd1 ← if d > maxd
-                  then ok d
-                  else ok maxd
-    let i5 ← lift (core.convert.num.FromI128I64.from b)
-    let w ← core.num.I128.abs i5
-    let maxw1 ← if w > maxw
-                  then ok w
-                  else ok maxw
-    let i6 ← i + 1#usize
-    ok (cont (maxd1, maxw1, i6))
-  else ok (done (maxd, maxw))
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check]: loop 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 608:4-620:5 -/
-@[rust_loop]
-def fold_layer_port.layer.tensor.sink_check_loop
-  (recon_wp : Slice Std.I64) (wp : Slice Std.I64) (maxd : Std.I128)
-  (maxw : Std.I128) (i : Std.Usize) :
-  Result (Std.I128 × Std.I128)
-  := do
-  loop
-    (fun (maxd1, maxw1, i1) =>
-      fold_layer_port.layer.tensor.sink_check_loop.body recon_wp wp maxd1 maxw1
-      i1)
-    (maxd, maxw, i)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 602:0-635:1 -/
-def fold_layer_port.layer.tensor.sink_check
-  (recon_wp : Slice Std.I64) (wp : Slice Std.I64) :
-  Result (core.result.Result Unit fold_layer_port.layer.tensor.TensorError)
-  := do
-  let i := Slice.len recon_wp
-  let i1 := Slice.len wp
-  if i != i1
-  then
-    ok (core.result.Result.Err
-      (fold_layer_port.layer.tensor.TensorError.SinkMismatch core.num.I64.MAX))
-  else
-    let (maxd, maxw) ←
-      fold_layer_port.layer.tensor.sink_check_loop recon_wp wp 0#i128 0#i128
-        0#usize
-    if maxw > 0#i128
-    then
-      let r ← fold_layer_port.layer.tensor.carrier.ratio maxd maxw
-      let r1 ←
-        core.result.Result.map_err
-          fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError
-          r ()
-      let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
-      match cf with
-      | core.ops.control_flow.ControlFlow.Continue val =>
-        if val <= fold_layer_port.layer.tensor.SINK_TOL
-        then ok (core.result.Result.Ok ())
-        else
-          ok (core.result.Result.Err
-            (fold_layer_port.layer.tensor.TensorError.SinkMismatch val))
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          Unit (core.convert.FromSame fold_layer_port.layer.tensor.TensorError)
-          residual
-    else
-      let r ← I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from maxd
-      let val ←
-        match r with
-        | core.result.Result.Ok v => ok v
-        | core.result.Result.Err _ => ok core.num.I64.MAX
-      if val <= fold_layer_port.layer.tensor.SINK_TOL
-      then ok (core.result.Result.Ok ())
-      else
-        ok (core.result.Result.Err
-          (fold_layer_port.layer.tensor.TensorError.SinkMismatch val))
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::fold_row_scale]: loop body 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 916:8-921:9
-    Visibility: public -/
-@[rust_loop_body]
-def fold_layer_port.layer.tensor.fold_row_scale_loop.body
-  (o : Std.Usize) (rows : alloc.vec.Vec Std.Usize) (bad : Bool) (q : Std.Usize)
-  :
-  Result (ControlFlow (Bool × Std.Usize) Bool)
-  := do
-  let i := alloc.vec.Vec.len rows
-  if q < i
-  then
-    let i1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
-        rows q
-    let bad1 ← if i1 >= o
-                 then ok true
-                 else ok bad
-    let q1 ← q + 1#usize
-    ok (cont (bad1, q1))
-  else ok (done bad)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::fold_row_scale]: loop 0:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 916:8-921:9
-    Visibility: public -/
-@[rust_loop]
-def fold_layer_port.layer.tensor.fold_row_scale_loop
-  (o : Std.Usize) (rows : alloc.vec.Vec Std.Usize) (bad : Bool) (q : Std.Usize)
-  :
-  Result Bool
-  := do
-  loop
-    (fun (bad1, q1) => fold_layer_port.layer.tensor.fold_row_scale_loop.body o
-      rows bad1 q1)
-    (bad, q)
-
-/-- [apeiron_word::fold_layer_port::layer::tensor::fold_row_scale]:
-    Source: '../../src/learn/fold/layer/tensor.rs', lines 877:0-942:1
-    Visibility: public -/
-def fold_layer_port.layer.tensor.fold_row_scale
-  (fit : fold_layer_port.layer.tensor.TensorFit) (s_sol : Slice Std.I64)
-  (o : Std.Usize) (n : Std.Usize) :
-  Result ((core.result.Result Unit fold_layer_port.layer.tensor.TensorError) ×
-    fold_layer_port.layer.tensor.TensorFit)
-  := do
-  let b ←
-    core.cmp.PartialEq.ne.trait_default
-      fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind
-      fit.kind fold_layer_port.layer.tensor.TensorKind.Up
-  if b
-  then
-    ok (core.result.Result.Err fold_layer_port.layer.tensor.TensorError.NotUp,
-      fit)
-  else
-    if o = 0#usize
-    then
-      ok (core.result.Result.Err
-        fold_layer_port.layer.tensor.TensorError.ZeroDim, fit)
-    else
-      if n = 0#usize
-      then
-        ok (core.result.Result.Err
-          fold_layer_port.layer.tensor.TensorError.ZeroDim, fit)
-      else
-        let b1 ← core.num.Usize.is_multiple_of n fold_port.fit.fold_fit.GROUP
-        if b1
-        then
-          let i := Slice.len s_sol
-          if i != o
-          then
-            ok (core.result.Result.Err
-              fold_layer_port.layer.tensor.TensorError.ShapeMismatch, fit)
-          else
-            let g ← fold_layer_port.layer.tensor.groups n
-            let i1 := alloc.vec.Vec.len fit.planes
-            if i1 > 2#usize
-            then
-              ok (core.result.Result.Err
-                fold_layer_port.layer.tensor.TensorError.PlaneShape, fit)
-            else
-              let s := alloc.vec.Vec.deref fit.planes
-              let o1 ← core.slice.Slice.first s
-              let r ←
-                core.option.Option.ok_or o1
-                  fold_layer_port.layer.tensor.TensorError.PlaneShape
-              let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-              match cf with
-              | core.ops.control_flow.ControlFlow.Continue val =>
-                let b2 := core.option.Option.is_some val.dense
-                if b2
-                then
-                  ok (core.result.Result.Err
-                    fold_layer_port.layer.tensor.TensorError.PlaneShape, fit)
-                else
-                  let b3 := core.option.Option.is_some val.rows
-                  if b3
-                  then
-                    ok (core.result.Result.Err
-                      fold_layer_port.layer.tensor.TensorError.PlaneShape, fit)
-                  else
-                    let b4 ← fold_layer_port.layer.tensor.plane_shape val o n
-                    if b4
-                    then
-                      let s1 := alloc.vec.Vec.deref val.rh
-                      let r1 ←
-                        fold_layer_port.layer.resq.rescale_hier s1 s_sol o g
-                      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-                      match cf1 with
-                      | core.ops.control_flow.ControlFlow.Continue val1 =>
-                        let v ←
-                          alloc.vec.CloneVec.clone core.clone.CloneI64
-                            val.s_rot
-                        let v1 ←
-                          alloc.vec.CloneVec.clone core.clone.CloneI64 val.ch
-                        let v2 ←
-                          alloc.vec.CloneVec.clone core.clone.CloneI64 val.dh
-                        let sp ←
-                          fold_layer_port.layer.tensor.plane_of v val1.rq v1 v2
-                        let y ←
-                          lift (Std.Array.to_slice (Array.make 1#usize [ sp ] :
-                            Array fold_layer_port.layer.tensor.SinkPlane
-                            1#usize))
-                        let ret := alloc.slice.Slice.into_vec y
-                        let s2 := alloc.vec.Vec.deref fit.planes
-                        let o2 ←
-                          core.slice.Slice.get
-                            (core.slice.index.SliceIndexUsizeSlice
-                            fold_layer_port.layer.tensor.SinkPlane) s2 1#usize
-                        match o2 with
-                        | none =>
-                          let s3 := alloc.vec.Vec.deref ret
-                          let r2 ←
-                            fold_layer_port.layer.tensor.recon_words s3 o n
-                          let cf2 ←
-                            core.result.Result.Insts.CoreOpsTry.branch r2
-                          match cf2 with
-                          | core.ops.control_flow.ControlFlow.Continue val2 =>
-                            let s4 := alloc.vec.Vec.deref val2
-                            let s5 := alloc.vec.Vec.deref val2
-                            let r3 ←
-                              fold_layer_port.layer.tensor.sink_check s4 s5
-                            let cf3 ←
-                              core.result.Result.Insts.CoreOpsTry.branch r3
-                            match cf3 with
-                            | core.ops.control_flow.ControlFlow.Continue _ =>
-                              ok (core.result.Result.Ok (),
-                                { fit with wp := val2, planes := ret })
-                            | core.ops.control_flow.ControlFlow.Break residual
-                              =>
-                              let r4 ←
-                                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                                  Unit (core.convert.FromSame
-                                  fold_layer_port.layer.tensor.TensorError)
-                                  residual
-                              ok (r4, fit)
-                          | core.ops.control_flow.ControlFlow.Break residual =>
-                            let r3 ←
-                              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                                Unit (core.convert.FromSame
-                                fold_layer_port.layer.tensor.TensorError)
-                                residual
-                            ok (r3, fit)
-                        | some p2 =>
-                          let o3 ←
-                            core.option.Option.Insts.CoreCloneClone.clone
-                              (core.clone.CloneallocvecVec
-                              core.clone.CloneUsize) p2.rows
-                          let r2 ←
-                            core.option.Option.ok_or o3
-                              fold_layer_port.layer.tensor.TensorError.PlaneShape
-                          let cf2 ←
-                            core.result.Result.Insts.CoreOpsTry.branch r2
-                          match cf2 with
-                          | core.ops.control_flow.ControlFlow.Continue val2 =>
-                            let bad ←
-                              fold_layer_port.layer.tensor.fold_row_scale_loop
-                                o val2 false 0#usize
-                            if bad
-                            then
-                              ok (core.result.Result.Err
-                                fold_layer_port.layer.tensor.TensorError.PlaneShape,
-                                fit)
-                            else
-                              let b5 := core.option.Option.is_some p2.dense
-                              if b5
-                              then
-                                ok (core.result.Result.Err
-                                  fold_layer_port.layer.tensor.TensorError.PlaneShape,
-                                  fit)
-                              else
-                                let rlen := alloc.vec.Vec.len val2
-                                let b6 ←
-                                  fold_layer_port.layer.tensor.plane_shape p2
-                                    rlen n
-                                if b6
-                                then
-                                  let s3 := alloc.vec.Vec.deref p2.rh
-                                  let s4 := alloc.vec.Vec.deref val2
-                                  let r3 ←
-                                    fold_layer_port.layer.resq.rescale_hier_top
-                                      s3 s_sol s4 g
-                                  let cf3 ←
-                                    core.result.Result.Insts.CoreOpsTry.branch
-                                      r3
-                                  match cf3 with
-                                  | core.ops.control_flow.ControlFlow.Continue
-                                    val3 =>
-                                    let v3 ←
-                                      alloc.vec.CloneVec.clone
-                                        core.clone.CloneI64 p2.s_rot
-                                    let v4 ←
-                                      alloc.vec.CloneVec.clone
-                                        core.clone.CloneI64 p2.ch
-                                    let v5 ←
-                                      alloc.vec.CloneVec.clone
-                                        core.clone.CloneI64 p2.dh
-                                    let top ←
-                                      fold_layer_port.layer.tensor.plane_of v3
-                                        val3.rq v4 v5
-                                    let next ←
-                                      alloc.vec.Vec.push ret
-                                        { top with rows := (some val2) }
-                                    let s5 := alloc.vec.Vec.deref next
-                                    let r4 ←
-                                      fold_layer_port.layer.tensor.recon_words
-                                        s5 o n
-                                    let cf4 ←
-                                      core.result.Result.Insts.CoreOpsTry.branch
-                                        r4
-                                    match cf4 with
-                                    |
-                                      core.ops.control_flow.ControlFlow.Continue
-                                      val4 =>
-                                      let s6 := alloc.vec.Vec.deref val4
-                                      let s7 := alloc.vec.Vec.deref val4
-                                      let r5 ←
-                                        fold_layer_port.layer.tensor.sink_check
-                                          s6 s7
-                                      let cf5 ←
-                                        core.result.Result.Insts.CoreOpsTry.branch
-                                          r5
-                                      match cf5 with
-                                      |
-                                        core.ops.control_flow.ControlFlow.Continue
-                                        _ =>
-                                        ok (core.result.Result.Ok (),
-                                          { fit with wp := val4, planes := next
-                                          })
-                                      | core.ops.control_flow.ControlFlow.Break
-                                        residual =>
-                                        let r6 ←
-                                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                                            Unit (core.convert.FromSame
-                                            fold_layer_port.layer.tensor.TensorError)
-                                            residual
-                                        ok (r6, fit)
-                                    | core.ops.control_flow.ControlFlow.Break
-                                      residual =>
-                                      let r5 ←
-                                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                                          Unit (core.convert.FromSame
-                                          fold_layer_port.layer.tensor.TensorError)
-                                          residual
-                                      ok (r5, fit)
-                                  | core.ops.control_flow.ControlFlow.Break
-                                    residual =>
-                                    let r4 ←
-                                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                                        Unit
-                                        fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError
-                                        residual
-                                    ok (r4, fit)
-                                else
-                                  ok (core.result.Result.Err
-                                    fold_layer_port.layer.tensor.TensorError.PlaneShape,
-                                    fit)
-                          | core.ops.control_flow.ControlFlow.Break residual =>
-                            let r3 ←
-                              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                                Unit (core.convert.FromSame
-                                fold_layer_port.layer.tensor.TensorError)
-                                residual
-                            ok (r3, fit)
-                      | core.ops.control_flow.ControlFlow.Break residual =>
-                        let r2 ←
-                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                            Unit
-                            fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError
-                            residual
-                        ok (r2, fit)
-                    else
-                      ok (core.result.Result.Err
-                        fold_layer_port.layer.tensor.TensorError.PlaneShape,
-                        fit)
-              | core.ops.control_flow.ControlFlow.Break residual =>
-                let r1 ←
-                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                    Unit (core.convert.FromSame
-                    fold_layer_port.layer.tensor.TensorError) residual
-                ok (r1, fit)
-        else
-          ok (core.result.Result.Err
-            fold_layer_port.layer.tensor.TensorError.Width, fit)
-
-/-- [apeiron_word::fold_finish_port::convert::EXP_2_31]
-    Source: '../../src/learn/fold/run/convert.rs', lines 53:0-53:26 -/
-@[global_simps, irreducible]
-def fold_finish_port.convert.EXP_2_31 : Std.U32 := 158#u32
-
-/-- [apeiron_word::fold_finish_port::convert::ConvertError]
-    Source: '../../src/learn/fold/run/convert.rs', lines 57:0-67:1
-    Visibility: public -/
-@[discriminant isize]
-inductive fold_finish_port.convert.ConvertError where
-| Shape : String → fold_finish_port.convert.ConvertError
-| MissingBias : String → fold_finish_port.convert.ConvertError
-| Range : String → fold_finish_port.convert.ConvertError
-| NonFinite : String → fold_finish_port.convert.ConvertError
-
-/-- [apeiron_word::fold_finish_port::convert::decode_f16]: loop body 0:
-    Source: '../../src/learn/fold/run/convert.rs', lines 197:4-204:5
-    Visibility: public -/
-@[rust_loop_body]
-def fold_finish_port.convert.decode_f16_loop.body
-  (raw : Slice Std.U8) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
-  (err : Option fold_finish_port.convert.ConvertError) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    fold_finish_port.convert.ConvertError) × Std.Usize) ((alloc.vec.Vec
-    Std.I64) × (Option fold_finish_port.convert.ConvertError)))
-  := do
-  if i < n
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i1 ← 2#usize * i
-      let i2 ← Slice.index_usize raw i1
-      let i3 ← i1 + 1#usize
-      let i4 ← Slice.index_usize raw i3
-      let h ←
-        lift (core.num.U16.from_le_bytes (Array.make 2#usize [ i2, i4 ]))
-      let r ← dequant.f16_to_fixed h
-      let (out1, err1) ←
-        match r with
-        | core.result.Result.Ok v =>
-          do
-          let out2 ← alloc.vec.Vec.push out v
-          ok (out2, err)
-        | core.result.Result.Err _ =>
-          do
-          let a ←
-            core.fmt.rt.Argument.new_lower_hex U16.Insts.CoreFmtLowerHex h
-          let a1 ←
-            core.fmt.Arguments.new
-              (Array.make 13#usize [
-                4#u8, 102#u8, 49#u8, 54#u8, 32#u8, 195#u8, 32#u8, 0#u8, 128#u8,
-                105#u8, 6#u8, 0#u8, 0#u8
-                ]) (Array.make 1#usize [ a ])
-          let s ← alloc.fmt.format a1
-          let s1 ← core.hint.must_use s
-          ok (out, some (fold_finish_port.convert.ConvertError.NonFinite s1))
-      let i5 ← i + 1#usize
-      ok (cont (out1, err1, i5))
-    else ok (done (out, err))
-  else ok (done (out, err))
-
-/-- [apeiron_word::fold_finish_port::convert::decode_f16]: loop 0:
-    Source: '../../src/learn/fold/run/convert.rs', lines 197:4-204:5
-    Visibility: public -/
-@[rust_loop]
-def fold_finish_port.convert.decode_f16_loop
-  (raw : Slice Std.U8) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
-  (err : Option fold_finish_port.convert.ConvertError) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option
-    fold_finish_port.convert.ConvertError))
-  := do
-  loop
-    (fun (out1, err1, i1) => fold_finish_port.convert.decode_f16_loop.body raw
-      n out1 err1 i1)
-    (out, err, i)
-
-/-- [apeiron_word::fold_finish_port::convert::decode_f16]:
-    Source: '../../src/learn/fold/run/convert.rs', lines 186:0-209:1
-    Visibility: public -/
-def fold_finish_port.convert.decode_f16
-  (raw : Slice Std.U8) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_finish_port.convert.ConvertError)
-  := do
-  let i := Slice.len raw
-  let b ← core.num.Usize.is_multiple_of i 2#usize
-  if b
-  then
-    let i1 := Slice.len raw
-    let n ← i1 / 2#usize
-    let out := alloc.vec.Vec.with_capacity Std.I64 n
-    let (out1, err) ←
-      fold_finish_port.convert.decode_f16_loop raw n out none 0#usize
-    match err with
-    | none => ok (core.result.Result.Ok out1)
-    | some e => ok (core.result.Result.Err e)
-  else
-    let args := Slice.len raw
-    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay args
-    let a1 ←
-      core.fmt.Arguments.new
-        (Array.make 44#usize [
-          192#u8, 41#u8, 32#u8, 98#u8, 121#u8, 116#u8, 101#u8, 115#u8, 32#u8,
-          105#u8, 115#u8, 32#u8, 110#u8, 111#u8, 116#u8, 32#u8, 97#u8, 32#u8,
-          119#u8, 104#u8, 111#u8, 108#u8, 101#u8, 32#u8, 110#u8, 117#u8,
-          109#u8, 98#u8, 101#u8, 114#u8, 32#u8, 111#u8, 102#u8, 32#u8, 102#u8,
-          49#u8, 54#u8, 32#u8, 119#u8, 111#u8, 114#u8, 100#u8, 115#u8, 0#u8
-          ]) (Array.make 1#usize [ a ])
-    let s ← alloc.fmt.format a1
-    let s1 ← core.hint.must_use s
-    ok (core.result.Result.Err (fold_finish_port.convert.ConvertError.Shape
-      s1))
-
-/-- [apeiron_word::fold_finish_port::convert::f32_bits_to_q32]:
-    Source: '../../src/learn/fold/run/convert.rs', lines 277:0-304:1 -/
-def fold_finish_port.convert.f32_bits_to_q32
-  (bits : Std.U32) :
-  Result (core.result.Result Std.I64 fold_finish_port.convert.ConvertError)
-  := do
-  let i ← bits >>> 23#i32
-  let e ← lift (i &&& 255#u32)
-  if e = 255#u32
-  then
-    let a ← core.fmt.rt.Argument.new_display U32.Insts.CoreFmtDisplay bits
-    let a1 ←
-      core.fmt.Arguments.new
-        (Array.make 7#usize [
-          4#u8, 102#u8, 51#u8, 50#u8, 32#u8, 192#u8, 0#u8
-          ]) (Array.make 1#usize [ a ])
-    let s ← alloc.fmt.format a1
-    let s1 ← core.hint.must_use s
-    ok (core.result.Result.Err (fold_finish_port.convert.ConvertError.NonFinite
-      s1))
-  else
-    if e = 0#u32
-    then ok (core.result.Result.Ok 0#i64)
-    else
-      if e >= fold_finish_port.convert.EXP_2_31
-      then
-        let a ←
-          core.fmt.rt.Argument.new_display U32.Insts.CoreFmtDisplay bits
-        let a1 ←
-          core.fmt.Arguments.new
-            (Array.make 7#usize [
-              4#u8, 102#u8, 51#u8, 50#u8, 32#u8, 192#u8, 0#u8
-              ]) (Array.make 1#usize [ a ])
-        let s ← alloc.fmt.format a1
-        let s1 ← core.hint.must_use s
-        ok (core.result.Result.Err (fold_finish_port.convert.ConvertError.Range
-          s1))
-      else
-        let i1 ← lift (bits &&& 8388607#u32)
-        let i2 ← 1#u32 <<< 23#i32
-        let i3 ← lift (i1 ||| i2)
-        let i4 ← lift (core.convert.num.FromU64U32.from i3)
-        let m ← I128.Insts.CoreConvertFromU64.from i4
-        let i5 ← lift (UScalar.hcast .I32 e)
-        let k ← i5 - 118#i32
-        if k >= 0#i32
-        then
-          let mag ← m <<< k
-          let r ←
-            I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from mag
-          match r with
-          | core.result.Result.Ok v =>
-            let i6 ← bits >>> 31#i32
-            if i6 = 0#u32
-            then ok (core.result.Result.Ok v)
-            else let v1 ← -. v
-                 ok (core.result.Result.Ok v1)
-          | core.result.Result.Err _ =>
-            let a ←
-              core.fmt.rt.Argument.new_display U32.Insts.CoreFmtDisplay bits
-            let a1 ←
-              core.fmt.Arguments.new
-                (Array.make 7#usize [
-                  4#u8, 102#u8, 51#u8, 50#u8, 32#u8, 192#u8, 0#u8
-                  ]) (Array.make 1#usize [ a ])
-            let s ← alloc.fmt.format a1
-            let s1 ← core.hint.must_use s
-            ok (core.result.Result.Err
-              (fold_finish_port.convert.ConvertError.Range s1))
-        else
-          let i6 ← -. k
-          let i7 ← lift (IScalar.hcast .U32 i6)
-          let o ← solve_port.q32.rshift_rne m i7
-          match o with
-          | none =>
-            let a ←
-              core.fmt.rt.Argument.new_display U32.Insts.CoreFmtDisplay bits
-            let a1 ←
-              core.fmt.Arguments.new
-                (Array.make 7#usize [
-                  4#u8, 102#u8, 51#u8, 50#u8, 32#u8, 192#u8, 0#u8
-                  ]) (Array.make 1#usize [ a ])
-            let s ← alloc.fmt.format a1
-            let s1 ← core.hint.must_use s
-            ok (core.result.Result.Err
-              (fold_finish_port.convert.ConvertError.Range s1))
-          | some v =>
-            let r ←
-              I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from v
-            match r with
-            | core.result.Result.Ok v1 =>
-              let i8 ← bits >>> 31#i32
-              if i8 = 0#u32
-              then ok (core.result.Result.Ok v1)
-              else let v2 ← -. v1
-                   ok (core.result.Result.Ok v2)
-            | core.result.Result.Err _ =>
-              let a ←
-                core.fmt.rt.Argument.new_display U32.Insts.CoreFmtDisplay bits
-              let a1 ←
-                core.fmt.Arguments.new
-                  (Array.make 7#usize [
-                    4#u8, 102#u8, 51#u8, 50#u8, 32#u8, 192#u8, 0#u8
-                    ]) (Array.make 1#usize [ a ])
-              let s ← alloc.fmt.format a1
-              let s1 ← core.hint.must_use s
-              ok (core.result.Result.Err
-                (fold_finish_port.convert.ConvertError.Range s1))
-
-/-- [apeiron_word::fold_finish_port::convert::decode_bf16]: loop body 0:
-    Source: '../../src/learn/fold/run/convert.rs', lines 229:4-236:5
-    Visibility: public -/
-@[rust_loop_body]
-def fold_finish_port.convert.decode_bf16_loop.body
-  (raw : Slice Std.U8) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
-  (err : Option fold_finish_port.convert.ConvertError) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    fold_finish_port.convert.ConvertError) × Std.Usize) ((alloc.vec.Vec
-    Std.I64) × (Option fold_finish_port.convert.ConvertError)))
-  := do
-  if i < n
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i1 ← 2#usize * i
-      let i2 ← Slice.index_usize raw i1
-      let i3 ← i1 + 1#usize
-      let i4 ← Slice.index_usize raw i3
-      let i5 ←
-        lift (core.num.U16.from_le_bytes (Array.make 2#usize [ i2, i4 ]))
-      let i6 ← lift (core.convert.num.FromU32U16.from i5)
-      let bits ← i6 <<< 16#i32
-      let r ← fold_finish_port.convert.f32_bits_to_q32 bits
-      let (out1, err1) ←
-        match r with
-        | core.result.Result.Ok v =>
-          do
-          let out2 ← alloc.vec.Vec.push out v
-          ok (out2, err)
-        | core.result.Result.Err e => ok (out, some e)
-      let i7 ← i + 1#usize
-      ok (cont (out1, err1, i7))
-    else ok (done (out, err))
-  else ok (done (out, err))
-
-/-- [apeiron_word::fold_finish_port::convert::decode_bf16]: loop 0:
-    Source: '../../src/learn/fold/run/convert.rs', lines 229:4-236:5
-    Visibility: public -/
-@[rust_loop]
-def fold_finish_port.convert.decode_bf16_loop
-  (raw : Slice Std.U8) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
-  (err : Option fold_finish_port.convert.ConvertError) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option
-    fold_finish_port.convert.ConvertError))
-  := do
-  loop
-    (fun (out1, err1, i1) => fold_finish_port.convert.decode_bf16_loop.body raw
-      n out1 err1 i1)
-    (out, err, i)
-
-/-- [apeiron_word::fold_finish_port::convert::decode_bf16]:
-    Source: '../../src/learn/fold/run/convert.rs', lines 218:0-241:1
-    Visibility: public -/
-def fold_finish_port.convert.decode_bf16
-  (raw : Slice Std.U8) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_finish_port.convert.ConvertError)
-  := do
-  let i := Slice.len raw
-  let b ← core.num.Usize.is_multiple_of i 2#usize
-  if b
-  then
-    let i1 := Slice.len raw
-    let n ← i1 / 2#usize
-    let out := alloc.vec.Vec.with_capacity Std.I64 n
-    let (out1, err) ←
-      fold_finish_port.convert.decode_bf16_loop raw n out none 0#usize
-    match err with
-    | none => ok (core.result.Result.Ok out1)
-    | some e => ok (core.result.Result.Err e)
-  else
-    let args := Slice.len raw
-    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay args
-    let a1 ←
-      core.fmt.Arguments.new
-        (Array.make 45#usize [
-          192#u8, 42#u8, 32#u8, 98#u8, 121#u8, 116#u8, 101#u8, 115#u8, 32#u8,
-          105#u8, 115#u8, 32#u8, 110#u8, 111#u8, 116#u8, 32#u8, 97#u8, 32#u8,
-          119#u8, 104#u8, 111#u8, 108#u8, 101#u8, 32#u8, 110#u8, 117#u8,
-          109#u8, 98#u8, 101#u8, 114#u8, 32#u8, 111#u8, 102#u8, 32#u8, 98#u8,
-          102#u8, 49#u8, 54#u8, 32#u8, 119#u8, 111#u8, 114#u8, 100#u8, 115#u8,
-          0#u8
-          ]) (Array.make 1#usize [ a ])
-    let s ← alloc.fmt.format a1
-    let s1 ← core.hint.must_use s
-    ok (core.result.Result.Err (fold_finish_port.convert.ConvertError.Shape
-      s1))
-
-/-- [apeiron_word::fold_finish_port::convert::decode_f32]: loop body 0:
-    Source: '../../src/learn/fold/run/convert.rs', lines 260:4-267:5
-    Visibility: public -/
-@[rust_loop_body]
-def fold_finish_port.convert.decode_f32_loop.body
-  (raw : Slice Std.U8) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
-  (err : Option fold_finish_port.convert.ConvertError) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    fold_finish_port.convert.ConvertError) × Std.Usize) ((alloc.vec.Vec
-    Std.I64) × (Option fold_finish_port.convert.ConvertError)))
-  := do
-  if i < n
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i1 ← 4#usize * i
-      let i2 ← Slice.index_usize raw i1
-      let i3 ← i1 + 1#usize
-      let i4 ← Slice.index_usize raw i3
-      let i5 ← i1 + 2#usize
-      let i6 ← Slice.index_usize raw i5
-      let i7 ← i1 + 3#usize
-      let i8 ← Slice.index_usize raw i7
-      let bits ←
-        lift (core.num.U32.from_le_bytes
-          (Array.make 4#usize [ i2, i4, i6, i8 ]))
-      let r ← fold_finish_port.convert.f32_bits_to_q32 bits
-      let (out1, err1) ←
-        match r with
-        | core.result.Result.Ok v =>
-          do
-          let out2 ← alloc.vec.Vec.push out v
-          ok (out2, err)
-        | core.result.Result.Err e => ok (out, some e)
-      let i9 ← i + 1#usize
-      ok (cont (out1, err1, i9))
-    else ok (done (out, err))
-  else ok (done (out, err))
-
-/-- [apeiron_word::fold_finish_port::convert::decode_f32]: loop 0:
-    Source: '../../src/learn/fold/run/convert.rs', lines 260:4-267:5
-    Visibility: public -/
-@[rust_loop]
-def fold_finish_port.convert.decode_f32_loop
-  (raw : Slice Std.U8) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
-  (err : Option fold_finish_port.convert.ConvertError) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option
-    fold_finish_port.convert.ConvertError))
-  := do
-  loop
-    (fun (out1, err1, i1) => fold_finish_port.convert.decode_f32_loop.body raw
-      n out1 err1 i1)
-    (out, err, i)
-
-/-- [apeiron_word::fold_finish_port::convert::decode_f32]:
-    Source: '../../src/learn/fold/run/convert.rs', lines 249:0-272:1
-    Visibility: public -/
-def fold_finish_port.convert.decode_f32
-  (raw : Slice Std.U8) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_finish_port.convert.ConvertError)
-  := do
-  let i := Slice.len raw
-  let b ← core.num.Usize.is_multiple_of i 4#usize
-  if b
-  then
-    let i1 := Slice.len raw
-    let n ← i1 / 4#usize
-    let out := alloc.vec.Vec.with_capacity Std.I64 n
-    let (out1, err) ←
-      fold_finish_port.convert.decode_f32_loop raw n out none 0#usize
-    match err with
-    | none => ok (core.result.Result.Ok out1)
-    | some e => ok (core.result.Result.Err e)
-  else
-    let args := Slice.len raw
-    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay args
-    let a1 ←
-      core.fmt.Arguments.new
-        (Array.make 44#usize [
-          192#u8, 41#u8, 32#u8, 98#u8, 121#u8, 116#u8, 101#u8, 115#u8, 32#u8,
-          105#u8, 115#u8, 32#u8, 110#u8, 111#u8, 116#u8, 32#u8, 97#u8, 32#u8,
-          119#u8, 104#u8, 111#u8, 108#u8, 101#u8, 32#u8, 110#u8, 117#u8,
-          109#u8, 98#u8, 101#u8, 114#u8, 32#u8, 111#u8, 102#u8, 32#u8, 102#u8,
-          51#u8, 50#u8, 32#u8, 119#u8, 111#u8, 114#u8, 100#u8, 115#u8, 0#u8
-          ]) (Array.make 1#usize [ a ])
-    let s ← alloc.fmt.format a1
-    let s1 ← core.hint.must_use s
-    ok (core.result.Result.Err (fold_finish_port.convert.ConvertError.Shape
-      s1))
 
 /-- [apeiron_word::fixed_ln::div_rne]:
     Source: '../../src/numeric/fixed_ln.rs', lines 107:0-127:1
@@ -86436,6 +81317,50 @@ def fold_port.stats.budget.max_body_bpw
     core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
       (Std.U64 × Std.U64) residual
 
+/-- [apeiron_word::learn_port::dense::DenseError]
+    Source: '../../src/learn/grad/dense.rs', lines 43:0-53:1
+    Visibility: public -/
+@[discriminant isize]
+inductive learn_port.dense.DenseError where
+| Empty : learn_port.dense.DenseError
+| Shape : learn_port.dense.DenseError
+| Overflow : learn_port.dense.DenseError
+| Range : learn_port.dense.DenseError
+
+/-- [apeiron_word::learn_port::attn::AttnError]
+    Source: '../../src/learn/grad/attn.rs', lines 47:0-61:1
+    Visibility: public -/
+@[discriminant isize]
+inductive learn_port.attn.AttnError where
+| BadShape : learn_port.attn.AttnError
+| Overflow : learn_port.attn.AttnError
+| ExpOutOfRange : learn_port.attn.AttnError
+| RsqrtOutOfRange : learn_port.attn.AttnError
+| Rope : rope.RopeError → learn_port.attn.AttnError
+
+/-- [apeiron_word::grad_solve_port::model::ModelError]
+    Source: '../../src/learn/grad/model.rs', lines 60:0-75:1
+    Visibility: public -/
+@[discriminant isize]
+inductive grad_solve_port.model.ModelError where
+| Shape : String → grad_solve_port.model.ModelError
+| Overflow : grad_solve_port.model.ModelError
+| Missing : String → grad_solve_port.model.ModelError
+| Engine : error.EngineError → grad_solve_port.model.ModelError
+| Config : String → grad_solve_port.model.ModelError
+| Dense : learn_port.dense.DenseError → grad_solve_port.model.ModelError
+| Attn : learn_port.attn.AttnError → grad_solve_port.model.ModelError
+
+/-- [apeiron_word::learn_port::head::HeadError]
+    Source: '../../src/learn/grad/head.rs', lines 52:0-63:1
+    Visibility: public -/
+@[discriminant isize]
+inductive learn_port.head.HeadError where
+| Shape : learn_port.head.HeadError
+| Overflow : learn_port.head.HeadError
+| Exp : fixed_exp.ExpError → learn_port.head.HeadError
+| Ln : fixed_ln.LnError → learn_port.head.HeadError
+
 /-- [apeiron_word::fold_port::stats::heldout::HeldOutError]
     Source: '../../src/learn/fold/stats/heldout.rs', lines 66:0-81:1
     Visibility: public -/
@@ -87378,6 +82303,330 @@ def fold_port.stats.hocapture.softmax_row
       | none => ok (core.result.Result.Ok p1)
       | some e2 => ok (core.result.Result.Err e2)
     | some e2 => ok (core.result.Result.Err e2)
+
+/-- [apeiron_word::learn_port::head::mul128]:
+    Source: '../../src/learn/grad/head.rs', lines 130:0-135:1 -/
+def learn_port.head.mul128
+  (a : Std.I128) (b : Std.I128) :
+  Result (core.result.Result Std.I128 learn_port.head.HeadError)
+  := do
+  let o ← lift (I128.checked_mul a b)
+  match o with
+  | none => ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+  | some s => ok (core.result.Result.Ok s)
+
+/-- [apeiron_word::learn_port::head::to64]:
+    Source: '../../src/learn/grad/head.rs', lines 115:0-121:1 -/
+def learn_port.head.to64
+  (x : Std.I128) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from core.num.I64.MIN)
+  if x < i
+  then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+  else
+    let i1 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+    if x > i1
+    then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+    else let i2 ← lift (IScalar.cast .I64 x)
+         ok (core.result.Result.Ok i2)
+
+/-- [apeiron_word::learn_port::head::abs128]:
+    Source: '../../src/learn/grad/head.rs', lines 87:0-93:1 -/
+def learn_port.head.abs128 (x : Std.I128) : Result Std.I128 := do
+  if x < 0#i128
+  then 0#i128 - x
+  else ok x
+
+/-- [apeiron_word::learn_port::head::round_div]:
+    Source: '../../src/learn/grad/head.rs', lines 96:0-108:1 -/
+def learn_port.head.round_div
+  (n : Std.I128) (d : Std.I128) : Result Std.I128 := do
+  let q ← n / d
+  let r ← n % d
+  let i ← learn_port.head.abs128 r
+  let i1 ← 2#i128 * i
+  if i1 >= d
+  then if n >= 0#i128
+       then q + 1#i128
+       else q - 1#i128
+  else ok q
+
+/-- [apeiron_word::learn_port::head::p_entry]:
+    Source: '../../src/learn/grad/head.rs', lines 226:0-231:1 -/
+def learn_port.head.p_entry
+  (ei : Std.I64) (sum : Std.I128) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from ei)
+  let i1 ← engine.ONE
+  let i2 ← lift (core.convert.num.FromI128I64.from i1)
+  let r ← learn_port.head.mul128 i i2
+  match r with
+  | core.result.Result.Ok num =>
+    let i3 ← learn_port.head.round_div num sum
+    learn_port.head.to64 i3
+  | core.result.Result.Err x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::lp_entry]:
+    Source: '../../src/learn/grad/head.rs', lines 221:0-223:1 -/
+def learn_port.head.lp_entry
+  (zi : Std.I64) (m : Std.I64) (l : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from zi)
+  let i1 ← lift (core.convert.num.FromI128I64.from m)
+  let i2 ← i - i1
+  let i3 ← lift (core.convert.num.FromI128I64.from l)
+  let i4 ← i2 - i3
+  learn_port.head.to64 i4
+
+/-- [apeiron_word::learn_port::head::fill_lp_p]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 251:4-263:5 -/
+@[rust_loop_body]
+def learn_port.head.fill_lp_p_loop.body
+  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
+  (sum : Std.I128) (v : Std.Usize) (lp : Slice Std.I64) (p : Slice Std.I64)
+  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Option
+    learn_port.head.HeadError) × Std.Usize) ((Option
+    learn_port.head.HeadError) × (Slice Std.I64) × (Slice Std.I64)))
+  := do
+  if i < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i1 ← Slice.index_usize z i
+      let r ← learn_port.head.lp_entry i1 m l
+      let (lp1, fail2) ←
+        match r with
+        | core.result.Result.Ok x =>
+          do
+          let s ← Slice.update lp i x
+          ok (s, fail1)
+        | core.result.Result.Err x => ok (lp, some x)
+      let b1 := core.option.Option.is_none fail2
+      let (p1, fail3) ←
+        if b1
+        then
+          do
+          let i2 ← Slice.index_usize e i
+          let r1 ← learn_port.head.p_entry i2 sum
+          match r1 with
+          | core.result.Result.Ok x =>
+            let s ← Slice.update p i x
+            ok (s, fail2)
+          | core.result.Result.Err x => ok (p, some x)
+        else ok (p, fail2)
+      let i2 ← i + 1#usize
+      ok (cont (lp1, p1, fail3, i2))
+    else ok (done (fail1, lp, p))
+  else ok (done (fail1, lp, p))
+
+/-- [apeiron_word::learn_port::head::fill_lp_p]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 251:4-263:5 -/
+@[rust_loop]
+def learn_port.head.fill_lp_p_loop
+  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
+  (sum : Std.I128) (lp : Slice Std.I64) (p : Slice Std.I64) (v : Std.Usize)
+  (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64) × (Slice
+    Std.I64))
+  := do
+  loop
+    (fun (lp1, p1, fail2, i1) => learn_port.head.fill_lp_p_loop.body z m l e
+      sum v lp1 p1 fail2 i1)
+    (lp, p, fail1, i)
+
+/-- [apeiron_word::learn_port::head::fill_lp_p]:
+    Source: '../../src/learn/grad/head.rs', lines 239:0-265:1 -/
+def learn_port.head.fill_lp_p
+  (z : Slice Std.I64) (m : Std.I64) (l : Std.I64) (e : Slice Std.I64)
+  (sum : Std.I128) (lp : Slice Std.I64) (p : Slice Std.I64) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64) × (Slice
+    Std.I64))
+  := do
+  let v := Slice.len z
+  learn_port.head.fill_lp_p_loop z m l e sum lp p v none 0#usize
+
+/-- [apeiron_word::learn_port::head::FLUSH]
+    Source: '../../src/learn/grad/head.rs', lines 48:0-48:41 -/
+@[global_simps, irreducible]
+def learn_port.head.FLUSH : Result Std.I128 := do
+  let i ← 1#i128 <<< 32#i32
+  (-16)#i128 * i
+
+/-- [apeiron_word::learn_port::head::exp_entry]:
+    Source: '../../src/learn/grad/head.rs', lines 163:0-175:1 -/
+def learn_port.head.exp_entry
+  (zi : Std.I64) (m : Std.I64) :
+  Result (core.result.Result Std.I64 learn_port.head.HeadError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from zi)
+  let i1 ← lift (core.convert.num.FromI128I64.from m)
+  let ui ← i - i1
+  let i2 ← learn_port.head.FLUSH
+  if ui < i2
+  then ok (core.result.Result.Ok 0#i64)
+  else
+    let i3 ← lift (core.convert.num.FromI128I64.from core.num.I64.MAX)
+    if ui > i3
+    then ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+    else
+      let i4 ← lift (IScalar.cast .I64 ui)
+      let r ← fixed_exp.fixed_exp i4
+      match r with
+      | core.result.Result.Ok ev => ok (core.result.Result.Ok ev)
+      | core.result.Result.Err x =>
+        ok (core.result.Result.Err (learn_port.head.HeadError.Exp x))
+
+/-- [apeiron_word::learn_port::head::add128]:
+    Source: '../../src/learn/grad/head.rs', lines 123:0-128:1 -/
+def learn_port.head.add128
+  (a : Std.I128) (b : Std.I128) :
+  Result (core.result.Result Std.I128 learn_port.head.HeadError)
+  := do
+  let o ← lift (I128.checked_add a b)
+  match o with
+  | none => ok (core.result.Result.Err learn_port.head.HeadError.Overflow)
+  | some s => ok (core.result.Result.Ok s)
+
+/-- [apeiron_word::learn_port::head::exp_fill]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 201:4-213:5 -/
+@[rust_loop_body]
+def learn_port.head.exp_fill_loop.body
+  (z : Slice Std.I64) (m : Std.I64) (v : Std.Usize) (e : Slice Std.I64)
+  (sum : Std.I128) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.I128 × (Option
+    learn_port.head.HeadError) × Std.Usize) ((Slice Std.I64) × Std.I128 ×
+    (Option learn_port.head.HeadError)))
+  := do
+  if i < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i1 ← Slice.index_usize z i
+      let r ← learn_port.head.exp_entry i1 m
+      let (e1, sum1, fail2) ←
+        match r with
+        | core.result.Result.Ok ev =>
+          do
+          let s ← Slice.update e i ev
+          let i2 ← lift (core.convert.num.FromI128I64.from ev)
+          let r1 ← learn_port.head.add128 sum i2
+          let (i3, o) ←
+            match r1 with
+            | core.result.Result.Ok s1 => ok (s1, fail1)
+            | core.result.Result.Err x => ok (sum, some x)
+          ok (s, i3, o)
+        | core.result.Result.Err x => ok (e, sum, some x)
+      let i2 ← i + 1#usize
+      ok (cont (e1, sum1, fail2, i2))
+    else ok (done (e, sum, fail1))
+  else ok (done (e, sum, fail1))
+
+/-- [apeiron_word::learn_port::head::exp_fill]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 201:4-213:5 -/
+@[rust_loop]
+def learn_port.head.exp_fill_loop
+  (z : Slice Std.I64) (m : Std.I64) (e : Slice Std.I64) (v : Std.Usize)
+  (sum : Std.I128) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result ((Slice Std.I64) × Std.I128 × (Option learn_port.head.HeadError))
+  := do
+  loop
+    (fun (e1, sum1, fail2, i1) => learn_port.head.exp_fill_loop.body z m v e1
+      sum1 fail2 i1)
+    (e, sum, fail1, i)
+
+/-- [apeiron_word::learn_port::head::exp_fill]:
+    Source: '../../src/learn/grad/head.rs', lines 196:0-218:1 -/
+def learn_port.head.exp_fill
+  (z : Slice Std.I64) (m : Std.I64) (e : Slice Std.I64) :
+  Result ((core.result.Result Std.I128 learn_port.head.HeadError) × (Slice
+    Std.I64))
+  := do
+  let v := Slice.len z
+  let (e1, sum, fail1) ←
+    learn_port.head.exp_fill_loop z m e v 0#i128 none 0#usize
+  match fail1 with
+  | none => ok (core.result.Result.Ok sum, e1)
+  | some x => ok (core.result.Result.Err x, e1)
+
+/-- [apeiron_word::learn_port::head::row_max]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 182:4-187:5 -/
+@[rust_loop_body]
+def learn_port.head.row_max_loop.body
+  (z : Slice Std.I64) (v : Std.Usize) (m : Std.I64) (i : Std.Usize) :
+  Result (ControlFlow (Std.I64 × Std.Usize) Std.I64)
+  := do
+  if i < v
+  then
+    let i1 ← Slice.index_usize z i
+    let m1 ← if i1 > m
+               then ok i1
+               else ok m
+    let i2 ← i + 1#usize
+    ok (cont (m1, i2))
+  else ok (done m)
+
+/-- [apeiron_word::learn_port::head::row_max]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 182:4-187:5 -/
+@[rust_loop]
+def learn_port.head.row_max_loop
+  (z : Slice Std.I64) (v : Std.Usize) (m : Std.I64) (i : Std.Usize) :
+  Result Std.I64
+  := do
+  loop
+    (fun (m1, i1) => learn_port.head.row_max_loop.body z v m1 i1)
+    (m, i)
+
+/-- [apeiron_word::learn_port::head::row_max]:
+    Source: '../../src/learn/grad/head.rs', lines 178:0-189:1 -/
+def learn_port.head.row_max (z : Slice Std.I64) : Result Std.I64 := do
+  let v := Slice.len z
+  let m ← Slice.index_usize z 0#usize
+  learn_port.head.row_max_loop z v m 1#usize
+
+/-- [apeiron_word::learn_port::head::softmax_row]:
+    Source: '../../src/learn/grad/head.rs', lines 279:0-304:1 -/
+def learn_port.head.softmax_row
+  (z : Slice Std.I64) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) learn_port.head.HeadError)
+  := do
+  let v := Slice.len z
+  if v = 0#usize
+  then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+  else
+    let m ← learn_port.head.row_max z
+    let e ← alloc.vec.from_elem core.clone.CloneI64 0#i64 v
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut e)
+    let (r, s1) ← learn_port.head.exp_fill z m s
+    match r with
+    | core.result.Result.Ok s2 =>
+      let r1 ← learn_port.head.to64 s2
+      match r1 with
+      | core.result.Result.Ok s3 =>
+        let r2 ← fixed_ln.fixed_ln s3
+        match r2 with
+        | core.result.Result.Ok l =>
+          let e1 := deref_mut_back s1
+          let s4 := alloc.vec.Vec.deref e1
+          let (s5, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut e)
+          let (s6, deref_mut_back2) ← lift (alloc.vec.Vec.deref_mut e)
+          let (o, s7, s8) ← learn_port.head.fill_lp_p z m l s4 s2 s5 s6
+          match o with
+          | none =>
+            let lp := deref_mut_back1 s7
+            let p := deref_mut_back2 s8
+            ok (core.result.Result.Ok (lp, p))
+          | some x => ok (core.result.Result.Err x)
+        | core.result.Result.Err x =>
+          ok (core.result.Result.Err (learn_port.head.HeadError.Ln x))
+      | core.result.Result.Err x => ok (core.result.Result.Err x)
+    | core.result.Result.Err x => ok (core.result.Result.Err x)
 
 /-- [apeiron_word::learn_port::head::log_softmax_row]:
     Source: '../../src/learn/grad/head.rs', lines 319:0-324:1
@@ -88581,6 +83830,33 @@ def fold_port.stats.parts.sin_cos
   | core.ops.control_flow.ControlFlow.Break residual =>
     core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
       (Std.I64 × Std.I64) residual
+
+/-- [apeiron_word::fold_port::stats::parts::PartsError]
+    Source: '../../src/learn/fold/stats/parts.rs', lines 177:0-188:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.stats.parts.PartsError where
+| Shape : fold_port.stats.parts.PartsError
+| NonFinite : fold_port.stats.parts.PartsError
+| RopeTooShort : fold_port.stats.parts.PartsError
+| OutOfRange : fold_port.stats.parts.PartsError
+
+/-- [apeiron_word::fold_port::stats::parts::LayerWords]
+    Source: '../../src/learn/fold/stats/parts.rs', lines 193:0-218:1
+    Visibility: public -/
+structure fold_port.stats.parts.LayerWords where
+  ln1 : Slice Std.I64
+  ln2 : Slice Std.I64
+  q : Slice Std.I64
+  qb : Slice Std.I64
+  k : Slice Std.I64
+  kb : Slice Std.I64
+  v : Slice Std.I64
+  vb : Slice Std.I64
+  o : Slice Std.I64
+  gate : Slice Std.I64
+  up : Slice Std.I64
+  down : Slice Std.I64
 
 /-- [apeiron_word::fold_port::stats::parts::RopeTables]
     Source: '../../src/learn/fold/stats/parts.rs', lines 224:0-231:1
@@ -93827,6 +89103,174 @@ def learn_port.head.sgn (x : Std.I128) : Result Std.I128 := do
   | Ordering.eq => ok 0#i128
   | Ordering.gt => ok 1#i128
 
+/-- [apeiron_word::learn_port::head::kl_acc]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 336:4-346:5 -/
+@[rust_loop_body]
+def learn_port.head.kl_acc_loop.body
+  (p_t : Slice Std.I64) (lp_t : Slice Std.I64) (lp_s : Slice Std.I64)
+  (v : Std.Usize) (acc : Std.I128) (fail1 : Option learn_port.head.HeadError)
+  (i : Std.Usize) :
+  Result (ControlFlow (Std.I128 × (Option learn_port.head.HeadError) ×
+    Std.Usize) (Std.I128 × (Option learn_port.head.HeadError)))
+  := do
+  if i < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i1 ← Slice.index_usize lp_t i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← Slice.index_usize lp_s i
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let delta ← i2 - i4
+      let i5 ← Slice.index_usize p_t i
+      let i6 ← lift (core.convert.num.FromI128I64.from i5)
+      let r ← learn_port.head.mul128 i6 delta
+      let (acc1, fail2) ←
+        match r with
+        | core.result.Result.Ok term =>
+          do
+          let r1 ← learn_port.head.add128 acc term
+          match r1 with
+          | core.result.Result.Ok s => ok (s, fail1)
+          | core.result.Result.Err x => ok (acc, some x)
+        | core.result.Result.Err x => ok (acc, some x)
+      let i7 ← i + 1#usize
+      ok (cont (acc1, fail2, i7))
+    else ok (done (acc, fail1))
+  else ok (done (acc, fail1))
+
+/-- [apeiron_word::learn_port::head::kl_acc]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 336:4-346:5 -/
+@[rust_loop]
+def learn_port.head.kl_acc_loop
+  (p_t : Slice Std.I64) (lp_t : Slice Std.I64) (lp_s : Slice Std.I64)
+  (v : Std.Usize) (acc : Std.I128) (fail1 : Option learn_port.head.HeadError)
+  (i : Std.Usize) :
+  Result (Std.I128 × (Option learn_port.head.HeadError))
+  := do
+  loop
+    (fun (acc1, fail2, i1) => learn_port.head.kl_acc_loop.body p_t lp_t lp_s v
+      acc1 fail2 i1)
+    (acc, fail1, i)
+
+/-- [apeiron_word::learn_port::head::kl_acc]:
+    Source: '../../src/learn/grad/head.rs', lines 331:0-351:1 -/
+def learn_port.head.kl_acc
+  (p_t : Slice Std.I64) (lp_t : Slice Std.I64) (lp_s : Slice Std.I64) :
+  Result (core.result.Result Std.I128 learn_port.head.HeadError)
+  := do
+  let v := Slice.len p_t
+  let (acc, fail1) ←
+    learn_port.head.kl_acc_loop p_t lp_t lp_s v 0#i128 none 0#usize
+  match fail1 with
+  | none => ok (core.result.Result.Ok acc)
+  | some x => ok (core.result.Result.Err x)
+
+/-- [apeiron_word::learn_port::head::dz_diff]: loop body 0:
+    Source: '../../src/learn/grad/head.rs', lines 358:4-364:5 -/
+@[rust_loop_body]
+def learn_port.head.dz_diff_loop.body
+  (p_s : Slice Std.I64) (p_t : Slice Std.I64) (v : Std.Usize)
+  (dz : Slice Std.I64) (fail1 : Option learn_port.head.HeadError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option learn_port.head.HeadError) ×
+    Std.Usize) ((Option learn_port.head.HeadError) × (Slice Std.I64)))
+  := do
+  if i < v
+  then
+    let b := core.option.Option.is_none fail1
+    if b
+    then
+      let i1 ← Slice.index_usize p_s i
+      let i2 ← lift (core.convert.num.FromI128I64.from i1)
+      let i3 ← Slice.index_usize p_t i
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let i5 ← i2 - i4
+      let r ← learn_port.head.to64 i5
+      let (dz1, fail2) ←
+        match r with
+        | core.result.Result.Ok g =>
+          do
+          let s ← Slice.update dz i g
+          ok (s, fail1)
+        | core.result.Result.Err x => ok (dz, some x)
+      let i6 ← i + 1#usize
+      ok (cont (dz1, fail2, i6))
+    else ok (done (fail1, dz))
+  else ok (done (fail1, dz))
+
+/-- [apeiron_word::learn_port::head::dz_diff]: loop 0:
+    Source: '../../src/learn/grad/head.rs', lines 358:4-364:5 -/
+@[rust_loop]
+def learn_port.head.dz_diff_loop
+  (p_s : Slice Std.I64) (p_t : Slice Std.I64) (dz : Slice Std.I64)
+  (v : Std.Usize) (fail1 : Option learn_port.head.HeadError) (i : Std.Usize) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64))
+  := do
+  loop
+    (fun (dz1, fail2, i1) => learn_port.head.dz_diff_loop.body p_s p_t v dz1
+      fail2 i1)
+    (dz, fail1, i)
+
+/-- [apeiron_word::learn_port::head::dz_diff]:
+    Source: '../../src/learn/grad/head.rs', lines 354:0-366:1 -/
+def learn_port.head.dz_diff
+  (p_s : Slice Std.I64) (p_t : Slice Std.I64) (dz : Slice Std.I64) :
+  Result ((Option learn_port.head.HeadError) × (Slice Std.I64))
+  := do
+  let v := Slice.len p_s
+  learn_port.head.dz_diff_loop p_s p_t dz v none 0#usize
+
+/-- [apeiron_word::learn_port::head::kl_row]:
+    Source: '../../src/learn/grad/head.rs', lines 381:0-405:1
+    Visibility: public -/
+def learn_port.head.kl_row
+  (z_s : Slice Std.I64) (z_t : Slice Std.I64) :
+  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64))
+    learn_port.head.HeadError)
+  := do
+  let i := Slice.len z_s
+  let i1 := Slice.len z_t
+  if i != i1
+  then ok (core.result.Result.Err learn_port.head.HeadError.Shape)
+  else
+    let r ← learn_port.head.softmax_row z_s
+    match r with
+    | core.result.Result.Ok pair =>
+      let (lp_s, p_s) := pair
+      let r1 ← learn_port.head.softmax_row z_t
+      match r1 with
+      | core.result.Result.Ok pair1 =>
+        let (lp_t, p_t) := pair1
+        let s := alloc.vec.Vec.deref p_t
+        let s1 := alloc.vec.Vec.deref lp_t
+        let s2 := alloc.vec.Vec.deref lp_s
+        let r2 ← learn_port.head.kl_acc s s1 s2
+        match r2 with
+        | core.result.Result.Ok a =>
+          let i2 := Slice.len z_s
+          let dz ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i2
+          let s3 := alloc.vec.Vec.deref p_s
+          let s4 := alloc.vec.Vec.deref p_t
+          let (s5, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut dz)
+          let (o, s6) ← learn_port.head.dz_diff s3 s4 s5
+          match o with
+          | none =>
+            let i3 ← engine.ONE
+            let i4 ← lift (core.convert.num.FromI128I64.from i3)
+            let i5 ← learn_port.head.round_div a i4
+            let r3 ← learn_port.head.to64 i5
+            match r3 with
+            | core.result.Result.Ok loss =>
+              let dz1 := deref_mut_back s6
+              ok (core.result.Result.Ok (loss, dz1))
+            | core.result.Result.Err x => ok (core.result.Result.Err x)
+          | some x => ok (core.result.Result.Err x)
+        | core.result.Result.Err x => ok (core.result.Result.Err x)
+      | core.result.Result.Err x => ok (core.result.Result.Err x)
+    | core.result.Result.Err x => ok (core.result.Result.Err x)
+
 /-- [apeiron_word::learn_port::head::tv_scan]: loop body 0:
     Source: '../../src/learn/grad/head.rs', lines 419:4-434:5 -/
 @[rust_loop_body]
@@ -94648,6 +90092,20 @@ def grad_solve_port.model.ModelError.Insts.CoreConvertFromAttnError :
     grad_solve_port.model.ModelError.Insts.CoreConvertFromAttnError.from
 }
 
+/-- [apeiron_word::grad_solve_port::model::Config]
+    Source: '../../src/learn/grad/model.rs', lines 97:0-116:1
+    Visibility: public -/
+structure grad_solve_port.model.Config where
+  n_layer : Std.Usize
+  n_head : Std.Usize
+  n_head_kv : Std.Usize
+  n_embd : Std.Usize
+  n_ff : Std.Usize
+  vocab : Std.Usize
+  head_dim : Std.Usize
+  eps : Std.I64
+  rope_theta : F64
+
 /-- [apeiron_word::grad_solve_port::model::{apeiron_word::grad_solve_port::model::Config}::q_out]:
     Source: '../../src/learn/grad/model.rs', lines 127:4-131:5
     Visibility: public -/
@@ -94738,6 +90196,23 @@ def grad_solve_port.model.Config.checked
                   Str.Insts.CoreFmtDisplay (toStr "GQA head counts")
               ok (core.result.Result.Err
                 (grad_solve_port.model.ModelError.Shape s))
+
+/-- [apeiron_word::grad_solve_port::model::LayerWeights]
+    Source: '../../src/learn/grad/model.rs', lines 171:0-196:1
+    Visibility: public -/
+structure grad_solve_port.model.LayerWeights where
+  attn_norm : alloc.vec.Vec Std.I64
+  wq : alloc.vec.Vec Std.I64
+  bq : Option (alloc.vec.Vec Std.I64)
+  wk : alloc.vec.Vec Std.I64
+  bk : Option (alloc.vec.Vec Std.I64)
+  wv : alloc.vec.Vec Std.I64
+  bv : Option (alloc.vec.Vec Std.I64)
+  wo : alloc.vec.Vec Std.I64
+  ffn_norm : alloc.vec.Vec Std.I64
+  w_gate : alloc.vec.Vec Std.I64
+  w_up : alloc.vec.Vec Std.I64
+  w_down : alloc.vec.Vec Std.I64
 
 /-- [apeiron_word::grad_solve_port::model::expect]:
     Source: '../../src/learn/grad/model.rs', lines 355:0-361:1 -/
@@ -122458,529 +117933,6 @@ def coord_port.word_identity_node_iter_next
   coord.locator.locator_core.IdentityNodeIter.Insts.CoreIterTraitsIteratorIteratorIdentityNode.next
     iter
 
-/-- [apeiron_word::crypto_port::word_crypto_ct_eq]:
-    Source: 'crypto_port.rs', lines 18:0-20:1
-    Visibility: public -/
-def crypto_port.word_crypto_ct_eq
-  (a : Slice Std.U8) (b : Slice Std.U8) : Result Bool := do
-  hashtrinity.crypto.ct_eq a b
-
-/-- [apeiron_word::crypto_port::word_crypto_sha256]:
-    Source: 'crypto_port.rs', lines 23:0-25:1
-    Visibility: public -/
-def crypto_port.word_crypto_sha256
-  (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
-  hashtrinity.crypto.sha256 msg
-
-/-- [apeiron_word::crypto_port::word_crypto_sha512]:
-    Source: 'crypto_port.rs', lines 28:0-30:1
-    Visibility: public -/
-def crypto_port.word_crypto_sha512
-  (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
-  hashtrinity.crypto.sha512 msg
-
-/-- [apeiron_word::crypto_port::word_crypto_sha384]:
-    Source: 'crypto_port.rs', lines 33:0-35:1
-    Visibility: public -/
-def crypto_port.word_crypto_sha384
-  (msg : Slice Std.U8) : Result (Array Std.U8 48#usize) := do
-  hashtrinity.crypto.sha384 msg
-
-/-- [apeiron_word::crypto_port::word_crypto_md5]:
-    Source: 'crypto_port.rs', lines 38:0-40:1
-    Visibility: public -/
-def crypto_port.word_crypto_md5
-  (msg : Slice Std.U8) : Result (Array Std.U8 16#usize) := do
-  hashtrinity.crypto.md5 msg
-
-/-- [apeiron_word::crypto_port::word_crypto_blake2b]:
-    Source: 'crypto_port.rs', lines 43:0-45:1
-    Visibility: public -/
-def crypto_port.word_crypto_blake2b
-  (msg : Slice Std.U8) (out_len : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  hashtrinity.crypto.blake2.blake2b msg out_len
-
-/-- [apeiron_word::crypto_port::word_crypto_blake2b512]:
-    Source: 'crypto_port.rs', lines 48:0-50:1
-    Visibility: public -/
-def crypto_port.word_crypto_blake2b512
-  (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
-  hashtrinity.crypto.blake2.blake2b512 msg
-
-/-- [apeiron_word::crypto_port::word_crypto_ripemd160]:
-    Source: 'crypto_port.rs', lines 53:0-55:1
-    Visibility: public -/
-def crypto_port.word_crypto_ripemd160
-  (msg : Slice Std.U8) : Result (Array Std.U8 20#usize) := do
-  hashtrinity.crypto.ripemd160.ripemd160 msg
-
-/-- [apeiron_word::crypto_port::word_crypto_hash160]:
-    Source: 'crypto_port.rs', lines 58:0-60:1
-    Visibility: public -/
-def crypto_port.word_crypto_hash160
-  (data : Slice Std.U8) : Result (Array Std.U8 20#usize) := do
-  hashtrinity.crypto.ripemd160.hash160 data
-
-/-- [apeiron_word::crypto_port::word_crypto_hmac_sha256]:
-    Source: 'crypto_port.rs', lines 65:0-67:1
-    Visibility: public -/
-def crypto_port.word_crypto_hmac_sha256
-  (key : Slice Std.U8) (msg : Slice Std.U8) :
-  Result (Array Std.U8 32#usize)
-  := do
-  hashtrinity.crypto.hmac_sha256 key msg
-
-/-- [apeiron_word::crypto_port::word_crypto_hmac_sha512]:
-    Source: 'crypto_port.rs', lines 70:0-72:1
-    Visibility: public -/
-def crypto_port.word_crypto_hmac_sha512
-  (key : Slice Std.U8) (msg : Slice Std.U8) :
-  Result (Array Std.U8 64#usize)
-  := do
-  hashtrinity.crypto.hmac_sha512 key msg
-
-/-- [apeiron_word::crypto_port::word_crypto_hmac_sha384]:
-    Source: 'crypto_port.rs', lines 75:0-77:1
-    Visibility: public -/
-def crypto_port.word_crypto_hmac_sha384
-  (key : Slice Std.U8) (msg : Slice Std.U8) :
-  Result (Array Std.U8 48#usize)
-  := do
-  hashtrinity.crypto.hmac_sha384 key msg
-
-/-- [apeiron_word::crypto_port::word_crypto_pbkdf2_sha256]:
-    Source: 'crypto_port.rs', lines 80:0-82:1
-    Visibility: public -/
-def crypto_port.word_crypto_pbkdf2_sha256
-  (pass : Slice Std.U8) (salt : Slice Std.U8) (iters : Std.U32)
-  (dklen : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  hashtrinity.crypto.pbkdf2_sha256 pass salt iters dklen
-
-/-- [apeiron_word::crypto_port::word_crypto_hkdf_extract_sha256]:
-    Source: 'crypto_port.rs', lines 85:0-87:1
-    Visibility: public -/
-def crypto_port.word_crypto_hkdf_extract_sha256
-  (salt : Slice Std.U8) (ikm : Slice Std.U8) :
-  Result (Array Std.U8 32#usize)
-  := do
-  hashtrinity.crypto.hkdf_extract_sha256 salt ikm
-
-/-- [apeiron_word::crypto_port::word_crypto_hkdf_expand_sha256]:
-    Source: 'crypto_port.rs', lines 90:0-92:1
-    Visibility: public -/
-def crypto_port.word_crypto_hkdf_expand_sha256
-  (prk : Slice Std.U8) (info : Slice Std.U8) (len : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  hashtrinity.crypto.hkdf_expand_sha256 prk info len
-
-/-- [apeiron_word::crypto_port::word_crypto_hkdf_sha256]:
-    Source: 'crypto_port.rs', lines 95:0-97:1
-    Visibility: public -/
-def crypto_port.word_crypto_hkdf_sha256
-  (salt : Slice Std.U8) (ikm : Slice Std.U8) (info : Slice Std.U8)
-  (len : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  hashtrinity.crypto.hkdf_sha256 salt ikm info len
-
-/-- [apeiron_word::crypto_port::word_crypto_hkdf_sha384]:
-    Source: 'crypto_port.rs', lines 100:0-102:1
-    Visibility: public -/
-def crypto_port.word_crypto_hkdf_sha384
-  (salt : Slice Std.U8) (ikm : Slice Std.U8) (info : Slice Std.U8)
-  (len : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  hashtrinity.crypto.hkdf_sha384 salt ikm info len
-
-/-- [apeiron_word::crypto_port::word_crypto_hkdf_sha512]:
-    Source: 'crypto_port.rs', lines 105:0-107:1
-    Visibility: public -/
-def crypto_port.word_crypto_hkdf_sha512
-  (salt : Slice Std.U8) (ikm : Slice Std.U8) (info : Slice Std.U8)
-  (len : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  hashtrinity.crypto.hkdf_sha512 salt ikm info len
-
-/-- [apeiron_word::crypto_port::word_crypto_chacha20_block]:
-    Source: 'crypto_port.rs', lines 112:0-114:1
-    Visibility: public -/
-def crypto_port.word_crypto_chacha20_block
-  (key : Array Std.U8 32#usize) (counter : Std.U32)
-  (nonce : Array Std.U8 12#usize) :
-  Result (Array Std.U8 64#usize)
-  := do
-  hashtrinity.crypto.chacha_poly.chacha20_block key counter nonce
-
-/-- [apeiron_word::crypto_port::word_crypto_ecdsa_p256_verify]:
-    Source: 'crypto_port.rs', lines 119:0-121:1
-    Visibility: public -/
-def crypto_port.word_crypto_ecdsa_p256_verify
-  (pubkey : Array Std.U8 64#usize) (hash : Array Std.U8 32#usize)
-  (sig : Array Std.U8 64#usize) :
-  Result Bool
-  := do
-  hashtrinity.crypto.ecdsa.ecdsa_p256_verify pubkey hash sig
-
-/-- [apeiron_word::crypto_port::word_crypto_p256_pubkey]:
-    Source: 'crypto_port.rs', lines 124:0-126:1
-    Visibility: public -/
-def crypto_port.word_crypto_p256_pubkey
-  (secret : Array Std.U8 32#usize) : Result (Array Std.U8 64#usize) := do
-  hashtrinity.crypto.ecdsa.p256_pubkey secret
-
-/-- [apeiron_word::crypto_port::word_crypto_secp256k1_pubkey]:
-    Source: 'crypto_port.rs', lines 129:0-131:1
-    Visibility: public -/
-def crypto_port.word_crypto_secp256k1_pubkey
-  (secret : Array Std.U8 32#usize) : Result (Array Std.U8 64#usize) := do
-  hashtrinity.crypto.secp256k1.pubkey secret
-
-/-- [apeiron_word::crypto_port::word_crypto_ecdsa_p384_verify]:
-    Source: 'crypto_port.rs', lines 134:0-140:1
-    Visibility: public -/
-def crypto_port.word_crypto_ecdsa_p384_verify
-  (pubkey : Array Std.U8 96#usize) (hash : Array Std.U8 48#usize)
-  (sig : Array Std.U8 96#usize) :
-  Result Bool
-  := do
-  hashtrinity.crypto.p384.ecdsa_p384_verify pubkey hash sig
-
-/-- [apeiron_word::crypto_port::word_crypto_rsa_pkcs1_sha256_verify]:
-    Source: 'crypto_port.rs', lines 143:0-150:1
-    Visibility: public -/
-def crypto_port.word_crypto_rsa_pkcs1_sha256_verify
-  (n_be : Slice Std.U8) (e : Std.U64) (sig_be : Slice Std.U8)
-  (msg_hash : Array Std.U8 32#usize) :
-  Result Bool
-  := do
-  hashtrinity.crypto.rsa.rsa_pkcs1_sha256_verify n_be e sig_be msg_hash
-
-/-- [apeiron_word::crypto_port::word_crypto_bech32_convert_bits]:
-    Source: 'crypto_port.rs', lines 155:0-162:1
-    Visibility: public -/
-def crypto_port.word_crypto_bech32_convert_bits
-  (data : Slice Std.U8) («from» : Std.U32) («to» : Std.U32) (pad : Bool) :
-  Result (Option (alloc.vec.Vec Std.U8))
-  := do
-  hashtrinity.crypto.bech32.convert_bits data «from» «to» pad
-
-/-- [apeiron_word::fit_port::word_fit_steps_fwht_words]:
-    Source: 'fit_port.rs', lines 17:0-19:1
-    Visibility: public -/
-def fit_port.word_fit_steps_fwht_words
-  (x : Slice Std.I64) :
-  Result ((core.result.Result Unit fold_port.fit.steps.StepsError) × (Slice
-    Std.I64))
-  := do
-  fold_port.fit.steps.fwht_words x
-
-/-- [apeiron_word::fit_port::word_fit_steps_had_gram]:
-    Source: 'fit_port.rs', lines 22:0-27:1
-    Visibility: public -/
-def fit_port.word_fit_steps_had_gram
-  (h : Slice Std.I64) (n : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_port.fit.steps.StepsError)
-  := do
-  fold_port.fit.steps.had_gram h n
-
-/-- [apeiron_word::fit_port::word_fit_steps_compose]:
-    Source: 'fit_port.rs', lines 30:0-38:1
-    Visibility: public -/
-def fit_port.word_fit_steps_compose
-  (s : Slice Std.I64) (r : Slice Std.I64) (c : Slice Std.I64) (o : Std.Usize)
-  (n : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_port.fit.steps.StepsError)
-  := do
-  fold_port.fit.steps.compose s r c o n
-
-/-- [apeiron_word::fit_port::word_fit_gptq_e8_carrier_feedback_u]:
-    Source: 'fit_port.rs', lines 41:0-47:1
-    Visibility: public -/
-def fit_port.word_fit_gptq_e8_carrier_feedback_u
-  (h : Slice Std.I64) (n : Std.Usize) (damp : Std.I64) :
-  Result (core.result.Result fold_port.fit.gptq_e8_carrier.UFac
-    fold_port.fit.gptq_e8.GptqE8Error)
-  := do
-  fold_port.fit.gptq_e8_carrier.feedback_u h n damp
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_linear_new]:
-    Source: 'fold_finish_port.rs', lines 50:0-52:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_linear_new
-  (o_total : Std.Usize) (n : Std.Usize) :
-  Result fold_finish_port.finish.train.Linear
-  := do
-  fold_finish_port.finish.train.Linear.new o_total n
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_planes_new]:
-    Source: 'fold_finish_port.rs', lines 55:0-57:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_planes_new
-  (layers : alloc.vec.Vec (alloc.vec.Vec fold_finish_port.finish.train.Linear))
-  :
-  Result fold_finish_port.finish.train.Planes
-  := do
-  fold_finish_port.finish.train.Planes.new layers
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_planes_linear]:
-    Source: 'fold_finish_port.rs', lines 60:0-66:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_planes_linear
-  (p : fold_finish_port.finish.train.Planes) (l : Std.Usize) (k : Std.Usize) :
-  Result (core.result.Result fold_finish_port.finish.train.Linear
-    fold_finish_port.finish.train.TrainError)
-  := do
-  fold_finish_port.finish.train.Planes.linear p l k
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_planes_linear_mut]:
-    Source: 'fold_finish_port.rs', lines 69:0-75:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_planes_linear_mut
-  (p : fold_finish_port.finish.train.Planes) (l : Std.Usize) (k : Std.Usize) :
-  Result ((core.result.Result fold_finish_port.finish.train.Linear
-    fold_finish_port.finish.train.TrainError) × (core.result.Result
-    fold_finish_port.finish.train.Linear
-    fold_finish_port.finish.train.TrainError →
-    fold_finish_port.finish.train.Planes))
-  := do
-  fold_finish_port.finish.train.Planes.linear_mut p l k
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_layer_tunables_new]:
-    Source: 'fold_finish_port.rs', lines 78:0-86:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_layer_tunables_new
-  (ln1 : Slice Std.I64) (ln2 : Slice Std.I64) (qb : Slice Std.I64)
-  (kb : Slice Std.I64) (vb : Slice Std.I64) :
-  Result fold_finish_port.finish.train.LayerTunables
-  := do
-  fold_finish_port.finish.train.LayerTunables.new ln1 ln2 qb kb vb
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_layer_tunables_bias_scale]:
-    Source: 'fold_finish_port.rs', lines 89:0-91:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_layer_tunables_bias_scale
-  (lt : fold_finish_port.finish.train.LayerTunables) (which : Std.Usize) :
-  Result Std.I64
-  := do
-  fold_finish_port.finish.train.LayerTunables.bias_scale lt which
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_layer_tunables_tuned]:
-    Source: 'fold_finish_port.rs', lines 94:0-96:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_layer_tunables_tuned
-  (lt : fold_finish_port.finish.train.LayerTunables) :
-  Result fold_finish_port.finish.train.LayerTuned
-  := do
-  fold_finish_port.finish.train.LayerTunables.tuned lt
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_tunables_new]:
-    Source: 'fold_finish_port.rs', lines 99:0-101:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_tunables_new
-  (layers : alloc.vec.Vec fold_finish_port.finish.train.LayerTunables)
-  (fn_base : Slice Std.I64) :
-  Result fold_finish_port.finish.train.Tunables
-  := do
-  fold_finish_port.finish.train.Tunables.new layers fn_base
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_tunables_output_norm]:
-    Source: 'fold_finish_port.rs', lines 104:0-106:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_tunables_output_norm
-  (t : fold_finish_port.finish.train.Tunables) :
-  Result (alloc.vec.Vec Std.I64)
-  := do
-  fold_finish_port.finish.train.Tunables.output_norm t
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_frozen_new]:
-    Source: 'fold_finish_port.rs', lines 109:0-111:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_frozen_new
-  (token_embd : Slice Std.I64) (lm_head : Slice Std.I64) :
-  Result fold_finish_port.finish.train.Frozen
-  := do
-  fold_finish_port.finish.train.Frozen.new token_embd lm_head
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_schedule_new]:
-    Source: 'fold_finish_port.rs', lines 114:0-116:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_schedule_new
-  (warmup : Std.U64) (steps : Std.U64) :
-  Result fold_finish_port.finish.train.Schedule
-  := do
-  fold_finish_port.finish.train.Schedule.new warmup steps
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_schedule_factor]:
-    Source: 'fold_finish_port.rs', lines 119:0-121:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_schedule_factor
-  (s : fold_finish_port.finish.train.Schedule) (step : Std.U64) :
-  Result Std.I64
-  := do
-  fold_finish_port.finish.train.Schedule.factor s step
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_adam_zeros]:
-    Source: 'fold_finish_port.rs', lines 124:0-126:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_adam_zeros
-  (n : Std.Usize) : Result fold_finish_port.finish.train.Adam := do
-  fold_finish_port.finish.train.Adam.zeros n
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_adam_len]:
-    Source: 'fold_finish_port.rs', lines 129:0-131:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_adam_len
-  (a : fold_finish_port.finish.train.Adam) : Result Std.Usize := do
-  fold_finish_port.finish.train.Adam.len a
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_adam_is_empty]:
-    Source: 'fold_finish_port.rs', lines 134:0-136:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_adam_is_empty
-  (a : fold_finish_port.finish.train.Adam) : Result Bool := do
-  fold_finish_port.finish.train.Adam.is_empty a
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_adam_apply]:
-    Source: 'fold_finish_port.rs', lines 139:0-146:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_adam_apply
-  (a : fold_finish_port.finish.train.Adam) (lr : Std.I64) (p : Slice Std.I64)
-  (g : Slice Std.I64) :
-  Result ((core.result.Result Unit fold_finish_port.finish.train.TrainError) ×
-    fold_finish_port.finish.train.Adam × (Slice Std.I64))
-  := do
-  fold_finish_port.finish.train.Adam.apply a lr p g
-
-/-- [apeiron_word::fold_finish_port::word_finish_train_kl_mean]:
-    Source: 'fold_finish_port.rs', lines 154:0-160:1
-    Visibility: public -/
-def fold_finish_port.word_finish_train_kl_mean
-  (cfg : grad_solve_port.model.Config) (logits : Slice Std.I64)
-  (teacher : Slice Std.I64) :
-  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64))
-    fold_finish_port.finish.train.TrainError)
-  := do
-  fold_finish_port.finish.train.kl_mean cfg logits teacher
-
-/-- [apeiron_word::fold_finish_port::word_run_convert_decode_f16]:
-    Source: 'fold_finish_port.rs', lines 165:0-167:1
-    Visibility: public -/
-def fold_finish_port.word_run_convert_decode_f16
-  (raw : Slice Std.U8) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_finish_port.convert.ConvertError)
-  := do
-  fold_finish_port.convert.decode_f16 raw
-
-/-- [apeiron_word::fold_finish_port::word_run_convert_decode_bf16]:
-    Source: 'fold_finish_port.rs', lines 170:0-172:1
-    Visibility: public -/
-def fold_finish_port.word_run_convert_decode_bf16
-  (raw : Slice Std.U8) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_finish_port.convert.ConvertError)
-  := do
-  fold_finish_port.convert.decode_bf16 raw
-
-/-- [apeiron_word::fold_finish_port::word_run_convert_decode_f32]:
-    Source: 'fold_finish_port.rs', lines 175:0-177:1
-    Visibility: public -/
-def fold_finish_port.word_run_convert_decode_f32
-  (raw : Slice Std.U8) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_finish_port.convert.ConvertError)
-  := do
-  fold_finish_port.convert.decode_f32 raw
-
-/-- [apeiron_word::fold_layer_port::word_layer_driver_layer_words]:
-    Source: 'fold_layer_port.rs', lines 42:0-44:1
-    Visibility: public -/
-def fold_layer_port.word_layer_driver_layer_words
-  (lt : grad_solve_port.model.LayerWeights) :
-  Result (core.result.Result fold_port.stats.parts.LayerWords
-    fold_layer_port.layer.driver.DriverError)
-  := do
-  fold_layer_port.layer.driver.layer_words lt
-
-/-- [apeiron_word::fold_layer_port::word_layer_driver_g_row_from_vec]:
-    Source: 'fold_layer_port.rs', lines 56:0-58:1
-    Visibility: public -/
-def fold_layer_port.word_layer_driver_g_row_from_vec
-  (v : Slice Std.I64) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_layer_port.layer.driver.DriverError)
-  := do
-  fold_layer_port.layer.driver.g_row_from_vec v
-
-/-- [apeiron_word::fold_layer_port::word_layer_driver_g_row_from_matrix]:
-    Source: 'fold_layer_port.rs', lines 61:0-67:1
-    Visibility: public -/
-def fold_layer_port.word_layer_driver_g_row_from_matrix
-  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_layer_port.layer.driver.DriverError)
-  := do
-  fold_layer_port.layer.driver.g_row_from_matrix w rows cols
-
-/-- [apeiron_word::fold_layer_port::word_layer_driver_model_init]:
-    Source: 'fold_layer_port.rs', lines 111:0-113:1
-    Visibility: public -/
-def fold_layer_port.word_layer_driver_model_init
-  (h0 : Slice Std.I64) : Result fold_layer_port.layer.driver.ModelState := do
-  fold_layer_port.layer.driver.model_init h0
-
-/-- [apeiron_word::fold_layer_port::word_layer_tensor_recon]:
-    Source: 'fold_layer_port.rs', lines 154:0-160:1
-    Visibility: public -/
-def fold_layer_port.word_layer_tensor_recon
-  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
-  (n : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_layer_port.layer.tensor.TensorError)
-  := do
-  fold_layer_port.layer.tensor.recon planes o n
-
-/-- [apeiron_word::fold_layer_port::word_layer_tensor_fold_row_scale]:
-    Source: 'fold_layer_port.rs', lines 177:0-184:1
-    Visibility: public -/
-def fold_layer_port.word_layer_tensor_fold_row_scale
-  (fit : fold_layer_port.layer.tensor.TensorFit) (s_sol : Slice Std.I64)
-  (o : Std.Usize) (n : Std.Usize) :
-  Result ((core.result.Result Unit fold_layer_port.layer.tensor.TensorError) ×
-    fold_layer_port.layer.tensor.TensorFit)
-  := do
-  fold_layer_port.layer.tensor.fold_row_scale fit s_sol o n
-
-/-- [apeiron_word::fold_layer_port::word_layer_resq_rescale_hier]:
-    Source: 'fold_layer_port.rs', lines 199:0-206:1
-    Visibility: public -/
-def fold_layer_port.word_layer_resq_rescale_hier
-  (rh : Slice Std.I64) (s : Slice Std.I64) (o : Std.Usize) (g : Std.Usize) :
-  Result (core.result.Result fold_port.fit.quant.RHier
-    fold_layer_port.layer.resq.ResqError)
-  := do
-  fold_layer_port.layer.resq.rescale_hier rh s o g
-
-/-- [apeiron_word::fold_layer_port::word_layer_resq_rescale_hier_top]:
-    Source: 'fold_layer_port.rs', lines 209:0-216:1
-    Visibility: public -/
-def fold_layer_port.word_layer_resq_rescale_hier_top
-  (rh : Slice Std.I64) (s : Slice Std.I64) (rows : Slice Std.Usize)
-  (g : Std.Usize) :
-  Result (core.result.Result fold_port.fit.quant.RHier
-    fold_layer_port.layer.resq.ResqError)
-  := do
-  fold_layer_port.layer.resq.rescale_hier_top rh s rows g
-
 /-- [apeiron_word::fold_port::word_stats_budget_bytes_ceil]:
     Source: 'fold_port.rs', lines 87:0-89:1
     Visibility: public -/
@@ -123395,108 +118347,6 @@ def fold_port.word_stats_heldout_score_base_row
     fold_port.stats.heldout.HeldOutError)
   := do
   fold_port.stats.heldout.score_base_row z lp target base_argmax
-
-/-- [apeiron_word::format_port::word_packing_error_from_quant]:
-    Source: 'format_port.rs', lines 12:0-16:1
-    Visibility: public -/
-def format_port.word_packing_error_from_quant
-  (e : quant.QuantError) : Result packing.PackingError := do
-  packing.PackingError.Insts.CoreConvertFromQuantError.from e
-
-/-- [apeiron_word::format_port::word_packing_validate]:
-    Source: 'format_port.rs', lines 19:0-21:1
-    Visibility: public -/
-def format_port.word_packing_validate
-  (p : packing.Packing) :
-  Result (core.result.Result Unit packing.PackingError)
-  := do
-  packing.Packing.validate p
-
-/-- [apeiron_word::format_port::word_packing_from_gguf_kind]:
-    Source: 'format_port.rs', lines 24:0-26:1
-    Visibility: public -/
-def format_port.word_packing_from_gguf_kind
-  (kind : Std.U32) : Result (Option packing.Packing) := do
-  packing.Packing.from_gguf_kind kind
-
-/-- [apeiron_word::format_port::word_packing_encode_block]:
-    Source: 'format_port.rs', lines 29:0-34:1
-    Visibility: public -/
-def format_port.word_packing_encode_block
-  (p : packing.Packing) (b : packing.CanonicalBlock) :
-  Result (core.result.Result (alloc.vec.Vec Std.U8) packing.PackingError)
-  := do
-  packing.Packing.encode_block p b
-
-/-- [apeiron_word::format_port::word_packing_row_decode_fixed]:
-    Source: 'format_port.rs', lines 37:0-43:1
-    Visibility: public -/
-def format_port.word_packing_row_decode_fixed
-  (p : packing.Packing) (raw : Slice Std.U8) (n : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64) packing.PackingError)
-  := do
-  packing.Packing.row_decode_fixed p raw n
-
-/-- [apeiron_word::format_port::word_packing_import_row]:
-    Source: 'format_port.rs', lines 47:0-54:1
-    Visibility: public -/
-def format_port.word_packing_import_row
-  (kind : Std.U32) (p : packing.Packing) (raw : Slice Std.U8) (n : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.U8) packing.PackingError)
-  := do
-  packing.import_row kind p raw n
-
-/-- [apeiron_word::format_port::word_packing_convert_row]:
-    Source: 'format_port.rs', lines 57:0-63:1
-    Visibility: public -/
-def format_port.word_packing_convert_row
-  (kind : Std.U32) (raw : Slice Std.U8) (n : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64) packing.PackingError)
-  := do
-  packing.convert_row kind raw n
-
-/-- [apeiron_word::format_port::word_quant_q4_k_scale_mins]:
-    Source: 'format_port.rs', lines 66:0-70:1
-    Visibility: public -/
-def format_port.word_quant_q4_k_scale_mins
-  (blk : Slice Std.U8) :
-  Result (core.result.Result (Array (Std.U8 × Std.U8) 8#usize)
-    quant.QuantError)
-  := do
-  quant.q4_k_scale_mins blk
-
-/-- [apeiron_word::format_port::word_quant_ggml_type_name]:
-    Source: 'format_port.rs', lines 73:0-75:1
-    Visibility: public -/
-def format_port.word_quant_ggml_type_name (t : Std.U32) : Result String := do
-  quant.ggml_type_name t
-
-/-- [apeiron_word::format_port::word_bpe_hex_val]:
-    Source: 'format_port.rs', lines 78:0-80:1
-    Visibility: public -/
-def format_port.word_bpe_hex_val (c : Std.U8) : Result (Option Std.U32) := do
-  format_port.bpe.hex_val c
-
-/-- [apeiron_word::format_port::word_bpe_contains_nul]:
-    Source: 'format_port.rs', lines 83:0-85:1
-    Visibility: public -/
-def format_port.word_bpe_contains_nul (s : Str) : Result Bool := do
-  format_port.bpe.contains_nul s
-
-/-- [apeiron_word::format_port::word_bpe_is_nl]:
-    Source: 'format_port.rs', lines 88:0-90:1
-    Visibility: public -/
-def format_port.word_bpe_is_nl (c : Char) : Result Bool := do
-  format_port.bpe.is_nl c
-
-/-- [apeiron_word::format_port::word_bpe_find_sub]:
-    Source: 'format_port.rs', lines 93:0-95:1
-    Visibility: public -/
-def format_port.word_bpe_find_sub
-  (hay : Slice Std.U8) (needle : Slice Std.U8) :
-  Result (Option Std.Usize)
-  := do
-  format_port.bpe.find_sub hay needle
 
 /-- [apeiron_word::grad_solve_port::word_learn_gguf_write_header]:
     Source: 'grad_solve_port.rs', lines 30:0-34:1
@@ -125442,6 +120292,5156 @@ def word_onebit_params (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
 def word_onebit_index_bits
   (c : onebit_bits.Cfg) : Result (Option Std.U64) := do
   onebit_bits.index_bits c
+
+/-- [apeiron_word::format_port::bpe::is_nl]:
+    Source: 'ports/../../../src/format/bpe.rs', lines 418:0-420:1 -/
+def format_port.bpe.is_nl (c : Char) : Result Bool := do
+  if c = '
+'
+  then ok true
+  else ok (c = '
+')
+
+/-- [apeiron_word::format_port::bpe::find_sub]: loop body 1:
+    Source: 'ports/../../../src/format/bpe.rs', lines 671:8-677:9 -/
+@[rust_loop_body]
+def format_port.bpe.find_sub_loop0_loop0.body
+  (hay : Slice Std.U8) (needle : Slice Std.U8) (i : Std.Usize) (k : Std.Usize)
+  :
+  Result (ControlFlow Std.Usize Bool)
+  := do
+  let i1 := Slice.len needle
+  if k < i1
+  then
+    let i2 ← i + k
+    let i3 ← Slice.index_usize hay i2
+    let i4 ← Slice.index_usize needle k
+    if i3 != i4
+    then ok (done false)
+    else let k1 ← k + 1#usize
+         ok (cont k1)
+  else ok (done true)
+
+/-- [apeiron_word::format_port::bpe::find_sub]: loop 1:
+    Source: 'ports/../../../src/format/bpe.rs', lines 671:8-677:9 -/
+@[rust_loop]
+def format_port.bpe.find_sub_loop0_loop0
+  (hay : Slice Std.U8) (needle : Slice Std.U8) (i : Std.Usize) (k : Std.Usize)
+  :
+  Result Bool
+  := do
+  loop
+    (fun k1 => format_port.bpe.find_sub_loop0_loop0.body hay needle i k1)
+    k
+
+/-- [apeiron_word::format_port::bpe::find_sub]: loop body 0:
+    Source: 'ports/../../../src/format/bpe.rs', lines 668:4-682:5 -/
+@[rust_loop_body]
+def format_port.bpe.find_sub_loop0.body
+  (hay : Slice Std.U8) (needle : Slice Std.U8) (found : Option Std.Usize)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Option Std.Usize) × Std.Usize) (Option Std.Usize))
+  := do
+  let i1 := Slice.len needle
+  let i2 ← i + i1
+  let i3 := Slice.len hay
+  if i2 <= i3
+  then
+    let b := core.option.Option.is_none found
+    if b
+    then
+      let ok1 ← format_port.bpe.find_sub_loop0_loop0 hay needle i 0#usize
+      let found1 ← if ok1
+                     then ok (some i)
+                     else ok found
+      let i4 ← i + 1#usize
+      ok (cont (found1, i4))
+    else ok (done found)
+  else ok (done found)
+
+/-- [apeiron_word::format_port::bpe::find_sub]: loop 0:
+    Source: 'ports/../../../src/format/bpe.rs', lines 668:4-682:5 -/
+@[rust_loop]
+def format_port.bpe.find_sub_loop0
+  (hay : Slice Std.U8) (needle : Slice Std.U8) (found : Option Std.Usize)
+  (i : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  loop
+    (fun (found1, i1) => format_port.bpe.find_sub_loop0.body hay needle found1
+      i1)
+    (found, i)
+
+/-- [apeiron_word::format_port::bpe::find_sub]:
+    Source: 'ports/../../../src/format/bpe.rs', lines 660:0-684:1 -/
+def format_port.bpe.find_sub
+  (hay : Slice Std.U8) (needle : Slice Std.U8) :
+  Result (Option Std.Usize)
+  := do
+  let i := Slice.len needle
+  if i = 0#usize
+  then ok none
+  else
+    let i1 := Slice.len needle
+    let i2 := Slice.len hay
+    if i1 > i2
+    then ok none
+    else format_port.bpe.find_sub_loop0 hay needle none 0#usize
+
+/-- [apeiron_word::format_port::bpe::contains_nul]: loop body 0:
+    Source: 'ports/../../../src/format/bpe.rs', lines 692:4-697:5 -/
+@[rust_loop_body]
+def format_port.bpe.contains_nul_loop.body
+  (b : Slice Std.U8) (i : Std.Usize) (found : Bool) :
+  Result (ControlFlow (Std.Usize × Bool) Bool)
+  := do
+  let i1 := Slice.len b
+  if i < i1
+  then
+    let i2 ← Slice.index_usize b i
+    let found1 ← if i2 = 0#u8
+                   then ok true
+                   else ok found
+    let i3 ← i + 1#usize
+    ok (cont (i3, found1))
+  else ok (done found)
+
+/-- [apeiron_word::format_port::bpe::contains_nul]: loop 0:
+    Source: 'ports/../../../src/format/bpe.rs', lines 692:4-697:5 -/
+@[rust_loop]
+def format_port.bpe.contains_nul_loop
+  (b : Slice Std.U8) (i : Std.Usize) (found : Bool) : Result Bool := do
+  loop
+    (fun (i1, found1) => format_port.bpe.contains_nul_loop.body b i1 found1)
+    (i, found)
+
+/-- [apeiron_word::format_port::bpe::contains_nul]:
+    Source: 'ports/../../../src/format/bpe.rs', lines 686:0-699:1 -/
+def format_port.bpe.contains_nul (s : Str) : Result Bool := do
+  let b ← core.str.Str.as_bytes s
+  format_port.bpe.contains_nul_loop b 0#usize false
+
+/-- [apeiron_word::format_port::bpe::hex_val]:
+    Source: 'ports/../../../src/format/bpe.rs', lines 822:0-829:1 -/
+def format_port.bpe.hex_val (c : Std.U8) : Result (Option Std.U32) := do
+  if 48#u8 <= c
+  then
+    if c <= 57#u8
+    then let i ← c - 48#u8
+         let i1 ← lift (UScalar.cast .U32 i)
+         ok (some i1)
+    else
+      if 97#u8 <= c
+      then
+        if c <= 102#u8
+        then
+          let i ← c - 97#u8
+          let i1 ← lift (UScalar.cast .U32 i)
+          let i2 ← i1 + 10#u32
+          ok (some i2)
+        else
+          if 65#u8 <= c
+          then
+            if c <= 70#u8
+            then
+              let i ← c - 65#u8
+              let i1 ← lift (UScalar.cast .U32 i)
+              let i2 ← i1 + 10#u32
+              ok (some i2)
+            else ok none
+          else ok none
+      else
+        if 65#u8 <= c
+        then
+          if c <= 70#u8
+          then
+            let i ← c - 65#u8
+            let i1 ← lift (UScalar.cast .U32 i)
+            let i2 ← i1 + 10#u32
+            ok (some i2)
+          else ok none
+        else ok none
+  else
+    if 97#u8 <= c
+    then
+      if c <= 102#u8
+      then
+        let i ← c - 97#u8
+        let i1 ← lift (UScalar.cast .U32 i)
+        let i2 ← i1 + 10#u32
+        ok (some i2)
+      else
+        if 65#u8 <= c
+        then
+          if c <= 70#u8
+          then
+            let i ← c - 65#u8
+            let i1 ← lift (UScalar.cast .U32 i)
+            let i2 ← i1 + 10#u32
+            ok (some i2)
+          else ok none
+        else ok none
+    else
+      if 65#u8 <= c
+      then
+        if c <= 70#u8
+        then
+          let i ← c - 65#u8
+          let i1 ← lift (UScalar.cast .U32 i)
+          let i2 ← i1 + 10#u32
+          ok (some i2)
+        else ok none
+      else ok none
+
+/-- [apeiron_word::fold_finish_port::finish::plane::ONE]
+    Source: 'ports/../../../src/learn/fold/finish/plane.rs', lines 61:0-61:36 -/
+@[global_simps, irreducible]
+def fold_finish_port.finish.plane.ONE : Result Std.I64 := 1#i64 <<< 32#i32
+
+/-- [apeiron_word::fold_finish_port::finish::plane::mul]:
+    Source: 'ports/../../../src/learn/fold/finish/plane.rs', lines 67:0-69:1 -/
+def fold_finish_port.finish.plane.mul
+  (a : Std.I64) (b : Std.I64) : Result (Option Std.I64) := do
+  let i ← lift (core.convert.num.FromI128I64.from a)
+  let i1 ← lift (core.convert.num.FromI128I64.from b)
+  let i2 ← i * i1
+  let r ← solve_port.q32.round_q32_even i2
+  core.result.Result.ok r
+
+/-- [apeiron_word::fold_finish_port::finish::plane::div_ne]:
+    Source: 'ports/../../../src/learn/fold/finish/plane.rs', lines 72:0-90:1 -/
+def fold_finish_port.finish.plane.div_ne
+  (n : Std.I128) (d : Std.I128) : Result (Option Std.I128) := do
+  if d = 0#i128
+  then ok none
+  else
+    let q ← n / d
+    let r ← n % d
+    if r = 0#i128
+    then ok (some q)
+    else
+      let i ← core.num.I128.abs r
+      let o ← lift (I128.checked_mul i 2#i128)
+      let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let i1 ← core.num.I128.abs d
+        let up ←
+          if val > i1
+          then if (r < 0#i128) = (d < 0#i128)
+               then ok 1#i128
+               else ok (-1)#i128
+          else
+            do
+            let i2 ← i * 2#i128
+            if i2 = i1
+            then
+              let i3 ← q % 2#i128
+              if i3 != 0#i128
+              then
+                if (r < 0#i128) = (d < 0#i128)
+                then ok 1#i128
+                else ok (-1)#i128
+              else ok 0#i128
+            else ok 0#i128
+        ok (I128.checked_add q up)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+          Std.I128 residual
+
+/-- [apeiron_word::fold_finish_port::finish::plane::div]:
+    Source: 'ports/../../../src/learn/fold/finish/plane.rs', lines 93:0-95:1 -/
+def fold_finish_port.finish.plane.div
+  (a : Std.I64) (b : Std.I64) : Result (Option Std.I64) := do
+  let i ← lift (core.convert.num.FromI128I64.from a)
+  let i1 ← i <<< 32#i32
+  let i2 ← lift (core.convert.num.FromI128I64.from b)
+  let o ← fold_finish_port.finish.plane.div_ne i1 i2
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val => solve_port.q32.narrow val
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.I64 residual
+
+/-- [apeiron_word::fold_finish_port::finish::plane::PlaneError]
+    Source: 'ports/../../../src/learn/fold/finish/plane.rs', lines 99:0-107:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_finish_port.finish.plane.PlaneError where
+| Shape : fold_finish_port.finish.plane.PlaneError
+| RowOutOfRange : fold_finish_port.finish.plane.PlaneError
+| Range : fold_finish_port.finish.plane.PlaneError
+
+/-- [apeiron_word::fold_finish_port::finish::plane::CodedPlane]
+    Source: 'ports/../../../src/learn/fold/finish/plane.rs', lines 116:0-143:1
+    Visibility: public -/
+structure fold_finish_port.finish.plane.CodedPlane where
+  o : Std.Usize
+  n : Std.Usize
+  idx : alloc.vec.Vec Std.U8
+  s_fix : Option (alloc.vec.Vec Std.I64)
+  rows : Option (alloc.vec.Vec Std.Usize)
+  lo : alloc.vec.Vec Std.I64
+  sp : alloc.vec.Vec Std.I64
+  r0 : alloc.vec.Vec Std.I64
+  c0 : alloc.vec.Vec Std.I64
+  d0 : alloc.vec.Vec Std.I64
+  pa : alloc.vec.Vec Std.I64
+  pb : alloc.vec.Vec Std.I64
+  pd : alloc.vec.Vec Std.I64
+
+/-- [apeiron_word::fold_finish_port::finish::train::BETA1_Q32]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 97:0-97:37 -/
+@[global_simps, irreducible]
+def fold_finish_port.finish.train.BETA1_Q32 : Std.I64 := 3865470566#i64
+
+/-- [apeiron_word::fold_finish_port::finish::train::ONE_MINUS_BETA1_Q32]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 100:0-100:45 -/
+@[global_simps, irreducible]
+def fold_finish_port.finish.train.ONE_MINUS_BETA1_Q32 : Std.I64 :=
+  429496730#i64
+
+/-- [apeiron_word::fold_finish_port::finish::train::BETA2_Q32]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 103:0-103:37 -/
+@[global_simps, irreducible]
+def fold_finish_port.finish.train.BETA2_Q32 : Std.I64 := 4290672329#i64
+
+/-- [apeiron_word::fold_finish_port::finish::train::ONE_MINUS_BETA2_Q32]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 106:0-106:43 -/
+@[global_simps, irreducible]
+def fold_finish_port.finish.train.ONE_MINUS_BETA2_Q32 : Std.I64 := 4294967#i64
+
+/-- [apeiron_word::fold_finish_port::finish::train::ADAM_EPS_Q32]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 109:0-109:29 -/
+@[global_simps, irreducible]
+def fold_finish_port.finish.train.ADAM_EPS_Q32 : Std.I64 := 43#i64
+
+/-- [apeiron_word::fold_finish_port::finish::train::BIAS_SCALE_MIN_Q32]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 112:0-112:42 -/
+@[global_simps, irreducible]
+def fold_finish_port.finish.train.BIAS_SCALE_MIN_Q32 : Std.I64 := 4294967#i64
+
+/-- [apeiron_word::fold_finish_port::finish::train::TENTH_Q32]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 115:0-115:35 -/
+@[global_simps, irreducible]
+def fold_finish_port.finish.train.TENTH_Q32 : Std.I64 := 429496730#i64
+
+/-- [apeiron_word::fold_finish_port::finish::train::COS_AMPL_Q32]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 118:0-118:40 -/
+@[global_simps, irreducible]
+def fold_finish_port.finish.train.COS_AMPL_Q32 : Std.I64 := 1932735283#i64
+
+/-- [apeiron_word::fold_finish_port::finish::train::PI_Q32]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 121:0-121:35 -/
+@[global_simps, irreducible]
+def fold_finish_port.finish.train.PI_Q32 : Std.I64 := 13493037705#i64
+
+/-- [apeiron_word::fold_finish_port::finish::train::N_KINDS]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 124:0-124:29
+    Visibility: public -/
+@[global_simps, irreducible]
+def fold_finish_port.finish.train.N_KINDS : Std.Usize := 7#usize
+
+/-- [apeiron_word::fold_finish_port::finish::train::TrainError]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 132:0-145:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_finish_port.finish.train.TrainError where
+| Shape : String → fold_finish_port.finish.train.TrainError
+| Range : String → fold_finish_port.finish.train.TrainError
+| Overflow : fold_finish_port.finish.train.TrainError
+| Plane :
+  fold_finish_port.finish.plane.PlaneError →
+  fold_finish_port.finish.train.TrainError
+| Model :
+  grad_solve_port.model.ModelError →
+  fold_finish_port.finish.train.TrainError
+| Head : learn_port.head.HeadError → fold_finish_port.finish.train.TrainError
+
+/-- [apeiron_word::fold_finish_port::finish::train::abs_sum]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 268:4-271:5 -/
+@[rust_loop_body]
+def fold_finish_port.finish.train.abs_sum_loop.body
+  (base : Slice Std.I64) (acc : Std.I128) (i : Std.Usize) :
+  Result (ControlFlow (Std.I128 × Std.Usize) Std.I128)
+  := do
+  let i1 := Slice.len base
+  if i < i1
+  then
+    let i2 ← Slice.index_usize base i
+    let i3 ← lift (core.convert.num.FromI128I64.from i2)
+    let i4 ← core.num.I128.abs i3
+    let acc1 ← acc + i4
+    let i5 ← i + 1#usize
+    ok (cont (acc1, i5))
+  else ok (done acc)
+
+/-- [apeiron_word::fold_finish_port::finish::train::abs_sum]: loop 0:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 268:4-271:5 -/
+@[rust_loop]
+def fold_finish_port.finish.train.abs_sum_loop
+  (base : Slice Std.I64) (acc : Std.I128) (i : Std.Usize) :
+  Result Std.I128
+  := do
+  loop
+    (fun (acc1, i1) => fold_finish_port.finish.train.abs_sum_loop.body base
+      acc1 i1)
+    (acc, i)
+
+/-- [apeiron_word::fold_finish_port::finish::train::abs_sum]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 265:0-273:1 -/
+@[reducible]
+def fold_finish_port.finish.train.abs_sum
+  (base : Slice Std.I64) : Result Std.I128 := do
+  fold_finish_port.finish.train.abs_sum_loop base 0#i128 0#usize
+
+/-- [apeiron_word::fold_finish_port::finish::train::bias_scale]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 280:0-289:1 -/
+def fold_finish_port.finish.train.bias_scale
+  (base : Slice Std.I64) : Result Std.I64 := do
+  let b ← core.slice.Slice.is_empty base
+  if b
+  then ok fold_finish_port.finish.train.BIAS_SCALE_MIN_Q32
+  else
+    let i ← fold_finish_port.finish.train.abs_sum base
+    let i1 := Slice.len base
+    let i2 ← lift (UScalar.hcast .I128 i1)
+    let o ← fold_finish_port.finish.plane.div_ne i i2
+    let mean ← lift (core.option.Option.unwrap_or o 0#i128)
+    let o1 ← solve_port.q32.narrow mean
+    match o1 with
+    | none => ok fold_finish_port.finish.train.BIAS_SCALE_MIN_Q32
+    | some v =>
+      if v > fold_finish_port.finish.train.BIAS_SCALE_MIN_Q32
+      then ok v
+      else ok fold_finish_port.finish.train.BIAS_SCALE_MIN_Q32
+
+/-- [apeiron_word::fold_finish_port::finish::train::Linear]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 294:0-303:1
+    Visibility: public -/
+structure fold_finish_port.finish.train.Linear where
+  planes : alloc.vec.Vec fold_finish_port.finish.plane.CodedPlane
+  extra : Option (alloc.vec.Vec Std.I64)
+  o_total : Std.Usize
+  n : Std.Usize
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Linear}::new]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 307:4-314:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Linear.new
+  (o_total : Std.Usize) (n : Std.Usize) :
+  Result fold_finish_port.finish.train.Linear
+  := do
+  ok
+    {
+      planes := (alloc.vec.Vec.new fold_finish_port.finish.plane.CodedPlane),
+      extra := none,
+      o_total,
+      n
+    }
+
+/-- [apeiron_word::fold_finish_port::finish::train::Planes]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 320:0-323:1
+    Visibility: public -/
+structure fold_finish_port.finish.train.Planes where
+  layers : alloc.vec.Vec (alloc.vec.Vec fold_finish_port.finish.train.Linear)
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Planes}::new]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 327:4-329:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Planes.new
+  (layers : alloc.vec.Vec (alloc.vec.Vec fold_finish_port.finish.train.Linear))
+  :
+  Result fold_finish_port.finish.train.Planes
+  := do
+  ok { layers }
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Planes}::linear]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 335:4-350:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Planes.linear
+  (self : fold_finish_port.finish.train.Planes) (l : Std.Usize) (k : Std.Usize)
+  :
+  Result (core.result.Result fold_finish_port.finish.train.Linear
+    fold_finish_port.finish.train.TrainError)
+  := do
+  if k >= fold_finish_port.finish.train.N_KINDS
+  then
+    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay k
+    let a1 ←
+      core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay
+        fold_finish_port.finish.train.N_KINDS
+    let a2 ←
+      core.fmt.Arguments.new
+        (Array.make 21#usize [
+          12#u8, 108#u8, 105#u8, 110#u8, 101#u8, 97#u8, 114#u8, 32#u8, 107#u8,
+          105#u8, 110#u8, 100#u8, 32#u8, 192#u8, 4#u8, 32#u8, 62#u8, 61#u8,
+          32#u8, 192#u8, 0#u8
+          ]) (Array.make 2#usize [ a, a1 ])
+    let s ← alloc.fmt.format a2
+    let s1 ← core.hint.must_use s
+    ok (core.result.Result.Err (fold_finish_port.finish.train.TrainError.Shape
+      s1))
+  else
+    let s := alloc.vec.Vec.deref self.layers
+    let o ←
+      core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice
+        (alloc.vec.Vec fold_finish_port.finish.train.Linear)) s l
+    match o with
+    | none =>
+      let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay l
+      let a1 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay k
+      let a2 ←
+        core.fmt.Arguments.new
+          (Array.make 31#usize [
+            12#u8, 112#u8, 108#u8, 97#u8, 110#u8, 101#u8, 32#u8, 108#u8, 97#u8,
+            121#u8, 101#u8, 114#u8, 32#u8, 192#u8, 6#u8, 32#u8, 107#u8, 105#u8,
+            110#u8, 100#u8, 32#u8, 192#u8, 7#u8, 32#u8, 97#u8, 98#u8, 115#u8,
+            101#u8, 110#u8, 116#u8, 0#u8
+            ]) (Array.make 2#usize [ a, a1 ])
+      let s1 ← alloc.fmt.format a2
+      let s2 ← core.hint.must_use s1
+      ok (core.result.Result.Err
+        (fold_finish_port.finish.train.TrainError.Shape s2))
+    | some row =>
+      let s1 := alloc.vec.Vec.deref row
+      let o1 ←
+        core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice
+          fold_finish_port.finish.train.Linear) s1 k
+      match o1 with
+      | none =>
+        let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay l
+        let a1 ←
+          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay k
+        let a2 ←
+          core.fmt.Arguments.new
+            (Array.make 31#usize [
+              12#u8, 112#u8, 108#u8, 97#u8, 110#u8, 101#u8, 32#u8, 108#u8,
+              97#u8, 121#u8, 101#u8, 114#u8, 32#u8, 192#u8, 6#u8, 32#u8,
+              107#u8, 105#u8, 110#u8, 100#u8, 32#u8, 192#u8, 7#u8, 32#u8,
+              97#u8, 98#u8, 115#u8, 101#u8, 110#u8, 116#u8, 0#u8
+              ]) (Array.make 2#usize [ a, a1 ])
+        let s2 ← alloc.fmt.format a2
+        let s3 ← core.hint.must_use s2
+        ok (core.result.Result.Err
+          (fold_finish_port.finish.train.TrainError.Shape s3))
+      | some lin => ok (core.result.Result.Ok lin)
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Planes}::linear_mut]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 356:4-371:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Planes.linear_mut
+  (self : fold_finish_port.finish.train.Planes) (l : Std.Usize) (k : Std.Usize)
+  :
+  Result ((core.result.Result fold_finish_port.finish.train.Linear
+    fold_finish_port.finish.train.TrainError) × (core.result.Result
+    fold_finish_port.finish.train.Linear
+    fold_finish_port.finish.train.TrainError →
+    fold_finish_port.finish.train.Planes))
+  := do
+  if k >= fold_finish_port.finish.train.N_KINDS
+  then
+    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay k
+    let a1 ←
+      core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay
+        fold_finish_port.finish.train.N_KINDS
+    let a2 ←
+      core.fmt.Arguments.new
+        (Array.make 21#usize [
+          12#u8, 108#u8, 105#u8, 110#u8, 101#u8, 97#u8, 114#u8, 32#u8, 107#u8,
+          105#u8, 110#u8, 100#u8, 32#u8, 192#u8, 4#u8, 32#u8, 62#u8, 61#u8,
+          32#u8, 192#u8, 0#u8
+          ]) (Array.make 2#usize [ a, a1 ])
+    let s ← alloc.fmt.format a2
+    let s1 ← core.hint.must_use s
+    let back := fun r => self
+    ok (core.result.Result.Err (fold_finish_port.finish.train.TrainError.Shape
+      s1), back)
+  else
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut self.layers)
+    let (o, get_mut_back) ←
+      core.slice.Slice.get_mut (core.slice.index.SliceIndexUsizeSlice
+        (alloc.vec.Vec fold_finish_port.finish.train.Linear)) s l
+    match o with
+    | none =>
+      let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay l
+      let a1 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay k
+      let a2 ←
+        core.fmt.Arguments.new
+          (Array.make 31#usize [
+            12#u8, 112#u8, 108#u8, 97#u8, 110#u8, 101#u8, 32#u8, 108#u8, 97#u8,
+            121#u8, 101#u8, 114#u8, 32#u8, 192#u8, 6#u8, 32#u8, 107#u8, 105#u8,
+            110#u8, 100#u8, 32#u8, 192#u8, 7#u8, 32#u8, 97#u8, 98#u8, 115#u8,
+            101#u8, 110#u8, 116#u8, 0#u8
+            ]) (Array.make 2#usize [ a, a1 ])
+      let s1 ← alloc.fmt.format a2
+      let s2 ← core.hint.must_use s1
+      let back :=
+        fun r =>
+          let s3 := get_mut_back none
+          let v := deref_mut_back s3
+          ({ layers := v } : fold_finish_port.finish.train.Planes)
+      ok (core.result.Result.Err
+        (fold_finish_port.finish.train.TrainError.Shape s2), back)
+    | some row =>
+      let (s1, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut row)
+      let (o1, get_mut_back1) ←
+        core.slice.Slice.get_mut (core.slice.index.SliceIndexUsizeSlice
+          fold_finish_port.finish.train.Linear) s1 k
+      match o1 with
+      | none =>
+        let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay l
+        let a1 ←
+          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay k
+        let a2 ←
+          core.fmt.Arguments.new
+            (Array.make 31#usize [
+              12#u8, 112#u8, 108#u8, 97#u8, 110#u8, 101#u8, 32#u8, 108#u8,
+              97#u8, 121#u8, 101#u8, 114#u8, 32#u8, 192#u8, 6#u8, 32#u8,
+              107#u8, 105#u8, 110#u8, 100#u8, 32#u8, 192#u8, 7#u8, 32#u8,
+              97#u8, 98#u8, 115#u8, 101#u8, 110#u8, 116#u8, 0#u8
+              ]) (Array.make 2#usize [ a, a1 ])
+        let s2 ← alloc.fmt.format a2
+        let s3 ← core.hint.must_use s2
+        let back :=
+          fun r =>
+            let s4 := get_mut_back1 none
+            let row1 := deref_mut_back1 s4
+            let s5 := get_mut_back (some row1)
+            let v := deref_mut_back s5
+            ({ layers := v } : fold_finish_port.finish.train.Planes)
+        ok (core.result.Result.Err
+          (fold_finish_port.finish.train.TrainError.Shape s3), back)
+      | some lin =>
+        let back :=
+          fun r =>
+            let l1 := match r with
+                      | core.result.Result.Ok l2 => l2
+                      | _ => lin
+            let s2 := get_mut_back1 (some l1)
+            let row1 := deref_mut_back1 s2
+            let s3 := get_mut_back (some row1)
+            let v := deref_mut_back s3
+            ({ layers := v } : fold_finish_port.finish.train.Planes)
+        ok (core.result.Result.Ok lin, back)
+
+/-- [apeiron_word::fold_finish_port::finish::train::LayerTuned]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 377:0-388:1
+    Visibility: public -/
+structure fold_finish_port.finish.train.LayerTuned where
+  ln1 : alloc.vec.Vec Std.I64
+  ln2 : alloc.vec.Vec Std.I64
+  qb : alloc.vec.Vec Std.I64
+  kb : alloc.vec.Vec Std.I64
+  vb : alloc.vec.Vec Std.I64
+
+/-- [apeiron_word::fold_finish_port::finish::train::LayerTunables]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 392:0-413:1
+    Visibility: public -/
+structure fold_finish_port.finish.train.LayerTunables where
+  ln1 : alloc.vec.Vec Std.I64
+  ln1_d : alloc.vec.Vec Std.I64
+  ln2 : alloc.vec.Vec Std.I64
+  ln2_d : alloc.vec.Vec Std.I64
+  qb : alloc.vec.Vec Std.I64
+  qb_d : alloc.vec.Vec Std.I64
+  kb : alloc.vec.Vec Std.I64
+  kb_d : alloc.vec.Vec Std.I64
+  vb : alloc.vec.Vec Std.I64
+  vb_d : alloc.vec.Vec Std.I64
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::LayerTunables}::new]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 419:4-437:5
+    Visibility: public -/
+def fold_finish_port.finish.train.LayerTunables.new
+  (ln1 : Slice Std.I64) (ln2 : Slice Std.I64) (qb : Slice Std.I64)
+  (kb : Slice Std.I64) (vb : Slice Std.I64) :
+  Result fold_finish_port.finish.train.LayerTunables
+  := do
+  let q_ln1 ← alloc.slice.Slice.to_vec core.clone.CloneI64 ln1
+  let q_ln2 ← alloc.slice.Slice.to_vec core.clone.CloneI64 ln2
+  let q_qb ← alloc.slice.Slice.to_vec core.clone.CloneI64 qb
+  let q_kb ← alloc.slice.Slice.to_vec core.clone.CloneI64 kb
+  let q_vb ← alloc.slice.Slice.to_vec core.clone.CloneI64 vb
+  let i := alloc.vec.Vec.len q_ln1
+  let v ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let i1 := alloc.vec.Vec.len q_ln2
+  let v1 ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
+  let i2 := alloc.vec.Vec.len q_qb
+  let v2 ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i2
+  let i3 := alloc.vec.Vec.len q_kb
+  let v3 ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i3
+  let i4 := alloc.vec.Vec.len q_vb
+  let v4 ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i4
+  ok
+    {
+      ln1 := q_ln1,
+      ln1_d := v,
+      ln2 := q_ln2,
+      ln2_d := v1,
+      qb := q_qb,
+      qb_d := v2,
+      kb := q_kb,
+      kb_d := v3,
+      vb := q_vb,
+      vb_d := v4
+    }
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::LayerTunables}::bias_scale]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 440:4-446:5
+    Visibility: public -/
+def fold_finish_port.finish.train.LayerTunables.bias_scale
+  (self : fold_finish_port.finish.train.LayerTunables) (which : Std.Usize) :
+  Result Std.I64
+  := do
+  match which.val with
+  | 0 =>
+    let s := alloc.vec.Vec.deref self.qb
+    fold_finish_port.finish.train.bias_scale s
+  | 1 =>
+    let s := alloc.vec.Vec.deref self.kb
+    fold_finish_port.finish.train.bias_scale s
+  | _ =>
+    let s := alloc.vec.Vec.deref self.vb
+    fold_finish_port.finish.train.bias_scale s
+
+/-- [apeiron_word::fold_finish_port::finish::train::add_scaled::{closure}]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 861:38-861:64 -/
+def fold_finish_port.finish.train.add_scaled.closure :=
+  Slice Std.I64 × Std.Usize
+
+/-- [apeiron_word::fold_finish_port::finish::train::add_scaled::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::add_scaled::{closure}<'_0, '_1>}::call_once]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 861:38-861:64 -/
+def
+  fold_finish_port.finish.train.add_scaled.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
+  (c : fold_finish_port.finish.train.add_scaled.closure)
+  (tupled_args : Std.I64) :
+  Result (Option Std.I64)
+  := do
+  let (s, i) := c
+  let i1 ← Slice.index_usize s i
+  ok (I64.checked_add i1 tupled_args)
+
+/-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::add_scaled::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::add_scaled::{closure}<'_0, '_1>}]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 861:38-861:64 -/
+@[reducible]
+def
+  fold_finish_port.finish.train.add_scaled.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
+  : core.ops.function.FnOnce fold_finish_port.finish.train.add_scaled.closure
+  Std.I64 (Option Std.I64) := {
+  call_once :=
+    fold_finish_port.finish.train.add_scaled.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
+}
+
+/-- [apeiron_word::fold_finish_port::finish::train::add_scaled]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 860:4-866:5 -/
+@[rust_loop_body]
+def fold_finish_port.finish.train.add_scaled_loop.body
+  (base : Slice Std.I64) (off : Slice Std.I64) (s : Std.I64) (len : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (bad : Bool) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Bool × Std.Usize)
+    ((alloc.vec.Vec Std.I64) × Bool))
+  := do
+  if i < len
+  then
+    if bad
+    then ok (done (out, true))
+    else
+      let i1 ← Slice.index_usize off i
+      let o ← fold_finish_port.finish.plane.mul i1 s
+      let o1 ←
+        core.option.Option.and_then
+          fold_finish_port.finish.train.add_scaled.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
+          o (base, i)
+      let (out1, bad1) ←
+        match o1 with
+        | none => ok (out, true)
+        | some v => do
+                    let out2 ← alloc.vec.Vec.push out v
+                    ok (out2, false)
+      let i2 ← i + 1#usize
+      ok (cont (out1, bad1, i2))
+  else ok (done (out, bad))
+
+/-- [apeiron_word::fold_finish_port::finish::train::add_scaled]: loop 0:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 860:4-866:5 -/
+@[rust_loop]
+def fold_finish_port.finish.train.add_scaled_loop
+  (base : Slice Std.I64) (off : Slice Std.I64) (s : Std.I64) (len : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (bad : Bool) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × Bool)
+  := do
+  loop
+    (fun (out1, bad1, i1) => fold_finish_port.finish.train.add_scaled_loop.body
+      base off s len out1 bad1 i1)
+    (out, bad, i)
+
+/-- [apeiron_word::fold_finish_port::finish::train::add_scaled]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 852:0-871:1 -/
+def fold_finish_port.finish.train.add_scaled
+  (base : Slice Std.I64) (off : Slice Std.I64) (s : Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  let i := Slice.len base
+  let i1 := Slice.len off
+  let len ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i i1
+  if len = 0#usize
+  then ok (alloc.vec.Vec.new Std.I64)
+  else
+    let out := alloc.vec.Vec.with_capacity Std.I64 len
+    let (out1, bad) ←
+      fold_finish_port.finish.train.add_scaled_loop base off s len out false
+        0#usize
+    if bad
+    then ok (alloc.vec.Vec.new Std.I64)
+    else ok out1
+
+/-- [apeiron_word::fold_finish_port::finish::train::scale_exp::{closure}]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 839:46-839:65 -/
+def fold_finish_port.finish.train.scale_exp.closure :=
+  Slice Std.I64 × Std.Usize
+
+/-- [apeiron_word::fold_finish_port::finish::train::scale_exp::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::scale_exp::{closure}<'_0, '_1>}::call_once]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 839:46-839:65 -/
+def
+  fold_finish_port.finish.train.scale_exp.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
+  (c : fold_finish_port.finish.train.scale_exp.closure) (tupled_args : Std.I64)
+  :
+  Result (Option Std.I64)
+  := do
+  let (s, i) := c
+  let i1 ← Slice.index_usize s i
+  fold_finish_port.finish.plane.mul i1 tupled_args
+
+/-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::scale_exp::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::scale_exp::{closure}<'_0, '_1>}]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 839:46-839:65 -/
+@[reducible]
+def
+  fold_finish_port.finish.train.scale_exp.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
+  : core.ops.function.FnOnce fold_finish_port.finish.train.scale_exp.closure
+  Std.I64 (Option Std.I64) := {
+  call_once :=
+    fold_finish_port.finish.train.scale_exp.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
+}
+
+/-- [apeiron_word::fold_finish_port::finish::train::scale_exp]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 838:4-844:5 -/
+@[rust_loop_body]
+def fold_finish_port.finish.train.scale_exp_loop.body
+  (base : Slice Std.I64) (off : Slice Std.I64) (len : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (bad : Bool) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Bool × Std.Usize)
+    ((alloc.vec.Vec Std.I64) × Bool))
+  := do
+  if i < len
+  then
+    if bad
+    then ok (done (out, true))
+    else
+      let i1 ← Slice.index_usize off i
+      let r ← fixed_exp.fixed_exp i1
+      let o ← core.result.Result.ok r
+      let o1 ←
+        core.option.Option.and_then
+          fold_finish_port.finish.train.scale_exp.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
+          o (base, i)
+      let (out1, bad1) ←
+        match o1 with
+        | none => ok (out, true)
+        | some v => do
+                    let out2 ← alloc.vec.Vec.push out v
+                    ok (out2, false)
+      let i2 ← i + 1#usize
+      ok (cont (out1, bad1, i2))
+  else ok (done (out, bad))
+
+/-- [apeiron_word::fold_finish_port::finish::train::scale_exp]: loop 0:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 838:4-844:5 -/
+@[rust_loop]
+def fold_finish_port.finish.train.scale_exp_loop
+  (base : Slice Std.I64) (off : Slice Std.I64) (len : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (bad : Bool) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × Bool)
+  := do
+  loop
+    (fun (out1, bad1, i1) => fold_finish_port.finish.train.scale_exp_loop.body
+      base off len out1 bad1 i1)
+    (out, bad, i)
+
+/-- [apeiron_word::fold_finish_port::finish::train::scale_exp]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 830:0-849:1 -/
+def fold_finish_port.finish.train.scale_exp
+  (base : Slice Std.I64) (off : Slice Std.I64) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  let i := Slice.len base
+  let i1 := Slice.len off
+  let len ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i i1
+  if len = 0#usize
+  then ok (alloc.vec.Vec.new Std.I64)
+  else
+    let out := alloc.vec.Vec.with_capacity Std.I64 len
+    let (out1, bad) ←
+      fold_finish_port.finish.train.scale_exp_loop base off len out false
+        0#usize
+    if bad
+    then ok (alloc.vec.Vec.new Std.I64)
+    else ok out1
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::LayerTunables}::tuned]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 450:4-458:5
+    Visibility: public -/
+def fold_finish_port.finish.train.LayerTunables.tuned
+  (self : fold_finish_port.finish.train.LayerTunables) :
+  Result fold_finish_port.finish.train.LayerTuned
+  := do
+  let s := alloc.vec.Vec.deref self.ln1
+  let s1 := alloc.vec.Vec.deref self.ln1_d
+  let v ← fold_finish_port.finish.train.scale_exp s s1
+  let s2 := alloc.vec.Vec.deref self.ln2
+  let s3 := alloc.vec.Vec.deref self.ln2_d
+  let v1 ← fold_finish_port.finish.train.scale_exp s2 s3
+  let s4 := alloc.vec.Vec.deref self.qb
+  let s5 := alloc.vec.Vec.deref self.qb_d
+  let s6 := alloc.vec.Vec.deref self.qb
+  let i ← fold_finish_port.finish.train.bias_scale s6
+  let v2 ← fold_finish_port.finish.train.add_scaled s4 s5 i
+  let s7 := alloc.vec.Vec.deref self.kb
+  let s8 := alloc.vec.Vec.deref self.kb_d
+  let s9 := alloc.vec.Vec.deref self.kb
+  let i1 ← fold_finish_port.finish.train.bias_scale s9
+  let v3 ← fold_finish_port.finish.train.add_scaled s7 s8 i1
+  let s10 := alloc.vec.Vec.deref self.vb
+  let s11 := alloc.vec.Vec.deref self.vb_d
+  let s12 := alloc.vec.Vec.deref self.vb
+  let i2 ← fold_finish_port.finish.train.bias_scale s12
+  let v4 ← fold_finish_port.finish.train.add_scaled s10 s11 i2
+  ok { ln1 := v, ln2 := v1, qb := v2, kb := v3, vb := v4 }
+
+/-- [apeiron_word::fold_finish_port::finish::train::Tunables]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 464:0-471:1
+    Visibility: public -/
+structure fold_finish_port.finish.train.Tunables where
+  layers : alloc.vec.Vec fold_finish_port.finish.train.LayerTunables
+  fn_base : alloc.vec.Vec Std.I64
+  fn_d : alloc.vec.Vec Std.I64
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Tunables}::new]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 477:4-484:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Tunables.new
+  (layers : alloc.vec.Vec fold_finish_port.finish.train.LayerTunables)
+  (fn_base : Slice Std.I64) :
+  Result fold_finish_port.finish.train.Tunables
+  := do
+  let base ← alloc.slice.Slice.to_vec core.clone.CloneI64 fn_base
+  let i := alloc.vec.Vec.len base
+  let v ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  ok { layers, fn_base := base, fn_d := v }
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Tunables}::output_norm]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 487:4-489:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Tunables.output_norm
+  (self : fold_finish_port.finish.train.Tunables) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  let s := alloc.vec.Vec.deref self.fn_base
+  let s1 := alloc.vec.Vec.deref self.fn_d
+  fold_finish_port.finish.train.scale_exp s s1
+
+/-- [apeiron_word::fold_finish_port::finish::train::Frozen]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 495:0-500:1
+    Visibility: public -/
+structure fold_finish_port.finish.train.Frozen where
+  token_embd : alloc.vec.Vec Std.I64
+  lm_head : alloc.vec.Vec Std.I64
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Frozen}::new]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 506:4-511:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Frozen.new
+  (token_embd : Slice Std.I64) (lm_head : Slice Std.I64) :
+  Result fold_finish_port.finish.train.Frozen
+  := do
+  let v ← alloc.slice.Slice.to_vec core.clone.CloneI64 token_embd
+  let v1 ← alloc.slice.Slice.to_vec core.clone.CloneI64 lm_head
+  ok { token_embd := v, lm_head := v1 }
+
+/-- [apeiron_word::fold_finish_port::finish::train::Schedule]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 518:0-523:1
+    Visibility: public -/
+structure fold_finish_port.finish.train.Schedule where
+  warmup : Std.U64
+  steps : Std.U64
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Schedule}::new]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 527:4-529:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Schedule.new
+  (warmup : Std.U64) (steps : Std.U64) :
+  Result fold_finish_port.finish.train.Schedule
+  := do
+  ok { warmup, steps }
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Schedule}::factor]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 533:4-581:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Schedule.factor
+  (self : fold_finish_port.finish.train.Schedule) (step : Std.U64) :
+  Result Std.I64
+  := do
+  let wu ←
+    if self.warmup = 0#u64
+    then fold_finish_port.finish.plane.ONE
+    else
+      do
+      let i ← I128.Insts.CoreConvertFromU64.from step
+      let i1 ← i <<< 32#i32
+      let i2 ← I128.Insts.CoreConvertFromU64.from self.warmup
+      let o ← fold_finish_port.finish.plane.div_ne i1 i2
+      match o with
+      | none => fold_finish_port.finish.plane.ONE
+      | some q =>
+        let o1 ← solve_port.q32.narrow q
+        match o1 with
+        | none => fold_finish_port.finish.plane.ONE
+        | some v => ok v
+  let i ← fold_finish_port.finish.plane.ONE
+  let wu1 ← core.cmp.impls.OrdI64.clamp wu 0#i64 i
+  let frac ←
+    if self.steps = 0#u64
+    then ok i
+    else
+      do
+      let i1 ← I128.Insts.CoreConvertFromU64.from step
+      let i2 ← i1 <<< 32#i32
+      let i3 ← I128.Insts.CoreConvertFromU64.from self.steps
+      let o ← fold_finish_port.finish.plane.div_ne i2 i3
+      match o with
+      | none => ok i
+      | some q =>
+        let o1 ← solve_port.q32.narrow q
+        match o1 with
+        | none => ok i
+        | some v => ok v
+  let o ←
+    fold_finish_port.finish.plane.mul fold_finish_port.finish.train.PI_Q32 frac
+  match o with
+  | none => ok 0#i64
+  | some v =>
+    let r ← fixed_trig.fixed_sin_cos v
+    match r with
+    | core.result.Result.Ok v1 =>
+      let o1 ← lift (I64.checked_add i v1.cos)
+      match o1 with
+      | none => ok 0#i64
+      | some v2 =>
+        let o2 ←
+          fold_finish_port.finish.plane.mul
+            fold_finish_port.finish.train.COS_AMPL_Q32 v2
+        match o2 with
+        | none => ok 0#i64
+        | some v3 =>
+          let o3 ←
+            lift (I64.checked_add fold_finish_port.finish.train.TENTH_Q32 v3)
+          match o3 with
+          | none => ok 0#i64
+          | some t =>
+            let o4 ← fold_finish_port.finish.plane.mul wu1 t
+            match o4 with
+            | none => ok 0#i64
+            | some v4 => ok v4
+    | core.result.Result.Err _ => ok 0#i64
+
+/-- [apeiron_word::fold_finish_port::finish::train::Adam]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 592:0-596:1
+    Visibility: public -/
+structure fold_finish_port.finish.train.Adam where
+  m : alloc.vec.Vec Std.I64
+  v : alloc.vec.Vec Std.I128
+  t : Std.U64
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::zeros]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 600:4-606:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Adam.zeros
+  (n : Std.Usize) : Result fold_finish_port.finish.train.Adam := do
+  let v ← alloc.vec.from_elem core.clone.CloneI64 0#i64 n
+  let v1 ← alloc.vec.from_elem core.clone.CloneI128 0#i128 n
+  ok { m := v, v := v1, t := 0#u64 }
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::len]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 609:4-611:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Adam.len
+  (self : fold_finish_port.finish.train.Adam) : Result Std.Usize := do
+  ok (alloc.vec.Vec.len self.m)
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::is_empty]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 614:4-616:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Adam.is_empty
+  (self : fold_finish_port.finish.train.Adam) : Result Bool := do
+  alloc.vec.Vec.is_empty Global self.m
+
+/-- [apeiron_word::fold_finish_port::finish::train::pow_q32]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 806:4-820:5 -/
+@[rust_loop_body]
+def fold_finish_port.finish.train.pow_q32_loop.body
+  (e : Std.U64) (acc : Std.I64) (b : Std.I64) (bad : Bool) :
+  Result (ControlFlow (Std.U64 × Std.I64 × Std.I64 × Bool) (Std.I64 ×
+    Bool))
+  := do
+  if e > 0#u64
+  then
+    if bad
+    then ok (done (acc, true))
+    else
+      let i ← lift (e &&& 1#u64)
+      let (acc1, bad1) ←
+        if i = 1#u64
+        then
+          do
+          let o ← fold_finish_port.finish.plane.mul acc b
+          match o with
+          | none => ok (acc, true)
+          | some v => ok (v, false)
+        else ok (acc, false)
+      let e1 ← e >>> 1#i32
+      if e1 > 0#u64
+      then
+        if bad1
+        then ok (cont (e1, acc1, b, true))
+        else
+          let o ← fold_finish_port.finish.plane.mul b b
+          match o with
+          | none => ok (cont (e1, acc1, b, true))
+          | some v => ok (cont (e1, acc1, v, false))
+      else ok (cont (e1, acc1, b, bad1))
+  else ok (done (acc, bad))
+
+/-- [apeiron_word::fold_finish_port::finish::train::pow_q32]: loop 0:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 806:4-820:5 -/
+@[rust_loop]
+def fold_finish_port.finish.train.pow_q32_loop
+  (e : Std.U64) (acc : Std.I64) (b : Std.I64) (bad : Bool) :
+  Result (Std.I64 × Bool)
+  := do
+  loop
+    (fun (e1, acc1, b1, bad1) =>
+      fold_finish_port.finish.train.pow_q32_loop.body e1 acc1 b1 bad1)
+    (e, acc, b, bad)
+
+/-- [apeiron_word::fold_finish_port::finish::train::pow_q32]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 802:0-826:1 -/
+def fold_finish_port.finish.train.pow_q32
+  (base : Std.I64) (e : Std.U64) : Result (Option Std.I64) := do
+  let acc ← fold_finish_port.finish.plane.ONE
+  let (acc1, bad) ←
+    fold_finish_port.finish.train.pow_q32_loop e acc base false
+  if bad
+  then ok none
+  else ok (some acc1)
+
+/-- [apeiron_word::fold_finish_port::finish::train::ok]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 789:0-794:1 -/
+def fold_finish_port.finish.train.ok
+  {T : Type} (v : Option T) :
+  Result (core.result.Result T fold_finish_port.finish.train.TrainError)
+  := do
+  match v with
+  | none =>
+    let s ←
+      alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay (toStr
+        "q32 word")
+    ok (core.result.Result.Err (fold_finish_port.finish.train.TrainError.Range
+      s))
+  | some x => ok (core.result.Result.Ok x)
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure#1}]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 704:26-704:47 -/
+@[reducible]
+def fold_finish_port.finish.train.Adam.apply.closure_1 := Unit
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure#1}}::call_once]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 704:26-704:47 -/
+def
+  fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
+  (c : fold_finish_port.finish.train.Adam.apply.closure_1)
+  (tupled_args : Std.I128) :
+  Result (Option Std.I128)
+  := do
+  solve_port.q32.rshift_rne tupled_args 32#u32
+
+/-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure#1}}]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 704:26-704:47 -/
+@[reducible]
+def
+  fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
+  : core.ops.function.FnOnce fold_finish_port.finish.train.Adam.apply.closure_1
+  Std.I128 (Option Std.I128) := {
+  call_once :=
+    fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
+}
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure}]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 694:26-694:47 -/
+@[reducible]
+def fold_finish_port.finish.train.Adam.apply.closure := Unit
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure}}::call_once]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 694:26-694:47 -/
+def
+  fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
+  (c : fold_finish_port.finish.train.Adam.apply.closure)
+  (tupled_args : Std.I128) :
+  Result (Option Std.I128)
+  := do
+  solve_port.q32.rshift_rne tupled_args 32#u32
+
+/-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure}}]
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 694:26-694:47 -/
+@[reducible]
+def
+  fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
+  : core.ops.function.FnOnce fold_finish_port.finish.train.Adam.apply.closure
+  Std.I128 (Option Std.I128) := {
+  call_once :=
+    fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
+}
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 665:8-780:9
+    Visibility: public -/
+@[rust_loop_body]
+def fold_finish_port.finish.train.Adam.apply_loop.body
+  (lr : Std.I64) (g : Slice Std.I64) (bc1 : Std.I64) (root_bc2 : Std.I64)
+  (v : alloc.vec.Vec Std.I64) (v1 : alloc.vec.Vec Std.I128) (p : Slice Std.I64)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I128) ×
+    (Slice Std.I64) × Std.Usize) ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I128) × (Slice Std.I64) × (Option
+    fold_finish_port.finish.train.TrainError)))
+  := do
+  let i1 := Slice.len p
+  if i < i1
+  then
+    let gi ← Slice.index_usize g i
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) v i
+    let o ←
+      fold_finish_port.finish.plane.mul fold_finish_port.finish.train.BETA1_Q32
+        i2
+    let r ← fold_finish_port.finish.train.ok o
+    match r with
+    | core.result.Result.Ok v2 =>
+      let o1 ←
+        fold_finish_port.finish.plane.mul
+          fold_finish_port.finish.train.ONE_MINUS_BETA1_Q32 gi
+      let r1 ← fold_finish_port.finish.train.ok o1
+      match r1 with
+      | core.result.Result.Ok v3 =>
+        let o2 ← lift (I64.checked_add v2 v3)
+        let r2 ← fold_finish_port.finish.train.ok o2
+        match r2 with
+        | core.result.Result.Ok v4 =>
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) v i
+          let i3 ← lift (core.convert.num.FromI128I64.from gi)
+          let i4 ← lift (core.convert.num.FromI128I64.from gi)
+          let g2 ← i3 * i4
+          let i5 ←
+            lift (core.convert.num.FromI128I64.from
+              fold_finish_port.finish.train.BETA2_Q32)
+          let i6 ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+              Std.I128) v1 i
+          let o3 ← lift (I128.checked_mul i5 i6)
+          let o4 ←
+            core.option.Option.and_then
+              fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
+              o3 ()
+          let r3 ← fold_finish_port.finish.train.ok o4
+          match r3 with
+          | core.result.Result.Ok v5 =>
+            let i7 ←
+              lift (core.convert.num.FromI128I64.from
+                fold_finish_port.finish.train.ONE_MINUS_BETA2_Q32)
+            let o5 ← lift (I128.checked_mul i7 g2)
+            let o6 ←
+              core.option.Option.and_then
+                fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
+                o5 ()
+            let r4 ← fold_finish_port.finish.train.ok o6
+            match r4 with
+            | core.result.Result.Ok v6 =>
+              let o7 ← lift (I128.checked_add v5 v6)
+              let r5 ← fold_finish_port.finish.train.ok o7
+              match r5 with
+              | core.result.Result.Ok v7 =>
+                if v7 < 0#i128
+                then
+                  let s ←
+                    alloc.string.ToString.Blanket.to_string
+                      Str.Insts.CoreFmtDisplay (toStr "adam second moment")
+                  let v8 := index_mut_back v4
+                  ok (done (v8, v1, p, some
+                    (fold_finish_port.finish.train.TrainError.Range s)))
+                else
+                  let (_, index_mut_back1) ←
+                    alloc.vec.Vec.index_mut
+                      (core.slice.index.SliceIndexUsizeSlice Std.I128) v1 i
+                  let o8 ← fold_finish_port.finish.plane.div v4 bc1
+                  let r6 ← fold_finish_port.finish.train.ok o8
+                  match r6 with
+                  | core.result.Result.Ok v8 =>
+                    let i8 ← fixed_rsqrt.isqrt v7
+                    let o9 ← solve_port.q32.narrow i8
+                    let r7 ← fold_finish_port.finish.train.ok o9
+                    match r7 with
+                    | core.result.Result.Ok v9 =>
+                      let o10 ← fold_finish_port.finish.plane.div v9 root_bc2
+                      let r8 ← fold_finish_port.finish.train.ok o10
+                      match r8 with
+                      | core.result.Result.Ok v10 =>
+                        let o11 ←
+                          lift (I64.checked_add v10
+                            fold_finish_port.finish.train.ADAM_EPS_Q32)
+                        let r9 ← fold_finish_port.finish.train.ok o11
+                        match r9 with
+                        | core.result.Result.Ok v11 =>
+                          let o12 ← fold_finish_port.finish.plane.mul lr v8
+                          let r10 ← fold_finish_port.finish.train.ok o12
+                          match r10 with
+                          | core.result.Result.Ok v12 =>
+                            if v11 = 0#i64
+                            then
+                              let i9 ← Slice.index_usize p i
+                              let o13 ← lift (I64.checked_sub i9 0#i64)
+                              let r11 ← fold_finish_port.finish.train.ok o13
+                              match r11 with
+                              | core.result.Result.Ok v13 =>
+                                let s ← Slice.update p i v13
+                                let i10 ← i + 1#usize
+                                let v14 := index_mut_back1 v7
+                                let v15 := index_mut_back v4
+                                ok (cont (v15, v14, s, i10))
+                              | core.result.Result.Err e =>
+                                let v13 := index_mut_back1 v7
+                                let v14 := index_mut_back v4
+                                ok (done (v14, v13, p, some e))
+                            else
+                              let o13 ←
+                                fold_finish_port.finish.plane.div v12 v11
+                              let r11 ← fold_finish_port.finish.train.ok o13
+                              match r11 with
+                              | core.result.Result.Ok v13 =>
+                                let i9 ← Slice.index_usize p i
+                                let o14 ← lift (I64.checked_sub i9 v13)
+                                let r12 ←
+                                  fold_finish_port.finish.train.ok o14
+                                match r12 with
+                                | core.result.Result.Ok v14 =>
+                                  let s ← Slice.update p i v14
+                                  let i10 ← i + 1#usize
+                                  let v15 := index_mut_back1 v7
+                                  let v16 := index_mut_back v4
+                                  ok (cont (v16, v15, s, i10))
+                                | core.result.Result.Err e =>
+                                  let v14 := index_mut_back1 v7
+                                  let v15 := index_mut_back v4
+                                  ok (done (v15, v14, p, some e))
+                              | core.result.Result.Err e =>
+                                let v13 := index_mut_back1 v7
+                                let v14 := index_mut_back v4
+                                ok (done (v14, v13, p, some e))
+                          | core.result.Result.Err e =>
+                            let v12 := index_mut_back1 v7
+                            let v13 := index_mut_back v4
+                            ok (done (v13, v12, p, some e))
+                        | core.result.Result.Err e =>
+                          let v11 := index_mut_back1 v7
+                          let v12 := index_mut_back v4
+                          ok (done (v12, v11, p, some e))
+                      | core.result.Result.Err e =>
+                        let v10 := index_mut_back1 v7
+                        let v11 := index_mut_back v4
+                        ok (done (v11, v10, p, some e))
+                    | core.result.Result.Err e =>
+                      let v9 := index_mut_back1 v7
+                      let v10 := index_mut_back v4
+                      ok (done (v10, v9, p, some e))
+                  | core.result.Result.Err e =>
+                    let v8 := index_mut_back1 v7
+                    let v9 := index_mut_back v4
+                    ok (done (v9, v8, p, some e))
+              | core.result.Result.Err e =>
+                let v7 := index_mut_back v4
+                ok (done (v7, v1, p, some e))
+            | core.result.Result.Err e =>
+              let v6 := index_mut_back v4
+              ok (done (v6, v1, p, some e))
+          | core.result.Result.Err e =>
+            let v5 := index_mut_back v4
+            ok (done (v5, v1, p, some e))
+        | core.result.Result.Err e => ok (done (v, v1, p, some e))
+      | core.result.Result.Err e => ok (done (v, v1, p, some e))
+    | core.result.Result.Err e => ok (done (v, v1, p, some e))
+  else ok (done (v, v1, p, none))
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply]: loop 0:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 665:8-780:9
+    Visibility: public -/
+@[rust_loop]
+def fold_finish_port.finish.train.Adam.apply_loop
+  (v : alloc.vec.Vec Std.I64) (v1 : alloc.vec.Vec Std.I128) (lr : Std.I64)
+  (p : Slice Std.I64) (g : Slice Std.I64) (bc1 : Std.I64) (root_bc2 : Std.I64)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I128) × (Slice
+    Std.I64) × (Option fold_finish_port.finish.train.TrainError))
+  := do
+  loop
+    (fun (v2, v3, p1, i1) => fold_finish_port.finish.train.Adam.apply_loop.body
+      lr g bc1 root_bc2 v2 v3 p1 i1)
+    (v, v1, p, i)
+
+/-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 627:4-785:5
+    Visibility: public -/
+def fold_finish_port.finish.train.Adam.apply
+  (self : fold_finish_port.finish.train.Adam) (lr : Std.I64)
+  (p : Slice Std.I64) (g : Slice Std.I64) :
+  Result ((core.result.Result Unit fold_finish_port.finish.train.TrainError) ×
+    fold_finish_port.finish.train.Adam × (Slice Std.I64))
+  := do
+  let i := Slice.len p
+  let i1 := Slice.len g
+  if i != i1
+  then
+    let i2 := Slice.len p
+    let i3 := Slice.len g
+    let i4 := alloc.vec.Vec.len self.m
+    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i2
+    let a1 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i3
+    let a2 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i4
+    let a3 ←
+      core.fmt.Arguments.new
+        (Array.make 26#usize [
+          11#u8, 97#u8, 100#u8, 97#u8, 109#u8, 32#u8, 119#u8, 105#u8, 100#u8,
+          116#u8, 104#u8, 32#u8, 192#u8, 4#u8, 32#u8, 118#u8, 115#u8, 32#u8,
+          192#u8, 4#u8, 32#u8, 118#u8, 115#u8, 32#u8, 192#u8, 0#u8
+          ]) (Array.make 3#usize [ a, a1, a2 ])
+    let s ← alloc.fmt.format a3
+    let s1 ← core.hint.must_use s
+    ok (core.result.Result.Err (fold_finish_port.finish.train.TrainError.Shape
+      s1), self, p)
+  else
+    let i2 := Slice.len p
+    let i3 := alloc.vec.Vec.len self.m
+    if i2 != i3
+    then
+      let i4 := Slice.len p
+      let i5 := Slice.len g
+      let i6 := alloc.vec.Vec.len self.m
+      let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i4
+      let a1 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i5
+      let a2 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i6
+      let a3 ←
+        core.fmt.Arguments.new
+          (Array.make 26#usize [
+            11#u8, 97#u8, 100#u8, 97#u8, 109#u8, 32#u8, 119#u8, 105#u8, 100#u8,
+            116#u8, 104#u8, 32#u8, 192#u8, 4#u8, 32#u8, 118#u8, 115#u8, 32#u8,
+            192#u8, 4#u8, 32#u8, 118#u8, 115#u8, 32#u8, 192#u8, 0#u8
+            ]) (Array.make 3#usize [ a, a1, a2 ])
+      let s ← alloc.fmt.format a3
+      let s1 ← core.hint.must_use s
+      ok (core.result.Result.Err
+        (fold_finish_port.finish.train.TrainError.Shape s1), self, p)
+    else
+      let i4 := Slice.len p
+      let i5 := alloc.vec.Vec.len self.v
+      if i4 != i5
+      then
+        let i6 := Slice.len p
+        let i7 := Slice.len g
+        let i8 := alloc.vec.Vec.len self.m
+        let a ←
+          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i6
+        let a1 ←
+          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i7
+        let a2 ←
+          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i8
+        let a3 ←
+          core.fmt.Arguments.new
+            (Array.make 26#usize [
+              11#u8, 97#u8, 100#u8, 97#u8, 109#u8, 32#u8, 119#u8, 105#u8,
+              100#u8, 116#u8, 104#u8, 32#u8, 192#u8, 4#u8, 32#u8, 118#u8,
+              115#u8, 32#u8, 192#u8, 4#u8, 32#u8, 118#u8, 115#u8, 32#u8,
+              192#u8, 0#u8
+              ]) (Array.make 3#usize [ a, a1, a2 ])
+        let s ← alloc.fmt.format a3
+        let s1 ← core.hint.must_use s
+        ok (core.result.Result.Err
+          (fold_finish_port.finish.train.TrainError.Shape s1), self, p)
+      else
+        let i6 ← lift (core.num.U64.saturating_add self.t 1#u64)
+        let o ←
+          fold_finish_port.finish.train.pow_q32
+            fold_finish_port.finish.train.BETA1_Q32 i6
+        match o with
+        | none =>
+          let s ←
+            alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay
+              (toStr "beta_1^t")
+          ok (core.result.Result.Err
+            (fold_finish_port.finish.train.TrainError.Range s),
+            { self with t := i6 }, p)
+        | some v =>
+          let o1 ←
+            fold_finish_port.finish.train.pow_q32
+              fold_finish_port.finish.train.BETA2_Q32 i6
+          match o1 with
+          | none =>
+            let s ←
+              alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay
+                (toStr "beta_2^t")
+            ok (core.result.Result.Err
+              (fold_finish_port.finish.train.TrainError.Range s),
+              { self with t := i6 }, p)
+          | some v1 =>
+            let i7 ← fold_finish_port.finish.plane.ONE
+            let o2 ← lift (I64.checked_sub i7 v)
+            match o2 with
+            | none =>
+              let s ←
+                alloc.string.ToString.Blanket.to_string
+                  Str.Insts.CoreFmtDisplay (toStr "1 - beta_1^t")
+              ok (core.result.Result.Err
+                (fold_finish_port.finish.train.TrainError.Range s),
+                { self with t := i6 }, p)
+            | some v2 =>
+              let o3 ← lift (I64.checked_sub i7 v1)
+              match o3 with
+              | none =>
+                let s ←
+                  alloc.string.ToString.Blanket.to_string
+                    Str.Insts.CoreFmtDisplay (toStr "1 - beta_2^t")
+                ok (core.result.Result.Err
+                  (fold_finish_port.finish.train.TrainError.Range s),
+                  { self with t := i6 }, p)
+              | some v3 =>
+                if v3 <= 0#i64
+                then
+                  let s ←
+                    alloc.string.ToString.Blanket.to_string
+                      Str.Insts.CoreFmtDisplay (toStr "1 - beta_2^t")
+                  ok (core.result.Result.Err
+                    (fold_finish_port.finish.train.TrainError.Range s),
+                    { self with t := i6 }, p)
+                else
+                  let i8 ← lift (core.convert.num.FromI128I64.from v3)
+                  let i9 ← i8 <<< 32#i32
+                  let i10 ← fixed_rsqrt.isqrt i9
+                  let o4 ← solve_port.q32.narrow i10
+                  match o4 with
+                  | none =>
+                    let s ←
+                      alloc.string.ToString.Blanket.to_string
+                        Str.Insts.CoreFmtDisplay (toStr "sqrt(1 - beta_2^t)")
+                    ok (core.result.Result.Err
+                      (fold_finish_port.finish.train.TrainError.Range s),
+                      { self with t := i6 }, p)
+                  | some v4 =>
+                    let (v5, v6, p1, err) ←
+                      fold_finish_port.finish.train.Adam.apply_loop self.m
+                        self.v lr p g v2 v4 0#usize
+                    match err with
+                    | none =>
+                      ok (core.result.Result.Ok (),
+                        { m := v5, v := v6, t := i6 }, p1)
+                    | some e =>
+                      ok (core.result.Result.Err e,
+                        { m := v5, v := v6, t := i6 }, p1)
+
+/-- [apeiron_word::fold_finish_port::finish::train::kl_mean]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1062:4-1075:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_finish_port.finish.train.kl_mean_loop.body
+  (cfg : grad_solve_port.model.Config) (logits : Slice Std.I64)
+  (teacher : Slice Std.I64) (t : Std.Usize) (dz : alloc.vec.Vec Std.I64)
+  (acc : Std.I128) (err : Option fold_finish_port.finish.train.TrainError)
+  (r : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.I128 × (Option
+    fold_finish_port.finish.train.TrainError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × Std.I128 × (Option fold_finish_port.finish.train.TrainError)))
+  := do
+  if r < t
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let base ← r * cfg.vocab
+      let i ← base + cfg.vocab
+      let s ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) logits
+          { start := base, «end» := i }
+      let s1 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) teacher
+          { start := base, «end» := i }
+      let r1 ← learn_port.head.kl_row s s1
+      let (dz1, acc1, err1) ←
+        match r1 with
+        | core.result.Result.Ok p =>
+          do
+          let (loss, g) := p
+          let i1 ← lift (core.convert.num.FromI128I64.from loss)
+          let o ← lift (I128.checked_add acc i1)
+          match o with
+          | none =>
+            ok (dz, acc, some
+              fold_finish_port.finish.train.TrainError.Overflow)
+          | some a =>
+            let (s2, index_mut_back) ←
+              alloc.vec.Vec.index_mut
+                (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) dz
+                { start := base, «end» := i }
+            let s3 ←
+              alloc.vec.Vec.index (core.slice.index.SliceIndexRangeToUsizeSlice
+                Std.I64) g { «end» := cfg.vocab }
+            let s4 ←
+              core.slice.Slice.copy_from_slice core.marker.CopyI64 s2 s3
+            let dz2 := index_mut_back s4
+            ok (dz2, a, err)
+        | core.result.Result.Err e =>
+          ok (dz, acc, some (fold_finish_port.finish.train.TrainError.Head e))
+      let r2 ← r + 1#usize
+      ok (cont (dz1, acc1, err1, r2))
+    else ok (done (dz, acc, err))
+  else ok (done (dz, acc, err))
+
+/-- [apeiron_word::fold_finish_port::finish::train::kl_mean]: loop 0:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1062:4-1075:5
+    Visibility: public -/
+@[rust_loop]
+def fold_finish_port.finish.train.kl_mean_loop
+  (cfg : grad_solve_port.model.Config) (logits : Slice Std.I64)
+  (teacher : Slice Std.I64) (t : Std.Usize) (dz : alloc.vec.Vec Std.I64)
+  (acc : Std.I128) (err : Option fold_finish_port.finish.train.TrainError)
+  (r : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × Std.I128 × (Option
+    fold_finish_port.finish.train.TrainError))
+  := do
+  loop
+    (fun (dz1, acc1, err1, r1) =>
+      fold_finish_port.finish.train.kl_mean_loop.body cfg logits teacher t dz1
+      acc1 err1 r1)
+    (dz, acc, err, r)
+
+/-- [apeiron_word::fold_finish_port::finish::train::kl_mean]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1041:0-1083:1
+    Visibility: public -/
+def fold_finish_port.finish.train.kl_mean
+  (cfg : grad_solve_port.model.Config) (logits : Slice Std.I64)
+  (teacher : Slice Std.I64) :
+  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64))
+    fold_finish_port.finish.train.TrainError)
+  := do
+  if cfg.vocab = 0#usize
+  then
+    let i := Slice.len logits
+    let i1 := Slice.len teacher
+    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i
+    let a1 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i1
+    let a2 ←
+      core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay cfg.vocab
+    let a3 ←
+      core.fmt.Arguments.new
+        (Array.make 50#usize [
+          7#u8, 108#u8, 111#u8, 103#u8, 105#u8, 116#u8, 115#u8, 32#u8, 192#u8,
+          11#u8, 32#u8, 47#u8, 32#u8, 116#u8, 101#u8, 97#u8, 99#u8, 104#u8,
+          101#u8, 114#u8, 32#u8, 192#u8, 25#u8, 32#u8, 110#u8, 111#u8, 116#u8,
+          32#u8, 97#u8, 32#u8, 109#u8, 117#u8, 108#u8, 116#u8, 105#u8, 112#u8,
+          108#u8, 101#u8, 32#u8, 111#u8, 102#u8, 32#u8, 118#u8, 111#u8, 99#u8,
+          97#u8, 98#u8, 32#u8, 192#u8, 0#u8
+          ]) (Array.make 3#usize [ a, a1, a2 ])
+    let s ← alloc.fmt.format a3
+    let s1 ← core.hint.must_use s
+    ok (core.result.Result.Err (fold_finish_port.finish.train.TrainError.Shape
+      s1))
+  else
+    let i := Slice.len logits
+    let i1 := Slice.len teacher
+    if i != i1
+    then
+      let i2 := Slice.len logits
+      let i3 := Slice.len teacher
+      let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i2
+      let a1 ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i3
+      let a2 ←
+        core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay cfg.vocab
+      let a3 ←
+        core.fmt.Arguments.new
+          (Array.make 50#usize [
+            7#u8, 108#u8, 111#u8, 103#u8, 105#u8, 116#u8, 115#u8, 32#u8,
+            192#u8, 11#u8, 32#u8, 47#u8, 32#u8, 116#u8, 101#u8, 97#u8, 99#u8,
+            104#u8, 101#u8, 114#u8, 32#u8, 192#u8, 25#u8, 32#u8, 110#u8,
+            111#u8, 116#u8, 32#u8, 97#u8, 32#u8, 109#u8, 117#u8, 108#u8,
+            116#u8, 105#u8, 112#u8, 108#u8, 101#u8, 32#u8, 111#u8, 102#u8,
+            32#u8, 118#u8, 111#u8, 99#u8, 97#u8, 98#u8, 32#u8, 192#u8, 0#u8
+            ]) (Array.make 3#usize [ a, a1, a2 ])
+      let s ← alloc.fmt.format a3
+      let s1 ← core.hint.must_use s
+      ok (core.result.Result.Err
+        (fold_finish_port.finish.train.TrainError.Shape s1))
+    else
+      let i2 := Slice.len logits
+      let b ← core.num.Usize.is_multiple_of i2 cfg.vocab
+      if b
+      then
+        let i3 := Slice.len logits
+        let t ← i3 / cfg.vocab
+        if t = 0#usize
+        then
+          let s ←
+            alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay
+              (toStr "empty batch")
+          ok (core.result.Result.Err
+            (fold_finish_port.finish.train.TrainError.Shape s))
+        else
+          let i4 := Slice.len logits
+          let dz ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i4
+          let (dz1, acc, err) ←
+            fold_finish_port.finish.train.kl_mean_loop cfg logits teacher t dz
+              0#i128 none 0#usize
+          match err with
+          | none =>
+            let i5 ← lift (UScalar.hcast .I128 t)
+            let o ← fold_finish_port.finish.plane.div_ne acc i5
+            let r ←
+              core.option.Option.ok_or o
+                fold_finish_port.finish.train.TrainError.Overflow
+            let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+            match cf with
+            | core.ops.control_flow.ControlFlow.Continue val =>
+              let o1 ← solve_port.q32.narrow val
+              let r1 ←
+                core.option.Option.ok_or o1
+                  fold_finish_port.finish.train.TrainError.Overflow
+              let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+              match cf1 with
+              | core.ops.control_flow.ControlFlow.Continue val1 =>
+                ok (core.result.Result.Ok (val1, dz1))
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  (Std.I64 × (alloc.vec.Vec Std.I64)) (core.convert.FromSame
+                  fold_finish_port.finish.train.TrainError) residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                (Std.I64 × (alloc.vec.Vec Std.I64)) (core.convert.FromSame
+                fold_finish_port.finish.train.TrainError) residual
+          | some e => ok (core.result.Result.Err e)
+      else
+        let i3 := Slice.len logits
+        let i4 := Slice.len teacher
+        let a ←
+          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i3
+        let a1 ←
+          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay i4
+        let a2 ←
+          core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay cfg.vocab
+        let a3 ←
+          core.fmt.Arguments.new
+            (Array.make 50#usize [
+              7#u8, 108#u8, 111#u8, 103#u8, 105#u8, 116#u8, 115#u8, 32#u8,
+              192#u8, 11#u8, 32#u8, 47#u8, 32#u8, 116#u8, 101#u8, 97#u8, 99#u8,
+              104#u8, 101#u8, 114#u8, 32#u8, 192#u8, 25#u8, 32#u8, 110#u8,
+              111#u8, 116#u8, 32#u8, 97#u8, 32#u8, 109#u8, 117#u8, 108#u8,
+              116#u8, 105#u8, 112#u8, 108#u8, 101#u8, 32#u8, 111#u8, 102#u8,
+              32#u8, 118#u8, 111#u8, 99#u8, 97#u8, 98#u8, 32#u8, 192#u8, 0#u8
+              ]) (Array.make 3#usize [ a, a1, a2 ])
+        let s ← alloc.fmt.format a3
+        let s1 ← core.hint.must_use s
+        ok (core.result.Result.Err
+          (fold_finish_port.finish.train.TrainError.Shape s1))
+
+/-- [apeiron_word::fold_layer_port::layer::stage::StageError]
+    Source: 'ports/../../../src/learn/fold/layer/stage.rs', lines 62:0-75:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_layer_port.layer.stage.StageError where
+| Shape : fold_layer_port.layer.stage.StageError
+| Empty : fold_layer_port.layer.stage.StageError
+| NonFinite : fold_layer_port.layer.stage.StageError
+| NotPositiveDefinite : fold_layer_port.layer.stage.StageError
+| Overflow : fold_layer_port.layer.stage.StageError
+| MissingCts : fold_layer_port.layer.stage.StageError
+
+/-- [apeiron_word::fold_layer_port::layer::resq::ResqError]
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 46:0-57:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_layer_port.layer.resq.ResqError where
+| Empty : fold_layer_port.layer.resq.ResqError
+| ShapeMismatch : fold_layer_port.layer.resq.ResqError
+| NotPositiveDefinite : fold_layer_port.layer.resq.ResqError
+| Overflow : fold_layer_port.layer.resq.ResqError
+| Quant :
+  fold_port.fit.quant.QuantError →
+  fold_layer_port.layer.resq.ResqError
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::TensorError]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 183:0-231:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_layer_port.layer.tensor.TensorError where
+| ShapeMismatch : fold_layer_port.layer.tensor.TensorError
+| ZeroDim : fold_layer_port.layer.tensor.TensorError
+| Width : fold_layer_port.layer.tensor.TensorError
+| QmlpRowsOutOfRange :
+  Std.Usize →
+  Std.Usize →
+  fold_layer_port.layer.tensor.TensorError
+| BiasKind : fold_layer_port.layer.tensor.TensorError
+| NotUp : fold_layer_port.layer.tensor.TensorError
+| PlaneShape : fold_layer_port.layer.tensor.TensorError
+| Grid : fold_layer_port.layer.tensor.TensorError
+| SinkMismatch : Std.I64 → fold_layer_port.layer.tensor.TensorError
+| Fit :
+  fold_port.fit.fold_fit.FoldFitError →
+  fold_layer_port.layer.tensor.TensorError
+| Nb :
+  fold_port.fit.nb_refine.NbError →
+  fold_layer_port.layer.tensor.TensorError
+| Corrector :
+  fold_port.fit.corrector.CorrectorError →
+  fold_layer_port.layer.tensor.TensorError
+| Resq :
+  fold_layer_port.layer.resq.ResqError →
+  fold_layer_port.layer.tensor.TensorError
+| Stage :
+  fold_layer_port.layer.stage.StageError →
+  fold_layer_port.layer.tensor.TensorError
+| Icm : fold_port.fit.icm.IcmError → fold_layer_port.layer.tensor.TensorError
+| Steps :
+  fold_port.fit.steps.StepsError →
+  fold_layer_port.layer.tensor.TensorError
+| Quant :
+  fold_port.fit.quant.QuantError →
+  fold_layer_port.layer.tensor.TensorError
+
+/-- [apeiron_word::fold_layer_port::layer::driver::DriverError]
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 63:0-86:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_layer_port.layer.driver.DriverError where
+| Shape : fold_layer_port.layer.driver.DriverError
+| Geometry : fold_layer_port.layer.driver.DriverError
+| TinySeq : fold_layer_port.layer.driver.DriverError
+| NonFinite : fold_layer_port.layer.driver.DriverError
+| Grid : fold_layer_port.layer.driver.DriverError
+| Parts :
+  fold_port.stats.parts.PartsError →
+  fold_layer_port.layer.driver.DriverError
+| Stage :
+  fold_layer_port.layer.stage.StageError →
+  fold_layer_port.layer.driver.DriverError
+| Tensor :
+  fold_layer_port.layer.tensor.TensorError →
+  fold_layer_port.layer.driver.DriverError
+| Resq :
+  fold_layer_port.layer.resq.ResqError →
+  fold_layer_port.layer.driver.DriverError
+| Fnorm :
+  fold_port.fit.fnorm.FnormError →
+  fold_layer_port.layer.driver.DriverError
+
+/-- [apeiron_word::fold_layer_port::layer::driver::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::driver::DriverError}::from]:
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 119:4-124:5
+    Visibility: public -/
+def fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error.from
+  (e : solve_port.q32.Q32Error) :
+  Result fold_layer_port.layer.driver.DriverError
+  := do
+  match e with
+  | solve_port.q32.Q32Error.Overflow =>
+    ok fold_layer_port.layer.driver.DriverError.Grid
+  | solve_port.q32.Q32Error.NotSpd =>
+    ok fold_layer_port.layer.driver.DriverError.Grid
+  | solve_port.q32.Q32Error.Asymmetric =>
+    ok fold_layer_port.layer.driver.DriverError.Grid
+  | solve_port.q32.Q32Error.ShapeMismatch =>
+    ok fold_layer_port.layer.driver.DriverError.Shape
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::driver::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::driver::DriverError}]
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 118:0-125:1 -/
+@[reducible]
+def fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error :
+  core.convert.From fold_layer_port.layer.driver.DriverError
+  solve_port.q32.Q32Error := {
+  «from» :=
+    fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error.from
+}
+
+/-- [apeiron_word::fold_layer_port::layer::driver::layer_words]:
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 156:0-183:1
+    Visibility: public -/
+def fold_layer_port.layer.driver.layer_words
+  (lt : grad_solve_port.model.LayerWeights) :
+  Result (core.result.Result fold_port.stats.parts.LayerWords
+    fold_layer_port.layer.driver.DriverError)
+  := do
+  match lt.bq with
+  | none =>
+    ok (core.result.Result.Err fold_layer_port.layer.driver.DriverError.Shape)
+  | some b =>
+    let qb ← alloc.vec.Vec.as_slice Global b
+    match lt.bk with
+    | none =>
+      ok (core.result.Result.Err
+        fold_layer_port.layer.driver.DriverError.Shape)
+    | some b1 =>
+      let kb ← alloc.vec.Vec.as_slice Global b1
+      match lt.bv with
+      | none =>
+        ok (core.result.Result.Err
+          fold_layer_port.layer.driver.DriverError.Shape)
+      | some b2 =>
+        let vb ← alloc.vec.Vec.as_slice Global b2
+        let s := alloc.vec.Vec.deref lt.attn_norm
+        let s1 := alloc.vec.Vec.deref lt.ffn_norm
+        let s2 := alloc.vec.Vec.deref lt.wq
+        let s3 := alloc.vec.Vec.deref lt.wk
+        let s4 := alloc.vec.Vec.deref lt.wv
+        let s5 := alloc.vec.Vec.deref lt.wo
+        let s6 := alloc.vec.Vec.deref lt.w_gate
+        let s7 := alloc.vec.Vec.deref lt.w_up
+        let s8 := alloc.vec.Vec.deref lt.w_down
+        ok (core.result.Result.Ok
+          {
+            ln1 := s,
+            ln2 := s1,
+            q := s2,
+            qb,
+            k := s3,
+            kb,
+            v := s4,
+            vb,
+            o := s5,
+            gate := s6,
+            up := s7,
+            down := s8
+          })
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::SinkPlane]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 141:0-157:1
+    Visibility: public -/
+structure fold_layer_port.layer.tensor.SinkPlane where
+  s_rot : alloc.vec.Vec Std.I64
+  rh : alloc.vec.Vec Std.I64
+  ch : alloc.vec.Vec Std.I64
+  dh : alloc.vec.Vec Std.I64
+  rows : Option (alloc.vec.Vec Std.Usize)
+  dense : Option (alloc.vec.Vec Std.I64)
+  factors : Option fold_port.fit.corrector.Factors
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::TensorBits]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 123:0-134:1
+    Visibility: public -/
+structure fold_layer_port.layer.tensor.TensorBits where
+  nsign : Std.U64
+  nr : Std.U64
+  nc : Std.U64
+  nd : Std.U64
+  ncorr : Std.U64
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::TensorKind]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 70:0-85:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_layer_port.layer.tensor.TensorKind where
+| Q : fold_layer_port.layer.tensor.TensorKind
+| K : fold_layer_port.layer.tensor.TensorKind
+| V : fold_layer_port.layer.tensor.TensorKind
+| O : fold_layer_port.layer.tensor.TensorKind
+| Gate : fold_layer_port.layer.tensor.TensorKind
+| Up : fold_layer_port.layer.tensor.TensorKind
+| Down : fold_layer_port.layer.tensor.TensorKind
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::TensorFit]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 163:0-179:1
+    Visibility: public -/
+structure fold_layer_port.layer.tensor.TensorFit where
+  kind : fold_layer_port.layer.tensor.TensorKind
+  wp : alloc.vec.Vec Std.I64
+  planes : alloc.vec.Vec fold_layer_port.layer.tensor.SinkPlane
+  bits : fold_layer_port.layer.tensor.TensorBits
+  nb : Option fold_port.fit.nb_refine.NbLog
+  top_rows : Option (alloc.vec.Vec Std.Usize)
+  db : Option (alloc.vec.Vec Std.I64)
+
+/-- [apeiron_word::fold_layer_port::layer::driver::SlabParts]
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 397:0-412:1 -/
+structure fold_layer_port.layer.driver.SlabParts where
+  q : alloc.vec.Vec Std.I64
+  k : alloc.vec.Vec Std.I64
+  v : alloc.vec.Vec Std.I64
+  mid : alloc.vec.Vec Std.I64
+  g : alloc.vec.Vec Std.I64
+  u : alloc.vec.Vec Std.I64
+  out : alloc.vec.Vec Std.I64
+
+/-- [apeiron_word::fold_layer_port::layer::driver::LayerForward]
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 718:0-729:1
+    Visibility: public -/
+structure fold_layer_port.layer.driver.LayerForward where
+  pt : alloc.vec.Vec fold_layer_port.layer.driver.SlabParts
+  ln1 : alloc.vec.Vec Std.I64
+  ln2 : alloc.vec.Vec Std.I64
+  w_tok : Option (alloc.vec.Vec (alloc.vec.Vec Std.I64))
+  w_tok_mid : Option (alloc.vec.Vec (alloc.vec.Vec Std.I64))
+
+/-- [apeiron_word::fold_layer_port::layer::driver::LayerProgress]
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 1090:0-1107:1
+    Visibility: public -/
+structure fold_layer_port.layer.driver.LayerProgress where
+  stage : Std.Usize
+  lq : grad_solve_port.model.LayerWeights
+  fits : alloc.vec.Vec fold_layer_port.layer.tensor.TensorFit
+  bits : fold_layer_port.layer.tensor.TensorBits
+  hs_mid : alloc.vec.Vec Std.I64
+  forward : Option fold_layer_port.layer.driver.LayerForward
+
+/-- [apeiron_word::fold_layer_port::layer::driver::ModelState]
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 276:0-293:1
+    Visibility: public -/
+structure fold_layer_port.layer.driver.ModelState where
+  next : Std.Usize
+  ht : alloc.vec.Vec Std.I64
+  hs : alloc.vec.Vec Std.I64
+  layers : alloc.vec.Vec grad_solve_port.model.LayerWeights
+  bits : fold_layer_port.layer.tensor.TensorBits
+  fits : alloc.vec.Vec (alloc.vec.Vec fold_layer_port.layer.tensor.TensorFit)
+  «partial» : Option fold_layer_port.layer.driver.LayerProgress
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::tri_sub]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1083:4-1085:5 -/
+def fold_layer_port.layer.tensor.carrier.tri_sub
+  (a : Std.I64) (b : Std.I64) (c : Std.I64) : Result (Option Std.I64) := do
+  let o ← lift (I64.checked_sub a b)
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o1 ← lift (I64.checked_sub b c)
+    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      ok (I64.checked_add val val1)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        Std.I64 residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.I64 residual
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::Elem]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1041:4-1053:5 -/
+@[discriminant isize]
+inductive fold_layer_port.layer.tensor.carrier.Elem where
+| Sub :
+  Slice Std.I64 →
+  Slice Std.I64 →
+  fold_layer_port.layer.tensor.carrier.Elem
+| Add :
+  Slice Std.I64 →
+  Slice Std.I64 →
+  fold_layer_port.layer.tensor.carrier.Elem
+| TriSub :
+  Slice Std.I64 →
+  Slice Std.I64 →
+  Slice Std.I64 →
+  fold_layer_port.layer.tensor.carrier.Elem
+| MulCol :
+  Slice Std.I64 →
+  Slice Std.I64 →
+  Std.Usize →
+  fold_layer_port.layer.tensor.carrier.Elem
+| Square : Slice Std.I64 → fold_layer_port.layer.tensor.carrier.Elem
+| SubBias :
+  Slice Std.I64 →
+  Slice Std.I64 →
+  Std.Usize →
+  fold_layer_port.layer.tensor.carrier.Elem
+| Ratio :
+  Slice Std.I64 →
+  Std.I64 →
+  fold_layer_port.layer.tensor.carrier.Elem
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 963:4-970:5 -/
+def fold_layer_port.layer.tensor.carrier.ratio
+  (num : Std.I128) (den : Std.I128) :
+  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
+  := do
+  if den <= 0#i128
+  then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+  else
+    let shifted ← num <<< 32#i32
+    let i ← solve_port.q32.div_rne_pos shifted den
+    let o ← solve_port.q32.narrow i
+    core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::mul]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 954:4-956:5 -/
+def fold_layer_port.layer.tensor.carrier.mul
+  (a : Std.I64) (b : Std.I64) :
+  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from a)
+  let i1 ← lift (core.convert.num.FromI128I64.from b)
+  let i2 ← i * i1
+  solve_port.q32.round_q32_even i2
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::eval]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1060:8-1075:9 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.carrier.eval_loop.body
+  (len : Std.Usize) (e : fold_layer_port.layer.tensor.carrier.Elem)
+  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.q32.Q32Error)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error)))
+  := do
+  if i < len
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let step ←
+        match e with
+        | fold_layer_port.layer.tensor.carrier.Elem.Sub a b1 =>
+          do
+          let i1 ← Slice.index_usize a i
+          let i2 ← Slice.index_usize b1 i
+          let o ← lift (I64.checked_sub i1 i2)
+          core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
+        | fold_layer_port.layer.tensor.carrier.Elem.Add a b1 =>
+          do
+          let i1 ← Slice.index_usize a i
+          let i2 ← Slice.index_usize b1 i
+          let o ← lift (I64.checked_add i1 i2)
+          core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
+        | fold_layer_port.layer.tensor.carrier.Elem.TriSub a b1 c =>
+          do
+          let i1 ← Slice.index_usize a i
+          let i2 ← Slice.index_usize b1 i
+          let i3 ← Slice.index_usize c i
+          let o ← fold_layer_port.layer.tensor.carrier.tri_sub i1 i2 i3
+          core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
+        | fold_layer_port.layer.tensor.carrier.Elem.MulCol a b1 w =>
+          do
+          let i1 ← Slice.index_usize a i
+          let i2 ← i % w
+          let i3 ← Slice.index_usize b1 i2
+          fold_layer_port.layer.tensor.carrier.mul i1 i3
+        | fold_layer_port.layer.tensor.carrier.Elem.Square a =>
+          do
+          let i1 ← Slice.index_usize a i
+          fold_layer_port.layer.tensor.carrier.mul i1 i1
+        | fold_layer_port.layer.tensor.carrier.Elem.SubBias a b1 w =>
+          do
+          let i1 ← Slice.index_usize a i
+          let i2 ← i % w
+          let i3 ← Slice.index_usize b1 i2
+          let o ← lift (I64.checked_sub i1 i3)
+          core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
+        | fold_layer_port.layer.tensor.carrier.Elem.Ratio a d =>
+          do
+          let i1 ← Slice.index_usize a i
+          let i2 ← lift (core.convert.num.FromI128I64.from i1)
+          let i3 ← lift (core.convert.num.FromI128I64.from d)
+          fold_layer_port.layer.tensor.carrier.ratio i2 i3
+      let (out1, err1) ←
+        match step with
+        | core.result.Result.Ok v =>
+          do
+          let out2 ← alloc.vec.Vec.push out v
+          ok (out2, err)
+        | core.result.Result.Err e2 => ok (out, some e2)
+      let i1 ← i + 1#usize
+      ok (cont (out1, err1, i1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::eval]: loop 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1060:8-1075:9 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.carrier.eval_loop
+  (len : Std.Usize) (e : fold_layer_port.layer.tensor.carrier.Elem)
+  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.q32.Q32Error)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.q32.Q32Error))
+  := do
+  loop
+    (fun (out1, err1, i1) =>
+      fold_layer_port.layer.tensor.carrier.eval_loop.body len e out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::eval]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1056:4-1080:5 -/
+def fold_layer_port.layer.tensor.carrier.eval
+  (len : Std.Usize) (e : fold_layer_port.layer.tensor.carrier.Elem) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.q32.Q32Error)
+  := do
+  let out := alloc.vec.Vec.with_capacity Std.I64 len
+  let (out1, err) ←
+    fold_layer_port.layer.tensor.carrier.eval_loop len e out none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok out1)
+  | some e2 => ok (core.result.Result.Err e2)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::sum_i128]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 977:8-983:9 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.carrier.sum_i128_loop.body
+  (x : Slice Std.I64) (s : Std.I128) (failed : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Std.I128 × Bool × Std.Usize) (Std.I128 × Bool))
+  := do
+  let i1 := Slice.len x
+  if i < i1
+  then
+    if failed
+    then ok (done (s, true))
+    else
+      let i2 ← Slice.index_usize x i
+      let i3 ← lift (core.convert.num.FromI128I64.from i2)
+      let o ← lift (I128.checked_add s i3)
+      let (s1, failed1) ←
+        match o with
+        | none => ok (s, true)
+        | some v => ok (v, false)
+      let i4 ← i + 1#usize
+      ok (cont (s1, failed1, i4))
+  else ok (done (s, failed))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::sum_i128]: loop 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 977:8-983:9 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.carrier.sum_i128_loop
+  (x : Slice Std.I64) (s : Std.I128) (failed : Bool) (i : Std.Usize) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (s1, failed1, i1) =>
+      fold_layer_port.layer.tensor.carrier.sum_i128_loop.body x s1 failed1 i1)
+    (s, failed, i)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::sum_i128]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 973:4-988:5 -/
+def fold_layer_port.layer.tensor.carrier.sum_i128
+  (x : Slice Std.I64) :
+  Result (core.result.Result Std.I128 solve_port.q32.Q32Error)
+  := do
+  let (s, failed) ←
+    fold_layer_port.layer.tensor.carrier.sum_i128_loop x 0#i128 false 0#usize
+  if failed
+  then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+  else ok (core.result.Result.Ok s)
+
+/-- [apeiron_word::fold_layer_port::layer::driver::g_row_from_vec]:
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 466:0-475:1
+    Visibility: public -/
+def fold_layer_port.layer.driver.g_row_from_vec
+  (v : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.driver.DriverError)
+  := do
+  let b ← core.slice.Slice.is_empty v
+  if b
+  then
+    ok (core.result.Result.Err fold_layer_port.layer.driver.DriverError.Shape)
+  else
+    let i := Slice.len v
+    let r ←
+      fold_layer_port.layer.tensor.carrier.eval i
+        (fold_layer_port.layer.tensor.carrier.Elem.Square v)
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let i1 := Slice.len v
+      let i2 ← lift (UScalar.cast .U64 i1)
+      let len ← I128.Insts.CoreConvertFromU64.from i2
+      let s := alloc.vec.Vec.deref val
+      let r1 ← fold_layer_port.layer.tensor.carrier.sum_i128 s
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        let i3 ← len <<< 32#i32
+        let r2 ← fold_layer_port.layer.tensor.carrier.ratio val1 i3
+        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+        match cf2 with
+        | core.ops.control_flow.ControlFlow.Continue val2 =>
+          let i4 := alloc.vec.Vec.len val
+          let s1 := alloc.vec.Vec.deref val
+          let i5 ← core.cmp.Ord.max.default core.cmp.OrdI64 val2 1#i64
+          let r3 ←
+            fold_layer_port.layer.tensor.carrier.eval i4
+              (fold_layer_port.layer.tensor.carrier.Elem.Ratio s1 i5)
+          let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+          match cf3 with
+          | core.ops.control_flow.ControlFlow.Continue val3 =>
+            ok (core.result.Result.Ok val3)
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64)
+              fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+              residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64)
+            fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+            residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64)
+          fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+          residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64)
+        fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+        residual
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio_words]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1026:8-1032:9 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.carrier.ratio_words_loop.body
+  (x : Slice Std.I128) (den : Std.I64) (out : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error)))
+  := do
+  let i1 := Slice.len x
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i2 ← Slice.index_usize x i
+      let i3 ← lift (core.convert.num.FromI128I64.from den)
+      let r ← fold_layer_port.layer.tensor.carrier.ratio i2 i3
+      let (out1, err1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let out2 ← alloc.vec.Vec.push out v
+          ok (out2, err)
+        | core.result.Result.Err e => ok (out, some e)
+      let i4 ← i + 1#usize
+      ok (cont (out1, err1, i4))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio_words]: loop 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1026:8-1032:9 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.carrier.ratio_words_loop
+  (x : Slice Std.I128) (den : Std.I64) (out : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.q32.Q32Error))
+  := do
+  loop
+    (fun (out1, err1, i1) =>
+      fold_layer_port.layer.tensor.carrier.ratio_words_loop.body x den out1
+      err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio_words]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 1022:4-1037:5 -/
+def fold_layer_port.layer.tensor.carrier.ratio_words
+  (x : Slice Std.I128) (den : Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.q32.Q32Error)
+  := do
+  let i := Slice.len x
+  let out := alloc.vec.Vec.with_capacity Std.I64 i
+  let (out1, err) ←
+    fold_layer_port.layer.tensor.carrier.ratio_words_loop x den out none
+      0#usize
+  match err with
+  | none => ok (core.result.Result.Ok out1)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop body 1:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 999:12-1009:13 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0.body
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) (c : Std.Usize)
+  (err : Option solve_port.q32.Q32Error) (s : Std.I128) (r : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.q32.Q32Error) × Std.I128 ×
+    Std.Usize) ((Option solve_port.q32.Q32Error) × Std.I128))
+  := do
+  if r < rows
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← r * cols
+      let i1 ← i + c
+      let v ← Slice.index_usize w i1
+      let r1 ← fold_layer_port.layer.tensor.carrier.mul v v
+      let (err1, s1) ←
+        match r1 with
+        | core.result.Result.Ok m =>
+          do
+          let i2 ← lift (core.convert.num.FromI128I64.from m)
+          let o ← lift (I128.checked_add s i2)
+          match o with
+          | none => ok (some solve_port.q32.Q32Error.Overflow, s)
+          | some t => ok (err, t)
+        | core.result.Result.Err e => ok (some e, s)
+      let r2 ← r + 1#usize
+      ok (cont (err1, s1, r2))
+    else ok (done (err, s))
+  else ok (done (err, s))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop 1:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 999:12-1009:13 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
+  (err : Option solve_port.q32.Q32Error) (c : Std.Usize) (s : Std.I128)
+  (r : Std.Usize) :
+  Result ((Option solve_port.q32.Q32Error) × Std.I128)
+  := do
+  loop
+    (fun (err1, s1, r1) =>
+      fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0.body w rows
+      cols c err1 s1 r1)
+    (err, s, r)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 996:8-1014:9 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.carrier.col_squares_loop0.body
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
+  (out : alloc.vec.Vec Std.I128) (err : Option solve_port.q32.Q32Error)
+  (c : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × (Option
+    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I128) × (Option
+    solve_port.q32.Q32Error)))
+  := do
+  if c < cols
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (err1, s) ←
+        fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0 w rows
+          cols err c 0#i128 0#usize
+      let b1 := core.option.Option.is_none err1
+      let out1 ← if b1
+                   then alloc.vec.Vec.push out s
+                   else ok out
+      let c1 ← c + 1#usize
+      ok (cont (out1, err1, c1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 996:8-1014:9 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.carrier.col_squares_loop0
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
+  (out : alloc.vec.Vec Std.I128) (err : Option solve_port.q32.Q32Error)
+  (c : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I128) × (Option solve_port.q32.Q32Error))
+  := do
+  loop
+    (fun (out1, err1, c1) =>
+      fold_layer_port.layer.tensor.carrier.col_squares_loop0.body w rows cols
+      out1 err1 c1)
+    (out, err, c)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 992:4-1019:5 -/
+def fold_layer_port.layer.tensor.carrier.col_squares
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I128) solve_port.q32.Q32Error)
+  := do
+  let out := alloc.vec.Vec.with_capacity Std.I128 cols
+  let (out1, err) ←
+    fold_layer_port.layer.tensor.carrier.col_squares_loop0 w rows cols out none
+      0#usize
+  match err with
+  | none => ok (core.result.Result.Ok out1)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::fold_layer_port::layer::driver::g_row_from_matrix]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 493:4-499:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.driver.g_row_from_matrix_loop.body
+  (sums : alloc.vec.Vec Std.I128) (total : Std.I128) (failed : Bool)
+  (i : Std.Usize) :
+  Result (ControlFlow (Std.I128 × Bool × Std.Usize) (Std.I128 × Bool))
+  := do
+  let i1 := alloc.vec.Vec.len sums
+  if i < i1
+  then
+    if failed
+    then ok (done (total, true))
+    else
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
+          sums i
+      let o ← lift (I128.checked_add total i2)
+      let (total1, failed1) ←
+        match o with
+        | none => ok (total, true)
+        | some v => ok (v, false)
+      let i3 ← i + 1#usize
+      ok (cont (total1, failed1, i3))
+  else ok (done (total, failed))
+
+/-- [apeiron_word::fold_layer_port::layer::driver::g_row_from_matrix]: loop 0:
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 493:4-499:5
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.driver.g_row_from_matrix_loop
+  (sums : alloc.vec.Vec Std.I128) (total : Std.I128) (failed : Bool)
+  (i : Std.Usize) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (total1, failed1, i1) =>
+      fold_layer_port.layer.driver.g_row_from_matrix_loop.body sums total1
+      failed1 i1)
+    (total, failed, i)
+
+/-- [apeiron_word::fold_layer_port::layer::driver::g_row_from_matrix]:
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 484:0-505:1
+    Visibility: public -/
+def fold_layer_port.layer.driver.g_row_from_matrix
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.driver.DriverError)
+  := do
+  let o ← lift (Usize.checked_mul rows cols)
+  let r ←
+    core.option.Option.ok_or o fold_layer_port.layer.driver.DriverError.Shape
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    if cols = 0#usize
+    then
+      ok (core.result.Result.Err
+        fold_layer_port.layer.driver.DriverError.Shape)
+    else
+      let i := Slice.len w
+      if i != val
+      then
+        ok (core.result.Result.Err
+          fold_layer_port.layer.driver.DriverError.Shape)
+      else
+        let r1 ← fold_layer_port.layer.tensor.carrier.col_squares w rows cols
+        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let (total, failed) ←
+            fold_layer_port.layer.driver.g_row_from_matrix_loop val1 0#i128
+              false 0#usize
+          if failed
+          then
+            ok (core.result.Result.Err
+              fold_layer_port.layer.driver.DriverError.Grid)
+          else
+            let i1 ← lift (UScalar.cast .U64 cols)
+            let i2 ← I128.Insts.CoreConvertFromU64.from i1
+            let den ← i2 <<< 32#i32
+            let s := alloc.vec.Vec.deref val1
+            let r2 ← fold_layer_port.layer.tensor.carrier.ratio total den
+            let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+            match cf2 with
+            | core.ops.control_flow.ControlFlow.Continue val2 =>
+              let i3 ← core.cmp.Ord.max.default core.cmp.OrdI64 val2 1#i64
+              let r3 ← fold_layer_port.layer.tensor.carrier.ratio_words s i3
+              let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+              match cf3 with
+              | core.ops.control_flow.ControlFlow.Continue val3 =>
+                ok (core.result.Result.Ok val3)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  (alloc.vec.Vec Std.I64)
+                  fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+                  residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                (alloc.vec.Vec Std.I64)
+                fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+                residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64)
+            fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+            residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_layer_port.layer.driver.DriverError) residual
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::default::Default for apeiron_word::fold_layer_port::layer::tensor::TensorBits}::default]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 122:29-122:36
+    Visibility: public -/
+def fold_layer_port.layer.tensor.TensorBits.Insts.CoreDefaultDefault.default
+  : Result fold_layer_port.layer.tensor.TensorBits := do
+  ok
+    {
+      nsign := (core.default.DefaultU64.default),
+      nr := (core.default.DefaultU64.default),
+      nc := (core.default.DefaultU64.default),
+      nd := (core.default.DefaultU64.default),
+      ncorr := (core.default.DefaultU64.default)
+    }
+
+/-- [apeiron_word::fold_layer_port::layer::driver::model_init]:
+    Source: 'ports/../../../src/learn/fold/layer/driver.rs', lines 1332:0-1342:1
+    Visibility: public -/
+def fold_layer_port.layer.driver.model_init
+  (h0 : Slice Std.I64) : Result fold_layer_port.layer.driver.ModelState := do
+  let v ← alloc.slice.Slice.to_vec core.clone.CloneI64 h0
+  let tb ←
+    fold_layer_port.layer.tensor.TensorBits.Insts.CoreDefaultDefault.default
+  ok
+    {
+      next := 0#usize,
+      ht := v,
+      hs := v,
+      layers := (alloc.vec.Vec.new grad_solve_port.model.LayerWeights),
+      bits := tb,
+      fits :=
+        (alloc.vec.Vec.new
+          (alloc.vec.Vec
+          fold_layer_port.layer.tensor.TensorFit)),
+      «partial» := none
+    }
+
+/-- [apeiron_word::fold_layer_port::layer::resq::{impl core::convert::From<apeiron_word::fold_port::fit::quant::QuantError> for apeiron_word::fold_layer_port::layer::resq::ResqError}::from]:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 60:4-62:5
+    Visibility: public -/
+def fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError.from
+  (e : fold_port.fit.quant.QuantError) :
+  Result fold_layer_port.layer.resq.ResqError
+  := do
+  ok (fold_layer_port.layer.resq.ResqError.Quant e)
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::resq::{impl core::convert::From<apeiron_word::fold_port::fit::quant::QuantError> for apeiron_word::fold_layer_port::layer::resq::ResqError}]
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 59:0-63:1 -/
+@[reducible]
+def fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError :
+  core.convert.From fold_layer_port.layer.resq.ResqError
+  fold_port.fit.quant.QuantError := {
+  «from» :=
+    fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError.from
+}
+
+/-- [apeiron_word::fold_layer_port::layer::resq::mul_q32::{closure}]
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 119:58-119:81 -/
+@[reducible]
+def fold_layer_port.layer.resq.mul_q32.closure := Unit
+
+/-- [apeiron_word::fold_layer_port::layer::resq::mul_q32::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::resq::mul_q32::{closure}}::call_once]:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 119:58-119:81 -/
+def
+  fold_layer_port.layer.resq.mul_q32.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorResqError.call_once
+  (c : fold_layer_port.layer.resq.mul_q32.closure)
+  (tupled_args : solve_port.q32.Q32Error) :
+  Result fold_layer_port.layer.resq.ResqError
+  := do
+  ok fold_layer_port.layer.resq.ResqError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::resq::mul_q32::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::resq::mul_q32::{closure}}]
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 119:58-119:81 -/
+@[reducible]
+def
+  fold_layer_port.layer.resq.mul_q32.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorResqError
+  : core.ops.function.FnOnce fold_layer_port.layer.resq.mul_q32.closure
+  solve_port.q32.Q32Error fold_layer_port.layer.resq.ResqError := {
+  call_once :=
+    fold_layer_port.layer.resq.mul_q32.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorResqError.call_once
+}
+
+/-- [apeiron_word::fold_layer_port::layer::resq::mul_q32]:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 118:0-120:1 -/
+def fold_layer_port.layer.resq.mul_q32
+  (a : Std.I64) (b : Std.I64) :
+  Result (core.result.Result Std.I64 fold_layer_port.layer.resq.ResqError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from a)
+  let i1 ← lift (core.convert.num.FromI128I64.from b)
+  let i2 ← i * i1
+  let r ← solve_port.q32.round_q32_even i2
+  core.result.Result.map_err
+    fold_layer_port.layer.resq.mul_q32.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorResqError
+    r ()
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]: loop body 1:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 352:8-358:9
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.resq.rescale_hier_loop0_loop0.body
+  (rh : Slice Std.I64) (s : Slice Std.I64) (g : Std.Usize) (i : Std.Usize)
+  (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_layer_port.layer.resq.ResqError)))
+  := do
+  if j < g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * g
+      let i2 ← i1 + j
+      let i3 ← Slice.index_usize rh i2
+      let i4 ← Slice.index_usize s i
+      let r ← fold_layer_port.layer.resq.mul_q32 i3 i4
+      let (scaled1, err1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let i5 ← i1 + j
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) scaled i5
+          let scaled2 := index_mut_back v
+          ok (scaled2, err)
+        | core.result.Result.Err e => ok (scaled, some e)
+      let j1 ← j + 1#usize
+      ok (cont (scaled1, err1, j1))
+    else ok (done (scaled, err))
+  else ok (done (scaled, err))
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]: loop 1:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 352:8-358:9
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.resq.rescale_hier_loop0_loop0
+  (rh : Slice Std.I64) (s : Slice Std.I64) (g : Std.Usize)
+  (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize)
+  (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError))
+  := do
+  loop
+    (fun (scaled1, err1, j1) =>
+      fold_layer_port.layer.resq.rescale_hier_loop0_loop0.body rh s g i scaled1
+      err1 j1)
+    (scaled, err, j)
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 350:4-360:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.resq.rescale_hier_loop0.body
+  (rh : Slice Std.I64) (s : Slice Std.I64) (o : Std.Usize) (g : Std.Usize)
+  (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_layer_port.layer.resq.ResqError)))
+  := do
+  if i < o
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (scaled1, err1) ←
+        fold_layer_port.layer.resq.rescale_hier_loop0_loop0 rh s g scaled err i
+          0#usize
+      let i1 ← i + 1#usize
+      ok (cont (scaled1, err1, i1))
+    else ok (done (scaled, err))
+  else ok (done (scaled, err))
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]: loop 0:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 350:4-360:5
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.resq.rescale_hier_loop0
+  (rh : Slice Std.I64) (s : Slice Std.I64) (o : Std.Usize) (g : Std.Usize)
+  (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError))
+  := do
+  loop
+    (fun (scaled1, err1, i1) =>
+      fold_layer_port.layer.resq.rescale_hier_loop0.body rh s o g scaled1 err1
+      i1)
+    (scaled, err, i)
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 339:0-365:1
+    Visibility: public -/
+def fold_layer_port.layer.resq.rescale_hier
+  (rh : Slice Std.I64) (s : Slice Std.I64) (o : Std.Usize) (g : Std.Usize) :
+  Result (core.result.Result fold_port.fit.quant.RHier
+    fold_layer_port.layer.resq.ResqError)
+  := do
+  if o = 0#usize
+  then ok (core.result.Result.Err fold_layer_port.layer.resq.ResqError.Empty)
+  else
+    if g = 0#usize
+    then ok (core.result.Result.Err fold_layer_port.layer.resq.ResqError.Empty)
+    else
+      let o1 ← lift (Usize.checked_mul o g)
+      let r ←
+        core.option.Option.ok_or o1
+          fold_layer_port.layer.resq.ResqError.ShapeMismatch
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let i := Slice.len rh
+        if i != val
+        then
+          ok (core.result.Result.Err
+            fold_layer_port.layer.resq.ResqError.ShapeMismatch)
+        else
+          let i1 := Slice.len s
+          if i1 != o
+          then
+            ok (core.result.Result.Err
+              fold_layer_port.layer.resq.ResqError.ShapeMismatch)
+          else
+            let scaled ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+            let (scaled1, err) ←
+              fold_layer_port.layer.resq.rescale_hier_loop0 rh s o g scaled
+                none 0#usize
+            match err with
+            | none =>
+              let s1 := alloc.vec.Vec.deref scaled1
+              let r1 ← fold_port.fit.quant.quant_r_hier s1 o g
+              let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+              match cf1 with
+              | core.ops.control_flow.ControlFlow.Continue val1 =>
+                ok (core.result.Result.Ok val1)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  fold_port.fit.quant.RHier
+                  fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError
+                  residual
+            | some e => ok (core.result.Result.Err e)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          fold_port.fit.quant.RHier (core.convert.FromSame
+          fold_layer_port.layer.resq.ResqError) residual
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 392:4-397:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.resq.rescale_hier_top_loop0.body
+  (s : Slice Std.I64) (rows : Slice Std.Usize) (bad : Bool) (q : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  let i := Slice.len rows
+  if q < i
+  then
+    let i1 ← Slice.index_usize rows q
+    let i2 := Slice.len s
+    let bad1 ← if i1 >= i2
+                 then ok true
+                 else ok bad
+    let q1 ← q + 1#usize
+    ok (cont (bad1, q1))
+  else ok (done bad)
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop 0:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 392:4-397:5
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.resq.rescale_hier_top_loop0
+  (s : Slice Std.I64) (rows : Slice Std.Usize) (bad : Bool) (q : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (bad1, q1) => fold_layer_port.layer.resq.rescale_hier_top_loop0.body s
+      rows bad1 q1)
+    (bad, q)
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop body 2:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 407:8-413:9
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.resq.rescale_hier_top_loop1_loop0.body
+  (rh : Slice Std.I64) (s : Slice Std.I64) (g : Std.Usize) (i : Std.Usize)
+  (r : Std.Usize) (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_layer_port.layer.resq.ResqError)))
+  := do
+  if j < g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * g
+      let i2 ← i1 + j
+      let i3 ← Slice.index_usize rh i2
+      let i4 ← Slice.index_usize s r
+      let r1 ← fold_layer_port.layer.resq.mul_q32 i3 i4
+      let (scaled1, err1) ←
+        match r1 with
+        | core.result.Result.Ok v =>
+          do
+          let i5 ← i1 + j
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) scaled i5
+          let scaled2 := index_mut_back v
+          ok (scaled2, err)
+        | core.result.Result.Err e => ok (scaled, some e)
+      let j1 ← j + 1#usize
+      ok (cont (scaled1, err1, j1))
+    else ok (done (scaled, err))
+  else ok (done (scaled, err))
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop 2:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 407:8-413:9
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.resq.rescale_hier_top_loop1_loop0
+  (rh : Slice Std.I64) (s : Slice Std.I64) (g : Std.Usize)
+  (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize)
+  (r : Std.Usize) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError))
+  := do
+  loop
+    (fun (scaled1, err1, j1) =>
+      fold_layer_port.layer.resq.rescale_hier_top_loop1_loop0.body rh s g i r
+      scaled1 err1 j1)
+    (scaled, err, j)
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop body 1:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 404:4-415:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.resq.rescale_hier_top_loop1.body
+  (rh : Slice Std.I64) (s : Slice Std.I64) (rows : Slice Std.Usize)
+  (g : Std.Usize) (o : Std.Usize) (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_layer_port.layer.resq.ResqError)))
+  := do
+  if i < o
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let r ← Slice.index_usize rows i
+      let (scaled1, err1) ←
+        fold_layer_port.layer.resq.rescale_hier_top_loop1_loop0 rh s g scaled
+          err i r 0#usize
+      let i1 ← i + 1#usize
+      ok (cont (scaled1, err1, i1))
+    else ok (done (scaled, err))
+  else ok (done (scaled, err))
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop 1:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 404:4-415:5
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.resq.rescale_hier_top_loop1
+  (rh : Slice Std.I64) (s : Slice Std.I64) (rows : Slice Std.Usize)
+  (g : Std.Usize) (o : Std.Usize) (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError))
+  := do
+  loop
+    (fun (scaled1, err1, i1) =>
+      fold_layer_port.layer.resq.rescale_hier_top_loop1.body rh s rows g o
+      scaled1 err1 i1)
+    (scaled, err, i)
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]:
+    Source: 'ports/../../../src/learn/fold/layer/resq.rs', lines 376:0-420:1
+    Visibility: public -/
+def fold_layer_port.layer.resq.rescale_hier_top
+  (rh : Slice Std.I64) (s : Slice Std.I64) (rows : Slice Std.Usize)
+  (g : Std.Usize) :
+  Result (core.result.Result fold_port.fit.quant.RHier
+    fold_layer_port.layer.resq.ResqError)
+  := do
+  let o := Slice.len rows
+  if o = 0#usize
+  then ok (core.result.Result.Err fold_layer_port.layer.resq.ResqError.Empty)
+  else
+    if g = 0#usize
+    then ok (core.result.Result.Err fold_layer_port.layer.resq.ResqError.Empty)
+    else
+      let o1 ← lift (Usize.checked_mul o g)
+      let r ←
+        core.option.Option.ok_or o1
+          fold_layer_port.layer.resq.ResqError.ShapeMismatch
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let i := Slice.len rh
+        if i != val
+        then
+          ok (core.result.Result.Err
+            fold_layer_port.layer.resq.ResqError.ShapeMismatch)
+        else
+          let bad ←
+            fold_layer_port.layer.resq.rescale_hier_top_loop0 s rows false
+              0#usize
+          if bad
+          then
+            ok (core.result.Result.Err
+              fold_layer_port.layer.resq.ResqError.ShapeMismatch)
+          else
+            let scaled ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+            let (scaled1, err) ←
+              fold_layer_port.layer.resq.rescale_hier_top_loop1 rh s rows g o
+                scaled none 0#usize
+            match err with
+            | none =>
+              let s1 := alloc.vec.Vec.deref scaled1
+              let r1 ← fold_port.fit.quant.quant_r_hier s1 o g
+              let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+              match cf1 with
+              | core.ops.control_flow.ControlFlow.Continue val1 =>
+                ok (core.result.Result.Ok val1)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  fold_port.fit.quant.RHier
+                  fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError
+                  residual
+            | some e => ok (core.result.Result.Err e)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          fold_port.fit.quant.RHier (core.convert.FromSame
+          fold_layer_port.layer.resq.ResqError) residual
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::groups]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 60:0-62:1 -/
+def fold_layer_port.layer.tensor.groups
+  (n : Std.Usize) : Result Std.Usize := do
+  n / fold_port.fit.fold_fit.GROUP
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::SINK_TOL]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 65:0-65:28 -/
+@[global_simps, irreducible]
+def fold_layer_port.layer.tensor.SINK_TOL : Std.I64 := 4295#i64
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::cmp::PartialEq<apeiron_word::fold_layer_port::layer::tensor::TensorKind> for apeiron_word::fold_layer_port::layer::tensor::TensorKind}::eq]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 69:29-69:38
+    Visibility: public -/
+def fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind.eq
+  (self : fold_layer_port.layer.tensor.TensorKind)
+  (other : fold_layer_port.layer.tensor.TensorKind) :
+  Result Bool
+  := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::cmp::PartialEq<apeiron_word::fold_layer_port::layer::tensor::TensorKind> for apeiron_word::fold_layer_port::layer::tensor::TensorKind}]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 69:29-69:38 -/
+@[reducible]
+impl_def
+  fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind :
+  core.cmp.PartialEq fold_layer_port.layer.tensor.TensorKind
+  fold_layer_port.layer.tensor.TensorKind := {
+  eq :=
+    fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind
+}
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}::from]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 283:4-285:5
+    Visibility: public -/
+def
+  fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError.from
+  (e : fold_layer_port.layer.resq.ResqError) :
+  Result fold_layer_port.layer.tensor.TensorError
+  := do
+  ok (fold_layer_port.layer.tensor.TensorError.Resq e)
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 282:0-286:1 -/
+@[reducible]
+def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError :
+  core.convert.From fold_layer_port.layer.tensor.TensorError
+  fold_layer_port.layer.resq.ResqError := {
+  «from» :=
+    fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError.from
+}
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}::from]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 298:4-300:5
+    Visibility: public -/
+def
+  fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError.from
+  (e : fold_port.fit.steps.StepsError) :
+  Result fold_layer_port.layer.tensor.TensorError
+  := do
+  ok (fold_layer_port.layer.tensor.TensorError.Steps e)
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 297:0-301:1 -/
+@[reducible]
+def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError :
+  core.convert.From fold_layer_port.layer.tensor.TensorError
+  fold_port.fit.steps.StepsError := {
+  «from» :=
+    fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError.from
+}
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::tensor::TensorError}::from]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 308:4-313:5
+    Visibility: public -/
+def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error.from
+  (e : solve_port.q32.Q32Error) :
+  Result fold_layer_port.layer.tensor.TensorError
+  := do
+  match e with
+  | solve_port.q32.Q32Error.Overflow =>
+    ok fold_layer_port.layer.tensor.TensorError.Grid
+  | solve_port.q32.Q32Error.NotSpd =>
+    ok fold_layer_port.layer.tensor.TensorError.Grid
+  | solve_port.q32.Q32Error.Asymmetric =>
+    ok fold_layer_port.layer.tensor.TensorError.Grid
+  | solve_port.q32.Q32Error.ShapeMismatch =>
+    ok fold_layer_port.layer.tensor.TensorError.ShapeMismatch
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::tensor::TensorError}]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 307:0-314:1 -/
+@[reducible]
+def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error :
+  core.convert.From fold_layer_port.layer.tensor.TensorError
+  solve_port.q32.Q32Error := {
+  «from» :=
+    fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error.from
+}
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::plane_of]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 418:0-428:1 -/
+def fold_layer_port.layer.tensor.plane_of
+  (s_rot : alloc.vec.Vec Std.I64) (rh : alloc.vec.Vec Std.I64)
+  (ch : alloc.vec.Vec Std.I64) (dh : alloc.vec.Vec Std.I64) :
+  Result fold_layer_port.layer.tensor.SinkPlane
+  := do
+  ok { s_rot, rh, ch, dh, rows := none, dense := none, factors := none }
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::plane_shape]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 431:0-434:1 -/
+def fold_layer_port.layer.tensor.plane_shape
+  (p : fold_layer_port.layer.tensor.SinkPlane) (rlen : Std.Usize)
+  (n : Std.Usize) :
+  Result Bool
+  := do
+  let g ← fold_layer_port.layer.tensor.groups n
+  let i := alloc.vec.Vec.len p.s_rot
+  let i1 ← rlen * n
+  if i = i1
+  then
+    let i2 := alloc.vec.Vec.len p.rh
+    let i3 ← rlen * g
+    if i2 = i3
+    then
+      let i4 := alloc.vec.Vec.len p.ch
+      if i4 = n
+      then let i5 := alloc.vec.Vec.len p.dh
+           ok (i5 = n)
+      else ok false
+    else ok false
+  else ok false
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 519:4-527:5 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.scatter_add_loop0.body
+  (rows : Slice Std.Usize) (o : Std.Usize) (inv : alloc.vec.Vec Std.Usize)
+  (bad : Bool) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.Usize) × Bool × Std.Usize)
+    ((alloc.vec.Vec Std.Usize) × Bool))
+  := do
+  let i1 := Slice.len rows
+  if i < i1
+  then
+    let r ← Slice.index_usize rows i
+    let (inv1, bad1) ←
+      if r >= o
+      then ok (inv, true)
+      else
+        do
+        let i2 ←
+          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+            inv r
+        if i2 != core.num.Usize.MAX
+        then ok (inv, true)
+        else
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.Usize) inv r
+          let inv2 := index_mut_back i
+          ok (inv2, bad)
+    let i2 ← i + 1#usize
+    ok (cont (inv1, bad1, i2))
+  else ok (done (inv, bad))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 519:4-527:5 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.scatter_add_loop0
+  (rows : Slice Std.Usize) (o : Std.Usize) (inv : alloc.vec.Vec Std.Usize)
+  (bad : Bool) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.Usize) × Bool)
+  := do
+  loop
+    (fun (inv1, bad1, i1) =>
+      fold_layer_port.layer.tensor.scatter_add_loop0.body rows o inv1 bad1 i1)
+    (inv, bad, i)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop body 2:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 537:12-544:13 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.scatter_add_loop1_loop0.body
+  (src : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (i : Std.Usize)
+  (dst : Slice Std.I64) (err : Option fold_layer_port.layer.tensor.TensorError)
+  (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option
+    fold_layer_port.layer.tensor.TensorError) × Std.Usize) ((Slice Std.I64) ×
+    (Option fold_layer_port.layer.tensor.TensorError)))
+  := do
+  if j < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← r * n
+      let k ← i1 + j
+      let i2 ← Slice.index_usize dst k
+      let i3 ← i * n
+      let i4 ← i3 + j
+      let i5 ← Slice.index_usize src i4
+      let o ← lift (I64.checked_add i2 i5)
+      match o with
+      | none =>
+        let j1 ← j + 1#usize
+        ok (cont (dst, some fold_layer_port.layer.tensor.TensorError.Grid, j1))
+      | some v =>
+        let s ← Slice.update dst k v
+        let j1 ← j + 1#usize
+        ok (cont (s, err, j1))
+    else ok (done (dst, err))
+  else ok (done (dst, err))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop 2:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 537:12-544:13 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.scatter_add_loop1_loop0
+  (dst : Slice Std.I64) (src : Slice Std.I64) (n : Std.Usize)
+  (err : Option fold_layer_port.layer.tensor.TensorError) (r : Std.Usize)
+  (i : Std.Usize) (j : Std.Usize) :
+  Result ((Slice Std.I64) × (Option fold_layer_port.layer.tensor.TensorError))
+  := do
+  loop
+    (fun (dst1, err1, j1) =>
+      fold_layer_port.layer.tensor.scatter_add_loop1_loop0.body src n r i dst1
+      err1 j1)
+    (dst, err, j)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop body 1:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 533:4-547:5 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.scatter_add_loop1.body
+  (src : Slice Std.I64) (n : Std.Usize) (o : Std.Usize)
+  (inv : alloc.vec.Vec Std.Usize) (dst : Slice Std.I64)
+  (err : Option fold_layer_port.layer.tensor.TensorError) (r : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option
+    fold_layer_port.layer.tensor.TensorError) × Std.Usize) ((Slice Std.I64) ×
+    (Option fold_layer_port.layer.tensor.TensorError)))
+  := do
+  if r < o
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+          inv r
+      if i != core.num.Usize.MAX
+      then
+        let (dst1, err1) ←
+          fold_layer_port.layer.tensor.scatter_add_loop1_loop0 dst src n err r
+            i 0#usize
+        let r1 ← r + 1#usize
+        ok (cont (dst1, err1, r1))
+      else let r1 ← r + 1#usize
+           ok (cont (dst, err, r1))
+    else ok (done (dst, err))
+  else ok (done (dst, err))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop 1:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 533:4-547:5 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.scatter_add_loop1
+  (dst : Slice Std.I64) (src : Slice Std.I64) (n : Std.Usize) (o : Std.Usize)
+  (inv : alloc.vec.Vec Std.Usize)
+  (err : Option fold_layer_port.layer.tensor.TensorError) (r : Std.Usize) :
+  Result ((Slice Std.I64) × (Option fold_layer_port.layer.tensor.TensorError))
+  := do
+  loop
+    (fun (dst1, err1, r1) =>
+      fold_layer_port.layer.tensor.scatter_add_loop1.body src n o inv dst1 err1
+      r1)
+    (dst, err, r)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 511:0-552:1 -/
+def fold_layer_port.layer.tensor.scatter_add
+  (dst : Slice Std.I64) (src : Slice Std.I64) (rows : Slice Std.Usize)
+  (n : Std.Usize) :
+  Result ((core.result.Result Unit fold_layer_port.layer.tensor.TensorError) ×
+    (Slice Std.I64))
+  := do
+  if n = 0#usize
+  then
+    ok (core.result.Result.Err
+      fold_layer_port.layer.tensor.TensorError.ShapeMismatch, dst)
+  else
+    let i := Slice.len src
+    let i1 := Slice.len rows
+    let i2 ← i1 * n
+    if i != i2
+    then
+      ok (core.result.Result.Err
+        fold_layer_port.layer.tensor.TensorError.ShapeMismatch, dst)
+    else
+      let i3 := Slice.len dst
+      let o ← i3 / n
+      let inv ←
+        alloc.vec.from_elem core.clone.CloneUsize core.num.Usize.MAX o
+      let (inv1, bad) ←
+        fold_layer_port.layer.tensor.scatter_add_loop0 rows o inv false 0#usize
+      if bad
+      then
+        ok (core.result.Result.Err
+          fold_layer_port.layer.tensor.TensorError.PlaneShape, dst)
+      else
+        let (dst1, err) ←
+          fold_layer_port.layer.tensor.scatter_add_loop1 dst src n o inv1 none
+            0#usize
+        match err with
+        | none => ok (core.result.Result.Ok (), dst1)
+        | some e => ok (core.result.Result.Err e, dst1)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::plane_weight]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 473:12-478:13 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.plane_weight_loop.body
+  (rs : alloc.vec.Vec Std.Usize) (o : Std.Usize) (bad : Bool) (q : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  let i := alloc.vec.Vec.len rs
+  if q < i
+  then
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize) rs
+        q
+    let bad1 ← if i1 >= o
+                 then ok true
+                 else ok bad
+    let q1 ← q + 1#usize
+    ok (cont (bad1, q1))
+  else ok (done bad)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::plane_weight]: loop 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 473:12-478:13 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.plane_weight_loop
+  (rs : alloc.vec.Vec Std.Usize) (o : Std.Usize) (bad : Bool) (q : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (bad1, q1) => fold_layer_port.layer.tensor.plane_weight_loop.body rs o
+      bad1 q1)
+    (bad, q)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::plane_weight]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 458:0-502:1 -/
+def fold_layer_port.layer.tensor.plane_weight
+  (p : fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize) (n : Std.Usize)
+  :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.tensor.TensorError)
+  := do
+  match p.dense with
+  | none =>
+    let b ← core.num.Usize.is_multiple_of n fold_port.fit.fold_fit.GROUP
+    if b
+    then
+      let g ← fold_layer_port.layer.tensor.groups n
+      match p.rows with
+      | none =>
+        let i := alloc.vec.Vec.len p.s_rot
+        let i1 ← o * n
+        if i != i1
+        then
+          ok (core.result.Result.Err
+            fold_layer_port.layer.tensor.TensorError.PlaneShape)
+        else
+          let i2 := alloc.vec.Vec.len p.rh
+          let i3 ← o * g
+          if i2 != i3
+          then
+            ok (core.result.Result.Err
+              fold_layer_port.layer.tensor.TensorError.PlaneShape)
+          else
+            let i4 := alloc.vec.Vec.len p.ch
+            if i4 != n
+            then
+              ok (core.result.Result.Err
+                fold_layer_port.layer.tensor.TensorError.PlaneShape)
+            else
+              let i5 := alloc.vec.Vec.len p.dh
+              if i5 != n
+              then
+                ok (core.result.Result.Err
+                  fold_layer_port.layer.tensor.TensorError.PlaneShape)
+              else
+                let i6 := alloc.vec.Vec.len p.s_rot
+                let s := alloc.vec.Vec.deref p.s_rot
+                let s1 := alloc.vec.Vec.deref p.dh
+                let r ←
+                  fold_layer_port.layer.tensor.carrier.eval i6
+                    (fold_layer_port.layer.tensor.carrier.Elem.MulCol s s1 n)
+                let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+                match cf with
+                | core.ops.control_flow.ControlFlow.Continue val =>
+                  let (s2, deref_mut_back) ←
+                    lift (alloc.vec.Vec.deref_mut val)
+                  let (r1, s3) ← fold_port.fit.steps.fwht_words s2
+                  let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+                  match cf1 with
+                  | core.ops.control_flow.ControlFlow.Continue _ =>
+                    let val1 := deref_mut_back s3
+                    let s4 := alloc.vec.Vec.deref val1
+                    let s5 := alloc.vec.Vec.deref p.rh
+                    let s6 := alloc.vec.Vec.deref p.ch
+                    let r2 ← fold_port.fit.steps.compose s4 s5 s6 o n
+                    let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+                    match cf2 with
+                    | core.ops.control_flow.ControlFlow.Continue val2 =>
+                      ok (core.result.Result.Ok val2)
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        (alloc.vec.Vec Std.I64)
+                        fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError
+                        residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      (alloc.vec.Vec Std.I64)
+                      fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError
+                      residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    (alloc.vec.Vec Std.I64)
+                    fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error
+                    residual
+      | some rs =>
+        let bad ←
+          fold_layer_port.layer.tensor.plane_weight_loop rs o false 0#usize
+        if bad
+        then
+          ok (core.result.Result.Err
+            fold_layer_port.layer.tensor.TensorError.PlaneShape)
+        else
+          let rlen := alloc.vec.Vec.len rs
+          let rs1 ← alloc.vec.Vec.as_slice Global rs
+          let i := alloc.vec.Vec.len p.s_rot
+          let i1 ← rlen * n
+          if i != i1
+          then
+            ok (core.result.Result.Err
+              fold_layer_port.layer.tensor.TensorError.PlaneShape)
+          else
+            let i2 := alloc.vec.Vec.len p.rh
+            let i3 ← rlen * g
+            if i2 != i3
+            then
+              ok (core.result.Result.Err
+                fold_layer_port.layer.tensor.TensorError.PlaneShape)
+            else
+              let i4 := alloc.vec.Vec.len p.ch
+              if i4 != n
+              then
+                ok (core.result.Result.Err
+                  fold_layer_port.layer.tensor.TensorError.PlaneShape)
+              else
+                let i5 := alloc.vec.Vec.len p.dh
+                if i5 != n
+                then
+                  ok (core.result.Result.Err
+                    fold_layer_port.layer.tensor.TensorError.PlaneShape)
+                else
+                  let i6 := alloc.vec.Vec.len p.s_rot
+                  let s := alloc.vec.Vec.deref p.s_rot
+                  let s1 := alloc.vec.Vec.deref p.dh
+                  let r ←
+                    fold_layer_port.layer.tensor.carrier.eval i6
+                      (fold_layer_port.layer.tensor.carrier.Elem.MulCol s s1 n)
+                  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+                  match cf with
+                  | core.ops.control_flow.ControlFlow.Continue val =>
+                    let (s2, deref_mut_back) ←
+                      lift (alloc.vec.Vec.deref_mut val)
+                    let (r1, s3) ← fold_port.fit.steps.fwht_words s2
+                    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+                    match cf1 with
+                    | core.ops.control_flow.ControlFlow.Continue _ =>
+                      let val1 := deref_mut_back s3
+                      let s4 := alloc.vec.Vec.deref val1
+                      let s5 := alloc.vec.Vec.deref p.rh
+                      let s6 := alloc.vec.Vec.deref p.ch
+                      let r2 ← fold_port.fit.steps.compose s4 s5 s6 rlen n
+                      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+                      match cf2 with
+                      | core.ops.control_flow.ControlFlow.Continue val2 =>
+                        let i7 ← o * n
+                        let full ←
+                          alloc.vec.from_elem core.clone.CloneI64 0#i64 i7
+                        let (s7, deref_mut_back1) ←
+                          lift (alloc.vec.Vec.deref_mut full)
+                        let s8 := alloc.vec.Vec.deref val2
+                        let (r3, s9) ←
+                          fold_layer_port.layer.tensor.scatter_add s7 s8 rs1 n
+                        let cf3 ←
+                          core.result.Result.Insts.CoreOpsTry.branch r3
+                        match cf3 with
+                        | core.ops.control_flow.ControlFlow.Continue _ =>
+                          let full1 := deref_mut_back1 s9
+                          ok (core.result.Result.Ok full1)
+                        | core.ops.control_flow.ControlFlow.Break residual =>
+                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                            (alloc.vec.Vec Std.I64) (core.convert.FromSame
+                            fold_layer_port.layer.tensor.TensorError) residual
+                      | core.ops.control_flow.ControlFlow.Break residual =>
+                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                          (alloc.vec.Vec Std.I64)
+                          fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError
+                          residual
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        (alloc.vec.Vec Std.I64)
+                        fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError
+                        residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      (alloc.vec.Vec Std.I64)
+                      fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error
+                      residual
+    else
+      ok (core.result.Result.Err
+        fold_layer_port.layer.tensor.TensorError.Width)
+  | some dense =>
+    let b := core.option.Option.is_some p.rows
+    if b
+    then
+      ok (core.result.Result.Err
+        fold_layer_port.layer.tensor.TensorError.PlaneShape)
+    else
+      let i := alloc.vec.Vec.len dense
+      let i1 ← o * n
+      if i != i1
+      then
+        ok (core.result.Result.Err
+          fold_layer_port.layer.tensor.TensorError.PlaneShape)
+      else
+        let v ← alloc.vec.CloneVec.clone core.clone.CloneI64 dense
+        ok (core.result.Result.Ok v)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::recon_words]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 581:4-590:5 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.recon_words_loop.body
+  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
+  (n : Std.Usize) (w : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.tensor.TensorError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.tensor.TensorError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_layer_port.layer.tensor.TensorError)))
+  := do
+  let i1 := Slice.len planes
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let sp ← Slice.index_usize planes i
+      let r ← fold_layer_port.layer.tensor.plane_weight sp o n
+      let (w1, err1) ←
+        match r with
+        | core.result.Result.Ok pw =>
+          do
+          let i2 := alloc.vec.Vec.len w
+          let s := alloc.vec.Vec.deref w
+          let s1 := alloc.vec.Vec.deref pw
+          let r1 ←
+            fold_layer_port.layer.tensor.carrier.eval i2
+              (fold_layer_port.layer.tensor.carrier.Elem.Add s s1)
+          match r1 with
+          | core.result.Result.Ok next => ok (next, err)
+          | core.result.Result.Err e =>
+            let te ←
+              fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error.from
+                e
+            ok (w, some te)
+        | core.result.Result.Err e => ok (w, some e)
+      let i2 ← i + 1#usize
+      ok (cont (w1, err1, i2))
+    else ok (done (w, err))
+  else ok (done (w, err))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::recon_words]: loop 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 581:4-590:5 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.recon_words_loop
+  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
+  (n : Std.Usize) (w : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.tensor.TensorError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.tensor.TensorError))
+  := do
+  loop
+    (fun (w1, err1, i1) => fold_layer_port.layer.tensor.recon_words_loop.body
+      planes o n w1 err1 i1)
+    (w, err, i)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::recon_words]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 568:0-595:1 -/
+def fold_layer_port.layer.tensor.recon_words
+  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.tensor.TensorError)
+  := do
+  if o = 0#usize
+  then
+    ok (core.result.Result.Err
+      fold_layer_port.layer.tensor.TensorError.ZeroDim)
+  else
+    if n = 0#usize
+    then
+      ok (core.result.Result.Err
+        fold_layer_port.layer.tensor.TensorError.ZeroDim)
+    else
+      let b ← core.num.Usize.is_multiple_of n fold_port.fit.fold_fit.GROUP
+      if b
+      then
+        let b1 ← core.slice.Slice.is_empty planes
+        if b1
+        then
+          ok (core.result.Result.Err
+            fold_layer_port.layer.tensor.TensorError.PlaneShape)
+        else
+          let sp ← Slice.index_usize planes 0#usize
+          let r ← fold_layer_port.layer.tensor.plane_weight sp o n
+          let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+          match cf with
+          | core.ops.control_flow.ControlFlow.Continue val =>
+            let (w, err) ←
+              fold_layer_port.layer.tensor.recon_words_loop planes o n val none
+                1#usize
+            match err with
+            | none => ok (core.result.Result.Ok w)
+            | some e => ok (core.result.Result.Err e)
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              fold_layer_port.layer.tensor.TensorError) residual
+      else
+        ok (core.result.Result.Err
+          fold_layer_port.layer.tensor.TensorError.Width)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::recon]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 562:0-564:1
+    Visibility: public -/
+def fold_layer_port.layer.tensor.recon
+  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.tensor.TensorError)
+  := do
+  fold_layer_port.layer.tensor.recon_words planes o n
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check::{closure}]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 623:43-623:64 -/
+@[reducible]
+def fold_layer_port.layer.tensor.sink_check.closure := Unit
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::tensor::TensorError> for apeiron_word::fold_layer_port::layer::tensor::sink_check::{closure}}::call_once]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 623:43-623:64 -/
+def
+  fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError.call_once
+  (c : fold_layer_port.layer.tensor.sink_check.closure)
+  (tupled_args : solve_port.q32.Q32Error) :
+  Result fold_layer_port.layer.tensor.TensorError
+  := do
+  ok fold_layer_port.layer.tensor.TensorError.Grid
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::sink_check::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::tensor::TensorError> for apeiron_word::fold_layer_port::layer::tensor::sink_check::{closure}}]
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 623:43-623:64 -/
+@[reducible]
+def
+  fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError
+  : core.ops.function.FnOnce fold_layer_port.layer.tensor.sink_check.closure
+  solve_port.q32.Q32Error fold_layer_port.layer.tensor.TensorError := {
+  call_once :=
+    fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError.call_once
+}
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 608:4-620:5 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.sink_check_loop.body
+  (recon_wp : Slice Std.I64) (wp : Slice Std.I64) (maxd : Std.I128)
+  (maxw : Std.I128) (i : Std.Usize) :
+  Result (ControlFlow (Std.I128 × Std.I128 × Std.Usize) (Std.I128 ×
+    Std.I128))
+  := do
+  let i1 := Slice.len recon_wp
+  if i < i1
+  then
+    let a ← Slice.index_usize recon_wp i
+    let b ← Slice.index_usize wp i
+    let i2 ← lift (core.convert.num.FromI128I64.from a)
+    let i3 ← lift (core.convert.num.FromI128I64.from b)
+    let i4 ← i2 - i3
+    let d ← core.num.I128.abs i4
+    let maxd1 ← if d > maxd
+                  then ok d
+                  else ok maxd
+    let i5 ← lift (core.convert.num.FromI128I64.from b)
+    let w ← core.num.I128.abs i5
+    let maxw1 ← if w > maxw
+                  then ok w
+                  else ok maxw
+    let i6 ← i + 1#usize
+    ok (cont (maxd1, maxw1, i6))
+  else ok (done (maxd, maxw))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check]: loop 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 608:4-620:5 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.sink_check_loop
+  (recon_wp : Slice Std.I64) (wp : Slice Std.I64) (maxd : Std.I128)
+  (maxw : Std.I128) (i : Std.Usize) :
+  Result (Std.I128 × Std.I128)
+  := do
+  loop
+    (fun (maxd1, maxw1, i1) =>
+      fold_layer_port.layer.tensor.sink_check_loop.body recon_wp wp maxd1 maxw1
+      i1)
+    (maxd, maxw, i)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 602:0-635:1 -/
+def fold_layer_port.layer.tensor.sink_check
+  (recon_wp : Slice Std.I64) (wp : Slice Std.I64) :
+  Result (core.result.Result Unit fold_layer_port.layer.tensor.TensorError)
+  := do
+  let i := Slice.len recon_wp
+  let i1 := Slice.len wp
+  if i != i1
+  then
+    ok (core.result.Result.Err
+      (fold_layer_port.layer.tensor.TensorError.SinkMismatch core.num.I64.MAX))
+  else
+    let (maxd, maxw) ←
+      fold_layer_port.layer.tensor.sink_check_loop recon_wp wp 0#i128 0#i128
+        0#usize
+    if maxw > 0#i128
+    then
+      let r ← fold_layer_port.layer.tensor.carrier.ratio maxd maxw
+      let r1 ←
+        core.result.Result.map_err
+          fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError
+          r ()
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        if val <= fold_layer_port.layer.tensor.SINK_TOL
+        then ok (core.result.Result.Ok ())
+        else
+          ok (core.result.Result.Err
+            (fold_layer_port.layer.tensor.TensorError.SinkMismatch val))
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame fold_layer_port.layer.tensor.TensorError)
+          residual
+    else
+      let r ← I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from maxd
+      let val ←
+        match r with
+        | core.result.Result.Ok v => ok v
+        | core.result.Result.Err _ => ok core.num.I64.MAX
+      if val <= fold_layer_port.layer.tensor.SINK_TOL
+      then ok (core.result.Result.Ok ())
+      else
+        ok (core.result.Result.Err
+          (fold_layer_port.layer.tensor.TensorError.SinkMismatch val))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::fold_row_scale]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 916:8-921:9
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.fold_row_scale_loop.body
+  (o : Std.Usize) (rows : alloc.vec.Vec Std.Usize) (bad : Bool) (q : Std.Usize)
+  :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  let i := alloc.vec.Vec.len rows
+  if q < i
+  then
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        rows q
+    let bad1 ← if i1 >= o
+                 then ok true
+                 else ok bad
+    let q1 ← q + 1#usize
+    ok (cont (bad1, q1))
+  else ok (done bad)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::fold_row_scale]: loop 0:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 916:8-921:9
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.fold_row_scale_loop
+  (o : Std.Usize) (rows : alloc.vec.Vec Std.Usize) (bad : Bool) (q : Std.Usize)
+  :
+  Result Bool
+  := do
+  loop
+    (fun (bad1, q1) => fold_layer_port.layer.tensor.fold_row_scale_loop.body o
+      rows bad1 q1)
+    (bad, q)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::fold_row_scale]:
+    Source: 'ports/../../../src/learn/fold/layer/tensor.rs', lines 877:0-942:1
+    Visibility: public -/
+def fold_layer_port.layer.tensor.fold_row_scale
+  (fit : fold_layer_port.layer.tensor.TensorFit) (s_sol : Slice Std.I64)
+  (o : Std.Usize) (n : Std.Usize) :
+  Result ((core.result.Result Unit fold_layer_port.layer.tensor.TensorError) ×
+    fold_layer_port.layer.tensor.TensorFit)
+  := do
+  let b ←
+    core.cmp.PartialEq.ne.trait_default
+      fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind
+      fit.kind fold_layer_port.layer.tensor.TensorKind.Up
+  if b
+  then
+    ok (core.result.Result.Err fold_layer_port.layer.tensor.TensorError.NotUp,
+      fit)
+  else
+    if o = 0#usize
+    then
+      ok (core.result.Result.Err
+        fold_layer_port.layer.tensor.TensorError.ZeroDim, fit)
+    else
+      if n = 0#usize
+      then
+        ok (core.result.Result.Err
+          fold_layer_port.layer.tensor.TensorError.ZeroDim, fit)
+      else
+        let b1 ← core.num.Usize.is_multiple_of n fold_port.fit.fold_fit.GROUP
+        if b1
+        then
+          let i := Slice.len s_sol
+          if i != o
+          then
+            ok (core.result.Result.Err
+              fold_layer_port.layer.tensor.TensorError.ShapeMismatch, fit)
+          else
+            let g ← fold_layer_port.layer.tensor.groups n
+            let i1 := alloc.vec.Vec.len fit.planes
+            if i1 > 2#usize
+            then
+              ok (core.result.Result.Err
+                fold_layer_port.layer.tensor.TensorError.PlaneShape, fit)
+            else
+              let s := alloc.vec.Vec.deref fit.planes
+              let o1 ← core.slice.Slice.first s
+              let r ←
+                core.option.Option.ok_or o1
+                  fold_layer_port.layer.tensor.TensorError.PlaneShape
+              let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+              match cf with
+              | core.ops.control_flow.ControlFlow.Continue val =>
+                let b2 := core.option.Option.is_some val.dense
+                if b2
+                then
+                  ok (core.result.Result.Err
+                    fold_layer_port.layer.tensor.TensorError.PlaneShape, fit)
+                else
+                  let b3 := core.option.Option.is_some val.rows
+                  if b3
+                  then
+                    ok (core.result.Result.Err
+                      fold_layer_port.layer.tensor.TensorError.PlaneShape, fit)
+                  else
+                    let b4 ← fold_layer_port.layer.tensor.plane_shape val o n
+                    if b4
+                    then
+                      let s1 := alloc.vec.Vec.deref val.rh
+                      let r1 ←
+                        fold_layer_port.layer.resq.rescale_hier s1 s_sol o g
+                      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+                      match cf1 with
+                      | core.ops.control_flow.ControlFlow.Continue val1 =>
+                        let v ←
+                          alloc.vec.CloneVec.clone core.clone.CloneI64
+                            val.s_rot
+                        let v1 ←
+                          alloc.vec.CloneVec.clone core.clone.CloneI64 val.ch
+                        let v2 ←
+                          alloc.vec.CloneVec.clone core.clone.CloneI64 val.dh
+                        let sp ←
+                          fold_layer_port.layer.tensor.plane_of v val1.rq v1 v2
+                        let y ←
+                          lift (Std.Array.to_slice (Array.make 1#usize [ sp ] :
+                            Array fold_layer_port.layer.tensor.SinkPlane
+                            1#usize))
+                        let ret := alloc.slice.Slice.into_vec y
+                        let s2 := alloc.vec.Vec.deref fit.planes
+                        let o2 ←
+                          core.slice.Slice.get
+                            (core.slice.index.SliceIndexUsizeSlice
+                            fold_layer_port.layer.tensor.SinkPlane) s2 1#usize
+                        match o2 with
+                        | none =>
+                          let s3 := alloc.vec.Vec.deref ret
+                          let r2 ←
+                            fold_layer_port.layer.tensor.recon_words s3 o n
+                          let cf2 ←
+                            core.result.Result.Insts.CoreOpsTry.branch r2
+                          match cf2 with
+                          | core.ops.control_flow.ControlFlow.Continue val2 =>
+                            let s4 := alloc.vec.Vec.deref val2
+                            let s5 := alloc.vec.Vec.deref val2
+                            let r3 ←
+                              fold_layer_port.layer.tensor.sink_check s4 s5
+                            let cf3 ←
+                              core.result.Result.Insts.CoreOpsTry.branch r3
+                            match cf3 with
+                            | core.ops.control_flow.ControlFlow.Continue _ =>
+                              ok (core.result.Result.Ok (),
+                                { fit with wp := val2, planes := ret })
+                            | core.ops.control_flow.ControlFlow.Break residual
+                              =>
+                              let r4 ←
+                                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                  Unit (core.convert.FromSame
+                                  fold_layer_port.layer.tensor.TensorError)
+                                  residual
+                              ok (r4, fit)
+                          | core.ops.control_flow.ControlFlow.Break residual =>
+                            let r3 ←
+                              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                Unit (core.convert.FromSame
+                                fold_layer_port.layer.tensor.TensorError)
+                                residual
+                            ok (r3, fit)
+                        | some p2 =>
+                          let o3 ←
+                            core.option.Option.Insts.CoreCloneClone.clone
+                              (core.clone.CloneallocvecVec
+                              core.clone.CloneUsize) p2.rows
+                          let r2 ←
+                            core.option.Option.ok_or o3
+                              fold_layer_port.layer.tensor.TensorError.PlaneShape
+                          let cf2 ←
+                            core.result.Result.Insts.CoreOpsTry.branch r2
+                          match cf2 with
+                          | core.ops.control_flow.ControlFlow.Continue val2 =>
+                            let bad ←
+                              fold_layer_port.layer.tensor.fold_row_scale_loop
+                                o val2 false 0#usize
+                            if bad
+                            then
+                              ok (core.result.Result.Err
+                                fold_layer_port.layer.tensor.TensorError.PlaneShape,
+                                fit)
+                            else
+                              let b5 := core.option.Option.is_some p2.dense
+                              if b5
+                              then
+                                ok (core.result.Result.Err
+                                  fold_layer_port.layer.tensor.TensorError.PlaneShape,
+                                  fit)
+                              else
+                                let rlen := alloc.vec.Vec.len val2
+                                let b6 ←
+                                  fold_layer_port.layer.tensor.plane_shape p2
+                                    rlen n
+                                if b6
+                                then
+                                  let s3 := alloc.vec.Vec.deref p2.rh
+                                  let s4 := alloc.vec.Vec.deref val2
+                                  let r3 ←
+                                    fold_layer_port.layer.resq.rescale_hier_top
+                                      s3 s_sol s4 g
+                                  let cf3 ←
+                                    core.result.Result.Insts.CoreOpsTry.branch
+                                      r3
+                                  match cf3 with
+                                  | core.ops.control_flow.ControlFlow.Continue
+                                    val3 =>
+                                    let v3 ←
+                                      alloc.vec.CloneVec.clone
+                                        core.clone.CloneI64 p2.s_rot
+                                    let v4 ←
+                                      alloc.vec.CloneVec.clone
+                                        core.clone.CloneI64 p2.ch
+                                    let v5 ←
+                                      alloc.vec.CloneVec.clone
+                                        core.clone.CloneI64 p2.dh
+                                    let top ←
+                                      fold_layer_port.layer.tensor.plane_of v3
+                                        val3.rq v4 v5
+                                    let next ←
+                                      alloc.vec.Vec.push ret
+                                        { top with rows := (some val2) }
+                                    let s5 := alloc.vec.Vec.deref next
+                                    let r4 ←
+                                      fold_layer_port.layer.tensor.recon_words
+                                        s5 o n
+                                    let cf4 ←
+                                      core.result.Result.Insts.CoreOpsTry.branch
+                                        r4
+                                    match cf4 with
+                                    |
+                                      core.ops.control_flow.ControlFlow.Continue
+                                      val4 =>
+                                      let s6 := alloc.vec.Vec.deref val4
+                                      let s7 := alloc.vec.Vec.deref val4
+                                      let r5 ←
+                                        fold_layer_port.layer.tensor.sink_check
+                                          s6 s7
+                                      let cf5 ←
+                                        core.result.Result.Insts.CoreOpsTry.branch
+                                          r5
+                                      match cf5 with
+                                      |
+                                        core.ops.control_flow.ControlFlow.Continue
+                                        _ =>
+                                        ok (core.result.Result.Ok (),
+                                          { fit with wp := val4, planes := next
+                                          })
+                                      | core.ops.control_flow.ControlFlow.Break
+                                        residual =>
+                                        let r6 ←
+                                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                            Unit (core.convert.FromSame
+                                            fold_layer_port.layer.tensor.TensorError)
+                                            residual
+                                        ok (r6, fit)
+                                    | core.ops.control_flow.ControlFlow.Break
+                                      residual =>
+                                      let r5 ←
+                                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                          Unit (core.convert.FromSame
+                                          fold_layer_port.layer.tensor.TensorError)
+                                          residual
+                                      ok (r5, fit)
+                                  | core.ops.control_flow.ControlFlow.Break
+                                    residual =>
+                                    let r4 ←
+                                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                        Unit
+                                        fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError
+                                        residual
+                                    ok (r4, fit)
+                                else
+                                  ok (core.result.Result.Err
+                                    fold_layer_port.layer.tensor.TensorError.PlaneShape,
+                                    fit)
+                          | core.ops.control_flow.ControlFlow.Break residual =>
+                            let r3 ←
+                              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                Unit (core.convert.FromSame
+                                fold_layer_port.layer.tensor.TensorError)
+                                residual
+                            ok (r3, fit)
+                      | core.ops.control_flow.ControlFlow.Break residual =>
+                        let r2 ←
+                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                            Unit
+                            fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError
+                            residual
+                        ok (r2, fit)
+                    else
+                      ok (core.result.Result.Err
+                        fold_layer_port.layer.tensor.TensorError.PlaneShape,
+                        fit)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                let r1 ←
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    Unit (core.convert.FromSame
+                    fold_layer_port.layer.tensor.TensorError) residual
+                ok (r1, fit)
+        else
+          ok (core.result.Result.Err
+            fold_layer_port.layer.tensor.TensorError.Width, fit)
+
+/-- [apeiron_word::fold_finish_port::convert::EXP_2_31]
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 53:0-53:26 -/
+@[global_simps, irreducible]
+def fold_finish_port.convert.EXP_2_31 : Std.U32 := 158#u32
+
+/-- [apeiron_word::fold_finish_port::convert::ConvertError]
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 57:0-67:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_finish_port.convert.ConvertError where
+| Shape : String → fold_finish_port.convert.ConvertError
+| MissingBias : String → fold_finish_port.convert.ConvertError
+| Range : String → fold_finish_port.convert.ConvertError
+| NonFinite : String → fold_finish_port.convert.ConvertError
+
+/-- [apeiron_word::fold_finish_port::convert::decode_f16]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 197:4-204:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_finish_port.convert.decode_f16_loop.body
+  (raw : Slice Std.U8) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option fold_finish_port.convert.ConvertError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_finish_port.convert.ConvertError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_finish_port.convert.ConvertError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← 2#usize * i
+      let i2 ← Slice.index_usize raw i1
+      let i3 ← i1 + 1#usize
+      let i4 ← Slice.index_usize raw i3
+      let h ←
+        lift (core.num.U16.from_le_bytes (Array.make 2#usize [ i2, i4 ]))
+      let r ← dequant.f16_to_fixed h
+      let (out1, err1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let out2 ← alloc.vec.Vec.push out v
+          ok (out2, err)
+        | core.result.Result.Err _ =>
+          do
+          let a ←
+            core.fmt.rt.Argument.new_lower_hex U16.Insts.CoreFmtLowerHex h
+          let a1 ←
+            core.fmt.Arguments.new
+              (Array.make 13#usize [
+                4#u8, 102#u8, 49#u8, 54#u8, 32#u8, 195#u8, 32#u8, 0#u8, 128#u8,
+                105#u8, 6#u8, 0#u8, 0#u8
+                ]) (Array.make 1#usize [ a ])
+          let s ← alloc.fmt.format a1
+          let s1 ← core.hint.must_use s
+          ok (out, some (fold_finish_port.convert.ConvertError.NonFinite s1))
+      let i5 ← i + 1#usize
+      ok (cont (out1, err1, i5))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_finish_port::convert::decode_f16]: loop 0:
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 197:4-204:5
+    Visibility: public -/
+@[rust_loop]
+def fold_finish_port.convert.decode_f16_loop
+  (raw : Slice Std.U8) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option fold_finish_port.convert.ConvertError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_finish_port.convert.ConvertError))
+  := do
+  loop
+    (fun (out1, err1, i1) => fold_finish_port.convert.decode_f16_loop.body raw
+      n out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::fold_finish_port::convert::decode_f16]:
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 186:0-209:1
+    Visibility: public -/
+def fold_finish_port.convert.decode_f16
+  (raw : Slice Std.U8) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_finish_port.convert.ConvertError)
+  := do
+  let i := Slice.len raw
+  let b ← core.num.Usize.is_multiple_of i 2#usize
+  if b
+  then
+    let i1 := Slice.len raw
+    let n ← i1 / 2#usize
+    let out := alloc.vec.Vec.with_capacity Std.I64 n
+    let (out1, err) ←
+      fold_finish_port.convert.decode_f16_loop raw n out none 0#usize
+    match err with
+    | none => ok (core.result.Result.Ok out1)
+    | some e => ok (core.result.Result.Err e)
+  else
+    let args := Slice.len raw
+    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay args
+    let a1 ←
+      core.fmt.Arguments.new
+        (Array.make 44#usize [
+          192#u8, 41#u8, 32#u8, 98#u8, 121#u8, 116#u8, 101#u8, 115#u8, 32#u8,
+          105#u8, 115#u8, 32#u8, 110#u8, 111#u8, 116#u8, 32#u8, 97#u8, 32#u8,
+          119#u8, 104#u8, 111#u8, 108#u8, 101#u8, 32#u8, 110#u8, 117#u8,
+          109#u8, 98#u8, 101#u8, 114#u8, 32#u8, 111#u8, 102#u8, 32#u8, 102#u8,
+          49#u8, 54#u8, 32#u8, 119#u8, 111#u8, 114#u8, 100#u8, 115#u8, 0#u8
+          ]) (Array.make 1#usize [ a ])
+    let s ← alloc.fmt.format a1
+    let s1 ← core.hint.must_use s
+    ok (core.result.Result.Err (fold_finish_port.convert.ConvertError.Shape
+      s1))
+
+/-- [apeiron_word::fold_finish_port::convert::f32_bits_to_q32]:
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 277:0-304:1 -/
+def fold_finish_port.convert.f32_bits_to_q32
+  (bits : Std.U32) :
+  Result (core.result.Result Std.I64 fold_finish_port.convert.ConvertError)
+  := do
+  let i ← bits >>> 23#i32
+  let e ← lift (i &&& 255#u32)
+  if e = 255#u32
+  then
+    let a ← core.fmt.rt.Argument.new_display U32.Insts.CoreFmtDisplay bits
+    let a1 ←
+      core.fmt.Arguments.new
+        (Array.make 7#usize [
+          4#u8, 102#u8, 51#u8, 50#u8, 32#u8, 192#u8, 0#u8
+          ]) (Array.make 1#usize [ a ])
+    let s ← alloc.fmt.format a1
+    let s1 ← core.hint.must_use s
+    ok (core.result.Result.Err (fold_finish_port.convert.ConvertError.NonFinite
+      s1))
+  else
+    if e = 0#u32
+    then ok (core.result.Result.Ok 0#i64)
+    else
+      if e >= fold_finish_port.convert.EXP_2_31
+      then
+        let a ←
+          core.fmt.rt.Argument.new_display U32.Insts.CoreFmtDisplay bits
+        let a1 ←
+          core.fmt.Arguments.new
+            (Array.make 7#usize [
+              4#u8, 102#u8, 51#u8, 50#u8, 32#u8, 192#u8, 0#u8
+              ]) (Array.make 1#usize [ a ])
+        let s ← alloc.fmt.format a1
+        let s1 ← core.hint.must_use s
+        ok (core.result.Result.Err (fold_finish_port.convert.ConvertError.Range
+          s1))
+      else
+        let i1 ← lift (bits &&& 8388607#u32)
+        let i2 ← 1#u32 <<< 23#i32
+        let i3 ← lift (i1 ||| i2)
+        let i4 ← lift (core.convert.num.FromU64U32.from i3)
+        let m ← I128.Insts.CoreConvertFromU64.from i4
+        let i5 ← lift (UScalar.hcast .I32 e)
+        let k ← i5 - 118#i32
+        if k >= 0#i32
+        then
+          let mag ← m <<< k
+          let r ←
+            I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from mag
+          match r with
+          | core.result.Result.Ok v =>
+            let i6 ← bits >>> 31#i32
+            if i6 = 0#u32
+            then ok (core.result.Result.Ok v)
+            else let v1 ← -. v
+                 ok (core.result.Result.Ok v1)
+          | core.result.Result.Err _ =>
+            let a ←
+              core.fmt.rt.Argument.new_display U32.Insts.CoreFmtDisplay bits
+            let a1 ←
+              core.fmt.Arguments.new
+                (Array.make 7#usize [
+                  4#u8, 102#u8, 51#u8, 50#u8, 32#u8, 192#u8, 0#u8
+                  ]) (Array.make 1#usize [ a ])
+            let s ← alloc.fmt.format a1
+            let s1 ← core.hint.must_use s
+            ok (core.result.Result.Err
+              (fold_finish_port.convert.ConvertError.Range s1))
+        else
+          let i6 ← -. k
+          let i7 ← lift (IScalar.hcast .U32 i6)
+          let o ← solve_port.q32.rshift_rne m i7
+          match o with
+          | none =>
+            let a ←
+              core.fmt.rt.Argument.new_display U32.Insts.CoreFmtDisplay bits
+            let a1 ←
+              core.fmt.Arguments.new
+                (Array.make 7#usize [
+                  4#u8, 102#u8, 51#u8, 50#u8, 32#u8, 192#u8, 0#u8
+                  ]) (Array.make 1#usize [ a ])
+            let s ← alloc.fmt.format a1
+            let s1 ← core.hint.must_use s
+            ok (core.result.Result.Err
+              (fold_finish_port.convert.ConvertError.Range s1))
+          | some v =>
+            let r ←
+              I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from v
+            match r with
+            | core.result.Result.Ok v1 =>
+              let i8 ← bits >>> 31#i32
+              if i8 = 0#u32
+              then ok (core.result.Result.Ok v1)
+              else let v2 ← -. v1
+                   ok (core.result.Result.Ok v2)
+            | core.result.Result.Err _ =>
+              let a ←
+                core.fmt.rt.Argument.new_display U32.Insts.CoreFmtDisplay bits
+              let a1 ←
+                core.fmt.Arguments.new
+                  (Array.make 7#usize [
+                    4#u8, 102#u8, 51#u8, 50#u8, 32#u8, 192#u8, 0#u8
+                    ]) (Array.make 1#usize [ a ])
+              let s ← alloc.fmt.format a1
+              let s1 ← core.hint.must_use s
+              ok (core.result.Result.Err
+                (fold_finish_port.convert.ConvertError.Range s1))
+
+/-- [apeiron_word::fold_finish_port::convert::decode_bf16]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 229:4-236:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_finish_port.convert.decode_bf16_loop.body
+  (raw : Slice Std.U8) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option fold_finish_port.convert.ConvertError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_finish_port.convert.ConvertError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_finish_port.convert.ConvertError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← 2#usize * i
+      let i2 ← Slice.index_usize raw i1
+      let i3 ← i1 + 1#usize
+      let i4 ← Slice.index_usize raw i3
+      let i5 ←
+        lift (core.num.U16.from_le_bytes (Array.make 2#usize [ i2, i4 ]))
+      let i6 ← lift (core.convert.num.FromU32U16.from i5)
+      let bits ← i6 <<< 16#i32
+      let r ← fold_finish_port.convert.f32_bits_to_q32 bits
+      let (out1, err1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let out2 ← alloc.vec.Vec.push out v
+          ok (out2, err)
+        | core.result.Result.Err e => ok (out, some e)
+      let i7 ← i + 1#usize
+      ok (cont (out1, err1, i7))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_finish_port::convert::decode_bf16]: loop 0:
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 229:4-236:5
+    Visibility: public -/
+@[rust_loop]
+def fold_finish_port.convert.decode_bf16_loop
+  (raw : Slice Std.U8) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option fold_finish_port.convert.ConvertError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_finish_port.convert.ConvertError))
+  := do
+  loop
+    (fun (out1, err1, i1) => fold_finish_port.convert.decode_bf16_loop.body raw
+      n out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::fold_finish_port::convert::decode_bf16]:
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 218:0-241:1
+    Visibility: public -/
+def fold_finish_port.convert.decode_bf16
+  (raw : Slice Std.U8) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_finish_port.convert.ConvertError)
+  := do
+  let i := Slice.len raw
+  let b ← core.num.Usize.is_multiple_of i 2#usize
+  if b
+  then
+    let i1 := Slice.len raw
+    let n ← i1 / 2#usize
+    let out := alloc.vec.Vec.with_capacity Std.I64 n
+    let (out1, err) ←
+      fold_finish_port.convert.decode_bf16_loop raw n out none 0#usize
+    match err with
+    | none => ok (core.result.Result.Ok out1)
+    | some e => ok (core.result.Result.Err e)
+  else
+    let args := Slice.len raw
+    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay args
+    let a1 ←
+      core.fmt.Arguments.new
+        (Array.make 45#usize [
+          192#u8, 42#u8, 32#u8, 98#u8, 121#u8, 116#u8, 101#u8, 115#u8, 32#u8,
+          105#u8, 115#u8, 32#u8, 110#u8, 111#u8, 116#u8, 32#u8, 97#u8, 32#u8,
+          119#u8, 104#u8, 111#u8, 108#u8, 101#u8, 32#u8, 110#u8, 117#u8,
+          109#u8, 98#u8, 101#u8, 114#u8, 32#u8, 111#u8, 102#u8, 32#u8, 98#u8,
+          102#u8, 49#u8, 54#u8, 32#u8, 119#u8, 111#u8, 114#u8, 100#u8, 115#u8,
+          0#u8
+          ]) (Array.make 1#usize [ a ])
+    let s ← alloc.fmt.format a1
+    let s1 ← core.hint.must_use s
+    ok (core.result.Result.Err (fold_finish_port.convert.ConvertError.Shape
+      s1))
+
+/-- [apeiron_word::fold_finish_port::convert::decode_f32]: loop body 0:
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 260:4-267:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_finish_port.convert.decode_f32_loop.body
+  (raw : Slice Std.U8) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option fold_finish_port.convert.ConvertError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_finish_port.convert.ConvertError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_finish_port.convert.ConvertError)))
+  := do
+  if i < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← 4#usize * i
+      let i2 ← Slice.index_usize raw i1
+      let i3 ← i1 + 1#usize
+      let i4 ← Slice.index_usize raw i3
+      let i5 ← i1 + 2#usize
+      let i6 ← Slice.index_usize raw i5
+      let i7 ← i1 + 3#usize
+      let i8 ← Slice.index_usize raw i7
+      let bits ←
+        lift (core.num.U32.from_le_bytes
+          (Array.make 4#usize [ i2, i4, i6, i8 ]))
+      let r ← fold_finish_port.convert.f32_bits_to_q32 bits
+      let (out1, err1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let out2 ← alloc.vec.Vec.push out v
+          ok (out2, err)
+        | core.result.Result.Err e => ok (out, some e)
+      let i9 ← i + 1#usize
+      ok (cont (out1, err1, i9))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_finish_port::convert::decode_f32]: loop 0:
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 260:4-267:5
+    Visibility: public -/
+@[rust_loop]
+def fold_finish_port.convert.decode_f32_loop
+  (raw : Slice Std.U8) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err : Option fold_finish_port.convert.ConvertError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_finish_port.convert.ConvertError))
+  := do
+  loop
+    (fun (out1, err1, i1) => fold_finish_port.convert.decode_f32_loop.body raw
+      n out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::fold_finish_port::convert::decode_f32]:
+    Source: 'ports/../../../src/learn/fold/run/convert.rs', lines 249:0-272:1
+    Visibility: public -/
+def fold_finish_port.convert.decode_f32
+  (raw : Slice Std.U8) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_finish_port.convert.ConvertError)
+  := do
+  let i := Slice.len raw
+  let b ← core.num.Usize.is_multiple_of i 4#usize
+  if b
+  then
+    let i1 := Slice.len raw
+    let n ← i1 / 4#usize
+    let out := alloc.vec.Vec.with_capacity Std.I64 n
+    let (out1, err) ←
+      fold_finish_port.convert.decode_f32_loop raw n out none 0#usize
+    match err with
+    | none => ok (core.result.Result.Ok out1)
+    | some e => ok (core.result.Result.Err e)
+  else
+    let args := Slice.len raw
+    let a ← core.fmt.rt.Argument.new_display Usize.Insts.CoreFmtDisplay args
+    let a1 ←
+      core.fmt.Arguments.new
+        (Array.make 44#usize [
+          192#u8, 41#u8, 32#u8, 98#u8, 121#u8, 116#u8, 101#u8, 115#u8, 32#u8,
+          105#u8, 115#u8, 32#u8, 110#u8, 111#u8, 116#u8, 32#u8, 97#u8, 32#u8,
+          119#u8, 104#u8, 111#u8, 108#u8, 101#u8, 32#u8, 110#u8, 117#u8,
+          109#u8, 98#u8, 101#u8, 114#u8, 32#u8, 111#u8, 102#u8, 32#u8, 102#u8,
+          51#u8, 50#u8, 32#u8, 119#u8, 111#u8, 114#u8, 100#u8, 115#u8, 0#u8
+          ]) (Array.make 1#usize [ a ])
+    let s ← alloc.fmt.format a1
+    let s1 ← core.hint.must_use s
+    ok (core.result.Result.Err (fold_finish_port.convert.ConvertError.Shape
+      s1))
+
+/-- [apeiron_word::crypto_port::word_crypto_ct_eq]:
+    Source: 'ports/crypto_port.rs', lines 18:0-20:1
+    Visibility: public -/
+def crypto_port.word_crypto_ct_eq
+  (a : Slice Std.U8) (b : Slice Std.U8) : Result Bool := do
+  hashtrinity.crypto.ct_eq a b
+
+/-- [apeiron_word::crypto_port::word_crypto_sha256]:
+    Source: 'ports/crypto_port.rs', lines 23:0-25:1
+    Visibility: public -/
+def crypto_port.word_crypto_sha256
+  (msg : Slice Std.U8) : Result (Array Std.U8 32#usize) := do
+  hashtrinity.crypto.sha256 msg
+
+/-- [apeiron_word::crypto_port::word_crypto_sha512]:
+    Source: 'ports/crypto_port.rs', lines 28:0-30:1
+    Visibility: public -/
+def crypto_port.word_crypto_sha512
+  (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
+  hashtrinity.crypto.sha512 msg
+
+/-- [apeiron_word::crypto_port::word_crypto_sha384]:
+    Source: 'ports/crypto_port.rs', lines 33:0-35:1
+    Visibility: public -/
+def crypto_port.word_crypto_sha384
+  (msg : Slice Std.U8) : Result (Array Std.U8 48#usize) := do
+  hashtrinity.crypto.sha384 msg
+
+/-- [apeiron_word::crypto_port::word_crypto_md5]:
+    Source: 'ports/crypto_port.rs', lines 38:0-40:1
+    Visibility: public -/
+def crypto_port.word_crypto_md5
+  (msg : Slice Std.U8) : Result (Array Std.U8 16#usize) := do
+  hashtrinity.crypto.md5 msg
+
+/-- [apeiron_word::crypto_port::word_crypto_blake2b]:
+    Source: 'ports/crypto_port.rs', lines 43:0-45:1
+    Visibility: public -/
+def crypto_port.word_crypto_blake2b
+  (msg : Slice Std.U8) (out_len : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.blake2.blake2b msg out_len
+
+/-- [apeiron_word::crypto_port::word_crypto_blake2b512]:
+    Source: 'ports/crypto_port.rs', lines 48:0-50:1
+    Visibility: public -/
+def crypto_port.word_crypto_blake2b512
+  (msg : Slice Std.U8) : Result (Array Std.U8 64#usize) := do
+  hashtrinity.crypto.blake2.blake2b512 msg
+
+/-- [apeiron_word::crypto_port::word_crypto_ripemd160]:
+    Source: 'ports/crypto_port.rs', lines 53:0-55:1
+    Visibility: public -/
+def crypto_port.word_crypto_ripemd160
+  (msg : Slice Std.U8) : Result (Array Std.U8 20#usize) := do
+  hashtrinity.crypto.ripemd160.ripemd160 msg
+
+/-- [apeiron_word::crypto_port::word_crypto_hash160]:
+    Source: 'ports/crypto_port.rs', lines 58:0-60:1
+    Visibility: public -/
+def crypto_port.word_crypto_hash160
+  (data : Slice Std.U8) : Result (Array Std.U8 20#usize) := do
+  hashtrinity.crypto.ripemd160.hash160 data
+
+/-- [apeiron_word::crypto_port::word_crypto_hmac_sha256]:
+    Source: 'ports/crypto_port.rs', lines 65:0-67:1
+    Visibility: public -/
+def crypto_port.word_crypto_hmac_sha256
+  (key : Slice Std.U8) (msg : Slice Std.U8) :
+  Result (Array Std.U8 32#usize)
+  := do
+  hashtrinity.crypto.hmac_sha256 key msg
+
+/-- [apeiron_word::crypto_port::word_crypto_hmac_sha512]:
+    Source: 'ports/crypto_port.rs', lines 70:0-72:1
+    Visibility: public -/
+def crypto_port.word_crypto_hmac_sha512
+  (key : Slice Std.U8) (msg : Slice Std.U8) :
+  Result (Array Std.U8 64#usize)
+  := do
+  hashtrinity.crypto.hmac_sha512 key msg
+
+/-- [apeiron_word::crypto_port::word_crypto_hmac_sha384]:
+    Source: 'ports/crypto_port.rs', lines 75:0-77:1
+    Visibility: public -/
+def crypto_port.word_crypto_hmac_sha384
+  (key : Slice Std.U8) (msg : Slice Std.U8) :
+  Result (Array Std.U8 48#usize)
+  := do
+  hashtrinity.crypto.hmac_sha384 key msg
+
+/-- [apeiron_word::crypto_port::word_crypto_pbkdf2_sha256]:
+    Source: 'ports/crypto_port.rs', lines 80:0-82:1
+    Visibility: public -/
+def crypto_port.word_crypto_pbkdf2_sha256
+  (pass : Slice Std.U8) (salt : Slice Std.U8) (iters : Std.U32)
+  (dklen : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.pbkdf2_sha256 pass salt iters dklen
+
+/-- [apeiron_word::crypto_port::word_crypto_hkdf_extract_sha256]:
+    Source: 'ports/crypto_port.rs', lines 85:0-87:1
+    Visibility: public -/
+def crypto_port.word_crypto_hkdf_extract_sha256
+  (salt : Slice Std.U8) (ikm : Slice Std.U8) :
+  Result (Array Std.U8 32#usize)
+  := do
+  hashtrinity.crypto.hkdf_extract_sha256 salt ikm
+
+/-- [apeiron_word::crypto_port::word_crypto_hkdf_expand_sha256]:
+    Source: 'ports/crypto_port.rs', lines 90:0-92:1
+    Visibility: public -/
+def crypto_port.word_crypto_hkdf_expand_sha256
+  (prk : Slice Std.U8) (info : Slice Std.U8) (len : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.hkdf_expand_sha256 prk info len
+
+/-- [apeiron_word::crypto_port::word_crypto_hkdf_sha256]:
+    Source: 'ports/crypto_port.rs', lines 95:0-97:1
+    Visibility: public -/
+def crypto_port.word_crypto_hkdf_sha256
+  (salt : Slice Std.U8) (ikm : Slice Std.U8) (info : Slice Std.U8)
+  (len : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.hkdf_sha256 salt ikm info len
+
+/-- [apeiron_word::crypto_port::word_crypto_hkdf_sha384]:
+    Source: 'ports/crypto_port.rs', lines 100:0-102:1
+    Visibility: public -/
+def crypto_port.word_crypto_hkdf_sha384
+  (salt : Slice Std.U8) (ikm : Slice Std.U8) (info : Slice Std.U8)
+  (len : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.hkdf_sha384 salt ikm info len
+
+/-- [apeiron_word::crypto_port::word_crypto_hkdf_sha512]:
+    Source: 'ports/crypto_port.rs', lines 105:0-107:1
+    Visibility: public -/
+def crypto_port.word_crypto_hkdf_sha512
+  (salt : Slice Std.U8) (ikm : Slice Std.U8) (info : Slice Std.U8)
+  (len : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hashtrinity.crypto.hkdf_sha512 salt ikm info len
+
+/-- [apeiron_word::crypto_port::word_crypto_chacha20_block]:
+    Source: 'ports/crypto_port.rs', lines 112:0-114:1
+    Visibility: public -/
+def crypto_port.word_crypto_chacha20_block
+  (key : Array Std.U8 32#usize) (counter : Std.U32)
+  (nonce : Array Std.U8 12#usize) :
+  Result (Array Std.U8 64#usize)
+  := do
+  hashtrinity.crypto.chacha_poly.chacha20_block key counter nonce
+
+/-- [apeiron_word::crypto_port::word_crypto_ecdsa_p256_verify]:
+    Source: 'ports/crypto_port.rs', lines 119:0-121:1
+    Visibility: public -/
+def crypto_port.word_crypto_ecdsa_p256_verify
+  (pubkey : Array Std.U8 64#usize) (hash : Array Std.U8 32#usize)
+  (sig : Array Std.U8 64#usize) :
+  Result Bool
+  := do
+  hashtrinity.crypto.ecdsa.ecdsa_p256_verify pubkey hash sig
+
+/-- [apeiron_word::crypto_port::word_crypto_p256_pubkey]:
+    Source: 'ports/crypto_port.rs', lines 124:0-126:1
+    Visibility: public -/
+def crypto_port.word_crypto_p256_pubkey
+  (secret : Array Std.U8 32#usize) : Result (Array Std.U8 64#usize) := do
+  hashtrinity.crypto.ecdsa.p256_pubkey secret
+
+/-- [apeiron_word::crypto_port::word_crypto_secp256k1_pubkey]:
+    Source: 'ports/crypto_port.rs', lines 129:0-131:1
+    Visibility: public -/
+def crypto_port.word_crypto_secp256k1_pubkey
+  (secret : Array Std.U8 32#usize) : Result (Array Std.U8 64#usize) := do
+  hashtrinity.crypto.secp256k1.pubkey secret
+
+/-- [apeiron_word::crypto_port::word_crypto_ecdsa_p384_verify]:
+    Source: 'ports/crypto_port.rs', lines 134:0-140:1
+    Visibility: public -/
+def crypto_port.word_crypto_ecdsa_p384_verify
+  (pubkey : Array Std.U8 96#usize) (hash : Array Std.U8 48#usize)
+  (sig : Array Std.U8 96#usize) :
+  Result Bool
+  := do
+  hashtrinity.crypto.p384.ecdsa_p384_verify pubkey hash sig
+
+/-- [apeiron_word::crypto_port::word_crypto_rsa_pkcs1_sha256_verify]:
+    Source: 'ports/crypto_port.rs', lines 143:0-150:1
+    Visibility: public -/
+def crypto_port.word_crypto_rsa_pkcs1_sha256_verify
+  (n_be : Slice Std.U8) (e : Std.U64) (sig_be : Slice Std.U8)
+  (msg_hash : Array Std.U8 32#usize) :
+  Result Bool
+  := do
+  hashtrinity.crypto.rsa.rsa_pkcs1_sha256_verify n_be e sig_be msg_hash
+
+/-- [apeiron_word::crypto_port::word_crypto_bech32_convert_bits]:
+    Source: 'ports/crypto_port.rs', lines 155:0-162:1
+    Visibility: public -/
+def crypto_port.word_crypto_bech32_convert_bits
+  (data : Slice Std.U8) («from» : Std.U32) («to» : Std.U32) (pad : Bool) :
+  Result (Option (alloc.vec.Vec Std.U8))
+  := do
+  hashtrinity.crypto.bech32.convert_bits data «from» «to» pad
+
+/-- [apeiron_word::fit_port::word_fit_steps_fwht_words]:
+    Source: 'ports/fit_port.rs', lines 17:0-19:1
+    Visibility: public -/
+def fit_port.word_fit_steps_fwht_words
+  (x : Slice Std.I64) :
+  Result ((core.result.Result Unit fold_port.fit.steps.StepsError) × (Slice
+    Std.I64))
+  := do
+  fold_port.fit.steps.fwht_words x
+
+/-- [apeiron_word::fit_port::word_fit_steps_had_gram]:
+    Source: 'ports/fit_port.rs', lines 22:0-27:1
+    Visibility: public -/
+def fit_port.word_fit_steps_had_gram
+  (h : Slice Std.I64) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.steps.StepsError)
+  := do
+  fold_port.fit.steps.had_gram h n
+
+/-- [apeiron_word::fit_port::word_fit_steps_compose]:
+    Source: 'ports/fit_port.rs', lines 30:0-38:1
+    Visibility: public -/
+def fit_port.word_fit_steps_compose
+  (s : Slice Std.I64) (r : Slice Std.I64) (c : Slice Std.I64) (o : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.steps.StepsError)
+  := do
+  fold_port.fit.steps.compose s r c o n
+
+/-- [apeiron_word::fit_port::word_fit_gptq_e8_carrier_feedback_u]:
+    Source: 'ports/fit_port.rs', lines 41:0-47:1
+    Visibility: public -/
+def fit_port.word_fit_gptq_e8_carrier_feedback_u
+  (h : Slice Std.I64) (n : Std.Usize) (damp : Std.I64) :
+  Result (core.result.Result fold_port.fit.gptq_e8_carrier.UFac
+    fold_port.fit.gptq_e8.GptqE8Error)
+  := do
+  fold_port.fit.gptq_e8_carrier.feedback_u h n damp
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_linear_new]:
+    Source: 'ports/fold_finish_port.rs', lines 50:0-52:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_linear_new
+  (o_total : Std.Usize) (n : Std.Usize) :
+  Result fold_finish_port.finish.train.Linear
+  := do
+  fold_finish_port.finish.train.Linear.new o_total n
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_planes_new]:
+    Source: 'ports/fold_finish_port.rs', lines 55:0-57:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_planes_new
+  (layers : alloc.vec.Vec (alloc.vec.Vec fold_finish_port.finish.train.Linear))
+  :
+  Result fold_finish_port.finish.train.Planes
+  := do
+  fold_finish_port.finish.train.Planes.new layers
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_planes_linear]:
+    Source: 'ports/fold_finish_port.rs', lines 60:0-66:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_planes_linear
+  (p : fold_finish_port.finish.train.Planes) (l : Std.Usize) (k : Std.Usize) :
+  Result (core.result.Result fold_finish_port.finish.train.Linear
+    fold_finish_port.finish.train.TrainError)
+  := do
+  fold_finish_port.finish.train.Planes.linear p l k
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_planes_linear_mut]:
+    Source: 'ports/fold_finish_port.rs', lines 69:0-75:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_planes_linear_mut
+  (p : fold_finish_port.finish.train.Planes) (l : Std.Usize) (k : Std.Usize) :
+  Result ((core.result.Result fold_finish_port.finish.train.Linear
+    fold_finish_port.finish.train.TrainError) × (core.result.Result
+    fold_finish_port.finish.train.Linear
+    fold_finish_port.finish.train.TrainError →
+    fold_finish_port.finish.train.Planes))
+  := do
+  fold_finish_port.finish.train.Planes.linear_mut p l k
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_layer_tunables_new]:
+    Source: 'ports/fold_finish_port.rs', lines 78:0-86:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_layer_tunables_new
+  (ln1 : Slice Std.I64) (ln2 : Slice Std.I64) (qb : Slice Std.I64)
+  (kb : Slice Std.I64) (vb : Slice Std.I64) :
+  Result fold_finish_port.finish.train.LayerTunables
+  := do
+  fold_finish_port.finish.train.LayerTunables.new ln1 ln2 qb kb vb
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_layer_tunables_bias_scale]:
+    Source: 'ports/fold_finish_port.rs', lines 89:0-91:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_layer_tunables_bias_scale
+  (lt : fold_finish_port.finish.train.LayerTunables) (which : Std.Usize) :
+  Result Std.I64
+  := do
+  fold_finish_port.finish.train.LayerTunables.bias_scale lt which
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_layer_tunables_tuned]:
+    Source: 'ports/fold_finish_port.rs', lines 94:0-96:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_layer_tunables_tuned
+  (lt : fold_finish_port.finish.train.LayerTunables) :
+  Result fold_finish_port.finish.train.LayerTuned
+  := do
+  fold_finish_port.finish.train.LayerTunables.tuned lt
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_tunables_new]:
+    Source: 'ports/fold_finish_port.rs', lines 99:0-101:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_tunables_new
+  (layers : alloc.vec.Vec fold_finish_port.finish.train.LayerTunables)
+  (fn_base : Slice Std.I64) :
+  Result fold_finish_port.finish.train.Tunables
+  := do
+  fold_finish_port.finish.train.Tunables.new layers fn_base
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_tunables_output_norm]:
+    Source: 'ports/fold_finish_port.rs', lines 104:0-106:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_tunables_output_norm
+  (t : fold_finish_port.finish.train.Tunables) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  fold_finish_port.finish.train.Tunables.output_norm t
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_frozen_new]:
+    Source: 'ports/fold_finish_port.rs', lines 109:0-111:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_frozen_new
+  (token_embd : Slice Std.I64) (lm_head : Slice Std.I64) :
+  Result fold_finish_port.finish.train.Frozen
+  := do
+  fold_finish_port.finish.train.Frozen.new token_embd lm_head
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_schedule_new]:
+    Source: 'ports/fold_finish_port.rs', lines 114:0-116:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_schedule_new
+  (warmup : Std.U64) (steps : Std.U64) :
+  Result fold_finish_port.finish.train.Schedule
+  := do
+  fold_finish_port.finish.train.Schedule.new warmup steps
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_schedule_factor]:
+    Source: 'ports/fold_finish_port.rs', lines 119:0-121:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_schedule_factor
+  (s : fold_finish_port.finish.train.Schedule) (step : Std.U64) :
+  Result Std.I64
+  := do
+  fold_finish_port.finish.train.Schedule.factor s step
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_adam_zeros]:
+    Source: 'ports/fold_finish_port.rs', lines 124:0-126:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_adam_zeros
+  (n : Std.Usize) : Result fold_finish_port.finish.train.Adam := do
+  fold_finish_port.finish.train.Adam.zeros n
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_adam_len]:
+    Source: 'ports/fold_finish_port.rs', lines 129:0-131:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_adam_len
+  (a : fold_finish_port.finish.train.Adam) : Result Std.Usize := do
+  fold_finish_port.finish.train.Adam.len a
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_adam_is_empty]:
+    Source: 'ports/fold_finish_port.rs', lines 134:0-136:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_adam_is_empty
+  (a : fold_finish_port.finish.train.Adam) : Result Bool := do
+  fold_finish_port.finish.train.Adam.is_empty a
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_adam_apply]:
+    Source: 'ports/fold_finish_port.rs', lines 139:0-146:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_adam_apply
+  (a : fold_finish_port.finish.train.Adam) (lr : Std.I64) (p : Slice Std.I64)
+  (g : Slice Std.I64) :
+  Result ((core.result.Result Unit fold_finish_port.finish.train.TrainError) ×
+    fold_finish_port.finish.train.Adam × (Slice Std.I64))
+  := do
+  fold_finish_port.finish.train.Adam.apply a lr p g
+
+/-- [apeiron_word::fold_finish_port::word_finish_train_kl_mean]:
+    Source: 'ports/fold_finish_port.rs', lines 154:0-160:1
+    Visibility: public -/
+def fold_finish_port.word_finish_train_kl_mean
+  (cfg : grad_solve_port.model.Config) (logits : Slice Std.I64)
+  (teacher : Slice Std.I64) :
+  Result (core.result.Result (Std.I64 × (alloc.vec.Vec Std.I64))
+    fold_finish_port.finish.train.TrainError)
+  := do
+  fold_finish_port.finish.train.kl_mean cfg logits teacher
+
+/-- [apeiron_word::fold_finish_port::word_run_convert_decode_f16]:
+    Source: 'ports/fold_finish_port.rs', lines 165:0-167:1
+    Visibility: public -/
+def fold_finish_port.word_run_convert_decode_f16
+  (raw : Slice Std.U8) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_finish_port.convert.ConvertError)
+  := do
+  fold_finish_port.convert.decode_f16 raw
+
+/-- [apeiron_word::fold_finish_port::word_run_convert_decode_bf16]:
+    Source: 'ports/fold_finish_port.rs', lines 170:0-172:1
+    Visibility: public -/
+def fold_finish_port.word_run_convert_decode_bf16
+  (raw : Slice Std.U8) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_finish_port.convert.ConvertError)
+  := do
+  fold_finish_port.convert.decode_bf16 raw
+
+/-- [apeiron_word::fold_finish_port::word_run_convert_decode_f32]:
+    Source: 'ports/fold_finish_port.rs', lines 175:0-177:1
+    Visibility: public -/
+def fold_finish_port.word_run_convert_decode_f32
+  (raw : Slice Std.U8) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_finish_port.convert.ConvertError)
+  := do
+  fold_finish_port.convert.decode_f32 raw
+
+/-- [apeiron_word::fold_layer_port::word_layer_driver_layer_words]:
+    Source: 'ports/fold_layer_port.rs', lines 42:0-44:1
+    Visibility: public -/
+def fold_layer_port.word_layer_driver_layer_words
+  (lt : grad_solve_port.model.LayerWeights) :
+  Result (core.result.Result fold_port.stats.parts.LayerWords
+    fold_layer_port.layer.driver.DriverError)
+  := do
+  fold_layer_port.layer.driver.layer_words lt
+
+/-- [apeiron_word::fold_layer_port::word_layer_driver_g_row_from_vec]:
+    Source: 'ports/fold_layer_port.rs', lines 56:0-58:1
+    Visibility: public -/
+def fold_layer_port.word_layer_driver_g_row_from_vec
+  (v : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.driver.DriverError)
+  := do
+  fold_layer_port.layer.driver.g_row_from_vec v
+
+/-- [apeiron_word::fold_layer_port::word_layer_driver_g_row_from_matrix]:
+    Source: 'ports/fold_layer_port.rs', lines 61:0-67:1
+    Visibility: public -/
+def fold_layer_port.word_layer_driver_g_row_from_matrix
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.driver.DriverError)
+  := do
+  fold_layer_port.layer.driver.g_row_from_matrix w rows cols
+
+/-- [apeiron_word::fold_layer_port::word_layer_driver_model_init]:
+    Source: 'ports/fold_layer_port.rs', lines 111:0-113:1
+    Visibility: public -/
+def fold_layer_port.word_layer_driver_model_init
+  (h0 : Slice Std.I64) : Result fold_layer_port.layer.driver.ModelState := do
+  fold_layer_port.layer.driver.model_init h0
+
+/-- [apeiron_word::fold_layer_port::word_layer_tensor_recon]:
+    Source: 'ports/fold_layer_port.rs', lines 154:0-160:1
+    Visibility: public -/
+def fold_layer_port.word_layer_tensor_recon
+  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.tensor.TensorError)
+  := do
+  fold_layer_port.layer.tensor.recon planes o n
+
+/-- [apeiron_word::fold_layer_port::word_layer_tensor_fold_row_scale]:
+    Source: 'ports/fold_layer_port.rs', lines 177:0-184:1
+    Visibility: public -/
+def fold_layer_port.word_layer_tensor_fold_row_scale
+  (fit : fold_layer_port.layer.tensor.TensorFit) (s_sol : Slice Std.I64)
+  (o : Std.Usize) (n : Std.Usize) :
+  Result ((core.result.Result Unit fold_layer_port.layer.tensor.TensorError) ×
+    fold_layer_port.layer.tensor.TensorFit)
+  := do
+  fold_layer_port.layer.tensor.fold_row_scale fit s_sol o n
+
+/-- [apeiron_word::fold_layer_port::word_layer_resq_rescale_hier]:
+    Source: 'ports/fold_layer_port.rs', lines 199:0-206:1
+    Visibility: public -/
+def fold_layer_port.word_layer_resq_rescale_hier
+  (rh : Slice Std.I64) (s : Slice Std.I64) (o : Std.Usize) (g : Std.Usize) :
+  Result (core.result.Result fold_port.fit.quant.RHier
+    fold_layer_port.layer.resq.ResqError)
+  := do
+  fold_layer_port.layer.resq.rescale_hier rh s o g
+
+/-- [apeiron_word::fold_layer_port::word_layer_resq_rescale_hier_top]:
+    Source: 'ports/fold_layer_port.rs', lines 209:0-216:1
+    Visibility: public -/
+def fold_layer_port.word_layer_resq_rescale_hier_top
+  (rh : Slice Std.I64) (s : Slice Std.I64) (rows : Slice Std.Usize)
+  (g : Std.Usize) :
+  Result (core.result.Result fold_port.fit.quant.RHier
+    fold_layer_port.layer.resq.ResqError)
+  := do
+  fold_layer_port.layer.resq.rescale_hier_top rh s rows g
+
+/-- [apeiron_word::format_port::word_packing_error_from_quant]:
+    Source: 'ports/format_port.rs', lines 12:0-16:1
+    Visibility: public -/
+def format_port.word_packing_error_from_quant
+  (e : quant.QuantError) : Result packing.PackingError := do
+  packing.PackingError.Insts.CoreConvertFromQuantError.from e
+
+/-- [apeiron_word::format_port::word_packing_validate]:
+    Source: 'ports/format_port.rs', lines 19:0-21:1
+    Visibility: public -/
+def format_port.word_packing_validate
+  (p : packing.Packing) :
+  Result (core.result.Result Unit packing.PackingError)
+  := do
+  packing.Packing.validate p
+
+/-- [apeiron_word::format_port::word_packing_from_gguf_kind]:
+    Source: 'ports/format_port.rs', lines 24:0-26:1
+    Visibility: public -/
+def format_port.word_packing_from_gguf_kind
+  (kind : Std.U32) : Result (Option packing.Packing) := do
+  packing.Packing.from_gguf_kind kind
+
+/-- [apeiron_word::format_port::word_packing_encode_block]:
+    Source: 'ports/format_port.rs', lines 29:0-34:1
+    Visibility: public -/
+def format_port.word_packing_encode_block
+  (p : packing.Packing) (b : packing.CanonicalBlock) :
+  Result (core.result.Result (alloc.vec.Vec Std.U8) packing.PackingError)
+  := do
+  packing.Packing.encode_block p b
+
+/-- [apeiron_word::format_port::word_packing_row_decode_fixed]:
+    Source: 'ports/format_port.rs', lines 37:0-43:1
+    Visibility: public -/
+def format_port.word_packing_row_decode_fixed
+  (p : packing.Packing) (raw : Slice Std.U8) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) packing.PackingError)
+  := do
+  packing.Packing.row_decode_fixed p raw n
+
+/-- [apeiron_word::format_port::word_packing_import_row]:
+    Source: 'ports/format_port.rs', lines 47:0-54:1
+    Visibility: public -/
+def format_port.word_packing_import_row
+  (kind : Std.U32) (p : packing.Packing) (raw : Slice Std.U8) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.U8) packing.PackingError)
+  := do
+  packing.import_row kind p raw n
+
+/-- [apeiron_word::format_port::word_packing_convert_row]:
+    Source: 'ports/format_port.rs', lines 57:0-63:1
+    Visibility: public -/
+def format_port.word_packing_convert_row
+  (kind : Std.U32) (raw : Slice Std.U8) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) packing.PackingError)
+  := do
+  packing.convert_row kind raw n
+
+/-- [apeiron_word::format_port::word_quant_q4_k_scale_mins]:
+    Source: 'ports/format_port.rs', lines 66:0-70:1
+    Visibility: public -/
+def format_port.word_quant_q4_k_scale_mins
+  (blk : Slice Std.U8) :
+  Result (core.result.Result (Array (Std.U8 × Std.U8) 8#usize)
+    quant.QuantError)
+  := do
+  quant.q4_k_scale_mins blk
+
+/-- [apeiron_word::format_port::word_quant_ggml_type_name]:
+    Source: 'ports/format_port.rs', lines 73:0-75:1
+    Visibility: public -/
+def format_port.word_quant_ggml_type_name (t : Std.U32) : Result String := do
+  quant.ggml_type_name t
+
+/-- [apeiron_word::format_port::word_bpe_hex_val]:
+    Source: 'ports/format_port.rs', lines 78:0-80:1
+    Visibility: public -/
+def format_port.word_bpe_hex_val (c : Std.U8) : Result (Option Std.U32) := do
+  format_port.bpe.hex_val c
+
+/-- [apeiron_word::format_port::word_bpe_contains_nul]:
+    Source: 'ports/format_port.rs', lines 83:0-85:1
+    Visibility: public -/
+def format_port.word_bpe_contains_nul (s : Str) : Result Bool := do
+  format_port.bpe.contains_nul s
+
+/-- [apeiron_word::format_port::word_bpe_is_nl]:
+    Source: 'ports/format_port.rs', lines 88:0-90:1
+    Visibility: public -/
+def format_port.word_bpe_is_nl (c : Char) : Result Bool := do
+  format_port.bpe.is_nl c
+
+/-- [apeiron_word::format_port::word_bpe_find_sub]:
+    Source: 'ports/format_port.rs', lines 93:0-95:1
+    Visibility: public -/
+def format_port.word_bpe_find_sub
+  (hay : Slice Std.U8) (needle : Slice Std.U8) :
+  Result (Option Std.Usize)
+  := do
+  format_port.bpe.find_sub hay needle
 
 /-- [apeiron_word::solve_port::word_solve_gemm_nn]:
     Source: 'solve_port.rs', lines 22:0-30:1

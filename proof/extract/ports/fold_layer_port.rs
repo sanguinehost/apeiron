@@ -25,7 +25,7 @@
 
 /// The real `src/learn/fold/layer/`: the stage accumulator/solve, the per-tensor assembly, the
 /// `-resq` row scale and the layer driver.
-#[path = "../../src/learn/fold/layer/mod.rs"]
+#[path = "../../../src/learn/fold/layer/mod.rs"]
 pub mod layer;
 
 use crate::learn::fold::fit::quant::RHier;
