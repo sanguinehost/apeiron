@@ -1,41 +1,25 @@
-//! The per-layer driver of the production `fold_gqa` fold transfer: the four stage folds, the
-//! student-path propagation and the model loop.
-//!
-//! Port of the per-layer loop and final-norm tail of `run_variant`
-//! (`/home/socol/oc-tmp/lanes/port/spec/fold_transfer.py:1479-1690`, `:1692-2040`). The production
-//! arm is the only one present: `fold_gqa`, the student-input path (`teacher_in = false`), `block`,
-//! `sink_gate`, `split_intra_inter`, `use_grow`, `q_mlp_trans`, `nb_arm`, `use_corr`, `use_resq`,
-//! `qronos_metric`, `bscale`, `e8_icm`; the `guided`, `yaqa*`, `drift_filter`, `rrr_mode`,
-//! `zellner`, `glu_comp`, `use_align`, `asym`, `skew`, `teacher_in`, `low_vram` and `PACK_SINK`
-//! branches are off and absent (no parameters, no stubs).
-//!
-//! One layer runs `qkv`, `o`, `ffn`, `down` (`STAGES`, `:49`): each accumulates the sink-weighted
-//! normal equations over the slabs ([`StageAccum`]), solves them ([`solve_stage`]) and fits every
-//! tensor ([`fit_tensor`]), writing `Lq[nm] = Wp` into the running student layer (`:1954`);
-//! [`sink_token_weights`] takes its median over one slab's positions (`:1592-1597`).
-//!
+//! The per-layer driver of the `fold_gqa` fold transfer: the four stage folds, the student-path
+//! propagation and the model loop. Port of `run_variant`
+//! (`/home/socol/oc-tmp/lanes/port/spec/fold_transfer.py:1479-2040`), production arm only:
+//! `fold_gqa`, student input, `block`, `sink_gate`, `split_intra_inter`, `use_grow`, `q_mlp_trans`,
+//! `nb_arm`, `use_corr`, `use_resq`, `qronos_metric`, `bscale`, `e8_icm`; `guided`, `yaqa*`,
+//! `drift_filter`, `rrr_mode`, `zellner`, `glu_comp`, `use_align`, `asym`, `skew`, `teacher_in`,
+//! `low_vram` and `PACK_SINK` are absent (no parameters, no stubs).
+//! One layer runs `qkv`, `o`, `ffn`, `down` (`STAGES`): each accumulates the sink-weighted normal
+//! equations over the slabs ([`StageAccum`]), solves them ([`solve_stage`]) and fits every tensor
+//! ([`fit_tensor`]), writing `Lq[nm] = Wp`; [`sink_token_weights`] takes its median over one slab.
 //! # The carrier
-//!
 //! Every weight, hidden state and computed value is a Q32.32 `i64` word, rounded once per step
 //! ([`crate::learn::solve::q32`]); leaving the range is [`DriverError::Grid`]. The [`LayerWeights`]
-//! fields, [`ModelState::ht`]/[`ModelState::hs`], [`LayerResult::ht_next`], the driver
-//! configuration scalars, the [`crate::learn::fold::layer::tensor`] fits and the
-//! [`crate::learn::fold::layer::resq`] row scales are words from the loader to here, so no `f64`
-//! buffer carries a weight, an activation, a Hessian or a fit result on this path; the `f64`
-//! arguments that remain are `layer::stage`'s and `fit::nb_refine`'s declared contracts, converted
-//! once per call. A kernel is one serial pass, and a stage's tensors are
-//! fitted serially because the pool dispatcher is not reentrant.
-//!
-//! # Grade
-//!
-//! `tested`: `tests/learn_fold_driver.rs`. No extraction or refinement links this file to a Lean
-//! theorem, so nothing here is `proved`.
-//!
-//! # Trust boundary
-//!
+//! fields, [`ModelState::ht`]/[`ModelState::hs`], [`LayerResult::ht_next`], the driver scalars, the
+//! layer `tensor` fits and `resq` row scales are words from the loader to here; the remaining
+//! `f64` arguments are `layer::stage`'s and `fit::nb_refine`'s declared contracts, converted once
+//! per call. A kernel is one serial pass; a stage's tensors are fitted serially because the pool
+//! dispatcher is not reentrant.
+//! Grade `tested` (`tests/learn_fold_driver.rs`); no refinement theorem links this file yet.
 //! `layer::stage`, `layer::tensor`, `layer::resq`, `stats::parts` and `fit::fnorm` are other
-//! modules' contracts, taken as given. Not covered: rustc/LLVM codegen, the reference's fp32
-//! accumulation, and the model loader and calibration set behind the inputs.
+//! modules' contracts, taken as given; rustc/LLVM codegen, the reference's fp32 accumulation and
+//! the loader and calibration set are out of scope.
 
 #![allow(
     clippy::cast_precision_loss,
@@ -48,11 +32,8 @@
     clippy::similar_names,
     clippy::too_many_arguments,
     clippy::too_many_lines,
-    reason = "the driver is the ported `run_variant` body: it indexes row-major `[rows, width]` \
-              buffers by `r/i/j/k/o`, names the tensors `q/k/v/o/gate/up/down` and the carriers \
-              `lt`/`lq`/`hs`/`hs_mid`/`ht` as the reference does, casts dimension counts \
-              `usize → f64`, and its stage functions take the reference's argument set; the public \
-              types repeat `driver::`; the pub boundary flips to slices in wave 2"
+    reason = "the ported run_variant body indexes row-major buffers by r/i/j/k/o, names tensors as \
+              the reference does, casts usize to f64 and takes the reference's argument set"
 )]
 
 use std::borrow::Cow;
@@ -173,15 +154,27 @@ pub use crate::learn::grad::model::LayerWeights;
 /// # Errors
 /// [`DriverError::Shape`] if a `Qwen2` attention bias the forward needs is absent.
 pub fn layer_words(lt: &LayerWeights) -> Result<LayerWords<'_>, DriverError> {
+    let qb = match &lt.bq {
+        Some(b) => b.as_slice(),
+        None => return Err(DriverError::Shape),
+    };
+    let kb = match &lt.bk {
+        Some(b) => b.as_slice(),
+        None => return Err(DriverError::Shape),
+    };
+    let vb = match &lt.bv {
+        Some(b) => b.as_slice(),
+        None => return Err(DriverError::Shape),
+    };
     Ok(LayerWords {
         ln1: &lt.attn_norm,
         ln2: &lt.ffn_norm,
         q: &lt.wq,
-        qb: lt.bq.as_deref().ok_or(DriverError::Shape)?,
+        qb,
         k: &lt.wk,
-        kb: lt.bk.as_deref().ok_or(DriverError::Shape)?,
+        kb,
         v: &lt.wv,
-        vb: lt.bv.as_deref().ok_or(DriverError::Shape)?,
+        vb,
         o: &lt.wo,
         gate: &lt.w_gate,
         up: &lt.w_up,
@@ -475,7 +468,7 @@ pub fn g_row_from_vec(v: &[i64]) -> Result<Vec<i64>, DriverError> {
         return Err(DriverError::Shape);
     }
     let sq = eval(v.len(), Elem::Square(v))?;
-    let len = i128::try_from(v.len()).map_err(|_| DriverError::Shape)?;
+    let len = i128::from(v.len() as u64);
     // `len` as a word, so the ratio is `Σ sq / len` (a mean) rather than `Σ sq / len·2³²`.
     let mean = ratio(sum_i128(&sq)?, len << 32)?;
     Ok(eval(sq.len(), Elem::Ratio(&sq, mean.max(1)))?)
@@ -495,10 +488,19 @@ pub fn g_row_from_matrix(w: &[i64], rows: usize, cols: usize) -> Result<Vec<i64>
     }
     let sums = col_squares(w, rows, cols)?;
     let mut total = 0_i128;
-    for &s in &sums {
-        total = total.checked_add(s).ok_or(DriverError::Grid)?;
+    let mut failed = false;
+    let mut i = 0;
+    while i < sums.len() && !failed {
+        match total.checked_add(sums[i]) {
+            Some(v) => total = v,
+            None => failed = true,
+        }
+        i += 1;
     }
-    let den = i128::try_from(cols).map_err(|_| DriverError::Grid)? << 32;
+    if failed {
+        return Err(DriverError::Grid);
+    }
+    let den = i128::from(cols as u64) << 32;
     Ok(ratio_words(&sums, ratio(total, den)?.max(1))?)
 }
 

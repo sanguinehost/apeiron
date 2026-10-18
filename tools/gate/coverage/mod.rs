@@ -471,6 +471,7 @@ fn load(root: &Path) -> Result<Inputs, String> {
         "fold_port.rs",
         "format_port.rs",
         "fold_finish_port.rs",
+        "fold_layer_port.rs",
     ] {
         let prefix = ex.strip_suffix(".rs").filter(|_| ex != "lib.rs");
         // A port file that this revision does not carry contributes no modules; `lib.rs` is always

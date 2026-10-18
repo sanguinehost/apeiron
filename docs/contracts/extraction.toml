@@ -420,12 +420,12 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/layer/driver.rs"
-unextracted = 46
+unextracted = 36
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/layer/resq.rs"
-unextracted = 13
+unextracted = 9
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -435,7 +435,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/layer/tensor.rs"
-unextracted = 37
+unextracted = 19
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -600,7 +600,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/face.rs"
-unextracted = 73
+unextracted = 70
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -640,7 +640,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/tregex.rs"
-unextracted = 45
+unextracted = 41
 row = "EXTRACT-COVERAGE"
 
 [[debt]]

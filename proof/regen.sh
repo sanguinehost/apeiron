@@ -239,6 +239,12 @@ $REPO_DIR/src/learn/fold/finish/plane.rs
 $REPO_DIR/src/learn/fold/finish/train.rs
 $REPO_DIR/src/learn/fold/run/convert.rs
 $REPO_DIR/src/learn/fold/run/transfer.rs
+$EXTRACT_DIR/fold_layer_port.rs
+$REPO_DIR/src/learn/fold/layer/mod.rs
+$REPO_DIR/src/learn/fold/layer/driver.rs
+$REPO_DIR/src/learn/fold/layer/tensor.rs
+$REPO_DIR/src/learn/fold/layer/resq.rs
+$REPO_DIR/src/learn/fold/layer/stage.rs
 $REPO_DIR/src/map/hashtrinity/side.rs
 $REPO_DIR/src/map/hashtrinity/overflow.rs
 $EXTRACT_DIR/Cargo.toml
@@ -508,6 +514,34 @@ run_extract() {
         --start-from crate::fold_finish_port::word_run_convert_decode_bf16 \
         --start-from crate::fold_finish_port::word_run_convert_decode_f32 \
         --start-from crate::coord_port::word_identity_node_iter_next \
+        --start-from crate::fold_layer_port::word_layer_driver_layer_words \
+        --start-from crate::fold_layer_port::word_layer_driver_g_row_from_vec \
+        --start-from crate::fold_layer_port::word_layer_driver_g_row_from_matrix \
+        --start-from crate::fold_layer_port::word_layer_driver_model_init \
+        --start-from crate::fold_layer_port::word_layer_tensor_recon \
+        --start-from crate::fold_layer_port::word_layer_tensor_fold_row_scale \
+        --start-from crate::fold_layer_port::word_layer_resq_rescale_hier \
+        --start-from crate::fold_layer_port::word_layer_resq_rescale_hier_top \
+        --start-from crate::hashtrinity_port::word_locate_ref_coord \
+        --start-from crate::hashtrinity_port::word_locate_ref_same \
+        --start-from crate::hashtrinity_port::word_absorb_ref \
+        --start-from crate::hashtrinity_port::word_locate_str_coord \
+        --start-from crate::hashtrinity_port::word_locate_str_same \
+        --start-from crate::hashtrinity_port::word_absorb_str \
+        --start-from crate::hashtrinity_port::word_locate_pair_coord \
+        --start-from crate::hashtrinity_port::word_locate_pair_same \
+        --start-from crate::hashtrinity_port::word_absorb_pair \
+        --start-from crate::hashtrinity_port::word_locate_triple_coord \
+        --start-from crate::hashtrinity_port::word_locate_triple_same \
+        --start-from crate::hashtrinity_port::word_absorb_triple \
+        --start-from crate::hashtrinity_port::word_face_contains_key \
+        --start-from crate::hashtrinity_port::word_face_entry_is_occupied \
+        --start-from crate::hashtrinity_port::word_face_reserve \
+        --start-from crate::hashtrinity_port::word_tregex_match_start \
+        --start-from crate::hashtrinity_port::word_tregex_match_end \
+        --start-from crate::hashtrinity_port::word_tregex_match_range \
+        --start-from crate::hashtrinity_port::word_tregex_is_word \
+        --start-from crate::hashtrinity_port::word_tregex_match_segs \
         --start-from crate::word_silu_fixed \
         --start-from crate::word_rms_norm_fixed \
         --start-from crate::word_rope_rotate_fixed \

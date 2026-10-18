@@ -109,7 +109,9 @@ impl Locate<String> for &str {
     }
     #[inline]
     fn same(&self, k: &String) -> bool {
-        *self == k.as_str()
+        // Byte equality is `str` equality; the byte form is the one the model defines
+        // (`Str.as_bytes` + `Slice` eq), where `PartialEq for str` is not.
+        self.as_bytes() == k.as_bytes()
     }
 }
 impl Absorb<String> for &str {
@@ -627,10 +629,11 @@ impl<K: Eq + Coord, V, KS: KeyStore<K>> Table<K, V, KS> {
         match self.probe_capped_keyed(coord, k) {
             Capped::Hit(_) => true,
             Capped::Vacant(_) => false,
-            Capped::Blocked => self
-                .overflow
-                .as_ref()
-                .is_some_and(|o| o.get(coord, k).is_some()),
+            // A `match`, not `Option::is_some_and`: the closure form is not in the model.
+            Capped::Blocked => match self.overflow.as_ref() {
+                Some(o) => o.get(coord, k).is_some(),
+                None => false,
+            },
         }
     }
 

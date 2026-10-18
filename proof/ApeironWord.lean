@@ -77631,6 +77631,37 @@ def fold_port.fit.eigh.eigh
       else
         ok (core.result.Result.Err fold_port.fit.eigh.EighError.NotConverged)
 
+/-- [apeiron_word::fold_port::fit::fnorm::FnormError]
+    Source: '../../src/learn/fold/fit/fnorm.rs', lines 68:0-77:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.fit.fnorm.FnormError where
+| ShapeMismatch : fold_port.fit.fnorm.FnormError
+| BadEps : fold_port.fit.fnorm.FnormError
+| Overflow : fold_port.fit.fnorm.FnormError
+
+/-- [apeiron_word::fold_port::fit::fold_fit::GROUP]
+    Source: '../../src/learn/fold/fit/fold_fit.rs', lines 82:0-82:29
+    Visibility: public -/
+@[global_simps, irreducible]
+def fold_port.fit.fold_fit.GROUP : Std.Usize := 128#usize
+
+/-- [apeiron_word::fold_port::fit::fold_fit::FoldFitError]
+    Source: '../../src/learn/fold/fit/fold_fit.rs', lines 96:0-118:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.fit.fold_fit.FoldFitError where
+| ShapeMismatch : fold_port.fit.fold_fit.FoldFitError
+| ZeroDim : fold_port.fit.fold_fit.FoldFitError
+| Width : fold_port.fit.fold_fit.FoldFitError
+| Unsupported : fold_port.fit.fold_fit.FoldFitError
+| NonFinite : fold_port.fit.fold_fit.FoldFitError
+| NotPositiveDefinite : fold_port.fit.fold_fit.FoldFitError
+| Overflow : fold_port.fit.fold_fit.FoldFitError
+| Codebook : fold_port.fit.fold_fit.FoldFitError
+| BadBits : fold_port.fit.fold_fit.FoldFitError
+| PackMismatch : fold_port.fit.fold_fit.FoldFitError
+
 /-- [apeiron_word::fold_port::fit::gptq_e8::GptqE8Error]
     Source: '../../src/learn/fold/fit/gptq_e8.rs', lines 128:0-147:1
     Visibility: public -/
@@ -79044,6 +79075,55 @@ def fold_port.fit.gptq_e8_carrier.feedback_u
           fold_port.fit.gptq_e8_carrier.UFac (core.convert.FromSame
           fold_port.fit.gptq_e8.GptqE8Error) residual
 
+/-- [apeiron_word::fold_port::fit::icm::IcmError]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 57:0-70:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.fit.icm.IcmError where
+| Shape : fold_port.fit.icm.IcmError
+| Width : fold_port.fit.icm.IcmError
+| ZeroChunk : fold_port.fit.icm.IcmError
+| BlockOutOfRange : fold_port.fit.icm.IcmError
+| Overflow : fold_port.fit.icm.IcmError
+| NotPositiveDefinite : fold_port.fit.icm.IcmError
+
+/-- [apeiron_word::fold_port::fit::icm::JointStats]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 104:0-112:1
+    Visibility: public -/
+structure fold_port.fit.icm.JointStats where
+  j_before : Std.I64
+  j_after : Std.I64
+  moves : Std.Usize
+
+/-- [apeiron_word::fold_port::fit::steps::StepsError]
+    Source: '../../src/learn/fold/fit/steps.rs', lines 148:0-155:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.fit.steps.StepsError where
+| ShapeMismatch : fold_port.fit.steps.StepsError
+| NotPositiveDefinite : fold_port.fit.steps.StepsError
+
+/-- [apeiron_word::fold_port::fit::nb_refine::NbError]
+    Source: '../../src/learn/fold/fit/nb_refine.rs', lines 88:0-100:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.fit.nb_refine.NbError where
+| Shape : fold_port.fit.nb_refine.NbError
+| Width : fold_port.fit.nb_refine.NbError
+| Icm : fold_port.fit.icm.IcmError → fold_port.fit.nb_refine.NbError
+| Steps : fold_port.fit.steps.StepsError → fold_port.fit.nb_refine.NbError
+| Quant : fold_port.fit.quant.QuantError → fold_port.fit.nb_refine.NbError
+
+/-- [apeiron_word::fold_port::fit::nb_refine::NbLog]
+    Source: '../../src/learn/fold/fit/nb_refine.rs', lines 122:0-134:1
+    Visibility: public -/
+structure fold_port.fit.nb_refine.NbLog where
+  j_seq : Std.I64
+  j_nb : Std.I64
+  moves : Std.Usize
+  rounds_kept : Std.Usize
+  per_round : alloc.vec.Vec fold_port.fit.icm.JointStats
+
 /-- [apeiron_word::fold_port::fit::quant::DEV_MIN]
     Source: '../../src/learn/fold/fit/quant.rs', lines 43:0-43:29 -/
 @[global_simps, irreducible]
@@ -80254,14 +80334,6 @@ def fold_port.fit.quant.quant_r_hier
 @[global_simps, irreducible]
 def fold_port.fit.steps.GROUP : Std.Usize := 128#usize
 
-/-- [apeiron_word::fold_port::fit::steps::StepsError]
-    Source: '../../src/learn/fold/fit/steps.rs', lines 148:0-155:1
-    Visibility: public -/
-@[discriminant isize]
-inductive fold_port.fit.steps.StepsError where
-| ShapeMismatch : fold_port.fit.steps.StepsError
-| NotPositiveDefinite : fold_port.fit.steps.StepsError
-
 /-- [apeiron_word::fold_port::fit::steps::mul_word::{closure}]
     Source: '../../src/learn/fold/fit/steps.rs', lines 84:63-84:92 -/
 @[reducible]
@@ -80730,6 +80802,2393 @@ def fold_port.fit.steps.compose
           else fold_port.fit.steps.compose_grid s r c o n g
     else
       ok (core.result.Result.Err fold_port.fit.steps.StepsError.ShapeMismatch)
+
+/-- [apeiron_word::fold_port::stats::parts::PartsError]
+    Source: '../../src/learn/fold/stats/parts.rs', lines 177:0-188:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_port.stats.parts.PartsError where
+| Shape : fold_port.stats.parts.PartsError
+| NonFinite : fold_port.stats.parts.PartsError
+| RopeTooShort : fold_port.stats.parts.PartsError
+| OutOfRange : fold_port.stats.parts.PartsError
+
+/-- [apeiron_word::fold_layer_port::layer::stage::StageError]
+    Source: '../../src/learn/fold/layer/stage.rs', lines 62:0-75:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_layer_port.layer.stage.StageError where
+| Shape : fold_layer_port.layer.stage.StageError
+| Empty : fold_layer_port.layer.stage.StageError
+| NonFinite : fold_layer_port.layer.stage.StageError
+| NotPositiveDefinite : fold_layer_port.layer.stage.StageError
+| Overflow : fold_layer_port.layer.stage.StageError
+| MissingCts : fold_layer_port.layer.stage.StageError
+
+/-- [apeiron_word::fold_layer_port::layer::resq::ResqError]
+    Source: '../../src/learn/fold/layer/resq.rs', lines 46:0-57:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_layer_port.layer.resq.ResqError where
+| Empty : fold_layer_port.layer.resq.ResqError
+| ShapeMismatch : fold_layer_port.layer.resq.ResqError
+| NotPositiveDefinite : fold_layer_port.layer.resq.ResqError
+| Overflow : fold_layer_port.layer.resq.ResqError
+| Quant :
+  fold_port.fit.quant.QuantError →
+  fold_layer_port.layer.resq.ResqError
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::TensorError]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 183:0-231:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_layer_port.layer.tensor.TensorError where
+| ShapeMismatch : fold_layer_port.layer.tensor.TensorError
+| ZeroDim : fold_layer_port.layer.tensor.TensorError
+| Width : fold_layer_port.layer.tensor.TensorError
+| QmlpRowsOutOfRange :
+  Std.Usize →
+  Std.Usize →
+  fold_layer_port.layer.tensor.TensorError
+| BiasKind : fold_layer_port.layer.tensor.TensorError
+| NotUp : fold_layer_port.layer.tensor.TensorError
+| PlaneShape : fold_layer_port.layer.tensor.TensorError
+| Grid : fold_layer_port.layer.tensor.TensorError
+| SinkMismatch : Std.I64 → fold_layer_port.layer.tensor.TensorError
+| Fit :
+  fold_port.fit.fold_fit.FoldFitError →
+  fold_layer_port.layer.tensor.TensorError
+| Nb :
+  fold_port.fit.nb_refine.NbError →
+  fold_layer_port.layer.tensor.TensorError
+| Corrector :
+  fold_port.fit.corrector.CorrectorError →
+  fold_layer_port.layer.tensor.TensorError
+| Resq :
+  fold_layer_port.layer.resq.ResqError →
+  fold_layer_port.layer.tensor.TensorError
+| Stage :
+  fold_layer_port.layer.stage.StageError →
+  fold_layer_port.layer.tensor.TensorError
+| Icm : fold_port.fit.icm.IcmError → fold_layer_port.layer.tensor.TensorError
+| Steps :
+  fold_port.fit.steps.StepsError →
+  fold_layer_port.layer.tensor.TensorError
+| Quant :
+  fold_port.fit.quant.QuantError →
+  fold_layer_port.layer.tensor.TensorError
+
+/-- [apeiron_word::fold_layer_port::layer::driver::DriverError]
+    Source: '../../src/learn/fold/layer/driver.rs', lines 63:0-86:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_layer_port.layer.driver.DriverError where
+| Shape : fold_layer_port.layer.driver.DriverError
+| Geometry : fold_layer_port.layer.driver.DriverError
+| TinySeq : fold_layer_port.layer.driver.DriverError
+| NonFinite : fold_layer_port.layer.driver.DriverError
+| Grid : fold_layer_port.layer.driver.DriverError
+| Parts :
+  fold_port.stats.parts.PartsError →
+  fold_layer_port.layer.driver.DriverError
+| Stage :
+  fold_layer_port.layer.stage.StageError →
+  fold_layer_port.layer.driver.DriverError
+| Tensor :
+  fold_layer_port.layer.tensor.TensorError →
+  fold_layer_port.layer.driver.DriverError
+| Resq :
+  fold_layer_port.layer.resq.ResqError →
+  fold_layer_port.layer.driver.DriverError
+| Fnorm :
+  fold_port.fit.fnorm.FnormError →
+  fold_layer_port.layer.driver.DriverError
+
+/-- [apeiron_word::fold_layer_port::layer::driver::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::driver::DriverError}::from]:
+    Source: '../../src/learn/fold/layer/driver.rs', lines 119:4-124:5
+    Visibility: public -/
+def fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error.from
+  (e : solve_port.q32.Q32Error) :
+  Result fold_layer_port.layer.driver.DriverError
+  := do
+  match e with
+  | solve_port.q32.Q32Error.Overflow =>
+    ok fold_layer_port.layer.driver.DriverError.Grid
+  | solve_port.q32.Q32Error.NotSpd =>
+    ok fold_layer_port.layer.driver.DriverError.Grid
+  | solve_port.q32.Q32Error.Asymmetric =>
+    ok fold_layer_port.layer.driver.DriverError.Grid
+  | solve_port.q32.Q32Error.ShapeMismatch =>
+    ok fold_layer_port.layer.driver.DriverError.Shape
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::driver::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::driver::DriverError}]
+    Source: '../../src/learn/fold/layer/driver.rs', lines 118:0-125:1 -/
+@[reducible]
+def fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error :
+  core.convert.From fold_layer_port.layer.driver.DriverError
+  solve_port.q32.Q32Error := {
+  «from» :=
+    fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error.from
+}
+
+/-- [apeiron_word::grad_solve_port::model::LayerWeights]
+    Source: '../../src/learn/grad/model.rs', lines 171:0-196:1
+    Visibility: public -/
+structure grad_solve_port.model.LayerWeights where
+  attn_norm : alloc.vec.Vec Std.I64
+  wq : alloc.vec.Vec Std.I64
+  bq : Option (alloc.vec.Vec Std.I64)
+  wk : alloc.vec.Vec Std.I64
+  bk : Option (alloc.vec.Vec Std.I64)
+  wv : alloc.vec.Vec Std.I64
+  bv : Option (alloc.vec.Vec Std.I64)
+  wo : alloc.vec.Vec Std.I64
+  ffn_norm : alloc.vec.Vec Std.I64
+  w_gate : alloc.vec.Vec Std.I64
+  w_up : alloc.vec.Vec Std.I64
+  w_down : alloc.vec.Vec Std.I64
+
+/-- [apeiron_word::fold_port::stats::parts::LayerWords]
+    Source: '../../src/learn/fold/stats/parts.rs', lines 193:0-218:1
+    Visibility: public -/
+structure fold_port.stats.parts.LayerWords where
+  ln1 : Slice Std.I64
+  ln2 : Slice Std.I64
+  q : Slice Std.I64
+  qb : Slice Std.I64
+  k : Slice Std.I64
+  kb : Slice Std.I64
+  v : Slice Std.I64
+  vb : Slice Std.I64
+  o : Slice Std.I64
+  gate : Slice Std.I64
+  up : Slice Std.I64
+  down : Slice Std.I64
+
+/-- [apeiron_word::fold_layer_port::layer::driver::layer_words]:
+    Source: '../../src/learn/fold/layer/driver.rs', lines 156:0-183:1
+    Visibility: public -/
+def fold_layer_port.layer.driver.layer_words
+  (lt : grad_solve_port.model.LayerWeights) :
+  Result (core.result.Result fold_port.stats.parts.LayerWords
+    fold_layer_port.layer.driver.DriverError)
+  := do
+  match lt.bq with
+  | none =>
+    ok (core.result.Result.Err fold_layer_port.layer.driver.DriverError.Shape)
+  | some b =>
+    let qb ← alloc.vec.Vec.as_slice Global b
+    match lt.bk with
+    | none =>
+      ok (core.result.Result.Err
+        fold_layer_port.layer.driver.DriverError.Shape)
+    | some b1 =>
+      let kb ← alloc.vec.Vec.as_slice Global b1
+      match lt.bv with
+      | none =>
+        ok (core.result.Result.Err
+          fold_layer_port.layer.driver.DriverError.Shape)
+      | some b2 =>
+        let vb ← alloc.vec.Vec.as_slice Global b2
+        let s := alloc.vec.Vec.deref lt.attn_norm
+        let s1 := alloc.vec.Vec.deref lt.ffn_norm
+        let s2 := alloc.vec.Vec.deref lt.wq
+        let s3 := alloc.vec.Vec.deref lt.wk
+        let s4 := alloc.vec.Vec.deref lt.wv
+        let s5 := alloc.vec.Vec.deref lt.wo
+        let s6 := alloc.vec.Vec.deref lt.w_gate
+        let s7 := alloc.vec.Vec.deref lt.w_up
+        let s8 := alloc.vec.Vec.deref lt.w_down
+        ok (core.result.Result.Ok
+          {
+            ln1 := s,
+            ln2 := s1,
+            q := s2,
+            qb,
+            k := s3,
+            kb,
+            v := s4,
+            vb,
+            o := s5,
+            gate := s6,
+            up := s7,
+            down := s8
+          })
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::SinkPlane]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 141:0-157:1
+    Visibility: public -/
+structure fold_layer_port.layer.tensor.SinkPlane where
+  s_rot : alloc.vec.Vec Std.I64
+  rh : alloc.vec.Vec Std.I64
+  ch : alloc.vec.Vec Std.I64
+  dh : alloc.vec.Vec Std.I64
+  rows : Option (alloc.vec.Vec Std.Usize)
+  dense : Option (alloc.vec.Vec Std.I64)
+  factors : Option fold_port.fit.corrector.Factors
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::TensorBits]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 123:0-134:1
+    Visibility: public -/
+structure fold_layer_port.layer.tensor.TensorBits where
+  nsign : Std.U64
+  nr : Std.U64
+  nc : Std.U64
+  nd : Std.U64
+  ncorr : Std.U64
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::TensorKind]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 70:0-85:1
+    Visibility: public -/
+@[discriminant isize]
+inductive fold_layer_port.layer.tensor.TensorKind where
+| Q : fold_layer_port.layer.tensor.TensorKind
+| K : fold_layer_port.layer.tensor.TensorKind
+| V : fold_layer_port.layer.tensor.TensorKind
+| O : fold_layer_port.layer.tensor.TensorKind
+| Gate : fold_layer_port.layer.tensor.TensorKind
+| Up : fold_layer_port.layer.tensor.TensorKind
+| Down : fold_layer_port.layer.tensor.TensorKind
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::TensorFit]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 163:0-179:1
+    Visibility: public -/
+structure fold_layer_port.layer.tensor.TensorFit where
+  kind : fold_layer_port.layer.tensor.TensorKind
+  wp : alloc.vec.Vec Std.I64
+  planes : alloc.vec.Vec fold_layer_port.layer.tensor.SinkPlane
+  bits : fold_layer_port.layer.tensor.TensorBits
+  nb : Option fold_port.fit.nb_refine.NbLog
+  top_rows : Option (alloc.vec.Vec Std.Usize)
+  db : Option (alloc.vec.Vec Std.I64)
+
+/-- [apeiron_word::fold_layer_port::layer::driver::SlabParts]
+    Source: '../../src/learn/fold/layer/driver.rs', lines 397:0-412:1 -/
+structure fold_layer_port.layer.driver.SlabParts where
+  q : alloc.vec.Vec Std.I64
+  k : alloc.vec.Vec Std.I64
+  v : alloc.vec.Vec Std.I64
+  mid : alloc.vec.Vec Std.I64
+  g : alloc.vec.Vec Std.I64
+  u : alloc.vec.Vec Std.I64
+  out : alloc.vec.Vec Std.I64
+
+/-- [apeiron_word::fold_layer_port::layer::driver::LayerForward]
+    Source: '../../src/learn/fold/layer/driver.rs', lines 718:0-729:1
+    Visibility: public -/
+structure fold_layer_port.layer.driver.LayerForward where
+  pt : alloc.vec.Vec fold_layer_port.layer.driver.SlabParts
+  ln1 : alloc.vec.Vec Std.I64
+  ln2 : alloc.vec.Vec Std.I64
+  w_tok : Option (alloc.vec.Vec (alloc.vec.Vec Std.I64))
+  w_tok_mid : Option (alloc.vec.Vec (alloc.vec.Vec Std.I64))
+
+/-- [apeiron_word::fold_layer_port::layer::driver::LayerProgress]
+    Source: '../../src/learn/fold/layer/driver.rs', lines 1090:0-1107:1
+    Visibility: public -/
+structure fold_layer_port.layer.driver.LayerProgress where
+  stage : Std.Usize
+  lq : grad_solve_port.model.LayerWeights
+  fits : alloc.vec.Vec fold_layer_port.layer.tensor.TensorFit
+  bits : fold_layer_port.layer.tensor.TensorBits
+  hs_mid : alloc.vec.Vec Std.I64
+  forward : Option fold_layer_port.layer.driver.LayerForward
+
+/-- [apeiron_word::fold_layer_port::layer::driver::ModelState]
+    Source: '../../src/learn/fold/layer/driver.rs', lines 276:0-293:1
+    Visibility: public -/
+structure fold_layer_port.layer.driver.ModelState where
+  next : Std.Usize
+  ht : alloc.vec.Vec Std.I64
+  hs : alloc.vec.Vec Std.I64
+  layers : alloc.vec.Vec grad_solve_port.model.LayerWeights
+  bits : fold_layer_port.layer.tensor.TensorBits
+  fits : alloc.vec.Vec (alloc.vec.Vec fold_layer_port.layer.tensor.TensorFit)
+  «partial» : Option fold_layer_port.layer.driver.LayerProgress
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::tri_sub]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 1083:4-1085:5 -/
+def fold_layer_port.layer.tensor.carrier.tri_sub
+  (a : Std.I64) (b : Std.I64) (c : Std.I64) : Result (Option Std.I64) := do
+  let o ← lift (I64.checked_sub a b)
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o1 ← lift (I64.checked_sub b c)
+    let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      ok (I64.checked_add val val1)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+        Std.I64 residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      Std.I64 residual
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::Elem]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 1041:4-1053:5 -/
+@[discriminant isize]
+inductive fold_layer_port.layer.tensor.carrier.Elem where
+| Sub :
+  Slice Std.I64 →
+  Slice Std.I64 →
+  fold_layer_port.layer.tensor.carrier.Elem
+| Add :
+  Slice Std.I64 →
+  Slice Std.I64 →
+  fold_layer_port.layer.tensor.carrier.Elem
+| TriSub :
+  Slice Std.I64 →
+  Slice Std.I64 →
+  Slice Std.I64 →
+  fold_layer_port.layer.tensor.carrier.Elem
+| MulCol :
+  Slice Std.I64 →
+  Slice Std.I64 →
+  Std.Usize →
+  fold_layer_port.layer.tensor.carrier.Elem
+| Square : Slice Std.I64 → fold_layer_port.layer.tensor.carrier.Elem
+| SubBias :
+  Slice Std.I64 →
+  Slice Std.I64 →
+  Std.Usize →
+  fold_layer_port.layer.tensor.carrier.Elem
+| Ratio :
+  Slice Std.I64 →
+  Std.I64 →
+  fold_layer_port.layer.tensor.carrier.Elem
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 963:4-970:5 -/
+def fold_layer_port.layer.tensor.carrier.ratio
+  (num : Std.I128) (den : Std.I128) :
+  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
+  := do
+  if den <= 0#i128
+  then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+  else
+    let shifted ← num <<< 32#i32
+    let i ← solve_port.q32.div_rne_pos shifted den
+    let o ← solve_port.q32.narrow i
+    core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::mul]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 954:4-956:5 -/
+def fold_layer_port.layer.tensor.carrier.mul
+  (a : Std.I64) (b : Std.I64) :
+  Result (core.result.Result Std.I64 solve_port.q32.Q32Error)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from a)
+  let i1 ← lift (core.convert.num.FromI128I64.from b)
+  let i2 ← i * i1
+  solve_port.q32.round_q32_even i2
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::eval]: loop body 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 1060:8-1075:9 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.carrier.eval_loop.body
+  (len : Std.Usize) (e : fold_layer_port.layer.tensor.carrier.Elem)
+  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.q32.Q32Error)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error)))
+  := do
+  if i < len
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let step ←
+        match e with
+        | fold_layer_port.layer.tensor.carrier.Elem.Sub a b1 =>
+          do
+          let i1 ← Slice.index_usize a i
+          let i2 ← Slice.index_usize b1 i
+          let o ← lift (I64.checked_sub i1 i2)
+          core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
+        | fold_layer_port.layer.tensor.carrier.Elem.Add a b1 =>
+          do
+          let i1 ← Slice.index_usize a i
+          let i2 ← Slice.index_usize b1 i
+          let o ← lift (I64.checked_add i1 i2)
+          core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
+        | fold_layer_port.layer.tensor.carrier.Elem.TriSub a b1 c =>
+          do
+          let i1 ← Slice.index_usize a i
+          let i2 ← Slice.index_usize b1 i
+          let i3 ← Slice.index_usize c i
+          let o ← fold_layer_port.layer.tensor.carrier.tri_sub i1 i2 i3
+          core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
+        | fold_layer_port.layer.tensor.carrier.Elem.MulCol a b1 w =>
+          do
+          let i1 ← Slice.index_usize a i
+          let i2 ← i % w
+          let i3 ← Slice.index_usize b1 i2
+          fold_layer_port.layer.tensor.carrier.mul i1 i3
+        | fold_layer_port.layer.tensor.carrier.Elem.Square a =>
+          do
+          let i1 ← Slice.index_usize a i
+          fold_layer_port.layer.tensor.carrier.mul i1 i1
+        | fold_layer_port.layer.tensor.carrier.Elem.SubBias a b1 w =>
+          do
+          let i1 ← Slice.index_usize a i
+          let i2 ← i % w
+          let i3 ← Slice.index_usize b1 i2
+          let o ← lift (I64.checked_sub i1 i3)
+          core.option.Option.ok_or o solve_port.q32.Q32Error.Overflow
+        | fold_layer_port.layer.tensor.carrier.Elem.Ratio a d =>
+          do
+          let i1 ← Slice.index_usize a i
+          let i2 ← lift (core.convert.num.FromI128I64.from i1)
+          let i3 ← lift (core.convert.num.FromI128I64.from d)
+          fold_layer_port.layer.tensor.carrier.ratio i2 i3
+      let (out1, err1) ←
+        match step with
+        | core.result.Result.Ok v =>
+          do
+          let out2 ← alloc.vec.Vec.push out v
+          ok (out2, err)
+        | core.result.Result.Err e2 => ok (out, some e2)
+      let i1 ← i + 1#usize
+      ok (cont (out1, err1, i1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::eval]: loop 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 1060:8-1075:9 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.carrier.eval_loop
+  (len : Std.Usize) (e : fold_layer_port.layer.tensor.carrier.Elem)
+  (out : alloc.vec.Vec Std.I64) (err : Option solve_port.q32.Q32Error)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.q32.Q32Error))
+  := do
+  loop
+    (fun (out1, err1, i1) =>
+      fold_layer_port.layer.tensor.carrier.eval_loop.body len e out1 err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::eval]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 1056:4-1080:5 -/
+def fold_layer_port.layer.tensor.carrier.eval
+  (len : Std.Usize) (e : fold_layer_port.layer.tensor.carrier.Elem) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.q32.Q32Error)
+  := do
+  let out := alloc.vec.Vec.with_capacity Std.I64 len
+  let (out1, err) ←
+    fold_layer_port.layer.tensor.carrier.eval_loop len e out none 0#usize
+  match err with
+  | none => ok (core.result.Result.Ok out1)
+  | some e2 => ok (core.result.Result.Err e2)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::sum_i128]: loop body 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 977:8-983:9 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.carrier.sum_i128_loop.body
+  (x : Slice Std.I64) (s : Std.I128) (failed : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Std.I128 × Bool × Std.Usize) (Std.I128 × Bool))
+  := do
+  let i1 := Slice.len x
+  if i < i1
+  then
+    if failed
+    then ok (done (s, true))
+    else
+      let i2 ← Slice.index_usize x i
+      let i3 ← lift (core.convert.num.FromI128I64.from i2)
+      let o ← lift (I128.checked_add s i3)
+      let (s1, failed1) ←
+        match o with
+        | none => ok (s, true)
+        | some v => ok (v, false)
+      let i4 ← i + 1#usize
+      ok (cont (s1, failed1, i4))
+  else ok (done (s, failed))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::sum_i128]: loop 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 977:8-983:9 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.carrier.sum_i128_loop
+  (x : Slice Std.I64) (s : Std.I128) (failed : Bool) (i : Std.Usize) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (s1, failed1, i1) =>
+      fold_layer_port.layer.tensor.carrier.sum_i128_loop.body x s1 failed1 i1)
+    (s, failed, i)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::sum_i128]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 973:4-988:5 -/
+def fold_layer_port.layer.tensor.carrier.sum_i128
+  (x : Slice Std.I64) :
+  Result (core.result.Result Std.I128 solve_port.q32.Q32Error)
+  := do
+  let (s, failed) ←
+    fold_layer_port.layer.tensor.carrier.sum_i128_loop x 0#i128 false 0#usize
+  if failed
+  then ok (core.result.Result.Err solve_port.q32.Q32Error.Overflow)
+  else ok (core.result.Result.Ok s)
+
+/-- [apeiron_word::fold_layer_port::layer::driver::g_row_from_vec]:
+    Source: '../../src/learn/fold/layer/driver.rs', lines 466:0-475:1
+    Visibility: public -/
+def fold_layer_port.layer.driver.g_row_from_vec
+  (v : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.driver.DriverError)
+  := do
+  let b ← core.slice.Slice.is_empty v
+  if b
+  then
+    ok (core.result.Result.Err fold_layer_port.layer.driver.DriverError.Shape)
+  else
+    let i := Slice.len v
+    let r ←
+      fold_layer_port.layer.tensor.carrier.eval i
+        (fold_layer_port.layer.tensor.carrier.Elem.Square v)
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let i1 := Slice.len v
+      let i2 ← lift (UScalar.cast .U64 i1)
+      let len ← I128.Insts.CoreConvertFromU64.from i2
+      let s := alloc.vec.Vec.deref val
+      let r1 ← fold_layer_port.layer.tensor.carrier.sum_i128 s
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        let i3 ← len <<< 32#i32
+        let r2 ← fold_layer_port.layer.tensor.carrier.ratio val1 i3
+        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+        match cf2 with
+        | core.ops.control_flow.ControlFlow.Continue val2 =>
+          let i4 := alloc.vec.Vec.len val
+          let s1 := alloc.vec.Vec.deref val
+          let i5 ← core.cmp.Ord.max.default core.cmp.OrdI64 val2 1#i64
+          let r3 ←
+            fold_layer_port.layer.tensor.carrier.eval i4
+              (fold_layer_port.layer.tensor.carrier.Elem.Ratio s1 i5)
+          let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+          match cf3 with
+          | core.ops.control_flow.ControlFlow.Continue val3 =>
+            ok (core.result.Result.Ok val3)
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64)
+              fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+              residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64)
+            fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+            residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64)
+          fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+          residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64)
+        fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+        residual
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio_words]: loop body 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 1026:8-1032:9 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.carrier.ratio_words_loop.body
+  (x : Slice Std.I128) (den : Std.I64) (out : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option
+    solve_port.q32.Q32Error)))
+  := do
+  let i1 := Slice.len x
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i2 ← Slice.index_usize x i
+      let i3 ← lift (core.convert.num.FromI128I64.from den)
+      let r ← fold_layer_port.layer.tensor.carrier.ratio i2 i3
+      let (out1, err1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let out2 ← alloc.vec.Vec.push out v
+          ok (out2, err)
+        | core.result.Result.Err e => ok (out, some e)
+      let i4 ← i + 1#usize
+      ok (cont (out1, err1, i4))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio_words]: loop 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 1026:8-1032:9 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.carrier.ratio_words_loop
+  (x : Slice Std.I128) (den : Std.I64) (out : alloc.vec.Vec Std.I64)
+  (err : Option solve_port.q32.Q32Error) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option solve_port.q32.Q32Error))
+  := do
+  loop
+    (fun (out1, err1, i1) =>
+      fold_layer_port.layer.tensor.carrier.ratio_words_loop.body x den out1
+      err1 i1)
+    (out, err, i)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::ratio_words]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 1022:4-1037:5 -/
+def fold_layer_port.layer.tensor.carrier.ratio_words
+  (x : Slice Std.I128) (den : Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) solve_port.q32.Q32Error)
+  := do
+  let i := Slice.len x
+  let out := alloc.vec.Vec.with_capacity Std.I64 i
+  let (out1, err) ←
+    fold_layer_port.layer.tensor.carrier.ratio_words_loop x den out none
+      0#usize
+  match err with
+  | none => ok (core.result.Result.Ok out1)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop body 1:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 999:12-1009:13 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0.body
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) (c : Std.Usize)
+  (err : Option solve_port.q32.Q32Error) (s : Std.I128) (r : Std.Usize) :
+  Result (ControlFlow ((Option solve_port.q32.Q32Error) × Std.I128 ×
+    Std.Usize) ((Option solve_port.q32.Q32Error) × Std.I128))
+  := do
+  if r < rows
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← r * cols
+      let i1 ← i + c
+      let v ← Slice.index_usize w i1
+      let r1 ← fold_layer_port.layer.tensor.carrier.mul v v
+      let (err1, s1) ←
+        match r1 with
+        | core.result.Result.Ok m =>
+          do
+          let i2 ← lift (core.convert.num.FromI128I64.from m)
+          let o ← lift (I128.checked_add s i2)
+          match o with
+          | none => ok (some solve_port.q32.Q32Error.Overflow, s)
+          | some t => ok (err, t)
+        | core.result.Result.Err e => ok (some e, s)
+      let r2 ← r + 1#usize
+      ok (cont (err1, s1, r2))
+    else ok (done (err, s))
+  else ok (done (err, s))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop 1:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 999:12-1009:13 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
+  (err : Option solve_port.q32.Q32Error) (c : Std.Usize) (s : Std.I128)
+  (r : Std.Usize) :
+  Result ((Option solve_port.q32.Q32Error) × Std.I128)
+  := do
+  loop
+    (fun (err1, s1, r1) =>
+      fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0.body w rows
+      cols c err1 s1 r1)
+    (err, s, r)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop body 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 996:8-1014:9 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.carrier.col_squares_loop0.body
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
+  (out : alloc.vec.Vec Std.I128) (err : Option solve_port.q32.Q32Error)
+  (c : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × (Option
+    solve_port.q32.Q32Error) × Std.Usize) ((alloc.vec.Vec Std.I128) × (Option
+    solve_port.q32.Q32Error)))
+  := do
+  if c < cols
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (err1, s) ←
+        fold_layer_port.layer.tensor.carrier.col_squares_loop0_loop0 w rows
+          cols err c 0#i128 0#usize
+      let b1 := core.option.Option.is_none err1
+      let out1 ← if b1
+                   then alloc.vec.Vec.push out s
+                   else ok out
+      let c1 ← c + 1#usize
+      ok (cont (out1, err1, c1))
+    else ok (done (out, err))
+  else ok (done (out, err))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]: loop 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 996:8-1014:9 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.carrier.col_squares_loop0
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize)
+  (out : alloc.vec.Vec Std.I128) (err : Option solve_port.q32.Q32Error)
+  (c : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I128) × (Option solve_port.q32.Q32Error))
+  := do
+  loop
+    (fun (out1, err1, c1) =>
+      fold_layer_port.layer.tensor.carrier.col_squares_loop0.body w rows cols
+      out1 err1 c1)
+    (out, err, c)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::carrier::col_squares]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 992:4-1019:5 -/
+def fold_layer_port.layer.tensor.carrier.col_squares
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I128) solve_port.q32.Q32Error)
+  := do
+  let out := alloc.vec.Vec.with_capacity Std.I128 cols
+  let (out1, err) ←
+    fold_layer_port.layer.tensor.carrier.col_squares_loop0 w rows cols out none
+      0#usize
+  match err with
+  | none => ok (core.result.Result.Ok out1)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::fold_layer_port::layer::driver::g_row_from_matrix]: loop body 0:
+    Source: '../../src/learn/fold/layer/driver.rs', lines 493:4-499:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.driver.g_row_from_matrix_loop.body
+  (sums : alloc.vec.Vec Std.I128) (total : Std.I128) (failed : Bool)
+  (i : Std.Usize) :
+  Result (ControlFlow (Std.I128 × Bool × Std.Usize) (Std.I128 × Bool))
+  := do
+  let i1 := alloc.vec.Vec.len sums
+  if i < i1
+  then
+    if failed
+    then ok (done (total, true))
+    else
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
+          sums i
+      let o ← lift (I128.checked_add total i2)
+      let (total1, failed1) ←
+        match o with
+        | none => ok (total, true)
+        | some v => ok (v, false)
+      let i3 ← i + 1#usize
+      ok (cont (total1, failed1, i3))
+  else ok (done (total, failed))
+
+/-- [apeiron_word::fold_layer_port::layer::driver::g_row_from_matrix]: loop 0:
+    Source: '../../src/learn/fold/layer/driver.rs', lines 493:4-499:5
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.driver.g_row_from_matrix_loop
+  (sums : alloc.vec.Vec Std.I128) (total : Std.I128) (failed : Bool)
+  (i : Std.Usize) :
+  Result (Std.I128 × Bool)
+  := do
+  loop
+    (fun (total1, failed1, i1) =>
+      fold_layer_port.layer.driver.g_row_from_matrix_loop.body sums total1
+      failed1 i1)
+    (total, failed, i)
+
+/-- [apeiron_word::fold_layer_port::layer::driver::g_row_from_matrix]:
+    Source: '../../src/learn/fold/layer/driver.rs', lines 484:0-505:1
+    Visibility: public -/
+def fold_layer_port.layer.driver.g_row_from_matrix
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.driver.DriverError)
+  := do
+  let o ← lift (Usize.checked_mul rows cols)
+  let r ←
+    core.option.Option.ok_or o fold_layer_port.layer.driver.DriverError.Shape
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    if cols = 0#usize
+    then
+      ok (core.result.Result.Err
+        fold_layer_port.layer.driver.DriverError.Shape)
+    else
+      let i := Slice.len w
+      if i != val
+      then
+        ok (core.result.Result.Err
+          fold_layer_port.layer.driver.DriverError.Shape)
+      else
+        let r1 ← fold_layer_port.layer.tensor.carrier.col_squares w rows cols
+        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let (total, failed) ←
+            fold_layer_port.layer.driver.g_row_from_matrix_loop val1 0#i128
+              false 0#usize
+          if failed
+          then
+            ok (core.result.Result.Err
+              fold_layer_port.layer.driver.DriverError.Grid)
+          else
+            let i1 ← lift (UScalar.cast .U64 cols)
+            let i2 ← I128.Insts.CoreConvertFromU64.from i1
+            let den ← i2 <<< 32#i32
+            let s := alloc.vec.Vec.deref val1
+            let r2 ← fold_layer_port.layer.tensor.carrier.ratio total den
+            let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+            match cf2 with
+            | core.ops.control_flow.ControlFlow.Continue val2 =>
+              let i3 ← core.cmp.Ord.max.default core.cmp.OrdI64 val2 1#i64
+              let r3 ← fold_layer_port.layer.tensor.carrier.ratio_words s i3
+              let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+              match cf3 with
+              | core.ops.control_flow.ControlFlow.Continue val3 =>
+                ok (core.result.Result.Ok val3)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  (alloc.vec.Vec Std.I64)
+                  fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+                  residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                (alloc.vec.Vec Std.I64)
+                fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+                residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64)
+            fold_layer_port.layer.driver.DriverError.Insts.CoreConvertFromQ32Error
+            residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_layer_port.layer.driver.DriverError) residual
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::default::Default for apeiron_word::fold_layer_port::layer::tensor::TensorBits}::default]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 122:29-122:36
+    Visibility: public -/
+def fold_layer_port.layer.tensor.TensorBits.Insts.CoreDefaultDefault.default
+  : Result fold_layer_port.layer.tensor.TensorBits := do
+  ok
+    {
+      nsign := (core.default.DefaultU64.default),
+      nr := (core.default.DefaultU64.default),
+      nc := (core.default.DefaultU64.default),
+      nd := (core.default.DefaultU64.default),
+      ncorr := (core.default.DefaultU64.default)
+    }
+
+/-- [apeiron_word::fold_layer_port::layer::driver::model_init]:
+    Source: '../../src/learn/fold/layer/driver.rs', lines 1332:0-1342:1
+    Visibility: public -/
+def fold_layer_port.layer.driver.model_init
+  (h0 : Slice Std.I64) : Result fold_layer_port.layer.driver.ModelState := do
+  let v ← alloc.slice.Slice.to_vec core.clone.CloneI64 h0
+  let tb ←
+    fold_layer_port.layer.tensor.TensorBits.Insts.CoreDefaultDefault.default
+  ok
+    {
+      next := 0#usize,
+      ht := v,
+      hs := v,
+      layers := (alloc.vec.Vec.new grad_solve_port.model.LayerWeights),
+      bits := tb,
+      fits :=
+        (alloc.vec.Vec.new
+          (alloc.vec.Vec
+          fold_layer_port.layer.tensor.TensorFit)),
+      «partial» := none
+    }
+
+/-- [apeiron_word::fold_layer_port::layer::resq::{impl core::convert::From<apeiron_word::fold_port::fit::quant::QuantError> for apeiron_word::fold_layer_port::layer::resq::ResqError}::from]:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 60:4-62:5
+    Visibility: public -/
+def fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError.from
+  (e : fold_port.fit.quant.QuantError) :
+  Result fold_layer_port.layer.resq.ResqError
+  := do
+  ok (fold_layer_port.layer.resq.ResqError.Quant e)
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::resq::{impl core::convert::From<apeiron_word::fold_port::fit::quant::QuantError> for apeiron_word::fold_layer_port::layer::resq::ResqError}]
+    Source: '../../src/learn/fold/layer/resq.rs', lines 59:0-63:1 -/
+@[reducible]
+def fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError :
+  core.convert.From fold_layer_port.layer.resq.ResqError
+  fold_port.fit.quant.QuantError := {
+  «from» :=
+    fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError.from
+}
+
+/-- [apeiron_word::fold_layer_port::layer::resq::mul_q32::{closure}]
+    Source: '../../src/learn/fold/layer/resq.rs', lines 119:58-119:81 -/
+@[reducible]
+def fold_layer_port.layer.resq.mul_q32.closure := Unit
+
+/-- [apeiron_word::fold_layer_port::layer::resq::mul_q32::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::resq::mul_q32::{closure}}::call_once]:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 119:58-119:81 -/
+def
+  fold_layer_port.layer.resq.mul_q32.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorResqError.call_once
+  (c : fold_layer_port.layer.resq.mul_q32.closure)
+  (tupled_args : solve_port.q32.Q32Error) :
+  Result fold_layer_port.layer.resq.ResqError
+  := do
+  ok fold_layer_port.layer.resq.ResqError.Overflow
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::resq::mul_q32::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::resq::mul_q32::{closure}}]
+    Source: '../../src/learn/fold/layer/resq.rs', lines 119:58-119:81 -/
+@[reducible]
+def
+  fold_layer_port.layer.resq.mul_q32.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorResqError
+  : core.ops.function.FnOnce fold_layer_port.layer.resq.mul_q32.closure
+  solve_port.q32.Q32Error fold_layer_port.layer.resq.ResqError := {
+  call_once :=
+    fold_layer_port.layer.resq.mul_q32.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorResqError.call_once
+}
+
+/-- [apeiron_word::fold_layer_port::layer::resq::mul_q32]:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 118:0-120:1 -/
+def fold_layer_port.layer.resq.mul_q32
+  (a : Std.I64) (b : Std.I64) :
+  Result (core.result.Result Std.I64 fold_layer_port.layer.resq.ResqError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from a)
+  let i1 ← lift (core.convert.num.FromI128I64.from b)
+  let i2 ← i * i1
+  let r ← solve_port.q32.round_q32_even i2
+  core.result.Result.map_err
+    fold_layer_port.layer.resq.mul_q32.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorResqError
+    r ()
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]: loop body 1:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 352:8-358:9
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.resq.rescale_hier_loop0_loop0.body
+  (rh : Slice Std.I64) (s : Slice Std.I64) (g : Std.Usize) (i : Std.Usize)
+  (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_layer_port.layer.resq.ResqError)))
+  := do
+  if j < g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * g
+      let i2 ← i1 + j
+      let i3 ← Slice.index_usize rh i2
+      let i4 ← Slice.index_usize s i
+      let r ← fold_layer_port.layer.resq.mul_q32 i3 i4
+      let (scaled1, err1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let i5 ← i1 + j
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) scaled i5
+          let scaled2 := index_mut_back v
+          ok (scaled2, err)
+        | core.result.Result.Err e => ok (scaled, some e)
+      let j1 ← j + 1#usize
+      ok (cont (scaled1, err1, j1))
+    else ok (done (scaled, err))
+  else ok (done (scaled, err))
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]: loop 1:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 352:8-358:9
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.resq.rescale_hier_loop0_loop0
+  (rh : Slice Std.I64) (s : Slice Std.I64) (g : Std.Usize)
+  (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize)
+  (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError))
+  := do
+  loop
+    (fun (scaled1, err1, j1) =>
+      fold_layer_port.layer.resq.rescale_hier_loop0_loop0.body rh s g i scaled1
+      err1 j1)
+    (scaled, err, j)
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]: loop body 0:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 350:4-360:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.resq.rescale_hier_loop0.body
+  (rh : Slice Std.I64) (s : Slice Std.I64) (o : Std.Usize) (g : Std.Usize)
+  (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_layer_port.layer.resq.ResqError)))
+  := do
+  if i < o
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (scaled1, err1) ←
+        fold_layer_port.layer.resq.rescale_hier_loop0_loop0 rh s g scaled err i
+          0#usize
+      let i1 ← i + 1#usize
+      ok (cont (scaled1, err1, i1))
+    else ok (done (scaled, err))
+  else ok (done (scaled, err))
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]: loop 0:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 350:4-360:5
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.resq.rescale_hier_loop0
+  (rh : Slice Std.I64) (s : Slice Std.I64) (o : Std.Usize) (g : Std.Usize)
+  (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError))
+  := do
+  loop
+    (fun (scaled1, err1, i1) =>
+      fold_layer_port.layer.resq.rescale_hier_loop0.body rh s o g scaled1 err1
+      i1)
+    (scaled, err, i)
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier]:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 339:0-365:1
+    Visibility: public -/
+def fold_layer_port.layer.resq.rescale_hier
+  (rh : Slice Std.I64) (s : Slice Std.I64) (o : Std.Usize) (g : Std.Usize) :
+  Result (core.result.Result fold_port.fit.quant.RHier
+    fold_layer_port.layer.resq.ResqError)
+  := do
+  if o = 0#usize
+  then ok (core.result.Result.Err fold_layer_port.layer.resq.ResqError.Empty)
+  else
+    if g = 0#usize
+    then ok (core.result.Result.Err fold_layer_port.layer.resq.ResqError.Empty)
+    else
+      let o1 ← lift (Usize.checked_mul o g)
+      let r ←
+        core.option.Option.ok_or o1
+          fold_layer_port.layer.resq.ResqError.ShapeMismatch
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let i := Slice.len rh
+        if i != val
+        then
+          ok (core.result.Result.Err
+            fold_layer_port.layer.resq.ResqError.ShapeMismatch)
+        else
+          let i1 := Slice.len s
+          if i1 != o
+          then
+            ok (core.result.Result.Err
+              fold_layer_port.layer.resq.ResqError.ShapeMismatch)
+          else
+            let scaled ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+            let (scaled1, err) ←
+              fold_layer_port.layer.resq.rescale_hier_loop0 rh s o g scaled
+                none 0#usize
+            match err with
+            | none =>
+              let s1 := alloc.vec.Vec.deref scaled1
+              let r1 ← fold_port.fit.quant.quant_r_hier s1 o g
+              let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+              match cf1 with
+              | core.ops.control_flow.ControlFlow.Continue val1 =>
+                ok (core.result.Result.Ok val1)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  fold_port.fit.quant.RHier
+                  fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError
+                  residual
+            | some e => ok (core.result.Result.Err e)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          fold_port.fit.quant.RHier (core.convert.FromSame
+          fold_layer_port.layer.resq.ResqError) residual
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop body 0:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 392:4-397:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.resq.rescale_hier_top_loop0.body
+  (s : Slice Std.I64) (rows : Slice Std.Usize) (bad : Bool) (q : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  let i := Slice.len rows
+  if q < i
+  then
+    let i1 ← Slice.index_usize rows q
+    let i2 := Slice.len s
+    let bad1 ← if i1 >= i2
+                 then ok true
+                 else ok bad
+    let q1 ← q + 1#usize
+    ok (cont (bad1, q1))
+  else ok (done bad)
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop 0:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 392:4-397:5
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.resq.rescale_hier_top_loop0
+  (s : Slice Std.I64) (rows : Slice Std.Usize) (bad : Bool) (q : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (bad1, q1) => fold_layer_port.layer.resq.rescale_hier_top_loop0.body s
+      rows bad1 q1)
+    (bad, q)
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop body 2:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 407:8-413:9
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.resq.rescale_hier_top_loop1_loop0.body
+  (rh : Slice Std.I64) (s : Slice Std.I64) (g : Std.Usize) (i : Std.Usize)
+  (r : Std.Usize) (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_layer_port.layer.resq.ResqError)))
+  := do
+  if j < g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * g
+      let i2 ← i1 + j
+      let i3 ← Slice.index_usize rh i2
+      let i4 ← Slice.index_usize s r
+      let r1 ← fold_layer_port.layer.resq.mul_q32 i3 i4
+      let (scaled1, err1) ←
+        match r1 with
+        | core.result.Result.Ok v =>
+          do
+          let i5 ← i1 + j
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) scaled i5
+          let scaled2 := index_mut_back v
+          ok (scaled2, err)
+        | core.result.Result.Err e => ok (scaled, some e)
+      let j1 ← j + 1#usize
+      ok (cont (scaled1, err1, j1))
+    else ok (done (scaled, err))
+  else ok (done (scaled, err))
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop 2:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 407:8-413:9
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.resq.rescale_hier_top_loop1_loop0
+  (rh : Slice Std.I64) (s : Slice Std.I64) (g : Std.Usize)
+  (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize)
+  (r : Std.Usize) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError))
+  := do
+  loop
+    (fun (scaled1, err1, j1) =>
+      fold_layer_port.layer.resq.rescale_hier_top_loop1_loop0.body rh s g i r
+      scaled1 err1 j1)
+    (scaled, err, j)
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop body 1:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 404:4-415:5
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.resq.rescale_hier_top_loop1.body
+  (rh : Slice Std.I64) (s : Slice Std.I64) (rows : Slice Std.Usize)
+  (g : Std.Usize) (o : Std.Usize) (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_layer_port.layer.resq.ResqError)))
+  := do
+  if i < o
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let r ← Slice.index_usize rows i
+      let (scaled1, err1) ←
+        fold_layer_port.layer.resq.rescale_hier_top_loop1_loop0 rh s g scaled
+          err i r 0#usize
+      let i1 ← i + 1#usize
+      ok (cont (scaled1, err1, i1))
+    else ok (done (scaled, err))
+  else ok (done (scaled, err))
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]: loop 1:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 404:4-415:5
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.resq.rescale_hier_top_loop1
+  (rh : Slice Std.I64) (s : Slice Std.I64) (rows : Slice Std.Usize)
+  (g : Std.Usize) (o : Std.Usize) (scaled : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.resq.ResqError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.resq.ResqError))
+  := do
+  loop
+    (fun (scaled1, err1, i1) =>
+      fold_layer_port.layer.resq.rescale_hier_top_loop1.body rh s rows g o
+      scaled1 err1 i1)
+    (scaled, err, i)
+
+/-- [apeiron_word::fold_layer_port::layer::resq::rescale_hier_top]:
+    Source: '../../src/learn/fold/layer/resq.rs', lines 376:0-420:1
+    Visibility: public -/
+def fold_layer_port.layer.resq.rescale_hier_top
+  (rh : Slice Std.I64) (s : Slice Std.I64) (rows : Slice Std.Usize)
+  (g : Std.Usize) :
+  Result (core.result.Result fold_port.fit.quant.RHier
+    fold_layer_port.layer.resq.ResqError)
+  := do
+  let o := Slice.len rows
+  if o = 0#usize
+  then ok (core.result.Result.Err fold_layer_port.layer.resq.ResqError.Empty)
+  else
+    if g = 0#usize
+    then ok (core.result.Result.Err fold_layer_port.layer.resq.ResqError.Empty)
+    else
+      let o1 ← lift (Usize.checked_mul o g)
+      let r ←
+        core.option.Option.ok_or o1
+          fold_layer_port.layer.resq.ResqError.ShapeMismatch
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let i := Slice.len rh
+        if i != val
+        then
+          ok (core.result.Result.Err
+            fold_layer_port.layer.resq.ResqError.ShapeMismatch)
+        else
+          let bad ←
+            fold_layer_port.layer.resq.rescale_hier_top_loop0 s rows false
+              0#usize
+          if bad
+          then
+            ok (core.result.Result.Err
+              fold_layer_port.layer.resq.ResqError.ShapeMismatch)
+          else
+            let scaled ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+            let (scaled1, err) ←
+              fold_layer_port.layer.resq.rescale_hier_top_loop1 rh s rows g o
+                scaled none 0#usize
+            match err with
+            | none =>
+              let s1 := alloc.vec.Vec.deref scaled1
+              let r1 ← fold_port.fit.quant.quant_r_hier s1 o g
+              let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+              match cf1 with
+              | core.ops.control_flow.ControlFlow.Continue val1 =>
+                ok (core.result.Result.Ok val1)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  fold_port.fit.quant.RHier
+                  fold_layer_port.layer.resq.ResqError.Insts.CoreConvertFromQuantError
+                  residual
+            | some e => ok (core.result.Result.Err e)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          fold_port.fit.quant.RHier (core.convert.FromSame
+          fold_layer_port.layer.resq.ResqError) residual
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::groups]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 60:0-62:1 -/
+def fold_layer_port.layer.tensor.groups
+  (n : Std.Usize) : Result Std.Usize := do
+  n / fold_port.fit.fold_fit.GROUP
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::SINK_TOL]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 65:0-65:28 -/
+@[global_simps, irreducible]
+def fold_layer_port.layer.tensor.SINK_TOL : Std.I64 := 4295#i64
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::cmp::PartialEq<apeiron_word::fold_layer_port::layer::tensor::TensorKind> for apeiron_word::fold_layer_port::layer::tensor::TensorKind}::eq]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 69:29-69:38
+    Visibility: public -/
+def fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind.eq
+  (self : fold_layer_port.layer.tensor.TensorKind)
+  (other : fold_layer_port.layer.tensor.TensorKind) :
+  Result Bool
+  := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::cmp::PartialEq<apeiron_word::fold_layer_port::layer::tensor::TensorKind> for apeiron_word::fold_layer_port::layer::tensor::TensorKind}]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 69:29-69:38 -/
+@[reducible]
+impl_def
+  fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind :
+  core.cmp.PartialEq fold_layer_port.layer.tensor.TensorKind
+  fold_layer_port.layer.tensor.TensorKind := {
+  eq :=
+    fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind
+}
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}::from]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 283:4-285:5
+    Visibility: public -/
+def
+  fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError.from
+  (e : fold_layer_port.layer.resq.ResqError) :
+  Result fold_layer_port.layer.tensor.TensorError
+  := do
+  ok (fold_layer_port.layer.tensor.TensorError.Resq e)
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_layer_port::layer::resq::ResqError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 282:0-286:1 -/
+@[reducible]
+def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError :
+  core.convert.From fold_layer_port.layer.tensor.TensorError
+  fold_layer_port.layer.resq.ResqError := {
+  «from» :=
+    fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError.from
+}
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}::from]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 298:4-300:5
+    Visibility: public -/
+def
+  fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError.from
+  (e : fold_port.fit.steps.StepsError) :
+  Result fold_layer_port.layer.tensor.TensorError
+  := do
+  ok (fold_layer_port.layer.tensor.TensorError.Steps e)
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::fold_port::fit::steps::StepsError> for apeiron_word::fold_layer_port::layer::tensor::TensorError}]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 297:0-301:1 -/
+@[reducible]
+def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError :
+  core.convert.From fold_layer_port.layer.tensor.TensorError
+  fold_port.fit.steps.StepsError := {
+  «from» :=
+    fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError.from
+}
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::tensor::TensorError}::from]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 308:4-313:5
+    Visibility: public -/
+def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error.from
+  (e : solve_port.q32.Q32Error) :
+  Result fold_layer_port.layer.tensor.TensorError
+  := do
+  match e with
+  | solve_port.q32.Q32Error.Overflow =>
+    ok fold_layer_port.layer.tensor.TensorError.Grid
+  | solve_port.q32.Q32Error.NotSpd =>
+    ok fold_layer_port.layer.tensor.TensorError.Grid
+  | solve_port.q32.Q32Error.Asymmetric =>
+    ok fold_layer_port.layer.tensor.TensorError.Grid
+  | solve_port.q32.Q32Error.ShapeMismatch =>
+    ok fold_layer_port.layer.tensor.TensorError.ShapeMismatch
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::{impl core::convert::From<apeiron_word::solve_port::q32::Q32Error> for apeiron_word::fold_layer_port::layer::tensor::TensorError}]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 307:0-314:1 -/
+@[reducible]
+def fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error :
+  core.convert.From fold_layer_port.layer.tensor.TensorError
+  solve_port.q32.Q32Error := {
+  «from» :=
+    fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error.from
+}
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::plane_of]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 418:0-428:1 -/
+def fold_layer_port.layer.tensor.plane_of
+  (s_rot : alloc.vec.Vec Std.I64) (rh : alloc.vec.Vec Std.I64)
+  (ch : alloc.vec.Vec Std.I64) (dh : alloc.vec.Vec Std.I64) :
+  Result fold_layer_port.layer.tensor.SinkPlane
+  := do
+  ok { s_rot, rh, ch, dh, rows := none, dense := none, factors := none }
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::plane_shape]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 431:0-434:1 -/
+def fold_layer_port.layer.tensor.plane_shape
+  (p : fold_layer_port.layer.tensor.SinkPlane) (rlen : Std.Usize)
+  (n : Std.Usize) :
+  Result Bool
+  := do
+  let g ← fold_layer_port.layer.tensor.groups n
+  let i := alloc.vec.Vec.len p.s_rot
+  let i1 ← rlen * n
+  if i = i1
+  then
+    let i2 := alloc.vec.Vec.len p.rh
+    let i3 ← rlen * g
+    if i2 = i3
+    then
+      let i4 := alloc.vec.Vec.len p.ch
+      if i4 = n
+      then let i5 := alloc.vec.Vec.len p.dh
+           ok (i5 = n)
+      else ok false
+    else ok false
+  else ok false
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop body 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 519:4-527:5 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.scatter_add_loop0.body
+  (rows : Slice Std.Usize) (o : Std.Usize) (inv : alloc.vec.Vec Std.Usize)
+  (bad : Bool) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.Usize) × Bool × Std.Usize)
+    ((alloc.vec.Vec Std.Usize) × Bool))
+  := do
+  let i1 := Slice.len rows
+  if i < i1
+  then
+    let r ← Slice.index_usize rows i
+    let (inv1, bad1) ←
+      if r >= o
+      then ok (inv, true)
+      else
+        do
+        let i2 ←
+          alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+            inv r
+        if i2 != core.num.Usize.MAX
+        then ok (inv, true)
+        else
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.Usize) inv r
+          let inv2 := index_mut_back i
+          ok (inv2, bad)
+    let i2 ← i + 1#usize
+    ok (cont (inv1, bad1, i2))
+  else ok (done (inv, bad))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 519:4-527:5 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.scatter_add_loop0
+  (rows : Slice Std.Usize) (o : Std.Usize) (inv : alloc.vec.Vec Std.Usize)
+  (bad : Bool) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.Usize) × Bool)
+  := do
+  loop
+    (fun (inv1, bad1, i1) =>
+      fold_layer_port.layer.tensor.scatter_add_loop0.body rows o inv1 bad1 i1)
+    (inv, bad, i)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop body 2:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 537:12-544:13 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.scatter_add_loop1_loop0.body
+  (src : Slice Std.I64) (n : Std.Usize) (r : Std.Usize) (i : Std.Usize)
+  (dst : Slice Std.I64) (err : Option fold_layer_port.layer.tensor.TensorError)
+  (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option
+    fold_layer_port.layer.tensor.TensorError) × Std.Usize) ((Slice Std.I64) ×
+    (Option fold_layer_port.layer.tensor.TensorError)))
+  := do
+  if j < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← r * n
+      let k ← i1 + j
+      let i2 ← Slice.index_usize dst k
+      let i3 ← i * n
+      let i4 ← i3 + j
+      let i5 ← Slice.index_usize src i4
+      let o ← lift (I64.checked_add i2 i5)
+      match o with
+      | none =>
+        let j1 ← j + 1#usize
+        ok (cont (dst, some fold_layer_port.layer.tensor.TensorError.Grid, j1))
+      | some v =>
+        let s ← Slice.update dst k v
+        let j1 ← j + 1#usize
+        ok (cont (s, err, j1))
+    else ok (done (dst, err))
+  else ok (done (dst, err))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop 2:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 537:12-544:13 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.scatter_add_loop1_loop0
+  (dst : Slice Std.I64) (src : Slice Std.I64) (n : Std.Usize)
+  (err : Option fold_layer_port.layer.tensor.TensorError) (r : Std.Usize)
+  (i : Std.Usize) (j : Std.Usize) :
+  Result ((Slice Std.I64) × (Option fold_layer_port.layer.tensor.TensorError))
+  := do
+  loop
+    (fun (dst1, err1, j1) =>
+      fold_layer_port.layer.tensor.scatter_add_loop1_loop0.body src n r i dst1
+      err1 j1)
+    (dst, err, j)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop body 1:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 533:4-547:5 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.scatter_add_loop1.body
+  (src : Slice Std.I64) (n : Std.Usize) (o : Std.Usize)
+  (inv : alloc.vec.Vec Std.Usize) (dst : Slice Std.I64)
+  (err : Option fold_layer_port.layer.tensor.TensorError) (r : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option
+    fold_layer_port.layer.tensor.TensorError) × Std.Usize) ((Slice Std.I64) ×
+    (Option fold_layer_port.layer.tensor.TensorError)))
+  := do
+  if r < o
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+          inv r
+      if i != core.num.Usize.MAX
+      then
+        let (dst1, err1) ←
+          fold_layer_port.layer.tensor.scatter_add_loop1_loop0 dst src n err r
+            i 0#usize
+        let r1 ← r + 1#usize
+        ok (cont (dst1, err1, r1))
+      else let r1 ← r + 1#usize
+           ok (cont (dst, err, r1))
+    else ok (done (dst, err))
+  else ok (done (dst, err))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]: loop 1:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 533:4-547:5 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.scatter_add_loop1
+  (dst : Slice Std.I64) (src : Slice Std.I64) (n : Std.Usize) (o : Std.Usize)
+  (inv : alloc.vec.Vec Std.Usize)
+  (err : Option fold_layer_port.layer.tensor.TensorError) (r : Std.Usize) :
+  Result ((Slice Std.I64) × (Option fold_layer_port.layer.tensor.TensorError))
+  := do
+  loop
+    (fun (dst1, err1, r1) =>
+      fold_layer_port.layer.tensor.scatter_add_loop1.body src n o inv dst1 err1
+      r1)
+    (dst, err, r)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::scatter_add]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 511:0-552:1 -/
+def fold_layer_port.layer.tensor.scatter_add
+  (dst : Slice Std.I64) (src : Slice Std.I64) (rows : Slice Std.Usize)
+  (n : Std.Usize) :
+  Result ((core.result.Result Unit fold_layer_port.layer.tensor.TensorError) ×
+    (Slice Std.I64))
+  := do
+  if n = 0#usize
+  then
+    ok (core.result.Result.Err
+      fold_layer_port.layer.tensor.TensorError.ShapeMismatch, dst)
+  else
+    let i := Slice.len src
+    let i1 := Slice.len rows
+    let i2 ← i1 * n
+    if i != i2
+    then
+      ok (core.result.Result.Err
+        fold_layer_port.layer.tensor.TensorError.ShapeMismatch, dst)
+    else
+      let i3 := Slice.len dst
+      let o ← i3 / n
+      let inv ←
+        alloc.vec.from_elem core.clone.CloneUsize core.num.Usize.MAX o
+      let (inv1, bad) ←
+        fold_layer_port.layer.tensor.scatter_add_loop0 rows o inv false 0#usize
+      if bad
+      then
+        ok (core.result.Result.Err
+          fold_layer_port.layer.tensor.TensorError.PlaneShape, dst)
+      else
+        let (dst1, err) ←
+          fold_layer_port.layer.tensor.scatter_add_loop1 dst src n o inv1 none
+            0#usize
+        match err with
+        | none => ok (core.result.Result.Ok (), dst1)
+        | some e => ok (core.result.Result.Err e, dst1)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::plane_weight]: loop body 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 473:12-478:13 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.plane_weight_loop.body
+  (rs : alloc.vec.Vec Std.Usize) (o : Std.Usize) (bad : Bool) (q : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  let i := alloc.vec.Vec.len rs
+  if q < i
+  then
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize) rs
+        q
+    let bad1 ← if i1 >= o
+                 then ok true
+                 else ok bad
+    let q1 ← q + 1#usize
+    ok (cont (bad1, q1))
+  else ok (done bad)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::plane_weight]: loop 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 473:12-478:13 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.plane_weight_loop
+  (rs : alloc.vec.Vec Std.Usize) (o : Std.Usize) (bad : Bool) (q : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (bad1, q1) => fold_layer_port.layer.tensor.plane_weight_loop.body rs o
+      bad1 q1)
+    (bad, q)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::plane_weight]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 458:0-502:1 -/
+def fold_layer_port.layer.tensor.plane_weight
+  (p : fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize) (n : Std.Usize)
+  :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.tensor.TensorError)
+  := do
+  match p.dense with
+  | none =>
+    let b ← core.num.Usize.is_multiple_of n fold_port.fit.fold_fit.GROUP
+    if b
+    then
+      let g ← fold_layer_port.layer.tensor.groups n
+      match p.rows with
+      | none =>
+        let i := alloc.vec.Vec.len p.s_rot
+        let i1 ← o * n
+        if i != i1
+        then
+          ok (core.result.Result.Err
+            fold_layer_port.layer.tensor.TensorError.PlaneShape)
+        else
+          let i2 := alloc.vec.Vec.len p.rh
+          let i3 ← o * g
+          if i2 != i3
+          then
+            ok (core.result.Result.Err
+              fold_layer_port.layer.tensor.TensorError.PlaneShape)
+          else
+            let i4 := alloc.vec.Vec.len p.ch
+            if i4 != n
+            then
+              ok (core.result.Result.Err
+                fold_layer_port.layer.tensor.TensorError.PlaneShape)
+            else
+              let i5 := alloc.vec.Vec.len p.dh
+              if i5 != n
+              then
+                ok (core.result.Result.Err
+                  fold_layer_port.layer.tensor.TensorError.PlaneShape)
+              else
+                let i6 := alloc.vec.Vec.len p.s_rot
+                let s := alloc.vec.Vec.deref p.s_rot
+                let s1 := alloc.vec.Vec.deref p.dh
+                let r ←
+                  fold_layer_port.layer.tensor.carrier.eval i6
+                    (fold_layer_port.layer.tensor.carrier.Elem.MulCol s s1 n)
+                let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+                match cf with
+                | core.ops.control_flow.ControlFlow.Continue val =>
+                  let (s2, deref_mut_back) ←
+                    lift (alloc.vec.Vec.deref_mut val)
+                  let (r1, s3) ← fold_port.fit.steps.fwht_words s2
+                  let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+                  match cf1 with
+                  | core.ops.control_flow.ControlFlow.Continue _ =>
+                    let val1 := deref_mut_back s3
+                    let s4 := alloc.vec.Vec.deref val1
+                    let s5 := alloc.vec.Vec.deref p.rh
+                    let s6 := alloc.vec.Vec.deref p.ch
+                    let r2 ← fold_port.fit.steps.compose s4 s5 s6 o n
+                    let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+                    match cf2 with
+                    | core.ops.control_flow.ControlFlow.Continue val2 =>
+                      ok (core.result.Result.Ok val2)
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        (alloc.vec.Vec Std.I64)
+                        fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError
+                        residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      (alloc.vec.Vec Std.I64)
+                      fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError
+                      residual
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    (alloc.vec.Vec Std.I64)
+                    fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error
+                    residual
+      | some rs =>
+        let bad ←
+          fold_layer_port.layer.tensor.plane_weight_loop rs o false 0#usize
+        if bad
+        then
+          ok (core.result.Result.Err
+            fold_layer_port.layer.tensor.TensorError.PlaneShape)
+        else
+          let rlen := alloc.vec.Vec.len rs
+          let rs1 ← alloc.vec.Vec.as_slice Global rs
+          let i := alloc.vec.Vec.len p.s_rot
+          let i1 ← rlen * n
+          if i != i1
+          then
+            ok (core.result.Result.Err
+              fold_layer_port.layer.tensor.TensorError.PlaneShape)
+          else
+            let i2 := alloc.vec.Vec.len p.rh
+            let i3 ← rlen * g
+            if i2 != i3
+            then
+              ok (core.result.Result.Err
+                fold_layer_port.layer.tensor.TensorError.PlaneShape)
+            else
+              let i4 := alloc.vec.Vec.len p.ch
+              if i4 != n
+              then
+                ok (core.result.Result.Err
+                  fold_layer_port.layer.tensor.TensorError.PlaneShape)
+              else
+                let i5 := alloc.vec.Vec.len p.dh
+                if i5 != n
+                then
+                  ok (core.result.Result.Err
+                    fold_layer_port.layer.tensor.TensorError.PlaneShape)
+                else
+                  let i6 := alloc.vec.Vec.len p.s_rot
+                  let s := alloc.vec.Vec.deref p.s_rot
+                  let s1 := alloc.vec.Vec.deref p.dh
+                  let r ←
+                    fold_layer_port.layer.tensor.carrier.eval i6
+                      (fold_layer_port.layer.tensor.carrier.Elem.MulCol s s1 n)
+                  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+                  match cf with
+                  | core.ops.control_flow.ControlFlow.Continue val =>
+                    let (s2, deref_mut_back) ←
+                      lift (alloc.vec.Vec.deref_mut val)
+                    let (r1, s3) ← fold_port.fit.steps.fwht_words s2
+                    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+                    match cf1 with
+                    | core.ops.control_flow.ControlFlow.Continue _ =>
+                      let val1 := deref_mut_back s3
+                      let s4 := alloc.vec.Vec.deref val1
+                      let s5 := alloc.vec.Vec.deref p.rh
+                      let s6 := alloc.vec.Vec.deref p.ch
+                      let r2 ← fold_port.fit.steps.compose s4 s5 s6 rlen n
+                      let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+                      match cf2 with
+                      | core.ops.control_flow.ControlFlow.Continue val2 =>
+                        let i7 ← o * n
+                        let full ←
+                          alloc.vec.from_elem core.clone.CloneI64 0#i64 i7
+                        let (s7, deref_mut_back1) ←
+                          lift (alloc.vec.Vec.deref_mut full)
+                        let s8 := alloc.vec.Vec.deref val2
+                        let (r3, s9) ←
+                          fold_layer_port.layer.tensor.scatter_add s7 s8 rs1 n
+                        let cf3 ←
+                          core.result.Result.Insts.CoreOpsTry.branch r3
+                        match cf3 with
+                        | core.ops.control_flow.ControlFlow.Continue _ =>
+                          let full1 := deref_mut_back1 s9
+                          ok (core.result.Result.Ok full1)
+                        | core.ops.control_flow.ControlFlow.Break residual =>
+                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                            (alloc.vec.Vec Std.I64) (core.convert.FromSame
+                            fold_layer_port.layer.tensor.TensorError) residual
+                      | core.ops.control_flow.ControlFlow.Break residual =>
+                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                          (alloc.vec.Vec Std.I64)
+                          fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError
+                          residual
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        (alloc.vec.Vec Std.I64)
+                        fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromStepsError
+                        residual
+                  | core.ops.control_flow.ControlFlow.Break residual =>
+                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                      (alloc.vec.Vec Std.I64)
+                      fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error
+                      residual
+    else
+      ok (core.result.Result.Err
+        fold_layer_port.layer.tensor.TensorError.Width)
+  | some dense =>
+    let b := core.option.Option.is_some p.rows
+    if b
+    then
+      ok (core.result.Result.Err
+        fold_layer_port.layer.tensor.TensorError.PlaneShape)
+    else
+      let i := alloc.vec.Vec.len dense
+      let i1 ← o * n
+      if i != i1
+      then
+        ok (core.result.Result.Err
+          fold_layer_port.layer.tensor.TensorError.PlaneShape)
+      else
+        let v ← alloc.vec.CloneVec.clone core.clone.CloneI64 dense
+        ok (core.result.Result.Ok v)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::recon_words]: loop body 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 581:4-590:5 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.recon_words_loop.body
+  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
+  (n : Std.Usize) (w : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.tensor.TensorError) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.tensor.TensorError) × Std.Usize) ((alloc.vec.Vec
+    Std.I64) × (Option fold_layer_port.layer.tensor.TensorError)))
+  := do
+  let i1 := Slice.len planes
+  if i < i1
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let sp ← Slice.index_usize planes i
+      let r ← fold_layer_port.layer.tensor.plane_weight sp o n
+      let (w1, err1) ←
+        match r with
+        | core.result.Result.Ok pw =>
+          do
+          let i2 := alloc.vec.Vec.len w
+          let s := alloc.vec.Vec.deref w
+          let s1 := alloc.vec.Vec.deref pw
+          let r1 ←
+            fold_layer_port.layer.tensor.carrier.eval i2
+              (fold_layer_port.layer.tensor.carrier.Elem.Add s s1)
+          match r1 with
+          | core.result.Result.Ok next => ok (next, err)
+          | core.result.Result.Err e =>
+            let te ←
+              fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromQ32Error.from
+                e
+            ok (w, some te)
+        | core.result.Result.Err e => ok (w, some e)
+      let i2 ← i + 1#usize
+      ok (cont (w1, err1, i2))
+    else ok (done (w, err))
+  else ok (done (w, err))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::recon_words]: loop 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 581:4-590:5 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.recon_words_loop
+  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
+  (n : Std.Usize) (w : alloc.vec.Vec Std.I64)
+  (err : Option fold_layer_port.layer.tensor.TensorError) (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option
+    fold_layer_port.layer.tensor.TensorError))
+  := do
+  loop
+    (fun (w1, err1, i1) => fold_layer_port.layer.tensor.recon_words_loop.body
+      planes o n w1 err1 i1)
+    (w, err, i)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::recon_words]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 568:0-595:1 -/
+def fold_layer_port.layer.tensor.recon_words
+  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.tensor.TensorError)
+  := do
+  if o = 0#usize
+  then
+    ok (core.result.Result.Err
+      fold_layer_port.layer.tensor.TensorError.ZeroDim)
+  else
+    if n = 0#usize
+    then
+      ok (core.result.Result.Err
+        fold_layer_port.layer.tensor.TensorError.ZeroDim)
+    else
+      let b ← core.num.Usize.is_multiple_of n fold_port.fit.fold_fit.GROUP
+      if b
+      then
+        let b1 ← core.slice.Slice.is_empty planes
+        if b1
+        then
+          ok (core.result.Result.Err
+            fold_layer_port.layer.tensor.TensorError.PlaneShape)
+        else
+          let sp ← Slice.index_usize planes 0#usize
+          let r ← fold_layer_port.layer.tensor.plane_weight sp o n
+          let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+          match cf with
+          | core.ops.control_flow.ControlFlow.Continue val =>
+            let (w, err) ←
+              fold_layer_port.layer.tensor.recon_words_loop planes o n val none
+                1#usize
+            match err with
+            | none => ok (core.result.Result.Ok w)
+            | some e => ok (core.result.Result.Err e)
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              fold_layer_port.layer.tensor.TensorError) residual
+      else
+        ok (core.result.Result.Err
+          fold_layer_port.layer.tensor.TensorError.Width)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::recon]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 562:0-564:1
+    Visibility: public -/
+def fold_layer_port.layer.tensor.recon
+  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.tensor.TensorError)
+  := do
+  fold_layer_port.layer.tensor.recon_words planes o n
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check::{closure}]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 623:43-623:64 -/
+@[reducible]
+def fold_layer_port.layer.tensor.sink_check.closure := Unit
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::tensor::TensorError> for apeiron_word::fold_layer_port::layer::tensor::sink_check::{closure}}::call_once]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 623:43-623:64 -/
+def
+  fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError.call_once
+  (c : fold_layer_port.layer.tensor.sink_check.closure)
+  (tupled_args : solve_port.q32.Q32Error) :
+  Result fold_layer_port.layer.tensor.TensorError
+  := do
+  ok fold_layer_port.layer.tensor.TensorError.Grid
+
+/-- Trait implementation: [apeiron_word::fold_layer_port::layer::tensor::sink_check::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_layer_port::layer::tensor::TensorError> for apeiron_word::fold_layer_port::layer::tensor::sink_check::{closure}}]
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 623:43-623:64 -/
+@[reducible]
+def
+  fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError
+  : core.ops.function.FnOnce fold_layer_port.layer.tensor.sink_check.closure
+  solve_port.q32.Q32Error fold_layer_port.layer.tensor.TensorError := {
+  call_once :=
+    fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError.call_once
+}
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check]: loop body 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 608:4-620:5 -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.sink_check_loop.body
+  (recon_wp : Slice Std.I64) (wp : Slice Std.I64) (maxd : Std.I128)
+  (maxw : Std.I128) (i : Std.Usize) :
+  Result (ControlFlow (Std.I128 × Std.I128 × Std.Usize) (Std.I128 ×
+    Std.I128))
+  := do
+  let i1 := Slice.len recon_wp
+  if i < i1
+  then
+    let a ← Slice.index_usize recon_wp i
+    let b ← Slice.index_usize wp i
+    let i2 ← lift (core.convert.num.FromI128I64.from a)
+    let i3 ← lift (core.convert.num.FromI128I64.from b)
+    let i4 ← i2 - i3
+    let d ← core.num.I128.abs i4
+    let maxd1 ← if d > maxd
+                  then ok d
+                  else ok maxd
+    let i5 ← lift (core.convert.num.FromI128I64.from b)
+    let w ← core.num.I128.abs i5
+    let maxw1 ← if w > maxw
+                  then ok w
+                  else ok maxw
+    let i6 ← i + 1#usize
+    ok (cont (maxd1, maxw1, i6))
+  else ok (done (maxd, maxw))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check]: loop 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 608:4-620:5 -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.sink_check_loop
+  (recon_wp : Slice Std.I64) (wp : Slice Std.I64) (maxd : Std.I128)
+  (maxw : Std.I128) (i : Std.Usize) :
+  Result (Std.I128 × Std.I128)
+  := do
+  loop
+    (fun (maxd1, maxw1, i1) =>
+      fold_layer_port.layer.tensor.sink_check_loop.body recon_wp wp maxd1 maxw1
+      i1)
+    (maxd, maxw, i)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::sink_check]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 602:0-635:1 -/
+def fold_layer_port.layer.tensor.sink_check
+  (recon_wp : Slice Std.I64) (wp : Slice Std.I64) :
+  Result (core.result.Result Unit fold_layer_port.layer.tensor.TensorError)
+  := do
+  let i := Slice.len recon_wp
+  let i1 := Slice.len wp
+  if i != i1
+  then
+    ok (core.result.Result.Err
+      (fold_layer_port.layer.tensor.TensorError.SinkMismatch core.num.I64.MAX))
+  else
+    let (maxd, maxw) ←
+      fold_layer_port.layer.tensor.sink_check_loop recon_wp wp 0#i128 0#i128
+        0#usize
+    if maxw > 0#i128
+    then
+      let r ← fold_layer_port.layer.tensor.carrier.ratio maxd maxw
+      let r1 ←
+        core.result.Result.map_err
+          fold_layer_port.layer.tensor.sink_check.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorTensorError
+          r ()
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        if val <= fold_layer_port.layer.tensor.SINK_TOL
+        then ok (core.result.Result.Ok ())
+        else
+          ok (core.result.Result.Err
+            (fold_layer_port.layer.tensor.TensorError.SinkMismatch val))
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame fold_layer_port.layer.tensor.TensorError)
+          residual
+    else
+      let r ← I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from maxd
+      let val ←
+        match r with
+        | core.result.Result.Ok v => ok v
+        | core.result.Result.Err _ => ok core.num.I64.MAX
+      if val <= fold_layer_port.layer.tensor.SINK_TOL
+      then ok (core.result.Result.Ok ())
+      else
+        ok (core.result.Result.Err
+          (fold_layer_port.layer.tensor.TensorError.SinkMismatch val))
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::fold_row_scale]: loop body 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 916:8-921:9
+    Visibility: public -/
+@[rust_loop_body]
+def fold_layer_port.layer.tensor.fold_row_scale_loop.body
+  (o : Std.Usize) (rows : alloc.vec.Vec Std.Usize) (bad : Bool) (q : Std.Usize)
+  :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  let i := alloc.vec.Vec.len rows
+  if q < i
+  then
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        rows q
+    let bad1 ← if i1 >= o
+                 then ok true
+                 else ok bad
+    let q1 ← q + 1#usize
+    ok (cont (bad1, q1))
+  else ok (done bad)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::fold_row_scale]: loop 0:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 916:8-921:9
+    Visibility: public -/
+@[rust_loop]
+def fold_layer_port.layer.tensor.fold_row_scale_loop
+  (o : Std.Usize) (rows : alloc.vec.Vec Std.Usize) (bad : Bool) (q : Std.Usize)
+  :
+  Result Bool
+  := do
+  loop
+    (fun (bad1, q1) => fold_layer_port.layer.tensor.fold_row_scale_loop.body o
+      rows bad1 q1)
+    (bad, q)
+
+/-- [apeiron_word::fold_layer_port::layer::tensor::fold_row_scale]:
+    Source: '../../src/learn/fold/layer/tensor.rs', lines 877:0-942:1
+    Visibility: public -/
+def fold_layer_port.layer.tensor.fold_row_scale
+  (fit : fold_layer_port.layer.tensor.TensorFit) (s_sol : Slice Std.I64)
+  (o : Std.Usize) (n : Std.Usize) :
+  Result ((core.result.Result Unit fold_layer_port.layer.tensor.TensorError) ×
+    fold_layer_port.layer.tensor.TensorFit)
+  := do
+  let b ←
+    core.cmp.PartialEq.ne.trait_default
+      fold_layer_port.layer.tensor.TensorKind.Insts.CoreCmpPartialEqTensorKind
+      fit.kind fold_layer_port.layer.tensor.TensorKind.Up
+  if b
+  then
+    ok (core.result.Result.Err fold_layer_port.layer.tensor.TensorError.NotUp,
+      fit)
+  else
+    if o = 0#usize
+    then
+      ok (core.result.Result.Err
+        fold_layer_port.layer.tensor.TensorError.ZeroDim, fit)
+    else
+      if n = 0#usize
+      then
+        ok (core.result.Result.Err
+          fold_layer_port.layer.tensor.TensorError.ZeroDim, fit)
+      else
+        let b1 ← core.num.Usize.is_multiple_of n fold_port.fit.fold_fit.GROUP
+        if b1
+        then
+          let i := Slice.len s_sol
+          if i != o
+          then
+            ok (core.result.Result.Err
+              fold_layer_port.layer.tensor.TensorError.ShapeMismatch, fit)
+          else
+            let g ← fold_layer_port.layer.tensor.groups n
+            let i1 := alloc.vec.Vec.len fit.planes
+            if i1 > 2#usize
+            then
+              ok (core.result.Result.Err
+                fold_layer_port.layer.tensor.TensorError.PlaneShape, fit)
+            else
+              let s := alloc.vec.Vec.deref fit.planes
+              let o1 ← core.slice.Slice.first s
+              let r ←
+                core.option.Option.ok_or o1
+                  fold_layer_port.layer.tensor.TensorError.PlaneShape
+              let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+              match cf with
+              | core.ops.control_flow.ControlFlow.Continue val =>
+                let b2 := core.option.Option.is_some val.dense
+                if b2
+                then
+                  ok (core.result.Result.Err
+                    fold_layer_port.layer.tensor.TensorError.PlaneShape, fit)
+                else
+                  let b3 := core.option.Option.is_some val.rows
+                  if b3
+                  then
+                    ok (core.result.Result.Err
+                      fold_layer_port.layer.tensor.TensorError.PlaneShape, fit)
+                  else
+                    let b4 ← fold_layer_port.layer.tensor.plane_shape val o n
+                    if b4
+                    then
+                      let s1 := alloc.vec.Vec.deref val.rh
+                      let r1 ←
+                        fold_layer_port.layer.resq.rescale_hier s1 s_sol o g
+                      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+                      match cf1 with
+                      | core.ops.control_flow.ControlFlow.Continue val1 =>
+                        let v ←
+                          alloc.vec.CloneVec.clone core.clone.CloneI64
+                            val.s_rot
+                        let v1 ←
+                          alloc.vec.CloneVec.clone core.clone.CloneI64 val.ch
+                        let v2 ←
+                          alloc.vec.CloneVec.clone core.clone.CloneI64 val.dh
+                        let sp ←
+                          fold_layer_port.layer.tensor.plane_of v val1.rq v1 v2
+                        let y ←
+                          lift (Std.Array.to_slice (Array.make 1#usize [ sp ] :
+                            Array fold_layer_port.layer.tensor.SinkPlane
+                            1#usize))
+                        let ret := alloc.slice.Slice.into_vec y
+                        let s2 := alloc.vec.Vec.deref fit.planes
+                        let o2 ←
+                          core.slice.Slice.get
+                            (core.slice.index.SliceIndexUsizeSlice
+                            fold_layer_port.layer.tensor.SinkPlane) s2 1#usize
+                        match o2 with
+                        | none =>
+                          let s3 := alloc.vec.Vec.deref ret
+                          let r2 ←
+                            fold_layer_port.layer.tensor.recon_words s3 o n
+                          let cf2 ←
+                            core.result.Result.Insts.CoreOpsTry.branch r2
+                          match cf2 with
+                          | core.ops.control_flow.ControlFlow.Continue val2 =>
+                            let s4 := alloc.vec.Vec.deref val2
+                            let s5 := alloc.vec.Vec.deref val2
+                            let r3 ←
+                              fold_layer_port.layer.tensor.sink_check s4 s5
+                            let cf3 ←
+                              core.result.Result.Insts.CoreOpsTry.branch r3
+                            match cf3 with
+                            | core.ops.control_flow.ControlFlow.Continue _ =>
+                              ok (core.result.Result.Ok (),
+                                { fit with wp := val2, planes := ret })
+                            | core.ops.control_flow.ControlFlow.Break residual
+                              =>
+                              let r4 ←
+                                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                  Unit (core.convert.FromSame
+                                  fold_layer_port.layer.tensor.TensorError)
+                                  residual
+                              ok (r4, fit)
+                          | core.ops.control_flow.ControlFlow.Break residual =>
+                            let r3 ←
+                              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                Unit (core.convert.FromSame
+                                fold_layer_port.layer.tensor.TensorError)
+                                residual
+                            ok (r3, fit)
+                        | some p2 =>
+                          let o3 ←
+                            core.option.Option.Insts.CoreCloneClone.clone
+                              (core.clone.CloneallocvecVec
+                              core.clone.CloneUsize) p2.rows
+                          let r2 ←
+                            core.option.Option.ok_or o3
+                              fold_layer_port.layer.tensor.TensorError.PlaneShape
+                          let cf2 ←
+                            core.result.Result.Insts.CoreOpsTry.branch r2
+                          match cf2 with
+                          | core.ops.control_flow.ControlFlow.Continue val2 =>
+                            let bad ←
+                              fold_layer_port.layer.tensor.fold_row_scale_loop
+                                o val2 false 0#usize
+                            if bad
+                            then
+                              ok (core.result.Result.Err
+                                fold_layer_port.layer.tensor.TensorError.PlaneShape,
+                                fit)
+                            else
+                              let b5 := core.option.Option.is_some p2.dense
+                              if b5
+                              then
+                                ok (core.result.Result.Err
+                                  fold_layer_port.layer.tensor.TensorError.PlaneShape,
+                                  fit)
+                              else
+                                let rlen := alloc.vec.Vec.len val2
+                                let b6 ←
+                                  fold_layer_port.layer.tensor.plane_shape p2
+                                    rlen n
+                                if b6
+                                then
+                                  let s3 := alloc.vec.Vec.deref p2.rh
+                                  let s4 := alloc.vec.Vec.deref val2
+                                  let r3 ←
+                                    fold_layer_port.layer.resq.rescale_hier_top
+                                      s3 s_sol s4 g
+                                  let cf3 ←
+                                    core.result.Result.Insts.CoreOpsTry.branch
+                                      r3
+                                  match cf3 with
+                                  | core.ops.control_flow.ControlFlow.Continue
+                                    val3 =>
+                                    let v3 ←
+                                      alloc.vec.CloneVec.clone
+                                        core.clone.CloneI64 p2.s_rot
+                                    let v4 ←
+                                      alloc.vec.CloneVec.clone
+                                        core.clone.CloneI64 p2.ch
+                                    let v5 ←
+                                      alloc.vec.CloneVec.clone
+                                        core.clone.CloneI64 p2.dh
+                                    let top ←
+                                      fold_layer_port.layer.tensor.plane_of v3
+                                        val3.rq v4 v5
+                                    let next ←
+                                      alloc.vec.Vec.push ret
+                                        { top with rows := (some val2) }
+                                    let s5 := alloc.vec.Vec.deref next
+                                    let r4 ←
+                                      fold_layer_port.layer.tensor.recon_words
+                                        s5 o n
+                                    let cf4 ←
+                                      core.result.Result.Insts.CoreOpsTry.branch
+                                        r4
+                                    match cf4 with
+                                    |
+                                      core.ops.control_flow.ControlFlow.Continue
+                                      val4 =>
+                                      let s6 := alloc.vec.Vec.deref val4
+                                      let s7 := alloc.vec.Vec.deref val4
+                                      let r5 ←
+                                        fold_layer_port.layer.tensor.sink_check
+                                          s6 s7
+                                      let cf5 ←
+                                        core.result.Result.Insts.CoreOpsTry.branch
+                                          r5
+                                      match cf5 with
+                                      |
+                                        core.ops.control_flow.ControlFlow.Continue
+                                        _ =>
+                                        ok (core.result.Result.Ok (),
+                                          { fit with wp := val4, planes := next
+                                          })
+                                      | core.ops.control_flow.ControlFlow.Break
+                                        residual =>
+                                        let r6 ←
+                                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                            Unit (core.convert.FromSame
+                                            fold_layer_port.layer.tensor.TensorError)
+                                            residual
+                                        ok (r6, fit)
+                                    | core.ops.control_flow.ControlFlow.Break
+                                      residual =>
+                                      let r5 ←
+                                        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                          Unit (core.convert.FromSame
+                                          fold_layer_port.layer.tensor.TensorError)
+                                          residual
+                                      ok (r5, fit)
+                                  | core.ops.control_flow.ControlFlow.Break
+                                    residual =>
+                                    let r4 ←
+                                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                        Unit
+                                        fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError
+                                        residual
+                                    ok (r4, fit)
+                                else
+                                  ok (core.result.Result.Err
+                                    fold_layer_port.layer.tensor.TensorError.PlaneShape,
+                                    fit)
+                          | core.ops.control_flow.ControlFlow.Break residual =>
+                            let r3 ←
+                              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                                Unit (core.convert.FromSame
+                                fold_layer_port.layer.tensor.TensorError)
+                                residual
+                            ok (r3, fit)
+                      | core.ops.control_flow.ControlFlow.Break residual =>
+                        let r2 ←
+                          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                            Unit
+                            fold_layer_port.layer.tensor.TensorError.Insts.CoreConvertFromResqError
+                            residual
+                        ok (r2, fit)
+                    else
+                      ok (core.result.Result.Err
+                        fold_layer_port.layer.tensor.TensorError.PlaneShape,
+                        fit)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                let r1 ←
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    Unit (core.convert.FromSame
+                    fold_layer_port.layer.tensor.TensorError) residual
+                ok (r1, fit)
+        else
+          ok (core.result.Result.Err
+            fold_layer_port.layer.tensor.TensorError.Width, fit)
 
 /-- [apeiron_word::fold_finish_port::convert::EXP_2_31]
     Source: '../../src/learn/fold/run/convert.rs', lines 53:0-53:26 -/
@@ -86122,16 +88581,6 @@ def fold_port.stats.parts.sin_cos
   | core.ops.control_flow.ControlFlow.Break residual =>
     core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
       (Std.I64 × Std.I64) residual
-
-/-- [apeiron_word::fold_port::stats::parts::PartsError]
-    Source: '../../src/learn/fold/stats/parts.rs', lines 177:0-188:1
-    Visibility: public -/
-@[discriminant isize]
-inductive fold_port.stats.parts.PartsError where
-| Shape : fold_port.stats.parts.PartsError
-| NonFinite : fold_port.stats.parts.PartsError
-| RopeTooShort : fold_port.stats.parts.PartsError
-| OutOfRange : fold_port.stats.parts.PartsError
 
 /-- [apeiron_word::fold_port::stats::parts::RopeTables]
     Source: '../../src/learn/fold/stats/parts.rs', lines 224:0-231:1
@@ -100322,6 +102771,14 @@ def hashtrinity.algebra.fold_bytes (b : Slice Std.U8) : Result Std.U64 := do
     let i2 ← x >>> 32#i32
     ok (x ^^^ i2)
 
+/-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Coord for str}::coord]:
+    Source: '../../src/map/hashtrinity/algebra.rs', lines 444:4-446:5
+    Visibility: public -/
+def Str.Insts.Apeiron_wordHashtrinityAlgebraCoord.coord
+  (self : Str) : Result Std.U64 := do
+  let s ← core.str.Str.as_bytes self
+  hashtrinity.algebra.fold_bytes s
+
 /-- [apeiron_word::hashtrinity::algebra::{impl apeiron_word::hashtrinity::algebra::Coord for [u8]}::coord]:
     Source: '../../src/map/hashtrinity/algebra.rs', lines 456:4-458:5
     Visibility: public -/
@@ -107382,332 +109839,230 @@ def hashtrinity.crypto.ct_eq
         0#u8
     ok (d = 0#u8)
 
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_BBITS]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 27:4-27:35
+/-- Trait declaration: [apeiron_word::hashtrinity::face::Locate]
+    Source: '../../src/map/hashtrinity/face.rs', lines 73:0-78:1
     Visibility: public -/
-@[global_simps, irreducible]
-def hashtrinity.freq.FreqMapKI64.COUNT_BBITS {K : Type} (algebraCoordInst :
-  hashtrinity.algebra.Coord K) : Std.U32 :=
-  8#u32
+structure hashtrinity.face.Locate (Self : Type) (K : Type) where
+  algebraCoordInst : hashtrinity.algebra.Coord K
+  corecmpEqInst : core.cmp.Eq K
+  coord : Self → Result Std.U64
+  same : Self → K → Result Bool
 
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_BUCKETS]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 29:4-29:60
+/-- Trait declaration: [apeiron_word::hashtrinity::face::Absorb]
+    Source: '../../src/map/hashtrinity/face.rs', lines 82:0-85:1
     Visibility: public -/
-@[global_simps, irreducible]
-def hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS {K : Type} (algebraCoordInst :
-  hashtrinity.algebra.Coord K) : Result Std.Usize :=
-  1#usize <<< (hashtrinity.freq.FreqMapKI64.COUNT_BBITS algebraCoordInst)
+structure hashtrinity.face.Absorb (Self : Type) (K : Type) where
+  LocateInst : hashtrinity.face.Locate Self K
+  algebraCoordInst : hashtrinity.algebra.Coord K
+  corecmpEqInst : core.cmp.Eq K
+  absorb : Self → Result K
 
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_HOME_GAP]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 38:4-38:39
+/-- [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Locate<K> for &'_0 K}::same]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 93:4-95:5
     Visibility: public -/
-@[global_simps, irreducible]
-def hashtrinity.freq.FreqMapKI64.COUNT_HOME_GAP {K : Type} (algebraCoordInst :
-  hashtrinity.algebra.Coord K) : Std.U32 :=
-  16#u32
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_BUCKET_SHIFT]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 42:4-42:86
-    Visibility: public -/
-@[global_simps, irreducible]
-def hashtrinity.freq.FreqMapKI64.COUNT_BUCKET_SHIFT {K : Type}
-  (algebraCoordInst : hashtrinity.algebra.Coord K) : Result Std.U32 := do
-  let i ←
-    64#u32 - (hashtrinity.freq.FreqMapKI64.COUNT_BBITS algebraCoordInst)
-  i - (hashtrinity.freq.FreqMapKI64.COUNT_HOME_GAP algebraCoordInst)
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_AGGREGATE_START]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 49:4-49:47
-    Visibility: public -/
-@[global_simps, irreducible]
-def hashtrinity.freq.FreqMapKI64.COUNT_AGGREGATE_START {K : Type}
-  (algebraCoordInst : hashtrinity.algebra.Coord K) : Std.Usize :=
-  8#usize
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_home]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 55:4-57:5
-    Visibility: public -/
-def hashtrinity.freq.FreqMapKI64.count_home
-  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (c : Std.U64) :
-  Result Std.Usize
-  := do
-  let i ← lift (core.num.U64.wrapping_mul c hashtrinity.PHI)
-  let i1 ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKET_SHIFT algebraCoordInst
-  let i2 ← i >>> i1
-  let i3 ← lift (UScalar.cast .Usize i2)
-  let i4 ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS algebraCoordInst
-  let i5 ← i4 - 1#usize
-  ok (i3 &&& i5)
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_admit]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 93:4-95:5
-    Visibility: public -/
-def hashtrinity.freq.FreqMapKI64.count_admit
-  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (n : Std.Usize)
-  (count_max : Std.U64) :
+def Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate.same
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (corecmpEqInst :
+  core.cmp.Eq K) (self : K) (k : K) :
   Result Bool
   := do
-  let i ← lift (UScalar.cast .U64 n)
-  ok (i <= count_max)
+  core.cmp.impls.PartialEqShared.eq corecmpEqInst.partialEqInst self k
 
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_histogram]: loop body 0:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 106:8-114:9
+/-- [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Locate<K> for &'_0 K}::coord]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 89:4-91:5
     Visibility: public -/
-@[rust_loop_body]
-def hashtrinity.freq.FreqMapKI64.count_histogram_loop.body
-  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (keys : Slice K)
-  (n : Std.Usize) (homes : Slice Std.U8) (hist : Slice Std.U32) (ok1 : Bool)
-  (i : Std.Usize) :
-  Result (ControlFlow ((Slice Std.U8) × (Slice Std.U32) × Bool × Std.Usize)
-    (Bool × (Slice Std.U8) × (Slice Std.U32)))
-  := do
-  if ok1
-  then
-    if i < n
-    then
-      let t ← Slice.index_usize keys i
-      let i1 ← algebraCoordInst.coord t
-      let h ← hashtrinity.freq.FreqMapKI64.count_home algebraCoordInst i1
-      let (_, index_mut_back) ← Slice.index_mut_usize homes i
-      let i2 ← lift (UScalar.cast .U8 h)
-      let i3 ← Slice.index_usize hist h
-      let o ← lift (U32.checked_add i3 1#u32)
-      match o with
-      | none =>
-        let i4 ← i + 1#usize
-        let s := index_mut_back i2
-        ok (cont (s, hist, false, i4))
-      | some v =>
-        let s ← Slice.update hist h v
-        let i4 ← i + 1#usize
-        let s1 := index_mut_back i2
-        ok (cont (s1, s, true, i4))
-    else ok (done (true, homes, hist))
-  else ok (done (false, homes, hist))
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_histogram]: loop 0:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 106:8-114:9
-    Visibility: public -/
-@[rust_loop]
-def hashtrinity.freq.FreqMapKI64.count_histogram_loop
-  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (keys : Slice K)
-  (homes : Slice Std.U8) (hist : Slice Std.U32) (n : Std.Usize) (ok1 : Bool)
-  (i : Std.Usize) :
-  Result (Bool × (Slice Std.U8) × (Slice Std.U32))
-  := do
-  loop
-    (fun (homes1, hist1, ok2, i1) =>
-      hashtrinity.freq.FreqMapKI64.count_histogram_loop.body algebraCoordInst
-      keys n homes1 hist1 ok2 i1)
-    (homes, hist, ok1, i)
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_histogram]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 102:4-116:5
-    Visibility: public -/
-def hashtrinity.freq.FreqMapKI64.count_histogram
-  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (keys : Slice K)
-  (homes : Slice Std.U8) (hist : Slice Std.U32) :
-  Result (Bool × (Slice Std.U8) × (Slice Std.U32))
-  := do
-  let n := Slice.len keys
-  let i := Slice.len homes
-  let ok1 ←
-    if i = n
-    then
-      do
-      let i1 := Slice.len hist
-      let i2 ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS algebraCoordInst
-      ok (i1 = i2)
-    else ok false
-  hashtrinity.freq.FreqMapKI64.count_histogram_loop algebraCoordInst keys homes
-    hist n ok1 0#usize
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop body 1:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 142:12-149:13
-    Visibility: public -/
-@[rust_loop_body]
-def hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0.body
-  (counts : Slice Std.U32) (w : Std.Usize) (b : Std.Usize) (j : Std.Usize)
-  (woff : Slice Std.Usize) (ok1 : Bool) (acc : Std.Usize) (t : Std.Usize) :
-  Result (ControlFlow ((Slice Std.Usize) × Bool × Std.Usize × Std.Usize)
-    ((Slice Std.Usize) × Bool × Std.Usize))
-  := do
-  if ok1
-  then
-    if t < w
-    then
-      let i ← t * b
-      let i1 ← i + j
-      let s ← Slice.update woff i1 acc
-      let i2 ← i + j
-      let i3 ← Slice.index_usize counts i2
-      let i4 ← lift (UScalar.cast .Usize i3)
-      let o ← lift (Usize.checked_add acc i4)
-      let (ok2, acc1) ←
-        match o with
-        | none => ok (false, acc)
-        | some v => ok (true, v)
-      let t1 ← t + 1#usize
-      ok (cont (s, ok2, acc1, t1))
-    else ok (done (woff, true, acc))
-  else ok (done (woff, false, acc))
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop 1:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 142:12-149:13
-    Visibility: public -/
-@[rust_loop]
-def hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0
-  (counts : Slice Std.U32) (w : Std.Usize) (woff : Slice Std.Usize)
-  (b : Std.Usize) (ok1 : Bool) (acc : Std.Usize) (j : Std.Usize)
-  (t : Std.Usize) :
-  Result ((Slice Std.Usize) × Bool × Std.Usize)
-  := do
-  loop
-    (fun (woff1, ok2, acc1, t1) =>
-      hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0.body counts w b j
-      woff1 ok2 acc1 t1)
-    (woff, ok1, acc, t)
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop body 0:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 139:8-151:9
-    Visibility: public -/
-@[rust_loop_body]
-def hashtrinity.freq.FreqMapKI64.count_offsets_loop0.body
-  (counts : Slice Std.U32) (w : Std.Usize) (b : Std.Usize)
-  (bstart : Slice Std.Usize) (woff : Slice Std.Usize) (ok1 : Bool)
-  (acc : Std.Usize) (j : Std.Usize) :
-  Result (ControlFlow ((Slice Std.Usize) × (Slice Std.Usize) × Bool ×
-    Std.Usize × Std.Usize) ((Slice Std.Usize) × (Slice Std.Usize) × Bool ×
-    Std.Usize))
-  := do
-  if ok1
-  then
-    if j < b
-    then
-      let s ← Slice.update bstart j acc
-      let (woff1, ok2, acc1) ←
-        hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0 counts w woff b
-          true acc j 0#usize
-      let j1 ← j + 1#usize
-      ok (cont (s, woff1, ok2, acc1, j1))
-    else ok (done (bstart, woff, true, acc))
-  else ok (done (bstart, woff, false, acc))
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop 0:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 139:8-151:9
-    Visibility: public -/
-@[rust_loop]
-def hashtrinity.freq.FreqMapKI64.count_offsets_loop0
-  (counts : Slice Std.U32) (w : Std.Usize) (bstart : Slice Std.Usize)
-  (woff : Slice Std.Usize) (b : Std.Usize) (ok1 : Bool) (acc : Std.Usize)
-  (j : Std.Usize) :
-  Result ((Slice Std.Usize) × (Slice Std.Usize) × Bool × Std.Usize)
-  := do
-  loop
-    (fun (bstart1, woff1, ok2, acc1, j1) =>
-      hashtrinity.freq.FreqMapKI64.count_offsets_loop0.body counts w b bstart1
-      woff1 ok2 acc1 j1)
-    (bstart, woff, ok1, acc, j)
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 124:4-156:5
-    Visibility: public -/
-def hashtrinity.freq.FreqMapKI64.count_offsets
-  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (counts : Slice Std.U32) (w : Std.Usize) (n : Std.Usize)
-  (bstart : Slice Std.Usize) (woff : Slice Std.Usize) :
-  Result (Bool × (Slice Std.Usize) × (Slice Std.Usize))
-  := do
-  let b ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS algebraCoordInst
-  let o ← lift (Usize.checked_mul w b)
-  match o with
-  | none => ok (false, bstart, woff)
-  | some x =>
-    let i := Slice.len counts
-    let ok1 ←
-      if i = x
-      then
-        let i1 := Slice.len woff
-        if i1 = x
-        then do
-             let i2 := Slice.len bstart
-             let i3 ← b + 1#usize
-             ok (i2 = i3)
-        else ok false
-      else ok false
-    let (bstart1, woff1, ok2, acc) ←
-      hashtrinity.freq.FreqMapKI64.count_offsets_loop0 counts w bstart woff b
-        ok1 0#usize 0#usize
-    let bstart2 ← if ok2
-                    then Slice.update bstart1 b acc
-                    else ok bstart1
-    if ok2
-    then ok (acc = n, bstart2, woff1)
-    else ok (false, bstart2, woff1)
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_slot]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 163:4-168:5
-    Visibility: public -/
-def hashtrinity.freq.FreqMapKI64.count_slot
-  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (off : Slice Std.Usize) (h : Std.U8) :
-  Result (Std.Usize × (Slice Std.Usize))
-  := do
-  let j ← lift (core.convert.num.FromUsizeU8.from h)
-  let s ← Slice.index_usize off j
-  let i ← s + 1#usize
-  let off1 ← Slice.update off j i
-  ok (s, off1)
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_aggregate_start]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 176:4-178:5 -/
-def hashtrinity.freq.FreqMapKI64.count_aggregate_start
-  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (lo : Std.Usize)
-  (hi : Std.Usize) :
-  Result Std.Usize
-  := do
-  let i ← lift (core.num.Usize.saturating_sub hi lo)
-  core.cmp.Ord.min.trait_default core.cmp.OrdUsize i
-    (hashtrinity.freq.FreqMapKI64.COUNT_AGGREGATE_START algebraCoordInst)
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1496:43-1496:63 -/
-@[reducible]
-def hashtrinity.freq.FreqMapKI64.add.closure (K : Type) := Unit
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}<K>}::call_once]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1496:43-1496:63 -/
-def
-  hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64.call_once
-  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (c : hashtrinity.freq.FreqMapKI64.add.closure K)
-  (tupled_args : (Std.I64 × Std.I64)) :
-  Result Std.I64
-  := do
-  let (new, old) := tupled_args
-  new + old
-
-/-- Trait implementation: [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}<K>}]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1496:43-1496:63 -/
-@[reducible]
-def
-  hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64
-  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) :
-  core.ops.function.FnOnce (hashtrinity.freq.FreqMapKI64.add.closure K)
-  (Std.I64 × Std.I64) Std.I64 := {
-  call_once :=
-    hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64.call_once
-    algebraCoordInst
-}
-
-/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::freq]:
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1262:4-1264:5 -/
-def hashtrinity.freq.FreqMap.freq
-  {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (k : K) :
+def Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate.coord
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (corecmpEqInst :
+  core.cmp.Eq K) (self : K) :
   Result Std.U64
   := do
-  algebraCoordInst.coord k
+  algebraCoordInst.coord self
+
+/-- Trait implementation: [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Locate<K> for &'_0 K}]
+    Source: '../../src/map/hashtrinity/face.rs', lines 87:0-96:1 -/
+@[reducible]
+def Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate {K : Type}
+  (algebraCoordInst1 : hashtrinity.algebra.Coord K) (corecmpEqInst1 :
+  core.cmp.Eq K) : hashtrinity.face.Locate K K := {
+  algebraCoordInst := algebraCoordInst1
+  corecmpEqInst := corecmpEqInst1
+  coord := Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate.coord
+    algebraCoordInst1 corecmpEqInst1
+  same := Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate.same
+    algebraCoordInst1 corecmpEqInst1
+}
+
+/-- [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Absorb<K> for &'_0 K}::absorb]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 99:4-101:5
+    Visibility: public -/
+def Shared0K.Insts.Apeiron_wordHashtrinityFaceAbsorb.absorb
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (corecmpEqInst :
+  core.cmp.Eq K) (corecloneCloneInst : core.clone.Clone K) (self : K) :
+  Result K
+  := do
+  corecloneCloneInst.clone self
+
+/-- Trait implementation: [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Absorb<K> for &'_0 K}]
+    Source: '../../src/map/hashtrinity/face.rs', lines 97:0-102:1 -/
+@[reducible]
+def Shared0K.Insts.Apeiron_wordHashtrinityFaceAbsorb {K : Type}
+  (algebraCoordInst1 : hashtrinity.algebra.Coord K) (corecmpEqInst1 :
+  core.cmp.Eq K) (corecloneCloneInst : core.clone.Clone K) :
+  hashtrinity.face.Absorb K K := {
+  LocateInst := Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate
+    algebraCoordInst1 corecmpEqInst1
+  algebraCoordInst := algebraCoordInst1
+  corecmpEqInst := corecmpEqInst1
+  absorb := Shared0K.Insts.Apeiron_wordHashtrinityFaceAbsorb.absorb
+    algebraCoordInst1 corecmpEqInst1 corecloneCloneInst
+}
+
+/-- [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Locate<alloc::string::String> for &'_0 str}::coord]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 106:4-109:5
+    Visibility: public -/
+def Shared0Str.Insts.Apeiron_wordHashtrinityFaceLocateString.coord
+  (self : Str) : Result Std.U64 := do
+  Str.Insts.Apeiron_wordHashtrinityAlgebraCoord.coord self
+
+/-- [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Locate<alloc::string::String> for &'_0 str}::same]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 111:4-115:5
+    Visibility: public -/
+def Shared0Str.Insts.Apeiron_wordHashtrinityFaceLocateString.same
+  (self : Str) (k : String) : Result Bool := do
+  let s ← core.str.Str.as_bytes self
+  let s1 ← alloc.string.String.as_bytes k
+  core.slice.cmp.PartialEqSlice.eq core.cmp.PartialEqU8 s s1
+
+/-- [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Absorb<alloc::string::String> for &'_0 str}::absorb]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 119:4-121:5
+    Visibility: public -/
+def Shared0Str.Insts.Apeiron_wordHashtrinityFaceAbsorbString.absorb
+  (self : Str) : Result String := do
+  Str.Insts.AllocBorrowToOwnedString.to_owned self
+
+/-- [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Locate<(A, B)> for (PA, PB)}::coord]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 126:4-129:5
+    Visibility: public -/
+def Pair.Insts.Apeiron_wordHashtrinityFaceLocatePair.coord
+  {A : Type} {B : Type} {PA : Type} {PB : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord A) (corecmpEqInst : core.cmp.Eq A)
+  (algebraCoordInst1 : hashtrinity.algebra.Coord B) (corecmpEqInst1 :
+  core.cmp.Eq B) (LocateInst : hashtrinity.face.Locate PA A) (LocateInst1 :
+  hashtrinity.face.Locate PB B) (self : (PA × PB)) :
+  Result Std.U64
+  := do
+  let (t, t1) := self
+  let i ← LocateInst.coord t
+  let i1 ← lift (core.num.U64.wrapping_mul i hashtrinity.PHI)
+  let i2 ← LocateInst1.coord t1
+  ok (i1 ^^^ i2)
+
+/-- [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Locate<(A, B)> for (PA, PB)}::same]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 131:4-133:5
+    Visibility: public -/
+def Pair.Insts.Apeiron_wordHashtrinityFaceLocatePair.same
+  {A : Type} {B : Type} {PA : Type} {PB : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord A) (corecmpEqInst : core.cmp.Eq A)
+  (algebraCoordInst1 : hashtrinity.algebra.Coord B) (corecmpEqInst1 :
+  core.cmp.Eq B) (LocateInst : hashtrinity.face.Locate PA A) (LocateInst1 :
+  hashtrinity.face.Locate PB B) (self : (PA × PB)) (k : (A × B)) :
+  Result Bool
+  := do
+  let (t, t1) := self
+  let (t2, t3) := k
+  let b ← LocateInst.same t t2
+  if b
+  then LocateInst1.same t1 t3
+  else ok false
+
+/-- [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Absorb<(A, B)> for (PA, PB)}::absorb]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 137:4-139:5
+    Visibility: public -/
+def Pair.Insts.Apeiron_wordHashtrinityFaceAbsorbPair.absorb
+  {A : Type} {B : Type} {PA : Type} {PB : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord A) (corecmpEqInst : core.cmp.Eq A)
+  (algebraCoordInst1 : hashtrinity.algebra.Coord B) (corecmpEqInst1 :
+  core.cmp.Eq B) (AbsorbInst : hashtrinity.face.Absorb PA A) (AbsorbInst1 :
+  hashtrinity.face.Absorb PB B) (self : (PA × PB)) :
+  Result (A × B)
+  := do
+  let (t, t1) := self
+  let t2 ← AbsorbInst.absorb t
+  let t3 ← AbsorbInst1.absorb t1
+  ok (t2, t3)
+
+/-- [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Locate<(A, B, C)> for (PA, PB, PC)}::coord]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 146:4-148:5
+    Visibility: public -/
+def TuplePAPBPC.Insts.Apeiron_wordHashtrinityFaceLocateTupleABC.coord
+  {A : Type} {B : Type} {C : Type} {PA : Type} {PB : Type} {PC : Type}
+  (algebraCoordInst : hashtrinity.algebra.Coord A) (corecmpEqInst : core.cmp.Eq
+  A) (algebraCoordInst1 : hashtrinity.algebra.Coord B) (corecmpEqInst1 :
+  core.cmp.Eq B) (algebraCoordInst2 : hashtrinity.algebra.Coord C)
+  (corecmpEqInst2 : core.cmp.Eq C) (LocateInst : hashtrinity.face.Locate PA A)
+  (LocateInst1 : hashtrinity.face.Locate PB B) (LocateInst2 :
+  hashtrinity.face.Locate PC C) (self : (PA × PB × PC)) :
+  Result Std.U64
+  := do
+  let (t, t1, t2) := self
+  let i ← LocateInst.coord t
+  let i1 ← lift (core.num.U64.wrapping_mul i hashtrinity.PHI)
+  let i2 ← LocateInst1.coord t1
+  let i3 ← lift (i1 ^^^ i2)
+  let i4 ← lift (core.num.U64.wrapping_mul i3 hashtrinity.PHI)
+  let i5 ← LocateInst2.coord t2
+  ok (i4 ^^^ i5)
+
+/-- [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Locate<(A, B, C)> for (PA, PB, PC)}::same]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 150:4-152:5
+    Visibility: public -/
+def TuplePAPBPC.Insts.Apeiron_wordHashtrinityFaceLocateTupleABC.same
+  {A : Type} {B : Type} {C : Type} {PA : Type} {PB : Type} {PC : Type}
+  (algebraCoordInst : hashtrinity.algebra.Coord A) (corecmpEqInst : core.cmp.Eq
+  A) (algebraCoordInst1 : hashtrinity.algebra.Coord B) (corecmpEqInst1 :
+  core.cmp.Eq B) (algebraCoordInst2 : hashtrinity.algebra.Coord C)
+  (corecmpEqInst2 : core.cmp.Eq C) (LocateInst : hashtrinity.face.Locate PA A)
+  (LocateInst1 : hashtrinity.face.Locate PB B) (LocateInst2 :
+  hashtrinity.face.Locate PC C) (self : (PA × PB × PC)) (k : (A × B × C)) :
+  Result Bool
+  := do
+  let (t, t1, t2) := self
+  let (t3, t4, t5) := k
+  let b ← LocateInst.same t t3
+  if b
+  then
+    let b1 ← LocateInst1.same t1 t4
+    if b1
+    then LocateInst2.same t2 t5
+    else ok false
+  else ok false
+
+/-- [apeiron_word::hashtrinity::face::{impl apeiron_word::hashtrinity::face::Absorb<(A, B, C)> for (PA, PB, PC)}::absorb]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 158:4-160:5
+    Visibility: public -/
+def TuplePAPBPC.Insts.Apeiron_wordHashtrinityFaceAbsorbTupleABC.absorb
+  {A : Type} {B : Type} {C : Type} {PA : Type} {PB : Type} {PC : Type}
+  (algebraCoordInst : hashtrinity.algebra.Coord A) (corecmpEqInst : core.cmp.Eq
+  A) (algebraCoordInst1 : hashtrinity.algebra.Coord B) (corecmpEqInst1 :
+  core.cmp.Eq B) (algebraCoordInst2 : hashtrinity.algebra.Coord C)
+  (corecmpEqInst2 : core.cmp.Eq C) (AbsorbInst : hashtrinity.face.Absorb PA A)
+  (AbsorbInst1 : hashtrinity.face.Absorb PB B) (AbsorbInst2 :
+  hashtrinity.face.Absorb PC C) (self : (PA × PB × PC)) :
+  Result (A × B × C)
+  := do
+  let (t, t1, t2) := self
+  let t3 ← AbsorbInst.absorb t
+  let t4 ← AbsorbInst1.absorb t1
+  let t5 ← AbsorbInst2.absorb t2
+  ok (t3, t4, t5)
+
+/-- [apeiron_word::hashtrinity::side::SideStore]
+    Source: '../../src/map/hashtrinity/side.rs', lines 16:0-22:1 -/
+structure hashtrinity.side.SideStore (K : Type) (V : Type) (KS : Type) where
+  coords : alloc.vec.Vec Std.U64
+  vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V)
+  keys : KS
+  cap : Std.Usize
+  _k : core.marker.PhantomData K
 
 /-- [apeiron_word::hashtrinity::overflow::Node]
     Source: '../../src/map/hashtrinity/overflow.rs', lines 165:0-177:1 -/
@@ -107727,77 +110082,853 @@ structure hashtrinity.overflow.Overflow (K : Type) (V : Type) where
   root : Std.U32
   len : Std.Usize
 
-/-- [apeiron_word::hashtrinity::freq::FreqSide]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 403:0-409:1 -/
-structure hashtrinity.freq.FreqSide (V : Type) where
-  coords : alloc.vec.Vec Std.U64
-  vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V)
-  live : alloc.vec.Vec Bool
-
-/-- [apeiron_word::hashtrinity::freq::FreqLine]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 557:0-574:1 -/
-structure hashtrinity.freq.FreqLine (V : Type) where
-  ctrl : Slice Std.U8
-  slots : Slice (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V))
-  gshift : Std.U32
-  gmask : Std.Usize
+/-- [apeiron_word::hashtrinity::Table]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 319:0-333:1
+    Visibility: public -/
+structure hashtrinity.Table (K : Type) (V : Type) (KS : Type) where
+  coords : Slice Std.U64
+  vals : Slice (core.mem.maybe_uninit.MaybeUninit V)
+  keys : KS
+  side : hashtrinity.side.SideStore K V KS
+  overflow : Option (hashtrinity.overflow.Overflow K V)
   bits : Std.U32
   len : Std.Usize
-  side : hashtrinity.freq.FreqSide V
-  overflow : Option (hashtrinity.overflow.Overflow Std.U64 V)
-
-/-- [apeiron_word::hashtrinity::freq::FreqMap]
-    Source: '../../src/map/hashtrinity/freq.rs', lines 1237:0-1240:1
-    Visibility: public -/
-structure hashtrinity.freq.FreqMap (K : Type) (V : Type) where
-  inner : hashtrinity.freq.FreqLine V
+  tombs : Std.Usize
   _k : core.marker.PhantomData K
 
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::write_back]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 467:4-469:5 -/
-def hashtrinity.overflow.Overflow.write_back
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32)
-  (v : V) :
-  Result (hashtrinity.overflow.Overflow K V)
-  := do
-  let i ← lift (UScalar.cast .Usize n)
-  let (n1, index_mut_back) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i
-  let i1 ← lift (UScalar.cast .Usize e)
-  let ((t, _), index_mut_back1) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (K ×
-      (Option V))) n1.entries i1
-  let v1 := index_mut_back1 (t, some v)
-  let v2 := index_mut_back { n1 with entries := v1 }
-  ok { self with nodes := v2 }
+/-- [apeiron_word::hashtrinity::Store]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 249:0-256:1 -/
+@[discriminant isize]
+inductive hashtrinity.Store where
+| Main : hashtrinity.Store
+| Side : hashtrinity.Store
+| Overflow : hashtrinity.Store
 
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::take_value]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 459:4-464:5 -/
-def hashtrinity.overflow.Overflow.take_value
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32) :
-  Result (V × (hashtrinity.overflow.Overflow K V))
+/-- [apeiron_word::hashtrinity::face::VacantEntry]
+    Source: '../../src/map/hashtrinity/face.rs', lines 187:0-193:1
+    Visibility: public -/
+structure hashtrinity.face.VacantEntry (K : Type) (V : Type) (KS : Type) where
+  t : hashtrinity.Table K V KS
+  slot : Std.Usize
+  coord : Std.U64
+  key : K
+  store : hashtrinity.Store
+
+/-- [apeiron_word::hashtrinity::face::OccupiedEntry]
+    Source: '../../src/map/hashtrinity/face.rs', lines 177:0-184:1
+    Visibility: public -/
+structure hashtrinity.face.OccupiedEntry (K : Type) (V : Type) (KS : Type)
+  where
+  t : hashtrinity.Table K V KS
+  slot : Std.Usize
+  node : Std.U32
+  entry : Std.U32
+  coord : Std.U64
+  store : hashtrinity.Store
+
+/-- [apeiron_word::hashtrinity::face::Entry]
+    Source: '../../src/map/hashtrinity/face.rs', lines 168:0-173:1
+    Visibility: public -/
+@[discriminant isize]
+inductive hashtrinity.face.Entry (K : Type) (V : Type) (KS : Type) where
+| Occupied :
+  hashtrinity.face.OccupiedEntry K V KS →
+  hashtrinity.face.Entry K V KS
+| Vacant :
+  hashtrinity.face.VacantEntry K V KS →
+  hashtrinity.face.Entry K V KS
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::find]: loop body 0:
+    Source: '../../src/map/hashtrinity/side.rs', lines 63:8-70:5 -/
+@[rust_loop_body]
+def hashtrinity.side.SideStore.find_loop.body
+  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
+  (coord : Std.U64) (k : K) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize (Option Std.Usize))
   := do
-  let i ← lift (UScalar.cast .Usize n)
-  let (n1, index_mut_back) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-      (hashtrinity.overflow.Node K V)) self.nodes i
-  let i1 ← lift (UScalar.cast .Usize e)
-  let ((t, o), index_mut_back1) ←
-    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (K ×
-      (Option V))) n1.entries i1
-  let (o1, o2) := core.option.Option.take o
-  let t1 ← core.option.Option.expect o1 (toStr "overflow: live entry")
-  let v := index_mut_back1 (t, o2)
-  let v1 := index_mut_back { n1 with entries := v }
-  ok (t1, { self with nodes := v1 })
+  let i1 := alloc.vec.Vec.len self.coords
+  if i < i1
+  then
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
+        self.coords i
+    if i2 = coord
+    then
+      let b ← algebraKeyStoreInst.«matches» self.keys i coord k
+      if b
+      then ok (done (some i))
+      else let i3 ← i + 1#usize
+           ok (cont i3)
+    else let i3 ← i + 1#usize
+         ok (cont i3)
+  else ok (done none)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::find]: loop 0:
+    Source: '../../src/map/hashtrinity/side.rs', lines 63:8-70:5 -/
+@[rust_loop]
+def hashtrinity.side.SideStore.find_loop
+  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
+  (coord : Std.U64) (k : K) (i : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  loop
+    (fun i1 => hashtrinity.side.SideStore.find_loop.body algebraKeyStoreInst
+      self coord k i1)
+    i
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::find]:
+    Source: '../../src/map/hashtrinity/side.rs', lines 61:4-70:5 -/
+@[reducible]
+def hashtrinity.side.SideStore.find
+  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
+  (coord : Std.U64) (k : K) :
+  Result (Option Std.Usize)
+  := do
+  hashtrinity.side.SideStore.find_loop algebraKeyStoreInst self coord k 0#usize
+
+/-- Trait declaration: [apeiron_word::hashtrinity::overflow::Confirm]
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 47:0-49:1 -/
+structure hashtrinity.overflow.Confirm (Self : Type) (K : Type) (KS : Type)
+  where
+  algebraCoordInst : hashtrinity.algebra.Coord K
+  algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS K
+  confirm : Self → KS → Std.Usize → Result Bool
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::home]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 502:4-509:5 -/
+def hashtrinity.Table.home
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) :
+  Result Std.Usize
+  := do
+  let len := Slice.len self.coords
+  let i ← lift (UScalar.cast .Usize coord)
+  if i < len
+  then ok (UScalar.cast .Usize coord)
+  else
+    let i1 ← lift (core.num.U64.wrapping_mul coord hashtrinity.PHI)
+    let i2 ← 64#u32 - self.bits
+    let i3 ← i1 >>> i2
+    ok (UScalar.cast .Usize i3)
+
+/-- [apeiron_word::hashtrinity::LINEAR_G]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 213:0-213:24 -/
+@[global_simps, irreducible] def hashtrinity.LINEAR_G : Std.U32 := 8#u32
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::descend]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 528:4-555:5 -/
+def hashtrinity.Table.descend
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (j : Std.U32) :
+  Result Std.Usize
+  := do
+  let i := Slice.len self.coords
+  let mask ← i - 1#usize
+  if j < hashtrinity.LINEAR_G
+  then
+    let i1 ←
+      hashtrinity.Table.home corecmpEqInst algebraCoordInst algebraKeyStoreInst
+        self coord
+    let i2 ← lift (UScalar.cast .Usize j)
+    let i3 ← lift (core.num.Usize.wrapping_add i1 i2)
+    ok (i3 &&& mask)
+  else
+    let p ← lift (core.num.U64.wrapping_mul coord hashtrinity.PHI)
+    let i1 ← j - hashtrinity.LINEAR_G
+    let jj ← i1 + 1#u32
+    let i2 ← jj + 1#u32
+    let used ← self.bits * i2
+    if used <= 64#u32
+    then
+      let i3 ← 64#u32 - used
+      let i4 ← p >>> i3
+      let i5 ← lift (UScalar.cast .Usize i4)
+      ok (i5 &&& mask)
+    else
+      let full ← 64#u32 / self.bits
+      let i3 ← self.bits * full
+      let i4 ← 64#u32 - i3
+      let i5 ← p >>> i4
+      let i6 ← lift (UScalar.cast .Usize i5)
+      let i7 ← jj - full
+      let i8 ← lift (UScalar.cast .Usize i7)
+      let i9 ← i6 + i8
+      let i10 ← i9 + 1#usize
+      ok (i10 &&& mask)
+
+/-- [apeiron_word::hashtrinity::Capped]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 237:0-244:1 -/
+@[discriminant isize]
+inductive hashtrinity.Capped where
+| Hit : Std.Usize → hashtrinity.Capped
+| Vacant : Std.Usize → hashtrinity.Capped
+| Blocked : hashtrinity.Capped
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 695:8-708:5 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Table.probe_rest_with_loop.body
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (limit : Std.U32) (confirm : T3) (j : Std.U32) :
+  Result (ControlFlow Std.U32 hashtrinity.Capped)
+  := do
+  if j < limit
+  then
+    let i ←
+      hashtrinity.Table.descend corecmpEqInst algebraCoordInst
+        algebraKeyStoreInst self coord j
+    let sc ←
+      core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
+        Std.U64) self.coords i
+    if sc = coord
+    then
+      let b ← ConfirmInst.confirm confirm self.keys i
+      if b
+      then ok (done (hashtrinity.Capped.Hit i))
+      else
+        if sc = hashtrinity.EMPTY
+        then ok (done (hashtrinity.Capped.Vacant i))
+        else let j1 ← j + 1#u32
+             ok (cont j1)
+    else
+      if sc = hashtrinity.EMPTY
+      then ok (done (hashtrinity.Capped.Vacant i))
+      else let j1 ← j + 1#u32
+           ok (cont j1)
+  else ok (done hashtrinity.Capped.Blocked)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 695:8-708:5 -/
+@[rust_loop]
+def hashtrinity.overflow.Table.probe_rest_with_loop
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (j : Std.U32) (limit : Std.U32) (confirm : T3) :
+  Result hashtrinity.Capped
+  := do
+  loop
+    (fun j1 => hashtrinity.overflow.Table.probe_rest_with_loop.body
+      corecmpEqInst algebraCoordInst algebraKeyStoreInst ConfirmInst self coord
+      limit confirm j1)
+    j
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 688:4-708:5 -/
+@[reducible]
+def hashtrinity.overflow.Table.probe_rest_with
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (j : Std.U32) (limit : Std.U32) (confirm : T3) :
+  Result hashtrinity.Capped
+  := do
+  hashtrinity.overflow.Table.probe_rest_with_loop corecmpEqInst
+    algebraCoordInst algebraKeyStoreInst ConfirmInst self coord j limit confirm
+
+/-- [apeiron_word::hashtrinity::overflow::WINDOW_STEPS_BY_BITS]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 37:4-40:5 -/
+@[rust_loop_body]
+def hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop.body
+  (t : Array Std.U32 65#usize) (b : Std.Usize) :
+  Result (ControlFlow ((Array Std.U32 65#usize) × Std.Usize) (Array Std.U32
+    65#usize))
+  := do
+  if b < 65#usize
+  then
+    let i ← lift (UScalar.cast .U32 b)
+    let i1 ← 64#u32 / i
+    let i2 ← hashtrinity.LINEAR_G + i1
+    let i3 ← i2 - 1#u32
+    let a ← Array.update t b i3
+    let b1 ← b + 1#usize
+    ok (cont (a, b1))
+  else ok (done t)
+
+/-- [apeiron_word::hashtrinity::overflow::WINDOW_STEPS_BY_BITS]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 37:4-40:5 -/
+@[rust_loop]
+def hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop
+  (t : Array Std.U32 65#usize) (b : Std.Usize) :
+  Result (Array Std.U32 65#usize)
+  := do
+  loop
+    (fun (t1, b1) => hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop.body t1 b1)
+    (t, b)
+
+/-- [apeiron_word::hashtrinity::overflow::WINDOW_STEPS_BY_BITS]
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 34:0-42:2 -/
+@[global_simps, irreducible]
+def hashtrinity.overflow.WINDOW_STEPS_BY_BITS
+  : Result (Array Std.U32 65#usize) :=
+  let t := Array.repeat 65#usize 0#u32
+  hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop t 1#usize
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::window_steps]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 673:4-675:5 -/
+def hashtrinity.overflow.Table.window_steps
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
+  Result Std.U32
+  := do
+  let a ← hashtrinity.overflow.WINDOW_STEPS_BY_BITS
+  let i ← lift (UScalar.cast .Usize self.bits)
+  Array.index_usize a i
+
+/-- [apeiron_word::hashtrinity::PROBE_CAP]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 224:0-224:30
+    Visibility: public -/
+@[global_simps, irreducible] def hashtrinity.PROBE_CAP : Std.U32 := 16#u32
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_limit]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 680:4-682:5 -/
+def hashtrinity.overflow.Table.probe_limit
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
+  Result Std.U32
+  := do
+  let i ←
+    hashtrinity.overflow.Table.window_steps corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst self
+  core.cmp.Ord.min.trait_default core.cmp.OrdU32 hashtrinity.PROBE_CAP i
+
+/-- [apeiron_word::hashtrinity::overflow::prefix_masks_avx2]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 121:0-142:1 -/
+def hashtrinity.overflow.prefix_masks_avx2
+  (base : ConstRawPtr Std.U64) (coord : Std.U64) :
+  Result (Std.U32 × Std.U32)
+  := do
+  let p ←
+    core.ptr.const_ptr.RawPtrConstT.cast core.core_arch.x86.__m256i base
+  let lo ← core.core_arch.x86.avx._mm256_loadu_si256 p
+  let p1 ← core.ptr.const_ptr.RawPtrConstT.add base 4#usize
+  let p2 ← core.ptr.const_ptr.RawPtrConstT.cast core.core_arch.x86.__m256i p1
+  let hi ← core.core_arch.x86.avx._mm256_loadu_si256 p2
+  let i ← lift (UScalar.hcast .I64 coord)
+  let key ← core.core_arch.x86.avx._mm256_set1_epi64x i
+  let i1 ← lift (UScalar.hcast .I64 hashtrinity.EMPTY)
+  let emp ← core.core_arch.x86.avx._mm256_set1_epi64x i1
+  let mi ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 lo key
+  let md ← core.core_arch.x86.avx._mm256_castsi256_pd mi
+  let i2 ← core.core_arch.x86.avx._mm256_movemask_pd md
+  let hits_lo ← lift (IScalar.hcast .U32 i2)
+  let mi1 ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 hi key
+  let md1 ← core.core_arch.x86.avx._mm256_castsi256_pd mi1
+  let i3 ← core.core_arch.x86.avx._mm256_movemask_pd md1
+  let hits_hi ← lift (IScalar.hcast .U32 i3)
+  let mi2 ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 lo emp
+  let md2 ← core.core_arch.x86.avx._mm256_castsi256_pd mi2
+  let i4 ← core.core_arch.x86.avx._mm256_movemask_pd md2
+  let empties_lo ← lift (IScalar.hcast .U32 i4)
+  let mi3 ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 hi emp
+  let md3 ← core.core_arch.x86.avx._mm256_castsi256_pd mi3
+  let i5 ← core.core_arch.x86.avx._mm256_movemask_pd md3
+  let empties_hi ← lift (IScalar.hcast .U32 i5)
+  let i6 ← hits_hi <<< 4#i32
+  let hits ← lift (hits_lo ||| i6)
+  let i7 ← empties_hi <<< 4#i32
+  let empties ← lift (empties_lo ||| i7)
+  ok (hits, empties)
+
+/-- [apeiron_word::hashtrinity::overflow::prefix_masks]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 100:8-105:9 -/
+@[rust_loop_body]
+def hashtrinity.overflow.prefix_masks_loop.body
+  (coords : Slice Std.U64) (home : Std.Usize) (coord : Std.U64)
+  (hits : Std.U32) (empties : Std.U32) (k : Std.Usize) :
+  Result (ControlFlow (Std.U32 × Std.U32 × Std.Usize) (Std.U32 × Std.U32))
+  := do
+  let i ← lift (UScalar.cast .Usize hashtrinity.LINEAR_G)
+  if k < i
+  then
+    let i1 ← home + k
+    let sc ← Slice.index_usize coords i1
+    let i2 ← lift (core.convert.num.FromU32Bool.from (sc = coord))
+    let i3 ← i2 <<< k
+    let hits1 ← lift (hits ||| i3)
+    let i4 ←
+      lift (core.convert.num.FromU32Bool.from (sc = hashtrinity.EMPTY))
+    let i5 ← i4 <<< k
+    let empties1 ← lift (empties ||| i5)
+    let k1 ← k + 1#usize
+    ok (cont (hits1, empties1, k1))
+  else ok (done (hits, empties))
+
+/-- [apeiron_word::hashtrinity::overflow::prefix_masks]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 100:8-105:9 -/
+@[rust_loop]
+def hashtrinity.overflow.prefix_masks_loop
+  (coords : Slice Std.U64) (home : Std.Usize) (coord : Std.U64)
+  (hits : Std.U32) (empties : Std.U32) (k : Std.Usize) :
+  Result (Std.U32 × Std.U32)
+  := do
+  loop
+    (fun (hits1, empties1, k1) => hashtrinity.overflow.prefix_masks_loop.body
+      coords home coord hits1 empties1 k1)
+    (hits, empties, k)
+
+/-- [apeiron_word::hashtrinity::overflow::prefix_masks]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 78:0-108:1 -/
+def hashtrinity.overflow.prefix_masks
+  (coords : Slice Std.U64) (home : Std.Usize) (coord : Std.U64) :
+  Result (Std.U32 × Std.U32)
+  := do
+  let b ← std_detect.detect.arch.x86.__is_feature_detected.avx2
+  if b
+  then
+    let p ← core.slice.Slice.as_ptr coords
+    let p1 ← core.ptr.const_ptr.RawPtrConstT.add p home
+    hashtrinity.overflow.prefix_masks_avx2 p1 coord
+  else
+    hashtrinity.overflow.prefix_masks_loop coords home coord 0#u32 0#u32
+      0#usize
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 783:12-800:5 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Table.probe_capped_cold_loop.body
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
+  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
+  (ss : hashtrinity.side.SideStore K V KS)
+  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
+  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
+  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (limit : Std.U32)
+  (empties : Std.U32) (hits : Std.U32) :
+  Result (ControlFlow Std.U32 hashtrinity.Capped)
+  := do
+  if hits != 0#u32
+  then
+    let i3 ← core.num.U32.trailing_zeros hits
+    let i4 ← lift (UScalar.cast .Usize i3)
+    let slot ← home + i4
+    let b ← ConfirmInst.confirm confirm t slot
+    if b
+    then ok (done (hashtrinity.Capped.Hit slot))
+    else
+      let i5 ← hits - 1#u32
+      let hits1 ← lift (hits &&& i5)
+      ok (cont hits1)
+  else
+    if empties != 0#u32
+    then
+      let i3 ← core.num.U32.trailing_zeros empties
+      let i4 ← lift (UScalar.cast .Usize i3)
+      let i5 ← home + i4
+      ok (done (hashtrinity.Capped.Vacant i5))
+    else
+      let c ←
+        hashtrinity.overflow.Table.probe_rest_with corecmpEqInst
+          algebraCoordInst algebraKeyStoreInst ConfirmInst
+          {
+            coords := s,
+            vals := s1,
+            keys := t,
+            side := ss,
+            overflow := o,
+            bits := i,
+            len := i1,
+            tombs := i2,
+            _k := pd
+          } coord hashtrinity.LINEAR_G limit confirm
+      ok (done c)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 783:12-800:5 -/
+@[rust_loop]
+def hashtrinity.overflow.Table.probe_capped_cold_loop
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
+  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
+  (ss : hashtrinity.side.SideStore K V KS)
+  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
+  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
+  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (limit : Std.U32)
+  (hits : Std.U32) (empties : Std.U32) :
+  Result hashtrinity.Capped
+  := do
+  loop
+    (fun hits1 => hashtrinity.overflow.Table.probe_capped_cold_loop.body
+      corecmpEqInst algebraCoordInst algebraKeyStoreInst ConfirmInst s s1 t ss
+      o i i1 i2 pd coord home confirm limit empties hits1)
+    hits
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 770:4-800:5 -/
+def hashtrinity.overflow.Table.probe_capped_cold
+  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
+  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (home : Std.Usize) (confirm : T3) :
+  Result hashtrinity.Capped
+  := do
+  let limit ←
+    hashtrinity.overflow.Table.probe_limit corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst self
+  let len := Slice.len self.coords
+  if limit >= hashtrinity.LINEAR_G
+  then
+    let i ← lift (UScalar.cast .Usize hashtrinity.LINEAR_G)
+    let i1 ← home + i
+    if i1 <= len
+    then
+      let (hits, empties) ←
+        hashtrinity.overflow.prefix_masks self.coords home coord
+      hashtrinity.overflow.Table.probe_capped_cold_loop corecmpEqInst
+        algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords
+        self.vals self.keys self.side self.overflow self.bits self.len
+        self.tombs self._k coord home confirm limit hits empties
+    else
+      hashtrinity.overflow.Table.probe_rest_with corecmpEqInst algebraCoordInst
+        algebraKeyStoreInst ConfirmInst self coord 0#u32 limit confirm
+  else
+    hashtrinity.overflow.Table.probe_rest_with corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst ConfirmInst self coord 0#u32 limit confirm
+
+/-- [apeiron_word::hashtrinity::overflow::ByKey]
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 52:0-55:1 -/
+structure hashtrinity.overflow.ByKey (K : Type) where
+  coord : Std.U64
+  k : K
+
+/-- [apeiron_word::hashtrinity::overflow::{impl apeiron_word::hashtrinity::overflow::Confirm<K, KS> for apeiron_word::hashtrinity::overflow::ByKey<'a, K>}::confirm]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 59:4-61:5 -/
+def
+  hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm.confirm
+  {K : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.overflow.ByKey K)
+  (keys : KS) (i : Std.Usize) :
+  Result Bool
+  := do
+  algebraKeyStoreInst.«matches» keys i self.coord self.k
+
+/-- Trait implementation: [apeiron_word::hashtrinity::overflow::{impl apeiron_word::hashtrinity::overflow::Confirm<K, KS> for apeiron_word::hashtrinity::overflow::ByKey<'a, K>}]
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 57:0-62:1 -/
+@[reducible]
+def hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm {K
+  : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (algebraCoordInst1 :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst1 :
+  hashtrinity.algebra.KeyStore KS K) : hashtrinity.overflow.Confirm
+  (hashtrinity.overflow.ByKey K) K KS := {
+  algebraCoordInst := algebraCoordInst1
+  algebraKeyStoreInst := algebraKeyStoreInst1
+  confirm :=
+    hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm.confirm
+    corecmpEqInst algebraCoordInst1 algebraKeyStoreInst1
+}
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_keyed]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 812:4-825:5 -/
+def hashtrinity.overflow.Table.probe_capped_keyed
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (k : K) :
+  Result hashtrinity.Capped
+  := do
+  let home ←
+    hashtrinity.Table.home corecmpEqInst algebraCoordInst algebraKeyStoreInst
+      self coord
+  let sc ←
+    core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
+      Std.U64) self.coords home
+  if sc = coord
+  then
+    let b ← algebraKeyStoreInst.«matches» self.keys home coord k
+    if b
+    then ok (hashtrinity.Capped.Hit home)
+    else
+      if sc = hashtrinity.EMPTY
+      then ok (hashtrinity.Capped.Vacant home)
+      else
+        hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
+          algebraCoordInst algebraKeyStoreInst
+          (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
+          corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home
+          { coord, k }
+  else
+    if sc = hashtrinity.EMPTY
+    then ok (hashtrinity.Capped.Vacant home)
+    else
+      hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
+        algebraCoordInst algebraKeyStoreInst
+        (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
+        corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home
+        { coord, k }
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::empty]:
+    Source: '../../src/map/hashtrinity/side.rs', lines 25:4-33:5 -/
+def hashtrinity.side.SideStore.empty
+  {K : Type} (V : Type) {KS : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) :
+  Result (hashtrinity.side.SideStore K V KS)
+  := do
+  let t ← algebraKeyStoreInst.alloc 0#usize
+  ok
+    {
+      coords := (alloc.vec.Vec.new Std.U64),
+      vals := (alloc.vec.Vec.new (core.mem.maybe_uninit.MaybeUninit V)),
+      keys := t,
+      cap := 0#usize,
+      _k := ()
+    }
 
 /-- [apeiron_word::hashtrinity::overflow::NIL]
     Source: '../../src/map/hashtrinity/overflow.rs', lines 161:0-161:26 -/
 @[global_simps, irreducible]
 def hashtrinity.overflow.NIL : Std.U32 := core.num.U32.MAX
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 1:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.in_order_loop0_loop0.body
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.U32) (alloc.vec.Vec
+    Std.U32))
+  := do
+  if cur != hashtrinity.overflow.NIL
+  then
+    let stack1 ← alloc.vec.Vec.push stack cur
+    let i ← lift (UScalar.cast .Usize cur)
+    let n ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i
+    ok (cont (stack1, n.left))
+  else ok (done stack)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 1:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.in_order_loop0_loop0
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  loop
+    (fun (stack1, cur1) =>
+      hashtrinity.overflow.Overflow.in_order_loop0_loop0.body v stack1 cur1)
+    (stack, cur)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 2:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.in_order_loop0_loop1.body
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.U32) (alloc.vec.Vec
+    Std.U32))
+  := do
+  if cur != hashtrinity.overflow.NIL
+  then
+    let stack1 ← alloc.vec.Vec.push stack cur
+    let i ← lift (UScalar.cast .Usize cur)
+    let n ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i
+    ok (cont (stack1, n.left))
+  else ok (done stack)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 2:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.in_order_loop0_loop1
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  loop
+    (fun (stack1, cur1) =>
+      hashtrinity.overflow.Overflow.in_order_loop0_loop1.body v stack1 cur1)
+    (stack, cur)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 549:8-559:9 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.in_order_loop0.body
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (out : alloc.vec.Vec Std.U32) (stack : alloc.vec.Vec Std.U32) (cur : Std.U32)
+  :
+  Result (ControlFlow ((alloc.vec.Vec Std.U32) × (alloc.vec.Vec Std.U32) ×
+    Std.U32) (alloc.vec.Vec Std.U32))
+  := do
+  if cur != hashtrinity.overflow.NIL
+  then
+    let stack1 ←
+      hashtrinity.overflow.Overflow.in_order_loop0_loop0 v stack cur
+    let (o, stack2) ← alloc.vec.Vec.pop Global stack1
+    let n ← core.option.Option.expect o (toStr "nonempty stack")
+    let i ← lift (UScalar.cast .Usize n)
+    let n1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i
+    let out1 ← if n1.alive
+                 then alloc.vec.Vec.push out n
+                 else ok out
+    let i1 ← lift (UScalar.cast .Usize n)
+    let n2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i1
+    ok (cont (out1, stack2, n2.right))
+  else
+    let b ← alloc.vec.Vec.is_empty Global stack
+    if b
+    then ok (done out)
+    else
+      let stack1 ←
+        hashtrinity.overflow.Overflow.in_order_loop0_loop1 v stack cur
+      let (o, stack2) ← alloc.vec.Vec.pop Global stack1
+      let n ← core.option.Option.expect o (toStr "nonempty stack")
+      let i ← lift (UScalar.cast .Usize n)
+      let n1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (hashtrinity.overflow.Node K V)) v i
+      let out1 ← if n1.alive
+                   then alloc.vec.Vec.push out n
+                   else ok out
+      let i1 ← lift (UScalar.cast .Usize n)
+      let n2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+          (hashtrinity.overflow.Node K V)) v i1
+      ok (cont (out1, stack2, n2.right))
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 549:8-559:9 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.in_order_loop0
+  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (out : alloc.vec.Vec Std.U32) (stack : alloc.vec.Vec Std.U32) (cur : Std.U32)
+  :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  loop
+    (fun (out1, stack1, cur1) =>
+      hashtrinity.overflow.Overflow.in_order_loop0.body v out1 stack1 cur1)
+    (out, stack, cur)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 546:4-560:5 -/
+@[reducible]
+def hashtrinity.overflow.Overflow.in_order
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (out : alloc.vec.Vec Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  hashtrinity.overflow.Overflow.in_order_loop0 self.nodes out
+    (alloc.vec.Vec.new Std.U32) self.root
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop body 1:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 526:12-530:13 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body
+  {K : Type} {V : Type} (key : Std.U64)
+  (iter : alloc.vec.into_iter.IntoIter (K × (Option V)))
+  (out : alloc.vec.Vec (Std.U64 × K × V)) :
+  Result (ControlFlow ((alloc.vec.into_iter.IntoIter (K × (Option V))) ×
+    (alloc.vec.Vec (Std.U64 × K × V))) (alloc.vec.Vec (Std.U64 × K × V)))
+  := do
+  let (o, iter1) ← alloc.vec.into_iter.IteratorIntoIter.next iter
+  match o with
+  | none => ok (done out)
+  | some p =>
+    let (k, v) := p
+    match v with
+    | none => ok (cont (iter1, out))
+    | some v1 =>
+      let out1 ← alloc.vec.Vec.push out (key, k, v1)
+      ok (cont (iter1, out1))
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop 1:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 526:12-530:13 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.into_entries_loop0_loop0
+  {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter (K × (Option V)))
+  (out : alloc.vec.Vec (Std.U64 × K × V)) (key : Std.U64) :
+  Result (alloc.vec.Vec (Std.U64 × K × V))
+  := do
+  loop
+    (fun (iter1, out1) =>
+      hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body key iter1
+      out1)
+    (iter, out)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop body 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 522:8-531:9 -/
+@[rust_loop_body]
+def hashtrinity.overflow.Overflow.into_entries_loop0.body
+  {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter Std.U32)
+  (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (out : alloc.vec.Vec (Std.U64 × K × V)) :
+  Result (ControlFlow ((alloc.vec.into_iter.IntoIter Std.U32) × (alloc.vec.Vec
+    (hashtrinity.overflow.Node K V)) × (alloc.vec.Vec (Std.U64 × K × V)))
+    (alloc.vec.Vec (Std.U64 × K × V)))
+  := do
+  let (o, iter1) ← alloc.vec.into_iter.IteratorIntoIter.next iter
+  match o with
+  | none => ok (done out)
+  | some n =>
+    let i ← lift (UScalar.cast .Usize n)
+    let (node, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+        (hashtrinity.overflow.Node K V)) v i
+    let (entries, v1) ←
+      core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault (K × (Option V)))
+        node.entries
+    let iter2 ← alloc.vec.IntoIteratorVec.into_iter entries
+    let out1 ←
+      hashtrinity.overflow.Overflow.into_entries_loop0_loop0 iter2 out node.key
+    let v2 := index_mut_back { node with entries := v1 }
+    ok (cont (iter1, v2, out1))
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop 0:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 522:8-531:9 -/
+@[rust_loop]
+def hashtrinity.overflow.Overflow.into_entries_loop0
+  {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter Std.U32)
+  (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
+  (out : alloc.vec.Vec (Std.U64 × K × V)) :
+  Result (alloc.vec.Vec (Std.U64 × K × V))
+  := do
+  loop
+    (fun (iter1, v1, out1) =>
+      hashtrinity.overflow.Overflow.into_entries_loop0.body iter1 v1 out1)
+    (iter, v, out)
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 518:4-533:5 -/
+def hashtrinity.overflow.Overflow.into_entries
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) :
+  Result (alloc.vec.Vec (Std.U64 × K × V))
+  := do
+  let out := alloc.vec.Vec.with_capacity (Std.U64 × K × V) self.len
+  let order ←
+    hashtrinity.overflow.Overflow.in_order algebraCoordInst self
+      (alloc.vec.Vec.new Std.U32)
+  let iter ← alloc.vec.IntoIteratorVec.into_iter order
+  hashtrinity.overflow.Overflow.into_entries_loop0 iter self.nodes out
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::h]:
     Source: '../../src/map/hashtrinity/overflow.rs', lines 216:4-222:5 -/
@@ -108277,6 +111408,493 @@ def hashtrinity.overflow.Overflow.insert_new_at
   let e ← i2 - 1#usize
   ok ((node, e), self1)
 
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::new]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 197:4-204:5 -/
+def hashtrinity.overflow.Overflow.new
+  {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K) :
+  Result (hashtrinity.overflow.Overflow K V)
+  := do
+  ok
+    {
+      nodes := (alloc.vec.Vec.new (hashtrinity.overflow.Node K V)),
+      free := (alloc.vec.Vec.new Std.U32),
+      root := hashtrinity.overflow.NIL,
+      len := 0#usize
+    }
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::place_capped]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1149:4-1177:5 -/
+def hashtrinity.Table.place_capped
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (coord : Std.U64) (k : K) (v : V) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let c ←
+    hashtrinity.overflow.Table.probe_capped_keyed corecmpEqInst
+      algebraCoordInst algebraKeyStoreInst self coord k
+  match c with
+  | hashtrinity.Capped.Hit i =>
+    let (mu, get_unchecked_mut_back) ←
+      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
+        (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
+    let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
+    core.mem.drop old
+    let mu1 ← core.mem.maybe_uninit.MaybeUninit.new v
+    let s := get_unchecked_mut_back mu
+    let (_, get_unchecked_mut_back1) ←
+      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
+        (core.mem.maybe_uninit.MaybeUninit V)) s i
+    let s1 := get_unchecked_mut_back1 mu1
+    ok { self with vals := s1 }
+  | hashtrinity.Capped.Vacant i =>
+    let (_, get_unchecked_mut_back) ←
+      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
+        Std.U64) self.coords i
+    let mu ← core.mem.maybe_uninit.MaybeUninit.new v
+    let (_, get_unchecked_mut_back1) ←
+      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
+        (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
+    let t ← algebraKeyStoreInst.set self.keys i k
+    let i1 ← self.len + 1#usize
+    let s := get_unchecked_mut_back coord
+    let s1 := get_unchecked_mut_back1 mu
+    ok { self with coords := s, vals := s1, keys := t, len := i1 }
+  | hashtrinity.Capped.Blocked =>
+    let b := core.option.Option.is_none self.overflow
+    let o ←
+      if b
+      then
+        do
+        let o1 ← hashtrinity.overflow.Overflow.new V algebraCoordInst
+        ok (some o1)
+      else ok self.overflow
+    let (o1, as_mut_back) ← core.option.Option.as_mut o
+    match o1 with
+    | none => fail panic
+    | some ov =>
+      let (_, ov1) ←
+        hashtrinity.overflow.Overflow.insert_new_at algebraCoordInst ov coord k
+          v
+      let o2 := as_mut_back (some ov1)
+      ok { self with overflow := o2 }
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::with_bits]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 476:4-489:5 -/
+def hashtrinity.Table.with_bits
+  {K : Type} (V : Type) {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (bits : Std.U32) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let n ← 1#usize <<< bits
+  let v ← alloc.vec.from_elem core.clone.CloneU64 hashtrinity.EMPTY n
+  let s ← alloc.vec.Vec.into_boxed_slice Global v
+  let s1 ← hashtrinity.algebra.alloc_uninit_boxed V n
+  let t ← algebraKeyStoreInst.alloc n
+  let ss ←
+    hashtrinity.side.SideStore.empty V algebraCoordInst algebraKeyStoreInst
+  ok
+    {
+      coords := s,
+      vals := s1,
+      keys := t,
+      side := ss,
+      overflow := none,
+      bits,
+      len := 0#usize,
+      tombs := 0#usize,
+      _k := ()
+    }
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 0:
+    Source: '../../src/map/hashtrinity/side.rs', lines 121:12-125:13 -/
+@[rust_loop_body]
+def hashtrinity.side.SideStore.clear_loop0.body
+  {V : Type} (vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V))
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V)) ×
+    Std.Usize) Unit)
+  := do
+  let i1 := alloc.vec.Vec.len vals
+  if i < i1
+  then
+    let (mu, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+        (core.mem.maybe_uninit.MaybeUninit V)) vals i
+    let mu1 ← core.mem.maybe_uninit.MaybeUninit.assume_init_drop mu
+    let i2 ← i + 1#usize
+    let vals1 := index_mut_back mu1
+    ok (cont (vals1, i2))
+  else ok (done ())
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 0:
+    Source: '../../src/map/hashtrinity/side.rs', lines 121:12-125:13 -/
+@[rust_loop]
+def hashtrinity.side.SideStore.clear_loop0
+  {V : Type} (vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V))
+  (i : Std.Usize) :
+  Result Unit
+  := do
+  loop
+    (fun (vals1, i1) => hashtrinity.side.SideStore.clear_loop0.body vals1 i1)
+    (vals, i)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 1:
+    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
+@[rust_loop_body]
+def hashtrinity.side.SideStore.clear_loop1.body
+  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (coords : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
+  Result (ControlFlow (KS × Std.Usize) KS)
+  := do
+  let i1 := alloc.vec.Vec.len coords
+  if i < i1
+  then
+    let c ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
+        coords i
+    let (t1, t2) ← algebraKeyStoreInst.take_key t i c
+    core.mem.drop t1
+    let i2 ← i + 1#usize
+    ok (cont (t2, i2))
+  else ok (done t)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 1:
+    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
+@[rust_loop]
+def hashtrinity.side.SideStore.clear_loop1
+  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (t : KS) (coords : alloc.vec.Vec Std.U64) (i : Std.Usize) :
+  Result KS
+  := do
+  loop
+    (fun (t1, i1) => hashtrinity.side.SideStore.clear_loop1.body
+      algebraKeyStoreInst coords t1 i1)
+    (t, i)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 2:
+    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
+@[rust_loop_body]
+def hashtrinity.side.SideStore.clear_loop2.body
+  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (coords : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
+  Result (ControlFlow (KS × Std.Usize) KS)
+  := do
+  let i1 := alloc.vec.Vec.len coords
+  if i < i1
+  then
+    let c ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
+        coords i
+    let (t1, t2) ← algebraKeyStoreInst.take_key t i c
+    core.mem.drop t1
+    let i2 ← i + 1#usize
+    ok (cont (t2, i2))
+  else ok (done t)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 2:
+    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
+@[rust_loop]
+def hashtrinity.side.SideStore.clear_loop2
+  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
+  K) (t : KS) (coords : alloc.vec.Vec Std.U64) (i : Std.Usize) :
+  Result KS
+  := do
+  loop
+    (fun (t1, i1) => hashtrinity.side.SideStore.clear_loop2.body
+      algebraKeyStoreInst coords t1 i1)
+    (t, i)
+
+/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]:
+    Source: '../../src/map/hashtrinity/side.rs', lines 116:4-133:5 -/
+def hashtrinity.side.SideStore.clear
+  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
+  :
+  Result (hashtrinity.side.SideStore K V KS)
+  := do
+  let (coords, v) ←
+    core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault Std.U64) self.coords
+  let (vals, v1) ←
+    core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault
+      (core.mem.maybe_uninit.MaybeUninit V)) self.vals
+  let b ← core.mem.needs_drop V
+  if b
+  then
+    hashtrinity.side.SideStore.clear_loop0 vals 0#usize
+    let t ←
+      hashtrinity.side.SideStore.clear_loop1 algebraKeyStoreInst self.keys
+        coords 0#usize
+    ok { self with coords := v, vals := v1, keys := t }
+  else
+    let t ←
+      hashtrinity.side.SideStore.clear_loop2 algebraKeyStoreInst self.keys
+        coords 0#usize
+    ok { self with coords := v, vals := v1, keys := t }
+
+/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop body 0:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 341:12-347:13
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop.body
+  {K : Type} {V : Type} {KS : Type} (self : hashtrinity.Table K V KS)
+  (i : Std.Usize) :
+  Result (ControlFlow ((hashtrinity.Table K V KS) × Std.Usize) ((Slice
+    Std.U64) × (Slice (core.mem.maybe_uninit.MaybeUninit V)) × KS ×
+    (hashtrinity.side.SideStore K V KS) × (Option
+    (hashtrinity.overflow.Overflow K V)) × Std.U32 × Std.Usize × Std.Usize
+    × (core.marker.PhantomData K)))
+  := do
+  let i1 := Slice.len self.coords
+  if i < i1
+  then
+    let i2 ← Slice.index_usize self.coords i
+    let b ← hashtrinity.is_live i2
+    let s ←
+      if b
+      then
+        do
+        let (mu, index_mut_back) ← Slice.index_mut_usize self.vals i
+        let mu1 ← core.mem.maybe_uninit.MaybeUninit.assume_init_drop mu
+        ok (index_mut_back mu1)
+      else ok self.vals
+    let i3 ← i + 1#usize
+    ok (cont ({ self with vals := s }, i3))
+  else
+    ok (done (self.coords, self.vals, self.keys, self.side, self.overflow,
+      self.bits, self.len, self.tombs, self._k))
+
+/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop 0:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 341:12-347:13
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop
+  {K : Type} {V : Type} {KS : Type} (self : hashtrinity.Table K V KS)
+  (i : Std.Usize) :
+  Result ((Slice Std.U64) × (Slice (core.mem.maybe_uninit.MaybeUninit V)) ×
+    KS × (hashtrinity.side.SideStore K V KS) × (Option
+    (hashtrinity.overflow.Overflow K V)) × Std.U32 × Std.Usize × Std.Usize
+    × (core.marker.PhantomData K))
+  := do
+  loop
+    (fun (self1, i1) => hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop.body
+      self1 i1)
+    (self, i)
+
+/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 338:4-355:5
+    Visibility: public -/
+def hashtrinity.Table.Insts.CoreOpsDropDrop.drop
+  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let b ← core.mem.needs_drop V
+  if b
+  then
+    let (s, s1, t, ss, o, i, i1, i2, pd) ←
+      hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop self 0#usize
+    let (coords, s2) ←
+      core.mem.take (BoxSlice.Insts.CoreDefaultDefault Std.U64) s
+    let t1 ← algebraKeyStoreInst.drop_live t coords
+    let ss1 ←
+      hashtrinity.side.SideStore.clear algebraCoordInst algebraKeyStoreInst ss
+    ok
+      {
+        coords := s2,
+        vals := s1,
+        keys := t1,
+        side := ss1,
+        overflow := o,
+        bits := i,
+        len := i1,
+        tombs := i2,
+        _k := pd
+      }
+  else
+    let (coords, s) ←
+      core.mem.take (BoxSlice.Insts.CoreDefaultDefault Std.U64) self.coords
+    let t ← algebraKeyStoreInst.drop_live self.keys coords
+    let ss ←
+      hashtrinity.side.SideStore.clear algebraCoordInst algebraKeyStoreInst
+        self.side
+    ok { self with coords := s, keys := t, side := ss }
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop body 0:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1217:8-1230:9 -/
+@[rust_loop_body]
+def hashtrinity.Table.resize_loop0.body
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (bigger : hashtrinity.Table K V KS) (i : Std.Usize) :
+  Result (ControlFlow ((hashtrinity.Table K V KS) × (hashtrinity.Table K V KS)
+    × Std.Usize) ((hashtrinity.side.SideStore K V KS) × (Option
+    (hashtrinity.overflow.Overflow K V)) × (hashtrinity.Table K V KS)))
+  := do
+  let i1 := Slice.len self.coords
+  if i < i1
+  then
+    let c ← Slice.index_usize self.coords i
+    let b ← hashtrinity.is_live c
+    if b
+    then
+      let (key, t) ← algebraKeyStoreInst.take_key self.keys i c
+      let (mu, get_unchecked_mut_back) ←
+        core.slice.Slice.get_unchecked_mut
+          (core.slice.index.SliceIndexUsizeSlice
+          (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
+      let v ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
+      let s ← Slice.update self.coords i hashtrinity.EMPTY
+      let bigger1 ←
+        hashtrinity.Table.place_capped corecmpEqInst algebraCoordInst
+          algebraKeyStoreInst bigger c key v
+      let i2 ← i + 1#usize
+      let s1 := get_unchecked_mut_back mu
+      ok (cont ({ self with coords := s, vals := s1, keys := t }, bigger1, i2))
+    else let i2 ← i + 1#usize
+         ok (cont (self, bigger, i2))
+  else ok (done (self.side, self.overflow, bigger))
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop 0:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1217:8-1230:9 -/
+@[rust_loop]
+def hashtrinity.Table.resize_loop0
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (bigger : hashtrinity.Table K V KS) (i : Std.Usize) :
+  Result ((hashtrinity.side.SideStore K V KS) × (Option
+    (hashtrinity.overflow.Overflow K V)) × (hashtrinity.Table K V KS))
+  := do
+  loop
+    (fun (self1, bigger1, i1) => hashtrinity.Table.resize_loop0.body
+      corecmpEqInst algebraCoordInst algebraKeyStoreInst self1 bigger1 i1)
+    (self, bigger, i)
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop body 1:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1236:12-1238:13 -/
+@[rust_loop_body]
+def hashtrinity.Table.resize_loop1.body
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K)
+  (iter : alloc.vec.into_iter.IntoIter (Std.U64 × K × V))
+  (bigger : hashtrinity.Table K V KS) :
+  Result (ControlFlow ((alloc.vec.into_iter.IntoIter (Std.U64 × K × V)) ×
+    (hashtrinity.Table K V KS)) (hashtrinity.Table K V KS))
+  := do
+  let (o, iter1) ← alloc.vec.into_iter.IteratorIntoIter.next iter
+  match o with
+  | none => ok (done bigger)
+  | some t =>
+    let (c, k, v) := t
+    let bigger1 ←
+      hashtrinity.Table.place_capped corecmpEqInst algebraCoordInst
+        algebraKeyStoreInst bigger c k v
+    ok (cont (iter1, bigger1))
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop 1:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1236:12-1238:13 -/
+@[rust_loop]
+def hashtrinity.Table.resize_loop1
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K)
+  (iter : alloc.vec.into_iter.IntoIter (Std.U64 × K × V))
+  (bigger : hashtrinity.Table K V KS) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  loop
+    (fun (iter1, bigger1) => hashtrinity.Table.resize_loop1.body corecmpEqInst
+      algebraCoordInst algebraKeyStoreInst iter1 bigger1)
+    (iter, bigger)
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1214:4-1241:5 -/
+def hashtrinity.Table.resize
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (new_bits : Std.U32) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let bigger ←
+    hashtrinity.Table.with_bits V corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst new_bits
+  let (ss, o, bigger1) ←
+    hashtrinity.Table.resize_loop0 corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst self bigger 0#usize
+  let ss1 ←
+    hashtrinity.side.SideStore.empty V algebraCoordInst algebraKeyStoreInst
+  let (ss2, _) := core.mem.replace ss ss1
+  let (o1, _) := core.option.Option.take o
+  match o1 with
+  | none => ok { bigger1 with side := ss2 }
+  | some ov =>
+    let v ← hashtrinity.overflow.Overflow.into_entries algebraCoordInst ov
+    let iter ← alloc.vec.IntoIteratorVec.into_iter v
+    hashtrinity.Table.resize_loop1 corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst iter { bigger1 with side := ss2 }
+
+/-- [apeiron_word::hashtrinity::LOAD_DEN]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 232:0-232:26 -/
+@[global_simps, irreducible] def hashtrinity.LOAD_DEN : Std.Usize := 4#usize
+
+/-- [apeiron_word::hashtrinity::LOAD_NUM]
+    Source: '../../src/map/hashtrinity/mod.rs', lines 231:0-231:26 -/
+@[global_simps, irreducible] def hashtrinity.LOAD_NUM : Std.Usize := 3#usize
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::grow_for_one]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 1194:4-1205:5 -/
+def hashtrinity.Table.grow_for_one
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let cap := Slice.len self.coords
+  let i ← self.len + self.tombs
+  let i1 ← i + 1#usize
+  let i2 ← i1 * hashtrinity.LOAD_DEN
+  let i3 ← cap * hashtrinity.LOAD_NUM
+  if i2 >= i3
+  then
+    let i4 ← cap / 2#usize
+    let new_bits ← if self.len < i4
+                     then ok self.bits
+                     else self.bits + 1#u32
+    hashtrinity.Table.resize corecmpEqInst algebraCoordInst algebraKeyStoreInst
+      self new_bits
+  else ok self
+
+/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::coord_of]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 495:4-497:5 -/
+def hashtrinity.Table.coord_of
+  {K : Type} (V : Type) {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (k : K) :
+  Result Std.U64
+  := do
+  algebraCoordInst.coord k
+
+/-- [apeiron_word::hashtrinity::is_sentinel]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 276:0-278:1 -/
+def hashtrinity.is_sentinel (c : Std.U64) : Result Bool := do
+  if c = hashtrinity.EMPTY
+  then ok true
+  else let i ← hashtrinity.TOMB
+       ok (c = i)
+
+/-- [apeiron_word::hashtrinity::face::{apeiron_word::hashtrinity::Table<K, V, KS>}::entry::{closure}]
+    Source: '../../src/map/hashtrinity/face.rs', lines 472:30-472:57 -/
+def hashtrinity.face.Table.entry.closure (K : Type) (V : Type) (KS : Type) :=
+  Std.U64 × K
+
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::find_entry]: loop body 0:
     Source: '../../src/map/hashtrinity/overflow.rs', lines 360:8-367:5 -/
 @[rust_loop_body]
@@ -108333,262 +111951,657 @@ def hashtrinity.overflow.Overflow.find_entry
     hashtrinity.overflow.Overflow.find_entry_loop algebraCoordInst
       corecmpEqInst k n n1.entries 0#usize
 
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::new]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 197:4-204:5 -/
-def hashtrinity.overflow.Overflow.new
-  {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K) :
-  Result (hashtrinity.overflow.Overflow K V)
+/-- [apeiron_word::hashtrinity::face::{apeiron_word::hashtrinity::Table<K, V, KS>}::entry::{impl core::ops::function::FnOnce<(&'_ apeiron_word::hashtrinity::overflow::Overflow<K, V>,), core::option::Option<(u32, u32)>> for apeiron_word::hashtrinity::face::{apeiron_word::hashtrinity::Table<K, V, KS>[TraitClause1, TraitClause2]}::entry::{closure}<'_0, '_1, K, V, KS>}::call_once]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 472:30-472:57 -/
+def
+  hashtrinity.face.Table.entry.closure.Insts.CoreOpsFunctionFnOnceTupleSharedOverflowOptionPairU32U32.call_once
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K)
+  (c : hashtrinity.face.Table.entry.closure K V KS)
+  (tupled_args : hashtrinity.overflow.Overflow K V) :
+  Result (Option (Std.U32 × Std.U32))
   := do
-  ok
-    {
-      nodes := (alloc.vec.Vec.new (hashtrinity.overflow.Node K V)),
-      free := (alloc.vec.Vec.new Std.U32),
-      root := hashtrinity.overflow.NIL,
-      len := 0#usize
-    }
+  let (i, t) := c
+  hashtrinity.overflow.Overflow.find_entry algebraCoordInst corecmpEqInst
+    tupled_args i t
 
-/-- [apeiron_word::hashtrinity::is_sentinel]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 276:0-278:1 -/
-def hashtrinity.is_sentinel (c : Std.U64) : Result Bool := do
-  if c = hashtrinity.EMPTY
-  then ok true
-  else let i ← hashtrinity.TOMB
-       ok (c = i)
+/-- Trait implementation: [apeiron_word::hashtrinity::face::{apeiron_word::hashtrinity::Table<K, V, KS>}::entry::{impl core::ops::function::FnOnce<(&'_ apeiron_word::hashtrinity::overflow::Overflow<K, V>,), core::option::Option<(u32, u32)>> for apeiron_word::hashtrinity::face::{apeiron_word::hashtrinity::Table<K, V, KS>[TraitClause1, TraitClause2]}::entry::{closure}<'_0, '_1, K, V, KS>}]
+    Source: '../../src/map/hashtrinity/face.rs', lines 472:30-472:57 -/
+@[reducible]
+def
+  hashtrinity.face.Table.entry.closure.Insts.CoreOpsFunctionFnOnceTupleSharedOverflowOptionPairU32U32
+  {K : Type} (V : Type) {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) : core.ops.function.FnOnce
+  (hashtrinity.face.Table.entry.closure K V KS) (hashtrinity.overflow.Overflow
+  K V) (Option (Std.U32 × Std.U32)) := {
+  call_once :=
+    hashtrinity.face.Table.entry.closure.Insts.CoreOpsFunctionFnOnceTupleSharedOverflowOptionPairU32U32.call_once
+    corecmpEqInst algebraCoordInst algebraKeyStoreInst
+}
 
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 1:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.in_order_loop0_loop0.body
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
-  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.U32) (alloc.vec.Vec
-    Std.U32))
+/-- [apeiron_word::hashtrinity::face::{apeiron_word::hashtrinity::Table<K, V, KS>}::entry]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 430:4-492:5
+    Visibility: public -/
+def hashtrinity.face.Table.entry
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (k : K) :
+  Result ((hashtrinity.face.Entry K V KS) × (hashtrinity.face.Entry K V KS →
+    hashtrinity.Table K V KS))
   := do
-  if cur != hashtrinity.overflow.NIL
+  let coord ←
+    hashtrinity.Table.coord_of V corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst k
+  let b ← hashtrinity.is_sentinel coord
+  if b
   then
-    let stack1 ← alloc.vec.Vec.push stack cur
-    let i ← lift (UScalar.cast .Usize cur)
-    let n ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i
-    ok (cont (stack1, n.left))
-  else ok (done stack)
+    let o ←
+      hashtrinity.side.SideStore.find algebraCoordInst algebraKeyStoreInst
+        self.side coord k
+    match o with
+    | none =>
+      let back :=
+        fun e =>
+          match e with
+          | hashtrinity.face.Entry.Vacant (hashtrinity.face.VacantEntry.mk t _
+            _ _ _) =>
+            t
+          | _ => self
+      ok (hashtrinity.face.Entry.Vacant
+        {
+          t := self,
+          slot := 0#usize,
+          coord,
+          key := k,
+          store := hashtrinity.Store.Side
+        }, back)
+    | some slot =>
+      let back :=
+        fun e =>
+          match e with
+          | hashtrinity.face.Entry.Occupied (hashtrinity.face.OccupiedEntry.mk
+            t _ _ _ _ _) =>
+            t
+          | _ => self
+      ok (hashtrinity.face.Entry.Occupied
+        {
+          t := self,
+          slot,
+          node := 0#u32,
+          entry := 0#u32,
+          coord,
+          store := hashtrinity.Store.Side
+        }, back)
+  else
+    let self1 ←
+      hashtrinity.Table.grow_for_one corecmpEqInst algebraCoordInst
+        algebraKeyStoreInst self
+    let c ←
+      hashtrinity.overflow.Table.probe_capped_keyed corecmpEqInst
+        algebraCoordInst algebraKeyStoreInst self1 coord k
+    match c with
+    | hashtrinity.Capped.Hit slot =>
+      let back :=
+        fun e =>
+          match e with
+          | hashtrinity.face.Entry.Occupied (hashtrinity.face.OccupiedEntry.mk
+            t _ _ _ _ _) =>
+            t
+          | _ => self1
+      ok (hashtrinity.face.Entry.Occupied
+        {
+          t := self1,
+          slot,
+          node := 0#u32,
+          entry := 0#u32,
+          coord,
+          store := hashtrinity.Store.Main
+        }, back)
+    | hashtrinity.Capped.Vacant slot =>
+      let back :=
+        fun e =>
+          match e with
+          | hashtrinity.face.Entry.Vacant (hashtrinity.face.VacantEntry.mk t _
+            _ _ _) =>
+            t
+          | _ => self1
+      ok (hashtrinity.face.Entry.Vacant
+        { t := self1, slot, coord, key := k, store := hashtrinity.Store.Main },
+        back)
+    | hashtrinity.Capped.Blocked =>
+      let o ← core.option.Option.as_ref self1.overflow
+      let found ←
+        core.option.Option.and_then
+          (hashtrinity.face.Table.entry.closure.Insts.CoreOpsFunctionFnOnceTupleSharedOverflowOptionPairU32U32
+          V corecmpEqInst algebraCoordInst algebraKeyStoreInst) o (coord, k)
+      match found with
+      | none =>
+        let back :=
+          fun e =>
+            match e with
+            | hashtrinity.face.Entry.Vacant (hashtrinity.face.VacantEntry.mk t
+              _ _ _ _) =>
+              t
+            | _ => self1
+        ok (hashtrinity.face.Entry.Vacant
+          {
+            t := self1,
+            slot := 0#usize,
+            coord,
+            key := k,
+            store := hashtrinity.Store.Overflow
+          }, back)
+      | some p =>
+        let (node, entry) := p
+        let back :=
+          fun e =>
+            match e with
+            | hashtrinity.face.Entry.Occupied
+              (hashtrinity.face.OccupiedEntry.mk t _ _ _ _ _) =>
+              t
+            | _ => self1
+        ok (hashtrinity.face.Entry.Occupied
+          {
+            t := self1,
+            slot := 0#usize,
+            node,
+            entry,
+            coord,
+            store := hashtrinity.Store.Overflow
+          }, back)
 
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 1:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.in_order_loop0_loop0
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
-  Result (alloc.vec.Vec Std.U32)
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::get]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 389:4-395:5 -/
+def hashtrinity.overflow.Overflow.get
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (corecmpEqInst : core.cmp.Eq K) (self : hashtrinity.overflow.Overflow K V)
+  (coord : Std.U64) (k : K) :
+  Result (Option V)
   := do
-  loop
-    (fun (stack1, cur1) =>
-      hashtrinity.overflow.Overflow.in_order_loop0_loop0.body v stack1 cur1)
-    (stack, cur)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 2:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.in_order_loop0_loop1.body
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
-  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.U32) (alloc.vec.Vec
-    Std.U32))
-  := do
-  if cur != hashtrinity.overflow.NIL
-  then
-    let stack1 ← alloc.vec.Vec.push stack cur
-    let i ← lift (UScalar.cast .Usize cur)
-    let n ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i
-    ok (cont (stack1, n.left))
-  else ok (done stack)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 2:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 550:12-553:13 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.in_order_loop0_loop1
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (stack : alloc.vec.Vec Std.U32) (cur : Std.U32) :
-  Result (alloc.vec.Vec Std.U32)
-  := do
-  loop
-    (fun (stack1, cur1) =>
-      hashtrinity.overflow.Overflow.in_order_loop0_loop1.body v stack1 cur1)
-    (stack, cur)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 549:8-559:9 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.in_order_loop0.body
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (out : alloc.vec.Vec Std.U32) (stack : alloc.vec.Vec Std.U32) (cur : Std.U32)
-  :
-  Result (ControlFlow ((alloc.vec.Vec Std.U32) × (alloc.vec.Vec Std.U32) ×
-    Std.U32) (alloc.vec.Vec Std.U32))
-  := do
-  if cur != hashtrinity.overflow.NIL
-  then
-    let stack1 ←
-      hashtrinity.overflow.Overflow.in_order_loop0_loop0 v stack cur
-    let (o, stack2) ← alloc.vec.Vec.pop Global stack1
-    let n ← core.option.Option.expect o (toStr "nonempty stack")
+  let o ←
+    hashtrinity.overflow.Overflow.find_entry algebraCoordInst corecmpEqInst
+      self coord k
+  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let (n, e) := val
     let i ← lift (UScalar.cast .Usize n)
     let n1 ←
       alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i
-    let out1 ← if n1.alive
-                 then alloc.vec.Vec.push out n
-                 else ok out
-    let i1 ← lift (UScalar.cast .Usize n)
-    let n2 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i1
-    ok (cont (out1, stack2, n2.right))
-  else
-    let b ← alloc.vec.Vec.is_empty Global stack
-    if b
-    then ok (done out)
-    else
-      let stack1 ←
-        hashtrinity.overflow.Overflow.in_order_loop0_loop1 v stack cur
-      let (o, stack2) ← alloc.vec.Vec.pop Global stack1
-      let n ← core.option.Option.expect o (toStr "nonempty stack")
-      let i ← lift (UScalar.cast .Usize n)
-      let n1 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-          (hashtrinity.overflow.Node K V)) v i
-      let out1 ← if n1.alive
-                   then alloc.vec.Vec.push out n
-                   else ok out
-      let i1 ← lift (UScalar.cast .Usize n)
-      let n2 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-          (hashtrinity.overflow.Node K V)) v i1
-      ok (cont (out1, stack2, n2.right))
+        (hashtrinity.overflow.Node K V)) self.nodes i
+    let i1 ← lift (UScalar.cast .Usize e)
+    let (_, o1) ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (K × (Option
+        V))) n1.entries i1
+    core.option.Option.as_ref o1
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
+      V residual
 
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 549:8-559:9 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.in_order_loop0
-  {K : Type} {V : Type} (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (out : alloc.vec.Vec Std.U32) (stack : alloc.vec.Vec Std.U32) (cur : Std.U32)
-  :
-  Result (alloc.vec.Vec Std.U32)
-  := do
-  loop
-    (fun (out1, stack1, cur1) =>
-      hashtrinity.overflow.Overflow.in_order_loop0.body v out1 stack1 cur1)
-    (out, stack, cur)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::in_order]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 546:4-560:5 -/
-@[reducible]
-def hashtrinity.overflow.Overflow.in_order
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (out : alloc.vec.Vec Std.U32) :
-  Result (alloc.vec.Vec Std.U32)
-  := do
-  hashtrinity.overflow.Overflow.in_order_loop0 self.nodes out
-    (alloc.vec.Vec.new Std.U32) self.root
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop body 1:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 526:12-530:13 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body
-  {K : Type} {V : Type} (key : Std.U64)
-  (iter : alloc.vec.into_iter.IntoIter (K × (Option V)))
-  (out : alloc.vec.Vec (Std.U64 × K × V)) :
-  Result (ControlFlow ((alloc.vec.into_iter.IntoIter (K × (Option V))) ×
-    (alloc.vec.Vec (Std.U64 × K × V))) (alloc.vec.Vec (Std.U64 × K × V)))
-  := do
-  let (o, iter1) ← alloc.vec.into_iter.IteratorIntoIter.next iter
-  match o with
-  | none => ok (done out)
-  | some p =>
-    let (k, v) := p
-    match v with
-    | none => ok (cont (iter1, out))
-    | some v1 =>
-      let out1 ← alloc.vec.Vec.push out (key, k, v1)
-      ok (cont (iter1, out1))
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop 1:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 526:12-530:13 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.into_entries_loop0_loop0
-  {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter (K × (Option V)))
-  (out : alloc.vec.Vec (Std.U64 × K × V)) (key : Std.U64) :
-  Result (alloc.vec.Vec (Std.U64 × K × V))
-  := do
-  loop
-    (fun (iter1, out1) =>
-      hashtrinity.overflow.Overflow.into_entries_loop0_loop0.body key iter1
-      out1)
-    (iter, out)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 522:8-531:9 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Overflow.into_entries_loop0.body
-  {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter Std.U32)
-  (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (out : alloc.vec.Vec (Std.U64 × K × V)) :
-  Result (ControlFlow ((alloc.vec.into_iter.IntoIter Std.U32) × (alloc.vec.Vec
-    (hashtrinity.overflow.Node K V)) × (alloc.vec.Vec (Std.U64 × K × V)))
-    (alloc.vec.Vec (Std.U64 × K × V)))
-  := do
-  let (o, iter1) ← alloc.vec.into_iter.IteratorIntoIter.next iter
-  match o with
-  | none => ok (done out)
-  | some n =>
-    let i ← lift (UScalar.cast .Usize n)
-    let (node, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) v i
-    let (entries, v1) ←
-      core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault (K × (Option V)))
-        node.entries
-    let iter2 ← alloc.vec.IntoIteratorVec.into_iter entries
-    let out1 ←
-      hashtrinity.overflow.Overflow.into_entries_loop0_loop0 iter2 out node.key
-    let v2 := index_mut_back { node with entries := v1 }
-    ok (cont (iter1, v2, out1))
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 522:8-531:9 -/
-@[rust_loop]
-def hashtrinity.overflow.Overflow.into_entries_loop0
-  {K : Type} {V : Type} (iter : alloc.vec.into_iter.IntoIter Std.U32)
-  (v : alloc.vec.Vec (hashtrinity.overflow.Node K V))
-  (out : alloc.vec.Vec (Std.U64 × K × V)) :
-  Result (alloc.vec.Vec (Std.U64 × K × V))
-  := do
-  loop
-    (fun (iter1, v1, out1) =>
-      hashtrinity.overflow.Overflow.into_entries_loop0.body iter1 v1 out1)
-    (iter, v, out)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::into_entries]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 518:4-533:5 -/
-def hashtrinity.overflow.Overflow.into_entries
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) :
-  Result (alloc.vec.Vec (Std.U64 × K × V))
-  := do
-  let out := alloc.vec.Vec.with_capacity (Std.U64 × K × V) self.len
-  let order ←
-    hashtrinity.overflow.Overflow.in_order algebraCoordInst self
-      (alloc.vec.Vec.new Std.U32)
-  let iter ← alloc.vec.IntoIteratorVec.into_iter order
-  hashtrinity.overflow.Overflow.into_entries_loop0 iter self.nodes out
-
-/-- [apeiron_word::hashtrinity::PROBE_CAP]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 224:0-224:30
+/-- [apeiron_word::hashtrinity::face::{apeiron_word::hashtrinity::Table<K, V, KS>}::contains_key]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 624:4-638:5
     Visibility: public -/
-@[global_simps, irreducible] def hashtrinity.PROBE_CAP : Std.U32 := 16#u32
+def hashtrinity.face.Table.contains_key
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (k : K) :
+  Result Bool
+  := do
+  let coord ←
+    hashtrinity.Table.coord_of V corecmpEqInst algebraCoordInst
+      algebraKeyStoreInst k
+  let b ← hashtrinity.is_sentinel coord
+  if b
+  then
+    let o ←
+      hashtrinity.side.SideStore.find algebraCoordInst algebraKeyStoreInst
+        self.side coord k
+    ok (core.option.Option.is_some o)
+  else
+    let c ←
+      hashtrinity.overflow.Table.probe_capped_keyed corecmpEqInst
+        algebraCoordInst algebraKeyStoreInst self coord k
+    match c with
+    | hashtrinity.Capped.Hit _ => ok true
+    | hashtrinity.Capped.Vacant _ => ok false
+    | hashtrinity.Capped.Blocked =>
+      let o ← core.option.Option.as_ref self.overflow
+      match o with
+      | none => ok false
+      | some o1 =>
+        let o2 ←
+          hashtrinity.overflow.Overflow.get algebraCoordInst corecmpEqInst o1
+            coord k
+        ok (core.option.Option.is_some o2)
+
+/-- [apeiron_word::hashtrinity::bits_for]:
+    Source: '../../src/map/hashtrinity/mod.rs', lines 437:0-440:1 -/
+def hashtrinity.bits_for (cap : Std.Usize) : Result Std.U32 := do
+  let i ← core.num.Usize.saturating_mul cap hashtrinity.LOAD_DEN
+  let i1 ← i / hashtrinity.LOAD_NUM
+  let need ← i1 + 1#usize
+  let i2 ← core.cmp.Ord.max.default core.cmp.OrdUsize need 8#usize
+  let i3 ← core.num.Usize.next_power_of_two i2
+  let i4 ← lift (core.num.Usize.leading_zeros i3)
+  let i5 ← core.num.Usize.BITS - i4
+  let i6 ← i5 - 1#u32
+  core.cmp.Ord.max.default core.cmp.OrdU32 i6 3#u32
+
+/-- [apeiron_word::hashtrinity::face::{apeiron_word::hashtrinity::Table<K, V, KS>}::reserve]:
+    Source: '../../src/map/hashtrinity/face.rs', lines 1055:4-1060:5
+    Visibility: public -/
+def hashtrinity.face.Table.reserve
+  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
+  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  (additional : Std.Usize) :
+  Result (hashtrinity.Table K V KS)
+  := do
+  let i ← self.len + additional
+  let want ← hashtrinity.bits_for i
+  if want > self.bits
+  then
+    hashtrinity.Table.resize corecmpEqInst algebraCoordInst algebraKeyStoreInst
+      self want
+  else ok self
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_BBITS]
+    Source: '../../src/map/hashtrinity/freq.rs', lines 27:4-27:35
+    Visibility: public -/
+@[global_simps, irreducible]
+def hashtrinity.freq.FreqMapKI64.COUNT_BBITS {K : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) : Std.U32 :=
+  8#u32
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_BUCKETS]
+    Source: '../../src/map/hashtrinity/freq.rs', lines 29:4-29:60
+    Visibility: public -/
+@[global_simps, irreducible]
+def hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS {K : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) : Result Std.Usize :=
+  1#usize <<< (hashtrinity.freq.FreqMapKI64.COUNT_BBITS algebraCoordInst)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_HOME_GAP]
+    Source: '../../src/map/hashtrinity/freq.rs', lines 38:4-38:39
+    Visibility: public -/
+@[global_simps, irreducible]
+def hashtrinity.freq.FreqMapKI64.COUNT_HOME_GAP {K : Type} (algebraCoordInst :
+  hashtrinity.algebra.Coord K) : Std.U32 :=
+  16#u32
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_BUCKET_SHIFT]
+    Source: '../../src/map/hashtrinity/freq.rs', lines 42:4-42:86
+    Visibility: public -/
+@[global_simps, irreducible]
+def hashtrinity.freq.FreqMapKI64.COUNT_BUCKET_SHIFT {K : Type}
+  (algebraCoordInst : hashtrinity.algebra.Coord K) : Result Std.U32 := do
+  let i ←
+    64#u32 - (hashtrinity.freq.FreqMapKI64.COUNT_BBITS algebraCoordInst)
+  i - (hashtrinity.freq.FreqMapKI64.COUNT_HOME_GAP algebraCoordInst)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::COUNT_AGGREGATE_START]
+    Source: '../../src/map/hashtrinity/freq.rs', lines 49:4-49:47
+    Visibility: public -/
+@[global_simps, irreducible]
+def hashtrinity.freq.FreqMapKI64.COUNT_AGGREGATE_START {K : Type}
+  (algebraCoordInst : hashtrinity.algebra.Coord K) : Std.Usize :=
+  8#usize
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_home]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 55:4-57:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMapKI64.count_home
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (c : Std.U64) :
+  Result Std.Usize
+  := do
+  let i ← lift (core.num.U64.wrapping_mul c hashtrinity.PHI)
+  let i1 ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKET_SHIFT algebraCoordInst
+  let i2 ← i >>> i1
+  let i3 ← lift (UScalar.cast .Usize i2)
+  let i4 ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS algebraCoordInst
+  let i5 ← i4 - 1#usize
+  ok (i3 &&& i5)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_admit]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 93:4-95:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMapKI64.count_admit
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (n : Std.Usize)
+  (count_max : Std.U64) :
+  Result Bool
+  := do
+  let i ← lift (UScalar.cast .U64 n)
+  ok (i <= count_max)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_histogram]: loop body 0:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 106:8-114:9
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqMapKI64.count_histogram_loop.body
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (keys : Slice K)
+  (n : Std.Usize) (homes : Slice Std.U8) (hist : Slice Std.U32) (ok1 : Bool)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.U8) × (Slice Std.U32) × Bool × Std.Usize)
+    (Bool × (Slice Std.U8) × (Slice Std.U32)))
+  := do
+  if ok1
+  then
+    if i < n
+    then
+      let t ← Slice.index_usize keys i
+      let i1 ← algebraCoordInst.coord t
+      let h ← hashtrinity.freq.FreqMapKI64.count_home algebraCoordInst i1
+      let (_, index_mut_back) ← Slice.index_mut_usize homes i
+      let i2 ← lift (UScalar.cast .U8 h)
+      let i3 ← Slice.index_usize hist h
+      let o ← lift (U32.checked_add i3 1#u32)
+      match o with
+      | none =>
+        let i4 ← i + 1#usize
+        let s := index_mut_back i2
+        ok (cont (s, hist, false, i4))
+      | some v =>
+        let s ← Slice.update hist h v
+        let i4 ← i + 1#usize
+        let s1 := index_mut_back i2
+        ok (cont (s1, s, true, i4))
+    else ok (done (true, homes, hist))
+  else ok (done (false, homes, hist))
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_histogram]: loop 0:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 106:8-114:9
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.freq.FreqMapKI64.count_histogram_loop
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (keys : Slice K)
+  (homes : Slice Std.U8) (hist : Slice Std.U32) (n : Std.Usize) (ok1 : Bool)
+  (i : Std.Usize) :
+  Result (Bool × (Slice Std.U8) × (Slice Std.U32))
+  := do
+  loop
+    (fun (homes1, hist1, ok2, i1) =>
+      hashtrinity.freq.FreqMapKI64.count_histogram_loop.body algebraCoordInst
+      keys n homes1 hist1 ok2 i1)
+    (homes, hist, ok1, i)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_histogram]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 102:4-116:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMapKI64.count_histogram
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (keys : Slice K)
+  (homes : Slice Std.U8) (hist : Slice Std.U32) :
+  Result (Bool × (Slice Std.U8) × (Slice Std.U32))
+  := do
+  let n := Slice.len keys
+  let i := Slice.len homes
+  let ok1 ←
+    if i = n
+    then
+      do
+      let i1 := Slice.len hist
+      let i2 ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS algebraCoordInst
+      ok (i1 = i2)
+    else ok false
+  hashtrinity.freq.FreqMapKI64.count_histogram_loop algebraCoordInst keys homes
+    hist n ok1 0#usize
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop body 1:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 142:12-149:13
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0.body
+  (counts : Slice Std.U32) (w : Std.Usize) (b : Std.Usize) (j : Std.Usize)
+  (woff : Slice Std.Usize) (ok1 : Bool) (acc : Std.Usize) (t : Std.Usize) :
+  Result (ControlFlow ((Slice Std.Usize) × Bool × Std.Usize × Std.Usize)
+    ((Slice Std.Usize) × Bool × Std.Usize))
+  := do
+  if ok1
+  then
+    if t < w
+    then
+      let i ← t * b
+      let i1 ← i + j
+      let s ← Slice.update woff i1 acc
+      let i2 ← i + j
+      let i3 ← Slice.index_usize counts i2
+      let i4 ← lift (UScalar.cast .Usize i3)
+      let o ← lift (Usize.checked_add acc i4)
+      let (ok2, acc1) ←
+        match o with
+        | none => ok (false, acc)
+        | some v => ok (true, v)
+      let t1 ← t + 1#usize
+      ok (cont (s, ok2, acc1, t1))
+    else ok (done (woff, true, acc))
+  else ok (done (woff, false, acc))
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop 1:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 142:12-149:13
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0
+  (counts : Slice Std.U32) (w : Std.Usize) (woff : Slice Std.Usize)
+  (b : Std.Usize) (ok1 : Bool) (acc : Std.Usize) (j : Std.Usize)
+  (t : Std.Usize) :
+  Result ((Slice Std.Usize) × Bool × Std.Usize)
+  := do
+  loop
+    (fun (woff1, ok2, acc1, t1) =>
+      hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0.body counts w b j
+      woff1 ok2 acc1 t1)
+    (woff, ok1, acc, t)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop body 0:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 139:8-151:9
+    Visibility: public -/
+@[rust_loop_body]
+def hashtrinity.freq.FreqMapKI64.count_offsets_loop0.body
+  (counts : Slice Std.U32) (w : Std.Usize) (b : Std.Usize)
+  (bstart : Slice Std.Usize) (woff : Slice Std.Usize) (ok1 : Bool)
+  (acc : Std.Usize) (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.Usize) × (Slice Std.Usize) × Bool ×
+    Std.Usize × Std.Usize) ((Slice Std.Usize) × (Slice Std.Usize) × Bool ×
+    Std.Usize))
+  := do
+  if ok1
+  then
+    if j < b
+    then
+      let s ← Slice.update bstart j acc
+      let (woff1, ok2, acc1) ←
+        hashtrinity.freq.FreqMapKI64.count_offsets_loop0_loop0 counts w woff b
+          true acc j 0#usize
+      let j1 ← j + 1#usize
+      ok (cont (s, woff1, ok2, acc1, j1))
+    else ok (done (bstart, woff, true, acc))
+  else ok (done (bstart, woff, false, acc))
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]: loop 0:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 139:8-151:9
+    Visibility: public -/
+@[rust_loop]
+def hashtrinity.freq.FreqMapKI64.count_offsets_loop0
+  (counts : Slice Std.U32) (w : Std.Usize) (bstart : Slice Std.Usize)
+  (woff : Slice Std.Usize) (b : Std.Usize) (ok1 : Bool) (acc : Std.Usize)
+  (j : Std.Usize) :
+  Result ((Slice Std.Usize) × (Slice Std.Usize) × Bool × Std.Usize)
+  := do
+  loop
+    (fun (bstart1, woff1, ok2, acc1, j1) =>
+      hashtrinity.freq.FreqMapKI64.count_offsets_loop0.body counts w b bstart1
+      woff1 ok2 acc1 j1)
+    (bstart, woff, ok1, acc, j)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_offsets]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 124:4-156:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMapKI64.count_offsets
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (counts : Slice Std.U32) (w : Std.Usize) (n : Std.Usize)
+  (bstart : Slice Std.Usize) (woff : Slice Std.Usize) :
+  Result (Bool × (Slice Std.Usize) × (Slice Std.Usize))
+  := do
+  let b ← hashtrinity.freq.FreqMapKI64.COUNT_BUCKETS algebraCoordInst
+  let o ← lift (Usize.checked_mul w b)
+  match o with
+  | none => ok (false, bstart, woff)
+  | some x =>
+    let i := Slice.len counts
+    let ok1 ←
+      if i = x
+      then
+        let i1 := Slice.len woff
+        if i1 = x
+        then do
+             let i2 := Slice.len bstart
+             let i3 ← b + 1#usize
+             ok (i2 = i3)
+        else ok false
+      else ok false
+    let (bstart1, woff1, ok2, acc) ←
+      hashtrinity.freq.FreqMapKI64.count_offsets_loop0 counts w bstart woff b
+        ok1 0#usize 0#usize
+    let bstart2 ← if ok2
+                    then Slice.update bstart1 b acc
+                    else ok bstart1
+    if ok2
+    then ok (acc = n, bstart2, woff1)
+    else ok (false, bstart2, woff1)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_slot]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 163:4-168:5
+    Visibility: public -/
+def hashtrinity.freq.FreqMapKI64.count_slot
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (off : Slice Std.Usize) (h : Std.U8) :
+  Result (Std.Usize × (Slice Std.Usize))
+  := do
+  let j ← lift (core.convert.num.FromUsizeU8.from h)
+  let s ← Slice.index_usize off j
+  let i ← s + 1#usize
+  let off1 ← Slice.update off j i
+  ok (s, off1)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::count_aggregate_start]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 176:4-178:5 -/
+def hashtrinity.freq.FreqMapKI64.count_aggregate_start
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) (lo : Std.Usize)
+  (hi : Std.Usize) :
+  Result Std.Usize
+  := do
+  let i ← lift (core.num.Usize.saturating_sub hi lo)
+  core.cmp.Ord.min.trait_default core.cmp.OrdUsize i
+    (hashtrinity.freq.FreqMapKI64.COUNT_AGGREGATE_START algebraCoordInst)
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}]
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1496:43-1496:63 -/
+@[reducible]
+def hashtrinity.freq.FreqMapKI64.add.closure (K : Type) := Unit
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}<K>}::call_once]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1496:43-1496:63 -/
+def
+  hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64.call_once
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (c : hashtrinity.freq.FreqMapKI64.add.closure K)
+  (tupled_args : (Std.I64 × Std.I64)) :
+  Result Std.I64
+  := do
+  let (new, old) := tupled_args
+  new + old
+
+/-- Trait implementation: [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{impl core::ops::function::FnOnce<(i64, i64), i64> for apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, i64>}::add::{closure}<K>}]
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1496:43-1496:63 -/
+@[reducible]
+def
+  hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64
+  {K : Type} (algebraCoordInst : hashtrinity.algebra.Coord K) :
+  core.ops.function.FnOnce (hashtrinity.freq.FreqMapKI64.add.closure K)
+  (Std.I64 × Std.I64) Std.I64 := {
+  call_once :=
+    hashtrinity.freq.FreqMapKI64.add.closure.Insts.CoreOpsFunctionFnOncePairI64I64I64.call_once
+    algebraCoordInst
+}
+
+/-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqMap<K, V>}::freq]:
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1262:4-1264:5 -/
+def hashtrinity.freq.FreqMap.freq
+  {K : Type} (V : Type) (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (k : K) :
+  Result Std.U64
+  := do
+  algebraCoordInst.coord k
+
+/-- [apeiron_word::hashtrinity::freq::FreqSide]
+    Source: '../../src/map/hashtrinity/freq.rs', lines 403:0-409:1 -/
+structure hashtrinity.freq.FreqSide (V : Type) where
+  coords : alloc.vec.Vec Std.U64
+  vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V)
+  live : alloc.vec.Vec Bool
+
+/-- [apeiron_word::hashtrinity::freq::FreqLine]
+    Source: '../../src/map/hashtrinity/freq.rs', lines 557:0-574:1 -/
+structure hashtrinity.freq.FreqLine (V : Type) where
+  ctrl : Slice Std.U8
+  slots : Slice (Std.U64 × (core.mem.maybe_uninit.MaybeUninit V))
+  gshift : Std.U32
+  gmask : Std.Usize
+  bits : Std.U32
+  len : Std.Usize
+  side : hashtrinity.freq.FreqSide V
+  overflow : Option (hashtrinity.overflow.Overflow Std.U64 V)
+
+/-- [apeiron_word::hashtrinity::freq::FreqMap]
+    Source: '../../src/map/hashtrinity/freq.rs', lines 1237:0-1240:1
+    Visibility: public -/
+structure hashtrinity.freq.FreqMap (K : Type) (V : Type) where
+  inner : hashtrinity.freq.FreqLine V
+  _k : core.marker.PhantomData K
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::write_back]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 467:4-469:5 -/
+def hashtrinity.overflow.Overflow.write_back
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32)
+  (v : V) :
+  Result (hashtrinity.overflow.Overflow K V)
+  := do
+  let i ← lift (UScalar.cast .Usize n)
+  let (n1, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i
+  let i1 ← lift (UScalar.cast .Usize e)
+  let ((t, _), index_mut_back1) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (K ×
+      (Option V))) n1.entries i1
+  let v1 := index_mut_back1 (t, some v)
+  let v2 := index_mut_back { n1 with entries := v1 }
+  ok { self with nodes := v2 }
+
+/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::take_value]:
+    Source: '../../src/map/hashtrinity/overflow.rs', lines 459:4-464:5 -/
+def hashtrinity.overflow.Overflow.take_value
+  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
+  (self : hashtrinity.overflow.Overflow K V) (n : Std.U32) (e : Std.U32) :
+  Result (V × (hashtrinity.overflow.Overflow K V))
+  := do
+  let i ← lift (UScalar.cast .Usize n)
+  let (n1, index_mut_back) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+      (hashtrinity.overflow.Node K V)) self.nodes i
+  let i1 ← lift (UScalar.cast .Usize e)
+  let ((t, o), index_mut_back1) ←
+    alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice (K ×
+      (Option V))) n1.entries i1
+  let (o1, o2) := core.option.Option.take o
+  let t1 ← core.option.Option.expect o1 (toStr "overflow: live entry")
+  let v := index_mut_back1 (t, o2)
+  let v1 := index_mut_back { n1 with entries := v }
+  ok (t1, { self with nodes := v1 })
 
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::probe_limit]:
     Source: '../../src/map/hashtrinity/freq.rs', lines 747:4-749:5 -/
@@ -109501,34 +113514,6 @@ def hashtrinity.freq.FreqSide.get
     core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
       V residual
 
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::overflow::Overflow<K, V>}::get]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 389:4-395:5 -/
-def hashtrinity.overflow.Overflow.get
-  {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (corecmpEqInst : core.cmp.Eq K) (self : hashtrinity.overflow.Overflow K V)
-  (coord : Std.U64) (k : K) :
-  Result (Option V)
-  := do
-  let o ←
-    hashtrinity.overflow.Overflow.find_entry algebraCoordInst corecmpEqInst
-      self coord k
-  let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
-  match cf with
-  | core.ops.control_flow.ControlFlow.Continue val =>
-    let (n, e) := val
-    let i ← lift (UScalar.cast .Usize n)
-    let n1 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
-        (hashtrinity.overflow.Node K V)) self.nodes i
-    let i1 ← lift (UScalar.cast .Usize e)
-    let (_, o1) ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (K × (Option
-        V))) n1.entries i1
-    core.option.Option.as_ref o1
-  | core.ops.control_flow.ControlFlow.Break residual =>
-    core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
-      V residual
-
 /-- [apeiron_word::hashtrinity::freq::{apeiron_word::hashtrinity::freq::FreqLine<V>}::get_p]: loop body 0:
     Source: '../../src/map/hashtrinity/freq.rs', lines 888:8-913:5 -/
 @[rust_loop_body]
@@ -109717,332 +113702,6 @@ def hashtrinity.freq.FreqMap.overflow_height
     hashtrinity.overflow.Overflow.height
       U64.Insts.Apeiron_wordHashtrinityAlgebraCoord o
 
-/-- [apeiron_word::hashtrinity::LINEAR_G]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 213:0-213:24 -/
-@[global_simps, irreducible] def hashtrinity.LINEAR_G : Std.U32 := 8#u32
-
-/-- [apeiron_word::hashtrinity::LOAD_NUM]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 231:0-231:26 -/
-@[global_simps, irreducible] def hashtrinity.LOAD_NUM : Std.Usize := 3#usize
-
-/-- [apeiron_word::hashtrinity::LOAD_DEN]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 232:0-232:26 -/
-@[global_simps, irreducible] def hashtrinity.LOAD_DEN : Std.Usize := 4#usize
-
-/-- [apeiron_word::hashtrinity::Capped]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 237:0-244:1 -/
-@[discriminant isize]
-inductive hashtrinity.Capped where
-| Hit : Std.Usize → hashtrinity.Capped
-| Vacant : Std.Usize → hashtrinity.Capped
-| Blocked : hashtrinity.Capped
-
-/-- [apeiron_word::hashtrinity::Store]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 249:0-256:1 -/
-@[discriminant isize]
-inductive hashtrinity.Store where
-| Main : hashtrinity.Store
-| Side : hashtrinity.Store
-| Overflow : hashtrinity.Store
-
-/-- [apeiron_word::hashtrinity::side::SideStore]
-    Source: '../../src/map/hashtrinity/side.rs', lines 16:0-22:1 -/
-structure hashtrinity.side.SideStore (K : Type) (V : Type) (KS : Type) where
-  coords : alloc.vec.Vec Std.U64
-  vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V)
-  keys : KS
-  cap : Std.Usize
-  _k : core.marker.PhantomData K
-
-/-- [apeiron_word::hashtrinity::Table]
-    Source: '../../src/map/hashtrinity/mod.rs', lines 319:0-333:1
-    Visibility: public -/
-structure hashtrinity.Table (K : Type) (V : Type) (KS : Type) where
-  coords : Slice Std.U64
-  vals : Slice (core.mem.maybe_uninit.MaybeUninit V)
-  keys : KS
-  side : hashtrinity.side.SideStore K V KS
-  overflow : Option (hashtrinity.overflow.Overflow K V)
-  bits : Std.U32
-  len : Std.Usize
-  tombs : Std.Usize
-  _k : core.marker.PhantomData K
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 0:
-    Source: '../../src/map/hashtrinity/side.rs', lines 121:12-125:13 -/
-@[rust_loop_body]
-def hashtrinity.side.SideStore.clear_loop0.body
-  {V : Type} (vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V))
-  (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V)) ×
-    Std.Usize) Unit)
-  := do
-  let i1 := alloc.vec.Vec.len vals
-  if i < i1
-  then
-    let (mu, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-        (core.mem.maybe_uninit.MaybeUninit V)) vals i
-    let mu1 ← core.mem.maybe_uninit.MaybeUninit.assume_init_drop mu
-    let i2 ← i + 1#usize
-    let vals1 := index_mut_back mu1
-    ok (cont (vals1, i2))
-  else ok (done ())
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 0:
-    Source: '../../src/map/hashtrinity/side.rs', lines 121:12-125:13 -/
-@[rust_loop]
-def hashtrinity.side.SideStore.clear_loop0
-  {V : Type} (vals : alloc.vec.Vec (core.mem.maybe_uninit.MaybeUninit V))
-  (i : Std.Usize) :
-  Result Unit
-  := do
-  loop
-    (fun (vals1, i1) => hashtrinity.side.SideStore.clear_loop0.body vals1 i1)
-    (vals, i)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 1:
-    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
-@[rust_loop_body]
-def hashtrinity.side.SideStore.clear_loop1.body
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (coords : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
-  Result (ControlFlow (KS × Std.Usize) KS)
-  := do
-  let i1 := alloc.vec.Vec.len coords
-  if i < i1
-  then
-    let c ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        coords i
-    let (t1, t2) ← algebraKeyStoreInst.take_key t i c
-    core.mem.drop t1
-    let i2 ← i + 1#usize
-    ok (cont (t2, i2))
-  else ok (done t)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 1:
-    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
-@[rust_loop]
-def hashtrinity.side.SideStore.clear_loop1
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (t : KS) (coords : alloc.vec.Vec Std.U64) (i : Std.Usize) :
-  Result KS
-  := do
-  loop
-    (fun (t1, i1) => hashtrinity.side.SideStore.clear_loop1.body
-      algebraKeyStoreInst coords t1 i1)
-    (t, i)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop body 2:
-    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
-@[rust_loop_body]
-def hashtrinity.side.SideStore.clear_loop2.body
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (coords : alloc.vec.Vec Std.U64) (t : KS) (i : Std.Usize) :
-  Result (ControlFlow (KS × Std.Usize) KS)
-  := do
-  let i1 := alloc.vec.Vec.len coords
-  if i < i1
-  then
-    let c ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        coords i
-    let (t1, t2) ← algebraKeyStoreInst.take_key t i c
-    core.mem.drop t1
-    let i2 ← i + 1#usize
-    ok (cont (t2, i2))
-  else ok (done t)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]: loop 2:
-    Source: '../../src/map/hashtrinity/side.rs', lines 128:8-132:9 -/
-@[rust_loop]
-def hashtrinity.side.SideStore.clear_loop2
-  {K : Type} {KS : Type} (algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS
-  K) (t : KS) (coords : alloc.vec.Vec Std.U64) (i : Std.Usize) :
-  Result KS
-  := do
-  loop
-    (fun (t1, i1) => hashtrinity.side.SideStore.clear_loop2.body
-      algebraKeyStoreInst coords t1 i1)
-    (t, i)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::clear]:
-    Source: '../../src/map/hashtrinity/side.rs', lines 116:4-133:5 -/
-def hashtrinity.side.SideStore.clear
-  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
-  :
-  Result (hashtrinity.side.SideStore K V KS)
-  := do
-  let (coords, v) ←
-    core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault Std.U64) self.coords
-  let (vals, v1) ←
-    core.mem.take (alloc.vec.Vec.Insts.CoreDefaultDefault
-      (core.mem.maybe_uninit.MaybeUninit V)) self.vals
-  let b ← core.mem.needs_drop V
-  if b
-  then
-    hashtrinity.side.SideStore.clear_loop0 vals 0#usize
-    let t ←
-      hashtrinity.side.SideStore.clear_loop1 algebraKeyStoreInst self.keys
-        coords 0#usize
-    ok { self with coords := v, vals := v1, keys := t }
-  else
-    let t ←
-      hashtrinity.side.SideStore.clear_loop2 algebraKeyStoreInst self.keys
-        coords 0#usize
-    ok { self with coords := v, vals := v1, keys := t }
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop body 0:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 341:12-347:13
-    Visibility: public -/
-@[rust_loop_body]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop.body
-  {K : Type} {V : Type} {KS : Type} (self : hashtrinity.Table K V KS)
-  (i : Std.Usize) :
-  Result (ControlFlow ((hashtrinity.Table K V KS) × Std.Usize) ((Slice
-    Std.U64) × (Slice (core.mem.maybe_uninit.MaybeUninit V)) × KS ×
-    (hashtrinity.side.SideStore K V KS) × (Option
-    (hashtrinity.overflow.Overflow K V)) × Std.U32 × Std.Usize × Std.Usize
-    × (core.marker.PhantomData K)))
-  := do
-  let i1 := Slice.len self.coords
-  if i < i1
-  then
-    let i2 ← Slice.index_usize self.coords i
-    let b ← hashtrinity.is_live i2
-    let s ←
-      if b
-      then
-        do
-        let (mu, index_mut_back) ← Slice.index_mut_usize self.vals i
-        let mu1 ← core.mem.maybe_uninit.MaybeUninit.assume_init_drop mu
-        ok (index_mut_back mu1)
-      else ok self.vals
-    let i3 ← i + 1#usize
-    ok (cont ({ self with vals := s }, i3))
-  else
-    ok (done (self.coords, self.vals, self.keys, self.side, self.overflow,
-      self.bits, self.len, self.tombs, self._k))
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]: loop 0:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 341:12-347:13
-    Visibility: public -/
-@[rust_loop]
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop
-  {K : Type} {V : Type} {KS : Type} (self : hashtrinity.Table K V KS)
-  (i : Std.Usize) :
-  Result ((Slice Std.U64) × (Slice (core.mem.maybe_uninit.MaybeUninit V)) ×
-    KS × (hashtrinity.side.SideStore K V KS) × (Option
-    (hashtrinity.overflow.Overflow K V)) × Std.U32 × Std.Usize × Std.Usize
-    × (core.marker.PhantomData K))
-  := do
-  loop
-    (fun (self1, i1) => hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop.body
-      self1 i1)
-    (self, i)
-
-/-- [apeiron_word::hashtrinity::{impl core::ops::drop::Drop for apeiron_word::hashtrinity::Table<K, V, KS>}::drop]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 338:4-355:5
-    Visibility: public -/
-def hashtrinity.Table.Insts.CoreOpsDropDrop.drop
-  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  let b ← core.mem.needs_drop V
-  if b
-  then
-    let (s, s1, t, ss, o, i, i1, i2, pd) ←
-      hashtrinity.Table.Insts.CoreOpsDropDrop.drop_loop self 0#usize
-    let (coords, s2) ←
-      core.mem.take (BoxSlice.Insts.CoreDefaultDefault Std.U64) s
-    let t1 ← algebraKeyStoreInst.drop_live t coords
-    let ss1 ←
-      hashtrinity.side.SideStore.clear algebraCoordInst algebraKeyStoreInst ss
-    ok
-      {
-        coords := s2,
-        vals := s1,
-        keys := t1,
-        side := ss1,
-        overflow := o,
-        bits := i,
-        len := i1,
-        tombs := i2,
-        _k := pd
-      }
-  else
-    let (coords, s) ←
-      core.mem.take (BoxSlice.Insts.CoreDefaultDefault Std.U64) self.coords
-    let t ← algebraKeyStoreInst.drop_live self.keys coords
-    let ss ←
-      hashtrinity.side.SideStore.clear algebraCoordInst algebraKeyStoreInst
-        self.side
-    ok { self with coords := s, keys := t, side := ss }
-
-/-- [apeiron_word::hashtrinity::bits_for]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 437:0-440:1 -/
-def hashtrinity.bits_for (cap : Std.Usize) : Result Std.U32 := do
-  let i ← core.num.Usize.saturating_mul cap hashtrinity.LOAD_DEN
-  let i1 ← i / hashtrinity.LOAD_NUM
-  let need ← i1 + 1#usize
-  let i2 ← core.cmp.Ord.max.default core.cmp.OrdUsize need 8#usize
-  let i3 ← core.num.Usize.next_power_of_two i2
-  let i4 ← lift (core.num.Usize.leading_zeros i3)
-  let i5 ← core.num.Usize.BITS - i4
-  let i6 ← i5 - 1#u32
-  core.cmp.Ord.max.default core.cmp.OrdU32 i6 3#u32
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::empty]:
-    Source: '../../src/map/hashtrinity/side.rs', lines 25:4-33:5 -/
-def hashtrinity.side.SideStore.empty
-  {K : Type} (V : Type) {KS : Type} (algebraCoordInst :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) :
-  Result (hashtrinity.side.SideStore K V KS)
-  := do
-  let t ← algebraKeyStoreInst.alloc 0#usize
-  ok
-    {
-      coords := (alloc.vec.Vec.new Std.U64),
-      vals := (alloc.vec.Vec.new (core.mem.maybe_uninit.MaybeUninit V)),
-      keys := t,
-      cap := 0#usize,
-      _k := ()
-    }
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::with_bits]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 476:4-489:5 -/
-def hashtrinity.Table.with_bits
-  {K : Type} (V : Type) {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (bits : Std.U32) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  let n ← 1#usize <<< bits
-  let v ← alloc.vec.from_elem core.clone.CloneU64 hashtrinity.EMPTY n
-  let s ← alloc.vec.Vec.into_boxed_slice Global v
-  let s1 ← hashtrinity.algebra.alloc_uninit_boxed V n
-  let t ← algebraKeyStoreInst.alloc n
-  let ss ←
-    hashtrinity.side.SideStore.empty V algebraCoordInst algebraKeyStoreInst
-  ok
-    {
-      coords := s,
-      vals := s1,
-      keys := t,
-      side := ss,
-      overflow := none,
-      bits,
-      len := 0#usize,
-      tombs := 0#usize,
-      _k := ()
-    }
-
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, apeiron_word::hashtrinity::algebra::Stored<K>>}::new]:
     Source: '../../src/map/hashtrinity/mod.rs', lines 453:4-455:5
     Visibility: public -/
@@ -110080,466 +113739,6 @@ def hashtrinity.TableKVRegen.coordinate_with_capacity
   hashtrinity.Table.with_bits V corecmpEqInst algebraCoordInvInst.CoordInst
     (hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore
     algebraCoordInvInst corecmpEqInst) i
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::coord_of]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 495:4-497:5 -/
-def hashtrinity.Table.coord_of
-  {K : Type} (V : Type) {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (k : K) :
-  Result Std.U64
-  := do
-  algebraCoordInst.coord k
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::home]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 502:4-509:5 -/
-def hashtrinity.Table.home
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) :
-  Result Std.Usize
-  := do
-  let len := Slice.len self.coords
-  let i ← lift (UScalar.cast .Usize coord)
-  if i < len
-  then ok (UScalar.cast .Usize coord)
-  else
-    let i1 ← lift (core.num.U64.wrapping_mul coord hashtrinity.PHI)
-    let i2 ← 64#u32 - self.bits
-    let i3 ← i1 >>> i2
-    ok (UScalar.cast .Usize i3)
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::descend]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 528:4-555:5 -/
-def hashtrinity.Table.descend
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (j : Std.U32) :
-  Result Std.Usize
-  := do
-  let i := Slice.len self.coords
-  let mask ← i - 1#usize
-  if j < hashtrinity.LINEAR_G
-  then
-    let i1 ←
-      hashtrinity.Table.home corecmpEqInst algebraCoordInst algebraKeyStoreInst
-        self coord
-    let i2 ← lift (UScalar.cast .Usize j)
-    let i3 ← lift (core.num.Usize.wrapping_add i1 i2)
-    ok (i3 &&& mask)
-  else
-    let p ← lift (core.num.U64.wrapping_mul coord hashtrinity.PHI)
-    let i1 ← j - hashtrinity.LINEAR_G
-    let jj ← i1 + 1#u32
-    let i2 ← jj + 1#u32
-    let used ← self.bits * i2
-    if used <= 64#u32
-    then
-      let i3 ← 64#u32 - used
-      let i4 ← p >>> i3
-      let i5 ← lift (UScalar.cast .Usize i4)
-      ok (i5 &&& mask)
-    else
-      let full ← 64#u32 / self.bits
-      let i3 ← self.bits * full
-      let i4 ← 64#u32 - i3
-      let i5 ← p >>> i4
-      let i6 ← lift (UScalar.cast .Usize i5)
-      let i7 ← jj - full
-      let i8 ← lift (UScalar.cast .Usize i7)
-      let i9 ← i6 + i8
-      let i10 ← i9 + 1#usize
-      ok (i10 &&& mask)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::find]: loop body 0:
-    Source: '../../src/map/hashtrinity/side.rs', lines 63:8-70:5 -/
-@[rust_loop_body]
-def hashtrinity.side.SideStore.find_loop.body
-  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
-  (coord : Std.U64) (k : K) (i : Std.Usize) :
-  Result (ControlFlow Std.Usize (Option Std.Usize))
-  := do
-  let i1 := alloc.vec.Vec.len self.coords
-  if i < i1
-  then
-    let i2 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U64)
-        self.coords i
-    if i2 = coord
-    then
-      let b ← algebraKeyStoreInst.«matches» self.keys i coord k
-      if b
-      then ok (done (some i))
-      else let i3 ← i + 1#usize
-           ok (cont i3)
-    else let i3 ← i + 1#usize
-         ok (cont i3)
-  else ok (done none)
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::find]: loop 0:
-    Source: '../../src/map/hashtrinity/side.rs', lines 63:8-70:5 -/
-@[rust_loop]
-def hashtrinity.side.SideStore.find_loop
-  {K : Type} {V : Type} {KS : Type} (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
-  (coord : Std.U64) (k : K) (i : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  loop
-    (fun i1 => hashtrinity.side.SideStore.find_loop.body algebraKeyStoreInst
-      self coord k i1)
-    i
-
-/-- [apeiron_word::hashtrinity::side::{apeiron_word::hashtrinity::side::SideStore<K, V, KS>}::find]:
-    Source: '../../src/map/hashtrinity/side.rs', lines 61:4-70:5 -/
-@[reducible]
-def hashtrinity.side.SideStore.find
-  {K : Type} {V : Type} {KS : Type} (algebraCoordInst :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.side.SideStore K V KS)
-  (coord : Std.U64) (k : K) :
-  Result (Option Std.Usize)
-  := do
-  hashtrinity.side.SideStore.find_loop algebraKeyStoreInst self coord k 0#usize
-
-/-- Trait declaration: [apeiron_word::hashtrinity::overflow::Confirm]
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 47:0-49:1 -/
-structure hashtrinity.overflow.Confirm (Self : Type) (K : Type) (KS : Type)
-  where
-  algebraCoordInst : hashtrinity.algebra.Coord K
-  algebraKeyStoreInst : hashtrinity.algebra.KeyStore KS K
-  confirm : Self → KS → Std.Usize → Result Bool
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 695:8-708:5 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Table.probe_rest_with_loop.body
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (limit : Std.U32) (confirm : T3) (j : Std.U32) :
-  Result (ControlFlow Std.U32 hashtrinity.Capped)
-  := do
-  if j < limit
-  then
-    let i ←
-      hashtrinity.Table.descend corecmpEqInst algebraCoordInst
-        algebraKeyStoreInst self coord j
-    let sc ←
-      core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
-        Std.U64) self.coords i
-    if sc = coord
-    then
-      let b ← ConfirmInst.confirm confirm self.keys i
-      if b
-      then ok (done (hashtrinity.Capped.Hit i))
-      else
-        if sc = hashtrinity.EMPTY
-        then ok (done (hashtrinity.Capped.Vacant i))
-        else let j1 ← j + 1#u32
-             ok (cont j1)
-    else
-      if sc = hashtrinity.EMPTY
-      then ok (done (hashtrinity.Capped.Vacant i))
-      else let j1 ← j + 1#u32
-           ok (cont j1)
-  else ok (done hashtrinity.Capped.Blocked)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 695:8-708:5 -/
-@[rust_loop]
-def hashtrinity.overflow.Table.probe_rest_with_loop
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (j : Std.U32) (limit : Std.U32) (confirm : T3) :
-  Result hashtrinity.Capped
-  := do
-  loop
-    (fun j1 => hashtrinity.overflow.Table.probe_rest_with_loop.body
-      corecmpEqInst algebraCoordInst algebraKeyStoreInst ConfirmInst self coord
-      limit confirm j1)
-    j
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_rest_with]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 688:4-708:5 -/
-@[reducible]
-def hashtrinity.overflow.Table.probe_rest_with
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (j : Std.U32) (limit : Std.U32) (confirm : T3) :
-  Result hashtrinity.Capped
-  := do
-  hashtrinity.overflow.Table.probe_rest_with_loop corecmpEqInst
-    algebraCoordInst algebraKeyStoreInst ConfirmInst self coord j limit confirm
-
-/-- [apeiron_word::hashtrinity::overflow::WINDOW_STEPS_BY_BITS]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 37:4-40:5 -/
-@[rust_loop_body]
-def hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop.body
-  (t : Array Std.U32 65#usize) (b : Std.Usize) :
-  Result (ControlFlow ((Array Std.U32 65#usize) × Std.Usize) (Array Std.U32
-    65#usize))
-  := do
-  if b < 65#usize
-  then
-    let i ← lift (UScalar.cast .U32 b)
-    let i1 ← 64#u32 / i
-    let i2 ← hashtrinity.LINEAR_G + i1
-    let i3 ← i2 - 1#u32
-    let a ← Array.update t b i3
-    let b1 ← b + 1#usize
-    ok (cont (a, b1))
-  else ok (done t)
-
-/-- [apeiron_word::hashtrinity::overflow::WINDOW_STEPS_BY_BITS]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 37:4-40:5 -/
-@[rust_loop]
-def hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop
-  (t : Array Std.U32 65#usize) (b : Std.Usize) :
-  Result (Array Std.U32 65#usize)
-  := do
-  loop
-    (fun (t1, b1) => hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop.body t1 b1)
-    (t, b)
-
-/-- [apeiron_word::hashtrinity::overflow::WINDOW_STEPS_BY_BITS]
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 34:0-42:2 -/
-@[global_simps, irreducible]
-def hashtrinity.overflow.WINDOW_STEPS_BY_BITS
-  : Result (Array Std.U32 65#usize) :=
-  let t := Array.repeat 65#usize 0#u32
-  hashtrinity.overflow.WINDOW_STEPS_BY_BITS_loop t 1#usize
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::window_steps]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 673:4-675:5 -/
-def hashtrinity.overflow.Table.window_steps
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
-  Result Std.U32
-  := do
-  let a ← hashtrinity.overflow.WINDOW_STEPS_BY_BITS
-  let i ← lift (UScalar.cast .Usize self.bits)
-  Array.index_usize a i
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_limit]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 680:4-682:5 -/
-def hashtrinity.overflow.Table.probe_limit
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
-  Result Std.U32
-  := do
-  let i ←
-    hashtrinity.overflow.Table.window_steps corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst self
-  core.cmp.Ord.min.trait_default core.cmp.OrdU32 hashtrinity.PROBE_CAP i
-
-/-- [apeiron_word::hashtrinity::overflow::prefix_masks_avx2]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 121:0-142:1 -/
-def hashtrinity.overflow.prefix_masks_avx2
-  (base : ConstRawPtr Std.U64) (coord : Std.U64) :
-  Result (Std.U32 × Std.U32)
-  := do
-  let p ←
-    core.ptr.const_ptr.RawPtrConstT.cast core.core_arch.x86.__m256i base
-  let lo ← core.core_arch.x86.avx._mm256_loadu_si256 p
-  let p1 ← core.ptr.const_ptr.RawPtrConstT.add base 4#usize
-  let p2 ← core.ptr.const_ptr.RawPtrConstT.cast core.core_arch.x86.__m256i p1
-  let hi ← core.core_arch.x86.avx._mm256_loadu_si256 p2
-  let i ← lift (UScalar.hcast .I64 coord)
-  let key ← core.core_arch.x86.avx._mm256_set1_epi64x i
-  let i1 ← lift (UScalar.hcast .I64 hashtrinity.EMPTY)
-  let emp ← core.core_arch.x86.avx._mm256_set1_epi64x i1
-  let mi ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 lo key
-  let md ← core.core_arch.x86.avx._mm256_castsi256_pd mi
-  let i2 ← core.core_arch.x86.avx._mm256_movemask_pd md
-  let hits_lo ← lift (IScalar.hcast .U32 i2)
-  let mi1 ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 hi key
-  let md1 ← core.core_arch.x86.avx._mm256_castsi256_pd mi1
-  let i3 ← core.core_arch.x86.avx._mm256_movemask_pd md1
-  let hits_hi ← lift (IScalar.hcast .U32 i3)
-  let mi2 ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 lo emp
-  let md2 ← core.core_arch.x86.avx._mm256_castsi256_pd mi2
-  let i4 ← core.core_arch.x86.avx._mm256_movemask_pd md2
-  let empties_lo ← lift (IScalar.hcast .U32 i4)
-  let mi3 ← core.core_arch.x86.avx2._mm256_cmpeq_epi64 hi emp
-  let md3 ← core.core_arch.x86.avx._mm256_castsi256_pd mi3
-  let i5 ← core.core_arch.x86.avx._mm256_movemask_pd md3
-  let empties_hi ← lift (IScalar.hcast .U32 i5)
-  let i6 ← hits_hi <<< 4#i32
-  let hits ← lift (hits_lo ||| i6)
-  let i7 ← empties_hi <<< 4#i32
-  let empties ← lift (empties_lo ||| i7)
-  ok (hits, empties)
-
-/-- [apeiron_word::hashtrinity::overflow::prefix_masks]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 100:8-105:9 -/
-@[rust_loop_body]
-def hashtrinity.overflow.prefix_masks_loop.body
-  (coords : Slice Std.U64) (home : Std.Usize) (coord : Std.U64)
-  (hits : Std.U32) (empties : Std.U32) (k : Std.Usize) :
-  Result (ControlFlow (Std.U32 × Std.U32 × Std.Usize) (Std.U32 × Std.U32))
-  := do
-  let i ← lift (UScalar.cast .Usize hashtrinity.LINEAR_G)
-  if k < i
-  then
-    let i1 ← home + k
-    let sc ← Slice.index_usize coords i1
-    let i2 ← lift (core.convert.num.FromU32Bool.from (sc = coord))
-    let i3 ← i2 <<< k
-    let hits1 ← lift (hits ||| i3)
-    let i4 ←
-      lift (core.convert.num.FromU32Bool.from (sc = hashtrinity.EMPTY))
-    let i5 ← i4 <<< k
-    let empties1 ← lift (empties ||| i5)
-    let k1 ← k + 1#usize
-    ok (cont (hits1, empties1, k1))
-  else ok (done (hits, empties))
-
-/-- [apeiron_word::hashtrinity::overflow::prefix_masks]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 100:8-105:9 -/
-@[rust_loop]
-def hashtrinity.overflow.prefix_masks_loop
-  (coords : Slice Std.U64) (home : Std.Usize) (coord : Std.U64)
-  (hits : Std.U32) (empties : Std.U32) (k : Std.Usize) :
-  Result (Std.U32 × Std.U32)
-  := do
-  loop
-    (fun (hits1, empties1, k1) => hashtrinity.overflow.prefix_masks_loop.body
-      coords home coord hits1 empties1 k1)
-    (hits, empties, k)
-
-/-- [apeiron_word::hashtrinity::overflow::prefix_masks]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 78:0-108:1 -/
-def hashtrinity.overflow.prefix_masks
-  (coords : Slice Std.U64) (home : Std.Usize) (coord : Std.U64) :
-  Result (Std.U32 × Std.U32)
-  := do
-  let b ← std_detect.detect.arch.x86.__is_feature_detected.avx2
-  if b
-  then
-    let p ← core.slice.Slice.as_ptr coords
-    let p1 ← core.ptr.const_ptr.RawPtrConstT.add p home
-    hashtrinity.overflow.prefix_masks_avx2 p1 coord
-  else
-    hashtrinity.overflow.prefix_masks_loop coords home coord 0#u32 0#u32
-      0#usize
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]: loop body 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 783:12-800:5 -/
-@[rust_loop_body]
-def hashtrinity.overflow.Table.probe_capped_cold_loop.body
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
-  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
-  (ss : hashtrinity.side.SideStore K V KS)
-  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
-  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
-  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (limit : Std.U32)
-  (empties : Std.U32) (hits : Std.U32) :
-  Result (ControlFlow Std.U32 hashtrinity.Capped)
-  := do
-  if hits != 0#u32
-  then
-    let i3 ← core.num.U32.trailing_zeros hits
-    let i4 ← lift (UScalar.cast .Usize i3)
-    let slot ← home + i4
-    let b ← ConfirmInst.confirm confirm t slot
-    if b
-    then ok (done (hashtrinity.Capped.Hit slot))
-    else
-      let i5 ← hits - 1#u32
-      let hits1 ← lift (hits &&& i5)
-      ok (cont hits1)
-  else
-    if empties != 0#u32
-    then
-      let i3 ← core.num.U32.trailing_zeros empties
-      let i4 ← lift (UScalar.cast .Usize i3)
-      let i5 ← home + i4
-      ok (done (hashtrinity.Capped.Vacant i5))
-    else
-      let c ←
-        hashtrinity.overflow.Table.probe_rest_with corecmpEqInst
-          algebraCoordInst algebraKeyStoreInst ConfirmInst
-          {
-            coords := s,
-            vals := s1,
-            keys := t,
-            side := ss,
-            overflow := o,
-            bits := i,
-            len := i1,
-            tombs := i2,
-            _k := pd
-          } coord hashtrinity.LINEAR_G limit confirm
-      ok (done c)
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]: loop 0:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 783:12-800:5 -/
-@[rust_loop]
-def hashtrinity.overflow.Table.probe_capped_cold_loop
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (s : Slice Std.U64)
-  (s1 : Slice (core.mem.maybe_uninit.MaybeUninit V)) (t : KS)
-  (ss : hashtrinity.side.SideStore K V KS)
-  (o : Option (hashtrinity.overflow.Overflow K V)) (i : Std.U32)
-  (i1 : Std.Usize) (i2 : Std.Usize) (pd : core.marker.PhantomData K)
-  (coord : Std.U64) (home : Std.Usize) (confirm : T3) (limit : Std.U32)
-  (hits : Std.U32) (empties : Std.U32) :
-  Result hashtrinity.Capped
-  := do
-  loop
-    (fun hits1 => hashtrinity.overflow.Table.probe_capped_cold_loop.body
-      corecmpEqInst algebraCoordInst algebraKeyStoreInst ConfirmInst s s1 t ss
-      o i i1 i2 pd coord home confirm limit empties hits1)
-    hits
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_cold]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 770:4-800:5 -/
-def hashtrinity.overflow.Table.probe_capped_cold
-  {K : Type} {V : Type} {KS : Type} {T3 : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (ConfirmInst :
-  hashtrinity.overflow.Confirm T3 K KS) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (home : Std.Usize) (confirm : T3) :
-  Result hashtrinity.Capped
-  := do
-  let limit ←
-    hashtrinity.overflow.Table.probe_limit corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst self
-  let len := Slice.len self.coords
-  if limit >= hashtrinity.LINEAR_G
-  then
-    let i ← lift (UScalar.cast .Usize hashtrinity.LINEAR_G)
-    let i1 ← home + i
-    if i1 <= len
-    then
-      let (hits, empties) ←
-        hashtrinity.overflow.prefix_masks self.coords home coord
-      hashtrinity.overflow.Table.probe_capped_cold_loop corecmpEqInst
-        algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords
-        self.vals self.keys self.side self.overflow self.bits self.len
-        self.tombs self._k coord home confirm limit hits empties
-    else
-      hashtrinity.overflow.Table.probe_rest_with corecmpEqInst algebraCoordInst
-        algebraKeyStoreInst ConfirmInst self coord 0#u32 limit confirm
-  else
-    hashtrinity.overflow.Table.probe_rest_with corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst ConfirmInst self coord 0#u32 limit confirm
 
 /-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_with]: loop body 0:
     Source: '../../src/map/hashtrinity/overflow.rs', lines 740:12-752:5 -/
@@ -110639,39 +113838,6 @@ def hashtrinity.overflow.Table.probe_capped_with
   else
     hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst algebraCoordInst
       algebraKeyStoreInst ConfirmInst self coord home confirm
-
-/-- [apeiron_word::hashtrinity::overflow::ByKey]
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 52:0-55:1 -/
-structure hashtrinity.overflow.ByKey (K : Type) where
-  coord : Std.U64
-  k : K
-
-/-- [apeiron_word::hashtrinity::overflow::{impl apeiron_word::hashtrinity::overflow::Confirm<K, KS> for apeiron_word::hashtrinity::overflow::ByKey<'a, K>}::confirm]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 59:4-61:5 -/
-def
-  hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm.confirm
-  {K : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (algebraCoordInst :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.overflow.ByKey K)
-  (keys : KS) (i : Std.Usize) :
-  Result Bool
-  := do
-  algebraKeyStoreInst.«matches» keys i self.coord self.k
-
-/-- Trait implementation: [apeiron_word::hashtrinity::overflow::{impl apeiron_word::hashtrinity::overflow::Confirm<K, KS> for apeiron_word::hashtrinity::overflow::ByKey<'a, K>}]
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 57:0-62:1 -/
-@[reducible]
-def hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm {K
-  : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (algebraCoordInst1 :
-  hashtrinity.algebra.Coord K) (algebraKeyStoreInst1 :
-  hashtrinity.algebra.KeyStore KS K) : hashtrinity.overflow.Confirm
-  (hashtrinity.overflow.ByKey K) K KS := {
-  algebraCoordInst := algebraCoordInst1
-  algebraKeyStoreInst := algebraKeyStoreInst1
-  confirm :=
-    hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm.confirm
-    corecmpEqInst algebraCoordInst1 algebraKeyStoreInst1
-}
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::get_coord]:
     Source: '../../src/map/hashtrinity/mod.rs', lines 579:4-612:5 -/
@@ -110914,243 +114080,6 @@ def hashtrinity.side.SideStore.push
     let mu ← core.mem.maybe_uninit.MaybeUninit.new v
     let v2 ← alloc.vec.Vec.push self.vals mu
     ok { self with coords := v1, vals := v2, keys := grown }
-
-/-- [apeiron_word::hashtrinity::overflow::{apeiron_word::hashtrinity::Table<K, V, KS>}::probe_capped_keyed]:
-    Source: '../../src/map/hashtrinity/overflow.rs', lines 812:4-825:5 -/
-def hashtrinity.overflow.Table.probe_capped_keyed
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (k : K) :
-  Result hashtrinity.Capped
-  := do
-  let home ←
-    hashtrinity.Table.home corecmpEqInst algebraCoordInst algebraKeyStoreInst
-      self coord
-  let sc ←
-    core.slice.Slice.get_unchecked (core.slice.index.SliceIndexUsizeSlice
-      Std.U64) self.coords home
-  if sc = coord
-  then
-    let b ← algebraKeyStoreInst.«matches» self.keys home coord k
-    if b
-    then ok (hashtrinity.Capped.Hit home)
-    else
-      if sc = hashtrinity.EMPTY
-      then ok (hashtrinity.Capped.Vacant home)
-      else
-        hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
-          algebraCoordInst algebraKeyStoreInst
-          (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
-          corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home
-          { coord, k }
-  else
-    if sc = hashtrinity.EMPTY
-    then ok (hashtrinity.Capped.Vacant home)
-    else
-      hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst
-        algebraCoordInst algebraKeyStoreInst
-        (hashtrinity.overflow.ByKey.Insts.Apeiron_wordHashtrinityOverflowConfirm
-        corecmpEqInst algebraCoordInst algebraKeyStoreInst) self coord home
-        { coord, k }
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::place_capped]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1149:4-1177:5 -/
-def hashtrinity.Table.place_capped
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (coord : Std.U64) (k : K) (v : V) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  let c ←
-    hashtrinity.overflow.Table.probe_capped_keyed corecmpEqInst
-      algebraCoordInst algebraKeyStoreInst self coord k
-  match c with
-  | hashtrinity.Capped.Hit i =>
-    let (mu, get_unchecked_mut_back) ←
-      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
-        (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
-    let old ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
-    core.mem.drop old
-    let mu1 ← core.mem.maybe_uninit.MaybeUninit.new v
-    let s := get_unchecked_mut_back mu
-    let (_, get_unchecked_mut_back1) ←
-      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
-        (core.mem.maybe_uninit.MaybeUninit V)) s i
-    let s1 := get_unchecked_mut_back1 mu1
-    ok { self with vals := s1 }
-  | hashtrinity.Capped.Vacant i =>
-    let (_, get_unchecked_mut_back) ←
-      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
-        Std.U64) self.coords i
-    let mu ← core.mem.maybe_uninit.MaybeUninit.new v
-    let (_, get_unchecked_mut_back1) ←
-      core.slice.Slice.get_unchecked_mut (core.slice.index.SliceIndexUsizeSlice
-        (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
-    let t ← algebraKeyStoreInst.set self.keys i k
-    let i1 ← self.len + 1#usize
-    let s := get_unchecked_mut_back coord
-    let s1 := get_unchecked_mut_back1 mu
-    ok { self with coords := s, vals := s1, keys := t, len := i1 }
-  | hashtrinity.Capped.Blocked =>
-    let b := core.option.Option.is_none self.overflow
-    let o ←
-      if b
-      then
-        do
-        let o1 ← hashtrinity.overflow.Overflow.new V algebraCoordInst
-        ok (some o1)
-      else ok self.overflow
-    let (o1, as_mut_back) ← core.option.Option.as_mut o
-    match o1 with
-    | none => fail panic
-    | some ov =>
-      let (_, ov1) ←
-        hashtrinity.overflow.Overflow.insert_new_at algebraCoordInst ov coord k
-          v
-      let o2 := as_mut_back (some ov1)
-      ok { self with overflow := o2 }
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop body 0:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1217:8-1230:9 -/
-@[rust_loop_body]
-def hashtrinity.Table.resize_loop0.body
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (bigger : hashtrinity.Table K V KS) (i : Std.Usize) :
-  Result (ControlFlow ((hashtrinity.Table K V KS) × (hashtrinity.Table K V KS)
-    × Std.Usize) ((hashtrinity.side.SideStore K V KS) × (Option
-    (hashtrinity.overflow.Overflow K V)) × (hashtrinity.Table K V KS)))
-  := do
-  let i1 := Slice.len self.coords
-  if i < i1
-  then
-    let c ← Slice.index_usize self.coords i
-    let b ← hashtrinity.is_live c
-    if b
-    then
-      let (key, t) ← algebraKeyStoreInst.take_key self.keys i c
-      let (mu, get_unchecked_mut_back) ←
-        core.slice.Slice.get_unchecked_mut
-          (core.slice.index.SliceIndexUsizeSlice
-          (core.mem.maybe_uninit.MaybeUninit V)) self.vals i
-      let v ← core.mem.maybe_uninit.MaybeUninit.assume_init_read mu
-      let s ← Slice.update self.coords i hashtrinity.EMPTY
-      let bigger1 ←
-        hashtrinity.Table.place_capped corecmpEqInst algebraCoordInst
-          algebraKeyStoreInst bigger c key v
-      let i2 ← i + 1#usize
-      let s1 := get_unchecked_mut_back mu
-      ok (cont ({ self with coords := s, vals := s1, keys := t }, bigger1, i2))
-    else let i2 ← i + 1#usize
-         ok (cont (self, bigger, i2))
-  else ok (done (self.side, self.overflow, bigger))
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop 0:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1217:8-1230:9 -/
-@[rust_loop]
-def hashtrinity.Table.resize_loop0
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (bigger : hashtrinity.Table K V KS) (i : Std.Usize) :
-  Result ((hashtrinity.side.SideStore K V KS) × (Option
-    (hashtrinity.overflow.Overflow K V)) × (hashtrinity.Table K V KS))
-  := do
-  loop
-    (fun (self1, bigger1, i1) => hashtrinity.Table.resize_loop0.body
-      corecmpEqInst algebraCoordInst algebraKeyStoreInst self1 bigger1 i1)
-    (self, bigger, i)
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop body 1:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1236:12-1238:13 -/
-@[rust_loop_body]
-def hashtrinity.Table.resize_loop1.body
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K)
-  (iter : alloc.vec.into_iter.IntoIter (Std.U64 × K × V))
-  (bigger : hashtrinity.Table K V KS) :
-  Result (ControlFlow ((alloc.vec.into_iter.IntoIter (Std.U64 × K × V)) ×
-    (hashtrinity.Table K V KS)) (hashtrinity.Table K V KS))
-  := do
-  let (o, iter1) ← alloc.vec.into_iter.IteratorIntoIter.next iter
-  match o with
-  | none => ok (done bigger)
-  | some t =>
-    let (c, k, v) := t
-    let bigger1 ←
-      hashtrinity.Table.place_capped corecmpEqInst algebraCoordInst
-        algebraKeyStoreInst bigger c k v
-    ok (cont (iter1, bigger1))
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]: loop 1:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1236:12-1238:13 -/
-@[rust_loop]
-def hashtrinity.Table.resize_loop1
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K)
-  (iter : alloc.vec.into_iter.IntoIter (Std.U64 × K × V))
-  (bigger : hashtrinity.Table K V KS) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  loop
-    (fun (iter1, bigger1) => hashtrinity.Table.resize_loop1.body corecmpEqInst
-      algebraCoordInst algebraKeyStoreInst iter1 bigger1)
-    (iter, bigger)
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::resize]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1214:4-1241:5 -/
-def hashtrinity.Table.resize
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
-  (new_bits : Std.U32) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  let bigger ←
-    hashtrinity.Table.with_bits V corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst new_bits
-  let (ss, o, bigger1) ←
-    hashtrinity.Table.resize_loop0 corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst self bigger 0#usize
-  let ss1 ←
-    hashtrinity.side.SideStore.empty V algebraCoordInst algebraKeyStoreInst
-  let (ss2, _) := core.mem.replace ss ss1
-  let (o1, _) := core.option.Option.take o
-  match o1 with
-  | none => ok { bigger1 with side := ss2 }
-  | some ov =>
-    let v ← hashtrinity.overflow.Overflow.into_entries algebraCoordInst ov
-    let iter ← alloc.vec.IntoIteratorVec.into_iter v
-    hashtrinity.Table.resize_loop1 corecmpEqInst algebraCoordInst
-      algebraKeyStoreInst iter { bigger1 with side := ss2 }
-
-/-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::grow_for_one]:
-    Source: '../../src/map/hashtrinity/mod.rs', lines 1194:4-1205:5 -/
-def hashtrinity.Table.grow_for_one
-  {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
-  (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) :
-  Result (hashtrinity.Table K V KS)
-  := do
-  let cap := Slice.len self.coords
-  let i ← self.len + self.tombs
-  let i1 ← i + 1#usize
-  let i2 ← i1 * hashtrinity.LOAD_DEN
-  let i3 ← cap * hashtrinity.LOAD_NUM
-  if i2 >= i3
-  then
-    let i4 ← cap / 2#usize
-    let new_bits ← if self.len < i4
-                     then ok self.bits
-                     else self.bits + 1#u32
-    hashtrinity.Table.resize corecmpEqInst algebraCoordInst algebraKeyStoreInst
-      self new_bits
-  else ok self
 
 /-- [apeiron_word::hashtrinity::{apeiron_word::hashtrinity::Table<K, V, KS>}::insert_core]:
     Source: '../../src/map/hashtrinity/mod.rs', lines 1012:4-1105:5 -/
@@ -111514,6 +114443,240 @@ def hashtrinity.seed.CoordSeed.seed_of
   let i ← hashtrinity.seed.CoordSeed.home self c
   let i1 ← hashtrinity.seed.CoordSeed.residual self c
   ok (i, i1)
+
+/-- [apeiron_word::hashtrinity::tregex::term::Seg]
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 792:4-800:5
+    Visibility: public -/
+@[discriminant isize]
+inductive hashtrinity.tregex.term.Seg where
+| Lit : alloc.vec.Vec Std.U8 → hashtrinity.tregex.term.Seg
+| Class :
+  Array Bool 256#usize →
+  Std.Usize →
+  Std.Usize →
+  hashtrinity.tregex.term.Seg
+| WordB : hashtrinity.tregex.term.Seg
+
+/-- [apeiron_word::hashtrinity::tregex::term::is_word]:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 802:4-809:5 -/
+def hashtrinity.tregex.term.is_word (b : Std.U8) : Result Bool := do
+  if b >= 48#u8
+  then
+    if b <= 57#u8
+    then ok true
+    else
+      if b >= 97#u8
+      then
+        if b <= 122#u8
+        then ok true
+        else
+          if b >= 65#u8
+          then if b <= 90#u8
+               then ok true
+               else ok (b = 95#u8)
+          else ok (b = 95#u8)
+      else
+        if b >= 65#u8
+        then if b <= 90#u8
+             then ok true
+             else ok (b = 95#u8)
+        else ok (b = 95#u8)
+  else
+    if b >= 97#u8
+    then
+      if b <= 122#u8
+      then ok true
+      else
+        if b >= 65#u8
+        then if b <= 90#u8
+             then ok true
+             else ok (b = 95#u8)
+        else ok (b = 95#u8)
+    else
+      if b >= 65#u8
+      then if b <= 90#u8
+           then ok true
+           else ok (b = 95#u8)
+      else ok (b = 95#u8)
+
+/-- [apeiron_word::hashtrinity::tregex::Match]
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1104:0-1107:1
+    Visibility: public -/
+structure hashtrinity.tregex.Match where
+  start : Std.Usize
+  «end» : Std.Usize
+
+/-- [apeiron_word::hashtrinity::tregex::{apeiron_word::hashtrinity::tregex::Match}::start]:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1110:4-1112:5
+    Visibility: public -/
+def hashtrinity.tregex.Match.impl.start
+  (self : hashtrinity.tregex.Match) : Result Std.Usize := do
+  ok self.start
+
+/-- [apeiron_word::hashtrinity::tregex::{apeiron_word::hashtrinity::tregex::Match}::end]:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1114:4-1116:5
+    Visibility: public -/
+def hashtrinity.tregex.Match.impl.end
+  (self : hashtrinity.tregex.Match) : Result Std.Usize := do
+  ok self.end
+
+/-- [apeiron_word::hashtrinity::tregex::{apeiron_word::hashtrinity::tregex::Match}::range]:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1118:4-1120:5
+    Visibility: public -/
+def hashtrinity.tregex.Match.range
+  (self : hashtrinity.tregex.Match) :
+  Result (core.ops.range.Range Std.Usize)
+  := do
+  ok { start := self.start, «end» := self.end }
+
+/-- [apeiron_word::hashtrinity::tregex::match_segs::go]: loop body 0:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1202:16-1207:17 -/
+@[rust_loop_body]
+def hashtrinity.tregex.match_segs.go_loop0.body
+  (hay : Slice Std.U8) (pos : Std.Usize) (mask : Array Bool 256#usize)
+  (max : Std.Usize) (avail : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  let i ← pos + avail
+  let i1 := Slice.len hay
+  if i < i1
+  then
+    let i2 ← Slice.index_usize hay i
+    let i3 ← lift (UScalar.cast .Usize i2)
+    let b ← Array.index_usize mask i3
+    if b
+    then
+      let avail1 ← avail + 1#usize
+      if avail1 = max
+      then ok (done avail1)
+      else ok (cont avail1)
+    else ok (done avail)
+  else ok (done avail)
+
+/-- [apeiron_word::hashtrinity::tregex::match_segs::go]: loop 0:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1202:16-1207:17 -/
+@[rust_loop]
+def hashtrinity.tregex.match_segs.go_loop0
+  (hay : Slice Std.U8) (pos : Std.Usize) (mask : Array Bool 256#usize)
+  (max : Std.Usize) (avail : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun avail1 => hashtrinity.tregex.match_segs.go_loop0.body hay pos mask max
+      avail1)
+    avail
+
+mutual
+
+/-- [apeiron_word::hashtrinity::tregex::match_segs::go]: loop 1:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1212:16-1220:17 -/
+@[rust_loop]
+def hashtrinity.tregex.match_segs.go_loop1
+  (segs : Slice hashtrinity.tregex.term.Seg) (si : Std.Usize)
+  (hay : Slice Std.U8) (pos : Std.Usize) (min : Std.Usize) (take : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  loop
+    (fun take1 => hashtrinity.tregex.match_segs.go_loop1.body segs si hay pos
+      min take1)
+    take
+partial_fixpoint
+
+/-- [apeiron_word::hashtrinity::tregex::match_segs::go]: loop body 1:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1212:16-1220:17 -/
+@[rust_loop_body]
+def hashtrinity.tregex.match_segs.go_loop1.body
+  (segs : Slice hashtrinity.tregex.term.Seg) (si : Std.Usize)
+  (hay : Slice Std.U8) (pos : Std.Usize) (min : Std.Usize) (take : Std.Usize) :
+  Result (ControlFlow Std.Usize (Option Std.Usize))
+  := do
+  let i ← si + 1#usize
+  let i1 ← pos + take
+  let o ← hashtrinity.tregex.match_segs.go segs i hay i1
+  match o with
+  | none =>
+    if take = min
+    then ok (done none)
+    else let take1 ← take - 1#usize
+         ok (cont take1)
+  | some _ => ok (done o)
+partial_fixpoint
+
+/-- [apeiron_word::hashtrinity::tregex::match_segs::go]:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1179:4-1223:5 -/
+def hashtrinity.tregex.match_segs.go
+  (segs : Slice hashtrinity.tregex.term.Seg) (si : Std.Usize)
+  (hay : Slice Std.U8) (pos : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  let i := Slice.len segs
+  if si = i
+  then ok (some pos)
+  else
+    let s ← Slice.index_usize segs si
+    match s with
+    | hashtrinity.tregex.term.Seg.Lit v =>
+      let i1 := alloc.vec.Vec.len v
+      let i2 ← pos + i1
+      let i3 := Slice.len hay
+      if i2 <= i3
+      then
+        let i4 := alloc.vec.Vec.len v
+        let i5 ← pos + i4
+        let s1 ←
+          core.slice.index.Slice.index
+            (core.slice.index.SliceIndexRangeUsizeSlice Std.U8) hay
+            { start := pos, «end» := i5 }
+        let s2 ← alloc.vec.Vec.as_slice Global v
+        let b ← core.slice.cmp.PartialEqSlice.eq core.cmp.PartialEqU8 s1 s2
+        if b
+        then
+          let i6 ← si + 1#usize
+          let i7 := alloc.vec.Vec.len v
+          let i8 ← pos + i7
+          hashtrinity.tregex.match_segs.go segs i6 hay i8
+        else ok none
+      else ok none
+    | hashtrinity.tregex.term.Seg.Class mask min max =>
+      let avail ←
+        hashtrinity.tregex.match_segs.go_loop0 hay pos mask max 0#usize
+      if avail < min
+      then ok none
+      else hashtrinity.tregex.match_segs.go_loop1 segs si hay pos min avail
+    | hashtrinity.tregex.term.Seg.WordB =>
+      let before ←
+        if pos > 0#usize
+        then
+          do
+          let i1 ← pos - 1#usize
+          let i2 ← Slice.index_usize hay i1
+          hashtrinity.tregex.term.is_word i2
+        else ok false
+      let i1 := Slice.len hay
+      let after ←
+        if pos < i1
+        then
+          do
+          let i2 ← Slice.index_usize hay pos
+          hashtrinity.tregex.term.is_word i2
+        else ok false
+      if before != after
+      then
+        let i2 ← si + 1#usize
+        hashtrinity.tregex.match_segs.go segs i2 hay pos
+      else ok none
+partial_fixpoint
+
+end
+
+/-- [apeiron_word::hashtrinity::tregex::match_segs]:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1178:0-1225:1 -/
+def hashtrinity.tregex.match_segs
+  (segs : Slice hashtrinity.tregex.term.Seg) (hay : Slice Std.U8)
+  (pos : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  hashtrinity.tregex.match_segs.go segs 0#usize hay pos
 
 /-- [apeiron_word::table::ResidentRead]
     Source: '../../src/map/table/getexact.rs', lines 41:0-48:1 -/
@@ -119738,15 +122901,95 @@ def fold_finish_port.word_run_convert_decode_f32
   := do
   fold_finish_port.convert.decode_f32 raw
 
+/-- [apeiron_word::fold_layer_port::word_layer_driver_layer_words]:
+    Source: 'fold_layer_port.rs', lines 42:0-44:1
+    Visibility: public -/
+def fold_layer_port.word_layer_driver_layer_words
+  (lt : grad_solve_port.model.LayerWeights) :
+  Result (core.result.Result fold_port.stats.parts.LayerWords
+    fold_layer_port.layer.driver.DriverError)
+  := do
+  fold_layer_port.layer.driver.layer_words lt
+
+/-- [apeiron_word::fold_layer_port::word_layer_driver_g_row_from_vec]:
+    Source: 'fold_layer_port.rs', lines 56:0-58:1
+    Visibility: public -/
+def fold_layer_port.word_layer_driver_g_row_from_vec
+  (v : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.driver.DriverError)
+  := do
+  fold_layer_port.layer.driver.g_row_from_vec v
+
+/-- [apeiron_word::fold_layer_port::word_layer_driver_g_row_from_matrix]:
+    Source: 'fold_layer_port.rs', lines 61:0-67:1
+    Visibility: public -/
+def fold_layer_port.word_layer_driver_g_row_from_matrix
+  (w : Slice Std.I64) (rows : Std.Usize) (cols : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.driver.DriverError)
+  := do
+  fold_layer_port.layer.driver.g_row_from_matrix w rows cols
+
+/-- [apeiron_word::fold_layer_port::word_layer_driver_model_init]:
+    Source: 'fold_layer_port.rs', lines 111:0-113:1
+    Visibility: public -/
+def fold_layer_port.word_layer_driver_model_init
+  (h0 : Slice Std.I64) : Result fold_layer_port.layer.driver.ModelState := do
+  fold_layer_port.layer.driver.model_init h0
+
+/-- [apeiron_word::fold_layer_port::word_layer_tensor_recon]:
+    Source: 'fold_layer_port.rs', lines 154:0-160:1
+    Visibility: public -/
+def fold_layer_port.word_layer_tensor_recon
+  (planes : Slice fold_layer_port.layer.tensor.SinkPlane) (o : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_layer_port.layer.tensor.TensorError)
+  := do
+  fold_layer_port.layer.tensor.recon planes o n
+
+/-- [apeiron_word::fold_layer_port::word_layer_tensor_fold_row_scale]:
+    Source: 'fold_layer_port.rs', lines 177:0-184:1
+    Visibility: public -/
+def fold_layer_port.word_layer_tensor_fold_row_scale
+  (fit : fold_layer_port.layer.tensor.TensorFit) (s_sol : Slice Std.I64)
+  (o : Std.Usize) (n : Std.Usize) :
+  Result ((core.result.Result Unit fold_layer_port.layer.tensor.TensorError) ×
+    fold_layer_port.layer.tensor.TensorFit)
+  := do
+  fold_layer_port.layer.tensor.fold_row_scale fit s_sol o n
+
+/-- [apeiron_word::fold_layer_port::word_layer_resq_rescale_hier]:
+    Source: 'fold_layer_port.rs', lines 199:0-206:1
+    Visibility: public -/
+def fold_layer_port.word_layer_resq_rescale_hier
+  (rh : Slice Std.I64) (s : Slice Std.I64) (o : Std.Usize) (g : Std.Usize) :
+  Result (core.result.Result fold_port.fit.quant.RHier
+    fold_layer_port.layer.resq.ResqError)
+  := do
+  fold_layer_port.layer.resq.rescale_hier rh s o g
+
+/-- [apeiron_word::fold_layer_port::word_layer_resq_rescale_hier_top]:
+    Source: 'fold_layer_port.rs', lines 209:0-216:1
+    Visibility: public -/
+def fold_layer_port.word_layer_resq_rescale_hier_top
+  (rh : Slice Std.I64) (s : Slice Std.I64) (rows : Slice Std.Usize)
+  (g : Std.Usize) :
+  Result (core.result.Result fold_port.fit.quant.RHier
+    fold_layer_port.layer.resq.ResqError)
+  := do
+  fold_layer_port.layer.resq.rescale_hier_top rh s rows g
+
 /-- [apeiron_word::fold_port::word_stats_budget_bytes_ceil]:
-    Source: 'fold_port.rs', lines 85:0-87:1
+    Source: 'fold_port.rs', lines 87:0-89:1
     Visibility: public -/
 def fold_port.word_stats_budget_bytes_ceil
   (bits : Std.U128) : Result (Option Std.U128) := do
   fold_port.stats.budget.bytes_ceil bits
 
 /-- [apeiron_word::fold_port::word_stats_budget_max_body_bpw]:
-    Source: 'fold_port.rs', lines 90:0-108:1
+    Source: 'fold_port.rs', lines 92:0-110:1
     Visibility: public -/
 def fold_port.word_stats_budget_max_body_bpw
   (total_weights : Std.U64) (embd_weights : Std.U64) (head_weights : Std.U64)
@@ -119758,7 +123001,7 @@ def fold_port.word_stats_budget_max_body_bpw
     embd_bpw head_bpw budget_bytes reserve_bytes
 
 /-- [apeiron_word::fold_port::word_stats_lw_intensity]:
-    Source: 'fold_port.rs', lines 111:0-119:1
+    Source: 'fold_port.rs', lines 113:0-121:1
     Visibility: public -/
 def fold_port.word_stats_lw_intensity
   (s4 : Std.I64) (q : Slice Std.I64) (h : Slice Std.I64) (o : Std.Usize)
@@ -119768,7 +123011,7 @@ def fold_port.word_stats_lw_intensity
   fold_port.stats.lw.lw_intensity s4 q h o n
 
 /-- [apeiron_word::fold_port::word_stats_lw_block_intensity]:
-    Source: 'fold_port.rs', lines 122:0-130:1
+    Source: 'fold_port.rs', lines 124:0-132:1
     Visibility: public -/
 def fold_port.word_stats_lw_block_intensity
   (p : Std.I64) (b : Std.Usize) (h : Slice Std.I64) (o : Std.Usize)
@@ -119778,28 +123021,28 @@ def fold_port.word_stats_lw_block_intensity
   fold_port.stats.lw.lw_block_intensity p b h o n
 
 /-- [apeiron_word::fold_port::word_stats_parts_mul]:
-    Source: 'fold_port.rs', lines 133:0-135:1
+    Source: 'fold_port.rs', lines 135:0-137:1
     Visibility: public -/
 def fold_port.word_stats_parts_mul
   (a : Std.I64) (b : Std.I64) : Result (Option Std.I64) := do
   fold_port.stats.parts.mul a b
 
 /-- [apeiron_word::fold_port::word_stats_parts_sqrt]:
-    Source: 'fold_port.rs', lines 138:0-140:1
+    Source: 'fold_port.rs', lines 140:0-142:1
     Visibility: public -/
 def fold_port.word_stats_parts_sqrt
   (x : Std.I64) : Result (Option Std.I64) := do
   fold_port.stats.parts.sqrt x
 
 /-- [apeiron_word::fold_port::word_stats_parts_sin_cos]:
-    Source: 'fold_port.rs', lines 143:0-145:1
+    Source: 'fold_port.rs', lines 145:0-147:1
     Visibility: public -/
 def fold_port.word_stats_parts_sin_cos
   (t : Std.I64) : Result (Option (Std.I64 × Std.I64)) := do
   fold_port.stats.parts.sin_cos t
 
 /-- [apeiron_word::fold_port::word_stats_parts_shift]:
-    Source: 'fold_port.rs', lines 148:0-150:1
+    Source: 'fold_port.rs', lines 150:0-152:1
     Visibility: public -/
 def fold_port.word_stats_parts_shift
   (a : Slice Std.I64) (k : Std.I32) :
@@ -119808,7 +123051,7 @@ def fold_port.word_stats_parts_shift
   fold_port.stats.parts.shift a k
 
 /-- [apeiron_word::fold_port::word_stats_parts_panel]:
-    Source: 'fold_port.rs', lines 153:0-155:1
+    Source: 'fold_port.rs', lines 155:0-157:1
     Visibility: public -/
 def fold_port.word_stats_parts_panel
   (v : Slice Std.I64) :
@@ -119817,7 +123060,7 @@ def fold_port.word_stats_parts_panel
   fold_port.stats.parts.panel v
 
 /-- [apeiron_word::fold_port::word_stats_parts_rms]:
-    Source: 'fold_port.rs', lines 158:0-166:1
+    Source: 'fold_port.rs', lines 160:0-168:1
     Visibility: public -/
 def fold_port.word_stats_parts_rms
   (x : Slice Std.I64) (w : Slice Std.I64) (eps : Std.I64) (t : Std.Usize)
@@ -119828,7 +123071,7 @@ def fold_port.word_stats_parts_rms
   fold_port.stats.parts.rms x w eps t width
 
 /-- [apeiron_word::fold_port::word_stats_parts_rope_apply]:
-    Source: 'fold_port.rs', lines 169:0-178:1
+    Source: 'fold_port.rs', lines 171:0-180:1
     Visibility: public -/
 def fold_port.word_stats_parts_rope_apply
   (dst : Slice Std.I64) (src : Slice Std.I64) (t : Std.Usize)
@@ -119840,35 +123083,35 @@ def fold_port.word_stats_parts_rope_apply
   fold_port.stats.parts.rope_apply dst src t n_head hd rope
 
 /-- [apeiron_word::fold_port::word_stats_parts_silu]:
-    Source: 'fold_port.rs', lines 181:0-183:1
+    Source: 'fold_port.rs', lines 183:0-185:1
     Visibility: public -/
 def fold_port.word_stats_parts_silu
   (g : Std.I64) : Result (Option Std.I64) := do
   fold_port.stats.parts.silu g
 
 /-- [apeiron_word::fold_port::word_stats_parts_silu_mul]:
-    Source: 'fold_port.rs', lines 186:0-188:1
+    Source: 'fold_port.rs', lines 188:0-190:1
     Visibility: public -/
 def fold_port.word_stats_parts_silu_mul
   (g : Std.I64) (u : Std.I64) : Result (Option Std.I64) := do
   fold_port.stats.parts.silu_mul g u
 
 /-- [apeiron_word::fold_port::word_stats_parts_rope_head_dim]:
-    Source: 'fold_port.rs', lines 191:0-193:1
+    Source: 'fold_port.rs', lines 193:0-195:1
     Visibility: public -/
 def fold_port.word_stats_parts_rope_head_dim
   (rope : fold_port.stats.parts.RopeTables) : Result Std.Usize := do
   fold_port.stats.parts.RopeTables.impl.head_dim rope
 
 /-- [apeiron_word::fold_port::word_stats_parts_rope_t_max]:
-    Source: 'fold_port.rs', lines 196:0-198:1
+    Source: 'fold_port.rs', lines 198:0-200:1
     Visibility: public -/
 def fold_port.word_stats_parts_rope_t_max
   (rope : fold_port.stats.parts.RopeTables) : Result Std.Usize := do
   fold_port.stats.parts.RopeTables.impl.t_max rope
 
 /-- [apeiron_word::fold_port::word_fit_lowrank_corrector]:
-    Source: 'fold_port.rs', lines 203:0-213:1
+    Source: 'fold_port.rs', lines 205:0-215:1
     Visibility: public -/
 def fold_port.word_fit_lowrank_corrector
   (delta_w : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize)
@@ -119880,7 +123123,7 @@ def fold_port.word_fit_lowrank_corrector
   fold_port.fit.corrector.lowrank_corrector delta_w hl o n rank mode factors
 
 /-- [apeiron_word::fold_port::word_fit_eigen_parts]:
-    Source: 'fold_port.rs', lines 216:0-224:1
+    Source: 'fold_port.rs', lines 218:0-226:1
     Visibility: public -/
 def fold_port.word_fit_eigen_parts
   (delta_w : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize)
@@ -119891,7 +123134,7 @@ def fold_port.word_fit_eigen_parts
   fold_port.fit.corrector.eigen_parts delta_w hl o n rank
 
 /-- [apeiron_word::fold_port::word_fit_eigh]:
-    Source: 'fold_port.rs', lines 227:0-232:1
+    Source: 'fold_port.rs', lines 229:0-234:1
     Visibility: public -/
 def fold_port.word_fit_eigh
   (a : Slice Std.I64) (n : Std.Usize) :
@@ -119901,7 +123144,7 @@ def fold_port.word_fit_eigh
   fold_port.fit.eigh.eigh a n
 
 /-- [apeiron_word::fold_port::word_fit_eigen_gram]:
-    Source: 'fold_port.rs', lines 235:0-242:1
+    Source: 'fold_port.rs', lines 237:0-244:1
     Visibility: public -/
 def fold_port.word_fit_eigen_gram
   (delta_w : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize)
@@ -119912,7 +123155,7 @@ def fold_port.word_fit_eigen_gram
   fold_port.fit.eigh.eigen_gram delta_w hl o n
 
 /-- [apeiron_word::fold_port::word_fit_lowrank_corrector_exact]:
-    Source: 'fold_port.rs', lines 245:0-253:1
+    Source: 'fold_port.rs', lines 247:0-255:1
     Visibility: public -/
 def fold_port.word_fit_lowrank_corrector_exact
   (delta_w : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize)
@@ -119923,7 +123166,7 @@ def fold_port.word_fit_lowrank_corrector_exact
   fold_port.fit.eigh.lowrank_corrector_exact delta_w hl o n rank
 
 /-- [apeiron_word::fold_port::word_fit_quant_r_hier]:
-    Source: 'fold_port.rs', lines 256:0-262:1
+    Source: 'fold_port.rs', lines 258:0-264:1
     Visibility: public -/
 def fold_port.word_fit_quant_r_hier
   (r : Slice Std.I64) (o : Std.Usize) (g : Std.Usize) :
@@ -119933,7 +123176,7 @@ def fold_port.word_fit_quant_r_hier
   fold_port.fit.quant.quant_r_hier r o g
 
 /-- [apeiron_word::fold_port::word_fit_quant_c_u8]:
-    Source: 'fold_port.rs', lines 265:0-270:1
+    Source: 'fold_port.rs', lines 267:0-272:1
     Visibility: public -/
 def fold_port.word_fit_quant_c_u8
   (c : Slice Std.I64) (bits : Std.U32) :
@@ -119943,7 +123186,7 @@ def fold_port.word_fit_quant_c_u8
   fold_port.fit.quant.quant_c_u8 c bits
 
 /-- [apeiron_word::fold_port::word_fit_f16r]:
-    Source: 'fold_port.rs', lines 273:0-275:1
+    Source: 'fold_port.rs', lines 275:0-277:1
     Visibility: public -/
 def fold_port.word_fit_f16r
   (w : Std.I64) :
@@ -119952,27 +123195,27 @@ def fold_port.word_fit_f16r
   fold_port.fit.quant.f16r w
 
 /-- [apeiron_word::fold_port::word_fit_r_level]:
-    Source: 'fold_port.rs', lines 278:0-280:1
+    Source: 'fold_port.rs', lines 280:0-282:1
     Visibility: public -/
 def fold_port.word_fit_r_level
   (lo : Std.I64) (sp : Std.I64) (k : Std.U8) : Result (Option Std.I64) := do
   fold_port.fit.quant.r_level lo sp k
 
 /-- [apeiron_word::fold_port::word_fit_r_hier_reconstruct]:
-    Source: 'fold_port.rs', lines 283:0-285:1
+    Source: 'fold_port.rs', lines 285:0-287:1
     Visibility: public -/
 def fold_port.word_fit_r_hier_reconstruct
   (r : fold_port.fit.quant.RHier) : Result (alloc.vec.Vec Std.I64) := do
   fold_port.fit.quant.RHier.reconstruct r
 
 /-- [apeiron_word::fold_port::word_fit_gram_scale]:
-    Source: 'fold_port.rs', lines 288:0-290:1
+    Source: 'fold_port.rs', lines 290:0-292:1
     Visibility: public -/
 def fold_port.word_fit_gram_scale (m : Slice Std.I64) : Result Std.I32 := do
   fold_port.fit.eigh.gram_scale m
 
 /-- [apeiron_word::fold_port::word_stats_basis_damped_gram]:
-    Source: 'fold_port.rs', lines 295:0-300:1
+    Source: 'fold_port.rs', lines 297:0-302:1
     Visibility: public -/
 def fold_port.word_stats_basis_damped_gram
   (h : Slice Std.I64) (n : Std.Usize) :
@@ -119982,7 +123225,7 @@ def fold_port.word_stats_basis_damped_gram
   fold_port.stats.basis.damped_gram h n
 
 /-- [apeiron_word::fold_port::word_stats_basis_identity_basis]:
-    Source: 'fold_port.rs', lines 303:0-305:1
+    Source: 'fold_port.rs', lines 305:0-307:1
     Visibility: public -/
 def fold_port.word_stats_basis_identity_basis
   (n : Std.Usize) :
@@ -119992,7 +123235,7 @@ def fold_port.word_stats_basis_identity_basis
   fold_port.stats.basis.identity_basis n
 
 /-- [apeiron_word::fold_port::word_stats_basis_hadamard_basis]:
-    Source: 'fold_port.rs', lines 308:0-310:1
+    Source: 'fold_port.rs', lines 310:0-312:1
     Visibility: public -/
 def fold_port.word_stats_basis_hadamard_basis
   (n : Std.Usize) :
@@ -120002,7 +123245,7 @@ def fold_port.word_stats_basis_hadamard_basis
   fold_port.stats.basis.hadamard_basis n
 
 /-- [apeiron_word::fold_port::word_stats_basis_row_energies]:
-    Source: 'fold_port.rs', lines 313:0-319:1
+    Source: 'fold_port.rs', lines 315:0-321:1
     Visibility: public -/
 def fold_port.word_stats_basis_row_energies
   (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
@@ -120012,7 +123255,7 @@ def fold_port.word_stats_basis_row_energies
   fold_port.stats.basis.row_energies b o n
 
 /-- [apeiron_word::fold_port::word_stats_basis_column_energies]:
-    Source: 'fold_port.rs', lines 322:0-328:1
+    Source: 'fold_port.rs', lines 324:0-330:1
     Visibility: public -/
 def fold_port.word_stats_basis_column_energies
   (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
@@ -120022,14 +123265,14 @@ def fold_port.word_stats_basis_column_energies
   fold_port.stats.basis.column_energies b o n
 
 /-- [apeiron_word::fold_port::word_stats_basis_sum_log_column_energies]:
-    Source: 'fold_port.rs', lines 331:0-333:1
+    Source: 'fold_port.rs', lines 333:0-335:1
     Visibility: public -/
 def fold_port.word_stats_basis_sum_log_column_energies
   (c : Slice Std.I64) : Result Std.I64 := do
   fold_port.stats.basis.sum_log_column_energies c
 
 /-- [apeiron_word::fold_port::word_stats_basis_distortion_at]:
-    Source: 'fold_port.rs', lines 336:0-341:1
+    Source: 'fold_port.rs', lines 338:0-343:1
     Visibility: public -/
 def fold_port.word_stats_basis_distortion_at
   (lambda : Slice Std.I64) (theta : Std.I64) :
@@ -120038,7 +123281,7 @@ def fold_port.word_stats_basis_distortion_at
   fold_port.stats.basis.distortion_at lambda theta
 
 /-- [apeiron_word::fold_port::word_stats_basis_rate_at]:
-    Source: 'fold_port.rs', lines 344:0-349:1
+    Source: 'fold_port.rs', lines 346:0-351:1
     Visibility: public -/
 def fold_port.word_stats_basis_rate_at
   (lambda : Slice Std.I64) (theta : Std.I64) :
@@ -120047,7 +123290,7 @@ def fold_port.word_stats_basis_rate_at
   fold_port.stats.basis.rate_at lambda theta
 
 /-- [apeiron_word::fold_port::word_stats_basis_uniform_distortion]:
-    Source: 'fold_port.rs', lines 352:0-358:1
+    Source: 'fold_port.rs', lines 354:0-360:1
     Visibility: public -/
 def fold_port.word_stats_basis_uniform_distortion
   (lambda : Slice Std.I64) (budget_bits : Std.I64) (side_bits : Std.I64) :
@@ -120056,7 +123299,7 @@ def fold_port.word_stats_basis_uniform_distortion
   fold_port.stats.basis.uniform_distortion lambda budget_bits side_bits
 
 /-- [apeiron_word::fold_port::word_stats_basis_solve_water_fill]:
-    Source: 'fold_port.rs', lines 361:0-367:1
+    Source: 'fold_port.rs', lines 363:0-369:1
     Visibility: public -/
 def fold_port.word_stats_basis_solve_water_fill
   (lambda : Slice Std.I64) (budget_bits : Std.I64) (side_bits : Std.I64) :
@@ -120065,7 +123308,7 @@ def fold_port.word_stats_basis_solve_water_fill
   fold_port.stats.basis.solve_water_fill lambda budget_bits side_bits
 
 /-- [apeiron_word::fold_port::word_stats_basis_density_side_bits]:
-    Source: 'fold_port.rs', lines 370:0-372:1
+    Source: 'fold_port.rs', lines 372:0-374:1
     Visibility: public -/
 def fold_port.word_stats_basis_density_side_bits
   (o : Std.Usize) (n : Std.Usize) : Result Std.I64 := do
@@ -120073,7 +123316,7 @@ def fold_port.word_stats_basis_density_side_bits
     fold_port.stats.basis.Density.Separable o n
 
 /-- [apeiron_word::fold_port::word_stats_basis_density_sigma]:
-    Source: 'fold_port.rs', lines 375:0-381:1
+    Source: 'fold_port.rs', lines 377:0-383:1
     Visibility: public -/
 def fold_port.word_stats_basis_density_sigma
   (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
@@ -120084,14 +123327,14 @@ def fold_port.word_stats_basis_density_sigma
     o n
 
 /-- [apeiron_word::fold_port::word_stats_basis_butterfly_side_bits]:
-    Source: 'fold_port.rs', lines 384:0-386:1
+    Source: 'fold_port.rs', lines 386:0-388:1
     Visibility: public -/
 def fold_port.word_stats_basis_butterfly_side_bits
   (n : Std.Usize) : Result Std.I64 := do
   fold_port.stats.basis.butterfly_side_bits n
 
 /-- [apeiron_word::fold_port::word_stats_hocapture_softmax_row]:
-    Source: 'fold_port.rs', lines 391:0-395:1
+    Source: 'fold_port.rs', lines 393:0-397:1
     Visibility: public -/
 def fold_port.word_stats_hocapture_softmax_row
   (z : Slice Std.I64) :
@@ -120101,7 +123344,7 @@ def fold_port.word_stats_hocapture_softmax_row
   fold_port.stats.hocapture.softmax_row z
 
 /-- [apeiron_word::fold_port::word_stats_hocapture_cross_entropy_sum]:
-    Source: 'fold_port.rs', lines 398:0-405:1
+    Source: 'fold_port.rs', lines 400:0-407:1
     Visibility: public -/
 def fold_port.word_stats_hocapture_cross_entropy_sum
   (logits : Slice Std.I64) (t : Std.Usize) (vocab : Std.Usize)
@@ -120111,7 +123354,7 @@ def fold_port.word_stats_hocapture_cross_entropy_sum
   fold_port.stats.hocapture.cross_entropy_sum logits t vocab targets
 
 /-- [apeiron_word::fold_port::word_stats_hocapture_logits_grad_ce]:
-    Source: 'fold_port.rs', lines 408:0-415:1
+    Source: 'fold_port.rs', lines 410:0-417:1
     Visibility: public -/
 def fold_port.word_stats_hocapture_logits_grad_ce
   (logits : Slice Std.I64) (targets : Slice Std.U32) (vocab : Std.Usize)
@@ -120122,7 +123365,7 @@ def fold_port.word_stats_hocapture_logits_grad_ce
   fold_port.stats.hocapture.logits_grad_ce logits targets vocab out
 
 /-- [apeiron_word::fold_port::word_stats_hocapture_sample_targets]:
-    Source: 'fold_port.rs', lines 418:0-426:1
+    Source: 'fold_port.rs', lines 420:0-428:1
     Visibility: public -/
 def fold_port.word_stats_hocapture_sample_targets
   (logits : Slice Std.I64) (t : Std.Usize) (vocab : Std.Usize) (k : Std.Usize)
@@ -120133,7 +123376,7 @@ def fold_port.word_stats_hocapture_sample_targets
   fold_port.stats.hocapture.sample_targets logits t vocab k seed
 
 /-- [apeiron_word::fold_port::word_stats_hocapture_kind_stats_zeros]:
-    Source: 'fold_port.rs', lines 429:0-433:1
+    Source: 'fold_port.rs', lines 431:0-435:1
     Visibility: public -/
 def fold_port.word_stats_hocapture_kind_stats_zeros
   (o : Std.Usize) :
@@ -120143,7 +123386,7 @@ def fold_port.word_stats_hocapture_kind_stats_zeros
   fold_port.stats.hocapture.KindStats.zeros o
 
 /-- [apeiron_word::fold_port::word_stats_heldout_score_base_row]:
-    Source: 'fold_port.rs', lines 438:0-445:1
+    Source: 'fold_port.rs', lines 440:0-447:1
     Visibility: public -/
 def fold_port.word_stats_heldout_score_base_row
   (z : Slice Std.I64) (lp : Slice Std.I64) (target : Std.Usize)
@@ -120655,6 +123898,231 @@ def hashtrinity_port.word_freq_overflow_height
   (state : hashtrinity.freq.FreqMap Std.U64 Std.I64) : Result Std.U32 := do
   hashtrinity.freq.FreqMap.overflow_height
     U64.Insts.Apeiron_wordHashtrinityAlgebraCoord state
+
+/-- [apeiron_word::hashtrinity_port::word_locate_ref_coord]:
+    Source: 'hashtrinity_port.rs', lines 162:0-165:1
+    Visibility: public -/
+def hashtrinity_port.word_locate_ref_coord (k : Std.U64) : Result Std.U64 := do
+  Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate.coord
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64 k
+
+/-- [apeiron_word::hashtrinity_port::word_locate_ref_same]:
+    Source: 'hashtrinity_port.rs', lines 168:0-171:1
+    Visibility: public -/
+def hashtrinity_port.word_locate_ref_same
+  (k : Std.U64) (other : Std.U64) : Result Bool := do
+  Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate.same
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64 k other
+
+/-- [apeiron_word::hashtrinity_port::word_absorb_ref]:
+    Source: 'hashtrinity_port.rs', lines 174:0-176:1
+    Visibility: public -/
+def hashtrinity_port.word_absorb_ref (k : Std.U64) : Result Std.U64 := do
+  Shared0K.Insts.Apeiron_wordHashtrinityFaceAbsorb.absorb
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    core.clone.CloneU64 k
+
+/-- [apeiron_word::hashtrinity_port::word_locate_str_coord]:
+    Source: 'hashtrinity_port.rs', lines 179:0-182:1
+    Visibility: public -/
+def hashtrinity_port.word_locate_str_coord (s : Str) : Result Std.U64 := do
+  Shared0Str.Insts.Apeiron_wordHashtrinityFaceLocateString.coord s
+
+/-- [apeiron_word::hashtrinity_port::word_locate_str_same]:
+    Source: 'hashtrinity_port.rs', lines 185:0-188:1
+    Visibility: public -/
+def hashtrinity_port.word_locate_str_same
+  (s : Str) (k : String) : Result Bool := do
+  Shared0Str.Insts.Apeiron_wordHashtrinityFaceLocateString.same s k
+
+/-- [apeiron_word::hashtrinity_port::word_absorb_str]:
+    Source: 'hashtrinity_port.rs', lines 191:0-193:1
+    Visibility: public -/
+def hashtrinity_port.word_absorb_str (s : Str) : Result String := do
+  Shared0Str.Insts.Apeiron_wordHashtrinityFaceAbsorbString.absorb s
+
+/-- [apeiron_word::hashtrinity_port::word_locate_pair_coord]:
+    Source: 'hashtrinity_port.rs', lines 196:0-199:1
+    Visibility: public -/
+def hashtrinity_port.word_locate_pair_coord
+  (a : Std.U64) (b : Std.U64) : Result Std.U64 := do
+  Pair.Insts.Apeiron_wordHashtrinityFaceLocatePair.coord
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    (Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64)
+    (Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64) (a, b)
+
+/-- [apeiron_word::hashtrinity_port::word_locate_pair_same]:
+    Source: 'hashtrinity_port.rs', lines 202:0-205:1
+    Visibility: public -/
+def hashtrinity_port.word_locate_pair_same
+  (a : Std.U64) (b : Std.U64) (k : (Std.U64 × Std.U64)) : Result Bool := do
+  Pair.Insts.Apeiron_wordHashtrinityFaceLocatePair.same
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    (Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64)
+    (Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64) (a, b) k
+
+/-- [apeiron_word::hashtrinity_port::word_absorb_pair]:
+    Source: 'hashtrinity_port.rs', lines 208:0-210:1
+    Visibility: public -/
+def hashtrinity_port.word_absorb_pair
+  (a : Std.U64) (b : Std.U64) : Result (Std.U64 × Std.U64) := do
+  Pair.Insts.Apeiron_wordHashtrinityFaceAbsorbPair.absorb
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    (Shared0K.Insts.Apeiron_wordHashtrinityFaceAbsorb
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    core.clone.CloneU64) (Shared0K.Insts.Apeiron_wordHashtrinityFaceAbsorb
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    core.clone.CloneU64) (a, b)
+
+/-- [apeiron_word::hashtrinity_port::word_locate_triple_coord]:
+    Source: 'hashtrinity_port.rs', lines 213:0-216:1
+    Visibility: public -/
+def hashtrinity_port.word_locate_triple_coord
+  (a : Std.U64) (b : Std.U64) (c : Std.U64) : Result Std.U64 := do
+  TuplePAPBPC.Insts.Apeiron_wordHashtrinityFaceLocateTupleABC.coord
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    (Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64)
+    (Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64)
+    (Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64) (a, b, c)
+
+/-- [apeiron_word::hashtrinity_port::word_locate_triple_same]:
+    Source: 'hashtrinity_port.rs', lines 219:0-222:1
+    Visibility: public -/
+def hashtrinity_port.word_locate_triple_same
+  (a : Std.U64) (b : Std.U64) (c : Std.U64)
+  (k : (Std.U64 × Std.U64 × Std.U64)) :
+  Result Bool
+  := do
+  TuplePAPBPC.Insts.Apeiron_wordHashtrinityFaceLocateTupleABC.same
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    (Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64)
+    (Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64)
+    (Shared0K.Insts.Apeiron_wordHashtrinityFaceLocate
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64) (a, b, c) k
+
+/-- [apeiron_word::hashtrinity_port::word_absorb_triple]:
+    Source: 'hashtrinity_port.rs', lines 225:0-227:1
+    Visibility: public -/
+def hashtrinity_port.word_absorb_triple
+  (a : Std.U64) (b : Std.U64) (c : Std.U64) :
+  Result (Std.U64 × Std.U64 × Std.U64)
+  := do
+  TuplePAPBPC.Insts.Apeiron_wordHashtrinityFaceAbsorbTupleABC.absorb
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    (Shared0K.Insts.Apeiron_wordHashtrinityFaceAbsorb
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    core.clone.CloneU64) (Shared0K.Insts.Apeiron_wordHashtrinityFaceAbsorb
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    core.clone.CloneU64) (Shared0K.Insts.Apeiron_wordHashtrinityFaceAbsorb
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64
+    core.clone.CloneU64) (a, b, c)
+
+/-- [apeiron_word::hashtrinity_port::word_face_contains_key]:
+    Source: 'hashtrinity_port.rs', lines 239:0-241:1
+    Visibility: public -/
+def hashtrinity_port.word_face_contains_key
+  (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
+  Std.U64)) (key : Std.U64) :
+  Result Bool
+  := do
+  hashtrinity.face.Table.contains_key core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
+    (hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64) state key
+
+/-- [apeiron_word::hashtrinity_port::word_face_entry_is_occupied]:
+    Source: 'hashtrinity_port.rs', lines 251:0-260:1
+    Visibility: public -/
+def hashtrinity_port.word_face_entry_is_occupied
+  (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
+  Std.U64)) (key : Std.U64) :
+  Result ((hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
+    Std.U64)) × Bool)
+  := do
+  let (e, entry_back) ←
+    hashtrinity.face.Table.entry core.cmp.EqU64
+      U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
+      (hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore
+      U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64) state key
+  match e with
+  | hashtrinity.face.Entry.Occupied _ =>
+    let state1 := entry_back e
+    ok (state1, true)
+  | hashtrinity.face.Entry.Vacant _ =>
+    let state1 := entry_back e
+    ok (state1, false)
+
+/-- [apeiron_word::hashtrinity_port::word_face_reserve]:
+    Source: 'hashtrinity_port.rs', lines 263:0-266:1
+    Visibility: public -/
+def hashtrinity_port.word_face_reserve
+  (state : hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
+  Std.U64)) (additional : Std.Usize) :
+  Result (hashtrinity.Table Std.U64 Std.I64 (hashtrinity.algebra.Stored
+    Std.U64))
+  := do
+  hashtrinity.face.Table.reserve core.cmp.EqU64
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord
+    (hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore
+    U64.Insts.Apeiron_wordHashtrinityAlgebraCoord core.cmp.EqU64) state
+    additional
+
+/-- [apeiron_word::hashtrinity_port::word_tregex_match_start]:
+    Source: 'hashtrinity_port.rs', lines 271:0-273:1
+    Visibility: public -/
+def hashtrinity_port.word_tregex_match_start
+  (m : hashtrinity.tregex.Match) : Result Std.Usize := do
+  hashtrinity.tregex.Match.impl.start m
+
+/-- [apeiron_word::hashtrinity_port::word_tregex_match_end]:
+    Source: 'hashtrinity_port.rs', lines 276:0-278:1
+    Visibility: public -/
+def hashtrinity_port.word_tregex_match_end
+  (m : hashtrinity.tregex.Match) : Result Std.Usize := do
+  hashtrinity.tregex.Match.impl.end m
+
+/-- [apeiron_word::hashtrinity_port::word_tregex_match_range]:
+    Source: 'hashtrinity_port.rs', lines 281:0-283:1
+    Visibility: public -/
+def hashtrinity_port.word_tregex_match_range
+  (m : hashtrinity.tregex.Match) :
+  Result (core.ops.range.Range Std.Usize)
+  := do
+  hashtrinity.tregex.Match.range m
+
+/-- [apeiron_word::hashtrinity_port::word_tregex_is_word]:
+    Source: 'hashtrinity_port.rs', lines 286:0-288:1
+    Visibility: public -/
+def hashtrinity_port.word_tregex_is_word (b : Std.U8) : Result Bool := do
+  hashtrinity.tregex.term.is_word b
+
+/-- [apeiron_word::hashtrinity_port::word_tregex_match_segs]:
+    Source: 'hashtrinity_port.rs', lines 291:0-293:1
+    Visibility: public -/
+def hashtrinity_port.word_tregex_match_segs
+  (segs : Slice hashtrinity.tregex.term.Seg) (hay : Slice Std.U8)
+  (pos : Std.Usize) :
+  Result (Option Std.Usize)
+  := do
+  hashtrinity.tregex.match_segs segs hay pos
 
 /-- [apeiron_word::learn_port::word_dense_linear_fwd]:
     Source: 'learn_port.rs', lines 10:0-18:1

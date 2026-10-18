@@ -468,7 +468,15 @@ fn plane_weight(p: &SinkPlane, o: usize, n: usize) -> Result<Vec<i64>, TensorErr
     let g = groups(n);
     let (rlen, rows) = match &p.rows {
         Some(rs) => {
-            if rs.iter().any(|&r| r >= o) {
+            let mut bad = false;
+            let mut q = 0;
+            while q < rs.len() {
+                if rs[q] >= o {
+                    bad = true;
+                }
+                q += 1;
+            }
+            if bad {
                 return Err(TensorError::PlaneShape);
             }
             (rs.len(), Some(rs.as_slice()))
@@ -506,24 +514,41 @@ fn scatter_add(dst: &mut [i64], src: &[i64], rows: &[usize], n: usize) -> Result
     }
     let o = dst.len() / n;
     let mut inv = vec![usize::MAX; o];
-    for (i, &r) in rows.iter().enumerate() {
+    let mut bad = false;
+    let mut i = 0;
+    while i < rows.len() {
+        let r = rows[i];
         if r >= o || inv[r] != usize::MAX {
-            return Err(TensorError::PlaneShape);
+            bad = true;
+        } else {
+            inv[r] = i;
         }
-        inv[r] = i;
+        i += 1;
     }
-    for (r, &i) in inv.iter().enumerate() {
-        if i == usize::MAX {
-            continue;
-        }
-        for j in 0..n {
-            let k = r * n + j;
-            dst[k] = dst[k]
-                .checked_add(src[i * n + j])
-                .ok_or(TensorError::Grid)?;
-        }
+    if bad {
+        return Err(TensorError::PlaneShape);
     }
-    Ok(())
+    let mut err: Option<TensorError> = None;
+    let mut r = 0;
+    while r < o && err.is_none() {
+        let i = inv[r];
+        if i != usize::MAX {
+            let mut j = 0;
+            while j < n && err.is_none() {
+                let k = r * n + j;
+                match dst[k].checked_add(src[i * n + j]) {
+                    Some(v) => dst[k] = v,
+                    None => err = Some(TensorError::Grid),
+                }
+                j += 1;
+            }
+        }
+        r += 1;
+    }
+    match err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
 }
 
 /// The stored weight of a plane list: `Σ_p plane_weight(p)` in the script's `_sink_recon` order
@@ -551,9 +576,20 @@ fn recon_words(planes: &[SinkPlane], o: usize, n: usize) -> Result<Vec<i64>, Ten
         return Err(TensorError::PlaneShape);
     }
     let mut w = plane_weight(&planes[0], o, n)?;
-    for p in &planes[1..] {
-        let pw = plane_weight(p, o, n)?;
-        w = eval(w.len(), Elem::Add(&w, &pw))?;
+    let mut err: Option<TensorError> = None;
+    let mut i = 1;
+    while i < planes.len() && err.is_none() {
+        match plane_weight(&planes[i], o, n) {
+            Ok(pw) => match eval(w.len(), Elem::Add(&w, &pw)) {
+                Ok(next) => w = next,
+                Err(e) => err = Some(TensorError::from(e)),
+            },
+            Err(e) => err = Some(e),
+        }
+        i += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok(w)
 }
@@ -568,15 +604,28 @@ fn sink_check(recon_wp: &[i64], wp: &[i64]) -> Result<(), TensorError> {
         return Err(TensorError::SinkMismatch { rel: i64::MAX });
     }
     let (mut maxd, mut maxw) = (0_i128, 0_i128);
-    for (&a, &b) in recon_wp.iter().zip(wp) {
-        maxd = maxd.max((i128::from(a) - i128::from(b)).abs());
-        maxw = maxw.max(i128::from(b).abs());
+    let mut i = 0;
+    while i < recon_wp.len() {
+        let a = recon_wp[i];
+        let b = wp[i];
+        let d = (i128::from(a) - i128::from(b)).abs();
+        if d > maxd {
+            maxd = d;
+        }
+        let w = i128::from(b).abs();
+        if w > maxw {
+            maxw = w;
+        }
+        i += 1;
     }
     // The words' ratio is the reals' ratio (the common `2³²` scale cancels); equal buffers give 0.
     let rel = if maxw > 0 {
         carrier::ratio(maxd, maxw).map_err(|_| TensorError::Grid)?
     } else {
-        i64::try_from(maxd).unwrap_or(i64::MAX)
+        match i64::try_from(maxd) {
+            Ok(v) => v,
+            Err(_) => i64::MAX,
+        }
     };
     if rel <= SINK_TOL {
         Ok(())
@@ -862,7 +911,15 @@ pub fn fold_row_scale(
 
     if let Some(p2) = fit.planes.get(1) {
         let rows = p2.rows.clone().ok_or(TensorError::PlaneShape)?;
-        if p2.dense.is_some() || rows.iter().any(|&r| r >= o) {
+        let mut bad = false;
+        let mut q = 0;
+        while q < rows.len() {
+            if rows[q] >= o {
+                bad = true;
+            }
+            q += 1;
+        }
+        if bad || p2.dense.is_some() {
             return Err(TensorError::PlaneShape);
         }
         let rlen = rows.len();
@@ -907,34 +964,76 @@ pub(crate) mod carrier {
         if den <= 0 {
             return Err(Q32Error::Overflow);
         }
-        let shifted = num.checked_shl(32).ok_or(Q32Error::Overflow)?;
+        // `32 < 128`, so the shift cannot overflow `i128`; `checked_shl` reduces to it.
+        let shifted = num << 32;
         narrow(div_rne_pos(shifted, den)).ok_or(Q32Error::Overflow)
     }
 
     /// `Σ x`, exact in `i128`; `Overflow` if the sum leaves `i128`.
     pub(crate) fn sum_i128(x: &[i64]) -> Result<i128, Q32Error> {
-        x.iter()
-            .try_fold(0_i128, |s, &v| s.checked_add(i128::from(v)))
-            .ok_or(Q32Error::Overflow)
+        let mut s = 0_i128;
+        let mut failed = false;
+        let mut i = 0;
+        while i < x.len() && !failed {
+            match s.checked_add(i128::from(x[i])) {
+                Some(v) => s = v,
+                None => failed = true,
+            }
+            i += 1;
+        }
+        if failed {
+            return Err(Q32Error::Overflow);
+        }
+        Ok(s)
     }
 
     /// The column sums of squared words of a row-major `[rows, cols]` matrix, each square one rounded
     /// word and the sum exact in `i128`; temporal `O(rows·cols)`, spatial `O(cols)`.
     pub(crate) fn col_squares(w: &[i64], rows: usize, cols: usize) -> Result<Vec<i128>, Q32Error> {
-        (0..cols)
-            .map(|c| {
-                (0..rows).try_fold(0_i128, |s, r| {
-                    let v = w[r * cols + c];
-                    s.checked_add(i128::from(mul(v, v)?))
-                        .ok_or(Q32Error::Overflow)
-                })
-            })
-            .collect()
+        let mut out = Vec::with_capacity(cols);
+        let mut err: Option<Q32Error> = None;
+        let mut c = 0;
+        while c < cols && err.is_none() {
+            let mut s = 0_i128;
+            let mut r = 0;
+            while r < rows && err.is_none() {
+                let v = w[r * cols + c];
+                match mul(v, v) {
+                    Ok(m) => match s.checked_add(i128::from(m)) {
+                        Some(t) => s = t,
+                        None => err = Some(Q32Error::Overflow),
+                    },
+                    Err(e) => err = Some(e),
+                }
+                r += 1;
+            }
+            if err.is_none() {
+                out.push(s);
+            }
+            c += 1;
+        }
+        match err {
+            Some(e) => Err(e),
+            None => Ok(out),
+        }
     }
 
     /// `x[k]/den` as Q32.32 words, one rounding each; temporal and spatial `O(x.len())`.
     pub(crate) fn ratio_words(x: &[i128], den: i64) -> Result<Vec<i64>, Q32Error> {
-        x.iter().map(|&v| ratio(v, i128::from(den))).collect()
+        let mut out = Vec::with_capacity(x.len());
+        let mut err: Option<Q32Error> = None;
+        let mut i = 0;
+        while i < x.len() && err.is_none() {
+            match ratio(x[i], i128::from(den)) {
+                Ok(v) => out.push(v),
+                Err(e) => err = Some(e),
+            }
+            i += 1;
+        }
+        match err {
+            Some(e) => Err(e),
+            None => Ok(out),
+        }
     }
 
     /// The elementwise kernels: `eval` writes `out[i]` from the context's words.
@@ -955,17 +1054,29 @@ pub(crate) mod carrier {
 
     /// The first `len` entries of `e`; temporal `O(len)`, spatial `O(len)`.
     pub(crate) fn eval(len: usize, e: Elem<'_>) -> Result<Vec<i64>, Q32Error> {
-        (0..len)
-            .map(|i| match &e {
+        let mut out = Vec::with_capacity(len);
+        let mut err: Option<Q32Error> = None;
+        let mut i = 0;
+        while i < len && err.is_none() {
+            let step = match &e {
                 Elem::Sub(a, b) => a[i].checked_sub(b[i]).ok_or(Q32Error::Overflow),
                 Elem::Add(a, b) => a[i].checked_add(b[i]).ok_or(Q32Error::Overflow),
                 Elem::TriSub(a, b, c) => tri_sub(a[i], b[i], c[i]).ok_or(Q32Error::Overflow),
-                Elem::MulCol(a, b, w) => mul(a[i], b[i % w]),
+                Elem::MulCol(a, b, w) => mul(a[i], b[i % *w]),
                 Elem::Square(a) => mul(a[i], a[i]),
-                Elem::SubBias(a, b, w) => a[i].checked_sub(b[i % w]).ok_or(Q32Error::Overflow),
+                Elem::SubBias(a, b, w) => a[i].checked_sub(b[i % *w]).ok_or(Q32Error::Overflow),
                 Elem::Ratio(a, d) => ratio(i128::from(a[i]), i128::from(*d)),
-            })
-            .collect()
+            };
+            match step {
+                Ok(v) => out.push(v),
+                Err(e2) => err = Some(e2),
+            }
+            i += 1;
+        }
+        match err {
+            Some(e2) => Err(e2),
+            None => Ok(out),
+        }
     }
 
     /// `(a − b) + (b − c)`, every step checked.
