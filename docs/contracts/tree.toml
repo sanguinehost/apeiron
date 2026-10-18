@@ -25,13 +25,13 @@ generated = ["proof/ApeironWord.lean"]
 path = "."
 holds = "workspace manifests, licence, and the governing documents"
 files = ["Cargo.toml", "Cargo.lock", "deny.toml", "README.md", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md",
-         "LICENSE", "NOTICE", ".gitignore"]
+         "LICENSE", "NOTICE", ".gitignore", ".mailmap"]
 
 [[dir]]
 path = ".github"
-holds = "CI workflow and dependency policy"
+holds = "CI workflows, dependency policy and code owners"
 recursive = true
-files = ["*.yml"]
+files = ["*.yml", "CODEOWNERS"]
 
 [[dir]]
 path = ".githooks"

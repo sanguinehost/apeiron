@@ -7,9 +7,13 @@ Report privately through GitHub's private vulnerability reporting:
 suspected vulnerability.
 
 Include the affected revision, the input or model file that triggers it (or how to build one), and
-what you observed. A report is acknowledged within 7 days. A confirmed issue gets a fix or a
+what you observed. A report is acknowledged within 3 days. A confirmed issue gets a fix or a
 published advisory within 90 days of the report, sooner when it is being exploited. Reporters are
 credited in the advisory unless they ask otherwise.
+
+The project signs no non-disclosure agreement. A vulnerability found with AI tools is treated as
+already public: anyone running the same tools can find it, so its fix is not held back for a
+coordinated date.
 
 ## Supported versions
 

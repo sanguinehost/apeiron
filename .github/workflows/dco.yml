@@ -1,0 +1,37 @@
+# Refuses a pull request with a commit whose message has no `Signed-off-by:` line for its author
+# (CONTRIBUTING.md, "Sign your work"). Runs git only; no third-party action reads the pull request.
+
+name: DCO
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    name: Signed-off-by
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check every commit in the pull request
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          fail=0
+          for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            author=$(git show -s --format='%an <%ae>' "$c")
+            if ! git show -s --format='%(trailers:key=Signed-off-by,valueonly)' "$c" | grep -Fxq "$author"; then
+              echo "::error::$c has no 'Signed-off-by: $author' line"
+              fail=1
+            fi
+          done
+          exit "$fail"
