@@ -738,7 +738,7 @@ fn fix_signs(evecs: &mut [i64], n: usize, r: usize) {
 /// A [`GemmError`] from a product whose operands were already validated here (shape, non-zero
 /// dimensions, the `2³⁶` entry bound and `n < `[`super::gemm::MAX_K`]) can only be
 /// [`GemmError::Overflow`], so it maps to [`EigError::Overflow`].
-fn gemm_err(_: GemmError) -> EigError {
+fn eig_error(_: GemmError) -> EigError {
     EigError::Overflow
 }
 
@@ -778,7 +778,7 @@ fn ritz_step(
     s: usize,
     iters: usize,
 ) -> Result<Ritz, EigError> {
-    let y = gemm_nn(m, q, n, n, s).map_err(gemm_err)?;
+    let y = gemm_nn(m, q, n, n, s).map_err(eig_error)?;
     let t = rayleigh(q, &y, n, s)?;
     let (mut vals, mut v) = jacobi(&t, s)?;
     sort_ascending(&mut vals, &mut v, s);
@@ -790,7 +790,7 @@ fn ritz_step(
         // Confirm the object that is returned: the orthonormalised top columns against a fresh
         // exact image `M·V`, not the rotated candidate pair the loop carries.
         let vf = orthonormalise(&top_columns(&qv, n, s, r), n, r)?;
-        let w = gemm_nn(m, &vf, n, n, r).map_err(gemm_err)?;
+        let w = gemm_nn(m, &vf, n, n, r).map_err(eig_error)?;
         let exact = residual_max(&w, &vf, &vals[s - r..], n, r, 0)?;
         if exact <= tol {
             let mut evecs = vf;
@@ -843,12 +843,23 @@ pub fn top_eigh(m: &[i64], n: usize, r: usize) -> Result<TopEig, EigError> {
 
 /// `residual / λ_max` as a raw Q32.32 word, `0` when `λ_max ≤ 0`, saturating at [`i64::MAX`].
 /// `O(1)`.
+#[allow(
+    clippy::manual_unwrap_or,
+    reason = "the explicit match is the form the pinned Charon/Aeneas fragment models; \
+              `i64::try_from(..).unwrap_or(..)` emits `core.result.Result.unwrap_or`, an unmodeled \
+              external the extraction audit rejects"
+)]
 fn residual_ratio(residual: i64, lambda_max: i64) -> i64 {
     if lambda_max <= 0 {
         return 0;
     }
     let r = (i128::from(residual) << 32) / i128::from(lambda_max);
-    i64::try_from(r).unwrap_or(i64::MAX)
+    // `narrow` is the one checked wide-to-word narrowing of the Q32.32 path; saturate the same way
+    // `i64::try_from(r).unwrap_or(i64::MAX)` does, without the unmodeled `Result::unwrap_or`.
+    match narrow(r) {
+        Some(v) => v,
+        None => i64::MAX,
+    }
 }
 
 /// The body of [`top_eigh`], preserving the last sweep's state on a refusal. [`top_eigh`] drops
