@@ -1432,6 +1432,7 @@ import Gpu.Handoff
 #audit Perf.SpecDraftKL.verify_best_k
 #audit Perf.SpecDraftKL.spec27b_cpu
 #audit Perf.Train.rmsnormBwdBytes_eq
+#audit Perf.Train.rmsnormDgammaReduceBytes_eq
 #audit Perf.Handoff.align256_eq
 #audit Perf.Handoff.writeChunk_le_cap
 #audit Perf.Handoff.writeChunk_le_remaining

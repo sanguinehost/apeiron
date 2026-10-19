@@ -1,6 +1,6 @@
-//! simt_nn::norm_bwd — the RMSNorm backward kernel and its host dispatch: the f32 SPIR-V twin
-//! of `learn::grad::dense::rmsnorm_bwd`, the per-row dγ output and the host row fold. Split from
-//! `norm.rs` to keep both files under the 1500-line tree cap.
+//! simt_nn::norm_bwd — the RMSNorm backward kernels and their host dispatches: the f32 SPIR-V
+//! twin of `learn::grad::dense::rmsnorm_bwd`, the per-row dγ output and its device-side column
+//! reduction. Split from `norm.rs` to keep both files under the 1500-line tree cap.
 
 use super::*;
 
@@ -11,10 +11,9 @@ use super::*;
 ///
 /// Bindings: 0 = x (f32, t×w), 1 = γ (f32, w), 2 = dy (f32, t×w), 3 = dx (f32, t×w),
 /// 4 = dγ_rows (f32, t×w — this workgroup's `dγ` row, not a cross-row sum). Dispatch `(t, 1, 1)`:
-/// workgroup `g` owns row `g`. The cross-row `dγ` accumulation is the host-side
-/// [`sum_dgamma_rows`] for this first version; the GPU reduction over `t` rows is the open work
-/// (a device-scope float atomic add is the natural next step, ordered per column after this
-/// per-row product).
+/// workgroup `g` owns row `g`. The cross-row `dγ` accumulation is the second dispatch
+/// [`rmsnorm_dgamma_dispatch`], recorded after this one; it sums the rows per column with no
+/// float atomics, so the result is deterministic.
 /// GLSL.std.450 `Floor`.
 const GLSL_FLOOR: u32 = 8;
 
@@ -134,9 +133,79 @@ pub fn rmsnorm_bwd_bytes(w: u32, eps: f32) -> Vec<u8> {
     bytes(rmsnorm_bwd_module(w, eps))
 }
 
+/// **RMSNorm backward dγ column reduction (f32)** — the device-side replacement for the host
+/// row fold. Binding 0 = dγ_rows (f32, t×w), binding 1 = dγ (f32, w). Thread `j` sums
+/// `dγ_rows[i·w + j]` over `i` in `0..t` in f32 ascending and writes `dγ[j]`; no atomics, so
+/// every output is a fixed serial association. Grid `⌈w/256⌉`, LocalSize 256; lanes past `w`
+/// write nothing.
+///
+/// Complexity: one lane reads `t` elements and performs `t` adds — `O(t)` global loads and
+/// adds per lane, counted in elements, with `w/t` of the `t·w` rows read per column.
+pub fn rmsnorm_dgamma_module(t: u32, w: u32) -> Vec<u32> {
+    const WG: u32 = 256;
+    assert!(t > 0 && w > 0, "rmsnorm_dgamma: shape must be non-zero");
+    let mut k = Kb::new();
+    let rows = k.ssbo_f(0);
+    let dg = k.ssbo_f(1);
+    let gid = k.gid_comp(0);
+    let cw = k.cu(w);
+    let incol = k.ult(gid, cw);
+    k.iff(incol, |mut k| {
+        let acc = k.fvar_f();
+        let zero = k.cf_bits(0x0000_0000);
+        k.store_var(acc, zero);
+        let c0 = k.cu(0);
+        let ct = k.cu(t);
+        k.loop_u(c0, ct, |mut k, i| {
+            let base = k.imul(i, cw);
+            let idx = k.iadd(base, gid);
+            let v = k.load_f(rows, idx);
+            let a0 = k.load_var_f(acc);
+            let a1 = k.fadd(a0, v);
+            k.store_var(acc, a1);
+            k
+        });
+        let s = k.load_var_f(acc);
+        k.store_f(dg, gid, s);
+        k
+    });
+    k.finish(WG)
+}
+
+/// [`rmsnorm_dgamma_module`] as bytes.
+pub fn rmsnorm_dgamma_bytes(t: u32, w: u32) -> Vec<u8> {
+    bytes(rmsnorm_dgamma_module(t, w))
+}
+
+/// Host wrapper: build and record the RMSNorm-backward dγ reduction. `dgamma_rows` is the device
+/// buffer of `t·w` f32 the main dispatch wrote; `dgamma` is `w` f32. Record after
+/// [`rmsnorm_bwd_dispatch`] in the same command buffer (`rec_step` emits the compute→compute
+/// barrier). Grid `(⌈w/256⌉, 1, 1)`.
+///
+/// # Safety
+/// Vulkan pipeline/descriptor creation over caller-owned handles; `dgamma_rows` must hold `t·w`
+/// f32 and `dgamma` `w` f32.
+#[cfg(feature = "gpu")]
+pub unsafe fn rmsnorm_dgamma_dispatch(
+    g: &crate::gpu::decode::GpuCtx,
+    dgamma_rows: crate::gpu::vulkan::Handle,
+    dgamma: crate::gpu::vulkan::Handle,
+    t: u32,
+    w: u32,
+) -> crate::gpu::decode::Step {
+    crate::gpu::decode::make_step_named(
+        g,
+        &rmsnorm_dgamma_bytes(t, w),
+        &[dgamma_rows, dgamma],
+        w.div_ceil(256),
+        1,
+        "rmsnorm_dgamma",
+    )
+}
+
 /// Host wrapper: build and record the RMSNorm-backward dispatch. `dx` and `dgamma_rows` are
-/// device buffers of `t·w` f32; `dgamma_rows` receives the per-row `dγ` and is summed by
-/// [`sum_dgamma_rows`] after readback. Grid `(t, 1, 1)`, one workgroup per row.
+/// device buffers of `t·w` f32; `dgamma_rows` receives the per-row `dγ` and is reduced by
+/// [`rmsnorm_dgamma_dispatch`]. Grid `(t, 1, 1)`, one workgroup per row.
 ///
 /// # Safety
 /// Vulkan pipeline/descriptor creation over caller-owned handles; every buffer must hold at least
@@ -162,28 +231,4 @@ pub unsafe fn rmsnorm_bwd_dispatch(
         1,
         "rmsnorm_bwd",
     )
-}
-
-/// Sum the `t` per-row `dγ` rows (row-major, `t × w` f32) into one `w`-wide vector.
-///
-/// The accumulator is f64 so the host fold adds no more than the per-row f32 error: a naive f32
-/// chain over 512 rows at `2^20` Q32.32 units carries up to `t·2^-24·sum` ≈ `2^14` units, exactly
-/// the contract bound, so it cannot be used. O(t·w) adds.
-///
-/// The GPU-side reduction over rows is the open work; this host sum is the first version.
-pub fn sum_dgamma_rows(rows: &[f32], t: usize, w: usize) -> Vec<f32> {
-    assert_eq!(rows.len(), t * w, "sum_dgamma_rows: shape");
-    let mut out = vec![0.0f32; w];
-    let mut j = 0usize;
-    while j < w {
-        let mut acc = 0.0f64;
-        let mut r = 0usize;
-        while r < t {
-            acc += f64::from(rows[r * w + j]);
-            r += 1;
-        }
-        out[j] = acc as f32;
-        j += 1;
-    }
-    out
 }

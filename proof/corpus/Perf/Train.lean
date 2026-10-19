@@ -16,12 +16,13 @@ four bytes per f32.
 
 At the device's 960 GB/s the memory floor is `bytes / 960·10^9` seconds: 7.34 MB and 7.65 µs at
 `t = 512`, `w = 896`. The arithmetic is about ten flops per element, two orders below that floor
-at the machine's fp32 rate (a `model` input from P83). The host `sum_dgamma_rows` fold is
-O(`t·w`) and is the named open work; a device-side reduction replaces it.
+at the machine's fp32 rate (a `model` input from P83).
 
-What is proved here: the row's cost equation, expanded. The memory floor itself is a roofline
-instance at a declared machine bandwidth, not a kernel property (obligation 11); no theorem here
-produces a byte or a microsecond.
+The second dispatch (`rmsnorm_dgamma_module`, P85) replaces the host row fold: it reads `dγ_rows`
+(`t·w` f32) and writes `dγ` (`w` f32), `(t·w + w)·4` bytes, and removes the host readback of the
+`t·w` rows. What is proved here: the two rows' cost equations, expanded. The memory floors
+themselves are roofline instances at a declared machine bandwidth, not kernel properties
+(obligation 11); no theorem here produces a byte or a microsecond.
 -/
 
 namespace Perf.Train
@@ -33,6 +34,16 @@ def rmsnormBwdBytes (t w : Nat) : Nat := (4 * t * w + w) * 4
 /-- The P83 cost equation in expanded form: `16·t·w + 4·w` bytes. -/
 theorem rmsnormBwdBytes_eq (t w : Nat) : rmsnormBwdBytes t w = 16 * (t * w) + 4 * w := by
   unfold rmsnormBwdBytes
+  ring
+
+/-- Bytes moved by a `rmsnorm_dgamma` reduction dispatch at `t` rows of width `w`: `dγ_rows`
+    read (`t·w` f32) and `dγ` written (`w` f32). -/
+def rmsnormDgammaReduceBytes (t w : Nat) : Nat := (t * w + w) * 4
+
+/-- The P85 cost equation in expanded form: `4·t·w + 4·w` bytes. -/
+theorem rmsnormDgammaReduceBytes_eq (t w : Nat) :
+    rmsnormDgammaReduceBytes t w = 4 * (t * w) + 4 * w := by
+  unfold rmsnormDgammaReduceBytes
   ring
 
 end Perf.Train
