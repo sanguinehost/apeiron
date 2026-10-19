@@ -1463,6 +1463,9 @@ import Gpu.Handoff
 #audit Perf.Train.ropeBwdReads_eq
 #audit Perf.Train.attnBwdDsTiledReads_eq
 #audit Perf.Train.layerStepDispatches_eq
+#audit Perf.Train.cacheSavesNineBuilds
+#audit Perf.Train.cacheSavesNineBuildsAtMeasured
+#audit Perf.Train.measuredPostFixBelowTarget
 #audit Perf.Handoff.align256_eq
 #audit Perf.Handoff.writeChunk_le_cap
 #audit Perf.Handoff.writeChunk_le_remaining
