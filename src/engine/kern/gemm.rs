@@ -1131,15 +1131,18 @@ mod x86 {
     /// a (row, column) past the `i64` spread limit. The scalar [`super::exact_dot`] remains the
     /// independent test oracle.
     ///
-    /// The activation codes are biased by `128` (`q ^ 0x80`) so `dpbusd` reads `u8 × i8`; a second
-    /// `dpbusd` of the same weights against `128` gives the bias `128·Σw`, and their difference is
-    /// the signed byte dot. The scale product stays in `i128`, so the single final
-    /// `round_shift_32` is bit-identical to [`super::exact_dot`].
+    /// The activation codes are biased by `128` (`q ^ 0x80`) so `dpbusd` reads `u8 × i8`, which
+    /// leaves `128·Σw` of bias in each block's dot. That bias is the third field of the row's
+    /// [`super::row_scales`] pack — `128·Σw` already computed once per row by
+    /// `row_scales_avx2`/`row_scales` — so one subtraction of it replaces a second `dpbusd` of the
+    /// same weights against `128` per block. The scale product stays in `i128`, so the single final
+    /// `round_shift_32` is bit-identical to [`super::exact_dot`]: both sums are exact in `i64`
+    /// (`blocks ≤ 512`, `|lane| ≤ 512·4·255·128 < 2^27`, `|128·Σw| ≤ 512·128·32·127 < 2^29`).
     ///
     /// # Safety
     ///
-    /// AVX2 and AVX-VNNI must be present; `row` holds `blocks` `Q8_0` blocks and `q` holds
-    /// `blocks` scale entries and `blocks·32` codes.
+    /// AVX2 and AVX-VNNI must be present; `row` holds `blocks` `Q8_0` blocks, `q` holds
+    /// `blocks` scale entries and `blocks·32` codes, and `pack` holds at least `blocks` entries.
     #[target_feature(enable = "avx2")]
     #[allow(
         clippy::cast_ptr_alignment,
@@ -1149,7 +1152,12 @@ mod x86 {
                   `i128` exactly; `m`, `k`, `b`, `d` and `l` are the kernel's exponent and block \
                   names"
     )]
-    pub(super) unsafe fn exact_dot_avx(row: &[u8], blocks: usize, q: &QuantAct) -> Option<i64> {
+    pub(super) unsafe fn exact_dot_avx(
+        row: &[u8],
+        blocks: usize,
+        q: &QuantAct,
+        pack: &[(i32, i64, i32)],
+    ) -> Option<i64> {
         let bias = _mm256_set1_epi8(-128);
         let mut acc: i128 = 0;
         let mut b = 0usize;
@@ -1164,23 +1172,22 @@ mod x86 {
                     _mm256_loadu_si256(row.as_ptr().add(off + 2).cast::<__m256i>()),
                 )
             };
-            let dot = _mm256_sub_epi32(
-                dpbusd(
-                    _mm256_setzero_si256(),
-                    _mm256_xor_si256(codes, bias),
-                    weights,
-                ),
-                dpbusd(_mm256_setzero_si256(), bias, weights),
+            let dot = dpbusd(
+                _mm256_setzero_si256(),
+                _mm256_xor_si256(codes, bias),
+                weights,
             );
             let mut lanes = [0i32; 8];
             // SAFETY: `lanes` is eight `i32` and the store is unaligned.
             unsafe { _mm256_storeu_si256(lanes.as_mut_ptr().cast::<__m256i>(), dot) };
-            let mut total = 0i32;
+            let mut total = 0i64;
             let mut l = 0usize;
             while l < 8 {
-                total += lanes[l];
+                total += i64::from(lanes[l]);
                 l += 1;
             }
+            // The pack's `128·Σw`: the bias the biased dot carries, exact in `i64`.
+            total -= i64::from(pack.get(b)?.2);
             let d = i128::from(m) << k;
             // The production column scale is a power of two (`1 << sigma`): fold it into a
             // shift, so the block costs one `i128` multiply instead of two. The round trip
@@ -1842,14 +1849,16 @@ mod x86 {
                     }
                     for lane in 0..nvalid {
                         let c = sub_g * LANES + lane;
-                        for (which, (row, kmin, sp)) in
-                            [(ra, ka, spa), (rb, kb, spb)].into_iter().enumerate()
+                        for (which, (row, kmin, sp, pack)) in
+                            [(ra, ka, spa, &sa_slice[..]), (rb, kb, spb, &sb_slice[..])]
+                                .into_iter()
+                                .enumerate()
                         {
                             if which == 1 && !pair {
                                 continue;
                             }
                             let v = if sp + p.spread[sub_g] > limit {
-                                exact_dot_avx(row, blocks, &qs[c])
+                                exact_dot_avx(row, blocks, &qs[c], pack)
                             } else {
                                 finish(lanes2[8 * which + lane], kmin + p.emin[c])
                             };
@@ -1921,14 +1930,16 @@ mod x86 {
                         pc.add(probe_hooks::FAST_REFUSED);
                         for lane in 0..nvalid {
                             let c = g * LANES + lane;
-                            for (which, (row, kmin, sp)) in
-                                [(ra, ka, spa), (rb, kb, spb)].into_iter().enumerate()
+                            for (which, (row, kmin, sp, pack)) in
+                                [(ra, ka, spa, &sa_slice[..]), (rb, kb, spb, &sb_slice[..])]
+                                    .into_iter()
+                                    .enumerate()
                             {
                                 if which == 1 && !pair {
                                     continue;
                                 }
                                 let v = if sp + p.spread[g] > limit {
-                                    exact_dot_avx(row, blocks, &qs[c])
+                                    exact_dot_avx(row, blocks, &qs[c], pack)
                                 } else {
                                     finish(lanes2[8 * which + lane], kmin + p.emin[c])
                                 };
@@ -1944,14 +1955,16 @@ mod x86 {
                     pc.add(probe_hooks::EXACT_SPREAD);
                     for lane in 0..nvalid {
                         let c = g * LANES + lane;
-                        for (which, (row, kmin, sp)) in
-                            [(ra, ka, spa), (rb, kb, spb)].into_iter().enumerate()
+                        for (which, (row, kmin, sp, pack)) in
+                            [(ra, ka, spa, &sa_slice[..]), (rb, kb, spb, &sb_slice[..])]
+                                .into_iter()
+                                .enumerate()
                         {
                             if which == 1 && !pair {
                                 continue;
                             }
                             let v = if sp + p.spread[g] > limit {
-                                exact_dot_avx(row, blocks, &qs[c])
+                                exact_dot_avx(row, blocks, &qs[c], pack)
                             } else {
                                 finish(lanes2[8 * which + lane], kmin + p.emin[c])
                             };
@@ -2196,12 +2209,12 @@ mod x86 {
                         for lane in 0..active {
                             let c = sub_g * LANES + lane;
                             let gate = if spa + p.spread[sub_g] > limit {
-                                exact_dot_avx(ga, blocks, &qs[c])
+                                exact_dot_avx(ga, blocks, &qs[c], sa_slice)
                             } else {
                                 finish(lanes[lane], ka + p.emin[c])
                             };
                             let up = if spb + p.spread[sub_g] > limit {
-                                exact_dot_avx(ua, blocks, &qs[c])
+                                exact_dot_avx(ua, blocks, &qs[c], sb_slice)
                             } else {
                                 finish(lanes[8 + lane], kb + p.emin[c])
                             };
@@ -2306,12 +2319,12 @@ mod x86 {
                     for lane in 0..active {
                         let c = g * LANES + lane;
                         let gate = if spa + p.spread[g] > limit {
-                            exact_dot_avx(ga, blocks, &qs[c])
+                            exact_dot_avx(ga, blocks, &qs[c], sa_slice)
                         } else {
                             finish(lanes[lane], ka + p.emin[c])
                         };
                         let up = if spb + p.spread[g] > limit {
-                            exact_dot_avx(ua, blocks, &qs[c])
+                            exact_dot_avx(ua, blocks, &qs[c], sb_slice)
                         } else {
                             finish(lanes[8 + lane], kb + p.emin[c])
                         };
@@ -2474,11 +2487,15 @@ mod tests {
             let qs = columns(4, n_in, 40, &mut seed);
             for r in 0..3 {
                 let row = &rows[r * row_bytes..(r + 1) * row_bytes];
+                // The pack the row kernel fills once per row and the exact dot reads its
+                // `128·Σw` bias from.
+                let mut pack = vec![(0i32, 0i64, 0i32); blocks];
+                let _ = row_scales(row, blocks, &mut pack);
                 for (c, q) in qs.iter().enumerate() {
                     let want = exact_dot(row, blocks, q);
                     // SAFETY: AVX2 and AVX-VNNI were detected above; the payload holds `blocks`
                     // blocks and the column holds `blocks` scales and `blocks·32` codes.
-                    let got = unsafe { x86::exact_dot_avx(row, blocks, q) };
+                    let got = unsafe { x86::exact_dot_avx(row, blocks, q, &pack) };
                     assert_eq!(got, want, "n_in {n_in} row {r} column {c}");
                     some += usize::from(want.is_some());
                 }

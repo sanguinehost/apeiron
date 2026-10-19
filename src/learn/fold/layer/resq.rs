@@ -420,10 +420,16 @@ pub fn rescale_hier_top(
 }
 
 /// The K5 paired receipt for the resq call-site port: the live exact `solve::{gemm,syrk}` bodies
-/// against a test-only `engine::kern::limb` port at the production group shape. The port is
-/// bit-identical to the exact bodies but slower, so the live call site stays exact; the test's
-/// speed assertion is the red gate. Run in release with `cargo test --release --test learn_fold_resq
-/// -- --ignored --nocapture resq_call_site_k5`.
+/// against a test-only `engine::kern::limb` port at the production group shape.
+///
+/// Two limb counts are the register's two rows. [`EXACT_LIMBS`] (`8`) carries the fitted `< 2³⁶`
+/// operands exactly, so its `gop`/`rhs`/`lam`/`s_raw`/`s_clamped` are the exact words bit for bit.
+/// [`DEFAULT_LIMBS`] is the K3 default (`3`, 21 digits): it is faster, and its outputs are measured
+/// against the exact body and against the `2⁻²⁸` contract bound [`resq_solve`]'s own migration was
+/// taken at — the per-entry error is printed and asserted.
+///
+/// The speed assertion is the K5 gate: the port must beat the exact body at this group shape.
+/// Run in release: `cargo test --release --lib -- --ignored --nocapture resq_call_site_k5`.
 #[cfg(test)]
 mod call_site_k5 {
     #![allow(
@@ -433,17 +439,23 @@ mod call_site_k5 {
     )]
 
     use super::*;
-    use crate::engine::kern::limb::{prepare, syrk_q32, Prepared};
+    use crate::engine::kern::limb::{prepare, Prepared};
     use crate::engine::{row_dot_fixed, silu_fixed};
     use crate::learn::solve::chol::{chol_solve, SolveError};
     use crate::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
     use crate::learn::solve::syrk::hadamard_into;
     use std::time::Instant;
 
-    /// The K5 candidate's limb count: 8 (7-bit limbs, 56 bits) carries the fitted `< 2³⁶`
-    /// operands exactly. The production call site keeps the exact bodies: this port is slower at
-    /// the group shape.
-    const PORT_LIMBS: u32 = 8;
+    /// The limb count that carries the fitted `< 2³⁶` operands exactly: `8` limbs are 56 bits of
+    /// signed-byte digits, above the 36-bit operand and the block exponent's headroom.
+    const EXACT_LIMBS: u32 = 8;
+
+    /// The K3 default limb count: 21 digits.
+    const DEFAULT_LIMBS: u32 = 3;
+
+    /// The contract bound `resq_solve`'s Q32.32 migration is taken at (`2⁻²⁸`, relative to the
+    /// reference's largest entry); see `agrees_with_f64_oracle` in `tests/learn_fold_resq.rs`.
+    const BOUND: f64 = 3.725_290_298_461_914e-9;
 
     /// `a·bᵀ` on a prepared `a` (`m × k`) and the fitted `b` operand, the product unfitted.
     fn port_product_prepared(
@@ -464,14 +476,18 @@ mod call_site_k5 {
         unfix(&c.map_err(|_| ResqError::Overflow)?, ka + kb)
     }
 
-    fn port_gram(x: &[i64], o: usize, n: usize) -> Result<Vec<i64>, ResqError> {
+    fn port_gram(x: &[i64], o: usize, n: usize, limbs: u32) -> Result<Vec<i64>, ResqError> {
         let (xs, k) = fit(x)?;
         let xt = transpose(&xs, o, n);
-        let prepared = prepare(&xt, n, o, PORT_LIMBS).map_err(|_| ResqError::Overflow)?;
+        let prepared = prepare(&xt, n, o, limbs).map_err(|_| ResqError::Overflow)?;
         let g = prepared.syrk().map_err(|_| ResqError::Overflow)?;
         unfix(&g, 2 * k)
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the limb count joins the exact body's `project` parameters"
+    )]
     fn port_project(
         slab: &[i64],
         rows: usize,
@@ -479,9 +495,10 @@ mod call_site_k5 {
         inter: usize,
         wg: &[i64],
         wu: &[i64],
+        limbs: u32,
     ) -> Result<Vec<i64>, ResqError> {
         let (ps, ks) = fit(slab)?;
-        let prepared = prepare(&ps, rows, n, PORT_LIMBS).map_err(|_| ResqError::Overflow)?;
+        let prepared = prepare(&ps, rows, n, limbs).map_err(|_| ResqError::Overflow)?;
         let gate = port_product_prepared(&prepared, ks, wg, n, inter, true)?;
         let up = port_product_prepared(&prepared, ks, wu, n, inter, true)?;
         let mut out = Vec::with_capacity(rows * inter);
@@ -492,9 +509,45 @@ mod call_site_k5 {
         Ok(out)
     }
 
+    /// One slab's `P_qᵀ·P_q` and `P_qᵀ·P_0` over the prepared limb products, unfixed to words.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one slab's gate/up planes and the limb count, as the exact body reads them"
+    )]
+    fn slab_accumulators(
+        slab: &[i64],
+        rows: usize,
+        n: usize,
+        inter: usize,
+        wg: &[i64],
+        wu: &[i64],
+        qg: &[i64],
+        qu: &[i64],
+        limbs: u32,
+    ) -> Result<(Vec<i64>, Vec<i64>), ResqError> {
+        let p0 = port_project(slab, rows, n, inter, wg, wu, limbs)?;
+        let pq = port_project(slab, rows, n, inter, qg, qu, limbs)?;
+        let (pq_fit, kq) = fit(&pq)?;
+        let pqt = transpose(&pq_fit, rows, inter);
+        let pq_prepared = prepare(&pqt, inter, rows, limbs).map_err(|_| ResqError::Overflow)?;
+        let pp = unfix(
+            &pq_prepared.syrk().map_err(|_| ResqError::Overflow)?,
+            2 * kq,
+        )?;
+        let (p0_fit, kp) = fit(&p0)?;
+        let p0t = transpose(&p0_fit, rows, inter);
+        let pc = unfix(
+            &pq_prepared
+                .gemm(&p0t, inter)
+                .map_err(|_| ResqError::Overflow)?,
+            kq + kp,
+        )?;
+        Ok((pp, pc))
+    }
+
     /// [`resq_solve`]'s body with the limb products; the ridge and `Cholesky` solve are the live
     /// exact bodies.
-    fn port_resq_solve(inputs: &ResqInputs<'_>) -> Result<ResqSolution, ResqError> {
+    fn port_resq_solve(inputs: &ResqInputs<'_>, limbs: u32) -> Result<ResqSolution, ResqError> {
         let (n, inter, hidden) = (inputs.n, inputs.inter, inputs.hidden);
         if n == 0 || inter == 0 || hidden == 0 {
             return Err(ResqError::Empty);
@@ -524,7 +577,7 @@ mod call_site_k5 {
             inputs.wq_g,
             inputs.wq_u,
         );
-        let g = port_gram(down, hidden, inter)?;
+        let g = port_gram(down, hidden, inter, limbs)?;
         let mut p_mat = vec![0_i64; inter2];
         let mut c_mat = vec![0_i64; inter2];
         for slab in inputs.x_slabs {
@@ -532,24 +585,7 @@ mod call_site_k5 {
             if rows == 0 {
                 continue;
             }
-            let p0 = port_project(slab, rows, n, inter, g0, u0)?;
-            let pq = port_project(slab, rows, n, inter, qg, qu)?;
-            let (pq_fit, kq) = fit(&pq)?;
-            let pqt = transpose(&pq_fit, rows, inter);
-            let pq_prepared =
-                prepare(&pqt, inter, rows, PORT_LIMBS).map_err(|_| ResqError::Overflow)?;
-            let pp = unfix(
-                &pq_prepared.syrk().map_err(|_| ResqError::Overflow)?,
-                2 * kq,
-            )?;
-            let (p0_fit, kp) = fit(&p0)?;
-            let p0t = transpose(&p0_fit, rows, inter);
-            let pc = unfix(
-                &pq_prepared
-                    .gemm(&p0t, inter)
-                    .map_err(|_| ResqError::Overflow)?,
-                kq + kp,
-            )?;
+            let (pp, pc) = slab_accumulators(slab, rows, n, inter, g0, u0, qg, qu, limbs)?;
             for idx in 0..inter2 {
                 p_mat[idx] = p_mat[idx].checked_add(pp[idx]).ok_or(ResqError::Overflow)?;
                 c_mat[idx] = c_mat[idx].checked_add(pc[idx]).ok_or(ResqError::Overflow)?;
@@ -636,8 +672,42 @@ mod call_site_k5 {
         xs.iter().sum::<f64>() / xs.len() as f64
     }
 
+    /// The middle of an odd-count sample: the load-robust summary of a per-pair ratio.
+    fn median(xs: &[f64]) -> f64 {
+        let mut v = xs.to_vec();
+        v.sort_by(f64::total_cmp);
+        v[v.len() / 2]
+    }
+
+    /// The five published fields equal: the per-run reproducibility assertion.
+    fn same(a: &ResqSolution, b: &ResqSolution) -> bool {
+        a.gop == b.gop
+            && a.rhs == b.rhs
+            && a.lam == b.lam
+            && a.s_raw == b.s_raw
+            && a.s_clamped == b.s_clamped
+    }
+
+    /// The largest `|x|` of a word slice, in words.
+    fn max_abs_words(x: &[i64]) -> f64 {
+        x.iter()
+            .fold(0.0_f64, |m, &v| m.max(v.unsigned_abs() as f64))
+    }
+
+    /// The exact body's contraction count at the group shape, the denominator of every ns/MAC
+    /// figure here: `2·rows·n·inter` for the gate and up projections and `2·inter²·rows` for the
+    /// `P_qᵀ·P_q`/`P_qᵀ·P_0` pair, per slab, plus `hidden²·inter` for `G`.
+    fn word_macs(slabs: usize, rows: usize, n: usize, inter: usize, hidden: usize) -> f64 {
+        (slabs * (2 * rows * n * inter + 2 * inter * inter * rows) + hidden * hidden * inter) as f64
+    }
+
     #[test]
     #[ignore = "paired K5 receipt; run in release with --ignored"]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one receipt: the limb-count settlement, the exact-count identity and the paired \
+                  timing share the fixture and the four short assertions after it"
+    )]
     fn resq_call_site_k5() {
         // One `up` plane's production group: 2 slabs x 128 rows at n=128, inter=16, hidden=8
         // (the 2 seqs x t=128 shape the transfer runs).
@@ -646,7 +716,7 @@ mod call_site_k5 {
         const INTER: usize = 16;
         const HIDDEN: usize = 8;
         const SLABS: usize = 2;
-        const RUNS: usize = 5;
+        const RUNS: usize = 9;
 
         let mut rng = Rng(0x5e51_0001);
         let xs: Vec<Vec<i64>> = (0..SLABS).map(|_| matrix(&mut rng, ROWS, N)).collect();
@@ -669,72 +739,156 @@ mod call_site_k5 {
         };
 
         let want = resq_solve(&inputs).expect("exact solve");
-        let got = port_resq_solve(&inputs).expect("limb solve");
+        let rel = |a: &[i64], b: &[i64]| {
+            let d = max_abs_diff(a, b) as f64;
+            (d, d / (BOUND * max_abs_words(b).max(1.0)))
+        };
+        // In words, `2^-28` of the clamp's absolute bound is `2^-28·2·2^32`.
+        let clamp_bound = BOUND * 2.0 * 4_294_967_296.0;
 
-        assert_eq!(got.gop, want.gop, "8-limb gop differs from the exact body");
-        assert_eq!(got.rhs, want.rhs, "8-limb rhs differs from the exact body");
-        assert_eq!(got.lam, want.lam, "8-limb lam differs");
-        assert_eq!(got.s_raw, want.s_raw, "8-limb s_raw differs");
-        assert_eq!(got.s_clamped, want.s_clamped, "8-limb s_clamped differs");
-
-        // The K3 default 3: fewer digits than the fitted 36-bit operand cannot reproduce the exact
-        // Gram, so the 8-limb candidate is the one the held-out bound needs.
-        let (xs0, k0) = fit(&xs[0]).expect("fit");
-        let xt0 = transpose(&xs0, ROWS, N);
-        let p3 = syrk_q32(&xt0, N, ROWS, 3).expect("3-limb syrk");
-        let p3 = unfix(&p3, 2 * k0).expect("unfix");
-        let exact_pp = gram(&xs[0], ROWS, N).expect("exact gram");
-        let e3 = max_abs_diff(&p3, &exact_pp);
-        assert!(
-            e3 > 0,
-            "the 3-limb control is not distinguishable from exact"
-        );
-
-        let mut te = Vec::with_capacity(RUNS);
-        let mut tp = Vec::with_capacity(RUNS);
-        for _ in 0..RUNS {
-            let t = Instant::now();
-            let _ = resq_solve(&inputs).expect("exact solve");
-            te.push(t.elapsed().as_secs_f64());
-            let t = Instant::now();
-            let _ = port_resq_solve(&inputs).expect("limb solve");
-            tp.push(t.elapsed().as_secs_f64());
+        // The limb-count settlement: every count from the K3 default to the exact one, its
+        // per-entry error against the exact body, and that error as a multiple of the `2^-28`
+        // contract bound the Q32.32 migration was taken at.
+        println!("resq contract settlement at {SLABS}x{ROWS} rows, n={N}, inter={INTER}, hidden={HIDDEN} (2^-28 = {BOUND:.3e}, clamp bound {clamp_bound:.1} words):");
+        let mut worst_ok = 0u32;
+        let mut exact_words: Option<ResqSolution> = None;
+        let mut admissible = Vec::new();
+        for limbs in DEFAULT_LIMBS..=EXACT_LIMBS {
+            let got = port_resq_solve(&inputs, limbs).expect("limb solve");
+            let (dg, rg) = rel(&got.gop, &want.gop);
+            let (dr, rr) = rel(&got.rhs, &want.rhs);
+            let (dl, rl) = rel(&[got.lam], &[want.lam]);
+            let (ds, rs) = rel(&got.s_raw, &want.s_raw);
+            let dcl = max_abs_diff(&got.s_clamped, &want.s_clamped) as f64;
+            let inside = dg <= BOUND * max_abs_words(&want.gop)
+                && dr <= BOUND * max_abs_words(&want.rhs)
+                && dl <= BOUND * max_abs_words(&[want.lam])
+                && ds <= BOUND * max_abs_words(&want.s_raw).max(1.0)
+                && dcl <= clamp_bound;
+            println!(
+                "  limbs {limbs:>1}: gop {rg:8.2}x rhs {rr:8.2}x lam {rl:8.2}x s_raw {rs:8.2}x \
+                 clamp {:8.2}x  {}",
+                dcl / clamp_bound,
+                if inside { "inside" } else { "outside" }
+            );
+            if inside {
+                admissible.push(limbs);
+                worst_ok = limbs;
+            }
+            if limbs == EXACT_LIMBS {
+                exact_words = Some(got);
+            }
         }
-        let (me, mp) = (mean(&te), mean(&tp));
+        let got8 = exact_words.expect("the exact limb count ran");
+        assert_eq!(got8.gop, want.gop, "8-limb gop differs from the exact body");
+        assert_eq!(got8.rhs, want.rhs, "8-limb rhs differs from the exact body");
+        assert_eq!(got8.lam, want.lam, "8-limb lam differs");
+        assert_eq!(got8.s_raw, want.s_raw, "8-limb s_raw differs");
+        assert_eq!(got8.s_clamped, want.s_clamped, "8-limb s_clamped differs");
+        println!(
+            "8-limb per-entry error vs exact: 0 words (bit-identical); smallest admissible limb \
+             count {worst_ok}, admissible set {admissible:?}"
+        );
+        let macs = word_macs(SLABS, ROWS, N, INTER, HIDDEN);
+        // Five paired runs of the exact body and every limb count. The box is shared, so the
+        // *per-pair* ratio is the reported quantity: each round trips both arms under the same
+        // load, and the ratio of the means would credit one arm with a quiet round. The exact
+        // arm leads on even rounds and trails on odd rounds, because a burst that lands inside
+        // one round otherwise always hits the arms that run after it.
+        let arms: Vec<u32> = (DEFAULT_LIMBS..=EXACT_LIMBS).collect();
+        let mut te = Vec::with_capacity(RUNS);
+        let mut tl: Vec<Vec<f64>> = vec![Vec::with_capacity(RUNS); arms.len()];
+        let mut pair: Vec<Vec<f64>> = vec![Vec::with_capacity(RUNS); arms.len()];
+        let exact_arm = || {
+            let t = Instant::now();
+            let a = resq_solve(&inputs).expect("exact solve");
+            (t.elapsed().as_secs_f64(), a)
+        };
+        let limb_arms = |round: &mut Vec<f64>| {
+            round.clear();
+            for &limbs in &arms {
+                let t = Instant::now();
+                let b = port_resq_solve(&inputs, limbs).expect("limb solve");
+                round.push(t.elapsed().as_secs_f64());
+                if limbs == EXACT_LIMBS {
+                    assert!(same(&b, &got8), "8-limb port drifted");
+                }
+            }
+        };
+        for run in 0..RUNS {
+            let mut round = Vec::with_capacity(arms.len());
+            let (de, a) = if run % 2 == 0 {
+                let (de, a) = exact_arm();
+                limb_arms(&mut round);
+                (de, a)
+            } else {
+                limb_arms(&mut round);
+                exact_arm()
+            };
+            assert!(same(&a, &want), "run {run}: exact body not reproducible");
+            te.push(de);
+            for (k, &dl) in round.iter().enumerate() {
+                tl[k].push(dl);
+                pair[k].push(dl / de);
+            }
+        }
         let spread = |xs: &[f64]| {
             (
                 xs.iter().copied().fold(f64::INFINITY, f64::min),
                 xs.iter().copied().fold(f64::NEG_INFINITY, f64::max),
             )
         };
-        let (lo_e, hi_e) = spread(&te);
-        let (lo_p, hi_p) = spread(&tp);
+        let me = mean(&te);
         println!(
             "resq K5 production shape: {SLABS}x{ROWS} rows, n={N}, inter={INTER}, hidden={HIDDEN}, \
-             limbs={PORT_LIMBS}"
+             {macs:.0} word-MACs, {RUNS} alternating paired runs"
         );
+        let (lo_e, hi_e) = spread(&te);
         println!(
-            "exact mean {:.3} ms (spread {:.3}-{:.3} ms)",
+            "exact (i128): mean {:.3} ms  spread [{:.3}, {:.3}] ms  {:.3} ns/word-MAC",
             me * 1e3,
             lo_e * 1e3,
-            hi_e * 1e3
+            hi_e * 1e3,
+            me * 1e9 / macs
         );
-        println!(
-            "limb  mean {:.3} ms (spread {:.3}-{:.3} ms)",
-            mp * 1e3,
-            lo_p * 1e3,
-            hi_p * 1e3
-        );
-        println!("ratio {:.3}x (limb/exact)", mp / me);
-        println!("8-limb per-entry error vs exact: 0 words (bit-identical)");
-        println!("3-limb Gram max |diff|: {e3} words");
-        assert!(
-            mp < me,
-            "K5: the limb port is slower than the exact body: {:.3}x (limb {:.3} ms vs exact \
-             {:.3} ms)",
-            mp / me,
-            mp * 1e3,
-            me * 1e3
-        );
+        let mut port_ratio = std::collections::HashMap::new();
+        for (k, &limbs) in arms.iter().enumerate() {
+            let m = mean(&tl[k]);
+            let (lo, hi) = spread(&tl[k]);
+            let (plo, phi) = spread(&pair[k]);
+            let p = median(&pair[k]);
+            port_ratio.insert(limbs, p);
+            let ratios: Vec<String> = pair[k].iter().map(|r| format!("{r:.3}")).collect();
+            println!(
+                "limb {limbs:>1}: mean {:.3} ms  spread [{:.3}, {:.3}] ms  {:.3} ns/word-MAC  \
+                 paired {:.3}x (median, spread [{:.3}, {:.3}]) per pair [{}]",
+                m * 1e3,
+                lo * 1e3,
+                hi * 1e3,
+                m * 1e9 / macs,
+                p,
+                plo,
+                phi,
+                ratios.join(" ")
+            );
+        }
+
+        // Every K5 violation in one run, so the receipt is complete.
+        let mut red: Vec<String> = Vec::new();
+        if admissible.is_empty() {
+            red.push(format!(
+                "no limb count in {DEFAULT_LIMBS}..={EXACT_LIMBS} meets the 2^-28 contract bound"
+            ));
+        } else {
+            let a = admissible[0];
+            let p = port_ratio[&a];
+            if p >= 1.0 {
+                red.push(format!(
+                    "at the smallest admissible limb count ({a}) the port is {p:.3}x the exact \
+                     body's wall time (paired median): K5 not met"
+                ));
+            }
+        }
+        assert!(red.is_empty(), "K5 red: {}", red.join("; "));
     }
 }

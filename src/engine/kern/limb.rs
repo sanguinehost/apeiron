@@ -534,6 +534,133 @@ fn split_digits(x: i64, e: u32, limbs: u32, out: &mut [i8]) {
     }
 }
 
+/// The largest block exponent the wide digit split takes: `e ≤ 62` keeps `|x| + 2^{e−8}` (the
+/// rounding offset of the first digit) inside `i64`, so the vector core's `i64` lanes cannot wrap
+/// where the scalar `i128` step does not. A block above it takes [`split_digits`] itself.
+const SIMD_MAX_E: u32 = 62;
+
+/// The digits of one full block: `ACT_QK` words at the block exponent `e`, written `[limb][lane]`.
+///
+/// The `AVX2` core runs four `i64` lanes per step when the host has it and the block exponent is
+/// inside [`SIMD_MAX_E`]; every other case is the scalar [`split_digits`] the pinned outputs were
+/// produced with. Both compute the identical digits (`split_digits`'s own closed form, with the
+/// first step's `i128` numerator divided through by `2^7`):
+/// `d_s = ⌊(u_s + 2^{k−1})/2^k⌋`, `u_{s+1} = u_s − d_s·2^k`, `k = e − 7(s+1)`, and `d_s = u_s·2^{−k}`
+/// (the whole residual) when `k ≤ 0`.
+///
+/// # Complexity
+///
+/// `O(limbs·ACT_QK)` digit steps, four lanes per vector step on the `AVX2` core.
+fn split_block(x: &[i64], e: u32, limbs: u32, out: &mut [i8]) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if e <= SIMD_MAX_E && std::is_x86_feature_detected!("avx2") {
+            // SAFETY: the caller passes one full block (`ACT_QK` words, `limbs·ACT_QK` bytes) and
+            // the feature was just detected.
+            unsafe { simd::split_block_avx2(x, e, limbs, out) };
+            return;
+        }
+    }
+    let mut tmp = [0i8; MAX_LIMBS as usize];
+    let mut lane = 0usize;
+    while lane < ACT_QK {
+        split_digits(x[lane], e, limbs, &mut tmp);
+        let mut s = 0usize;
+        while s < limbs as usize {
+            out[s * ACT_QK + lane] = tmp[s];
+            s += 1;
+        }
+        lane += 1;
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+mod simd {
+    #[allow(
+        clippy::wildcard_imports,
+        reason = "the `core::arch` lane types and the three intrinsics named in the body are the \
+                  AVX2 core's whole surface"
+    )]
+    use std::arch::x86_64::*;
+
+    use super::{ACT_QK, LIMB_BITS};
+
+    /// `v >> k` arithmetic, `0 ≤ k ≤ 63`, on four `i64` lanes.
+    ///
+    /// `vp sravq` is an AVX-512VL instruction, not AVX2 (AVX2 has only the logical `vpsrlvq` for
+    /// qwords), so the arithmetic shift is the logical one plus the sign bits `vpsllvq` puts back.
+    ///
+    /// # Safety
+    ///
+    /// AVX2 must be present and `0 ≤ k ≤ 63`.
+    #[target_feature(enable = "avx2")]
+    unsafe fn sra_epi64(v: __m256i, k: i32) -> __m256i {
+        let sign = _mm256_cmpgt_epi64(_mm256_setzero_si256(), v);
+        let logical = _mm256_srlv_epi64(v, _mm256_set1_epi64x(i64::from(k)));
+        let fill = _mm256_sll_epi64(sign, _mm_cvtsi32_si128(64 - k));
+        _mm256_or_si256(logical, fill)
+    }
+
+    /// The digits of one full block, four `i64` lanes at a time.
+    ///
+    /// # Safety
+    ///
+    /// AVX2 must be present; `x` holds `ACT_QK` words, `out` `limbs·ACT_QK` bytes, and
+    /// `e ≤ SIMD_MAX_E` so the rounding offset stays inside `i64`.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_ptr_alignment,
+        clippy::cast_sign_loss,
+        reason = "the shift amounts are `e − 7(s+1)` with `e ≤ 62` and `s < 8`, so both `i32` \
+                  casts are exact; the load and the store are unaligned `i64`/`i8` reads and \
+                  writes by construction"
+    )]
+    #[target_feature(enable = "avx2")]
+    pub(super) unsafe fn split_block_avx2(x: &[i64], e: u32, limbs: u32, out: &mut [i8]) {
+        // Per 128-bit lane, byte 0 of each 64-bit element into positions 0 and 1.
+        let pick = _mm256_setr_epi8(
+            0, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 8, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1,
+        );
+        let mut lane0 = 0usize;
+        while lane0 < ACT_QK {
+            // SAFETY: `lane0 + 4 ≤ ACT_QK`, and `x` holds `ACT_QK` words.
+            let mut u = unsafe { _mm256_loadu_si256(x.as_ptr().add(lane0).cast::<__m256i>()) };
+            let mut s = 0u32;
+            while s < limbs {
+                let k = e.cast_signed() - LIMB_BITS * (s.cast_signed() + 1);
+                let d = if k >= 1 {
+                    let sh = _mm256_set1_epi64x(i64::from(k));
+                    let half = _mm256_set1_epi64x(1i64 << (k - 1));
+                    let d = sra_epi64(_mm256_add_epi64(u, half), k);
+                    u = _mm256_sub_epi64(u, _mm256_sllv_epi64(d, sh));
+                    d
+                } else {
+                    let d = _mm256_sllv_epi64(u, _mm256_set1_epi64x(i64::from(-k)));
+                    u = _mm256_setzero_si256();
+                    d
+                };
+                let bytes = _mm256_shuffle_epi8(d, pick);
+                let packed = _mm_unpacklo_epi16(
+                    _mm256_castsi256_si128(bytes),
+                    _mm256_extracti128_si256(bytes, 1),
+                );
+                let word = _mm_cvtsi128_si32(packed);
+                // SAFETY: `s·ACT_QK + lane0 + 4 ≤ limbs·ACT_QK`, the size of `out`.
+                unsafe {
+                    out.as_mut_ptr()
+                        .add(s as usize * ACT_QK + lane0)
+                        .cast::<i32>()
+                        .write_unaligned(word);
+                }
+                s += 1;
+            }
+            lane0 += 4;
+        }
+    }
+}
+
 /// Pass one of [`Plane::build`]: the per-row block exponents, written as `[row][block]` so the
 /// caller can take the per-block maximum.
 struct RowExpTask<'a> {
@@ -609,16 +736,25 @@ impl DigitsTask<'_> {
                 let lo = base + b * ACT_QK;
                 let hi = (lo + ACT_QK).min(base + n);
                 let at = b * lane_words;
-                let mut lane = 0usize;
-                while lane < ACT_QK {
-                    let x = if lo + lane < hi { data[lo + lane] } else { 0 };
-                    split_digits(x, e[b], limbs, &mut tmp);
-                    let mut s = 0usize;
-                    while s < limbs as usize {
-                        out[at + s * ACT_QK + lane] = tmp[s];
-                        s += 1;
+                if lo + ACT_QK <= hi {
+                    split_block(
+                        &data[lo..lo + ACT_QK],
+                        e[b],
+                        limbs,
+                        &mut out[at..at + lane_words],
+                    );
+                } else {
+                    let mut lane = 0usize;
+                    while lane < ACT_QK {
+                        let x = if lo + lane < hi { data[lo + lane] } else { 0 };
+                        split_digits(x, e[b], limbs, &mut tmp);
+                        let mut s = 0usize;
+                        while s < limbs as usize {
+                            out[at + s * ACT_QK + lane] = tmp[s];
+                            s += 1;
+                        }
+                        lane += 1;
                     }
-                    lane += 1;
                 }
                 b += 1;
             }
@@ -1625,6 +1761,7 @@ mod tests {
             (512usize, 896usize, 896usize, 3u32),
             (512, 4864, 896, 3),
             (128, 128, 16, 8),
+            (128, 128, 16, 3),
             (128, 16, 128, 8),
             (16, 16, 128, 8),
         ];
@@ -1723,6 +1860,85 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// (a) The production-shape receipt: [`gemm_q32`] at the K3 default 3 limbs against the exact
+    /// `i128` body it replaces ([`crate::learn::solve::gemm::gemm_nt`], the fold's own product),
+    /// five alternating paired runs at `m 512, p 896, n 896`, in ns per word-MAC.
+    ///
+    /// The exact body's inner kernel is a `4 × 4` `i128` tile that the compiler does not vectorise
+    /// (`src/learn/solve/gemm.rs`), so both arms are measured on the same shape, the same words and
+    /// the same host, and the per-pair ratio is the reported quantity.
+    #[test]
+    #[ignore = "measurement: 5 alternating runs against the exact solve::gemm body"]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "m·p·n ≤ 2^32, exactly representable in f64, and only used to print ns/MAC"
+    )]
+    fn limb_vs_exact_body() {
+        use crate::learn::solve::gemm::gemm_nt;
+        const M: usize = 512;
+        const P: usize = 896;
+        const N: usize = 896;
+        const LIMBS: u32 = 3;
+        const RUNS: usize = 5;
+
+        let mut seed = 0xabcd_ef01_2345_6789u64;
+        let a = operand(&mut seed, M, N, 3);
+        let b = operand(&mut seed, P, N, 3);
+        let macs = (M * P * N) as f64;
+        let want = gemm_nt(&a, &b, M, N, P).expect("exact body carried the operands");
+        let got = gemm_q32(&a, M, &b, P, N, LIMBS).expect("limb product carried");
+        let bound = bound_ulps(N, LIMBS, max_abs(&a), max_abs(&b));
+        let err = max_err(&got, &want);
+        assert!(err <= bound, "err {err} > bound {bound}");
+
+        let (mut tl, mut te, mut pair) = (Vec::new(), Vec::new(), Vec::new());
+        for run in 0..RUNS {
+            let t = std::time::Instant::now();
+            let k = gemm_q32(&a, M, &b, P, N, LIMBS).expect("limb product carried");
+            let dl = t.elapsed().as_secs_f64();
+            let t = std::time::Instant::now();
+            let e = gemm_nt(&a, &b, M, N, P).expect("exact body carried the operands");
+            let de = t.elapsed().as_secs_f64();
+            assert_eq!(k, got, "run {run}: limb output not reproducible");
+            assert_eq!(e, want, "run {run}: exact output not reproducible");
+            tl.push(dl);
+            te.push(de);
+            pair.push(dl / de);
+        }
+        let stat = |v: &[f64]| {
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            let lo = v.iter().copied().fold(f64::INFINITY, f64::min);
+            let hi = v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            (m, lo, hi)
+        };
+        let (ml, lo_l, hi_l) = stat(&tl);
+        let (me, lo_e, hi_e) = stat(&te);
+        let (mp, lo_p, hi_p) = stat(&pair);
+        println!("m {M} p {P} n {N} limbs {LIMBS}: {macs:.0} word-MACs, {RUNS} paired runs");
+        println!(
+            "limb {LIMBS}: mean {:.3} ms  spread [{:.3}, {:.3}] ms  {:.4} ns/word-MAC",
+            ml * 1e3,
+            lo_l * 1e3,
+            hi_l * 1e3,
+            ml * 1e9 / macs
+        );
+        println!(
+            "exact i128: mean {:.3} ms  spread [{:.3}, {:.3}] ms  {:.4} ns/word-MAC",
+            me * 1e3,
+            lo_e * 1e3,
+            hi_e * 1e3,
+            me * 1e9 / macs
+        );
+        println!(
+            "paired limb/exact {mp:.3}x (mean over {RUNS} pairs, spread [{lo_p:.3}, {hi_p:.3}])"
+        );
+        println!("error vs exact: {err} words, bound {bound}");
+        assert!(
+            mp < 1.0,
+            "K5: the limb product is slower than the exact body: {mp:.3}x"
+        );
     }
 
     /// (R8) Paired microbench at the Qwen2.5-0.5B shapes: 5 alternating runs of the limb product
