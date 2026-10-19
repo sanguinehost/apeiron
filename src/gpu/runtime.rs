@@ -7,12 +7,72 @@
 //! (`GpuCtx::dev`/`up`, the staging upload, the timestamp read); the model-specific graph
 //! (`Node`/`Step`/`Gemv`, the layer loop) stays in that example.
 
+#[cfg(feature = "gpu")]
 use super::vulkan::*;
 
+#[cfg(feature = "gpu")]
 const STAGE_CAP: usize = 256 << 20; // 256 MiB staging window (matches simt_decode)
+
+// ── the pure handoff arithmetic ────────────────────────────────────────────────────────────────
+//
+// These are the parts of this file with no Vulkan dependency; `proof/extract/ports/gpu_runtime_port.rs`
+// roots them as `word_gpu_runtime_*`, and `proof/corpus/Gpu/Handoff.lean` proves their statements.
+// The bodies below call them, so the proofs bind the executing path (`Gpu::scatter`,
+// `Gpu::staged_dispatch`, `Gpu::write`, `Gpu::bind`, `Gpu::step_barrier`).
+//
+// `allow(dead_code)` applies only to a build without the `gpu` feature, where the Vulkan half of
+// this file is not compiled and the pure half has no caller.
+
+/// 256-byte alignment of the next staged block: `(n + 255) & !255`.
+#[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+pub(crate) fn stage_align(n: usize) -> usize {
+    (n + 255) & !255
+}
+
+/// The staging-window fit test: does a block of `len` bytes at `off` fit `cap`?
+#[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+pub(crate) fn stage_fit(off: usize, len: usize, cap: usize) -> bool {
+    off + len <= cap
+}
+
+/// The `BufferCopy` `staged_dispatch` records for a block staged at `off`: `(src, dst, size)`.
+#[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+pub(crate) fn stage_region(off: usize, len: usize) -> (u64, u64, u64) {
+    (off as u64, 0, len as u64)
+}
+
+/// The staging source offset of a `scatter` region.
+#[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+pub(crate) fn scatter_src(off: usize, s: u64) -> u64 {
+    off as u64 + s
+}
+
+/// The `bind` count check: `buffers.len() == pipe.bindings`.
+#[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+pub(crate) fn binds_exactly(n: usize, bindings: u32) -> bool {
+    n == bindings as usize
+}
+
+/// The next chunk of `write`: `min(bytes - done, cap)`.
+#[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+pub(crate) fn write_chunk(done: usize, bytes: usize, cap: usize) -> usize {
+    let n = bytes - done;
+    if n < cap {
+        n
+    } else {
+        cap
+    }
+}
+
+/// Does `step_barrier` emit a barrier for this `PREFILL_BAR` mode? Mode 9 does not.
+#[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+pub(crate) fn bar_emits(mode: u32) -> bool {
+    mode != 9
+}
 
 /// `PREFILL_BAR` — the inter-dispatch sync formulation for [`Gpu::record`]. See
 /// [`Gpu::step_barrier`] for the modes.
+#[cfg(feature = "gpu")]
 pub fn bar_mode() -> u32 {
     static BAR_MODE: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
     *BAR_MODE.get_or_init(|| {
@@ -25,6 +85,7 @@ pub fn bar_mode() -> u32 {
 
 /// An owned device (or host-visible) buffer: the Vulkan buffer + its backing allocation. The
 /// handles are leaked on drop for now (the decode path leaks too; a later pass adds `Drop`).
+#[cfg(feature = "gpu")]
 #[derive(Clone, Copy)]
 pub struct Buffer {
     /// The Vulkan buffer handle.
@@ -36,6 +97,7 @@ pub struct Buffer {
 /// A compiled compute pipeline + the layouts its descriptor sets bind against. The SPIR-V is
 /// compiled ONCE here; `bind` allocates a fresh descriptor set against `dsl` per buffer set, so
 /// one pipeline serves many inputs (the reusable-primitive shape).
+#[cfg(feature = "gpu")]
 #[derive(Clone, Copy)]
 pub struct Pipeline {
     /// The compute pipeline handle.
@@ -49,6 +111,7 @@ pub struct Pipeline {
 }
 
 /// A descriptor set: its `bindings` storage buffers bound at (set 0, binding i).
+#[cfg(feature = "gpu")]
 #[derive(Clone, Copy)]
 pub struct DescriptorSet {
     /// The descriptor set handle.
@@ -56,6 +119,7 @@ pub struct DescriptorSet {
 }
 
 /// One dispatch: run `pipe` over `dset` with `groups` workgroups (x, y; z = 1).
+#[cfg(feature = "gpu")]
 #[derive(Clone, Copy)]
 pub struct Dispatch {
     /// The pipeline to run.
@@ -68,6 +132,7 @@ pub struct Dispatch {
 
 /// The runtime handle — the loaded Vulkan device plus a persistent mapped staging buffer for
 /// host→device uploads.
+#[cfg(feature = "gpu")]
 pub struct Gpu {
     /// The loaded Vulkan device — the low-level surface, for calls the runtime doesn't wrap.
     pub vk: Vk,
@@ -78,6 +143,7 @@ pub struct Gpu {
     cmd_buf: CommandBuffer,
 }
 
+#[cfg(feature = "gpu")]
 impl Gpu {
     /// Load the Vulkan device and allocate the staging buffer. `Err(msg)` = honest skip (no
     /// loader / no compute device / no host-visible memory), never a hard failure — the same
@@ -206,14 +272,14 @@ impl Gpu {
             let mut off = 0usize;
             for (buf, bytes, regions) in groups {
                 assert!(
-                    off + bytes.len() <= self.stage_cap,
+                    stage_fit(off, bytes.len(), self.stage_cap),
                     "scatter: uploads exceed the staging window"
                 );
                 std::ptr::copy_nonoverlapping(bytes.as_ptr(), self.stage_ptr.add(off), bytes.len());
                 let regs: Vec<BufferCopy> = regions
                     .iter()
                     .map(|&(s, d, n)| BufferCopy {
-                        src_offset: off as u64 + s,
+                        src_offset: scatter_src(off, s),
                         dst_offset: d,
                         size: n,
                     })
@@ -227,7 +293,7 @@ impl Gpu {
                         regs.as_ptr(),
                     );
                 }
-                off = (off + bytes.len() + 255) & !255; // 256-byte align the next group
+                off = stage_align(off + bytes.len()); // 256-byte align the next group
             }
             self.vk.barrier(
                 cb,
@@ -245,14 +311,15 @@ impl Gpu {
     unsafe fn write(&self, buf: Buffer, src: *const u8, bytes: usize) {
         let mut done = 0usize;
         while done < bytes {
-            let n = (bytes - done).min(self.stage_cap);
+            let n = write_chunk(done, bytes, self.stage_cap);
             std::ptr::copy_nonoverlapping(src.add(done), self.stage_ptr, n);
             let cb = self.cmd();
             self.vk.begin(cb);
+            let (src_offset, _, size) = stage_region(0, n);
             let region = BufferCopy {
-                src_offset: 0,
+                src_offset,
                 dst_offset: done as u64,
-                size: n as u64,
+                size,
             };
             (self.vk.copy_buffer)(cb, self.stage_buf, buf.buffer, 1, &region);
             self.vk.barrier(
@@ -321,9 +388,8 @@ impl Gpu {
 
     /// Allocate a descriptor set binding `buffers` (one per binding, in order) against `pipe`.
     pub fn bind(&self, pipe: &Pipeline, buffers: &[&Buffer]) -> DescriptorSet {
-        assert_eq!(
-            buffers.len() as u32,
-            pipe.bindings,
+        assert!(
+            binds_exactly(buffers.len(), pipe.bindings),
             "bind count must match pipeline bindings"
         );
         let handles: Vec<Handle> = buffers.iter().map(|b| b.buffer).collect();
@@ -379,17 +445,18 @@ impl Gpu {
             let mut off = 0usize;
             for (buf, bytes) in uploads {
                 assert!(
-                    off + bytes.len() <= self.stage_cap,
+                    stage_fit(off, bytes.len(), self.stage_cap),
                     "staged_dispatch: uploads exceed the staging window"
                 );
                 std::ptr::copy_nonoverlapping(bytes.as_ptr(), self.stage_ptr.add(off), bytes.len());
+                let (src_offset, dst_offset, size) = stage_region(off, bytes.len());
                 let region = BufferCopy {
-                    src_offset: off as u64,
-                    dst_offset: 0,
-                    size: bytes.len() as u64,
+                    src_offset,
+                    dst_offset,
+                    size,
                 };
                 (self.vk.copy_buffer)(cb, self.stage_buf, buf.buffer, 1, &region);
-                off = (off + bytes.len() + 255) & !255; // 256-byte align the next operand
+                off = stage_align(off + bytes.len()); // 256-byte align the next operand
             }
             self.vk.barrier(
                 cb,
@@ -454,7 +521,11 @@ impl Gpu {
     /// (`simt::sb_lds`). The decode path's arithmetic is the opposite one and that is why the
     /// megakernel argument held there: 607 µs of a 1065 µs token, 57 %.
     pub(crate) unsafe fn step_barrier(&self, cb: CommandBuffer) {
-        match bar_mode() {
+        let mode = bar_mode();
+        if !bar_emits(mode) {
+            return;
+        }
+        match mode {
             1 => self.vk.barrier2(
                 cb,
                 STAGE2_COMPUTE,
