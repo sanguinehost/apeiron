@@ -886,3 +886,21 @@ path = "src/gpu/nn/bwd/opt.rs"
 fn = "adam_update_dispatch"
 class = "ffi"
 reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/fwd/lin.rs"
+fn = "linear_fwd_module"
+class = "gpu"
+reason = "SPIR-V builder for the dense-layer forward GEMM; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/fwd/lin.rs"
+fn = "linear_fwd_bytes"
+class = "gpu"
+reason = "Word encoding of linear_fwd_module for pipeline creation; SPIR-V bytes, no extracted arithmetic."
+
+[[waiver]]
+path = "src/gpu/nn/fwd/lin.rs"
+fn = "linear_fwd_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
