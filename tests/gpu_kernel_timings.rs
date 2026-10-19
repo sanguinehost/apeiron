@@ -1,5 +1,5 @@
-//! Timed dispatch campaign for the GPU training backward rows: `P83`, `P85`, `P86`, `P87`, `P88`,
-//! `P89`, `P90`, `P91`, `P97`, `P99` in the perf-predictions note. The attention shapes
+//! Timed dispatch campaign for the GPU training forward and backward rows: `P83`, `P85`, `P86`,
+//! `P87`, `P88`, `P89`, `P90`, `P91`, `P97`, `P98`, `P99` in the perf-predictions note. The attention shapes
 //! include the two production shapes `(t=256, nh=4, nkv=2, hd=32)` and `(t=512, nh=4, nkv=2, hd=32)`
 //! beside the six parity shapes.
 //!
@@ -42,6 +42,7 @@
 )]
 
 use apeiron::gpu::decode::{rec_step, GpuCtx, Step};
+use apeiron::gpu::nn::fwd::rmsnorm_fwd_dispatch;
 use apeiron::gpu::nn::{
     adam_update_dispatch, attn_bwd_dkdv_dispatch, attn_bwd_dq_dispatch, attn_bwd_ds_dispatch,
     attn_bwd_rowsum_dispatch, linear_bwd_input_dispatch, linear_bwd_weight_dispatch,
@@ -274,52 +275,79 @@ fn gpu_training_dispatch_timings() {
     );
 
     norm_bwd(&vk, &g, &pool);
+    norm_fwd(&vk, &g, &pool);
     linear_bwd(&vk, &g, &pool);
     attn_bwd(&vk, &g, &pool);
     adam(&vk, &g, &pool);
-    println!("done: 49 dispatch cells (8 of them the four-pass chain) + 1 control, {REPS} reported runs each");
+    println!("done: 53 dispatch cells (8 of them the four-pass chain) + 1 control, {REPS} reported runs each");
 }
 
-/// (a) `rmsnorm_bwd` main dispatch and the `dγ` reduce at `t = 512`, `w = 896` (P83, P85).
+/// (a) `rmsnorm_bwd` main dispatch and the `dγ` reduce at `w = 896` on the parity shape `t = 512`
+/// and the batched shape `t = 16` (P83, P85).
 fn norm_bwd(vk: &Vk, g: &GpuCtx, pool: &QueryPool) {
-    let t = 512;
-    // `tests/gpu_norm_backward.rs` fixture "t=512": |x|, |dy| ≤ 2^20 Q32.32 units, γ in [0.5, 1.5).
-    let mut rng = Lcg(0x9e37_79b9_7f4a_7c15);
-    let xa = (1u64 << 20) as f64 / 4294967296.0;
-    let x: Vec<i64> = (0..t * W).map(|_| real_to_q32(xa * rng.unit())).collect();
-    let dy: Vec<i64> = (0..t * W).map(|_| real_to_q32(xa * rng.unit())).collect();
-    let gamma: Vec<i64> = (0..W)
-        .map(|_| real_to_q32(0.75 + 0.25 * rng.unit()))
-        .collect();
-    let xf: Vec<f32> = x.iter().map(|&v| to_f32(v)).collect();
-    let yf: Vec<f32> = dy.iter().map(|&v| to_f32(v)).collect();
-    let gf: Vec<f32> = gamma.iter().map(|&v| to_f32(v)).collect();
+    for t in [16usize, 512] {
+        // `tests/gpu_norm_backward.rs` fixture "t=512": |x|, |dy| ≤ 2^20 Q32.32 units, γ in
+        // [0.5, 1.5).
+        let mut rng = Lcg(0x9e37_79b9_7f4a_7c15);
+        let xa = (1u64 << 20) as f64 / 4294967296.0;
+        let x: Vec<i64> = (0..t * W).map(|_| real_to_q32(xa * rng.unit())).collect();
+        let dy: Vec<i64> = (0..t * W).map(|_| real_to_q32(xa * rng.unit())).collect();
+        let gamma: Vec<i64> = (0..W)
+            .map(|_| real_to_q32(0.75 + 0.25 * rng.unit()))
+            .collect();
+        let xf: Vec<f32> = x.iter().map(|&v| to_f32(v)).collect();
+        let yf: Vec<f32> = dy.iter().map(|&v| to_f32(v)).collect();
+        let gf: Vec<f32> = gamma.iter().map(|&v| to_f32(v)).collect();
 
-    let (x_buf, g_buf, y_buf, dx_buf, dgr_buf, dg_buf) = unsafe {
-        (
-            g.up_f32(&xf),
-            g.up_f32(&gf),
-            g.up_f32(&yf),
-            g.dev(t * W * 4),
-            g.dev(t * W * 4),
-            g.dev(W * 4),
-        )
-    };
-    let main_step = unsafe {
-        rmsnorm_bwd_dispatch(
-            g, x_buf, g_buf, y_buf, dx_buf, dgr_buf, t as u32, W as u32, 1e-6f32,
-        )
-    };
-    let dg_step = unsafe { rmsnorm_dgamma_dispatch(g, dgr_buf, dg_buf, t as u32, W as u32) };
+        let (x_buf, g_buf, y_buf, dx_buf, dgr_buf, dg_buf) = unsafe {
+            (
+                g.up_f32(&xf),
+                g.up_f32(&gf),
+                g.up_f32(&yf),
+                g.dev(t * W * 4),
+                g.dev(t * W * 4),
+                g.dev(W * 4),
+            )
+        };
+        let main_step = unsafe {
+            rmsnorm_bwd_dispatch(
+                g, x_buf, g_buf, y_buf, dx_buf, dgr_buf, t as u32, W as u32, 1e-6f32,
+            )
+        };
+        let dg_step = unsafe { rmsnorm_dgamma_dispatch(g, dgr_buf, dg_buf, t as u32, W as u32) };
 
-    let shape = format!("t={t} w={W}");
-    run_series(vk, pool, &[&main_step], "norm_bwd_main", shape.clone());
-    let dx = unsafe { read_f32(vk, dx_buf, t * W) };
-    assert_finite("norm_bwd_main", &shape, "dx", &dx);
+        let shape = format!("t={t} w={W}");
+        run_series(vk, pool, &[&main_step], "norm_bwd_main", shape.clone());
+        let dx = unsafe { read_f32(vk, dx_buf, t * W) };
+        assert_finite("norm_bwd_main", &shape, "dx", &dx);
 
-    run_series(vk, pool, &[&dg_step], "norm_dgamma_reduce", shape.clone());
-    let dg = unsafe { read_f32(vk, dg_buf, W) };
-    assert_finite("norm_dgamma_reduce", &shape, "dgamma", &dg);
+        run_series(vk, pool, &[&dg_step], "norm_dgamma_reduce", shape.clone());
+        let dg = unsafe { read_f32(vk, dg_buf, W) };
+        assert_finite("norm_dgamma_reduce", &shape, "dgamma", &dg);
+    }
+}
+
+/// (a2) the row-batched `rmsnorm_fwd` at the production width, `(t, w) = (16, 896)` and `(512, 896)`
+/// (P98). Its own fixture, `tests/gpu_norm_fwd.rs`': `x` (`t·w`) and `γ` (`w`) uniform in
+/// `[-0.5, 0.5)` Q32.32 from the same LCG seed, one `t·w` `out` buffer.
+fn norm_fwd(vk: &Vk, g: &GpuCtx, pool: &QueryPool) {
+    for t in [16usize, 512] {
+        let mut rng = Lcg(0x9e37_79b9_7f4a_7c15);
+        let xf: Vec<f32> = (0..t * W)
+            .map(|_| to_f32(real_to_q32(0.5 * rng.unit())))
+            .collect();
+        let gf: Vec<f32> = (0..W)
+            .map(|_| to_f32(real_to_q32(0.5 * rng.unit())))
+            .collect();
+        let (x_buf, gain_buf, out_buf) =
+            unsafe { (g.up_f32(&xf), g.up_f32(&gf), g.dev(t * W * 4)) };
+        let step = unsafe { rmsnorm_fwd_dispatch(g, x_buf, gain_buf, out_buf, t as u32, W as u32) };
+
+        let shape = format!("t={t} w={W}");
+        run_series(vk, pool, &[&step], "rmsnorm_fwd", shape.clone());
+        let out = unsafe { read_f32(vk, out_buf, t * W) };
+        assert_finite("rmsnorm_fwd", &shape, "out", &out);
+    }
 }
 
 /// (b) `linear_bwd_input` and the tiled (`P89`) `linear_bwd_weight` on the parity shapes
