@@ -1220,6 +1220,473 @@ fn import_q6_k(raw: &[u8], b: usize) -> Result<CanonicalBlock, PackingError> {
     })
 }
 
+/// The fold pack's file magic: `APFOLDP1` (ASCII, no terminator).
+pub const FOLD_MAGIC: [u8; 8] = *b"APFOLDP1";
+
+/// A refusal from the fold pack's byte layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FoldError {
+    /// The file does not start with [`FOLD_MAGIC`].
+    Magic,
+    /// A field runs past the end of the buffer, or a length does not fit the file.
+    Truncated,
+    /// A count, width or index disagrees with its declared shape.
+    Shape(&'static str),
+    /// A code value is wider than its field, or a row grid has no dictionary index.
+    Range(&'static str),
+}
+
+/// One stored fold plane, every field already in the form the code plane executes with: an
+/// `E8 ∪ O8` codebook index per 8 weights, a per-row `(lo, sp)` grid, the 4-bit row-scale levels,
+/// and the `(f16 header, N-bit codes)` column and Hadamard scales. All scale values are Q32.32
+/// words; the codes are the quantizers' own indices.
+///
+/// The layout is one file: the magic, a plane count, then per plane the shape, any output-row
+/// restriction, the code indices, the row-grid dictionary, the 4-bit row levels, and the two
+/// 6- and 5-bit column-scale fields with their `f16` headers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FoldPlane {
+    /// Output rows of the receiving weight this plane writes.
+    pub o: usize,
+    /// Input columns; a positive multiple of the row-scale group width (128).
+    pub n: usize,
+    /// The global output rows written, when the plane is a row restriction.
+    pub rows: Option<Vec<u32>>,
+    /// Codebook row per 8-column block, row-major `[o, n/8]`.
+    pub idx: Vec<u8>,
+    /// Per-row lower endpoint of the `r` grid, length `o`.
+    pub lo: Vec<i64>,
+    /// Per-row width of the `r` grid, length `o`.
+    pub sp: Vec<i64>,
+    /// Per `(row, group)` 4-bit level in `0..=15`, row-major `[o, n/128]`.
+    pub r_k: Vec<u8>,
+    /// The `c` field's `(f16 min, f16 max)` bit patterns.
+    pub c_head: [u16; 2],
+    /// The `c` field's 6-bit codes, length `n`.
+    pub c_q: Vec<u8>,
+    /// The `d` field's `(f16 min, f16 max)` bit patterns.
+    pub d_head: [u16; 2],
+    /// The `d` field's 5-bit codes, length `n`.
+    pub d_q: Vec<u8>,
+}
+
+/// A least-significant-bit-first bit writer over a byte buffer.
+struct BitOut {
+    buf: Vec<u8>,
+    acc: u32,
+    n: u32,
+}
+
+impl BitOut {
+    /// An empty writer.
+    fn new() -> Self {
+        Self {
+            buf: Vec::new(),
+            acc: 0,
+            n: 0,
+        }
+    }
+
+    /// Append the low `bits` bits of `v` (at most 8). `O(1)`.
+    fn push(&mut self, v: u32, bits: u32) {
+        let mut left = bits;
+        let mut val = v;
+        while left > 0 {
+            let take = (8 - self.n).min(left);
+            let mask = (1_u32 << take) - 1;
+            self.acc |= (val & mask) << self.n;
+            self.n += take;
+            val >>= take;
+            left -= take;
+            if self.n == 8 {
+                self.buf.push(self.acc as u8);
+                self.acc = 0;
+                self.n = 0;
+            }
+        }
+    }
+
+    /// The bytes written, with a final partial byte zero-padded. `O(1)`.
+    fn finish(mut self) -> Vec<u8> {
+        if self.n > 0 {
+            self.buf.push(self.acc as u8);
+        }
+        self.buf
+    }
+}
+
+/// A least-significant-bit-first bit reader over a byte slice.
+struct BitIn<'a> {
+    b: &'a [u8],
+    at: usize,
+    n: u32,
+    acc: u32,
+}
+
+impl<'a> BitIn<'a> {
+    /// A reader at `at`. `O(1)`.
+    fn new(b: &'a [u8], at: usize) -> Self {
+        Self {
+            b,
+            at,
+            n: 0,
+            acc: 0,
+        }
+    }
+
+    /// The next `bits` bits (at most 8) as an integer, or `None` past the end. `O(1)`.
+    fn take(&mut self, bits: u32) -> Option<u32> {
+        let mut left = bits;
+        let mut out = 0_u32;
+        let mut shift = 0;
+        while left > 0 {
+            if self.n == 0 {
+                self.acc = u32::from(*self.b.get(self.at)?);
+                self.at += 1;
+                self.n = 8;
+            }
+            let get = self.n.min(left);
+            let mask = (1_u32 << get) - 1;
+            out |= (self.acc & mask) << shift;
+            self.acc >>= get;
+            self.n -= get;
+            shift += get;
+            left -= get;
+        }
+        Some(out)
+    }
+}
+
+/// Append `v` as four little-endian bytes. `O(1)`.
+fn put_u32(out: &mut Vec<u8>, v: u32) {
+    out.extend_from_slice(&v.to_le_bytes());
+}
+
+/// Append `v` as two little-endian bytes. `O(1)`.
+fn put_u16(out: &mut Vec<u8>, v: u16) {
+    out.extend_from_slice(&v.to_le_bytes());
+}
+
+/// Append `v` as eight little-endian bytes. `O(1)`.
+fn put_i64(out: &mut Vec<u8>, v: i64) {
+    out.extend_from_slice(&v.to_le_bytes());
+}
+
+/// A cursor over a fold-pack buffer.
+struct FoldIn<'a> {
+    b: &'a [u8],
+    at: usize,
+}
+
+impl<'a> FoldIn<'a> {
+    /// The next `n` bytes, or [`FoldError::Truncated`]. `O(1)`.
+    fn bytes(&mut self, n: usize) -> Result<&'a [u8], FoldError> {
+        let end = self.at.checked_add(n).ok_or(FoldError::Truncated)?;
+        let s = self.b.get(self.at..end).ok_or(FoldError::Truncated)?;
+        self.at = end;
+        Ok(s)
+    }
+
+    /// The next little-endian `u32`. `O(1)`.
+    fn u32(&mut self) -> Result<u32, FoldError> {
+        let b = self.bytes(4)?;
+        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
+
+    /// The next little-endian `u16`. `O(1)`.
+    fn u16(&mut self) -> Result<u16, FoldError> {
+        let b = self.bytes(2)?;
+        Ok(u16::from_le_bytes([b[0], b[1]]))
+    }
+
+    /// The next little-endian `i64`. `O(1)`.
+    fn i64(&mut self) -> Result<i64, FoldError> {
+        let b = self.bytes(8)?;
+        Ok(i64::from_le_bytes([
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+        ]))
+    }
+
+    /// A checked `usize` from a `u32` count. `O(1)`.
+    fn len(&mut self, what: &'static str) -> Result<usize, FoldError> {
+        let v = self.u32()?;
+        usize::try_from(v).map_err(|_| FoldError::Shape(what))
+    }
+}
+
+/// The number of bytes a `width`-bit code field of `n` values occupies.
+fn bits_bytes(n: usize, width: u64) -> Option<usize> {
+    let bits = u64::try_from(n).ok()?.checked_mul(width)?;
+    let bytes = bits.checked_add(7)?.checked_div(8)?;
+    usize::try_from(bytes).ok()
+}
+
+/// `o * (n / 8)`, the code-index count, checked.
+fn idx_len(o: usize, n: usize) -> Option<usize> {
+    if n == 0 || !n.is_multiple_of(8) {
+        return None;
+    }
+    o.checked_mul(n / 8)
+}
+
+/// The shape checks every [`FoldPlane`] must pass before it is written.
+fn fold_shape(p: &FoldPlane) -> Result<(), FoldError> {
+    if p.o == 0 || p.n == 0 || !p.n.is_multiple_of(128) {
+        return Err(FoldError::Shape("plane o, n"));
+    }
+    let nidx = idx_len(p.o, p.n).ok_or(FoldError::Shape("code indices"))?;
+    let g = p.n / 128;
+    if p.idx.len() != nidx
+        || p.lo.len() != p.o
+        || p.sp.len() != p.o
+        || p.r_k.len() != p.o * g
+        || p.c_q.len() != p.n
+        || p.d_q.len() != p.n
+        || p.rows.as_ref().is_some_and(|r| r.len() != p.o)
+    {
+        return Err(FoldError::Shape("plane field lengths"));
+    }
+    if p.sp.iter().any(|&s| s <= 0) {
+        return Err(FoldError::Range("row grid span"));
+    }
+    if p.r_k.iter().any(|&k| k > 15)
+        || p.c_q.iter().any(|&q| q > 63)
+        || p.d_q.iter().any(|&q| q > 31)
+    {
+        return Err(FoldError::Range("code width"));
+    }
+    Ok(())
+}
+
+/// Append one plane's record. `O(o·n/8 + o·n/128 + n)`.
+fn fold_write_plane(out: &mut Vec<u8>, p: &FoldPlane) -> Result<(), FoldError> {
+    fold_shape(p)?;
+    put_u32(out, u32::try_from(p.o).map_err(|_| FoldError::Shape("o"))?);
+    put_u32(out, u32::try_from(p.n).map_err(|_| FoldError::Shape("n"))?);
+    out.push(u8::from(p.rows.is_some()));
+    if let Some(rows) = &p.rows {
+        put_u32(
+            out,
+            u32::try_from(rows.len()).map_err(|_| FoldError::Shape("rows"))?,
+        );
+        for &r in rows {
+            put_u32(out, r);
+        }
+    }
+    out.extend_from_slice(&p.idx);
+
+    // The row-grid dictionary: the distinct `(lo, sp)` pairs in order of first use, then one
+    // 1-byte index per row (2 bytes when a plane takes more than 255 distinct grids).
+    let mut dict: Vec<(i64, i64)> = Vec::new();
+    let mut at: Vec<u32> = Vec::with_capacity(p.o);
+    for i in 0..p.o {
+        let key = (p.lo[i], p.sp[i]);
+        if let Some(j) = dict.iter().position(|&d| d == key) {
+            at.push(u32::try_from(j).map_err(|_| FoldError::Range("dictionary"))?);
+            continue;
+        }
+        if dict.len() >= 65_535 {
+            return Err(FoldError::Range("row grid dictionary"));
+        }
+        dict.push(key);
+        at.push(u32::try_from(dict.len() - 1).map_err(|_| FoldError::Range("dictionary"))?);
+    }
+    let width = if dict.len() <= 255 { 1_u8 } else { 2_u8 };
+    out.push(width);
+    put_u32(
+        out,
+        u32::try_from(dict.len()).map_err(|_| FoldError::Shape("dict"))?,
+    );
+    for &(lo, sp) in &dict {
+        put_i64(out, lo);
+        put_i64(out, sp);
+    }
+    if width == 1 {
+        for &j in &at {
+            out.push(j as u8);
+        }
+    } else {
+        for &j in &at {
+            put_u16(
+                out,
+                u16::try_from(j).map_err(|_| FoldError::Range("dictionary"))?,
+            );
+        }
+    }
+
+    let mut bits = BitOut::new();
+    for &k in &p.r_k {
+        bits.push(u32::from(k), 4);
+    }
+    out.extend_from_slice(&bits.finish());
+
+    put_u16(out, p.c_head[0]);
+    put_u16(out, p.c_head[1]);
+    let mut bits = BitOut::new();
+    for &q in &p.c_q {
+        bits.push(u32::from(q), 6);
+    }
+    out.extend_from_slice(&bits.finish());
+
+    put_u16(out, p.d_head[0]);
+    put_u16(out, p.d_head[1]);
+    let mut bits = BitOut::new();
+    for &q in &p.d_q {
+        bits.push(u32::from(q), 5);
+    }
+    out.extend_from_slice(&bits.finish());
+    Ok(())
+}
+
+/// `n` codes of `width` bits, least-significant bit first, or [`FoldError::Truncated`] past the
+/// buffer. `O(n)`.
+fn fold_read_codes(
+    r: &mut FoldIn<'_>,
+    n: usize,
+    width: u32,
+    what: &'static str,
+) -> Result<Vec<u8>, FoldError> {
+    let bytes = bits_bytes(n, u64::from(width)).ok_or(FoldError::Shape(what))?;
+    let raw = r.bytes(bytes)?;
+    let mut bits = BitIn::new(raw, 0);
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        let v = bits.take(width).ok_or(FoldError::Truncated)?;
+        out.push(u8::try_from(v).map_err(|_| FoldError::Truncated)?);
+    }
+    Ok(out)
+}
+
+/// Read one plane's record. `O(o·n/8 + o·n/128 + n)`.
+fn fold_read_plane(r: &mut FoldIn<'_>) -> Result<FoldPlane, FoldError> {
+    let o = r.len("o")?;
+    let n = r.len("n")?;
+    if o == 0 || n == 0 || !n.is_multiple_of(128) {
+        return Err(FoldError::Shape("plane o, n"));
+    }
+    let flags = r.bytes(1)?[0];
+    let rows = if flags & 1 != 0 {
+        let len = r.len("rows")?;
+        if len != o {
+            return Err(FoldError::Shape("rows length"));
+        }
+        let mut v = Vec::with_capacity(len);
+        for _ in 0..len {
+            v.push(r.u32()?);
+        }
+        Some(v)
+    } else {
+        None
+    };
+    let nidx = idx_len(o, n).ok_or(FoldError::Shape("code indices"))?;
+    let idx = r.bytes(nidx)?.to_vec();
+
+    let width = r.bytes(1)?[0];
+    let dict_len = r.len("dict")?;
+    let mut dict: Vec<(i64, i64)> = Vec::with_capacity(dict_len);
+    for _ in 0..dict_len {
+        let lo = r.i64()?;
+        let sp = r.i64()?;
+        if sp <= 0 {
+            return Err(FoldError::Range("row grid span"));
+        }
+        dict.push((lo, sp));
+    }
+    let mut lo = Vec::with_capacity(o);
+    let mut sp = Vec::with_capacity(o);
+    match width {
+        1 => {
+            let at = r.bytes(o)?;
+            for &j in at {
+                let (l, s) = *dict
+                    .get(usize::from(j))
+                    .ok_or(FoldError::Range("row grid index"))?;
+                lo.push(l);
+                sp.push(s);
+            }
+        }
+        2 => {
+            let at = r.bytes(o.checked_mul(2).ok_or(FoldError::Shape("grid index"))?)?;
+            for i in 0..o {
+                let j = usize::from(u16::from_le_bytes([at[2 * i], at[2 * i + 1]]));
+                let (l, s) = *dict.get(j).ok_or(FoldError::Range("row grid index"))?;
+                lo.push(l);
+                sp.push(s);
+            }
+        }
+        _ => return Err(FoldError::Shape("row grid width")),
+    }
+
+    let g = n / 128;
+    let nr = o.checked_mul(g).ok_or(FoldError::Shape("row levels"))?;
+    let r_k = fold_read_codes(r, nr, 4, "row levels")?;
+
+    let c_head = [r.u16()?, r.u16()?];
+    let c_q = fold_read_codes(r, n, 6, "c codes")?;
+
+    let d_head = [r.u16()?, r.u16()?];
+    let d_q = fold_read_codes(r, n, 5, "d codes")?;
+
+    let p = FoldPlane {
+        o,
+        n,
+        rows,
+        idx,
+        lo,
+        sp,
+        r_k,
+        c_head,
+        c_q,
+        d_head,
+        d_q,
+    };
+    fold_shape(&p)?;
+    Ok(p)
+}
+
+/// The fold pack's bytes: the magic, the plane count and one record per plane.
+///
+/// # Errors
+/// [`FoldError::Shape`]/[`FoldError::Range`] on a plane that does not fit the layout, or a
+/// `u32`/dictionary bound that a plane exceeds.
+///
+/// # Complexity
+/// Time and space `O(Σ (o·n/8 + o·n/128 + n))`, one pass per plane.
+pub fn fold_planes_write(planes: &[FoldPlane]) -> Result<Vec<u8>, FoldError> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&FOLD_MAGIC);
+    put_u32(
+        &mut out,
+        u32::try_from(planes.len()).map_err(|_| FoldError::Shape("plane count"))?,
+    );
+    for p in planes {
+        fold_write_plane(&mut out, p)?;
+    }
+    Ok(out)
+}
+
+/// The planes of a fold-pack file.
+///
+/// # Errors
+/// [`FoldError::Magic`] on a foreign file; [`FoldError::Truncated`] on a short buffer;
+/// [`FoldError::Shape`]/[`FoldError::Range`] on a record that disagrees with its own shape.
+///
+/// # Complexity
+/// Time and space `O(Σ (o·n/8 + o·n/128 + n))`, one pass per plane.
+pub fn fold_planes_read(bytes: &[u8]) -> Result<Vec<FoldPlane>, FoldError> {
+    let mut r = FoldIn { b: bytes, at: 0 };
+    let magic = r.bytes(8)?;
+    if magic != FOLD_MAGIC {
+        return Err(FoldError::Magic);
+    }
+    let count = r.len("plane count")?;
+    let mut out = Vec::with_capacity(count.min(1 << 16));
+    for _ in 0..count {
+        out.push(fold_read_plane(&mut r)?);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1784,5 +2251,60 @@ mod tests {
             t += 1;
         }
         assert!(seen > 0, "no packed tensor found in {path}");
+    }
+
+    /// A synthetic fold plane: two output rows over two 128-column groups, two dictionary grids,
+    /// `n = 256` with a 4-bit level per group.
+    fn fold_plane() -> FoldPlane {
+        FoldPlane {
+            o: 2,
+            n: 256,
+            rows: None,
+            idx: (0..64).map(|i| (i * 5 % 256) as u8).collect(),
+            lo: vec![ONE, ONE + 5],
+            sp: vec![ONE / 3, ONE / 4],
+            r_k: vec![0, 15, 7, 8],
+            c_head: [0x3c00, 0x4000],
+            c_q: (0..256).map(|i| (i % 64) as u8).collect(),
+            d_head: [0x3c00, 0x3c00],
+            d_q: (0..256).map(|i| (i % 32) as u8).collect(),
+        }
+    }
+
+    /// The fold pack's byte layout round-trips every field, the bad magic and a truncated buffer
+    /// are refused, and a code past its field width is refused on write.
+    #[test]
+    fn fold_pack_round_trips_and_refuses() {
+        let p = fold_plane();
+        let bytes = fold_planes_write(&[p.clone(), p.clone()]).expect("write");
+        let back = fold_planes_read(&bytes).expect("read");
+        assert_eq!(back, vec![p.clone(), p]);
+        assert_eq!(&bytes[..8], b"APFOLDP1");
+
+        let mut bad = bytes.clone();
+        bad[0] = b'X';
+        assert_eq!(fold_planes_read(&bad).unwrap_err(), FoldError::Magic);
+        assert_eq!(
+            fold_planes_read(&bytes[..bytes.len() - 1]).unwrap_err(),
+            FoldError::Truncated
+        );
+
+        let mut wide = fold_plane();
+        wide.r_k[0] = 16;
+        assert_eq!(
+            fold_planes_write(&[wide]).unwrap_err(),
+            FoldError::Range("code width")
+        );
+        let mut short = fold_plane();
+        short.c_q.pop();
+        assert_eq!(
+            fold_planes_write(&[short]).unwrap_err(),
+            FoldError::Shape("plane field lengths")
+        );
+
+        let mut rows = fold_plane();
+        rows.rows = Some(vec![0, 5]);
+        let bytes = fold_planes_write(&[rows.clone()]).expect("write rows");
+        assert_eq!(fold_planes_read(&bytes).expect("read rows"), vec![rows]);
     }
 }

@@ -76,6 +76,10 @@ use crate::learn::fold::run::convert::{encode_f16, encode_f32, ConvertError, Tea
 use crate::learn::gguf::write_file;
 use crate::learn::grad::model::Weights;
 
+pub use crate::learn::fold::run::pack::{
+    fold_pack_of_planes, fold_pack_read, fold_pack_write, fold_plane_coded, FoldPackStats,
+};
+
 /// The checkpoint manifest file name.
 const MANIFEST: &str = "manifest.txt";
 
@@ -168,7 +172,7 @@ impl core::fmt::Display for TransferError {
 impl std::error::Error for TransferError {}
 
 /// The first `File::create`-style failure with its path.
-fn io_err(path: &Path, e: &std::io::Error) -> TransferError {
+pub(super) fn io_err(path: &Path, e: &std::io::Error) -> TransferError {
     TransferError::Io(format!("{}: {e}", path.display()))
 }
 
@@ -222,7 +226,7 @@ fn words_from_bytes(b: &[u8]) -> Result<Vec<i64>, TransferError> {
 ///
 /// # Errors
 /// [`TransferError::Io`] on a create, write or rename failure.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), TransferError> {
+pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), TransferError> {
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, bytes).map_err(|e| io_err(&tmp, &e))?;
     fs::rename(&tmp, path).map_err(|e| io_err(path, &e))
