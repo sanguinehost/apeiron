@@ -4,8 +4,8 @@
 //! Contract (`tests/gpu_train_baseline.rs`): every gradient entry is within `FD_TOL = 2^14`
 //! Q32.32 units of the CPU backward for a fixed upstream gradient. The GPU kernel is f32, so each
 //! output is converted to Q32.32 by round-to-nearest with saturation and compared per entry: `dx`
-//! on every row, and the `dγ` row sum over `t` rows (the host fold `sum_dgamma_rows`; the GPU
-//! reduction over rows is the open work that wrapper names).
+//! on every row, and the `dγ` column sum produced on the device by the second dispatch
+//! (`rmsnorm_dgamma_dispatch`, one thread per column, ascending row order, no atomics).
 //!
 //! Shapes: `t ∈ {1, 7, 512}`, `w = 896` (Qwen2.5-0.5B hidden), `eps = 1e-6`; inputs from a fixed
 //! LCG. The fourth fixture is the big-row case `dense::rmsnorm_bwd`'s rounding comment names:
@@ -27,7 +27,7 @@
 )]
 
 use apeiron::gpu::decode::{rec_step, GpuCtx};
-use apeiron::gpu::nn::{rmsnorm_bwd_dispatch, sum_dgamma_rows};
+use apeiron::gpu::nn::{rmsnorm_bwd_dispatch, rmsnorm_dgamma_dispatch};
 use apeiron::gpu::vulkan::*;
 use apeiron::learn::grad::dense::rmsnorm_bwd;
 
@@ -184,12 +184,14 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
     let y_buf = unsafe { g.up_f32(&yf) };
     let dx_buf = unsafe { g.dev(t * w * 4) };
     let dgr_buf = unsafe { g.dev(t * w * 4) };
+    let dg_buf = unsafe { g.dev(w * 4) };
 
     let step = unsafe {
         rmsnorm_bwd_dispatch(
             &g, x_buf, g_buf, y_buf, dx_buf, dgr_buf, t as u32, w as u32, 1e-6f32,
         )
     };
+    let dstep = unsafe { rmsnorm_dgamma_dispatch(&g, dgr_buf, dg_buf, t as u32, w as u32) };
 
     let host = |n: usize| unsafe {
         let (b, m) = vk
@@ -202,11 +204,12 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
         (b, vk.map(m).cast::<f32>())
     };
     let (rb_dx, rb_dx_p) = host(t * w);
-    let (rb_dgr, rb_dgr_p) = host(t * w);
+    let (rb_dg, rb_dg_p) = host(w);
     let cb = unsafe { vk.command_buffer() };
     unsafe {
         vk.begin(cb);
         rec_step(vk, cb, &step);
+        rec_step(vk, cb, &dstep);
         vk.barrier(
             cb,
             STAGE_COMPUTE,
@@ -214,13 +217,18 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
             ACCESS_SHADER_WRITE,
             ACCESS_TRANSFER_READ,
         );
-        let region = BufferCopy {
+        let dx_region = BufferCopy {
             src_offset: 0,
             dst_offset: 0,
             size: (t * w * 4) as u64,
         };
-        (vk.copy_buffer)(cb, dx_buf, rb_dx, 1, &region);
-        (vk.copy_buffer)(cb, dgr_buf, rb_dgr, 1, &region);
+        let dg_region = BufferCopy {
+            src_offset: 0,
+            dst_offset: 0,
+            size: (w * 4) as u64,
+        };
+        (vk.copy_buffer)(cb, dx_buf, rb_dx, 1, &dx_region);
+        (vk.copy_buffer)(cb, dg_buf, rb_dg, 1, &dg_region);
         vk.barrier(
             cb,
             STAGE_TRANSFER,
@@ -232,9 +240,9 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
         vk.submit_wait(cb);
     }
     let gpu_dx: Vec<f32> = unsafe { std::slice::from_raw_parts(rb_dx_p, t * w).to_vec() };
-    let gpu_dgr: Vec<f32> = unsafe { std::slice::from_raw_parts(rb_dgr_p, t * w).to_vec() };
+    let gpu_dg: Vec<f32> = unsafe { std::slice::from_raw_parts(rb_dg_p, w).to_vec() };
     assert!(gpu_dx.iter().all(|v| v.is_finite()), "non-finite dx");
-    assert!(gpu_dgr.iter().all(|v| v.is_finite()), "non-finite dgamma");
+    assert!(gpu_dg.iter().all(|v| v.is_finite()), "non-finite dgamma");
 
     // Per-entry comparison in Q32.32 units.
     let mut max_dx = 0i128;
@@ -257,7 +265,6 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
     }
     let mut max_dg = 0i128;
     let mut at_dg = 0usize;
-    let gpu_dg = sum_dgamma_rows(&gpu_dgr, t, w);
     for j in 0..w {
         let d = (i128::from(to_q32(gpu_dg[j])) - i128::from(cpu_dg[j])).abs();
         if d > max_dg {

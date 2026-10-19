@@ -744,7 +744,19 @@ reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the
 
 [[waiver]]
 path = "src/gpu/nn/norm_bwd.rs"
-fn = "sum_dgamma_rows"
+fn = "rmsnorm_dgamma_module"
 class = "gpu"
-reason = "Host-side f32/f64 dγ row fold after device readback; the device-side reduction is the next task and float accumulation is outside the Q32.32 extraction model."
+reason = "SPIR-V builder for the RMSNorm backward dγ column reduction; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/norm_bwd.rs"
+fn = "rmsnorm_dgamma_bytes"
+class = "gpu"
+reason = "Word encoding of rmsnorm_dgamma_module for pipeline creation; SPIR-V bytes, no extracted arithmetic."
+
+[[waiver]]
+path = "src/gpu/nn/norm_bwd.rs"
+fn = "rmsnorm_dgamma_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
 
