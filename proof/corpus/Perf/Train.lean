@@ -270,8 +270,8 @@ theorem attnBwdDsTiledReads_eq (t nh hd : Nat) :
       2 * nh * ((t + 15) / 16) * t * hd + nh * t * (t + 1) + nh * t * t := rfl
 
 /-- Compute dispatches recorded by one `Trainer::step`: 47 on the layer tape (the forward's 17
-    and the backward's 30) plus the nine Adam updates. The 54 compute->compute barriers and the
-    twelve buffer copies record no dispatch.
+    and the backward's 30) plus the nine Adam updates. The 111 compute->compute barriers (56
+    after a dispatch and 55 between) and the nine buffer copies record no dispatch.
 
     Counted from the `rec_step` sequence in `src/gpu/nn/train/mod.rs`; a guard on the composition,
     not a hardware quantity: it moves only when the tape does. -/
@@ -279,5 +279,59 @@ def layerStepDispatches : Nat := 56
 
 /-- The P101 dispatch count, by `rfl`. -/
 theorem layerStepDispatches_eq : layerStepDispatches = 56 := rfl
+
+/-- Host wall of one `Trainer::step`, in microseconds: device work `device`, `builds` pipeline
+    builds at `build` µs each, and queue wait `queue`. The model, not a hardware theorem: the step
+    records 56 dispatches and then waits, so its host wall is the device span plus whatever the
+    host spent outside the queue. Before the Adam pipeline cache `builds = 9` on every step, because
+    the bias-correction constants were baked per step ordinal into the module. -/
+def stepHostMicros (device builds : Nat) (build queue : Nat) : Nat :=
+  device + builds * build + queue
+
+/-- The cache removes exactly the nine per-step builds: for every device span, build cost and
+    queue wait, `stepHostMicros d 9 b q − stepHostMicros d 0 b q = 9·b`.
+
+    Grade `model`: arithmetic over the named quantities. The constants below are the `measured`
+    inputs; this theorem produces no microsecond. -/
+theorem cacheSavesNineBuilds (d b q : Nat) :
+    stepHostMicros d 9 b q - stepHostMicros d 0 b q = 9 * b := by
+  unfold stepHostMicros
+  omega
+
+/-- Measured per-pipeline Adam build cost, in µs. The gate run (RTX 5080, driver 615.78.08) ran
+    three nine-build sets of 29,180.0 / 27,858.4 / 27,068.3 µs, mean 28,035.6 µs, so 3,115 µs per
+    pipeline; the three single-pipeline runs measured 9,642.5 / 6,938.5 / 7,759.5 µs (mean
+    8,113.5 µs), above the per-pipeline share of a nine-build set. Three gate runs of the same
+    command measured 23,104.9 / 28,035.6 / 23,136.1 µs per nine (2,567 / 3,115 / 2,571 µs per
+    pipeline): the driver's shader cache and clock state move the constant, the identity does not.
+
+    Command: `cargo test --release --features gpu --test gpu_train_timeline -- --nocapture
+    --test-threads=1` (the `CONTROL` line). Grade `measured`. -/
+def measuredAdamBuildMicros : Nat := 3115
+
+/-- Measured pre-fix host wall of one step, in µs: 23,857 µs at
+    `t = 64, i = 896, h = 4864, v = 64, nh = 14, nkv = 2, hd = 64`, where nine fresh Adam
+    pipelines were built on every step. Grade `measured` (the spike's in-buffer/by-submission
+    campaign, not this identity's arithmetic). -/
+def preFixStepHostMicros : Nat := 23857
+
+/-- Measured post-fix host wall of one campaign-A step, in µs (2,994.7 µs mean over seven traced
+    steps; campaign B 3,224.0 µs). Grade `measured`. -/
+def measuredPostFixHostMicros : Nat := 2995
+
+/-- The post-fix acceptance target, in µs. -/
+def postFixTargetMicros : Nat := 5000
+
+/-- The measured per-pipeline cost substituted into the identity: nine builds account for
+    `9·3,115 = 28,035` µs of the pre-fix wall, and the cache removes all of it. -/
+theorem cacheSavesNineBuildsAtMeasured (d q : Nat) :
+    stepHostMicros d 9 measuredAdamBuildMicros q -
+        stepHostMicros d 0 measuredAdamBuildMicros q =
+      9 * measuredAdamBuildMicros :=
+  cacheSavesNineBuilds d _ q
+
+/-- The measured post-fix wall is below the 5 ms target. -/
+theorem measuredPostFixBelowTarget : measuredPostFixHostMicros < postFixTargetMicros := by
+  decide
 
 end Perf.Train

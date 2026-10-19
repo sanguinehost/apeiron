@@ -27,17 +27,17 @@
 
 use crate::engine::num::fp::F64;
 use crate::engine::RopeTable;
-use crate::gpu::decode::{make_step_named, rec_step, GpuCtx, Step};
+use crate::gpu::decode::{make_step_named, step_barrier, GpuCtx, Step};
 use crate::gpu::nn::act::{swiglu_bwd_dispatch, swiglu_fwd_dispatch};
 use crate::gpu::nn::fwd::{
     kl_row_dispatch, linear_fwd_dispatch, rmsnorm_fwd_dispatch, rope_bwd_dispatch,
     rope_fwd_dispatch,
 };
 use crate::gpu::nn::{
-    adam_update_dispatch, add_inplace_bytes, attn_bwd_dkdv_dispatch, attn_bwd_dq_dispatch,
-    attn_bwd_ds_dispatch, attn_bwd_rowsum_dispatch, attn_bwd_rowsum_reduce_dispatch,
-    attn_fwd_dispatch, linear_bwd_input_dispatch, linear_bwd_weight_dispatch, rmsnorm_bwd_dispatch,
-    rmsnorm_dgamma_dispatch,
+    adam_bias_corrections, adam_update_dispatch_reused, add_inplace_bytes, attn_bwd_dkdv_dispatch,
+    attn_bwd_dq_dispatch, attn_bwd_ds_dispatch, attn_bwd_rowsum_dispatch,
+    attn_bwd_rowsum_reduce_dispatch, attn_fwd_dispatch, linear_bwd_input_dispatch,
+    linear_bwd_weight_dispatch, rmsnorm_bwd_dispatch, rmsnorm_dgamma_dispatch,
 };
 use crate::gpu::vulkan::*;
 use crate::numeric::fixed_trig::{fixed_sin_cos, turn_to_radians};
@@ -236,6 +236,48 @@ const ADD_LOCAL: u32 = 256;
 /// `round(1e-3·2^32)`: the Adam learning-rate word the dense step test uses.
 const LR_Q32: i64 = 4_294_967;
 
+/// Dispatches one step records: 47 layer dispatches + 9 Adam (`Perf.Train.layerStepDispatches_eq`
+/// counts the tape; the barriers and copies issue none).
+pub const STEP_DISPATCHES: usize = 56;
+
+/// One traced step: its device timeline and its host split.
+pub struct StepProfile {
+    /// Host microseconds of the last step, `[bias write, pool, record, submit+idle]`.
+    pub host_us: [f64; 4],
+    /// Device microseconds from the global start query to the global end query.
+    pub total_us: f64,
+    /// Copies and seed barriers before the first dispatch.
+    pub prologue_us: f64,
+    /// One device-microsecond span per dispatch, in tape order.
+    pub dispatch_us: Vec<f64>,
+    /// One microsecond gap per inter-dispatch barrier, `dispatch_us.len() - 1` of them.
+    pub gap_us: Vec<f64>,
+    /// The readback copies and the HOST barrier after the last dispatch.
+    pub tail_us: f64,
+    /// Dispatch names, in tape order.
+    pub labels: Vec<&'static str>,
+}
+
+impl StepProfile {
+    /// Timestamp queries one traced step writes: a global start, two per dispatch, a global end.
+    pub const QUERIES: u32 = 2 + 2 * STEP_DISPATCHES as u32;
+}
+
+/// The timestamp recorder of one traced step.
+struct Trace<'a> {
+    pool: &'a QueryPool,
+    next: u32,
+    labels: Vec<&'static str>,
+}
+
+impl Trace<'_> {
+    /// Write the next timestamp query in tape order.
+    fn stamp(&mut self, vk: &Vk, cb: CommandBuffer) {
+        unsafe { vk.cmd_write_timestamp(cb, self.pool, STAGE_ALL_COMMANDS, self.next) };
+        self.next += 1;
+    }
+}
+
 /// One layer's device-resident training state and its dispatches, built once and replayed per
 /// step.
 pub struct Trainer {
@@ -248,11 +290,14 @@ pub struct Trainer {
     rb_dg2: HostBuffer,
     rb_w: [HostBuffer; 9],
     w: [Handle; 9],
-    /// Adam moments `(m, v)` per tensor, device-resident across steps.
-    moments: [(Handle, Handle); 9],
-    /// Adam dispatches, one built set per step ordinal (the bias correction is baked into the
-    /// module), cached by ordinal.
-    adam: Vec<[Step; 9]>,
+    /// Adam dispatches, built once per weight tensor at construction. `step` writes that step's
+    /// two bias-correction words into `bias_stage` and replays these at binding 4.
+    adam: [Step; 9],
+    /// The current step's `[β₁ᵗ, √(1−β₂ᵗ)]`, host-visible; copied to `bias_buf` by `step`.
+    bias_stage: HostBuffer,
+    bias_buf: Handle,
+    /// Host microseconds of the last `step`, `[bias write, pool, record, submit+idle]`.
+    host_us: [f64; 4],
     step_no: u32,
     x: Handle,
     zt: Handle,
@@ -260,14 +305,7 @@ pub struct Trainer {
     x1: Handle,
     x2: Handle,
     loss: Handle,
-    dwd: Handle,
-    dwg: Handle,
-    dwu: Handle,
     dg2: Handle,
-    dwo: Handle,
-    dwq: Handle,
-    dwk: Handle,
-    dwv: Handle,
     dx: Handle,
     dg1: Handle,
     s_xn: Step,
@@ -327,7 +365,7 @@ impl Trainer {
     ///
     /// Panics when a `HostWeights` vector length does not match `cfg`.
     ///
-    /// Complexity: O(weights + activations) time and space, 9 pipelines + 55 dispatch objects.
+    /// Complexity: O(weights + activations) time and space, 9 Adam pipelines + 56 dispatch objects.
     pub fn new(g: &GpuCtx, cfg: LayerCfg, weights: &HostWeights) -> Self {
         let (t, i, h, v) = (
             cfg.t as usize,
@@ -505,6 +543,27 @@ impl Trainer {
         let s_nb1 = unsafe { rmsnorm_bwd_dispatch(g, x, w[7], dxn, dx, dg1_rows, tu, iu, 1e-6f32) };
         let s_dg1 = unsafe { rmsnorm_dgamma_dispatch(g, dg1_rows, dg1, tu, iu) };
 
+        // Adam: one pipeline per weight tensor, reused at every step; the step's bias corrections
+        // reach the module through `bias_buf` (binding 4), written by `step`.
+        let bias_stage = unsafe { host_buffer(g, 2, BUFFER_USAGE_TRANSFER_SRC) };
+        let bias_buf = dev(8);
+        let grads = [dwq, dwk, dwv, dwo, dwg, dwu, dwd, dg1, dg2];
+        let adam: [Step; 9] = std::array::from_fn(|n| {
+            let (m, vv) = moments[n];
+            unsafe {
+                adam_update_dispatch_reused(
+                    g,
+                    w[n],
+                    grads[n],
+                    m,
+                    vv,
+                    bias_buf,
+                    widths[n] as u32,
+                    LR_Q32,
+                )
+            }
+        });
+
         Self {
             cfg,
             x_stage,
@@ -515,22 +574,17 @@ impl Trainer {
             rb_dg2,
             rb_w,
             w,
-            moments,
-            adam: Vec::new(),
+            adam,
+            bias_stage,
+            bias_buf,
+            host_us: [0.0; 4],
             step_no: 0,
             x,
             zt,
             x1,
             x2,
             loss,
-            dwd,
-            dwg,
-            dwu,
             dg2,
-            dwo,
-            dwq,
-            dwk,
-            dwv,
             dx,
             dg1,
             s_xn,
@@ -608,34 +662,107 @@ impl Trainer {
     /// Record one command buffer: staging→device copies, the forward, the KL head, the backward,
     /// Adam, and the gradient readbacks; submit and wait.
     ///
-    /// Dispatch count: 55 (46 layer dispatches + 9 Adam), excluding the 54 compute barriers and
-    /// the copies.
+    /// Dispatch count: 56 (47 layer dispatches + 9 Adam), excluding the compute barriers and the
+    /// copies. No pipeline is built here: the nine Adam dispatches are built in
+    /// [`Trainer::new`], and this call writes the step's two bias-correction words.
     ///
-    /// Complexity: O(1) host records, 55 device dispatches.
+    /// Complexity: O(1) host records, 56 device dispatches.
     pub fn step(&mut self, g: &GpuCtx) {
+        self.step_inner(g, None);
+    }
+
+    /// [`Trainer::step`] with a device timestamp written before and after every dispatch and the
+    /// host phases timed. `pool` must hold [`StepProfile::QUERIES`] queries.
+    ///
+    /// Complexity: as [`Trainer::step`], plus 2·56 timestamp commands.
+    pub fn step_traced(&mut self, g: &GpuCtx, pool: &QueryPool) -> StepProfile {
+        assert_eq!(pool.count, StepProfile::QUERIES, "timestamp pool size");
+        self.step_inner(g, Some(pool))
+    }
+
+    /// Host microseconds of the last step, `[bias write, pool, record, submit+idle]`.
+    #[must_use]
+    pub fn last_host_us(&self) -> [f64; 4] {
+        self.host_us
+    }
+
+    /// The step and its optional trace. The command-buffer tape is identical either way; a trace
+    /// adds one timestamp query before each dispatch and one after it, before the barriers.
+    fn step_inner(&mut self, g: &GpuCtx, pool: Option<&QueryPool>) -> StepProfile {
         let vk = g.vk;
-        let (t, i) = (self.cfg.t as usize, self.cfg.i as usize);
-        // Adam's bias correction is baked into its module, so the nine dispatches are built once
-        // PER STEP ORDINAL; every other dispatch is built in `new`.
+        let t0 = std::time::Instant::now();
         self.step_no += 1;
-        if self.adam.len() < self.step_no as usize {
-            let step = self.step_no;
-            let grads = [
-                self.dwq, self.dwk, self.dwv, self.dwo, self.dwg, self.dwu, self.dwd, self.dg1,
-                self.dg2,
-            ];
-            let set: [Step; 9] = std::array::from_fn(|n| {
-                let (m, vv) = self.moments[n];
-                let width = self.cfg_bytes(n) / 4;
-                unsafe {
-                    adam_update_dispatch(g, self.w[n], grads[n], m, vv, width as u32, LR_Q32, step)
-                }
-            });
-            self.adam.push(set);
+        let (b1t, rbc2) = adam_bias_corrections(self.step_no);
+        // SAFETY: the mapping of a two-word host-coherent buffer.
+        unsafe {
+            *self.bias_stage.ptr = b1t;
+            *self.bias_stage.ptr.add(1) = rbc2;
         }
+        let mut host = [0f64; 4];
+        host[0] = t0.elapsed().as_secs_f64() * 1e6;
+
+        let t1 = std::time::Instant::now();
         let cb = unsafe { vk.command_buffer() };
+        host[1] = t1.elapsed().as_secs_f64() * 1e6;
+
+        let mut trace = pool.map(|pool| Trace {
+            pool,
+            next: 0,
+            labels: Vec::with_capacity(STEP_DISPATCHES),
+        });
+        let t2 = std::time::Instant::now();
         unsafe {
             vk.begin(cb);
+            if let Some(tr) = trace.as_mut() {
+                vk.cmd_reset_timestamps(cb, tr.pool);
+                tr.stamp(vk, cb);
+            }
+            self.record(vk, cb, trace.as_mut());
+            check((vk.end_cb)(cb), "vkEndCommandBuffer");
+        }
+        host[2] = t2.elapsed().as_secs_f64() * 1e6;
+
+        let t3 = std::time::Instant::now();
+        unsafe { vk.submit_wait(cb) };
+        host[3] = t3.elapsed().as_secs_f64() * 1e6;
+        self.host_us = host;
+
+        let mut profile = StepProfile {
+            host_us: host,
+            total_us: 0.0,
+            prologue_us: 0.0,
+            dispatch_us: Vec::new(),
+            gap_us: Vec::new(),
+            tail_us: 0.0,
+            labels: Vec::new(),
+        };
+        if let Some(tr) = trace.as_ref() {
+            let ts = unsafe { vk.read_timestamps(tr.pool) };
+            let ticks = f64::from(vk.timestamp_period) / 1000.0;
+            let at = |q: u32| ts[q as usize] as f64 * ticks;
+            let n = STEP_DISPATCHES as u32;
+            profile.total_us = at(1 + 2 * n) - at(0);
+            profile.prologue_us = at(1) - at(0);
+            for k in 0..n {
+                let pre = at(1 + 2 * k);
+                let post = at(2 + 2 * k);
+                profile.dispatch_us.push(post - pre);
+                if k + 1 < n {
+                    profile.gap_us.push(at(1 + 2 * (k + 1)) - post);
+                }
+            }
+            profile.tail_us = at(1 + 2 * n) - at(2 * n);
+            profile.labels = tr.labels.clone();
+        }
+        profile
+    }
+
+    /// Record the tape. With `trace`, a timestamp is written before each dispatch and one after it
+    /// (before [`step_barrier`] and the caller's barrier), so a dispatch span excludes the barrier
+    /// gap that follows it.
+    fn record(&self, vk: &Vk, cb: CommandBuffer, mut trace: Option<&mut Trace<'_>>) {
+        let (t, i) = (self.cfg.t as usize, self.cfg.i as usize);
+        unsafe {
             let cbar = |cb| {
                 vk.barrier(
                     cb,
@@ -653,9 +780,32 @@ impl Trainer {
                 };
                 (vk.copy_buffer)(cb, src, dst, 1, &region);
             };
-            // Staging → device input.
+            let d = |trace: &mut Option<&mut Trace<'_>>, s: &Step| {
+                if let Some(tr) = trace.as_deref_mut() {
+                    tr.stamp(vk, cb);
+                    tr.labels.push(s.name);
+                }
+                (vk.bind_pipe)(cb, PIPELINE_BIND_POINT_COMPUTE, s.pipe);
+                (vk.bind_sets)(
+                    cb,
+                    PIPELINE_BIND_POINT_COMPUTE,
+                    s.layout,
+                    0,
+                    1,
+                    &s.dset,
+                    0,
+                    std::ptr::null(),
+                );
+                (vk.dispatch)(cb, s.groups.0, s.groups.1, 1);
+                if let Some(tr) = trace.as_deref_mut() {
+                    tr.stamp(vk, cb);
+                }
+                step_barrier(vk, cb);
+            };
+            // Staging → device input, and the step's two bias-correction words.
             copy(self.x_stage.buf, self.x, t * i * 4);
             copy(self.zt_stage.buf, self.zt, t * self.cfg.v as usize * 4);
+            copy(self.bias_stage.buf, self.bias_buf, 8);
             // Seed both residual buffers with `x` (the tape's `x1 = x + o`, `x2 = x + o + f`; the
             // second `o` add rounds identically, so `x2 = x1 + f` entry-wise).
             vk.barrier(
@@ -681,105 +831,64 @@ impl Trainer {
                 ACCESS_TRANSFER_WRITE,
                 ACCESS_SHADER_READ | ACCESS_SHADER_WRITE,
             );
-            rec_step(vk, cb, &self.s_xn);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_q);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_k);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_v);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_rq);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_rk);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_attn);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_o);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_x1);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_x2a);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_xn2);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_gate);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_up);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_sw);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_f);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_x2b);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_kl);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dwd);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dha);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_swb);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dxn2a);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dxn2b);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dxn2);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dwg);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dwu);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_nb2);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dg2);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dx1);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dwo);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_do);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_rs);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_rsr);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_ds);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dq);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dkdv);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_rbq);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_rbk);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dwq);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dwk);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dwv);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dxnq);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dxnk);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dxnv);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dxn1);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dxn2b2);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_nb1);
-            cbar(cb);
-            rec_step(vk, cb, &self.s_dg1);
-            let adam = &self.adam[self.step_no as usize - 1];
-            for (n, s) in adam.iter().enumerate() {
+            let layer: [&Step; 47] = [
+                &self.s_xn,
+                &self.s_q,
+                &self.s_k,
+                &self.s_v,
+                &self.s_rq,
+                &self.s_rk,
+                &self.s_attn,
+                &self.s_o,
+                &self.s_x1,
+                &self.s_x2a,
+                &self.s_xn2,
+                &self.s_gate,
+                &self.s_up,
+                &self.s_sw,
+                &self.s_f,
+                &self.s_x2b,
+                &self.s_kl,
+                &self.s_dwd,
+                &self.s_dha,
+                &self.s_swb,
+                &self.s_dxn2a,
+                &self.s_dxn2b,
+                &self.s_dxn2,
+                &self.s_dwg,
+                &self.s_dwu,
+                &self.s_nb2,
+                &self.s_dg2,
+                &self.s_dx1,
+                &self.s_dwo,
+                &self.s_do,
+                &self.s_rs,
+                &self.s_rsr,
+                &self.s_ds,
+                &self.s_dq,
+                &self.s_dkdv,
+                &self.s_rbq,
+                &self.s_rbk,
+                &self.s_dwq,
+                &self.s_dwk,
+                &self.s_dwv,
+                &self.s_dxnq,
+                &self.s_dxnk,
+                &self.s_dxnv,
+                &self.s_dxn1,
+                &self.s_dxn2b2,
+                &self.s_nb1,
+                &self.s_dg1,
+            ];
+            for s in layer {
+                d(&mut trace, s);
+                cbar(cb);
+            }
+            for (n, s) in self.adam.iter().enumerate() {
                 if n > 0 {
                     cbar(cb);
                 }
-                rec_step(vk, cb, s);
+                d(&mut trace, s);
             }
             vk.barrier(
                 cb,
@@ -799,8 +908,9 @@ impl Trainer {
                 ACCESS_TRANSFER_WRITE,
                 ACCESS_HOST_READ,
             );
-            check((vk.end_cb)(cb), "vkEndCommandBuffer");
-            vk.submit_wait(cb);
+            if let Some(tr) = trace.as_deref_mut() {
+                tr.stamp(vk, cb);
+            }
         }
     }
 
