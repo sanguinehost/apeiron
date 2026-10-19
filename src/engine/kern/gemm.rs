@@ -431,6 +431,10 @@ fn row_scales(row: &[u8], blocks: usize, out: &mut [(i32, i64, i32)]) -> Option<
 ///
 /// `O(n_in)` multiply-adds.
 #[must_use]
+#[allow(
+    dead_code,
+    reason = "the independent scalar oracle for `exact_dot_avx`'s bit-identity test"
+)]
 pub(crate) fn exact_dot(row: &[u8], blocks: usize, q: &QuantAct) -> Option<i64> {
     let mut acc: i128 = 0;
     for b in 0..blocks {
@@ -1088,7 +1092,8 @@ mod x86 {
     #[cfg(test)]
     use super::probe_hooks;
     use super::{
-        exact_dot, f16_split, finish, Packed, QuantAct, LANES, MAX_BLOCKS, Q8_0_BLOCK_BYTES,
+        f16_split, finish, round_shift_32, Packed, QuantAct, ACT_QK, LANES, MAX_BLOCKS,
+        Q8_0_BLOCK_BYTES,
     };
     use std::arch::x86_64::{
         __m128i, __m256i, _mm256_add_epi64, _mm256_and_si256, _mm256_andnot_si256,
@@ -1120,6 +1125,70 @@ mod x86 {
             );
         }
         acc
+    }
+
+    /// The exact `i128` contract with the per-block byte dot on `vpdpbusd`: the production path for
+    /// a (row, column) past the `i64` spread limit. The scalar [`super::exact_dot`] remains the
+    /// independent test oracle.
+    ///
+    /// The activation codes are biased by `128` (`q ^ 0x80`) so `dpbusd` reads `u8 × i8`; a second
+    /// `dpbusd` of the same weights against `128` gives the bias `128·Σw`, and their difference is
+    /// the signed byte dot. The scale product stays in `i128`, so the single final
+    /// `round_shift_32` is bit-identical to [`super::exact_dot`].
+    ///
+    /// # Safety
+    ///
+    /// AVX2 and AVX-VNNI must be present; `row` holds `blocks` `Q8_0` blocks and `q` holds
+    /// `blocks` scale entries and `blocks·32` codes.
+    #[target_feature(enable = "avx2")]
+    #[allow(
+        clippy::cast_ptr_alignment,
+        clippy::cast_possible_wrap,
+        clippy::many_single_char_names,
+        reason = "the loads and the store are unaligned; the f16 split's `i32` mantissa widens to \
+                  `i128` exactly; `m`, `k`, `b`, `d` and `l` are the kernel's exponent and block \
+                  names"
+    )]
+    pub(super) unsafe fn exact_dot_avx(row: &[u8], blocks: usize, q: &QuantAct) -> Option<i64> {
+        let bias = _mm256_set1_epi8(-128);
+        let mut acc: i128 = 0;
+        let mut b = 0usize;
+        while b < blocks {
+            let off = b * Q8_0_BLOCK_BYTES;
+            let (m, k) = f16_split(u16::from_le_bytes([row[off], row[off + 1]]))?;
+            // SAFETY: `row` holds `blocks` blocks of 34 bytes; the block's 32 codes start at
+            // `off + 2`. `q.codes()` has `blocks·32` entries and `q.scales()` has `blocks`.
+            let (codes, weights) = unsafe {
+                (
+                    _mm256_loadu_si256(q.codes().as_ptr().add(b * ACT_QK).cast::<__m256i>()),
+                    _mm256_loadu_si256(row.as_ptr().add(off + 2).cast::<__m256i>()),
+                )
+            };
+            let dot = _mm256_sub_epi32(
+                dpbusd(
+                    _mm256_setzero_si256(),
+                    _mm256_xor_si256(codes, bias),
+                    weights,
+                ),
+                dpbusd(_mm256_setzero_si256(), bias, weights),
+            );
+            let mut lanes = [0i32; 8];
+            // SAFETY: `lanes` is eight `i32` and the store is unaligned.
+            unsafe { _mm256_storeu_si256(lanes.as_mut_ptr().cast::<__m256i>(), dot) };
+            let mut total = 0i32;
+            let mut l = 0usize;
+            while l < 8 {
+                total += lanes[l];
+                l += 1;
+            }
+            let d = i128::from(m) << k;
+            acc = acc.checked_add(
+                d.checked_mul(i128::from(q.scales()[b]))?
+                    .checked_mul(i128::from(total))?,
+            )?;
+            b += 1;
+        }
+        i64::try_from(round_shift_32(acc)).ok()
     }
 
     /// The 8 columns of one group against two rows: each row's `i64` accumulators, low and high
@@ -1768,7 +1837,7 @@ mod x86 {
                                 continue;
                             }
                             let v = if sp + p.spread[sub_g] > limit {
-                                exact_dot(row, blocks, &qs[c])
+                                exact_dot_avx(row, blocks, &qs[c])
                             } else {
                                 finish(lanes2[8 * which + lane], kmin + p.emin[c])
                             };
@@ -1847,7 +1916,7 @@ mod x86 {
                                     continue;
                                 }
                                 let v = if sp + p.spread[g] > limit {
-                                    exact_dot(row, blocks, &qs[c])
+                                    exact_dot_avx(row, blocks, &qs[c])
                                 } else {
                                     finish(lanes2[8 * which + lane], kmin + p.emin[c])
                                 };
@@ -1870,7 +1939,7 @@ mod x86 {
                                 continue;
                             }
                             let v = if sp + p.spread[g] > limit {
-                                exact_dot(row, blocks, &qs[c])
+                                exact_dot_avx(row, blocks, &qs[c])
                             } else {
                                 finish(lanes2[8 * which + lane], kmin + p.emin[c])
                             };
@@ -2115,12 +2184,12 @@ mod x86 {
                         for lane in 0..active {
                             let c = sub_g * LANES + lane;
                             let gate = if spa + p.spread[sub_g] > limit {
-                                exact_dot(ga, blocks, &qs[c])
+                                exact_dot_avx(ga, blocks, &qs[c])
                             } else {
                                 finish(lanes[lane], ka + p.emin[c])
                             };
                             let up = if spb + p.spread[sub_g] > limit {
-                                exact_dot(ua, blocks, &qs[c])
+                                exact_dot_avx(ua, blocks, &qs[c])
                             } else {
                                 finish(lanes[8 + lane], kb + p.emin[c])
                             };
@@ -2225,12 +2294,12 @@ mod x86 {
                     for lane in 0..active {
                         let c = g * LANES + lane;
                         let gate = if spa + p.spread[g] > limit {
-                            exact_dot(ga, blocks, &qs[c])
+                            exact_dot_avx(ga, blocks, &qs[c])
                         } else {
                             finish(lanes[lane], ka + p.emin[c])
                         };
                         let up = if spb + p.spread[g] > limit {
-                            exact_dot(ua, blocks, &qs[c])
+                            exact_dot_avx(ua, blocks, &qs[c])
                         } else {
                             finish(lanes[8 + lane], kb + p.emin[c])
                         };
@@ -2374,6 +2443,41 @@ mod tests {
     /// Every column equals the per-column contract `matvec_q8act`, across widths, column counts
     /// (with ragged groups), weight-scale mixes (normal, subnormal, negative, zero) and activation
     /// ranges that exercise both the vector accumulation and the exact spread path.
+    /// The AVX exact dot is bit-identical to the scalar `exact_dot` across block counts, f16 scales
+    /// (including negative and subnormal words) and code polarities; it is the production fallback
+    /// for a (row, column) past the spread limit.
+    #[test]
+    fn exact_dot_avx_matches_the_scalar_oracle() {
+        if !std::is_x86_feature_detected!("avx2") || !std::is_x86_feature_detected!("avxvnni") {
+            return;
+        }
+        let mut seed = 0x51ce_d07a_5eed_0001_u64;
+        // 1.0, 2.0, 0.5, -1.0, and a subnormal power of two.
+        let scales = [0x3c00u16, 0x4000, 0x3800, 0xbc00, 0x0400];
+        let mut some = 0usize;
+        for &n_in in &[32usize, 64, 96, 1024] {
+            let blocks = n_in / ACT_QK;
+            let row_bytes = blocks * Q8_0_BLOCK_BYTES;
+            let rows = payload(3, n_in, &scales, &mut seed);
+            let qs = columns(4, n_in, 40, &mut seed);
+            for r in 0..3 {
+                let row = &rows[r * row_bytes..(r + 1) * row_bytes];
+                for (c, q) in qs.iter().enumerate() {
+                    let want = exact_dot(row, blocks, q);
+                    // SAFETY: AVX2 and AVX-VNNI were detected above; the payload holds `blocks`
+                    // blocks and the column holds `blocks` scales and `blocks·32` codes.
+                    let got = unsafe { x86::exact_dot_avx(row, blocks, q) };
+                    assert_eq!(got, want, "n_in {n_in} row {r} column {c}");
+                    some += usize::from(want.is_some());
+                }
+            }
+        }
+        assert!(
+            some > 0,
+            "every comparison refused; the test would be vacuous"
+        );
+    }
+
     #[test]
     fn gemm_equals_the_per_column_contract() {
         if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {

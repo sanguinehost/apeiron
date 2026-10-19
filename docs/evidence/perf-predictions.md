@@ -14,6 +14,12 @@ The CUDA comparators are `llama-bench -ngl 99` runs: decode 880.9 tok/s (P62), p
 (pp512 campaign at `b82ae99`, 15 samples, contended host). The ratios are quotients of recorded medians,
 not paired-round medians; the prefill comparator is the weaker of the two because its host was loaded.
 
+Kernel K5 receipts compare a `limb` port against its exact contract body on the same host, not against
+llama.cpp. `resq` at the 2x128x128 group shape (`inter` 16, `hidden` 8, 8 limbs): exact
+`solve::{gemm,syrk}` 1.174 ms, `engine::kern::limb` 4.657 ms, 3.968x slower, five paired runs with
+observed spreads 1.110-1.273 ms and 4.156-5.031 ms; the port is exact against the 8-limb contract
+(0 words) and test-only, and the exact call site stays.
+
 The P-rows below are historical. A `red` verdict in a row is relative to that row's measured revision and
 is not current status; § Current supersedes every one of them.
 
