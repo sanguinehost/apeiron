@@ -1182,10 +1182,22 @@ mod x86 {
                 l += 1;
             }
             let d = i128::from(m) << k;
-            acc = acc.checked_add(
-                d.checked_mul(i128::from(q.scales()[b]))?
-                    .checked_mul(i128::from(total))?,
-            )?;
+            // The production column scale is a power of two (`1 << sigma`): fold it into a
+            // shift, so the block costs one `i128` multiply instead of two. The round trip
+            // keeps the contract's `None` on an `i128` overflow; a non-power-of-two scale
+            // (a caller of the `Q8_0` contract) keeps the multiply.
+            let scale = q.scales()[b];
+            let scaled = if scale > 0 && scale.count_ones() == 1 {
+                let shift = scale.trailing_zeros();
+                let s = d << shift;
+                if s >> shift != d {
+                    return None;
+                }
+                s
+            } else {
+                d.checked_mul(i128::from(scale))?
+            };
+            acc = acc.checked_add(scaled.checked_mul(i128::from(total))?)?;
             b += 1;
         }
         i64::try_from(round_shift_32(acc)).ok()

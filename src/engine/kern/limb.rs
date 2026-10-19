@@ -192,39 +192,101 @@ pub(crate) fn gemm_q32(
 /// Temporal `O(m·n·limbs + m²·n·limbs/2)` byte multiply-adds — half of [`gemm_q32`]'s full
 /// product — and spatial `O(m·n·limbs)` for the one limb plane plus `O(m·COLS)` accumulators.
 pub(crate) fn syrk_q32(a: &[i64], m: usize, n: usize, limbs: u32) -> Result<Vec<i64>, LimbError> {
-    if a.len() != m.checked_mul(n).ok_or(LimbError::Shape)? {
+    prepare(a, m, n, limbs)?.syrk()
+}
+
+/// A built limb plane whose rows are reused across several products.
+///
+/// [`gemm_q32`] builds the first operand's plane on every call. A call site that runs several
+/// products against the same first operand (the resq's gate, up, qg and qu against one slab, and
+/// its `pp` and `pc` against one transposed `pq`) builds it once here and pays only the second
+/// operand's plane per call.
+pub(crate) struct Prepared {
+    plane: Plane,
+}
+
+/// Build `a`'s limb plane once for [`Prepared::gemm`] and [`Prepared::syrk`].
+///
+/// # Errors
+///
+/// [`LimbError::Shape`] on a mismatched length or a zero dimension; [`LimbError::Range`] as
+/// [`Plane::build`].
+///
+/// # Complexity
+///
+/// Temporal and spatial `O(rows·n·limbs)`, the first operand's plane.
+pub(crate) fn prepare(a: &[i64], rows: usize, n: usize, limbs: u32) -> Result<Prepared, LimbError> {
+    if a.len() != rows.checked_mul(n).ok_or(LimbError::Shape)? {
         return Err(LimbError::Shape);
     }
-    let plane = Plane::build(a, m, n, limbs)?;
-    let mut c = vec![0i64; m.checked_mul(m).ok_or(LimbError::Shape)?];
-    let mut j0 = 0usize;
-    while j0 < m {
-        let j1 = (j0 + SYRK_COLS).min(m);
-        let width = j1 - j0;
-        let block = plane.product_rows(&plane, 0, j1, j0, width, n)?;
-        // Row `i` keeps the contiguous run `j ∈ [max(i, j0), j1)` of the tile.
+    Ok(Prepared {
+        plane: Plane::build(a, rows, n, limbs)?,
+    })
+}
+
+impl Prepared {
+    /// `a·bᵀ` with `a` the prepared `rows × n` plane and `b` a `p × n` operand.
+    ///
+    /// # Errors
+    ///
+    /// [`LimbError::Shape`] on a zero or mismatched dimension; [`LimbError::Range`] as
+    /// [`gemm_q32`].
+    ///
+    /// # Complexity
+    ///
+    /// As [`gemm_q32`] without the first operand's plane build.
+    pub(crate) fn gemm(&self, b: &[i64], p: usize) -> Result<Vec<i64>, LimbError> {
+        let n = self.plane.n;
+        if b.len() != p.checked_mul(n).ok_or(LimbError::Shape)? {
+            return Err(LimbError::Shape);
+        }
+        let pb = Plane::build(b, p, n, self.plane.limbs)?;
+        self.plane.product_rows(&pb, 0, self.plane.rows, 0, p, n)
+    }
+
+    /// `a·aᵀ` on the prepared plane: [`syrk_q32`]'s body after its plane build.
+    ///
+    /// # Errors
+    ///
+    /// As [`syrk_q32`].
+    ///
+    /// # Complexity
+    ///
+    /// As [`syrk_q32`] without the plane build.
+    pub(crate) fn syrk(&self) -> Result<Vec<i64>, LimbError> {
+        let plane = &self.plane;
+        let m = plane.rows;
+        let n = plane.n;
+        let mut c = vec![0i64; m.checked_mul(m).ok_or(LimbError::Shape)?];
+        let mut j0 = 0usize;
+        while j0 < m {
+            let j1 = (j0 + SYRK_COLS).min(m);
+            let width = j1 - j0;
+            let block = plane.product_rows(plane, 0, j1, j0, width, n)?;
+            // Row `i` keeps the contiguous run `j ∈ [max(i, j0), j1)` of the tile.
+            let mut i = 0usize;
+            while i < j1 {
+                let lo = j0.max(i);
+                if lo < j1 {
+                    let from = i * width + (lo - j0);
+                    c[i * m + lo..i * m + j1].copy_from_slice(&block[from..from + (j1 - lo)]);
+                }
+                i += 1;
+            }
+            j0 = j1;
+        }
+        // The lower triangle is the upper one's transpose.
         let mut i = 0usize;
-        while i < j1 {
-            let lo = j0.max(i);
-            if lo < j1 {
-                let from = i * width + (lo - j0);
-                c[i * m + lo..i * m + j1].copy_from_slice(&block[from..from + (j1 - lo)]);
+        while i < m {
+            let mut j = i + 1;
+            while j < m {
+                c[j * m + i] = c[i * m + j];
+                j += 1;
             }
             i += 1;
         }
-        j0 = j1;
+        Ok(c)
     }
-    // The lower triangle is the upper one's transpose.
-    let mut i = 0usize;
-    while i < m {
-        let mut j = i + 1;
-        while j < m {
-            c[j * m + i] = c[i * m + j];
-            j += 1;
-        }
-        i += 1;
-    }
-    Ok(c)
 }
 
 /// One row against many: `y[j] = Σ_l x[l]·b[j·n + l]`.
@@ -1559,22 +1621,28 @@ mod tests {
         reason = "m·p·n ≤ 2^32, exactly representable in f64, and only used to print ns/MAC"
     )]
     fn limb_phase_profile() {
-        let shapes = [(512usize, 896usize, 896usize), (512, 4864, 896)];
+        let shapes = [
+            (512usize, 896usize, 896usize, 3u32),
+            (512, 4864, 896, 3),
+            (128, 128, 16, 8),
+            (128, 16, 128, 8),
+            (16, 16, 128, 8),
+        ];
         let mut seed = 0xabcd_ef01_2345_6789u64;
-        for (m, p, n) in shapes {
+        for (m, p, n, limbs) in shapes {
             let a = operand(&mut seed, m, n, 3);
             let b = operand(&mut seed, p, n, 3);
             // Warm the pool, the allocator and the page tables before the phase table.
-            let warm = gemm_q32(&a, m, &b, p, n, 3).expect("carried");
+            let warm = gemm_q32(&a, m, &b, p, n, limbs).expect("carried");
             drop(warm);
             let t = std::time::Instant::now();
-            let pa = Plane::build(&a, m, n, 3).expect("carried");
+            let pa = Plane::build(&a, m, n, limbs).expect("carried");
             let build_a = t.elapsed().as_secs_f64();
             let t = std::time::Instant::now();
-            let pb = Plane::build(&b, p, n, 3).expect("carried");
+            let pb = Plane::build(&b, p, n, limbs).expect("carried");
             let build_b = t.elapsed().as_secs_f64();
             let t = std::time::Instant::now();
-            let pairs = kept_pairs(3);
+            let pairs = kept_pairs(limbs);
             let place = Layout::placement(&pa, &pb, &pairs).expect("placed");
             let layout = Layout {
                 a: &pa,
@@ -1648,7 +1716,7 @@ mod tests {
                 ("total", total),
             ] {
                 println!(
-                    "m {m} p {p} n {n} {name:>10}: {:8.3} ms {:5.1}%  {:.4} ns/MAC",
+                    "m {m} p {p} n {n} limbs {limbs} {name:>10}: {:8.3} ms {:5.1}%  {:.4} ns/MAC",
                     v * 1e3,
                     100.0 * v / total,
                     v * 1e9 / macs
