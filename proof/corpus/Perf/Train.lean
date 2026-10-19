@@ -126,4 +126,22 @@ def denseFwdTiledReads (t i o : Nat) : Nat := t * i * (o / 16) + o * i * (t / 16
 theorem denseFwdTiledReads_eq (t i o : Nat) :
     denseFwdTiledReads t i o = t * i * (o / 16) + o * i * (t / 16) + t * o := rfl
 
+/-- Words moved by one causal-attention forward dispatch (P93): one workgroup per `(i,h)` query
+    row, the `t` scores of the row in shared memory, the causal half summed over `j ≤ i`.
+
+    * phase 1 reads `hd` words of `q` per row and `i·hd` of `k`: `t·nh·hd + nh·t²·hd/2`.
+    * phase 3 reads `i·hd` of `v` and writes `hd` of `out`: `nh·t²·hd/2 + t·nh·hd`.
+    * the `P` row is written: `nh·t²/2`.
+
+    The materialised alternative writes the `nh·t·t` scores and re-reads them for the max, the
+    partition function and every `(i,h,d)` value mix: `3·nh·t²·hd/2 + 2·nh·t² + 2·t·nh·hd` words,
+    so the fused row removes the two extra `nh·t²·hd/2` passes and the score traffic. -/
+def attnFwdReads (t nh hd : Nat) : Nat :=
+  nh * t * t * hd / 2 + 2 * t * nh * hd + nh * t * t / 2 + t * nh * hd
+
+/-- The P93 cost equation in expanded form as defined above. -/
+theorem attnFwdReads_eq (t nh hd : Nat) :
+    attnFwdReads t nh hd =
+      nh * t * t * hd / 2 + 2 * t * nh * hd + nh * t * t / 2 + t * nh * hd := rfl
+
 end Perf.Train
