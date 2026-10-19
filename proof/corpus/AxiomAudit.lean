@@ -75,6 +75,12 @@ import Learn.GramExact
 import Learn.Grad.DenseNorm
 import Learn.Grad.DenseNormBwd
 import Learn.E8Code
+import Learn.FitIcm
+import Learn.Limb
+import Learn.WaterFill
+import Learn.IcmError
+import Learn.IcmCount
+import Learn.Log2
 import Learn.Grad.DenseLinear
 import Learn.Grad.DenseLinearWitness
 import Learn.Grad.Rope
@@ -744,6 +750,34 @@ import Gpu.Handoff
 #audit Learn.E8Code.witness_nonpositive_scale
 #audit Learn.E8Code.witness_nearest_ok
 #audit Learn.E8Code.witness_overflow
+
+-- The E8 `∪` O8 ICM block decision (`Learn/FitIcm.lean`): the argmin specification, the codebook
+-- shape, and the sweep non-increase. The extracted body's own audit is commented below because its
+-- externals are the pool and `Option`/`FirstErr` boundaries; `Learn.FitIcm.icm_step_spec_of_body_argmin`
+-- is the conditional closure.
+#audit Learn.FitIcm.icmStep_spec
+#audit Learn.FitIcm.spec_cost_eq_argmin
+#audit Learn.FitIcm.spec_quad_le
+#audit Learn.FitIcm.spec_sweep_le
+#audit Learn.FitIcm.spec_sweep_lt
+#audit Learn.FitIcm.blockQuad_eq_blockReduce_add
+#audit Learn.FitIcm.blockReduce_eq_word
+#audit Learn.FitIcm.pairStep_spec
+#audit Learn.FitIcm.joint_pair_le_slice_left
+#audit Learn.FitIcm.joint_pair_le_slice_right
+#audit Learn.FitIcm.pair_codebook_rate
+#audit Learn.FitIcm.codebook_row_shape
+#audit Learn.FitIcm.icmStep_row_shape
+#audit Learn.FitIcm.codebook_card
+#audit Learn.FitIcm.icm_step_spec_of_body_argmin
+#audit Learn.FitIcm.icmStep_witness
+#audit Learn.FitIcm.block_cost_ok
+#audit Learn.FitIcm.block_cost_total
+#audit Learn.FitIcm.best_code_q_loop_spec
+#audit Learn.FitIcm.best_code_q_argmin
+#audit Learn.FitIcm.best_code_q_argmin_real
+#audit Learn.FitIcm.icm_step_spec_of_extracted_argmin
+#audit apeiron_word.fit_port.word_fit_icm_best_code_q
 -- The extracted Q32.32 `i64` linear forward and its two adjoints
 -- (`learn_port.dense.linear_fwd` / `linear_bwd_input` / `linear_bwd_weight`) refine the independent
 -- `ℤ`/`List ℤ` model (`Learn/Grad/DenseLinear.lean`); the branch witnesses are in
@@ -2207,8 +2241,488 @@ elab "#audit_chol_boundary " id:ident : command => do
 -- #audit apeiron_word.hashtrinity.crypto.jwt.b64url_decode  -- apeiron_word.core.str.Str.as_bytes
 -- #audit apeiron_word.hashtrinity.crypto.certgen.name_cn  -- apeiron_word.core.str.Str.as_bytes
 -- #audit apeiron_word.hashtrinity.crypto.age.b64d  -- apeiron_word.core.str.Str.as_bytes
+-- Open: the extracted `fit::icm::e8_icm_step` body leaves the closed cone on 31 `axiom`s — the pool
+-- (`chart.pool.width_global`, `.run_global`, `.chunks_mut_global`, `.Flag`, `.chunks.for_chunks*`),
+-- the AVX2 surface (`chart.x86.*`, `chart.q8_0_row_kcols_avx2`, `kern.matmat.q5_0_block_kdots_avx2`,
+-- the four `…FastBlockDecoder.decode_step_avx2` instances), the raw-pointer/slice allocators and
+-- `core.option.Option.map`. The conditional refinement is
+-- `Learn.FitIcm.icm_step_spec_of_body_argmin` (audited above); enable this line when a pool-free
+-- `best_code_q` is rooted.
+-- Open: the extracted `fit::icm::e8_icm_step` body leaves the closed cone on 31 `axiom`s — the pool
+-- (`chart.pool.width_global`, `.run_global`, `.chunks_mut_global`, `.Flag`, `.chunks.for_chunks*`),
+-- the AVX2 surface (`chart.x86.*`, `chart.q8_0_row_kcols_avx2`, `kern.matmat.q5_0_block_kdots_avx2`,
+-- the four `…FastBlockDecoder.decode_step_avx2` instances), the raw-pointer/slice allocators and
+-- `core.option.Option.map`. The conditional refinement is
+-- `Learn.FitIcm.icm_step_spec_of_body_argmin` (audited above); enable this line when a pool-free
+-- `best_code_q` is rooted.
 -- #audit apeiron_word.fit_port.word_fit_icm_e8_icm_step  -- apeiron_word.chart.pool.width_global, apeiron_word.solve_port.gemm.block_rows_pool, apeiron_word.chart.pool.chunks.for_chunks3, apeiron_word.core.option.Option.map
 -- #audit apeiron_word.fit_port.word_fit_icm_j_rows  -- apeiron_word.solve_port.gemm.block_rows_pool
 -- #audit apeiron_word.fit_port.word_fit_icm_matmul  -- apeiron_word.solve_port.gemm.block_rows_pool
 -- #audit apeiron_word.fit_port.word_fit_icm_ridged_metric  -- apeiron_word.core.option.Option.map
 -- #audit apeiron_word.fit_port.word_fit_icm_r_step2  -- apeiron_word.chart.pool.FirstErr, apeiron_word.chart.pool.chunks_mut_global, apeiron_word.chart.pool.width_global, apeiron_word.solve_port.chol.trailing_update_pool, apeiron_word.solve_port.gemm.block_rows_pool, apeiron_word.chart.pool.FirstErr.new, apeiron_word.chart.pool.FirstErr.record, apeiron_word.chart.pool.FirstErr.take, apeiron_word.chart.pool.chunks.for_chunks2, apeiron_word.core.option.Option.is_none_or, apeiron_word.core.option.Option.map
+
+-- The extracted reverse water-filling solver (`Learn/WaterFill.lean`): the integer level,
+-- active-set and budget invariants, the exact denotation onto the Gaussian floor, and the
+-- instantiated `waterfill_floor` at `c = 2 ln 2`.
+#audit Learn.WaterFill.distWords_le_sum
+#audit Learn.WaterFill.distWords_le_card_mul
+#audit Learn.WaterFill.distWords_mono
+#audit Learn.WaterFill.distWords_active_set
+#audit Learn.WaterFill.rateSum_anti
+#audit Learn.WaterFill.rateWords_anti
+#audit Learn.WaterFill.rateWords_floor
+#audit Learn.WaterFill.distWords_denote
+#audit Learn.WaterFill.distWords_denote_scale
+#audit Learn.WaterFill.gaussian_floor
+#audit Learn.WaterFill.gaussian_floor_words
+#audit Learn.WaterFill.witness_fields_4
+#audit Learn.WaterFill.witness_fields_1
+#audit Learn.WaterFill.witness_active_set
+#audit Learn.WaterFill.early_witness
+-- The distortion loop refinement: `distortion_words_loop` to the integer fold by
+-- `loop.spec_decr_nat`, and `distortion_words` through `narrow`/`ok_or` on the stated `i128` window.
+#audit Learn.WaterFill.distList_nonneg
+#audit Learn.WaterFill.distList_eq_distWords
+#audit Learn.WaterFill.slice_next_eq
+#audit Learn.WaterFill.body_eq_cont
+#audit Learn.WaterFill.body_eq_done
+#audit Learn.WaterFill.distortion_words_loop_spec
+#audit Learn.WaterFill.distortion_words_eq
+#audit Learn.WaterFill.distortion_words_spec
+-- The rate loop refinement: `rate_at_logs_loop` to `rateSum` by `loop.spec_decr_nat`, on the
+-- no-overflow window for the `i64` subtraction and the `i128` accumulator window.
+#audit Learn.WaterFill.checked_sub_some_of_window
+#audit Learn.WaterFill.i128_add_from
+#audit Learn.WaterFill.rate_at_logs_loop_spec
+#audit Learn.WaterFill.rate_at_logs_eq
+#audit Learn.WaterFill.rate_at_logs_loop_zero
+#audit Learn.WaterFill.rate_at_logs_spec
+-- The bisection's sum loop: `water_fill_words_loop1` to the prefix sum by `loop.spec_decr_nat` on
+-- the same `i128` window, and that sum read as `distWords` at the maximum level.
+#audit Learn.WaterFill.vals_sum_nonneg
+#audit Learn.WaterFill.lamSuffix_nonneg
+#audit Learn.WaterFill.sum_body_eq
+#audit Learn.WaterFill.sum_body_eq_done
+#audit Learn.WaterFill.water_fill_words_loop1_spec
+#audit Learn.WaterFill.water_fill_words_loop1_zero
+#audit Learn.WaterFill.le_maxOf
+#audit Learn.WaterFill.sum_min_eq
+#audit Learn.WaterFill.distWords_maxOf
+#audit Learn.WaterFill.water_fill_words_loop1_distWords
+
+-- The concrete witness slices built from the codebook (`q = 2^35` on the 240 exact rows,
+-- `dot = Σ_p C_j(p)`): the row identity, the correspondence on those rows, and the argmin transfer.
+-- The 16 `O8` rows are excluded by `not_dvd_sqrt8_sq`; no `i64` `q` satisfies the row identity there.
+#audit Learn.FitIcm.block_cost_ok_bounded
+#audit Learn.FitIcm.codewordSpec_sq_sum
+#audit Learn.FitIcm.wordCostCorresponds_row
+#audit Learn.FitIcm.witnessWordCostCorrespondsOn
+#audit Learn.FitIcm.best_code_q_argmin_real_on
+#audit Learn.FitIcm.witnessArgmin
+#audit Learn.FitIcm.witnessArgmin_le
+#audit Learn.FitIcm.not_dvd_sqrt8_sq
+#audit Learn.FitIcm.o8_q_not_integral
+
+-- The O8 separation and the no-error post: `best_code_q_loop_noerr` removes `hbest`; the 16 O8
+-- rows' real `blockReduce` is nonnegative (`diagBlock_reduce_o8_nonneg`), so the full 256-row real
+-- argmin is row 0 (`witnessArgmin_all`); the step spec (`witnessStepSpec`) still carries `i < 240`.
+#audit Learn.FitIcm.best_code_q_loop_noerr
+#audit Learn.FitIcm.diagBlock_reduce_o8_nonneg
+#audit Learn.FitIcm.o8_sq_sum
+#audit Learn.FitIcm.o8_sum_bounds
+#audit Learn.FitIcm.witnessArgmin_all
+#audit Learn.FitIcm.witness_best_code_q_ok
+#audit Learn.FitIcm.witness_block_cost_ok
+#audit Learn.FitIcm.witnessDot_abs_le
+#audit Learn.FitIcm.witnessQ_abs_le
+#audit Learn.FitIcm.witnessQ_val_all
+#audit Learn.FitIcm.witnessStepSpec
+
+-- The step spec is unconditional on the witness: `o8_block_cost_nonneg` gives the O8 word cost ≥ 0,
+-- `witnessArgmin_index_lt` derives `i < 240` from the extracted comparison against row 0's -2^96·8,
+-- and `witnessStepSpec_exists` composes the existence with the step spec.
+#audit Learn.FitIcm.blockReduce_zero
+#audit Learn.FitIcm.o8_block_cost_nonneg
+#audit Learn.FitIcm.o8_sum_bounds_Z
+#audit Learn.FitIcm.witnessArgmin_index_lt
+#audit Learn.FitIcm.witnessStepSpec_exists
+
+-- The sweep: `witnessSweep_le`/`witnessSweep_lt` carry the per-block step spec over a `Finset`
+-- index set (`sweepTotal`), and `witnessSweep_lt_o8` is the concrete strict case against the O8 row.
+#audit Learn.FitIcm.witnessSweep_le
+#audit Learn.FitIcm.witnessSweep_lt
+#audit Learn.FitIcm.witnessSweep_lt_o8
+
+-- Water-fill loop 0 (the max/min/log prep pass): `water_fill_words_loop0_spec` is the loop's
+-- postcondition and `water_fill_words_loop0_zero` its concrete zero-initialized instance; the
+-- supporting max/min/log lemmas are audited with it.
+#audit Learn.WaterFill.logsOf_set
+#audit Learn.WaterFill.maxOf_append_singleton
+#audit Learn.WaterFill.maxOf_take_succ
+#audit Learn.WaterFill.maxStep_val
+#audit Learn.WaterFill.minPosOf_append_singleton
+#audit Learn.WaterFill.minPosOf_take_succ
+#audit Learn.WaterFill.minStep_val
+#audit Learn.WaterFill.prep_body_eq
+#audit Learn.WaterFill.prep_body_eq_done
+#audit Learn.WaterFill.vals_set
+#audit Learn.WaterFill.water_fill_words_loop0_spec
+#audit Learn.WaterFill.water_fill_words_loop0_zero
+
+-- The residual-update probe: `residualStep_comp` shows two steps add their codes; `twoPass_quad` and
+-- `twoPass_le_iff` give the exact second-pass identity and its one condition; `twoPass_not_le`
+-- exhibits the failure at the exhausted residual (one-pass 0, two-pass 32); `blockQuad_residual_energy`
+-- identifies the block cost with the residual energy. This refutes the subtractive two-pass model;
+-- the algorithm's state update is the reconstruction delta (`sweep_rows`), not a second subtraction.
+#audit Learn.FitIcm.blockQuad_diagBlock
+#audit Learn.FitIcm.blockQuad_residual_energy
+#audit Learn.FitIcm.residualStep_comp
+#audit Learn.FitIcm.twoPass_le_iff
+#audit Learn.FitIcm.twoPass_not_le
+#audit Learn.FitIcm.twoPass_quad
+#audit Learn.FitIcm.witness_onePass_zero
+
+-- The shipped delta update: `stateResid`/`blockGrad`/`stateQuad` define the state;
+-- `stateResid_update`, `blockGrad_update`/`blockGrad_update_code` and `jointGrad_update_left` prove
+-- the gradient invariant; `state_step_descends` and `sweep_state_descent{,_lt}` are the
+-- coordinate-descent non-increase; `blockReduce_eq_word_cost`/`word_argmin_cost_bound` give the real
+-- word correspondence with the Q32.32 error bound as an explicit hypothesis (limb εq/εd open).
+#audit Learn.FitIcm.blockGrad_update
+#audit Learn.FitIcm.blockGrad_update_code
+#audit Learn.FitIcm.blockReduce_eq_word_cost
+#audit Learn.FitIcm.jointGrad_update_left
+#audit Learn.FitIcm.lin_update
+#audit Learn.FitIcm.stateQuad_delta
+#audit Learn.FitIcm.stateQuad_eq_resid_form
+#audit Learn.FitIcm.stateQuad_eq_stateReduce_add
+#audit Learn.FitIcm.stateResid_update
+#audit Learn.FitIcm.state_step_descends
+#audit Learn.FitIcm.sweep_state_descent
+#audit Learn.FitIcm.sweep_state_descent_lt
+#audit Learn.FitIcm.word_argmin_cost_bound
+
+-- Water-fill loop 2 (the `t_lo` doubling walk): `water_fill_words_loop2_spec` is the exact
+-- three-way post (a feasible probe, an error, or the exhausted walk with `walkProbesBelow`);
+-- `water_fill_words_loop2_converged` is loop 3's conditional feasibility premise.
+#audit Learn.WaterFill.checked_mul_some_val
+#audit Learn.WaterFill.checked_sub_some_val
+#audit Learn.WaterFill.l2_body_eq_done
+#audit Learn.WaterFill.l2_body_eq_err
+#audit Learn.WaterFill.l2_body_eq_probe
+#audit Learn.WaterFill.l2_body_eq_walked
+#audit Learn.WaterFill.walkGap_succ
+#audit Learn.WaterFill.walkLevel_succ
+#audit Learn.WaterFill.water_fill_words_loop2_converged
+#audit Learn.WaterFill.water_fill_words_loop2_spec
+
+-- The ordered pass: `blockOrder` is the `sweep_rows` parity order; `icmPass = List.foldl blockStep`
+-- and `icmPasses` carry `(s, f)`. `rowQuad_update_delta`, `rowQuad_step_le`, `gradState_step` and
+-- `codeState_step` preserve the invariant and never raise the row objective; `icmPass_inv_le` and
+-- `icmPasses_quad_le` compose it over a pass and over passes; `fblk_eq_data_add_fout` is the
+-- sequential `f_blk` under `GradState`.
+#audit Learn.FitIcm.blockOrder_even
+#audit Learn.FitIcm.blockOrder_length
+#audit Learn.FitIcm.blockOrder_nodup
+#audit Learn.FitIcm.blockOrder_odd
+#audit Learn.FitIcm.codeState_step
+#audit Learn.FitIcm.fblk_eq_data_add_fout
+#audit Learn.FitIcm.gradState_step
+#audit Learn.FitIcm.icmPasses_quad_le
+#audit Learn.FitIcm.icmPass_inv_le
+#audit Learn.FitIcm.phi_delta
+#audit Learn.FitIcm.rowQuad_step_le
+#audit Learn.FitIcm.rowQuad_update_delta
+
+-- The joint pair step: `pairPhi_codebook_eq` is the exact cost (`av + bv + 2a₁a₂·cross`, the ridge
+-- inside the diagonal blocks); `pairArgmin` is the flat strict-`<` first minimiser over 65536 pairs;
+-- `pairFblk1`/`pairFblk2` are the effective data; `planePhi_delta`/`cross_delta`/`pairPhi_delta` and
+-- `jointQuad_update_delta` the exact delta; `jointQuad_step_le` and `pairPass{es}_inv_le` the
+-- non-increase over the step and the pass.
+#audit Learn.FitIcm.cross_delta
+#audit Learn.FitIcm.crossForm_H21
+#audit Learn.FitIcm.grad_step_generic
+#audit Learn.FitIcm.jointGradState_step
+#audit Learn.FitIcm.jointQuad_delta_form
+#audit Learn.FitIcm.jointQuad_step_le
+#audit Learn.FitIcm.jointQuad_update_delta
+#audit Learn.FitIcm.pairArgmin_le
+#audit Learn.FitIcm.pairArgmin_spec
+#audit Learn.FitIcm.pairFblk1_sub
+#audit Learn.FitIcm.pairFblk2_sub
+#audit Learn.FitIcm.pairPasses_inv
+#audit Learn.FitIcm.pairPasses_quad_le
+#audit Learn.FitIcm.pairPass_inv_le
+#audit Learn.FitIcm.pairPhi_codebook_eq
+#audit Learn.FitIcm.pairPhi_delta
+#audit Learn.FitIcm.planePhi_delta
+#audit Learn.FitIcm.twoCodeState_step
+#audit Learn.FitIcm.twoInv_step
+
+-- Water-fill loop 3 (the bisection midpoint loop): `FeasibleAt`/`ConvergedAt`/`RejectedAt`/
+-- `BisectBracket`; `water_fill_words_loop3_spec` is the unconditional three-way post (converged,
+-- error, or the exhausted last probe with `RejectedAt` or the zero-length `t0` exit), and
+-- `water_fill_words_loop3_converged` is the no-rejection corollary. `t_hi` is not certified
+-- infeasible; `hconv` is the `converged` call premise.
+#audit Learn.WaterFill.bmod2_parity
+#audit Learn.WaterFill.bmod_small_two_w
+#audit Learn.WaterFill.div2_bounds
+#audit Learn.WaterFill.div2_succ_le_of_odd
+#audit Learn.WaterFill.i128_add_one_spec
+#audit Learn.WaterFill.i128_and_one_val
+#audit Learn.WaterFill.I128_min_val
+#audit Learn.WaterFill.I64_max_val
+#audit Learn.WaterFill.I64_min_val
+#audit Learn.WaterFill.l3_body_eq_done
+#audit Learn.WaterFill.l3_body_eq_doneFlag
+#audit Learn.WaterFill.l3_body_eq_err
+#audit Learn.WaterFill.l3_body_eq_probe
+#audit Learn.WaterFill.l3_body_eq_probe_neg_even
+#audit Learn.WaterFill.l3_body_eq_probe_odd
+#audit Learn.WaterFill.l3_body_eq_probe_pos
+#audit Learn.WaterFill.l3_tail_run
+#audit Learn.WaterFill.le_div2_succ
+#audit Learn.WaterFill.shiftRight_one_spec
+#audit Learn.WaterFill.water_fill_words_loop3_converged
+#audit Learn.WaterFill.water_fill_words_loop3_spec
+
+-- The annealed pair step: `pairWeight`/`pairZ`/`pairLaw` and the Gibbs variational principle
+-- (`pairFree_ge`, equality `pairFree_law_eq` through `pairFree_sub_law` = KL/β); the integer table's
+-- law and its free-energy gap (`intLaw_rel`, `pairFree_gap_le`), the clamp as a clipped cost
+-- (`tableLaw_eq_pairLaw_of_unclamped`), and the sampling gap with `hP : P = intLaw w` explicit.
+#audit Learn.FitIcm.abs_div_sub_div_le
+#audit Learn.FitIcm.abs_mul_sub_mul_le
+#audit Learn.FitIcm.div_le_rel_aux
+#audit Learn.FitIcm.div_sq_le_aux
+#audit Learn.FitIcm.draw_gap_le
+#audit Learn.FitIcm.exp_abs_sub_le
+#audit Learn.FitIcm.intLaw_rel
+#audit Learn.FitIcm.intLaw_sum_one
+#audit Learn.FitIcm.klDiv_le_of_rel
+#audit Learn.FitIcm.klDiv_nonneg_of_nonneg
+#audit Learn.FitIcm.klDiv_nonneg_of_pos
+#audit Learn.FitIcm.klDiv_pairLaw
+#audit Learn.FitIcm.klDiv_pairLaw_self
+#audit Learn.FitIcm.klTerm_ge
+#audit Learn.FitIcm.log_pairLaw
+#audit Learn.FitIcm.pairFree_gap_le
+#audit Learn.FitIcm.pairFree_ge
+#audit Learn.FitIcm.pairFree_law_eq
+#audit Learn.FitIcm.pairFree_law_mul_beta
+#audit Learn.FitIcm.pairFree_mul_beta
+#audit Learn.FitIcm.pairFree_sub_law
+#audit Learn.FitIcm.pairLaw_pos
+#audit Learn.FitIcm.pairLaw_scale
+#audit Learn.FitIcm.pairLaw_shift
+#audit Learn.FitIcm.pairLaw_sum_one
+#audit Learn.FitIcm.pairWeight_pos
+#audit Learn.FitIcm.pairWeight_shift
+#audit Learn.FitIcm.pairZ_pos
+#audit Learn.FitIcm.pairZ_shift
+#audit Learn.FitIcm.sq_le_sq_aux
+#audit Learn.FitIcm.tableLaw_eq_pairLaw_of_unclamped
+#audit Learn.FitIcm.tableLaw_free_ge
+#audit Learn.FitIcm.tableLaw_pos
+#audit Learn.FitIcm.tableLaw_sum_one
+#audit Learn.FitIcm.weight_pos_of_rel
+#audit Learn.FitIcm.weight_sum_ge
+#audit Learn.FitIcm.weight_sum_pos
+
+-- The measured word bound at the Down peaks: `word_argmin_cost_bound_down_const` is the exact
+-- constant `102492/2^32`, and `word_argmin_cost_bound_down` carries it through the argmin
+-- comparison at `aa = 1`, `two_a = 2`; the measurement (12/182 words, 1.75e-7) is a docstring.
+#audit Learn.FitIcm.word_argmin_cost_bound_down
+#audit Learn.FitIcm.word_argmin_cost_bound_down_const
+
+-- The water tail: `distortion_words` exact (nonpositive, post, overflow) and `rate_words` exact
+-- under the `log2` call hypotheses (`rateAt`, `rateBad`, `rate_words_loop0_spec`,
+-- `rate_words_loop1_spec`, `rate_words_pos_{none,eq,spec,fail}`, `rate_words_nonpos`); the real
+-- `½ log₂(λ/θ)` value stays conditional on the unrefined `log2`/`fixed_ln` bound.
+#audit Learn.WaterFill.anyPos
+#audit Learn.WaterFill.anyPos_append_singleton
+#audit Learn.WaterFill.anyPos_nil
+#audit Learn.WaterFill.checked_sub_some_window
+#audit Learn.WaterFill.distortion_words_nonpos
+#audit Learn.WaterFill.distortion_words_overflow
+#audit Learn.WaterFill.distortion_words_post
+#audit Learn.WaterFill.i128_add_from'
+#audit Learn.WaterFill.l0_body_eq_cont_neg
+#audit Learn.WaterFill.l0_body_eq_cont_pos
+#audit Learn.WaterFill.l0_body_eq_done
+#audit Learn.WaterFill.rate_and_then
+#audit Learn.WaterFill.rateAt
+#audit Learn.WaterFill.rateAt_append
+#audit Learn.WaterFill.rateAt_cons
+#audit Learn.WaterFill.rateAt_drop_le
+#audit Learn.WaterFill.rateAt_nil
+#audit Learn.WaterFill.rateAt_nonneg
+#audit Learn.WaterFill.rateBad
+#audit Learn.WaterFill.rateBad_append_iff
+#audit Learn.WaterFill.rateBad_append_left
+#audit Learn.WaterFill.rateBad_append_right
+#audit Learn.WaterFill.rateBad_singleton
+#audit Learn.WaterFill.rate_words_loop0_spec
+#audit Learn.WaterFill.rate_words_loop1_spec
+#audit Learn.WaterFill.rate_words_nonpos
+#audit Learn.WaterFill.rate_words_pos_eq
+#audit Learn.WaterFill.rate_words_pos_fail
+#audit Learn.WaterFill.rate_words_pos_none
+#audit Learn.WaterFill.rate_words_pos_spec
+#audit Learn.WaterFill.rw_body_eq_done
+#audit Learn.WaterFill.rw_body_eq_idle
+#audit Learn.WaterFill.rw_body_eq_overflow
+#audit Learn.WaterFill.rw_body_eq_set
+#audit Learn.WaterFill.rw_body_eq_success
+
+-- The whole `water_fill_words` body, branch by branch: `water_fill_words_spec` is the 18-way
+-- conjunction over the sub/len/loop0/empty/max/t≤0/log2/loop2/mul/loop3/exp2/dist/rate branches,
+-- with the loop/tail results carried as step equalities; `solve_water_fill_{ok,err}` is the
+-- wrapper. Composing those equalities through the loop/tail specs is the next layer.
+#audit Learn.WaterFill.branch_err
+#audit Learn.WaterFill.branch_err_i64
+#audit Learn.WaterFill.branch_ok
+#audit Learn.WaterFill.from_residual_same
+#audit Learn.WaterFill.solve_water_fill_err
+#audit Learn.WaterFill.solve_water_fill_ok
+#audit Learn.WaterFill.water_fill_words_dist_err
+#audit Learn.WaterFill.water_fill_words_empty
+#audit Learn.WaterFill.water_fill_words_exp2_none
+#audit Learn.WaterFill.water_fill_words_len_overflow
+#audit Learn.WaterFill.water_fill_words_logmax_add_none
+#audit Learn.WaterFill.water_fill_words_logmax_none
+#audit Learn.WaterFill.water_fill_words_logmin_none
+#audit Learn.WaterFill.water_fill_words_logmin_sub_none
+#audit Learn.WaterFill.water_fill_words_loop0_err
+#audit Learn.WaterFill.water_fill_words_loop2_err
+#audit Learn.WaterFill.water_fill_words_loop3_err
+#audit Learn.WaterFill.water_fill_words_max_nonpos
+#audit Learn.WaterFill.water_fill_words_mul_none
+#audit Learn.WaterFill.water_fill_words_ok
+#audit Learn.WaterFill.water_fill_words_rate_err
+#audit Learn.WaterFill.water_fill_words_spec
+#audit Learn.WaterFill.water_fill_words_sub_none
+#audit Learn.WaterFill.water_fill_words_t_nonpos_none
+#audit Learn.WaterFill.water_fill_words_t_nonpos_some
+
+-- The block-floating limb-product bound: `limb_error_le` (the documented `G`), `rshift32_spec`,
+-- `abs_limbPre_sub_exactPre_le`, and the per-call Down specializations `limb_q_error_down`
+-- (≤ 1562/2^32) and `limb_d_error_down` (≤ 24842/2^32). These bound one kernel call; the shipped
+-- `q_all` is a two-call composite, so they do not bound it end to end.
+#audit Learn.Limb.abs_limbPre_sub_exactPre_le
+#audit Learn.Limb.cL_peak_values
+#audit Learn.Limb.Gwords_d_down
+#audit Learn.Limb.Gwords_q_down
+#audit Learn.Limb.limb_d_error_down
+#audit Learn.Limb.limb_error_le
+#audit Learn.Limb.limb_q_error_down
+#audit Learn.Limb.rshift32_spec
+
+-- Branch 17 composed: `water_fill_words_ok_composed` derives the loop-0, loop-1,
+-- `distortion_words` and `rate_words` step equalities from their specs; the loop-2/loop-3
+-- step equalities remain the `hdown` caller fact.
+#audit Learn.WaterFill.water_fill_words_ok_composed
+
+-- The limb bound at the shipped path: `limb_q_error_codebook`/`limb_t_error` compose the two
+-- `nt_q` calls (`q_all_end2end`, `epsilon_q_end2end`), `fblk_error_le` derives the state term
+-- (`dots_end2end`, `dots_end2end_state`, `epsilon_d_end2end_local`); the downstream
+-- `word_argmin_cost_bound_end2end{,_const,_local}` carries the end-to-end margin. `εres` (the
+-- `sub_q` residual-state invariant) is a hypothesis.
+#audit Learn.Limb.dot8_comp_le
+#audit Learn.Limb.dot8_error_le
+#audit Learn.Limb.dots_end2end
+#audit Learn.Limb.dots_end2end_state
+#audit Learn.Limb.epsilon_d_end2end_local
+#audit Learn.Limb.epsilon_q_end2end
+#audit Learn.Limb.fblk_error_le
+#audit Learn.Limb.limb_error_le_G
+#audit Learn.Limb.limb_q_error_codebook
+#audit Learn.Limb.limb_t_error
+#audit Learn.Limb.q_all_end2end
+#audit Learn.FitIcm.word_argmin_cost_bound_end2end
+#audit Learn.FitIcm.word_argmin_cost_bound_end2end_const
+#audit Learn.FitIcm.word_argmin_cost_bound_end2end_local
+
+-- The quantiser's word-error chain: `mulQ_spec` (the `mul_q` rounding derived), `resid_step_le`/
+-- `resid_iter_le` (the `sub_q` residual recurrence), `limb_error_chg`, `resid_le_derived`,
+-- `dots_derived`, and `word_argmin_cost_bound_end2end_derived` at the derived margin
+-- (`derived_const_value` at N = 128, εres0 = 0).
+#audit Learn.IcmError.abs_tmod_lt
+#audit Learn.IcmError.derived_const_value
+#audit Learn.IcmError.dots_derived
+#audit Learn.IcmError.epsDEnd_local_eq
+#audit Learn.IcmError.epsQEnd_eq
+#audit Learn.IcmError.eps_step_eq
+#audit Learn.IcmError.limb_error_chg
+#audit Learn.IcmError.margin_derived_eq
+#audit Learn.IcmError.mulQ_spec
+#audit Learn.IcmError.resid_iter_le
+#audit Learn.IcmError.resid_le_derived
+#audit Learn.IcmError.resid_step_le
+#audit Learn.IcmError.rne32_int_spec
+#audit Learn.IcmError.rneStep_abs_le
+#audit Learn.IcmError.word_argmin_cost_bound_end2end_derived
+#audit Learn.IcmError.word_argmin_cost_bound_end2end_derived_const
+
+-- The `Ea ≤ 35` state chain (measured `chg` peak at the Down witness): `limb_error_chg_Ea35`
+-- (3114/2^32), `eps_step_eq_Ea35` (6229/2^33), `resid_le_derived_Ea35`, `dots_derived_Ea35`,
+-- `margin_derived_eq_Ea35`, and the N = 128 / measured N = 1216 margins. The `Ea ≤ 36` chain
+-- stays as the input-general fallback.
+#audit Learn.IcmError.derived_const_value_Ea35_N1216
+#audit Learn.IcmError.derived_const_value_Ea35_N128
+#audit Learn.IcmError.dots_derived_Ea35
+#audit Learn.IcmError.eps_step_eq_Ea35
+#audit Learn.IcmError.limb_error_chg_Ea35
+#audit Learn.IcmError.margin_derived_eq_Ea35
+#audit Learn.IcmError.resid_le_derived_Ea35
+#audit Learn.IcmError.word_argmin_cost_bound_end2end_derived_Ea35
+#audit Learn.IcmError.word_argmin_cost_bound_end2end_derived_Ea35_const
+#audit Learn.IcmError.word_argmin_cost_bound_end2end_derived_Ea35_measured
+
+-- The per-entry step count: `stepCount_le_blocks`, `stepCount_sweeps_le` (`N ≤ sweeps·blocks`),
+-- `stepCount_eq_zero` (no change, no step), `stepCount_sweeps_eq` (tight), and the margin at the
+-- structural maximum, including the Down instantiation at 1216.
+#audit Learn.IcmCount.down_blocks
+#audit Learn.IcmCount.down_step_count
+#audit Learn.IcmCount.epsDEnd_le_of_le
+#audit Learn.IcmCount.epsF35_le_of_le
+#audit Learn.IcmCount.stepCount_eq_zero
+#audit Learn.IcmCount.stepCount_le_blocks
+#audit Learn.IcmCount.stepCount_sweeps_eq
+#audit Learn.IcmCount.stepCount_sweeps_le
+#audit Learn.IcmCount.word_argmin_cost_bound_end2end_derived_Ea35_count
+#audit Learn.IcmCount.word_argmin_cost_bound_end2end_derived_Ea35_count_down
+
+-- The chain's looseness as a kernel-checked statement: the increment is positive, the base and the
+-- Down margin exceed the measured `1.75e-7` at every `N ≥ 1`, and the exact ratios (`> 900×` base,
+-- `> 4·10^5×` Down). This is a statement about the bound, not a refutation of the argmin decision.
+#audit Learn.IcmCount.chain_base_gt_measured
+#audit Learn.IcmCount.chain_base_ratio_gt
+#audit Learn.IcmCount.chain_increment_pos
+#audit Learn.IcmCount.chain_margin_down_eq
+#audit Learn.IcmCount.chain_margin_down_gt_measured
+#audit Learn.IcmCount.chain_margin_down_ratio_gt
+#audit Learn.IcmCount.chain_margin_gt_measured
+
+-- The water composition's loop layer: the two `log2` closure steps, loop 2 and loop 3 supplied
+-- from their specs at `{0, 200}`, and `water_fill_words_ok_loops` (loops derived; `log2`/`exp2`
+-- accuracy and the loops' `e = none` remain caller facts).
+#audit Learn.WaterFill.closure_1_step
+#audit Learn.WaterFill.closure_2_step
+#audit Learn.WaterFill.water_fill_words_loop2_at
+#audit Learn.WaterFill.water_fill_words_loop3_at
+#audit Learn.WaterFill.water_fill_words_ok_loops
+
+-- `water_fill_words_ok_loops_derived`: the loop-2/loop-3 equations are discharged inside the
+-- composition from the `_at` conclusions (plus the `e = none` facts); `log2`/`exp2` accuracy is
+-- still out of scope.
+#audit Learn.WaterFill.water_fill_words_ok_loops_derived
+
+-- `Learn.Log2`: the `basis.log2`/`fixed_ln` real-value constants. The four named composition
+-- theorems (`round_div2p32_half`, `round_div_half`, `poly_error`, `fixed_ln_spec`,
+-- `log2_spec`) are statements in the module doc, not yet proved.
+#audit Learn.Log2.ln2_q32_sharp
+#audit Learn.Log2.sqrt2_q62_bound
+#audit Learn.Log2.coef_error
+#audit Learn.Log2.two_atanh_remainder
+#audit Learn.Log2.log_normalization
+#audit Learn.Log2.s_abs_le_third
+#audit Learn.Log2.s_abs_le_third_of_sqrt2

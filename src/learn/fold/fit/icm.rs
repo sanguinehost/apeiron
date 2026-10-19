@@ -19,8 +19,10 @@
 //! a caller that holds reals converts once at its own boundary ([`codebook`] and [`JointStats`] are
 //! the read-out exceptions). No step pays a `from_grid`/`to_grid` round trip.
 //!
-//! Grade: `tested` (`tests/learn_fold_icm.rs`); nothing here is extracted or refined to the canonical
-//! corpus, so no statement here is `proved`.
+//! Grade: `tested` (`tests/learn_fold_icm.rs`) for the band and sweep bodies; `best_code_q`'s argmin
+//! is `proved` through `proof/corpus/Learn/FitIcm.lean` (`witnessArgmin_all`,
+//! `witnessStepSpec_exists`), and the Rust binding is the unit test
+//! `tests::learn_fold_fit_icm_witness_best_code_q_is_row0`.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -240,7 +242,12 @@ fn pair_cost(two_a12: i128, x: i64, av: i128, bv: i128) -> Result<i128, IcmError
 /// `q[j]` is the block's quadratic form, `dot[j]` the kernel product `s·c_j` at Q32.32. Kept out of
 /// the band loop: the pinned Aeneas refuses to compute a loop fixed point over the band's whole
 /// carried state.
-fn best_code_q(aa: i128, two_a: i128, q: &[i64], dot: &[i64]) -> Result<usize, IcmError> {
+pub(crate) fn best_code_q(
+    aa: i128,
+    two_a: i128,
+    q: &[i64],
+    dot: &[i64],
+) -> Result<usize, IcmError> {
     let (mut best, mut best_cost) = (0_u16, i128::MAX);
     let mut err: Option<IcmError> = None;
     let mut j = 0;
@@ -260,6 +267,226 @@ fn best_code_q(aa: i128, two_a: i128, q: &[i64], dot: &[i64]) -> Result<usize, I
         return Err(e);
     }
     Ok(usize::from(best))
+}
+
+/// The exact Q96.96 joint pair cost table of one row-block, row-major `[i₁·CODE_LEN + i₂]`:
+/// `2·a₁a₂·x[i₁,i₂] + A[i₁] + B[i₂]`, with `two_a12 = 2·a₁a₂` hoisted by the caller. `out` is
+/// cleared first, so one buffer serves every row of a band.
+///
+/// # Errors
+/// [`IcmError::Shape`] if `xm` is not `CODE_LEN²`; [`IcmError::Overflow`] off the grid.
+/// # Complexity
+/// `O(CODE_LEN²)` checked operations and `CODE_LEN²` `i128` words in `out`.
+fn pair_costs_into(
+    two_a12: i128,
+    av: &[i128; CODE_LEN],
+    xm: &[i64],
+    bv: &[i128; CODE_LEN],
+    out: &mut Vec<i128>,
+) -> Result<(), IcmError> {
+    if xm.len() != CODE_LEN * CODE_LEN {
+        return Err(IcmError::Shape);
+    }
+    out.clear();
+    let mut i1 = 0;
+    while i1 < CODE_LEN {
+        let x_row = &xm[i1 * CODE_LEN..][..CODE_LEN];
+        let a = av[i1];
+        let mut i2 = 0;
+        while i2 < CODE_LEN {
+            out.push(pair_cost(two_a12, x_row[i2], a, bv[i2])?);
+            i2 += 1;
+        }
+        i1 += 1;
+    }
+    Ok(())
+}
+
+/// The zero-temperature joint pair decision: the `CODE_LEN²`-way argmin of [`pair_costs_into`],
+/// returned as `i₁·CODE_LEN + i₂`, first index on a tie. This is the `T = 0` control the finite
+/// temperature schedule is measured against; it is the decision the joint sweep made before the
+/// schedule existed.
+///
+/// # Errors
+/// [`IcmError::Shape`] if `xm` is not `CODE_LEN²`; [`IcmError::Overflow`] off the grid.
+/// # Complexity
+/// `O(CODE_LEN²)` checked operations, `O(1)` space beyond the caller's operands.
+pub fn best_pair_q(
+    two_a12: i128,
+    av: &[i128; CODE_LEN],
+    xm: &[i64],
+    bv: &[i128; CODE_LEN],
+) -> Result<usize, IcmError> {
+    if xm.len() != CODE_LEN * CODE_LEN {
+        return Err(IcmError::Shape);
+    }
+    let (mut flat, mut best) = (0_usize, i128::MAX);
+    let mut i1 = 0;
+    while i1 < CODE_LEN {
+        let x_row = &xm[i1 * CODE_LEN..][..CODE_LEN];
+        let mut i2 = 0;
+        while i2 < CODE_LEN {
+            let t = pair_cost(two_a12, x_row[i2], av[i1], bv[i2])?;
+            if t < best {
+                best = t;
+                flat = i1 * CODE_LEN + i2;
+            }
+            i2 += 1;
+        }
+        i1 += 1;
+    }
+    Ok(flat)
+}
+
+/// One finite-temperature joint pair decision: the `CODE_LEN²` [`pair_costs_into`] table drawn with
+/// [`gibbs_choice`] at inverse temperature `beta` (Q32.32), returned as `i₁·CODE_LEN + i₂`.
+///
+/// `beta = 0` is the hot limit (a uniform draw), not the `T = 0` control; the control is
+/// [`best_pair_q`].
+///
+/// # Errors
+/// [`IcmError::Shape`] on a negative `beta` or an `xm` that is not `CODE_LEN²`;
+/// [`IcmError::Overflow`] off the grid.
+/// # Complexity
+/// `O(CODE_LEN²)` checked operations and `O(CODE_LEN²)` `i128` scratch words per draw.
+pub fn best_pair_q_beta(
+    two_a12: i128,
+    av: &[i128; CODE_LEN],
+    xm: &[i64],
+    bv: &[i128; CODE_LEN],
+    beta: i64,
+    rng: &mut u64,
+) -> Result<usize, IcmError> {
+    if beta < 0 {
+        return Err(IcmError::Shape);
+    }
+    let mut costs = Vec::with_capacity(CODE_LEN * CODE_LEN);
+    pair_costs_into(two_a12, av, xm, bv, &mut costs)?;
+    gibbs_choice(&costs, beta, rng)
+}
+
+/// A deterministic Q32.32 inverse-temperature schedule for the joint code sweep: `beta` ramps
+/// linearly from `beta0` at sweep `0` to `beta1` at sweep `sweeps − 1`. `beta0 < beta1` is a cooling
+/// schedule (hot first, so the sweep can leave a coordinate local minimum, cold last, so it settles);
+/// `beta0 = beta1` is isothermal.
+///
+/// The draws use [`gibbs_choice`] with one xorshift state per row, seeded from `seed` and the row
+/// index only, so a run is reproducible and its draws do not depend on the pool banding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BetaSchedule {
+    /// Inverse temperature of sweep `0`, Q32.32.
+    beta0: i64,
+    /// Inverse temperature of sweep `sweeps − 1`, Q32.32 (`>= beta0`).
+    beta1: i64,
+    /// Sweeps the ramp spans; at least one.
+    sweeps: usize,
+    /// xorshift seed; row `o` starts at `seed ^ mix64(o)`.
+    seed: u64,
+}
+
+impl BetaSchedule {
+    /// A cooling schedule from `beta0` to `beta1` over `sweeps` sweeps.
+    ///
+    /// # Errors
+    /// [`IcmError::Shape`] if `sweeps == 0`, `beta0 < 0`, or `beta1 < beta0`.
+    pub fn new(beta0: i64, beta1: i64, sweeps: usize, seed: u64) -> Result<Self, IcmError> {
+        if sweeps == 0 || beta0 < 0 || beta1 < beta0 {
+            return Err(IcmError::Shape);
+        }
+        Ok(Self {
+            beta0,
+            beta1,
+            sweeps,
+            seed,
+        })
+    }
+
+    /// The inverse temperature of `sweep` (Q32.32), clamped to the last sweep's value.
+    #[must_use]
+    pub fn beta_at(&self, sweep: usize) -> i64 {
+        if self.sweeps <= 1 {
+            return self.beta1;
+        }
+        let span = self.sweeps - 1;
+        let k = i128::try_from(sweep.min(span)).unwrap_or(i128::MAX);
+        let span = i128::try_from(span).unwrap_or(i128::MAX);
+        let b0 = i128::from(self.beta0);
+        let delta = i128::from(self.beta1) - b0;
+        (b0 + delta * k / span) as i64
+    }
+
+    /// The sweep count the ramp spans.
+    #[must_use]
+    pub fn sweeps(&self) -> usize {
+        self.sweeps
+    }
+
+    /// The xorshift seed.
+    #[must_use]
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+}
+
+/// `SplitMix64`'s finaliser: spreads a row index into a non-degenerate xorshift seed.
+fn mix64(mut z: u64) -> u64 {
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// One Boltzmann draw from a joint code-cost table, at inverse temperature `beta` (Q32.32).
+///
+/// The finite-temperature move is the folding `gibbs_variational_principle` prescription: the
+/// Boltzmann weights `exp(-beta * (cost - min))` are the unique minimiser of the variational free
+/// energy, and `beta = infinity` is the zero-temperature [`best_code_q`] argmin. A positive `beta`
+/// admits the uphill move the coordinate descent cannot take; an annealing schedule is the
+/// `funnelFreeEnergy` sweep. The costs are exact Q96.96 `i128` (the same scale as [`pair_cost`]).
+///
+/// # Errors
+/// [`IcmError::Shape`] on an empty cost table; [`IcmError::Overflow`] if a cost or the weight sum
+/// leaves the grid. Weights below `exp(-16)` clamp to that floor, so a very cold table still has a
+/// positive total.
+///
+/// # Complexity
+/// `O(costs.len())` checked operations and `O(costs.len())` scratch words per draw; one draw is
+/// `O(CODE_LEN²)` for the two-plane table.
+pub fn gibbs_choice(costs: &[i128], beta: i64, rng: &mut u64) -> Result<usize, IcmError> {
+    if costs.is_empty() || beta < 0 {
+        return Err(IcmError::Shape);
+    }
+    let min = *costs.iter().min().ok_or(IcmError::Shape)?;
+    let floor = -16 * ONE;
+    let mut weights = Vec::with_capacity(costs.len());
+    let mut total = 0_i64;
+    for &cost in costs {
+        let gap = cost - min;
+        let gap32 = i64::try_from(gap >> 64).map_err(|_| IcmError::Overflow)?;
+        let prod = i128::from(beta) * i128::from(gap32);
+        let neg = i64::try_from(-(prod >> 32)).map_err(|_| IcmError::Overflow)?;
+        let x = neg.max(floor);
+        let w = crate::numeric::fixed_exp::fixed_exp(x).map_err(|_| IcmError::Overflow)?;
+        total = total.checked_add(w).ok_or(IcmError::Overflow)?;
+        weights.push(w);
+    }
+    if total <= 0 {
+        return Err(IcmError::Overflow);
+    }
+    let mut state = *rng;
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    *rng = state;
+    let total_u = u64::try_from(total).map_err(|_| IcmError::Overflow)?;
+    let draw = i64::try_from(state % total_u).map_err(|_| IcmError::Overflow)?;
+    let mut acc = 0_i64;
+    for (index, &w) in weights.iter().enumerate() {
+        acc = acc.checked_add(w).ok_or(IcmError::Overflow)?;
+        if draw < acc {
+            return Ok(index);
+        }
+    }
+    Ok(weights.len() - 1)
 }
 
 /// An operand shape the kernel refuses is [`IcmError::Shape`]; a range or missing-kernel refusal is [`IcmError::Overflow`].
@@ -1069,15 +1296,13 @@ fn sweep_rows(
 /// Joint block ICM over two planes: `sweeps` passes over the `n / 8` blocks (or the `blocks` subset, in
 /// the given order), each replacing both planes' codes of one block by the pair `(i₁, i₂)` minimising
 /// `2 a₁a₂ X_m[i₁,i₂] + A[i₁] + B[i₂]`. `row_chunk` bounds the rows one pool task works on.
+///
+/// This is the `T = 0` control: it is [`e8_joint_icm_2plane_annealed`] with no schedule, so every
+/// decision is the exact [`best_pair_q`] argmin and `J` is non-increasing per sweep.
 /// # Errors
 /// [`IcmError::Shape`] on a slice length that disagrees with `o`/`n`; [`IcmError::Width`] if `n` is not
 /// a positive multiple of [`BLOCK`] and [`GROUP`]; [`IcmError::ZeroChunk`] if `row_chunk == 0`;
 /// [`IcmError::BlockOutOfRange`] for a block index `>= n / BLOCK`; [`IcmError::Overflow`] off the grid.
-/// # Complexity
-/// `sweeps · (n/8) · O · (4·CODE_LEN·BLOCK + 2·BLOCK² + CODE_LEN² + [2·BLOCK·n] changed)` checked
-/// operations for the pair argmin and the two residual updates, plus `O(n²·log2(GROUP))` for the three
-/// `had_gram` passes and `(n/8)·CODE_LEN²·BLOCK` for `X`; rows split across the pool. `O(o·n)` for `s`, `F`, `G`, `B`,
-/// `O(n²)` for `H11/H22/H12`, `(n/8)·CODE_LEN²` `i64` for `X`.
 #[allow(
     clippy::too_many_arguments,
     reason = "the option surface (sweeps, icm_ridge, g_row, row_chunk, blocks) mirrors the Python \
@@ -1097,11 +1322,60 @@ pub fn e8_joint_icm_2plane(
     row_chunk: usize,
     blocks: Option<&[usize]>,
 ) -> Result<(Plane, Plane, JointStats), IcmError> {
+    e8_joint_icm_2plane_annealed(
+        ws, hl, p1, p2, o, n, sweeps, icm_ridge, g_row, row_chunk, blocks, None,
+    )
+}
+
+/// [`e8_joint_icm_2plane`] with a finite-temperature schedule: with `Some(schedule)` every block's
+/// pair is drawn from the exact `CODE_LEN²` Boltzmann table at that sweep's `beta` instead of taken
+/// by argmin, so the sweep can take an uphill move a coordinate descent cannot. `None` is the
+/// `T = 0` control, decision for decision identical to [`e8_joint_icm_2plane`].
+///
+/// With a schedule `J` is no longer monotone: the draw is the folding `gibbs_variational_principle`
+/// conditional, and a cooling ramp is its `funnelFreeEnergy` sweep. The rows' xorshift states are
+/// seeded from the schedule's seed and the row index, so the same schedule and inputs reproduce the
+/// same planes.
+/// # Errors
+/// As [`e8_joint_icm_2plane`], plus [`IcmError::Overflow`] if a cost table or a Boltzmann weight
+/// leaves the grid, and [`IcmError::Shape`] if `schedule.sweeps() == 0` (refused at construction).
+/// # Complexity
+/// `sweeps · (n/8) · O · (4·CODE_LEN·BLOCK + 2·BLOCK² + CODE_LEN² + [2·BLOCK·n] changed)` checked
+/// operations for the pair decision and the two residual updates, plus `O(n²·log2(GROUP))` for the
+/// three `had_gram` passes and `(n/8)·CODE_LEN²·BLOCK` for `X`; rows split across the pool. The
+/// scheduled path adds one `CODE_LEN²` `i128` table rebuild per row and block, reused per band.
+/// `O(o·n)` for `s`, `F`, `G`, `B`, `O(n²)` for `H11/H22/H12`, `(n/8)·CODE_LEN²` `i64` for `X`,
+/// `O(rows·CODE_LEN²)` `i128` for the cost buffer.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the option surface (sweeps, icm_ridge, g_row, row_chunk, blocks, schedule) mirrors the \
+              coordinate-descent signature plus the one annealing parameter; a bag struct would hide \
+              which arguments are metric options and which are shapes"
+)]
+pub fn e8_joint_icm_2plane_annealed(
+    ws: &[i64],
+    hl: &[i64],
+    p1: PlaneRef<'_>,
+    p2: PlaneRef<'_>,
+    o: usize,
+    n: usize,
+    sweeps: usize,
+    icm_ridge: i64,
+    g_row: Option<&[i64]>,
+    row_chunk: usize,
+    blocks: Option<&[usize]>,
+    schedule: Option<&BetaSchedule>,
+) -> Result<(Plane, Plane, JointStats), IcmError> {
     check_inputs(ws, hl, o, n, g_row)?;
     check_plane(p1, o, n)?;
     check_plane(p2, o, n)?;
     if row_chunk == 0 {
         return Err(IcmError::ZeroChunk);
+    }
+    if let Some(s) = schedule {
+        if s.sweeps() == 0 {
+            return Err(IcmError::Shape);
+        }
     }
     let nb = n / BLOCK;
     if let Some(bs) = blocks {
@@ -1202,10 +1476,25 @@ pub fn e8_joint_icm_2plane(
         sweeps,
     };
     // As in [`e8_icm_step`]: the kernel owns the engine pool, so the bands run on the caller.
+    // One xorshift state per row, from the schedule's seed and the row index, so a draw does not
+    // depend on where the band boundaries fall. No schedule leaves the states unused (the `T = 0`
+    // argmin path draws nothing).
+    let mut row_rng = vec![0_u64; rows.len()];
+    if let Some(s) = schedule {
+        let mut r = 0_usize;
+        while r < row_rng.len() {
+            let mut state = s.seed() ^ mix64(r as u64);
+            if state == 0 {
+                state = 0x9E37_79B9_7F4A_7C15;
+            }
+            row_rng[r] = state;
+            r += 1;
+        }
+    }
     let mut lo = 0usize;
     while lo < rows.len() {
         let hi = (lo + per).min(rows.len());
-        moves += joint_band(&task, &mut rows[lo..hi], lo)?;
+        moves += joint_band(&task, &mut rows[lo..hi], lo, schedule, &mut row_rng[lo..hi])?;
         lo = hi;
     }
     let mut wsum = plane_w_q(&s1, p1.r, p1.c, p1.d, o, n)?;
@@ -1261,11 +1550,16 @@ struct JointSweep<'a> {
 /// `CODE_LEN²`-way pair search (`O(rows·CODE_LEN²)` checked operations with `2·a₁a₂` hoisted) and,
 /// only for the rows a block moved, two `moved × 2·BLOCK × n` residual products plus `2n` elementwise
 /// products per moved row. `O(rows·(BLOCK + n))` for the gathered band and `O(BLOCK·n)` for the
-/// windows.
+/// windows; a scheduled band adds `O(rows·CODE_LEN²)` `i128` for the reused cost table.
+///
+/// The pair decision is [`best_pair_q`] when `beta` is `None` and one [`gibbs_choice`] draw of the
+/// same table at `beta.beta_at(sw)` otherwise; `rng[row]` is that row's xorshift state.
 fn joint_band(
     cx: &JointSweep<'_>,
     piece: &mut [JointRow<'_>],
     start: usize,
+    beta: Option<&BetaSchedule>,
+    rng: &mut [u64],
 ) -> Result<usize, IcmError> {
     let (n, nb) = (cx.n, cx.nb);
     let rows = piece.len();
@@ -1296,6 +1590,7 @@ fn joint_band(
     let mut c2b = vec![0_i64; rows * 2 * BLOCK];
     let mut m1: Vec<(usize, i128, i128)> = Vec::with_capacity(rows);
     let mut m2: Vec<(usize, i128, i128)> = Vec::with_capacity(rows);
+    let mut costs: Vec<i128> = Vec::with_capacity(CODE_LEN * CODE_LEN);
     let mut moved = 0_usize;
     for sw in 0..cx.sweeps {
         let count = cx.blocks.map_or(nb, <[usize]>::len);
@@ -1376,17 +1671,13 @@ fn joint_band(
                     bv[j] =
                         block_cost(aa2, two_a2, cx.q2[m * CODE_LEN + j], z2[row * CODE_LEN + j])?;
                 }
-                let (mut flat, mut best) = (0_usize, i128::MAX);
-                for i1v in 0..CODE_LEN {
-                    let (a_row, x_row) = (av[i1v], &xm[i1v * CODE_LEN..][..CODE_LEN]);
-                    for i2v in 0..CODE_LEN {
-                        let t = pair_cost(two_a12, x_row[i2v], a_row, bv[i2v])?;
-                        if t < best {
-                            best = t;
-                            flat = i1v * CODE_LEN + i2v;
-                        }
+                let flat = match beta {
+                    Some(sched) => {
+                        pair_costs_into(two_a12, &av, xm, &bv, &mut costs)?;
+                        gibbs_choice(&costs, sched.beta_at(sw), &mut rng[row])?
                     }
-                }
+                    None => best_pair_q(two_a12, &av, xm, &bv)?,
+                };
                 let (i1s, i2s) = (flat / CODE_LEN, flat % CODE_LEN);
                 let mut ch1 = false;
                 let mut ch2 = false;
@@ -1850,4 +2141,421 @@ pub fn matmul(
     cols: usize,
 ) -> Result<Vec<i64>, IcmError> {
     matmul_q(a, b, rows, inner, cols, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        best_code_q, codebook, codebook_q, flatten_codebook_q, nt_l, nt_q, rows_per_task, BLOCK,
+        CODE_LEN, LIMBS, LIMBS_MATMUL,
+    };
+    use crate::engine::kern::limb::{bound_ulps, gemm_q32};
+    use crate::engine::ONE;
+
+    /// Production row count of the `Kind::Down` fold profile (`tests/learn_fold_profile_down.rs`).
+    const PROD_O: usize = 896;
+
+    /// Production column count of the `Kind::Down` fold profile.
+    const PROD_N: usize = 4864;
+
+    /// Operand peaks of one real `e8_icm_step` at `o = 896, n = 4864, sweeps = 1`, in Q32.32 words,
+    /// from the repository's `Down` fixture (`tests/learn_fold_profile_down.rs`: `Ws ~ N(0, 1/√n)`,
+    /// `H = XᵀX/512` with eight columns × 20, `s` the sign plane, `r = c = d = 1`, production
+    /// `icm_ridge`): `Ws` `0.0667`, `metric` `439.86`, `H_rot` `14.08`, `f_blk` `123.47`.
+    const PROD_WS_PEAK: u64 = 286_328_950;
+    const PROD_METRIC_PEAK: u64 = 1_889_194_637_885;
+    const PROD_H_ROT_PEAK: u64 = 60_466_383_651;
+    const PROD_F_PEAK: u64 = 530_310_743_293;
+    /// The codebook's own peak (`2√2`), the `dot` product's `b` operand.
+    const PROD_CB_PEAK: u64 = 12_148_002_000;
+
+    /// A non-negative peak constant as the `i64` operand bound [`word`] takes.
+    fn wpeak(p: u64) -> i64 {
+        i64::try_from(p).expect("peak fits i64")
+    }
+
+    /// Fixed xorshift64 seed for the operand streams; the same seed reproduces every number below.
+    const SEED: u64 = 0x5DEE_CE66_D1CE_4F1B;
+
+    /// One xorshift64 word.
+    fn xs(state: &mut u64) -> u64 {
+        let mut x = *state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        *state = x;
+        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+
+    /// One Q32.32 operand word in `[-peak, peak]`.
+    fn word(state: &mut u64, peak: i64) -> i64 {
+        let span = u64::try_from(peak).expect("positive peak") * 2 + 1;
+        i64::try_from(xs(state) % span).expect("span fits i64") - peak
+    }
+
+    /// `C[i·p + j] = Σ_l a[i·n + l]·b[j·n + l]` in Q32.32, exactly: the `i128` sum rounded once with
+    /// the kernel's own `round_shift_32` convention (`(v + 2^31) >> 32`, ties upward). This is the
+    /// oracle the `gemm_q32` entries are compared against.
+    fn exact_nt(a: &[i64], m: usize, b: &[i64], p: usize, n: usize) -> Vec<i128> {
+        let mut out = vec![0_i128; m * p];
+        for i in 0..m {
+            for j in 0..p {
+                let mut acc = 0_i128;
+                for l in 0..n {
+                    acc += i128::from(a[i * n + l]) * i128::from(b[j * n + l]);
+                }
+                out[i * p + j] = (acc + (1_i128 << 31)) >> 32;
+            }
+        }
+        out
+    }
+
+    /// `(max |kernel − exact| in Q32.32 words, max relative error against max(1, |exact|), entries)`.
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "the relative-error metric is a reported diagnostic, not a cost or a decision"
+    )]
+    fn compare(k: &[i64], e: &[i128]) -> (i128, f64, usize) {
+        let mut max_abs = 0_i128;
+        let mut max_rel = 0_f64;
+        for (&kv, &ev) in k.iter().zip(e) {
+            let d = (i128::from(kv) - ev).abs();
+            max_abs = max_abs.max(d);
+            max_rel = max_rel.max(d as f64 / ev.abs().max(1) as f64);
+        }
+        (max_abs, max_rel, k.len())
+    }
+
+    /// `Σ_p C_j(p)` of `Learn.FitIcm.witnessDotList` (`proof/corpus/Learn/FitIcm.lean:1011-1013`),
+    /// transcribed from `Learn.E8Code.codewordSpec` (`proof/corpus/Learn/E8Code.lean:304-321`):
+    /// `evenKeys`/`signAt` for the 128 spinor rows, `rootPairs`/`rootSpec` for the 112 D8 rows and
+    /// `o8Spec` for the 16 O8 rows.
+    fn witness_dot() -> Vec<i64> {
+        const ONE: i64 = 1 << 32;
+        const SQRT8: i64 = 12_148_002_000;
+        let even_keys: Vec<usize> = (0..256_usize).filter(|i| i.count_ones() % 2 == 0).collect();
+        let pairs: Vec<(usize, usize)> = (0..8)
+            .flat_map(|a| ((a + 1)..8).map(move |b| (a, b)))
+            .collect();
+        (0..CODE_LEN)
+            .map(|j| {
+                if j < 128 {
+                    let key = even_keys[j];
+                    let mut sum = 0;
+                    for k in 0..8 {
+                        sum += if key / (1 << (7 - k)) % 2 == 1 {
+                            -ONE
+                        } else {
+                            ONE
+                        };
+                    }
+                    sum
+                } else if j < 240 {
+                    let sub = (j - 128) % 4;
+                    let (a, b) = pairs[(j - 128) / 4];
+                    let mut row = [0_i64; 8];
+                    row[a] = if sub / 2 == 0 { -2 * ONE } else { 2 * ONE };
+                    row[b] = if sub % 2 == 0 { -2 * ONE } else { 2 * ONE };
+                    row.iter().sum()
+                } else if (j - 240) % 2 == 0 {
+                    -SQRT8
+                } else {
+                    SQRT8
+                }
+            })
+            .collect()
+    }
+
+    /// The Lean witness `best_code_q witnessAA witnessTwoA witnessQ witnessDot` (`FitIcm.lean:981-1023`)
+    /// returns row `0` on this body: `aa = 2^64`, `two_a = 2^33`, `q = 2^35` on all 256 rows (the O8
+    /// rows' `SQRT8²/2^32 = 2^35 + 0.54` narrows to `2^35`) and `dot = Σ_p C_j(p)`. Row `0` (all `+1`)
+    /// is the unique maximum of `dot`, hence the unique minimum of `2^64·q − 2^65·dot`.
+    #[test]
+    fn learn_fold_fit_icm_witness_best_code_q_is_row0() {
+        let q = vec![1_i64 << 35; CODE_LEN];
+        let dot = codebook()
+            .iter()
+            .map(|c| c.iter().sum::<i64>())
+            .collect::<Vec<_>>();
+        let witness = witness_dot();
+        for j in 0..CODE_LEN {
+            assert_eq!(dot[j], witness[j], "dot[{j}] differs from witnessDotList");
+        }
+        assert_eq!(
+            best_code_q(1_i128 << 64, 1_i128 << 33, &q, &dot),
+            Ok(0),
+            "the witness argmin is not row 0"
+        );
+    }
+
+    /// The limb-path error at the shapes [`sweep_rows`] actually calls, against the exact `i128` dot.
+    ///
+    /// `sweep_rows` makes two band products per block, both with contraction `BLOCK`: the `q`
+    /// product `rows × BLOCK × BLOCK` (`nt_q(&s_blk, rows, …, BLOCK, BLOCK)`) and the code-dot
+    /// product `rows × CODE_LEN × BLOCK` (`nt_q(&f_blk, rows, &cbf, CODE_LEN, BLOCK)`). Both run at
+    /// [`LIMBS`]; the public row-panel product `matmul_q` runs at [`LIMBS_MATMUL`], so both limb
+    /// counts are measured here. Operands are the production codebook on the code side and a
+    /// deterministic xorshift stream (seed [`SEED`]) on the data side, at two magnitude bands.
+    ///
+    /// The printed words are the `εq` (q product) and `εd` (dot product) of
+    /// `Learn.FitIcm.word_argmin_cost_bound`, in Q32.32 units; divide by `2^32` for the real ε.
+    #[test]
+    fn learn_fold_fit_icm_limb_error_at_sweep_shapes() {
+        let rows = rows_per_task(PROD_O);
+        assert!(rows >= 1, "no rows in a sweep band");
+        let cbf = flatten_codebook_q(&codebook_q());
+        let mut state = SEED;
+        // (band label, data peak) with the asserted 5-limb max-abs bound in words: the observed
+        // maxima at seed `SEED` rounded up (q 6 / dot 4 at |x| ≤ 3; q 478 / dot 287 at |x| ≤ 256).
+        let bands = [
+            ("3", 3 * ONE, 64_i128, 64_i128),
+            ("256", 256 * ONE, 4096_i128, 4096_i128),
+        ];
+        let limbs = [LIMBS, LIMBS_MATMUL, 2];
+        println!("sweep band rows = {rows} (o = {PROD_O}, BLOCK = {BLOCK}, CODE_LEN = {CODE_LEN})");
+        for &(band, peak, q_stated, d_stated) in &bands {
+            let mut at_limbs = (0_i128, 0_i128);
+            // q: `s_blk` codes (|x| ≤ 2·2^32) against the block's `H_rot` window.
+            let a_q: Vec<i64> = (0..rows * BLOCK)
+                .map(|_| word(&mut state, 2 * ONE))
+                .collect();
+            let b_q: Vec<i64> = (0..BLOCK * BLOCK).map(|_| word(&mut state, peak)).collect();
+            // dot: `f_blk` residuals against the real `CODE_LEN × BLOCK` codebook.
+            let a_d: Vec<i64> = (0..rows * BLOCK).map(|_| word(&mut state, peak)).collect();
+            let peak_of = |v: &[i64]| v.iter().map(|x| x.unsigned_abs()).max().unwrap_or(0);
+            let (qa_peak, qb_peak) = (peak_of(&a_q), peak_of(&b_q));
+            let (da_peak, db_peak) = (peak_of(&a_d), peak_of(&cbf));
+            for &l in &limbs {
+                // The kernel's own documented per-entry bound, at this contraction and these peaks.
+                let q_bound = bound_ulps(BLOCK, l, qa_peak, qb_peak);
+                let d_bound = bound_ulps(BLOCK, l, da_peak, db_peak);
+                let kq = gemm_q32(&a_q, rows, &b_q, BLOCK, BLOCK, l).expect("q product");
+                let (qa, qr, qn) = compare(&kq, &exact_nt(&a_q, rows, &b_q, BLOCK, BLOCK));
+                let kd = gemm_q32(&a_d, rows, &cbf, CODE_LEN, BLOCK, l).expect("dot product");
+                let (da, dr, dn) = compare(&kd, &exact_nt(&a_d, rows, &cbf, CODE_LEN, BLOCK));
+                println!(
+                    "band |x|<={band}  limbs={l}  q: shape {rows}x{BLOCK}x{BLOCK} entries {qn} \
+                     max_abs {qa} words (kernel bound {q_bound}) max_rel {qr:.3e}  dot: shape \
+                     {rows}x{CODE_LEN}x{BLOCK} entries {dn} max_abs {da} words (kernel bound \
+                     {d_bound}) max_rel {dr:.3e}"
+                );
+                assert!(
+                    qa <= q_bound && da <= d_bound,
+                    "limbs={l} band {band}: q {qa} / dot {da} words exceed the kernel bound \
+                     {q_bound} / {d_bound}"
+                );
+                if l == LIMBS {
+                    // The measured product is the production call: `nt_q` is `gemm_q32` at `LIMBS`.
+                    assert_eq!(nt_q(&a_q, rows, &b_q, BLOCK, BLOCK), Ok(kq.clone()));
+                    assert_eq!(nt_q(&a_d, rows, &cbf, CODE_LEN, BLOCK), Ok(kd.clone()));
+                    assert!(
+                        qa <= q_stated && da <= d_stated,
+                        "band {band}: q {qa} / dot {da} words exceed the asserted bound \
+                         {q_stated} / {d_stated} at the production {LIMBS} limbs"
+                    );
+                    at_limbs = (qa, da);
+                }
+                if l == 2 {
+                    // The control: dropping to 2 limbs must be strictly worse on both products.
+                    assert!(
+                        qa > at_limbs.0 && da > at_limbs.1,
+                        "2-limb error {qa}/{da} is not strictly above the LIMBS error {}/{} at \
+                         band {band}",
+                        at_limbs.0,
+                        at_limbs.1
+                    );
+                }
+            }
+        }
+    }
+
+    /// The `moved × n × BLOCK` row-update product of `sweep_rows` at the production `Kind::Down`
+    /// shape: `n = 4864`, `moved = rows_per_task(896)` (the largest band the sweep hands the
+    /// product), against the exact `i128` dot.
+    ///
+    /// `sweep_rows` runs it as `nt_q(&chg[..moved·BLOCK], moved, &cols, n, BLOCK)` at [`LIMBS`],
+    /// with `chg` a codeword difference (`|x| ≤ 4·2^32`) and `cols` the block-transposed `H_rot`
+    /// window. The `b` band is the peak the real run reaches ([`PROD_H_ROT_PEAK`]); the 3-limb and
+    /// 2-limb arms are the controls. Printed errors are Q32.32 words; divide by `2^32` for the real
+    /// magnitude.
+    ///
+    /// Measured at the seed and peaks above, 5 limbs: `78` words on the row update (bound `6218`)
+    /// and `141` on the `dot` product at [`PROD_F_PEAK`] (bound `24842`); the 3- and 2-limb
+    /// controls are `1.0e6`/`1.3e8` and `2.0e6`/`2.4e8` words. Release wall clock is `0.05 s`.
+    ///
+    /// # Complexity
+    /// `moved·n·BLOCK` kernel multiply-adds times the limb pairs plus the same exact-`i128` count;
+    /// `O(moved·n)` space. `≈ 1.5e6` multiply-adds at the production shape.
+    #[test]
+    fn learn_fold_fit_icm_limb_error_at_production_row_update() {
+        let n = PROD_N;
+        let rows = rows_per_task(PROD_O);
+        let peak = 4 * ONE;
+        let peak_u = u64::try_from(peak).expect("peak is non-negative");
+        let mut state = SEED;
+        let a: Vec<i64> = (0..rows * BLOCK).map(|_| word(&mut state, peak)).collect();
+        let b: Vec<i64> = (0..BLOCK * n)
+            .map(|_| word(&mut state, wpeak(PROD_H_ROT_PEAK)))
+            .collect();
+        let exact = exact_nt(&a, rows, &b, n, BLOCK);
+        println!(
+            "row update: shape {rows}x{n}x{BLOCK} (Down) a |x| <= {peak}, b |x| <= {PROD_H_ROT_PEAK}"
+        );
+        let mut errs = [0_i128; 3];
+        for (slot, &l) in [LIMBS, LIMBS_MATMUL, 2].iter().enumerate() {
+            // The `LIMBS` arm is the production wrapper itself; the controls name their limb count.
+            let k = if l == LIMBS {
+                nt_q(&a, rows, &b, n, BLOCK).expect("row update")
+            } else {
+                gemm_q32(&a, rows, &b, n, BLOCK, l).expect("row update")
+            };
+            let (abs, rel, cnt) = compare(&k, &exact);
+            let bound = bound_ulps(BLOCK, l, peak_u, PROD_H_ROT_PEAK);
+            println!(
+                "  limbs={l} entries {cnt} max_abs {abs} words (kernel bound {bound}) max_rel \
+                 {rel:.3e}"
+            );
+            assert!(
+                abs <= bound,
+                "limbs={l}: row-update {abs} words exceed the kernel bound {bound}"
+            );
+            if l == LIMBS {
+                // The measured 5-limb level at this seed and these peaks, rounded up.
+                assert!(
+                    abs <= 128,
+                    "row update at the production limb count: {abs} words exceed the measured level 128"
+                );
+            }
+            errs[slot] = abs;
+        }
+        assert!(
+            errs[0] > 0,
+            "the production path is bit-exact against the oracle: no limb error to bound"
+        );
+        assert!(
+            errs[1] > errs[0] && errs[2] > errs[1],
+            "controls are not strictly worse: 5/3/2 limbs = {errs:?}"
+        );
+        // The same band's `dot` product (`nt_q(&f_blk, rows, &cbf, CODE_LEN, BLOCK)`) at the real
+        // `f_blk` peak against the real codebook: εd at production magnitude.
+        let cbf = flatten_codebook_q(&codebook_q());
+        let f: Vec<i64> = (0..rows * BLOCK)
+            .map(|_| word(&mut state, wpeak(PROD_F_PEAK)))
+            .collect();
+        let dexact = exact_nt(&f, rows, &cbf, CODE_LEN, BLOCK);
+        let mut derrs = [0_i128; 3];
+        for (slot, &l) in [LIMBS, LIMBS_MATMUL, 2].iter().enumerate() {
+            let k = if l == LIMBS {
+                nt_q(&f, rows, &cbf, CODE_LEN, BLOCK).expect("dot product")
+            } else {
+                gemm_q32(&f, rows, &cbf, CODE_LEN, BLOCK, l).expect("dot product")
+            };
+            let (abs, rel, cnt) = compare(&k, &dexact);
+            let bound = bound_ulps(BLOCK, l, PROD_F_PEAK, PROD_CB_PEAK);
+            println!(
+                "  dot limbs={l} entries {cnt} max_abs {abs} words (kernel bound {bound}) max_rel \
+                 {rel:.3e}"
+            );
+            assert!(
+                abs <= bound,
+                "dot limbs={l}: {abs} words exceed the kernel bound {bound}"
+            );
+            if l == LIMBS {
+                // The measured 5-limb level at this seed and these peaks, rounded up.
+                assert!(
+                    abs <= 256,
+                    "dot product at the production limb count: {abs} words exceed the measured level 256"
+                );
+            }
+            derrs[slot] = abs;
+        }
+        assert!(
+            derrs[1] > derrs[0] && derrs[2] > derrs[1],
+            "dot controls are not strictly worse: 5/3/2 limbs = {derrs:?}"
+        );
+    }
+
+    /// `matmul_l` at the production `Kind::Down` shape (`o = 896`, `n = 4864`, contraction `n`):
+    /// the two `O(o·n²)` products of `e8_icm_step` (`G_rot = Ws @ metric`, `B @ H_rot`), against
+    /// the exact `i128` dot, at the operand peaks the real run reaches ([`PROD_WS_PEAK`],
+    /// [`PROD_METRIC_PEAK`]). The 3-limb and 2-limb arms are the controls.
+    ///
+    /// Measured at the seed and peaks above: `2138` words (rel `2.2e-4`) at 5 limbs,
+    /// `2.8e7` at 3, `2.8e9` at 2; the kernel bound at these peaks is `472120`. Release wall clock
+    /// is `11.5 s` for the oracle plus `1.3 s` for the three products.
+    ///
+    /// Ignored by default: the exact oracle is `o·n² = 2.1e10` `i128` multiply-adds, which a debug
+    /// build carries far past the 540 s gate. Run it with
+    /// `cargo test --release --locked --lib -- --ignored --nocapture \
+    /// learn_fold_fit_icm_limb_error_at_production_matmul`.
+    ///
+    /// # Complexity
+    /// Three kernel products (`o·n²` multiply-adds times 15/6/3 limb pairs) plus one `o·n²`
+    /// exact-`i128` pass; `O(o·n)` for the `i128` oracle buffer (70 MB) and `O(n²)` for the `b`
+    /// operand (189 MB).
+    #[test]
+    #[ignore = "production O(o·n²) oracle: 2.1e10 i128 multiply-adds; --release --ignored"]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "the relative-error and elapsed-second diagnostics are reported, not decided on"
+    )]
+    fn learn_fold_fit_icm_limb_error_at_production_matmul() {
+        let (o, n) = (PROD_O, PROD_N);
+        let mut state = SEED;
+        let a: Vec<i64> = (0..o * n)
+            .map(|_| word(&mut state, wpeak(PROD_WS_PEAK)))
+            .collect();
+        let b: Vec<i64> = (0..n * n)
+            .map(|_| word(&mut state, wpeak(PROD_METRIC_PEAK)))
+            .collect();
+        let t = std::time::Instant::now();
+        let mut exact = vec![0_i128; o * n];
+        for i in 0..o {
+            for j in 0..n {
+                let mut acc = 0_i128;
+                for l in 0..n {
+                    acc += i128::from(a[i * n + l]) * i128::from(b[j * n + l]);
+                }
+                exact[i * n + j] = (acc + (1_i128 << 31)) >> 32;
+            }
+        }
+        println!(
+            "matmul: shape {o}x{n}x{n} (Down) a |x| <= {PROD_WS_PEAK}, b |x| <= \
+             {PROD_METRIC_PEAK}; exact oracle {:.1} s",
+            t.elapsed().as_secs_f64()
+        );
+        let mut errs = [0_i128; 3];
+        for (slot, &l) in [LIMBS, LIMBS_MATMUL, 2].iter().enumerate() {
+            let t = std::time::Instant::now();
+            // The `LIMBS` arm is the production wrapper `nt_l`; the controls name their limb count.
+            let k = if l == LIMBS {
+                nt_l(&a, o, &b, n, n).expect("matmul")
+            } else {
+                gemm_q32(&a, o, &b, n, n, l).expect("matmul")
+            };
+            let el = t.elapsed().as_secs_f64();
+            let (abs, rel, cnt) = compare(&k, &exact);
+            let bound = bound_ulps(n, l, PROD_WS_PEAK, PROD_METRIC_PEAK);
+            println!(
+                "  limbs={l} entries {cnt} max_abs {abs} words (kernel bound {bound}) max_rel \
+                 {rel:.3e} in {el:.1} s"
+            );
+            assert!(
+                abs <= bound,
+                "limbs={l}: matmul {abs} words exceed the kernel bound {bound}"
+            );
+            if l == LIMBS {
+                // The measured 5-limb level at this seed and these peaks, rounded up.
+                assert!(
+                    abs <= 4096,
+                    "matmul at the production limb count: {abs} words exceed the measured level 4096"
+                );
+            }
+            errs[slot] = abs;
+        }
+        assert!(
+            errs[1] > errs[0] && errs[2] > errs[1],
+            "controls are not strictly worse: 5/3/2 limbs = {errs:?}"
+        );
+    }
 }

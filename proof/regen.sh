@@ -486,6 +486,7 @@ run_extract() {
         --start-from crate::fit_port::word_fit_icm_plane_w \
         --start-from crate::fit_port::word_fit_icm_j_rows \
         --start-from crate::fit_port::word_fit_icm_e8_icm_step \
+        --start-from crate::fit_port::word_fit_icm_best_code_q \
         --start-from crate::fit_port::word_fit_icm_r_step2 \
         --start-from crate::fit_port::word_fit_icm_matmul \
         --start-from crate::crypto_port::word_crypto_ct_eq \

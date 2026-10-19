@@ -92,6 +92,29 @@ lean_lib ApeironWordBridge where
     -- E8 codebook refinement (`Learn/E8Code.lean`): the extracted `learn_port.e8` codeword
     -- and nearest-codeword bodies against integer specifications over `ℤ`.
     `Learn.E8Code,
+    -- E8 `∪` O8 ICM step (`Learn/FitIcm.lean`): the block-cost argmin specification of
+    -- `fit::icm::e8_icm_step` and its conditional link to the extracted body.
+    `Learn.FitIcm,
+    -- The block-floating limb-product error bound (`Learn/Limb.lean`): the `# Error bound` of
+    -- `src/engine/kern/limb.rs` `gemm_q32` over one 32-word block, specialized to the `Down` peaks
+    -- (`limb_q_error_down`, `limb_d_error_down`). The digit bounds of `split_digits` are model
+    -- hypotheses there, not theorems.
+    `Learn.Limb,
+    -- The quantiser's word-error chain (`Learn/IcmError.lean`): the `mul_q` rounding, the
+    -- `sub_q` residual recurrence, and the end-to-end margin at the derived residual error.
+    `Learn.IcmError,
+    -- The per-entry step count (`Learn/IcmCount.lean`): `N ≤ sweeps·blocks` from the move
+    -- structure, and the Down margin at the structural maximum (1216).
+    `Learn.IcmCount,
+    -- Reverse water-filling specification and Gaussian bridge (`Learn/WaterFill.lean`): the
+    -- extracted `word_stats_basis_solve_water_fill` triple, the integer level/active-set/budget
+    -- invariants, and the exact denotation onto `Perf.CostCorrespondence.waterfill_floor`.
+    `Learn.WaterFill,
+    -- The `basis.log2`/`fixed_ln` real-value spec (`Learn/Log2.lean`): the certified `LN2_Q32` and
+    -- `SQRT2_Q62` constant errors, the `ln_atanh_poly` coefficient rounding and truncation
+    -- remainder, the normalization identity and the `|s| ≤ 1/3` range. The composition is named
+    -- in the module, not yet closed.
+    `Learn.Log2,
     -- Exact-integer `src/learn/grad/dense.rs` refinement (`Learn/Grad/DenseLinearSpec.lean` is the
     -- independent `ℤ`/`List ℤ` model; `Learn/Grad/DenseLinear.lean` refines the extracted
     -- `linear_fwd` / `linear_bwd_input` / `linear_bwd_weight` against it; `DenseLinearWitness`
