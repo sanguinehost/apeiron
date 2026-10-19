@@ -115,4 +115,15 @@ def adamUpdateReads (n : Nat) : Nat := 7 * n
 /-- The P91 cost equation: `7·n` words. -/
 theorem adamUpdateReads_eq (n : Nat) : adamUpdateReads n = 7 * n := rfl
 
+/-- Words read and written by one tiled `linear_fwd` dispatch at `t` rows, input width `i`, output
+    width `o`: each 16-row tile of `x` is read once per column tile (`o/16` of them), each 16-row
+    tile of `w` once per row tile (`t/16`), and the `t·o` outputs are written. -/
+def denseFwdTiledReads (t i o : Nat) : Nat := t * i * (o / 16) + o * i * (t / 16) + t * o
+
+/-- The P92 cost equation in expanded form: `t·i·⌊o/16⌋ + o·i·⌊t/16⌋ + t·o` words, 16× below the
+    naive `2·t·o·i + t·o` (each output re-reads its x row and w row) at square multiples of 16
+    (`t·i·o/8` against `2·t·i·o`). -/
+theorem denseFwdTiledReads_eq (t i o : Nat) :
+    denseFwdTiledReads t i o = t * i * (o / 16) + o * i * (t / 16) + t * o := rfl
+
 end Perf.Train

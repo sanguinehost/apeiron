@@ -54,6 +54,7 @@ mod bwd;
 mod coop;
 mod coopmat_gemm;
 mod deltanet;
+pub mod fwd;
 mod glue;
 mod gridsync;
 mod moe;
