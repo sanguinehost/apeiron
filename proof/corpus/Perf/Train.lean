@@ -73,4 +73,29 @@ def attnBwdQReads (t nh hd : Nat) : Nat := 2 * t * t * nh * hd * hd + t * nh * h
 theorem attnBwdQReads_eq (t nh hd : Nat) :
     attnBwdQReads t nh hd = 2 * t * t * nh * hd * hd + t * nh * hd := rfl
 
+/-- Words moved by the materialised-dS causal-attention backward (P90): dispatch 2 writes
+    `dS[h,i,j] = P[h,i,j]·(dP_ij − rowsum[h·t+i])` and dispatches 3 and 4 read it instead of
+    recomputing `dP_ij`.
+
+    Upper bound over the causal half, `nh` in place of `nkv·rep` for the kv outputs:
+
+    * `ds`: `nh·t·t` threads; a thread reads `2·hd` words of `dout`/`v`, one `P` word and one
+      `rowsum` word (`2·hd + 2`) and writes one `dS` word: `nh·t·t·(2·hd + 2) + nh·t·t`.
+    * `dq`: `t·nh·hd` outputs; each reads at most `t` `dS` words and one `K` word and writes one
+      output: `t·nh·hd·(t + 2)`.
+    * `dk`/`dv`: each output walks `rep·t` `(h,i)` pairs, reading one `dS`, one `Q`, one `dout`
+      and one `P` word (`4`) and writing two words: `4·t·t·nh·hd + 2·t·nh·hd`.
+
+    The repeated dot-product traffic falls from `4·t²·nh·hd²` (two in-thread `dP` recomputations)
+    to `2·t²·nh·hd` (`dout`/`v` in `ds`): a factor `2·hd`. -/
+def attnBwdDsReads (t nh hd : Nat) : Nat :=
+  nh * t * t * (2 * hd + 2) + nh * t * t + t * nh * hd * (t + 2) + 4 * t * t * nh * hd +
+    2 * t * nh * hd
+
+/-- The P90 cost equation in expanded form as defined above. -/
+theorem attnBwdDsReads_eq (t nh hd : Nat) :
+    attnBwdDsReads t nh hd =
+      nh * t * t * (2 * hd + 2) + nh * t * t + t * nh * hd * (t + 2) + 4 * t * t * nh * hd +
+        2 * t * nh * hd := rfl
+
 end Perf.Train

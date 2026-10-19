@@ -817,6 +817,24 @@ reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the
 
 [[waiver]]
 path = "src/gpu/nn/attn/bwd.rs"
+fn = "attn_bwd_ds_module"
+class = "gpu"
+reason = "SPIR-V builder for the materialised attention-backward score gradient; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/attn/bwd.rs"
+fn = "attn_bwd_ds_bytes"
+class = "gpu"
+reason = "Word encoding of attn_bwd_ds_module for pipeline creation; SPIR-V bytes, no extracted arithmetic."
+
+[[waiver]]
+path = "src/gpu/nn/attn/bwd.rs"
+fn = "attn_bwd_ds_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/attn/bwd.rs"
 fn = "attn_bwd_dq_module"
 class = "gpu"
 reason = "SPIR-V builder for the attention-backward dQ pass; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
