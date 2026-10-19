@@ -144,4 +144,16 @@ theorem attnFwdReads_eq (t nh hd : Nat) :
     attnFwdReads t nh hd =
       nh * t * t * hd / 2 + 2 * t * nh * hd + nh * t * t / 2 + t * nh * hd := rfl
 
+/-- Words read by one attention-backward row-sum dispatch (P94): one workgroup per `(h,i)` query
+    row, `nh·t` workgroups, each reading the `i+1` causal key rows once — `2·hd + 1` words per
+    key (`dO` row, `V` row, `P` word) — and writing one `rowsum` word.
+
+    The traffic is unchanged from the single-workgroup form: `Σ_i (i+1)·(2·hd+1)·nh` words.
+    Only the grid changes, from `⌈t·nh/256⌉` workgroups to `nh·t`. -/
+def attnRowsumReads (t nh hd : Nat) : Nat := nh * (t * (t + 1) * hd + t * (t + 1) / 2)
+
+/-- The P94 cost equation in expanded form as defined above. -/
+theorem attnRowsumReads_eq (t nh hd : Nat) :
+    attnRowsumReads t nh hd = nh * (t * (t + 1) * hd + t * (t + 1) / 2) := rfl
+
 end Perf.Train

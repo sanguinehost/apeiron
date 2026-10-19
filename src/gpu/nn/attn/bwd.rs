@@ -1,10 +1,13 @@
 //! simt_nn::attn::bwd — the causal GQA attention backward as f32 SPIR-V, the twin of
 //! `learn::grad::attn::attn_bwd_kern`.
 //!
-//! Four deterministic dispatches, no float atomics, every output thread sums in a fixed ascending
-//! order:
+//! Four deterministic dispatches, no float atomics, every output sums in a fixed association:
+//! `ds`, `dq` and `dk`/`dv` sum per-thread in ascending order; `rowsum` reduces its keys over a
+//! fixed 256-lane tree.
 //!
-//! 1. `rowsum`: `r[h,i] = Σ_{j≤i} P[h,i,j]·Σ_e dO[i,h,e]·V[j,h/rep,e]`, one thread per `(h,i)`.
+//! 1. `rowsum`: `r[h,i] = Σ_{j≤i} P[h,i,j]·Σ_e dO[i,h,e]·V[j,h/rep,e]`, one workgroup of 256
+//!    threads per `(h,i)`; lane `l` owns `j = l, l+256, …`, and the per-key terms are summed by a
+//!    shared-memory tree with a barrier per level.
 //! 2. `ds`: `dS[h,i,j] = P[h,i,j]·(dP_ij − r[h,i])` with `dP_ij = Σ_e dO[i,h,e]·V[j,h/rep,e]`,
 //!    one thread per `(h,i,j)`; `j > i` writes 0.
 //! 3. `dq`: `dq[i,h,d] = scale·Σ_{j≤i} dS[h,i,j]·K[j,h/rep,d]`, one thread per `(i,h,d)`.
@@ -30,16 +33,22 @@
 use super::*;
 
 /// **Attention-backward row sum (f32)** — dispatch 1 of the four, the twin of `attn_bwd_kern`'s
-/// `rowsum(dP ⊙ P)`. Thread `h·t + i` (of `t·nh`) walks `j` in `0..=i` ascending and accumulates
-/// `P[h,i,j] · Σ_e dO[i,h,e]·V[j,h/rep,e]` with fused multiply-add; it writes `rowsum[h·t+i]`.
-/// Grid `⌈t·nh/256⌉`, LocalSize 256.
+/// `rowsum(dP ⊙ P)`. One workgroup per `(h,i)`: workgroup `h·t + i` of `t·nh` splits its key row
+/// over 256 lanes, lane `l` taking `j = l, l+256, …` up to `i` (one key per lane at `t ≤ 256`).
+/// Each lane accumulates `P[h,i,j]·Σ_e dO[i,h,e]·V[j,h/rep,e]` over `e` ascending with fused
+/// multiply-add, exactly the per-key order the single-thread body used; the lane terms go to a
+/// 256-word shared array (`0` for a lane past `i`) and are summed by [`Kb::tree_reduce`] — a fixed
+/// association, no float atomics — whose lane 0 writes `rowsum[h·t+i]`. The reduction over `j` is
+/// therefore a tree, not the former ascending walk; the `e` sum is unchanged. Grid `t·nh`,
+/// LocalSize 256.
 ///
 /// Bindings: 0 = v (f32, `t·nkv·hd`), 1 = p (f32, `nh·t·t`), 2 = dout (f32, `t·nh·hd`),
 /// 3 = rowsum (f32, `t·nh`).
 ///
-/// Complexity: thread `(h,i)` reads `2·(i+1)·hd` words of `dout`/`v` and `i+1` of `p`, so the
-/// dispatch reads `Σ_i (2·(i+1)·hd + i+1)·nh = nh·(t·(t+1)·hd + t·(t+1)/2)` words — `O(t²·hd)`
-/// per thread, `O(nh·t²·hd)` total — against the reused-read floor `t·nh·hd + nh·t² + t·nh`.
+/// Complexity: workgroup `(h,i)` reads `(i+1)·(2·hd+1)` words of `dout`/`v`/`p` once — `O(t·hd)`
+/// words per workgroup, `O(nh·t²·hd)` for the dispatch, unchanged from the single-thread form and
+/// now spread across `nh·t` workgroups instead of one; the tree adds `log₂ 256 = 8` shared
+/// add/barrier levels per workgroup.
 pub fn attn_bwd_rowsum_module(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u32> {
     const WG: u32 = 256;
     assert!(t > 0 && hd > 0, "attn_bwd_rowsum: shape must be non-zero");
@@ -53,7 +62,9 @@ pub fn attn_bwd_rowsum_module(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u32> {
     let p = k.ssbo_f(1);
     let dout = k.ssbo_f(2);
     let rowsum = k.ssbo_f(3);
+    let (red, redp) = k.shared_f32(WG);
     let gid = k.gid_comp(0);
+    let tid = k.local_index();
     let c0 = k.cu(0);
     let c1 = k.cu(1);
     let ct = k.cu(t);
@@ -61,17 +72,22 @@ pub fn attn_bwd_rowsum_module(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u32> {
     let ckv = k.cu(nkv);
     let chd = k.cu(hd);
     let crep = k.cu(rep);
+    let cwg = k.cu(WG);
     let total = k.cu(t * nh);
     let zero = k.cf_bits(0x0000_0000);
-    let inb = k.ult(gid, total);
+    // One workgroup per (h,i): the row is the workgroup id, the lane is the local index.
+    let wg = k.udiv(gid, cwg);
+    // Every lane owns one shared word, so a lane past the row's key count contributes 0 to the tree.
+    k.shared_store(red, redp, tid, zero);
+    let inb = k.ult(wg, total);
     k.iff(inb, |mut k| {
-        let h = k.udiv(gid, ct);
-        let i = k.umod(gid, ct);
+        let h = k.udiv(wg, ct);
+        let i = k.umod(wg, ct);
         let kvh = k.udiv(h, crep);
         let acc = k.fvar_f();
         k.store_var(acc, zero);
         let nrow = k.iadd(i, c1);
-        k.loop_u(c0, nrow, |mut k, j| {
+        k.loop_step(tid, nrow, cwg, |k, j| {
             let dp = k.fvar_f();
             k.store_var(dp, zero);
             // dout row of query i, head h: (i·nh+h)·hd.
@@ -102,10 +118,21 @@ pub fn attn_bwd_rowsum_module(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u32> {
             let a0 = k.load_var_f(acc);
             let a1 = k.fma(pij, dpv, a0);
             k.store_var(acc, a1);
-            k
         });
         let s = k.load_var_f(acc);
-        k.store_f(rowsum, gid, s);
+        k.shared_store(red, redp, tid, s);
+        k
+    });
+    k.wg_barrier();
+    k.tree_reduce(red, redp, WG, tid, false);
+    let inw = k.ult(wg, total);
+    k.iff(inw, |mut k| {
+        let lane0 = k.ult(tid, c1);
+        k.iff(lane0, |mut k| {
+            let s = k.shared_load(red, redp, c0);
+            k.store_f(rowsum, wg, s);
+            k
+        });
         k
     });
     k.finish(WG)
@@ -382,7 +409,8 @@ pub fn attn_bwd_dkdv_bytes(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u8> {
 }
 
 /// Host wrapper: build and record the backward row sum. `v` is `t·nkv·hd` f32, `p` `nh·t·t`,
-/// `dout` `t·nh·hd`, `rowsum` `t·nh`. Grid `(⌈t·nh/256⌉, 1, 1)`, LocalSize 256.
+/// `dout` `t·nh·hd`, `rowsum` `t·nh`. Grid `(t·nh, 1, 1)` — one workgroup per `(h,i)`, each
+/// splitting its key row over 256 lanes and tree-reducing them; LocalSize 256.
 ///
 /// # Safety
 /// Vulkan pipeline/descriptor creation over caller-owned handles; every buffer must hold at least
@@ -403,7 +431,7 @@ pub unsafe fn attn_bwd_rowsum_dispatch(
         g,
         &attn_bwd_rowsum_bytes(t, nh, nkv, hd),
         &[v, p, dout, rowsum],
-        (t * nh).div_ceil(256),
+        t * nh,
         1,
         "attn_bwd_rowsum",
     )
