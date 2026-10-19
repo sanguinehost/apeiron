@@ -111,6 +111,7 @@ import Numeric.Quantum.Measured.JointFisher
 import Numeric.Quantum.Ledger.DeltaEnds
 import Numeric.Quantum.Ledger.ExactUncertainty
 import Numeric.Quantum.Ledger.EllipticRebit
+import Gpu.Handoff
 
 -- Discrete flux: the lattice divergence theorem, `∇·B = 0`.
 #audit Flux.Discrete.sum_range_diff
