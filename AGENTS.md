@@ -163,9 +163,9 @@ Prose that names no enforcer is not acceptance (§4, obligation 11).
 | §9.1 — inference-optimisation admission | [`tools/dispatch/admit.py`](tools/dispatch/admit.py), [`proof/DispatchAdmission.lean`](proof/DispatchAdmission.lean) | `python3 tools/dispatch/admit.py --launch <proposal.json>` |
 | §10 — a removal names its replacement, consumers and reachability; no bare `rm` | [`tools/rooting/retire_check.py`](tools/rooting/retire_check.py) | `python3 tools/rooting/retire_check.py --check` (plus `--self-test`, `--controls`) |
 | §10 — a registered documentation removal names a resolvable successor, its removed path is absent, and no live document names it | [`tools/rooting/doc_reach.py`](tools/rooting/doc_reach.py) over `docs/moved.tsv` | `python3 tools/rooting/doc_reach.py --check` (`--self-test`: 18 rejection / 4 accept fixtures; `--controls`; `--inventory PATH`) |
-| §9.3 — a dispatch names its board row; a named row exists and its project carries a milestone | [`.githooks/commit-msg`](.githooks/commit-msg), [`tools/hooks/lane.py`](tools/hooks/lane.py) | `bash tools/hooks/install.sh`; `python3 tools/hooks/lane.py self-test` (9/9 controls) |
+| §9.3 — a dispatch names its board row; a named row exists and its project carries a milestone | [`.githooks/commit-msg`](.githooks/commit-msg), [`tools/hooks/lane.py`](tools/hooks/lane.py) | `bash tools/hooks/install.sh`; `python3 tools/hooks/lane.py self-test` (39/39 controls); `python3 tools/hooks/lane.py rows` reads `../indra/board/tickets/` |
 | §3 the dispatch loop — the lead ranks, one lane per item (serialize on shared files), the lead installs on the live tree, measure then board | the operator pulse (`/home/socol/oc-tmp/bin/pool-ping.sh`); [`.githooks/commit-msg`](.githooks/commit-msg) + [`tools/hooks/lane.py`](tools/hooks/lane.py) | the pulse fires the checklist and fails a checkpoint with no measured movement; the hook refuses a commit naming no row |
-| §9.3 — the board is reconciled against the plan at the barrier: every row mirrored, internal-by-design or missing | [`tools/board/board.py`](tools/board/board.py) | `python3 tools/board/board.py check --controls` (the pre-push hook reports it; `APEIRON_HOOKS_BOARD_CHECK=block` refuses) |
+| §9.3 — the board is the indra ticket files; the plan's board column names a ticket id, or the row is explicitly untracked | [`../indra/board/board.py`](../indra/board/board.py), [`../indra/board/tickets/`](../indra/board/tickets/) | `cd ../indra && python3 board/board.py check --controls` (green: 110 tickets, 0 errors); the plan-to-board reconciliation is `APEIRON-BOARD-W1-T01` |
 | §6 — `cargo fmt` at commit, `clippy` and the focused `cargo test` at push | [`.githooks/pre-commit`](.githooks/pre-commit), [`.githooks/pre-push`](.githooks/pre-push) | `bash tools/hooks/install.sh`; `bash /home/socol/oc-tmp/hooks/gate.sh` (10/10 controls) |
 
 Enforcer that is MISSING and named so that prose cannot stand in for it: a Rust gate driver
@@ -724,27 +724,25 @@ reader can open it.
 A citation is a pointer until the artifact is in hand and read (§5). A finding resolves to a gate, a
 digest, a theorem or a retrieved source.
 
-### Job board (Operately)
+### Job board (indra)
 
-Operately is the primary job board for the Sanguine stream (`apeiron`, `song`, `penglai`). Check it
-before starting tracked work and move the task's status as the work proceeds; receipts and evidence
-stay in this repository. The board tracks status; it does not replace the epic/wave/task
-decomposition, a gate or a control.
+`../indra` is the board of record for the Sanguine stream (`apeiron`, `song`, `penglai`). The source
+is one ticket file per task, `../indra/board/tickets/<ID>.md`, with a fenced `yaml ticket` block; the
+worklog is the write path. Operately is a read-only projection of the ticket blocks and the old
+Operately board is archived — no task is created or moved there.
 
-- Board: company `TWN`, space `Sanguine` (`sanguine-COpRXpkvCi19pKoDZnOPg0`), Tasks tool — one
-  board across the three repositories; projects `apeiron`, `song` and `penglai` hold their scope.
-  Statuses: Not started, In progress, Done, Canceled.
-- OpenCode MCP: server `operately`; `tools.operately.list_tasks`, `get_task`, `update_task_status`
-  (a status ID, value or label from `list_task_statuses`) and `create_task`.
-- REST fallback for reads: `https://projects.tas.twn.network/api/external/v1/...`, header
-  `Authorization: Bearer $OPERATELY_API_KEY`; the token is untracked (`.env`; owner-provided).
-  `spaces/list_tasks?space_id=sanguine-COpRXpkvCi19pKoDZnOPg0` and `tasks/get?id=<task>` are
-  verified.
-- Tasks were seeded from each repository's planning documents and each description names its source
-  paths. New tasks come from a repository plan or owner direction, not from board invention.
-- Instance quirks: REST `create_space` and `tasks/update_status` return 500 — use MCP (or the UI)
-  for those; OpenCode can report a response-schema error for a mutation that landed — confirm with
-  a read.
+- Ticket: [`../indra/board/README.md`](../indra/board/README.md) carries the schema and the
+  hierarchy; `../indra/board/tickets/` is the source. A ticket names its project, milestone, at most
+  three scope paths, one gate and one control.
+- Status: `open`, `in_progress`, `blocked`, `done`, `cancelled`. The worklog moves the status; the
+  projection reads the ticket files. A ticket that cannot name a gate and a control is not a ticket.
+- Gate: `cd ../indra && python3 board/board.py check --controls`. The commit hook resolves a
+  `Board: <ID>` declaration against the local ticket files through `tools/hooks/lane.py`; the named
+  ticket must exist and must not be `done` or `cancelled`.
+- The plan remains authoritative for scope and order; `docs/plan.md` names the ticket in its board
+  column. A plan row with no ticket is untracked, and it is not a reason to invent a ticket.
+- The old Operately MCP and REST routes are historical reads; no write is made to that instance.
+  REST reads, when needed, use `Authorization: Bearer $OPERATELY_API_KEY` from the untracked `.env`.
 
 ## 10 · Failure register
 
@@ -763,6 +761,23 @@ its contract, coverage, controls or statistical protocol; retiring a required ga
 owner authorization and leaves its obligation open. Do not exempt a full campaign or a cold build, and
 do not reset the budget through cosmetic subprocess splitting; a changed acceptance protocol needs its
 own approved task, and a required gate that cannot complete within budget stays blocked.
+
+**Projected wall is checked before launch (owner, 2026-10-11, 2026-10-17, 2026-10-18).** A run is
+launched only after its cost equation (call count × unit cost from a ≤ 30 s microbench) and its
+projected total wall are written down.
+
+- An iteration check finishes in ≤ 30 s. A change to one primitive is tested by that primitive's
+  microbench and its bit-identity test, never by a layer or model run.
+- A measurement or production run finishes in ≤ 600 s total. A projection above that is a defect in
+  the computation (the route, or work the mechanism does not need), not a schedule: stop, report the
+  equation and the term that dominates, and wait for the owner. Tuning the constants of a route whose
+  projection exceeds the ceiling is not progress and opens no lane.
+- Resumable rounds (≤ 580 s each, checkpointed) recover a run that fits the ceiling; they do not
+  authorise a projected total above it. The 2026-10-17 go for resumable rounds covers recovery, not
+  a multi-hour projection.
+- Record the failure here: a ~5 h CPU fold transfer (24 layers, ~650–700 s per layer) was accepted as
+  a schedule and tuned for a night, against a 93.9 s fp32 GPU transfer of the same model
+  (`2026-10-13-fold-transfer-attn-e8-icm-sink.json`).
 
 The register is a discharge queue. Each row states the failure scope, present safeguards, residual
 opening, owner and discharge gate; "unstatable" means impossible to accept within that scope through
@@ -795,3 +810,58 @@ evidence within budget on named source/tool identities, and retains exclusions a
 | tmpfs exhaustion stalled a Lean lane: the 32G `/tmp` tmpfs fell to ~285M free mid-slice (29G used, led by finished 18G copy trees `spike-locate` and `verify-w5t15` plus stale wave/control copies) | `/tmp/opencode` `du` output; `APEIRON-INT-TRANSCENDENTAL-W1-T2C` report; `df -h /tmp` | Disposable copies live outside the tmpfs: scratch and control copies under `/home/socol/oc-tmp`, only named receipts and logs under `/tmp/opencode`; prune a finished slice's copy at its receipt, preserving cited small files | Lead cleanup reclaimed ~26G while keeping every `*.log`; the stalled worker switched `TMPDIR=/home/socol/oc-tmp` | A tmpfs-headroom check before dispatch and a per-slice prune step in the integration checklist |
 | Cross-worktree target sharing poisoned timed builds: live-tree runs of `spill_read_probe` measured the ported scratch code at 2.02–2.04 ns/key and "passed" while the same sources measure 9.26–9.48 ns/key after a forced rebuild; the porting task's `CARGO_TARGET_DIR` pointed at the live tree, so `target/` held a sibling worktree's objects, and its cached warnings named `src/map/table.rs:84` against the live line 97; an early read-stats direction claim came from the same contaminated set | `/tmp/opencode/w4a-fix-run.log`, `/tmp/opencode/w4a-clean-uninstr2.log`, `/tmp/opencode/w4a-clean-instr2.log`; apeiron `715592c` | A timed or acceptance run binds to a source identity: force a rebuild (`touch src/lib.rs`) or use a private target directory, and check cached warnings' line numbers against the tree before quoting a figure | The harness header records the rule and the clean builds; the baseline was re-run after a forced rebuild | An enforcement that refuses a timing claim whose target was shared with another worktree |
 | The quantisation programme ran in Python: the one-bit transfer, finishing, Fisher and speculative-acceptance results were computed by torch scripts under `tools/onebit/`, so none of them is on the crate's build path or reachable by extraction, and Lean theorems were written over their receipts as if they bound the implementation | apeiron `776d7a63`, `684a1dd1`; `tools/onebit/pv_finish.py` | §4 obligation 1, executing language: model computation is Rust or SPIR-V on the build path; Python receipts are historical observations of the script | `.githooks/pre-commit` step 0 refuses an added `.py` and any staged Python importing a numeric or model library | The Rust port of the one-bit transfer and finishing under `src/learn/`, re-measured on the crate; until then every `tools/onebit/` figure is graded as an observation of the script |
+
+## 11 · Tool recipes and standing owner rules
+
+Carried over from the retired auto-memory; each row is a command or rule that was learned by failure.
+
+### Build and proof tooling
+
+| item | rule |
+|---|---|
+| shared cargo | `export PATH=/home/socol/oc-tmp/bin:$PATH; unset CARGO_TARGET_DIR`. The shim serialises cargo behind `/home/socol/oc-tmp/cargo.lock`, builds in `/home/socol/oc-tmp/shared-target` (8G cap; `INTENT_CARGO_MEMORY_MAX` overrides the 12G default). Run binaries only through `cargo run`, `test` or `bench`, never by path. Private per-worktree targets froze btrfs (owner, 2026-10-06). Do not edit the shim. |
+| Aeneas pin | `AENEAS_HOME=/home/socol/oc-tmp/aeneas-pinned` (installed by `proof/bootstrap.sh --aeneas-home /home/socol/oc-tmp/aeneas-pinned --build-root /home/socol/oc-tmp/aeneas-build`; verify with `proof/bootstrap.sh --check --aeneas-home DIR`; stripped digest `7b698238…`). Never write to an ambient `AENEAS_HOME`. `aeneas-build2/install` (raw `6fde1a4d…`) only passes worktrees based before `32bb8a9`. |
+| Aeneas loop shapes | Pinned `nightly-2026.09.09-505b6ca` rejects a scan nested in an outer loop that mutates a Vec the scan reads, and a single-loop scan that carries an index and re-reads `slice[index]`. It accepts the running max carried beside the index, one loop per function, flag loops (`ok: bool` plus `Option<Error>`), no `?` or early return in a loop, `0.checked_sub(v)` for negation, no `wrapping_*`. Any edit to an extracted file needs `proof/regen.sh` then the corpus build. |
+| Lean lane recipe | Worktree, `ln -s <live>/target/aeneas-model <wt>/target/aeneas-model`, `cp -a --reflink=always` of `proof/.lake`, `proof/corpus/.lake`, `proof/canonical/.lake`; Mathlib from `~/.cache/mathlib` (`lake exe cache get`). `flock <worktree>/.lane.lock`; scale `LEAN_NUM_THREADS` to 32 threads and 62 GB. Never the live tree; purge the copies at return. |
+| worktree purge | At each round remove task worktrees, branches and their `target/` and `.lake` copies (`git worktree remove`, `git branch -D`); the last purge freed ~600 GB. |
+| commit | `set -a; . ./.env; set +a` before `git commit` (the `commit-msg` hook reads it); the message ends `Board: <row id>`; no attribution lines; plain `rustfmt` on a sibling file only for whitespace trips. Gated own-stream work commits at once; a push or anything public is confirmed first. |
+
+### Workers
+
+| route | invocation |
+|---|---|
+| DeepSeek Flash (primary bounded worker) | `cd /home/socol/Workspace/apeiron && opencode run --agent deepseek-flash -m deepseek/deepseek-flash --auto --standalone --title <id> "$(cat <prompt>)" > <out> 2>&1` in the background. The `-m` pin is required (without it: "OpenCode Go subscription required"). Rules block: `/home/socol/oc-tmp/ds-dispatch/common.md`. Resume after `Transport: ECONNRESET`: `opencode session list`, find `<title>`, then `opencode run --standalone -s <ses_id> --agent deepseek-flash -m deepseek/deepseek-flash --auto "cut by a network error; continue from disk"`. |
+| `Failed to execute statement` | SQLite `LockTimeoutError`, not a worker cap. Relaunch the worker; stagger launches; `sqlite3 opencode.db 'PRAGMA busy_timeout=10000; PRAGMA wal_checkpoint(TRUNCATE);'`. |
+| Argon (escalation) | `opencode run --agent argon -m "google-vertex/gemini-4-argon#high" --auto --standalone --title <t> "$(cat BRIEF.md)" > argon.out 2>&1; echo $? > argon.exit` in the background. Its output is untrusted (it has invented figures): verify against sources. |
+| lead model | The lead may run on Sonnet 5.5 when the weekly Claude window is nearly spent: DeepSeek Flash first, Argon for hard items, an Opus subagent only as the last resort. This overrides the §9.1 Opus verdict route while it is in force. |
+| process match | Never match a process by a pattern that matches its own command line; bracket the last character. |
+
+### Measurement and claims
+
+- **The bar for quantisation and transfer.** Owner, 2026-10-18, verbatim: "we will beat every quantisation and training algorithm on earth", clarified: "speed AND quality". A transfer slower than the frozen Python reference (qwen2.5-0.5B, 24 layers, 93.9 s fp32 on one RTX 5080) is a defect in the route, never a schedule.
+- **Owner-attributed text.** A rule recorded under the owner's name quotes his words verbatim; a paraphrase is shown to him before it is saved.
+- **Acceptance bar.** At least 2.0× llama.cpp on prefill (pp) **and** decode (tg), same model, CPU then SPIR-V. An internal f32/Q32 ratio is not the bar. Prefill wins come first; decode-only wins are queued.
+- **Like for like.** No llama.cpp ratio unless device, model, quant and depth match and a quality gate ran in the same run.
+- **Lead with the receipt.** Open with measured pp/tg ratios; label anything derived, model or microbench; never "we are faster" without the number. Receipts live in `docs/evidence/bench/`.
+- **Instrument.** `target/release/examples/engine_profile` on a quiet host, `llama-bench` best threads (8, 16, 24, 32), interleaved A/B arms (`--arm name:ENV=VAL`), tracer plus `perf`. A G1 benchmark never runs beside Lean or agent lanes.
+- **One path.** Optimise and measure only the engine path that carries the 2× target (CPU and GPU, one pool); quality is measured on that path; net lines of code go down.
+- **Structure over tuning.** A speed change is licensed by a named, read, proved identity (carrier, schedule, bytes read, work per weight pass); micro-tuning is cleanup after it. The f32 carrier under `Nous.Seq.DeltaCarrier.delta_carrier_error_uniform` moved prefill 0.64 → 1.18× in one wave; 29 micro-rounds moved it 0.45 → 0.64×.
+- **Port measured kernels first.** Start perf work from the measured fold kernels (`fold/bedrock/src/serve/model/rowdot.rs`, `q1.rs`, `fold/modelfold/src/simt/dp4a.rs`), not from scalar tuning. Attribute each speedup to an action and to the Aeneas/Lean structure that did or did not help.
+- **Rate check before addressing.** Tables, lattices and codebooks pay only through collisions; contextual activations are unique (§10 addressing row).
+- **Formalize every result.** Each clause of a result, success or failure, gets a Lean verdict theorem in the same commit.
+- **Limit claims.** A limit statement needs a receipt, a trajectory, retrieved papers and an unconditional Lean statement (`tools/rooting/limit_check.py`).
+- **Findable evidence.** No orphan markdown: a finding goes into the indexed epic or evidence document, readable cold.
+- **Retrieve, do not disclaim.** For a paper: `curl` the arXiv PDF, `pdftotext` into `/home/socol/oc-tmp/papers/<topic>/`, quote it in the same turn. Never "I have not read it".
+- **Read the proof first.** Open the Lean (`Nous/Model`, canonical `Trichotomy`, `Apeiron.Decider`) before describing a mechanism or saying σ adds nothing; spec first, code second.
+- **Know the corpus.** KV and inference are solved in the corpus; the 4 GB figure is the weight budget; no incremental tuning against a 65× gap.
+- **Standing go.** Under a standing loop go, a report is a checkpoint: post it (commit, board) and start the next action in the same turn. Stop only on a `HOLD`, an owner decision on scope or contract, or the budget ceiling.
+- **Conversion.** Existing models convert to ~4-bit/trit planes; 4 → 2 bit is the open rung. Never propose training from scratch; never cite BitNet; one committed plan for converting Qwen 27B, with a switch rule.
+
+### Vocabulary and repositories
+
+- σ = B² − AC is the discriminant of a second-order linear PDE; faces are elliptic, parabolic, hyperbolic. No mystical framing. Do not introduce `OnTheMonad`, `Clean`, "monad", "Being" or "trinity" in new work; cite a legacy name once as the old name with the standard statement. A rename is a migration (§10), not an unasked cleanup.
+- One-bit means sign plus continuous state (`SigmaDelta.lean`), not bits and not tanh annealing; grade every claim.
+- `../sanguine` is the live corpus; `../sanguine-ref` is the older corpus. `fold/hashtrinity` is the owner's library: ported, not vendored; the crypto part stays with the icarus target.
+- Release: hashbrown with Fx and XXH3 as the targets (ratio ≤ 1.0 in every column); hashtrinity deprecated; generic `Table` retires after its replacement lands; webfold untouched until `REBASE-ONTO-APEIRON`; releases due 2026-10-31; public home `github.com/sanguinehost/apeiron`.
+- GPU: Vulkan/SPIR-V on the proprietary driver; an owned driver is a Song goal, never NVK/NAK. One RTX 5080 is the box's GPU.
+- Opus subagents: legal work (verbatim primary-source citations) and the escalations named in §9.1 only.

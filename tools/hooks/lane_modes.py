@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -52,6 +53,98 @@ from lane_fetch import (
     client_from_environment,
     enumerated_board,
 )
+
+# The board of record is the sibling ``../indra`` ticket tree (AGENTS.md §9.3).
+# The ticket block is the machine-readable object; the description is built from
+# the scope so the old driver's gate/path/receipt readers see the same text.
+INDRA_BOARD = REPO_ROOT.parent / "indra" / "board"
+INDRA_TICKETS = INDRA_BOARD / "tickets"
+TICKET_BLOCK = re.compile(
+    r"```yaml[ \t]+(ticket|project)[ \t]*\n(.*?)\n```", re.S
+)
+INDRA_STATUS_LABELS = {
+    "open": "Not started",
+    "in_progress": "In progress",
+    "blocked": "Blocked",
+    "done": "Done",
+    "cancelled": "Canceled",
+}
+
+
+def indra_board_document() -> dict[str, Any] | None:
+    """The sibling ticket files as a normalized board document, or ``None``.
+
+    The commit hook used to resolve a declaration only against Operately.  The
+    board of record moved to ``../indra/board/tickets``; reading the ticket
+    blocks directly keeps the declaration rule local, needs no credential and
+    cannot read a stale capture as authority.  A missing sibling tree returns
+    ``None`` so the old live/snapshot routes remain the fallback.
+    """
+    if not INDRA_TICKETS.is_dir():
+        return None
+    try:
+        import yaml
+    except ImportError:
+        return None
+    tasks: list[dict[str, Any]] = []
+    milestones: dict[str, dict[str, Any]] = {}
+    projects: dict[str, dict[str, Any]] = {}
+    for path in sorted(INDRA_TICKETS.glob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        match = TICKET_BLOCK.search(text)
+        if match is None or match.group(1) != "ticket":
+            continue
+        try:
+            spec = yaml.safe_load(match.group(2))
+        except yaml.YAMLError:
+            continue
+        if not isinstance(spec, dict):
+            continue
+        ticket_id = str(spec.get("id") or path.stem)
+        project = str(spec.get("project") or "")
+        milestone = str(spec.get("milestone") or "")
+        state = str(spec.get("state") or "open")
+        title = str(spec.get("title") or "")
+        scope = spec.get("scope") if isinstance(spec.get("scope"), dict) else {}
+        change = str(scope.get("change") or "")
+        done_when = scope.get("done_when") if isinstance(scope.get("done_when"), list) else []
+        description = "\n".join([change, *(str(item) for item in done_when)])
+        tasks.append(
+            {
+                "id": ticket_id,
+                "name": f"{ticket_id}: {title}",
+                "status": {
+                    "value": state,
+                    "label": INDRA_STATUS_LABELS.get(state, state),
+                },
+                "milestone": {"id": milestone, "title": milestone},
+                "project": {"id": project, "name": project},
+                "description": description,
+            }
+        )
+        if project:
+            projects[project] = {"id": project, "name": project}
+        if milestone:
+            milestones[milestone] = {
+                "id": milestone,
+                "title": milestone,
+                "project": {"id": project, "name": project},
+            }
+    if not tasks:
+        return None
+    return board.normalize_document(
+        {
+            "schema": board.SCHEMA,
+            "space": {"id": "sanguine", "name": "sanguine"},
+            "projects": list(projects.values()),
+            "milestones": list(milestones.values()),
+            "tasks": tasks,
+        }
+    )
+
 
 def check_commit(
     args: argparse.Namespace, texts: list[tuple[str, str]], require: bool
@@ -119,7 +212,8 @@ def check_commit(
     if doc is None:
         print(
             f"lane-declaration: {RULE_UNAVAILABLE}: {origin}; no board to resolve "
-            f"{board.declared_row(value)!r} against; set OPERATELY_API_KEY, or "
+            f"{board.declared_row(value)!r} against; the local ticket source is "
+            f"{INDRA_TICKETS}, and a fallback is OPERATELY_API_KEY or "
             "APEIRON_HOOKS_BOARD_SOURCE=<stamped capture> "
             "(`python3 tools/hooks/lane.py capture --out PATH`), or declare "
             "`board: none -- housekeeping` for a documentation/tooling change",
@@ -227,6 +321,12 @@ def load_for_check(args: argparse.Namespace) -> tuple[dict[str, Any] | None, str
         return None, f"{RULE_DRIVER_MISSING}: {BOARD_DIR / 'board.py'}: {BOARD_IMPORT_ERROR}"
     source = args.board_source or os.environ.get("APEIRON_HOOKS_BOARD_SOURCE", "")
     if not source:
+        local = indra_board_document()
+        if local is not None:
+            return local, (
+                f"local indra board {INDRA_TICKETS}: {len(local['tasks'])} ticket(s); "
+                "the ticket block is the source and the worklog is the write path"
+            )
         document, report = enumerated_board(
             client_from_environment(), board.DEFAULT_SPACE_ID, list(board.DEFAULT_PROJECTS)
         )

@@ -434,9 +434,8 @@ def check_row(doc: dict[str, Any], token: str) -> tuple[list[Finding], list[str]
     )
     notes.append(
         f"move target: board row {row['id']} is currently "
-        f"{row['status_value'] or 'unset'}; a hook cannot call MCP and REST exposes no "
-        "move-task route, so a hook-side move is out of scope and moving it is the lead's "
-        "action"
+        f"{row['status_value'] or 'unset'}; the indra worklog is the write path, so a "
+        "hook-side move is out of scope and moving it is the lead's action"
     )
     if bucket in ("done", "canceled"):
         return (
