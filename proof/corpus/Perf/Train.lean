@@ -64,4 +64,13 @@ def linearBwdWeightReads (t i o : Nat) : Nat := 2 * t * i * o + o * i
 theorem linearBwdWeightReads_eq (t i o : Nat) :
     linearBwdWeightReads t i o = 2 * t * i * o + o * i := rfl
 
+/-- Words read by one naive causal-attention `dQ` dispatch at `t` tokens, `nh` query heads and
+    head width `hd`: each of the `t·nh·hd` outputs reads its `dout` row and its `v` row once per
+    key `j ≤ i`, `2·t·hd` words per thread, and the outputs are written. -/
+def attnBwdQReads (t nh hd : Nat) : Nat := 2 * t * t * nh * hd * hd + t * nh * hd
+
+/-- The P88 cost equation in expanded form: `2·t²·nh·hd² + t·nh·hd` words. -/
+theorem attnBwdQReads_eq (t nh hd : Nat) :
+    attnBwdQReads t nh hd = 2 * t * t * nh * hd * hd + t * nh * hd := rfl
+
 end Perf.Train

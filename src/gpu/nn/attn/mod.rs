@@ -5,11 +5,13 @@
 use super::*;
 
 mod attn_dp4a;
+mod bwd;
 mod pool;
 mod prefill;
 mod prefill_glue;
 mod sparse;
 
+pub use bwd::*;
 pub use pool::*;
 pub use prefill::*;
 pub use prefill_glue::*;
