@@ -1048,3 +1048,9 @@ path = "src/gpu/nn/fwd/rope.rs"
 fn = "rope_bwd_dispatch"
 class = "ffi"
 reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/mod.rs"
+fn = "*"
+class = "ffi"
+reason = "Host composition of SPIR-V dispatches: the Trainer records the waived ffi/gpu dispatch surface into Vulkan command buffers and every arithmetic operation lives in the SPIR-V kernels; the composition is outside the extraction domain, whose operating contract is Gpu.Handoff."

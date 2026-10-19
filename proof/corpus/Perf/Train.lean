@@ -252,4 +252,15 @@ theorem attnBwdDsTiledReads_eq (t nh hd : Nat) :
     attnBwdDsTiledReads t nh hd =
       2 * nh * ((t + 15) / 16) * t * hd + nh * t * (t + 1) + nh * t * t := rfl
 
+/-- Compute dispatches recorded by one `Trainer::step`: 46 on the layer tape (the forward's 17
+    and the backward's 29) plus the nine Adam updates. The 54 compute->compute barriers and the
+    twelve buffer copies record no dispatch.
+
+    Counted from the `rec_step` sequence in `src/gpu/nn/train/mod.rs`; a guard on the composition,
+    not a hardware quantity: it moves only when the tape does. -/
+def layerStepDispatches : Nat := 55
+
+/-- The P101 dispatch count, by `rfl`. -/
+theorem layerStepDispatches_eq : layerStepDispatches = 55 := rfl
+
 end Perf.Train

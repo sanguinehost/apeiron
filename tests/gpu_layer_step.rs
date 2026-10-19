@@ -51,18 +51,9 @@
 )]
 
 use apeiron::engine::RopeTable;
-use apeiron::gpu::decode::{make_step_named, rec_step, GpuCtx};
-use apeiron::gpu::nn::act::{swiglu_bwd_dispatch, swiglu_fwd_dispatch};
-use apeiron::gpu::nn::fwd::{
-    kl_row_dispatch, linear_fwd_dispatch, rmsnorm_fwd_dispatch, rope_bwd_dispatch,
-    rope_fwd_dispatch,
-};
-use apeiron::gpu::nn::{
-    adam_update_dispatch, add_inplace_bytes, attn_bwd_dkdv_dispatch, attn_bwd_dq_dispatch,
-    attn_bwd_ds_dispatch, attn_bwd_rowsum_dispatch, attn_fwd_dispatch, linear_bwd_input_dispatch,
-    linear_bwd_weight_dispatch, rmsnorm_bwd_dispatch, rmsnorm_dgamma_dispatch,
-};
-use apeiron::gpu::vulkan::*;
+use apeiron::gpu::decode::GpuCtx;
+use apeiron::gpu::nn::train::{rope_tables, HostWeights, LayerCfg, Trainer};
+use apeiron::gpu::vulkan::Vk;
 use apeiron::learn::fold::finish::train::Adam;
 use apeiron::learn::grad::attn::{attn_bwd_kern, attn_fwd_kern, rope_bwd, rope_fwd};
 use apeiron::learn::grad::dense::{
@@ -90,8 +81,6 @@ const KW: usize = NKV * HD;
 const LR_Q32: i64 = 4_294_967;
 /// `eps = 1e-6` in Q32.32 words (the f32 kernels are given `1e-6f32`).
 const EPS_Q32: i64 = 4295;
-/// Local size of the residual-add kernel and the grid divisor for its dispatch.
-const ADD_LOCAL: u32 = 256;
 
 /// Fixed-seed LCG (Knuth's MMIX constants), uniform in `[-0.5, 0.5)`.
 struct Lcg(u64);
@@ -403,7 +392,8 @@ fn layer_training_steps_match_cpu() {
 }
 
 fn run(vk: &Vk, pins: &[Pins; 2]) {
-    let mut rng = Lcg(0x9e37_79b9_7f4a_7c15);
+    let seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut rng = Lcg(seed);
     let x: Vec<i64> = (0..T * I).map(|_| real_to_q32(rng.unit())).collect();
     let zt: Vec<i64> = (0..T * V).map(|_| real_to_q32(rng.unit())).collect();
     let wq0: Vec<i64> = (0..QW * I).map(|_| real_to_q32(rng.unit())).collect();
@@ -440,436 +430,57 @@ fn run(vk: &Vk, pins: &[Pins; 2]) {
         a_g2: Adam::zeros(I),
     };
 
+    // The production trainer owns the buffer plan and the step construction; this test keeps the
+    // seed, the CPU chain and the pins. The weight tensors and RoPE tables are asserted equal to
+    // the oracle's words, so the moved composition is the same computation.
+    let cfg = LayerCfg::new(
+        T as u32, I as u32, H as u32, V as u32, NH as u32, NKV as u32, HD as u32,
+    )
+    .expect("layer cfg");
+    let hw = HostWeights::lcg(&cfg, seed);
+    let f32s = |v: &[i64]| -> Vec<f32> { v.iter().map(|&w| to_f32(w)).collect() };
+    assert_eq!(hw.wq, f32s(&wq0), "weight stream Wq");
+    assert_eq!(hw.wk, f32s(&wk0), "weight stream Wk");
+    assert_eq!(hw.wv, f32s(&wv0), "weight stream Wv");
+    assert_eq!(hw.wo, f32s(&wo0), "weight stream Wo");
+    assert_eq!(hw.wg, f32s(&wg0), "weight stream Wg");
+    assert_eq!(hw.wu, f32s(&wu0), "weight stream Wu");
+    assert_eq!(hw.wd, f32s(&wd0), "weight stream Wd");
+    assert_eq!(hw.g1, f32s(&g1_0), "weight stream g1");
+    assert_eq!(hw.g2, f32s(&g2_0), "weight stream g2");
+    let (cos_t, sin_t) = rope_tables(&cfg, 10_000.0);
+    assert_eq!(cos_t, cosv, "RoPE cos table");
+    assert_eq!(sin_t, sinv, "RoPE sin table");
+
     let (g, _stage) = GpuCtx::new(vk).expect("GpuCtx::new");
-    let up = |words: &[i64]| -> u64 {
-        let real: Vec<f32> = words.iter().map(|&v| to_f32(v)).collect();
-        unsafe { g.up_f32(&real) }
-    };
-    let x_buf = up(&x);
-    let zt_buf = up(&zt);
-    let cos_buf = unsafe { g.up_f32(&cosv) };
-    let sin_buf = unsafe { g.up_f32(&sinv) };
-    let wq_buf = up(&wq0);
-    let wk_buf = up(&wk0);
-    let wv_buf = up(&wv0);
-    let wo_buf = up(&wo0);
-    let wg_buf = up(&wg0);
-    let wu_buf = up(&wu0);
-    let wd_buf = up(&wd0);
-    let g1_buf = up(&g1_0);
-    let g2_buf = up(&g2_0);
-    // Adam moments: (m, v) per tensor, device-resident and carried across both steps.
-    let mut moments: Vec<(u64, u64)> = Vec::with_capacity(9);
-    for n in [QW * I, KW * I, KW * I, I * QW, H * I, H * I, I * H, I, I] {
-        let zeros = vec![0.0f32; n];
-        let m = unsafe { g.up_f32(&zeros) };
-        let v = unsafe { g.up_f32(&zeros) };
-        moments.push((m, v));
-    }
-
-    // Activations and gradients, `n × 4` bytes each.
-    let xn_buf = unsafe { g.dev(T * I * 4) };
-    let q_buf = unsafe { g.dev(T * QW * 4) };
-    let k_buf = unsafe { g.dev(T * KW * 4) };
-    let val_buf = unsafe { g.dev(T * KW * 4) };
-    let q0_buf = unsafe { g.dev(T * QW * 4) };
-    let k0_buf = unsafe { g.dev(T * KW * 4) };
-    let p_buf = unsafe { g.dev(NH * T * T * 4) };
-    let oa_buf = unsafe { g.dev(T * QW * 4) };
-    let o_buf = unsafe { g.dev(T * I * 4) };
-    let x1_buf = unsafe { g.dev(T * I * 4) };
-    let x2_buf = unsafe { g.dev(T * I * 4) };
-    let xn2_buf = unsafe { g.dev(T * I * 4) };
-    let gate_buf = unsafe { g.dev(T * H * 4) };
-    let up_buf = unsafe { g.dev(T * H * 4) };
-    let ha_buf = unsafe { g.dev(T * H * 4) };
-    let f_buf = unsafe { g.dev(T * I * 4) };
-    let loss_buf = unsafe { g.dev(T * 4) };
-    let dz_buf = unsafe { g.dev(T * I * 4) };
-    let dwd_buf = unsafe { g.dev(I * H * 4) };
-    let dha_buf = unsafe { g.dev(T * H * 4) };
-    let dgate_buf = unsafe { g.dev(T * H * 4) };
-    let dup_buf = unsafe { g.dev(T * H * 4) };
-    let dxn2_buf = unsafe { g.dev(T * I * 4) };
-    let dwg_buf = unsafe { g.dev(H * I * 4) };
-    let dwu_buf = unsafe { g.dev(H * I * 4) };
-    let dx1_buf = unsafe { g.dev(T * I * 4) };
-    let dg2_rows_buf = unsafe { g.dev(T * I * 4) };
-    let dg2_buf = unsafe { g.dev(I * 4) };
-    let dwo_buf = unsafe { g.dev(I * QW * 4) };
-    let d_out_buf = unsafe { g.dev(T * QW * 4) };
-    let rs_buf = unsafe { g.dev(NH * T * 4) };
-    let ds_buf = unsafe { g.dev(NH * T * T * 4) };
-    let dq_rope_buf = unsafe { g.dev(T * QW * 4) };
-    let dk_rope_buf = unsafe { g.dev(T * KW * 4) };
-    let dq_buf = unsafe { g.dev(T * QW * 4) };
-    let dk_buf = unsafe { g.dev(T * KW * 4) };
-    let dv_buf = unsafe { g.dev(T * KW * 4) };
-    let dwq_buf = unsafe { g.dev(QW * I * 4) };
-    let dwk_buf = unsafe { g.dev(KW * I * 4) };
-    let dwv_buf = unsafe { g.dev(KW * I * 4) };
-    let dxn_buf = unsafe { g.dev(T * I * 4) };
-    let dx_buf = unsafe { g.dev(T * I * 4) };
-    let dg1_rows_buf = unsafe { g.dev(T * I * 4) };
-    let dg1_buf = unsafe { g.dev(I * 4) };
-    let tmp_a_buf = unsafe { g.dev(T * I * 4) };
-    let tmp_b_buf = unsafe { g.dev(T * I * 4) };
-    let tmp_c_buf = unsafe { g.dev(T * I * 4) };
-
-    let host = |count: usize| unsafe {
-        let (b, m) = vk
-            .buffer(
-                count as u64 * 4,
-                BUFFER_USAGE_TRANSFER_DST,
-                MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT,
-            )
-            .expect("readback buffer");
-        (b, vk.map(m).cast::<f32>())
-    };
-    let (rb_loss, rb_loss_p) = host(T);
-    let (rb_dx, rb_dx_p) = host(T * I);
-    let (rb_dg1, rb_dg1_p) = host(I);
-    let (rb_dg2, rb_dg2_p) = host(I);
-    let (rb_wq, rb_wq_p) = host(QW * I);
-    let (rb_wk, rb_wk_p) = host(KW * I);
-    let (rb_wv, rb_wv_p) = host(KW * I);
-    let (rb_wo, rb_wo_p) = host(I * QW);
-    let (rb_wg, rb_wg_p) = host(H * I);
-    let (rb_wu, rb_wu_p) = host(H * I);
-    let (rb_wd, rb_wd_p) = host(I * H);
-
-    let tu = T as u32;
-    let (iu, hu, vu) = (I as u32, H as u32, V as u32);
-    let (qw, kw, nhu, nkvu, hdu) = (QW as u32, KW as u32, NH as u32, NKV as u32, HD as u32);
+    let mut trainer = Trainer::new(&g, cfg, &hw);
+    let xf: Vec<f32> = x.iter().map(|&w| to_f32(w)).collect();
+    let ztf: Vec<f32> = zt.iter().map(|&w| to_f32(w)).collect();
 
     for (step, pin) in (1u32..=2).zip(pins) {
         let cpu = oracle.step(&x, &zt, &table);
 
-        let add_step = |dst: u64, src: u64, n: u32| unsafe {
-            make_step_named(
-                &g,
-                &add_inplace_bytes(n, ADD_LOCAL),
-                &[dst, src],
-                n.div_ceil(ADD_LOCAL),
-                1,
-                "add_inplace",
-            )
-        };
+        trainer.set_batch(&xf, &ztf);
+        trainer.step(&g);
+        trainer.sync_weights(&g);
 
-        let s_xn = unsafe { rmsnorm_fwd_dispatch(&g, x_buf, g1_buf, xn_buf, tu, iu) };
-        let s_q = unsafe { linear_fwd_dispatch(&g, xn_buf, wq_buf, q0_buf, tu, iu, qw) };
-        let s_k = unsafe { linear_fwd_dispatch(&g, xn_buf, wk_buf, k0_buf, tu, iu, kw) };
-        let s_v = unsafe { linear_fwd_dispatch(&g, xn_buf, wv_buf, val_buf, tu, iu, kw) };
-        let s_rq = unsafe { rope_fwd_dispatch(&g, q0_buf, cos_buf, sin_buf, q_buf, tu, nhu, hdu) };
-        let s_rk = unsafe { rope_fwd_dispatch(&g, k0_buf, cos_buf, sin_buf, k_buf, tu, nkvu, hdu) };
-        let s_attn = unsafe {
-            attn_fwd_dispatch(&g, q_buf, k_buf, val_buf, p_buf, oa_buf, tu, nhu, nkvu, hdu)
-        };
-        let s_o = unsafe { linear_fwd_dispatch(&g, oa_buf, wo_buf, o_buf, tu, qw, iu) };
-        let s_x1 = add_step(x1_buf, o_buf, (T * I) as u32);
-        let s_x2a = add_step(x2_buf, o_buf, (T * I) as u32);
-        let s_xn2 = unsafe { rmsnorm_fwd_dispatch(&g, x1_buf, g2_buf, xn2_buf, tu, iu) };
-        let s_gate = unsafe { linear_fwd_dispatch(&g, xn2_buf, wg_buf, gate_buf, tu, iu, hu) };
-        let s_up = unsafe { linear_fwd_dispatch(&g, xn2_buf, wu_buf, up_buf, tu, iu, hu) };
-        let s_sw = unsafe { swiglu_fwd_dispatch(&g, gate_buf, up_buf, ha_buf, (T * H) as u32) };
-        let s_f = unsafe { linear_fwd_dispatch(&g, ha_buf, wd_buf, f_buf, tu, hu, iu) };
-        let s_x2b = add_step(x2_buf, f_buf, (T * I) as u32);
-        let s_kl = unsafe { kl_row_dispatch(&g, x2_buf, zt_buf, loss_buf, dz_buf, tu, vu) };
-
-        let s_dwd = unsafe { linear_bwd_weight_dispatch(&g, dz_buf, ha_buf, dwd_buf, tu, hu, iu) };
-        let s_dha = unsafe { linear_bwd_input_dispatch(&g, dz_buf, wd_buf, dha_buf, tu, hu, iu) };
-        let s_swb = unsafe {
-            swiglu_bwd_dispatch(
-                &g,
-                gate_buf,
-                up_buf,
-                dha_buf,
-                dgate_buf,
-                dup_buf,
-                (T * H) as u32,
-            )
-        };
-        let s_dxn2a =
-            unsafe { linear_bwd_input_dispatch(&g, dgate_buf, wg_buf, dxn2_buf, tu, iu, hu) };
-        let s_dxn2b =
-            unsafe { linear_bwd_input_dispatch(&g, dup_buf, wu_buf, tmp_a_buf, tu, iu, hu) };
-        let s_dxn2 = add_step(dxn2_buf, tmp_a_buf, (T * I) as u32);
-        let s_dwg =
-            unsafe { linear_bwd_weight_dispatch(&g, dgate_buf, xn2_buf, dwg_buf, tu, iu, hu) };
-        let s_dwu =
-            unsafe { linear_bwd_weight_dispatch(&g, dup_buf, xn2_buf, dwu_buf, tu, iu, hu) };
-        let s_nb2 = unsafe {
-            rmsnorm_bwd_dispatch(
-                &g,
-                x1_buf,
-                g2_buf,
-                dxn2_buf,
-                dx1_buf,
-                dg2_rows_buf,
-                tu,
-                iu,
-                1e-6f32,
-            )
-        };
-        let s_dg2 = unsafe { rmsnorm_dgamma_dispatch(&g, dg2_rows_buf, dg2_buf, tu, iu) };
-        let s_dx1 = add_step(dx1_buf, dz_buf, (T * I) as u32);
-        let s_dwo = unsafe { linear_bwd_weight_dispatch(&g, dx1_buf, oa_buf, dwo_buf, tu, qw, iu) };
-        let s_do = unsafe { linear_bwd_input_dispatch(&g, dx1_buf, wo_buf, d_out_buf, tu, qw, iu) };
-        let s_rs = unsafe {
-            attn_bwd_rowsum_dispatch(&g, val_buf, p_buf, d_out_buf, rs_buf, tu, nhu, nkvu, hdu)
-        };
-        let s_ds = unsafe {
-            attn_bwd_ds_dispatch(
-                &g, val_buf, p_buf, d_out_buf, rs_buf, ds_buf, tu, nhu, nkvu, hdu,
-            )
-        };
-        let s_dq =
-            unsafe { attn_bwd_dq_dispatch(&g, k_buf, ds_buf, dq_rope_buf, tu, nhu, nkvu, hdu) };
-        let s_dkdv = unsafe {
-            attn_bwd_dkdv_dispatch(
-                &g,
-                q_buf,
-                p_buf,
-                ds_buf,
-                d_out_buf,
-                dk_rope_buf,
-                dv_buf,
-                tu,
-                nhu,
-                nkvu,
-                hdu,
-            )
-        };
-        let s_rbq =
-            unsafe { rope_bwd_dispatch(&g, dq_rope_buf, cos_buf, sin_buf, dq_buf, tu, nhu, hdu) };
-        let s_rbk =
-            unsafe { rope_bwd_dispatch(&g, dk_rope_buf, cos_buf, sin_buf, dk_buf, tu, nkvu, hdu) };
-        let s_dwq = unsafe { linear_bwd_weight_dispatch(&g, dq_buf, xn_buf, dwq_buf, tu, iu, qw) };
-        let s_dwk = unsafe { linear_bwd_weight_dispatch(&g, dk_buf, xn_buf, dwk_buf, tu, iu, kw) };
-        let s_dwv = unsafe { linear_bwd_weight_dispatch(&g, dv_buf, xn_buf, dwv_buf, tu, iu, kw) };
-        let s_dxnq = unsafe { linear_bwd_input_dispatch(&g, dq_buf, wq_buf, dxn_buf, tu, iu, qw) };
-        let s_dxnk =
-            unsafe { linear_bwd_input_dispatch(&g, dk_buf, wk_buf, tmp_b_buf, tu, iu, kw) };
-        let s_dxnv =
-            unsafe { linear_bwd_input_dispatch(&g, dv_buf, wv_buf, tmp_c_buf, tu, iu, kw) };
-        let s_dxn1 = add_step(dxn_buf, tmp_b_buf, (T * I) as u32);
-        let s_dxn2b2 = add_step(dxn_buf, tmp_c_buf, (T * I) as u32);
-        let s_nb1 = unsafe {
-            rmsnorm_bwd_dispatch(
-                &g,
-                x_buf,
-                g1_buf,
-                dxn_buf,
-                dx_buf,
-                dg1_rows_buf,
-                tu,
-                iu,
-                1e-6f32,
-            )
-        };
-        let s_dg1 = unsafe { rmsnorm_dgamma_dispatch(&g, dg1_rows_buf, dg1_buf, tu, iu) };
-
-        let weights = [
-            (wq_buf, QW * I),
-            (wk_buf, KW * I),
-            (wv_buf, KW * I),
-            (wo_buf, I * QW),
-            (wg_buf, H * I),
-            (wu_buf, H * I),
-            (wd_buf, I * H),
-            (g1_buf, I),
-            (g2_buf, I),
-        ];
-        let grads = [
-            dwq_buf, dwk_buf, dwv_buf, dwo_buf, dwg_buf, dwu_buf, dwd_buf, dg1_buf, dg2_buf,
-        ];
-        let adam: Vec<_> = weights
-            .iter()
-            .zip(grads)
-            .zip(moments.iter())
-            .map(|((&(w, n), d), &(m, v))| unsafe {
-                adam_update_dispatch(&g, w, d, m, v, n as u32, LR_Q32, step)
-            })
-            .collect();
-
-        let cb = unsafe { vk.command_buffer() };
-        unsafe {
-            vk.begin(cb);
-            let cbar = |cb| {
-                vk.barrier(
-                    cb,
-                    STAGE_COMPUTE,
-                    STAGE_COMPUTE,
-                    ACCESS_SHADER_WRITE,
-                    ACCESS_SHADER_READ | ACCESS_SHADER_WRITE,
-                );
-            };
-            // Seed both residual buffers with `x` (the tape's `x1 = x + o`, `x2 = x + o + f`; the
-            // second `o` add rounds identically, so `x2 = x1 + f` entry-wise).
-            vk.barrier(
-                cb,
-                STAGE_COMPUTE,
-                STAGE_TRANSFER,
-                ACCESS_SHADER_WRITE,
-                ACCESS_TRANSFER_READ,
-            );
-            let copy = |src, dst, bytes: usize| {
-                let region = BufferCopy {
-                    src_offset: 0,
-                    dst_offset: 0,
-                    size: bytes as u64,
-                };
-                (vk.copy_buffer)(cb, src, dst, 1, &region);
-            };
-            copy(x_buf, x1_buf, T * I * 4);
-            copy(x_buf, x2_buf, T * I * 4);
-            vk.barrier(
-                cb,
-                STAGE_TRANSFER,
-                STAGE_COMPUTE,
-                ACCESS_TRANSFER_WRITE,
-                ACCESS_SHADER_READ | ACCESS_SHADER_WRITE,
-            );
-            rec_step(vk, cb, &s_xn);
-            cbar(cb);
-            rec_step(vk, cb, &s_q);
-            cbar(cb);
-            rec_step(vk, cb, &s_k);
-            cbar(cb);
-            rec_step(vk, cb, &s_v);
-            cbar(cb);
-            rec_step(vk, cb, &s_rq);
-            cbar(cb);
-            rec_step(vk, cb, &s_rk);
-            cbar(cb);
-            rec_step(vk, cb, &s_attn);
-            cbar(cb);
-            rec_step(vk, cb, &s_o);
-            cbar(cb);
-            rec_step(vk, cb, &s_x1);
-            cbar(cb);
-            rec_step(vk, cb, &s_x2a);
-            cbar(cb);
-            rec_step(vk, cb, &s_xn2);
-            cbar(cb);
-            rec_step(vk, cb, &s_gate);
-            cbar(cb);
-            rec_step(vk, cb, &s_up);
-            cbar(cb);
-            rec_step(vk, cb, &s_sw);
-            cbar(cb);
-            rec_step(vk, cb, &s_f);
-            cbar(cb);
-            rec_step(vk, cb, &s_x2b);
-            cbar(cb);
-            rec_step(vk, cb, &s_kl);
-            cbar(cb);
-            rec_step(vk, cb, &s_dwd);
-            cbar(cb);
-            rec_step(vk, cb, &s_dha);
-            cbar(cb);
-            rec_step(vk, cb, &s_swb);
-            cbar(cb);
-            rec_step(vk, cb, &s_dxn2a);
-            cbar(cb);
-            rec_step(vk, cb, &s_dxn2b);
-            cbar(cb);
-            rec_step(vk, cb, &s_dxn2);
-            cbar(cb);
-            rec_step(vk, cb, &s_dwg);
-            cbar(cb);
-            rec_step(vk, cb, &s_dwu);
-            cbar(cb);
-            rec_step(vk, cb, &s_nb2);
-            cbar(cb);
-            rec_step(vk, cb, &s_dg2);
-            cbar(cb);
-            rec_step(vk, cb, &s_dx1);
-            cbar(cb);
-            rec_step(vk, cb, &s_dwo);
-            cbar(cb);
-            rec_step(vk, cb, &s_do);
-            cbar(cb);
-            rec_step(vk, cb, &s_rs);
-            cbar(cb);
-            rec_step(vk, cb, &s_ds);
-            cbar(cb);
-            rec_step(vk, cb, &s_dq);
-            cbar(cb);
-            rec_step(vk, cb, &s_dkdv);
-            cbar(cb);
-            rec_step(vk, cb, &s_rbq);
-            cbar(cb);
-            rec_step(vk, cb, &s_rbk);
-            cbar(cb);
-            rec_step(vk, cb, &s_dwq);
-            cbar(cb);
-            rec_step(vk, cb, &s_dwk);
-            cbar(cb);
-            rec_step(vk, cb, &s_dwv);
-            cbar(cb);
-            rec_step(vk, cb, &s_dxnq);
-            cbar(cb);
-            rec_step(vk, cb, &s_dxnk);
-            cbar(cb);
-            rec_step(vk, cb, &s_dxnv);
-            cbar(cb);
-            rec_step(vk, cb, &s_dxn1);
-            cbar(cb);
-            rec_step(vk, cb, &s_dxn2b2);
-            cbar(cb);
-            rec_step(vk, cb, &s_nb1);
-            cbar(cb);
-            rec_step(vk, cb, &s_dg1);
-            for (i, s) in adam.iter().enumerate() {
-                if i > 0 {
-                    cbar(cb);
-                }
-                rec_step(vk, cb, s);
-            }
-            vk.barrier(
-                cb,
-                STAGE_COMPUTE,
-                STAGE_TRANSFER,
-                ACCESS_SHADER_WRITE,
-                ACCESS_TRANSFER_READ,
-            );
-            copy(loss_buf, rb_loss, T * 4);
-            copy(dx_buf, rb_dx, T * I * 4);
-            copy(dg1_buf, rb_dg1, I * 4);
-            copy(dg2_buf, rb_dg2, I * 4);
-            copy(wq_buf, rb_wq, QW * I * 4);
-            copy(wk_buf, rb_wk, KW * I * 4);
-            copy(wv_buf, rb_wv, KW * I * 4);
-            copy(wo_buf, rb_wo, I * QW * 4);
-            copy(wg_buf, rb_wg, H * I * 4);
-            copy(wu_buf, rb_wu, H * I * 4);
-            copy(wd_buf, rb_wd, I * H * 4);
-            vk.barrier(
-                cb,
-                STAGE_TRANSFER,
-                STAGE_HOST,
-                ACCESS_TRANSFER_WRITE,
-                ACCESS_HOST_READ,
-            );
-            check((vk.end_cb)(cb), "vkEndCommandBuffer");
-            vk.submit_wait(cb);
-        }
-
-        let rd = |ptr: *mut f32, n: usize| -> Vec<f32> {
-            unsafe { std::slice::from_raw_parts(ptr, n).to_vec() }
-        };
-        let gpu_loss = rd(rb_loss_p, T);
-        let gpu_dx = rd(rb_dx_p, T * I);
-        let gpu_dg1 = rd(rb_dg1_p, I);
-        let gpu_dg2 = rd(rb_dg2_p, I);
-        let gpu_wq = rd(rb_wq_p, QW * I);
-        let gpu_wk = rd(rb_wk_p, KW * I);
-        let gpu_wv = rd(rb_wv_p, KW * I);
-        let gpu_wo = rd(rb_wo_p, I * QW);
-        let gpu_wg = rd(rb_wg_p, H * I);
-        let gpu_wu = rd(rb_wu_p, H * I);
-        let gpu_wd = rd(rb_wd_p, I * H);
+        let gpu_loss = trainer.losses();
+        let gpu_dx = trainer.dx();
+        let gpu_dg1 = trainer.dgamma1();
+        let gpu_dg2 = trainer.dgamma2();
+        let updated = trainer.weights();
+        let gpu_wq = updated.wq;
+        let gpu_wk = updated.wk;
+        let gpu_wv = updated.wv;
+        let gpu_wo = updated.wo;
+        let gpu_wg = updated.wg;
+        let gpu_wu = updated.wu;
+        let gpu_wd = updated.wd;
+        assert_eq!(
+            trainer.loss().to_bits(),
+            gpu_loss[0].to_bits(),
+            "loss() is row 0"
+        );
         for (name, v) in [
             ("loss", &gpu_loss),
             ("dx", &gpu_dx),
