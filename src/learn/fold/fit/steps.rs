@@ -939,9 +939,62 @@ pub fn objective(
         return Ok(0);
     }
     let y = metric_grid(&d, hl, o, n)?;
-    // One row against the flat `o·n` vector on the kernel: `y[0] = Σ d·y`, one rounding per word.
-    let dot = limb::gemv_q32(&d, &y, 1, o * n, LIMBS).map_err(map_limb)?;
-    Ok(dot[0])
+    flat_pair_sum(&d, &y)
+}
+
+/// `Σ aᵢ·bᵢ` over the kernel's grouped row dot.
+///
+/// The kernel's single-call inner bound is [`MAX_INNER`](crate::engine::kern::limb::MAX_INNER)
+/// words; the fit's flat length is `o·n` and exceeds it at every tensor whose area is past
+/// `128×128` (the `896×896` projection is 802,816 words), where one `gemv_q32` call refuses with
+/// [`LimbError::Shape`]. The dot runs as `len/GROUP` row pairs of [`GROUP`] words through
+/// [`limb::rowdot_q32`], the group words are summed exactly in `i128`, and the total is narrowed
+/// once.
+///
+/// # Errors
+///
+/// [`StepsError::ShapeMismatch`] on an empty, unequal or non-[`GROUP`] length, or a total outside
+/// the Q32.32 words.
+fn flat_pair_sum(a: &[i64], b: &[i64]) -> Result<i64, StepsError> {
+    let len = a.len();
+    if len == 0 || len != b.len() || !len.is_multiple_of(GROUP) {
+        return Err(StepsError::ShapeMismatch);
+    }
+    let parts = limb::rowdot_q32(a, b, len / GROUP, GROUP, LIMBS).map_err(map_limb)?;
+    let mut acc: i128 = 0;
+    for &v in &parts {
+        acc += i128::from(v);
+    }
+    q32::narrow(acc).ok_or(StepsError::ShapeMismatch)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `896×896` projection's flat length is 802,816 words, past the kernel's 16,384-word
+    /// single-call inner bound: one `gemv_q32` call refuses, and the grouped route must sum
+    /// within the module's stated `2⁻¹³` relative bound.
+    #[test]
+    fn flat_pair_sum_past_the_kernel_inner_bound() {
+        let len = 192 * 192;
+        let mut a = vec![0i64; len];
+        let mut b = vec![0i64; len];
+        let mut exact: i128 = 0;
+        for i in 0..len {
+            a[i] = ((i % 997 + 1) as i64) << 8;
+            b[i] = ((i * 7 % 991 + 1) as i64) << 10;
+            exact += i128::from(a[i]) * i128::from(b[i]);
+        }
+        let want = q32::round_q32_even(exact).expect("reference in words");
+        let got = flat_pair_sum(&a, &b).expect("grouped route runs past 16,384 words");
+        let err = (i128::from(got) - i128::from(want)).abs();
+        let bound = (i128::from(want).abs() >> 13).max(1);
+        assert!(
+            err <= bound,
+            "grouped {got} vs exact {want}: error {err} over bound {bound}"
+        );
+    }
 }
 
 /// `Ws·Hl` through [`limb::gemm_q32`], with [`metric_grid`]'s operand shift and exact undo.

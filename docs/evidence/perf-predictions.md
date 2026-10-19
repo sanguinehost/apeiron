@@ -43,6 +43,16 @@ blocked pending the owner's ruling. Held-out bits/token is not measured: four of
 and no engine kernel loads the pack. The round trip is exact on 48/48 real planes and the 896x896
 synthetic plane, and a flipped codebook index changes the weight. Board `APEIRON-QUALITY-118-W1-T01`.
 
+The fold fit's flat objective dot (`src/learn/fold/fit/steps.rs::objective`) ran one
+`limb::gemv_q32` over `o·n` words; the kernel's single-call inner bound is 16,384 words, so every
+real tensor (`896×896` = 802,816) returned `LimbError::Shape`, mapped to `FoldFitError::ShapeMismatch`,
+and `model_step` panicked before any fit. The grouped `rowdot_q32` route (128-word pairs, the group
+words summed in `i128`, one narrowing) restores it: `learn_fold_steps` 17 passed and the new
+`flat_pair_sum_past_the_kernel_inner_bound` unit test covers 36,864 words. The fit's cost is the
+transfer route's defect: one layer at 512 tokens (`APEIRON_PROBE_SEQ=1`, `k=1`) does not finish
+inside 560 s (exit 124), so 24 layers project past 13,400 s against the 93.9 s whole-model bar, and
+the 4-layer header re-fit's measured 2,511 s is the same term. Board `APEIRON-QUALITY-118-W1-T01`.
+
 The P-rows below are historical. A `red` verdict in a row is relative to that row's measured revision and
 is not current status; § Current supersedes every one of them.
 
