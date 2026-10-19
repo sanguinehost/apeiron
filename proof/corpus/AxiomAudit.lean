@@ -57,6 +57,7 @@ import Perf.PubVerifyCpu
 import Perf.OnebitW9
 import Perf.OnebitW10
 import Perf.Iq1s
+import Perf.Elliptic
 import Perf.OnebitW13
 import Perf.OnebitW14
 import Perf.CostCorrespondence
@@ -1038,6 +1039,16 @@ import Gpu.Handoff
 #audit Perf.Iq1s.blocks_compared
 #audit Perf.Iq1s.weights_are_blocks
 #audit Perf.Iq1s.p1_verdict
+-- The elliptic form of the quantisation distortion and the transform-coding bound
+-- (`Perf/Elliptic.lean`, QUALITY-118).
+#audit Perf.Elliptic.pair_form_psd
+#audit Perf.Elliptic.pair_form_psd_of_gram
+#audit Perf.Elliptic.coding_gain_sq
+#audit Perf.Elliptic.coding_gain_bound
+#audit Perf.Elliptic.coding_gain_eq_iff
+#audit Perf.Elliptic.coding_gain_ge_one
+#audit Perf.Elliptic.register_stage_orthogonal
+#audit Perf.Elliptic.register_stage_pi_div_four
 #audit Perf.OnebitW13.quad_eq
 #audit Perf.OnebitW13.pivot_le_diag
 #audit Perf.OnebitW13.shaped_le_white

@@ -1020,7 +1020,6 @@ orphan_debt = [
     "proof/corpus/Perf/IdentityFloat.lean",
     "proof/corpus/Perf/Identity.lean",
     "proof/corpus/Perf/Instances.lean",
-    "proof/corpus/Perf/Iq1s.lean",
     "proof/corpus/Perf/KDScaling.lean",
     "proof/corpus/Perf/KLTilt.lean",
     "proof/corpus/Perf/MapMoves.lean",
