@@ -6,12 +6,14 @@ use super::*;
 
 mod attn_dp4a;
 mod bwd;
+mod fwd;
 mod pool;
 mod prefill;
 mod prefill_glue;
 mod sparse;
 
 pub use bwd::*;
+pub use fwd::*;
 pub use pool::*;
 pub use prefill::*;
 pub use prefill_glue::*;

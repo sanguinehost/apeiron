@@ -1440,6 +1440,7 @@ import Gpu.Handoff
 #audit Perf.Train.denseBwdTiledReads_eq
 #audit Perf.Train.adamUpdateReads_eq
 #audit Perf.Train.denseFwdTiledReads_eq
+#audit Perf.Train.attnFwdReads_eq
 #audit Perf.Handoff.align256_eq
 #audit Perf.Handoff.writeChunk_le_cap
 #audit Perf.Handoff.writeChunk_le_remaining
