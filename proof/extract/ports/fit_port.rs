@@ -103,6 +103,16 @@ pub fn word_fit_icm_e8_icm_step(
     fit::icm::e8_icm_step(ws, hl, p, o, n, sweeps, icm_ridge)
 }
 
+/// The `CODE_LEN`-way argmin of the exact Q96.96 block cost over one row-block's codebook dots.
+pub fn word_fit_icm_best_code_q(
+    aa: i128,
+    two_a: i128,
+    q: &[i64],
+    dot: &[i64],
+) -> Result<usize, fit::icm::IcmError> {
+    fit::icm::best_code_q(aa, two_a, q, dot)
+}
+
 /// Joint block ICM over two planes.
 pub fn word_fit_icm_e8_joint_icm_2plane(
     ws: &[i64],

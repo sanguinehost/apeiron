@@ -1961,6 +1961,8 @@ mod softmax;
 #[path = "step/spec.rs"]
 mod spec;
 pub use spec::{MtpState, SpecStats};
+#[path = "step/cold_store.rs"]
+pub mod cold_store;
 
 #[cfg(test)]
 #[path = "step/prefill_tests.rs"]

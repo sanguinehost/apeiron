@@ -411,6 +411,16 @@ row = "STRUCT-SPLIT"
 
 [[debt]]
 rule = "max_lines"
+path = "proof/corpus/Learn/FitIcm.lean"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
+path = "proof/corpus/Learn/WaterFill.lean"
+row = "STRUCT-SPLIT"
+
+[[debt]]
+rule = "max_lines"
 path = "proof/corpus/Perf/CostCorrespondence.lean"
 row = "STRUCT-SPLIT"
 
@@ -985,7 +995,6 @@ orphan_debt = [
     "proof/corpus/Perf/AttnCoop.lean",
     "proof/corpus/Perf/CalScaling.lean",
     "proof/corpus/Perf/Concurrency.lean",
-    "proof/corpus/Perf/CostCorrespondence.lean",
     "proof/corpus/Perf/CountLookup.lean",
     "proof/corpus/Perf/FacesPolarBound.lean",
     "proof/corpus/Perf/Generalisation.lean",
@@ -1019,7 +1028,6 @@ orphan_debt = [
     "proof/corpus/Perf/HattnT8TailProse.lean",
     "proof/corpus/Perf/IdentityFloat.lean",
     "proof/corpus/Perf/Identity.lean",
-    "proof/corpus/Perf/Instances.lean",
     "proof/corpus/Perf/KDScaling.lean",
     "proof/corpus/Perf/KLTilt.lean",
     "proof/corpus/Perf/MapMoves.lean",
@@ -1029,13 +1037,11 @@ orphan_debt = [
     "proof/corpus/Perf/OnebitW13.lean",
     "proof/corpus/Perf/OnebitW14.lean",
     "proof/corpus/Perf/OnebitW9.lean",
-    "proof/corpus/Perf/Overlap.lean",
     "proof/corpus/Perf/PerplexityKL.lean",
     "proof/corpus/Perf/Pinsker.lean",
     "proof/corpus/Perf/PubVerifyCpu.lean",
     "proof/corpus/Perf/PVFinish.lean",
     "proof/corpus/Perf/QuantumRotation.lean",
-    "proof/corpus/Perf/SideInfo.lean",
     "proof/corpus/Perf/SizeTrend.lean",
     "proof/corpus/Perf/SpecDraftKL.lean",
     "proof/corpus/Perf/Trellis.lean",

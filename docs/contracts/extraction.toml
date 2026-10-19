@@ -189,6 +189,11 @@ unextracted = 12
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
+path = "src/engine/step/cold_store.rs"
+unextracted = 11
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
 path = "src/engine/step/softmax.rs"
 unextracted = 1
 row = "EXTRACT-COVERAGE"
@@ -405,7 +410,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/fit/icm.rs"
-unextracted = 5
+unextracted = 15
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -940,6 +945,36 @@ path = "src/gpu/nn/bwd/opt.rs"
 fn = "adam_update_dispatch"
 class = "ffi"
 reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/bwd/opt.rs"
+fn = "adam_bias_corrections"
+class = "gpu"
+reason = "Host-side `(β₁ᵗ, √(1−β₂ᵗ))` scalars baked into the Adam elementwise module; the f64 `powi`/`sqrt` is outside the extraction fragment, and the value is a shader constant, not a host inference result."
+
+[[waiver]]
+path = "src/gpu/nn/bwd/opt.rs"
+fn = "adam_module"
+class = "gpu"
+reason = "SPIR-V elementwise body shared by the Adam update builders; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/bwd/opt.rs"
+fn = "adam_update_module_reused"
+class = "gpu"
+reason = "SPIR-V builder for the reusable Adam update module (bias factors read from a storage buffer); Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/bwd/opt.rs"
+fn = "adam_update_bytes_reused"
+class = "gpu"
+reason = "Word encoding of adam_update_module_reused for pipeline creation; SPIR-V bytes, no extracted arithmetic."
+
+[[waiver]]
+path = "src/gpu/nn/bwd/opt.rs"
+fn = "adam_update_dispatch_reused"
+class = "ffi"
+reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver for the reused Adam pipeline; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
 
 [[waiver]]
 path = "src/gpu/nn/fwd/lin.rs"

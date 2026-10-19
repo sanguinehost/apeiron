@@ -224,4 +224,5 @@ pub use self::ops::moe::{gate_weights, moe_ffn_fixed, route_topk, ExpertWeights,
 pub use self::ops::norm::{rms_norm_fixed, NormError};
 pub use self::ops::rope::{rope_rotate_fixed, RopeError, RopeTable};
 pub use self::ops::sampler::{argmax_fixed, top_p_fixed, SamplerError};
+pub use self::step::cold_store::{ColdStore, ColdStoreError};
 pub use self::step::{DecodeState, KernelMode, MtpState, SpecStats, StepError, StepResult};

@@ -18787,12 +18787,12 @@ def kern.lut.LutTables.p
   let i ← g * 16#usize
   let i1 ← i + n
   let i2 ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8)
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) 
       self.lo i1
   let i3 ← I16.Insts.CoreConvertFromU8.from i2
   let i4 ← i + n
   let i5 ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8)
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) 
       self.hi i4
   let i6 ← I16.Insts.CoreConvertFromU8.from i5
   let i7 ← i6 * 256#i16
@@ -19832,11 +19832,11 @@ def kern.lut.matvec_lut_rows_with
                 let i5 ← row_hi * row_bytes
                 let bytes ←
                   alloc.vec.Vec.index
-                    (core.slice.index.SliceIndexRangeUsizeSlice Std.U8)
+                    (core.slice.index.SliceIndexRangeUsizeSlice Std.U8) 
                     lut.raw { start := i4, «end» := i5 }
                 let s1 := alloc.vec.Vec.deref xhat
                 let r ←
-                  matvec.matvec_fixed quant.GGML_TYPE_PQ2_0 bytes i2
+                  matvec.matvec_fixed quant.GGML_TYPE_PQ2_0 bytes i2 
                     lut.n_in s1
                 let cf ← core.result.Result.Insts.CoreOpsTry.branch r
                 match cf with
@@ -22702,7 +22702,7 @@ def
   := do
   let i ← t * self.per
   let (r, slot1) ←
-    kern.bitplane.BitplaneHead.stage2_chunk self.head self.q self.tau
+    kern.bitplane.BitplaneHead.stage2_chunk self.head self.q self.tau 
       self.avx i dst slot
   ok (r, dst, slot1)
 
@@ -28018,7 +28018,7 @@ def kern.limb.Layout.placement_loop0_loop0.body
           blk
       let i1 ← lift (UScalar.hcast .I32 i)
       let i2 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U32)
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U32) 
           b.e blk
       let i3 ← lift (UScalar.hcast .I32 i2)
       let i4 ← i1 + i3
@@ -35521,7 +35521,7 @@ structure gguf.Cur where
     Source: '../../src/format/gguf.rs', lines 241:4-245:5 -/
 def gguf.Cur.u8 (self : gguf.Cur) : Result ((Option Std.U8) × gguf.Cur) := do
   let o ←
-    core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8)
+    core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8) 
       self.b self.i
   let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
   match cf with
@@ -40331,7 +40331,7 @@ def mixer.conv_f32.conv_silu_cols_f32
               let result ←
                 if flat.k = 1#usize
                 then
-                  mixer.conv_f32.range w window xs kernel val flat.ch
+                  mixer.conv_f32.range w window xs kernel val flat.ch 
                     flat.k p1 writers 0#usize flat.ch avx2
                 else
                   mixer.conv_f32.run_pooled w window xs kernel val flat.ch
@@ -40421,7 +40421,7 @@ def mixer.conv_f32.conv_silu_cols_f32
               let result ←
                 if flat.k = 1#usize
                 then
-                  mixer.conv_f32.range w window xs kernel val flat.ch
+                  mixer.conv_f32.range w window xs kernel val flat.ch 
                     flat.k p1 writers 0#usize flat.ch avx2
                 else
                   mixer.conv_f32.run_pooled w window xs kernel val flat.ch
@@ -43545,7 +43545,7 @@ structure mixer.StageCtx where
     Source: '../../src/engine/mixer.rs', lines 697:4-710:5 -/
 def mixer.StageCtx.Insts.Apeiron_wordChartTaskIndexTask.run
   (self : mixer.StageCtx) (t : Std.Usize) : Result Unit := do
-  mixer.stage_task self.packed self.scalar self.window self.xsf self.ch
+  mixer.stage_task self.packed self.scalar self.window self.xsf self.ch 
     self.k self.per t self.writers self.first
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::IndexTask for apeiron_word::mixer::StageCtx<'_0>}]
@@ -47356,7 +47356,7 @@ def mixer.UpdateQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
   (self : mixer.UpdateQ32Ctx) (t : Std.Usize) (dst : Slice Std.I64) :
   Result ((core.result.Result Unit step.StepError) × (Slice Std.I64))
   := do
-  mixer.update_q32 self.layer self.g self.fa self.snap self.has_snap
+  mixer.update_q32 self.layer self.g self.fa self.snap self.has_snap 
     self.qk self.bd self.chunked t dst
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::UpdateQ32Ctx<'_0>}]
@@ -49104,12 +49104,12 @@ def mixer.head_gates_f32_loop.body
     let i ← c * nv
     let i1 ← i + h
     let i2 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) 
         fa.b i1
     let b_f ← mixer.f32_carrier.q32_to_f32 i2
     let i3 ← i + h
     let i4 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) 
         fa.a i3
     let a_f ← mixer.f32_carrier.q32_to_f32 i4
     let beta ← mixer.f32_carrier.sigmoid_f32 b_f
@@ -49755,7 +49755,7 @@ structure mixer.Stage2Ctx where
     Source: '../../src/engine/mixer.rs', lines 2849:4-2860:5 -/
 def mixer.Stage2Ctx.Insts.Apeiron_wordChartTaskIndexTask.run
   (self : mixer.Stage2Ctx) (t : Std.Usize) : Result Unit := do
-  mixer.stage2_pool_task self.raw_f32 self.z self.ssm_norm_f self.eps_f
+  mixer.stage2_pool_task self.raw_f32 self.z self.ssm_norm_f self.eps_f 
     self.sg t self.writers self.first
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::IndexTask for apeiron_word::mixer::Stage2Ctx<'_0>}]
@@ -58711,7 +58711,7 @@ def
   Result ((core.result.Result Unit Unit) × (Slice Std.I64) × (Slice (Option
     step.StepError)))
   := do
-  step.softmax.attn_head_task self.kv self.layer self.flags self.prep
+  step.softmax.attn_head_task self.kv self.layer self.flags self.prep 
     self.last self.dims t dst st
 
 /-- Trait implementation: [apeiron_word::step::softmax::{impl apeiron_word::chart::task::Task2<i64, core::option::Option<apeiron_word::step::StepError>, ()> for apeiron_word::step::softmax::AttnHeadCtx<'_0>}]
@@ -63708,7 +63708,7 @@ def packing.Packing.groups
       let i1 ← val % i
       if i1 != 0#usize
       then
-        ok (core.result.Result.Err (packing.PackingError.BadGeometry
+        ok (core.result.Result.Err (packing.PackingError.BadGeometry 
           self.block self.group))
       else
         let i2 ← lift (UScalar.cast .Usize self.group)
@@ -65695,7 +65695,7 @@ def packing.Packing.encode_block
                   ok (true, out3)
                 else ok (false, out1)
               let (b3, out3) ←
-                packing.Packing.encode_block_loop b2 self.signed_coeff
+                packing.Packing.encode_block_loop b2 self.signed_coeff 
                   b.coeffs val1 out2 0#usize
               let s := alloc.vec.Vec.deref b.codes
               let (r3, out4) ←
@@ -66617,7 +66617,7 @@ def quant.ggml_type_name (t : Std.U32) : Result String := do
     alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "UNKNOWN")
 
 /-- [apeiron_word::gpu::nn::push_all]: loop body 0:
-    Source: '../../src/gpu/nn/mod.rs', lines 786:4-789:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 794:4-797:5 -/
 @[rust_loop_body]
 def gpu.nn.push_all_loop.body
   (xs : Slice Std.U32) (dst : alloc.vec.Vec Std.U32) (i : Std.Usize) :
@@ -66634,7 +66634,7 @@ def gpu.nn.push_all_loop.body
   else ok (done dst)
 
 /-- [apeiron_word::gpu::nn::push_all]: loop 0:
-    Source: '../../src/gpu/nn/mod.rs', lines 786:4-789:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 794:4-797:5 -/
 @[rust_loop]
 def gpu.nn.push_all_loop
   (dst : alloc.vec.Vec Std.U32) (xs : Slice Std.U32) (i : Std.Usize) :
@@ -66645,7 +66645,7 @@ def gpu.nn.push_all_loop
     (dst, i)
 
 /-- [apeiron_word::gpu::nn::push_all]:
-    Source: '../../src/gpu/nn/mod.rs', lines 784:0-790:1 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 792:0-798:1 -/
 @[reducible]
 def gpu.nn.push_all
   (dst : alloc.vec.Vec Std.U32) (xs : Slice Std.U32) :
@@ -66654,7 +66654,7 @@ def gpu.nn.push_all
   gpu.nn.push_all_loop dst xs 0#usize
 
 /-- [apeiron_word::gpu::nn::Kb]
-    Source: '../../src/gpu/nn/mod.rs', lines 193:0-228:1 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 201:0-236:1 -/
 structure gpu.nn.Kb where
   deco : alloc.vec.Vec Std.U32
   tycon : alloc.vec.Vec Std.U32
@@ -66691,7 +66691,7 @@ structure gpu.nn.Kb where
   sg_arith : Bool
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ty]:
-    Source: '../../src/gpu/nn/mod.rs', lines 379:4-383:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 387:4-391:5 -/
 def gpu.nn.Kb.ty
   (self : gpu.nn.Kb) (opcode : Std.U32) (operands : Slice Std.U32) :
   Result gpu.nn.Kb
@@ -66706,17 +66706,17 @@ def gpu.nn.Kb.ty
   ok { self with tycon := v1 }
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::id]:
-    Source: '../../src/gpu/nn/mod.rs', lines 369:4-373:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 377:4-381:5 -/
 def gpu.nn.Kb.id (self : gpu.nn.Kb) : Result (Std.U32 × gpu.nn.Kb) := do
   let i ← self.next + 1#u32
   ok (self.next, { self with next := i })
 
 /-- [apeiron_word::gpu::nn::OP_CONSTANT]
-    Source: '../../src/gpu/nn/mod.rs', lines 93:0-93:28 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 101:0-101:28 -/
 @[global_simps, irreducible] def gpu.nn.OP_CONSTANT : Std.U32 := 43#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::cu]: loop body 0:
-    Source: '../../src/gpu/nn/mod.rs', lines 399:8-405:9 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 407:8-413:9 -/
 @[rust_loop_body]
 def gpu.nn.Kb.cu_loop.body
   (self : gpu.nn.Kb) (v : Std.U32) (i : Std.Usize) (hit : Option Std.U32) :
@@ -66750,7 +66750,7 @@ def gpu.nn.Kb.cu_loop.body
       self.ucache, self.fcache, self.lii, self.wgid, self.sg_arith, hit))
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::cu]: loop 0:
-    Source: '../../src/gpu/nn/mod.rs', lines 399:8-405:9 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 407:8-413:9 -/
 @[rust_loop]
 def gpu.nn.Kb.cu_loop
   (self : gpu.nn.Kb) (v : Std.U32) (i : Std.Usize) (hit : Option Std.U32) :
@@ -66767,7 +66767,7 @@ def gpu.nn.Kb.cu_loop
     (i, hit)
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::cu]:
-    Source: '../../src/gpu/nn/mod.rs', lines 396:4-416:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 404:4-424:5 -/
 def gpu.nn.Kb.cu
   (self : gpu.nn.Kb) (v : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
   let (v1, v2, v3, v4, i, i1, i2, i3, i4, i5, i6, i7, i8, b, b1, i9, i10, i11,
@@ -66856,7 +66856,7 @@ def gpu.nn.Kb.cu
       })
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ins]:
-    Source: '../../src/gpu/nn/mod.rs', lines 384:4-387:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 392:4-395:5 -/
 def gpu.nn.Kb.ins
   (self : gpu.nn.Kb) (opcode : Std.U32) (operands : Slice Std.U32) :
   Result gpu.nn.Kb
@@ -66871,7 +66871,7 @@ def gpu.nn.Kb.ins
   ok { self with body := v1 }
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::e]:
-    Source: '../../src/gpu/nn/mod.rs', lines 389:4-395:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 397:4-403:5 -/
 def gpu.nn.Kb.e
   (self : gpu.nn.Kb) (opcode : Std.U32) (ty : Std.U32) (args : Slice Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -66887,11 +66887,11 @@ def gpu.nn.Kb.e
   ok (res, self2)
 
 /-- [apeiron_word::gpu::nn::OP_ACCESS_CHAIN]
-    Source: '../../src/gpu/nn/mod.rs', lines 99:0-99:32 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 107:0-107:32 -/
 @[global_simps, irreducible] def gpu.nn.OP_ACCESS_CHAIN : Std.U32 := 65#u32
 
 /-- [apeiron_word::gpu::nn::OP_STORE]
-    Source: '../../src/gpu/nn/mod.rs', lines 98:0-98:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 106:0-106:25 -/
 @[global_simps, irreducible] def gpu.nn.OP_STORE : Std.U32 := 62#u32
 
 /-- [apeiron_word::gpu::nn::attn::attn_dp4a::{apeiron_word::gpu::nn::Kb}::store_u]:
@@ -66918,30 +66918,30 @@ def gpu.simt.SPV_VERSION_1_3 : Std.U32 := 66304#u32
 @[global_simps, irreducible] def gpu.simt.SPV_MAGIC : Std.U32 := 119734787#u32
 
 /-- [apeiron_word::gpu::nn::CAP_DOT_INPUT_4X8_PACKED]
-    Source: '../../src/gpu/nn/mod.rs', lines 1382:0-1382:43 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 1390:0-1390:43 -/
 @[global_simps, irreducible]
 def gpu.nn.CAP_DOT_INPUT_4X8_PACKED : Std.U32 := 6018#u32
 
 /-- [apeiron_word::gpu::nn::CAP_GROUP_NON_UNIFORM_ARITHMETIC]
-    Source: '../../src/gpu/nn/mod.rs', lines 1381:0-1381:49 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 1389:0-1389:49 -/
 @[global_simps, irreducible]
 def gpu.nn.CAP_GROUP_NON_UNIFORM_ARITHMETIC : Std.U32 := 63#u32
 
 /-- [apeiron_word::gpu::nn::CAP_GROUP_NON_UNIFORM]
-    Source: '../../src/gpu/nn/mod.rs', lines 1380:0-1380:38 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 1388:0-1388:38 -/
 @[global_simps, irreducible]
 def gpu.nn.CAP_GROUP_NON_UNIFORM : Std.U32 := 61#u32
 
 /-- [apeiron_word::gpu::nn::CAP_DOT_PRODUCT]
-    Source: '../../src/gpu/nn/mod.rs', lines 1379:0-1379:34 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 1387:0-1387:34 -/
 @[global_simps, irreducible] def gpu.nn.CAP_DOT_PRODUCT : Std.U32 := 6019#u32
 
 /-- [apeiron_word::gpu::nn::OP_EXTENSION]
-    Source: '../../src/gpu/nn/mod.rs', lines 1373:0-1373:29 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 1381:0-1381:29 -/
 @[global_simps, irreducible] def gpu.nn.OP_EXTENSION : Std.U32 := 10#u32
 
 /-- [apeiron_word::gpu::nn::lit_string]: loop body 0:
-    Source: '../../src/gpu/nn/mod.rs', lines 168:4-171:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 176:4-179:5 -/
 @[rust_loop_body]
 def gpu.nn.lit_string_loop0.body
   (sb : Slice Std.U8) (bytes : alloc.vec.Vec Std.U8) (j : Std.Usize) :
@@ -66958,7 +66958,7 @@ def gpu.nn.lit_string_loop0.body
   else ok (done bytes)
 
 /-- [apeiron_word::gpu::nn::lit_string]: loop 0:
-    Source: '../../src/gpu/nn/mod.rs', lines 168:4-171:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 176:4-179:5 -/
 @[rust_loop]
 def gpu.nn.lit_string_loop0
   (sb : Slice Std.U8) (bytes : alloc.vec.Vec Std.U8) (j : Std.Usize) :
@@ -66969,7 +66969,7 @@ def gpu.nn.lit_string_loop0
     (bytes, j)
 
 /-- [apeiron_word::gpu::nn::lit_string]: loop body 1:
-    Source: '../../src/gpu/nn/mod.rs', lines 173:4-175:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 181:4-183:5 -/
 @[rust_loop_body]
 def gpu.nn.lit_string_loop1.body
   (bytes : alloc.vec.Vec Std.U8) :
@@ -66983,7 +66983,7 @@ def gpu.nn.lit_string_loop1.body
   else ok (done bytes)
 
 /-- [apeiron_word::gpu::nn::lit_string]: loop 1:
-    Source: '../../src/gpu/nn/mod.rs', lines 173:4-175:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 181:4-183:5 -/
 @[rust_loop]
 def gpu.nn.lit_string_loop1
   (bytes : alloc.vec.Vec Std.U8) : Result (alloc.vec.Vec Std.U8) := do
@@ -66992,7 +66992,7 @@ def gpu.nn.lit_string_loop1
     bytes
 
 /-- [apeiron_word::gpu::nn::lit_string]: loop body 2:
-    Source: '../../src/gpu/nn/mod.rs', lines 178:4-185:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 186:4-193:5 -/
 @[rust_loop_body]
 def gpu.nn.lit_string_loop2.body
   (bytes : alloc.vec.Vec Std.U8) (out : alloc.vec.Vec Std.U32) (i : Std.Usize)
@@ -67034,7 +67034,7 @@ def gpu.nn.lit_string_loop2.body
   else ok (done out)
 
 /-- [apeiron_word::gpu::nn::lit_string]: loop 2:
-    Source: '../../src/gpu/nn/mod.rs', lines 178:4-185:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 186:4-193:5 -/
 @[rust_loop]
 def gpu.nn.lit_string_loop2
   (bytes : alloc.vec.Vec Std.U8) (out : alloc.vec.Vec Std.U32) (i : Std.Usize)
@@ -67046,7 +67046,7 @@ def gpu.nn.lit_string_loop2
     (out, i)
 
 /-- [apeiron_word::gpu::nn::lit_string]:
-    Source: '../../src/gpu/nn/mod.rs', lines 164:0-187:1 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 172:0-195:1 -/
 def gpu.nn.lit_string (s : Str) : Result (alloc.vec.Vec Std.U32) := do
   let sb ← core.str.Str.as_bytes s
   let bytes ← gpu.nn.lit_string_loop0 sb (alloc.vec.Vec.new Std.U8) 0#usize
@@ -67055,68 +67055,68 @@ def gpu.nn.lit_string (s : Str) : Result (alloc.vec.Vec Std.U32) := do
   gpu.nn.lit_string_loop2 bytes2 (alloc.vec.Vec.new Std.U32) 0#usize
 
 /-- [apeiron_word::gpu::nn::MODE_LOCAL_SIZE]
-    Source: '../../src/gpu/nn/mod.rs', lines 137:0-137:32 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 145:0-145:32 -/
 @[global_simps, irreducible] def gpu.nn.MODE_LOCAL_SIZE : Std.U32 := 17#u32
 
 /-- [apeiron_word::gpu::nn::MEM_GLSL450]
-    Source: '../../src/gpu/nn/mod.rs', lines 136:0-136:27 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 144:0-144:27 -/
 @[global_simps, irreducible] def gpu.nn.MEM_GLSL450 : Std.U32 := 1#u32
 
 /-- [apeiron_word::gpu::nn::ADDR_LOGICAL]
-    Source: '../../src/gpu/nn/mod.rs', lines 135:0-135:28 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 143:0-143:28 -/
 @[global_simps, irreducible] def gpu.nn.ADDR_LOGICAL : Std.U32 := 0#u32
 
 /-- [apeiron_word::gpu::nn::MODEL_GL_COMPUTE]
-    Source: '../../src/gpu/nn/mod.rs', lines 134:0-134:32 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 142:0-142:32 -/
 @[global_simps, irreducible] def gpu.nn.MODEL_GL_COMPUTE : Std.U32 := 5#u32
 
 /-- [apeiron_word::gpu::nn::CAP_SHADER]
-    Source: '../../src/gpu/nn/mod.rs', lines 133:0-133:26 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 141:0-141:26 -/
 @[global_simps, irreducible] def gpu.nn.CAP_SHADER : Std.U32 := 1#u32
 
 /-- [apeiron_word::gpu::nn::CAP_STORAGE_BUFFER_16BIT_ACCESS]
-    Source: '../../src/gpu/nn/mod.rs', lines 130:0-130:50 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 138:0-138:50 -/
 @[global_simps, irreducible]
 def gpu.nn.CAP_STORAGE_BUFFER_16BIT_ACCESS : Std.U32 := 4433#u32
 
 /-- [apeiron_word::gpu::nn::OP_RETURN]
-    Source: '../../src/gpu/nn/mod.rs', lines 128:0-128:27 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 136:0-136:27 -/
 @[global_simps, irreducible] def gpu.nn.OP_RETURN : Std.U32 := 253#u32
 
 /-- [apeiron_word::gpu::nn::OP_LABEL]
-    Source: '../../src/gpu/nn/mod.rs', lines 125:0-125:26 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 133:0-133:26 -/
 @[global_simps, irreducible] def gpu.nn.OP_LABEL : Std.U32 := 248#u32
 
 /-- [apeiron_word::gpu::nn::OP_FUNCTION_END]
-    Source: '../../src/gpu/nn/mod.rs', lines 95:0-95:32 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 103:0-103:32 -/
 @[global_simps, irreducible] def gpu.nn.OP_FUNCTION_END : Std.U32 := 56#u32
 
 /-- [apeiron_word::gpu::nn::OP_FUNCTION]
-    Source: '../../src/gpu/nn/mod.rs', lines 94:0-94:28 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 102:0-102:28 -/
 @[global_simps, irreducible] def gpu.nn.OP_FUNCTION : Std.U32 := 54#u32
 
 /-- [apeiron_word::gpu::nn::OP_CAPABILITY]
-    Source: '../../src/gpu/nn/mod.rs', lines 83:0-83:30 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 91:0-91:30 -/
 @[global_simps, irreducible] def gpu.nn.OP_CAPABILITY : Std.U32 := 17#u32
 
 /-- [apeiron_word::gpu::nn::OP_EXECUTION_MODE]
-    Source: '../../src/gpu/nn/mod.rs', lines 82:0-82:34 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 90:0-90:34 -/
 @[global_simps, irreducible] def gpu.nn.OP_EXECUTION_MODE : Std.U32 := 16#u32
 
 /-- [apeiron_word::gpu::nn::OP_ENTRY_POINT]
-    Source: '../../src/gpu/nn/mod.rs', lines 81:0-81:31 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 89:0-89:31 -/
 @[global_simps, irreducible] def gpu.nn.OP_ENTRY_POINT : Std.U32 := 15#u32
 
 /-- [apeiron_word::gpu::nn::OP_MEMORY_MODEL]
-    Source: '../../src/gpu/nn/mod.rs', lines 80:0-80:32 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 88:0-88:32 -/
 @[global_simps, irreducible] def gpu.nn.OP_MEMORY_MODEL : Std.U32 := 14#u32
 
 /-- [apeiron_word::gpu::nn::OP_EXT_INST_IMPORT]
-    Source: '../../src/gpu/nn/mod.rs', lines 78:0-78:35 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 86:0-86:35 -/
 @[global_simps, irreducible] def gpu.nn.OP_EXT_INST_IMPORT : Std.U32 := 11#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::finish]:
-    Source: '../../src/gpu/nn/mod.rs', lines 696:4-778:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 704:4-786:5 -/
 def gpu.nn.Kb.finish
   (self : gpu.nn.Kb) («local» : Std.U32) :
   Result (alloc.vec.Vec Std.U32)
@@ -67270,7 +67270,7 @@ def gpu.nn.Kb.finish
   gpu.nn.push_all w19 s14
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::deco]:
-    Source: '../../src/gpu/nn/mod.rs', lines 374:4-378:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 382:4-386:5 -/
 def gpu.nn.Kb.impl.deco
   (self : gpu.nn.Kb) (words : Slice Std.U32) : Result gpu.nn.Kb := do
   let i := Slice.len words
@@ -67287,89 +67287,89 @@ def gpu.nn.Kb.impl.deco
   ok { self with deco := v1 }
 
 /-- [apeiron_word::gpu::nn::BUILTIN_GLOBAL_INVOCATION_ID]
-    Source: '../../src/gpu/nn/mod.rs', lines 147:0-147:45 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 155:0-155:45 -/
 @[global_simps, irreducible]
 def gpu.nn.BUILTIN_GLOBAL_INVOCATION_ID : Std.U32 := 28#u32
 
 /-- [apeiron_word::gpu::nn::DEC_OFFSET]
-    Source: '../../src/gpu/nn/mod.rs', lines 146:0-146:27 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 154:0-154:27 -/
 @[global_simps, irreducible] def gpu.nn.DEC_OFFSET : Std.U32 := 35#u32
 
 /-- [apeiron_word::gpu::nn::DEC_BUILT_IN]
-    Source: '../../src/gpu/nn/mod.rs', lines 143:0-143:29 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 151:0-151:29 -/
 @[global_simps, irreducible] def gpu.nn.DEC_BUILT_IN : Std.U32 := 11#u32
 
 /-- [apeiron_word::gpu::nn::DEC_ARRAY_STRIDE]
-    Source: '../../src/gpu/nn/mod.rs', lines 142:0-142:32 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 150:0-150:32 -/
 @[global_simps, irreducible] def gpu.nn.DEC_ARRAY_STRIDE : Std.U32 := 6#u32
 
 /-- [apeiron_word::gpu::nn::DEC_BLOCK]
-    Source: '../../src/gpu/nn/mod.rs', lines 141:0-141:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 149:0-149:25 -/
 @[global_simps, irreducible] def gpu.nn.DEC_BLOCK : Std.U32 := 2#u32
 
 /-- [apeiron_word::gpu::nn::SC_FUNCTION]
-    Source: '../../src/gpu/nn/mod.rs', lines 140:0-140:27 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 148:0-148:27 -/
 @[global_simps, irreducible] def gpu.nn.SC_FUNCTION : Std.U32 := 7#u32
 
 /-- [apeiron_word::gpu::nn::SC_INPUT]
-    Source: '../../src/gpu/nn/mod.rs', lines 139:0-139:24 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 147:0-147:24 -/
 @[global_simps, irreducible] def gpu.nn.SC_INPUT : Std.U32 := 1#u32
 
 /-- [apeiron_word::gpu::nn::SC_STORAGE_BUFFER]
-    Source: '../../src/gpu/nn/mod.rs', lines 138:0-138:34 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 146:0-146:34 -/
 @[global_simps, irreducible] def gpu.nn.SC_STORAGE_BUFFER : Std.U32 := 12#u32
 
 /-- [apeiron_word::gpu::nn::OP_MEMBER_DECORATE]
-    Source: '../../src/gpu/nn/mod.rs', lines 101:0-101:35 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 109:0-109:35 -/
 @[global_simps, irreducible] def gpu.nn.OP_MEMBER_DECORATE : Std.U32 := 72#u32
 
 /-- [apeiron_word::gpu::nn::OP_DECORATE]
-    Source: '../../src/gpu/nn/mod.rs', lines 100:0-100:28 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 108:0-108:28 -/
 @[global_simps, irreducible] def gpu.nn.OP_DECORATE : Std.U32 := 71#u32
 
 /-- [apeiron_word::gpu::nn::OP_VARIABLE]
-    Source: '../../src/gpu/nn/mod.rs', lines 96:0-96:28 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 104:0-104:28 -/
 @[global_simps, irreducible] def gpu.nn.OP_VARIABLE : Std.U32 := 59#u32
 
 /-- [apeiron_word::gpu::nn::OP_TYPE_FUNCTION]
-    Source: '../../src/gpu/nn/mod.rs', lines 92:0-92:33 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 100:0-100:33 -/
 @[global_simps, irreducible] def gpu.nn.OP_TYPE_FUNCTION : Std.U32 := 33#u32
 
 /-- [apeiron_word::gpu::nn::OP_TYPE_POINTER]
-    Source: '../../src/gpu/nn/mod.rs', lines 91:0-91:32 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 99:0-99:32 -/
 @[global_simps, irreducible] def gpu.nn.OP_TYPE_POINTER : Std.U32 := 32#u32
 
 /-- [apeiron_word::gpu::nn::OP_TYPE_STRUCT]
-    Source: '../../src/gpu/nn/mod.rs', lines 90:0-90:31 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 98:0-98:31 -/
 @[global_simps, irreducible] def gpu.nn.OP_TYPE_STRUCT : Std.U32 := 30#u32
 
 /-- [apeiron_word::gpu::nn::OP_TYPE_RUNTIME_ARRAY]
-    Source: '../../src/gpu/nn/mod.rs', lines 89:0-89:38 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 97:0-97:38 -/
 @[global_simps, irreducible]
 def gpu.nn.OP_TYPE_RUNTIME_ARRAY : Std.U32 := 29#u32
 
 /-- [apeiron_word::gpu::nn::OP_TYPE_VECTOR]
-    Source: '../../src/gpu/nn/mod.rs', lines 88:0-88:31 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 96:0-96:31 -/
 @[global_simps, irreducible] def gpu.nn.OP_TYPE_VECTOR : Std.U32 := 23#u32
 
 /-- [apeiron_word::gpu::nn::OP_TYPE_FLOAT]
-    Source: '../../src/gpu/nn/mod.rs', lines 87:0-87:30 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 95:0-95:30 -/
 @[global_simps, irreducible] def gpu.nn.OP_TYPE_FLOAT : Std.U32 := 22#u32
 
 /-- [apeiron_word::gpu::nn::OP_TYPE_INT]
-    Source: '../../src/gpu/nn/mod.rs', lines 86:0-86:28 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 94:0-94:28 -/
 @[global_simps, irreducible] def gpu.nn.OP_TYPE_INT : Std.U32 := 21#u32
 
 /-- [apeiron_word::gpu::nn::OP_TYPE_BOOL]
-    Source: '../../src/gpu/nn/mod.rs', lines 85:0-85:29 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 93:0-93:29 -/
 @[global_simps, irreducible] def gpu.nn.OP_TYPE_BOOL : Std.U32 := 20#u32
 
 /-- [apeiron_word::gpu::nn::OP_TYPE_VOID]
-    Source: '../../src/gpu/nn/mod.rs', lines 84:0-84:29 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 92:0-92:29 -/
 @[global_simps, irreducible] def gpu.nn.OP_TYPE_VOID : Std.U32 := 19#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::new]:
-    Source: '../../src/gpu/nn/mod.rs', lines 231:4-319:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 239:4-327:5 -/
 def gpu.nn.Kb.new : Result gpu.nn.Kb := do
   let (i, k) ←
     gpu.nn.Kb.id
@@ -67528,20 +67528,20 @@ def gpu.nn.Kb.new : Result gpu.nn.Kb := do
   ok { k46 with ptr_sb_buf_f := pbf, ptr_sb_buf_u := pbu }
 
 /-- [apeiron_word::gpu::nn::OP_BRANCH_CONDITIONAL]
-    Source: '../../src/gpu/nn/mod.rs', lines 127:0-127:39 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 135:0-135:39 -/
 @[global_simps, irreducible]
 def gpu.nn.OP_BRANCH_CONDITIONAL : Std.U32 := 250#u32
 
 /-- [apeiron_word::gpu::nn::OP_BRANCH]
-    Source: '../../src/gpu/nn/mod.rs', lines 126:0-126:27 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 134:0-134:27 -/
 @[global_simps, irreducible] def gpu.nn.OP_BRANCH : Std.U32 := 249#u32
 
 /-- [apeiron_word::gpu::nn::OP_SELECTION_MERGE]
-    Source: '../../src/gpu/nn/mod.rs', lines 124:0-124:36 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 132:0-132:36 -/
 @[global_simps, irreducible] def gpu.nn.OP_SELECTION_MERGE : Std.U32 := 247#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::iff]:
-    Source: '../../src/gpu/nn/mod.rs', lines 593:4-602:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 601:4-610:5 -/
 def gpu.nn.Kb.iff
   {T0 : Type} (coreopsfunctionFnOnceT0TupleKbKbInst : core.ops.function.FnOnce
   T0 gpu.nn.Kb gpu.nn.Kb) (self : gpu.nn.Kb) (cond : Std.U32) («then» : T0) :
@@ -67564,11 +67564,11 @@ def gpu.nn.Kb.iff
   gpu.nn.Kb.ins self7 gpu.nn.OP_LABEL s4
 
 /-- [apeiron_word::gpu::nn::OP_ULESS_THAN]
-    Source: '../../src/gpu/nn/mod.rs', lines 115:0-115:31 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 123:0-123:31 -/
 @[global_simps, irreducible] def gpu.nn.OP_ULESS_THAN : Std.U32 := 176#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ult]:
-    Source: '../../src/gpu/nn/mod.rs', lines 564:4-567:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 572:4-575:5 -/
 def gpu.nn.Kb.ult
   (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -67577,16 +67577,16 @@ def gpu.nn.Kb.ult
   gpu.nn.Kb.e self gpu.nn.OP_ULESS_THAN self.bool_t s
 
 /-- [apeiron_word::gpu::nn::OP_COMPOSITE_EXTRACT]
-    Source: '../../src/gpu/nn/mod.rs', lines 103:0-103:37 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 111:0-111:37 -/
 @[global_simps, irreducible]
 def gpu.nn.OP_COMPOSITE_EXTRACT : Std.U32 := 81#u32
 
 /-- [apeiron_word::gpu::nn::OP_LOAD]
-    Source: '../../src/gpu/nn/mod.rs', lines 97:0-97:24 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 105:0-105:24 -/
 @[global_simps, irreducible] def gpu.nn.OP_LOAD : Std.U32 := 61#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::gid_comp]:
-    Source: '../../src/gpu/nn/mod.rs', lines 508:4-512:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 516:4-520:5 -/
 def gpu.nn.Kb.gid_comp
   (self : gpu.nn.Kb) (comp : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
   let s ← lift (Array.to_slice (Array.make 1#usize [ self.gid ]))
@@ -67595,15 +67595,15 @@ def gpu.nn.Kb.gid_comp
   gpu.nn.Kb.e self1 gpu.nn.OP_COMPOSITE_EXTRACT self.uint s1
 
 /-- [apeiron_word::gpu::nn::DEC_DESCRIPTOR_SET]
-    Source: '../../src/gpu/nn/mod.rs', lines 145:0-145:35 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 153:0-153:35 -/
 @[global_simps, irreducible] def gpu.nn.DEC_DESCRIPTOR_SET : Std.U32 := 34#u32
 
 /-- [apeiron_word::gpu::nn::DEC_BINDING]
-    Source: '../../src/gpu/nn/mod.rs', lines 144:0-144:28 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 152:0-152:28 -/
 @[global_simps, irreducible] def gpu.nn.DEC_BINDING : Std.U32 := 33#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ssbo_u]:
-    Source: '../../src/gpu/nn/mod.rs', lines 455:4-462:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 463:4-470:5 -/
 def gpu.nn.Kb.ssbo_u
   (self : gpu.nn.Kb) (binding : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
   let (var, self1) ← gpu.nn.Kb.id self
@@ -67628,7 +67628,7 @@ def gpu.nn.Kb.ssbo_u
   ok (var, self4)
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ssbo_f]:
-    Source: '../../src/gpu/nn/mod.rs', lines 446:4-453:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 454:4-461:5 -/
 def gpu.nn.Kb.ssbo_f
   (self : gpu.nn.Kb) (binding : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
   let (var, self1) ← gpu.nn.Kb.id self
@@ -67653,11 +67653,11 @@ def gpu.nn.Kb.ssbo_f
   ok (var, self4)
 
 /-- [apeiron_word::gpu::nn::OP_UMOD]
-    Source: '../../src/gpu/nn/mod.rs', lines 113:0-113:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 121:0-121:25 -/
 @[global_simps, irreducible] def gpu.nn.OP_UMOD : Std.U32 := 137#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::umod]:
-    Source: '../../src/gpu/nn/mod.rs', lines 526:4-529:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 534:4-537:5 -/
 def gpu.nn.Kb.umod
   (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -67666,11 +67666,11 @@ def gpu.nn.Kb.umod
   gpu.nn.Kb.e self gpu.nn.OP_UMOD self.uint s
 
 /-- [apeiron_word::gpu::nn::OP_UDIV]
-    Source: '../../src/gpu/nn/mod.rs', lines 111:0-111:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 119:0-119:25 -/
 @[global_simps, irreducible] def gpu.nn.OP_UDIV : Std.U32 := 134#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::udiv]:
-    Source: '../../src/gpu/nn/mod.rs', lines 522:4-525:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 530:4-533:5 -/
 def gpu.nn.Kb.udiv
   (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -67679,11 +67679,11 @@ def gpu.nn.Kb.udiv
   gpu.nn.Kb.e self gpu.nn.OP_UDIV self.uint s
 
 /-- [apeiron_word::gpu::nn::OP_IMUL]
-    Source: '../../src/gpu/nn/mod.rs', lines 109:0-109:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 117:0-117:25 -/
 @[global_simps, irreducible] def gpu.nn.OP_IMUL : Std.U32 := 132#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::imul]:
-    Source: '../../src/gpu/nn/mod.rs', lines 518:4-521:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 526:4-529:5 -/
 def gpu.nn.Kb.imul
   (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -67692,11 +67692,11 @@ def gpu.nn.Kb.imul
   gpu.nn.Kb.e self gpu.nn.OP_IMUL self.uint s
 
 /-- [apeiron_word::gpu::nn::OP_IADD]
-    Source: '../../src/gpu/nn/mod.rs', lines 105:0-105:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 113:0-113:25 -/
 @[global_simps, irreducible] def gpu.nn.OP_IADD : Std.U32 := 128#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::iadd]:
-    Source: '../../src/gpu/nn/mod.rs', lines 514:4-517:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 522:4-525:5 -/
 def gpu.nn.Kb.iadd
   (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -67705,7 +67705,7 @@ def gpu.nn.Kb.iadd
   gpu.nn.Kb.e self gpu.nn.OP_IADD self.uint s
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::load_u]:
-    Source: '../../src/gpu/nn/mod.rs', lines 501:4-506:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 509:4-514:5 -/
 def gpu.nn.Kb.load_u
   (self : gpu.nn.Kb) (buf : Std.U32) (idx : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -67717,7 +67717,7 @@ def gpu.nn.Kb.load_u
   gpu.nn.Kb.e self2 gpu.nn.OP_LOAD self.uint s1
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::store_f]:
-    Source: '../../src/gpu/nn/mod.rs', lines 495:4-500:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 503:4-508:5 -/
 def gpu.nn.Kb.store_f
   (self : gpu.nn.Kb) (buf : Std.U32) (idx : Std.U32) (val : Std.U32) :
   Result gpu.nn.Kb
@@ -67729,17 +67729,17 @@ def gpu.nn.Kb.store_f
   gpu.nn.Kb.ins self2 gpu.nn.OP_STORE s1
 
 /-- [apeiron_word::gpu::nn::GLSL_UNPACK_HALF2X16]
-    Source: '../../src/gpu/nn/mod.rs', lines 161:0-161:37 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 169:0-169:37 -/
 @[global_simps, irreducible]
 def gpu.nn.GLSL_UNPACK_HALF2X16 : Std.U32 := 62#u32
 
 /-- [apeiron_word::gpu::nn::OP_VECTOR_EXTRACT_DYNAMIC]
-    Source: '../../src/gpu/nn/mod.rs', lines 102:0-102:42 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 110:0-110:42 -/
 @[global_simps, irreducible]
 def gpu.nn.OP_VECTOR_EXTRACT_DYNAMIC : Std.U32 := 77#u32
 
 /-- [apeiron_word::gpu::nn::OP_EXT_INST]
-    Source: '../../src/gpu/nn/mod.rs', lines 79:0-79:28 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 87:0-87:28 -/
 @[global_simps, irreducible] def gpu.nn.OP_EXT_INST : Std.U32 := 12#u32
 
 /-- [apeiron_word::gpu::nn::glue::embed_f16_module::{closure}]
@@ -67808,11 +67808,11 @@ def gpu.nn.glue.embed_f16_module
   gpu.nn.Kb.finish k7 «local»
 
 /-- [apeiron_word::gpu::nn::OP_FNEG]
-    Source: '../../src/gpu/nn/mod.rs', lines 806:0-806:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 814:0-814:25 -/
 @[global_simps, irreducible] def gpu.nn.OP_FNEG : Std.U32 := 127#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ext1]:
-    Source: '../../src/gpu/nn/mod.rs', lines 573:4-576:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 581:4-584:5 -/
 def gpu.nn.Kb.ext1
   (self : gpu.nn.Kb) (inst : Std.U32) (x : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -67821,11 +67821,11 @@ def gpu.nn.Kb.ext1
   gpu.nn.Kb.e self gpu.nn.OP_EXT_INST self.float s
 
 /-- [apeiron_word::gpu::nn::OP_FDIV]
-    Source: '../../src/gpu/nn/mod.rs', lines 112:0-112:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 120:0-120:25 -/
 @[global_simps, irreducible] def gpu.nn.OP_FDIV : Std.U32 := 136#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fdiv]:
-    Source: '../../src/gpu/nn/mod.rs', lines 560:4-563:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 568:4-571:5 -/
 def gpu.nn.Kb.fdiv
   (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -67834,11 +67834,11 @@ def gpu.nn.Kb.fdiv
   gpu.nn.Kb.e self gpu.nn.OP_FDIV self.float s
 
 /-- [apeiron_word::gpu::nn::OP_FMUL]
-    Source: '../../src/gpu/nn/mod.rs', lines 110:0-110:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 118:0-118:25 -/
 @[global_simps, irreducible] def gpu.nn.OP_FMUL : Std.U32 := 133#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fmul]:
-    Source: '../../src/gpu/nn/mod.rs', lines 549:4-552:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 557:4-560:5 -/
 def gpu.nn.Kb.fmul
   (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -67847,11 +67847,11 @@ def gpu.nn.Kb.fmul
   gpu.nn.Kb.e self gpu.nn.OP_FMUL self.float s
 
 /-- [apeiron_word::gpu::nn::OP_FADD]
-    Source: '../../src/gpu/nn/mod.rs', lines 106:0-106:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 114:0-114:25 -/
 @[global_simps, irreducible] def gpu.nn.OP_FADD : Std.U32 := 129#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fadd]:
-    Source: '../../src/gpu/nn/mod.rs', lines 541:4-544:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 549:4-552:5 -/
 def gpu.nn.Kb.fadd
   (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -67860,7 +67860,7 @@ def gpu.nn.Kb.fadd
   gpu.nn.Kb.e self gpu.nn.OP_FADD self.float s
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::load_f]:
-    Source: '../../src/gpu/nn/mod.rs', lines 489:4-494:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 497:4-502:5 -/
 def gpu.nn.Kb.load_f
   (self : gpu.nn.Kb) (buf : Std.U32) (idx : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -67872,7 +67872,7 @@ def gpu.nn.Kb.load_f
   gpu.nn.Kb.e self2 gpu.nn.OP_LOAD self.float s1
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::cf_bits]: loop body 0:
-    Source: '../../src/gpu/nn/mod.rs', lines 427:8-433:9 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 435:8-441:9 -/
 @[rust_loop_body]
 def gpu.nn.Kb.cf_bits_loop.body
   (self : gpu.nn.Kb) (bits : Std.U32) (i : Std.Usize) (hit : Option Std.U32) :
@@ -67906,7 +67906,7 @@ def gpu.nn.Kb.cf_bits_loop.body
       self.ucache, self.fcache, self.lii, self.wgid, self.sg_arith, hit))
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::cf_bits]: loop 0:
-    Source: '../../src/gpu/nn/mod.rs', lines 427:8-433:9 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 435:8-441:9 -/
 @[rust_loop]
 def gpu.nn.Kb.cf_bits_loop
   (self : gpu.nn.Kb) (bits : Std.U32) (i : Std.Usize) (hit : Option Std.U32) :
@@ -67923,7 +67923,7 @@ def gpu.nn.Kb.cf_bits_loop
     (i, hit)
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::cf_bits]:
-    Source: '../../src/gpu/nn/mod.rs', lines 424:4-444:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 432:4-452:5 -/
 def gpu.nn.Kb.cf_bits
   (self : gpu.nn.Kb) (bits : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
   let (v, v1, v2, v3, i, i1, i2, i3, i4, i5, i6, i7, i8, b, b1, i9, i10, i11,
@@ -68013,7 +68013,7 @@ def gpu.nn.Kb.cf_bits
       })
 
 /-- [apeiron_word::gpu::nn::GLSL_EXP]
-    Source: '../../src/gpu/nn/mod.rs', lines 153:0-153:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 161:0-161:25 -/
 @[global_simps, irreducible] def gpu.nn.GLSL_EXP : Std.U32 := 27#u32
 
 /-- [apeiron_word::gpu::nn::glue::silu_mul_module::{closure}]
@@ -68117,7 +68117,7 @@ def gpu.nn.glue.add_inplace_module
   gpu.nn.Kb.finish k6 «local»
 
 /-- [apeiron_word::gpu::nn::OP_IEQ]
-    Source: '../../src/gpu/nn/mod.rs', lines 805:0-805:24 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 813:0-813:24 -/
 @[global_simps, irreducible] def gpu.nn.OP_IEQ : Std.U32 := 170#u32
 
 /-- [apeiron_word::gpu::nn::glue::commit_advance_module::{closure}]
@@ -68223,31 +68223,31 @@ def gpu.nn.glue.copy_vec_module
   gpu.nn.Kb.finish k6 gpu.nn.glue.copy_vec_module.LOCAL
 
 /-- [apeiron_word::gpu::nn::OP_CONVERT_U_TO_F]
-    Source: '../../src/gpu/nn/mod.rs', lines 104:0-104:35 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 112:0-112:35 -/
 @[global_simps, irreducible] def gpu.nn.OP_CONVERT_U_TO_F : Std.U32 := 112#u32
 
 /-- [apeiron_word::gpu::nn::OP_FSUB]
-    Source: '../../src/gpu/nn/mod.rs', lines 108:0-108:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 116:0-116:25 -/
 @[global_simps, irreducible] def gpu.nn.OP_FSUB : Std.U32 := 131#u32
 
 /-- [apeiron_word::gpu::nn::OP_BITWISE_AND]
-    Source: '../../src/gpu/nn/mod.rs', lines 122:0-122:32 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 130:0-130:32 -/
 @[global_simps, irreducible] def gpu.nn.OP_BITWISE_AND : Std.U32 := 199#u32
 
 /-- [apeiron_word::gpu::nn::OP_LOOP_MERGE]
-    Source: '../../src/gpu/nn/mod.rs', lines 123:0-123:31 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 131:0-131:31 -/
 @[global_simps, irreducible] def gpu.nn.OP_LOOP_MERGE : Std.U32 := 246#u32
 
 /-- [apeiron_word::gpu::nn::OP_FCONVERT]
-    Source: '../../src/gpu/nn/mod.rs', lines 129:0-129:29 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 137:0-137:29 -/
 @[global_simps, irreducible] def gpu.nn.OP_FCONVERT : Std.U32 := 115#u32
 
 /-- [apeiron_word::gpu::nn::GLSL_FMA]
-    Source: '../../src/gpu/nn/mod.rs', lines 160:0-160:25 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 168:0-168:25 -/
 @[global_simps, irreducible] def gpu.nn.GLSL_FMA : Std.U32 := 50#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ensure_f16]:
-    Source: '../../src/gpu/nn/mod.rs', lines 322:4-341:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 330:4-349:5 -/
 def gpu.nn.Kb.ensure_f16 (self : gpu.nn.Kb) : Result gpu.nn.Kb := do
   if self.f16_storage
   then ok self
@@ -68292,7 +68292,7 @@ def gpu.nn.Kb.ensure_f16 (self : gpu.nn.Kb) : Result gpu.nn.Kb := do
     ok { self13 with ptr_sb_buf_f16 := pbf16 }
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ssbo_f16]:
-    Source: '../../src/gpu/nn/mod.rs', lines 343:4-351:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 351:4-359:5 -/
 def gpu.nn.Kb.ssbo_f16
   (self : gpu.nn.Kb) (binding : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
   let self1 ← gpu.nn.Kb.ensure_f16 self
@@ -68318,7 +68318,7 @@ def gpu.nn.Kb.ssbo_f16
   ok (id, self5)
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::load_f16]:
-    Source: '../../src/gpu/nn/mod.rs', lines 353:4-359:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 361:4-367:5 -/
 def gpu.nn.Kb.load_f16
   (self : gpu.nn.Kb) (buf : Std.U32) (idx : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -68332,7 +68332,7 @@ def gpu.nn.Kb.load_f16
   gpu.nn.Kb.e self3 gpu.nn.OP_FCONVERT self.float s2
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::store_f16]:
-    Source: '../../src/gpu/nn/mod.rs', lines 361:4-367:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 369:4-375:5 -/
 def gpu.nn.Kb.store_f16
   (self : gpu.nn.Kb) (buf : Std.U32) (idx : Std.U32) (val : Std.U32) :
   Result gpu.nn.Kb
@@ -68346,7 +68346,7 @@ def gpu.nn.Kb.store_f16
   gpu.nn.Kb.ins self3 gpu.nn.OP_STORE s2
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fvar]:
-    Source: '../../src/gpu/nn/mod.rs', lines 463:4-468:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 471:4-476:5 -/
 def gpu.nn.Kb.fvar
   (self : gpu.nn.Kb) (ptr_ty : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
   let (v, self1) ← gpu.nn.Kb.id self
@@ -68360,38 +68360,38 @@ def gpu.nn.Kb.fvar
   ok (v, { self1 with fvars := v2 })
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fvar_f]:
-    Source: '../../src/gpu/nn/mod.rs', lines 469:4-472:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 477:4-480:5 -/
 def gpu.nn.Kb.fvar_f (self : gpu.nn.Kb) : Result (Std.U32 × gpu.nn.Kb) := do
   gpu.nn.Kb.fvar self self.ptr_fn_f
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fvar_u]:
-    Source: '../../src/gpu/nn/mod.rs', lines 473:4-476:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 481:4-484:5 -/
 def gpu.nn.Kb.fvar_u (self : gpu.nn.Kb) : Result (Std.U32 × gpu.nn.Kb) := do
   gpu.nn.Kb.fvar self self.ptr_fn_u
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::load_var_f]:
-    Source: '../../src/gpu/nn/mod.rs', lines 477:4-480:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 485:4-488:5 -/
 def gpu.nn.Kb.load_var_f
   (self : gpu.nn.Kb) (var : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
   let s ← lift (Array.to_slice (Array.make 1#usize [ var ]))
   gpu.nn.Kb.e self gpu.nn.OP_LOAD self.float s
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::load_var_u]:
-    Source: '../../src/gpu/nn/mod.rs', lines 481:4-484:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 489:4-492:5 -/
 def gpu.nn.Kb.load_var_u
   (self : gpu.nn.Kb) (var : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
   let s ← lift (Array.to_slice (Array.make 1#usize [ var ]))
   gpu.nn.Kb.e self gpu.nn.OP_LOAD self.uint s
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::store_var]:
-    Source: '../../src/gpu/nn/mod.rs', lines 485:4-487:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 493:4-495:5 -/
 def gpu.nn.Kb.store_var
   (self : gpu.nn.Kb) (var : Std.U32) (val : Std.U32) : Result gpu.nn.Kb := do
   let s ← lift (Array.to_slice (Array.make 2#usize [ var, val ]))
   gpu.nn.Kb.ins self gpu.nn.OP_STORE s
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::mandala]:
-    Source: '../../src/gpu/nn/mod.rs', lines 536:4-540:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 544:4-548:5 -/
 def gpu.nn.Kb.mandala
   (self : gpu.nn.Kb) (idx : Std.U32) (mask : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -68401,7 +68401,7 @@ def gpu.nn.Kb.mandala
   gpu.nn.Kb.e self1 gpu.nn.OP_BITWISE_AND self.uint s
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fsub]:
-    Source: '../../src/gpu/nn/mod.rs', lines 545:4-548:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 553:4-556:5 -/
 def gpu.nn.Kb.fsub
   (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -68410,7 +68410,7 @@ def gpu.nn.Kb.fsub
   gpu.nn.Kb.e self gpu.nn.OP_FSUB self.float s
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fma]:
-    Source: '../../src/gpu/nn/mod.rs', lines 556:4-559:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 564:4-567:5 -/
 def gpu.nn.Kb.fma
   (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) (c : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -68421,14 +68421,14 @@ def gpu.nn.Kb.fma
   gpu.nn.Kb.e self gpu.nn.OP_EXT_INST self.float s
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::utof]:
-    Source: '../../src/gpu/nn/mod.rs', lines 568:4-571:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 576:4-579:5 -/
 def gpu.nn.Kb.utof
   (self : gpu.nn.Kb) (a : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
   let s ← lift (Array.to_slice (Array.make 1#usize [ a ]))
   gpu.nn.Kb.e self gpu.nn.OP_CONVERT_U_TO_F self.float s
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ext2]:
-    Source: '../../src/gpu/nn/mod.rs', lines 577:4-580:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 585:4-588:5 -/
 def gpu.nn.Kb.ext2
   (self : gpu.nn.Kb) (inst : Std.U32) (x : Std.U32) (y : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -68438,11 +68438,11 @@ def gpu.nn.Kb.ext2
   gpu.nn.Kb.e self gpu.nn.OP_EXT_INST self.float s
 
 /-- [apeiron_word::gpu::nn::GLSL_UMIN]
-    Source: '../../src/gpu/nn/mod.rs', lines 1468:0-1468:26 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 1476:0-1476:26 -/
 @[global_simps, irreducible] def gpu.nn.GLSL_UMIN : Std.U32 := 38#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::umin]:
-    Source: '../../src/gpu/nn/mod.rs', lines 583:4-586:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 591:4-594:5 -/
 def gpu.nn.Kb.umin
   (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -68453,7 +68453,7 @@ def gpu.nn.Kb.umin
   gpu.nn.Kb.e self gpu.nn.OP_EXT_INST self.uint s
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::loop_u]:
-    Source: '../../src/gpu/nn/mod.rs', lines 605:4-628:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 613:4-636:5 -/
 def gpu.nn.Kb.loop_u
   {T0 : Type} (coreopsfunctionFnOnceT0PairKbU32KbInst :
   core.ops.function.FnOnce T0 (gpu.nn.Kb × Std.U32) gpu.nn.Kb)
@@ -68500,12 +68500,12 @@ def gpu.nn.Kb.loop_u
   gpu.nn.Kb.ins self24 gpu.nn.OP_LABEL s10
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fold_bias_store::{closure}]
-    Source: '../../src/gpu/nn/mod.rs', lines 650:34-659:13 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 658:34-667:13 -/
 def gpu.nn.Kb.fold_bias_store.closure :=
   Std.U32 × Std.U32 × Std.U32 × Std.U32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fold_bias_store::{impl core::ops::function::FnOnce<(apeiron_word::gpu::nn::Kb, u32), apeiron_word::gpu::nn::Kb> for apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fold_bias_store::{closure}<'_0, '_1, '_2, '_3>}::call_once]:
-    Source: '../../src/gpu/nn/mod.rs', lines 650:34-659:13 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 658:34-667:13 -/
 def
   gpu.nn.Kb.fold_bias_store.closure.Insts.CoreOpsFunctionFnOncePairKbU32Kb.call_once
   (c : gpu.nn.Kb.fold_bias_store.closure)
@@ -68523,7 +68523,7 @@ def
   gpu.nn.Kb.store_var k6 i3 a1
 
 /-- Trait implementation: [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fold_bias_store::{impl core::ops::function::FnOnce<(apeiron_word::gpu::nn::Kb, u32), apeiron_word::gpu::nn::Kb> for apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fold_bias_store::{closure}<'_0, '_1, '_2, '_3>}]
-    Source: '../../src/gpu/nn/mod.rs', lines 650:34-659:13 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 658:34-667:13 -/
 @[reducible]
 def gpu.nn.Kb.fold_bias_store.closure.Insts.CoreOpsFunctionFnOncePairKbU32Kb :
   core.ops.function.FnOnce gpu.nn.Kb.fold_bias_store.closure (gpu.nn.Kb ×
@@ -68533,7 +68533,7 @@ def gpu.nn.Kb.fold_bias_store.closure.Insts.CoreOpsFunctionFnOncePairKbU32Kb :
 }
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fold_bias_store]:
-    Source: '../../src/gpu/nn/mod.rs', lines 633:4-670:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 641:4-678:5 -/
 def gpu.nn.Kb.fold_bias_store
   (self : gpu.nn.Kb) (src : Std.U32) (bias : Option Std.U32) (dst : Std.U32)
   (i : Std.U32) (n : Std.U32) (segs : Std.U32) :
@@ -68568,7 +68568,7 @@ def gpu.nn.Kb.fold_bias_store
   gpu.nn.Kb.store_f self2 dst i out1
 
 /-- [apeiron_word::gpu::nn::bytes]: loop body 0:
-    Source: '../../src/gpu/nn/mod.rs', lines 795:4-802:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 803:4-810:5 -/
 @[rust_loop_body]
 def gpu.nn.bytes_loop.body
   (words : alloc.vec.Vec Std.U32) (out : alloc.vec.Vec Std.U8) (i : Std.Usize)
@@ -68596,7 +68596,7 @@ def gpu.nn.bytes_loop.body
   else ok (done out)
 
 /-- [apeiron_word::gpu::nn::bytes]: loop 0:
-    Source: '../../src/gpu/nn/mod.rs', lines 795:4-802:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 803:4-810:5 -/
 @[rust_loop]
 def gpu.nn.bytes_loop
   (words : alloc.vec.Vec Std.U32) (out : alloc.vec.Vec Std.U8) (i : Std.Usize)
@@ -68608,14 +68608,14 @@ def gpu.nn.bytes_loop
     (out, i)
 
 /-- [apeiron_word::gpu::nn::bytes]:
-    Source: '../../src/gpu/nn/mod.rs', lines 792:0-804:1 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 800:0-812:1 -/
 @[reducible]
 def gpu.nn.bytes
   (words : alloc.vec.Vec Std.U32) : Result (alloc.vec.Vec Std.U8) := do
   gpu.nn.bytes_loop words (alloc.vec.Vec.new Std.U8) 0#usize
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::sint_ty]: loop body 0:
-    Source: '../../src/gpu/nn/mod.rs', lines 822:8-828:9 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 830:8-836:9 -/
 @[rust_loop_body]
 def gpu.nn.Kb.sint_ty_loop.body
   (self : gpu.nn.Kb) (i : Std.Usize) (hit : Option Std.U32) :
@@ -68649,7 +68649,7 @@ def gpu.nn.Kb.sint_ty_loop.body
       self.ucache, self.fcache, self.lii, self.wgid, self.sg_arith, hit))
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::sint_ty]: loop 0:
-    Source: '../../src/gpu/nn/mod.rs', lines 822:8-828:9 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 830:8-836:9 -/
 @[rust_loop]
 def gpu.nn.Kb.sint_ty_loop
   (self : gpu.nn.Kb) (i : Std.Usize) (hit : Option Std.U32) :
@@ -68666,7 +68666,7 @@ def gpu.nn.Kb.sint_ty_loop
     (i, hit)
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::sint_ty]:
-    Source: '../../src/gpu/nn/mod.rs', lines 819:4-838:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 827:4-846:5 -/
 def gpu.nn.Kb.sint_ty (self : gpu.nn.Kb) : Result (Std.U32 × gpu.nn.Kb) := do
   let (v, v1, v2, v3, i, i1, i2, i3, i4, i5, i6, i7, i8, b, b1, i9, i10, i11,
     i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, v4, v5, i22, i23, b2,
@@ -68754,27 +68754,27 @@ def gpu.nn.Kb.sint_ty (self : gpu.nn.Kb) : Result (Std.U32 × gpu.nn.Kb) := do
       })
 
 /-- [apeiron_word::gpu::nn::OP_TYPE_ARRAY]
-    Source: '../../src/gpu/nn/mod.rs', lines 841:0-841:30 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 849:0-849:30 -/
 @[global_simps, irreducible] def gpu.nn.OP_TYPE_ARRAY : Std.U32 := 28#u32
 
 /-- [apeiron_word::gpu::nn::OP_CONTROL_BARRIER]
-    Source: '../../src/gpu/nn/mod.rs', lines 842:0-842:36 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 850:0-850:36 -/
 @[global_simps, irreducible] def gpu.nn.OP_CONTROL_BARRIER : Std.U32 := 224#u32
 
 /-- [apeiron_word::gpu::nn::SC_WORKGROUP]
-    Source: '../../src/gpu/nn/mod.rs', lines 843:0-843:28 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 851:0-851:28 -/
 @[global_simps, irreducible] def gpu.nn.SC_WORKGROUP : Std.U32 := 4#u32
 
 /-- [apeiron_word::gpu::nn::SCOPE_WORKGROUP]
-    Source: '../../src/gpu/nn/mod.rs', lines 844:0-844:31 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 852:0-852:31 -/
 @[global_simps, irreducible] def gpu.nn.SCOPE_WORKGROUP : Std.U32 := 2#u32
 
 /-- [apeiron_word::gpu::nn::SEM_WG_ACQREL]
-    Source: '../../src/gpu/nn/mod.rs', lines 846:0-846:33 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 854:0-854:33 -/
 @[global_simps, irreducible] def gpu.nn.SEM_WG_ACQREL : Std.U32 := 264#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::shared_f32]:
-    Source: '../../src/gpu/nn/mod.rs', lines 858:4-867:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 866:4-875:5 -/
 def gpu.nn.Kb.shared_f32
   (self : gpu.nn.Kb) (len : Std.U32) :
   Result ((Std.U32 × Std.U32) × gpu.nn.Kb)
@@ -68802,7 +68802,7 @@ def gpu.nn.Kb.shared_f32
   ok ((var, ptr_el), self9)
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::shared_load]:
-    Source: '../../src/gpu/nn/mod.rs', lines 868:4-872:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 876:4-880:5 -/
 def gpu.nn.Kb.shared_load
   (self : gpu.nn.Kb) (var : Std.U32) (ptr_el : Std.U32) (idx : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -68813,7 +68813,7 @@ def gpu.nn.Kb.shared_load
   gpu.nn.Kb.e self1 gpu.nn.OP_LOAD self.float s1
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::shared_store]:
-    Source: '../../src/gpu/nn/mod.rs', lines 873:4-876:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 881:4-884:5 -/
 def gpu.nn.Kb.shared_store
   (self : gpu.nn.Kb) (var : Std.U32) (ptr_el : Std.U32) (idx : Std.U32)
   (val : Std.U32) :
@@ -68825,7 +68825,7 @@ def gpu.nn.Kb.shared_store
   gpu.nn.Kb.ins self1 gpu.nn.OP_STORE s1
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::wg_barrier]:
-    Source: '../../src/gpu/nn/mod.rs', lines 878:4-882:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 886:4-890:5 -/
 def gpu.nn.Kb.wg_barrier (self : gpu.nn.Kb) : Result gpu.nn.Kb := do
   let (sc, self1) ← gpu.nn.Kb.cu self gpu.nn.SCOPE_WORKGROUP
   let (sem, self2) ← gpu.nn.Kb.cu self1 gpu.nn.SEM_WG_ACQREL
@@ -68833,7 +68833,7 @@ def gpu.nn.Kb.wg_barrier (self : gpu.nn.Kb) : Result gpu.nn.Kb := do
   gpu.nn.Kb.ins self2 gpu.nn.OP_CONTROL_BARRIER s
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::strided_idx]:
-    Source: '../../src/gpu/nn/mod.rs', lines 884:4-890:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 892:4-898:5 -/
 def gpu.nn.Kb.strided_idx
   (self : gpu.nn.Kb) (tid : Std.U32) (t : Std.U32) (wg : Std.U32) :
   Result (Std.U32 × gpu.nn.Kb)
@@ -68846,7 +68846,7 @@ def gpu.nn.Kb.strided_idx
     gpu.nn.Kb.iadd self1 tid off
 
 /-- [apeiron_word::gpu::nn::ChartScale]
-    Source: '../../src/gpu/nn/mod.rs', lines 1401:0-1410:1
+    Source: '../../src/gpu/nn/mod.rs', lines 1409:0-1418:1
     Visibility: public -/
 structure gpu.nn.ChartScale where
   dm : Std.U32
@@ -68854,13 +68854,13 @@ structure gpu.nn.ChartScale where
   mrow : Std.U32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::ChartScale}::dm]:
-    Source: '../../src/gpu/nn/mod.rs', lines 1414:4-1420:5
+    Source: '../../src/gpu/nn/mod.rs', lines 1422:4-1428:5
     Visibility: public -/
 def gpu.nn.ChartScale.impl.dm (dm : Std.U32) : Result gpu.nn.ChartScale := do
   ok { dm, sup_off := 0#u32, mrow := 0#u32 }
 
 /-- [apeiron_word::gpu::nn::two_level_chart_buffer]:
-    Source: '../../src/gpu/nn/mod.rs', lines 1440:0-1445:1
+    Source: '../../src/gpu/nn/mod.rs', lines 1448:0-1453:1
     Visibility: public -/
 def gpu.nn.two_level_chart_buffer
   (sub : Slice Std.U32) (sup : Slice Std.U32) :
@@ -68874,12 +68874,12 @@ def gpu.nn.two_level_chart_buffer
   alloc.vec.Vec.extend_from_slice core.clone.CloneU32 v1 sup
 
 /-- [apeiron_word::gpu::nn::BUILTIN_LOCAL_INVOCATION_INDEX]
-    Source: '../../src/gpu/nn/mod.rs', lines 1450:0-1450:47 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 1458:0-1458:47 -/
 @[global_simps, irreducible]
 def gpu.nn.BUILTIN_LOCAL_INVOCATION_INDEX : Std.U32 := 29#u32
 
 /-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::local_index]:
-    Source: '../../src/gpu/nn/mod.rs', lines 1454:4-1466:5 -/
+    Source: '../../src/gpu/nn/mod.rs', lines 1462:4-1474:5 -/
 def gpu.nn.Kb.local_index
   (self : gpu.nn.Kb) : Result (Std.U32 × gpu.nn.Kb) := do
   let self1 ←
@@ -69836,7 +69836,7 @@ def spirv.check.apply_shape
       then
         match shape.sudot with
         | none =>
-          spirv.check.apply_shape_loop2 index shape.result shape.uses
+          spirv.check.apply_shape_loop2 index shape.result shape.uses 
             shape.tag defs tys 0#usize
         | some t =>
           let (ty, a, b1) := t
@@ -69921,7 +69921,7 @@ def spirv.check.apply_shape
       | none =>
         match shape.sudot with
         | none =>
-          spirv.check.apply_shape_loop4 index shape.result shape.uses
+          spirv.check.apply_shape_loop4 index shape.result shape.uses 
             shape.tag defs tys 0#usize
         | some t =>
           let (ty, a, b1) := t
@@ -85787,7 +85787,7 @@ def fold_port.fit.icm.e8_icm_step
                             core.cmp.Ord.max.default core.cmp.OrdUsize i
                               1#usize
                           let val8 := deref_mut_back4 s14
-                          fold_port.fit.icm.e8_icm_step_loop p.s p.idx
+                          fold_port.fit.icm.e8_icm_step_loop p.s p.idx 
                             p.r p.c p.d o n sweeps g nb cb val8 b idx_cur s16
                             s17 per 0#usize
                         | core.ops.control_flow.ControlFlow.Break residual =>
@@ -87296,7 +87296,7 @@ def fold_port.fit.icm.r_step2
           let r1_out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
           let r2_out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
           let per1 ← core.cmp.Ord.max.default core.cmp.OrdUsize per 1#usize
-          fold_port.fit.icm.r_step2_loop hl p1.s p1.idx p1.r p1.c p1.d
+          fold_port.fit.icm.r_step2_loop hl p1.s p1.idx p1.r p1.c p1.d 
             p2.s p2.idx p2.r p2.c p2.d o n g val r1_out r2_out per1 0#usize
         | core.ops.control_flow.ControlFlow.Break residual =>
           core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
@@ -94635,7 +94635,7 @@ def
   let (i, rt, i1, i2) := c
   let i3 ← i1 + i2
   let i4 ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) 
       rt.sin i3
   let o ← fold_port.stats.parts.mul i i4
   core.option.Option.and_then
@@ -100448,7 +100448,7 @@ def learn_port.head.rows_loop
     Std.I64) × (Slice Std.I128))
   := do
   let (dh1, dw1, loss_acc, fail1) ←
-    learn_port.head.rows_loop_loop objective hidden w_head z_t dims.n
+    learn_port.head.rows_loop_loop objective hidden w_head z_t dims.n 
       dims.d dims.v n_scale dh dw 0#i128 none 0#usize
   match fail1 with
   | none => ok (core.result.Result.Ok loss_acc, dh1, dw1)
@@ -108380,7 +108380,7 @@ def
     Visibility: public -/
 def hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.set
   {K : Type} (CoordInst : hashtrinity.algebra.Coord K) (corecmpEqInst :
-  core.cmp.Eq K) (self : hashtrinity.algebra.Stored K) (i : Std.Usize)
+  core.cmp.Eq K) (self : hashtrinity.algebra.Stored K) (i : Std.Usize) 
   (k : K) :
   Result (hashtrinity.algebra.Stored K)
   := do
@@ -108496,7 +108496,7 @@ def
     Visibility: public -/
 def hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.set
   {K : Type} (CoordInvInst : hashtrinity.algebra.CoordInv K) (corecmpEqInst :
-  core.cmp.Eq K) (self : hashtrinity.algebra.Regen K) (_i : Std.Usize)
+  core.cmp.Eq K) (self : hashtrinity.algebra.Regen K) (_i : Std.Usize) 
   (_k : K) :
   Result (hashtrinity.algebra.Regen K)
   := do
@@ -109464,7 +109464,7 @@ def hashtrinity.overflow.Table.probe_capped_cold
       let (hits, empties) ←
         hashtrinity.overflow.prefix_masks self.coords home coord
       hashtrinity.overflow.Table.probe_capped_cold_loop corecmpEqInst
-        algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords
+        algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords 
         self.vals self.keys self.side self.overflow self.bits self.len
         self.tombs self._k coord home confirm limit hits empties
     else
@@ -109989,7 +109989,7 @@ def hashtrinity.overflow.Overflow.find_node
     Source: '../../src/map/hashtrinity/overflow.rs', lines 304:4-320:5 -/
 def hashtrinity.overflow.Overflow.alloc
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (key : Std.U64) (k : K)
+  (self : hashtrinity.overflow.Overflow K V) (key : Std.U64) (k : K) 
   (v : V) :
   Result (Std.U32 × (hashtrinity.overflow.Overflow K V))
   := do
@@ -110035,7 +110035,7 @@ def hashtrinity.overflow.Overflow.alloc
     Source: '../../src/map/hashtrinity/overflow.rs', lines 414:4-427:5 -/
 def hashtrinity.overflow.Overflow.insert_new_at
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (coord : Std.U64) (k : K)
+  (self : hashtrinity.overflow.Overflow K V) (coord : Std.U64) (k : K) 
   (v : V) :
   Result ((Std.U32 × Std.Usize) × (hashtrinity.overflow.Overflow K V))
   := do
@@ -110880,7 +110880,7 @@ def hashtrinity.is_sentinel (c : Std.U64) : Result Bool := do
 def hashtrinity.Table.insert_core
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
   (k : K) (new : V) (last_write : Bool) :
   Result ((Option (hashtrinity.InsertHit V)) × (hashtrinity.Table K V KS))
   := do
@@ -111047,7 +111047,7 @@ def hashtrinity.Table.insert_core
 def hashtrinity.Table.insert_merge_last_write
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
   (k : K) (new : V) :
   Result (hashtrinity.Table K V KS)
   := do
@@ -111163,7 +111163,7 @@ def hashtrinity.overflow.Table.probe_capped_with
       hashtrinity.overflow.prefix_masks self.coords home coord
     hashtrinity.overflow.Table.probe_capped_with_loop corecmpEqInst
       algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords self.vals
-      self.keys self.side self.overflow self.bits self.len self.tombs
+      self.keys self.side self.overflow self.bits self.len self.tombs 
       self._k coord home confirm hits empties
   else
     hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst algebraCoordInst
@@ -111202,7 +111202,7 @@ def hashtrinity.overflow.Overflow.get
 def hashtrinity.Table.get_coord
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
   (k : K) :
   Result (Option V)
   := do
@@ -111355,7 +111355,7 @@ def hashtrinity.Table.get_coord
 def hashtrinity.Table.get
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
   (k : K) :
   Result (Option V)
   := do
@@ -111393,7 +111393,7 @@ def hashtrinity.algebra.Table.fold
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (CoordInst
   : hashtrinity.algebra.Coord K) (MonoidInst : hashtrinity.algebra.Monoid V)
   (corecloneCloneInst : core.clone.Clone V) (KeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
   (k : K) :
   Result V
   := do
@@ -120814,7 +120814,7 @@ def
 def hashtrinity.face.Table.entry
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
   (k : K) :
   Result ((hashtrinity.face.Entry K V KS) × (hashtrinity.face.Entry K V KS →
     hashtrinity.Table K V KS))
@@ -120946,7 +120946,7 @@ def hashtrinity.face.Table.entry
 def hashtrinity.face.Table.contains_key
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
   (k : K) :
   Result Bool
   := do
@@ -122808,7 +122808,7 @@ def hashtrinity.Table.capacity
 def hashtrinity.Table.get_exact
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
   (k : K) :
   Result (Option V)
   := do
@@ -139292,8 +139292,18 @@ def fit_port.word_fit_icm_e8_icm_step
   := do
   fold_port.fit.icm.e8_icm_step ws hl p o n sweeps icm_ridge
 
+/-- [apeiron_word::fit_port::word_fit_icm_best_code_q]:
+    Source: 'ports/fit_port.rs', lines 107:0-114:1
+    Visibility: public -/
+def fit_port.word_fit_icm_best_code_q
+  (aa : Std.I128) (two_a : Std.I128) (q : Slice Std.I64) (dot : Slice Std.I64)
+  :
+  Result (core.result.Result Std.Usize fold_port.fit.icm.IcmError)
+  := do
+  fold_port.fit.icm.best_code_q aa two_a q dot
+
 /-- [apeiron_word::fit_port::word_fit_icm_r_step2]:
-    Source: 'ports/fit_port.rs', lines 126:0-135:1
+    Source: 'ports/fit_port.rs', lines 136:0-145:1
     Visibility: public -/
 def fit_port.word_fit_icm_r_step2
   (ws : Slice Std.I64) (hl : Slice Std.I64) (p1 : fold_port.fit.icm.PlaneRef)
@@ -139304,7 +139314,7 @@ def fit_port.word_fit_icm_r_step2
   fold_port.fit.icm.r_step2 ws hl p1 p2 o n
 
 /-- [apeiron_word::fit_port::word_fit_icm_matmul]:
-    Source: 'ports/fit_port.rs', lines 138:0-146:1
+    Source: 'ports/fit_port.rs', lines 148:0-156:1
     Visibility: public -/
 def fit_port.word_fit_icm_matmul
   (a : Slice Std.I64) (b : Slice Std.I64) (rows : Std.Usize)
