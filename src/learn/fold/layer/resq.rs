@@ -433,7 +433,7 @@ mod call_site_k5 {
     )]
 
     use super::*;
-    use crate::engine::kern::limb::{gemm_q32, syrk_q32};
+    use crate::engine::kern::limb::{prepare, syrk_q32, Prepared};
     use crate::engine::{row_dot_fixed, silu_fixed};
     use crate::learn::solve::chol::{chol_solve, SolveError};
     use crate::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
@@ -445,20 +445,21 @@ mod call_site_k5 {
     /// the group shape.
     const PORT_LIMBS: u32 = 8;
 
-    fn port_product(
-        a: &[i64],
+    /// `a·bᵀ` on a prepared `a` (`m × k`) and the fitted `b` operand, the product unfitted.
+    fn port_product_prepared(
+        pa: &Prepared,
+        ka: u32,
         b: &[i64],
-        m: usize,
         k: usize,
         n: usize,
         nt: bool,
     ) -> Result<Vec<i64>, ResqError> {
-        let ((pa, ka), (pb, kb)) = (fit(a)?, fit(b)?);
+        let (pb, kb) = fit(b)?;
         let c = if nt {
-            gemm_q32(&pa, m, &pb, n, k, PORT_LIMBS)
+            pa.gemm(&pb, n)
         } else {
             let bt = transpose(&pb, k, n);
-            gemm_q32(&pa, m, &bt, n, k, PORT_LIMBS)
+            pa.gemm(&bt, n)
         };
         unfix(&c.map_err(|_| ResqError::Overflow)?, ka + kb)
     }
@@ -466,7 +467,8 @@ mod call_site_k5 {
     fn port_gram(x: &[i64], o: usize, n: usize) -> Result<Vec<i64>, ResqError> {
         let (xs, k) = fit(x)?;
         let xt = transpose(&xs, o, n);
-        let g = syrk_q32(&xt, n, o, PORT_LIMBS).map_err(|_| ResqError::Overflow)?;
+        let prepared = prepare(&xt, n, o, PORT_LIMBS).map_err(|_| ResqError::Overflow)?;
+        let g = prepared.syrk().map_err(|_| ResqError::Overflow)?;
         unfix(&g, 2 * k)
     }
 
@@ -478,8 +480,10 @@ mod call_site_k5 {
         wg: &[i64],
         wu: &[i64],
     ) -> Result<Vec<i64>, ResqError> {
-        let gate = port_product(slab, wg, rows, n, inter, true)?;
-        let up = port_product(slab, wu, rows, n, inter, true)?;
+        let (ps, ks) = fit(slab)?;
+        let prepared = prepare(&ps, rows, n, PORT_LIMBS).map_err(|_| ResqError::Overflow)?;
+        let gate = port_product_prepared(&prepared, ks, wg, n, inter, true)?;
+        let up = port_product_prepared(&prepared, ks, wu, n, inter, true)?;
         let mut out = Vec::with_capacity(rows * inter);
         for k in 0..rows * inter {
             let s = silu_fixed(gate[k]).map_err(|_| ResqError::Overflow)?;
@@ -530,9 +534,22 @@ mod call_site_k5 {
             }
             let p0 = port_project(slab, rows, n, inter, g0, u0)?;
             let pq = port_project(slab, rows, n, inter, qg, qu)?;
-            let pp = port_gram(&pq, rows, inter)?;
-            let pqt = transpose(&pq, rows, inter);
-            let pc = port_product(&pqt, &p0, inter, rows, inter, false)?;
+            let (pq_fit, kq) = fit(&pq)?;
+            let pqt = transpose(&pq_fit, rows, inter);
+            let pq_prepared =
+                prepare(&pqt, inter, rows, PORT_LIMBS).map_err(|_| ResqError::Overflow)?;
+            let pp = unfix(
+                &pq_prepared.syrk().map_err(|_| ResqError::Overflow)?,
+                2 * kq,
+            )?;
+            let (p0_fit, kp) = fit(&p0)?;
+            let p0t = transpose(&p0_fit, rows, inter);
+            let pc = unfix(
+                &pq_prepared
+                    .gemm(&p0t, inter)
+                    .map_err(|_| ResqError::Overflow)?,
+                kq + kp,
+            )?;
             for idx in 0..inter2 {
                 p_mat[idx] = p_mat[idx].checked_add(pp[idx]).ok_or(ResqError::Overflow)?;
                 c_mat[idx] = c_mat[idx].checked_add(pc[idx]).ok_or(ResqError::Overflow)?;

@@ -20,6 +20,12 @@ llama.cpp. `resq` at the 2x128x128 group shape (`inter` 16, `hidden` 8, 8 limbs)
 observed spreads 1.110-1.273 ms and 4.156-5.031 ms; the port is exact against the 8-limb contract
 (0 words) and test-only, and the exact call site stays.
 
+The exact fallback's per-block scale is a power of two and is folded into one exponent shift
+(`exact_dot_avx`, one i128 multiply per block instead of two, round-trip overflow refused);
+`limb::Prepared` builds the first operand's plane once for several products. Neither changes the
+numbers above; the scalar oracle and the 8-limb K5 still pin the outputs. Board
+`APEIRON-FORM-QUANT-W1-T01`.
+
 The P-rows below are historical. A `red` verdict in a row is relative to that row's measured revision and
 is not current status; § Current supersedes every one of them.
 
