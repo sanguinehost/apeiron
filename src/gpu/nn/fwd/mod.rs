@@ -5,5 +5,7 @@
 
 pub mod head;
 pub mod lin;
+pub mod norm;
 pub use head::*;
 pub use lin::*;
+pub use norm::*;

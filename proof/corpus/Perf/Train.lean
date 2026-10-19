@@ -200,4 +200,13 @@ def attnDkdvReads (t nh nkv hd : Nat) : Nat :=
 theorem attnDkdvReads_eq (t nh nkv hd : Nat) :
     attnDkdvReads t nh nkv hd = 2 * hd * nh * t * (t + 1) + 2 * t * nkv * hd := rfl
 
+/-- Words moved by one row-batched `rmsnorm_fwd` dispatch (P98) over `t` rows of width `w`
+    (`t ≥ 1`, `w ≥ 1`, grid `t`, LocalSize 256): each lane caches its `⌈w/256⌉` x words in
+    registers, so the dispatch reads `t·w` (`x`) plus `w` (`γ`) and writes `t·w` (`out`) —
+    `2·t·w + w` words. -/
+def rmsnormFwdReads (t w : Nat) : Nat := 2 * t * w + w
+
+/-- The P98 cost identity in the expanded form as defined above. -/
+theorem rmsnormFwdReads_eq (t w : Nat) : rmsnormFwdReads t w = 2 * t * w + w := rfl
+
 end Perf.Train
