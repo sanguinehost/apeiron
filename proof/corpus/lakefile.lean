@@ -123,6 +123,11 @@ lean_lib ApeironWordBridge where
     -- `ℤ` model (`Learn/Solve/WsyrkSpec.lean`, `Wsyrk.lean`); `WsyrkWitness.lean` inhabits the domain and each refusal arm.
     `Learn.Solve.WsyrkSpec, `Learn.Solve.Wsyrk, `Learn.Solve.WsyrkWitness,
     `AxiomAudit, `Joint.WordBridge,
+    -- The Vulkan handoff contract (`Gpu/Handoff.lean`): the pure `src/gpu/runtime.rs` handoff
+    -- (binding order, staged upload order, one submit, inter-dispatch barrier, scatter
+    -- containment) and the four-field `VulkanContract` the driver supplies. Registered as a
+    -- root because `ApeironWordBridge` has no `.submodules` glob.
+    `Gpu.Handoff,
     `Iota.Audit.Empty,
     `Iota.Syntax, `Iota.Decode,
     `Iota.DecodeTest, `Iota.Word, `Iota.Machine, `Iota.MachineAudit,

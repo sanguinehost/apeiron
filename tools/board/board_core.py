@@ -28,9 +28,11 @@ from typing import Any
 from typing import Iterable
 
 SCHEMA = 1
-DEFAULT_SPACE_ID = "sanguine-COpRXpkvCi19pKoDZnOPg0"
-DEFAULT_BASE_URL = "https://projects.tas.twn.network/api/external/v1"
-DEFAULT_PROJECTS = ("apeiron", "song", "penglai")
+# The local Operately board (2026-10-19): the hosted projects.tas.twn.network base is retired.
+# Board row: apeiron-board-w1-t01-the-FNYKmsC08KZkI1g66zOdrJ
+DEFAULT_SPACE_ID = "sanguine-EyE2SY65KpsJZt5EMHtkZF"
+DEFAULT_BASE_URL = "http://127.0.0.1:3000/api/external/v1"
+DEFAULT_PROJECTS = ("apeiron", "indra", "intent", "song")
 # The declared source of truth per project (AGENTS.md §9.3 and song's own plan
 # arm). Relative paths resolve against --repo-root; a path absent there is not
 # read, and the omission is reported rather than guessed.
