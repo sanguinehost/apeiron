@@ -156,6 +156,23 @@ def attnRowsumReads (t nh hd : Nat) : Nat := nh * (t * (t + 1) * hd + t * (t + 1
 theorem attnRowsumReads_eq (t nh hd : Nat) :
     attnRowsumReads t nh hd = nh * (t * (t + 1) * hd + t * (t + 1) / 2) := rfl
 
+/-- Words moved by the P102 tiled attention-backward row sum and its partial reduce, both
+    dispatches: `⌈t/16⌉·t·hd` staged `dO` words and `⌈t/16⌉·t·hd` staged `V` words per head
+    (each valid row once per tile axis), one `P` word per causal pair (`t·(t+1)/2` per head),
+    `t·⌈t/16⌉` partials written and read back per head, and `t` `rowsum` words written per head.
+    The P94 identity `attnRowsumReads` is the historical pre-tiling record and does not price the
+    staged tiles or the reduce. -/
+def attnBwdRowsumTiledReads (t nh hd : Nat) : Nat :=
+  let tiles := (t + 15) / 16
+  2 * nh * tiles * t * hd + nh * (t * (t + 1) / 2) + 2 * nh * t * tiles + nh * t
+
+/-- The P102 cost equation in expanded form as defined above: the tiles read each operand word
+    `⌈t/16⌉` times and the reduce adds the partial-write and partial-read word counts. -/
+theorem attnBwdRowsumTiledReads_eq (t nh hd : Nat) :
+    attnBwdRowsumTiledReads t nh hd =
+      2 * nh * ((t + 15) / 16) * t * hd + nh * (t * (t + 1) / 2)
+        + 2 * nh * t * ((t + 15) / 16) + nh * t := rfl
+
 /-- Words moved by one `swiglu_fwd` dispatch at `n` elements: `gate` and `up` read, `out`
     written, three words per element, one thread per element. -/
 def swigluFwdReads (n : Nat) : Nat := 3 * n
@@ -252,15 +269,15 @@ theorem attnBwdDsTiledReads_eq (t nh hd : Nat) :
     attnBwdDsTiledReads t nh hd =
       2 * nh * ((t + 15) / 16) * t * hd + nh * t * (t + 1) + nh * t * t := rfl
 
-/-- Compute dispatches recorded by one `Trainer::step`: 46 on the layer tape (the forward's 17
-    and the backward's 29) plus the nine Adam updates. The 54 compute->compute barriers and the
+/-- Compute dispatches recorded by one `Trainer::step`: 47 on the layer tape (the forward's 17
+    and the backward's 30) plus the nine Adam updates. The 54 compute->compute barriers and the
     twelve buffer copies record no dispatch.
 
     Counted from the `rec_step` sequence in `src/gpu/nn/train/mod.rs`; a guard on the composition,
     not a hardware quantity: it moves only when the tape does. -/
-def layerStepDispatches : Nat := 55
+def layerStepDispatches : Nat := 56
 
 /-- The P101 dispatch count, by `rfl`. -/
-theorem layerStepDispatches_eq : layerStepDispatches = 55 := rfl
+theorem layerStepDispatches_eq : layerStepDispatches = 56 := rfl
 
 end Perf.Train

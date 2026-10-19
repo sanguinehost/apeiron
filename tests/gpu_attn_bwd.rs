@@ -12,7 +12,7 @@
 //! 32-column d-tile — then `(8,2,1,64)` (two full d-tiles) and `(5,2,1,48)` (one full tile and a
 //! 16-column partial tile). Inputs are a
 //! fixed-seed LCG in `[-0.5, 0.5)` real. The four dispatches are recorded in one command buffer in
-//! the order rowsum, ds, dq, dk/dv; `rec_step` emits the compute→compute barrier
+//! the order rowsum tiled, rowsum reduce, ds, dq, dk/dv; `rec_step` emits the compute→compute barrier
 //! (`vk.barrier(cb, STAGE_COMPUTE, STAGE_COMPUTE, ACCESS_SHADER_WRITE, ACCESS_SHADER_READ |
 //! ACCESS_SHADER_WRITE)`) after each, so every dependent pass reads the previous results.
 //!
@@ -33,6 +33,7 @@
 use apeiron::gpu::decode::{rec_step, GpuCtx};
 use apeiron::gpu::nn::{
     attn_bwd_dkdv_dispatch, attn_bwd_dq_dispatch, attn_bwd_ds_dispatch, attn_bwd_rowsum_dispatch,
+    attn_bwd_rowsum_reduce_dispatch,
 };
 use apeiron::gpu::vulkan::*;
 use apeiron::learn::grad::attn::{attn_bwd_kern, attn_fwd_kern};
@@ -186,6 +187,8 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
     let v_buf = unsafe { g.up_f32(&vf) };
     let p_buf = unsafe { g.up_f32(&pf) };
     let do_buf = unsafe { g.up_f32(&dof) };
+    let rs_parts = t.div_ceil(16);
+    let rs_parts_buf = unsafe { g.dev(nh * t * rs_parts * 4) };
     let rs_buf = unsafe { g.dev(t * nh * 4) };
     let ds_buf = unsafe { g.dev(nh * t * t * 4) };
     let dq_buf = unsafe { g.dev(t * nh * hd * 4) };
@@ -193,8 +196,10 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
     let dv_buf = unsafe { g.dev(t * nkv * hd * 4) };
 
     let (tu, nhu, nkvu, hdu) = (t as u32, nh as u32, nkv as u32, hd as u32);
-    let step_rs =
-        unsafe { attn_bwd_rowsum_dispatch(&g, v_buf, p_buf, do_buf, rs_buf, tu, nhu, nkvu, hdu) };
+    let step_rs_t = unsafe {
+        attn_bwd_rowsum_dispatch(&g, v_buf, p_buf, do_buf, rs_parts_buf, tu, nhu, nkvu, hdu)
+    };
+    let step_rsr = unsafe { attn_bwd_rowsum_reduce_dispatch(&g, rs_parts_buf, rs_buf, tu, nhu) };
     let step_ds = unsafe {
         attn_bwd_ds_dispatch(&g, v_buf, p_buf, do_buf, rs_buf, ds_buf, tu, nhu, nkvu, hdu)
     };
@@ -221,7 +226,8 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
     let cb = unsafe { vk.command_buffer() };
     unsafe {
         vk.begin(cb);
-        rec_step(vk, cb, &step_rs);
+        rec_step(vk, cb, &step_rs_t);
+        rec_step(vk, cb, &step_rsr);
         rec_step(vk, cb, &step_ds);
         rec_step(vk, cb, &step_dq);
         rec_step(vk, cb, &step_dkdv);

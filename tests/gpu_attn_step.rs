@@ -6,7 +6,8 @@
 //! `(p, out) = attn(q,k,v)` (`attn_fwd_dispatch`), `z_s = out·Uᵀ` (`linear_fwd_dispatch`),
 //! per-row `(loss, dz) = kl_row(z_s, z_t)` (`kl_row_dispatch`), `dU = linear_bwd_weight(dz, out)`,
 //! `dout = linear_bwd_input(dz, U)` (`linear_bwd_weight_dispatch`, `linear_bwd_input_dispatch`),
-//! `(dq,dk,dv) = attn_bwd(q,k,v,p,dout)` (`attn_bwd_rowsum`, `_ds`, `_dq`, `_dkdv` dispatches),
+//! `(dq,dk,dv) = attn_bwd(q,k,v,p,dout)` (`attn_bwd_rowsum` tiled, `_rowsum_reduce`, `_ds`, `_dq`,
+//! `_dkdv` dispatches),
 //! `dWq = linear_bwd_weight(dq, x)`, `dWk = linear_bwd_weight(dk, x)`,
 //! `dWv = linear_bwd_weight(dv, x)`, then the device `adam_update_dispatch` on `Wq`, `Wk`, `Wv`,
 //! `U`. The CPU reference runs the same composition with `learn::grad::{dense, attn, head}` and
@@ -46,8 +47,8 @@ use apeiron::gpu::decode::{rec_step, GpuCtx};
 use apeiron::gpu::nn::fwd::{kl_row_dispatch, linear_fwd_dispatch};
 use apeiron::gpu::nn::{
     adam_update_dispatch, attn_bwd_dkdv_dispatch, attn_bwd_dq_dispatch, attn_bwd_ds_dispatch,
-    attn_bwd_rowsum_dispatch, attn_fwd_dispatch, linear_bwd_input_dispatch,
-    linear_bwd_weight_dispatch,
+    attn_bwd_rowsum_dispatch, attn_bwd_rowsum_reduce_dispatch, attn_fwd_dispatch,
+    linear_bwd_input_dispatch, linear_bwd_weight_dispatch,
 };
 use apeiron::gpu::vulkan::*;
 use apeiron::learn::fold::finish::train::Adam;
@@ -198,6 +199,7 @@ fn run(vk: &Vk, pins: &[Pins; 2]) {
     let dz_buf = unsafe { g.dev(T * V * 4) };
     let du_buf = unsafe { g.dev(V * QW * 4) };
     let dout_buf = unsafe { g.dev(T * QW * 4) };
+    let rs_parts_buf = unsafe { g.dev(NH * T * T.div_ceil(16) * 4) };
     let rs_buf = unsafe { g.dev(T * NH * 4) };
     let ds_buf = unsafe { g.dev(NH * T * T * 4) };
     let dq_buf = unsafe { g.dev(T * QW * 4) };
@@ -270,8 +272,19 @@ fn run(vk: &Vk, pins: &[Pins; 2]) {
         let s_du = unsafe { linear_bwd_weight_dispatch(&g, dz_buf, out_buf, du_buf, tn, tq, tv) };
         let s_dout = unsafe { linear_bwd_input_dispatch(&g, dz_buf, u_buf, dout_buf, tn, tq, tv) };
         let s_rs = unsafe {
-            attn_bwd_rowsum_dispatch(&g, val_buf, p_buf, dout_buf, rs_buf, tn, nhu, nkvu, hdu)
+            attn_bwd_rowsum_dispatch(
+                &g,
+                val_buf,
+                p_buf,
+                dout_buf,
+                rs_parts_buf,
+                tn,
+                nhu,
+                nkvu,
+                hdu,
+            )
         };
+        let s_rsr = unsafe { attn_bwd_rowsum_reduce_dispatch(&g, rs_parts_buf, rs_buf, tn, nhu) };
         let s_ds = unsafe {
             attn_bwd_ds_dispatch(
                 &g, val_buf, p_buf, dout_buf, rs_buf, ds_buf, tn, nhu, nkvu, hdu,
@@ -325,6 +338,8 @@ fn run(vk: &Vk, pins: &[Pins; 2]) {
             rec_step(vk, cb, &s_dout);
             cbar(cb);
             rec_step(vk, cb, &s_rs);
+            cbar(cb);
+            rec_step(vk, cb, &s_rsr);
             cbar(cb);
             rec_step(vk, cb, &s_ds);
             cbar(cb);

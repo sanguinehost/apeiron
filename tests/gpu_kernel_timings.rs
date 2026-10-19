@@ -1,5 +1,5 @@
 //! Timed dispatch campaign for the GPU training forward and backward rows: `P83`, `P85`, `P86`,
-//! `P87`, `P88`, `P89`, `P90`, `P91`, `P97`, `P98`, `P99` in `docs/evidence/perf-predictions.md`. The attention shapes
+//! `P87`, `P88`, `P89`, `P90`, `P91`, `P97`, `P98`, `P99`, `P102` in `docs/evidence/perf-predictions.md`. The attention shapes
 //! include the two production shapes `(t=256, nh=4, nkv=2, hd=32)` and `(t=512, nh=4, nkv=2, hd=32)`
 //! beside the six parity shapes.
 //!
@@ -45,8 +45,8 @@ use apeiron::gpu::decode::{rec_step, GpuCtx, Step};
 use apeiron::gpu::nn::fwd::rmsnorm_fwd_dispatch;
 use apeiron::gpu::nn::{
     adam_update_dispatch, attn_bwd_dkdv_dispatch, attn_bwd_dq_dispatch, attn_bwd_ds_dispatch,
-    attn_bwd_rowsum_dispatch, linear_bwd_input_dispatch, linear_bwd_weight_dispatch,
-    rmsnorm_bwd_dispatch, rmsnorm_dgamma_dispatch,
+    attn_bwd_rowsum_dispatch, attn_bwd_rowsum_reduce_dispatch, linear_bwd_input_dispatch,
+    linear_bwd_weight_dispatch, rmsnorm_bwd_dispatch, rmsnorm_dgamma_dispatch,
 };
 use apeiron::gpu::vulkan::*;
 use apeiron::learn::grad::attn::attn_fwd_kern;
@@ -279,7 +279,7 @@ fn gpu_training_dispatch_timings() {
     linear_bwd(&vk, &g, &pool);
     attn_bwd(&vk, &g, &pool);
     adam(&vk, &g, &pool);
-    println!("done: 53 dispatch cells (8 of them the four-pass chain) + 1 control, {REPS} reported runs each");
+    println!("done: 61 dispatch cells (8 of them the five-dispatch chain) + 1 control, {REPS} reported runs each");
 }
 
 /// (a) `rmsnorm_bwd` main dispatch and the `dγ` reduce at `w = 896` on the parity shape `t = 512`
@@ -429,13 +429,27 @@ fn attn_bwd(vk: &Vk, g: &GpuCtx, pool: &QueryPool) {
         let pf: Vec<f32> = p.iter().map(|&x| to_f32(x)).collect();
         let dof: Vec<f32> = dout.iter().map(|&x| to_f32(x)).collect();
 
-        let (q_buf, k_buf, v_buf, p_buf, do_buf, rs_buf, ds_buf, dq_buf, dk_buf, dv_buf) = unsafe {
+        let parts = t.div_ceil(16);
+        let (
+            q_buf,
+            k_buf,
+            v_buf,
+            p_buf,
+            do_buf,
+            rs_parts_buf,
+            rs_buf,
+            ds_buf,
+            dq_buf,
+            dk_buf,
+            dv_buf,
+        ) = unsafe {
             (
                 g.up_f32(&qf),
                 g.up_f32(&kf),
                 g.up_f32(&vf),
                 g.up_f32(&pf),
                 g.up_f32(&dof),
+                g.dev(nh * t * parts * 4),
                 g.dev(t * nh * 4),
                 g.dev(nh * t * t * 4),
                 g.dev(t * nh * hd * 4),
@@ -445,8 +459,9 @@ fn attn_bwd(vk: &Vk, g: &GpuCtx, pool: &QueryPool) {
         };
         let (tu, nhu, nkvu, hdu) = (t as u32, nh as u32, nkv as u32, hd as u32);
         let rs_step = unsafe {
-            attn_bwd_rowsum_dispatch(g, v_buf, p_buf, do_buf, rs_buf, tu, nhu, nkvu, hdu)
+            attn_bwd_rowsum_dispatch(g, v_buf, p_buf, do_buf, rs_parts_buf, tu, nhu, nkvu, hdu)
         };
+        let rsr_step = unsafe { attn_bwd_rowsum_reduce_dispatch(g, rs_parts_buf, rs_buf, tu, nhu) };
         let ds_step = unsafe {
             attn_bwd_ds_dispatch(g, v_buf, p_buf, do_buf, rs_buf, ds_buf, tu, nhu, nkvu, hdu)
         };
@@ -458,9 +473,12 @@ fn attn_bwd(vk: &Vk, g: &GpuCtx, pool: &QueryPool) {
         };
 
         let shape = format!("t={t} nh={nh} nkv={nkv} hd={hd}");
-        run_series(vk, pool, &[&rs_step], "attn_rowsum", shape.clone());
+        // The P102 tiled row sum and its partial reduce; the retired strided-lane `attn_rowsum`
+        // before arm is measured from the base `bwd.rs` in a throwaway reflink copy.
+        run_series(vk, pool, &[&rs_step], "attn_rowsum_tiled", shape.clone());
+        run_series(vk, pool, &[&rsr_step], "attn_rowsum_reduce", shape.clone());
         let rs = unsafe { read_f32(vk, rs_buf, t * nh) };
-        assert_finite("attn_rowsum", &shape, "rowsum", &rs);
+        assert_finite("attn_rowsum_tiled", &shape, "rowsum", &rs);
 
         run_series(vk, pool, &[&ds_step], "attn_ds", shape.clone());
         let ds = unsafe { read_f32(vk, ds_buf, nh * t * t) };
@@ -476,19 +494,20 @@ fn attn_bwd(vk: &Vk, g: &GpuCtx, pool: &QueryPool) {
         let dv = unsafe { read_f32(vk, dv_buf, t * nkv * hd) };
         assert_finite("attn_dkdv", &shape, "dv", &dv);
 
-        // P90's registered cell: the four passes in one command buffer, rowsum → ds → dq → dk/dv,
-        // with `rec_step`'s compute→compute barrier after each, exactly as `tests/gpu_attn_bwd.rs`.
+        // P90/P102's registered cell: the five passes in one command buffer,
+        // rowsum_tiled → rowsum_reduce → ds → dq → dk/dv, with `rec_step`'s compute→compute
+        // barrier after each, exactly as `tests/gpu_attn_bwd.rs`. The four-pass form is retired.
         run_series(
             vk,
             pool,
-            &[&rs_step, &ds_step, &dq_step, &dkdv_step],
-            "attn_four_pass",
+            &[&rs_step, &rsr_step, &ds_step, &dq_step, &dkdv_step],
+            "attn_bwd_chain",
             shape.clone(),
         );
         let dq2 = unsafe { read_f32(vk, dq_buf, t * nh * hd) };
-        assert_finite("attn_four_pass", &shape, "dq", &dq2);
+        assert_finite("attn_bwd_chain", &shape, "dq", &dq2);
         let dv2 = unsafe { read_f32(vk, dv_buf, t * nkv * hd) };
-        assert_finite("attn_four_pass", &shape, "dv", &dv2);
+        assert_finite("attn_bwd_chain", &shape, "dv", &dv2);
     }
 }
 
