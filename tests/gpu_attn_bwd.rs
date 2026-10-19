@@ -8,7 +8,9 @@
 //! Q32.32 by round-to-nearest (saturating) and the per-entry difference is bounded in Q32.32 units,
 //! measured per shape and product.
 //!
-//! Shapes `(t, nh, nkv, hd)`: `(1,2,1,8)`, `(7,2,1,16)`, `(16,4,2,16)`, `(64,4,2,32)`. Inputs are a
+//! Shapes `(t, nh, nkv, hd)`: `(1,2,1,8)`, `(7,2,1,16)`, `(16,4,2,16)`, `(64,4,2,32)` — one
+//! 32-column d-tile — then `(8,2,1,64)` (two full d-tiles) and `(5,2,1,48)` (one full tile and a
+//! 16-column partial tile). Inputs are a
 //! fixed-seed LCG in `[-0.5, 0.5)` real. The four dispatches are recorded in one command buffer in
 //! the order rowsum, ds, dq, dk/dv; `rec_step` emits the compute→compute barrier
 //! (`vk.barrier(cb, STAGE_COMPUTE, STAGE_COMPUTE, ACCESS_SHADER_WRITE, ACCESS_SHADER_READ |
@@ -132,6 +134,26 @@ fn attn_backward_matches_cpu() {
             bound_dq: 4650.0,
             bound_dk: 3250.0,
             bound_dv: 64900.0,
+        },
+        Fixture {
+            label: "t=8 nh=2 nkv=1 hd=64",
+            t: 8,
+            nh: 2,
+            nkv: 1,
+            hd: 64,
+            bound_dq: 2400.0,
+            bound_dk: 2600.0,
+            bound_dv: 23200.0,
+        },
+        Fixture {
+            label: "t=5 nh=2 nkv=1 hd=48",
+            t: 5,
+            nh: 2,
+            nkv: 1,
+            hd: 48,
+            bound_dq: 1000.0,
+            bound_dk: 950.0,
+            bound_dv: 17600.0,
         },
     ];
     for f in &fixtures {

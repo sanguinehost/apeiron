@@ -368,6 +368,9 @@ fn attn_bwd(vk: &Vk, g: &GpuCtx, pool: &QueryPool) {
         (7, 2, 1, 16),
         (16, 4, 2, 16),
         (64, 4, 2, 32),
+        // Two 32-column d-tiles and one full tile plus a 16-column partial tile (P97).
+        (8, 2, 1, 64),
+        (5, 2, 1, 48),
     ];
     for (t, nh, nkv, hd) in shapes {
         // `tests/gpu_attn_bwd.rs`: LCG in [-0.5, 0.5) real for q, k, v, dout; `p` from the oracle
