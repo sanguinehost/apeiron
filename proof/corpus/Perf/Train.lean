@@ -46,4 +46,22 @@ theorem rmsnormDgammaReduceBytes_eq (t w : Nat) :
   unfold rmsnormDgammaReduceBytes
   ring
 
+/-- Words read by one naive `linear_bwd_input` dispatch at `n` rows, input width `i`, output width
+    `o`: each of the `n·i` outputs reads its `dy` row (`o` words) and its `w` column (`o` words),
+    and the `n·i` outputs are written. -/
+def linearBwdInputReads (t i o : Nat) : Nat := 2 * t * i * o + t * i
+
+/-- The P86 cost equation in expanded form: `2·n·i·o + n·i` words. -/
+theorem linearBwdInputReads_eq (t i o : Nat) :
+    linearBwdInputReads t i o = 2 * t * i * o + t * i := rfl
+
+/-- Words read by one naive `linear_bwd_weight` dispatch at `n` rows, input width `i`, output width
+    `o`: each of the `o·i` outputs reads its `dy` column (`n` words) and its `x` column (`n`
+    words), and the `o·i` outputs are written. -/
+def linearBwdWeightReads (t i o : Nat) : Nat := 2 * t * i * o + o * i
+
+/-- The P87 cost equation in expanded form: `2·n·o·i + o·i` words. -/
+theorem linearBwdWeightReads_eq (t i o : Nat) :
+    linearBwdWeightReads t i o = 2 * t * i * o + o * i := rfl
+
 end Perf.Train

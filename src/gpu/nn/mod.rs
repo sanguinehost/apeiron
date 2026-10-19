@@ -50,6 +50,7 @@
 
 mod attn;
 mod batch;
+mod bwd;
 mod coop;
 mod coopmat_gemm;
 mod deltanet;
@@ -64,6 +65,7 @@ mod tests;
 
 pub use attn::*;
 pub use batch::*;
+pub use bwd::*;
 pub use coop::*;
 pub use coopmat_gemm::*;
 pub use deltanet::*;
