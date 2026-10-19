@@ -15,6 +15,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 import urllib.parse
 
@@ -915,7 +916,9 @@ class SecretHygieneTests(unittest.TestCase):
         opener = StubOpener({"projects/list": {"projects": []}})
         client = board.RestClient(key="k", opener=opener)
         self.assertEqual(client.projects(), [])
-        self.assertIn("projects.tas.twn.network", opener.calls[0])
+        expected = urllib.parse.urlparse(board.DEFAULT_BASE_URL)
+        self.assertEqual(urllib.parse.urlparse(opener.calls[0]).netloc, expected.netloc)
+        self.assertTrue(opener.calls[0].endswith("/projects/list"))
 
     def test_the_key_is_never_read_from_a_file(self) -> None:
         sources = []
@@ -1105,6 +1108,205 @@ class ControlSuiteTests(unittest.TestCase):
                 self.assertEqual(board.main(["next", "--source", path]), 3)
         finally:
             os.unlink(path)
+
+
+# APEIRON-BOARD-W1-T01: the plan's board cell is the inverse link. A row whose
+# cell names a task tracks that task; no plan id in the ticket and no slug match.
+LINKED_PLAN_MD = """# Fixture plan
+
+## F0 · board
+
+| task | board | files | gate | state |
+|---|---|---|---|---|
+| `LINK-ROW` | `{cell}` | `tools/board/board.py` | `python3 tools/board/board.py --check --controls` | open |
+"""
+
+
+def linked_document(cell: str = "FIXTURE-LINK-W1-T01") -> dict:
+    """One task whose only plan link is the plan row's board cell."""
+    return board.normalize_document(
+        {
+            "schema": 1,
+            "space": {"id": "sanguine", "name": "sanguine"},
+            "projects": [{"id": "apeiron", "name": "apeiron"}],
+            "milestones": [
+                {"id": "APEIRON-M1", "title": "APEIRON-M1", "project": {"id": "apeiron"}}
+            ],
+            "tasks": [
+                {
+                    "id": "FIXTURE-LINK-W1-T01",
+                    "name": "FIXTURE-LINK-W1-T01: linked task",
+                    "status": {"value": "open"},
+                    "project": {"id": "apeiron", "name": "apeiron"},
+                    "milestone": {"id": "APEIRON-M1", "title": "APEIRON-M1"},
+                    "description": "A task the plan row tracks.",
+                }
+            ],
+            "plan": {
+                "sources": [
+                    {
+                        "path": "docs/plan.md",
+                        "project": "apeiron",
+                        "text": LINKED_PLAN_MD.format(cell=cell),
+                    }
+                ]
+            },
+        }
+    )
+
+
+class PlanBoardLinkTests(unittest.TestCase):
+    """APEIRON-BOARD-W1-T01: the plan row's board cell is the inverse link."""
+
+    def test_the_board_cell_is_carried_on_the_plan_row(self) -> None:
+        plan = board.plan_from_document(linked_document())
+        self.assertEqual(len(plan["rows"]), 1)
+        self.assertEqual(plan["rows"][0]["board_ids"], ["FIXTURE-LINK-W1-T01"])
+
+    def test_a_task_is_matched_by_the_plans_board_cell(self) -> None:
+        doc = linked_document()
+        classifications, findings = board.reconcile(doc, board.plan_from_document(doc))
+        self.assertEqual(findings, [])
+        self.assertEqual([c["class"] for c in classifications], ["mirrored"])
+        self.assertEqual(classifications[0]["plan"], "LINK-ROW")
+
+    def test_a_linked_task_inherits_gate_paths_and_declaration(self) -> None:
+        doc = linked_document()
+        plan = board.plan_from_document(doc)
+        findings = board.check(doc, plan=plan)
+        self.assertEqual(
+            board.rules_of(findings),
+            set(),
+            "the plan row's gate, paths and board cell must satisfy the task",
+        )
+
+    def test_a_non_existent_board_cell_reddens_by_name(self) -> None:
+        doc = linked_document("FIXTURE-NOPE-W1-T99")
+        classifications, findings = board.reconcile(doc, board.plan_from_document(doc))
+        rules = board.rules_of(findings)
+        self.assertIn(board.RULE_DRIFT_PLAN_ROW, rules)
+        self.assertIn(board.RULE_DRIFT_BOARD_ROW, rules)
+        detail = " ".join(item["detail"] for item in findings)
+        self.assertIn("LINK-ROW", detail)
+        self.assertIn("FIXTURE-LINK-W1-T01", detail)
+
+
+# APEIRON-BOARD-W1-T01: the gate's ticket source. The block carries the gate,
+# the scope paths, the control and the evidence, so the document is built from
+# the ticket YAML and not from the commit hook's projection.
+FIXTURE_TICKET = """# FIXTURE-TICKET-W1-T01: fixture ticket
+
+```yaml ticket
+schema: indra.ticket/v1
+id: FIXTURE-TICKET-W1-T01
+project: apeiron
+milestone: APEIRON-M1
+title: Fixture ticket
+state: open
+scope:
+  kind: repo
+  paths:
+  - tools/board/board.py
+  change: a fixture ticket
+  done_when:
+  - the fixture holds
+gate:
+  cwd: .
+  command: python3 tools/board/board.py check --controls
+  budget_s: 120
+control:
+  kind: mutation
+  command: python3 tools/board/board.py check --controls
+  proves: a mutation reddens
+evidence:
+  grade: tested
+  receipt: docs/evidence/fixture.md
+links:
+- ../apeiron/docs/plan.md
+```
+"""
+
+
+class TicketDocumentTests(unittest.TestCase):
+    """APEIRON-BOARD-W1-T01: the gate reads the indra ticket YAML directly."""
+
+    def _ticket_document(self, text: str) -> dict:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "FIXTURE-TICKET-W1-T01.md")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(text)
+            return board.normalize_document(board.tickets_document(tmp))
+
+    def test_gate_paths_board_declaration_and_receipt_survive(self) -> None:
+        doc = self._ticket_document(FIXTURE_TICKET)
+        task = doc["tasks"][0]
+        self.assertEqual(task["id"], "FIXTURE-TICKET-W1-T01")
+        self.assertEqual(task["project_id"], "apeiron")
+        self.assertIn("python3 tools/board/board.py check --controls", task["gates"])
+        self.assertIn("tools/board/board.py", task["paths"])
+        self.assertIn("docs/evidence/fixture.md", task["receipts"])
+        kind, declared = board.board_declaration(task["text"])
+        self.assertEqual(kind, "row")
+        self.assertEqual(board.declared_row(declared), "FIXTURE-TICKET-W1-T01")
+        self.assertEqual(board.rules_of(board.check(doc)), set())
+
+    def test_dropping_the_gate_reddens_no_gate_by_name(self) -> None:
+        mutated = FIXTURE_TICKET.replace(
+            "gate:\n  cwd: .\n  command: python3 tools/board/board.py check --controls\n"
+            "  budget_s: 120\n",
+            "",
+        )
+        self.assertNotEqual(mutated, FIXTURE_TICKET)
+        doc = self._ticket_document(mutated)
+        findings = board.check(doc)
+        self.assertEqual(board.rules_of(findings), {board.RULE_NO_GATE})
+        self.assertIn("FIXTURE-TICKET-W1-T01", findings[0]["detail"])
+
+    def test_the_tickets_flag_is_a_source_mode(self) -> None:
+        args = board.build_parser().parse_args(["--check", "--tickets", "/tmp"])
+        self.assertEqual(args.tickets, "/tmp")
+
+
+class NormalizedSourceTests(unittest.TestCase):
+    """APEIRON-BOARD-W1-T01: a normalized source document is loaded once.
+
+    The board document `lane_modes.indra_board_document()` returns is already in
+    `normalize_document`'s output shape: it carries `text`, `project_id` and
+    `status_value` and no `description`. A second normalization reads the raw
+    keys, which are absent, so it replaces every text with `""` and drops the
+    project, gates, paths and plan ids.
+    """
+
+    def test_a_normalized_document_keeps_text_project_and_status(self) -> None:
+        doc = board.baseline_document()
+        self.assertTrue(board.is_normalized_document(doc))
+        before = {
+            task["id"]: (task["text"], task["project_id"], task["status_value"], task["plan_ids"])
+            for task in doc["tasks"]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "board.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(doc, handle)
+            args = board.build_parser().parse_args(["--source", path])
+            loaded = board.load_document(args)
+        after = {
+            task["id"]: (task["text"], task["project_id"], task["status_value"], task["plan_ids"])
+            for task in loaded["tasks"]
+        }
+        self.assertEqual(after, before)
+        self.assertTrue(all(text for text, *_ in after.values()), "no task text survived")
+        self.assertTrue(all(project for _, project, *_ in after.values()), "no task project survived")
+        self.assertTrue(any(plan_ids for *_, plan_ids in after.values()), "no plan id survived")
+
+    def test_a_raw_document_still_takes_the_normal_path(self) -> None:
+        raw = json.loads(json.dumps(board.FIXTURE_BASELINE))
+        self.assertFalse(board.is_normalized_document(raw))
+        normalized = board.normalize_document(raw)
+        self.assertEqual(
+            [task["text"] for task in normalized["tasks"]],
+            [task["text"] for task in board.baseline_document()["tasks"]],
+        )
 
 
 if __name__ == "__main__":

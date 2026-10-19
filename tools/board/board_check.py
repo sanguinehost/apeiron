@@ -60,6 +60,20 @@ from board_fixtures import (
 # ---------------------------------------------------------------------------
 
 
+def board_cell_links(plan: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """The plan's inverse link: ticket id -> the plan row whose board cell names it.
+
+    A plan row's ``board`` cell is authoritative for the row it is tracked by, so
+    it names the board task from the plan side. The first row wins because the
+    parser emits a row once per id alias, with the same cell on each.
+    """
+    links: dict[str, dict[str, Any]] = {}
+    for row in (plan or {}).get("rows") or []:
+        for ticket_id in row.get("board_ids") or []:
+            links.setdefault(ticket_id, row)
+    return links
+
+
 def reconcile(
     doc: dict[str, Any],
     plan: dict[str, Any] | None,
@@ -110,13 +124,17 @@ def reconcile(
             )
         ]
 
+    links = board_cell_links(plan)
     for task in board_rows:
-        matched = None
-        for plan_id in task["plan_ids"]:
-            candidate = next((r for r in plan_rows if r["id"] == plan_id), None)
-            if candidate is not None:
-                matched = candidate
-                break
+        # The plan's own board cell naming this task is the first link; a plan id
+        # the ticket names, then the slug, follow.
+        matched = links.get(task["id"])
+        if matched is None:
+            for plan_id in task["plan_ids"]:
+                candidate = next((r for r in plan_rows if r["id"] == plan_id), None)
+                if candidate is not None:
+                    matched = candidate
+                    break
         if matched is None:
             matched = match_by_slug(task["name"])
         if matched is not None:
@@ -226,8 +244,13 @@ def check(
                 )
             )
 
+    links = board_cell_links(plan)
     for task in scope:
-        if not task["paths"]:
+        # The plan is authoritative for a row it names: when the plan's board
+        # cell names this task, the row's gate and source paths are the task's,
+        # and the cell is the declaration the dispatch is traced from.
+        linked = links.get(task["id"])
+        if not task["paths"] and not (linked and linked["paths"]):
             findings.append(
                 _finding(
                     RULE_NO_PATHS,
@@ -235,7 +258,7 @@ def check(
                     task=task["id"],
                 )
             )
-        if not task["gates"]:
+        if not task["gates"] and not (linked and linked["gates"]):
             findings.append(
                 _finding(
                     RULE_NO_GATE,
@@ -264,6 +287,10 @@ def check(
                 )
             )
         kind, declared = board_declaration(task["text"])
+        if not kind and linked is not None:
+            # The plan row's board cell names this task: the plan side carries
+            # the declaration, so the task text need not repeat it.
+            kind, declared = "linked", task["id"]
         if not kind:
             findings.append(
                 _finding(

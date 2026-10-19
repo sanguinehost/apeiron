@@ -19,6 +19,7 @@ from board_core import (
     SCHEMA,
     TransportError,
     _dedupe,
+    _is_path,
     flatten_description,
     gates_of,
     internal_named_by,
@@ -137,6 +138,10 @@ def _markdown_rows(
     if task_at is None:
         return []
     wave_at = column("wave", "milestone")
+    # The board cell is the plan's inverse link: it names the board task the row
+    # is tracked by. It is carried on the row so reconciliation can match a task
+    # by its own id when the ticket does not name a plan row.
+    board_at = column("board", "ticket")
     gate_at = column("gate", "gates")
     files_at = column("files", "file", "paths", "owned")
     state_at = column("state", "status")
@@ -171,6 +176,8 @@ def _markdown_rows(
             closed_by = "row wording"
         gate_text = cells[gate_at] if gate_at is not None and gate_at < len(cells) else ""
         files_text = cells[files_at] if files_at is not None and files_at < len(cells) else ""
+        board_text = cells[board_at] if board_at is not None and board_at < len(cells) else ""
+        board_ids = _dedupe(PLAN_ID_IN_CODE.findall(board_text))
         for row_ident in [row_id, *also]:
             rows.append(
                 {
@@ -182,6 +189,7 @@ def _markdown_rows(
                     "closed_by": closed_by,
                     "gates": gates_of(gate_text),
                     "paths": paths_of(files_text),
+                    "board_ids": board_ids,
                 }
             )
     return rows
@@ -230,6 +238,127 @@ def parse_plan_source(path: str, text: str) -> list[dict[str, Any]]:
         if reader.fieldnames and "id" in [f.strip() for f in reader.fieldnames]:
             return parse_tsv_plan(text, path)
     return parse_markdown_plan(text, path)
+
+
+# ---------------------------------------------------------------------------
+# The ticket tree: the gate's own source of truth
+# ---------------------------------------------------------------------------
+
+# The indra ticket block. The commit hook projects these through
+# `tools/hooks/lane_modes.py`; the gate reads the block directly, so the gate
+# does not depend on the hook's normalized shape.
+TICKET_YAML = re.compile(r"```yaml[ \t]+ticket[ \t]*\n(.*?)\n```", re.S)
+
+
+def _ticket_description(spec: dict[str, Any]) -> str:
+    """The task text: scope, gate, control, evidence and the board declaration.
+
+    The contract rules read the description for the gate, the source paths, the
+    receipt and the ``board:`` field. The ticket already carries each of those in
+    its YAML, so the document is built from them rather than from a projection
+    that drops them.
+    """
+    scope = spec.get("scope") if isinstance(spec.get("scope"), dict) else {}
+    gate = spec.get("gate") if isinstance(spec.get("gate"), dict) else {}
+    control = spec.get("control") if isinstance(spec.get("control"), dict) else {}
+    evidence = spec.get("evidence") if isinstance(spec.get("evidence"), dict) else {}
+    lines = [str(scope.get("change") or "")]
+    lines.extend(str(item) for item in (scope.get("done_when") or []))
+    paths = [str(path) for path in (scope.get("paths") or []) if str(path).strip()]
+    if paths:
+        lines.append("Source: " + ", ".join(f"`{path}`" for path in paths))
+    command = str(gate.get("command") or "").strip()
+    if command:
+        cwd = str(gate.get("cwd") or ".")
+        budget = gate.get("budget_s")
+        suffix = f" (cwd {cwd}" + (f", {budget}s" if budget is not None else "") + ")"
+        lines.append(f"Gate: `{command}`{suffix}")
+    if control:
+        lines.append(
+            "Control: "
+            f"{control.get('kind') or ''} -- {control.get('command') or ''}; "
+            f"proves: {control.get('proves') or ''}"
+        )
+    grade = str(evidence.get("grade") or "").strip()
+    if grade:
+        lines.append(f"Grade: {grade}")
+    receipt = evidence.get("receipt")
+    if receipt:
+        # `receipts_of` recognises a receipt path or a backticked span starting
+        # with a receipt prefix. A prose receipt keeps its text behind the
+        # prefix; a path is carried unchanged.
+        value = str(receipt).replace("`", "'").strip()
+        if _is_path(value):
+            lines.append(f"Receipt: `{value}`")
+        else:
+            lines.append(f"Receipt: `receipt: {value}`")
+    links = [str(link) for link in (spec.get("links") or []) if str(link).strip()]
+    if links:
+        lines.append("Link: " + ", ".join(f"`{link}`" for link in links))
+    lines.append(f"Board: `{spec.get('id')}`")
+    return "\n".join(line for line in lines if line.strip())
+
+
+def tickets_document(directory: str) -> dict[str, Any]:
+    """Build a raw schema-1 document from ``<dir>/*.md`` indra ticket files."""
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - the hook path already requires it
+        raise TransportError("tickets: PyYAML is not installed") from None
+    try:
+        names = sorted(name for name in os.listdir(directory) if name.endswith(".md"))
+    except OSError as exc:
+        raise TransportError(f"tickets: {exc}") from None
+    tasks: list[dict[str, Any]] = []
+    projects: dict[str, dict[str, Any]] = {}
+    milestones: dict[str, dict[str, Any]] = {}
+    for name in names:
+        path = os.path.join(directory, name)
+        try:
+            with open(path, encoding="utf-8") as handle:
+                text = handle.read()
+        except OSError as exc:
+            raise TransportError(f"tickets: {exc}") from None
+        match = TICKET_YAML.search(text)
+        if match is None:
+            continue
+        try:
+            spec = yaml.safe_load(match.group(1))
+        except yaml.YAMLError as exc:
+            raise TransportError(f"tickets: {path}: {exc}") from None
+        if not isinstance(spec, dict):
+            continue
+        ticket_id = str(spec.get("id") or os.path.splitext(name)[0])
+        project = str(spec.get("project") or "")
+        milestone = str(spec.get("milestone") or "")
+        state = str(spec.get("state") or "open")
+        tasks.append(
+            {
+                "id": ticket_id,
+                "name": f"{ticket_id}: {spec.get('title') or ''}",
+                "status": {"value": state, "label": state},
+                "project": {"id": project, "name": project} if project else None,
+                "milestone": {"id": milestone, "title": milestone} if milestone else None,
+                "description": _ticket_description(spec),
+            }
+        )
+        if project:
+            projects[project] = {"id": project, "name": project}
+        if milestone:
+            milestones[milestone] = {
+                "id": milestone,
+                "title": milestone,
+                "project": {"id": project, "name": project},
+            }
+    if not tasks:
+        raise TransportError(f"tickets: no ticket block under {directory}")
+    return {
+        "schema": SCHEMA,
+        "space": {"id": "sanguine", "name": "sanguine"},
+        "projects": list(projects.values()),
+        "milestones": list(milestones.values()),
+        "tasks": tasks,
+    }
 
 
 def load_plan(paths: Iterable[str], repo_root: str) -> dict[str, Any]:

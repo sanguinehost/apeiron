@@ -201,6 +201,7 @@ from board_model import (  # noqa: F401 - re-exported: the entry's public surfac
     sha256_of,
     sort_tasks,
     status_bucket,
+    tickets_document,
 )
 from board_rest import (  # noqa: F401 - re-exported: the entry's public surface
     LIVE_COVERAGE_NOTES,
@@ -282,9 +283,73 @@ from board_rows import (  # noqa: F401 - re-exported: the entry's public surface
 # ---------------------------------------------------------------------------
 
 
+# The keys `normalize_task` writes. Their presence, and the absence of the raw
+# `description`, is what tells a document that has already been through
+# `normalize_document` from one that has not.
+NORMALIZED_TASK_FIELDS = (
+    "status_value",
+    "status_label",
+    "text",
+    "milestone_id",
+    "project_id",
+    "gates",
+    "paths",
+    "receipts",
+    "plan_ids",
+    "internal_by",
+)
+
+
+def is_normalized_document(raw: object) -> bool:
+    """True when ``raw`` already carries ``normalize_document``'s task shape.
+
+    ``normalize_task`` reads ``description``, ``project``, ``milestone`` and
+    ``status``. None of those keys exists after one pass, so a second pass would
+    replace every task's text with ``""`` and drop its project, gates, paths and
+    plan ids. Detection is on the normalized-only fields and the absence of the
+    raw ``description``, so a raw document still takes the normal path.
+    """
+    if not isinstance(raw, dict) or raw.get("schema") != SCHEMA:
+        return False
+    tasks = raw.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        return False
+    for task in tasks:
+        if not isinstance(task, dict) or "description" in task:
+            return False
+        if any(field not in task for field in NORMALIZED_TASK_FIELDS):
+            return False
+    return True
+
+
+def accept_normalized_document(raw: dict[str, Any]) -> dict[str, Any]:
+    """Take an already-normalized document as written.
+
+    Only the top-level collections get defaults here; the tasks are the object
+    the readers consume, so re-deriving them is exactly the loss this avoids.
+    """
+    _require(isinstance(raw.get("space"), dict), "space must be an object")
+    doc = dict(raw)
+    doc.setdefault("origin", "")
+    doc["writes"] = [w for w in raw.get("writes") or [] if isinstance(w, dict)]
+    doc["notes"] = [n for n in raw.get("notes") or [] if isinstance(n, str)]
+    doc["internal"] = [str(i) for i in raw.get("internal") or []]
+    doc["plan"] = raw.get("plan") if isinstance(raw.get("plan"), dict) else None
+    return doc
+
+
 def load_document(args: argparse.Namespace) -> dict[str, Any]:
-    if getattr(args, "fixtures", False) or (args.controls and not args.live and not args.source):
+    if getattr(args, "fixtures", False) or (
+        args.controls and not args.live and not args.source and not getattr(args, "tickets", None)
+    ):
         return baseline_document()
+    if getattr(args, "tickets", None):
+        try:
+            doc = normalize_document(tickets_document(args.tickets))
+        except ValueError as exc:
+            raise TransportError(f"tickets: {exc}") from None
+        attribute_projects(doc)
+        return doc
     if args.source:
         try:
             with open(args.source, encoding="utf-8") as handle:
@@ -294,7 +359,11 @@ def load_document(args: argparse.Namespace) -> dict[str, Any]:
         except ValueError as exc:
             raise TransportError(f"source: not JSON: {exc}") from None
         try:
-            doc = normalize_document(raw)
+            doc = (
+                accept_normalized_document(raw)
+                if is_normalized_document(raw)
+                else normalize_document(raw)
+            )
         except ValueError as exc:
             raise TransportError(f"source: {exc}") from None
         attribute_projects(doc)
@@ -304,7 +373,7 @@ def load_document(args: argparse.Namespace) -> dict[str, Any]:
         projects = [args.project] if args.project else list(DEFAULT_PROJECTS)
         return fetch_live(client, args.space_id, projects)
     raise TransportError(
-        "no source: pass --source PATH, --live or --fixtures "
+        "no source: pass --source PATH, --tickets DIR, --live or --fixtures "
         "(the fixtures are used only for the control suite)"
     )
 
@@ -465,6 +534,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--source", metavar="PATH", help="normalized board document (schema 1)")
+    source.add_argument(
+        "--tickets",
+        metavar="DIR",
+        help="build the document from indra ticket files (*.md YAML blocks)",
+    )
     source.add_argument("--live", action="store_true", help="read the live board over REST")
     source.add_argument("--fixtures", action="store_true", help="use the in-file baseline fixture")
     parser.add_argument("--check", action="store_true", help="reconcile mode")
