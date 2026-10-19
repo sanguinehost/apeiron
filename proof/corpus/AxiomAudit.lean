@@ -1447,6 +1447,8 @@ import Gpu.Handoff
 #audit Perf.Train.klHeadReads_eq
 #audit Perf.Train.attnDkdvReads_eq
 #audit Perf.Train.rmsnormFwdReads_eq
+#audit Perf.Train.ropeFwdReads_eq
+#audit Perf.Train.ropeBwdReads_eq
 #audit Perf.Handoff.align256_eq
 #audit Perf.Handoff.writeChunk_le_cap
 #audit Perf.Handoff.writeChunk_le_remaining
