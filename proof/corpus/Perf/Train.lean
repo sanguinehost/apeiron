@@ -156,4 +156,18 @@ def attnRowsumReads (t nh hd : Nat) : Nat := nh * (t * (t + 1) * hd + t * (t + 1
 theorem attnRowsumReads_eq (t nh hd : Nat) :
     attnRowsumReads t nh hd = nh * (t * (t + 1) * hd + t * (t + 1) / 2) := rfl
 
+/-- Words moved by one `swiglu_fwd` dispatch at `n` elements: `gate` and `up` read, `out`
+    written, three words per element, one thread per element. -/
+def swigluFwdReads (n : Nat) : Nat := 3 * n
+
+/-- The P96 forward cost equation: `3·n` words. -/
+theorem swigluFwdReads_eq (n : Nat) : swigluFwdReads n = 3 * n := rfl
+
+/-- Words moved by one `swiglu_bwd` dispatch at `n` elements: `gate`, `up` and `dy` read,
+    `dgate` and `dup` written, five words per element, one thread per element. -/
+def swigluBwdReads (n : Nat) : Nat := 5 * n
+
+/-- The P96 backward cost equation: `5·n` words. -/
+theorem swigluBwdReads_eq (n : Nat) : swigluBwdReads n = 5 * n := rfl
+
 end Perf.Train
