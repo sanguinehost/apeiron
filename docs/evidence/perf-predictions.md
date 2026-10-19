@@ -30,6 +30,19 @@ refused) and its bias term is one `i64` correction instead of a second `dpbusd`;
 builds the first operand's plane once for several products. The scalar oracle still pins the exact
 path and the 8-limb K5 still pins the port. Board `APEIRON-FORM-QUANT-W1-T01`.
 
+The 1.18-bit fold pack writes each plane as a 1-/2-byte row-grid dictionary over 4/5/6-bit codes
+(`APFOLDP1`; `src/format/packing.rs`, `src/learn/fold/run/pack.rs`). The 4-layer checkpoint at
+`/home/socol/oc-tmp/q-tr1/ckpt` stores 8,972,124 B for 66,748,416 weights, 1.075 b/w over packed
+weights with the 8 dense corrector planes skipped; the measured per-layer bytes extrapolate to
+53,832,744 B over 24 uniform layers, 1.204 b/w over 357,826,560 body params (1.209 with the
+corrector). The 0.029 b/w over the 1.18 bar is the re-derived row grid, 272,464 B over four layers
+against 59,008 B for the carried `RHier` header, which projects 1.175 b/w; the carrier spans
+`fit/fold_fit.rs`, `fit/nb_refine.rs`, `layer/tensor.rs`, the pack and three test literals, and its
+re-fit projects 2,511 s over six checkpointed rounds, above the 600 s ceiling, so the header's fit is
+blocked pending the owner's ruling. Held-out bits/token is not measured: four of 24 layers are fitted
+and no engine kernel loads the pack. The round trip is exact on 48/48 real planes and the 896x896
+synthetic plane, and a flipped codebook index changes the weight. Board `APEIRON-QUALITY-118-W1-T01`.
+
 The P-rows below are historical. A `red` verdict in a row is relative to that row's measured revision and
 is not current status; § Current supersedes every one of them.
 

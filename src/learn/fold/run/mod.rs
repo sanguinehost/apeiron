@@ -11,6 +11,9 @@ pub mod convert;
 pub mod finish;
 /// The NumPy `.npy` token reader and the calibration / in-sample / held-out chunk split.
 pub mod npy;
+/// The fold pack: the fitted `E8 ∪ O8` planes as one file, each plane's row grid stored as a
+/// dictionary of `(lo, sp)` pairs.
+pub mod pack;
 /// The resumable model-level transfer run: `h0` from the calibration chunks, the crash-safe
 /// checkpoint of the driver's [`crate::learn::fold::layer::driver::ModelState`], and the student
 /// `GGUF` writer.

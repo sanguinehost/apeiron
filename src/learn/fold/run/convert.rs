@@ -317,7 +317,7 @@ fn f32_bits_to_q32(bits: u32) -> Result<i64, ConvertError> {
 ///
 /// # Errors
 /// [`ConvertError::Range`] for a rounded magnitude with no finite binary16 encoding.
-fn f16_bits(x: &Fx) -> Result<u16, ConvertError> {
+pub(crate) fn f16_bits(x: &Fx) -> Result<u16, ConvertError> {
     let (mut a, mut e) = (x.m.unsigned_abs(), x.e);
     if a == 2048 {
         (a, e) = (1024, e + 1);
