@@ -81,7 +81,7 @@ impl Kb {
         self.wg_barrier();
 
         let is0 = self.e(OP_IEQ, b, &[tid, zero]);
-        self.iff(is0, |k| {
+        self.iff(is0, |mut k| {
             let cnt = k.ctl_ptr(ctl, CTL_COUNT);
             let sen = k.ctl_ptr(ctl, CTL_SENSE);
             let (sc, sa, sr, sl) = (
@@ -95,15 +95,16 @@ impl Kb {
             let last = k.cu(g - 1);
             let is_last = k.e(OP_IEQ, k.bool_t, &[old, last]);
             // the last arriver releases everyone: reset the counter, publish the new sense
-            k.iff(is_last, |k| {
+            k.iff(is_last, |mut k| {
                 let z = k.cu(0);
                 k.ins(OP_ATOMIC_STORE, &[cnt, sc, sr, z]);
                 let sv = k.load_var_u(sense);
                 k.ins(OP_ATOMIC_STORE, &[sen, sc, sr, sv]);
+                k
             });
             // everyone else spins until the sense matches — BOUNDED, see the module note
             let notlast = k.e(OP_LOGICAL_NOT, k.bool_t, &[is_last]);
-            k.iff(notlast, |k| {
+            k.iff(notlast, |mut k| {
                 let want = k.load_var_u(sense);
                 let cap = k.cu(SPIN_CAP);
                 let ctr = k.fvar_u();
@@ -134,13 +135,16 @@ impl Kb {
                 // record a give-up: a barrier that timed out must not read as a cheap barrier
                 let i3 = k.load_var_u(ctr);
                 let tripped = k.e(OP_UGE, k.bool_t, &[i3, cap]);
-                k.iff(tripped, |k| {
+                k.iff(tripped, |mut k| {
                     let ov = k.ctl_ptr(ctl, CTL_OVERFLOW);
                     let oneu = k.cu(1);
                     let u2 = k.uint;
                     let _ = k.e(OP_ATOMIC_IADD, u2, &[ov, sc, sa, oneu]);
+                    k
                 });
+                k
             });
+            k
         });
         // release the rest of the workgroup only once lane 0 has been let through
         self.wg_barrier();
@@ -185,7 +189,7 @@ pub fn gridsync_module(g: u32, rounds: u32, local: u32, work: u32) -> Vec<u32> {
     });
 
     let is0 = k.e(OP_IEQ, k.bool_t, &[tid, z]);
-    k.iff(is0, |k| {
+    k.iff(is0, |mut k| {
         // GlobalInvocationId.x of lane 0 IS the workgroup's slot times `local` — any distinct
         // index will do; this exists only so the barriers are not dead code.
         let wg = k.gid_comp(0);
@@ -200,6 +204,7 @@ pub fn gridsync_module(g: u32, rounds: u32, local: u32, work: u32) -> Vec<u32> {
         // arriver's `OpAtomicStore` to `ctl` is an observable side effect.
         let n = k.e(OP_ATOMIC_LOAD, u2, &[ov, sc, sl]);
         k.store_u(out, wg, n);
+        k
     });
     k.finish(local)
 }
@@ -231,11 +236,12 @@ pub fn nulldispatch_module(local: u32, work: u32) -> Vec<u32> {
         });
     }
     let is0 = k.e(OP_IEQ, k.bool_t, &[tid, z]);
-    k.iff(is0, |k| {
+    k.iff(is0, |mut k| {
         let v = k.load_u(out, z);
         let one = k.cu(1);
         let n = k.iadd(v, one);
         k.store_u(out, z, n);
+        k
     });
     k.finish(local)
 }

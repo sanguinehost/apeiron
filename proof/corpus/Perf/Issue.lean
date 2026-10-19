@@ -1,4 +1,5 @@
 import Perf.Chain
+import Perf.ClosureSwap
 
 /-!
 # The shared issue-port cut, the slot move gain and the lever ceiling

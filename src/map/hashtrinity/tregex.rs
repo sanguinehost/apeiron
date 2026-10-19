@@ -1175,53 +1175,116 @@ fn lead_idx(segs: &[Seg]) -> Option<usize> {
 
 // ── matcher ─────────────────────────────────────────────────────────────────
 /// match a linear segment program at `pos`; return the end offset of the (greedy) match.
-pub(crate) fn match_segs(segs: &[Seg], hay: &[u8], pos: usize) -> Option<usize> {
-    fn go(segs: &[Seg], si: usize, hay: &[u8], pos: usize) -> Option<usize> {
-        if si == segs.len() {
-            return Some(pos);
+/// Whether `v` matches `hay` starting at `p`; the byte loop keeps the slice comparison out of
+/// `match_segs`, where the translator cannot join the two loop contexts.
+fn lit_at(hay: &[u8], p: usize, v: &[u8]) -> bool {
+    if p + v.len() > hay.len() {
+        return false;
+    }
+    let mut j = 0usize;
+    let mut eq = true;
+    while j < v.len() && eq {
+        if hay[p + j] != v[j] {
+            eq = false;
         }
-        match &segs[si] {
-            Seg::Lit(v) => {
-                if pos + v.len() <= hay.len() && &hay[pos..pos + v.len()] == v.as_slice() {
-                    go(segs, si + 1, hay, pos + v.len())
-                } else {
-                    None
+        j += 1;
+    }
+    eq
+}
+
+/// One segment's decision at a position, computed without touching the matcher's state so the
+/// driver loop holds no borrow of `segs` across iterations.
+enum SegStep {
+    Next(usize),
+    Class(usize, usize),
+    Fail,
+}
+
+fn step_at(seg: &Seg, hay: &[u8], p: usize) -> SegStep {
+    match seg {
+        Seg::Lit(v) => {
+            if lit_at(hay, p, v) {
+                SegStep::Next(p + v.len())
+            } else {
+                SegStep::Fail
+            }
+        }
+        Seg::WordB => {
+            let before = p > 0 && is_word(hay[p - 1]);
+            let after = p < hay.len() && is_word(hay[p]);
+            if before != after {
+                SegStep::Next(p)
+            } else {
+                SegStep::Fail
+            }
+        }
+        Seg::Class { mask, min, max } => {
+            let mut avail = 0usize;
+            while p + avail < hay.len() && mask[hay[p + avail] as usize] {
+                avail += 1;
+                if avail == *max {
+                    break;
                 }
             }
-            Seg::WordB => {
-                let before = pos > 0 && is_word(hay[pos - 1]);
-                let after = pos < hay.len() && is_word(hay[pos]);
-                if before != after {
-                    go(segs, si + 1, hay, pos)
-                } else {
-                    None
-                }
+            if avail >= *min {
+                SegStep::Class(avail, *min)
+            } else {
+                SegStep::Fail
             }
-            Seg::Class { mask, min, max } => {
-                let mut avail = 0usize;
-                while pos + avail < hay.len() && mask[hay[pos + avail] as usize] {
-                    avail += 1;
-                    if avail == *max {
-                        break;
-                    }
+        }
+    }
+}
+
+pub(crate) fn match_segs(segs: &[Seg], hay: &[u8], pos: usize) -> Option<usize> {
+    // The recursive matcher's backtracking, as an explicit stack: one entry per `Class`
+    // segment still offering a shorter take, `(segment, start, take, min)`.
+    let mut stack: Vec<(usize, usize, usize, usize)> = Vec::new();
+    let mut si = 0usize;
+    let mut p = pos;
+    let mut found: Option<usize> = None;
+    let mut done = false;
+    while !done {
+        if si == segs.len() {
+            found = Some(p);
+            done = true;
+        } else {
+            let st = step_at(&segs[si], hay, p);
+            match st {
+                SegStep::Next(np) => {
+                    p = np;
+                    si += 1;
                 }
-                if avail < *min {
-                    return None;
+                SegStep::Class(avail, min) => {
+                    stack.push((si, p, avail, min));
+                    p += avail;
+                    si += 1;
                 }
-                let mut take = avail;
-                loop {
-                    if let Some(end) = go(segs, si + 1, hay, pos + take) {
-                        return Some(end);
+                SegStep::Fail => {
+                    let mut back = true;
+                    while back {
+                        let popped = stack.pop();
+                        match popped {
+                            Some(entry) => {
+                                let (csi, cpos, take, cmin) = entry;
+                                if take > cmin {
+                                    let nt = take - 1;
+                                    stack.push((csi, cpos, nt, cmin));
+                                    p = cpos + nt;
+                                    si = csi + 1;
+                                    back = false;
+                                }
+                            }
+                            None => {
+                                done = true;
+                                back = false;
+                            }
+                        }
                     }
-                    if take == *min {
-                        return None;
-                    }
-                    take -= 1;
                 }
             }
         }
     }
-    go(segs, 0, hay, pos)
+    found
 }
 
 impl Regex {

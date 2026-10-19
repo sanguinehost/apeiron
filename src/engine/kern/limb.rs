@@ -440,6 +440,7 @@ fn block_exp(absmax: u64) -> u32 {
 /// `O(limbs)` integer shifts, no allocation.
 #[allow(
     clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
     clippy::cast_sign_loss,
     reason = "|d_s| ≤ 64 by the block-exponent choice, so the i64-to-i8 cast is exact; the shift \
               amounts are bounded by e ≤ 65"
@@ -450,16 +451,16 @@ fn split_digits(x: i64, e: u32, limbs: u32, out: &mut [i8]) {
     let mut u = x;
     let mut s = 0u32;
     while s < limbs {
-        let k = i32::try_from(e).unwrap_or(64) - LIMB_BITS * (i32::try_from(s).unwrap_or(0) + 1);
+        let k = e as i32 - LIMB_BITS * (s as i32 + 1);
         let d = if s == 0 {
             let num = (i128::from(u) << LIMB_BITS) + (1i128 << (e - 1));
-            i64::try_from(num >> e).unwrap_or(0)
+            (num >> e) as i64
         } else if k >= 1 {
             u.wrapping_add(1i64 << (k - 1)) >> k
         } else {
             // The residual is an exact multiple of the (fractional) step: the remaining digits
             // are the whole residual and the residual is zero.
-            u << u32::try_from(-k).unwrap_or(0)
+            u << (-k) as u32
         };
         out[s as usize] = d as i8;
         if k >= 1 {
@@ -479,19 +480,28 @@ struct RowExpTask<'a> {
     blocks: usize,
 }
 
-impl ChunkTask<u32> for RowExpTask<'_> {
-    fn run(&self, _c: usize, start: usize, piece: &mut [u32]) {
-        let row0 = start / self.blocks;
+impl RowExpTask<'_> {
+    /// The body of [`ChunkTask::run`] with the borrowed row slice as a plain parameter: the
+    /// pinned extraction refuses a loop that reads a reference field of a struct, so `run` passes
+    /// `data` in and this function owns every loop. The arithmetic is the task's own.
+    fn body(data: &[i64], n: usize, blocks: usize, start: usize, piece: &mut [u32]) {
+        let row0 = start / blocks;
         let mut k = 0usize;
         while k < piece.len() {
-            let r = row0 + k / self.blocks;
-            let b = k % self.blocks;
-            let base = r * self.n;
+            let r = row0 + k / blocks;
+            let b = k % blocks;
+            let base = r * n;
             let lo = base + b * ACT_QK;
-            let hi = (lo + ACT_QK).min(base + self.n);
-            piece[k] = block_exp(block_absmax(&self.data[lo..hi]));
+            let hi = (lo + ACT_QK).min(base + n);
+            piece[k] = block_exp(block_absmax(&data[lo..hi]));
             k += 1;
         }
+    }
+}
+
+impl ChunkTask<u32> for RowExpTask<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [u32]) {
+        Self::body(self.data, self.n, self.blocks, start, piece);
     }
 }
 
@@ -505,32 +515,44 @@ struct DigitsTask<'a> {
     e: &'a [u32],
 }
 
-impl ChunkTask<i8> for DigitsTask<'_> {
-    fn run(&self, _c: usize, start: usize, piece: &mut [i8]) {
-        let per_row = self.blocks * self.lane_words;
+impl DigitsTask<'_> {
+    /// The body of [`ChunkTask::run`] with the borrowed row and exponent slices as plain
+    /// parameters; see [`RowExpTask::body`].
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the pool task's fields, passed explicitly because the extraction refuses a loop \
+                  that reads a reference field of a struct"
+    )]
+    fn body(
+        data: &[i64],
+        n: usize,
+        blocks: usize,
+        lane_words: usize,
+        limbs: u32,
+        e: &[u32],
+        start: usize,
+        piece: &mut [i8],
+    ) {
+        let per_row = blocks * lane_words;
         let row0 = start / per_row;
         let mut tmp = [0i8; MAX_LIMBS as usize];
         let row_count = piece.len() / per_row;
         let mut k = 0usize;
         while k < row_count {
             let r = row0 + k;
-            let base = r * self.n;
+            let base = r * n;
             let out = &mut piece[k * per_row..(k + 1) * per_row];
             let mut b = 0usize;
-            while b < self.blocks {
+            while b < blocks {
                 let lo = base + b * ACT_QK;
-                let hi = (lo + ACT_QK).min(base + self.n);
-                let at = b * self.lane_words;
+                let hi = (lo + ACT_QK).min(base + n);
+                let at = b * lane_words;
                 let mut lane = 0usize;
                 while lane < ACT_QK {
-                    let x = if lo + lane < hi {
-                        self.data[lo + lane]
-                    } else {
-                        0
-                    };
-                    split_digits(x, self.e[b], self.limbs, &mut tmp);
+                    let x = if lo + lane < hi { data[lo + lane] } else { 0 };
+                    split_digits(x, e[b], limbs, &mut tmp);
                     let mut s = 0usize;
-                    while s < self.limbs as usize {
+                    while s < limbs as usize {
                         out[at + s * ACT_QK + lane] = tmp[s];
                         s += 1;
                     }
@@ -540,6 +562,21 @@ impl ChunkTask<i8> for DigitsTask<'_> {
             }
             k += 1;
         }
+    }
+}
+
+impl ChunkTask<i8> for DigitsTask<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [i8]) {
+        Self::body(
+            self.data,
+            self.n,
+            self.blocks,
+            self.lane_words,
+            self.limbs,
+            self.e,
+            start,
+            piece,
+        );
     }
 }
 
@@ -673,6 +710,10 @@ impl Layout<'_> {
     /// # Complexity
     ///
     /// `O(P·blocks)` time and space.
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "block exponents are ≤ 65 and pair exponents ≤ 2·MAX_LIMBS, far below i32::MAX"
+    )]
     fn placement(a: &Plane, b: &Plane, pairs: &[Pair]) -> Result<Vec<Place>, LimbError> {
         let blocks = a.blocks;
         let mut place = vec![
@@ -684,34 +725,37 @@ impl Layout<'_> {
             pairs.len() * blocks
         ];
         let mut gi = 0usize;
-        while gi < pairs.len() {
+        let mut err: Option<LimbError> = None;
+        while gi < pairs.len() && err.is_none() {
             let (s, t) = pairs[gi];
-            let weight = LIMB_BITS * (i32::try_from(s + t).unwrap_or(0) + 2);
+            let weight = LIMB_BITS * ((s + t) as i32 + 2);
             let mut blk = 0usize;
-            while blk < blocks {
-                let t_exp = i32::try_from(a.e[blk]).unwrap_or(0)
-                    + i32::try_from(b.e[blk]).unwrap_or(0)
-                    - weight;
+            while blk < blocks && err.is_none() {
+                let t_exp = a.e[blk] as i32 + b.e[blk] as i32 - weight;
                 if t_exp > MAX_PAIR_EXP {
-                    return Err(LimbError::Range);
+                    err = Some(LimbError::Range);
+                } else {
+                    let slot = gi * blocks + blk;
+                    if t_exp >= MIN_PAIR_EXP {
+                        let dw = t_exp.clamp(MIN_PAIR_EXP, MAX_WEIGHT_EXP);
+                        place[slot] = Place {
+                            dw,
+                            sigma: t_exp - dw,
+                            live: true,
+                        };
+                    }
+                    // Below `MIN_PAIR_EXP` the pair cannot be placed (the activation scale would
+                    // be fractional); the block pair's whole contribution is below 2^-8 words and
+                    // the bound counts it, so the slot keeps `live: false`.
                 }
-                let slot = gi * blocks + blk;
-                if t_exp >= MIN_PAIR_EXP {
-                    let dw = t_exp.clamp(MIN_PAIR_EXP, MAX_WEIGHT_EXP);
-                    place[slot] = Place {
-                        dw,
-                        sigma: t_exp - dw,
-                        live: true,
-                    };
-                }
-                // Below `MIN_PAIR_EXP` the pair cannot be placed (the activation scale would be
-                // fractional); the block pair's whole contribution is below 2^-8 words and the
-                // bound counts it, so the slot keeps `live: false`.
                 blk += 1;
             }
             gi += 1;
         }
-        Ok(place)
+        match err {
+            Some(e) => Err(e),
+            None => Ok(place),
+        }
     }
 
     /// The `Q8_0` payload of rows `a0..a0+ra`: `ng` pair blocks per 32 inputs, each a `f16` power
@@ -752,13 +796,144 @@ impl Layout<'_> {
     fn columns(&self, b0: usize, rb: usize, g0: usize, g1: usize) -> Vec<QuantAct> {
         let blocks = self.b.blocks;
         let padded = self.b.padded;
+        ColumnsTask::dispatch(self, b0, rb, g0, g1, blocks, padded)
+    }
+}
+
+/// Fill one piece of the weight payload: rows `[a0 + start/row_bytes, …)`.
+struct PayloadTask<'a> {
+    layout: &'a Layout<'a>,
+    a0: usize,
+    g0: usize,
+    g1: usize,
+    blocks: usize,
+    row_bytes: usize,
+}
+
+impl PayloadTask<'_> {
+    /// The body of [`ChunkTask::run`] with the three borrowed pieces of the layout as plain
+    /// parameters; see [`RowExpTask::body`].
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the pool task's fields, passed explicitly because the extraction refuses a loop \
+                  that reads a reference field of a struct"
+    )]
+    fn body(
+        a: &Plane,
+        pairs: &[Pair],
+        place: &[Place],
+        a0: usize,
+        g0: usize,
+        g1: usize,
+        blocks: usize,
+        row_bytes: usize,
+        start: usize,
+        piece: &mut [u8],
+    ) {
+        let row0 = start / row_bytes;
+        let row_count = piece.len() / row_bytes;
+        let mut k = 0usize;
+        while k < row_count {
+            let row = a0 + row0 + k;
+            let out = &mut piece[k * row_bytes..(k + 1) * row_bytes];
+            let mut g = g0;
+            while g < g1 {
+                let (s, _) = pairs[g];
+                let mut blk = 0usize;
+                while blk < blocks {
+                    let p = place[g * blocks + blk];
+                    if p.live {
+                        let at = (g - g0) * blocks * Q8_0_BLOCK_BYTES + blk * Q8_0_BLOCK_BYTES;
+                        out[at..at + 2].copy_from_slice(&f16_pow2(p.dw).to_le_bytes());
+                        out[at + 2..at + Q8_0_BLOCK_BYTES]
+                            .copy_from_slice(a.digit_block_u8(row, blk, s));
+                    }
+                    blk += 1;
+                }
+                g += 1;
+            }
+            k += 1;
+        }
+    }
+}
+
+impl ChunkTask<u8> for PayloadTask<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [u8]) {
+        let layout = self.layout;
+        Self::body(
+            layout.a,
+            &layout.pairs,
+            &layout.place,
+            self.a0,
+            self.g0,
+            self.g1,
+            self.blocks,
+            self.row_bytes,
+            start,
+            piece,
+        );
+    }
+}
+
+/// Fill one piece of the activation columns: columns `[start, start + piece.len())`.
+struct ColumnsTask<'a> {
+    layout: &'a Layout<'a>,
+    b0: usize,
+    g0: usize,
+    g1: usize,
+    blocks: usize,
+    padded: usize,
+}
+
+impl ColumnsTask<'_> {
+    /// The `rb` empty activation columns the pool task fills.
+    ///
+    /// The fill is its own function because the pinned extraction refuses a loop in a function
+    /// whose parameters include a reference to a struct that itself holds references; `dispatch`
+    /// carries the one `&Layout` parameter and owns no loop.
+    ///
+    /// # Complexity
+    ///
+    /// Temporal and spatial `O(rb)`: `rb` pushes, one allocation of `rb` headers.
+    fn empty_columns(rb: usize) -> Vec<QuantAct> {
+        let mut parts: Vec<QuantAct> = Vec::with_capacity(rb);
+        let mut z = 0usize;
+        while z < rb {
+            parts.push(QuantAct::from_parts(Vec::new(), Vec::new()));
+            z += 1;
+        }
+        parts
+    }
+
+    /// Build the `rb` empty activation columns and fill them: pooled above [`POOL_MIN`] output
+    /// bytes, serially on the calling thread below it.
+    ///
+    /// This is `Layout::columns`'s body over parameters only: the two `blocks`/`padded` reads stay
+    /// in `Layout::columns`, and the one loop stays in [`ColumnsTask::empty_columns`].
+    ///
+    /// # Complexity
+    ///
+    /// As [`Layout::columns`].
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the caller's scoped variables, passed explicitly because the extraction refuses \
+                  a loop beside a reference-field read"
+    )]
+    fn dispatch(
+        layout: &Layout<'_>,
+        b0: usize,
+        rb: usize,
+        g0: usize,
+        g1: usize,
+        blocks: usize,
+        padded: usize,
+    ) -> Vec<QuantAct> {
         let ng = g1 - g0;
-        // Empty headers; the pool task allocates and zeroes each column's blocks, so the fill and
+        // Empty columns; the pool task allocates and zeroes each column's blocks, so the fill and
         // the zeroing both run off the calling thread.
-        let mut parts: Vec<(Vec<i64>, Vec<i8>)> =
-            (0..rb).map(|_| (Vec::new(), Vec::new())).collect();
+        let mut parts = Self::empty_columns(rb);
         let task = ColumnsTask {
-            layout: self,
+            layout,
             b0,
             g0,
             g1,
@@ -773,89 +948,68 @@ impl Layout<'_> {
             task.run(0, 0, &mut parts);
         }
         parts
-            .into_iter()
-            .map(|(scales, codes)| QuantAct::from_parts(scales, codes))
-            .collect()
     }
-}
 
-/// Fill one piece of the weight payload: rows `[a0 + start/row_bytes, …)`.
-struct PayloadTask<'a> {
-    layout: &'a Layout<'a>,
-    a0: usize,
-    g0: usize,
-    g1: usize,
-    blocks: usize,
-    row_bytes: usize,
-}
-
-impl ChunkTask<u8> for PayloadTask<'_> {
-    fn run(&self, _c: usize, start: usize, piece: &mut [u8]) {
-        let blocks = self.blocks;
-        let row0 = start / self.row_bytes;
-        let row_count = piece.len() / self.row_bytes;
-        let mut k = 0usize;
-        while k < row_count {
-            let row = self.a0 + row0 + k;
-            let out = &mut piece[k * self.row_bytes..(k + 1) * self.row_bytes];
-            let mut g = self.g0;
-            while g < self.g1 {
-                let (s, _) = self.layout.pairs[g];
-                let mut blk = 0usize;
-                while blk < blocks {
-                    let p = self.layout.place[g * blocks + blk];
-                    if p.live {
-                        let at = (g - self.g0) * blocks * Q8_0_BLOCK_BYTES + blk * Q8_0_BLOCK_BYTES;
-                        out[at..at + 2].copy_from_slice(&f16_pow2(p.dw).to_le_bytes());
-                        out[at + 2..at + Q8_0_BLOCK_BYTES]
-                            .copy_from_slice(self.layout.a.digit_block_u8(row, blk, s));
-                    }
-                    blk += 1;
-                }
-                g += 1;
-            }
-            k += 1;
-        }
-    }
-}
-
-/// Fill one piece of the activation columns: columns `[start, start + piece.len())`.
-struct ColumnsTask<'a> {
-    layout: &'a Layout<'a>,
-    b0: usize,
-    g0: usize,
-    g1: usize,
-    blocks: usize,
-    padded: usize,
-}
-
-impl ChunkTask<(Vec<i64>, Vec<i8>)> for ColumnsTask<'_> {
-    fn run(&self, _c: usize, start: usize, piece: &mut [(Vec<i64>, Vec<i8>)]) {
-        let blocks = self.blocks;
+    /// The body of [`ChunkTask::run`] with the three borrowed pieces of the layout as plain
+    /// parameters; see [`RowExpTask::body`].
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the pool task's fields, passed explicitly because the extraction refuses a loop \
+                  that reads a reference field of a struct"
+    )]
+    fn body(
+        b: &Plane,
+        pairs: &[Pair],
+        place: &[Place],
+        b0: usize,
+        g0: usize,
+        g1: usize,
+        blocks: usize,
+        padded: usize,
+        start: usize,
+        piece: &mut [QuantAct],
+    ) {
         let mut k = 0usize;
         while k < piece.len() {
-            let row = self.b0 + start + k;
-            let (scales, codes) = &mut piece[k];
-            *scales = vec![0i64; (self.g1 - self.g0) * blocks];
-            *codes = vec![0i8; (self.g1 - self.g0) * self.padded];
-            let mut g = self.g0;
-            while g < self.g1 {
-                let (_, t) = self.layout.pairs[g];
+            let row = b0 + start + k;
+            let mut scales = vec![0i64; (g1 - g0) * blocks];
+            let mut codes = vec![0i8; (g1 - g0) * padded];
+            let mut g = g0;
+            while g < g1 {
+                let (_, t) = pairs[g];
                 let mut blk = 0usize;
                 while blk < blocks {
-                    let p = self.layout.place[g * blocks + blk];
-                    scales[(g - self.g0) * blocks + blk] = 1i64 << p.sigma;
+                    let p = place[g * blocks + blk];
+                    scales[(g - g0) * blocks + blk] = 1i64 << p.sigma;
                     if p.live {
-                        let at = (g - self.g0) * self.padded + blk * ACT_QK;
-                        codes[at..at + ACT_QK]
-                            .copy_from_slice(self.layout.b.digit_block(row, blk, t));
+                        let at = (g - g0) * padded + blk * ACT_QK;
+                        codes[at..at + ACT_QK].copy_from_slice(b.digit_block(row, blk, t));
                     }
                     blk += 1;
                 }
                 g += 1;
             }
+            piece[k] = QuantAct::from_parts(scales, codes);
             k += 1;
         }
+    }
+}
+
+impl ChunkTask<QuantAct> for ColumnsTask<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [QuantAct]) {
+        let layout = self.layout;
+        Self::body(
+            layout.b,
+            &layout.pairs,
+            &layout.place,
+            self.b0,
+            self.g0,
+            self.g1,
+            self.blocks,
+            self.padded,
+            start,
+            piece,
+        );
     }
 }
 
@@ -897,7 +1051,14 @@ fn transpose_rows(out: &mut [i64], cols: &[Vec<i64>], ra: usize, rb: usize) {
     }
     impl ChunkTask<i64> for TransposeTask<'_> {
         fn run(&self, _c: usize, start: usize, piece: &mut [i64]) {
-            let rb = self.rb;
+            Self::body(self.cols, self.rb, start, piece);
+        }
+    }
+
+    impl TransposeTask<'_> {
+        /// The body of [`ChunkTask::run`] with the borrowed columns as a plain parameter; see
+        /// [`RowExpTask::body`].
+        fn body(cols: &[Vec<i64>], rb: usize, start: usize, piece: &mut [i64]) {
             let row0 = start / rb;
             let row_count = piece.len() / rb;
             let mut j0 = 0usize;
@@ -908,7 +1069,7 @@ fn transpose_rows(out: &mut [i64], cols: &[Vec<i64>], ra: usize, rb: usize) {
                     let i1 = (i + TRANSPOSE_TILE).min(row_count);
                     let mut j = j0;
                     while j < j1 {
-                        let col = &self.cols[j];
+                        let col = &cols[j];
                         let mut r = i;
                         while r < i1 {
                             piece[r * rb + j] = col[row0 + r];
@@ -1006,35 +1167,50 @@ impl Plane {
         // `i`, and the transpose happens once on the finished words.
         let mut acc = vec![0i128; ra * rb];
         let mut g0 = 0usize;
-        while g0 < layout.pairs.len() {
+        let mut err: Option<LimbError> = None;
+        while g0 < layout.pairs.len() && err.is_none() {
             let g1 = (g0 + group).min(layout.pairs.len());
             let n_in = (g1 - g0) * self.padded;
             let raw = layout.weight_payload(a0, ra, g0, g1);
             let qs = layout.columns(b0, rb, g0, g1);
-            let cols = projection(&raw, ra, n_in, &qs)?;
-            let mut j = 0usize;
-            while j < rb {
-                let col = &cols[j];
-                let base = j * ra;
-                let mut i = 0usize;
-                while i < ra {
-                    acc[base + i] += i128::from(col[i]);
-                    i += 1;
+            match projection(&raw, ra, n_in, &qs) {
+                Ok(cols) => {
+                    let mut j = 0usize;
+                    while j < rb {
+                        let col = &cols[j];
+                        let base = j * ra;
+                        let mut i = 0usize;
+                        while i < ra {
+                            acc[base + i] += i128::from(col[i]);
+                            i += 1;
+                        }
+                        j += 1;
+                    }
                 }
-                j += 1;
+                Err(e) => err = Some(e),
             }
             g0 = g1;
         }
+        if let Some(e) = err {
+            return Err(e);
+        }
         let mut i = 0usize;
-        while i < ra {
+        let mut err2: Option<LimbError> = None;
+        while i < ra && err2.is_none() {
             let mut j = 0usize;
-            while j < rb {
-                out[i * rb + j] = i64::try_from(acc[j * ra + i]).map_err(|_| LimbError::Range)?;
+            while j < rb && err2.is_none() {
+                match i64::try_from(acc[j * ra + i]) {
+                    Ok(v) => out[i * rb + j] = v,
+                    Err(_) => err2 = Some(LimbError::Range),
+                }
                 j += 1;
             }
             i += 1;
         }
-        Ok(out)
+        match err2 {
+            Some(e) => Err(e),
+            None => Ok(out),
+        }
     }
 }
 

@@ -74,6 +74,7 @@
 
 use crate::engine::chart::pool::{chunks_mut_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;
+use crate::engine::kern::limb::{rowdot_q32, LimbError};
 use crate::learn::fold::fit::eigh::{eigh, EighError};
 use crate::learn::fold::fit::steps::fwht_words;
 use crate::learn::solve::chol::{equilibrate, factor_scaled, SolveError};
@@ -470,25 +471,62 @@ pub fn cholesky_pivots(m: &[i64], n: usize) -> Result<Vec<i64>, BasisError> {
     Ok(out)
 }
 
-/// Row (`axis = 0`) or column (`axis = 1`) energies `Σ B²`, length `O` or `n`, as words: one serial
-/// scan per row or column, not a matrix product; `O(O·n)` time, `O(O)` or `O(n)` space.
+/// The limb count [`energy_words`] states to the kernel: [`rowdot_q32`]'s maximum, `8`. Eight
+/// 7-bit limbs carry 56 bits of each word and drop a residual below `2^{−57}` of the block scale,
+/// so the dot error is below `2^{−56}·Σv²`. One rounded word is `2^{32}` accumulator units, so the
+/// computed word equals the exact `round64(Σv²)` whenever `Σv² < 2^{87}` (a whole `2^{32}`-word
+/// row at `|v| = 2^{27.5}`); `tests/learn_fold_basis.rs` measures bit equality at `|v| ≤ 2^{20}`
+/// over five shapes and the recorded digest fixture reproduces at `|v| ≲ 2^{35}`. A larger word can
+/// differ in its low bits — the kernel returns a neighbour, not a refusal; the refusal case is the
+/// block exponent leaving the scale-placement window (`|v|` near `i64::MAX`), which both the
+/// kernel and the reference report as [`BasisError::OutOfRange`].
+///
+/// AGENTS §0 K3: the call site states its limb count; this is the largest the kernel supports and
+/// the one with the widest exact range.
+const ENERGY_LIMBS: u32 = 8;
+
+/// [`LimbError`] as a [`BasisError`].
+fn map_rowdot(e: LimbError) -> BasisError {
+    match e {
+        LimbError::Shape => BasisError::Shape("rowdot".to_string()),
+        LimbError::Range | LimbError::NoKernel => BasisError::OutOfRange,
+    }
+}
+
+/// Row (`axis = 0`) or column (`axis = 1`) energies `Σ B²`, length `O` or `n`, as words, on
+/// [`rowdot_q32`]: axis 0 squares the rows in place, axis 1 copies the `O × n` transpose
+/// (`bt[j·O + i] = b[i·n + j]`) and squares its `n` rows.
+///
+/// # Complexity
+/// Time `O(O·n·limbs)` limb packing plus `O(O·n)` kernel work (and `O(O·n)` for the transpose
+/// copy on axis 1); space `O(O)` or `O(n)` for the result, plus `O(O·n)` for the transpose.
+///
+/// # Errors
+/// [`BasisError::Shape`] when `b.len() != O·n` or the kernel refuses the geometry;
+/// [`BasisError::OutOfRange`] when a word's block exponents the scale placement cannot carry, or a
+/// rounded entry leaves the grid.
 fn energy_words(b: &[i64], o: usize, n: usize, axis: usize) -> Result<Vec<i64>, BasisError> {
     expect(b.len(), o, n, "B")?;
-    let (len, inner) = if axis == 0 { (o, n) } else { (n, o) };
-    let mut e = vec![0_i64; len];
-    for (k, slot) in e.iter_mut().enumerate() {
-        let mut acc: i128 = 0;
-        for j in 0..inner {
-            let v = i128::from(if axis == 0 {
-                b[k * n + j]
-            } else {
-                b[j * n + k]
-            });
-            acc += v * v;
+    // Flag form throughout: the fragment carries no `?` inside a loop body.
+    let dots = if axis == 0 {
+        rowdot_q32(b, b, o, n, ENERGY_LIMBS)
+    } else {
+        let mut bt = vec![0_i64; square(n, o)?];
+        let mut i = 0usize;
+        while i < o {
+            let mut j = 0usize;
+            while j < n {
+                bt[j * o + i] = b[i * n + j];
+                j += 1;
+            }
+            i += 1;
         }
-        *slot = round64(acc)?;
+        rowdot_q32(&bt, &bt, n, o, ENERGY_LIMBS)
+    };
+    match dots {
+        Ok(e) => Ok(e),
+        Err(e) => Err(map_rowdot(e)),
     }
-    Ok(e)
 }
 
 /// Row energies `r_i = Σ_j B_ij²`, length `O`; `O(O·n)` time, `O(O)` space.

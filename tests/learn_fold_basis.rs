@@ -32,11 +32,11 @@ use apeiron::learn::fold::stats::basis::{
     apply_basis, block_metric, butterfly_basis, butterfly_basis_fixed, butterfly_side_bits,
     cholesky_pivots, column_energies, damped_gram, distortion_at, eigen_basis, hadamard_basis,
     identity_basis, rate_at, row_energies, solve_water_fill, sum_log_column_energies,
-    uniform_distortion, Coefficients, Density, GROUP,
+    uniform_distortion, BasisError, Coefficients, Density, GROUP,
 };
 use apeiron::learn::fold::stats::capture::{Grams, Normalisation};
 use apeiron::learn::grad::model::{forward, Config, Weights};
-use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+use apeiron::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
 
 #[path = "support/fwht_oracle.rs"]
 mod fwht_oracle;
@@ -679,6 +679,60 @@ fn report(label: &str, rows: &[(String, usize, usize, Row)]) {
         sum.wf_h / sum.wf_j,
         sum.wf_v / sum.wf_j
     );
+}
+
+/// The exact `i128` reference for `row_energies`/`column_energies`: `round64(Σ v²)`, refusing with
+/// the same variant when the rounded word leaves `i64`.
+fn energy_ref(b: &[i64], o: usize, n: usize, axis: usize) -> Result<Vec<i64>, BasisError> {
+    let (len, inner) = if axis == 0 { (o, n) } else { (n, o) };
+    let mut out = Vec::with_capacity(len);
+    for k in 0..len {
+        let mut acc: i128 = 0;
+        for j in 0..inner {
+            let v = i128::from(if axis == 0 {
+                b[k * n + j]
+            } else {
+                b[j * n + k]
+            });
+            acc += v * v;
+        }
+        out.push(round_q32_even(acc).map_err(|_| BasisError::OutOfRange)?);
+    }
+    Ok(out)
+}
+
+/// (9) The energy scan is on [`rowdot_q32`](apeiron::engine::kern) and bit-equal to the exact
+/// `i128` reference on every shape, both axes, with words spanning `±2²⁰`; a near-`i64`-max word
+/// refuses `OutOfRange` from both the kernel and the reference.
+#[test]
+fn e_energy_words_are_bit_exact_on_the_kernel() {
+    let shapes = [(8usize, 8usize), (17, 40), (40, 17), (1, 33), (33, 1)];
+    let mag = 1u64 << 20;
+    for (idx, (o, n)) in shapes.into_iter().enumerate() {
+        let mut rng = Lcg::new(0x0000_1e17 + idx as u64);
+        let b: Vec<i64> = (0..o * n)
+            .map(|_| (rng.next_u64() % (2 * mag + 1)) as i64 - mag as i64)
+            .collect();
+        let r = row_energies(&b, o, n).expect("rows");
+        let c = column_energies(&b, o, n).expect("cols");
+        assert_eq!(
+            r,
+            energy_ref(&b, o, n, 0).expect("ref rows"),
+            "row energies {o}x{n}"
+        );
+        assert_eq!(
+            c,
+            energy_ref(&b, o, n, 1).expect("ref cols"),
+            "column energies {o}x{n}"
+        );
+    }
+
+    // `(2⁶³ − 1)²` fits the reference's `i128` but its rounded `Q32.32` word leaves `i64`; the
+    // kernel's block exponents leave the scale-placement window. Both refuse, and the entry point
+    // reports the same variant for either.
+    let big = vec![i64::MAX; 8];
+    assert_eq!(energy_ref(&big, 8, 1, 0), Err(BasisError::OutOfRange));
+    assert_eq!(row_energies(&big, 8, 1), Err(BasisError::OutOfRange));
 }
 
 /// The real `Qwen2.5 0.5B` 1.18 b/w table over layers 2, 11 and 20 and the seven linears.

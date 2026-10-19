@@ -516,24 +516,6 @@ impl_def Slice.Insts.CoreCmpPartialEqSlice {T : Type} {U : Type}
     cmpPartialEqInst)
 }
 
-/-- Trait implementation: [core::slice::iter::{impl core::iter::traits::iterator::Iterator<&'a mut T> for core::slice::iter::IterMut<'a, T>}]
-    Source: '/rustc/library/core/src/slice/iter/macros.rs', lines 153:8-153:45
-    Name pattern: [core::iter::traits::iterator::Iterator<core::slice::iter::IterMut<'a, @T>, &'a mut @T>] -/
-@[reducible, rust_trait_impl
-  "core::iter::traits::iterator::Iterator<core::slice::iter::IterMut<'a, @T>, &'a mut @T>"]
-impl_def core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT (T :
-  Type) : core.iter.traits.iterator.Iterator (core.slice.iter.IterMut T) T := {
-  next := core.slice.iter.IteratorIterMut.next
-  zip := fun {U : Type} {Clause0_Item : Type} {Clause0_IntoIter : Type}
-    (collectIntoIteratorInst : core.iter.traits.collect.IntoIterator U
-    Clause0_Item Clause0_IntoIter) =>
-    core.iter.traits.iterator.Iterator.zip.trait_default
-    (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT T)
-    collectIntoIteratorInst
-  enumerate := core.iter.traits.iterator.Iterator.enumerate.trait_default
-    (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT T)
-}
-
 /-- [core::slice::{[T]}::first]:
     Source: '/rustc/library/core/src/slice/mod.rs', lines 155:4-155:43
     Name pattern: [core::slice::{[@T]}::first]
@@ -21649,6 +21631,14 @@ def chart.ffn.ffn_q8act_prepared
       chunks_gate_up chunks_down scratch
   ok r
 
+/-- [apeiron_word::chart::{apeiron_word::chart::QuantAct}::from_parts]:
+    Source: '../../src/engine/chart/mod.rs', lines 203:4-205:5 -/
+def chart.QuantAct.from_parts
+  (scales : alloc.vec.Vec Std.I64) (codes : alloc.vec.Vec Std.I8) :
+  Result chart.QuantAct
+  := do
+  ok { scales, codes }
+
 /-- [apeiron_word::chart::q8_0_row_kcols_avx2]:
     Source: '../../src/engine/chart/mod.rs', lines 422:0-485:1 -/
 axiom chart.q8_0_row_kcols_avx2
@@ -24918,406 +24908,378 @@ def kern.gemm.gemm_q8_0_swiglu
   let c ← mixer.carrier_from_env
   kern.gemm.gemm_q8_0_swiglu_carrier raw_gate raw_up n_ff n_in qs c
 
-/-- [apeiron_word::kern::lut::LUT_ROW_ALIGN]
-    Source: '../../src/engine/kern/lut.rs', lines 38:0-38:50 -/
+/-- [apeiron_word::kern::limb::POOL_MIN]
+    Source: '../../src/engine/kern/limb.rs', lines 64:0-64:32 -/
 @[global_simps, irreducible]
-def kern.lut.LUT_ROW_ALIGN : Std.Usize := kern.lut.TILE_ROWS
+def kern.limb.POOL_MIN : Result Std.Usize := 1#usize <<< 15#i32
 
-/-- [apeiron_word::kern::lut::split_nibbles]: loop body 0:
-    Source: '../../src/engine/kern/lut.rs', lines 115:4-119:5 -/
+/-- [apeiron_word::kern::limb::pool_chunk]:
+    Source: '../../src/engine/kern/limb.rs', lines 73:0-76:1 -/
+def kern.limb.pool_chunk (len : Std.Usize) : Result Std.Usize := do
+  let i ← chart.pool.width_global
+  let workers ← core.cmp.Ord.max.default core.cmp.OrdUsize i 1#usize
+  let i1 ← workers * 2#usize
+  let i2 ← core.num.Usize.div_ceil len i1
+  core.cmp.Ord.max.default core.cmp.OrdUsize i2 1#usize
+
+/-- [apeiron_word::kern::limb::ACT_QK]
+    Source: '../../src/engine/kern/limb.rs', lines 79:0-79:30 -/
+@[global_simps, irreducible] def kern.limb.ACT_QK : Std.Usize := quant.Q8_0_QK
+
+/-- [apeiron_word::kern::limb::MAX_INNER]
+    Source: '../../src/engine/kern/limb.rs', lines 82:0-82:39 -/
+@[global_simps, irreducible]
+def kern.limb.MAX_INNER : Result Std.Usize := 512#usize * quant.Q8_0_QK
+
+/-- [apeiron_word::kern::limb::MAX_LIMBS]
+    Source: '../../src/engine/kern/limb.rs', lines 86:0-86:25 -/
+@[global_simps, irreducible] def kern.limb.MAX_LIMBS : Std.U32 := 8#u32
+
+/-- [apeiron_word::kern::limb::LIMB_BITS]
+    Source: '../../src/engine/kern/limb.rs', lines 89:0-89:25 -/
+@[global_simps, irreducible] def kern.limb.LIMB_BITS : Std.I32 := 7#i32
+
+/-- [apeiron_word::kern::limb::MIN_PAIR_EXP]
+    Source: '../../src/engine/kern/limb.rs', lines 93:0-93:28 -/
+@[global_simps, irreducible] def kern.limb.MIN_PAIR_EXP : Std.I32 := 8#i32
+
+/-- [apeiron_word::kern::limb::MAX_PAIR_EXP]
+    Source: '../../src/engine/kern/limb.rs', lines 97:0-97:29 -/
+@[global_simps, irreducible] def kern.limb.MAX_PAIR_EXP : Std.I32 := 91#i32
+
+/-- [apeiron_word::kern::limb::MAX_WEIGHT_EXP]
+    Source: '../../src/engine/kern/limb.rs', lines 100:0-100:31 -/
+@[global_simps, irreducible] def kern.limb.MAX_WEIGHT_EXP : Std.I32 := 47#i32
+
+/-- [apeiron_word::kern::limb::LimbError]
+    Source: '../../src/engine/kern/limb.rs', lines 104:0-113:1 -/
+@[discriminant isize]
+inductive kern.limb.LimbError where
+| Shape : kern.limb.LimbError
+| Range : kern.limb.LimbError
+| NoKernel : kern.limb.LimbError
+
+/-- [apeiron_word::kern::limb::transpose_rows::TRANSPOSE_TILE]
+    Source: '../../src/engine/kern/limb.rs', lines 1047:4-1047:37 -/
+@[global_simps, irreducible]
+def kern.limb.transpose_rows.TRANSPOSE_TILE : Std.Usize := 32#usize
+
+/-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop body 3:
+    Source: '../../src/engine/kern/limb.rs', lines 1074:24-1077:25 -/
 @[rust_loop_body]
-def kern.lut.split_nibbles_loop.body
-  (byte : Std.U8) (lo : Std.U8) (hi : Std.U8) (c : Std.Usize) :
-  Result (ControlFlow (Std.U8 × Std.U8 × Std.Usize) (Std.U8 × Std.U8))
+def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0_loop0.body
+  (rb : Std.Usize) (row0 : Std.Usize) (i1 : Std.Usize) (j : Std.Usize)
+  (col : alloc.vec.Vec Std.I64) (piece : Slice Std.I64) (r : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
   := do
-  if c < 4#usize
+  if r < i1
   then
-    let i ← 2#usize * c
-    let i1 ← byte >>> i
-    let i2 ← lift (i1 &&& 1#u8)
-    let i3 ← i2 <<< c
-    let lo1 ← lift (lo ||| i3)
-    let i4 ← i + 1#usize
-    let i5 ← byte >>> i4
-    let i6 ← lift (i5 &&& 1#u8)
-    let i7 ← i6 <<< c
-    let hi1 ← lift (hi ||| i7)
-    let c1 ← c + 1#usize
-    ok (cont (lo1, hi1, c1))
-  else ok (done (lo, hi))
+    let i ← row0 + r
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) col i
+    let i3 ← r * rb
+    let i4 ← i3 + j
+    let s ← Slice.update piece i4 i2
+    let r1 ← r + 1#usize
+    ok (cont (s, r1))
+  else ok (done piece)
 
-/-- [apeiron_word::kern::lut::split_nibbles]: loop 0:
-    Source: '../../src/engine/kern/lut.rs', lines 115:4-119:5 -/
+/-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop 3:
+    Source: '../../src/engine/kern/limb.rs', lines 1074:24-1077:25 -/
 @[rust_loop]
-def kern.lut.split_nibbles_loop
-  (byte : Std.U8) (lo : Std.U8) (hi : Std.U8) (c : Std.Usize) :
-  Result (Std.U8 × Std.U8)
+def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0_loop0
+  (rb : Std.Usize) (piece : Slice Std.I64) (row0 : Std.Usize) (i1 : Std.Usize)
+  (j : Std.Usize) (col : alloc.vec.Vec Std.I64) (r : Std.Usize) :
+  Result (Slice Std.I64)
   := do
   loop
-    (fun (lo1, hi1, c1) => kern.lut.split_nibbles_loop.body byte lo1 hi1 c1)
-    (lo, hi, c)
+    (fun (piece1, r1) =>
+      kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0_loop0.body
+      rb row0 i1 j col piece1 r1)
+    (piece, r)
 
-/-- [apeiron_word::kern::lut::split_nibbles]:
-    Source: '../../src/engine/kern/lut.rs', lines 111:0-121:1 -/
+/-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop body 2:
+    Source: '../../src/engine/kern/limb.rs', lines 1071:20-1079:21 -/
+@[rust_loop_body]
+def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0.body
+  (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize) (row0 : Std.Usize)
+  (j1 : Std.Usize) (i : Std.Usize) (i1 : Std.Usize) (piece : Slice Std.I64)
+  (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
+  := do
+  if j < j1
+  then
+    let col ← Slice.index_usize cols j
+    let piece1 ←
+      kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0_loop0 rb
+        piece row0 i1 j col i
+    let j2 ← j + 1#usize
+    ok (cont (piece1, j2))
+  else ok (done piece)
+
+/-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop 2:
+    Source: '../../src/engine/kern/limb.rs', lines 1071:20-1079:21 -/
+@[rust_loop]
+def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0
+  (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize)
+  (piece : Slice Std.I64) (row0 : Std.Usize) (j1 : Std.Usize) (i : Std.Usize)
+  (i1 : Std.Usize) (j : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (piece1, j2) =>
+      kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0.body cols
+      rb row0 j1 i i1 piece1 j2)
+    (piece, j)
+
+/-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 1068:16-1081:17 -/
+@[rust_loop_body]
+def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0.body
+  (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize) (row0 : Std.Usize)
+  (row_count : Std.Usize) (j0 : Std.Usize) (j1 : Std.Usize)
+  (piece : Slice Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
+  := do
+  if i < row_count
+  then
+    let i1 ← i + kern.limb.transpose_rows.TRANSPOSE_TILE
+    let i11 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i1 row_count
+    let piece1 ←
+      kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0 cols rb
+        piece row0 j1 i i11 j0
+    ok (cont (piece1, i11))
+  else ok (done piece)
+
+/-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 1068:16-1081:17 -/
+@[rust_loop]
+def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0
+  (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize)
+  (piece : Slice Std.I64) (row0 : Std.Usize) (row_count : Std.Usize)
+  (j0 : Std.Usize) (j1 : Std.Usize) (i : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (piece1, i1) =>
+      kern.limb.transpose_rows.TransposeTask.body_loop0_loop0.body cols rb row0
+      row_count j0 j1 piece1 i1)
+    (piece, i)
+
+/-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 1065:12-1083:13 -/
+@[rust_loop_body]
+def kern.limb.transpose_rows.TransposeTask.body_loop0.body
+  (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize) (row0 : Std.Usize)
+  (row_count : Std.Usize) (piece : Slice Std.I64) (j0 : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
+  := do
+  if j0 < rb
+  then
+    let i ← j0 + kern.limb.transpose_rows.TRANSPOSE_TILE
+    let j1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i rb
+    let piece1 ←
+      kern.limb.transpose_rows.TransposeTask.body_loop0_loop0 cols rb piece
+        row0 row_count j0 j1 0#usize
+    ok (cont (piece1, j1))
+  else ok (done piece)
+
+/-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 1065:12-1083:13 -/
+@[rust_loop]
+def kern.limb.transpose_rows.TransposeTask.body_loop0
+  (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize)
+  (piece : Slice Std.I64) (row0 : Std.Usize) (row_count : Std.Usize)
+  (j0 : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (piece1, j01) =>
+      kern.limb.transpose_rows.TransposeTask.body_loop0.body cols rb row0
+      row_count piece1 j01)
+    (piece, j0)
+
+/-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]:
+    Source: '../../src/engine/kern/limb.rs', lines 1061:8-1084:9 -/
+def kern.limb.transpose_rows.TransposeTask.body
+  (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize) (start : Std.Usize)
+  (piece : Slice Std.I64) :
+  Result (Slice Std.I64)
+  := do
+  let row0 ← start / rb
+  let i := Slice.len piece
+  let row_count ← i / rb
+  kern.limb.transpose_rows.TransposeTask.body_loop0 cols rb piece row0
+    row_count 0#usize
+
+/-- [apeiron_word::kern::limb::transpose_rows::TransposeTask]
+    Source: '../../src/engine/kern/limb.rs', lines 1048:4-1051:5 -/
+structure kern.limb.transpose_rows.TransposeTask where
+  cols : Slice (alloc.vec.Vec Std.I64)
+  rb : Std.Usize
+
+/-- [apeiron_word::kern::limb::transpose_rows::{impl apeiron_word::chart::task::ChunkTask<i64> for apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::run]:
+    Source: '../../src/engine/kern/limb.rs', lines 1053:8-1055:9 -/
+def
+  kern.limb.transpose_rows.TransposeTask.Insts.Apeiron_wordChartTaskChunkTaskI64.run
+  (self : kern.limb.transpose_rows.TransposeTask) (_c : Std.Usize)
+  (start : Std.Usize) (piece : Slice Std.I64) :
+  Result (Slice Std.I64)
+  := do
+  kern.limb.transpose_rows.TransposeTask.body self.cols self.rb start piece
+
+/-- Trait implementation: [apeiron_word::kern::limb::transpose_rows::{impl apeiron_word::chart::task::ChunkTask<i64> for apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}]
+    Source: '../../src/engine/kern/limb.rs', lines 1052:4-1056:5 -/
 @[reducible]
-def kern.lut.split_nibbles (byte : Std.U8) : Result (Std.U8 × Std.U8) := do
-  kern.lut.split_nibbles_loop byte 0#u8 0#u8 0#usize
+def
+  kern.limb.transpose_rows.TransposeTask.Insts.Apeiron_wordChartTaskChunkTaskI64
+  : chart.task.ChunkTask kern.limb.transpose_rows.TransposeTask Std.I64 := {
+  run :=
+    kern.limb.transpose_rows.TransposeTask.Insts.Apeiron_wordChartTaskChunkTaskI64.run
+}
 
-/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]: loop body 2:
-    Source: '../../src/engine/kern/lut.rs', lines 672:20-677:21 -/
+/-- [apeiron_word::kern::limb::transpose_rows]: loop body 3:
+    Source: '../../src/engine/kern/limb.rs', lines 1097:20-1100:21 -/
 @[rust_loop_body]
-def kern.lut.Pq2Lut.from_pq2_0_loop0_loop0_loop0.body
-  (raw : Slice Std.U8) (n_groups : Std.Usize) (tile : Std.Usize)
-  (lane : Std.Usize) (b : Std.Usize) (off : Std.Usize)
-  (codes : alloc.vec.Vec Std.U8) (k : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
-    Std.U8))
+def kern.limb.transpose_rows_loop0_loop0_loop0_loop0.body
+  (rb : Std.Usize) (i1 : Std.Usize) (j : Std.Usize)
+  (col : alloc.vec.Vec Std.I64) (out : Slice Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
   := do
-  if k < 32#usize
+  if i < i1
   then
-    let i ← off + 2#usize
-    let i1 ← i + k
-    let i2 ← Slice.index_usize raw i1
-    let (lon, hin) ← kern.lut.split_nibbles i2
-    let i3 ← tile * n_groups
-    let i4 ← b * 32#usize
-    let i5 ← i3 + i4
-    let i6 ← i5 + k
-    let i7 ← i6 * kern.lut.TILE_ROWS
-    let idx ← i7 + lane
-    let i8 ← hin <<< 4#i32
-    let (_, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U8)
-        codes idx
-    let i9 ← lift (lon ||| i8)
-    let k1 ← k + 1#usize
-    let codes1 := index_mut_back i9
-    ok (cont (codes1, k1))
-  else ok (done codes)
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) col i
+    let i3 ← i * rb
+    let i4 ← i3 + j
+    let s ← Slice.update out i4 i2
+    let i5 ← i + 1#usize
+    ok (cont (s, i5))
+  else ok (done out)
 
-/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]: loop 2:
-    Source: '../../src/engine/kern/lut.rs', lines 672:20-677:21 -/
+/-- [apeiron_word::kern::limb::transpose_rows]: loop 3:
+    Source: '../../src/engine/kern/limb.rs', lines 1097:20-1100:21 -/
 @[rust_loop]
-def kern.lut.Pq2Lut.from_pq2_0_loop0_loop0_loop0
-  (raw : Slice Std.U8) (n_groups : Std.Usize) (codes : alloc.vec.Vec Std.U8)
-  (tile : Std.Usize) (lane : Std.Usize) (b : Std.Usize) (off : Std.Usize)
-  (k : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
+def kern.limb.transpose_rows_loop0_loop0_loop0_loop0
+  (out : Slice Std.I64) (rb : Std.Usize) (i1 : Std.Usize) (j : Std.Usize)
+  (col : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (Slice Std.I64)
   := do
   loop
-    (fun (codes1, k1) => kern.lut.Pq2Lut.from_pq2_0_loop0_loop0_loop0.body raw
-      n_groups tile lane b off codes1 k1)
-    (codes, k)
+    (fun (out1, i2) => kern.limb.transpose_rows_loop0_loop0_loop0_loop0.body rb
+      i1 j col out1 i2)
+    (out, i)
 
-/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]: loop body 1:
-    Source: '../../src/engine/kern/lut.rs', lines 654:12-680:13 -/
+/-- [apeiron_word::kern::limb::transpose_rows]: loop body 2:
+    Source: '../../src/engine/kern/limb.rs', lines 1094:16-1102:17 -/
 @[rust_loop_body]
-def kern.lut.Pq2Lut.from_pq2_0_loop0_loop0.body
-  (i : Std.Usize) (raw : Slice Std.U8) (n_blocks : Std.Usize)
-  (n_groups : Std.Usize) (o : Std.Usize) (tile : Std.Usize) (lane : Std.Usize)
-  (row_base : Std.Usize) (scales : alloc.vec.Vec Std.I64) (d_max : Std.I128)
-  (codes : alloc.vec.Vec Std.U8) (ok1 : Bool) (err : Option matvec.MatvecError)
-  (b : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.I128 × (alloc.vec.Vec
-    Std.U8) × Bool × (Option matvec.MatvecError) × Std.Usize)
-    ((alloc.vec.Vec Std.I64) × Std.I128 × (alloc.vec.Vec Std.U8) × Bool ×
-    (Option matvec.MatvecError)))
+def kern.limb.transpose_rows_loop0_loop0_loop0.body
+  (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize) (j1 : Std.Usize)
+  (i0 : Std.Usize) (i1 : Std.Usize) (out : Slice Std.I64) (j : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
   := do
-  if b < n_blocks
+  if j < j1
   then
-    if ok1
-    then
-      let i1 ← b * i
-      let off ← row_base + i1
-      let i2 ← Slice.index_usize raw off
-      let i3 ← off + 1#usize
-      let i4 ← Slice.index_usize raw i3
-      let bits ←
-        lift (core.num.U16.from_le_bytes (Array.make 2#usize [ i2, i4 ]))
-      let r ← dequant.f16_to_fixed bits
-      let (scales1, d_max1, ok2, err1) ←
-        match r with
-        | core.result.Result.Ok d =>
-          do
-          let i5 ← o * n_blocks
-          let i6 ← i5 + b
-          let (_, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.I64) scales i6
-          let i7 ← lift (core.convert.num.FromI128I64.from d)
-          let a ← core.num.I128.abs i7
-          let (v, i8) ←
-            if a > d_max
-            then let scales2 := index_mut_back d
-                 ok (scales2, a)
-            else let scales2 := index_mut_back d
-                 ok (scales2, d_max)
-          ok (v, i8, true, err)
-        | core.result.Result.Err e =>
-          ok (scales, d_max, false, some (matvec.MatvecError.Dequant e))
-      if ok2
-      then
-        let codes1 ←
-          kern.lut.Pq2Lut.from_pq2_0_loop0_loop0_loop0 raw n_groups codes tile
-            lane b off 0#usize
-        let b1 ← b + 1#usize
-        ok (cont (scales1, d_max1, codes1, true, err1, b1))
-      else
-        let b1 ← b + 1#usize
-        ok (cont (scales1, d_max1, codes, false, err1, b1))
-    else ok (done (scales, d_max, codes, false, err))
-  else ok (done (scales, d_max, codes, ok1, err))
+    let col ← Slice.index_usize cols j
+    let out1 ←
+      kern.limb.transpose_rows_loop0_loop0_loop0_loop0 out rb i1 j col i0
+    let j2 ← j + 1#usize
+    ok (cont (out1, j2))
+  else ok (done out)
 
-/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]: loop 1:
-    Source: '../../src/engine/kern/lut.rs', lines 654:12-680:13 -/
+/-- [apeiron_word::kern::limb::transpose_rows]: loop 2:
+    Source: '../../src/engine/kern/limb.rs', lines 1094:16-1102:17 -/
 @[rust_loop]
-def kern.lut.Pq2Lut.from_pq2_0_loop0_loop0
-  (i : Std.Usize) (raw : Slice Std.U8) (n_blocks : Std.Usize)
-  (n_groups : Std.Usize) (scales : alloc.vec.Vec Std.I64) (d_max : Std.I128)
-  (codes : alloc.vec.Vec Std.U8) (o : Std.Usize) (ok1 : Bool)
-  (err : Option matvec.MatvecError) (tile : Std.Usize) (lane : Std.Usize)
-  (row_base : Std.Usize) (b : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × Std.I128 × (alloc.vec.Vec Std.U8) × Bool
-    × (Option matvec.MatvecError))
+def kern.limb.transpose_rows_loop0_loop0_loop0
+  (out : Slice Std.I64) (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize)
+  (j1 : Std.Usize) (i0 : Std.Usize) (i1 : Std.Usize) (j : Std.Usize) :
+  Result (Slice Std.I64)
   := do
   loop
-    (fun (scales1, d_max1, codes1, ok2, err1, b1) =>
-      kern.lut.Pq2Lut.from_pq2_0_loop0_loop0.body i raw n_blocks n_groups o
-      tile lane row_base scales1 d_max1 codes1 ok2 err1 b1)
-    (scales, d_max, codes, ok1, err, b)
+    (fun (out1, j2) => kern.limb.transpose_rows_loop0_loop0_loop0.body cols rb
+      j1 i0 i1 out1 j2)
+    (out, j)
 
-/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]: loop body 0:
-    Source: '../../src/engine/kern/lut.rs', lines 649:8-682:9 -/
+/-- [apeiron_word::kern::limb::transpose_rows]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 1091:12-1104:13 -/
 @[rust_loop_body]
-def kern.lut.Pq2Lut.from_pq2_0_loop0.body
-  (i : Std.Usize) (raw : Slice Std.U8) (n_out : Std.Usize)
-  (n_blocks : Std.Usize) (n_groups : Std.Usize) (row_bytes : Std.Usize)
-  (scales : alloc.vec.Vec Std.I64) (d_max : Std.I128)
-  (codes : alloc.vec.Vec Std.U8) (o : Std.Usize) (ok1 : Bool)
-  (err : Option matvec.MatvecError) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.I128 × (alloc.vec.Vec
-    Std.U8) × Std.Usize × Bool × (Option matvec.MatvecError))
-    ((alloc.vec.Vec Std.I64) × Std.I128 × (alloc.vec.Vec Std.U8) × (Option
-    matvec.MatvecError)))
+def kern.limb.transpose_rows_loop0_loop0.body
+  (cols : Slice (alloc.vec.Vec Std.I64)) (ra : Std.Usize) (rb : Std.Usize)
+  (j0 : Std.Usize) (j1 : Std.Usize) (out : Slice Std.I64) (i0 : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
   := do
-  if o < n_out
+  if i0 < ra
   then
-    if ok1
-    then
-      let tile ← o / kern.lut.TILE_ROWS
-      let lane ← o % kern.lut.TILE_ROWS
-      let row_base ← o * row_bytes
-      let (scales1, d_max1, codes1, ok2, err1) ←
-        kern.lut.Pq2Lut.from_pq2_0_loop0_loop0 i raw n_blocks n_groups scales
-          d_max codes o true err tile lane row_base 0#usize
-      let o1 ← o + 1#usize
-      ok (cont (scales1, d_max1, codes1, o1, ok2, err1))
-    else ok (done (scales, d_max, codes, err))
-  else ok (done (scales, d_max, codes, err))
+    let i ← i0 + kern.limb.transpose_rows.TRANSPOSE_TILE
+    let i1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i ra
+    let out1 ←
+      kern.limb.transpose_rows_loop0_loop0_loop0 out cols rb j1 i0 i1 j0
+    ok (cont (out1, i1))
+  else ok (done out)
 
-/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]: loop 0:
-    Source: '../../src/engine/kern/lut.rs', lines 649:8-682:9 -/
+/-- [apeiron_word::kern::limb::transpose_rows]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 1091:12-1104:13 -/
 @[rust_loop]
-def kern.lut.Pq2Lut.from_pq2_0_loop0
-  (i : Std.Usize) (raw : Slice Std.U8) (n_out : Std.Usize)
-  (n_blocks : Std.Usize) (n_groups : Std.Usize) (row_bytes : Std.Usize)
-  (scales : alloc.vec.Vec Std.I64) (d_max : Std.I128)
-  (codes : alloc.vec.Vec Std.U8) (o : Std.Usize) (ok1 : Bool)
-  (err : Option matvec.MatvecError) :
-  Result ((alloc.vec.Vec Std.I64) × Std.I128 × (alloc.vec.Vec Std.U8) ×
-    (Option matvec.MatvecError))
+def kern.limb.transpose_rows_loop0_loop0
+  (out : Slice Std.I64) (cols : Slice (alloc.vec.Vec Std.I64)) (ra : Std.Usize)
+  (rb : Std.Usize) (j0 : Std.Usize) (j1 : Std.Usize) (i0 : Std.Usize) :
+  Result (Slice Std.I64)
   := do
   loop
-    (fun (scales1, d_max1, codes1, o1, ok2, err1) =>
-      kern.lut.Pq2Lut.from_pq2_0_loop0.body i raw n_out n_blocks n_groups
-      row_bytes scales1 d_max1 codes1 o1 ok2 err1)
-    (scales, d_max, codes, o, ok1, err)
+    (fun (out1, i01) => kern.limb.transpose_rows_loop0_loop0.body cols ra rb j0
+      j1 out1 i01)
+    (out, i0)
 
-/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]:
-    Source: '../../src/engine/kern/lut.rs', lines 611:4-697:5 -/
-def kern.lut.Pq2Lut.from_pq2_0
-  (raw : Slice Std.U8) (n_out : Std.Usize) (n_in : Std.Usize) :
-  Result (core.result.Result kern.lut.Pq2Lut matvec.MatvecError)
+/-- [apeiron_word::kern::limb::transpose_rows]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 1088:8-1106:9 -/
+@[rust_loop_body]
+def kern.limb.transpose_rows_loop0.body
+  (cols : Slice (alloc.vec.Vec Std.I64)) (ra : Std.Usize) (rb : Std.Usize)
+  (out : Slice Std.I64) (j0 : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × Std.Usize) (Slice Std.I64))
   := do
-  let b ← core.num.Usize.is_multiple_of n_in quant.PQ2_0_QK
-  if b
+  if j0 < rb
   then
-    let n_blocks ← n_in / quant.PQ2_0_QK
-    let n_groups ← n_in / 4#usize
-    let n_tiles ← core.num.Usize.div_ceil n_out kern.lut.TILE_ROWS
-    let i ← quant.PQ2_0_BLOCK_BYTES
-    let o ← lift (Usize.checked_mul n_blocks i)
-    let r ← core.option.Option.ok_or o matvec.MatvecError.LengthOverflow
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue val =>
-      let o1 ← lift (Usize.checked_mul n_out val)
-      let r1 ← core.option.Option.ok_or o1 matvec.MatvecError.LengthOverflow
-      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-      match cf1 with
-      | core.ops.control_flow.ControlFlow.Continue val1 =>
-        let i1 := Slice.len raw
-        if i1 < val1
-        then
-          let i2 := Slice.len raw
-          ok (core.result.Result.Err (matvec.MatvecError.ShortPayload val1 i2))
-        else
-          let o2 ← lift (Usize.checked_mul n_tiles kern.lut.TILE_ROWS)
-          let r2 ←
-            core.option.Option.ok_or o2 matvec.MatvecError.LengthOverflow
-          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
-          match cf2 with
-          | core.ops.control_flow.ControlFlow.Continue val2 =>
-            let o3 ← lift (Usize.checked_mul val2 n_groups)
-            let r3 ←
-              core.option.Option.ok_or o3 matvec.MatvecError.LengthOverflow
-            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
-            match cf3 with
-            | core.ops.control_flow.ControlFlow.Continue val3 =>
-              let o4 ← lift (Usize.checked_mul val2 n_blocks)
-              let r4 ←
-                core.option.Option.ok_or o4 matvec.MatvecError.LengthOverflow
-              let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
-              match cf4 with
-              | core.ops.control_flow.ControlFlow.Continue val4 =>
-                let scales ←
-                  alloc.vec.from_elem core.clone.CloneI64 0#i64 val4
-                let codes ← alloc.vec.from_elem core.clone.CloneU8 0#u8 val3
-                let (scales1, d_max, codes1, err) ←
-                  kern.lut.Pq2Lut.from_pq2_0_loop0 i raw n_out n_blocks
-                    n_groups val scales 0#i128 codes 0#usize true none
-                match err with
-                | none =>
-                  let s ←
-                    core.slice.index.Slice.index
-                      (core.slice.index.SliceIndexRangeToUsizeSlice Std.U8) raw
-                      { «end» := val1 }
-                  let v ← alloc.slice.Slice.to_vec core.clone.CloneU8 s
-                  ok (core.result.Result.Ok
-                    {
-                      n_out,
-                      n_in,
-                      n_blocks,
-                      n_groups,
-                      n_tiles,
-                      scales := scales1,
-                      d_max,
-                      codes := codes1,
-                      raw := v
-                    })
-                | some e => ok (core.result.Result.Err e)
-              | core.ops.control_flow.ControlFlow.Break residual =>
-                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                  kern.lut.Pq2Lut (core.convert.FromSame matvec.MatvecError)
-                  residual
-            | core.ops.control_flow.ControlFlow.Break residual =>
-              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                kern.lut.Pq2Lut (core.convert.FromSame matvec.MatvecError)
-                residual
-          | core.ops.control_flow.ControlFlow.Break residual =>
-            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-              kern.lut.Pq2Lut (core.convert.FromSame matvec.MatvecError)
-              residual
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          kern.lut.Pq2Lut (core.convert.FromSame matvec.MatvecError) residual
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-        kern.lut.Pq2Lut (core.convert.FromSame matvec.MatvecError) residual
+    let i ← j0 + kern.limb.transpose_rows.TRANSPOSE_TILE
+    let j1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i rb
+    let out1 ←
+      kern.limb.transpose_rows_loop0_loop0 out cols ra rb j0 j1 0#usize
+    ok (cont (out1, j1))
+  else ok (done out)
+
+/-- [apeiron_word::kern::limb::transpose_rows]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 1088:8-1106:9 -/
+@[rust_loop]
+def kern.limb.transpose_rows_loop0
+  (out : Slice Std.I64) (cols : Slice (alloc.vec.Vec Std.I64)) (ra : Std.Usize)
+  (rb : Std.Usize) (j0 : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  loop
+    (fun (out1, j01) => kern.limb.transpose_rows_loop0.body cols ra rb out1
+      j01)
+    (out, j0)
+
+/-- [apeiron_word::kern::limb::transpose_rows]:
+    Source: '../../src/engine/kern/limb.rs', lines 1046:0-1113:1 -/
+def kern.limb.transpose_rows
+  (out : Slice Std.I64) (cols : Slice (alloc.vec.Vec Std.I64)) (ra : Std.Usize)
+  (rb : Std.Usize) :
+  Result (Slice Std.I64)
+  := do
+  let i ← ra * rb
+  let i1 ← kern.limb.POOL_MIN
+  if i < i1
+  then kern.limb.transpose_rows_loop0 out cols ra rb 0#usize
   else
-    let i ← n_in % quant.PQ2_0_QK
-    let i1 ← n_in - i
-    ok (core.result.Result.Err (matvec.MatvecError.RowLength 0#usize i1 n_in))
-
-/-- [apeiron_word::kern::matmat::ACT_QK]
-    Source: '../../src/engine/kern/matmat.rs', lines 43:0-43:25 -/
-@[global_simps, irreducible] def kern.matmat.ACT_QK : Std.Usize := 32#usize
-
-/-- [apeiron_word::kern::matmat::MAX_K]
-    Source: '../../src/engine/kern/matmat.rs', lines 46:0-46:24 -/
-@[global_simps, irreducible] def kern.matmat.MAX_K : Std.Usize := 16#usize
-
-/-- [apeiron_word::kern::matmat::F16_MAX_FIXED]
-    Source: '../../src/engine/kern/matmat.rs', lines 49:0-49:44 -/
-@[global_simps, irreducible]
-def kern.matmat.F16_MAX_FIXED : Result Std.I128 := 65504#i128 <<< 32#i32
-
-/-- [apeiron_word::kern::matmat::Family]
-    Source: '../../src/engine/kern/matmat.rs', lines 53:0-58:1 -/
-@[discriminant isize]
-inductive kern.matmat.Family where
-| Q8_0 : kern.matmat.Family
-| Q5_0 : kern.matmat.Family
-
-/-- [apeiron_word::kern::matmat::{impl core::cmp::PartialEq<apeiron_word::kern::matmat::Family> for apeiron_word::kern::matmat::Family}::eq]:
-    Source: '../../src/engine/kern/matmat.rs', lines 52:22-52:31
-    Visibility: public -/
-def kern.matmat.Family.Insts.CoreCmpPartialEqFamily.eq
-  (self : kern.matmat.Family) (other : kern.matmat.Family) : Result Bool := do
-  let self1 := read_discriminant self
-  let other1 := read_discriminant other
-  ok (self1 = other1)
-
-/-- [apeiron_word::kern::matmat::Geom]
-    Source: '../../src/engine/kern/matmat.rs', lines 62:0-69:1 -/
-structure kern.matmat.Geom where
-  blocks : Std.Usize
-  block_bytes : Std.Usize
-  row_bytes : Std.Usize
-
-/-- [apeiron_word::kern::matmat::ColumnState]
-    Source: '../../src/engine/kern/matmat.rs', lines 73:0-81:1 -/
-@[discriminant isize]
-inductive kern.matmat.ColumnState where
-| Live : kern.matmat.ColumnState
-| Overflow : kern.matmat.ColumnState
-| Fallback : kern.matmat.ColumnState
-
-/-- [apeiron_word::kern::matmat::{impl core::clone::Clone for apeiron_word::kern::matmat::ColumnState}::clone]:
-    Source: '../../src/engine/kern/matmat.rs', lines 72:9-72:14
-    Visibility: public -/
-def kern.matmat.ColumnState.Insts.CoreCloneClone.clone
-  (self : kern.matmat.ColumnState) : Result kern.matmat.ColumnState := do
-  ok self
-
-/-- Trait implementation: [apeiron_word::kern::matmat::{impl core::clone::Clone for apeiron_word::kern::matmat::ColumnState}]
-    Source: '../../src/engine/kern/matmat.rs', lines 72:9-72:14 -/
-@[reducible]
-impl_def kern.matmat.ColumnState.Insts.CoreCloneClone : core.clone.Clone
-  kern.matmat.ColumnState := {
-  clone := kern.matmat.ColumnState.Insts.CoreCloneClone.clone
-  clone_from := core.clone.Clone.clone_from.default
-    kern.matmat.ColumnState.Insts.CoreCloneClone
-}
-
-/-- [apeiron_word::kern::matmat::{impl core::cmp::PartialEq<apeiron_word::kern::matmat::ColumnState> for apeiron_word::kern::matmat::ColumnState}::eq]:
-    Source: '../../src/engine/kern/matmat.rs', lines 72:22-72:31
-    Visibility: public -/
-def kern.matmat.ColumnState.Insts.CoreCmpPartialEqColumnState.eq
-  (self : kern.matmat.ColumnState) (other : kern.matmat.ColumnState) :
-  Result Bool
-  := do
-  let self1 := read_discriminant self
-  let other1 := read_discriminant other
-  ok (self1 = other1)
-
-/-- Trait implementation: [apeiron_word::kern::matmat::{impl core::cmp::PartialEq<apeiron_word::kern::matmat::ColumnState> for apeiron_word::kern::matmat::ColumnState}]
-    Source: '../../src/engine/kern/matmat.rs', lines 72:22-72:31 -/
-@[reducible]
-impl_def kern.matmat.ColumnState.Insts.CoreCmpPartialEqColumnState :
-  core.cmp.PartialEq kern.matmat.ColumnState kern.matmat.ColumnState := {
-  eq := kern.matmat.ColumnState.Insts.CoreCmpPartialEqColumnState.eq
-  ne := core.cmp.PartialEq.ne.trait_default
-    kern.matmat.ColumnState.Insts.CoreCmpPartialEqColumnState
-}
-
-/-- [apeiron_word::kern::matmat::RowOutcome]
-    Source: '../../src/engine/kern/matmat.rs', lines 89:0-97:1 -/
-@[discriminant isize]
-inductive kern.matmat.RowOutcome where
-| Values : Array Std.I128 16#usize → kern.matmat.RowOutcome
-| NonFinite : kern.matmat.RowOutcome
-| Bail : kern.matmat.RowOutcome
+    let i2 ← kern.limb.pool_chunk ra
+    let rows_per_task ←
+      core.cmp.Ord.max.default core.cmp.OrdUsize i2
+        kern.limb.transpose_rows.TRANSPOSE_TILE
+    let i3 ← rows_per_task * rb
+    chart.pool.chunks_mut_global
+      kern.limb.transpose_rows.TransposeTask.Insts.Apeiron_wordChartTaskChunkTaskI64
+      out i3 { cols, rb }
 
 /-- [apeiron_word::kern::matmat::avx2_available]:
     Source: '../../src/engine/kern/matmat.rs', lines 672:0-681:1 -/
@@ -25397,6 +25359,10 @@ def kern.matmat.portable_q5_0_dot
   let qh_u32 ←
     lift (core.num.U32.from_le_bytes (Array.make 4#usize [ i, i1, i2, i3 ]))
   kern.matmat.portable_q5_0_dot_loop qs xq qh_u32 0#i32 0#usize
+
+/-- [apeiron_word::kern::matmat::ACT_QK]
+    Source: '../../src/engine/kern/matmat.rs', lines 43:0-43:25 -/
+@[global_simps, irreducible] def kern.matmat.ACT_QK : Std.Usize := 32#usize
 
 /-- [apeiron_word::kern::matmat::q5_0_block_kdots_portable]: loop body 0:
     Source: '../../src/engine/kern/matmat.rs', lines 662:4-665:5 -/
@@ -25658,6 +25624,47 @@ def kern.matmat.q8_0_block_kdots
         Std.U8) row { start := weight_off, «end» := i }
     kern.matmat.q8_0_block_kdots_portable s acts blk k
 
+/-- [apeiron_word::kern::matmat::RowOutcome]
+    Source: '../../src/engine/kern/matmat.rs', lines 89:0-97:1 -/
+@[discriminant isize]
+inductive kern.matmat.RowOutcome where
+| Values : Array Std.I128 16#usize → kern.matmat.RowOutcome
+| NonFinite : kern.matmat.RowOutcome
+| Bail : kern.matmat.RowOutcome
+
+/-- [apeiron_word::kern::matmat::ColumnState]
+    Source: '../../src/engine/kern/matmat.rs', lines 73:0-81:1 -/
+@[discriminant isize]
+inductive kern.matmat.ColumnState where
+| Live : kern.matmat.ColumnState
+| Overflow : kern.matmat.ColumnState
+| Fallback : kern.matmat.ColumnState
+
+/-- [apeiron_word::kern::matmat::{impl core::cmp::PartialEq<apeiron_word::kern::matmat::ColumnState> for apeiron_word::kern::matmat::ColumnState}::eq]:
+    Source: '../../src/engine/kern/matmat.rs', lines 72:22-72:31
+    Visibility: public -/
+def kern.matmat.ColumnState.Insts.CoreCmpPartialEqColumnState.eq
+  (self : kern.matmat.ColumnState) (other : kern.matmat.ColumnState) :
+  Result Bool
+  := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- [apeiron_word::kern::matmat::Geom]
+    Source: '../../src/engine/kern/matmat.rs', lines 62:0-69:1 -/
+structure kern.matmat.Geom where
+  blocks : Std.Usize
+  block_bytes : Std.Usize
+  row_bytes : Std.Usize
+
+/-- [apeiron_word::kern::matmat::Family]
+    Source: '../../src/engine/kern/matmat.rs', lines 53:0-58:1 -/
+@[discriminant isize]
+inductive kern.matmat.Family where
+| Q8_0 : kern.matmat.Family
+| Q5_0 : kern.matmat.Family
+
 /-- [apeiron_word::kern::matmat::row_accs]: loop body 1:
     Source: '../../src/engine/kern/matmat.rs', lines 504:16-519:17 -/
 @[rust_loop_body]
@@ -25804,6 +25811,11 @@ def kern.matmat.row_accs
   | none => ok (kern.matmat.RowOutcome.Values totals1)
   | some outcome => ok outcome
 
+/-- [apeiron_word::kern::matmat::F16_MAX_FIXED]
+    Source: '../../src/engine/kern/matmat.rs', lines 49:0-49:44 -/
+@[global_simps, irreducible]
+def kern.matmat.F16_MAX_FIXED : Result Std.I128 := 65504#i128 <<< 32#i32
+
 /-- [apeiron_word::kern::matmat::fast_bound_ok]: loop body 0:
     Source: '../../src/engine/kern/matmat.rs', lines 454:4-460:5 -/
 @[rust_loop_body]
@@ -25855,6 +25867,10 @@ def kern.matmat.fast_bound_ok
     let i8 ← core.num.I128.saturating_mul i7 127#i128
     let bound ← core.num.I128.saturating_mul i8 s_max
     ok (bound < core.num.I128.MAX)
+
+/-- [apeiron_word::kern::matmat::MAX_K]
+    Source: '../../src/engine/kern/matmat.rs', lines 46:0-46:24 -/
+@[global_simps, irreducible] def kern.matmat.MAX_K : Std.Usize := 16#usize
 
 /-- [apeiron_word::kern::matmat::fast_family]: loop body 0:
     Source: '../../src/engine/kern/matmat.rs', lines 424:4-434:5 -/
@@ -26344,6 +26360,42 @@ def kern.matmat.pooled_q8_0
   | core.ops.control_flow.ControlFlow.Break residual =>
     core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionInfallible.from_residual
       (alloc.vec.Vec (alloc.vec.Vec Std.I64)) residual
+
+/-- Trait implementation: [apeiron_word::kern::matmat::{impl core::cmp::PartialEq<apeiron_word::kern::matmat::ColumnState> for apeiron_word::kern::matmat::ColumnState}]
+    Source: '../../src/engine/kern/matmat.rs', lines 72:22-72:31 -/
+@[reducible]
+impl_def kern.matmat.ColumnState.Insts.CoreCmpPartialEqColumnState :
+  core.cmp.PartialEq kern.matmat.ColumnState kern.matmat.ColumnState := {
+  eq := kern.matmat.ColumnState.Insts.CoreCmpPartialEqColumnState.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    kern.matmat.ColumnState.Insts.CoreCmpPartialEqColumnState
+}
+
+/-- [apeiron_word::kern::matmat::{impl core::clone::Clone for apeiron_word::kern::matmat::ColumnState}::clone]:
+    Source: '../../src/engine/kern/matmat.rs', lines 72:9-72:14
+    Visibility: public -/
+def kern.matmat.ColumnState.Insts.CoreCloneClone.clone
+  (self : kern.matmat.ColumnState) : Result kern.matmat.ColumnState := do
+  ok self
+
+/-- Trait implementation: [apeiron_word::kern::matmat::{impl core::clone::Clone for apeiron_word::kern::matmat::ColumnState}]
+    Source: '../../src/engine/kern/matmat.rs', lines 72:9-72:14 -/
+@[reducible]
+impl_def kern.matmat.ColumnState.Insts.CoreCloneClone : core.clone.Clone
+  kern.matmat.ColumnState := {
+  clone := kern.matmat.ColumnState.Insts.CoreCloneClone.clone
+  clone_from := core.clone.Clone.clone_from.default
+    kern.matmat.ColumnState.Insts.CoreCloneClone
+}
+
+/-- [apeiron_word::kern::matmat::{impl core::cmp::PartialEq<apeiron_word::kern::matmat::Family> for apeiron_word::kern::matmat::Family}::eq]:
+    Source: '../../src/engine/kern/matmat.rs', lines 52:22-52:31
+    Visibility: public -/
+def kern.matmat.Family.Insts.CoreCmpPartialEqFamily.eq
+  (self : kern.matmat.Family) (other : kern.matmat.Family) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
 
 /-- [apeiron_word::kern::matmat::matmat_q8act]: loop body 0:
     Source: '../../src/engine/kern/matmat.rs', lines 172:4-175:5 -/
@@ -27333,6 +27385,2484 @@ def kern.matmat.matmat_q8act
           (alloc.vec.Vec (alloc.vec.Vec Std.I64)) (core.convert.FromSame
           matvec.MatvecError) residual
   | some cols => ok (core.result.Result.Ok cols)
+
+/-- [apeiron_word::kern::limb::projection::{closure}]
+    Source: '../../src/engine/kern/limb.rs', lines 1031:72-1031:92 -/
+@[reducible]
+def kern.limb.projection.closure := Unit
+
+/-- [apeiron_word::kern::limb::projection::{impl core::ops::function::FnOnce<(apeiron_word::matvec::MatvecError,), apeiron_word::kern::limb::LimbError> for apeiron_word::kern::limb::projection::{closure}}::call_once]:
+    Source: '../../src/engine/kern/limb.rs', lines 1031:72-1031:92 -/
+def
+  kern.limb.projection.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorLimbError.call_once
+  (c : kern.limb.projection.closure) (tupled_args : matvec.MatvecError) :
+  Result kern.limb.LimbError
+  := do
+  ok kern.limb.LimbError.Range
+
+/-- Trait implementation: [apeiron_word::kern::limb::projection::{impl core::ops::function::FnOnce<(apeiron_word::matvec::MatvecError,), apeiron_word::kern::limb::LimbError> for apeiron_word::kern::limb::projection::{closure}}]
+    Source: '../../src/engine/kern/limb.rs', lines 1031:72-1031:92 -/
+@[reducible]
+def
+  kern.limb.projection.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorLimbError
+  : core.ops.function.FnOnce kern.limb.projection.closure matvec.MatvecError
+  kern.limb.LimbError := {
+  call_once :=
+    kern.limb.projection.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorLimbError.call_once
+}
+
+/-- [apeiron_word::kern::limb::projection]:
+    Source: '../../src/engine/kern/limb.rs', lines 1021:0-1033:1 -/
+def kern.limb.projection
+  (raw : Slice Std.U8) (ra : Std.Usize) (n_in : Std.Usize)
+  (qs : Slice chart.QuantAct) :
+  Result (core.result.Result (alloc.vec.Vec (alloc.vec.Vec Std.I64))
+    kern.limb.LimbError)
+  := do
+  let o ← kern.gemm.gemm_q8_0 quant.GGML_TYPE_Q8_0 raw ra n_in qs
+  match o with
+  | none =>
+    let r ← kern.matmat.matmat_q8act quant.GGML_TYPE_Q8_0 raw ra n_in qs
+    core.result.Result.map_err
+      kern.limb.projection.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorLimbError
+      r ()
+  | some cols => ok (core.result.Result.Ok cols)
+
+/-- [apeiron_word::kern::limb::Place]
+    Source: '../../src/engine/kern/limb.rs', lines 684:0-691:1 -/
+structure kern.limb.Place where
+  dw : Std.I32
+  sigma : Std.I32
+  live : Bool
+
+/-- [apeiron_word::kern::limb::Plane]
+    Source: '../../src/engine/kern/limb.rs', lines 322:0-337:1 -/
+structure kern.limb.Plane where
+  rows : Std.Usize
+  n : Std.Usize
+  blocks : Std.Usize
+  padded : Std.Usize
+  limbs : Std.U32
+  e : alloc.vec.Vec Std.U32
+  dig : alloc.vec.Vec Std.I8
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::digit_block]:
+    Source: '../../src/engine/kern/limb.rs', lines 659:4-663:5 -/
+def kern.limb.Plane.digit_block
+  (self : kern.limb.Plane) (row : Std.Usize) (block : Std.Usize)
+  (limb : Std.U32) :
+  Result (Slice Std.I8)
+  := do
+  let i ← lift (UScalar.cast .Usize self.limbs)
+  let lane_words ← i * kern.limb.ACT_QK
+  let i1 ← row * self.blocks
+  let i2 ← i1 + block
+  let i3 ← i2 * lane_words
+  let i4 ← lift (UScalar.cast .Usize limb)
+  let i5 ← i4 * kern.limb.ACT_QK
+  let «at» ← i3 + i5
+  let i6 ← «at» + kern.limb.ACT_QK
+  alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice Std.I8)
+    self.dig { start := «at», «end» := i6 }
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]: loop body 2:
+    Source: '../../src/engine/kern/limb.rs', lines 981:16-989:17 -/
+@[rust_loop_body]
+def kern.limb.ColumnsTask.body_loop0_loop0_loop0.body
+  (b : kern.limb.Plane) (place : Slice kern.limb.Place) (g0 : Std.Usize)
+  (blocks : Std.Usize) (padded : Std.Usize) (row : Std.Usize) (g : Std.Usize)
+  (t : Std.U32) (scales : alloc.vec.Vec Std.I64) (codes : alloc.vec.Vec Std.I8)
+  (blk : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I8) ×
+    Std.Usize) ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I8)))
+  := do
+  if blk < blocks
+  then
+    let i ← g * blocks
+    let i1 ← i + blk
+    let p ← Slice.index_usize place i1
+    let i2 ← 1#i64 <<< p.sigma
+    let i3 ← g - g0
+    let i4 ← i3 * blocks
+    let i5 ← i4 + blk
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        scales i5
+    let (scales1, codes1) ←
+      if p.live
+      then
+        do
+        let i6 ← i3 * padded
+        let i7 ← blk * kern.limb.ACT_QK
+        let «at» ← i6 + i7
+        let i8 ← «at» + kern.limb.ACT_QK
+        let (s, index_mut_back1) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeUsizeSlice
+            Std.I8) codes { start := «at», «end» := i8 }
+        let s1 ← kern.limb.Plane.digit_block b row blk t
+        let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyI8 s s1
+        let codes2 := index_mut_back1 s2
+        let scales2 := index_mut_back i2
+        ok (scales2, codes2)
+      else let scales2 := index_mut_back i2
+           ok (scales2, codes)
+    let blk1 ← blk + 1#usize
+    ok (cont (scales1, codes1, blk1))
+  else ok (done (scales, codes))
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]: loop 2:
+    Source: '../../src/engine/kern/limb.rs', lines 981:16-989:17 -/
+@[rust_loop]
+def kern.limb.ColumnsTask.body_loop0_loop0_loop0
+  (b : kern.limb.Plane) (place : Slice kern.limb.Place) (g0 : Std.Usize)
+  (blocks : Std.Usize) (padded : Std.Usize) (row : Std.Usize)
+  (scales : alloc.vec.Vec Std.I64) (codes : alloc.vec.Vec Std.I8)
+  (g : Std.Usize) (t : Std.U32) (blk : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I8))
+  := do
+  loop
+    (fun (scales1, codes1, blk1) =>
+      kern.limb.ColumnsTask.body_loop0_loop0_loop0.body b place g0 blocks
+      padded row g t scales1 codes1 blk1)
+    (scales, codes, blk)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 978:12-991:13 -/
+@[rust_loop_body]
+def kern.limb.ColumnsTask.body_loop0_loop0.body
+  (b : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
+  (place : Slice kern.limb.Place) (g0 : Std.Usize) (g1 : Std.Usize)
+  (blocks : Std.Usize) (padded : Std.Usize) (row : Std.Usize)
+  (scales : alloc.vec.Vec Std.I64) (codes : alloc.vec.Vec Std.I8)
+  (g : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I8) ×
+    Std.Usize) ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I8)))
+  := do
+  if g < g1
+  then
+    let p ← Slice.index_usize pairs g
+    let (_, t) := p
+    let (scales1, codes1) ←
+      kern.limb.ColumnsTask.body_loop0_loop0_loop0 b place g0 blocks padded row
+        scales codes g t 0#usize
+    let g2 ← g + 1#usize
+    ok (cont (scales1, codes1, g2))
+  else ok (done (scales, codes))
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 978:12-991:13 -/
+@[rust_loop]
+def kern.limb.ColumnsTask.body_loop0_loop0
+  (b : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
+  (place : Slice kern.limb.Place) (g0 : Std.Usize) (g1 : Std.Usize)
+  (blocks : Std.Usize) (padded : Std.Usize) (row : Std.Usize)
+  (scales : alloc.vec.Vec Std.I64) (codes : alloc.vec.Vec Std.I8)
+  (g : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I8))
+  := do
+  loop
+    (fun (scales1, codes1, g2) => kern.limb.ColumnsTask.body_loop0_loop0.body b
+      pairs place g0 g1 blocks padded row scales1 codes1 g2)
+    (scales, codes, g)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 973:14-975:58 -/
+@[rust_loop_body]
+def kern.limb.ColumnsTask.body_loop0.body
+  (b : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
+  (place : Slice kern.limb.Place) (b0 : Std.Usize) (g0 : Std.Usize)
+  (g1 : Std.Usize) (blocks : Std.Usize) (padded : Std.Usize)
+  (start : Std.Usize) (piece : Slice chart.QuantAct) (k : Std.Usize) :
+  Result (ControlFlow ((Slice chart.QuantAct) × Std.Usize) (Slice
+    chart.QuantAct))
+  := do
+  let i := Slice.len piece
+  if k < i
+  then
+    let i1 ← b0 + start
+    let row ← i1 + k
+    let i2 ← g1 - g0
+    let i3 ← i2 * blocks
+    let scales ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i3
+    let i4 ← i2 * padded
+    let codes ← alloc.vec.from_elem core.clone.CloneI8 0#i8 i4
+    let (scales1, codes1) ←
+      kern.limb.ColumnsTask.body_loop0_loop0 b pairs place g0 g1 blocks padded
+        row scales codes g0
+    let qa ← chart.QuantAct.from_parts scales1 codes1
+    let (qa1, index_mut_back) ← Slice.index_mut_usize piece k
+    let piece1 := index_mut_back qa1
+    let s ← Slice.update piece1 k qa
+    let k1 ← k + 1#usize
+    ok (cont (s, k1))
+  else ok (done piece)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 973:14-975:58 -/
+@[rust_loop]
+def kern.limb.ColumnsTask.body_loop0
+  (b : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
+  (place : Slice kern.limb.Place) (b0 : Std.Usize) (g0 : Std.Usize)
+  (g1 : Std.Usize) (blocks : Std.Usize) (padded : Std.Usize)
+  (start : Std.Usize) (piece : Slice chart.QuantAct) (k : Std.Usize) :
+  Result (Slice chart.QuantAct)
+  := do
+  loop
+    (fun (piece1, k1) => kern.limb.ColumnsTask.body_loop0.body b pairs place b0
+      g0 g1 blocks padded start piece1 k1)
+    (piece, k)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]:
+    Source: '../../src/engine/kern/limb.rs', lines 960:4-995:5 -/
+@[reducible]
+def kern.limb.ColumnsTask.body
+  (b : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
+  (place : Slice kern.limb.Place) (b0 : Std.Usize) (g0 : Std.Usize)
+  (g1 : Std.Usize) (blocks : Std.Usize) (padded : Std.Usize)
+  (start : Std.Usize) (piece : Slice chart.QuantAct) :
+  Result (Slice chart.QuantAct)
+  := do
+  kern.limb.ColumnsTask.body_loop0 b pairs place b0 g0 g1 blocks padded start
+    piece 0#usize
+
+/-- [apeiron_word::kern::limb::Layout]
+    Source: '../../src/engine/kern/limb.rs', lines 695:0-704:1 -/
+structure kern.limb.Layout where
+  a : kern.limb.Plane
+  b : kern.limb.Plane
+  pairs : alloc.vec.Vec (Std.U32 × Std.U32)
+  place : alloc.vec.Vec kern.limb.Place
+
+/-- [apeiron_word::kern::limb::ColumnsTask]
+    Source: '../../src/engine/kern/limb.rs', lines 879:0-886:1 -/
+structure kern.limb.ColumnsTask where
+  layout : kern.limb.Layout
+  b0 : Std.Usize
+  g0 : Std.Usize
+  g1 : Std.Usize
+  blocks : Std.Usize
+  padded : Std.Usize
+
+/-- [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<apeiron_word::chart::QuantAct> for apeiron_word::kern::limb::ColumnsTask<'_0>}::run]:
+    Source: '../../src/engine/kern/limb.rs', lines 999:4-1013:5 -/
+def kern.limb.ColumnsTask.Insts.Apeiron_wordChartTaskChunkTaskQuantAct.run
+  (self : kern.limb.ColumnsTask) (_c : Std.Usize) (start : Std.Usize)
+  (piece : Slice chart.QuantAct) :
+  Result (Slice chart.QuantAct)
+  := do
+  let s := alloc.vec.Vec.deref self.layout.pairs
+  let s1 := alloc.vec.Vec.deref self.layout.place
+  kern.limb.ColumnsTask.body self.layout.b s s1 self.b0 self.g0 self.g1
+    self.blocks self.padded start piece
+
+/-- Trait implementation: [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<apeiron_word::chart::QuantAct> for apeiron_word::kern::limb::ColumnsTask<'_0>}]
+    Source: '../../src/engine/kern/limb.rs', lines 998:0-1014:1 -/
+@[reducible]
+def kern.limb.ColumnsTask.Insts.Apeiron_wordChartTaskChunkTaskQuantAct :
+  chart.task.ChunkTask kern.limb.ColumnsTask chart.QuantAct := {
+  run := kern.limb.ColumnsTask.Insts.Apeiron_wordChartTaskChunkTaskQuantAct.run
+}
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::empty_columns]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 901:8-904:9 -/
+@[rust_loop_body]
+def kern.limb.ColumnsTask.empty_columns_loop.body
+  (rb : Std.Usize) (parts : alloc.vec.Vec chart.QuantAct) (z : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec chart.QuantAct) × Std.Usize)
+    (alloc.vec.Vec chart.QuantAct))
+  := do
+  if z < rb
+  then
+    let qa ←
+      chart.QuantAct.from_parts (alloc.vec.Vec.new Std.I64) (alloc.vec.Vec.new
+        Std.I8)
+    let parts1 ← alloc.vec.Vec.push parts qa
+    let z1 ← z + 1#usize
+    ok (cont (parts1, z1))
+  else ok (done parts)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::empty_columns]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 901:8-904:9 -/
+@[rust_loop]
+def kern.limb.ColumnsTask.empty_columns_loop
+  (rb : Std.Usize) (parts : alloc.vec.Vec chart.QuantAct) (z : Std.Usize) :
+  Result (alloc.vec.Vec chart.QuantAct)
+  := do
+  loop
+    (fun (parts1, z1) => kern.limb.ColumnsTask.empty_columns_loop.body rb
+      parts1 z1)
+    (parts, z)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::empty_columns]:
+    Source: '../../src/engine/kern/limb.rs', lines 898:4-906:5 -/
+def kern.limb.ColumnsTask.empty_columns
+  (rb : Std.Usize) : Result (alloc.vec.Vec chart.QuantAct) := do
+  let parts := alloc.vec.Vec.with_capacity chart.QuantAct rb
+  kern.limb.ColumnsTask.empty_columns_loop rb parts 0#usize
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::dispatch]:
+    Source: '../../src/engine/kern/limb.rs', lines 922:4-951:5 -/
+def kern.limb.ColumnsTask.dispatch
+  (layout : kern.limb.Layout) (b0 : Std.Usize) (rb : Std.Usize)
+  (g0 : Std.Usize) (g1 : Std.Usize) (blocks : Std.Usize) (padded : Std.Usize) :
+  Result (alloc.vec.Vec chart.QuantAct)
+  := do
+  let ng ← g1 - g0
+  let parts ← kern.limb.ColumnsTask.empty_columns rb
+  let col_bytes ← ng * padded
+  let i ← rb * col_bytes
+  let i1 ← kern.limb.POOL_MIN
+  if i >= i1
+  then
+    let chunk ← kern.limb.pool_chunk rb
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut parts)
+    let s1 ←
+      chart.pool.chunks_mut_global
+        kern.limb.ColumnsTask.Insts.Apeiron_wordChartTaskChunkTaskQuantAct s
+        chunk { layout, b0, g0, g1, blocks, padded }
+    ok (deref_mut_back s1)
+  else
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut parts)
+    let s1 ←
+      kern.limb.ColumnsTask.Insts.Apeiron_wordChartTaskChunkTaskQuantAct.run
+        { layout, b0, g0, g1, blocks, padded } 0#usize 0#usize s
+    ok (deref_mut_back s1)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::columns]:
+    Source: '../../src/engine/kern/limb.rs', lines 796:4-800:5 -/
+def kern.limb.Layout.columns
+  (self : kern.limb.Layout) (b0 : Std.Usize) (rb : Std.Usize) (g0 : Std.Usize)
+  (g1 : Std.Usize) :
+  Result (alloc.vec.Vec chart.QuantAct)
+  := do
+  kern.limb.ColumnsTask.dispatch self b0 rb g0 g1 self.b.blocks self.b.padded
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::digit_block_u8]:
+    Source: '../../src/engine/kern/limb.rs', lines 672:4-678:5 -/
+def kern.limb.Plane.digit_block_u8
+  (self : kern.limb.Plane) (row : Std.Usize) (block : Std.Usize)
+  (limb : Std.U32) :
+  Result (Slice Std.U8)
+  := do
+  let s ← kern.limb.Plane.digit_block self row block limb
+  let p ← core.slice.Slice.as_ptr s
+  let p1 ← core.ptr.const_ptr.RawPtrConstT.cast Std.U8 p
+  core.slice.raw.from_raw_parts p1 kern.limb.ACT_QK
+
+/-- [apeiron_word::kern::limb::f16_pow2]:
+    Source: '../../src/engine/kern/limb.rs', lines 391:0-398:1 -/
+def kern.limb.f16_pow2 (dw : Std.I32) : Result Std.U16 := do
+  let p ← dw - 32#i32
+  if p >= (-14)#i32
+  then
+    let i ← p + 15#i32
+    let i1 ← lift (IScalar.hcast .U16 i)
+    i1 <<< 10#i32
+  else let i ← p + 24#i32
+       1#u16 <<< i
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]: loop body 2:
+    Source: '../../src/engine/kern/limb.rs', lines 843:16-852:17 -/
+@[rust_loop_body]
+def kern.limb.PayloadTask.body_loop0_loop0_loop0.body
+  (a : kern.limb.Plane) (place : Slice kern.limb.Place) (g0 : Std.Usize)
+  (blocks : Std.Usize) (row : Std.Usize) (g : Std.Usize) (s : Std.U32)
+  (out : Slice Std.U8) (blk : Std.Usize) :
+  Result (ControlFlow ((Slice Std.U8) × Std.Usize) (Slice Std.U8))
+  := do
+  if blk < blocks
+  then
+    let i ← g * blocks
+    let i1 ← i + blk
+    let p ← Slice.index_usize place i1
+    let out1 ←
+      if p.live
+      then
+        do
+        let i2 ← g - g0
+        let i3 ← i2 * blocks
+        let i4 ← quant.Q8_0_BLOCK_BYTES
+        let i5 ← i3 * i4
+        let i6 ← blk * i4
+        let «at» ← i5 + i6
+        let i7 ← «at» + 2#usize
+        let (s1, index_mut_back) ←
+          core.slice.index.Slice.index_mut
+            (core.slice.index.SliceIndexRangeUsizeSlice Std.U8) out
+            { start := «at», «end» := i7 }
+        let i8 ← kern.limb.f16_pow2 p.dw
+        let a1 ← lift (core.num.U16.to_le_bytes i8)
+        let s2 ← lift (Array.to_slice a1)
+        let s3 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s1 s2
+        let out2 := index_mut_back s3
+        let i9 ← «at» + i4
+        let (s4, index_mut_back1) ←
+          core.slice.index.Slice.index_mut
+            (core.slice.index.SliceIndexRangeUsizeSlice Std.U8) out2
+            { start := i7, «end» := i9 }
+        let s5 ← kern.limb.Plane.digit_block_u8 a row blk s
+        let s6 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s4 s5
+        ok (index_mut_back1 s6)
+      else ok out
+    let blk1 ← blk + 1#usize
+    ok (cont (out1, blk1))
+  else ok (done out)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]: loop 2:
+    Source: '../../src/engine/kern/limb.rs', lines 843:16-852:17 -/
+@[rust_loop]
+def kern.limb.PayloadTask.body_loop0_loop0_loop0
+  (a : kern.limb.Plane) (place : Slice kern.limb.Place) (g0 : Std.Usize)
+  (blocks : Std.Usize) (row : Std.Usize) (out : Slice Std.U8) (g : Std.Usize)
+  (s : Std.U32) (blk : Std.Usize) :
+  Result (Slice Std.U8)
+  := do
+  loop
+    (fun (out1, blk1) => kern.limb.PayloadTask.body_loop0_loop0_loop0.body a
+      place g0 blocks row g s out1 blk1)
+    (out, blk)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 840:12-854:13 -/
+@[rust_loop_body]
+def kern.limb.PayloadTask.body_loop0_loop0.body
+  (a : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
+  (place : Slice kern.limb.Place) (g0 : Std.Usize) (g1 : Std.Usize)
+  (blocks : Std.Usize) (row : Std.Usize) (out : Slice Std.U8) (g : Std.Usize) :
+  Result (ControlFlow ((Slice Std.U8) × Std.Usize) (Slice Std.U8))
+  := do
+  if g < g1
+  then
+    let p ← Slice.index_usize pairs g
+    let (s, _) := p
+    let out1 ←
+      kern.limb.PayloadTask.body_loop0_loop0_loop0 a place g0 blocks row out g
+        s 0#usize
+    let g2 ← g + 1#usize
+    ok (cont (out1, g2))
+  else ok (done out)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 840:12-854:13 -/
+@[rust_loop]
+def kern.limb.PayloadTask.body_loop0_loop0
+  (a : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
+  (place : Slice kern.limb.Place) (g0 : Std.Usize) (g1 : Std.Usize)
+  (blocks : Std.Usize) (row : Std.Usize) (out : Slice Std.U8) (g : Std.Usize) :
+  Result (Slice Std.U8)
+  := do
+  loop
+    (fun (out1, g2) => kern.limb.PayloadTask.body_loop0_loop0.body a pairs
+      place g0 g1 blocks row out1 g2)
+    (out, g)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 836:8-856:9 -/
+@[rust_loop_body]
+def kern.limb.PayloadTask.body_loop0.body
+  (a : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
+  (place : Slice kern.limb.Place) (a0 : Std.Usize) (g0 : Std.Usize)
+  (g1 : Std.Usize) (blocks : Std.Usize) (row_bytes : Std.Usize)
+  (row0 : Std.Usize) (row_count : Std.Usize) (piece : Slice Std.U8)
+  (k : Std.Usize) :
+  Result (ControlFlow ((Slice Std.U8) × Std.Usize) (Slice Std.U8))
+  := do
+  if k < row_count
+  then
+    let i ← a0 + row0
+    let row ← i + k
+    let i1 ← k * row_bytes
+    let i2 ← k + 1#usize
+    let i3 ← i2 * row_bytes
+    let (out, index_mut_back) ←
+      core.slice.index.Slice.index_mut
+        (core.slice.index.SliceIndexRangeUsizeSlice Std.U8) piece
+        { start := i1, «end» := i3 }
+    let out1 ←
+      kern.limb.PayloadTask.body_loop0_loop0 a pairs place g0 g1 blocks row out
+        g0
+    let k1 ← k + 1#usize
+    let piece1 := index_mut_back out1
+    ok (cont (piece1, k1))
+  else ok (done piece)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 836:8-856:9 -/
+@[rust_loop]
+def kern.limb.PayloadTask.body_loop0
+  (a : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
+  (place : Slice kern.limb.Place) (a0 : Std.Usize) (g0 : Std.Usize)
+  (g1 : Std.Usize) (blocks : Std.Usize) (row_bytes : Std.Usize)
+  (piece : Slice Std.U8) (row0 : Std.Usize) (row_count : Std.Usize)
+  (k : Std.Usize) :
+  Result (Slice Std.U8)
+  := do
+  loop
+    (fun (piece1, k1) => kern.limb.PayloadTask.body_loop0.body a pairs place a0
+      g0 g1 blocks row_bytes row0 row_count piece1 k1)
+    (piece, k)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]:
+    Source: '../../src/engine/kern/limb.rs', lines 821:4-857:5 -/
+def kern.limb.PayloadTask.body
+  (a : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
+  (place : Slice kern.limb.Place) (a0 : Std.Usize) (g0 : Std.Usize)
+  (g1 : Std.Usize) (blocks : Std.Usize) (row_bytes : Std.Usize)
+  (start : Std.Usize) (piece : Slice Std.U8) :
+  Result (Slice Std.U8)
+  := do
+  let row0 ← start / row_bytes
+  let i := Slice.len piece
+  let row_count ← i / row_bytes
+  kern.limb.PayloadTask.body_loop0 a pairs place a0 g0 g1 blocks row_bytes
+    piece row0 row_count 0#usize
+
+/-- [apeiron_word::kern::limb::PayloadTask]
+    Source: '../../src/engine/kern/limb.rs', lines 804:0-811:1 -/
+structure kern.limb.PayloadTask where
+  layout : kern.limb.Layout
+  a0 : Std.Usize
+  g0 : Std.Usize
+  g1 : Std.Usize
+  blocks : Std.Usize
+  row_bytes : Std.Usize
+
+/-- [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<u8> for apeiron_word::kern::limb::PayloadTask<'_0>}::run]:
+    Source: '../../src/engine/kern/limb.rs', lines 861:4-875:5 -/
+def kern.limb.PayloadTask.Insts.Apeiron_wordChartTaskChunkTaskU8.run
+  (self : kern.limb.PayloadTask) (_c : Std.Usize) (start : Std.Usize)
+  (piece : Slice Std.U8) :
+  Result (Slice Std.U8)
+  := do
+  let s := alloc.vec.Vec.deref self.layout.pairs
+  let s1 := alloc.vec.Vec.deref self.layout.place
+  kern.limb.PayloadTask.body self.layout.a s s1 self.a0 self.g0 self.g1
+    self.blocks self.row_bytes start piece
+
+/-- Trait implementation: [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<u8> for apeiron_word::kern::limb::PayloadTask<'_0>}]
+    Source: '../../src/engine/kern/limb.rs', lines 860:0-876:1 -/
+@[reducible]
+def kern.limb.PayloadTask.Insts.Apeiron_wordChartTaskChunkTaskU8 :
+  chart.task.ChunkTask kern.limb.PayloadTask Std.U8 := {
+  run := kern.limb.PayloadTask.Insts.Apeiron_wordChartTaskChunkTaskU8.run
+}
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::weight_payload]:
+    Source: '../../src/engine/kern/limb.rs', lines 768:4-787:5 -/
+def kern.limb.Layout.weight_payload
+  (self : kern.limb.Layout) (a0 : Std.Usize) (ra : Std.Usize) (g0 : Std.Usize)
+  (g1 : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let i ← g1 - g0
+  let i1 ← i * self.a.blocks
+  let i2 ← quant.Q8_0_BLOCK_BYTES
+  let row_bytes ← i1 * i2
+  let i3 ← ra * row_bytes
+  let raw ← alloc.vec.from_elem core.clone.CloneU8 0#u8 i3
+  let i4 := alloc.vec.Vec.len raw
+  let i5 ← kern.limb.POOL_MIN
+  if i4 >= i5
+  then
+    let i6 ← kern.limb.pool_chunk ra
+    let chunk ← i6 * row_bytes
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut raw)
+    let s1 ←
+      chart.pool.chunks_mut_global
+        kern.limb.PayloadTask.Insts.Apeiron_wordChartTaskChunkTaskU8 s chunk
+        { layout := self, a0, g0, g1, blocks := self.a.blocks, row_bytes }
+    ok (deref_mut_back s1)
+  else
+    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut raw)
+    let s1 ←
+      kern.limb.PayloadTask.Insts.Apeiron_wordChartTaskChunkTaskU8.run
+        { layout := self, a0, g0, g1, blocks := self.a.blocks, row_bytes }
+        0#usize 0#usize s
+    ok (deref_mut_back s1)
+
+/-- [apeiron_word::kern::limb::{impl core::clone::Clone for apeiron_word::kern::limb::Place}::clone]:
+    Source: '../../src/engine/kern/limb.rs', lines 683:9-683:14
+    Visibility: public -/
+def kern.limb.Place.Insts.CoreCloneClone.clone
+  (self : kern.limb.Place) : Result kern.limb.Place := do
+  ok self
+
+/-- Trait implementation: [apeiron_word::kern::limb::{impl core::clone::Clone for apeiron_word::kern::limb::Place}]
+    Source: '../../src/engine/kern/limb.rs', lines 683:9-683:14 -/
+@[reducible]
+impl_def kern.limb.Place.Insts.CoreCloneClone : core.clone.Clone
+  kern.limb.Place := {
+  clone := kern.limb.Place.Insts.CoreCloneClone.clone
+  clone_from := core.clone.Clone.clone_from.default
+    kern.limb.Place.Insts.CoreCloneClone
+}
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::placement]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 733:12-752:13 -/
+@[rust_loop_body]
+def kern.limb.Layout.placement_loop0_loop0.body
+  (a : kern.limb.Plane) (v : alloc.vec.Vec Std.U32) (b : kern.limb.Plane)
+  (gi : Std.Usize) (weight : Std.I32) (place : alloc.vec.Vec kern.limb.Place)
+  (err : Option kern.limb.LimbError) (blk : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec kern.limb.Place) × (Option
+    kern.limb.LimbError) × Std.Usize) (kern.limb.Plane × (alloc.vec.Vec
+    kern.limb.Place) × (Option kern.limb.LimbError)))
+  := do
+  if blk < a.blocks
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let i ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U32) v
+          blk
+      let i1 ← lift (UScalar.hcast .I32 i)
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U32)
+          b.e blk
+      let i3 ← lift (UScalar.hcast .I32 i2)
+      let i4 ← i1 + i3
+      let t_exp ← i4 - weight
+      let (place1, err1) ←
+        if t_exp > kern.limb.MAX_PAIR_EXP
+        then ok (place, some kern.limb.LimbError.Range)
+        else
+          do
+          let i5 ← gi * a.blocks
+          let slot ← i5 + blk
+          let v1 ←
+            if t_exp >= kern.limb.MIN_PAIR_EXP
+            then
+              do
+              let dw ←
+                core.cmp.impls.OrdI32.clamp t_exp kern.limb.MIN_PAIR_EXP
+                  kern.limb.MAX_WEIGHT_EXP
+              let i6 ← t_exp - dw
+              let (_, index_mut_back) ←
+                alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                  kern.limb.Place) place slot
+              ok (index_mut_back { dw, sigma := i6, live := true })
+            else ok place
+          ok (v1, err)
+      let blk1 ← blk + 1#usize
+      ok (cont (place1, err1, blk1))
+    else ok (done (b, place, err))
+  else ok (done (b, place, err))
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::placement]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 733:12-752:13 -/
+@[rust_loop]
+def kern.limb.Layout.placement_loop0_loop0
+  (a : kern.limb.Plane) (v : alloc.vec.Vec Std.U32) (b : kern.limb.Plane)
+  (place : alloc.vec.Vec kern.limb.Place) (gi : Std.Usize)
+  (err : Option kern.limb.LimbError) (weight : Std.I32) (blk : Std.Usize) :
+  Result (kern.limb.Plane × (alloc.vec.Vec kern.limb.Place) × (Option
+    kern.limb.LimbError))
+  := do
+  loop
+    (fun (place1, err1, blk1) => kern.limb.Layout.placement_loop0_loop0.body a
+      v b gi weight place1 err1 blk1)
+    (place, err, blk)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::placement]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 729:8-754:9 -/
+@[rust_loop_body]
+def kern.limb.Layout.placement_loop0.body
+  (a : kern.limb.Plane) (v : alloc.vec.Vec Std.U32)
+  (pairs : Slice (Std.U32 × Std.U32)) (b : kern.limb.Plane)
+  (place : alloc.vec.Vec kern.limb.Place) (gi : Std.Usize)
+  (err : Option kern.limb.LimbError) :
+  Result (ControlFlow (kern.limb.Plane × (alloc.vec.Vec kern.limb.Place) ×
+    Std.Usize × (Option kern.limb.LimbError)) ((alloc.vec.Vec kern.limb.Place)
+    × (Option kern.limb.LimbError)))
+  := do
+  let i := Slice.len pairs
+  if gi < i
+  then
+    let b1 := core.option.Option.is_none err
+    if b1
+    then
+      let p ← Slice.index_usize pairs gi
+      let (s, _) := p
+      let (_, t) := p
+      let i1 ← s + t
+      let i2 ← lift (UScalar.hcast .I32 i1)
+      let i3 ← i2 + 2#i32
+      let weight ← kern.limb.LIMB_BITS * i3
+      let (b2, place1, err1) ←
+        kern.limb.Layout.placement_loop0_loop0 a v b place gi err weight
+          0#usize
+      let gi1 ← gi + 1#usize
+      ok (cont (b2, place1, gi1, err1))
+    else ok (done (place, err))
+  else ok (done (place, err))
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::placement]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 729:8-754:9 -/
+@[rust_loop]
+def kern.limb.Layout.placement_loop0
+  (a : kern.limb.Plane) (v : alloc.vec.Vec Std.U32) (b : kern.limb.Plane)
+  (pairs : Slice (Std.U32 × Std.U32)) (place : alloc.vec.Vec kern.limb.Place)
+  (gi : Std.Usize) (err : Option kern.limb.LimbError) :
+  Result ((alloc.vec.Vec kern.limb.Place) × (Option kern.limb.LimbError))
+  := do
+  loop
+    (fun (b1, place1, gi1, err1) => kern.limb.Layout.placement_loop0.body a v
+      pairs b1 place1 gi1 err1)
+    (b, place, gi, err)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::placement]:
+    Source: '../../src/engine/kern/limb.rs', lines 717:4-759:5 -/
+def kern.limb.Layout.placement
+  (a : kern.limb.Plane) (b : kern.limb.Plane)
+  (pairs : Slice (Std.U32 × Std.U32)) :
+  Result (core.result.Result (alloc.vec.Vec kern.limb.Place)
+    kern.limb.LimbError)
+  := do
+  let i := Slice.len pairs
+  let i1 ← i * a.blocks
+  let place ←
+    alloc.vec.from_elem kern.limb.Place.Insts.CoreCloneClone
+      { dw := kern.limb.MIN_PAIR_EXP, sigma := 0#i32, live := false } i1
+  let (place1, err) ←
+    kern.limb.Layout.placement_loop0 a a.e b pairs place 0#usize none
+  match err with
+  | none => ok (core.result.Result.Ok place1)
+  | some e => ok (core.result.Result.Err e)
+
+/-- [apeiron_word::kern::limb::kept_pairs]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 356:8-362:9 -/
+@[rust_loop_body]
+def kern.limb.kept_pairs_loop0_loop0.body
+  (limbs : Std.U32) (sum : Std.U32) (out : alloc.vec.Vec (Std.U32 × Std.U32))
+  (s : Std.U32) :
+  Result (ControlFlow ((alloc.vec.Vec (Std.U32 × Std.U32)) × Std.U32)
+    (alloc.vec.Vec (Std.U32 × Std.U32)))
+  := do
+  if s <= sum
+  then
+    let t ← sum - s
+    let out1 ← if t < limbs
+                 then alloc.vec.Vec.push out (s, t)
+                 else ok out
+    let s1 ← s + 1#u32
+    ok (cont (out1, s1))
+  else ok (done out)
+
+/-- [apeiron_word::kern::limb::kept_pairs]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 356:8-362:9 -/
+@[rust_loop]
+def kern.limb.kept_pairs_loop0_loop0
+  (limbs : Std.U32) (out : alloc.vec.Vec (Std.U32 × Std.U32)) (sum : Std.U32)
+  (s : Std.U32) :
+  Result (alloc.vec.Vec (Std.U32 × Std.U32))
+  := do
+  loop
+    (fun (out1, s1) => kern.limb.kept_pairs_loop0_loop0.body limbs sum out1 s1)
+    (out, s)
+
+/-- [apeiron_word::kern::limb::kept_pairs]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 354:4-364:5 -/
+@[rust_loop_body]
+def kern.limb.kept_pairs_loop0.body
+  (limbs : Std.U32) (out : alloc.vec.Vec (Std.U32 × Std.U32)) (sum : Std.U32)
+  :
+  Result (ControlFlow ((alloc.vec.Vec (Std.U32 × Std.U32)) × Std.U32)
+    (alloc.vec.Vec (Std.U32 × Std.U32)))
+  := do
+  if sum < limbs
+  then
+    let out1 ← kern.limb.kept_pairs_loop0_loop0 limbs out sum 0#u32
+    let sum1 ← sum + 1#u32
+    ok (cont (out1, sum1))
+  else ok (done out)
+
+/-- [apeiron_word::kern::limb::kept_pairs]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 354:4-364:5 -/
+@[rust_loop]
+def kern.limb.kept_pairs_loop0
+  (limbs : Std.U32) (out : alloc.vec.Vec (Std.U32 × Std.U32)) (sum : Std.U32)
+  :
+  Result (alloc.vec.Vec (Std.U32 × Std.U32))
+  := do
+  loop
+    (fun (out1, sum1) => kern.limb.kept_pairs_loop0.body limbs out1 sum1)
+    (out, sum)
+
+/-- [apeiron_word::kern::limb::kept_pairs]:
+    Source: '../../src/engine/kern/limb.rs', lines 351:0-366:1 -/
+def kern.limb.kept_pairs
+  (limbs : Std.U32) : Result (alloc.vec.Vec (Std.U32 × Std.U32)) := do
+  let i ← limbs + 1#u32
+  let i1 ← limbs * i
+  let i2 ← i1 / 2#u32
+  let i3 ← lift (UScalar.cast .Usize i2)
+  let out := alloc.vec.Vec.with_capacity (Std.U32 × Std.U32) i3
+  kern.limb.kept_pairs_loop0 limbs out 0#u32
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop body 2:
+    Source: '../../src/engine/kern/limb.rs', lines 1183:24-1186:25 -/
+@[rust_loop_body]
+def kern.limb.Plane.product_rows_loop0_loop0_loop0.body
+  (ra : Std.Usize) (col : alloc.vec.Vec Std.I64) (base : Std.Usize)
+  (acc : alloc.vec.Vec Std.I128) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Std.Usize) (alloc.vec.Vec
+    Std.I128))
+  := do
+  if i < ra
+  then
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) col i
+    let i2 ← lift (core.convert.num.FromI128I64.from i1)
+    let i3 ← base + i
+    let (i4, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I128)
+        acc i3
+    let i5 ← i4 + i2
+    let i6 ← i + 1#usize
+    let acc1 := index_mut_back i5
+    ok (cont (acc1, i6))
+  else ok (done acc)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop 2:
+    Source: '../../src/engine/kern/limb.rs', lines 1183:24-1186:25 -/
+@[rust_loop]
+def kern.limb.Plane.product_rows_loop0_loop0_loop0
+  (ra : Std.Usize) (acc : alloc.vec.Vec Std.I128) (col : alloc.vec.Vec Std.I64)
+  (base : Std.Usize) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I128)
+  := do
+  loop
+    (fun (acc1, i1) => kern.limb.Plane.product_rows_loop0_loop0_loop0.body ra
+      col base acc1 i1)
+    (acc, i)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 1179:20-1188:21 -/
+@[rust_loop_body]
+def kern.limb.Plane.product_rows_loop0_loop0.body
+  (ra : Std.Usize) (rb : Std.Usize)
+  (cols : alloc.vec.Vec (alloc.vec.Vec Std.I64)) (acc : alloc.vec.Vec Std.I128)
+  (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Std.Usize) (alloc.vec.Vec
+    Std.I128))
+  := do
+  if j < rb
+  then
+    let col ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec
+        Std.I64)) cols j
+    let base ← j * ra
+    let acc1 ←
+      kern.limb.Plane.product_rows_loop0_loop0_loop0 ra acc col base 0#usize
+    let j1 ← j + 1#usize
+    ok (cont (acc1, j1))
+  else ok (done acc)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 1179:20-1188:21 -/
+@[rust_loop]
+def kern.limb.Plane.product_rows_loop0_loop0
+  (ra : Std.Usize) (rb : Std.Usize) (acc : alloc.vec.Vec Std.I128)
+  (cols : alloc.vec.Vec (alloc.vec.Vec Std.I64)) (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.I128)
+  := do
+  loop
+    (fun (acc1, j1) => kern.limb.Plane.product_rows_loop0_loop0.body ra rb cols
+      acc1 j1)
+    (acc, j)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 1171:8-1193:9 -/
+@[rust_loop_body]
+def kern.limb.Plane.product_rows_loop0.body
+  (i : Std.Usize) (i1 : Std.Usize) (i2 : Std.Usize) (i3 : Std.Usize)
+  (i4 : Std.U32) (v : alloc.vec.Vec Std.U32) (v1 : alloc.vec.Vec Std.I8)
+  (i5 : Std.Usize) (i6 : Std.Usize) (i7 : Std.Usize) (i8 : Std.Usize)
+  (i9 : Std.U32) (v2 : alloc.vec.Vec Std.U32) (v3 : alloc.vec.Vec Std.I8)
+  (a0 : Std.Usize) (ra : Std.Usize) (b0 : Std.Usize) (rb : Std.Usize)
+  (pairs : alloc.vec.Vec (Std.U32 × Std.U32))
+  (val : alloc.vec.Vec kern.limb.Place) (group : Std.Usize)
+  (acc : alloc.vec.Vec Std.I128) (g0 : Std.Usize)
+  (err : Option kern.limb.LimbError) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Std.Usize × (Option
+    kern.limb.LimbError)) ((alloc.vec.Vec Std.I128) × (Option
+    kern.limb.LimbError)))
+  := do
+  let i10 := alloc.vec.Vec.len pairs
+  if g0 < i10
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i11 ← g0 + group
+      let i12 := alloc.vec.Vec.len pairs
+      let g1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i11 i12
+      let i13 ← g1 - g0
+      let n_in ← i13 * i3
+      let raw ←
+        kern.limb.Layout.weight_payload
+          {
+            a :=
+              {
+                rows := i,
+                n := i1,
+                blocks := i2,
+                padded := i3,
+                limbs := i4,
+                e := v,
+                dig := v1
+              },
+            b :=
+              {
+                rows := i5,
+                n := i6,
+                blocks := i7,
+                padded := i8,
+                limbs := i9,
+                e := v2,
+                dig := v3
+              },
+            pairs,
+            place := val
+          } a0 ra g0 g1
+      let qs ←
+        kern.limb.Layout.columns
+          {
+            a :=
+              {
+                rows := i,
+                n := i1,
+                blocks := i2,
+                padded := i3,
+                limbs := i4,
+                e := v,
+                dig := v1
+              },
+            b :=
+              {
+                rows := i5,
+                n := i6,
+                blocks := i7,
+                padded := i8,
+                limbs := i9,
+                e := v2,
+                dig := v3
+              },
+            pairs,
+            place := val
+          } b0 rb g0 g1
+      let s := alloc.vec.Vec.deref raw
+      let s1 := alloc.vec.Vec.deref qs
+      let r ← kern.limb.projection s ra n_in s1
+      match r with
+      | core.result.Result.Ok cols =>
+        let acc1 ←
+          kern.limb.Plane.product_rows_loop0_loop0 ra rb acc cols 0#usize
+        ok (cont (acc1, g1, err))
+      | core.result.Result.Err e => ok (cont (acc, g1, some e))
+    else ok (done (acc, err))
+  else ok (done (acc, err))
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 1171:8-1193:9 -/
+@[rust_loop]
+def kern.limb.Plane.product_rows_loop0
+  (i : Std.Usize) (i1 : Std.Usize) (i2 : Std.Usize) (i3 : Std.Usize)
+  (i4 : Std.U32) (v : alloc.vec.Vec Std.U32) (v1 : alloc.vec.Vec Std.I8)
+  (i5 : Std.Usize) (i6 : Std.Usize) (i7 : Std.Usize) (i8 : Std.Usize)
+  (i9 : Std.U32) (v2 : alloc.vec.Vec Std.U32) (v3 : alloc.vec.Vec Std.I8)
+  (a0 : Std.Usize) (ra : Std.Usize) (b0 : Std.Usize) (rb : Std.Usize)
+  (pairs : alloc.vec.Vec (Std.U32 × Std.U32))
+  (val : alloc.vec.Vec kern.limb.Place) (group : Std.Usize)
+  (acc : alloc.vec.Vec Std.I128) (g0 : Std.Usize)
+  (err : Option kern.limb.LimbError) :
+  Result ((alloc.vec.Vec Std.I128) × (Option kern.limb.LimbError))
+  := do
+  loop
+    (fun (acc1, g01, err1) => kern.limb.Plane.product_rows_loop0.body i i1 i2
+      i3 i4 v v1 i5 i6 i7 i8 i9 v2 v3 a0 ra b0 rb pairs val group acc1 g01
+      err1)
+    (acc, g0, err)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop body 4:
+    Source: '../../src/engine/kern/limb.rs', lines 1201:12-1207:13 -/
+@[rust_loop_body]
+def kern.limb.Plane.product_rows_loop1_loop0.body
+  (ra : Std.Usize) (rb : Std.Usize) (acc : alloc.vec.Vec Std.I128)
+  (i : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (err2 : Option kern.limb.LimbError) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option kern.limb.LimbError)
+    × Std.Usize) ((alloc.vec.Vec Std.I64) × (Option kern.limb.LimbError)))
+  := do
+  if j < rb
+  then
+    let b := core.option.Option.is_none err2
+    if b
+    then
+      let i1 ← j * ra
+      let i2 ← i1 + i
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
+          acc i2
+      let r ← I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from i3
+      let (out1, err21) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let i4 ← i * rb
+          let i5 ← i4 + j
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) out i5
+          let out2 := index_mut_back v
+          ok (out2, err2)
+        | core.result.Result.Err _ => ok (out, some kern.limb.LimbError.Range)
+      let j1 ← j + 1#usize
+      ok (cont (out1, err21, j1))
+    else ok (done (out, err2))
+  else ok (done (out, err2))
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop 4:
+    Source: '../../src/engine/kern/limb.rs', lines 1201:12-1207:13 -/
+@[rust_loop]
+def kern.limb.Plane.product_rows_loop1_loop0
+  (ra : Std.Usize) (rb : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (acc : alloc.vec.Vec Std.I128) (i : Std.Usize)
+  (err2 : Option kern.limb.LimbError) (j : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option kern.limb.LimbError))
+  := do
+  loop
+    (fun (out1, err21, j1) => kern.limb.Plane.product_rows_loop1_loop0.body ra
+      rb acc i out1 err21 j1)
+    (out, err2, j)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop body 3:
+    Source: '../../src/engine/kern/limb.rs', lines 1199:8-1209:9 -/
+@[rust_loop_body]
+def kern.limb.Plane.product_rows_loop1.body
+  (ra : Std.Usize) (rb : Std.Usize) (acc : alloc.vec.Vec Std.I128)
+  (out : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  (err2 : Option kern.limb.LimbError) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize × (Option
+    kern.limb.LimbError)) ((alloc.vec.Vec Std.I64) × (Option
+    kern.limb.LimbError)))
+  := do
+  if i < ra
+  then
+    let b := core.option.Option.is_none err2
+    if b
+    then
+      let (out1, err21) ←
+        kern.limb.Plane.product_rows_loop1_loop0 ra rb out acc i err2 0#usize
+      let i1 ← i + 1#usize
+      ok (cont (out1, i1, err21))
+    else ok (done (out, err2))
+  else ok (done (out, err2))
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop 3:
+    Source: '../../src/engine/kern/limb.rs', lines 1199:8-1209:9 -/
+@[rust_loop]
+def kern.limb.Plane.product_rows_loop1
+  (ra : Std.Usize) (rb : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (acc : alloc.vec.Vec Std.I128) (i : Std.Usize)
+  (err2 : Option kern.limb.LimbError) :
+  Result ((alloc.vec.Vec Std.I64) × (Option kern.limb.LimbError))
+  := do
+  loop
+    (fun (out1, i1, err21) => kern.limb.Plane.product_rows_loop1.body ra rb acc
+      out1 i1 err21)
+    (out, i, err2)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]:
+    Source: '../../src/engine/kern/limb.rs', lines 1129:4-1214:5 -/
+def kern.limb.Plane.product_rows
+  (self : kern.limb.Plane) (b : kern.limb.Plane) (a0 : Std.Usize)
+  (ra : Std.Usize) (b0 : Std.Usize) (rb : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
+  := do
+  if n != self.n
+  then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+  else
+    if n != b.n
+    then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+    else
+      if ra = 0#usize
+      then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+      else
+        if rb = 0#usize
+        then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+        else
+          let i ← a0 + ra
+          if i > self.rows
+          then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+          else
+            let i1 ← b0 + rb
+            if i1 > b.rows
+            then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+            else
+              if self.limbs != b.limbs
+              then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+              else
+                let pairs ← kern.limb.kept_pairs self.limbs
+                let s := alloc.vec.Vec.deref pairs
+                let r ← kern.limb.Layout.placement self b s
+                let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+                match cf with
+                | core.ops.control_flow.ControlFlow.Continue val =>
+                  let i2 ← kern.limb.MAX_INNER
+                  let i3 ← i2 / self.padded
+                  let i4 ←
+                    core.cmp.Ord.max.default core.cmp.OrdUsize i3 1#usize
+                  let i5 := alloc.vec.Vec.len pairs
+                  let group ←
+                    core.cmp.Ord.min.trait_default core.cmp.OrdUsize i4 i5
+                  let i6 ← ra * rb
+                  let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i6
+                  let i7 := alloc.vec.Vec.len pairs
+                  if i7 <= group
+                  then
+                    let i8 := alloc.vec.Vec.len pairs
+                    let n_in ← i8 * self.padded
+                    let i9 := alloc.vec.Vec.len pairs
+                    let raw ←
+                      kern.limb.Layout.weight_payload
+                        { a := self, b, pairs, place := val } a0 ra 0#usize i9
+                    let i10 := alloc.vec.Vec.len pairs
+                    let qs ←
+                      kern.limb.Layout.columns
+                        { a := self, b, pairs, place := val } b0 rb 0#usize i10
+                    let s1 := alloc.vec.Vec.deref raw
+                    let s2 := alloc.vec.Vec.deref qs
+                    let r1 ← kern.limb.projection s1 ra n_in s2
+                    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+                    match cf1 with
+                    | core.ops.control_flow.ControlFlow.Continue val1 =>
+                      let (s3, deref_mut_back) ←
+                        lift (alloc.vec.Vec.deref_mut out)
+                      let s4 := alloc.vec.Vec.deref val1
+                      let s5 ← kern.limb.transpose_rows s3 s4 ra rb
+                      let out1 := deref_mut_back s5
+                      ok (core.result.Result.Ok out1)
+                    | core.ops.control_flow.ControlFlow.Break residual =>
+                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                        (alloc.vec.Vec Std.I64) (core.convert.FromSame
+                        kern.limb.LimbError) residual
+                  else
+                    let acc ←
+                      alloc.vec.from_elem core.clone.CloneI128 0#i128 i6
+                    let (acc1, err) ←
+                      kern.limb.Plane.product_rows_loop0 self.rows self.n
+                        self.blocks self.padded self.limbs self.e self.dig
+                        b.rows b.n b.blocks b.padded b.limbs b.e b.dig a0 ra b0
+                        rb pairs val group acc 0#usize none
+                    match err with
+                    | none =>
+                      let (out1, err2) ←
+                        kern.limb.Plane.product_rows_loop1 ra rb out acc1
+                          0#usize none
+                      match err2 with
+                      | none => ok (core.result.Result.Ok out1)
+                      | some e => ok (core.result.Result.Err e)
+                    | some e => ok (core.result.Result.Err e)
+                | core.ops.control_flow.ControlFlow.Break residual =>
+                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                    (alloc.vec.Vec Std.I64) (core.convert.FromSame
+                    kern.limb.LimbError) residual
+
+/-- [apeiron_word::kern::limb::split_digits]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 453:4-472:5 -/
+@[rust_loop_body]
+def kern.limb.split_digits_loop.body
+  (e : Std.U32) (limbs : Std.U32) (out : Slice Std.I8) (u : Std.I64)
+  (s : Std.U32) :
+  Result (ControlFlow ((Slice Std.I8) × Std.I64 × Std.U32) (Slice Std.I8))
+  := do
+  if s < limbs
+  then
+    let i ← lift (UScalar.hcast .I32 e)
+    let i1 ← lift (UScalar.hcast .I32 s)
+    let i2 ← i1 + 1#i32
+    let i3 ← kern.limb.LIMB_BITS * i2
+    let k ← i - i3
+    let d ←
+      if s = 0#u32
+      then
+        do
+        let i4 ← lift (core.convert.num.FromI128I64.from u)
+        let i5 ← i4 <<< kern.limb.LIMB_BITS
+        let i6 ← e - 1#u32
+        let i7 ← 1#i128 <<< i6
+        let num ← i5 + i7
+        let i8 ← num >>> e
+        ok (IScalar.cast .I64 i8)
+      else
+        if k >= 1#i32
+        then
+          do
+          let i4 ← k - 1#i32
+          let i5 ← 1#i64 <<< i4
+          let i6 ← lift (core.num.I64.wrapping_add u i5)
+          i6 >>> k
+        else
+          do
+          let i4 ← -. k
+          let i5 ← lift (IScalar.hcast .U32 i4)
+          u <<< i5
+    let i4 ← lift (UScalar.cast .Usize s)
+    let i5 ← lift (IScalar.cast .I8 d)
+    let s1 ← Slice.update out i4 i5
+    let u1 ←
+      if k >= 1#i32
+      then do
+           let i6 ← d <<< k
+           ok (core.num.I64.wrapping_sub u i6)
+      else ok 0#i64
+    let s2 ← s + 1#u32
+    ok (cont (s1, u1, s2))
+  else ok (done out)
+
+/-- [apeiron_word::kern::limb::split_digits]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 453:4-472:5 -/
+@[rust_loop]
+def kern.limb.split_digits_loop
+  (e : Std.U32) (limbs : Std.U32) (out : Slice Std.I8) (u : Std.I64)
+  (s : Std.U32) :
+  Result (Slice Std.I8)
+  := do
+  loop
+    (fun (out1, u1, s1) => kern.limb.split_digits_loop.body e limbs out1 u1 s1)
+    (out, u, s)
+
+/-- [apeiron_word::kern::limb::split_digits]:
+    Source: '../../src/engine/kern/limb.rs', lines 448:0-473:1 -/
+@[reducible]
+def kern.limb.split_digits
+  (x : Std.I64) (e : Std.U32) (limbs : Std.U32) (out : Slice Std.I8) :
+  Result (Slice Std.I8)
+  := do
+  kern.limb.split_digits_loop e limbs out x 0#u32
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop body 3:
+    Source: '../../src/engine/kern/limb.rs', lines 555:20-558:21 -/
+@[rust_loop_body]
+def kern.limb.DigitsTask.body_loop0_loop0_loop0_loop0.body
+  (limbs : Std.U32) (tmp : Array Std.I8 8#usize) («at» : Std.Usize)
+  (lane : Std.Usize) (out : Slice Std.I8) (s : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I8) × Std.Usize) (Slice Std.I8))
+  := do
+  let i ← lift (UScalar.cast .Usize limbs)
+  if s < i
+  then
+    let i1 ← Array.index_usize tmp s
+    let i2 ← s * kern.limb.ACT_QK
+    let i3 ← «at» + i2
+    let i4 ← i3 + lane
+    let s1 ← Slice.update out i4 i1
+    let s2 ← s + 1#usize
+    ok (cont (s1, s2))
+  else ok (done out)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop 3:
+    Source: '../../src/engine/kern/limb.rs', lines 555:20-558:21 -/
+@[rust_loop]
+def kern.limb.DigitsTask.body_loop0_loop0_loop0_loop0
+  (limbs : Std.U32) (tmp : Array Std.I8 8#usize) (out : Slice Std.I8)
+  («at» : Std.Usize) (lane : Std.Usize) (s : Std.Usize) :
+  Result (Slice Std.I8)
+  := do
+  loop
+    (fun (out1, s1) => kern.limb.DigitsTask.body_loop0_loop0_loop0_loop0.body
+      limbs tmp «at» lane out1 s1)
+    (out, s)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop body 2:
+    Source: '../../src/engine/kern/limb.rs', lines 551:16-560:17 -/
+@[rust_loop_body]
+def kern.limb.DigitsTask.body_loop0_loop0_loop0.body
+  (data : Slice Std.I64) (limbs : Std.U32) (e : Slice Std.U32) (b : Std.Usize)
+  (lo : Std.Usize) (hi : Std.Usize) («at» : Std.Usize)
+  (tmp : Array Std.I8 8#usize) (out : Slice Std.I8) (lane : Std.Usize) :
+  Result (ControlFlow ((Array Std.I8 8#usize) × (Slice Std.I8) × Std.Usize)
+    ((Array Std.I8 8#usize) × (Slice Std.I8)))
+  := do
+  if lane < kern.limb.ACT_QK
+  then
+    let i ← lo + lane
+    let x ← if i < hi
+              then Slice.index_usize data i
+              else ok 0#i64
+    let i1 ← Slice.index_usize e b
+    let (s, to_slice_mut_back) ← lift (Array.to_slice_mut tmp)
+    let s1 ← kern.limb.split_digits x i1 limbs s
+    let tmp1 := to_slice_mut_back s1
+    let out1 ←
+      kern.limb.DigitsTask.body_loop0_loop0_loop0_loop0 limbs tmp1 out «at»
+        lane 0#usize
+    let lane1 ← lane + 1#usize
+    ok (cont (tmp1, out1, lane1))
+  else ok (done (tmp, out))
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop 2:
+    Source: '../../src/engine/kern/limb.rs', lines 551:16-560:17 -/
+@[rust_loop]
+def kern.limb.DigitsTask.body_loop0_loop0_loop0
+  (data : Slice Std.I64) (limbs : Std.U32) (e : Slice Std.U32)
+  (tmp : Array Std.I8 8#usize) (out : Slice Std.I8) (b : Std.Usize)
+  (lo : Std.Usize) (hi : Std.Usize) («at» : Std.Usize) (lane : Std.Usize) :
+  Result ((Array Std.I8 8#usize) × (Slice Std.I8))
+  := do
+  loop
+    (fun (tmp1, out1, lane1) =>
+      kern.limb.DigitsTask.body_loop0_loop0_loop0.body data limbs e b lo hi
+      «at» tmp1 out1 lane1)
+    (tmp, out, lane)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 546:12-562:13 -/
+@[rust_loop_body]
+def kern.limb.DigitsTask.body_loop0_loop0.body
+  (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
+  (lane_words : Std.Usize) (limbs : Std.U32) (e : Slice Std.U32)
+  (base : Std.Usize) (tmp : Array Std.I8 8#usize) (out : Slice Std.I8)
+  (b : Std.Usize) :
+  Result (ControlFlow ((Array Std.I8 8#usize) × (Slice Std.I8) × Std.Usize)
+    ((Array Std.I8 8#usize) × (Slice Std.I8)))
+  := do
+  if b < blocks
+  then
+    let i ← b * kern.limb.ACT_QK
+    let lo ← base + i
+    let i1 ← lo + kern.limb.ACT_QK
+    let i2 ← base + n
+    let hi ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i1 i2
+    let «at» ← b * lane_words
+    let (tmp1, out1) ←
+      kern.limb.DigitsTask.body_loop0_loop0_loop0 data limbs e tmp out b lo hi
+        «at» 0#usize
+    let b1 ← b + 1#usize
+    ok (cont (tmp1, out1, b1))
+  else ok (done (tmp, out))
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 546:12-562:13 -/
+@[rust_loop]
+def kern.limb.DigitsTask.body_loop0_loop0
+  (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
+  (lane_words : Std.Usize) (limbs : Std.U32) (e : Slice Std.U32)
+  (tmp : Array Std.I8 8#usize) (base : Std.Usize) (out : Slice Std.I8)
+  (b : Std.Usize) :
+  Result ((Array Std.I8 8#usize) × (Slice Std.I8))
+  := do
+  loop
+    (fun (tmp1, out1, b1) => kern.limb.DigitsTask.body_loop0_loop0.body data n
+      blocks lane_words limbs e base tmp1 out1 b1)
+    (tmp, out, b)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 541:8-564:9 -/
+@[rust_loop_body]
+def kern.limb.DigitsTask.body_loop0.body
+  (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
+  (lane_words : Std.Usize) (limbs : Std.U32) (e : Slice Std.U32)
+  (per_row : Std.Usize) (row0 : Std.Usize) (row_count : Std.Usize)
+  (piece : Slice Std.I8) (tmp : Array Std.I8 8#usize) (k : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I8) × (Array Std.I8 8#usize) × Std.Usize)
+    (Slice Std.I8))
+  := do
+  if k < row_count
+  then
+    let r ← row0 + k
+    let base ← r * n
+    let i ← k * per_row
+    let i1 ← k + 1#usize
+    let i2 ← i1 * per_row
+    let (out, index_mut_back) ←
+      core.slice.index.Slice.index_mut
+        (core.slice.index.SliceIndexRangeUsizeSlice Std.I8) piece
+        { start := i, «end» := i2 }
+    let (tmp1, out1) ←
+      kern.limb.DigitsTask.body_loop0_loop0 data n blocks lane_words limbs e
+        tmp base out 0#usize
+    let k1 ← k + 1#usize
+    let piece1 := index_mut_back out1
+    ok (cont (piece1, tmp1, k1))
+  else ok (done piece)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 541:8-564:9 -/
+@[rust_loop]
+def kern.limb.DigitsTask.body_loop0
+  (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
+  (lane_words : Std.Usize) (limbs : Std.U32) (e : Slice Std.U32)
+  (piece : Slice Std.I8) (per_row : Std.Usize) (row0 : Std.Usize)
+  (tmp : Array Std.I8 8#usize) (row_count : Std.Usize) (k : Std.Usize) :
+  Result (Slice Std.I8)
+  := do
+  loop
+    (fun (piece1, tmp1, k1) => kern.limb.DigitsTask.body_loop0.body data n
+      blocks lane_words limbs e per_row row0 row_count piece1 tmp1 k1)
+    (piece, tmp, k)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]:
+    Source: '../../src/engine/kern/limb.rs', lines 526:4-565:5 -/
+def kern.limb.DigitsTask.body
+  (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
+  (lane_words : Std.Usize) (limbs : Std.U32) (e : Slice Std.U32)
+  (start : Std.Usize) (piece : Slice Std.I8) :
+  Result (Slice Std.I8)
+  := do
+  let per_row ← blocks * lane_words
+  let row0 ← start / per_row
+  let tmp := Array.repeat 8#usize 0#i8
+  let i := Slice.len piece
+  let row_count ← i / per_row
+  kern.limb.DigitsTask.body_loop0 data n blocks lane_words limbs e piece
+    per_row row0 tmp row_count 0#usize
+
+/-- [apeiron_word::kern::limb::DigitsTask]
+    Source: '../../src/engine/kern/limb.rs', lines 509:0-516:1 -/
+structure kern.limb.DigitsTask where
+  data : Slice Std.I64
+  n : Std.Usize
+  blocks : Std.Usize
+  lane_words : Std.Usize
+  limbs : Std.U32
+  e : Slice Std.U32
+
+/-- [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<i8> for apeiron_word::kern::limb::DigitsTask<'_0>}::run]:
+    Source: '../../src/engine/kern/limb.rs', lines 569:4-580:5 -/
+def kern.limb.DigitsTask.Insts.Apeiron_wordChartTaskChunkTaskI8.run
+  (self : kern.limb.DigitsTask) (_c : Std.Usize) (start : Std.Usize)
+  (piece : Slice Std.I8) :
+  Result (Slice Std.I8)
+  := do
+  kern.limb.DigitsTask.body self.data self.n self.blocks self.lane_words
+    self.limbs self.e start piece
+
+/-- Trait implementation: [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<i8> for apeiron_word::kern::limb::DigitsTask<'_0>}]
+    Source: '../../src/engine/kern/limb.rs', lines 568:0-581:1 -/
+@[reducible]
+def kern.limb.DigitsTask.Insts.Apeiron_wordChartTaskChunkTaskI8 :
+  chart.task.ChunkTask kern.limb.DigitsTask Std.I8 := {
+  run := kern.limb.DigitsTask.Insts.Apeiron_wordChartTaskChunkTaskI8.run
+}
+
+/-- [apeiron_word::kern::limb::bitlen]:
+    Source: '../../src/engine/kern/limb.rs', lines 370:0-372:1 -/
+def kern.limb.bitlen (x : Std.U64) : Result Std.U32 := do
+  let i ← lift (core.num.U64.leading_zeros x)
+  core.num.U64.BITS - i
+
+/-- [apeiron_word::kern::limb::block_exp]:
+    Source: '../../src/engine/kern/limb.rs', lines 420:0-426:1 -/
+def kern.limb.block_exp (absmax : Std.U64) : Result Std.U32 := do
+  if absmax = 0#u64
+  then ok 1#u32
+  else let i ← kern.limb.bitlen absmax
+       i + 1#u32
+
+/-- [apeiron_word::kern::limb::block_absmax]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 407:4-409:5 -/
+@[rust_loop_body]
+def kern.limb.block_absmax_loop.body
+  (iter : core.slice.iter.Iter Std.I64) (m : Std.U64) :
+  Result (ControlFlow ((core.slice.iter.Iter Std.I64) × Std.U64) Std.U64)
+  := do
+  let (o, iter1) ← core.slice.iter.IteratorSliceIter.next iter
+  match o with
+  | none => ok (done m)
+  | some w =>
+    let i ← core.num.I64.unsigned_abs w
+    let m1 ← core.cmp.Ord.max.default core.cmp.OrdU64 m i
+    ok (cont (iter1, m1))
+
+/-- [apeiron_word::kern::limb::block_absmax]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 407:4-409:5 -/
+@[rust_loop]
+def kern.limb.block_absmax_loop
+  (iter : core.slice.iter.Iter Std.I64) (m : Std.U64) : Result Std.U64 := do
+  loop
+    (fun (iter1, m1) => kern.limb.block_absmax_loop.body iter1 m1)
+    (iter, m)
+
+/-- [apeiron_word::kern::limb::block_absmax]:
+    Source: '../../src/engine/kern/limb.rs', lines 405:0-411:1 -/
+def kern.limb.block_absmax (words : Slice Std.I64) : Result Std.U64 := do
+  let iter ←
+    SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter
+      words
+  kern.limb.block_absmax_loop iter 0#u64
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::RowExpTask<'_0>}::body]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 490:8-498:9 -/
+@[rust_loop_body]
+def kern.limb.RowExpTask.body_loop.body
+  (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
+  (row0 : Std.Usize) (piece : Slice Std.U32) (k : Std.Usize) :
+  Result (ControlFlow ((Slice Std.U32) × Std.Usize) (Slice Std.U32))
+  := do
+  let i := Slice.len piece
+  if k < i
+  then
+    let i1 ← k / blocks
+    let r ← row0 + i1
+    let b ← k % blocks
+    let base ← r * n
+    let i2 ← b * kern.limb.ACT_QK
+    let lo ← base + i2
+    let i3 ← lo + kern.limb.ACT_QK
+    let i4 ← base + n
+    let hi ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i3 i4
+    let s ←
+      core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.I64) data { start := lo, «end» := hi }
+    let i5 ← kern.limb.block_absmax s
+    let i6 ← kern.limb.block_exp i5
+    let s1 ← Slice.update piece k i6
+    let k1 ← k + 1#usize
+    ok (cont (s1, k1))
+  else ok (done piece)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::RowExpTask<'_0>}::body]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 490:8-498:9 -/
+@[rust_loop]
+def kern.limb.RowExpTask.body_loop
+  (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
+  (piece : Slice Std.U32) (row0 : Std.Usize) (k : Std.Usize) :
+  Result (Slice Std.U32)
+  := do
+  loop
+    (fun (piece1, k1) => kern.limb.RowExpTask.body_loop.body data n blocks row0
+      piece1 k1)
+    (piece, k)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::RowExpTask<'_0>}::body]:
+    Source: '../../src/engine/kern/limb.rs', lines 487:4-499:5 -/
+def kern.limb.RowExpTask.body
+  (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
+  (start : Std.Usize) (piece : Slice Std.U32) :
+  Result (Slice Std.U32)
+  := do
+  let row0 ← start / blocks
+  kern.limb.RowExpTask.body_loop data n blocks piece row0 0#usize
+
+/-- [apeiron_word::kern::limb::RowExpTask]
+    Source: '../../src/engine/kern/limb.rs', lines 477:0-481:1 -/
+structure kern.limb.RowExpTask where
+  data : Slice Std.I64
+  n : Std.Usize
+  blocks : Std.Usize
+
+/-- [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<u32> for apeiron_word::kern::limb::RowExpTask<'_0>}::run]:
+    Source: '../../src/engine/kern/limb.rs', lines 503:4-505:5 -/
+def kern.limb.RowExpTask.Insts.Apeiron_wordChartTaskChunkTaskU32.run
+  (self : kern.limb.RowExpTask) (_c : Std.Usize) (start : Std.Usize)
+  (piece : Slice Std.U32) :
+  Result (Slice Std.U32)
+  := do
+  kern.limb.RowExpTask.body self.data self.n self.blocks start piece
+
+/-- Trait implementation: [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<u32> for apeiron_word::kern::limb::RowExpTask<'_0>}]
+    Source: '../../src/engine/kern/limb.rs', lines 502:0-506:1 -/
+@[reducible]
+def kern.limb.RowExpTask.Insts.Apeiron_wordChartTaskChunkTaskU32 :
+  chart.task.ChunkTask kern.limb.RowExpTask Std.U32 := {
+  run := kern.limb.RowExpTask.Insts.Apeiron_wordChartTaskChunkTaskU32.run
+}
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::build]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 616:12-622:13 -/
+@[rust_loop_body]
+def kern.limb.Plane.build_loop0_loop0.body
+  (blocks : Std.Usize) (row_e : alloc.vec.Vec Std.U32) (r : Std.Usize)
+  (e : alloc.vec.Vec Std.U32) (b : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.Usize) (alloc.vec.Vec
+    Std.U32))
+  := do
+  if b < blocks
+  then
+    let i ← r * blocks
+    let i1 ← i + b
+    let cand ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U32) row_e
+        i1
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U32) e b
+    let e1 ←
+      if cand > i2
+      then
+        do
+        let (_, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            Std.U32) e b
+        ok (index_mut_back cand)
+      else ok e
+    let b1 ← b + 1#usize
+    ok (cont (e1, b1))
+  else ok (done e)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::build]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 616:12-622:13 -/
+@[rust_loop]
+def kern.limb.Plane.build_loop0_loop0
+  (blocks : Std.Usize) (row_e : alloc.vec.Vec Std.U32)
+  (e : alloc.vec.Vec Std.U32) (r : Std.Usize) (b : Std.Usize) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  loop
+    (fun (e1, b1) => kern.limb.Plane.build_loop0_loop0.body blocks row_e r e1
+      b1)
+    (e, b)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::build]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 614:8-624:9 -/
+@[rust_loop_body]
+def kern.limb.Plane.build_loop0.body
+  (rows : Std.Usize) (blocks : Std.Usize) (row_e : alloc.vec.Vec Std.U32)
+  (e : alloc.vec.Vec Std.U32) (r : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.Usize) (alloc.vec.Vec
+    Std.U32))
+  := do
+  if r < rows
+  then
+    let e1 ← kern.limb.Plane.build_loop0_loop0 blocks row_e e r 0#usize
+    let r1 ← r + 1#usize
+    ok (cont (e1, r1))
+  else ok (done e)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::build]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 614:8-624:9 -/
+@[rust_loop]
+def kern.limb.Plane.build_loop0
+  (rows : Std.Usize) (blocks : Std.Usize) (row_e : alloc.vec.Vec Std.U32)
+  (e : alloc.vec.Vec Std.U32) (r : Std.Usize) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  loop
+    (fun (e1, r1) => kern.limb.Plane.build_loop0.body rows blocks row_e e1 r1)
+    (e, r)
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::build]:
+    Source: '../../src/engine/kern/limb.rs', lines 595:4-651:5 -/
+def kern.limb.Plane.build
+  (data : Slice Std.I64) (rows : Std.Usize) (n : Std.Usize) (limbs : Std.U32) :
+  Result (core.result.Result kern.limb.Plane kern.limb.LimbError)
+  := do
+  if rows = 0#usize
+  then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+  else
+    if n = 0#usize
+    then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+    else
+      if limbs = 0#u32
+      then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+      else
+        if limbs > kern.limb.MAX_LIMBS
+        then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+        else
+          let i ← kern.limb.MAX_INNER
+          if n > i
+          then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+          else
+            let i1 := Slice.len data
+            let o ← lift (Usize.checked_mul rows n)
+            let r ← core.option.Option.ok_or o kern.limb.LimbError.Shape
+            let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+            match cf with
+            | core.ops.control_flow.ControlFlow.Continue val =>
+              if i1 != val
+              then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+              else
+                let blocks ← core.num.Usize.div_ceil n kern.limb.ACT_QK
+                let padded ← blocks * kern.limb.ACT_QK
+                let i2 ← rows * blocks
+                let row_e ← alloc.vec.from_elem core.clone.CloneU32 0#u32 i2
+                let i3 := Slice.len data
+                let i4 ← kern.limb.POOL_MIN
+                let row_e1 ←
+                  if i3 >= i4
+                  then
+                    do
+                    let i5 ← kern.limb.pool_chunk rows
+                    let chunk ← i5 * blocks
+                    let (s, deref_mut_back) ←
+                      lift (alloc.vec.Vec.deref_mut row_e)
+                    let s1 ←
+                      chart.pool.chunks_mut_global
+                        kern.limb.RowExpTask.Insts.Apeiron_wordChartTaskChunkTaskU32
+                        s chunk { data, n, blocks }
+                    ok (deref_mut_back s1)
+                  else
+                    do
+                    let (s, deref_mut_back) ←
+                      lift (alloc.vec.Vec.deref_mut row_e)
+                    let s1 ←
+                      kern.limb.RowExpTask.Insts.Apeiron_wordChartTaskChunkTaskU32.run
+                        { data, n, blocks } 0#usize 0#usize s
+                    ok (deref_mut_back s1)
+                let e ← alloc.vec.from_elem core.clone.CloneU32 1#u32 blocks
+                let e1 ←
+                  kern.limb.Plane.build_loop0 rows blocks row_e1 e 0#usize
+                let i5 ← lift (UScalar.cast .Usize limbs)
+                let lane_words ← i5 * kern.limb.ACT_QK
+                let per_row ← blocks * lane_words
+                let i6 ← rows * per_row
+                let dig ← alloc.vec.from_elem core.clone.CloneI8 0#i8 i6
+                let s := alloc.vec.Vec.deref e1
+                let i7 := Slice.len data
+                if i7 >= i4
+                then
+                  let i8 ← kern.limb.pool_chunk rows
+                  let chunk ← i8 * per_row
+                  let (s1, deref_mut_back) ←
+                    lift (alloc.vec.Vec.deref_mut dig)
+                  let s2 ←
+                    chart.pool.chunks_mut_global
+                      kern.limb.DigitsTask.Insts.Apeiron_wordChartTaskChunkTaskI8
+                      s1 chunk { data, n, blocks, lane_words, limbs, e := s }
+                  let dig1 := deref_mut_back s2
+                  ok (core.result.Result.Ok
+                    { rows, n, blocks, padded, limbs, e := e1, dig := dig1 })
+                else
+                  let (s1, deref_mut_back) ←
+                    lift (alloc.vec.Vec.deref_mut dig)
+                  let s2 ←
+                    kern.limb.DigitsTask.Insts.Apeiron_wordChartTaskChunkTaskI8.run
+                      { data, n, blocks, lane_words, limbs, e := s } 0#usize
+                      0#usize s1
+                  let dig1 := deref_mut_back s2
+                  ok (core.result.Result.Ok
+                    { rows, n, blocks, padded, limbs, e := e1, dig := dig1 })
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                kern.limb.Plane (core.convert.FromSame kern.limb.LimbError)
+                residual
+
+/-- [apeiron_word::kern::limb::gemm_q32]:
+    Source: '../../src/engine/kern/limb.rs', lines 156:0-172:1 -/
+def kern.limb.gemm_q32
+  (a : Slice Std.I64) (m : Std.Usize) (b : Slice Std.I64) (p : Std.Usize)
+  (n : Std.Usize) (limbs : Std.U32) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
+  := do
+  let o ← lift (Usize.checked_mul m n)
+  let r ← core.option.Option.ok_or o kern.limb.LimbError.Shape
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o1 ← lift (Usize.checked_mul p n)
+    let r1 ← core.option.Option.ok_or o1 kern.limb.LimbError.Shape
+    let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+    match cf1 with
+    | core.ops.control_flow.ControlFlow.Continue val1 =>
+      let i := Slice.len a
+      if i != val
+      then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+      else
+        let i1 := Slice.len b
+        if i1 != val1
+        then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+        else
+          let r2 ← kern.limb.Plane.build a m n limbs
+          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            let r3 ← kern.limb.Plane.build b p n limbs
+            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+            match cf3 with
+            | core.ops.control_flow.ControlFlow.Continue val3 =>
+              kern.limb.Plane.product_rows val2 val3 0#usize m 0#usize p n
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                (alloc.vec.Vec Std.I64) (core.convert.FromSame
+                kern.limb.LimbError) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              kern.limb.LimbError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+        residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+      residual
+
+/-- [apeiron_word::kern::limb::SYRK_COLS]
+    Source: '../../src/engine/kern/limb.rs', lines 315:0-315:28 -/
+@[global_simps, irreducible] def kern.limb.SYRK_COLS : Std.Usize := 16#usize
+
+/-- [apeiron_word::kern::limb::syrk_q32]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 207:8-214:9 -/
+@[rust_loop_body]
+def kern.limb.syrk_q32_loop0_loop0.body
+  (m : Std.Usize) (j0 : Std.Usize) (j1 : Std.Usize) (width : Std.Usize)
+  (block : alloc.vec.Vec Std.I64) (c : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < j1
+  then
+    let lo ← core.cmp.Ord.max.default core.cmp.OrdUsize j0 i
+    let c1 ←
+      if lo < j1
+      then
+        do
+        let i1 ← i * width
+        let i2 ← lo - j0
+        let «from» ← i1 + i2
+        let i3 ← i * m
+        let i4 ← i3 + lo
+        let i5 ← i3 + j1
+        let (s, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeUsizeSlice
+            Std.I64) c { start := i4, «end» := i5 }
+        let i6 ← j1 - lo
+        let i7 ← «from» + i6
+        let s1 ←
+          alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+            Std.I64) block { start := «from», «end» := i7 }
+        let s2 ← core.slice.Slice.copy_from_slice core.marker.CopyI64 s s1
+        ok (index_mut_back s2)
+      else ok c
+    let i1 ← i + 1#usize
+    ok (cont (c1, i1))
+  else ok (done c)
+
+/-- [apeiron_word::kern::limb::syrk_q32]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 207:8-214:9 -/
+@[rust_loop]
+def kern.limb.syrk_q32_loop0_loop0
+  (m : Std.Usize) (c : alloc.vec.Vec Std.I64) (j0 : Std.Usize) (j1 : Std.Usize)
+  (width : Std.Usize) (block : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (c1, i1) => kern.limb.syrk_q32_loop0_loop0.body m j0 j1 width block c1
+      i1)
+    (c, i)
+
+/-- [apeiron_word::kern::limb::syrk_q32]: loop body 3:
+    Source: '../../src/engine/kern/limb.rs', lines 221:8-224:9 -/
+@[rust_loop_body]
+def kern.limb.syrk_q32_loop0_loop1_loop0.body
+  (m : Std.Usize) (i : Std.Usize) (c : alloc.vec.Vec Std.I64) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if j < m
+  then
+    let i1 ← i * m
+    let i2 ← i1 + j
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) c i2
+    let i4 ← j * m
+    let i5 ← i4 + i
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) c
+        i5
+    let j1 ← j + 1#usize
+    let c1 := index_mut_back i3
+    ok (cont (c1, j1))
+  else ok (done c)
+
+/-- [apeiron_word::kern::limb::syrk_q32]: loop 3:
+    Source: '../../src/engine/kern/limb.rs', lines 221:8-224:9 -/
+@[rust_loop]
+def kern.limb.syrk_q32_loop0_loop1_loop0
+  (m : Std.Usize) (c : alloc.vec.Vec Std.I64) (i : Std.Usize) (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (c1, j1) => kern.limb.syrk_q32_loop0_loop1_loop0.body m i c1 j1)
+    (c, j)
+
+/-- [apeiron_word::kern::limb::syrk_q32]: loop body 2:
+    Source: '../../src/engine/kern/limb.rs', lines 219:4-226:5 -/
+@[rust_loop_body]
+def kern.limb.syrk_q32_loop0_loop1.body
+  (m : Std.Usize) (c : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < m
+  then
+    let j ← i + 1#usize
+    let c1 ← kern.limb.syrk_q32_loop0_loop1_loop0 m c i j
+    let i1 ← i + 1#usize
+    ok (cont (c1, i1))
+  else ok (done c)
+
+/-- [apeiron_word::kern::limb::syrk_q32]: loop 2:
+    Source: '../../src/engine/kern/limb.rs', lines 219:4-226:5 -/
+@[rust_loop]
+def kern.limb.syrk_q32_loop0_loop1
+  (m : Std.Usize) (c : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (c1, i1) => kern.limb.syrk_q32_loop0_loop1.body m c1 i1)
+    (c, i)
+
+/-- [apeiron_word::kern::limb::syrk_q32]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 201:4-228:1 -/
+@[rust_loop_body]
+def kern.limb.syrk_q32_loop0.body
+  (m : Std.Usize) (n : Std.Usize) (plane : kern.limb.Plane)
+  (c : alloc.vec.Vec Std.I64) (j0 : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize)
+    (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError))
+  := do
+  if j0 < m
+  then
+    let i ← j0 + kern.limb.SYRK_COLS
+    let j1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i m
+    let width ← j1 - j0
+    let r ← kern.limb.Plane.product_rows plane plane 0#usize j1 j0 width n
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let c1 ← kern.limb.syrk_q32_loop0_loop0 m c j0 j1 width val 0#usize
+      ok (cont (c1, j1))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+          residual
+      ok (done r1)
+  else
+    let c1 ← kern.limb.syrk_q32_loop0_loop1 m c 0#usize
+    ok (done (core.result.Result.Ok c1))
+
+/-- [apeiron_word::kern::limb::syrk_q32]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 201:4-228:1 -/
+@[rust_loop]
+def kern.limb.syrk_q32_loop0
+  (m : Std.Usize) (n : Std.Usize) (plane : kern.limb.Plane)
+  (c : alloc.vec.Vec Std.I64) (j0 : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
+  := do
+  loop
+    (fun (c1, j01) => kern.limb.syrk_q32_loop0.body m n plane c1 j01)
+    (c, j0)
+
+/-- [apeiron_word::kern::limb::syrk_q32]:
+    Source: '../../src/engine/kern/limb.rs', lines 194:0-228:1 -/
+def kern.limb.syrk_q32
+  (a : Slice Std.I64) (m : Std.Usize) (n : Std.Usize) (limbs : Std.U32) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
+  := do
+  let i := Slice.len a
+  let o ← lift (Usize.checked_mul m n)
+  let r ← core.option.Option.ok_or o kern.limb.LimbError.Shape
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    if i != val
+    then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+    else
+      let r1 ← kern.limb.Plane.build a m n limbs
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        let o1 ← lift (Usize.checked_mul m m)
+        let r2 ← core.option.Option.ok_or o1 kern.limb.LimbError.Shape
+        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+        match cf2 with
+        | core.ops.control_flow.ControlFlow.Continue val2 =>
+          let c ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val2
+          kern.limb.syrk_q32_loop0 m n val1 c 0#usize
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+            residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+          residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+      residual
+
+/-- [apeiron_word::kern::limb::gemv_q32]:
+    Source: '../../src/engine/kern/limb.rs', lines 246:0-259:1 -/
+def kern.limb.gemv_q32
+  (x : Slice Std.I64) (b : Slice Std.I64) (p : Std.Usize) (n : Std.Usize)
+  (limbs : Std.U32) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
+  := do
+  let i := Slice.len x
+  if i != n
+  then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+  else
+    let i1 := Slice.len b
+    let o ← lift (Usize.checked_mul p n)
+    let r ← core.option.Option.ok_or o kern.limb.LimbError.Shape
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      if i1 != val
+      then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+      else
+        let r1 ← kern.limb.Plane.build x 1#usize n limbs
+        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let r2 ← kern.limb.Plane.build b p n limbs
+          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            kern.limb.Plane.product_rows val1 val2 0#usize 1#usize 0#usize p n
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              kern.limb.LimbError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+            residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+        residual
+
+/-- [apeiron_word::kern::limb::ROWDOT_TILE]
+    Source: '../../src/engine/kern/limb.rs', lines 319:0-319:29 -/
+@[global_simps, irreducible] def kern.limb.ROWDOT_TILE : Std.Usize := 8#usize
+
+/-- [apeiron_word::kern::limb::rowdot_q32]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 304:8-307:9 -/
+@[rust_loop_body]
+def kern.limb.rowdot_q32_loop0_loop0.body
+  (i0 : Std.Usize) (w : Std.Usize) (tile : alloc.vec.Vec Std.I64)
+  (y : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < w
+  then
+    let i1 ← i * w
+    let i2 ← i1 + i
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) tile
+        i2
+    let i4 ← i0 + i
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) y
+        i4
+    let i5 ← i + 1#usize
+    let y1 := index_mut_back i3
+    ok (cont (y1, i5))
+  else ok (done y)
+
+/-- [apeiron_word::kern::limb::rowdot_q32]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 304:8-307:9 -/
+@[rust_loop]
+def kern.limb.rowdot_q32_loop0_loop0
+  (y : alloc.vec.Vec Std.I64) (i0 : Std.Usize) (w : Std.Usize)
+  (tile : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (y1, i1) => kern.limb.rowdot_q32_loop0_loop0.body i0 w tile y1 i1)
+    (y, i)
+
+/-- [apeiron_word::kern::limb::rowdot_q32]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 299:4-311:1 -/
+@[rust_loop_body]
+def kern.limb.rowdot_q32_loop0.body
+  (m : Std.Usize) (n : Std.Usize) (pa : kern.limb.Plane) (pb : kern.limb.Plane)
+  (y : alloc.vec.Vec Std.I64) (i0 : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize)
+    (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError))
+  := do
+  if i0 < m
+  then
+    let i ← i0 + kern.limb.ROWDOT_TILE
+    let i1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i m
+    let w ← i1 - i0
+    let r ← kern.limb.Plane.product_rows pa pb i0 w i0 w n
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let y1 ← kern.limb.rowdot_q32_loop0_loop0 y i0 w val 0#usize
+      ok (cont (y1, i1))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+          residual
+      ok (done r1)
+  else ok (done (core.result.Result.Ok y))
+
+/-- [apeiron_word::kern::limb::rowdot_q32]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 299:4-311:1 -/
+@[rust_loop]
+def kern.limb.rowdot_q32_loop0
+  (m : Std.Usize) (n : Std.Usize) (pa : kern.limb.Plane) (pb : kern.limb.Plane)
+  (y : alloc.vec.Vec Std.I64) (i0 : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
+  := do
+  loop
+    (fun (y1, i01) => kern.limb.rowdot_q32_loop0.body m n pa pb y1 i01)
+    (y, i0)
+
+/-- [apeiron_word::kern::limb::rowdot_q32]:
+    Source: '../../src/engine/kern/limb.rs', lines 284:0-311:1 -/
+def kern.limb.rowdot_q32
+  (a : Slice Std.I64) (b : Slice Std.I64) (m : Std.Usize) (n : Std.Usize)
+  (limbs : Std.U32) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
+  := do
+  let o ← lift (Usize.checked_mul m n)
+  let r ← core.option.Option.ok_or o kern.limb.LimbError.Shape
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let i := Slice.len a
+    if i != val
+    then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+    else
+      let i1 := Slice.len b
+      if i1 != val
+      then ok (core.result.Result.Err kern.limb.LimbError.Shape)
+      else
+        let r1 ← kern.limb.Plane.build a m n limbs
+        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let r2 ← kern.limb.Plane.build b m n limbs
+          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            let y ← alloc.vec.from_elem core.clone.CloneI64 0#i64 m
+            kern.limb.rowdot_q32_loop0 m n val1 val2 y 0#usize
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              (alloc.vec.Vec Std.I64) (core.convert.FromSame
+              kern.limb.LimbError) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+            residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+      residual
+
+/-- [apeiron_word::kern::lut::LUT_ROW_ALIGN]
+    Source: '../../src/engine/kern/lut.rs', lines 38:0-38:50 -/
+@[global_simps, irreducible]
+def kern.lut.LUT_ROW_ALIGN : Std.Usize := kern.lut.TILE_ROWS
+
+/-- [apeiron_word::kern::lut::split_nibbles]: loop body 0:
+    Source: '../../src/engine/kern/lut.rs', lines 115:4-119:5 -/
+@[rust_loop_body]
+def kern.lut.split_nibbles_loop.body
+  (byte : Std.U8) (lo : Std.U8) (hi : Std.U8) (c : Std.Usize) :
+  Result (ControlFlow (Std.U8 × Std.U8 × Std.Usize) (Std.U8 × Std.U8))
+  := do
+  if c < 4#usize
+  then
+    let i ← 2#usize * c
+    let i1 ← byte >>> i
+    let i2 ← lift (i1 &&& 1#u8)
+    let i3 ← i2 <<< c
+    let lo1 ← lift (lo ||| i3)
+    let i4 ← i + 1#usize
+    let i5 ← byte >>> i4
+    let i6 ← lift (i5 &&& 1#u8)
+    let i7 ← i6 <<< c
+    let hi1 ← lift (hi ||| i7)
+    let c1 ← c + 1#usize
+    ok (cont (lo1, hi1, c1))
+  else ok (done (lo, hi))
+
+/-- [apeiron_word::kern::lut::split_nibbles]: loop 0:
+    Source: '../../src/engine/kern/lut.rs', lines 115:4-119:5 -/
+@[rust_loop]
+def kern.lut.split_nibbles_loop
+  (byte : Std.U8) (lo : Std.U8) (hi : Std.U8) (c : Std.Usize) :
+  Result (Std.U8 × Std.U8)
+  := do
+  loop
+    (fun (lo1, hi1, c1) => kern.lut.split_nibbles_loop.body byte lo1 hi1 c1)
+    (lo, hi, c)
+
+/-- [apeiron_word::kern::lut::split_nibbles]:
+    Source: '../../src/engine/kern/lut.rs', lines 111:0-121:1 -/
+@[reducible]
+def kern.lut.split_nibbles (byte : Std.U8) : Result (Std.U8 × Std.U8) := do
+  kern.lut.split_nibbles_loop byte 0#u8 0#u8 0#usize
+
+/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]: loop body 2:
+    Source: '../../src/engine/kern/lut.rs', lines 672:20-677:21 -/
+@[rust_loop_body]
+def kern.lut.Pq2Lut.from_pq2_0_loop0_loop0_loop0.body
+  (raw : Slice Std.U8) (n_groups : Std.Usize) (tile : Std.Usize)
+  (lane : Std.Usize) (b : Std.Usize) (off : Std.Usize)
+  (codes : alloc.vec.Vec Std.U8) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if k < 32#usize
+  then
+    let i ← off + 2#usize
+    let i1 ← i + k
+    let i2 ← Slice.index_usize raw i1
+    let (lon, hin) ← kern.lut.split_nibbles i2
+    let i3 ← tile * n_groups
+    let i4 ← b * 32#usize
+    let i5 ← i3 + i4
+    let i6 ← i5 + k
+    let i7 ← i6 * kern.lut.TILE_ROWS
+    let idx ← i7 + lane
+    let i8 ← hin <<< 4#i32
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U8)
+        codes idx
+    let i9 ← lift (lon ||| i8)
+    let k1 ← k + 1#usize
+    let codes1 := index_mut_back i9
+    ok (cont (codes1, k1))
+  else ok (done codes)
+
+/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]: loop 2:
+    Source: '../../src/engine/kern/lut.rs', lines 672:20-677:21 -/
+@[rust_loop]
+def kern.lut.Pq2Lut.from_pq2_0_loop0_loop0_loop0
+  (raw : Slice Std.U8) (n_groups : Std.Usize) (codes : alloc.vec.Vec Std.U8)
+  (tile : Std.Usize) (lane : Std.Usize) (b : Std.Usize) (off : Std.Usize)
+  (k : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (codes1, k1) => kern.lut.Pq2Lut.from_pq2_0_loop0_loop0_loop0.body raw
+      n_groups tile lane b off codes1 k1)
+    (codes, k)
+
+/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]: loop body 1:
+    Source: '../../src/engine/kern/lut.rs', lines 654:12-680:13 -/
+@[rust_loop_body]
+def kern.lut.Pq2Lut.from_pq2_0_loop0_loop0.body
+  (i : Std.Usize) (raw : Slice Std.U8) (n_blocks : Std.Usize)
+  (n_groups : Std.Usize) (o : Std.Usize) (tile : Std.Usize) (lane : Std.Usize)
+  (row_base : Std.Usize) (scales : alloc.vec.Vec Std.I64) (d_max : Std.I128)
+  (codes : alloc.vec.Vec Std.U8) (ok1 : Bool) (err : Option matvec.MatvecError)
+  (b : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.I128 × (alloc.vec.Vec
+    Std.U8) × Bool × (Option matvec.MatvecError) × Std.Usize)
+    ((alloc.vec.Vec Std.I64) × Std.I128 × (alloc.vec.Vec Std.U8) × Bool ×
+    (Option matvec.MatvecError)))
+  := do
+  if b < n_blocks
+  then
+    if ok1
+    then
+      let i1 ← b * i
+      let off ← row_base + i1
+      let i2 ← Slice.index_usize raw off
+      let i3 ← off + 1#usize
+      let i4 ← Slice.index_usize raw i3
+      let bits ←
+        lift (core.num.U16.from_le_bytes (Array.make 2#usize [ i2, i4 ]))
+      let r ← dequant.f16_to_fixed bits
+      let (scales1, d_max1, ok2, err1) ←
+        match r with
+        | core.result.Result.Ok d =>
+          do
+          let i5 ← o * n_blocks
+          let i6 ← i5 + b
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) scales i6
+          let i7 ← lift (core.convert.num.FromI128I64.from d)
+          let a ← core.num.I128.abs i7
+          let (v, i8) ←
+            if a > d_max
+            then let scales2 := index_mut_back d
+                 ok (scales2, a)
+            else let scales2 := index_mut_back d
+                 ok (scales2, d_max)
+          ok (v, i8, true, err)
+        | core.result.Result.Err e =>
+          ok (scales, d_max, false, some (matvec.MatvecError.Dequant e))
+      if ok2
+      then
+        let codes1 ←
+          kern.lut.Pq2Lut.from_pq2_0_loop0_loop0_loop0 raw n_groups codes tile
+            lane b off 0#usize
+        let b1 ← b + 1#usize
+        ok (cont (scales1, d_max1, codes1, true, err1, b1))
+      else
+        let b1 ← b + 1#usize
+        ok (cont (scales1, d_max1, codes, false, err1, b1))
+    else ok (done (scales, d_max, codes, false, err))
+  else ok (done (scales, d_max, codes, ok1, err))
+
+/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]: loop 1:
+    Source: '../../src/engine/kern/lut.rs', lines 654:12-680:13 -/
+@[rust_loop]
+def kern.lut.Pq2Lut.from_pq2_0_loop0_loop0
+  (i : Std.Usize) (raw : Slice Std.U8) (n_blocks : Std.Usize)
+  (n_groups : Std.Usize) (scales : alloc.vec.Vec Std.I64) (d_max : Std.I128)
+  (codes : alloc.vec.Vec Std.U8) (o : Std.Usize) (ok1 : Bool)
+  (err : Option matvec.MatvecError) (tile : Std.Usize) (lane : Std.Usize)
+  (row_base : Std.Usize) (b : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × Std.I128 × (alloc.vec.Vec Std.U8) × Bool
+    × (Option matvec.MatvecError))
+  := do
+  loop
+    (fun (scales1, d_max1, codes1, ok2, err1, b1) =>
+      kern.lut.Pq2Lut.from_pq2_0_loop0_loop0.body i raw n_blocks n_groups o
+      tile lane row_base scales1 d_max1 codes1 ok2 err1 b1)
+    (scales, d_max, codes, ok1, err, b)
+
+/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]: loop body 0:
+    Source: '../../src/engine/kern/lut.rs', lines 649:8-682:9 -/
+@[rust_loop_body]
+def kern.lut.Pq2Lut.from_pq2_0_loop0.body
+  (i : Std.Usize) (raw : Slice Std.U8) (n_out : Std.Usize)
+  (n_blocks : Std.Usize) (n_groups : Std.Usize) (row_bytes : Std.Usize)
+  (scales : alloc.vec.Vec Std.I64) (d_max : Std.I128)
+  (codes : alloc.vec.Vec Std.U8) (o : Std.Usize) (ok1 : Bool)
+  (err : Option matvec.MatvecError) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.I128 × (alloc.vec.Vec
+    Std.U8) × Std.Usize × Bool × (Option matvec.MatvecError))
+    ((alloc.vec.Vec Std.I64) × Std.I128 × (alloc.vec.Vec Std.U8) × (Option
+    matvec.MatvecError)))
+  := do
+  if o < n_out
+  then
+    if ok1
+    then
+      let tile ← o / kern.lut.TILE_ROWS
+      let lane ← o % kern.lut.TILE_ROWS
+      let row_base ← o * row_bytes
+      let (scales1, d_max1, codes1, ok2, err1) ←
+        kern.lut.Pq2Lut.from_pq2_0_loop0_loop0 i raw n_blocks n_groups scales
+          d_max codes o true err tile lane row_base 0#usize
+      let o1 ← o + 1#usize
+      ok (cont (scales1, d_max1, codes1, o1, ok2, err1))
+    else ok (done (scales, d_max, codes, err))
+  else ok (done (scales, d_max, codes, err))
+
+/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]: loop 0:
+    Source: '../../src/engine/kern/lut.rs', lines 649:8-682:9 -/
+@[rust_loop]
+def kern.lut.Pq2Lut.from_pq2_0_loop0
+  (i : Std.Usize) (raw : Slice Std.U8) (n_out : Std.Usize)
+  (n_blocks : Std.Usize) (n_groups : Std.Usize) (row_bytes : Std.Usize)
+  (scales : alloc.vec.Vec Std.I64) (d_max : Std.I128)
+  (codes : alloc.vec.Vec Std.U8) (o : Std.Usize) (ok1 : Bool)
+  (err : Option matvec.MatvecError) :
+  Result ((alloc.vec.Vec Std.I64) × Std.I128 × (alloc.vec.Vec Std.U8) ×
+    (Option matvec.MatvecError))
+  := do
+  loop
+    (fun (scales1, d_max1, codes1, o1, ok2, err1) =>
+      kern.lut.Pq2Lut.from_pq2_0_loop0.body i raw n_out n_blocks n_groups
+      row_bytes scales1 d_max1 codes1 o1 ok2 err1)
+    (scales, d_max, codes, o, ok1, err)
+
+/-- [apeiron_word::kern::lut::{apeiron_word::kern::lut::Pq2Lut}::from_pq2_0]:
+    Source: '../../src/engine/kern/lut.rs', lines 611:4-697:5 -/
+def kern.lut.Pq2Lut.from_pq2_0
+  (raw : Slice Std.U8) (n_out : Std.Usize) (n_in : Std.Usize) :
+  Result (core.result.Result kern.lut.Pq2Lut matvec.MatvecError)
+  := do
+  let b ← core.num.Usize.is_multiple_of n_in quant.PQ2_0_QK
+  if b
+  then
+    let n_blocks ← n_in / quant.PQ2_0_QK
+    let n_groups ← n_in / 4#usize
+    let n_tiles ← core.num.Usize.div_ceil n_out kern.lut.TILE_ROWS
+    let i ← quant.PQ2_0_BLOCK_BYTES
+    let o ← lift (Usize.checked_mul n_blocks i)
+    let r ← core.option.Option.ok_or o matvec.MatvecError.LengthOverflow
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let o1 ← lift (Usize.checked_mul n_out val)
+      let r1 ← core.option.Option.ok_or o1 matvec.MatvecError.LengthOverflow
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        let i1 := Slice.len raw
+        if i1 < val1
+        then
+          let i2 := Slice.len raw
+          ok (core.result.Result.Err (matvec.MatvecError.ShortPayload val1 i2))
+        else
+          let o2 ← lift (Usize.checked_mul n_tiles kern.lut.TILE_ROWS)
+          let r2 ←
+            core.option.Option.ok_or o2 matvec.MatvecError.LengthOverflow
+          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            let o3 ← lift (Usize.checked_mul val2 n_groups)
+            let r3 ←
+              core.option.Option.ok_or o3 matvec.MatvecError.LengthOverflow
+            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+            match cf3 with
+            | core.ops.control_flow.ControlFlow.Continue val3 =>
+              let o4 ← lift (Usize.checked_mul val2 n_blocks)
+              let r4 ←
+                core.option.Option.ok_or o4 matvec.MatvecError.LengthOverflow
+              let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
+              match cf4 with
+              | core.ops.control_flow.ControlFlow.Continue val4 =>
+                let scales ←
+                  alloc.vec.from_elem core.clone.CloneI64 0#i64 val4
+                let codes ← alloc.vec.from_elem core.clone.CloneU8 0#u8 val3
+                let (scales1, d_max, codes1, err) ←
+                  kern.lut.Pq2Lut.from_pq2_0_loop0 i raw n_out n_blocks
+                    n_groups val scales 0#i128 codes 0#usize true none
+                match err with
+                | none =>
+                  let s ←
+                    core.slice.index.Slice.index
+                      (core.slice.index.SliceIndexRangeToUsizeSlice Std.U8) raw
+                      { «end» := val1 }
+                  let v ← alloc.slice.Slice.to_vec core.clone.CloneU8 s
+                  ok (core.result.Result.Ok
+                    {
+                      n_out,
+                      n_in,
+                      n_blocks,
+                      n_groups,
+                      n_tiles,
+                      scales := scales1,
+                      d_max,
+                      codes := codes1,
+                      raw := v
+                    })
+                | some e => ok (core.result.Result.Err e)
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                  kern.lut.Pq2Lut (core.convert.FromSame matvec.MatvecError)
+                  residual
+            | core.ops.control_flow.ControlFlow.Break residual =>
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                kern.lut.Pq2Lut (core.convert.FromSame matvec.MatvecError)
+                residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              kern.lut.Pq2Lut (core.convert.FromSame matvec.MatvecError)
+              residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          kern.lut.Pq2Lut (core.convert.FromSame matvec.MatvecError) residual
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        kern.lut.Pq2Lut (core.convert.FromSame matvec.MatvecError) residual
+  else
+    let i ← n_in % quant.PQ2_0_QK
+    let i1 ← n_in - i
+    ok (core.result.Result.Err (matvec.MatvecError.RowLength 0#usize i1 n_in))
 
 /-- [apeiron_word::pow2::act_scale]: loop body 0:
     Source: '../../src/engine/kern/pow2.rs', lines 30:4-33:5
@@ -64086,6 +66616,1626 @@ def quant.ggml_type_name (t : Std.U32) : Result String := do
   | _ =>
     alloc.string.String.Insts.CoreConvertFromShared0Str.from (toStr "UNKNOWN")
 
+/-- [apeiron_word::gpu::nn::push_all]: loop body 0:
+    Source: '../../src/gpu/nn/mod.rs', lines 786:4-789:5 -/
+@[rust_loop_body]
+def gpu.nn.push_all_loop.body
+  (xs : Slice Std.U32) (dst : alloc.vec.Vec Std.U32) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.Usize) (alloc.vec.Vec
+    Std.U32))
+  := do
+  let i1 := Slice.len xs
+  if i < i1
+  then
+    let i2 ← Slice.index_usize xs i
+    let dst1 ← alloc.vec.Vec.push dst i2
+    let i3 ← i + 1#usize
+    ok (cont (dst1, i3))
+  else ok (done dst)
+
+/-- [apeiron_word::gpu::nn::push_all]: loop 0:
+    Source: '../../src/gpu/nn/mod.rs', lines 786:4-789:5 -/
+@[rust_loop]
+def gpu.nn.push_all_loop
+  (dst : alloc.vec.Vec Std.U32) (xs : Slice Std.U32) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  loop
+    (fun (dst1, i1) => gpu.nn.push_all_loop.body xs dst1 i1)
+    (dst, i)
+
+/-- [apeiron_word::gpu::nn::push_all]:
+    Source: '../../src/gpu/nn/mod.rs', lines 784:0-790:1 -/
+@[reducible]
+def gpu.nn.push_all
+  (dst : alloc.vec.Vec Std.U32) (xs : Slice Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  gpu.nn.push_all_loop dst xs 0#usize
+
+/-- [apeiron_word::gpu::nn::Kb]
+    Source: '../../src/gpu/nn/mod.rs', lines 193:0-228:1 -/
+structure gpu.nn.Kb where
+  deco : alloc.vec.Vec Std.U32
+  tycon : alloc.vec.Vec Std.U32
+  fvars : alloc.vec.Vec Std.U32
+  body : alloc.vec.Vec Std.U32
+  next : Std.U32
+  glsl : Std.U32
+  void_t : Std.U32
+  fnty : Std.U32
+  uint : Std.U32
+  float : Std.U32
+  float16 : Std.U32
+  ptr_sb_buf_f16 : Std.U32
+  ptr_sb_f16 : Std.U32
+  f16_storage : Bool
+  dp4a : Bool
+  sint0 : Std.U32
+  ptr_fn_s : Std.U32
+  bool_t : Std.U32
+  uvec3 : Std.U32
+  vec2f : Std.U32
+  ptr_sb_f : Std.U32
+  ptr_sb_u : Std.U32
+  ptr_fn_f : Std.U32
+  ptr_fn_u : Std.U32
+  ptr_sb_buf_f : Std.U32
+  ptr_sb_buf_u : Std.U32
+  gid : Std.U32
+  main_id : Std.U32
+  ucache : alloc.vec.Vec (Std.U32 × Std.U32)
+  fcache : alloc.vec.Vec (Std.U32 × Std.U32)
+  lii : Std.U32
+  wgid : Std.U32
+  sg_arith : Bool
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ty]:
+    Source: '../../src/gpu/nn/mod.rs', lines 379:4-383:5 -/
+def gpu.nn.Kb.ty
+  (self : gpu.nn.Kb) (opcode : Std.U32) (operands : Slice Std.U32) :
+  Result gpu.nn.Kb
+  := do
+  let i := Slice.len operands
+  let i1 ← lift (UScalar.cast .U32 i)
+  let i2 ← i1 + 1#u32
+  let i3 ← i2 <<< 16#i32
+  let i4 ← lift (i3 ||| opcode)
+  let v ← alloc.vec.Vec.push self.tycon i4
+  let v1 ← gpu.nn.push_all v operands
+  ok { self with tycon := v1 }
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::id]:
+    Source: '../../src/gpu/nn/mod.rs', lines 369:4-373:5 -/
+def gpu.nn.Kb.id (self : gpu.nn.Kb) : Result (Std.U32 × gpu.nn.Kb) := do
+  let i ← self.next + 1#u32
+  ok (self.next, { self with next := i })
+
+/-- [apeiron_word::gpu::nn::OP_CONSTANT]
+    Source: '../../src/gpu/nn/mod.rs', lines 93:0-93:28 -/
+@[global_simps, irreducible] def gpu.nn.OP_CONSTANT : Std.U32 := 43#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::cu]: loop body 0:
+    Source: '../../src/gpu/nn/mod.rs', lines 399:8-405:9 -/
+@[rust_loop_body]
+def gpu.nn.Kb.cu_loop.body
+  (self : gpu.nn.Kb) (v : Std.U32) (i : Std.Usize) (hit : Option Std.U32) :
+  Result (ControlFlow (Std.Usize × (Option Std.U32)) ((alloc.vec.Vec Std.U32)
+    × (alloc.vec.Vec Std.U32) × (alloc.vec.Vec Std.U32) × (alloc.vec.Vec
+    Std.U32) × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32
+    × Std.U32 × Std.U32 × Std.U32 × Bool × Bool × Std.U32 × Std.U32 ×
+    Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32
+    × Std.U32 × Std.U32 × Std.U32 × Std.U32 × (alloc.vec.Vec (Std.U32 ×
+    Std.U32)) × (alloc.vec.Vec (Std.U32 × Std.U32)) × Std.U32 × Std.U32 ×
+    Bool × (Option Std.U32)))
+  := do
+  let i1 := alloc.vec.Vec.len self.ucache
+  if i < i1
+  then
+    let (w, id) ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (Std.U32 ×
+        Std.U32)) self.ucache i
+    let hit1 ← if w = v
+                 then ok (some id)
+                 else ok hit
+    let i2 ← i + 1#usize
+    ok (cont (i2, hit1))
+  else
+    ok (done (self.deco, self.tycon, self.fvars, self.body, self.next,
+      self.glsl, self.void_t, self.fnty, self.uint, self.float, self.float16,
+      self.ptr_sb_buf_f16, self.ptr_sb_f16, self.f16_storage, self.dp4a,
+      self.sint0, self.ptr_fn_s, self.bool_t, self.uvec3, self.vec2f,
+      self.ptr_sb_f, self.ptr_sb_u, self.ptr_fn_f, self.ptr_fn_u,
+      self.ptr_sb_buf_f, self.ptr_sb_buf_u, self.gid, self.main_id,
+      self.ucache, self.fcache, self.lii, self.wgid, self.sg_arith, hit))
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::cu]: loop 0:
+    Source: '../../src/gpu/nn/mod.rs', lines 399:8-405:9 -/
+@[rust_loop]
+def gpu.nn.Kb.cu_loop
+  (self : gpu.nn.Kb) (v : Std.U32) (i : Std.Usize) (hit : Option Std.U32) :
+  Result ((alloc.vec.Vec Std.U32) × (alloc.vec.Vec Std.U32) × (alloc.vec.Vec
+    Std.U32) × (alloc.vec.Vec Std.U32) × Std.U32 × Std.U32 × Std.U32 ×
+    Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Bool ×
+    Bool × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 ×
+    Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32
+    × (alloc.vec.Vec (Std.U32 × Std.U32)) × (alloc.vec.Vec (Std.U32 ×
+    Std.U32)) × Std.U32 × Std.U32 × Bool × (Option Std.U32))
+  := do
+  loop
+    (fun (i1, hit1) => gpu.nn.Kb.cu_loop.body self v i1 hit1)
+    (i, hit)
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::cu]:
+    Source: '../../src/gpu/nn/mod.rs', lines 396:4-416:5 -/
+def gpu.nn.Kb.cu
+  (self : gpu.nn.Kb) (v : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
+  let (v1, v2, v3, v4, i, i1, i2, i3, i4, i5, i6, i7, i8, b, b1, i9, i10, i11,
+    i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, v5, v6, i22, i23, b2,
+    hit) ←
+    gpu.nn.Kb.cu_loop self v 0#usize none
+  match hit with
+  | none =>
+    let (id, self1) ←
+      gpu.nn.Kb.id
+        {
+          deco := v1,
+          tycon := v2,
+          fvars := v3,
+          body := v4,
+          next := i,
+          glsl := i1,
+          void_t := i2,
+          fnty := i3,
+          uint := i4,
+          float := i5,
+          float16 := i6,
+          ptr_sb_buf_f16 := i7,
+          ptr_sb_f16 := i8,
+          f16_storage := b,
+          dp4a := b1,
+          sint0 := i9,
+          ptr_fn_s := i10,
+          bool_t := i11,
+          uvec3 := i12,
+          vec2f := i13,
+          ptr_sb_f := i14,
+          ptr_sb_u := i15,
+          ptr_fn_f := i16,
+          ptr_fn_u := i17,
+          ptr_sb_buf_f := i18,
+          ptr_sb_buf_u := i19,
+          gid := i20,
+          main_id := i21,
+          ucache := v5,
+          fcache := v6,
+          lii := i22,
+          wgid := i23,
+          sg_arith := b2
+        }
+    let s ← lift (Array.to_slice (Array.make 3#usize [ self1.uint, id, v ]))
+    let self2 ← gpu.nn.Kb.ty self1 gpu.nn.OP_CONSTANT s
+    let v7 ← alloc.vec.Vec.push self2.ucache (v, id)
+    ok (id, { self2 with ucache := v7 })
+  | some id =>
+    ok (id,
+      {
+        deco := v1,
+        tycon := v2,
+        fvars := v3,
+        body := v4,
+        next := i,
+        glsl := i1,
+        void_t := i2,
+        fnty := i3,
+        uint := i4,
+        float := i5,
+        float16 := i6,
+        ptr_sb_buf_f16 := i7,
+        ptr_sb_f16 := i8,
+        f16_storage := b,
+        dp4a := b1,
+        sint0 := i9,
+        ptr_fn_s := i10,
+        bool_t := i11,
+        uvec3 := i12,
+        vec2f := i13,
+        ptr_sb_f := i14,
+        ptr_sb_u := i15,
+        ptr_fn_f := i16,
+        ptr_fn_u := i17,
+        ptr_sb_buf_f := i18,
+        ptr_sb_buf_u := i19,
+        gid := i20,
+        main_id := i21,
+        ucache := v5,
+        fcache := v6,
+        lii := i22,
+        wgid := i23,
+        sg_arith := b2
+      })
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ins]:
+    Source: '../../src/gpu/nn/mod.rs', lines 384:4-387:5 -/
+def gpu.nn.Kb.ins
+  (self : gpu.nn.Kb) (opcode : Std.U32) (operands : Slice Std.U32) :
+  Result gpu.nn.Kb
+  := do
+  let i := Slice.len operands
+  let i1 ← lift (UScalar.cast .U32 i)
+  let i2 ← i1 + 1#u32
+  let i3 ← i2 <<< 16#i32
+  let i4 ← lift (i3 ||| opcode)
+  let v ← alloc.vec.Vec.push self.body i4
+  let v1 ← gpu.nn.push_all v operands
+  ok { self with body := v1 }
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::e]:
+    Source: '../../src/gpu/nn/mod.rs', lines 389:4-395:5 -/
+def gpu.nn.Kb.e
+  (self : gpu.nn.Kb) (opcode : Std.U32) (ty : Std.U32) (args : Slice Std.U32) :
+  Result (Std.U32 × gpu.nn.Kb)
+  := do
+  let (res, self1) ← gpu.nn.Kb.id self
+  let y ←
+    lift (Std.Array.to_slice (Array.make 2#usize [ ty, res ] : Array Std.U32
+      2#usize))
+  let ret := alloc.slice.Slice.into_vec y
+  let ret1 ← gpu.nn.push_all ret args
+  let s := alloc.vec.Vec.deref ret1
+  let self2 ← gpu.nn.Kb.ins self1 opcode s
+  ok (res, self2)
+
+/-- [apeiron_word::gpu::nn::OP_ACCESS_CHAIN]
+    Source: '../../src/gpu/nn/mod.rs', lines 99:0-99:32 -/
+@[global_simps, irreducible] def gpu.nn.OP_ACCESS_CHAIN : Std.U32 := 65#u32
+
+/-- [apeiron_word::gpu::nn::OP_STORE]
+    Source: '../../src/gpu/nn/mod.rs', lines 98:0-98:25 -/
+@[global_simps, irreducible] def gpu.nn.OP_STORE : Std.U32 := 62#u32
+
+/-- [apeiron_word::gpu::nn::attn::attn_dp4a::{apeiron_word::gpu::nn::Kb}::store_u]:
+    Source: '../../src/gpu/nn/attn/attn_dp4a.rs', lines 28:4-33:5 -/
+def gpu.nn.attn.attn_dp4a.Kb.store_u
+  (self : gpu.nn.Kb) (buf : Std.U32) (idx : Std.U32) (val : Std.U32) :
+  Result gpu.nn.Kb
+  := do
+  let (c0, self1) ← gpu.nn.Kb.cu self 0#u32
+  let s ← lift (Array.to_slice (Array.make 3#usize [ buf, c0, idx ]))
+  let (p, self2) ← gpu.nn.Kb.e self1 gpu.nn.OP_ACCESS_CHAIN self.ptr_sb_u s
+  let s1 ← lift (Array.to_slice (Array.make 2#usize [ p, val ]))
+  gpu.nn.Kb.ins self2 gpu.nn.OP_STORE s1
+
+/-- [apeiron_word::gpu::simt::SPV_VERSION_1_3]
+    Source: '../../src/gpu/simt/mod.rs', lines 216:0-216:45
+    Visibility: public -/
+@[global_simps, irreducible]
+def gpu.simt.SPV_VERSION_1_3 : Std.U32 := 66304#u32
+
+/-- [apeiron_word::gpu::simt::SPV_MAGIC]
+    Source: '../../src/gpu/simt/mod.rs', lines 214:0-214:39
+    Visibility: public -/
+@[global_simps, irreducible] def gpu.simt.SPV_MAGIC : Std.U32 := 119734787#u32
+
+/-- [apeiron_word::gpu::nn::CAP_DOT_INPUT_4X8_PACKED]
+    Source: '../../src/gpu/nn/mod.rs', lines 1382:0-1382:43 -/
+@[global_simps, irreducible]
+def gpu.nn.CAP_DOT_INPUT_4X8_PACKED : Std.U32 := 6018#u32
+
+/-- [apeiron_word::gpu::nn::CAP_GROUP_NON_UNIFORM_ARITHMETIC]
+    Source: '../../src/gpu/nn/mod.rs', lines 1381:0-1381:49 -/
+@[global_simps, irreducible]
+def gpu.nn.CAP_GROUP_NON_UNIFORM_ARITHMETIC : Std.U32 := 63#u32
+
+/-- [apeiron_word::gpu::nn::CAP_GROUP_NON_UNIFORM]
+    Source: '../../src/gpu/nn/mod.rs', lines 1380:0-1380:38 -/
+@[global_simps, irreducible]
+def gpu.nn.CAP_GROUP_NON_UNIFORM : Std.U32 := 61#u32
+
+/-- [apeiron_word::gpu::nn::CAP_DOT_PRODUCT]
+    Source: '../../src/gpu/nn/mod.rs', lines 1379:0-1379:34 -/
+@[global_simps, irreducible] def gpu.nn.CAP_DOT_PRODUCT : Std.U32 := 6019#u32
+
+/-- [apeiron_word::gpu::nn::OP_EXTENSION]
+    Source: '../../src/gpu/nn/mod.rs', lines 1373:0-1373:29 -/
+@[global_simps, irreducible] def gpu.nn.OP_EXTENSION : Std.U32 := 10#u32
+
+/-- [apeiron_word::gpu::nn::lit_string]: loop body 0:
+    Source: '../../src/gpu/nn/mod.rs', lines 168:4-171:5 -/
+@[rust_loop_body]
+def gpu.nn.lit_string_loop0.body
+  (sb : Slice Std.U8) (bytes : alloc.vec.Vec Std.U8) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i := Slice.len sb
+  if j < i
+  then
+    let i1 ← Slice.index_usize sb j
+    let bytes1 ← alloc.vec.Vec.push bytes i1
+    let j1 ← j + 1#usize
+    ok (cont (bytes1, j1))
+  else ok (done bytes)
+
+/-- [apeiron_word::gpu::nn::lit_string]: loop 0:
+    Source: '../../src/gpu/nn/mod.rs', lines 168:4-171:5 -/
+@[rust_loop]
+def gpu.nn.lit_string_loop0
+  (sb : Slice Std.U8) (bytes : alloc.vec.Vec Std.U8) (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (bytes1, j1) => gpu.nn.lit_string_loop0.body sb bytes1 j1)
+    (bytes, j)
+
+/-- [apeiron_word::gpu::nn::lit_string]: loop body 1:
+    Source: '../../src/gpu/nn/mod.rs', lines 173:4-175:5 -/
+@[rust_loop_body]
+def gpu.nn.lit_string_loop1.body
+  (bytes : alloc.vec.Vec Std.U8) :
+  Result (ControlFlow (alloc.vec.Vec Std.U8) (alloc.vec.Vec Std.U8))
+  := do
+  let i := alloc.vec.Vec.len bytes
+  let i1 ← i % 4#usize
+  if i1 != 0#usize
+  then let bytes1 ← alloc.vec.Vec.push bytes 0#u8
+       ok (cont bytes1)
+  else ok (done bytes)
+
+/-- [apeiron_word::gpu::nn::lit_string]: loop 1:
+    Source: '../../src/gpu/nn/mod.rs', lines 173:4-175:5 -/
+@[rust_loop]
+def gpu.nn.lit_string_loop1
+  (bytes : alloc.vec.Vec Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  loop
+    (fun bytes1 => gpu.nn.lit_string_loop1.body bytes1)
+    bytes
+
+/-- [apeiron_word::gpu::nn::lit_string]: loop body 2:
+    Source: '../../src/gpu/nn/mod.rs', lines 178:4-185:5 -/
+@[rust_loop_body]
+def gpu.nn.lit_string_loop2.body
+  (bytes : alloc.vec.Vec Std.U8) (out : alloc.vec.Vec Std.U32) (i : Std.Usize)
+  :
+  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.Usize) (alloc.vec.Vec
+    Std.U32))
+  := do
+  let i1 := alloc.vec.Vec.len bytes
+  if i < i1
+  then
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) bytes
+        i
+    let i3 ← lift (UScalar.cast .U32 i2)
+    let i4 ← i + 1#usize
+    let i5 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) bytes
+        i4
+    let i6 ← lift (UScalar.cast .U32 i5)
+    let i7 ← i6 <<< 8#i32
+    let i8 ← lift (i3 ||| i7)
+    let i9 ← i + 2#usize
+    let i10 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) bytes
+        i9
+    let i11 ← lift (UScalar.cast .U32 i10)
+    let i12 ← i11 <<< 16#i32
+    let i13 ← lift (i8 ||| i12)
+    let i14 ← i + 3#usize
+    let i15 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) bytes
+        i14
+    let i16 ← lift (UScalar.cast .U32 i15)
+    let i17 ← i16 <<< 24#i32
+    let w ← lift (i13 ||| i17)
+    let out1 ← alloc.vec.Vec.push out w
+    let i18 ← i + 4#usize
+    ok (cont (out1, i18))
+  else ok (done out)
+
+/-- [apeiron_word::gpu::nn::lit_string]: loop 2:
+    Source: '../../src/gpu/nn/mod.rs', lines 178:4-185:5 -/
+@[rust_loop]
+def gpu.nn.lit_string_loop2
+  (bytes : alloc.vec.Vec Std.U8) (out : alloc.vec.Vec Std.U32) (i : Std.Usize)
+  :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  loop
+    (fun (out1, i1) => gpu.nn.lit_string_loop2.body bytes out1 i1)
+    (out, i)
+
+/-- [apeiron_word::gpu::nn::lit_string]:
+    Source: '../../src/gpu/nn/mod.rs', lines 164:0-187:1 -/
+def gpu.nn.lit_string (s : Str) : Result (alloc.vec.Vec Std.U32) := do
+  let sb ← core.str.Str.as_bytes s
+  let bytes ← gpu.nn.lit_string_loop0 sb (alloc.vec.Vec.new Std.U8) 0#usize
+  let bytes1 ← alloc.vec.Vec.push bytes 0#u8
+  let bytes2 ← gpu.nn.lit_string_loop1 bytes1
+  gpu.nn.lit_string_loop2 bytes2 (alloc.vec.Vec.new Std.U32) 0#usize
+
+/-- [apeiron_word::gpu::nn::MODE_LOCAL_SIZE]
+    Source: '../../src/gpu/nn/mod.rs', lines 137:0-137:32 -/
+@[global_simps, irreducible] def gpu.nn.MODE_LOCAL_SIZE : Std.U32 := 17#u32
+
+/-- [apeiron_word::gpu::nn::MEM_GLSL450]
+    Source: '../../src/gpu/nn/mod.rs', lines 136:0-136:27 -/
+@[global_simps, irreducible] def gpu.nn.MEM_GLSL450 : Std.U32 := 1#u32
+
+/-- [apeiron_word::gpu::nn::ADDR_LOGICAL]
+    Source: '../../src/gpu/nn/mod.rs', lines 135:0-135:28 -/
+@[global_simps, irreducible] def gpu.nn.ADDR_LOGICAL : Std.U32 := 0#u32
+
+/-- [apeiron_word::gpu::nn::MODEL_GL_COMPUTE]
+    Source: '../../src/gpu/nn/mod.rs', lines 134:0-134:32 -/
+@[global_simps, irreducible] def gpu.nn.MODEL_GL_COMPUTE : Std.U32 := 5#u32
+
+/-- [apeiron_word::gpu::nn::CAP_SHADER]
+    Source: '../../src/gpu/nn/mod.rs', lines 133:0-133:26 -/
+@[global_simps, irreducible] def gpu.nn.CAP_SHADER : Std.U32 := 1#u32
+
+/-- [apeiron_word::gpu::nn::CAP_STORAGE_BUFFER_16BIT_ACCESS]
+    Source: '../../src/gpu/nn/mod.rs', lines 130:0-130:50 -/
+@[global_simps, irreducible]
+def gpu.nn.CAP_STORAGE_BUFFER_16BIT_ACCESS : Std.U32 := 4433#u32
+
+/-- [apeiron_word::gpu::nn::OP_RETURN]
+    Source: '../../src/gpu/nn/mod.rs', lines 128:0-128:27 -/
+@[global_simps, irreducible] def gpu.nn.OP_RETURN : Std.U32 := 253#u32
+
+/-- [apeiron_word::gpu::nn::OP_LABEL]
+    Source: '../../src/gpu/nn/mod.rs', lines 125:0-125:26 -/
+@[global_simps, irreducible] def gpu.nn.OP_LABEL : Std.U32 := 248#u32
+
+/-- [apeiron_word::gpu::nn::OP_FUNCTION_END]
+    Source: '../../src/gpu/nn/mod.rs', lines 95:0-95:32 -/
+@[global_simps, irreducible] def gpu.nn.OP_FUNCTION_END : Std.U32 := 56#u32
+
+/-- [apeiron_word::gpu::nn::OP_FUNCTION]
+    Source: '../../src/gpu/nn/mod.rs', lines 94:0-94:28 -/
+@[global_simps, irreducible] def gpu.nn.OP_FUNCTION : Std.U32 := 54#u32
+
+/-- [apeiron_word::gpu::nn::OP_CAPABILITY]
+    Source: '../../src/gpu/nn/mod.rs', lines 83:0-83:30 -/
+@[global_simps, irreducible] def gpu.nn.OP_CAPABILITY : Std.U32 := 17#u32
+
+/-- [apeiron_word::gpu::nn::OP_EXECUTION_MODE]
+    Source: '../../src/gpu/nn/mod.rs', lines 82:0-82:34 -/
+@[global_simps, irreducible] def gpu.nn.OP_EXECUTION_MODE : Std.U32 := 16#u32
+
+/-- [apeiron_word::gpu::nn::OP_ENTRY_POINT]
+    Source: '../../src/gpu/nn/mod.rs', lines 81:0-81:31 -/
+@[global_simps, irreducible] def gpu.nn.OP_ENTRY_POINT : Std.U32 := 15#u32
+
+/-- [apeiron_word::gpu::nn::OP_MEMORY_MODEL]
+    Source: '../../src/gpu/nn/mod.rs', lines 80:0-80:32 -/
+@[global_simps, irreducible] def gpu.nn.OP_MEMORY_MODEL : Std.U32 := 14#u32
+
+/-- [apeiron_word::gpu::nn::OP_EXT_INST_IMPORT]
+    Source: '../../src/gpu/nn/mod.rs', lines 78:0-78:35 -/
+@[global_simps, irreducible] def gpu.nn.OP_EXT_INST_IMPORT : Std.U32 := 11#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::finish]:
+    Source: '../../src/gpu/nn/mod.rs', lines 696:4-778:5 -/
+def gpu.nn.Kb.finish
+  (self : gpu.nn.Kb) («local» : Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  let (entry_l, self1) ← gpu.nn.Kb.id self
+  let y ←
+    lift (Std.Array.to_slice
+      (Array.make 5#usize [
+         gpu.simt.SPV_MAGIC, gpu.simt.SPV_VERSION_1_3, 0#u32, self1.next, 0#u32
+         ] : Array Std.U32 5#usize))
+  let ret := alloc.slice.Slice.into_vec y
+  let i ← 2#u32 <<< 16#i32
+  let i1 ← lift (i ||| gpu.nn.OP_CAPABILITY)
+  let s ←
+    lift (Array.to_slice (Array.make 2#usize [ i1, gpu.nn.CAP_SHADER ]))
+  let ret1 ← gpu.nn.push_all ret s
+  let w ←
+    if self1.f16_storage
+    then
+      do
+      let i2 ← lift (i ||| gpu.nn.OP_CAPABILITY)
+      let s1 ←
+        lift (Array.to_slice
+          (Array.make 2#usize [ i2, gpu.nn.CAP_STORAGE_BUFFER_16BIT_ACCESS ]))
+      gpu.nn.push_all ret1 s1
+    else ok ret1
+  let w1 ←
+    if self1.sg_arith
+    then
+      do
+      let i2 ← lift (i ||| gpu.nn.OP_CAPABILITY)
+      let s1 ←
+        lift (Array.to_slice
+          (Array.make 2#usize [ i2, gpu.nn.CAP_GROUP_NON_UNIFORM ]))
+      let w2 ← gpu.nn.push_all w s1
+      let i3 ← lift (i ||| gpu.nn.OP_CAPABILITY)
+      let s2 ←
+        lift (Array.to_slice
+          (Array.make 2#usize [ i3, gpu.nn.CAP_GROUP_NON_UNIFORM_ARITHMETIC ]))
+      gpu.nn.push_all w2 s2
+    else ok w
+  let (b, w2) ←
+    if self1.dp4a
+    then
+      do
+      let i2 ← lift (i ||| gpu.nn.OP_CAPABILITY)
+      let s1 ←
+        lift (Array.to_slice
+          (Array.make 2#usize [ i2, gpu.nn.CAP_DOT_PRODUCT ]))
+      let w3 ← gpu.nn.push_all w1 s1
+      let i3 ← lift (i ||| gpu.nn.OP_CAPABILITY)
+      let s2 ←
+        lift (Array.to_slice
+          (Array.make 2#usize [ i3, gpu.nn.CAP_DOT_INPUT_4X8_PACKED ]))
+      let w4 ← gpu.nn.push_all w3 s2
+      ok (true, w4)
+    else ok (false, w1)
+  let w3 ←
+    if b
+    then
+      do
+      let ext ← gpu.nn.lit_string (toStr "SPV_KHR_integer_dot_product")
+      let i2 := alloc.vec.Vec.len ext
+      let i3 ← lift (UScalar.cast .U32 i2)
+      let i4 ← 1#u32 + i3
+      let i5 ← i4 <<< 16#i32
+      let i6 ← lift (i5 ||| gpu.nn.OP_EXTENSION)
+      let w4 ← alloc.vec.Vec.push w2 i6
+      let s1 := alloc.vec.Vec.deref ext
+      gpu.nn.push_all w4 s1
+    else ok w2
+  let g ← gpu.nn.lit_string (toStr "GLSL.std.450")
+  let i2 := alloc.vec.Vec.len g
+  let i3 ← lift (UScalar.cast .U32 i2)
+  let i4 ← 2#u32 + i3
+  let i5 ← i4 <<< 16#i32
+  let i6 ← lift (i5 ||| gpu.nn.OP_EXT_INST_IMPORT)
+  let w4 ← alloc.vec.Vec.push w3 i6
+  let w5 ← alloc.vec.Vec.push w4 self1.glsl
+  let s1 := alloc.vec.Vec.deref g
+  let w6 ← gpu.nn.push_all w5 s1
+  let i7 ← 3#u32 <<< 16#i32
+  let i8 ← lift (i7 ||| gpu.nn.OP_MEMORY_MODEL)
+  let s2 ←
+    lift (Array.to_slice
+      (Array.make 3#usize [ i8, gpu.nn.ADDR_LOGICAL, gpu.nn.MEM_GLSL450 ]))
+  let w7 ← gpu.nn.push_all w6 s2
+  let y1 ←
+    lift (Std.Array.to_slice (Array.make 1#usize [ self1.gid ] : Array Std.U32
+      1#usize))
+  let ret2 := alloc.slice.Slice.into_vec y1
+  let iface ←
+    if self1.lii != 0#u32
+    then alloc.vec.Vec.push ret2 self1.lii
+    else ok ret2
+  let iface1 ←
+    if self1.wgid != 0#u32
+    then alloc.vec.Vec.push iface self1.wgid
+    else ok iface
+  let main ← gpu.nn.lit_string (toStr "main")
+  let i9 := alloc.vec.Vec.len main
+  let i10 ← lift (UScalar.cast .U32 i9)
+  let i11 ← 3#u32 + i10
+  let i12 := alloc.vec.Vec.len iface1
+  let i13 ← lift (UScalar.cast .U32 i12)
+  let i14 ← i11 + i13
+  let i15 ← i14 <<< 16#i32
+  let i16 ← lift (i15 ||| gpu.nn.OP_ENTRY_POINT)
+  let w8 ← alloc.vec.Vec.push w7 i16
+  let s3 ←
+    lift (Array.to_slice
+      (Array.make 2#usize [ gpu.nn.MODEL_GL_COMPUTE, self1.main_id ]))
+  let w9 ← gpu.nn.push_all w8 s3
+  let s4 := alloc.vec.Vec.deref main
+  let w10 ← gpu.nn.push_all w9 s4
+  let s5 := alloc.vec.Vec.deref iface1
+  let w11 ← gpu.nn.push_all w10 s5
+  let i17 ← 6#u32 <<< 16#i32
+  let i18 ← lift (i17 ||| gpu.nn.OP_EXECUTION_MODE)
+  let s6 ←
+    lift (Array.to_slice
+      (Array.make 6#usize [
+        i18, self1.main_id, gpu.nn.MODE_LOCAL_SIZE, «local», 1#u32, 1#u32
+        ]))
+  let w12 ← gpu.nn.push_all w11 s6
+  let s7 := alloc.vec.Vec.deref self1.deco
+  let w13 ← gpu.nn.push_all w12 s7
+  let s8 := alloc.vec.Vec.deref self1.tycon
+  let w14 ← gpu.nn.push_all w13 s8
+  let i19 ← 5#u32 <<< 16#i32
+  let i20 ← lift (i19 ||| gpu.nn.OP_FUNCTION)
+  let s9 ←
+    lift (Array.to_slice
+      (Array.make 5#usize [
+        i20, self1.void_t, self1.main_id, 0#u32, self1.fnty
+        ]))
+  let w15 ← gpu.nn.push_all w14 s9
+  let i21 ← lift (i ||| gpu.nn.OP_LABEL)
+  let s10 ← lift (Array.to_slice (Array.make 2#usize [ i21, entry_l ]))
+  let w16 ← gpu.nn.push_all w15 s10
+  let s11 := alloc.vec.Vec.deref self1.fvars
+  let w17 ← gpu.nn.push_all w16 s11
+  let s12 := alloc.vec.Vec.deref self1.body
+  let w18 ← gpu.nn.push_all w17 s12
+  let i22 ← 1#u32 <<< 16#i32
+  let i23 ← lift (i22 ||| gpu.nn.OP_RETURN)
+  let s13 ← lift (Array.to_slice (Array.make 1#usize [ i23 ]))
+  let w19 ← gpu.nn.push_all w18 s13
+  let i24 ← lift (i22 ||| gpu.nn.OP_FUNCTION_END)
+  let s14 ← lift (Array.to_slice (Array.make 1#usize [ i24 ]))
+  gpu.nn.push_all w19 s14
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::deco]:
+    Source: '../../src/gpu/nn/mod.rs', lines 374:4-378:5 -/
+def gpu.nn.Kb.impl.deco
+  (self : gpu.nn.Kb) (words : Slice Std.U32) : Result gpu.nn.Kb := do
+  let i := Slice.len words
+  let i1 ← lift (UScalar.cast .U32 i)
+  let i2 ← i1 <<< 16#i32
+  let i3 ← Slice.index_usize words 0#usize
+  let i4 ← lift (i2 ||| i3)
+  let v ← alloc.vec.Vec.push self.deco i4
+  let s ←
+    core.slice.index.Slice.index
+      (core.slice.index.SliceIndexRangeFromUsizeSlice Std.U32) words
+      { start := 1#usize }
+  let v1 ← gpu.nn.push_all v s
+  ok { self with deco := v1 }
+
+/-- [apeiron_word::gpu::nn::BUILTIN_GLOBAL_INVOCATION_ID]
+    Source: '../../src/gpu/nn/mod.rs', lines 147:0-147:45 -/
+@[global_simps, irreducible]
+def gpu.nn.BUILTIN_GLOBAL_INVOCATION_ID : Std.U32 := 28#u32
+
+/-- [apeiron_word::gpu::nn::DEC_OFFSET]
+    Source: '../../src/gpu/nn/mod.rs', lines 146:0-146:27 -/
+@[global_simps, irreducible] def gpu.nn.DEC_OFFSET : Std.U32 := 35#u32
+
+/-- [apeiron_word::gpu::nn::DEC_BUILT_IN]
+    Source: '../../src/gpu/nn/mod.rs', lines 143:0-143:29 -/
+@[global_simps, irreducible] def gpu.nn.DEC_BUILT_IN : Std.U32 := 11#u32
+
+/-- [apeiron_word::gpu::nn::DEC_ARRAY_STRIDE]
+    Source: '../../src/gpu/nn/mod.rs', lines 142:0-142:32 -/
+@[global_simps, irreducible] def gpu.nn.DEC_ARRAY_STRIDE : Std.U32 := 6#u32
+
+/-- [apeiron_word::gpu::nn::DEC_BLOCK]
+    Source: '../../src/gpu/nn/mod.rs', lines 141:0-141:25 -/
+@[global_simps, irreducible] def gpu.nn.DEC_BLOCK : Std.U32 := 2#u32
+
+/-- [apeiron_word::gpu::nn::SC_FUNCTION]
+    Source: '../../src/gpu/nn/mod.rs', lines 140:0-140:27 -/
+@[global_simps, irreducible] def gpu.nn.SC_FUNCTION : Std.U32 := 7#u32
+
+/-- [apeiron_word::gpu::nn::SC_INPUT]
+    Source: '../../src/gpu/nn/mod.rs', lines 139:0-139:24 -/
+@[global_simps, irreducible] def gpu.nn.SC_INPUT : Std.U32 := 1#u32
+
+/-- [apeiron_word::gpu::nn::SC_STORAGE_BUFFER]
+    Source: '../../src/gpu/nn/mod.rs', lines 138:0-138:34 -/
+@[global_simps, irreducible] def gpu.nn.SC_STORAGE_BUFFER : Std.U32 := 12#u32
+
+/-- [apeiron_word::gpu::nn::OP_MEMBER_DECORATE]
+    Source: '../../src/gpu/nn/mod.rs', lines 101:0-101:35 -/
+@[global_simps, irreducible] def gpu.nn.OP_MEMBER_DECORATE : Std.U32 := 72#u32
+
+/-- [apeiron_word::gpu::nn::OP_DECORATE]
+    Source: '../../src/gpu/nn/mod.rs', lines 100:0-100:28 -/
+@[global_simps, irreducible] def gpu.nn.OP_DECORATE : Std.U32 := 71#u32
+
+/-- [apeiron_word::gpu::nn::OP_VARIABLE]
+    Source: '../../src/gpu/nn/mod.rs', lines 96:0-96:28 -/
+@[global_simps, irreducible] def gpu.nn.OP_VARIABLE : Std.U32 := 59#u32
+
+/-- [apeiron_word::gpu::nn::OP_TYPE_FUNCTION]
+    Source: '../../src/gpu/nn/mod.rs', lines 92:0-92:33 -/
+@[global_simps, irreducible] def gpu.nn.OP_TYPE_FUNCTION : Std.U32 := 33#u32
+
+/-- [apeiron_word::gpu::nn::OP_TYPE_POINTER]
+    Source: '../../src/gpu/nn/mod.rs', lines 91:0-91:32 -/
+@[global_simps, irreducible] def gpu.nn.OP_TYPE_POINTER : Std.U32 := 32#u32
+
+/-- [apeiron_word::gpu::nn::OP_TYPE_STRUCT]
+    Source: '../../src/gpu/nn/mod.rs', lines 90:0-90:31 -/
+@[global_simps, irreducible] def gpu.nn.OP_TYPE_STRUCT : Std.U32 := 30#u32
+
+/-- [apeiron_word::gpu::nn::OP_TYPE_RUNTIME_ARRAY]
+    Source: '../../src/gpu/nn/mod.rs', lines 89:0-89:38 -/
+@[global_simps, irreducible]
+def gpu.nn.OP_TYPE_RUNTIME_ARRAY : Std.U32 := 29#u32
+
+/-- [apeiron_word::gpu::nn::OP_TYPE_VECTOR]
+    Source: '../../src/gpu/nn/mod.rs', lines 88:0-88:31 -/
+@[global_simps, irreducible] def gpu.nn.OP_TYPE_VECTOR : Std.U32 := 23#u32
+
+/-- [apeiron_word::gpu::nn::OP_TYPE_FLOAT]
+    Source: '../../src/gpu/nn/mod.rs', lines 87:0-87:30 -/
+@[global_simps, irreducible] def gpu.nn.OP_TYPE_FLOAT : Std.U32 := 22#u32
+
+/-- [apeiron_word::gpu::nn::OP_TYPE_INT]
+    Source: '../../src/gpu/nn/mod.rs', lines 86:0-86:28 -/
+@[global_simps, irreducible] def gpu.nn.OP_TYPE_INT : Std.U32 := 21#u32
+
+/-- [apeiron_word::gpu::nn::OP_TYPE_BOOL]
+    Source: '../../src/gpu/nn/mod.rs', lines 85:0-85:29 -/
+@[global_simps, irreducible] def gpu.nn.OP_TYPE_BOOL : Std.U32 := 20#u32
+
+/-- [apeiron_word::gpu::nn::OP_TYPE_VOID]
+    Source: '../../src/gpu/nn/mod.rs', lines 84:0-84:29 -/
+@[global_simps, irreducible] def gpu.nn.OP_TYPE_VOID : Std.U32 := 19#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::new]:
+    Source: '../../src/gpu/nn/mod.rs', lines 231:4-319:5 -/
+def gpu.nn.Kb.new : Result gpu.nn.Kb := do
+  let (i, k) ←
+    gpu.nn.Kb.id
+      {
+        deco := (alloc.vec.Vec.new Std.U32),
+        tycon := (alloc.vec.Vec.new Std.U32),
+        fvars := (alloc.vec.Vec.new Std.U32),
+        body := (alloc.vec.Vec.new Std.U32),
+        next := 1#u32,
+        glsl := 0#u32,
+        void_t := 0#u32,
+        fnty := 0#u32,
+        uint := 0#u32,
+        float := 0#u32,
+        float16 := 0#u32,
+        ptr_sb_buf_f16 := 0#u32,
+        ptr_sb_f16 := 0#u32,
+        f16_storage := false,
+        dp4a := false,
+        sint0 := 0#u32,
+        ptr_fn_s := 0#u32,
+        bool_t := 0#u32,
+        uvec3 := 0#u32,
+        vec2f := 0#u32,
+        ptr_sb_f := 0#u32,
+        ptr_sb_u := 0#u32,
+        ptr_fn_f := 0#u32,
+        ptr_fn_u := 0#u32,
+        ptr_sb_buf_f := 0#u32,
+        ptr_sb_buf_u := 0#u32,
+        gid := 0#u32,
+        main_id := 0#u32,
+        ucache := (alloc.vec.Vec.new (Std.U32 × Std.U32)),
+        fcache := (alloc.vec.Vec.new (Std.U32 × Std.U32)),
+        lii := 0#u32,
+        wgid := 0#u32,
+        sg_arith := false
+      }
+  let (i1, k1) ← gpu.nn.Kb.id { k with glsl := i }
+  let (i2, k2) ← gpu.nn.Kb.id { k1 with main_id := i1 }
+  let (i3, k3) ← gpu.nn.Kb.id { k2 with void_t := i2 }
+  let (i4, k4) ← gpu.nn.Kb.id { k3 with fnty := i3 }
+  let (i5, k5) ← gpu.nn.Kb.id { k4 with uint := i4 }
+  let (i6, k6) ← gpu.nn.Kb.id { k5 with float := i5 }
+  let (i7, k7) ← gpu.nn.Kb.id { k6 with bool_t := i6 }
+  let (vec2f, k8) ← gpu.nn.Kb.id { k7 with uvec3 := i7 }
+  let s ← lift (Array.to_slice (Array.make 1#usize [ k8.void_t ]))
+  let k9 ← gpu.nn.Kb.ty { k8 with vec2f } gpu.nn.OP_TYPE_VOID s
+  let s1 ← lift (Array.to_slice (Array.make 2#usize [ k8.fnty, k8.void_t ]))
+  let k10 ← gpu.nn.Kb.ty k9 gpu.nn.OP_TYPE_FUNCTION s1
+  let s2 ←
+    lift (Array.to_slice (Array.make 3#usize [ k8.uint, 32#u32, 0#u32 ]))
+  let k11 ← gpu.nn.Kb.ty k10 gpu.nn.OP_TYPE_INT s2
+  let s3 ← lift (Array.to_slice (Array.make 2#usize [ k8.float, 32#u32 ]))
+  let k12 ← gpu.nn.Kb.ty k11 gpu.nn.OP_TYPE_FLOAT s3
+  let s4 ← lift (Array.to_slice (Array.make 1#usize [ k8.bool_t ]))
+  let k13 ← gpu.nn.Kb.ty k12 gpu.nn.OP_TYPE_BOOL s4
+  let s5 ←
+    lift (Array.to_slice (Array.make 3#usize [ k8.uvec3, k8.uint, 3#u32 ]))
+  let k14 ← gpu.nn.Kb.ty k13 gpu.nn.OP_TYPE_VECTOR s5
+  let s6 ←
+    lift (Array.to_slice (Array.make 3#usize [ vec2f, k8.float, 2#u32 ]))
+  let k15 ← gpu.nn.Kb.ty k14 gpu.nn.OP_TYPE_VECTOR s6
+  let (ptr_in_uvec3, k16) ← gpu.nn.Kb.id k15
+  let s7 ←
+    lift (Array.to_slice
+      (Array.make 3#usize [ ptr_in_uvec3, gpu.nn.SC_INPUT, k8.uvec3 ]))
+  let k17 ← gpu.nn.Kb.ty k16 gpu.nn.OP_TYPE_POINTER s7
+  let (gid, k18) ← gpu.nn.Kb.id k17
+  let s8 ←
+    lift (Array.to_slice
+      (Array.make 3#usize [ ptr_in_uvec3, gid, gpu.nn.SC_INPUT ]))
+  let k19 ← gpu.nn.Kb.ty { k18 with gid } gpu.nn.OP_VARIABLE s8
+  let s9 ←
+    lift (Array.to_slice
+      (Array.make 4#usize [
+        gpu.nn.OP_DECORATE, gid, gpu.nn.DEC_BUILT_IN,
+        gpu.nn.BUILTIN_GLOBAL_INVOCATION_ID
+        ]))
+  let k20 ← gpu.nn.Kb.impl.deco k19 s9
+  let (i8, k21) ← gpu.nn.Kb.id k20
+  let (i9, k22) ← gpu.nn.Kb.id { k21 with ptr_sb_f := i8 }
+  let (i10, k23) ← gpu.nn.Kb.id { k22 with ptr_sb_u := i9 }
+  let (pfu, k24) ← gpu.nn.Kb.id { k23 with ptr_fn_f := i10 }
+  let s10 ←
+    lift (Array.to_slice
+      (Array.make 3#usize [ k24.ptr_sb_f, gpu.nn.SC_STORAGE_BUFFER, k8.float ]))
+  let k25 ←
+    gpu.nn.Kb.ty { k24 with ptr_fn_u := pfu } gpu.nn.OP_TYPE_POINTER s10
+  let s11 ←
+    lift (Array.to_slice
+      (Array.make 3#usize [ k24.ptr_sb_u, gpu.nn.SC_STORAGE_BUFFER, k8.uint ]))
+  let k26 ← gpu.nn.Kb.ty k25 gpu.nn.OP_TYPE_POINTER s11
+  let s12 ←
+    lift (Array.to_slice
+      (Array.make 3#usize [ k24.ptr_fn_f, gpu.nn.SC_FUNCTION, k8.float ]))
+  let k27 ← gpu.nn.Kb.ty k26 gpu.nn.OP_TYPE_POINTER s12
+  let s13 ←
+    lift (Array.to_slice
+      (Array.make 3#usize [ pfu, gpu.nn.SC_FUNCTION, k8.uint ]))
+  let k28 ← gpu.nn.Kb.ty k27 gpu.nn.OP_TYPE_POINTER s13
+  let (rta_f, k29) ← gpu.nn.Kb.id k28
+  let (buf_f, k30) ← gpu.nn.Kb.id k29
+  let (pbf, k31) ← gpu.nn.Kb.id k30
+  let s14 ← lift (Array.to_slice (Array.make 2#usize [ rta_f, k8.float ]))
+  let k32 ← gpu.nn.Kb.ty k31 gpu.nn.OP_TYPE_RUNTIME_ARRAY s14
+  let s15 ← lift (Array.to_slice (Array.make 2#usize [ buf_f, rta_f ]))
+  let k33 ← gpu.nn.Kb.ty k32 gpu.nn.OP_TYPE_STRUCT s15
+  let s16 ←
+    lift (Array.to_slice
+      (Array.make 3#usize [ pbf, gpu.nn.SC_STORAGE_BUFFER, buf_f ]))
+  let k34 ← gpu.nn.Kb.ty k33 gpu.nn.OP_TYPE_POINTER s16
+  let s17 ←
+    lift (Array.to_slice
+      (Array.make 4#usize [
+        gpu.nn.OP_DECORATE, rta_f, gpu.nn.DEC_ARRAY_STRIDE, 4#u32
+        ]))
+  let k35 ← gpu.nn.Kb.impl.deco k34 s17
+  let s18 ←
+    lift (Array.to_slice
+      (Array.make 3#usize [ gpu.nn.OP_DECORATE, buf_f, gpu.nn.DEC_BLOCK ]))
+  let k36 ← gpu.nn.Kb.impl.deco k35 s18
+  let s19 ←
+    lift (Array.to_slice
+      (Array.make 5#usize [
+        gpu.nn.OP_MEMBER_DECORATE, buf_f, 0#u32, gpu.nn.DEC_OFFSET, 0#u32
+        ]))
+  let k37 ← gpu.nn.Kb.impl.deco k36 s19
+  let (rta_u, k38) ← gpu.nn.Kb.id k37
+  let (buf_u, k39) ← gpu.nn.Kb.id k38
+  let (pbu, k40) ← gpu.nn.Kb.id k39
+  let s20 ← lift (Array.to_slice (Array.make 2#usize [ rta_u, k8.uint ]))
+  let k41 ← gpu.nn.Kb.ty k40 gpu.nn.OP_TYPE_RUNTIME_ARRAY s20
+  let s21 ← lift (Array.to_slice (Array.make 2#usize [ buf_u, rta_u ]))
+  let k42 ← gpu.nn.Kb.ty k41 gpu.nn.OP_TYPE_STRUCT s21
+  let s22 ←
+    lift (Array.to_slice
+      (Array.make 3#usize [ pbu, gpu.nn.SC_STORAGE_BUFFER, buf_u ]))
+  let k43 ← gpu.nn.Kb.ty k42 gpu.nn.OP_TYPE_POINTER s22
+  let s23 ←
+    lift (Array.to_slice
+      (Array.make 4#usize [
+        gpu.nn.OP_DECORATE, rta_u, gpu.nn.DEC_ARRAY_STRIDE, 4#u32
+        ]))
+  let k44 ← gpu.nn.Kb.impl.deco k43 s23
+  let s24 ←
+    lift (Array.to_slice
+      (Array.make 3#usize [ gpu.nn.OP_DECORATE, buf_u, gpu.nn.DEC_BLOCK ]))
+  let k45 ← gpu.nn.Kb.impl.deco k44 s24
+  let s25 ←
+    lift (Array.to_slice
+      (Array.make 5#usize [
+        gpu.nn.OP_MEMBER_DECORATE, buf_u, 0#u32, gpu.nn.DEC_OFFSET, 0#u32
+        ]))
+  let k46 ← gpu.nn.Kb.impl.deco k45 s25
+  ok { k46 with ptr_sb_buf_f := pbf, ptr_sb_buf_u := pbu }
+
+/-- [apeiron_word::gpu::nn::OP_BRANCH_CONDITIONAL]
+    Source: '../../src/gpu/nn/mod.rs', lines 127:0-127:39 -/
+@[global_simps, irreducible]
+def gpu.nn.OP_BRANCH_CONDITIONAL : Std.U32 := 250#u32
+
+/-- [apeiron_word::gpu::nn::OP_BRANCH]
+    Source: '../../src/gpu/nn/mod.rs', lines 126:0-126:27 -/
+@[global_simps, irreducible] def gpu.nn.OP_BRANCH : Std.U32 := 249#u32
+
+/-- [apeiron_word::gpu::nn::OP_SELECTION_MERGE]
+    Source: '../../src/gpu/nn/mod.rs', lines 124:0-124:36 -/
+@[global_simps, irreducible] def gpu.nn.OP_SELECTION_MERGE : Std.U32 := 247#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::iff]:
+    Source: '../../src/gpu/nn/mod.rs', lines 593:4-602:5 -/
+def gpu.nn.Kb.iff
+  {T0 : Type} (coreopsfunctionFnOnceT0TupleKbKbInst : core.ops.function.FnOnce
+  T0 gpu.nn.Kb gpu.nn.Kb) (self : gpu.nn.Kb) (cond : Std.U32) («then» : T0) :
+  Result gpu.nn.Kb
+  := do
+  let (then_l, self1) ← gpu.nn.Kb.id self
+  let (end_l, self2) ← gpu.nn.Kb.id self1
+  let s ← lift (Array.to_slice (Array.make 2#usize [ end_l, 0#u32 ]))
+  let self3 ← gpu.nn.Kb.ins self2 gpu.nn.OP_SELECTION_MERGE s
+  let s1 ← lift (Array.to_slice (Array.make 3#usize [ cond, then_l, end_l ]))
+  let self4 ← gpu.nn.Kb.ins self3 gpu.nn.OP_BRANCH_CONDITIONAL s1
+  let s2 ← lift (Array.to_slice (Array.make 1#usize [ then_l ]))
+  let self5 ← gpu.nn.Kb.ins self4 gpu.nn.OP_LABEL s2
+  let k ← gpu.nn.Kb.new
+  let (k1, _) := core.mem.replace self5 k
+  let self6 ← coreopsfunctionFnOnceT0TupleKbKbInst.call_once «then» k1
+  let s3 ← lift (Array.to_slice (Array.make 1#usize [ end_l ]))
+  let self7 ← gpu.nn.Kb.ins self6 gpu.nn.OP_BRANCH s3
+  let s4 ← lift (Array.to_slice (Array.make 1#usize [ end_l ]))
+  gpu.nn.Kb.ins self7 gpu.nn.OP_LABEL s4
+
+/-- [apeiron_word::gpu::nn::OP_ULESS_THAN]
+    Source: '../../src/gpu/nn/mod.rs', lines 115:0-115:31 -/
+@[global_simps, irreducible] def gpu.nn.OP_ULESS_THAN : Std.U32 := 176#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ult]:
+    Source: '../../src/gpu/nn/mod.rs', lines 564:4-567:5 -/
+def gpu.nn.Kb.ult
+  (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
+  Result (Std.U32 × gpu.nn.Kb)
+  := do
+  let s ← lift (Array.to_slice (Array.make 2#usize [ a, b ]))
+  gpu.nn.Kb.e self gpu.nn.OP_ULESS_THAN self.bool_t s
+
+/-- [apeiron_word::gpu::nn::OP_COMPOSITE_EXTRACT]
+    Source: '../../src/gpu/nn/mod.rs', lines 103:0-103:37 -/
+@[global_simps, irreducible]
+def gpu.nn.OP_COMPOSITE_EXTRACT : Std.U32 := 81#u32
+
+/-- [apeiron_word::gpu::nn::OP_LOAD]
+    Source: '../../src/gpu/nn/mod.rs', lines 97:0-97:24 -/
+@[global_simps, irreducible] def gpu.nn.OP_LOAD : Std.U32 := 61#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::gid_comp]:
+    Source: '../../src/gpu/nn/mod.rs', lines 508:4-512:5 -/
+def gpu.nn.Kb.gid_comp
+  (self : gpu.nn.Kb) (comp : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
+  let s ← lift (Array.to_slice (Array.make 1#usize [ self.gid ]))
+  let (v, self1) ← gpu.nn.Kb.e self gpu.nn.OP_LOAD self.uvec3 s
+  let s1 ← lift (Array.to_slice (Array.make 2#usize [ v, comp ]))
+  gpu.nn.Kb.e self1 gpu.nn.OP_COMPOSITE_EXTRACT self.uint s1
+
+/-- [apeiron_word::gpu::nn::DEC_DESCRIPTOR_SET]
+    Source: '../../src/gpu/nn/mod.rs', lines 145:0-145:35 -/
+@[global_simps, irreducible] def gpu.nn.DEC_DESCRIPTOR_SET : Std.U32 := 34#u32
+
+/-- [apeiron_word::gpu::nn::DEC_BINDING]
+    Source: '../../src/gpu/nn/mod.rs', lines 144:0-144:28 -/
+@[global_simps, irreducible] def gpu.nn.DEC_BINDING : Std.U32 := 33#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ssbo_u]:
+    Source: '../../src/gpu/nn/mod.rs', lines 455:4-462:5 -/
+def gpu.nn.Kb.ssbo_u
+  (self : gpu.nn.Kb) (binding : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
+  let (var, self1) ← gpu.nn.Kb.id self
+  let s ←
+    lift (Array.to_slice
+      (Array.make 3#usize [
+        self1.ptr_sb_buf_u, var, gpu.nn.SC_STORAGE_BUFFER
+        ]))
+  let self2 ← gpu.nn.Kb.ty self1 gpu.nn.OP_VARIABLE s
+  let s1 ←
+    lift (Array.to_slice
+      (Array.make 4#usize [
+        gpu.nn.OP_DECORATE, var, gpu.nn.DEC_DESCRIPTOR_SET, 0#u32
+        ]))
+  let self3 ← gpu.nn.Kb.impl.deco self2 s1
+  let s2 ←
+    lift (Array.to_slice
+      (Array.make 4#usize [
+        gpu.nn.OP_DECORATE, var, gpu.nn.DEC_BINDING, binding
+        ]))
+  let self4 ← gpu.nn.Kb.impl.deco self3 s2
+  ok (var, self4)
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ssbo_f]:
+    Source: '../../src/gpu/nn/mod.rs', lines 446:4-453:5 -/
+def gpu.nn.Kb.ssbo_f
+  (self : gpu.nn.Kb) (binding : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
+  let (var, self1) ← gpu.nn.Kb.id self
+  let s ←
+    lift (Array.to_slice
+      (Array.make 3#usize [
+        self1.ptr_sb_buf_f, var, gpu.nn.SC_STORAGE_BUFFER
+        ]))
+  let self2 ← gpu.nn.Kb.ty self1 gpu.nn.OP_VARIABLE s
+  let s1 ←
+    lift (Array.to_slice
+      (Array.make 4#usize [
+        gpu.nn.OP_DECORATE, var, gpu.nn.DEC_DESCRIPTOR_SET, 0#u32
+        ]))
+  let self3 ← gpu.nn.Kb.impl.deco self2 s1
+  let s2 ←
+    lift (Array.to_slice
+      (Array.make 4#usize [
+        gpu.nn.OP_DECORATE, var, gpu.nn.DEC_BINDING, binding
+        ]))
+  let self4 ← gpu.nn.Kb.impl.deco self3 s2
+  ok (var, self4)
+
+/-- [apeiron_word::gpu::nn::OP_UMOD]
+    Source: '../../src/gpu/nn/mod.rs', lines 113:0-113:25 -/
+@[global_simps, irreducible] def gpu.nn.OP_UMOD : Std.U32 := 137#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::umod]:
+    Source: '../../src/gpu/nn/mod.rs', lines 526:4-529:5 -/
+def gpu.nn.Kb.umod
+  (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
+  Result (Std.U32 × gpu.nn.Kb)
+  := do
+  let s ← lift (Array.to_slice (Array.make 2#usize [ a, b ]))
+  gpu.nn.Kb.e self gpu.nn.OP_UMOD self.uint s
+
+/-- [apeiron_word::gpu::nn::OP_UDIV]
+    Source: '../../src/gpu/nn/mod.rs', lines 111:0-111:25 -/
+@[global_simps, irreducible] def gpu.nn.OP_UDIV : Std.U32 := 134#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::udiv]:
+    Source: '../../src/gpu/nn/mod.rs', lines 522:4-525:5 -/
+def gpu.nn.Kb.udiv
+  (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
+  Result (Std.U32 × gpu.nn.Kb)
+  := do
+  let s ← lift (Array.to_slice (Array.make 2#usize [ a, b ]))
+  gpu.nn.Kb.e self gpu.nn.OP_UDIV self.uint s
+
+/-- [apeiron_word::gpu::nn::OP_IMUL]
+    Source: '../../src/gpu/nn/mod.rs', lines 109:0-109:25 -/
+@[global_simps, irreducible] def gpu.nn.OP_IMUL : Std.U32 := 132#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::imul]:
+    Source: '../../src/gpu/nn/mod.rs', lines 518:4-521:5 -/
+def gpu.nn.Kb.imul
+  (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
+  Result (Std.U32 × gpu.nn.Kb)
+  := do
+  let s ← lift (Array.to_slice (Array.make 2#usize [ a, b ]))
+  gpu.nn.Kb.e self gpu.nn.OP_IMUL self.uint s
+
+/-- [apeiron_word::gpu::nn::OP_IADD]
+    Source: '../../src/gpu/nn/mod.rs', lines 105:0-105:25 -/
+@[global_simps, irreducible] def gpu.nn.OP_IADD : Std.U32 := 128#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::iadd]:
+    Source: '../../src/gpu/nn/mod.rs', lines 514:4-517:5 -/
+def gpu.nn.Kb.iadd
+  (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
+  Result (Std.U32 × gpu.nn.Kb)
+  := do
+  let s ← lift (Array.to_slice (Array.make 2#usize [ a, b ]))
+  gpu.nn.Kb.e self gpu.nn.OP_IADD self.uint s
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::load_u]:
+    Source: '../../src/gpu/nn/mod.rs', lines 501:4-506:5 -/
+def gpu.nn.Kb.load_u
+  (self : gpu.nn.Kb) (buf : Std.U32) (idx : Std.U32) :
+  Result (Std.U32 × gpu.nn.Kb)
+  := do
+  let (c0, self1) ← gpu.nn.Kb.cu self 0#u32
+  let s ← lift (Array.to_slice (Array.make 3#usize [ buf, c0, idx ]))
+  let (p, self2) ← gpu.nn.Kb.e self1 gpu.nn.OP_ACCESS_CHAIN self.ptr_sb_u s
+  let s1 ← lift (Array.to_slice (Array.make 1#usize [ p ]))
+  gpu.nn.Kb.e self2 gpu.nn.OP_LOAD self.uint s1
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::store_f]:
+    Source: '../../src/gpu/nn/mod.rs', lines 495:4-500:5 -/
+def gpu.nn.Kb.store_f
+  (self : gpu.nn.Kb) (buf : Std.U32) (idx : Std.U32) (val : Std.U32) :
+  Result gpu.nn.Kb
+  := do
+  let (c0, self1) ← gpu.nn.Kb.cu self 0#u32
+  let s ← lift (Array.to_slice (Array.make 3#usize [ buf, c0, idx ]))
+  let (p, self2) ← gpu.nn.Kb.e self1 gpu.nn.OP_ACCESS_CHAIN self.ptr_sb_f s
+  let s1 ← lift (Array.to_slice (Array.make 2#usize [ p, val ]))
+  gpu.nn.Kb.ins self2 gpu.nn.OP_STORE s1
+
+/-- [apeiron_word::gpu::nn::GLSL_UNPACK_HALF2X16]
+    Source: '../../src/gpu/nn/mod.rs', lines 161:0-161:37 -/
+@[global_simps, irreducible]
+def gpu.nn.GLSL_UNPACK_HALF2X16 : Std.U32 := 62#u32
+
+/-- [apeiron_word::gpu::nn::OP_VECTOR_EXTRACT_DYNAMIC]
+    Source: '../../src/gpu/nn/mod.rs', lines 102:0-102:42 -/
+@[global_simps, irreducible]
+def gpu.nn.OP_VECTOR_EXTRACT_DYNAMIC : Std.U32 := 77#u32
+
+/-- [apeiron_word::gpu::nn::OP_EXT_INST]
+    Source: '../../src/gpu/nn/mod.rs', lines 79:0-79:28 -/
+@[global_simps, irreducible] def gpu.nn.OP_EXT_INST : Std.U32 := 12#u32
+
+/-- [apeiron_word::gpu::nn::glue::embed_f16_module::{closure}]
+    Source: '../../src/gpu/nn/glue.rs', lines 62:17-81:5 -/
+def gpu.nn.glue.embed_f16_module.closure :=
+  Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32
+
+/-- [apeiron_word::gpu::nn::glue::embed_f16_module::{impl core::ops::function::FnOnce<(apeiron_word::gpu::nn::Kb,), apeiron_word::gpu::nn::Kb> for apeiron_word::gpu::nn::glue::embed_f16_module::{closure}<'_0, '_1, '_2, '_3, '_4>}::call_once]:
+    Source: '../../src/gpu/nn/glue.rs', lines 62:17-81:5 -/
+def
+  gpu.nn.glue.embed_f16_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb.call_once
+  (c : gpu.nn.glue.embed_f16_module.closure) (tupled_args : gpu.nn.Kb) :
+  Result gpu.nn.Kb
+  := do
+  let (i, i1, i2, i3, i4) := c
+  let (c1, tupled_args1) ← gpu.nn.Kb.cu tupled_args 1#u32
+  let (tok, tupled_args2) ← gpu.nn.Kb.load_u tupled_args1 i c1
+  let i5 ← i1 / 2#u32
+  let (cv2, tupled_args3) ← gpu.nn.Kb.cu tupled_args2 i5
+  let (c2, tupled_args4) ← gpu.nn.Kb.cu tupled_args3 2#u32
+  let (t2, tupled_args5) ← gpu.nn.Kb.udiv tupled_args4 tok c2
+  let (widx1, tupled_args6) ← gpu.nn.Kb.imul tupled_args5 i2 cv2
+  let (widx, tupled_args7) ← gpu.nn.Kb.iadd tupled_args6 widx1 t2
+  let (word, tupled_args8) ← gpu.nn.Kb.load_u tupled_args7 i3 widx
+  let (c2b, tupled_args9) ← gpu.nn.Kb.cu tupled_args8 2#u32
+  let (lane, tupled_args10) ← gpu.nn.Kb.umod tupled_args9 tok c2b
+  let s ←
+    lift (Array.to_slice
+      (Array.make 3#usize [
+        tupled_args10.glsl, gpu.nn.GLSL_UNPACK_HALF2X16, word
+        ]))
+  let (unp, k) ←
+    gpu.nn.Kb.e tupled_args10 gpu.nn.OP_EXT_INST tupled_args10.vec2f s
+  let s1 ← lift (Array.to_slice (Array.make 2#usize [ unp, lane ]))
+  let (val, k1) ← gpu.nn.Kb.e k gpu.nn.OP_VECTOR_EXTRACT_DYNAMIC k.float s1
+  gpu.nn.Kb.store_f k1 i4 i2 val
+
+/-- Trait implementation: [apeiron_word::gpu::nn::glue::embed_f16_module::{impl core::ops::function::FnOnce<(apeiron_word::gpu::nn::Kb,), apeiron_word::gpu::nn::Kb> for apeiron_word::gpu::nn::glue::embed_f16_module::{closure}<'_0, '_1, '_2, '_3, '_4>}]
+    Source: '../../src/gpu/nn/glue.rs', lines 62:17-81:5 -/
+@[reducible]
+def gpu.nn.glue.embed_f16_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb :
+  core.ops.function.FnOnce gpu.nn.glue.embed_f16_module.closure gpu.nn.Kb
+  gpu.nn.Kb := {
+  call_once :=
+    gpu.nn.glue.embed_f16_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb.call_once
+}
+
+/-- [apeiron_word::gpu::nn::glue::embed_f16_module]:
+    Source: '../../src/gpu/nn/glue.rs', lines 54:0-83:1
+    Visibility: public -/
+def gpu.nn.glue.embed_f16_module
+  (hidden : Std.U32) (vocab : Std.U32) («local» : Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  let k ← gpu.nn.Kb.new
+  let (e, k1) ← gpu.nn.Kb.ssbo_u k 0#u32
+  let (params, k2) ← gpu.nn.Kb.ssbo_u k1 1#u32
+  let (x, k3) ← gpu.nn.Kb.ssbo_f k2 2#u32
+  let (i, k4) ← gpu.nn.Kb.gid_comp k3 0#u32
+  let (ch, k5) ← gpu.nn.Kb.cu k4 hidden
+  let (guard, k6) ← gpu.nn.Kb.ult k5 i ch
+  let k7 ←
+    gpu.nn.Kb.iff
+      gpu.nn.glue.embed_f16_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb
+      k6 guard (params, vocab, i, e, x)
+  gpu.nn.Kb.finish k7 «local»
+
+/-- [apeiron_word::gpu::nn::OP_FNEG]
+    Source: '../../src/gpu/nn/mod.rs', lines 806:0-806:25 -/
+@[global_simps, irreducible] def gpu.nn.OP_FNEG : Std.U32 := 127#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::ext1]:
+    Source: '../../src/gpu/nn/mod.rs', lines 573:4-576:5 -/
+def gpu.nn.Kb.ext1
+  (self : gpu.nn.Kb) (inst : Std.U32) (x : Std.U32) :
+  Result (Std.U32 × gpu.nn.Kb)
+  := do
+  let s ← lift (Array.to_slice (Array.make 3#usize [ self.glsl, inst, x ]))
+  gpu.nn.Kb.e self gpu.nn.OP_EXT_INST self.float s
+
+/-- [apeiron_word::gpu::nn::OP_FDIV]
+    Source: '../../src/gpu/nn/mod.rs', lines 112:0-112:25 -/
+@[global_simps, irreducible] def gpu.nn.OP_FDIV : Std.U32 := 136#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fdiv]:
+    Source: '../../src/gpu/nn/mod.rs', lines 560:4-563:5 -/
+def gpu.nn.Kb.fdiv
+  (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
+  Result (Std.U32 × gpu.nn.Kb)
+  := do
+  let s ← lift (Array.to_slice (Array.make 2#usize [ a, b ]))
+  gpu.nn.Kb.e self gpu.nn.OP_FDIV self.float s
+
+/-- [apeiron_word::gpu::nn::OP_FMUL]
+    Source: '../../src/gpu/nn/mod.rs', lines 110:0-110:25 -/
+@[global_simps, irreducible] def gpu.nn.OP_FMUL : Std.U32 := 133#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fmul]:
+    Source: '../../src/gpu/nn/mod.rs', lines 549:4-552:5 -/
+def gpu.nn.Kb.fmul
+  (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
+  Result (Std.U32 × gpu.nn.Kb)
+  := do
+  let s ← lift (Array.to_slice (Array.make 2#usize [ a, b ]))
+  gpu.nn.Kb.e self gpu.nn.OP_FMUL self.float s
+
+/-- [apeiron_word::gpu::nn::OP_FADD]
+    Source: '../../src/gpu/nn/mod.rs', lines 106:0-106:25 -/
+@[global_simps, irreducible] def gpu.nn.OP_FADD : Std.U32 := 129#u32
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::fadd]:
+    Source: '../../src/gpu/nn/mod.rs', lines 541:4-544:5 -/
+def gpu.nn.Kb.fadd
+  (self : gpu.nn.Kb) (a : Std.U32) (b : Std.U32) :
+  Result (Std.U32 × gpu.nn.Kb)
+  := do
+  let s ← lift (Array.to_slice (Array.make 2#usize [ a, b ]))
+  gpu.nn.Kb.e self gpu.nn.OP_FADD self.float s
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::load_f]:
+    Source: '../../src/gpu/nn/mod.rs', lines 489:4-494:5 -/
+def gpu.nn.Kb.load_f
+  (self : gpu.nn.Kb) (buf : Std.U32) (idx : Std.U32) :
+  Result (Std.U32 × gpu.nn.Kb)
+  := do
+  let (c0, self1) ← gpu.nn.Kb.cu self 0#u32
+  let s ← lift (Array.to_slice (Array.make 3#usize [ buf, c0, idx ]))
+  let (p, self2) ← gpu.nn.Kb.e self1 gpu.nn.OP_ACCESS_CHAIN self.ptr_sb_f s
+  let s1 ← lift (Array.to_slice (Array.make 1#usize [ p ]))
+  gpu.nn.Kb.e self2 gpu.nn.OP_LOAD self.float s1
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::cf_bits]: loop body 0:
+    Source: '../../src/gpu/nn/mod.rs', lines 427:8-433:9 -/
+@[rust_loop_body]
+def gpu.nn.Kb.cf_bits_loop.body
+  (self : gpu.nn.Kb) (bits : Std.U32) (i : Std.Usize) (hit : Option Std.U32) :
+  Result (ControlFlow (Std.Usize × (Option Std.U32)) ((alloc.vec.Vec Std.U32)
+    × (alloc.vec.Vec Std.U32) × (alloc.vec.Vec Std.U32) × (alloc.vec.Vec
+    Std.U32) × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32
+    × Std.U32 × Std.U32 × Std.U32 × Bool × Bool × Std.U32 × Std.U32 ×
+    Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32
+    × Std.U32 × Std.U32 × Std.U32 × Std.U32 × (alloc.vec.Vec (Std.U32 ×
+    Std.U32)) × (alloc.vec.Vec (Std.U32 × Std.U32)) × Std.U32 × Std.U32 ×
+    Bool × (Option Std.U32)))
+  := do
+  let i1 := alloc.vec.Vec.len self.fcache
+  if i < i1
+  then
+    let (w, id) ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (Std.U32 ×
+        Std.U32)) self.fcache i
+    let hit1 ← if w = bits
+                 then ok (some id)
+                 else ok hit
+    let i2 ← i + 1#usize
+    ok (cont (i2, hit1))
+  else
+    ok (done (self.deco, self.tycon, self.fvars, self.body, self.next,
+      self.glsl, self.void_t, self.fnty, self.uint, self.float, self.float16,
+      self.ptr_sb_buf_f16, self.ptr_sb_f16, self.f16_storage, self.dp4a,
+      self.sint0, self.ptr_fn_s, self.bool_t, self.uvec3, self.vec2f,
+      self.ptr_sb_f, self.ptr_sb_u, self.ptr_fn_f, self.ptr_fn_u,
+      self.ptr_sb_buf_f, self.ptr_sb_buf_u, self.gid, self.main_id,
+      self.ucache, self.fcache, self.lii, self.wgid, self.sg_arith, hit))
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::cf_bits]: loop 0:
+    Source: '../../src/gpu/nn/mod.rs', lines 427:8-433:9 -/
+@[rust_loop]
+def gpu.nn.Kb.cf_bits_loop
+  (self : gpu.nn.Kb) (bits : Std.U32) (i : Std.Usize) (hit : Option Std.U32) :
+  Result ((alloc.vec.Vec Std.U32) × (alloc.vec.Vec Std.U32) × (alloc.vec.Vec
+    Std.U32) × (alloc.vec.Vec Std.U32) × Std.U32 × Std.U32 × Std.U32 ×
+    Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Bool ×
+    Bool × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 ×
+    Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32
+    × (alloc.vec.Vec (Std.U32 × Std.U32)) × (alloc.vec.Vec (Std.U32 ×
+    Std.U32)) × Std.U32 × Std.U32 × Bool × (Option Std.U32))
+  := do
+  loop
+    (fun (i1, hit1) => gpu.nn.Kb.cf_bits_loop.body self bits i1 hit1)
+    (i, hit)
+
+/-- [apeiron_word::gpu::nn::{apeiron_word::gpu::nn::Kb}::cf_bits]:
+    Source: '../../src/gpu/nn/mod.rs', lines 424:4-444:5 -/
+def gpu.nn.Kb.cf_bits
+  (self : gpu.nn.Kb) (bits : Std.U32) : Result (Std.U32 × gpu.nn.Kb) := do
+  let (v, v1, v2, v3, i, i1, i2, i3, i4, i5, i6, i7, i8, b, b1, i9, i10, i11,
+    i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, v4, v5, i22, i23, b2,
+    hit) ←
+    gpu.nn.Kb.cf_bits_loop self bits 0#usize none
+  match hit with
+  | none =>
+    let (id, self1) ←
+      gpu.nn.Kb.id
+        {
+          deco := v,
+          tycon := v1,
+          fvars := v2,
+          body := v3,
+          next := i,
+          glsl := i1,
+          void_t := i2,
+          fnty := i3,
+          uint := i4,
+          float := i5,
+          float16 := i6,
+          ptr_sb_buf_f16 := i7,
+          ptr_sb_f16 := i8,
+          f16_storage := b,
+          dp4a := b1,
+          sint0 := i9,
+          ptr_fn_s := i10,
+          bool_t := i11,
+          uvec3 := i12,
+          vec2f := i13,
+          ptr_sb_f := i14,
+          ptr_sb_u := i15,
+          ptr_fn_f := i16,
+          ptr_fn_u := i17,
+          ptr_sb_buf_f := i18,
+          ptr_sb_buf_u := i19,
+          gid := i20,
+          main_id := i21,
+          ucache := v4,
+          fcache := v5,
+          lii := i22,
+          wgid := i23,
+          sg_arith := b2
+        }
+    let s ←
+      lift (Array.to_slice (Array.make 3#usize [ self1.float, id, bits ]))
+    let self2 ← gpu.nn.Kb.ty self1 gpu.nn.OP_CONSTANT s
+    let v6 ← alloc.vec.Vec.push self2.fcache (bits, id)
+    ok (id, { self2 with fcache := v6 })
+  | some id =>
+    ok (id,
+      {
+        deco := v,
+        tycon := v1,
+        fvars := v2,
+        body := v3,
+        next := i,
+        glsl := i1,
+        void_t := i2,
+        fnty := i3,
+        uint := i4,
+        float := i5,
+        float16 := i6,
+        ptr_sb_buf_f16 := i7,
+        ptr_sb_f16 := i8,
+        f16_storage := b,
+        dp4a := b1,
+        sint0 := i9,
+        ptr_fn_s := i10,
+        bool_t := i11,
+        uvec3 := i12,
+        vec2f := i13,
+        ptr_sb_f := i14,
+        ptr_sb_u := i15,
+        ptr_fn_f := i16,
+        ptr_fn_u := i17,
+        ptr_sb_buf_f := i18,
+        ptr_sb_buf_u := i19,
+        gid := i20,
+        main_id := i21,
+        ucache := v4,
+        fcache := v5,
+        lii := i22,
+        wgid := i23,
+        sg_arith := b2
+      })
+
+/-- [apeiron_word::gpu::nn::GLSL_EXP]
+    Source: '../../src/gpu/nn/mod.rs', lines 153:0-153:25 -/
+@[global_simps, irreducible] def gpu.nn.GLSL_EXP : Std.U32 := 27#u32
+
+/-- [apeiron_word::gpu::nn::glue::silu_mul_module::{closure}]
+    Source: '../../src/gpu/nn/glue.rs', lines 552:17-566:5 -/
+def gpu.nn.glue.silu_mul_module.closure :=
+  Std.U32 × Std.U32 × Std.U32 × Std.U32 × Std.U32
+
+/-- [apeiron_word::gpu::nn::glue::silu_mul_module::{impl core::ops::function::FnOnce<(apeiron_word::gpu::nn::Kb,), apeiron_word::gpu::nn::Kb> for apeiron_word::gpu::nn::glue::silu_mul_module::{closure}<'_0, '_1, '_2, '_3, '_4>}::call_once]:
+    Source: '../../src/gpu/nn/glue.rs', lines 552:17-566:5 -/
+def
+  gpu.nn.glue.silu_mul_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb.call_once
+  (c : gpu.nn.glue.silu_mul_module.closure) (tupled_args : gpu.nn.Kb) :
+  Result gpu.nn.Kb
+  := do
+  let (i, i1, i2, i3, i4) := c
+  let (gv, tupled_args1) ← gpu.nn.Kb.load_f tupled_args i i1
+  let (cuo, tupled_args2) ← gpu.nn.Kb.cu tupled_args1 i2
+  let (ui, tupled_args3) ← gpu.nn.Kb.iadd tupled_args2 i1 cuo
+  let (uv, tupled_args4) ← gpu.nn.Kb.load_f tupled_args3 i3 ui
+  let s ← lift (Array.to_slice (Array.make 1#usize [ gv ]))
+  let (ng, k) ← gpu.nn.Kb.e tupled_args4 gpu.nn.OP_FNEG tupled_args4.float s
+  let (eg, k1) ← gpu.nn.Kb.ext1 k gpu.nn.GLSL_EXP ng
+  let (one, k2) ← gpu.nn.Kb.cf_bits k1 1065353216#u32
+  let (den, k3) ← gpu.nn.Kb.fadd k2 one eg
+  let (sil, k4) ← gpu.nn.Kb.fdiv k3 gv den
+  let (o, k5) ← gpu.nn.Kb.fmul k4 sil uv
+  gpu.nn.Kb.store_f k5 i4 i1 o
+
+/-- Trait implementation: [apeiron_word::gpu::nn::glue::silu_mul_module::{impl core::ops::function::FnOnce<(apeiron_word::gpu::nn::Kb,), apeiron_word::gpu::nn::Kb> for apeiron_word::gpu::nn::glue::silu_mul_module::{closure}<'_0, '_1, '_2, '_3, '_4>}]
+    Source: '../../src/gpu/nn/glue.rs', lines 552:17-566:5 -/
+@[reducible]
+def gpu.nn.glue.silu_mul_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb :
+  core.ops.function.FnOnce gpu.nn.glue.silu_mul_module.closure gpu.nn.Kb
+  gpu.nn.Kb := {
+  call_once :=
+    gpu.nn.glue.silu_mul_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb.call_once
+}
+
+/-- [apeiron_word::gpu::nn::glue::silu_mul_module]:
+    Source: '../../src/gpu/nn/glue.rs', lines 544:0-568:1
+    Visibility: public -/
+def gpu.nn.glue.silu_mul_module
+  (n : Std.U32) («local» : Std.U32) (u_off : Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  let k ← gpu.nn.Kb.new
+  let (g, k1) ← gpu.nn.Kb.ssbo_f k 0#u32
+  let (u, k2) ← gpu.nn.Kb.ssbo_f k1 1#u32
+  let (out, k3) ← gpu.nn.Kb.ssbo_f k2 2#u32
+  let (i, k4) ← gpu.nn.Kb.gid_comp k3 0#u32
+  let (cn, k5) ← gpu.nn.Kb.cu k4 n
+  let (guard, k6) ← gpu.nn.Kb.ult k5 i cn
+  let k7 ←
+    gpu.nn.Kb.iff
+      gpu.nn.glue.silu_mul_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb
+      k6 guard (g, i, u_off, u, out)
+  gpu.nn.Kb.finish k7 «local»
+
+/-- [apeiron_word::gpu::nn::glue::add_inplace_module::{closure}]
+    Source: '../../src/gpu/nn/glue.rs', lines 579:17-585:5 -/
+def gpu.nn.glue.add_inplace_module.closure := Std.U32 × Std.U32 × Std.U32
+
+/-- [apeiron_word::gpu::nn::glue::add_inplace_module::{impl core::ops::function::FnOnce<(apeiron_word::gpu::nn::Kb,), apeiron_word::gpu::nn::Kb> for apeiron_word::gpu::nn::glue::add_inplace_module::{closure}<'_0, '_1, '_2>}::call_once]:
+    Source: '../../src/gpu/nn/glue.rs', lines 579:17-585:5 -/
+def
+  gpu.nn.glue.add_inplace_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb.call_once
+  (c : gpu.nn.glue.add_inplace_module.closure) (tupled_args : gpu.nn.Kb) :
+  Result gpu.nn.Kb
+  := do
+  let (i, i1, i2) := c
+  let (xv, tupled_args1) ← gpu.nn.Kb.load_f tupled_args i i1
+  let (yv, tupled_args2) ← gpu.nn.Kb.load_f tupled_args1 i2 i1
+  let (s, tupled_args3) ← gpu.nn.Kb.fadd tupled_args2 xv yv
+  gpu.nn.Kb.store_f tupled_args3 i i1 s
+
+/-- Trait implementation: [apeiron_word::gpu::nn::glue::add_inplace_module::{impl core::ops::function::FnOnce<(apeiron_word::gpu::nn::Kb,), apeiron_word::gpu::nn::Kb> for apeiron_word::gpu::nn::glue::add_inplace_module::{closure}<'_0, '_1, '_2>}]
+    Source: '../../src/gpu/nn/glue.rs', lines 579:17-585:5 -/
+@[reducible]
+def gpu.nn.glue.add_inplace_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb
+  : core.ops.function.FnOnce gpu.nn.glue.add_inplace_module.closure gpu.nn.Kb
+  gpu.nn.Kb := {
+  call_once :=
+    gpu.nn.glue.add_inplace_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb.call_once
+}
+
+/-- [apeiron_word::gpu::nn::glue::add_inplace_module]:
+    Source: '../../src/gpu/nn/glue.rs', lines 572:0-587:1
+    Visibility: public -/
+def gpu.nn.glue.add_inplace_module
+  (n : Std.U32) («local» : Std.U32) : Result (alloc.vec.Vec Std.U32) := do
+  let k ← gpu.nn.Kb.new
+  let (x, k1) ← gpu.nn.Kb.ssbo_f k 0#u32
+  let (y, k2) ← gpu.nn.Kb.ssbo_f k1 1#u32
+  let (i, k3) ← gpu.nn.Kb.gid_comp k2 0#u32
+  let (cn, k4) ← gpu.nn.Kb.cu k3 n
+  let (guard, k5) ← gpu.nn.Kb.ult k4 i cn
+  let k6 ←
+    gpu.nn.Kb.iff
+      gpu.nn.glue.add_inplace_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb
+      k5 guard (x, i, y)
+  gpu.nn.Kb.finish k6 «local»
+
+/-- [apeiron_word::gpu::nn::OP_IEQ]
+    Source: '../../src/gpu/nn/mod.rs', lines 805:0-805:24 -/
+@[global_simps, irreducible] def gpu.nn.OP_IEQ : Std.U32 := 170#u32
+
+/-- [apeiron_word::gpu::nn::glue::commit_advance_module::{closure}]
+    Source: '../../src/gpu/nn/glue.rs', lines 871:15-884:5 -/
+def gpu.nn.glue.commit_advance_module.closure := Std.U32 × Std.U32 × Std.U32
+
+/-- [apeiron_word::gpu::nn::glue::commit_advance_module::{impl core::ops::function::FnOnce<(apeiron_word::gpu::nn::Kb,), apeiron_word::gpu::nn::Kb> for apeiron_word::gpu::nn::glue::commit_advance_module::{closure}<'_0, '_1, '_2>}::call_once]:
+    Source: '../../src/gpu/nn/glue.rs', lines 871:15-884:5 -/
+def
+  gpu.nn.glue.commit_advance_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb.call_once
+  (c : gpu.nn.glue.commit_advance_module.closure) (tupled_args : gpu.nn.Kb) :
+  Result gpu.nn.Kb
+  := do
+  let (i, i1, i2) := c
+  let (one, tupled_args1) ← gpu.nn.Kb.cu tupled_args 1#u32
+  let (tok, tupled_args2) ← gpu.nn.Kb.load_u tupled_args1 i one
+  let (cslot, tupled_args3) ← gpu.nn.Kb.cu tupled_args2 i1
+  let tupled_args4 ←
+    gpu.nn.attn.attn_dp4a.Kb.store_u tupled_args3 i2 cslot tok
+  let (zero, tupled_args5) ← gpu.nn.Kb.cu tupled_args4 0#u32
+  let (pos, tupled_args6) ← gpu.nn.Kb.load_u tupled_args5 i zero
+  let (cone, tupled_args7) ← gpu.nn.Kb.cu tupled_args6 1#u32
+  let (pos1, tupled_args8) ← gpu.nn.Kb.iadd tupled_args7 pos cone
+  gpu.nn.attn.attn_dp4a.Kb.store_u tupled_args8 i zero pos1
+
+/-- Trait implementation: [apeiron_word::gpu::nn::glue::commit_advance_module::{impl core::ops::function::FnOnce<(apeiron_word::gpu::nn::Kb,), apeiron_word::gpu::nn::Kb> for apeiron_word::gpu::nn::glue::commit_advance_module::{closure}<'_0, '_1, '_2>}]
+    Source: '../../src/gpu/nn/glue.rs', lines 871:15-884:5 -/
+@[reducible]
+def
+  gpu.nn.glue.commit_advance_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb
+  : core.ops.function.FnOnce gpu.nn.glue.commit_advance_module.closure
+  gpu.nn.Kb gpu.nn.Kb := {
+  call_once :=
+    gpu.nn.glue.commit_advance_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb.call_once
+}
+
+/-- [apeiron_word::gpu::nn::glue::commit_advance_module]:
+    Source: '../../src/gpu/nn/glue.rs', lines 863:0-886:1
+    Visibility: public -/
+def gpu.nn.glue.commit_advance_module
+  (slot : Std.U32) : Result (alloc.vec.Vec Std.U32) := do
+  let k ← gpu.nn.Kb.new
+  let (params, k1) ← gpu.nn.Kb.ssbo_u k 0#u32
+  let (tokens, k2) ← gpu.nn.Kb.ssbo_u k1 1#u32
+  let (i, k3) ← gpu.nn.Kb.gid_comp k2 0#u32
+  let (c0, k4) ← gpu.nn.Kb.cu k3 0#u32
+  let s ← lift (Array.to_slice (Array.make 2#usize [ i, c0 ]))
+  let (is0, k5) ← gpu.nn.Kb.e k4 gpu.nn.OP_IEQ k4.bool_t s
+  let k6 ←
+    gpu.nn.Kb.iff
+      gpu.nn.glue.commit_advance_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb
+      k5 is0 (params, slot, tokens)
+  gpu.nn.Kb.finish k6 1#u32
+
+/-- [apeiron_word::gpu::nn::glue::copy_vec_module::{closure}]
+    Source: '../../src/gpu/nn/glue.rs', lines 1225:17-1231:5 -/
+def gpu.nn.glue.copy_vec_module.closure :=
+  Std.U32 × Std.U32 × Std.U32 × Std.U32
+
+/-- [apeiron_word::gpu::nn::glue::copy_vec_module::{impl core::ops::function::FnOnce<(apeiron_word::gpu::nn::Kb,), apeiron_word::gpu::nn::Kb> for apeiron_word::gpu::nn::glue::copy_vec_module::{closure}<'_0, '_1, '_2, '_3>}::call_once]:
+    Source: '../../src/gpu/nn/glue.rs', lines 1225:17-1231:5 -/
+def
+  gpu.nn.glue.copy_vec_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb.call_once
+  (c : gpu.nn.glue.copy_vec_module.closure) (tupled_args : gpu.nn.Kb) :
+  Result gpu.nn.Kb
+  := do
+  let (i, i1, i2, i3) := c
+  let (coff, tupled_args1) ← gpu.nn.Kb.cu tupled_args i
+  let (si, tupled_args2) ← gpu.nn.Kb.iadd tupled_args1 i1 coff
+  let (v, tupled_args3) ← gpu.nn.Kb.load_f tupled_args2 i2 si
+  gpu.nn.Kb.store_f tupled_args3 i3 i1 v
+
+/-- Trait implementation: [apeiron_word::gpu::nn::glue::copy_vec_module::{impl core::ops::function::FnOnce<(apeiron_word::gpu::nn::Kb,), apeiron_word::gpu::nn::Kb> for apeiron_word::gpu::nn::glue::copy_vec_module::{closure}<'_0, '_1, '_2, '_3>}]
+    Source: '../../src/gpu/nn/glue.rs', lines 1225:17-1231:5 -/
+@[reducible]
+def gpu.nn.glue.copy_vec_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb :
+  core.ops.function.FnOnce gpu.nn.glue.copy_vec_module.closure gpu.nn.Kb
+  gpu.nn.Kb := {
+  call_once :=
+    gpu.nn.glue.copy_vec_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb.call_once
+}
+
+/-- [apeiron_word::gpu::nn::glue::copy_vec_module::LOCAL]
+    Source: '../../src/gpu/nn/glue.rs', lines 1218:4-1218:27 -/
+@[global_simps, irreducible]
+def gpu.nn.glue.copy_vec_module.LOCAL : Std.U32 := 256#u32
+
+/-- [apeiron_word::gpu::nn::glue::copy_vec_module]:
+    Source: '../../src/gpu/nn/glue.rs', lines 1217:0-1233:1
+    Visibility: public -/
+def gpu.nn.glue.copy_vec_module
+  (n : Std.U32) (src_off : Std.U32) : Result (alloc.vec.Vec Std.U32) := do
+  let k ← gpu.nn.Kb.new
+  let (dst, k1) ← gpu.nn.Kb.ssbo_f k 0#u32
+  let (src, k2) ← gpu.nn.Kb.ssbo_f k1 1#u32
+  let (i, k3) ← gpu.nn.Kb.gid_comp k2 0#u32
+  let (cn, k4) ← gpu.nn.Kb.cu k3 n
+  let (guard, k5) ← gpu.nn.Kb.ult k4 i cn
+  let k6 ←
+    gpu.nn.Kb.iff
+      gpu.nn.glue.copy_vec_module.closure.Insts.CoreOpsFunctionFnOnceTupleKbKb
+      k5 guard (src_off, i, src, dst)
+  gpu.nn.Kb.finish k6 gpu.nn.glue.copy_vec_module.LOCAL
+
+/-- [apeiron_word::gpu::nn::two_level_chart_buffer]:
+    Source: '../../src/gpu/nn/mod.rs', lines 1440:0-1445:1
+    Visibility: public -/
+def gpu.nn.two_level_chart_buffer
+  (sub : Slice Std.U32) (sup : Slice Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  let i := Slice.len sub
+  let i1 := Slice.len sup
+  let i2 ← i + i1
+  let v := alloc.vec.Vec.with_capacity Std.U32 i2
+  let v1 ← alloc.vec.Vec.extend_from_slice core.clone.CloneU32 v sub
+  alloc.vec.Vec.extend_from_slice core.clone.CloneU32 v1 sup
+
 /-- [apeiron_word::spirv::check::HEADER_WORDS]
     Source: '../../src/gpu/spirv/check.rs', lines 34:0-34:30 -/
 @[global_simps, irreducible]
@@ -76749,24 +80899,24 @@ def fold_port.fit.gptq_e8_carrier.feedback_u
           fold_port.fit.gptq_e8.GptqE8Error) residual
 
 /-- [apeiron_word::fold_port::fit::icm::BLOCK]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 49:0-49:27
+    Source: '../../src/learn/fold/fit/icm.rs', lines 46:0-46:27
     Visibility: public -/
 @[global_simps, irreducible] def fold_port.fit.icm.BLOCK : Std.Usize := 8#usize
 
 /-- [apeiron_word::fold_port::fit::icm::GROUP]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 51:0-51:29
+    Source: '../../src/learn/fold/fit/icm.rs', lines 48:0-48:29
     Visibility: public -/
 @[global_simps, irreducible]
 def fold_port.fit.icm.GROUP : Std.Usize := 128#usize
 
 /-- [apeiron_word::fold_port::fit::icm::CODE_LEN]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 53:0-53:45
+    Source: '../../src/learn/fold/fit/icm.rs', lines 50:0-50:45
     Visibility: public -/
 @[global_simps, irreducible]
 def fold_port.fit.icm.CODE_LEN : Std.Usize := learn_port.e8.CODEBOOK_LEN
 
 /-- [apeiron_word::fold_port::fit::icm::IcmError]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 57:0-70:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 54:0-67:1
     Visibility: public -/
 @[discriminant isize]
 inductive fold_port.fit.icm.IcmError where
@@ -76778,7 +80928,7 @@ inductive fold_port.fit.icm.IcmError where
 | NotPositiveDefinite : fold_port.fit.icm.IcmError
 
 /-- [apeiron_word::fold_port::fit::icm::PlaneRef]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 74:0-85:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 71:0-82:1
     Visibility: public -/
 structure fold_port.fit.icm.PlaneRef where
   s : Slice Std.I64
@@ -76788,7 +80938,7 @@ structure fold_port.fit.icm.PlaneRef where
   d : Slice Std.I64
 
 /-- [apeiron_word::fold_port::fit::icm::Plane]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 89:0-100:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 86:0-97:1
     Visibility: public -/
 structure fold_port.fit.icm.Plane where
   s : alloc.vec.Vec Std.I64
@@ -76798,7 +80948,7 @@ structure fold_port.fit.icm.Plane where
   d : alloc.vec.Vec Std.I64
 
 /-- [apeiron_word::fold_port::fit::icm::JointStats]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 104:0-112:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 101:0-109:1
     Visibility: public -/
 structure fold_port.fit.icm.JointStats where
   j_before : Std.I64
@@ -76806,12 +80956,12 @@ structure fold_port.fit.icm.JointStats where
   moves : Std.Usize
 
 /-- [apeiron_word::fold_port::fit::icm::round_shift::{closure}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 117:44-117:66 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 114:44-114:66 -/
 @[reducible]
 def fold_port.fit.icm.round_shift.closure := Unit
 
 /-- [apeiron_word::fold_port::fit::icm::round_shift::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::round_shift::{closure}}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 117:44-117:66 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 114:44-114:66 -/
 def
   fold_port.fit.icm.round_shift.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError.call_once
   (c : fold_port.fit.icm.round_shift.closure)
@@ -76821,7 +80971,7 @@ def
   ok fold_port.fit.icm.IcmError.Overflow
 
 /-- Trait implementation: [apeiron_word::fold_port::fit::icm::round_shift::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::round_shift::{closure}}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 117:44-117:66 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 114:44-114:66 -/
 @[reducible]
 def
   fold_port.fit.icm.round_shift.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError
@@ -76832,7 +80982,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::fit::icm::round_shift]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 115:0-120:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 112:0-117:1 -/
 def fold_port.fit.icm.round_shift
   (v : Std.I128) (s : Std.U32) :
   Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
@@ -76847,7 +80997,7 @@ def fold_port.fit.icm.round_shift
       r ()
 
 /-- [apeiron_word::fold_port::fit::icm::add_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 123:0-125:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 120:0-122:1 -/
 def fold_port.fit.icm.add_q
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
@@ -76856,7 +81006,7 @@ def fold_port.fit.icm.add_q
   core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
 
 /-- [apeiron_word::fold_port::fit::icm::sub_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 128:0-130:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 125:0-127:1 -/
 def fold_port.fit.icm.sub_q
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
@@ -76865,7 +81015,7 @@ def fold_port.fit.icm.sub_q
   core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
 
 /-- [apeiron_word::fold_port::fit::icm::mul_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 133:0-135:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 130:0-132:1 -/
 def fold_port.fit.icm.mul_q
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
@@ -76876,7 +81026,7 @@ def fold_port.fit.icm.mul_q
   fold_port.fit.icm.round_shift i2 32#u32
 
 /-- [apeiron_word::fold_port::fit::icm::qsum]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 138:0-140:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 135:0-137:1 -/
 def fold_port.fit.icm.qsum
   (a : Std.I128) (b : Std.I128) :
   Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
@@ -76885,7 +81035,7 @@ def fold_port.fit.icm.qsum
   core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
 
 /-- [apeiron_word::fold_port::fit::icm::qsub]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 143:0-145:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 140:0-142:1 -/
 def fold_port.fit.icm.qsub
   (a : Std.I128) (b : Std.I128) :
   Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
@@ -76894,7 +81044,7 @@ def fold_port.fit.icm.qsub
   core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
 
 /-- [apeiron_word::fold_port::fit::icm::qmul]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 148:0-150:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 145:0-147:1 -/
 def fold_port.fit.icm.qmul
   (a : Std.I128) (b : Std.I128) :
   Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
@@ -76902,60 +81052,194 @@ def fold_port.fit.icm.qmul
   let o ← lift (I128.checked_mul a b)
   core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
 
-/-- [apeiron_word::fold_port::fit::icm::dot64]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 155:4-159:1 -/
-@[rust_loop_body]
-def fold_port.fit.icm.dot64_loop.body
-  (a : Slice Std.I64) (b : Slice Std.I64)
-  (iter : core.ops.range.Range Std.Usize) (acc : Std.I128) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128)
-    (core.result.Result Std.I128 fold_port.fit.icm.IcmError))
-  := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done (core.result.Result.Ok acc))
-  | some k =>
-    let i ← Slice.index_usize a k
-    let i1 ← lift (core.convert.num.FromI128I64.from i)
-    let i2 ← Slice.index_usize b k
-    let i3 ← lift (core.convert.num.FromI128I64.from i2)
-    let i4 ← i1 * i3
-    let r ← fold_port.fit.icm.qsum acc i4
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue val => ok (cont (iter1, val))
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      let r1 ←
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          Std.I128 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
-      ok (done r1)
+/-- [apeiron_word::fold_port::fit::icm::LIMBS]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 154:0-154:21 -/
+@[global_simps, irreducible] def fold_port.fit.icm.LIMBS : Std.U32 := 5#u32
 
-/-- [apeiron_word::fold_port::fit::icm::dot64]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 155:4-159:1 -/
-@[rust_loop]
-def fold_port.fit.icm.dot64_loop
-  (iter : core.ops.range.Range Std.Usize) (a : Slice Std.I64)
-  (b : Slice Std.I64) (acc : Std.I128) :
-  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
-  := do
-  loop
-    (fun (iter1, acc1) => fold_port.fit.icm.dot64_loop.body a b iter1 acc1)
-    (iter, acc)
+/-- [apeiron_word::fold_port::fit::icm::LIMBS_MATMUL]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 158:0-158:28 -/
+@[global_simps, irreducible]
+def fold_port.fit.icm.LIMBS_MATMUL : Std.U32 := 3#u32
 
-/-- [apeiron_word::fold_port::fit::icm::dot64]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 153:0-159:1 -/
-def fold_port.fit.icm.dot64
+/-- [apeiron_word::fold_port::fit::icm::map_limb]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 266:0-271:1 -/
+def fold_port.fit.icm.map_limb
+  (e : kern.limb.LimbError) : Result fold_port.fit.icm.IcmError := do
+  match e with
+  | kern.limb.LimbError.Shape => ok fold_port.fit.icm.IcmError.Shape
+  | kern.limb.LimbError.Range => ok fold_port.fit.icm.IcmError.Overflow
+  | kern.limb.LimbError.NoKernel => ok fold_port.fit.icm.IcmError.Overflow
+
+/-- [apeiron_word::fold_port::fit::icm::{impl core::ops::function::FnOnce<(apeiron_word::kern::limb::LimbError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::map_limb}::call_once]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 266:0-271:1 -/
+def P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError.call_once
+  (state : kern.limb.LimbError → Result fold_port.fit.icm.IcmError)
+  (args : kern.limb.LimbError) :
+  Result fold_port.fit.icm.IcmError
+  := do
+  fold_port.fit.icm.map_limb args
+
+/-- Trait implementation: [apeiron_word::fold_port::fit::icm::{impl core::ops::function::FnOnce<(apeiron_word::kern::limb::LimbError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::map_limb}]
+    Source: '../../src/learn/fold/fit/icm.rs', lines 266:0-271:1 -/
+@[reducible]
+def P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError :
+  core.ops.function.FnOnce (kern.limb.LimbError → Result
+  fold_port.fit.icm.IcmError) kern.limb.LimbError fold_port.fit.icm.IcmError
+  := {
+  call_once := P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError.call_once
+}
+
+/-- [apeiron_word::fold_port::fit::icm::gemv_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 194:0-196:1 -/
+def fold_port.fit.icm.gemv_q
+  (x : Slice Std.I64) (b : Slice Std.I64) (p : Std.Usize) (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  let r ← kern.limb.gemv_q32 x b p n fold_port.fit.icm.LIMBS
+  core.result.Result.map_err
+    P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError r
+    (fold_port.fit.icm.map_limb)
+
+/-- [apeiron_word::fold_port::fit::icm::dot_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 161:0-164:1 -/
+def fold_port.fit.icm.dot_q
   (a : Slice Std.I64) (b : Slice Std.I64) :
-  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
   := do
   let i := Slice.len a
-  fold_port.fit.icm.dot64_loop { start := 0#usize, «end» := i } a b 0#i128
+  let r ← fold_port.fit.icm.gemv_q a b 1#usize i
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let s := alloc.vec.Vec.deref val
+    let o ← core.slice.Slice.first s
+    let o1 ← core.option.OptionShared0T.copied core.marker.CopyI64 o
+    core.option.Option.ok_or o1 fold_port.fit.icm.IcmError.Shape
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::nt_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 167:0-169:1 -/
+def fold_port.fit.icm.nt_q
+  (a : Slice Std.I64) (m : Std.Usize) (b : Slice Std.I64) (p : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  let r ← kern.limb.gemm_q32 a m b p n fold_port.fit.icm.LIMBS
+  core.result.Result.map_err
+    P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError r
+    (fold_port.fit.icm.map_limb)
+
+/-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 449:8-452:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.transpose_q_loop0_loop0.body
+  (h : Slice Std.I64) (r : Std.Usize) (c : Std.Usize) (i : Std.Usize)
+  (t : alloc.vec.Vec Std.I64) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if j < c
+  then
+    let i1 ← i * c
+    let i2 ← i1 + j
+    let i3 ← Slice.index_usize h i2
+    let i4 ← j * r
+    let i5 ← i4 + i
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) t
+        i5
+    let j1 ← j + 1#usize
+    let t1 := index_mut_back i3
+    ok (cont (t1, j1))
+  else ok (done t)
+
+/-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 449:8-452:9 -/
+@[rust_loop]
+def fold_port.fit.icm.transpose_q_loop0_loop0
+  (h : Slice Std.I64) (r : Std.Usize) (c : Std.Usize)
+  (t : alloc.vec.Vec Std.I64) (i : Std.Usize) (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (t1, j1) => fold_port.fit.icm.transpose_q_loop0_loop0.body h r c i t1
+      j1)
+    (t, j)
+
+/-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 447:4-454:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.transpose_q_loop0.body
+  (h : Slice Std.I64) (r : Std.Usize) (c : Std.Usize)
+  (t : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < r
+  then
+    let t1 ← fold_port.fit.icm.transpose_q_loop0_loop0 h r c t i 0#usize
+    let i1 ← i + 1#usize
+    ok (cont (t1, i1))
+  else ok (done t)
+
+/-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 447:4-454:5 -/
+@[rust_loop]
+def fold_port.fit.icm.transpose_q_loop0
+  (h : Slice Std.I64) (r : Std.Usize) (c : Std.Usize)
+  (t : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (t1, i1) => fold_port.fit.icm.transpose_q_loop0.body h r c t1 i1)
+    (t, i)
+
+/-- [apeiron_word::fold_port::fit::icm::transpose_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 444:0-456:1 -/
+def fold_port.fit.icm.transpose_q
+  (h : Slice Std.I64) (r : Std.Usize) (c : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  let i ← r * c
+  let t ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  fold_port.fit.icm.transpose_q_loop0 h r c t 0#usize
+
+/-- [apeiron_word::fold_port::fit::icm::nt_l]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 189:0-191:1 -/
+def fold_port.fit.icm.nt_l
+  (a : Slice Std.I64) (m : Std.Usize) (b : Slice Std.I64) (p : Std.Usize)
+  (n : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  let r ← kern.limb.gemm_q32 a m b p n fold_port.fit.icm.LIMBS
+  core.result.Result.map_err
+    P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError r
+    (fold_port.fit.icm.map_limb)
+
+/-- [apeiron_word::fold_port::fit::icm::matmul_l]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 173:0-186:1 -/
+def fold_port.fit.icm.matmul_l
+  (a : Slice Std.I64) (b : Slice Std.I64) (rows : Std.Usize)
+  (inner : Std.Usize) (cols : Std.Usize) (nt : Bool) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  if nt
+  then fold_port.fit.icm.nt_l a rows b cols inner
+  else
+    let v ← fold_port.fit.icm.transpose_q b inner cols
+    let s := alloc.vec.Vec.deref v
+    fold_port.fit.icm.nt_l a rows s cols inner
 
 /-- [apeiron_word::fold_port::fit::icm::block_cost]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 164:0-166:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 226:0-231:1 -/
 def fold_port.fit.icm.block_cost
-  (aa : Std.I128) (two_a : Std.I128) (q : Std.I64) (dot : Std.I128) :
+  (aa : Std.I128) (two_a : Std.I128) (q : Std.I64) (dot : Std.I64) :
   Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
   := do
   let i ← lift (core.convert.num.FromI128I64.from q)
@@ -76963,7 +81247,9 @@ def fold_port.fit.icm.block_cost
   let cf ← core.result.Result.Insts.CoreOpsTry.branch r
   match cf with
   | core.ops.control_flow.ControlFlow.Continue val =>
-    let r1 ← fold_port.fit.icm.qmul two_a dot
+    let i1 ← lift (core.convert.num.FromI128I64.from dot)
+    let i2 ← i1 <<< 32#i32
+    let r1 ← fold_port.fit.icm.qmul two_a i2
     let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
     match cf1 with
     | core.ops.control_flow.ControlFlow.Continue val1 =>
@@ -76975,89 +81261,75 @@ def fold_port.fit.icm.block_cost
     core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
       Std.I128 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
 
-/-- [apeiron_word::fold_port::fit::icm::shl_q32::{closure}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 180:55-180:77 -/
-@[reducible]
-def fold_port.fit.icm.shl_q32.closure := Unit
-
-/-- [apeiron_word::fold_port::fit::icm::shl_q32::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::shl_q32::{closure}}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 180:55-180:77 -/
-def
-  fold_port.fit.icm.shl_q32.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError.call_once
-  (c : fold_port.fit.icm.shl_q32.closure)
-  (tupled_args : core.num.error.TryFromIntError) :
-  Result fold_port.fit.icm.IcmError
+/-- [apeiron_word::fold_port::fit::icm::best_code_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 247:4-258:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.best_code_q_loop.body
+  (aa : Std.I128) (two_a : Std.I128) (q : Slice Std.I64) (dot : Slice Std.I64)
+  (best : Std.U16) (best_cost : Std.I128)
+  (err : Option fold_port.fit.icm.IcmError) (j : Std.Usize) :
+  Result (ControlFlow (Std.U16 × Std.I128 × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) (Std.U16 × (Option
+    fold_port.fit.icm.IcmError)))
   := do
-  ok fold_port.fit.icm.IcmError.Overflow
+  if j < fold_port.fit.icm.CODE_LEN
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i ← Slice.index_usize q j
+      let i1 ← Slice.index_usize dot j
+      let r ← fold_port.fit.icm.block_cost aa two_a i i1
+      let (best1, best_cost1, err1) ←
+        match r with
+        | core.result.Result.Ok cost =>
+          do
+          let (i2, i3) ←
+            if cost < best_cost
+            then do
+                 let best2 ← lift (UScalar.cast .U16 j)
+                 ok (best2, cost)
+            else ok (best, best_cost)
+          ok (i2, i3, err)
+        | core.result.Result.Err e => ok (best, best_cost, some e)
+      let j1 ← j + 1#usize
+      ok (cont (best1, best_cost1, err1, j1))
+    else ok (done (best, err))
+  else ok (done (best, err))
 
-/-- Trait implementation: [apeiron_word::fold_port::fit::icm::shl_q32::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::shl_q32::{closure}}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 180:55-180:77 -/
-@[reducible]
-def
-  fold_port.fit.icm.shl_q32.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError
-  : core.ops.function.FnOnce fold_port.fit.icm.shl_q32.closure
-  core.num.error.TryFromIntError fold_port.fit.icm.IcmError := {
-  call_once :=
-    fold_port.fit.icm.shl_q32.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError.call_once
-}
-
-/-- [apeiron_word::fold_port::fit::icm::shl_q32]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 175:0-181:1 -/
-def fold_port.fit.icm.shl_q32
-  (v : Std.I64) (s : Std.U32) :
-  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+/-- [apeiron_word::fold_port::fit::icm::best_code_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 247:4-258:5 -/
+@[rust_loop]
+def fold_port.fit.icm.best_code_q_loop
+  (aa : Std.I128) (two_a : Std.I128) (q : Slice Std.I64) (dot : Slice Std.I64)
+  (best : Std.U16) (best_cost : Std.I128)
+  (err : Option fold_port.fit.icm.IcmError) (j : Std.Usize) :
+  Result (Std.U16 × (Option fold_port.fit.icm.IcmError))
   := do
-  if s >= 128#u32
-  then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Overflow)
-  else
-    let scale ← 1#i128 <<< s
-    let i ← lift (core.convert.num.FromI128I64.from v)
-    let r ← fold_port.fit.icm.qmul i scale
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue val =>
-      let r1 ← I64.Insts.CoreConvertTryFromI128TryFromIntError.try_from val
-      core.result.Result.map_err
-        fold_port.fit.icm.shl_q32.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError
-        r1 ()
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-        Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+  loop
+    (fun (best1, best_cost1, err1, j1) =>
+      fold_port.fit.icm.best_code_q_loop.body aa two_a q dot best1 best_cost1
+      err1 j1)
+    (best, best_cost, err, j)
 
-/-- [apeiron_word::fold_port::fit::icm::map_gemm]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 184:0-189:1 -/
-def fold_port.fit.icm.map_gemm
-  (e : solve_port.gemm.GemmError) : Result fold_port.fit.icm.IcmError := do
-  match e with
-  | solve_port.gemm.GemmError.ZeroDim => ok fold_port.fit.icm.IcmError.Shape
-  | solve_port.gemm.GemmError.ShapeMismatch =>
-    ok fold_port.fit.icm.IcmError.Shape
-  | solve_port.gemm.GemmError.InputBound =>
-    ok fold_port.fit.icm.IcmError.Overflow
-  | solve_port.gemm.GemmError.Overflow =>
-    ok fold_port.fit.icm.IcmError.Overflow
-
-/-- [apeiron_word::fold_port::fit::icm::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::gemm::GemmError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::map_gemm}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 184:0-189:1 -/
-def P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorIcmError.call_once
-  (state : solve_port.gemm.GemmError → Result fold_port.fit.icm.IcmError)
-  (args : solve_port.gemm.GemmError) :
-  Result fold_port.fit.icm.IcmError
+/-- [apeiron_word::fold_port::fit::icm::best_code_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 243:0-263:1 -/
+def fold_port.fit.icm.best_code_q
+  (aa : Std.I128) (two_a : Std.I128) (q : Slice Std.I64) (dot : Slice Std.I64)
+  :
+  Result (core.result.Result Std.Usize fold_port.fit.icm.IcmError)
   := do
-  fold_port.fit.icm.map_gemm args
-
-/-- Trait implementation: [apeiron_word::fold_port::fit::icm::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::gemm::GemmError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::map_gemm}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 184:0-189:1 -/
-@[reducible]
-def P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorIcmError :
-  core.ops.function.FnOnce (solve_port.gemm.GemmError → Result
-  fold_port.fit.icm.IcmError) solve_port.gemm.GemmError
-  fold_port.fit.icm.IcmError := {
-  call_once := P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorIcmError.call_once
-}
+  let (best, err) ←
+    fold_port.fit.icm.best_code_q_loop aa two_a q dot 0#u16 core.num.I128.MAX
+      none 0#usize
+  match err with
+  | none =>
+    let i ← lift (core.convert.num.FromUsizeU16.from best)
+    ok (core.result.Result.Ok i)
+  | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::fold_port::fit::icm::map_solve]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 192:0-199:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 274:0-281:1 -/
 def fold_port.fit.icm.map_solve
   (e : solve_port.chol.SolveError) : Result fold_port.fit.icm.IcmError := do
   match e with
@@ -77070,132 +81342,12 @@ def fold_port.fit.icm.map_solve
     ok fold_port.fit.icm.IcmError.NotPositiveDefinite
   | solve_port.chol.SolveError.Overflow => ok fold_port.fit.icm.IcmError.Shape
 
-/-- [apeiron_word::fold_port::fit::icm::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::chol::SolveError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::map_solve}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 192:0-199:1 -/
-def P.Insts.CoreOpsFunctionFnOnceTupleSolveErrorIcmError.call_once
-  (state : solve_port.chol.SolveError → Result fold_port.fit.icm.IcmError)
-  (args : solve_port.chol.SolveError) :
-  Result fold_port.fit.icm.IcmError
-  := do
-  fold_port.fit.icm.map_solve args
-
-/-- Trait implementation: [apeiron_word::fold_port::fit::icm::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::chol::SolveError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::map_solve}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 192:0-199:1 -/
-@[reducible]
-def P.Insts.CoreOpsFunctionFnOnceTupleSolveErrorIcmError :
-  core.ops.function.FnOnce (solve_port.chol.SolveError → Result
-  fold_port.fit.icm.IcmError) solve_port.chol.SolveError
-  fold_port.fit.icm.IcmError := {
-  call_once := P.Insts.CoreOpsFunctionFnOnceTupleSolveErrorIcmError.call_once
-}
-
-/-- [apeiron_word::fold_port::fit::icm::panel_shift]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 206:4-212:5 -/
-@[rust_loop_body]
-def fold_port.fit.icm.panel_shift_loop0.body
-  (x : Slice Std.I64) (mx : Std.U128) (i : Std.Usize) :
-  Result (ControlFlow (Std.U128 × Std.Usize) Std.U128)
-  := do
-  let i1 := Slice.len x
-  if i < i1
-  then
-    let i2 ← Slice.index_usize x i
-    let i3 ← core.num.I64.unsigned_abs i2
-    let m ← lift (core.convert.num.FromU128U64.from i3)
-    let mx1 ← if m > mx
-                then ok m
-                else ok mx
-    let i4 ← i + 1#usize
-    ok (cont (mx1, i4))
-  else ok (done mx)
-
-/-- [apeiron_word::fold_port::fit::icm::panel_shift]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 206:4-212:5 -/
-@[rust_loop]
-def fold_port.fit.icm.panel_shift_loop0
-  (x : Slice Std.I64) (mx : Std.U128) (i : Std.Usize) : Result Std.U128 := do
-  loop
-    (fun (mx1, i1) => fold_port.fit.icm.panel_shift_loop0.body x mx1 i1)
-    (mx, i)
-
-/-- [apeiron_word::fold_port::fit::icm::panel_shift]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 220:4-226:5 -/
-@[rust_loop_body]
-def fold_port.fit.icm.panel_shift_loop1.body
-  (x : Slice Std.I64) (s : Std.U32) (p : alloc.vec.Vec Std.I64)
-  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
-    (Option fold_port.fit.icm.IcmError)))
-  := do
-  let i1 := Slice.len x
-  if i < i1
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i2 ← Slice.index_usize x i
-      let i3 ← lift (core.convert.num.FromI128I64.from i2)
-      let r ← fold_port.fit.icm.round_shift i3 s
-      let (p1, err1) ←
-        match r with
-        | core.result.Result.Ok v =>
-          do
-          let (_, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.I64) p i
-          let p2 := index_mut_back v
-          ok (p2, err)
-        | core.result.Result.Err e => ok (p, some e)
-      let i4 ← i + 1#usize
-      ok (cont (p1, err1, i4))
-    else ok (done (p, err))
-  else ok (done (p, err))
-
-/-- [apeiron_word::fold_port::fit::icm::panel_shift]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 220:4-226:5 -/
-@[rust_loop]
-def fold_port.fit.icm.panel_shift_loop1
-  (x : Slice Std.I64) (s : Std.U32) (p : alloc.vec.Vec Std.I64)
-  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError))
-  := do
-  loop
-    (fun (p1, err1, i1) => fold_port.fit.icm.panel_shift_loop1.body x s p1 err1
-      i1)
-    (p, err, i)
-
-/-- [apeiron_word::fold_port::fit::icm::panel_shift]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 203:0-231:1 -/
-def fold_port.fit.icm.panel_shift
-  (x : Slice Std.I64) :
-  Result (core.result.Result ((alloc.vec.Vec Std.I64) × Std.U32)
-    fold_port.fit.icm.IcmError)
-  := do
-  let mx ← fold_port.fit.icm.panel_shift_loop0 x 0#u128 0#usize
-  let o ← solve_port.q32.ilog2_pos mx
-  let s ←
-    match o with
-    | none => ok 0#u32
-    | some b =>
-      do
-      let i ← b + 1#u32
-      if i > 35#u32
-      then i - 35#u32
-      else ok 0#u32
-  let i := Slice.len x
-  let p ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
-  let (p1, err) ← fold_port.fit.icm.panel_shift_loop1 x s p none 0#usize
-  match err with
-  | none => ok (core.result.Result.Ok (p1, s))
-  | some e => ok (core.result.Result.Err e)
-
-/-- [apeiron_word::fold_port::fit::icm::product_panels]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 236:0-259:1 -/
-def fold_port.fit.icm.product_panels
+/-- [apeiron_word::fold_port::fit::icm::matmul_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 287:0-314:1 -/
+def fold_port.fit.icm.matmul_q
   (a : Slice Std.I64) (b : Slice Std.I64) (rows : Std.Usize)
   (inner : Std.Usize) (cols : Std.Usize) (nt : Bool) :
-  Result (core.result.Result ((alloc.vec.Vec Std.I64) × Std.U32)
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
     fold_port.fit.icm.IcmError)
   := do
   let o ← lift (Usize.checked_mul rows inner)
@@ -77223,123 +81375,26 @@ def fold_port.fit.icm.product_panels
               if i1 != bi
               then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape)
               else
-                let r ← fold_port.fit.icm.panel_shift a
-                let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-                match cf with
-                | core.ops.control_flow.ControlFlow.Continue val =>
-                  let r1 ← fold_port.fit.icm.panel_shift b
-                  let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-                  match cf1 with
-                  | core.ops.control_flow.ControlFlow.Continue val1 =>
-                    let (pa, sa) := val
-                    let (pb, sb) := val1
-                    let r2 ←
-                      if nt
-                      then
-                        let s := alloc.vec.Vec.deref pa
-                        let s1 := alloc.vec.Vec.deref pb
-                        solve_port.gemm.gemm_nt s s1 rows inner cols
-                      else
-                        let s := alloc.vec.Vec.deref pa
-                        let s1 := alloc.vec.Vec.deref pb
-                        solve_port.gemm.gemm_nn s s1 rows inner cols
-                    let r3 ←
-                      core.result.Result.map_err
-                        P.Insts.CoreOpsFunctionFnOnceTupleGemmErrorIcmError r2
-                        (fold_port.fit.icm.map_gemm)
-                    let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r3
-                    match cf2 with
-                    | core.ops.control_flow.ControlFlow.Continue val2 =>
-                      let i2 ← sa + sb
-                      ok (core.result.Result.Ok (val2, i2))
-                    | core.ops.control_flow.ControlFlow.Break residual =>
-                      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                        ((alloc.vec.Vec Std.I64) × Std.U32)
-                        (core.convert.FromSame fold_port.fit.icm.IcmError)
-                        residual
-                  | core.ops.control_flow.ControlFlow.Break residual =>
-                    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                      ((alloc.vec.Vec Std.I64) × Std.U32)
-                      (core.convert.FromSame fold_port.fit.icm.IcmError)
-                      residual
-                | core.ops.control_flow.ControlFlow.Break residual =>
-                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                    ((alloc.vec.Vec Std.I64) × Std.U32) (core.convert.FromSame
-                    fold_port.fit.icm.IcmError) residual
-
-/-- [apeiron_word::fold_port::fit::icm::matmul_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 275:4-281:5 -/
-@[rust_loop_body]
-def fold_port.fit.icm.matmul_q_loop.body
-  (c : alloc.vec.Vec Std.I64) (back : Std.U32) (out : alloc.vec.Vec Std.I64)
-  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
-    (Option fold_port.fit.icm.IcmError)))
-  := do
-  let i1 := alloc.vec.Vec.len c
-  if i < i1
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i2 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) c i
-      let r ← fold_port.fit.icm.shl_q32 i2 back
-      let (out1, err1) ←
-        match r with
-        | core.result.Result.Ok v =>
-          do
-          let (_, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.I64) out i
-          let out2 := index_mut_back v
-          ok (out2, err)
-        | core.result.Result.Err e => ok (out, some e)
-      let i3 ← i + 1#usize
-      ok (cont (out1, err1, i3))
-    else ok (done (out, err))
-  else ok (done (out, err))
-
-/-- [apeiron_word::fold_port::fit::icm::matmul_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 275:4-281:5 -/
-@[rust_loop]
-def fold_port.fit.icm.matmul_q_loop
-  (c : alloc.vec.Vec Std.I64) (back : Std.U32) (out : alloc.vec.Vec Std.I64)
-  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError))
-  := do
-  loop
-    (fun (out1, err1, i1) => fold_port.fit.icm.matmul_q_loop.body c back out1
-      err1 i1)
-    (out, err, i)
-
-/-- [apeiron_word::fold_port::fit::icm::matmul_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 263:0-286:1 -/
-def fold_port.fit.icm.matmul_q
-  (a : Slice Std.I64) (b : Slice Std.I64) (rows : Std.Usize)
-  (inner : Std.Usize) (cols : Std.Usize) (nt : Bool) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_port.fit.icm.IcmError)
-  := do
-  let r ← fold_port.fit.icm.product_panels a b rows inner cols nt
-  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-  match cf with
-  | core.ops.control_flow.ControlFlow.Continue val =>
-    let (c, back) := val
-    let i := alloc.vec.Vec.len c
-    let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
-    let (out1, err) ← fold_port.fit.icm.matmul_q_loop c back out none 0#usize
-    match err with
-    | none => ok (core.result.Result.Ok out1)
-    | some e => ok (core.result.Result.Err e)
-  | core.ops.control_flow.ControlFlow.Break residual =>
-    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-      (alloc.vec.Vec Std.I64) (core.convert.FromSame
-      fold_port.fit.icm.IcmError) residual
+                if nt
+                then
+                  let r ←
+                    kern.limb.gemm_q32 a rows b cols inner
+                      fold_port.fit.icm.LIMBS_MATMUL
+                  core.result.Result.map_err
+                    P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError r
+                    (fold_port.fit.icm.map_limb)
+                else
+                  let v ← fold_port.fit.icm.transpose_q b inner cols
+                  let s := alloc.vec.Vec.deref v
+                  let r ←
+                    kern.limb.gemm_q32 a rows s cols inner
+                      fold_port.fit.icm.LIMBS_MATMUL
+                  core.result.Result.map_err
+                    P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError r
+                    (fold_port.fit.icm.map_limb)
 
 /-- [apeiron_word::fold_port::fit::icm::codebook_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 292:4-298:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 320:4-326:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.codebook_q_loop.body
   (cb : Array (Array Std.I64 8#usize) 256#usize) (j : Std.Usize) :
@@ -77360,7 +81415,7 @@ def fold_port.fit.icm.codebook_q_loop.body
   else ok (done cb)
 
 /-- [apeiron_word::fold_port::fit::icm::codebook_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 292:4-298:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 320:4-326:5 -/
 @[rust_loop]
 def fold_port.fit.icm.codebook_q_loop
   (cb : Array (Array Std.I64 8#usize) 256#usize) (j : Std.Usize) :
@@ -77371,7 +81426,7 @@ def fold_port.fit.icm.codebook_q_loop
     (cb, j)
 
 /-- [apeiron_word::fold_port::fit::icm::codebook_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 289:0-300:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 317:0-328:1 -/
 def fold_port.fit.icm.codebook_q
   : Result (Array (Array Std.I64 8#usize) 256#usize) := do
   let a := Array.repeat 8#usize 0#i64
@@ -77379,7 +81434,7 @@ def fold_port.fit.icm.codebook_q
   fold_port.fit.icm.codebook_q_loop cb 0#usize
 
 /-- [apeiron_word::fold_port::fit::icm::block_of_q]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 308:8-311:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 336:8-339:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.block_of_q_loop0_loop0.body
   (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize) (a : Std.Usize)
@@ -77403,7 +81458,7 @@ def fold_port.fit.icm.block_of_q_loop0_loop0.body
   else ok (done b)
 
 /-- [apeiron_word::fold_port::fit::icm::block_of_q]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 308:8-311:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 336:8-339:9 -/
 @[rust_loop]
 def fold_port.fit.icm.block_of_q_loop0_loop0
   (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize)
@@ -77416,7 +81471,7 @@ def fold_port.fit.icm.block_of_q_loop0_loop0
     (b, c)
 
 /-- [apeiron_word::fold_port::fit::icm::block_of_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 306:4-313:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 334:4-341:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.block_of_q_loop0.body
   (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize)
@@ -77432,7 +81487,7 @@ def fold_port.fit.icm.block_of_q_loop0.body
   else ok (done b)
 
 /-- [apeiron_word::fold_port::fit::icm::block_of_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 306:4-313:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 334:4-341:5 -/
 @[rust_loop]
 def fold_port.fit.icm.block_of_q_loop0
   (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize)
@@ -77444,7 +81499,7 @@ def fold_port.fit.icm.block_of_q_loop0
     (b, a)
 
 /-- [apeiron_word::fold_port::fit::icm::block_of_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 303:0-315:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 331:0-343:1 -/
 def fold_port.fit.icm.block_of_q
   (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize) :
   Result (Array (Array Std.I64 8#usize) 8#usize)
@@ -77453,259 +81508,80 @@ def fold_port.fit.icm.block_of_q
   let b := Array.repeat 8#usize a
   fold_port.fit.icm.block_of_q_loop0 h n m b 0#usize
 
-/-- [apeiron_word::fold_port::fit::icm::mat_blk_row]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 324:8-330:9 -/
-@[rust_loop_body]
-def fold_port.fit.icm.mat_blk_row_loop0_loop0.body
-  (c : Array Std.I64 8#usize) (h : Array (Array Std.I64 8#usize) 8#usize)
-  (a : Std.Usize) (out : Array Std.I128 8#usize)
-  (err : Option fold_port.fit.icm.IcmError) (b : Std.Usize) :
-  Result (ControlFlow ((Array Std.I128 8#usize) × (Option
-    fold_port.fit.icm.IcmError) × Std.Usize) ((Array Std.I128 8#usize) ×
-    (Option fold_port.fit.icm.IcmError)))
-  := do
-  if b < fold_port.fit.icm.BLOCK
-  then
-    let b1 := core.option.Option.is_none err
-    if b1
-    then
-      let i ← Array.index_usize out b
-      let i1 ← Array.index_usize c a
-      let i2 ← lift (core.convert.num.FromI128I64.from i1)
-      let a1 ← Array.index_usize h a
-      let i3 ← Array.index_usize a1 b
-      let i4 ← lift (core.convert.num.FromI128I64.from i3)
-      let i5 ← i2 * i4
-      let r ← fold_port.fit.icm.qsum i i5
-      match r with
-      | core.result.Result.Ok v =>
-        let a2 ← Array.update out b v
-        let b2 ← b + 1#usize
-        ok (cont (a2, err, b2))
-      | core.result.Result.Err e =>
-        let b2 ← b + 1#usize
-        ok (cont (out, some e, b2))
-    else ok (done (out, err))
-  else ok (done (out, err))
-
-/-- [apeiron_word::fold_port::fit::icm::mat_blk_row]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 324:8-330:9 -/
-@[rust_loop]
-def fold_port.fit.icm.mat_blk_row_loop0_loop0
-  (c : Array Std.I64 8#usize) (h : Array (Array Std.I64 8#usize) 8#usize)
-  (out : Array Std.I128 8#usize) (err : Option fold_port.fit.icm.IcmError)
-  (a : Std.Usize) (b : Std.Usize) :
-  Result ((Array Std.I128 8#usize) × (Option fold_port.fit.icm.IcmError))
-  := do
-  loop
-    (fun (out1, err1, b1) => fold_port.fit.icm.mat_blk_row_loop0_loop0.body c h
-      a out1 err1 b1)
-    (out, err, b)
-
-/-- [apeiron_word::fold_port::fit::icm::mat_blk_row]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 322:4-332:5 -/
-@[rust_loop_body]
-def fold_port.fit.icm.mat_blk_row_loop0.body
-  (c : Array Std.I64 8#usize) (h : Array (Array Std.I64 8#usize) 8#usize)
-  (out : Array Std.I128 8#usize) (err : Option fold_port.fit.icm.IcmError)
-  (a : Std.Usize) :
-  Result (ControlFlow ((Array Std.I128 8#usize) × (Option
-    fold_port.fit.icm.IcmError) × Std.Usize) ((Array Std.I128 8#usize) ×
-    (Option fold_port.fit.icm.IcmError)))
-  := do
-  if a < fold_port.fit.icm.BLOCK
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let (out1, err1) ←
-        fold_port.fit.icm.mat_blk_row_loop0_loop0 c h out err a 0#usize
-      let a1 ← a + 1#usize
-      ok (cont (out1, err1, a1))
-    else ok (done (out, err))
-  else ok (done (out, err))
-
-/-- [apeiron_word::fold_port::fit::icm::mat_blk_row]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 322:4-332:5 -/
-@[rust_loop]
-def fold_port.fit.icm.mat_blk_row_loop0
-  (c : Array Std.I64 8#usize) (h : Array (Array Std.I64 8#usize) 8#usize)
-  (out : Array Std.I128 8#usize) (err : Option fold_port.fit.icm.IcmError)
-  (a : Std.Usize) :
-  Result ((Array Std.I128 8#usize) × (Option fold_port.fit.icm.IcmError))
-  := do
-  loop
-    (fun (out1, err1, a1) => fold_port.fit.icm.mat_blk_row_loop0.body c h out1
-      err1 a1)
-    (out, err, a)
-
-/-- [apeiron_word::fold_port::fit::icm::mat_blk_row]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 318:0-337:1 -/
-def fold_port.fit.icm.mat_blk_row
-  (c : Array Std.I64 8#usize) (h : Array (Array Std.I64 8#usize) 8#usize) :
-  Result (core.result.Result (Array Std.I128 8#usize)
-    fold_port.fit.icm.IcmError)
-  := do
-  let out := Array.repeat 8#usize 0#i128
-  let (out1, err) ← fold_port.fit.icm.mat_blk_row_loop0 c h out none 0#usize
-  match err with
-  | none => ok (core.result.Result.Ok out1)
-  | some e => ok (core.result.Result.Err e)
-
-/-- [apeiron_word::fold_port::fit::icm::row_dot]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 342:4-346:1 -/
-@[rust_loop_body]
-def fold_port.fit.icm.row_dot_loop.body
-  (t : Array Std.I128 8#usize) (c : Array Std.I64 8#usize)
-  (iter : core.ops.range.Range Std.Usize) (acc : Std.I128) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128)
-    (core.result.Result Std.I128 fold_port.fit.icm.IcmError))
-  := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done (core.result.Result.Ok acc))
-  | some k =>
-    let i ← Array.index_usize t k
-    let i1 ← Array.index_usize c k
-    let i2 ← lift (core.convert.num.FromI128I64.from i1)
-    let r ← fold_port.fit.icm.qmul i i2
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue val =>
-      let r1 ← fold_port.fit.icm.qsum acc val
-      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-      match cf1 with
-      | core.ops.control_flow.ControlFlow.Continue val1 =>
-        ok (cont (iter1, val1))
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        let r2 ←
-          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-            Std.I128 (core.convert.FromSame fold_port.fit.icm.IcmError)
-            residual
-        ok (done r2)
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      let r1 ←
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          Std.I128 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
-      ok (done r1)
-
-/-- [apeiron_word::fold_port::fit::icm::row_dot]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 342:4-346:1 -/
-@[rust_loop]
-def fold_port.fit.icm.row_dot_loop
-  (iter : core.ops.range.Range Std.Usize) (t : Array Std.I128 8#usize)
-  (c : Array Std.I64 8#usize) (acc : Std.I128) :
-  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
-  := do
-  loop
-    (fun (iter1, acc1) => fold_port.fit.icm.row_dot_loop.body t c iter1 acc1)
-    (iter, acc)
-
-/-- [apeiron_word::fold_port::fit::icm::row_dot]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 340:0-346:1 -/
-@[reducible]
-def fold_port.fit.icm.row_dot
-  (t : Array Std.I128 8#usize) (c : Array Std.I64 8#usize) :
-  Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
-  := do
-  fold_port.fit.icm.row_dot_loop
-    { start := 0#usize, «end» := fold_port.fit.icm.BLOCK } t c 0#i128
-
 /-- [apeiron_word::fold_port::fit::icm::rows_per_task]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 349:0-351:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 346:0-348:1 -/
 def fold_port.fit.icm.rows_per_task (rows : Std.Usize) : Result Std.Usize := do
   let i ← chart.pool.width_global
   let i1 ← core.num.Usize.div_ceil rows i
   core.cmp.Ord.max.default core.cmp.OrdUsize i1 1#usize
 
 /-- [apeiron_word::fold_port::fit::icm::BinOp]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 355:0-360:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 352:0-357:1 -/
 @[discriminant isize]
 inductive fold_port.fit.icm.BinOp where
 | Add : fold_port.fit.icm.BinOp
 | Sub : fold_port.fit.icm.BinOp
 
 /-- [apeiron_word::fold_port::fit::icm::bin_into]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 367:4-374:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 365:4-374:1 -/
 @[rust_loop_body]
 def fold_port.fit.icm.bin_into_loop.body
-  (iter : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-  (core.slice.iter.Iter Std.I64))
-  (back : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-  (core.slice.iter.Iter Std.I64) → core.iter.adapters.zip.Zip
-  (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64))
-  (op : fold_port.fit.icm.BinOp) :
-  Result (ControlFlow ((core.iter.adapters.zip.Zip (core.slice.iter.IterMut
-    Std.I64) (core.slice.iter.Iter Std.I64)) × (core.iter.adapters.zip.Zip
-    (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64) →
-    core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-    (core.slice.iter.Iter Std.I64)) × fold_port.fit.icm.BinOp)
-    ((core.result.Result Unit fold_port.fit.icm.IcmError) ×
-    (core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-    (core.slice.iter.Iter Std.I64))))
+  (src : Slice Std.I64) (dst : Slice Std.I64) (op : fold_port.fit.icm.BinOp)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × fold_port.fit.icm.BinOp × Std.Usize)
+    ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice Std.I64)))
   := do
-  let (o, iter1, next_back) ←
-    core.iter.adapters.zip.Zip.Insts.CoreIterTraitsIteratorIteratorPair.next
-      (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT
-      Std.I64) (core.iter.traits.iterator.IteratorSliceIter Std.I64) iter
-  match o with
-  | none =>
-    ok (done (core.result.Result.Ok (), let z := next_back iter1 none
-                                        back z))
-  | some p =>
-    let (d, s) := p
+  let i1 := Slice.len dst
+  if i < i1
+  then
+    let s ← Slice.index_usize src i
     match op with
     | fold_port.fit.icm.BinOp.Add =>
-      let r ← fold_port.fit.icm.add_q d s
+      let i2 ← Slice.index_usize dst i
+      let r ← fold_port.fit.icm.add_q i2 s
       let cf ← core.result.Result.Insts.CoreOpsTry.branch r
       match cf with
       | core.ops.control_flow.ControlFlow.Continue val =>
-        ok (cont (iter1,
-          fun z => let z1 := next_back z (some (val, s))
-                   back z1, fold_port.fit.icm.BinOp.Add))
+        let s1 ← Slice.update dst i val
+        let i3 ← i + 1#usize
+        ok (cont (s1, fold_port.fit.icm.BinOp.Add, i3))
       | core.ops.control_flow.ControlFlow.Break residual =>
         let r1 ←
           core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
             Unit (core.convert.FromSame fold_port.fit.icm.IcmError) residual
-        ok (done (r1, let z := next_back iter1 o
-                      back z))
+        ok (done (r1, dst))
     | fold_port.fit.icm.BinOp.Sub =>
-      let r ← fold_port.fit.icm.sub_q d s
+      let i2 ← Slice.index_usize dst i
+      let r ← fold_port.fit.icm.sub_q i2 s
       let cf ← core.result.Result.Insts.CoreOpsTry.branch r
       match cf with
       | core.ops.control_flow.ControlFlow.Continue val =>
-        ok (cont (iter1,
-          fun z => let z1 := next_back z (some (val, s))
-                   back z1, fold_port.fit.icm.BinOp.Sub))
+        let s1 ← Slice.update dst i val
+        let i3 ← i + 1#usize
+        ok (cont (s1, fold_port.fit.icm.BinOp.Sub, i3))
       | core.ops.control_flow.ControlFlow.Break residual =>
         let r1 ←
           core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
             Unit (core.convert.FromSame fold_port.fit.icm.IcmError) residual
-        ok (done (r1, let z := next_back iter1 o
-                      back z))
+        ok (done (r1, dst))
+  else ok (done (core.result.Result.Ok (), dst))
 
 /-- [apeiron_word::fold_port::fit::icm::bin_into]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 367:4-374:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 365:4-374:1 -/
 @[rust_loop]
 def fold_port.fit.icm.bin_into_loop
-  (iter : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-  (core.slice.iter.Iter Std.I64))
-  (back : core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-  (core.slice.iter.Iter Std.I64) → core.iter.adapters.zip.Zip
-  (core.slice.iter.IterMut Std.I64) (core.slice.iter.Iter Std.I64))
-  (op : fold_port.fit.icm.BinOp) :
-  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) ×
-    (core.iter.adapters.zip.Zip (core.slice.iter.IterMut Std.I64)
-    (core.slice.iter.Iter Std.I64)))
+  (dst : Slice Std.I64) (src : Slice Std.I64) (op : fold_port.fit.icm.BinOp)
+  (i : Std.Usize) :
+  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
+    Std.I64))
   := do
   loop
-    (fun (iter1, back1, op1) => fold_port.fit.icm.bin_into_loop.body iter1
-      back1 op1)
-    (iter, back, op)
+    (fun (dst1, op1, i1) => fold_port.fit.icm.bin_into_loop.body src dst1 op1
+      i1)
+    (dst, op, i)
 
 /-- [apeiron_word::fold_port::fit::icm::bin_into]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 363:0-374:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 360:0-374:1 -/
 def fold_port.fit.icm.bin_into
   (dst : Slice Std.I64) (src : Slice Std.I64) (op : fold_port.fit.icm.BinOp) :
   Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
@@ -77715,17 +81591,7 @@ def fold_port.fit.icm.bin_into
   let i1 := Slice.len src
   if i != i1
   then ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, dst)
-  else
-    let (im, iter_mut_back) ← core.slice.Slice.iter_mut dst
-    let (iter, trait_default_back) ←
-      core.iter.traits.iterator.Iterator.zip.trait_default
-        (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT
-        Std.I64) (SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter
-        Std.I64) im src
-    let (r, back) ← fold_port.fit.icm.bin_into_loop iter (fun z => z) op
-    let im1 := trait_default_back back
-    let dst1 := iter_mut_back im1
-    ok (r, dst1)
+  else fold_port.fit.icm.bin_into_loop dst src op 0#usize
 
 /-- [apeiron_word::fold_port::fit::icm::ScaleBy]
     Source: '../../src/learn/fold/fit/icm.rs', lines 378:0-385:1 -/
@@ -77935,85 +81801,8 @@ def fold_port.fit.icm.fwht_rows
           ok (r1, x1)
       else ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, x)
 
-/-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 447:8-449:9 -/
-@[rust_loop_body]
-def fold_port.fit.icm.transpose_q_loop0_loop0.body
-  (h : Slice Std.I64) (n : Std.Usize) (r : Std.Usize)
-  (iter : core.ops.range.Range Std.Usize) (t : alloc.vec.Vec Std.I64) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
-    Std.I64)) (alloc.vec.Vec Std.I64))
-  := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done t)
-  | some c =>
-    let i ← r * n
-    let i1 ← i + c
-    let i2 ← Slice.index_usize h i1
-    let i3 ← c * n
-    let i4 ← i3 + r
-    let (_, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) t
-        i4
-    let t1 := index_mut_back i2
-    ok (cont (iter1, t1))
-
-/-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 447:8-449:9 -/
-@[rust_loop]
-def fold_port.fit.icm.transpose_q_loop0_loop0
-  (iter : core.ops.range.Range Std.Usize) (h : Slice Std.I64) (n : Std.Usize)
-  (t : alloc.vec.Vec Std.I64) (r : Std.Usize) :
-  Result (alloc.vec.Vec Std.I64)
-  := do
-  loop
-    (fun (iter1, t1) => fold_port.fit.icm.transpose_q_loop0_loop0.body h n r
-      iter1 t1)
-    (iter, t)
-
-/-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 446:4-450:5 -/
-@[rust_loop_body]
-def fold_port.fit.icm.transpose_q_loop0.body
-  (h : Slice Std.I64) (n : Std.Usize) (iter : core.ops.range.Range Std.Usize)
-  (t : alloc.vec.Vec Std.I64) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
-    Std.I64)) (alloc.vec.Vec Std.I64))
-  := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done t)
-  | some r =>
-    let t1 ←
-      fold_port.fit.icm.transpose_q_loop0_loop0
-        { start := 0#usize, «end» := n } h n t r
-    ok (cont (iter1, t1))
-
-/-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 446:4-450:5 -/
-@[rust_loop]
-def fold_port.fit.icm.transpose_q_loop0
-  (iter : core.ops.range.Range Std.Usize) (h : Slice Std.I64) (n : Std.Usize)
-  (t : alloc.vec.Vec Std.I64) :
-  Result (alloc.vec.Vec Std.I64)
-  := do
-  loop
-    (fun (iter1, t1) => fold_port.fit.icm.transpose_q_loop0.body h n iter1 t1)
-    (iter, t)
-
-/-- [apeiron_word::fold_port::fit::icm::transpose_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 444:0-452:1 -/
-def fold_port.fit.icm.transpose_q
-  (h : Slice Std.I64) (n : Std.Usize) : Result (alloc.vec.Vec Std.I64) := do
-  let i ← n * n
-  let t ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
-  fold_port.fit.icm.transpose_q_loop0 { start := 0#usize, «end» := n } h n t
-
 /-- [apeiron_word::fold_port::fit::icm::had_gram_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 457:0-466:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 461:0-470:1 -/
 def fold_port.fit.icm.had_gram_q
   (h : Slice Std.I64) (n : Std.Usize) :
   Result (core.result.Result (alloc.vec.Vec Std.I64)
@@ -78038,7 +81827,7 @@ def fold_port.fit.icm.had_gram_q
         | core.ops.control_flow.ControlFlow.Continue _ =>
           let t1 := deref_mut_back s1
           let s2 := alloc.vec.Vec.deref t1
-          let u ← fold_port.fit.icm.transpose_q s2 n
+          let u ← fold_port.fit.icm.transpose_q s2 n n
           let (s3, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut u)
           let (r1, s4) ← fold_port.fit.icm.fwht_rows s3 n n
           let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
@@ -78046,7 +81835,7 @@ def fold_port.fit.icm.had_gram_q
           | core.ops.control_flow.ControlFlow.Continue _ =>
             let u1 := deref_mut_back1 s4
             let s5 := alloc.vec.Vec.deref u1
-            let v ← fold_port.fit.icm.transpose_q s5 n
+            let v ← fold_port.fit.icm.transpose_q s5 n n
             ok (core.result.Result.Ok v)
           | core.ops.control_flow.ControlFlow.Break residual =>
             core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
@@ -78059,7 +81848,7 @@ def fold_port.fit.icm.had_gram_q
     else ok (core.result.Result.Err fold_port.fit.icm.IcmError.Width)
 
 /-- [apeiron_word::fold_port::fit::icm::cross_metric_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 471:0-489:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 475:0-493:1 -/
 def fold_port.fit.icm.cross_metric_q
   (hl : Slice Std.I64) (n : Std.Usize) (c1 : Slice Std.I64)
   (c2 : Slice Std.I64) (d1 : Slice Std.I64) (d2 : Slice Std.I64) :
@@ -78132,7 +81921,7 @@ def fold_port.fit.icm.cross_metric_q
         fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::check_inputs]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 492:0-508:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 496:0-512:1 -/
 def fold_port.fit.icm.check_inputs
   (ws : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize) (n : Std.Usize)
   (g : Option (Slice Std.I64)) :
@@ -78157,7 +81946,7 @@ def fold_port.fit.icm.check_inputs
         else ok (core.result.Result.Ok ())
 
 /-- [apeiron_word::fold_port::fit::icm::into_plane]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 511:0-519:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 515:0-523:1 -/
 def fold_port.fit.icm.into_plane
   (s : Slice Std.I64) (idx : alloc.vec.Vec Std.U16)
   (p : fold_port.fit.icm.PlaneRef) :
@@ -78170,19 +81959,19 @@ def fold_port.fit.icm.into_plane
   ok { s := v, idx, r := v1, c := v2, d := v3 }
 
 /-- [apeiron_word::fold_port::fit::icm::codebook]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 523:0-525:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 527:0-529:1
     Visibility: public -/
 def fold_port.fit.icm.codebook
   : Result (Array (Array Std.I64 8#usize) 256#usize) := do
   fold_port.fit.icm.codebook_q
 
 /-- [apeiron_word::fold_port::fit::icm::nearest_index::{closure}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 535:30-535:52 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 539:30-539:52 -/
 @[reducible]
 def fold_port.fit.icm.nearest_index.closure := Unit
 
 /-- [apeiron_word::fold_port::fit::icm::nearest_index::{impl core::ops::function::FnOnce<(apeiron_word::learn_port::e8::E8Error,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::nearest_index::{closure}}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 535:30-535:52 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 539:30-539:52 -/
 def
   fold_port.fit.icm.nearest_index.closure.Insts.CoreOpsFunctionFnOnceTupleE8ErrorIcmError.call_once
   (c : fold_port.fit.icm.nearest_index.closure)
@@ -78192,7 +81981,7 @@ def
   ok fold_port.fit.icm.IcmError.Overflow
 
 /-- Trait implementation: [apeiron_word::fold_port::fit::icm::nearest_index::{impl core::ops::function::FnOnce<(apeiron_word::learn_port::e8::E8Error,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::nearest_index::{closure}}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 535:30-535:52 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 539:30-539:52 -/
 @[reducible]
 def
   fold_port.fit.icm.nearest_index.closure.Insts.CoreOpsFunctionFnOnceTupleE8ErrorIcmError
@@ -78203,7 +81992,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::fit::icm::nearest_index]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 534:0-536:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 538:0-540:1
     Visibility: public -/
 def fold_port.fit.icm.nearest_index
   (code : Array Std.I64 8#usize) :
@@ -78215,12 +82004,12 @@ def fold_port.fit.icm.nearest_index
     r ()
 
 /-- [apeiron_word::fold_port::fit::icm::div_round::{closure#1}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 601:32-601:41 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 605:32-605:41 -/
 @[reducible]
 def fold_port.fit.icm.div_round.closure_1 := Std.I128
 
 /-- [apeiron_word::fold_port::fit::icm::div_round::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::icm::div_round::{closure#1}<'_0>}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 601:32-601:41 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 605:32-605:41 -/
 def
   fold_port.fit.icm.div_round.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
   (c : fold_port.fit.icm.div_round.closure_1) (tupled_args : Std.I128) :
@@ -78229,7 +82018,7 @@ def
   tupled_args / c
 
 /-- Trait implementation: [apeiron_word::fold_port::fit::icm::div_round::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::icm::div_round::{closure#1}<'_0>}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 601:32-601:41 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 605:32-605:41 -/
 @[reducible]
 def
   fold_port.fit.icm.div_round.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128I128
@@ -78240,12 +82029,12 @@ def
 }
 
 /-- [apeiron_word::fold_port::fit::icm::div_round::{closure}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 599:32-599:41 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 603:32-603:41 -/
 @[reducible]
 def fold_port.fit.icm.div_round.closure := Std.I128
 
 /-- [apeiron_word::fold_port::fit::icm::div_round::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::icm::div_round::{closure}<'_0>}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 599:32-599:41 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 603:32-603:41 -/
 def
   fold_port.fit.icm.div_round.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
   (c : fold_port.fit.icm.div_round.closure) (tupled_args : Std.I128) :
@@ -78254,7 +82043,7 @@ def
   tupled_args / c
 
 /-- Trait implementation: [apeiron_word::fold_port::fit::icm::div_round::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::icm::div_round::{closure}<'_0>}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 599:32-599:41 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 603:32-603:41 -/
 @[reducible]
 def
   fold_port.fit.icm.div_round.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128
@@ -78265,7 +82054,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::fit::icm::div_round]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 593:0-604:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 597:0-608:1 -/
 def fold_port.fit.icm.div_round
   (v : Std.I128) (d : Std.I128) :
   Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
@@ -78291,7 +82080,7 @@ def fold_port.fit.icm.div_round
     core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
 
 /-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 560:8-566:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 564:8-570:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.ridged_metric_q_loop0.body
   (hl : Slice Std.I64) (n : Std.Usize) (sum : Std.I128)
@@ -78319,7 +82108,7 @@ def fold_port.fit.icm.ridged_metric_q_loop0.body
   else ok (done (sum, err))
 
 /-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 560:8-566:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 564:8-570:9 -/
 @[rust_loop]
 def fold_port.fit.icm.ridged_metric_q_loop0
   (hl : Slice Std.I64) (n : Std.Usize) (sum : Std.I128)
@@ -78332,7 +82121,7 @@ def fold_port.fit.icm.ridged_metric_q_loop0
     (sum, err, i)
 
 /-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 577:8-583:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 581:8-587:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.ridged_metric_q_loop1.body
   (n : Std.Usize) (add : Std.I64) (h : alloc.vec.Vec Std.I64)
@@ -78369,7 +82158,7 @@ def fold_port.fit.icm.ridged_metric_q_loop1.body
   else ok (done (h, err))
 
 /-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 577:8-583:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 581:8-587:9 -/
 @[rust_loop]
 def fold_port.fit.icm.ridged_metric_q_loop1
   (n : Std.Usize) (h : alloc.vec.Vec Std.I64)
@@ -78382,7 +82171,7 @@ def fold_port.fit.icm.ridged_metric_q_loop1
     (h, err, i)
 
 /-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 554:0-589:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 558:0-593:1 -/
 def fold_port.fit.icm.ridged_metric_q
   (hl : Slice Std.I64) (n : Std.Usize) (icm_ridge : Std.I64) :
   Result (core.result.Result (alloc.vec.Vec Std.I64)
@@ -78466,7 +82255,7 @@ def fold_port.fit.icm.ridged_metric_q
   else ok (core.result.Result.Ok h)
 
 /-- [apeiron_word::fold_port::fit::icm::ridged_metric]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 545:0-550:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 549:0-554:1
     Visibility: public -/
 def fold_port.fit.icm.ridged_metric
   (hl : Slice Std.I64) (n : Std.Usize) (icm_ridge : Std.I64) :
@@ -78483,7 +82272,7 @@ def fold_port.fit.icm.ridged_metric
     else fold_port.fit.icm.ridged_metric_q hl n icm_ridge
 
 /-- [apeiron_word::fold_port::fit::icm::check_plane]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1747:0-1763:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1817:0-1833:1 -/
 def fold_port.fit.icm.check_plane
   (p : fold_port.fit.icm.PlaneRef) (o : Std.Usize) (n : Std.Usize) :
   Result (core.result.Result Unit fold_port.fit.icm.IcmError)
@@ -78532,7 +82321,7 @@ def fold_port.fit.icm.check_plane
       else ok (core.result.Result.Err fold_port.fit.icm.IcmError.Width)
 
 /-- [apeiron_word::fold_port::fit::icm::code_transform_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 620:0-630:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 624:0-634:1 -/
 def fold_port.fit.icm.code_transform_q
   (s : Slice Std.I64) (d : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
   Result (core.result.Result (alloc.vec.Vec Std.I64)
@@ -78564,7 +82353,7 @@ def fold_port.fit.icm.code_transform_q
       fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::plane_w_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 634:0-647:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 638:0-651:1 -/
 def fold_port.fit.icm.plane_w_q
   (s : Slice Std.I64) (r : Slice Std.I64) (c : Slice Std.I64)
   (d : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
@@ -78605,7 +82394,7 @@ def fold_port.fit.icm.plane_w_q
       fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::plane_w]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 613:0-616:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 617:0-620:1
     Visibility: public -/
 def fold_port.fit.icm.plane_w
   (p : fold_port.fit.icm.PlaneRef) (o : Std.Usize) (n : Std.Usize) :
@@ -78623,7 +82412,7 @@ def fold_port.fit.icm.plane_w
       fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::j_rows_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 687:4-711:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 691:4-712:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.j_rows_q_loop.body
   (o : Std.Usize) (n : Std.Usize) (d : alloc.vec.Vec Std.I64)
@@ -78649,44 +82438,40 @@ def fold_port.fit.icm.j_rows_q_loop.body
       let pr ←
         alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
           Std.I64) prod { start := i, «end» := i3 }
-      let r ← fold_port.fit.icm.dot64 dr pr
+      let r ← fold_port.fit.icm.dot_q dr pr
       let (g_row1, total1, err1) ←
         match r with
-        | core.result.Result.Ok dot =>
+        | core.result.Result.Ok j0 =>
           do
-          let r1 ← fold_port.fit.icm.round_shift dot 32#u32
-          match r1 with
-          | core.result.Result.Ok j0 =>
-            let (err2, j) ←
-              match g_row with
-              | none => ok (err, j0)
-              | some g =>
-                do
-                let i4 ← Slice.index_usize g row
-                let r2 ← fold_port.fit.icm.mul_q i4 j0
-                match r2 with
-                | core.result.Result.Ok v => ok (err, v)
-                | core.result.Result.Err e => ok (some e, j0)
-            let b1 := core.option.Option.is_none err2
-            let (i4, o1) ←
-              if b1
-              then
-                do
-                let i5 ← lift (core.convert.num.FromI128I64.from j)
-                let r2 ← fold_port.fit.icm.qsum total i5
-                match r2 with
-                | core.result.Result.Ok v => ok (v, err2)
-                | core.result.Result.Err e => ok (total, some e)
-              else ok (total, err2)
-            ok (g_row, i4, o1)
-          | core.result.Result.Err e => ok (g_row, total, some e)
+          let (err2, j) ←
+            match g_row with
+            | none => ok (err, j0)
+            | some g =>
+              do
+              let i4 ← Slice.index_usize g row
+              let r1 ← fold_port.fit.icm.mul_q i4 j0
+              match r1 with
+              | core.result.Result.Ok v => ok (err, v)
+              | core.result.Result.Err e => ok (some e, j0)
+          let b1 := core.option.Option.is_none err2
+          let (i4, o1) ←
+            if b1
+            then
+              do
+              let i5 ← lift (core.convert.num.FromI128I64.from j)
+              let r1 ← fold_port.fit.icm.qsum total i5
+              match r1 with
+              | core.result.Result.Ok v => ok (v, err2)
+              | core.result.Result.Err e => ok (total, some e)
+            else ok (total, err2)
+          ok (g_row, i4, o1)
         | core.result.Result.Err e => ok (g_row, total, some e)
       ok (cont (g_row1, total1, err1, i1))
     else ok (done (total, err))
   else ok (done (total, err))
 
 /-- [apeiron_word::fold_port::fit::icm::j_rows_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 687:4-711:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 691:4-712:5 -/
 @[rust_loop]
 def fold_port.fit.icm.j_rows_q_loop
   (o : Std.Usize) (n : Std.Usize) (g_row : Option (Slice Std.I64))
@@ -78700,7 +82485,7 @@ def fold_port.fit.icm.j_rows_q_loop
     (g_row, total, err, row)
 
 /-- [apeiron_word::fold_port::fit::icm::j_rows_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 673:0-716:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 677:0-717:1 -/
 def fold_port.fit.icm.j_rows_q
   (ws : Slice Std.I64) (w : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize)
   (n : Std.Usize) (g_row : Option (Slice Std.I64)) :
@@ -78733,7 +82518,7 @@ def fold_port.fit.icm.j_rows_q
       Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::j_rows]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 655:0-668:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 659:0-672:1
     Visibility: public -/
 def fold_port.fit.icm.j_rows
   (ws : Slice Std.I64) (w : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize)
@@ -78754,7 +82539,7 @@ def fold_port.fit.icm.j_rows
       Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::SweepCtx]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 859:0-866:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 884:0-891:1 -/
 structure fold_port.fit.icm.SweepCtx where
   h_rot : Slice Std.I64
   q_all : Slice Std.I64
@@ -78763,188 +82548,340 @@ structure fold_port.fit.icm.SweepCtx where
   g : Std.Usize
   sweeps : Std.Usize
 
-/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 4:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 921:20-927:21 -/
+/-- [apeiron_word::fold_port::fit::icm::flatten_codebook_q]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 872:8-875:9 -/
 @[rust_loop_body]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0_loop0.body
-  (b0 : Std.Usize) (hb : Array (Array Std.I64 8#usize) 8#usize)
-  (s_row : Slice Std.I64) (k : Std.Usize)
-  (err : Option fold_port.fit.icm.IcmError) (acc : Std.I128) (l : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × Std.I128 ×
-    Std.Usize) ((Option fold_port.fit.icm.IcmError) × Std.I128))
+def fold_port.fit.icm.flatten_codebook_q_loop0_loop0.body
+  (cb : Array (Array Std.I64 8#usize) 256#usize) (j : Std.Usize)
+  (out : alloc.vec.Vec Std.I64) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
   := do
-  if l < fold_port.fit.icm.BLOCK
+  if k < fold_port.fit.icm.BLOCK
   then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i ← b0 + l
-      let i1 ← Slice.index_usize s_row i
-      let i2 ← lift (core.convert.num.FromI128I64.from i1)
-      let a ← Array.index_usize hb l
-      let i3 ← Array.index_usize a k
-      let i4 ← lift (core.convert.num.FromI128I64.from i3)
-      let i5 ← i2 * i4
-      let r ← fold_port.fit.icm.qsum acc i5
-      let (err1, acc1) ←
-        match r with
-        | core.result.Result.Ok v => ok (err, v)
-        | core.result.Result.Err e => ok (some e, acc)
-      let l1 ← l + 1#usize
-      ok (cont (err1, acc1, l1))
-    else ok (done (err, acc))
-  else ok (done (err, acc))
+    let a ← Array.index_usize cb j
+    let i ← Array.index_usize a k
+    let i1 ← j * fold_port.fit.icm.BLOCK
+    let i2 ← i1 + k
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        out i2
+    let k1 ← k + 1#usize
+    let out1 := index_mut_back i
+    ok (cont (out1, k1))
+  else ok (done out)
 
-/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 4:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 921:20-927:21 -/
+/-- [apeiron_word::fold_port::fit::icm::flatten_codebook_q]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 872:8-875:9 -/
 @[rust_loop]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0_loop0
-  (err : Option fold_port.fit.icm.IcmError) (b0 : Std.Usize)
-  (hb : Array (Array Std.I64 8#usize) 8#usize) (s_row : Slice Std.I64)
-  (k : Std.Usize) (acc : Std.I128) (l : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × Std.I128)
+def fold_port.fit.icm.flatten_codebook_q_loop0_loop0
+  (cb : Array (Array Std.I64 8#usize) 256#usize) (out : alloc.vec.Vec Std.I64)
+  (j : Std.Usize) (k : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
   := do
   loop
-    (fun (err1, acc1, l1) =>
-      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0_loop0.body b0 hb
-      s_row k err1 acc1 l1)
-    (err, acc, l)
+    (fun (out1, k1) => fold_port.fit.icm.flatten_codebook_q_loop0_loop0.body cb
+      j out1 k1)
+    (out, k)
+
+/-- [apeiron_word::fold_port::fit::icm::flatten_codebook_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 870:4-877:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.flatten_codebook_q_loop0.body
+  (cb : Array (Array Std.I64 8#usize) 256#usize) (out : alloc.vec.Vec Std.I64)
+  (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if j < fold_port.fit.icm.CODE_LEN
+  then
+    let out1 ←
+      fold_port.fit.icm.flatten_codebook_q_loop0_loop0 cb out j 0#usize
+    let j1 ← j + 1#usize
+    ok (cont (out1, j1))
+  else ok (done out)
+
+/-- [apeiron_word::fold_port::fit::icm::flatten_codebook_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 870:4-877:5 -/
+@[rust_loop]
+def fold_port.fit.icm.flatten_codebook_q_loop0
+  (cb : Array (Array Std.I64 8#usize) 256#usize) (out : alloc.vec.Vec Std.I64)
+  (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (out1, j1) => fold_port.fit.icm.flatten_codebook_q_loop0.body cb out1
+      j1)
+    (out, j)
+
+/-- [apeiron_word::fold_port::fit::icm::flatten_codebook_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 867:0-879:1 -/
+def fold_port.fit.icm.flatten_codebook_q
+  (cb : Array (Array Std.I64 8#usize) 256#usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  let i ← fold_port.fit.icm.CODE_LEN * fold_port.fit.icm.BLOCK
+  let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  fold_port.fit.icm.flatten_codebook_q_loop0 cb out 0#usize
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 3:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 918:16-941:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 935:16-938:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0.body
-  (b0 : Std.Usize) (hb : Array (Array Std.I64 8#usize) 8#usize) (av : Std.I128)
-  (f_row : Slice Std.I64) (s_row : Slice Std.I64)
-  (err : Option fold_port.fit.icm.IcmError) (f_m : Array Std.I64 8#usize)
+  (s : Slice Std.I64) (n : Std.Usize) (b0 : Std.Usize) (k : Std.Usize)
+  (cols : alloc.vec.Vec Std.I64) (col : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if col < n
+  then
+    let i ← b0 + k
+    let i1 ← i * n
+    let i2 ← i1 + col
+    let i3 ← Slice.index_usize s i2
+    let i4 ← col * fold_port.fit.icm.BLOCK
+    let i5 ← i4 + k
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        cols i5
+    let col1 ← col + 1#usize
+    let cols1 := index_mut_back i3
+    ok (cont (cols1, col1))
+  else ok (done cols)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 3:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 935:16-938:17 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0
+  (s : Slice Std.I64) (n : Std.Usize) (cols : alloc.vec.Vec Std.I64)
+  (b0 : Std.Usize) (k : Std.Usize) (col : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (cols1, col1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0.body s n b0 k cols1
+      col1)
+    (cols, col)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 2:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 933:12-940:13 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0.body
+  (s : Slice Std.I64) (n : Std.Usize) (b0 : Std.Usize)
+  (cols : alloc.vec.Vec Std.I64) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if k < fold_port.fit.icm.BLOCK
+  then
+    let cols1 ←
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0 s n cols b0 k
+        0#usize
+    let k1 ← k + 1#usize
+    ok (cont (cols1, k1))
+  else ok (done cols)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 2:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 933:12-940:13 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0
+  (s : Slice Std.I64) (n : Std.Usize) (cols : alloc.vec.Vec Std.I64)
+  (b0 : Std.Usize) (k : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (cols1, k1) => fold_port.fit.icm.sweep_rows_loop0_loop0_loop0.body s n
+      b0 cols1 k1)
+    (cols, k)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 5:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 944:16-947:17 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop1_loop0.body
+  (n : Std.Usize) (s_cur : Slice Std.I64) (b0 : Std.Usize) (row : Std.Usize)
+  (s_blk : alloc.vec.Vec Std.I64) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if k < fold_port.fit.icm.BLOCK
+  then
+    let i ← row * n
+    let i1 ← i + b0
+    let i2 ← i1 + k
+    let i3 ← Slice.index_usize s_cur i2
+    let i4 ← row * fold_port.fit.icm.BLOCK
+    let i5 ← i4 + k
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        s_blk i5
+    let k1 ← k + 1#usize
+    let s_blk1 := index_mut_back i3
+    ok (cont (s_blk1, k1))
+  else ok (done s_blk)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 5:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 944:16-947:17 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop1_loop0
+  (n : Std.Usize) (s_cur : Slice Std.I64) (s_blk : alloc.vec.Vec Std.I64)
+  (b0 : Std.Usize) (row : Std.Usize) (k : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (s_blk1, k1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop1_loop0.body n s_cur b0 row
+      s_blk1 k1)
+    (s_blk, k)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 4:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 942:12-949:13 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop1.body
+  (n : Std.Usize) (s_cur : Slice Std.I64) (rows : Std.Usize) (b0 : Std.Usize)
+  (s_blk : alloc.vec.Vec Std.I64) (row : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if row < rows
+  then
+    let s_blk1 ←
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop1_loop0 n s_cur s_blk b0 row
+        0#usize
+    let row1 ← row + 1#usize
+    ok (cont (s_blk1, row1))
+  else ok (done s_blk)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 4:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 942:12-949:13 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop1
+  (n : Std.Usize) (s_cur : Slice Std.I64) (rows : Std.Usize)
+  (s_blk : alloc.vec.Vec Std.I64) (b0 : Std.Usize) (row : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (s_blk1, row1) => fold_port.fit.icm.sweep_rows_loop0_loop0_loop1.body
+      n s_cur rows b0 s_blk1 row1)
+    (s_blk, row)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 7:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 962:24-971:25 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop2_loop0.body
+  (n : Std.Usize) (f_res : Slice Std.I64) (b0 : Std.Usize)
+  (v : alloc.vec.Vec Std.I64) (row : Std.Usize) (a : Std.I64)
+  (f_blk : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
   (k : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (Array Std.I64
-    8#usize) × Std.Usize) ((Option fold_port.fit.icm.IcmError) × (Array
-    Std.I64 8#usize)))
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option fold_port.fit.icm.IcmError)))
   := do
   if k < fold_port.fit.icm.BLOCK
   then
     let b := core.option.Option.is_none err
     if b
     then
-      let (err1, acc) ←
-        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0_loop0 err b0 hb
-          s_row k 0#i128 0#usize
-      let b1 := core.option.Option.is_none err1
-      let (err2, f_m1) ←
-        if b1
-        then
+      let i ← row * fold_port.fit.icm.BLOCK
+      let i1 ← i + k
+      let i2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) v
+          i1
+      let r ← fold_port.fit.icm.mul_q a i2
+      let (f_blk1, err1) ←
+        match r with
+        | core.result.Result.Ok w =>
           do
-          let r ← fold_port.fit.icm.qmul av acc
-          match r with
-          | core.result.Result.Ok p =>
-            let r1 ← fold_port.fit.icm.round_shift p 64#u32
-            match r1 with
-            | core.result.Result.Ok q =>
-              let i ← b0 + k
-              let i1 ← Slice.index_usize f_row i
-              let r2 ← fold_port.fit.icm.add_q i1 q
-              match r2 with
-              | core.result.Result.Ok v =>
-                let a ← Array.update f_m k v
-                ok (err1, a)
-              | core.result.Result.Err e => ok (some e, f_m)
-            | core.result.Result.Err e => ok (some e, f_m)
-          | core.result.Result.Err e => ok (some e, f_m)
-        else ok (err1, f_m)
+          let i3 ← row * n
+          let i4 ← i3 + b0
+          let i5 ← i4 + k
+          let i6 ← Slice.index_usize f_res i5
+          let r1 ← fold_port.fit.icm.add_q i6 w
+          match r1 with
+          | core.result.Result.Ok z =>
+            let i7 ← i + k
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) f_blk i7
+            let f_blk2 := index_mut_back z
+            ok (f_blk2, err)
+          | core.result.Result.Err e => ok (f_blk, some e)
+        | core.result.Result.Err e => ok (f_blk, some e)
       let k1 ← k + 1#usize
-      ok (cont (err2, f_m1, k1))
-    else ok (done (err, f_m))
-  else ok (done (err, f_m))
+      ok (cont (f_blk1, err1, k1))
+    else ok (done (f_blk, err))
+  else ok (done (f_blk, err))
 
-/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 3:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 918:16-941:17 -/
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 7:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 962:24-971:25 -/
 @[rust_loop]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop2_loop0
+  (n : Std.Usize) (f_res : Slice Std.I64) (f_blk : alloc.vec.Vec Std.I64)
   (err : Option fold_port.fit.icm.IcmError) (b0 : Std.Usize)
-  (hb : Array (Array Std.I64 8#usize) 8#usize) (av : Std.I128)
-  (f_row : Slice Std.I64) (s_row : Slice Std.I64) (f_m : Array Std.I64 8#usize)
-  (k : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × (Array Std.I64 8#usize))
+  (v : alloc.vec.Vec Std.I64) (row : Std.Usize) (a : Std.I64) (k : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError))
   := do
   loop
-    (fun (err1, f_m1, k1) =>
-      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0.body b0 hb av f_row
-      s_row err1 f_m1 k1)
-    (err, f_m, k)
+    (fun (f_blk1, err1, k1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop2_loop0.body n f_res b0 v
+      row a f_blk1 err1 k1)
+    (f_blk, err, k)
 
-/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 5:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 944:16-958:17 -/
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 6:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 959:20-973:21 -/
 @[rust_loop_body]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop1.body
-  (s : Slice Std.I64) (a : Array (Array Std.I64 8#usize) 256#usize)
-  (m : Std.Usize) (aa : Std.I128) (two_a : Std.I128)
-  (f_m : Array Std.I64 8#usize) (err : Option fold_port.fit.icm.IcmError)
-  (best : Std.U16) (best_cost : Std.I128) (j : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × Std.U16 ×
-    Std.I128 × Std.Usize) ((Option fold_port.fit.icm.IcmError) × Std.U16))
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop2.body
+  (n : Std.Usize) (i : Std.Usize) (f_res : Slice Std.I64) (r : Slice Std.I64)
+  (rows : Std.Usize) (b0 : Std.Usize) (v : alloc.vec.Vec Std.I64)
+  (f_blk : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (row : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option fold_port.fit.icm.IcmError)))
   := do
-  if j < fold_port.fit.icm.CODE_LEN
+  if row < rows
   then
     let b := core.option.Option.is_none err
     if b
     then
-      let s1 ← lift (Array.to_slice f_m)
-      let a1 ← Array.index_usize a j
-      let s2 ← lift (Array.to_slice a1)
-      let r ← fold_port.fit.icm.dot64 s1 s2
-      let (err1, best1, best_cost1) ←
-        match r with
-        | core.result.Result.Ok d =>
-          do
-          let i ← m * fold_port.fit.icm.CODE_LEN
-          let i1 ← i + j
-          let i2 ← Slice.index_usize s i1
-          let r1 ← fold_port.fit.icm.block_cost aa two_a i2 d
-          match r1 with
-          | core.result.Result.Ok cost =>
-            let (i3, i4) ←
-              if cost < best_cost
-              then do
-                   let best2 ← lift (UScalar.cast .U16 j)
-                   ok (best2, cost)
-              else ok (best, best_cost)
-            ok (err, i3, i4)
-          | core.result.Result.Err e => ok (some e, best, best_cost)
-        | core.result.Result.Err e => ok (some e, best, best_cost)
-      let j1 ← j + 1#usize
-      ok (cont (err1, best1, best_cost1, j1))
-    else ok (done (err, best))
-  else ok (done (err, best))
+      let i1 ← row * i
+      let i2 ← b0 / fold_port.fit.icm.GROUP
+      let i3 ← i1 + i2
+      let a ← Slice.index_usize r i3
+      let (f_blk1, err1) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop2_loop0 n f_res f_blk err
+          b0 v row a 0#usize
+      let row1 ← row + 1#usize
+      ok (cont (f_blk1, err1, row1))
+    else ok (done (f_blk, err))
+  else ok (done (f_blk, err))
 
-/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 5:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 944:16-958:17 -/
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 6:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 959:20-973:21 -/
 @[rust_loop]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop1
-  (s : Slice Std.I64) (a : Array (Array Std.I64 8#usize) 256#usize)
-  (err : Option fold_port.fit.icm.IcmError) (m : Std.Usize) (aa : Std.I128)
-  (two_a : Std.I128) (f_m : Array Std.I64 8#usize) (best : Std.U16)
-  (best_cost : Std.I128) (j : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × Std.U16)
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop2
+  (n : Std.Usize) (i : Std.Usize) (f_res : Slice Std.I64) (r : Slice Std.I64)
+  (rows : Std.Usize) (f_blk : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (b0 : Std.Usize)
+  (v : alloc.vec.Vec Std.I64) (row : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError))
   := do
   loop
-    (fun (err1, best1, best_cost1, j1) =>
-      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop1.body s a m aa two_a
-      f_m err1 best1 best_cost1 j1)
-    (err, best, best_cost, j)
+    (fun (f_blk1, err1, row1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop2.body n i f_res r rows b0 v
+      f_blk1 err1 row1)
+    (f_blk, err, row)
 
-/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 6:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 963:16-973:17 -/
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 9:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1000:28-1010:29 -/
 @[rust_loop_body]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop2.body
-  (a : Array (Array Std.I64 8#usize) 256#usize) (b0 : Std.Usize)
-  (best : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
-  (s_row : Slice Std.I64) (diff : Array Std.I64 8#usize) (changed : Bool)
-  (k : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (Slice Std.I64)
-    × (Array Std.I64 8#usize) × Bool × Std.Usize) ((Option
-    fold_port.fit.icm.IcmError) × (Slice Std.I64) × (Array Std.I64 8#usize)
-    × Bool))
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop3_loop0.body
+  (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize)
+  (b0 : Std.Usize) (row : Std.Usize) (best : Std.Usize) (s_cur : Slice Std.I64)
+  (d_blk : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (changed : Bool) (k : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Bool × Std.Usize) ((Slice Std.I64) ×
+    (alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError) × Bool))
   := do
   if k < fold_port.fit.icm.BLOCK
   then
@@ -78953,163 +82890,65 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop2.body
     then
       let a1 ← Array.index_usize a best
       let i ← Array.index_usize a1 k
-      let i1 ← b0 + k
-      let i2 ← Slice.index_usize s_row i1
-      let r ← fold_port.fit.icm.sub_q i i2
+      let i1 ← row * n
+      let i2 ← i1 + b0
+      let i3 ← i2 + k
+      let i4 ← Slice.index_usize s_cur i3
+      let r ← fold_port.fit.icm.sub_q i i4
       match r with
       | core.result.Result.Ok v =>
-        let a2 ← Array.update diff k v
-        let i3 ← Array.index_usize a1 k
-        let s ← Slice.update s_row i1 i3
+        let i5 ← row * fold_port.fit.icm.BLOCK
+        let i6 ← i5 + k
+        let (_, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            Std.I64) d_blk i6
+        let i7 ← Array.index_usize a1 k
+        let i8 ← i1 + b0
+        let i9 ← i8 + k
+        let s ← Slice.update s_cur i9 i7
         let k1 ← k + 1#usize
-        ok (cont (err, s, a2, changed || (v != 0#i64), k1))
+        let d_blk1 := index_mut_back v
+        ok (cont (s, d_blk1, err, changed || (v != 0#i64), k1))
       | core.result.Result.Err e =>
         let k1 ← k + 1#usize
-        ok (cont (some e, s_row, diff, changed, k1))
-    else ok (done (err, s_row, diff, changed))
-  else ok (done (err, s_row, diff, changed))
+        ok (cont (s_cur, d_blk, some e, changed, k1))
+    else ok (done (s_cur, d_blk, err, changed))
+  else ok (done (s_cur, d_blk, err, changed))
 
-/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 6:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 963:16-973:17 -/
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 9:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1000:28-1010:29 -/
 @[rust_loop]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop2
-  (a : Array (Array Std.I64 8#usize) 256#usize)
-  (err : Option fold_port.fit.icm.IcmError) (b0 : Std.Usize)
-  (s_row : Slice Std.I64) (best : Std.Usize) (diff : Array Std.I64 8#usize)
-  (changed : Bool) (k : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × (Slice Std.I64) × (Array
-    Std.I64 8#usize) × Bool)
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop3_loop0
+  (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize)
+  (s_cur : Slice Std.I64) (d_blk : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (b0 : Std.Usize) (row : Std.Usize)
+  (best : Std.Usize) (changed : Bool) (k : Std.Usize) :
+  Result ((Slice Std.I64) × (alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Bool)
   := do
   loop
-    (fun (err1, s_row1, diff1, changed1, k1) =>
-      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop2.body a b0 best err1
-      s_row1 diff1 changed1 k1)
-    (err, s_row, diff, changed, k)
+    (fun (s_cur1, d_blk1, err1, changed1, k1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop3_loop0.body a n b0 row best
+      s_cur1 d_blk1 err1 changed1 k1)
+    (s_cur, d_blk, err, changed, k)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 8:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 982:24-991:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 982:24-1020:25 -/
 @[rust_loop_body]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3_loop0.body
-  (s : Slice Std.I64) (n : Std.Usize) (b0 : Std.Usize)
-  (diff : Array Std.I64 8#usize) (col : Std.Usize)
-  (err : Option fold_port.fit.icm.IcmError) (acc : Std.I128) (kk : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × Std.I128 ×
-    Std.Usize) ((Option fold_port.fit.icm.IcmError) × Std.I128))
-  := do
-  if kk < fold_port.fit.icm.BLOCK
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i ← Array.index_usize diff kk
-      let i1 ← lift (core.convert.num.FromI128I64.from i)
-      let i2 ← b0 + kk
-      let i3 ← i2 * n
-      let i4 ← i3 + col
-      let i5 ← Slice.index_usize s i4
-      let i6 ← lift (core.convert.num.FromI128I64.from i5)
-      let i7 ← i1 * i6
-      let r ← fold_port.fit.icm.qsum acc i7
-      let (err1, acc1) ←
-        match r with
-        | core.result.Result.Ok v => ok (err, v)
-        | core.result.Result.Err e => ok (some e, acc)
-      let kk1 ← kk + 1#usize
-      ok (cont (err1, acc1, kk1))
-    else ok (done (err, acc))
-  else ok (done (err, acc))
-
-/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 8:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 982:24-991:25 -/
-@[rust_loop]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3_loop0
-  (s : Slice Std.I64) (n : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
-  (b0 : Std.Usize) (diff : Array Std.I64 8#usize) (col : Std.Usize)
-  (acc : Std.I128) (kk : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × Std.I128)
-  := do
-  loop
-    (fun (err1, acc1, kk1) =>
-      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3_loop0.body s n b0
-      diff col err1 acc1 kk1)
-    (err, acc, kk)
-
-/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 7:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 979:20-1005:21 -/
-@[rust_loop_body]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3.body
-  (s : Slice Std.I64) (n : Std.Usize) (b0 : Std.Usize) (av : Std.I128)
-  (diff : Array Std.I64 8#usize) (err : Option fold_port.fit.icm.IcmError)
-  (f_row : Slice Std.I64) (col : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (Slice Std.I64)
-    × Std.Usize) ((Option fold_port.fit.icm.IcmError) × (Slice Std.I64)))
-  := do
-  if col < n
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let (err1, acc) ←
-        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3_loop0 s n err b0
-          diff col 0#i128 0#usize
-      let b1 := core.option.Option.is_none err1
-      if b1
-      then
-        let r ← fold_port.fit.icm.qmul av acc
-        match r with
-        | core.result.Result.Ok p =>
-          let r1 ← fold_port.fit.icm.round_shift p 64#u32
-          match r1 with
-          | core.result.Result.Ok q =>
-            let i ← Slice.index_usize f_row col
-            let r2 ← fold_port.fit.icm.sub_q i q
-            match r2 with
-            | core.result.Result.Ok v =>
-              let s1 ← Slice.update f_row col v
-              let col1 ← col + 1#usize
-              ok (cont (err1, s1, col1))
-            | core.result.Result.Err e =>
-              let col1 ← col + 1#usize
-              ok (cont (some e, f_row, col1))
-          | core.result.Result.Err e =>
-            let col1 ← col + 1#usize
-            ok (cont (some e, f_row, col1))
-        | core.result.Result.Err e =>
-          let col1 ← col + 1#usize
-          ok (cont (some e, f_row, col1))
-      else let col1 ← col + 1#usize
-           ok (cont (err1, f_row, col1))
-    else ok (done (err, f_row))
-  else ok (done (err, f_row))
-
-/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 7:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 979:20-1005:21 -/
-@[rust_loop]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3
-  (s : Slice Std.I64) (n : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
-  (b0 : Std.Usize) (av : Std.I128) (f_row : Slice Std.I64)
-  (diff : Array Std.I64 8#usize) (col : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × (Slice Std.I64))
-  := do
-  loop
-    (fun (err1, f_row1, col1) =>
-      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3.body s n b0 av diff
-      err1 f_row1 col1)
-    (err, f_row, col)
-
-/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 2:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 910:12-1008:13 -/
-@[rust_loop_body]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0.body
-  (s : Slice Std.I64) (s1 : Slice Std.I64)
-  (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize) (i : Std.Usize)
-  (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize) (m : Std.Usize)
-  (b0 : Std.Usize) (hb : Array (Array Std.I64 8#usize) 8#usize)
-  (f_res : Slice Std.I64) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
-  (err : Option fold_port.fit.icm.IcmError) (row : Std.Usize) :
-  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) ×
-    (Option fold_port.fit.icm.IcmError) × Std.Usize) ((Slice Std.I64) ×
-    (Slice Std.I64) × (Slice Std.U16) × (Option fold_port.fit.icm.IcmError)))
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop3.body
+  (s : Slice Std.I64) (a : Array (Array Std.I64 8#usize) 256#usize)
+  (n : Std.Usize) (i : Std.Usize) (r : Slice Std.I64) (nb : Std.Usize)
+  (rows : Std.Usize) (m : Std.Usize) (b0 : Std.Usize)
+  (dots : alloc.vec.Vec Std.I64) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
+  (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (moved_n : Std.Usize) (row : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Slice Std.U16) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.Usize) × (alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize × Std.Usize) ((Slice Std.I64) ×
+    (Slice Std.U16) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.Usize) ×
+    (alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError) ×
+    Std.Usize))
   := do
   if row < rows
   then
@@ -79123,96 +82962,1321 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0.body
       let av ← lift (core.convert.num.FromI128I64.from a1)
       let aa ← av * av
       let two_a ← av * 2#i128
-      let i4 ← row * n
-      let i5 ← row + 1#usize
-      let i6 ← i5 * n
-      let (f_row, index_mut_back) ←
-        core.slice.index.Slice.index_mut
-          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) f_res
-          { start := i4, «end» := i6 }
-      let i7 ← i5 * n
-      let (s_row, index_mut_back1) ←
-        core.slice.index.Slice.index_mut
-          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) s_cur
-          { start := i4, «end» := i7 }
-      let f_m := Array.repeat 8#usize 0#i64
-      let (err1, f_m1) ←
-        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0 err b0 hb av f_row
-          s_row f_m 0#usize
-      let (err2, best) ←
-        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop1 s1 a err1 m aa
-          two_a f_m1 0#u16 core.num.I128.MAX 0#usize
-      let best1 ← lift (core.convert.num.FromUsizeU16.from best)
-      let diff := Array.repeat 8#usize 0#i64
-      let (err3, s_row1, diff1, changed) ←
-        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop2 a err2 b0 s_row
-          best1 diff false 0#usize
-      let b1 := core.option.Option.is_none err3
+      let qb ← m * fold_port.fit.icm.CODE_LEN
+      let db ← row * fold_port.fit.icm.CODE_LEN
+      let i4 ← qb + fold_port.fit.icm.CODE_LEN
+      let s1 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) s
+          { start := qb, «end» := i4 }
+      let i5 ← db + fold_port.fit.icm.CODE_LEN
+      let s2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) dots { start := db, «end» := i5 }
+      let r1 ← fold_port.fit.icm.best_code_q aa two_a s1 s2
+      let (err1, best) ←
+        match r1 with
+        | core.result.Result.Ok v => ok (err, v)
+        | core.result.Result.Err e => ok (some e, 0#usize)
+      let (s_cur1, d_blk1, err2, changed) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop3_loop0 a n s_cur d_blk
+          err1 b0 row best false 0#usize
+      let b1 := core.option.Option.is_none err2
       let idx1 ←
         if b1
         then
           do
-          let i8 ← row * nb
-          let i9 ← i8 + m
-          let i10 ← lift (UScalar.cast .U16 best1)
-          Slice.update idx i9 i10
+          let i6 ← row * nb
+          let i7 ← i6 + m
+          let i8 ← lift (UScalar.cast .U16 best)
+          Slice.update idx i7 i8
         else ok idx
-      if changed
-      then
-        let b2 := core.option.Option.is_none err3
-        if b2
+      let (moved_row1, moved_a1, moved_n1) ←
+        if changed
         then
-          let (err4, f_row1) ←
-            fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop3 s n err3 b0 av
-              f_row diff1 0#usize
-          let row1 ← row + 1#usize
-          let s_cur1 := index_mut_back1 s_row1
-          let f_res1 := index_mut_back f_row1
-          ok (cont (f_res1, s_cur1, idx1, err4, row1))
-        else
-          let row1 ← row + 1#usize
-          let s_cur1 := index_mut_back1 s_row1
-          let f_res1 := index_mut_back f_row
-          ok (cont (f_res1, s_cur1, idx1, err3, row1))
-      else
-        let row1 ← row + 1#usize
-        let s_cur1 := index_mut_back1 s_row1
-        let f_res1 := index_mut_back f_row
-        ok (cont (f_res1, s_cur1, idx1, err3, row1))
-    else ok (done (f_res, s_cur, idx, err))
-  else ok (done (f_res, s_cur, idx, err))
+          let b2 := core.option.Option.is_none err2
+          if b2
+          then
+            do
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.Usize) moved_row moved_n
+            let (_, index_mut_back1) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) moved_a moved_n
+            let moved_n2 ← moved_n + 1#usize
+            let moved_a2 := index_mut_back1 a1
+            let moved_row2 := index_mut_back row
+            ok (moved_row2, moved_a2, moved_n2)
+          else ok (moved_row, moved_a, moved_n)
+        else ok (moved_row, moved_a, moved_n)
+      let row1 ← row + 1#usize
+      ok (cont (s_cur1, idx1, d_blk1, moved_row1, moved_a1, err2, moved_n1,
+        row1))
+    else ok (done (s_cur, idx, d_blk, moved_row, moved_a, err, moved_n))
+  else ok (done (s_cur, idx, d_blk, moved_row, moved_a, err, moved_n))
 
-/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 2:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 910:12-1008:13 -/
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 8:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 982:24-1020:25 -/
 @[rust_loop]
-def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0
-  (s : Slice Std.I64) (s1 : Slice Std.I64)
-  (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize) (i : Std.Usize)
-  (f_res : Slice Std.I64) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop3
+  (s : Slice Std.I64) (a : Array (Array Std.I64 8#usize) 256#usize)
+  (n : Std.Usize) (i : Std.Usize) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
   (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize)
-  (err : Option fold_port.fit.icm.IcmError) (m : Std.Usize) (b0 : Std.Usize)
-  (hb : Array (Array Std.I64 8#usize) 8#usize) (row : Std.Usize) :
-  Result ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) × (Option
-    fold_port.fit.icm.IcmError))
+  (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (m : Std.Usize) (b0 : Std.Usize) (moved_n : Std.Usize)
+  (dots : alloc.vec.Vec Std.I64) (row : Std.Usize) :
+  Result ((Slice Std.I64) × (Slice Std.U16) × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.Usize) × (alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize)
   := do
   loop
-    (fun (f_res1, s_cur1, idx1, err1, row1) =>
-      fold_port.fit.icm.sweep_rows_loop0_loop0_loop0.body s s1 a n i r nb rows
-      m b0 hb f_res1 s_cur1 idx1 err1 row1)
-    (f_res, s_cur, idx, err, row)
+    (fun (s_cur1, idx1, d_blk1, moved_row1, moved_a1, err1, moved_n1, row1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop3.body s a n i r nb rows m
+      b0 dots s_cur1 idx1 d_blk1 moved_row1 moved_a1 err1 moved_n1 row1)
+    (s_cur, idx, d_blk, moved_row, moved_a, err, moved_n, row)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 11:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop4_loop0.body
+  (d_blk : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
+  (chg : alloc.vec.Vec Std.I64) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if k < fold_port.fit.icm.BLOCK
+  then
+    let i1 ← row * fold_port.fit.icm.BLOCK
+    let i2 ← i1 + k
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) d_blk
+        i2
+    let i4 ← i * fold_port.fit.icm.BLOCK
+    let i5 ← i4 + k
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        chg i5
+    let k1 ← k + 1#usize
+    let chg1 := index_mut_back i3
+    ok (cont (chg1, k1))
+  else ok (done chg)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 11:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop4_loop0
+  (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  (row : Std.Usize) (k : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (chg1, k1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop4_loop0.body d_blk i row
+      chg1 k1)
+    (chg, k)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 10:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop4.body
+  (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_n : Std.Usize) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < moved_n
+  then
+    let row ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        moved_row i
+    let chg1 ←
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop4_loop0 d_blk chg i row
+        0#usize
+    let i1 ← i + 1#usize
+    ok (cont (chg1, i1))
+  else ok (done chg)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 10:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop4
+  (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64)
+  (moved_row : alloc.vec.Vec Std.Usize) (moved_n : Std.Usize) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (chg1, i1) => fold_port.fit.icm.sweep_rows_loop0_loop0_loop4.body
+      d_blk moved_row moved_n chg1 i1)
+    (chg, i)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 13:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop5_loop0.body
+  (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
+  (a : Std.I64) (f_res : Slice Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (col : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)
+    × Std.Usize) ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)))
+  := do
+  if col < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + col
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) e
+          i2
+      let r ← fold_port.fit.icm.mul_q a i3
+      match r with
+      | core.result.Result.Ok w =>
+        let i4 ← row * n
+        let i5 ← i4 + col
+        let i6 ← Slice.index_usize f_res i5
+        let r1 ← fold_port.fit.icm.sub_q i6 w
+        match r1 with
+        | core.result.Result.Ok z =>
+          let i7 ← i4 + col
+          let s ← Slice.update f_res i7 z
+          let col1 ← col + 1#usize
+          ok (cont (s, err, col1))
+        | core.result.Result.Err e1 =>
+          let col1 ← col + 1#usize
+          ok (cont (f_res, some e1, col1))
+      | core.result.Result.Err e1 =>
+        let col1 ← col + 1#usize
+        ok (cont (f_res, some e1, col1))
+    else ok (done (f_res, err))
+  else ok (done (f_res, err))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 13:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop5_loop0
+  (n : Std.Usize) (f_res : Slice Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (e : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) (row : Std.Usize) (a : Std.I64) (col : Std.Usize) :
+  Result ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (f_res1, err1, col1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop5_loop0.body n e i row a
+      f_res1 err1 col1)
+    (f_res, err, col)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 12:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop5.body
+  (n : Std.Usize) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (moved_n : Std.Usize)
+  (e : alloc.vec.Vec Std.I64) (f_res : Slice Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)
+    × Std.Usize) ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)))
+  := do
+  if i < moved_n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let row ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+          moved_row i
+      let a ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          moved_a i
+      let (f_res1, err1) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop5_loop0 n f_res err e i
+          row a 0#usize
+      let i1 ← i + 1#usize
+      ok (cont (f_res1, err1, i1))
+    else ok (done (f_res, err))
+  else ok (done (f_res, err))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 12:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop5
+  (n : Std.Usize) (f_res : Slice Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (moved_n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (f_res1, err1, i1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop5.body n moved_row moved_a
+      moved_n e f_res1 err1 i1)
+    (f_res, err, i)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 15:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop6_loop0.body
+  (d_blk : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
+  (chg : alloc.vec.Vec Std.I64) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if k < fold_port.fit.icm.BLOCK
+  then
+    let i1 ← row * fold_port.fit.icm.BLOCK
+    let i2 ← i1 + k
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) d_blk
+        i2
+    let i4 ← i * fold_port.fit.icm.BLOCK
+    let i5 ← i4 + k
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        chg i5
+    let k1 ← k + 1#usize
+    let chg1 := index_mut_back i3
+    ok (cont (chg1, k1))
+  else ok (done chg)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 15:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop6_loop0
+  (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  (row : Std.Usize) (k : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (chg1, k1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop6_loop0.body d_blk i row
+      chg1 k1)
+    (chg, k)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 14:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop6.body
+  (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (chg : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < 0#usize
+  then
+    let row ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        moved_row i
+    let chg1 ←
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop6_loop0 d_blk chg i row
+        0#usize
+    let i1 ← i + 1#usize
+    ok (cont (chg1, i1))
+  else ok (done chg)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 14:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop6
+  (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64)
+  (moved_row : alloc.vec.Vec Std.Usize) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (chg1, i1) => fold_port.fit.icm.sweep_rows_loop0_loop0_loop6.body
+      d_blk moved_row chg1 i1)
+    (chg, i)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 17:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop7_loop0.body
+  (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
+  (a : Std.I64) (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (col : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × fold_port.fit.icm.IcmError ×
+    Std.Usize) ((Slice Std.I64) × fold_port.fit.icm.IcmError))
+  := do
+  if col < n
+  then
+    let b := core.option.Option.is_none (some ie)
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + col
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) e
+          i2
+      let r ← fold_port.fit.icm.mul_q a i3
+      match r with
+      | core.result.Result.Ok w =>
+        let i4 ← row * n
+        let i5 ← i4 + col
+        let i6 ← Slice.index_usize f_res i5
+        let r1 ← fold_port.fit.icm.sub_q i6 w
+        match r1 with
+        | core.result.Result.Ok z =>
+          let i7 ← i4 + col
+          let s ← Slice.update f_res i7 z
+          let col1 ← col + 1#usize
+          ok (cont (s, ie, col1))
+        | core.result.Result.Err e1 =>
+          let col1 ← col + 1#usize
+          ok (cont (f_res, e1, col1))
+      | core.result.Result.Err e1 =>
+        let col1 ← col + 1#usize
+        ok (cont (f_res, e1, col1))
+    else ok (done (f_res, ie))
+  else ok (done (f_res, ie))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 17:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop7_loop0
+  (n : Std.Usize) (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize) (a : Std.I64)
+  (col : Std.Usize) :
+  Result ((Slice Std.I64) × fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (f_res1, ie1, col1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop7_loop0.body n e i row a
+      f_res1 ie1 col1)
+    (f_res, ie, col)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 16:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop7.body
+  (n : Std.Usize) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (e : alloc.vec.Vec Std.I64)
+  (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × fold_port.fit.icm.IcmError ×
+    Std.Usize) ((Slice Std.I64) × fold_port.fit.icm.IcmError))
+  := do
+  if i < 0#usize
+  then
+    let b := core.option.Option.is_none (some ie)
+    if b
+    then
+      let row ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+          moved_row i
+      let a ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          moved_a i
+      let (f_res1, ie1) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop7_loop0 n f_res ie e i row
+          a 0#usize
+      let i1 ← i + 1#usize
+      ok (cont (f_res1, ie1, i1))
+    else ok (done (f_res, ie))
+  else ok (done (f_res, ie))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 16:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop7
+  (n : Std.Usize) (f_res : Slice Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (e : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result ((Slice Std.I64) × fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (f_res1, ie1, i1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop7.body n moved_row moved_a e
+      f_res1 ie1 i1)
+    (f_res, ie, i)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 19:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop8_loop0.body
+  (d_blk : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
+  (chg : alloc.vec.Vec Std.I64) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if k < fold_port.fit.icm.BLOCK
+  then
+    let i1 ← row * fold_port.fit.icm.BLOCK
+    let i2 ← i1 + k
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) d_blk
+        i2
+    let i4 ← i * fold_port.fit.icm.BLOCK
+    let i5 ← i4 + k
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        chg i5
+    let k1 ← k + 1#usize
+    let chg1 := index_mut_back i3
+    ok (cont (chg1, k1))
+  else ok (done chg)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 19:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop8_loop0
+  (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  (row : Std.Usize) (k : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (chg1, k1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop8_loop0.body d_blk i row
+      chg1 k1)
+    (chg, k)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 18:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop8.body
+  (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (chg : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < 0#usize
+  then
+    let row ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        moved_row i
+    let chg1 ←
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop8_loop0 d_blk chg i row
+        0#usize
+    let i1 ← i + 1#usize
+    ok (cont (chg1, i1))
+  else ok (done chg)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 18:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop8
+  (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64)
+  (moved_row : alloc.vec.Vec Std.Usize) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (chg1, i1) => fold_port.fit.icm.sweep_rows_loop0_loop0_loop8.body
+      d_blk moved_row chg1 i1)
+    (chg, i)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 21:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop9_loop0.body
+  (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
+  (a : Std.I64) (f_res : Slice Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (col : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)
+    × Std.Usize) ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)))
+  := do
+  if col < n
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + col
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) e
+          i2
+      let r ← fold_port.fit.icm.mul_q a i3
+      match r with
+      | core.result.Result.Ok w =>
+        let i4 ← row * n
+        let i5 ← i4 + col
+        let i6 ← Slice.index_usize f_res i5
+        let r1 ← fold_port.fit.icm.sub_q i6 w
+        match r1 with
+        | core.result.Result.Ok z =>
+          let i7 ← i4 + col
+          let s ← Slice.update f_res i7 z
+          let col1 ← col + 1#usize
+          ok (cont (s, err, col1))
+        | core.result.Result.Err e1 =>
+          let col1 ← col + 1#usize
+          ok (cont (f_res, some e1, col1))
+      | core.result.Result.Err e1 =>
+        let col1 ← col + 1#usize
+        ok (cont (f_res, some e1, col1))
+    else ok (done (f_res, err))
+  else ok (done (f_res, err))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 21:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop9_loop0
+  (n : Std.Usize) (f_res : Slice Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (e : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) (row : Std.Usize) (a : Std.I64) (col : Std.Usize) :
+  Result ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (f_res1, err1, col1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop9_loop0.body n e i row a
+      f_res1 err1 col1)
+    (f_res, err, col)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 20:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop9.body
+  (n : Std.Usize) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (e : alloc.vec.Vec Std.I64)
+  (f_res : Slice Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)
+    × Std.Usize) ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)))
+  := do
+  if i < 0#usize
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let row ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+          moved_row i
+      let a ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          moved_a i
+      let (f_res1, err1) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop9_loop0 n f_res err e i
+          row a 0#usize
+      let i1 ← i + 1#usize
+      ok (cont (f_res1, err1, i1))
+    else ok (done (f_res, err))
+  else ok (done (f_res, err))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 20:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop9
+  (n : Std.Usize) (f_res : Slice Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (e : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (f_res1, err1, i1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop9.body n moved_row moved_a e
+      f_res1 err1 i1)
+    (f_res, err, i)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 23:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1000:28-1010:29 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop10_loop0.body
+  (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize)
+  (b0 : Std.Usize) (row : Std.Usize) (best : Std.Usize) (s_cur : Slice Std.I64)
+  (d_blk : alloc.vec.Vec Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (changed : Bool) (k : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (alloc.vec.Vec Std.I64) ×
+    fold_port.fit.icm.IcmError × Bool × Std.Usize) ((Slice Std.I64) ×
+    (alloc.vec.Vec Std.I64) × fold_port.fit.icm.IcmError × Bool))
+  := do
+  if k < fold_port.fit.icm.BLOCK
+  then
+    let b := core.option.Option.is_none (some ie)
+    if b
+    then
+      let a1 ← Array.index_usize a best
+      let i ← Array.index_usize a1 k
+      let i1 ← row * n
+      let i2 ← i1 + b0
+      let i3 ← i2 + k
+      let i4 ← Slice.index_usize s_cur i3
+      let r ← fold_port.fit.icm.sub_q i i4
+      match r with
+      | core.result.Result.Ok v =>
+        let i5 ← row * fold_port.fit.icm.BLOCK
+        let i6 ← i5 + k
+        let (_, index_mut_back) ←
+          alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+            Std.I64) d_blk i6
+        let i7 ← Array.index_usize a1 k
+        let i8 ← i1 + b0
+        let i9 ← i8 + k
+        let s ← Slice.update s_cur i9 i7
+        let k1 ← k + 1#usize
+        let d_blk1 := index_mut_back v
+        ok (cont (s, d_blk1, ie, changed || (v != 0#i64), k1))
+      | core.result.Result.Err e =>
+        let k1 ← k + 1#usize
+        ok (cont (s_cur, d_blk, e, changed, k1))
+    else ok (done (s_cur, d_blk, ie, changed))
+  else ok (done (s_cur, d_blk, ie, changed))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 23:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1000:28-1010:29 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop10_loop0
+  (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize)
+  (s_cur : Slice Std.I64) (d_blk : alloc.vec.Vec Std.I64)
+  (ie : fold_port.fit.icm.IcmError) (b0 : Std.Usize) (row : Std.Usize)
+  (best : Std.Usize) (changed : Bool) (k : Std.Usize) :
+  Result ((Slice Std.I64) × (alloc.vec.Vec Std.I64) ×
+    fold_port.fit.icm.IcmError × Bool)
+  := do
+  loop
+    (fun (s_cur1, d_blk1, ie1, changed1, k1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop10_loop0.body a n b0 row
+      best s_cur1 d_blk1 ie1 changed1 k1)
+    (s_cur, d_blk, ie, changed, k)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 22:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 982:24-1020:25 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop10.body
+  (s : Slice Std.I64) (a : Array (Array Std.I64 8#usize) 256#usize)
+  (n : Std.Usize) (i : Std.Usize) (r : Slice Std.I64) (nb : Std.Usize)
+  (rows : Std.Usize) (m : Std.Usize) (b0 : Std.Usize)
+  (dots : alloc.vec.Vec Std.I64) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
+  (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (e : fold_port.fit.icm.IcmError)
+  (moved_n : Std.Usize) (row : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Slice Std.U16) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.Usize) × (alloc.vec.Vec Std.I64) ×
+    fold_port.fit.icm.IcmError × Std.Usize × Std.Usize) ((Slice Std.I64) ×
+    (Slice Std.U16) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.Usize) ×
+    (alloc.vec.Vec Std.I64) × fold_port.fit.icm.IcmError × Std.Usize))
+  := do
+  if row < rows
+  then
+    let b := core.option.Option.is_none (some e)
+    if b
+    then
+      let i1 ← row * i
+      let i2 ← b0 / fold_port.fit.icm.GROUP
+      let i3 ← i1 + i2
+      let a1 ← Slice.index_usize r i3
+      let av ← lift (core.convert.num.FromI128I64.from a1)
+      let aa ← av * av
+      let two_a ← av * 2#i128
+      let qb ← m * fold_port.fit.icm.CODE_LEN
+      let db ← row * fold_port.fit.icm.CODE_LEN
+      let i4 ← qb + fold_port.fit.icm.CODE_LEN
+      let s1 ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) s
+          { start := qb, «end» := i4 }
+      let i5 ← db + fold_port.fit.icm.CODE_LEN
+      let s2 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) dots { start := db, «end» := i5 }
+      let r1 ← fold_port.fit.icm.best_code_q aa two_a s1 s2
+      let (ie, best) ←
+        match r1 with
+        | core.result.Result.Ok v => ok (e, v)
+        | core.result.Result.Err e1 => ok (e1, 0#usize)
+      let (s_cur1, d_blk1, ie1, changed) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop10_loop0 a n s_cur d_blk
+          ie b0 row best false 0#usize
+      let b1 := core.option.Option.is_none (some ie1)
+      let idx1 ←
+        if b1
+        then
+          do
+          let i6 ← row * nb
+          let i7 ← i6 + m
+          let i8 ← lift (UScalar.cast .U16 best)
+          Slice.update idx i7 i8
+        else ok idx
+      let (moved_row1, moved_a1, moved_n1) ←
+        if changed
+        then
+          let b2 := core.option.Option.is_none (some ie1)
+          if b2
+          then
+            do
+            let (_, index_mut_back) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.Usize) moved_row moved_n
+            let (_, index_mut_back1) ←
+              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+                Std.I64) moved_a moved_n
+            let moved_n2 ← moved_n + 1#usize
+            let moved_a2 := index_mut_back1 a1
+            let moved_row2 := index_mut_back row
+            ok (moved_row2, moved_a2, moved_n2)
+          else ok (moved_row, moved_a, moved_n)
+        else ok (moved_row, moved_a, moved_n)
+      let row1 ← row + 1#usize
+      ok (cont (s_cur1, idx1, d_blk1, moved_row1, moved_a1, ie1, moved_n1,
+        row1))
+    else ok (done (s_cur, idx, d_blk, moved_row, moved_a, e, moved_n))
+  else ok (done (s_cur, idx, d_blk, moved_row, moved_a, e, moved_n))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 22:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 982:24-1020:25 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop10
+  (s : Slice Std.I64) (a : Array (Array Std.I64 8#usize) 256#usize)
+  (n : Std.Usize) (i : Std.Usize) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
+  (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize)
+  (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (e : fold_port.fit.icm.IcmError)
+  (m : Std.Usize) (b0 : Std.Usize) (moved_n : Std.Usize)
+  (dots : alloc.vec.Vec Std.I64) (row : Std.Usize) :
+  Result ((Slice Std.I64) × (Slice Std.U16) × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.Usize) × (alloc.vec.Vec Std.I64) ×
+    fold_port.fit.icm.IcmError × Std.Usize)
+  := do
+  loop
+    (fun (s_cur1, idx1, d_blk1, moved_row1, moved_a1, e1, moved_n1, row1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop10.body s a n i r nb rows m
+      b0 dots s_cur1 idx1 d_blk1 moved_row1 moved_a1 e1 moved_n1 row1)
+    (s_cur, idx, d_blk, moved_row, moved_a, e, moved_n, row)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 25:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop11_loop0.body
+  (d_blk : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
+  (chg : alloc.vec.Vec Std.I64) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if k < fold_port.fit.icm.BLOCK
+  then
+    let i1 ← row * fold_port.fit.icm.BLOCK
+    let i2 ← i1 + k
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) d_blk
+        i2
+    let i4 ← i * fold_port.fit.icm.BLOCK
+    let i5 ← i4 + k
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        chg i5
+    let k1 ← k + 1#usize
+    let chg1 := index_mut_back i3
+    ok (cont (chg1, k1))
+  else ok (done chg)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 25:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop11_loop0
+  (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  (row : Std.Usize) (k : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (chg1, k1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop11_loop0.body d_blk i row
+      chg1 k1)
+    (chg, k)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 24:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop11.body
+  (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_n : Std.Usize) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < moved_n
+  then
+    let row ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        moved_row i
+    let chg1 ←
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop11_loop0 d_blk chg i row
+        0#usize
+    let i1 ← i + 1#usize
+    ok (cont (chg1, i1))
+  else ok (done chg)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 24:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop11
+  (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64)
+  (moved_row : alloc.vec.Vec Std.Usize) (moved_n : Std.Usize) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (chg1, i1) => fold_port.fit.icm.sweep_rows_loop0_loop0_loop11.body
+      d_blk moved_row moved_n chg1 i1)
+    (chg, i)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 27:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop12_loop0.body
+  (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
+  (a : Std.I64) (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (col : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × fold_port.fit.icm.IcmError ×
+    Std.Usize) ((Slice Std.I64) × fold_port.fit.icm.IcmError))
+  := do
+  if col < n
+  then
+    let b := core.option.Option.is_none (some ie)
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + col
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) e
+          i2
+      let r ← fold_port.fit.icm.mul_q a i3
+      match r with
+      | core.result.Result.Ok w =>
+        let i4 ← row * n
+        let i5 ← i4 + col
+        let i6 ← Slice.index_usize f_res i5
+        let r1 ← fold_port.fit.icm.sub_q i6 w
+        match r1 with
+        | core.result.Result.Ok z =>
+          let i7 ← i4 + col
+          let s ← Slice.update f_res i7 z
+          let col1 ← col + 1#usize
+          ok (cont (s, ie, col1))
+        | core.result.Result.Err e1 =>
+          let col1 ← col + 1#usize
+          ok (cont (f_res, e1, col1))
+      | core.result.Result.Err e1 =>
+        let col1 ← col + 1#usize
+        ok (cont (f_res, e1, col1))
+    else ok (done (f_res, ie))
+  else ok (done (f_res, ie))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 27:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop12_loop0
+  (n : Std.Usize) (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize) (a : Std.I64)
+  (col : Std.Usize) :
+  Result ((Slice Std.I64) × fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (f_res1, ie1, col1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop12_loop0.body n e i row a
+      f_res1 ie1 col1)
+    (f_res, ie, col)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 26:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop12.body
+  (n : Std.Usize) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (moved_n : Std.Usize)
+  (e : alloc.vec.Vec Std.I64) (f_res : Slice Std.I64)
+  (ie : fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × fold_port.fit.icm.IcmError ×
+    Std.Usize) ((Slice Std.I64) × fold_port.fit.icm.IcmError))
+  := do
+  if i < moved_n
+  then
+    let b := core.option.Option.is_none (some ie)
+    if b
+    then
+      let row ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+          moved_row i
+      let a ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          moved_a i
+      let (f_res1, ie1) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop12_loop0 n f_res ie e i
+          row a 0#usize
+      let i1 ← i + 1#usize
+      ok (cont (f_res1, ie1, i1))
+    else ok (done (f_res, ie))
+  else ok (done (f_res, ie))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 26:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop12
+  (n : Std.Usize) (f_res : Slice Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (moved_n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result ((Slice Std.I64) × fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (f_res1, ie1, i1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop12.body n moved_row moved_a
+      moved_n e f_res1 ie1 i1)
+    (f_res, ie, i)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 29:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop13_loop0.body
+  (d_blk : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
+  (chg : alloc.vec.Vec Std.I64) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if k < fold_port.fit.icm.BLOCK
+  then
+    let i1 ← row * fold_port.fit.icm.BLOCK
+    let i2 ← i1 + k
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) d_blk
+        i2
+    let i4 ← i * fold_port.fit.icm.BLOCK
+    let i5 ← i4 + k
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        chg i5
+    let k1 ← k + 1#usize
+    let chg1 := index_mut_back i3
+    ok (cont (chg1, k1))
+  else ok (done chg)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 29:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop13_loop0
+  (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  (row : Std.Usize) (k : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (chg1, k1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop13_loop0.body d_blk i row
+      chg1 k1)
+    (chg, k)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 28:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop13.body
+  (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (chg : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < 0#usize
+  then
+    let row ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        moved_row i
+    let chg1 ←
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop13_loop0 d_blk chg i row
+        0#usize
+    let i1 ← i + 1#usize
+    ok (cont (chg1, i1))
+  else ok (done chg)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 28:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop13
+  (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64)
+  (moved_row : alloc.vec.Vec Std.Usize) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (chg1, i1) => fold_port.fit.icm.sweep_rows_loop0_loop0_loop13.body
+      d_blk moved_row chg1 i1)
+    (chg, i)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 31:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop14_loop0.body
+  (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
+  (a : Std.I64) (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (col : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × fold_port.fit.icm.IcmError ×
+    Std.Usize) ((Slice Std.I64) × fold_port.fit.icm.IcmError))
+  := do
+  if col < n
+  then
+    let b := core.option.Option.is_none (some ie)
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + col
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) e
+          i2
+      let r ← fold_port.fit.icm.mul_q a i3
+      match r with
+      | core.result.Result.Ok w =>
+        let i4 ← row * n
+        let i5 ← i4 + col
+        let i6 ← Slice.index_usize f_res i5
+        let r1 ← fold_port.fit.icm.sub_q i6 w
+        match r1 with
+        | core.result.Result.Ok z =>
+          let i7 ← i4 + col
+          let s ← Slice.update f_res i7 z
+          let col1 ← col + 1#usize
+          ok (cont (s, ie, col1))
+        | core.result.Result.Err e1 =>
+          let col1 ← col + 1#usize
+          ok (cont (f_res, e1, col1))
+      | core.result.Result.Err e1 =>
+        let col1 ← col + 1#usize
+        ok (cont (f_res, e1, col1))
+    else ok (done (f_res, ie))
+  else ok (done (f_res, ie))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 31:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop14_loop0
+  (n : Std.Usize) (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize) (a : Std.I64)
+  (col : Std.Usize) :
+  Result ((Slice Std.I64) × fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (f_res1, ie1, col1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop14_loop0.body n e i row a
+      f_res1 ie1 col1)
+    (f_res, ie, col)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 30:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop14.body
+  (n : Std.Usize) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (e : alloc.vec.Vec Std.I64)
+  (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × fold_port.fit.icm.IcmError ×
+    Std.Usize) ((Slice Std.I64) × fold_port.fit.icm.IcmError))
+  := do
+  if i < 0#usize
+  then
+    let b := core.option.Option.is_none (some ie)
+    if b
+    then
+      let row ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+          moved_row i
+      let a ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          moved_a i
+      let (f_res1, ie1) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop14_loop0 n f_res ie e i
+          row a 0#usize
+      let i1 ← i + 1#usize
+      ok (cont (f_res1, ie1, i1))
+    else ok (done (f_res, ie))
+  else ok (done (f_res, ie))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 30:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop14
+  (n : Std.Usize) (f_res : Slice Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (e : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result ((Slice Std.I64) × fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (f_res1, ie1, i1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop14.body n moved_row moved_a
+      e f_res1 ie1 i1)
+    (f_res, ie, i)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 33:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop15_loop0.body
+  (d_blk : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
+  (chg : alloc.vec.Vec Std.I64) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if k < fold_port.fit.icm.BLOCK
+  then
+    let i1 ← row * fold_port.fit.icm.BLOCK
+    let i2 ← i1 + k
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) d_blk
+        i2
+    let i4 ← i * fold_port.fit.icm.BLOCK
+    let i5 ← i4 + k
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        chg i5
+    let k1 ← k + 1#usize
+    let chg1 := index_mut_back i3
+    ok (cont (chg1, k1))
+  else ok (done chg)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 33:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop15_loop0
+  (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  (row : Std.Usize) (k : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (chg1, k1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop15_loop0.body d_blk i row
+      chg1 k1)
+    (chg, k)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 32:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop15.body
+  (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (chg : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if i < 0#usize
+  then
+    let row ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+        moved_row i
+    let chg1 ←
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop15_loop0 d_blk chg i row
+        0#usize
+    let i1 ← i + 1#usize
+    ok (cont (chg1, i1))
+  else ok (done chg)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 32:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop15
+  (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64)
+  (moved_row : alloc.vec.Vec Std.Usize) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (chg1, i1) => fold_port.fit.icm.sweep_rows_loop0_loop0_loop15.body
+      d_blk moved_row chg1 i1)
+    (chg, i)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 35:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop16_loop0.body
+  (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
+  (a : Std.I64) (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (col : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × fold_port.fit.icm.IcmError ×
+    Std.Usize) ((Slice Std.I64) × fold_port.fit.icm.IcmError))
+  := do
+  if col < n
+  then
+    let b := core.option.Option.is_none (some ie)
+    if b
+    then
+      let i1 ← i * n
+      let i2 ← i1 + col
+      let i3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) e
+          i2
+      let r ← fold_port.fit.icm.mul_q a i3
+      match r with
+      | core.result.Result.Ok w =>
+        let i4 ← row * n
+        let i5 ← i4 + col
+        let i6 ← Slice.index_usize f_res i5
+        let r1 ← fold_port.fit.icm.sub_q i6 w
+        match r1 with
+        | core.result.Result.Ok z =>
+          let i7 ← i4 + col
+          let s ← Slice.update f_res i7 z
+          let col1 ← col + 1#usize
+          ok (cont (s, ie, col1))
+        | core.result.Result.Err e1 =>
+          let col1 ← col + 1#usize
+          ok (cont (f_res, e1, col1))
+      | core.result.Result.Err e1 =>
+        let col1 ← col + 1#usize
+        ok (cont (f_res, e1, col1))
+    else ok (done (f_res, ie))
+  else ok (done (f_res, ie))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 35:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop16_loop0
+  (n : Std.Usize) (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize) (a : Std.I64)
+  (col : Std.Usize) :
+  Result ((Slice Std.I64) × fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (f_res1, ie1, col1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop16_loop0.body n e i row a
+      f_res1 ie1 col1)
+    (f_res, ie, col)
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 34:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+@[rust_loop_body]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop16.body
+  (n : Std.Usize) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (e : alloc.vec.Vec Std.I64)
+  (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × fold_port.fit.icm.IcmError ×
+    Std.Usize) ((Slice Std.I64) × fold_port.fit.icm.IcmError))
+  := do
+  if i < 0#usize
+  then
+    let b := core.option.Option.is_none (some ie)
+    if b
+    then
+      let row ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.Usize)
+          moved_row i
+      let a ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+          moved_a i
+      let (f_res1, ie1) ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop16_loop0 n f_res ie e i
+          row a 0#usize
+      let i1 ← i + 1#usize
+      ok (cont (f_res1, ie1, i1))
+    else ok (done (f_res, ie))
+  else ok (done (f_res, ie))
+
+/-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 34:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+@[rust_loop]
+def fold_port.fit.icm.sweep_rows_loop0_loop0_loop16
+  (n : Std.Usize) (f_res : Slice Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
+  (moved_a : alloc.vec.Vec Std.I64) (ie : fold_port.fit.icm.IcmError)
+  (e : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result ((Slice Std.I64) × fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (f_res1, ie1, i1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0_loop16.body n moved_row moved_a
+      e f_res1 ie1 i1)
+    (f_res, ie, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 902:8-1010:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 923:8-1060:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0.body
   (s : Slice Std.I64) (s1 : Slice Std.I64)
   (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize) (i : Std.Usize)
-  (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize) (sw : Std.Usize)
-  (f_res : Slice Std.I64) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
+  (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize)
+  (cbf : alloc.vec.Vec Std.I64) (sw : Std.Usize) (f_res : Slice Std.I64)
+  (s_cur : Slice Std.I64) (idx : Slice Std.U16) (s_blk : alloc.vec.Vec Std.I64)
+  (f_blk : alloc.vec.Vec Std.I64) (d_blk : alloc.vec.Vec Std.I64)
+  (chg : alloc.vec.Vec Std.I64) (cols : alloc.vec.Vec Std.I64)
+  (moved_row : alloc.vec.Vec Std.Usize) (moved_a : alloc.vec.Vec Std.I64)
   (err : Option fold_port.fit.icm.IcmError) (step : Std.Usize) :
   Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) ×
-    (Option fold_port.fit.icm.IcmError) × Std.Usize) ((Slice Std.I64) ×
-    (Slice Std.I64) × (Slice Std.U16) × (Option fold_port.fit.icm.IcmError)))
+    (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.Usize) × (alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((Slice Std.I64) × (Slice
+    Std.I64) × (Slice Std.U16) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.Usize) × (alloc.vec.Vec
+    Std.I64) × (Option fold_port.fit.icm.IcmError)))
   := do
   if step < nb
   then
@@ -79227,80 +84291,378 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0.body
              i2 - step
         else ok step
       let b0 ← m * fold_port.fit.icm.BLOCK
-      let hb ← fold_port.fit.icm.block_of_q s n m
-      let (f_res1, s_cur1, idx1, err1) ←
-        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0 s s1 a n i f_res s_cur
-          idx r nb rows err m b0 hb 0#usize
-      let step1 ← step + 1#usize
-      ok (cont (f_res1, s_cur1, idx1, err1, step1))
-    else ok (done (f_res, s_cur, idx, err))
-  else ok (done (f_res, s_cur, idx, err))
+      let cols1 ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop0 s n cols b0 0#usize
+      let s_blk1 ←
+        fold_port.fit.icm.sweep_rows_loop0_loop0_loop1 n s_cur rows s_blk b0
+          0#usize
+      let s2 := alloc.vec.Vec.deref s_blk1
+      let i2 ← b0 * fold_port.fit.icm.BLOCK
+      let i3 ← b0 + fold_port.fit.icm.BLOCK
+      let i4 ← i3 * fold_port.fit.icm.BLOCK
+      let s3 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) cols1 { start := i2, «end» := i4 }
+      let r1 ←
+        fold_port.fit.icm.nt_q s2 rows s3 fold_port.fit.icm.BLOCK
+          fold_port.fit.icm.BLOCK
+      match r1 with
+      | core.result.Result.Ok v =>
+        let (f_blk1, err1) ←
+          fold_port.fit.icm.sweep_rows_loop0_loop0_loop2 n i f_res r rows f_blk
+            err b0 v 0#usize
+        let b1 := core.option.Option.is_none err1
+        if b1
+        then
+          let s4 := alloc.vec.Vec.deref f_blk1
+          let s5 := alloc.vec.Vec.deref cbf
+          let r2 ←
+            fold_port.fit.icm.nt_q s4 rows s5 fold_port.fit.icm.CODE_LEN
+              fold_port.fit.icm.BLOCK
+          match r2 with
+          | core.result.Result.Ok dots =>
+            let (s_cur1, idx1, d_blk1, moved_row1, moved_a1, err2, moved_n) ←
+              fold_port.fit.icm.sweep_rows_loop0_loop0_loop3 s1 a n i s_cur idx
+                r nb rows d_blk moved_row moved_a err1 m b0 0#usize dots
+                0#usize
+            if moved_n > 0#usize
+            then
+              let b2 := core.option.Option.is_none err2
+              if b2
+              then
+                let chg1 ←
+                  fold_port.fit.icm.sweep_rows_loop0_loop0_loop4 d_blk1 chg
+                    moved_row1 moved_n 0#usize
+                let i5 ← moved_n * fold_port.fit.icm.BLOCK
+                let s6 ←
+                  alloc.vec.Vec.index
+                    (core.slice.index.SliceIndexRangeToUsizeSlice Std.I64) chg1
+                    { «end» := i5 }
+                let s7 := alloc.vec.Vec.deref cols1
+                let r3 ←
+                  fold_port.fit.icm.nt_q s6 moved_n s7 n
+                    fold_port.fit.icm.BLOCK
+                match r3 with
+                | core.result.Result.Ok e =>
+                  let (f_res1, err3) ←
+                    fold_port.fit.icm.sweep_rows_loop0_loop0_loop5 n f_res
+                      moved_row1 moved_a1 err2 moved_n e 0#usize
+                  let step1 ← step + 1#usize
+                  ok (cont (f_res1, s_cur1, idx1, s_blk1, f_blk1, d_blk1, chg1,
+                    cols1, moved_row1, moved_a1, err3, step1))
+                | core.result.Result.Err e =>
+                  let step1 ← step + 1#usize
+                  ok (cont (f_res, s_cur1, idx1, s_blk1, f_blk1, d_blk1, chg1,
+                    cols1, moved_row1, moved_a1, some e, step1))
+              else
+                let step1 ← step + 1#usize
+                ok (cont (f_res, s_cur1, idx1, s_blk1, f_blk1, d_blk1, chg,
+                  cols1, moved_row1, moved_a1, err2, step1))
+            else
+              let step1 ← step + 1#usize
+              ok (cont (f_res, s_cur1, idx1, s_blk1, f_blk1, d_blk1, chg,
+                cols1, moved_row1, moved_a1, err2, step1))
+          | core.result.Result.Err e =>
+            if 0#usize > 0#usize
+            then
+              let b2 := core.option.Option.is_none (some e)
+              if b2
+              then
+                let chg1 ←
+                  fold_port.fit.icm.sweep_rows_loop0_loop0_loop6 d_blk chg
+                    moved_row 0#usize
+                let i5 ← 0#usize * fold_port.fit.icm.BLOCK
+                let s6 ←
+                  alloc.vec.Vec.index
+                    (core.slice.index.SliceIndexRangeToUsizeSlice Std.I64) chg1
+                    { «end» := i5 }
+                let s7 := alloc.vec.Vec.deref cols1
+                let r3 ←
+                  fold_port.fit.icm.nt_q s6 0#usize s7 n
+                    fold_port.fit.icm.BLOCK
+                match r3 with
+                | core.result.Result.Ok e1 =>
+                  let (f_res1, ie) ←
+                    fold_port.fit.icm.sweep_rows_loop0_loop0_loop7 n f_res
+                      moved_row moved_a e e1 0#usize
+                  let step1 ← step + 1#usize
+                  ok (cont (f_res1, s_cur, idx, s_blk1, f_blk1, d_blk, chg1,
+                    cols1, moved_row, moved_a, some ie, step1))
+                | core.result.Result.Err e1 =>
+                  let step1 ← step + 1#usize
+                  ok (cont (f_res, s_cur, idx, s_blk1, f_blk1, d_blk, chg1,
+                    cols1, moved_row, moved_a, some e1, step1))
+              else
+                let step1 ← step + 1#usize
+                ok (cont (f_res, s_cur, idx, s_blk1, f_blk1, d_blk, chg, cols1,
+                  moved_row, moved_a, some e, step1))
+            else
+              let step1 ← step + 1#usize
+              ok (cont (f_res, s_cur, idx, s_blk1, f_blk1, d_blk, chg, cols1,
+                moved_row, moved_a, some e, step1))
+        else
+          if 0#usize > 0#usize
+          then
+            let b2 := core.option.Option.is_none err1
+            if b2
+            then
+              let chg1 ←
+                fold_port.fit.icm.sweep_rows_loop0_loop0_loop8 d_blk chg
+                  moved_row 0#usize
+              let i5 ← 0#usize * fold_port.fit.icm.BLOCK
+              let s4 ←
+                alloc.vec.Vec.index
+                  (core.slice.index.SliceIndexRangeToUsizeSlice Std.I64) chg1
+                  { «end» := i5 }
+              let s5 := alloc.vec.Vec.deref cols1
+              let r2 ←
+                fold_port.fit.icm.nt_q s4 0#usize s5 n fold_port.fit.icm.BLOCK
+              match r2 with
+              | core.result.Result.Ok e =>
+                let (f_res1, err2) ←
+                  fold_port.fit.icm.sweep_rows_loop0_loop0_loop9 n f_res
+                    moved_row moved_a err1 e 0#usize
+                let step1 ← step + 1#usize
+                ok (cont (f_res1, s_cur, idx, s_blk1, f_blk1, d_blk, chg1,
+                  cols1, moved_row, moved_a, err2, step1))
+              | core.result.Result.Err e =>
+                let step1 ← step + 1#usize
+                ok (cont (f_res, s_cur, idx, s_blk1, f_blk1, d_blk, chg1,
+                  cols1, moved_row, moved_a, some e, step1))
+            else
+              let step1 ← step + 1#usize
+              ok (cont (f_res, s_cur, idx, s_blk1, f_blk1, d_blk, chg, cols1,
+                moved_row, moved_a, err1, step1))
+          else
+            let step1 ← step + 1#usize
+            ok (cont (f_res, s_cur, idx, s_blk1, f_blk1, d_blk, chg, cols1,
+              moved_row, moved_a, err1, step1))
+      | core.result.Result.Err e =>
+        let b1 := core.option.Option.is_none (some e)
+        if b1
+        then
+          let s4 := alloc.vec.Vec.deref f_blk
+          let s5 := alloc.vec.Vec.deref cbf
+          let r2 ←
+            fold_port.fit.icm.nt_q s4 rows s5 fold_port.fit.icm.CODE_LEN
+              fold_port.fit.icm.BLOCK
+          match r2 with
+          | core.result.Result.Ok dots =>
+            let (s_cur1, idx1, d_blk1, moved_row1, moved_a1, ie, moved_n) ←
+              fold_port.fit.icm.sweep_rows_loop0_loop0_loop10 s1 a n i s_cur
+                idx r nb rows d_blk moved_row moved_a e m b0 0#usize dots
+                0#usize
+            if moved_n > 0#usize
+            then
+              let b2 := core.option.Option.is_none (some ie)
+              if b2
+              then
+                let chg1 ←
+                  fold_port.fit.icm.sweep_rows_loop0_loop0_loop11 d_blk1 chg
+                    moved_row1 moved_n 0#usize
+                let i5 ← moved_n * fold_port.fit.icm.BLOCK
+                let s6 ←
+                  alloc.vec.Vec.index
+                    (core.slice.index.SliceIndexRangeToUsizeSlice Std.I64) chg1
+                    { «end» := i5 }
+                let s7 := alloc.vec.Vec.deref cols1
+                let r3 ←
+                  fold_port.fit.icm.nt_q s6 moved_n s7 n
+                    fold_port.fit.icm.BLOCK
+                match r3 with
+                | core.result.Result.Ok e1 =>
+                  let (f_res1, ie1) ←
+                    fold_port.fit.icm.sweep_rows_loop0_loop0_loop12 n f_res
+                      moved_row1 moved_a1 ie moved_n e1 0#usize
+                  let step1 ← step + 1#usize
+                  ok (cont (f_res1, s_cur1, idx1, s_blk1, f_blk, d_blk1, chg1,
+                    cols1, moved_row1, moved_a1, some ie1, step1))
+                | core.result.Result.Err e1 =>
+                  let step1 ← step + 1#usize
+                  ok (cont (f_res, s_cur1, idx1, s_blk1, f_blk, d_blk1, chg1,
+                    cols1, moved_row1, moved_a1, some e1, step1))
+              else
+                let step1 ← step + 1#usize
+                ok (cont (f_res, s_cur1, idx1, s_blk1, f_blk, d_blk1, chg,
+                  cols1, moved_row1, moved_a1, some ie, step1))
+            else
+              let step1 ← step + 1#usize
+              ok (cont (f_res, s_cur1, idx1, s_blk1, f_blk, d_blk1, chg, cols1,
+                moved_row1, moved_a1, some ie, step1))
+          | core.result.Result.Err e1 =>
+            if 0#usize > 0#usize
+            then
+              let b2 := core.option.Option.is_none (some e1)
+              if b2
+              then
+                let chg1 ←
+                  fold_port.fit.icm.sweep_rows_loop0_loop0_loop13 d_blk chg
+                    moved_row 0#usize
+                let i5 ← 0#usize * fold_port.fit.icm.BLOCK
+                let s6 ←
+                  alloc.vec.Vec.index
+                    (core.slice.index.SliceIndexRangeToUsizeSlice Std.I64) chg1
+                    { «end» := i5 }
+                let s7 := alloc.vec.Vec.deref cols1
+                let r3 ←
+                  fold_port.fit.icm.nt_q s6 0#usize s7 n
+                    fold_port.fit.icm.BLOCK
+                match r3 with
+                | core.result.Result.Ok e2 =>
+                  let (f_res1, ie) ←
+                    fold_port.fit.icm.sweep_rows_loop0_loop0_loop14 n f_res
+                      moved_row moved_a e1 e2 0#usize
+                  let step1 ← step + 1#usize
+                  ok (cont (f_res1, s_cur, idx, s_blk1, f_blk, d_blk, chg1,
+                    cols1, moved_row, moved_a, some ie, step1))
+                | core.result.Result.Err e2 =>
+                  let step1 ← step + 1#usize
+                  ok (cont (f_res, s_cur, idx, s_blk1, f_blk, d_blk, chg1,
+                    cols1, moved_row, moved_a, some e2, step1))
+              else
+                let step1 ← step + 1#usize
+                ok (cont (f_res, s_cur, idx, s_blk1, f_blk, d_blk, chg, cols1,
+                  moved_row, moved_a, some e1, step1))
+            else
+              let step1 ← step + 1#usize
+              ok (cont (f_res, s_cur, idx, s_blk1, f_blk, d_blk, chg, cols1,
+                moved_row, moved_a, some e1, step1))
+        else
+          if 0#usize > 0#usize
+          then
+            let b2 := core.option.Option.is_none (some e)
+            if b2
+            then
+              let chg1 ←
+                fold_port.fit.icm.sweep_rows_loop0_loop0_loop15 d_blk chg
+                  moved_row 0#usize
+              let i5 ← 0#usize * fold_port.fit.icm.BLOCK
+              let s4 ←
+                alloc.vec.Vec.index
+                  (core.slice.index.SliceIndexRangeToUsizeSlice Std.I64) chg1
+                  { «end» := i5 }
+              let s5 := alloc.vec.Vec.deref cols1
+              let r2 ←
+                fold_port.fit.icm.nt_q s4 0#usize s5 n fold_port.fit.icm.BLOCK
+              match r2 with
+              | core.result.Result.Ok e1 =>
+                let (f_res1, ie) ←
+                  fold_port.fit.icm.sweep_rows_loop0_loop0_loop16 n f_res
+                    moved_row moved_a e e1 0#usize
+                let step1 ← step + 1#usize
+                ok (cont (f_res1, s_cur, idx, s_blk1, f_blk, d_blk, chg1,
+                  cols1, moved_row, moved_a, some ie, step1))
+              | core.result.Result.Err e1 =>
+                let step1 ← step + 1#usize
+                ok (cont (f_res, s_cur, idx, s_blk1, f_blk, d_blk, chg1, cols1,
+                  moved_row, moved_a, some e1, step1))
+            else
+              let step1 ← step + 1#usize
+              ok (cont (f_res, s_cur, idx, s_blk1, f_blk, d_blk, chg, cols1,
+                moved_row, moved_a, some e, step1))
+          else
+            let step1 ← step + 1#usize
+            ok (cont (f_res, s_cur, idx, s_blk1, f_blk, d_blk, chg, cols1,
+              moved_row, moved_a, some e, step1))
+    else
+      ok (done (f_res, s_cur, idx, s_blk, f_blk, d_blk, chg, cols, moved_row,
+        moved_a, err))
+  else
+    ok (done (f_res, s_cur, idx, s_blk, f_blk, d_blk, chg, cols, moved_row,
+      moved_a, err))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 902:8-1010:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 923:8-1060:9 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0
   (s : Slice Std.I64) (s1 : Slice Std.I64)
   (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize) (i : Std.Usize)
   (f_res : Slice Std.I64) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
   (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize)
+  (cbf : alloc.vec.Vec Std.I64) (s_blk : alloc.vec.Vec Std.I64)
+  (f_blk : alloc.vec.Vec Std.I64) (d_blk : alloc.vec.Vec Std.I64)
+  (chg : alloc.vec.Vec Std.I64) (cols : alloc.vec.Vec Std.I64)
+  (moved_row : alloc.vec.Vec Std.Usize) (moved_a : alloc.vec.Vec Std.I64)
   (err : Option fold_port.fit.icm.IcmError) (sw : Std.Usize) (step : Std.Usize)
   :
-  Result ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) × (Option
+  Result ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) ×
+    (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.Usize) × (alloc.vec.Vec Std.I64) × (Option
     fold_port.fit.icm.IcmError))
   := do
   loop
-    (fun (f_res1, s_cur1, idx1, err1, step1) =>
-      fold_port.fit.icm.sweep_rows_loop0_loop0.body s s1 a n i r nb rows sw
-      f_res1 s_cur1 idx1 err1 step1)
-    (f_res, s_cur, idx, err, step)
+    (fun (f_res1, s_cur1, idx1, s_blk1, f_blk1, d_blk1, chg1, cols1,
+      moved_row1, moved_a1, err1, step1) =>
+      fold_port.fit.icm.sweep_rows_loop0_loop0.body s s1 a n i r nb rows cbf sw
+      f_res1 s_cur1 idx1 s_blk1 f_blk1 d_blk1 chg1 cols1 moved_row1 moved_a1
+      err1 step1)
+    (f_res, s_cur, idx, s_blk, f_blk, d_blk, chg, cols, moved_row, moved_a,
+      err, step)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 900:4-1012:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 921:4-1062:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0.body
   (s : Slice Std.I64) (s1 : Slice Std.I64)
   (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize) (i : Std.Usize)
   (i1 : Std.Usize) (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize)
-  (f_res : Slice Std.I64) (s_cur : Slice Std.I64) (idx : Slice Std.U16)
+  (cbf : alloc.vec.Vec Std.I64) (f_res : Slice Std.I64) (s_cur : Slice Std.I64)
+  (idx : Slice Std.U16) (s_blk : alloc.vec.Vec Std.I64)
+  (f_blk : alloc.vec.Vec Std.I64) (d_blk : alloc.vec.Vec Std.I64)
+  (chg : alloc.vec.Vec Std.I64) (cols : alloc.vec.Vec Std.I64)
+  (moved_row : alloc.vec.Vec Std.Usize) (moved_a : alloc.vec.Vec Std.I64)
   (err : Option fold_port.fit.icm.IcmError) (sw : Std.Usize) :
   Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) ×
-    (Option fold_port.fit.icm.IcmError) × Std.Usize) ((Slice Std.I64) ×
-    (Slice Std.I64) × (Slice Std.U16) × (Option fold_port.fit.icm.IcmError)))
+    (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.Usize) × (alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((Slice Std.I64) × (Slice
+    Std.I64) × (Slice Std.U16) × (Option fold_port.fit.icm.IcmError)))
   := do
   if sw < i1
   then
     let b := core.option.Option.is_none err
     if b
     then
-      let (f_res1, s_cur1, idx1, err1) ←
+      let (f_res1, s_cur1, idx1, s_blk1, f_blk1, d_blk1, chg1, cols1,
+        moved_row1, moved_a1, err1) ←
         fold_port.fit.icm.sweep_rows_loop0_loop0 s s1 a n i f_res s_cur idx r
-          nb rows err sw 0#usize
+          nb rows cbf s_blk f_blk d_blk chg cols moved_row moved_a err sw
+          0#usize
       let sw1 ← sw + 1#usize
-      ok (cont (f_res1, s_cur1, idx1, err1, sw1))
+      ok (cont (f_res1, s_cur1, idx1, s_blk1, f_blk1, d_blk1, chg1, cols1,
+        moved_row1, moved_a1, err1, sw1))
     else ok (done (f_res, s_cur, idx, err))
   else ok (done (f_res, s_cur, idx, err))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 900:4-1012:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 921:4-1062:5 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0
   (s : Slice Std.I64) (s1 : Slice Std.I64)
   (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize) (i : Std.Usize)
   (i1 : Std.Usize) (f_res : Slice Std.I64) (s_cur : Slice Std.I64)
   (idx : Slice Std.U16) (r : Slice Std.I64) (nb : Std.Usize) (rows : Std.Usize)
+  (cbf : alloc.vec.Vec Std.I64) (s_blk : alloc.vec.Vec Std.I64)
+  (f_blk : alloc.vec.Vec Std.I64) (d_blk : alloc.vec.Vec Std.I64)
+  (chg : alloc.vec.Vec Std.I64) (cols : alloc.vec.Vec Std.I64)
+  (moved_row : alloc.vec.Vec Std.Usize) (moved_a : alloc.vec.Vec Std.I64)
   (err : Option fold_port.fit.icm.IcmError) (sw : Std.Usize) :
   Result ((Slice Std.I64) × (Slice Std.I64) × (Slice Std.U16) × (Option
     fold_port.fit.icm.IcmError))
   := do
   loop
-    (fun (f_res1, s_cur1, idx1, err1, sw1) =>
-      fold_port.fit.icm.sweep_rows_loop0.body s s1 a n i i1 r nb rows f_res1
-      s_cur1 idx1 err1 sw1)
-    (f_res, s_cur, idx, err, sw)
+    (fun (f_res1, s_cur1, idx1, s_blk1, f_blk1, d_blk1, chg1, cols1,
+      moved_row1, moved_a1, err1, sw1) =>
+      fold_port.fit.icm.sweep_rows_loop0.body s s1 a n i i1 r nb rows cbf
+      f_res1 s_cur1 idx1 s_blk1 f_blk1 d_blk1 chg1 cols1 moved_row1 moved_a1
+      err1 sw1)
+    (f_res, s_cur, idx, s_blk, f_blk, d_blk, chg, cols, moved_row, moved_a,
+      err, sw)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 889:0-1017:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 902:0-1067:1 -/
 def fold_port.fit.icm.sweep_rows
   (cx : fold_port.fit.icm.SweepCtx) (f_res : Slice Std.I64)
   (s_cur : Slice Std.I64) (idx : Slice Std.U16) (r : Slice Std.I64) :
@@ -79310,114 +84672,160 @@ def fold_port.fit.icm.sweep_rows
   let nb ← cx.n / fold_port.fit.icm.BLOCK
   let i := Slice.len r
   let rows ← i / cx.g
+  let cbf ← fold_port.fit.icm.flatten_codebook_q cx.cb
+  let i1 ← rows * fold_port.fit.icm.BLOCK
+  let s_blk ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
+  let f_blk ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
+  let d_blk ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
+  let chg ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
+  let i2 ← fold_port.fit.icm.BLOCK * cx.n
+  let cols ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i2
+  let moved_row ← alloc.vec.from_elem core.clone.CloneUsize 0#usize rows
+  let moved_a ← alloc.vec.from_elem core.clone.CloneI64 0#i64 rows
   let (f_res1, s_cur1, idx1, err) ←
     fold_port.fit.icm.sweep_rows_loop0 cx.h_rot cx.q_all cx.cb cx.n cx.g
-      cx.sweeps f_res s_cur idx r nb rows none 0#usize
+      cx.sweeps f_res s_cur idx r nb rows cbf s_blk f_blk d_blk chg cols
+      moved_row moved_a none 0#usize
   match err with
   | none => ok (core.result.Result.Ok (), f_res1, s_cur1, idx1)
   | some e => ok (core.result.Result.Err e, f_res1, s_cur1, idx1)
 
-/-- [apeiron_word::fold_port::fit::icm::SweepTask]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 869:0-873:1 -/
-structure fold_port.fit.icm.SweepTask where
-  cx : fold_port.fit.icm.SweepCtx
-  r : Slice Std.I64
-  per : Std.Usize
-
-/-- [apeiron_word::fold_port::fit::icm::{impl apeiron_word::chart::task::Task3<i64, i64, u16, apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::SweepTask<'_0>}::run]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 876:4-880:5 -/
-def
-  fold_port.fit.icm.SweepTask.Insts.Apeiron_wordChartTaskTask3I64I64U16IcmError.run
-  (self : fold_port.fit.icm.SweepTask) (t : Std.Usize) (f : Slice Std.I64)
-  (sc : Slice Std.I64) (ix : Slice Std.U16) :
-  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
-    Std.I64) × (Slice Std.I64) × (Slice Std.U16))
+/-- [apeiron_word::fold_port::fit::icm::block_x]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 793:8-796:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.block_x_loop0_loop0.body
+  (hb : Array (Array Std.I64 8#usize) 8#usize) (a : Std.Usize)
+  (hbf : alloc.vec.Vec Std.I64) (b : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
   := do
-  let lo ← t * self.per
-  let i := Slice.len f
-  let i1 ← i / self.cx.n
-  let i2 ← lo + i1
-  let hi ← i2 * self.cx.g
-  let i3 ← lo * self.cx.g
-  let s ←
-    core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
-      Std.I64) self.r { start := i3, «end» := hi }
-  fold_port.fit.icm.sweep_rows self.cx f sc ix s
+  if b < fold_port.fit.icm.BLOCK
+  then
+    let a1 ← Array.index_usize hb a
+    let i ← Array.index_usize a1 b
+    let i1 ← a * fold_port.fit.icm.BLOCK
+    let i2 ← i1 + b
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        hbf i2
+    let b1 ← b + 1#usize
+    let hbf1 := index_mut_back i
+    ok (cont (hbf1, b1))
+  else ok (done hbf)
 
-/-- Trait implementation: [apeiron_word::fold_port::fit::icm::{impl apeiron_word::chart::task::Task3<i64, i64, u16, apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::SweepTask<'_0>}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 875:0-881:1 -/
-@[reducible]
-def
-  fold_port.fit.icm.SweepTask.Insts.Apeiron_wordChartTaskTask3I64I64U16IcmError
-  : chart.task.Task3 fold_port.fit.icm.SweepTask Std.I64 Std.I64 Std.U16
-  fold_port.fit.icm.IcmError := {
-  run :=
-    fold_port.fit.icm.SweepTask.Insts.Apeiron_wordChartTaskTask3I64I64U16IcmError.run
-}
+/-- [apeiron_word::fold_port::fit::icm::block_x]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 793:8-796:9 -/
+@[rust_loop]
+def fold_port.fit.icm.block_x_loop0_loop0
+  (hb : Array (Array Std.I64 8#usize) 8#usize) (hbf : alloc.vec.Vec Std.I64)
+  (a : Std.Usize) (b : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (hbf1, b1) => fold_port.fit.icm.block_x_loop0_loop0.body hb a hbf1 b1)
+    (hbf, b)
+
+/-- [apeiron_word::fold_port::fit::icm::block_x]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 791:4-798:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.block_x_loop0.body
+  (hb : Array (Array Std.I64 8#usize) 8#usize) (hbf : alloc.vec.Vec Std.I64)
+  (a : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if a < fold_port.fit.icm.BLOCK
+  then
+    let hbf1 ← fold_port.fit.icm.block_x_loop0_loop0 hb hbf a 0#usize
+    let a1 ← a + 1#usize
+    ok (cont (hbf1, a1))
+  else ok (done hbf)
+
+/-- [apeiron_word::fold_port::fit::icm::block_x]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 791:4-798:5 -/
+@[rust_loop]
+def fold_port.fit.icm.block_x_loop0
+  (hb : Array (Array Std.I64 8#usize) 8#usize) (hbf : alloc.vec.Vec Std.I64)
+  (a : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (hbf1, a1) => fold_port.fit.icm.block_x_loop0.body hb hbf1 a1)
+    (hbf, a)
+
+/-- [apeiron_word::fold_port::fit::icm::block_x]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 788:0-802:1 -/
+def fold_port.fit.icm.block_x
+  (hb : Array (Array Std.I64 8#usize) 8#usize) (cbf : Slice Std.I64) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64)
+    fold_port.fit.icm.IcmError)
+  := do
+  let i ← fold_port.fit.icm.BLOCK * fold_port.fit.icm.BLOCK
+  let hbf ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
+  let hbf1 ← fold_port.fit.icm.block_x_loop0 hb hbf 0#usize
+  let s := alloc.vec.Vec.deref hbf1
+  let hbt ←
+    fold_port.fit.icm.transpose_q s fold_port.fit.icm.BLOCK
+      fold_port.fit.icm.BLOCK
+  let s1 := alloc.vec.Vec.deref hbt
+  let r ←
+    fold_port.fit.icm.nt_q cbf fold_port.fit.icm.CODE_LEN s1
+      fold_port.fit.icm.BLOCK fold_port.fit.icm.BLOCK
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let s2 := alloc.vec.Vec.deref val
+    fold_port.fit.icm.nt_q s2 fold_port.fit.icm.CODE_LEN cbf
+      fold_port.fit.icm.CODE_LEN fold_port.fit.icm.BLOCK
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame
+      fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::block_quads_q]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 795:8-807:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 820:16-823:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.block_quads_q_loop0_loop0.body
-  (cb : Array (Array Std.I64 8#usize) 256#usize) (m : Std.Usize)
-  (hb : Array (Array Std.I64 8#usize) 8#usize) (out : alloc.vec.Vec Std.I64)
-  (err : Option fold_port.fit.icm.IcmError) (j : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
-    fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
-    (Option fold_port.fit.icm.IcmError)))
+  (m : Std.Usize) (x : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64)
+  (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
   := do
   if j < fold_port.fit.icm.CODE_LEN
   then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let a ← Array.index_usize cb j
-      let r ← fold_port.fit.icm.mat_blk_row a hb
-      let (out1, err1) ←
-        match r with
-        | core.result.Result.Ok t =>
-          do
-          let r1 ← fold_port.fit.icm.row_dot t a
-          match r1 with
-          | core.result.Result.Ok d =>
-            let r2 ← fold_port.fit.icm.round_shift d 64#u32
-            match r2 with
-            | core.result.Result.Ok v =>
-              let i ← m * fold_port.fit.icm.CODE_LEN
-              let i1 ← i + j
-              let (_, index_mut_back) ←
-                alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-                  Std.I64) out i1
-              let out2 := index_mut_back v
-              ok (out2, err)
-            | core.result.Result.Err e => ok (out, some e)
-          | core.result.Result.Err e => ok (out, some e)
-        | core.result.Result.Err e => ok (out, some e)
-      let j1 ← j + 1#usize
-      ok (cont (out1, err1, j1))
-    else ok (done (out, err))
-  else ok (done (out, err))
+    let i ← j * fold_port.fit.icm.CODE_LEN
+    let i1 ← i + j
+    let i2 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) x i1
+    let i3 ← m * fold_port.fit.icm.CODE_LEN
+    let i4 ← i3 + j
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        out i4
+    let j1 ← j + 1#usize
+    let out1 := index_mut_back i2
+    ok (cont (out1, j1))
+  else ok (done out)
 
 /-- [apeiron_word::fold_port::fit::icm::block_quads_q]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 795:8-807:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 820:16-823:17 -/
 @[rust_loop]
 def fold_port.fit.icm.block_quads_q_loop0_loop0
-  (cb : Array (Array Std.I64 8#usize) 256#usize) (out : alloc.vec.Vec Std.I64)
-  (err : Option fold_port.fit.icm.IcmError) (m : Std.Usize)
-  (hb : Array (Array Std.I64 8#usize) 8#usize) (j : Std.Usize) :
-  Result ((alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError))
+  (out : alloc.vec.Vec Std.I64) (m : Std.Usize) (x : alloc.vec.Vec Std.I64)
+  (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
   := do
   loop
-    (fun (out1, err1, j1) => fold_port.fit.icm.block_quads_q_loop0_loop0.body
-      cb m hb out1 err1 j1)
-    (out, err, j)
+    (fun (out1, j1) => fold_port.fit.icm.block_quads_q_loop0_loop0.body m x
+      out1 j1)
+    (out, j)
 
 /-- [apeiron_word::fold_port::fit::icm::block_quads_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 792:4-809:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 815:4-828:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.block_quads_q_loop0.body
-  (h : Slice Std.I64) (cb : Array (Array Std.I64 8#usize) 256#usize)
-  (nb : Std.Usize) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (h : Slice Std.I64) (nb : Std.Usize) (n : Std.Usize)
+  (cbf : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64)
   (err : Option fold_port.fit.icm.IcmError) (m : Std.Usize) :
   Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
     fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
@@ -79429,45 +84837,135 @@ def fold_port.fit.icm.block_quads_q_loop0.body
     if b
     then
       let hb ← fold_port.fit.icm.block_of_q h n m
-      let (out1, err1) ←
-        fold_port.fit.icm.block_quads_q_loop0_loop0 cb out err m hb 0#usize
-      let m1 ← m + 1#usize
-      ok (cont (out1, err1, m1))
+      let s := alloc.vec.Vec.deref cbf
+      let r ← fold_port.fit.icm.block_x hb s
+      match r with
+      | core.result.Result.Ok x =>
+        let out1 ←
+          fold_port.fit.icm.block_quads_q_loop0_loop0 out m x 0#usize
+        let m1 ← m + 1#usize
+        ok (cont (out1, err, m1))
+      | core.result.Result.Err e =>
+        let m1 ← m + 1#usize
+        ok (cont (out, some e, m1))
     else ok (done (out, err))
   else ok (done (out, err))
 
 /-- [apeiron_word::fold_port::fit::icm::block_quads_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 792:4-809:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 815:4-828:5 -/
 @[rust_loop]
 def fold_port.fit.icm.block_quads_q_loop0
-  (h : Slice Std.I64) (cb : Array (Array Std.I64 8#usize) 256#usize)
-  (nb : Std.Usize) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
+  (h : Slice Std.I64) (nb : Std.Usize) (n : Std.Usize)
+  (cbf : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64)
   (err : Option fold_port.fit.icm.IcmError) (m : Std.Usize) :
   Result ((alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError))
   := do
   loop
-    (fun (out1, err1, m1) => fold_port.fit.icm.block_quads_q_loop0.body h cb nb
-      n out1 err1 m1)
+    (fun (out1, err1, m1) => fold_port.fit.icm.block_quads_q_loop0.body h nb n
+      cbf out1 err1 m1)
     (out, err, m)
 
 /-- [apeiron_word::fold_port::fit::icm::block_quads_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 783:0-814:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 805:0-833:1 -/
 def fold_port.fit.icm.block_quads_q
   (h : Slice Std.I64) (cb : Array (Array Std.I64 8#usize) 256#usize)
   (nb : Std.Usize) (n : Std.Usize) :
   Result (core.result.Result (alloc.vec.Vec Std.I64)
     fold_port.fit.icm.IcmError)
   := do
+  let cbf ← fold_port.fit.icm.flatten_codebook_q cb
   let i ← nb * fold_port.fit.icm.CODE_LEN
   let out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
   let (out1, err) ←
-    fold_port.fit.icm.block_quads_q_loop0 h cb nb n out none 0#usize
+    fold_port.fit.icm.block_quads_q_loop0 h nb n cbf out none 0#usize
   match err with
   | none => ok (core.result.Result.Ok out1)
   | some e => ok (core.result.Result.Err e)
 
+/-- [apeiron_word::fold_port::fit::icm::e8_icm_step]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 770:4-782:1
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.fit.icm.e8_icm_step_loop.body
+  (s : Slice Std.I64) (s1 : Slice Std.U16) (s2 : Slice Std.I64)
+  (s3 : Slice Std.I64) (s4 : Slice Std.I64) (o : Std.Usize) (n : Std.Usize)
+  (sweeps : Std.Usize) (g : Std.Usize) (nb : Std.Usize)
+  (cb : Array (Array Std.I64 8#usize) 256#usize) (s5 : Slice Std.I64)
+  (s6 : Slice Std.I64) (per : Std.Usize) (f_res : alloc.vec.Vec Std.I64)
+  (s_cur : alloc.vec.Vec Std.I64) (idx_cur : alloc.vec.Vec Std.U16)
+  (row0 : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.U16) × Std.Usize) (core.result.Result
+    fold_port.fit.icm.Plane fold_port.fit.icm.IcmError))
+  := do
+  if row0 < o
+  then
+    let i ← o - row0
+    let take ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize per i
+    let i1 ← row0 * n
+    let i2 ← row0 + take
+    let i3 ← i2 * n
+    let (s7, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.I64) f_res { start := i1, «end» := i3 }
+    let (s8, index_mut_back1) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeFromUsizeSlice
+        Std.I64) s_cur { start := i1 }
+    let i4 ← row0 * nb
+    let (s9, index_mut_back2) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeFromUsizeSlice
+        Std.U16) idx_cur { start := i4 }
+    let i5 ← row0 * g
+    let i6 ← i2 * g
+    let s10 ←
+      core.slice.index.Slice.index (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.I64) s2 { start := i5, «end» := i6 }
+    let (r, s11, s12, s13) ←
+      fold_port.fit.icm.sweep_rows
+        { h_rot := s5, q_all := s6, cb, n, g, sweeps } s7 s8 s9 s10
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let idx_cur1 := index_mut_back2 s13
+      let s_cur1 := index_mut_back1 s12
+      let f_res1 := index_mut_back s11
+      ok (cont (f_res1, s_cur1, idx_cur1, i2))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          fold_port.fit.icm.Plane (core.convert.FromSame
+          fold_port.fit.icm.IcmError) residual
+      ok (done r1)
+  else
+    let s7 := alloc.vec.Vec.deref s_cur
+    let p ←
+      fold_port.fit.icm.into_plane s7 idx_cur
+        { s, idx := s1, r := s2, c := s3, d := s4 }
+    ok (done (core.result.Result.Ok p))
+
+/-- [apeiron_word::fold_port::fit::icm::e8_icm_step]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 770:4-782:1
+    Visibility: public -/
+@[rust_loop]
+def fold_port.fit.icm.e8_icm_step_loop
+  (s : Slice Std.I64) (s1 : Slice Std.U16) (s2 : Slice Std.I64)
+  (s3 : Slice Std.I64) (s4 : Slice Std.I64) (o : Std.Usize) (n : Std.Usize)
+  (sweeps : Std.Usize) (g : Std.Usize) (nb : Std.Usize)
+  (cb : Array (Array Std.I64 8#usize) 256#usize)
+  (f_res : alloc.vec.Vec Std.I64) (s_cur : alloc.vec.Vec Std.I64)
+  (idx_cur : alloc.vec.Vec Std.U16) (s5 : Slice Std.I64) (s6 : Slice Std.I64)
+  (per : Std.Usize) (row0 : Std.Usize) :
+  Result (core.result.Result fold_port.fit.icm.Plane
+    fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (f_res1, s_cur1, idx_cur1, row01) =>
+      fold_port.fit.icm.e8_icm_step_loop.body s s1 s2 s3 s4 o n sweeps g nb cb
+      s5 s6 per f_res1 s_cur1 idx_cur1 row01)
+    (f_res, s_cur, idx_cur, row0)
+
 /-- [apeiron_word::fold_port::fit::icm::e8_icm_step]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 727:0-780:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 728:0-782:1
     Visibility: public -/
 def fold_port.fit.icm.e8_icm_step
   (ws : Slice Std.I64) (hl : Slice Std.I64) (p : fold_port.fit.icm.PlaneRef)
@@ -79491,7 +84989,7 @@ def fold_port.fit.icm.e8_icm_step
         let nb ← n / fold_port.fit.icm.BLOCK
         let cb ← fold_port.fit.icm.codebook_q
         let s := alloc.vec.Vec.deref val
-        let r3 ← fold_port.fit.icm.matmul_q ws s o n n false
+        let r3 ← fold_port.fit.icm.matmul_l ws s o n n false
         let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
         match cf3 with
         | core.ops.control_flow.ControlFlow.Continue val1 =>
@@ -79537,7 +85035,7 @@ def fold_port.fit.icm.e8_icm_step
                     let b1 := deref_mut_back3 s9
                     let s11 := alloc.vec.Vec.deref b1
                     let s12 := alloc.vec.Vec.deref val4
-                    let r9 ← fold_port.fit.icm.matmul_q s11 s12 o n n false
+                    let r9 ← fold_port.fit.icm.matmul_l s11 s12 o n n false
                     let cf9 ← core.result.Result.Insts.CoreOpsTry.branch r9
                     match cf9 with
                     | core.ops.control_flow.ControlFlow.Continue val6 =>
@@ -79559,46 +85057,14 @@ def fold_port.fit.icm.e8_icm_step
                             alloc.slice.Slice.to_vec core.clone.CloneU16 p.idx
                           let s16 := alloc.vec.Vec.deref val4
                           let s17 := alloc.vec.Vec.deref val7
-                          let per ← fold_port.fit.icm.rows_per_task o
+                          let i ← fold_port.fit.icm.rows_per_task o
+                          let per ←
+                            core.cmp.Ord.max.default core.cmp.OrdUsize i
+                              1#usize
                           let val8 := deref_mut_back4 s14
-                          let (s18, _) ← lift (alloc.vec.Vec.deref_mut val8)
-                          let i ← per * n
-                          let (s19, deref_mut_back5) ←
-                            lift (alloc.vec.Vec.deref_mut b)
-                          let (s20, deref_mut_back6) ←
-                            lift (alloc.vec.Vec.deref_mut idx_cur)
-                          let i1 ← per * nb
-                          let (r12, _, s21, s22) ←
-                            chart.pool.chunks.for_chunks3
-                              fold_port.fit.icm.SweepTask.Insts.Apeiron_wordChartTaskTask3I64I64U16IcmError
-                              s18 i s19 i s20 i1
-                              {
-                                cx :=
-                                  {
-                                    h_rot := s16,
-                                    q_all := s17,
-                                    cb,
-                                    n,
-                                    g,
-                                    sweeps
-                                  },
-                                r := p.r,
-                                per
-                              }
-                          let cf12 ←
-                            core.result.Result.Insts.CoreOpsTry.branch r12
-                          match cf12 with
-                          | core.ops.control_flow.ControlFlow.Continue _ =>
-                            let s_cur := deref_mut_back5 s21
-                            let s23 := alloc.vec.Vec.deref s_cur
-                            let idx_cur1 := deref_mut_back6 s22
-                            let p1 ←
-                              fold_port.fit.icm.into_plane s23 idx_cur1 p
-                            ok (core.result.Result.Ok p1)
-                          | core.ops.control_flow.ControlFlow.Break residual =>
-                            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                              fold_port.fit.icm.Plane (core.convert.FromSame
-                              fold_port.fit.icm.IcmError) residual
+                          fold_port.fit.icm.e8_icm_step_loop p.s p.idx
+                            p.r p.c p.d o n sweeps g nb cb val8 b idx_cur s16
+                            s17 per 0#usize
                         | core.ops.control_flow.ControlFlow.Break residual =>
                           core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
                             fold_port.fit.icm.Plane (core.convert.FromSame
@@ -79648,9 +85114,280 @@ def fold_port.fit.icm.e8_icm_step
       fold_port.fit.icm.Plane (core.convert.FromSame
       fold_port.fit.icm.IcmError) residual
 
-/-- [apeiron_word::fold_port::fit::icm::fill_panel]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1588:0-1597:1 -/
-def fold_port.fit.icm.fill_panel
+/-- [apeiron_word::fold_port::fit::icm::lift_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1538:0-1540:1 -/
+def fold_port.fit.icm.lift_q
+  (t : Std.I64) (k : Std.U32) :
+  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
+  := do
+  let i ← lift (core.convert.num.FromI128I64.from t)
+  let i1 ← 1#i128 <<< k
+  let r ← fold_port.fit.icm.qmul i i1
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let o ← solve_port.q32.narrow val
+    core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+
+/-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1764:4-1770:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_ridge_solve_q_loop0.body
+  (mm : Slice Std.I64) (two_g : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (mean : Std.I128) (i : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × Std.I128 ×
+    Std.Usize) ((Option fold_port.fit.icm.IcmError) × Std.I128))
+  := do
+  if i < two_g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * two_g
+      let i2 ← i1 + i
+      let i3 ← Slice.index_usize mm i2
+      let i4 ← lift (core.convert.num.FromI128I64.from i3)
+      let r ← fold_port.fit.icm.qsum mean i4
+      let (err1, mean1) ←
+        match r with
+        | core.result.Result.Ok v => ok (err, v)
+        | core.result.Result.Err e => ok (some e, mean)
+      let i5 ← i + 1#usize
+      ok (cont (err1, mean1, i5))
+    else ok (done (err, mean))
+  else ok (done (err, mean))
+
+/-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1764:4-1770:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_ridge_solve_q_loop0
+  (mm : Slice Std.I64) (two_g : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (mean : Std.I128) (i : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × Std.I128)
+  := do
+  loop
+    (fun (err1, mean1, i1) => fold_port.fit.icm.r_ridge_solve_q_loop0.body mm
+      two_g err1 mean1 i1)
+    (err, mean, i)
+
+/-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1780:4-1786:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_ridge_solve_q_loop1.body
+  (two_g : Std.Usize) (add : Std.I64) (mm : Slice Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)
+    × Std.Usize) ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError)))
+  := do
+  if i < two_g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← i * two_g
+      let i2 ← i1 + i
+      let i3 ← Slice.index_usize mm i2
+      let r ← fold_port.fit.icm.add_q i3 add
+      match r with
+      | core.result.Result.Ok v =>
+        let i4 ← i1 + i
+        let s ← Slice.update mm i4 v
+        let i5 ← i + 1#usize
+        ok (cont (s, err, i5))
+      | core.result.Result.Err e =>
+        let i4 ← i + 1#usize
+        ok (cont (mm, some e, i4))
+    else ok (done (mm, err))
+  else ok (done (mm, err))
+
+/-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1780:4-1786:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_ridge_solve_q_loop1
+  (mm : Slice Std.I64) (two_g : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (add : Std.I64) (i : Std.Usize) :
+  Result ((Slice Std.I64) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (mm1, err1, i1) => fold_port.fit.icm.r_ridge_solve_q_loop1.body two_g
+      add mm1 err1 i1)
+    (mm, err, i)
+
+/-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop body 2:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1792:4-1798:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_ridge_solve_q_loop2.body
+  (t : Slice Std.I64) (k : Std.U32) (two_g : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (tvec : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
+    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
+    (alloc.vec.Vec Std.I64)))
+  := do
+  if i < two_g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let i1 ← Slice.index_usize t i
+      let r ← fold_port.fit.icm.lift_q i1 k
+      let (err1, tvec1) ←
+        match r with
+        | core.result.Result.Ok v =>
+          do
+          let (_, index_mut_back) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) tvec i
+          let tvec2 := index_mut_back v
+          ok (err, tvec2)
+        | core.result.Result.Err e => ok (some e, tvec)
+      let i2 ← i + 1#usize
+      ok (cont (err1, tvec1, i2))
+    else ok (done (err, tvec))
+  else ok (done (err, tvec))
+
+/-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop 2:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1792:4-1798:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_ridge_solve_q_loop2
+  (t : Slice Std.I64) (k : Std.U32) (two_g : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (tvec : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (err1, tvec1, i1) => fold_port.fit.icm.r_ridge_solve_q_loop2.body t k
+      two_g err1 tvec1 i1)
+    (err, tvec, i)
+
+/-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop body 3:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1805:12-1809:13 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_ridge_solve_q_loop3.body
+  (g : Std.Usize) (solved : solve_port.chol.Solved) (r1_out : Slice Std.I64)
+  (r2_out : Slice Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × Std.Usize) ((Slice
+    Std.I64) × (Slice Std.I64)))
+  := do
+  if i < g
+  then
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        solved.x i
+    let s ← Slice.update r1_out i i1
+    let i2 ← g + i
+    let i3 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        solved.x i2
+    let s1 ← Slice.update r2_out i i3
+    let i4 ← i + 1#usize
+    ok (cont (s, s1, i4))
+  else ok (done (r1_out, r2_out))
+
+/-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop 3:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1805:12-1809:13 -/
+@[rust_loop]
+def fold_port.fit.icm.r_ridge_solve_q_loop3
+  (g : Std.Usize) (r1_out : Slice Std.I64) (r2_out : Slice Std.I64)
+  (solved : solve_port.chol.Solved) (i : Std.Usize) :
+  Result ((Slice Std.I64) × (Slice Std.I64))
+  := do
+  loop
+    (fun (r1_out1, r2_out1, i1) => fold_port.fit.icm.r_ridge_solve_q_loop3.body
+      g solved r1_out1 r2_out1 i1)
+    (r1_out, r2_out, i)
+
+/-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1752:0-1814:1 -/
+def fold_port.fit.icm.r_ridge_solve_q
+  (mm : Slice Std.I64) (t : Slice Std.I64) (k : Std.U32) (two_g : Std.Usize)
+  (g : Std.Usize) (r1_out : Slice Std.I64) (r2_out : Slice Std.I64) :
+  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
+    Std.I64) × (Slice Std.I64) × (Slice Std.I64))
+  := do
+  let (err, mean) ←
+    fold_port.fit.icm.r_ridge_solve_q_loop0 mm two_g none 0#i128 0#usize
+  match err with
+  | none =>
+    let i ← lift (UScalar.hcast .I128 two_g)
+    let r ← fold_port.fit.icm.div_round mean i
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let o ← solve_port.q32.narrow val
+      let r1 ← core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val1 =>
+        let i1 ← lift (core.convert.num.FromI128I64.from val1)
+        let r2 ← fold_port.fit.icm.div_round i1 1000000000000#i128
+        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
+        match cf2 with
+        | core.ops.control_flow.ControlFlow.Continue val2 =>
+          let o1 ← solve_port.q32.narrow val2
+          let r3 ←
+            core.option.Option.ok_or o1 fold_port.fit.icm.IcmError.Overflow
+          let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
+          match cf3 with
+          | core.ops.control_flow.ControlFlow.Continue val3 =>
+            let add ←
+              if val1 > 0#i64
+              then if val3 < 1#i64
+                   then ok 1#i64
+                   else ok val3
+              else ok val3
+            let (mm1, err1) ←
+              fold_port.fit.icm.r_ridge_solve_q_loop1 mm two_g none add 0#usize
+            match err1 with
+            | none =>
+              let tvec ← alloc.vec.from_elem core.clone.CloneI64 0#i64 two_g
+              let (err2, tvec1) ←
+                fold_port.fit.icm.r_ridge_solve_q_loop2 t k two_g none tvec
+                  0#usize
+              match err2 with
+              | none =>
+                let s := alloc.vec.Vec.deref tvec1
+                let r4 ← solve_port.chol.chol_solve mm1 s two_g 1#usize
+                match r4 with
+                | core.result.Result.Ok solved =>
+                  let (r1_out1, r2_out1) ←
+                    fold_port.fit.icm.r_ridge_solve_q_loop3 g r1_out r2_out
+                      solved 0#usize
+                  ok (core.result.Result.Ok (), mm1, r1_out1, r2_out1)
+                | core.result.Result.Err e =>
+                  let ie ← fold_port.fit.icm.map_solve e
+                  ok (core.result.Result.Err ie, mm1, r1_out, r2_out)
+              | some e => ok (core.result.Result.Err e, mm1, r1_out, r2_out)
+            | some e => ok (core.result.Result.Err e, mm1, r1_out, r2_out)
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            let r4 ←
+              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+                Unit (core.convert.FromSame fold_port.fit.icm.IcmError)
+                residual
+            ok (r4, mm, r1_out, r2_out)
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          let r3 ←
+            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+              Unit (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+          ok (r3, mm, r1_out, r2_out)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        let r2 ←
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            Unit (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+        ok (r2, mm, r1_out, r2_out)
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          Unit (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+      ok (r1, mm, r1_out, r2_out)
+  | some e => ok (core.result.Result.Err e, mm, r1_out, r2_out)
+
+/-- [apeiron_word::fold_port::fit::icm::fill_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1529:0-1535:1 -/
+def fold_port.fit.icm.fill_q
   (v : Std.I128) (k : Std.U32) :
   Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
   := do
@@ -79661,81 +85398,27 @@ def fold_port.fit.icm.fill_panel
     let i ← k - 32#u32
     let i1 ← 1#i128 <<< i
     let r ← fold_port.fit.icm.qmul v i1
-    match r with
-    | core.result.Result.Ok w =>
-      let o ← solve_port.q32.narrow w
-      core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
-    | core.result.Result.Err e => ok (core.result.Result.Err e)
-
-/-- [apeiron_word::fold_port::fit::icm::dot_window]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1581:4-1585:1 -/
-@[rust_loop_body]
-def fold_port.fit.icm.dot_window_loop.body
-  (a : Slice Std.I64) (h : Slice Std.I64) (stride : Std.Usize)
-  (iter : core.ops.range.Range Std.Usize) (acc : Std.I128) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128)
-    (core.result.Result Std.I64 fold_port.fit.icm.IcmError))
-  := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => let r ← fold_port.fit.icm.round_shift acc 32#u32
-            ok (done r)
-  | some k =>
-    let i ← Slice.index_usize a k
-    let i1 ← lift (core.convert.num.FromI128I64.from i)
-    let i2 ← k * stride
-    let i3 ← Slice.index_usize h i2
-    let i4 ← lift (core.convert.num.FromI128I64.from i3)
-    let i5 ← i1 * i4
-    let r ← fold_port.fit.icm.qsum acc i5
     let cf ← core.result.Result.Insts.CoreOpsTry.branch r
     match cf with
-    | core.ops.control_flow.ControlFlow.Continue val => ok (cont (iter1, val))
+    | core.ops.control_flow.ControlFlow.Continue val =>
+      let o ← solve_port.q32.narrow val
+      core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
     | core.ops.control_flow.ControlFlow.Break residual =>
-      let r1 ←
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
-      ok (done r1)
+      core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+        Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
 
-/-- [apeiron_word::fold_port::fit::icm::dot_window]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1581:4-1585:1 -/
-@[rust_loop]
-def fold_port.fit.icm.dot_window_loop
-  (iter : core.ops.range.Range Std.Usize) (a : Slice Std.I64)
-  (h : Slice Std.I64) (stride : Std.Usize) (acc : Std.I128) :
-  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
-  := do
-  loop
-    (fun (iter1, acc1) => fold_port.fit.icm.dot_window_loop.body a h stride
-      iter1 acc1)
-    (iter, acc)
-
-/-- [apeiron_word::fold_port::fit::icm::dot_window]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1579:0-1585:1 -/
-@[reducible]
-def fold_port.fit.icm.dot_window
-  (a : Slice Std.I64) (h : Slice Std.I64) (stride : Std.Usize) :
-  Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
-  := do
-  fold_port.fit.icm.dot_window_loop
-    { start := 0#usize, «end» := fold_port.fit.icm.GROUP } a h stride 0#i128
-
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1621:8-1626:9 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 2:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1577:12-1583:13 -/
 @[rust_loop_body]
-def fold_port.fit.icm.r_row_q_loop0_loop0.body
+def fold_port.fit.icm.r_band_q_loop0_loop0_loop0.body
   (n : Std.Usize) (row : Std.Usize) (a_ : Std.Usize) (s : Slice Std.I64)
-  (c : Slice Std.I64) (aa : Std.Usize) (iter : core.ops.range.Range Std.Usize)
-  (prod : alloc.vec.Vec Std.I128) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
-    Std.I128)) (alloc.vec.Vec Std.I128))
+  (c : Slice Std.I64) (aa : Std.Usize) (prod : alloc.vec.Vec Std.I128)
+  (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Std.Usize) (alloc.vec.Vec
+    Std.I128))
   := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done prod)
-  | some j =>
+  if j < fold_port.fit.icm.GROUP
+  then
     let i ← row * n
     let i1 ← aa * fold_port.fit.icm.GROUP
     let i2 ← i + i1
@@ -79751,71 +85434,77 @@ def fold_port.fit.icm.r_row_q_loop0_loop0.body
     let (_, index_mut_back) ←
       alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I128)
         prod i8
+    let j1 ← j + 1#usize
     let prod1 := index_mut_back p
-    ok (cont (iter1, prod1))
+    ok (cont (prod1, j1))
+  else ok (done prod)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1621:8-1626:9 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 2:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1577:12-1583:13 -/
 @[rust_loop]
-def fold_port.fit.icm.r_row_q_loop0_loop0
-  (iter : core.ops.range.Range Std.Usize) (n : Std.Usize) (row : Std.Usize)
-  (prod : alloc.vec.Vec Std.I128) (a_ : Std.Usize) (s : Slice Std.I64)
-  (c : Slice Std.I64) (aa : Std.Usize) :
+def fold_port.fit.icm.r_band_q_loop0_loop0_loop0
+  (n : Std.Usize) (prod : alloc.vec.Vec Std.I128) (row : Std.Usize)
+  (a_ : Std.Usize) (s : Slice Std.I64) (c : Slice Std.I64) (aa : Std.Usize)
+  (j : Std.Usize) :
   Result (alloc.vec.Vec Std.I128)
   := do
   loop
-    (fun (iter1, prod1) => fold_port.fit.icm.r_row_q_loop0_loop0.body n row a_
-      s c aa iter1 prod1)
-    (iter, prod)
+    (fun (prod1, j1) => fold_port.fit.icm.r_band_q_loop0_loop0_loop0.body n row
+      a_ s c aa prod1 j1)
+    (prod, j)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1618:4-1627:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1573:8-1585:9 -/
 @[rust_loop_body]
-def fold_port.fit.icm.r_row_q_loop0.body
+def fold_port.fit.icm.r_band_q_loop0_loop0.body
   (s : Slice Std.I64) (s1 : Slice Std.I64) (s2 : Slice Std.I64)
-  (s3 : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (row : Std.Usize)
-  (iter : core.ops.range.Range Std.Usize) (prod : alloc.vec.Vec Std.I128) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × (alloc.vec.Vec
-    Std.I128)) (alloc.vec.Vec Std.I128))
+  (s3 : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
+  (err : Option fold_port.fit.icm.IcmError) (row : Std.Usize)
+  (prod : alloc.vec.Vec Std.I128) (a_ : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I128) × Std.Usize) (alloc.vec.Vec
+    Std.I128))
   := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done prod)
-  | some a_ =>
-    let (s4, c) ← if a_ < g
-                    then ok (s, s1)
-                    else ok (s2, s3)
-    let aa ← a_ % g
-    let prod1 ←
-      fold_port.fit.icm.r_row_q_loop0_loop0
-        { start := 0#usize, «end» := fold_port.fit.icm.GROUP } n row prod a_
-        s4 c aa
-    ok (cont (iter1, prod1))
+  if a_ < two_g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let (s4, c) ← if a_ < g
+                      then ok (s, s1)
+                      else ok (s2, s3)
+      let aa ← a_ % g
+      let prod1 ←
+        fold_port.fit.icm.r_band_q_loop0_loop0_loop0 n prod row a_ s4 c aa
+          0#usize
+      let a_1 ← a_ + 1#usize
+      ok (cont (prod1, a_1))
+    else ok (done prod)
+  else ok (done prod)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1618:4-1627:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 1:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1573:8-1585:9 -/
 @[rust_loop]
-def fold_port.fit.icm.r_row_q_loop0
-  (iter : core.ops.range.Range Std.Usize) (s : Slice Std.I64)
-  (s1 : Slice Std.I64) (s2 : Slice Std.I64) (s3 : Slice Std.I64)
-  (n : Std.Usize) (g : Std.Usize) (row : Std.Usize)
-  (prod : alloc.vec.Vec Std.I128) :
+def fold_port.fit.icm.r_band_q_loop0_loop0
+  (s : Slice Std.I64) (s1 : Slice Std.I64) (s2 : Slice Std.I64)
+  (s3 : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
+  (prod : alloc.vec.Vec Std.I128) (err : Option fold_port.fit.icm.IcmError)
+  (row : Std.Usize) (a_ : Std.Usize) :
   Result (alloc.vec.Vec Std.I128)
   := do
   loop
-    (fun (iter1, prod1) => fold_port.fit.icm.r_row_q_loop0.body s s1 s2 s3 n g
-      row iter1 prod1)
-    (iter, prod)
+    (fun (prod1, a_1) => fold_port.fit.icm.r_band_q_loop0_loop0.body s s1 s2 s3
+      n g two_g err row prod1 a_1)
+    (prod, a_)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 2:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1630:4-1644:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 3:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1588:8-1602:9 -/
 @[rust_loop_body]
-def fold_port.fit.icm.r_row_q_loop1.body
-  (prod : alloc.vec.Vec Std.I128) (max : Std.U128) (idx : Std.Usize) :
+def fold_port.fit.icm.r_band_q_loop0_loop1.body
+  (two_g : Std.Usize) (prod : alloc.vec.Vec Std.I128) (max : Std.U128)
+  (idx : Std.Usize) :
   Result (ControlFlow (Std.U128 × Std.Usize) Std.U128)
   := do
-  let i := alloc.vec.Vec.len prod
+  let i ← two_g * fold_port.fit.icm.GROUP
   if idx < i
   then
     let i1 ←
@@ -79830,29 +85519,31 @@ def fold_port.fit.icm.r_row_q_loop1.body
     ok (cont (max1, idx1))
   else ok (done max)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 2:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1630:4-1644:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 3:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1588:8-1602:9 -/
 @[rust_loop]
-def fold_port.fit.icm.r_row_q_loop1
-  (prod : alloc.vec.Vec Std.I128) (max : Std.U128) (idx : Std.Usize) :
+def fold_port.fit.icm.r_band_q_loop0_loop1
+  (two_g : Std.Usize) (prod : alloc.vec.Vec Std.I128) (max : Std.U128)
+  (idx : Std.Usize) :
   Result Std.U128
   := do
   loop
-    (fun (max1, idx1) => fold_port.fit.icm.r_row_q_loop1.body prod max1 idx1)
+    (fun (max1, idx1) => fold_port.fit.icm.r_band_q_loop0_loop1.body two_g prod
+      max1 idx1)
     (max, idx)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 3:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1652:4-1658:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 4:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1609:8-1615:9 -/
 @[rust_loop_body]
-def fold_port.fit.icm.r_row_q_loop2.body
-  (prod : alloc.vec.Vec Std.I128) (k : Std.U32)
-  (err : Option fold_port.fit.icm.IcmError) (pv : alloc.vec.Vec Std.I64)
-  (idx : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
-    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
-    (alloc.vec.Vec Std.I64)))
+def fold_port.fit.icm.r_band_q_loop0_loop2.body
+  (two_g : Std.Usize) (prod : alloc.vec.Vec Std.I128) (rr : Std.Usize)
+  (k : Std.U32) (pv : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (idx : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (Option fold_port.fit.icm.IcmError)))
   := do
-  let i := alloc.vec.Vec.len prod
+  let i ← two_g * fold_port.fit.icm.GROUP
   if idx < i
   then
     let b := core.option.Option.is_none err
@@ -79861,690 +85552,996 @@ def fold_port.fit.icm.r_row_q_loop2.body
       let i1 ←
         alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I128)
           prod idx
-      let r ← fold_port.fit.icm.fill_panel i1 k
-      let (err1, pv1) ←
+      let r ← fold_port.fit.icm.fill_q i1 k
+      let (pv1, err1) ←
         match r with
         | core.result.Result.Ok v =>
           do
+          let i2 ← rr * two_g
+          let i3 ← i2 * fold_port.fit.icm.GROUP
+          let i4 ← i3 + idx
           let (_, index_mut_back) ←
             alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.I64) pv idx
+              Std.I64) pv i4
           let pv2 := index_mut_back v
-          ok (err, pv2)
-        | core.result.Result.Err e => ok (some e, pv)
+          ok (pv2, err)
+        | core.result.Result.Err e => ok (pv, some e)
       let idx1 ← idx + 1#usize
-      ok (cont (err1, pv1, idx1))
-    else ok (done (err, pv))
-  else ok (done (err, pv))
+      ok (cont (pv1, err1, idx1))
+    else ok (done (pv, err))
+  else ok (done (pv, err))
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 3:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1652:4-1658:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 4:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1609:8-1615:9 -/
 @[rust_loop]
-def fold_port.fit.icm.r_row_q_loop2
-  (prod : alloc.vec.Vec Std.I128) (k : Std.U32)
-  (err : Option fold_port.fit.icm.IcmError) (pv : alloc.vec.Vec Std.I64)
-  (idx : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
+def fold_port.fit.icm.r_band_q_loop0_loop2
+  (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
+  (prod : alloc.vec.Vec Std.I128) (err : Option fold_port.fit.icm.IcmError)
+  (rr : Std.Usize) (k : Std.U32) (idx : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (Option fold_port.fit.icm.IcmError))
   := do
   loop
-    (fun (err1, pv1, idx1) => fold_port.fit.icm.r_row_q_loop2.body prod k err1
-      pv1 idx1)
-    (err, pv, idx)
+    (fun (pv1, err1, idx1) => fold_port.fit.icm.r_band_q_loop0_loop2.body two_g
+      prod rr k pv1 err1 idx1)
+    (pv, err, idx)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 6:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1670:12-1677:13 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 7:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1626:20-1629:21 -/
 @[rust_loop_body]
-def fold_port.fit.icm.r_row_q_loop3_loop0_loop0.body
-  (hl : Slice Std.I64) (n : Std.Usize) (ga : Std.Usize) (pa : Slice Std.I64)
-  (gidx : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
-  (kvec : alloc.vec.Vec Std.I64) (j : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
-    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
-    (alloc.vec.Vec Std.I64)))
+def fold_port.fit.icm.r_band_q_loop0_loop3_loop0_loop0.body
+  (pv : alloc.vec.Vec Std.I64) (dst : Std.Usize) (src : Std.Usize)
+  (pv2 : alloc.vec.Vec Std.I64) (t : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
   := do
-  if j < fold_port.fit.icm.GROUP
+  if t < fold_port.fit.icm.GROUP
   then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i ← ga * fold_port.fit.icm.GROUP
-      let i1 ← i * n
-      let i2 ← gidx * fold_port.fit.icm.GROUP
-      let i3 ← i1 + i2
-      let i4 ← i3 + j
-      let h ←
-        core.slice.index.Slice.index
-          (core.slice.index.SliceIndexRangeFromUsizeSlice Std.I64) hl
-          { start := i4 }
-      let r ← fold_port.fit.icm.dot_window pa h n
-      let (err1, kvec1) ←
-        match r with
-        | core.result.Result.Ok v =>
-          do
-          let i5 ← i2 + j
-          let (_, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.I64) kvec i5
-          let kvec2 := index_mut_back v
-          ok (err, kvec2)
-        | core.result.Result.Err e => ok (some e, kvec)
-      let j1 ← j + 1#usize
-      ok (cont (err1, kvec1, j1))
-    else ok (done (err, kvec))
-  else ok (done (err, kvec))
+    let i ← src + t
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) pv i
+    let i2 ← dst + t
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        pv2 i2
+    let t1 ← t + 1#usize
+    let pv21 := index_mut_back i1
+    ok (cont (pv21, t1))
+  else ok (done pv2)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 6:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1670:12-1677:13 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 7:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1626:20-1629:21 -/
 @[rust_loop]
-def fold_port.fit.icm.r_row_q_loop3_loop0_loop0
-  (hl : Slice Std.I64) (n : Std.Usize)
-  (err : Option fold_port.fit.icm.IcmError) (kvec : alloc.vec.Vec Std.I64)
-  (ga : Std.Usize) (pa : Slice Std.I64) (gidx : Std.Usize) (j : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
+def fold_port.fit.icm.r_band_q_loop0_loop3_loop0_loop0
+  (pv : alloc.vec.Vec Std.I64) (pv2 : alloc.vec.Vec Std.I64) (dst : Std.Usize)
+  (src : Std.Usize) (t : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
   := do
   loop
-    (fun (err1, kvec1, j1) => fold_port.fit.icm.r_row_q_loop3_loop0_loop0.body
-      hl n ga pa gidx err1 kvec1 j1)
-    (err, kvec, j)
+    (fun (pv21, t1) => fold_port.fit.icm.r_band_q_loop0_loop3_loop0_loop0.body
+      pv dst src pv21 t1)
+    (pv2, t)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 5:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1668:8-1679:9 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 6:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1621:16-1631:17 -/
 @[rust_loop_body]
-def fold_port.fit.icm.r_row_q_loop3_loop0.body
-  (hl : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (ga : Std.Usize)
-  (pa : Slice Std.I64) (err : Option fold_port.fit.icm.IcmError)
-  (kvec : alloc.vec.Vec Std.I64) (gidx : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
-    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
-    (alloc.vec.Vec Std.I64)))
-  := do
-  if gidx < g
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let (err1, kvec1) ←
-        fold_port.fit.icm.r_row_q_loop3_loop0_loop0 hl n err kvec ga pa gidx
-          0#usize
-      let gidx1 ← gidx + 1#usize
-      ok (cont (err1, kvec1, gidx1))
-    else ok (done (err, kvec))
-  else ok (done (err, kvec))
-
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 5:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1668:8-1679:9 -/
-@[rust_loop]
-def fold_port.fit.icm.r_row_q_loop3_loop0
-  (hl : Slice Std.I64) (n : Std.Usize) (g : Std.Usize)
-  (err : Option fold_port.fit.icm.IcmError) (kvec : alloc.vec.Vec Std.I64)
-  (ga : Std.Usize) (pa : Slice Std.I64) (gidx : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
-  := do
-  loop
-    (fun (err1, kvec1, gidx1) => fold_port.fit.icm.r_row_q_loop3_loop0.body hl
-      n g ga pa err1 kvec1 gidx1)
-    (err, kvec, gidx)
-
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 7:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1681:8-1688:9 -/
-@[rust_loop_body]
-def fold_port.fit.icm.r_row_q_loop3_loop1.body
+def fold_port.fit.icm.r_band_q_loop0_loop3_loop0.body
   (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
-  (kvec : alloc.vec.Vec Std.I64) (a_ : Std.Usize)
-  (err : Option fold_port.fit.icm.IcmError) (mmat : alloc.vec.Vec Std.I64)
-  (bcol : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
-    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
-    (alloc.vec.Vec Std.I64)))
+  (rr : Std.Usize) (w : Std.Usize) (pv2 : alloc.vec.Vec Std.I64)
+  (q : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
   := do
-  if bcol < two_g
+  if q < 2#usize
+  then
+    let i ← q * g
+    let a_ ← w + i
+    let i1 ← rr * g
+    let i2 ← i1 + w
+    let i3 ← i2 * 2#usize
+    let i4 ← i3 + q
+    let dst ← i4 * fold_port.fit.icm.GROUP
+    let i5 ← rr * two_g
+    let i6 ← i5 + a_
+    let src ← i6 * fold_port.fit.icm.GROUP
+    let pv21 ←
+      fold_port.fit.icm.r_band_q_loop0_loop3_loop0_loop0 pv pv2 dst src 0#usize
+    let q1 ← q + 1#usize
+    ok (cont (pv21, q1))
+  else ok (done pv2)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 6:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1621:16-1631:17 -/
+@[rust_loop]
+def fold_port.fit.icm.r_band_q_loop0_loop3_loop0
+  (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
+  (pv2 : alloc.vec.Vec Std.I64) (rr : Std.Usize) (w : Std.Usize)
+  (q : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (pv21, q1) => fold_port.fit.icm.r_band_q_loop0_loop3_loop0.body g
+      two_g pv rr w pv21 q1)
+    (pv2, q)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 5:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1619:12-1633:13 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_band_q_loop0_loop3.body
+  (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
+  (rr : Std.Usize) (pv2 : alloc.vec.Vec Std.I64) (w : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if w < g
+  then
+    let pv21 ←
+      fold_port.fit.icm.r_band_q_loop0_loop3_loop0 g two_g pv pv2 rr w 0#usize
+    let w1 ← w + 1#usize
+    ok (cont (pv21, w1))
+  else ok (done pv2)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 5:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1619:12-1633:13 -/
+@[rust_loop]
+def fold_port.fit.icm.r_band_q_loop0_loop3
+  (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
+  (pv2 : alloc.vec.Vec Std.I64) (rr : Std.Usize) (w : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (pv21, w1) => fold_port.fit.icm.r_band_q_loop0_loop3.body g two_g pv
+      rr pv21 w1)
+    (pv2, w)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1570:4-1636:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_band_q_loop0.body
+  (s : Slice Std.I64) (s1 : Slice Std.I64) (s2 : Slice Std.I64)
+  (s3 : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (row0 : Std.Usize)
+  (two_g : Std.Usize) (rows : Std.Usize) (pv : alloc.vec.Vec Std.I64)
+  (pv2 : alloc.vec.Vec Std.I64) (ks : alloc.vec.Vec Std.U32)
+  (prod : alloc.vec.Vec Std.I128) (err : Option fold_port.fit.icm.IcmError)
+  (rr : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.U32) × (alloc.vec.Vec Std.I128) × (Option
+    fold_port.fit.icm.IcmError) × Std.Usize) ((alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.U32) × (Option
+    fold_port.fit.icm.IcmError)))
+  := do
+  if rr < rows
   then
     let b := core.option.Option.is_none err
     if b
     then
-      let i ← bcol % g
-      let i1 ← i * fold_port.fit.icm.GROUP
-      let i2 ← i * fold_port.fit.icm.GROUP
-      let i3 ← i2 + fold_port.fit.icm.GROUP
-      let kb ←
+      let row ← row0 + rr
+      let prod1 ←
+        fold_port.fit.icm.r_band_q_loop0_loop0 s s1 s2 s3 n g two_g prod err
+          row 0#usize
+      let max ←
+        fold_port.fit.icm.r_band_q_loop0_loop1 two_g prod1 0#u128 0#usize
+      let o ← solve_port.q32.ilog2_pos max
+      let k ←
+        match o with
+        | none => ok 0#u32
+        | some l => ok (core.num.U32.saturating_sub 66#u32 l)
+      let (_, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.U32)
+          ks rr
+      let ks1 := index_mut_back k
+      let (pv1, err1) ←
+        fold_port.fit.icm.r_band_q_loop0_loop2 two_g pv prod1 err rr k 0#usize
+      let b1 := core.option.Option.is_none err1
+      if b1
+      then
+        let pv21 ←
+          fold_port.fit.icm.r_band_q_loop0_loop3 g two_g pv1 pv2 rr 0#usize
+        let rr1 ← rr + 1#usize
+        ok (cont (pv1, pv21, ks1, prod1, err1, rr1))
+      else let rr1 ← rr + 1#usize
+           ok (cont (pv1, pv2, ks1, prod1, err1, rr1))
+    else ok (done (pv, pv2, ks, err))
+  else ok (done (pv, pv2, ks, err))
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1570:4-1636:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_band_q_loop0
+  (s : Slice Std.I64) (s1 : Slice Std.I64) (s2 : Slice Std.I64)
+  (s3 : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (row0 : Std.Usize)
+  (two_g : Std.Usize) (rows : Std.Usize) (pv : alloc.vec.Vec Std.I64)
+  (pv2 : alloc.vec.Vec Std.I64) (ks : alloc.vec.Vec Std.U32)
+  (prod : alloc.vec.Vec Std.I128) (err : Option fold_port.fit.icm.IcmError)
+  (rr : Std.Usize) :
+  Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.U32) × (Option fold_port.fit.icm.IcmError))
+  := do
+  loop
+    (fun (pv1, pv21, ks1, prod1, err1, rr1) =>
+      fold_port.fit.icm.r_band_q_loop0.body s s1 s2 s3 n g row0 two_g rows pv1
+      pv21 ks1 prod1 err1 rr1)
+    (pv, pv2, ks, prod, err, rr)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 10:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1650:12-1653:13 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_band_q_loop1_loop0_loop0.body
+  (hl : Slice Std.I64) (n : Std.Usize) (ga : Std.Usize) (j : Std.Usize)
+  (hb : alloc.vec.Vec Std.I64) (k : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if k < fold_port.fit.icm.GROUP
+  then
+    let i ← ga * fold_port.fit.icm.GROUP
+    let i1 ← i + k
+    let i2 ← i1 * n
+    let i3 ← i2 + j
+    let i4 ← Slice.index_usize hl i3
+    let i5 ← j * fold_port.fit.icm.GROUP
+    let i6 ← i5 + k
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        hb i6
+    let k1 ← k + 1#usize
+    let hb1 := index_mut_back i4
+    ok (cont (hb1, k1))
+  else ok (done hb)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 10:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1650:12-1653:13 -/
+@[rust_loop]
+def fold_port.fit.icm.r_band_q_loop1_loop0_loop0
+  (hl : Slice Std.I64) (n : Std.Usize) (hb : alloc.vec.Vec Std.I64)
+  (ga : Std.Usize) (j : Std.Usize) (k : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (hb1, k1) => fold_port.fit.icm.r_band_q_loop1_loop0_loop0.body hl n ga
+      j hb1 k1)
+    (hb, k)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 9:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1648:8-1655:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_band_q_loop1_loop0.body
+  (hl : Slice Std.I64) (n : Std.Usize) (ga : Std.Usize)
+  (hb : alloc.vec.Vec Std.I64) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if j < n
+  then
+    let hb1 ←
+      fold_port.fit.icm.r_band_q_loop1_loop0_loop0 hl n hb ga j 0#usize
+    let j1 ← j + 1#usize
+    ok (cont (hb1, j1))
+  else ok (done hb)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 9:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1648:8-1655:9 -/
+@[rust_loop]
+def fold_port.fit.icm.r_band_q_loop1_loop0
+  (hl : Slice Std.I64) (n : Std.Usize) (hb : alloc.vec.Vec Std.I64)
+  (ga : Std.Usize) (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (hb1, j1) => fold_port.fit.icm.r_band_q_loop1_loop0.body hl n ga hb1
+      j1)
+    (hb, j)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 13:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1663:16-1666:17 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_band_q_loop1_loop1_loop0_loop0.body
+  (pv : alloc.vec.Vec Std.I64) (rr : Std.Usize) (q : Std.Usize)
+  (src : Std.Usize) (arows : alloc.vec.Vec Std.I64) (t : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if t < fold_port.fit.icm.GROUP
+  then
+    let i ← src + t
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) pv i
+    let i2 ← rr * 2#usize
+    let i3 ← i2 + q
+    let i4 ← i3 * fold_port.fit.icm.GROUP
+    let i5 ← i4 + t
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        arows i5
+    let t1 ← t + 1#usize
+    let arows1 := index_mut_back i1
+    ok (cont (arows1, t1))
+  else ok (done arows)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 13:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1663:16-1666:17 -/
+@[rust_loop]
+def fold_port.fit.icm.r_band_q_loop1_loop1_loop0_loop0
+  (pv : alloc.vec.Vec Std.I64) (arows : alloc.vec.Vec Std.I64) (rr : Std.Usize)
+  (q : Std.Usize) (src : Std.Usize) (t : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (arows1, t1) =>
+      fold_port.fit.icm.r_band_q_loop1_loop1_loop0_loop0.body pv rr q src
+      arows1 t1)
+    (arows, t)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 12:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1659:12-1668:13 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_band_q_loop1_loop1_loop0.body
+  (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
+  (ga : Std.Usize) (rr : Std.Usize) (arows : alloc.vec.Vec Std.I64)
+  (q : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if q < 2#usize
+  then
+    let i ← q * g
+    let a_ ← ga + i
+    let i1 ← rr * two_g
+    let i2 ← i1 + a_
+    let src ← i2 * fold_port.fit.icm.GROUP
+    let arows1 ←
+      fold_port.fit.icm.r_band_q_loop1_loop1_loop0_loop0 pv arows rr q src
+        0#usize
+    let q1 ← q + 1#usize
+    ok (cont (arows1, q1))
+  else ok (done arows)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 12:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1659:12-1668:13 -/
+@[rust_loop]
+def fold_port.fit.icm.r_band_q_loop1_loop1_loop0
+  (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
+  (arows : alloc.vec.Vec Std.I64) (ga : Std.Usize) (rr : Std.Usize)
+  (q : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (arows1, q1) => fold_port.fit.icm.r_band_q_loop1_loop1_loop0.body g
+      two_g pv ga rr arows1 q1)
+    (arows, q)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 11:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1657:8-1670:9 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_band_q_loop1_loop1.body
+  (g : Std.Usize) (two_g : Std.Usize) (rows : Std.Usize)
+  (pv : alloc.vec.Vec Std.I64) (ga : Std.Usize) (arows : alloc.vec.Vec Std.I64)
+  (rr : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if rr < rows
+  then
+    let arows1 ←
+      fold_port.fit.icm.r_band_q_loop1_loop1_loop0 g two_g pv arows ga rr
+        0#usize
+    let rr1 ← rr + 1#usize
+    ok (cont (arows1, rr1))
+  else ok (done arows)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 11:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1657:8-1670:9 -/
+@[rust_loop]
+def fold_port.fit.icm.r_band_q_loop1_loop1
+  (g : Std.Usize) (two_g : Std.Usize) (rows : Std.Usize)
+  (pv : alloc.vec.Vec Std.I64) (arows : alloc.vec.Vec Std.I64) (ga : Std.Usize)
+  (rr : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (arows1, rr1) => fold_port.fit.icm.r_band_q_loop1_loop1.body g two_g
+      rows pv ga arows1 rr1)
+    (arows, rr)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 17:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1681:28-1684:29 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0_loop0.body
+  (kk : alloc.vec.Vec Std.I64) (q : Std.Usize) (src : Std.Usize)
+  (a2 : alloc.vec.Vec Std.I64) (t : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if t < fold_port.fit.icm.GROUP
+  then
+    let i ← src + t
+    let i1 ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) kk i
+    let i2 ← q * fold_port.fit.icm.GROUP
+    let i3 ← i2 + t
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        a2 i3
+    let t1 ← t + 1#usize
+    let a21 := index_mut_back i1
+    ok (cont (a21, t1))
+  else ok (done a2)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 17:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1681:28-1684:29 -/
+@[rust_loop]
+def fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0_loop0
+  (a2 : alloc.vec.Vec Std.I64) (kk : alloc.vec.Vec Std.I64) (q : Std.Usize)
+  (src : Std.Usize) (t : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (a21, t1) =>
+      fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0_loop0.body kk q src
+      a21 t1)
+    (a2, t)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 16:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1678:24-1686:25 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0.body
+  (n : Std.Usize) (kk : alloc.vec.Vec Std.I64) (rr : Std.Usize) (w : Std.Usize)
+  (a2 : alloc.vec.Vec Std.I64) (q : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if q < 2#usize
+  then
+    let i ← rr * 2#usize
+    let i1 ← i + q
+    let i2 ← i1 * n
+    let i3 ← w * fold_port.fit.icm.GROUP
+    let src ← i2 + i3
+    let a21 ←
+      fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0_loop0 a2 kk q src
+        0#usize
+    let q1 ← q + 1#usize
+    ok (cont (a21, q1))
+  else ok (done a2)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 16:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1678:24-1686:25 -/
+@[rust_loop]
+def fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0
+  (n : Std.Usize) (a2 : alloc.vec.Vec Std.I64) (kk : alloc.vec.Vec Std.I64)
+  (rr : Std.Usize) (w : Std.Usize) (q : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (a21, q1) => fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0.body n
+      kk rr w a21 q1)
+    (a2, q)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 15:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1676:20-1699:21 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_band_q_loop1_loop2_loop0.body
+  (i : Std.Usize) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
+  (pv2 : alloc.vec.Vec Std.I64) (ga : Std.Usize) (kk : alloc.vec.Vec Std.I64)
+  (rr : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
+  (mmat : alloc.vec.Vec Std.I64) (a2 : alloc.vec.Vec Std.I64) (w : Std.Usize) :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64) × Std.Usize) ((Option
+    fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)))
+  := do
+  if w < g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let a21 ←
+        fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0 n a2 kk rr w 0#usize
+      let i1 ← rr * g
+      let i2 ← i1 + w
+      let i3 ← i2 * 2#usize
+      let bs ← i3 * fold_port.fit.icm.GROUP
+      let s := alloc.vec.Vec.deref a21
+      let i4 ← bs + i
+      let s1 ←
         alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-          Std.I64) kvec { start := i1, «end» := i3 }
-      let i4 ← bcol * fold_port.fit.icm.GROUP
-      let i5 ← bcol + 1#usize
-      let i6 ← i5 * fold_port.fit.icm.GROUP
-      let s ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-          Std.I64) pv { start := i4, «end» := i6 }
-      let r ← fold_port.fit.icm.dot_window kb s 1#usize
+          Std.I64) pv2 { start := bs, «end» := i4 }
+      let r ←
+        fold_port.fit.icm.nt_q s 2#usize s1 2#usize fold_port.fit.icm.GROUP
       let (err1, mmat1) ←
         match r with
-        | core.result.Result.Ok v =>
+        | core.result.Result.Ok c =>
           do
-          let i7 ← a_ * two_g
-          let i8 ← i7 + bcol
+          let i5 ← rr * two_g
+          let i6 ← i5 + ga
+          let base ← i6 * two_g
+          let i7 ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+              c 0#usize
+          let i8 ← base + w
           let (_, index_mut_back) ←
             alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
               Std.I64) mmat i8
-          let mmat2 := index_mut_back v
-          ok (err, mmat2)
+          let i9 ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+              c 1#usize
+          let mmat2 := index_mut_back i7
+          let i10 ← i8 + g
+          let (_, index_mut_back1) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) mmat2 i10
+          let i11 ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+              c 2#usize
+          let mmat3 := index_mut_back1 i9
+          let i12 ← two_g * g
+          let i13 ← base + i12
+          let i14 ← i13 + w
+          let (_, index_mut_back2) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) mmat3 i14
+          let i15 ←
+            alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
+              c 3#usize
+          let mmat4 := index_mut_back2 i11
+          let i16 ← base + i12
+          let i17 ← i16 + w
+          let i18 ← i17 + g
+          let (_, index_mut_back3) ←
+            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+              Std.I64) mmat4 i18
+          let mmat5 := index_mut_back3 i15
+          ok (err, mmat5)
         | core.result.Result.Err e => ok (some e, mmat)
-      ok (cont (err1, mmat1, i5))
-    else ok (done (err, mmat))
-  else ok (done (err, mmat))
+      let w1 ← w + 1#usize
+      ok (cont (err1, mmat1, a21, w1))
+    else ok (done (err, mmat, a2))
+  else ok (done (err, mmat, a2))
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 7:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1681:8-1688:9 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 15:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1676:20-1699:21 -/
 @[rust_loop]
-def fold_port.fit.icm.r_row_q_loop3_loop1
-  (g : Std.Usize) (two_g : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
-  (pv : alloc.vec.Vec Std.I64) (kvec : alloc.vec.Vec Std.I64)
-  (mmat : alloc.vec.Vec Std.I64) (a_ : Std.Usize) (bcol : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
+def fold_port.fit.icm.r_band_q_loop1_loop2_loop0
+  (i : Std.Usize) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
+  (pv2 : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (mmat : alloc.vec.Vec Std.I64) (a2 : alloc.vec.Vec Std.I64) (ga : Std.Usize)
+  (kk : alloc.vec.Vec Std.I64) (rr : Std.Usize) (w : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64))
   := do
   loop
-    (fun (err1, mmat1, bcol1) => fold_port.fit.icm.r_row_q_loop3_loop1.body g
-      two_g pv kvec a_ err1 mmat1 bcol1)
-    (err, mmat, bcol)
+    (fun (err1, mmat1, a21, w1) =>
+      fold_port.fit.icm.r_band_q_loop1_loop2_loop0.body i n g two_g pv2 ga kk
+      rr err1 mmat1 a21 w1)
+    (err, mmat, a2, w)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 4:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1665:4-1690:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 14:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1674:16-1701:17 -/
 @[rust_loop_body]
-def fold_port.fit.icm.r_row_q_loop3.body
-  (hl : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
-  (pv : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
-  (kvec : alloc.vec.Vec Std.I64) (mmat : alloc.vec.Vec Std.I64)
-  (a_ : Std.Usize) :
+def fold_port.fit.icm.r_band_q_loop1_loop2.body
+  (i : Std.Usize) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
+  (rows : Std.Usize) (pv2 : alloc.vec.Vec Std.I64) (ga : Std.Usize)
+  (kk : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (mmat : alloc.vec.Vec Std.I64) (a2 : alloc.vec.Vec Std.I64) (rr : Std.Usize)
+  :
   Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
     Std.I64) × (alloc.vec.Vec Std.I64) × Std.Usize) ((Option
-    fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64)))
+    fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)))
   := do
-  if a_ < two_g
+  if rr < rows
   then
     let b := core.option.Option.is_none err
     if b
     then
-      let ga ← a_ % g
-      let i ← a_ * fold_port.fit.icm.GROUP
-      let i1 ← a_ + 1#usize
-      let i2 ← i1 * fold_port.fit.icm.GROUP
-      let pa ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-          Std.I64) pv { start := i, «end» := i2 }
-      let (err1, kvec1) ←
-        fold_port.fit.icm.r_row_q_loop3_loop0 hl n g err kvec ga pa 0#usize
-      let (err2, mmat1) ←
-        fold_port.fit.icm.r_row_q_loop3_loop1 g two_g err1 pv kvec1 mmat a_
-          0#usize
-      let a_1 ← a_ + 1#usize
-      ok (cont (err2, kvec1, mmat1, a_1))
+      let (err1, mmat1, a21) ←
+        fold_port.fit.icm.r_band_q_loop1_loop2_loop0 i n g two_g pv2 err mmat
+          a2 ga kk rr 0#usize
+      let rr1 ← rr + 1#usize
+      ok (cont (err1, mmat1, a21, rr1))
+    else ok (done (err, mmat, a2))
+  else ok (done (err, mmat, a2))
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 14:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1674:16-1701:17 -/
+@[rust_loop]
+def fold_port.fit.icm.r_band_q_loop1_loop2
+  (i : Std.Usize) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
+  (rows : Std.Usize) (pv2 : alloc.vec.Vec Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (mmat : alloc.vec.Vec Std.I64)
+  (a2 : alloc.vec.Vec Std.I64) (ga : Std.Usize) (kk : alloc.vec.Vec Std.I64)
+  (rr : Std.Usize) :
+  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64))
+  := do
+  loop
+    (fun (err1, mmat1, a21, rr1) => fold_port.fit.icm.r_band_q_loop1_loop2.body
+      i n g two_g rows pv2 ga kk err1 mmat1 a21 rr1)
+    (err, mmat, a2, rr)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 8:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1645:4-1706:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_band_q_loop1.body
+  (i : Std.Usize) (hl : Slice Std.I64) (n : Std.Usize) (g : Std.Usize)
+  (two_g : Std.Usize) (rows : Std.Usize) (pv : alloc.vec.Vec Std.I64)
+  (pv2 : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (mmat : alloc.vec.Vec Std.I64) (a2 : alloc.vec.Vec Std.I64)
+  (arows : alloc.vec.Vec Std.I64) (hb : alloc.vec.Vec Std.I64) (ga : Std.Usize)
+  :
+  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
+    Std.I64) × (alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    (alloc.vec.Vec Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError)
+    × (alloc.vec.Vec Std.I64)))
+  := do
+  if ga < g
+  then
+    let b := core.option.Option.is_none err
+    if b
+    then
+      let hb1 ← fold_port.fit.icm.r_band_q_loop1_loop0 hl n hb ga 0#usize
+      let arows1 ←
+        fold_port.fit.icm.r_band_q_loop1_loop1 g two_g rows pv arows ga 0#usize
+      let s := alloc.vec.Vec.deref arows1
+      let i1 ← rows * 2#usize
+      let s1 := alloc.vec.Vec.deref hb1
+      let r ← fold_port.fit.icm.nt_q s i1 s1 n fold_port.fit.icm.GROUP
+      match r with
+      | core.result.Result.Ok kk =>
+        let (err1, mmat1, a21) ←
+          fold_port.fit.icm.r_band_q_loop1_loop2 i n g two_g rows pv2 err mmat
+            a2 ga kk 0#usize
+        let ga1 ← ga + 1#usize
+        ok (cont (err1, mmat1, a21, arows1, hb1, ga1))
+      | core.result.Result.Err e =>
+        let ga1 ← ga + 1#usize
+        ok (cont (some e, mmat, a2, arows1, hb1, ga1))
     else ok (done (err, mmat))
   else ok (done (err, mmat))
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 4:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1665:4-1690:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 8:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1645:4-1706:5 -/
 @[rust_loop]
-def fold_port.fit.icm.r_row_q_loop3
-  (hl : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
-  (err : Option fold_port.fit.icm.IcmError) (pv : alloc.vec.Vec Std.I64)
-  (kvec : alloc.vec.Vec Std.I64) (mmat : alloc.vec.Vec Std.I64)
-  (a_ : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
-  := do
-  loop
-    (fun (err1, kvec1, mmat1, a_1) => fold_port.fit.icm.r_row_q_loop3.body hl n
-      g two_g pv err1 kvec1 mmat1 a_1)
-    (err, kvec, mmat, a_)
-
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 9:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1699:8-1705:9 -/
-@[rust_loop_body]
-def fold_port.fit.icm.r_row_q_loop4_loop0.body
-  (p : Slice Std.I64) (w : Slice Std.I64)
-  (err : Option fold_port.fit.icm.IcmError) (acc : Std.I128) (j : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × Std.I128 ×
-    Std.Usize) ((Option fold_port.fit.icm.IcmError) × Std.I128))
-  := do
-  if j < fold_port.fit.icm.GROUP
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i ← Slice.index_usize p j
-      let i1 ← lift (core.convert.num.FromI128I64.from i)
-      let i2 ← Slice.index_usize w j
-      let i3 ← lift (core.convert.num.FromI128I64.from i2)
-      let i4 ← i1 * i3
-      let r ← fold_port.fit.icm.qsum acc i4
-      let (err1, acc1) ←
-        match r with
-        | core.result.Result.Ok v => ok (err, v)
-        | core.result.Result.Err e => ok (some e, acc)
-      let j1 ← j + 1#usize
-      ok (cont (err1, acc1, j1))
-    else ok (done (err, acc))
-  else ok (done (err, acc))
-
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 9:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1699:8-1705:9 -/
-@[rust_loop]
-def fold_port.fit.icm.r_row_q_loop4_loop0
-  (err : Option fold_port.fit.icm.IcmError) (p : Slice Std.I64)
-  (w : Slice Std.I64) (acc : Std.I128) (j : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × Std.I128)
-  := do
-  loop
-    (fun (err1, acc1, j1) => fold_port.fit.icm.r_row_q_loop4_loop0.body p w
-      err1 acc1 j1)
-    (err, acc, j)
-
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 8:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1693:4-1713:5 -/
-@[rust_loop_body]
-def fold_port.fit.icm.r_row_q_loop4.body
-  (wh : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (row : Std.Usize)
-  (two_g : Std.Usize) (k : Std.U32) (pv : alloc.vec.Vec Std.I64)
-  (err : Option fold_port.fit.icm.IcmError) (tvec : alloc.vec.Vec Std.I64)
-  (a_ : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
-    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
-    (alloc.vec.Vec Std.I64)))
-  := do
-  if a_ < two_g
-  then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let ga ← a_ % g
-      let i ← a_ * fold_port.fit.icm.GROUP
-      let i1 ← a_ + 1#usize
-      let i2 ← i1 * fold_port.fit.icm.GROUP
-      let p ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
-          Std.I64) pv { start := i, «end» := i2 }
-      let i3 ← row * n
-      let i4 ← ga * fold_port.fit.icm.GROUP
-      let i5 ← i3 + i4
-      let w ←
-        core.slice.index.Slice.index
-          (core.slice.index.SliceIndexRangeFromUsizeSlice Std.I64) wh
-          { start := i5 }
-      let (err1, acc) ←
-        fold_port.fit.icm.r_row_q_loop4_loop0 err p w 0#i128 0#usize
-      let b1 := core.option.Option.is_none err1
-      let (err2, tvec1) ←
-        if b1
-        then
-          do
-          let r ← fold_port.fit.icm.fill_panel acc k
-          match r with
-          | core.result.Result.Ok v =>
-            let (_, index_mut_back) ←
-              alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-                Std.I64) tvec a_
-            let tvec2 := index_mut_back v
-            ok (err1, tvec2)
-          | core.result.Result.Err e => ok (some e, tvec)
-        else ok (err1, tvec)
-      let a_1 ← a_ + 1#usize
-      ok (cont (err2, tvec1, a_1))
-    else ok (done (err, tvec))
-  else ok (done (err, tvec))
-
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 8:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1693:4-1713:5 -/
-@[rust_loop]
-def fold_port.fit.icm.r_row_q_loop4
-  (wh : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (row : Std.Usize)
-  (two_g : Std.Usize) (k : Std.U32) (err : Option fold_port.fit.icm.IcmError)
-  (pv : alloc.vec.Vec Std.I64) (tvec : alloc.vec.Vec Std.I64) (a_ : Std.Usize)
+def fold_port.fit.icm.r_band_q_loop1
+  (i : Std.Usize) (hl : Slice Std.I64) (n : Std.Usize) (g : Std.Usize)
+  (two_g : Std.Usize) (rows : Std.Usize) (pv : alloc.vec.Vec Std.I64)
+  (pv2 : alloc.vec.Vec Std.I64) (err : Option fold_port.fit.icm.IcmError)
+  (mmat : alloc.vec.Vec Std.I64) (a2 : alloc.vec.Vec Std.I64)
+  (arows : alloc.vec.Vec Std.I64) (hb : alloc.vec.Vec Std.I64) (ga : Std.Usize)
   :
   Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
   := do
   loop
-    (fun (err1, tvec1, a_1) => fold_port.fit.icm.r_row_q_loop4.body wh n g row
-      two_g k pv err1 tvec1 a_1)
-    (err, tvec, a_)
+    (fun (err1, mmat1, a21, arows1, hb1, ga1) =>
+      fold_port.fit.icm.r_band_q_loop1.body i hl n g two_g rows pv pv2 err1
+      mmat1 a21 arows1 hb1 ga1)
+    (err, mmat, a2, arows, hb, ga)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 10:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1716:4-1722:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 20:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1719:12-1722:13 -/
 @[rust_loop_body]
-def fold_port.fit.icm.r_row_q_loop5.body
-  (two_g : Std.Usize) (mmat : alloc.vec.Vec Std.I64)
-  (err : Option fold_port.fit.icm.IcmError) (mean : Std.I128) (kk : Std.Usize)
-  :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × Std.I128 ×
-    Std.Usize) ((Option fold_port.fit.icm.IcmError) × Std.I128))
+def fold_port.fit.icm.r_band_q_loop2_loop0_loop0.body
+  (wh : Slice Std.I64) (src : Std.Usize) (dst : Std.Usize)
+  (whrows : alloc.vec.Vec Std.I64) (t : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
   := do
-  if kk < two_g
+  if t < fold_port.fit.icm.GROUP
   then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i ← kk * two_g
-      let i1 ← i + kk
-      let i2 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
-          mmat i1
-      let i3 ← lift (core.convert.num.FromI128I64.from i2)
-      let r ← fold_port.fit.icm.qsum mean i3
-      let (err1, mean1) ←
-        match r with
-        | core.result.Result.Ok v => ok (err, v)
-        | core.result.Result.Err e => ok (some e, mean)
-      let kk1 ← kk + 1#usize
-      ok (cont (err1, mean1, kk1))
-    else ok (done (err, mean))
-  else ok (done (err, mean))
+    let i ← src + t
+    let i1 ← Slice.index_usize wh i
+    let i2 ← dst + t
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        whrows i2
+    let t1 ← t + 1#usize
+    let whrows1 := index_mut_back i1
+    ok (cont (whrows1, t1))
+  else ok (done whrows)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 10:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1716:4-1722:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 20:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1719:12-1722:13 -/
 @[rust_loop]
-def fold_port.fit.icm.r_row_q_loop5
-  (two_g : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
-  (mmat : alloc.vec.Vec Std.I64) (mean : Std.I128) (kk : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × Std.I128)
+def fold_port.fit.icm.r_band_q_loop2_loop0_loop0
+  (wh : Slice Std.I64) (whrows : alloc.vec.Vec Std.I64) (src : Std.Usize)
+  (dst : Std.Usize) (t : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
   := do
   loop
-    (fun (err1, mean1, kk1) => fold_port.fit.icm.r_row_q_loop5.body two_g mmat
-      err1 mean1 kk1)
-    (err, mean, kk)
+    (fun (whrows1, t1) => fold_port.fit.icm.r_band_q_loop2_loop0_loop0.body wh
+      src dst whrows1 t1)
+    (whrows, t)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop body 11:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1732:4-1738:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 19:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1715:8-1724:9 -/
 @[rust_loop_body]
-def fold_port.fit.icm.r_row_q_loop6.body
-  (two_g : Std.Usize) (add : Std.I64) (err : Option fold_port.fit.icm.IcmError)
-  (mmat : alloc.vec.Vec Std.I64) (kk : Std.Usize) :
-  Result (ControlFlow ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec
-    Std.I64) × Std.Usize) ((Option fold_port.fit.icm.IcmError) ×
-    (alloc.vec.Vec Std.I64)))
+def fold_port.fit.icm.r_band_q_loop2_loop0.body
+  (wh : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
+  (rr : Std.Usize) (row : Std.Usize) (whrows : alloc.vec.Vec Std.I64)
+  (a_ : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
   := do
-  if kk < two_g
+  if a_ < two_g
   then
-    let b := core.option.Option.is_none err
-    if b
-    then
-      let i ← kk * two_g
-      let i1 ← i + kk
-      let i2 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
-          mmat i1
-      let r ← fold_port.fit.icm.add_q i2 add
-      let (err1, mmat1) ←
-        match r with
-        | core.result.Result.Ok v =>
-          do
-          let i3 ← i + kk
-          let (_, index_mut_back) ←
-            alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-              Std.I64) mmat i3
-          let mmat2 := index_mut_back v
-          ok (err, mmat2)
-        | core.result.Result.Err e => ok (some e, mmat)
-      let kk1 ← kk + 1#usize
-      ok (cont (err1, mmat1, kk1))
-    else ok (done (err, mmat))
-  else ok (done (err, mmat))
+    let i ← row * n
+    let i1 ← a_ % g
+    let i2 ← i1 * fold_port.fit.icm.GROUP
+    let src ← i + i2
+    let i3 ← rr * two_g
+    let i4 ← i3 + a_
+    let dst ← i4 * fold_port.fit.icm.GROUP
+    let whrows1 ←
+      fold_port.fit.icm.r_band_q_loop2_loop0_loop0 wh whrows src dst 0#usize
+    let a_1 ← a_ + 1#usize
+    ok (cont (whrows1, a_1))
+  else ok (done whrows)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]: loop 11:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1732:4-1738:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 19:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1715:8-1724:9 -/
 @[rust_loop]
-def fold_port.fit.icm.r_row_q_loop6
-  (two_g : Std.Usize) (err : Option fold_port.fit.icm.IcmError)
-  (mmat : alloc.vec.Vec Std.I64) (add : Std.I64) (kk : Std.Usize) :
-  Result ((Option fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64))
+def fold_port.fit.icm.r_band_q_loop2_loop0
+  (wh : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
+  (whrows : alloc.vec.Vec Std.I64) (rr : Std.Usize) (row : Std.Usize)
+  (a_ : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
   := do
   loop
-    (fun (err1, mmat1, kk1) => fold_port.fit.icm.r_row_q_loop6.body two_g add
-      err1 mmat1 kk1)
-    (err, mmat, kk)
+    (fun (whrows1, a_1) => fold_port.fit.icm.r_band_q_loop2_loop0.body wh n g
+      two_g rr row whrows1 a_1)
+    (whrows, a_)
 
-/-- [apeiron_word::fold_port::fit::icm::r_row_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1602:0-1744:1 -/
-def fold_port.fit.icm.r_row_q
-  (hl : Slice Std.I64) (wh : Slice Std.I64) (p1 : fold_port.fit.icm.PlaneRef)
-  (p2 : fold_port.fit.icm.PlaneRef) (n : Std.Usize) (g : Std.Usize)
-  (row : Std.Usize) :
-  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
-    Std.I64)) fold_port.fit.icm.IcmError)
-  := do
-  let two_g ← 2#usize * g
-  let i ← two_g * fold_port.fit.icm.GROUP
-  let prod ← alloc.vec.from_elem core.clone.CloneI128 0#i128 i
-  let prod1 ←
-    fold_port.fit.icm.r_row_q_loop0 { start := 0#usize, «end» := two_g }
-      p1.s p1.c p2.s p2.c n g row prod
-  let max ← fold_port.fit.icm.r_row_q_loop1 prod1 0#u128 0#usize
-  let o ← solve_port.q32.ilog2_pos max
-  let k ←
-    match o with
-    | none => ok 0#u32
-    | some l => ok (core.num.U32.saturating_sub 66#u32 l)
-  let i1 ← two_g * fold_port.fit.icm.GROUP
-  let pv ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i1
-  let (err, pv1) ← fold_port.fit.icm.r_row_q_loop2 prod1 k none pv 0#usize
-  match err with
-  | none =>
-    let i2 ← g * fold_port.fit.icm.GROUP
-    let kvec ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i2
-    let i3 ← two_g * two_g
-    let mmat ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i3
-    let (err1, mmat1) ←
-      fold_port.fit.icm.r_row_q_loop3 hl n g two_g none pv1 kvec mmat 0#usize
-    let tvec ← alloc.vec.from_elem core.clone.CloneI64 0#i64 two_g
-    let (err2, tvec1) ←
-      fold_port.fit.icm.r_row_q_loop4 wh n g row two_g k err1 pv1 tvec 0#usize
-    let (err3, mean) ←
-      fold_port.fit.icm.r_row_q_loop5 two_g err2 mmat1 0#i128 0#usize
-    match err3 with
-    | none =>
-      let i4 ← lift (UScalar.hcast .I128 two_g)
-      let r ← fold_port.fit.icm.div_round mean i4
-      let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-      match cf with
-      | core.ops.control_flow.ControlFlow.Continue val =>
-        let o1 ← solve_port.q32.narrow val
-        let r1 ←
-          core.option.Option.ok_or o1 fold_port.fit.icm.IcmError.Overflow
-        let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
-        match cf1 with
-        | core.ops.control_flow.ControlFlow.Continue val1 =>
-          let i5 ← lift (core.convert.num.FromI128I64.from val1)
-          let r2 ← fold_port.fit.icm.div_round i5 1000000000000#i128
-          let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
-          match cf2 with
-          | core.ops.control_flow.ControlFlow.Continue val2 =>
-            let o2 ← solve_port.q32.narrow val2
-            let r3 ←
-              core.option.Option.ok_or o2 fold_port.fit.icm.IcmError.Overflow
-            let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
-            match cf3 with
-            | core.ops.control_flow.ControlFlow.Continue val3 =>
-              let add ←
-                if val1 > 0#i64
-                then if val3 < 1#i64
-                     then ok 1#i64
-                     else ok val3
-                else ok val3
-              let (err4, mmat2) ←
-                fold_port.fit.icm.r_row_q_loop6 two_g none mmat1 add 0#usize
-              match err4 with
-              | none =>
-                let s := alloc.vec.Vec.deref mmat2
-                let s1 := alloc.vec.Vec.deref tvec1
-                let r4 ← solve_port.chol.chol_solve s s1 two_g 1#usize
-                let r5 ←
-                  core.result.Result.map_err
-                    P.Insts.CoreOpsFunctionFnOnceTupleSolveErrorIcmError r4
-                    (fold_port.fit.icm.map_solve)
-                let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r5
-                match cf4 with
-                | core.ops.control_flow.ControlFlow.Continue val4 =>
-                  let s2 ←
-                    alloc.vec.Vec.index
-                      (core.slice.index.SliceIndexRangeToUsizeSlice Std.I64)
-                      val4.x { «end» := g }
-                  let v ← alloc.slice.Slice.to_vec core.clone.CloneI64 s2
-                  let s3 ←
-                    alloc.vec.Vec.index
-                      (core.slice.index.SliceIndexRangeFromUsizeSlice Std.I64)
-                      val4.x { start := g }
-                  let v1 ← alloc.slice.Slice.to_vec core.clone.CloneI64 s3
-                  ok (core.result.Result.Ok (v, v1))
-                | core.ops.control_flow.ControlFlow.Break residual =>
-                  core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                    ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
-                    (core.convert.FromSame fold_port.fit.icm.IcmError) residual
-              | some e => ok (core.result.Result.Err e)
-            | core.ops.control_flow.ControlFlow.Break residual =>
-              core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-                ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
-                (core.convert.FromSame fold_port.fit.icm.IcmError) residual
-          | core.ops.control_flow.ControlFlow.Break residual =>
-            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-              ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
-              (core.convert.FromSame fold_port.fit.icm.IcmError) residual
-        | core.ops.control_flow.ControlFlow.Break residual =>
-          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-            ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
-            (core.convert.FromSame fold_port.fit.icm.IcmError) residual
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
-          (core.convert.FromSame fold_port.fit.icm.IcmError) residual
-    | some e => ok (core.result.Result.Err e)
-  | some e => ok (core.result.Result.Err e)
-
-/-- [apeiron_word::fold_port::fit::icm::r_step_rows]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1562:4-1571:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 18:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1712:4-1726:5 -/
 @[rust_loop_body]
-def fold_port.fit.icm.r_step_rows_loop.body
-  (hl : Slice Std.I64) (wh : Slice Std.I64) (s : Slice Std.I64)
-  (s1 : Slice Std.U16) (s2 : Slice Std.I64) (s3 : Slice Std.I64)
-  (s4 : Slice Std.I64) (s5 : Slice Std.I64) (s6 : Slice Std.U16)
-  (s7 : Slice Std.I64) (s8 : Slice Std.I64) (s9 : Slice Std.I64)
-  (n : Std.Usize) (g : Std.Usize) (row0 : Std.Usize) (r1 : Slice Std.I64)
-  (r2 : Slice Std.I64) (err : Option fold_port.fit.icm.IcmError)
+def fold_port.fit.icm.r_band_q_loop2.body
+  (wh : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (row0 : Std.Usize)
+  (two_g : Std.Usize) (rows : Std.Usize) (whrows : alloc.vec.Vec Std.I64)
+  (rr : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
+  := do
+  if rr < rows
+  then
+    let row ← row0 + rr
+    let whrows1 ←
+      fold_port.fit.icm.r_band_q_loop2_loop0 wh n g two_g whrows rr row 0#usize
+    let rr1 ← rr + 1#usize
+    ok (cont (whrows1, rr1))
+  else ok (done whrows)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 18:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1712:4-1726:5 -/
+@[rust_loop]
+def fold_port.fit.icm.r_band_q_loop2
+  (wh : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (row0 : Std.Usize)
+  (two_g : Std.Usize) (rows : Std.Usize) (whrows : alloc.vec.Vec Std.I64)
+  (rr : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
+  := do
+  loop
+    (fun (whrows1, rr1) => fold_port.fit.icm.r_band_q_loop2.body wh n g row0
+      two_g rows whrows1 rr1)
+    (whrows, rr)
+
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 21:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1729:4-1743:5 -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_band_q_loop3.body
+  (g : Std.Usize) (two_g : Std.Usize) (rows : Std.Usize)
+  (ks : alloc.vec.Vec Std.U32) (tvals : alloc.vec.Vec Std.I64)
+  (r1_out : Slice Std.I64) (r2_out : Slice Std.I64)
+  (err : Option fold_port.fit.icm.IcmError) (mmat : alloc.vec.Vec Std.I64)
   (rr : Std.Usize) :
   Result (ControlFlow ((Slice Std.I64) × (Slice Std.I64) × (Option
-    fold_port.fit.icm.IcmError) × Std.Usize) ((Slice Std.I64) × (Slice
-    Std.I64) × (Option fold_port.fit.icm.IcmError)))
+    fold_port.fit.icm.IcmError) × (alloc.vec.Vec Std.I64) × Std.Usize)
+    ((Slice Std.I64) × (Slice Std.I64) × (Option
+    fold_port.fit.icm.IcmError)))
   := do
-  let i := Slice.len r1
-  let i1 ← i / g
-  if rr < i1
+  if rr < rows
   then
     let b := core.option.Option.is_none err
     if b
     then
-      let i2 ← row0 + rr
-      let r ←
-        fold_port.fit.icm.r_row_q hl wh
-          { s, idx := s1, r := s2, c := s3, d := s4 }
-          { s := s5, idx := s6, r := s7, c := s8, d := s9 } n g i2
-      let (r11, r21, err1) ←
+      let i ← rr * two_g
+      let i1 ← i * two_g
+      let i2 ← rr + 1#usize
+      let i3 ← i2 * two_g
+      let i4 ← i3 * two_g
+      let (s, index_mut_back) ←
+        alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) mmat { start := i1, «end» := i4 }
+      let i5 ← i2 * two_g
+      let s1 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexRangeUsizeSlice
+          Std.I64) tvals { start := i, «end» := i5 }
+      let i6 ←
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U32) ks
+          rr
+      let i7 ← rr * g
+      let i8 ← i2 * g
+      let (s2, index_mut_back1) ←
+        core.slice.index.Slice.index_mut
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) r1_out
+          { start := i7, «end» := i8 }
+      let i9 ← i2 * g
+      let (s3, index_mut_back2) ←
+        core.slice.index.Slice.index_mut
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) r2_out
+          { start := i7, «end» := i9 }
+      let (r, s4, s5, s6) ←
+        fold_port.fit.icm.r_ridge_solve_q s s1 i6 two_g g s2 s3
+      let err1 ←
         match r with
-        | core.result.Result.Ok p =>
-          do
-          let (a, b1) := p
-          let i3 ← rr * g
-          let i4 ← rr + 1#usize
-          let i5 ← i4 * g
-          let (s10, index_mut_back) ←
-            core.slice.index.Slice.index_mut
-              (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) r1
-              { start := i3, «end» := i5 }
-          let s11 := alloc.vec.Vec.deref a
-          let s12 ←
-            core.slice.Slice.copy_from_slice core.marker.CopyI64 s10 s11
-          let i6 ← i4 * g
-          let (s13, index_mut_back1) ←
-            core.slice.index.Slice.index_mut
-              (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) r2
-              { start := i3, «end» := i6 }
-          let s14 := alloc.vec.Vec.deref b1
-          let s15 ←
-            core.slice.Slice.copy_from_slice core.marker.CopyI64 s13 s14
-          let r22 := index_mut_back1 s15
-          let r12 := index_mut_back s12
-          ok (r12, r22, err)
-        | core.result.Result.Err e => ok (r1, r2, some e)
-      let rr1 ← rr + 1#usize
-      ok (cont (r11, r21, err1, rr1))
-    else ok (done (r1, r2, err))
-  else ok (done (r1, r2, err))
+        | core.result.Result.Ok _ => ok err
+        | core.result.Result.Err e => ok (some e)
+      let r2_out1 := index_mut_back2 s6
+      let r1_out1 := index_mut_back1 s5
+      let mmat1 := index_mut_back s4
+      ok (cont (r1_out1, r2_out1, err1, mmat1, i2))
+    else ok (done (r1_out, r2_out, err))
+  else ok (done (r1_out, r2_out, err))
 
-/-- [apeiron_word::fold_port::fit::icm::r_step_rows]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1562:4-1571:5 -/
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 21:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1729:4-1743:5 -/
 @[rust_loop]
-def fold_port.fit.icm.r_step_rows_loop
-  (hl : Slice Std.I64) (wh : Slice Std.I64) (s : Slice Std.I64)
-  (s1 : Slice Std.U16) (s2 : Slice Std.I64) (s3 : Slice Std.I64)
-  (s4 : Slice Std.I64) (s5 : Slice Std.I64) (s6 : Slice Std.U16)
-  (s7 : Slice Std.I64) (s8 : Slice Std.I64) (s9 : Slice Std.I64)
-  (n : Std.Usize) (g : Std.Usize) (row0 : Std.Usize) (r1 : Slice Std.I64)
-  (r2 : Slice Std.I64) (err : Option fold_port.fit.icm.IcmError)
-  (rr : Std.Usize) :
+def fold_port.fit.icm.r_band_q_loop3
+  (g : Std.Usize) (r1_out : Slice Std.I64) (r2_out : Slice Std.I64)
+  (two_g : Std.Usize) (rows : Std.Usize) (ks : alloc.vec.Vec Std.U32)
+  (err : Option fold_port.fit.icm.IcmError) (mmat : alloc.vec.Vec Std.I64)
+  (tvals : alloc.vec.Vec Std.I64) (rr : Std.Usize) :
   Result ((Slice Std.I64) × (Slice Std.I64) × (Option
     fold_port.fit.icm.IcmError))
   := do
   loop
-    (fun (r11, r21, err1, rr1) => fold_port.fit.icm.r_step_rows_loop.body hl wh
-      s s1 s2 s3 s4 s5 s6 s7 s8 s9 n g row0 r11 r21 err1 rr1)
-    (r1, r2, err, rr)
+    (fun (r1_out1, r2_out1, err1, mmat1, rr1) =>
+      fold_port.fit.icm.r_band_q_loop3.body g two_g rows ks tvals r1_out1
+      r2_out1 err1 mmat1 rr1)
+    (r1_out, r2_out, err, mmat, rr)
 
-/-- [apeiron_word::fold_port::fit::icm::r_step_rows]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1549:0-1576:1 -/
-def fold_port.fit.icm.r_step_rows
+/-- [apeiron_word::fold_port::fit::icm::r_band_q]:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1551:0-1748:1 -/
+def fold_port.fit.icm.r_band_q
   (hl : Slice Std.I64) (wh : Slice Std.I64) (p1 : fold_port.fit.icm.PlaneRef)
   (p2 : fold_port.fit.icm.PlaneRef) (n : Std.Usize) (g : Std.Usize)
-  (row0 : Std.Usize) (r1 : Slice Std.I64) (r2 : Slice Std.I64) :
+  (row0 : Std.Usize) (r1_out : Slice Std.I64) (r2_out : Slice Std.I64) :
   Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
     Std.I64) × (Slice Std.I64))
   := do
-  let (r11, r21, err) ←
-    fold_port.fit.icm.r_step_rows_loop hl wh p1.s p1.idx p1.r p1.c p1.d
-      p2.s p2.idx p2.r p2.c p2.d n g row0 r1 r2 none 0#usize
+  let two_g ← 2#usize * g
+  let i := Slice.len r1_out
+  let rows ← i / g
+  let i1 ← rows * two_g
+  let i2 ← i1 * fold_port.fit.icm.GROUP
+  let pv ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i2
+  let i3 ← rows * g
+  let i4 ← i3 * 2#usize
+  let i5 ← i4 * fold_port.fit.icm.GROUP
+  let pv2 ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i5
+  let ks ← alloc.vec.from_elem core.clone.CloneU32 0#u32 rows
+  let i6 ← two_g * fold_port.fit.icm.GROUP
+  let prod ← alloc.vec.from_elem core.clone.CloneI128 0#i128 i6
+  let (pv1, pv21, ks1, err) ←
+    fold_port.fit.icm.r_band_q_loop0 p1.s p1.c p2.s p2.c n g row0 two_g rows pv
+      pv2 ks prod none 0#usize
   match err with
-  | none => ok (core.result.Result.Ok (), r11, r21)
-  | some e => ok (core.result.Result.Err e, r11, r21)
+  | none =>
+    let i7 ← rows * two_g
+    let i8 ← i7 * two_g
+    let mmat ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i8
+    let i9 ← 2#usize * fold_port.fit.icm.GROUP
+    let a2 ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i9
+    let i10 ← rows * 2#usize
+    let i11 ← i10 * fold_port.fit.icm.GROUP
+    let arows ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i11
+    let i12 ← n * fold_port.fit.icm.GROUP
+    let hb ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i12
+    let (err1, mmat1) ←
+      fold_port.fit.icm.r_band_q_loop1 i9 hl n g two_g rows pv1 pv21 none mmat
+        a2 arows hb 0#usize
+    match err1 with
+    | none =>
+      let i13 ← rows * two_g
+      let i14 ← i13 * fold_port.fit.icm.GROUP
+      let whrows ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i14
+      let whrows1 ←
+        fold_port.fit.icm.r_band_q_loop2 wh n g row0 two_g rows whrows 0#usize
+      let s := alloc.vec.Vec.deref pv1
+      let s1 := alloc.vec.Vec.deref whrows1
+      let i15 ← rows * two_g
+      let r ←
+        kern.limb.rowdot_q32 s s1 i15 fold_port.fit.icm.GROUP
+          fold_port.fit.icm.LIMBS
+      let r1 ←
+        core.result.Result.map_err
+          P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError r
+          (fold_port.fit.icm.map_limb)
+      let cf ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let (r1_out1, r2_out1, err2) ←
+          fold_port.fit.icm.r_band_q_loop3 g r1_out r2_out two_g rows ks1 none
+            mmat1 val 0#usize
+        match err2 with
+        | none => ok (core.result.Result.Ok (), r1_out1, r2_out1)
+        | some e => ok (core.result.Result.Err e, r1_out1, r2_out1)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        let r2 ←
+          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+            Unit (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+        ok (r2, r1_out, r2_out)
+    | some e => ok (core.result.Result.Err e, r1_out, r2_out)
+  | some e => ok (core.result.Result.Err e, r1_out, r2_out)
 
-/-- [apeiron_word::fold_port::fit::icm::RStepRows]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1516:0-1524:1 -/
-structure fold_port.fit.icm.RStepRows where
-  hl : Slice Std.I64
-  wh : Slice Std.I64
-  p1 : fold_port.fit.icm.PlaneRef
-  p2 : fold_port.fit.icm.PlaneRef
-  n : Std.Usize
-  g : Std.Usize
-  per : Std.Usize
-
-/-- [apeiron_word::fold_port::fit::icm::{impl apeiron_word::chart::task::Task2<i64, i64, apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::RStepRows<'_0>}::run]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1527:4-1539:5 -/
-def
-  fold_port.fit.icm.RStepRows.Insts.Apeiron_wordChartTaskTask2I64I64IcmError.run
-  (self : fold_port.fit.icm.RStepRows) (t : Std.Usize) (r1 : Slice Std.I64)
-  (r2 : Slice Std.I64) :
-  Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
-    Std.I64) × (Slice Std.I64))
+/-- [apeiron_word::fold_port::fit::icm::r_step2]: loop body 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1510:4-1526:1
+    Visibility: public -/
+@[rust_loop_body]
+def fold_port.fit.icm.r_step2_loop.body
+  (hl : Slice Std.I64) (s : Slice Std.I64) (s1 : Slice Std.U16)
+  (s2 : Slice Std.I64) (s3 : Slice Std.I64) (s4 : Slice Std.I64)
+  (s5 : Slice Std.I64) (s6 : Slice Std.U16) (s7 : Slice Std.I64)
+  (s8 : Slice Std.I64) (s9 : Slice Std.I64) (o : Std.Usize) (n : Std.Usize)
+  (g : Std.Usize) (wh : alloc.vec.Vec Std.I64) (per : Std.Usize)
+  (r1_out : alloc.vec.Vec Std.I64) (r2_out : alloc.vec.Vec Std.I64)
+  (row0 : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64) ×
+    Std.Usize) (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) fold_port.fit.icm.IcmError))
   := do
-  let i ← t * self.per
-  fold_port.fit.icm.r_step_rows self.hl self.wh self.p1 self.p2 self.n
-    self.g i r1 r2
+  if row0 < o
+  then
+    let i ← o - row0
+    let take ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize per i
+    let s10 := alloc.vec.Vec.deref wh
+    let i1 ← row0 * g
+    let i2 ← row0 + take
+    let i3 ← i2 * g
+    let (s11, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.I64) r1_out { start := i1, «end» := i3 }
+    let i4 ← i2 * g
+    let (s12, index_mut_back1) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexRangeUsizeSlice
+        Std.I64) r2_out { start := i1, «end» := i4 }
+    let (r, s13, s14) ←
+      fold_port.fit.icm.r_band_q hl s10
+        { s, idx := s1, r := s2, c := s3, d := s4 }
+        { s := s5, idx := s6, r := s7, c := s8, d := s9 } n g row0 s11 s12
+    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+    match cf with
+    | core.ops.control_flow.ControlFlow.Continue _ =>
+      let r2_out1 := index_mut_back1 s14
+      let r1_out1 := index_mut_back s13
+      ok (cont (r1_out1, r2_out1, i2))
+    | core.ops.control_flow.ControlFlow.Break residual =>
+      let r1 ←
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
+          (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+      ok (done r1)
+  else ok (done (core.result.Result.Ok (r1_out, r2_out)))
 
-/-- Trait implementation: [apeiron_word::fold_port::fit::icm::{impl apeiron_word::chart::task::Task2<i64, i64, apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::RStepRows<'_0>}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1526:0-1540:1 -/
-@[reducible]
-def fold_port.fit.icm.RStepRows.Insts.Apeiron_wordChartTaskTask2I64I64IcmError
-  : chart.task.Task2 fold_port.fit.icm.RStepRows Std.I64 Std.I64
-  fold_port.fit.icm.IcmError := {
-  run :=
-    fold_port.fit.icm.RStepRows.Insts.Apeiron_wordChartTaskTask2I64I64IcmError.run
-}
+/-- [apeiron_word::fold_port::fit::icm::r_step2]: loop 0:
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1510:4-1526:1
+    Visibility: public -/
+@[rust_loop]
+def fold_port.fit.icm.r_step2_loop
+  (hl : Slice Std.I64) (s : Slice Std.I64) (s1 : Slice Std.U16)
+  (s2 : Slice Std.I64) (s3 : Slice Std.I64) (s4 : Slice Std.I64)
+  (s5 : Slice Std.I64) (s6 : Slice Std.U16) (s7 : Slice Std.I64)
+  (s8 : Slice Std.I64) (s9 : Slice Std.I64) (o : Std.Usize) (n : Std.Usize)
+  (g : Std.Usize) (wh : alloc.vec.Vec Std.I64) (r1_out : alloc.vec.Vec Std.I64)
+  (r2_out : alloc.vec.Vec Std.I64) (per : Std.Usize) (row0 : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec
+    Std.I64)) fold_port.fit.icm.IcmError)
+  := do
+  loop
+    (fun (r1_out1, r2_out1, row01) => fold_port.fit.icm.r_step2_loop.body hl s
+      s1 s2 s3 s4 s5 s6 s7 s8 s9 o n g wh per r1_out1 r2_out1 row01)
+    (r1_out, r2_out, row0)
 
 /-- [apeiron_word::fold_port::fit::icm::r_step2]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1487:0-1513:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1492:0-1526:1
     Visibility: public -/
 def fold_port.fit.icm.r_step2
   (ws : Slice Std.I64) (hl : Slice Std.I64) (p1 : fold_port.fit.icm.PlaneRef)
@@ -80566,31 +86563,16 @@ def fold_port.fit.icm.r_step2
       | core.ops.control_flow.ControlFlow.Continue _ =>
         let g ← n / fold_port.fit.icm.GROUP
         let per ← fold_port.fit.icm.rows_per_task o
-        let r3 ← fold_port.fit.icm.matmul_q ws hl o n n false
+        let r3 ← fold_port.fit.icm.matmul_l ws hl o n n false
         let cf3 ← core.result.Result.Insts.CoreOpsTry.branch r3
         match cf3 with
         | core.ops.control_flow.ControlFlow.Continue val =>
           let i ← o * g
           let r1_out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
           let r2_out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
-          let s := alloc.vec.Vec.deref val
-          let (s1, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut r1_out)
-          let i1 ← per * g
-          let (s2, deref_mut_back1) ← lift (alloc.vec.Vec.deref_mut r2_out)
-          let (r4, s3, s4) ←
-            chart.pool.chunks.for_chunks2
-              fold_port.fit.icm.RStepRows.Insts.Apeiron_wordChartTaskTask2I64I64IcmError
-              s1 i1 s2 i1 { hl, wh := s, p1, p2, n, g, per }
-          let cf4 ← core.result.Result.Insts.CoreOpsTry.branch r4
-          match cf4 with
-          | core.ops.control_flow.ControlFlow.Continue _ =>
-            let r1_out1 := deref_mut_back s3
-            let r2_out1 := deref_mut_back1 s4
-            ok (core.result.Result.Ok (r1_out1, r2_out1))
-          | core.ops.control_flow.ControlFlow.Break residual =>
-            core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-              ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
-              (core.convert.FromSame fold_port.fit.icm.IcmError) residual
+          let per1 ← core.cmp.Ord.max.default core.cmp.OrdUsize per 1#usize
+          fold_port.fit.icm.r_step2_loop hl p1.s p1.idx p1.r p1.c p1.d
+            p2.s p2.idx p2.r p2.c p2.d o n g val r1_out r2_out per1 0#usize
         | core.ops.control_flow.ControlFlow.Break residual =>
           core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
             ((alloc.vec.Vec Std.I64) × (alloc.vec.Vec Std.I64))
@@ -80609,7 +86591,7 @@ def fold_port.fit.icm.r_step2
       (core.convert.FromSame fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::matmul]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1773:0-1781:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1845:0-1853:1
     Visibility: public -/
 def fold_port.fit.icm.matmul
   (a : Slice Std.I64) (b : Slice Std.I64) (rows : Std.Usize)
@@ -82366,7 +88348,7 @@ def fixed_ln.div_rne
              ok (some i)
 
 /-- [apeiron_word::fold_port::stats::basis::log2]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 91:0-94:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 92:0-95:1 -/
 def fold_port.stats.basis.log2 (x : Std.I64) : Result (Option Std.I64) := do
   let r ← fixed_ln.fixed_ln x
   let o ← core.result.Result.ok r
@@ -82412,7 +88394,7 @@ def fold_port.stats.parts.mul
   solve_port.q32.narrow i2
 
 /-- [apeiron_word::fold_port::stats::basis::exp2]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 99:0-118:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 100:0-119:1 -/
 def fold_port.stats.basis.exp2 (t : Std.I64) : Result (Option Std.I64) := do
   let k ← t >>> 32#i32
   let i ← k <<< 32#i32
@@ -82465,35 +88447,35 @@ def fold_port.stats.basis.exp2 (t : Std.I64) : Result (Option Std.I64) := do
       Std.I64 residual
 
 /-- [apeiron_word::fold_port::stats::basis::GROUP]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 122:0-122:29
+    Source: '../../src/learn/fold/stats/basis.rs', lines 123:0-123:29
     Visibility: public -/
 @[global_simps, irreducible]
 def fold_port.stats.basis.GROUP : Std.Usize := 128#usize
 
 /-- [apeiron_word::fold_port::stats::basis::DAMP_Q]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 125:0-125:35
+    Source: '../../src/learn/fold/stats/basis.rs', lines 126:0-126:35
     Visibility: public -/
 @[global_simps, irreducible]
 def fold_port.stats.basis.DAMP_Q : Std.I64 := 42949673#i64
 
 /-- [apeiron_word::fold_port::stats::basis::TILE]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 128:0-128:27
+    Source: '../../src/learn/fold/stats/basis.rs', lines 129:0-129:27
     Visibility: public -/
 @[global_simps, irreducible]
 def fold_port.stats.basis.TILE : Std.Usize := 16#usize
 
 /-- [apeiron_word::fold_port::stats::basis::BISECTION_ITERS]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 131:0-131:35 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 132:0-132:35 -/
 @[global_simps, irreducible]
 def fold_port.stats.basis.BISECTION_ITERS : Std.Usize := 200#usize
 
 /-- [apeiron_word::fold_port::stats::basis::RATE_TOL_Q]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 134:0-134:26 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 135:0-135:26 -/
 @[global_simps, irreducible]
 def fold_port.stats.basis.RATE_TOL_Q : Std.I64 := 4#i64
 
 /-- [apeiron_word::fold_port::stats::basis::BasisError]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 141:0-153:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 142:0-154:1
     Visibility: public -/
 @[discriminant isize]
 inductive fold_port.stats.basis.BasisError where
@@ -82504,7 +88486,7 @@ inductive fold_port.stats.basis.BasisError where
 | OutOfRange : fold_port.stats.basis.BasisError
 
 /-- [apeiron_word::fold_port::stats::basis::square]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 169:0-171:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 170:0-172:1 -/
 def fold_port.stats.basis.square
   (rows : Std.Usize) (cols : Std.Usize) :
   Result (core.result.Result Std.Usize fold_port.stats.basis.BasisError)
@@ -82513,7 +88495,7 @@ def fold_port.stats.basis.square
   core.option.Option.ok_or o fold_port.stats.basis.BasisError.Overflow
 
 /-- [apeiron_word::fold_port::stats::basis::expect]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 173:0-180:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 174:0-181:1 -/
 def fold_port.stats.basis.expect
   (len : Std.Usize) (rows : Std.Usize) (cols : Std.Usize) (what : Str) :
   Result (core.result.Result Std.Usize fold_port.stats.basis.BasisError)
@@ -82552,7 +88534,7 @@ def fold_port.stats.basis.expect
       residual
 
 /-- [apeiron_word::fold_port::stats::basis::expect_blocks]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 182:0-189:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 183:0-190:1 -/
 def fold_port.stats.basis.expect_blocks
   (n : Std.Usize) :
   Result (core.result.Result Std.Usize fold_port.stats.basis.BasisError)
@@ -82599,12 +88581,12 @@ def fold_port.stats.basis.expect_blocks
       ok (core.result.Result.Err (fold_port.stats.basis.BasisError.Shape s1))
 
 /-- [apeiron_word::fold_port::stats::basis::round64::{closure}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 193:32-193:58 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 194:32-194:58 -/
 @[reducible]
 def fold_port.stats.basis.round64.closure := Unit
 
 /-- [apeiron_word::fold_port::stats::basis::round64::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::round64::{closure}}::call_once]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 193:32-193:58 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 194:32-194:58 -/
 def
   fold_port.stats.basis.round64.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorBasisError.call_once
   (c : fold_port.stats.basis.round64.closure)
@@ -82614,7 +88596,7 @@ def
   ok fold_port.stats.basis.BasisError.OutOfRange
 
 /-- Trait implementation: [apeiron_word::fold_port::stats::basis::round64::{impl core::ops::function::FnOnce<(apeiron_word::solve_port::q32::Q32Error,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::round64::{closure}}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 193:32-193:58 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 194:32-194:58 -/
 @[reducible]
 def
   fold_port.stats.basis.round64.closure.Insts.CoreOpsFunctionFnOnceTupleQ32ErrorBasisError
@@ -82625,7 +88607,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::stats::basis::round64]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 192:0-194:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 193:0-195:1 -/
 def fold_port.stats.basis.round64
   (acc : Std.I128) :
   Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
@@ -82653,12 +88635,12 @@ def P.Insts.CoreOpsFunctionFnOnceTupleI128OptionI64 : core.ops.function.FnOnce
 }
 
 /-- [apeiron_word::fold_port::stats::basis::damped_gram::{closure}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 262:44-262:68 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 263:44-263:68 -/
 @[reducible]
 def fold_port.stats.basis.damped_gram.closure := Unit
 
 /-- [apeiron_word::fold_port::stats::basis::damped_gram::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::damped_gram::{closure}}::call_once]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 262:44-262:68 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 263:44-263:68 -/
 def
   fold_port.stats.basis.damped_gram.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError.call_once
   (c : fold_port.stats.basis.damped_gram.closure)
@@ -82668,7 +88650,7 @@ def
   ok fold_port.stats.basis.BasisError.Overflow
 
 /-- Trait implementation: [apeiron_word::fold_port::stats::basis::damped_gram::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::damped_gram::{closure}}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 262:44-262:68 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 263:44-263:68 -/
 @[reducible]
 def
   fold_port.stats.basis.damped_gram.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError
@@ -82679,7 +88661,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::stats::basis::damped_gram]: loop body 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 257:4-259:5
+    Source: '../../src/learn/fold/stats/basis.rs', lines 258:4-260:5
     Visibility: public -/
 @[rust_loop_body]
 def fold_port.stats.basis.damped_gram_loop0.body
@@ -82702,7 +88684,7 @@ def fold_port.stats.basis.damped_gram_loop0.body
     ok (cont (iter1, sum1))
 
 /-- [apeiron_word::fold_port::stats::basis::damped_gram]: loop 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 257:4-259:5
+    Source: '../../src/learn/fold/stats/basis.rs', lines 258:4-260:5
     Visibility: public -/
 @[rust_loop]
 def fold_port.stats.basis.damped_gram_loop0
@@ -82716,7 +88698,7 @@ def fold_port.stats.basis.damped_gram_loop0
     (iter, sum)
 
 /-- [apeiron_word::fold_port::stats::basis::damped_gram]: loop body 1:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 272:4-278:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 273:4-279:1
     Visibility: public -/
 @[rust_loop_body]
 def fold_port.stats.basis.damped_gram_loop1.body
@@ -82756,7 +88738,7 @@ def fold_port.stats.basis.damped_gram_loop1.body
       ok (done r1)
 
 /-- [apeiron_word::fold_port::stats::basis::damped_gram]: loop 1:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 272:4-278:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 273:4-279:1
     Visibility: public -/
 @[rust_loop]
 def fold_port.stats.basis.damped_gram_loop1
@@ -82771,7 +88753,7 @@ def fold_port.stats.basis.damped_gram_loop1
     (iter, out)
 
 /-- [apeiron_word::fold_port::stats::basis::damped_gram]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 253:0-278:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 254:0-279:1
     Visibility: public -/
 def fold_port.stats.basis.damped_gram
   (h : Slice Std.I64) (n : Std.Usize) :
@@ -82852,7 +88834,7 @@ def fold_port.stats.basis.damped_gram
       fold_port.stats.basis.BasisError) residual
 
 /-- [apeiron_word::fold_port::stats::basis::identity_basis]: loop body 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 285:4-287:5
+    Source: '../../src/learn/fold/stats/basis.rs', lines 286:4-288:5
     Visibility: public -/
 @[rust_loop_body]
 def fold_port.stats.basis.identity_basis_loop.body
@@ -82876,7 +88858,7 @@ def fold_port.stats.basis.identity_basis_loop.body
     ok (cont (iter1, q1))
 
 /-- [apeiron_word::fold_port::stats::basis::identity_basis]: loop 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 285:4-287:5
+    Source: '../../src/learn/fold/stats/basis.rs', lines 286:4-288:5
     Visibility: public -/
 @[rust_loop]
 def fold_port.stats.basis.identity_basis_loop
@@ -82890,7 +88872,7 @@ def fold_port.stats.basis.identity_basis_loop
     (iter, q)
 
 /-- [apeiron_word::fold_port::stats::basis::identity_basis]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 283:0-289:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 284:0-290:1
     Visibility: public -/
 def fold_port.stats.basis.identity_basis
   (n : Std.Usize) :
@@ -82912,7 +88894,7 @@ def fold_port.stats.basis.identity_basis
       fold_port.stats.basis.BasisError) residual
 
 /-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop body 2:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 307:12-309:13
+    Source: '../../src/learn/fold/stats/basis.rs', lines 308:12-310:13
     Visibility: public -/
 @[rust_loop_body]
 def fold_port.stats.basis.hadamard_basis_loop0_loop0_loop0.body
@@ -82932,7 +88914,7 @@ def fold_port.stats.basis.hadamard_basis_loop0_loop0_loop0.body
     ok (cont (iter1, e1))
 
 /-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop 2:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 307:12-309:13
+    Source: '../../src/learn/fold/stats/basis.rs', lines 308:12-310:13
     Visibility: public -/
 @[rust_loop]
 def fold_port.stats.basis.hadamard_basis_loop0_loop0_loop0
@@ -82945,7 +88927,7 @@ def fold_port.stats.basis.hadamard_basis_loop0_loop0_loop0
     (iter, e)
 
 /-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop body 3:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 313:20-315:21
+    Source: '../../src/learn/fold/stats/basis.rs', lines 314:20-316:21
     Visibility: public -/
 @[rust_loop_body]
 def fold_port.stats.basis.hadamard_basis_loop0_loop0_loop1.body
@@ -82972,7 +88954,7 @@ def fold_port.stats.basis.hadamard_basis_loop0_loop0_loop1.body
     ok (cont (iter1, q1))
 
 /-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop 3:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 313:20-315:21
+    Source: '../../src/learn/fold/stats/basis.rs', lines 314:20-316:21
     Visibility: public -/
 @[rust_loop]
 def fold_port.stats.basis.hadamard_basis_loop0_loop0_loop1
@@ -82988,7 +88970,7 @@ def fold_port.stats.basis.hadamard_basis_loop0_loop0_loop1
     (iter, q)
 
 /-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop body 1:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 306:8-323:9
+    Source: '../../src/learn/fold/stats/basis.rs', lines 307:8-324:9
     Visibility: public -/
 @[rust_loop_body]
 def fold_port.stats.basis.hadamard_basis_loop0_loop0.body
@@ -83044,7 +89026,7 @@ def fold_port.stats.basis.hadamard_basis_loop0_loop0.body
            ok (cont (iter1, q, e3, failed))
 
 /-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop 1:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 306:8-323:9
+    Source: '../../src/learn/fold/stats/basis.rs', lines 307:8-324:9
     Visibility: public -/
 @[rust_loop]
 def fold_port.stats.basis.hadamard_basis_loop0_loop0
@@ -83061,7 +89043,7 @@ def fold_port.stats.basis.hadamard_basis_loop0_loop0
     (iter, q, e, failed)
 
 /-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop body 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 304:4-324:5
+    Source: '../../src/learn/fold/stats/basis.rs', lines 305:4-325:5
     Visibility: public -/
 @[rust_loop_body]
 def fold_port.stats.basis.hadamard_basis_loop0.body
@@ -83086,7 +89068,7 @@ def fold_port.stats.basis.hadamard_basis_loop0.body
     ok (cont (iter1, q1, e1, failed1))
 
 /-- [apeiron_word::fold_port::stats::basis::hadamard_basis]: loop 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 304:4-324:5
+    Source: '../../src/learn/fold/stats/basis.rs', lines 305:4-325:5
     Visibility: public -/
 @[rust_loop]
 def fold_port.stats.basis.hadamard_basis_loop0
@@ -83101,7 +89083,7 @@ def fold_port.stats.basis.hadamard_basis_loop0
     (iter, q, e, failed)
 
 /-- [apeiron_word::fold_port::stats::basis::hadamard_basis]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 297:0-329:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 298:0-330:1
     Visibility: public -/
 def fold_port.stats.basis.hadamard_basis
   (n : Std.Usize) :
@@ -83135,122 +89117,94 @@ def fold_port.stats.basis.hadamard_basis
       (alloc.vec.Vec Std.I64) (core.convert.FromSame
       fold_port.stats.basis.BasisError) residual
 
+/-- [apeiron_word::fold_port::stats::basis::ENERGY_LIMBS]
+    Source: '../../src/learn/fold/stats/basis.rs', lines 486:0-486:28 -/
+@[global_simps, irreducible]
+def fold_port.stats.basis.ENERGY_LIMBS : Std.U32 := 8#u32
+
+/-- [apeiron_word::fold_port::stats::basis::map_rowdot]:
+    Source: '../../src/learn/fold/stats/basis.rs', lines 489:0-494:1 -/
+def fold_port.stats.basis.map_rowdot
+  (e : kern.limb.LimbError) : Result fold_port.stats.basis.BasisError := do
+  match e with
+  | kern.limb.LimbError.Shape =>
+    let s ←
+      alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay (toStr
+        "rowdot")
+    ok (fold_port.stats.basis.BasisError.Shape s)
+  | kern.limb.LimbError.Range => ok fold_port.stats.basis.BasisError.OutOfRange
+  | kern.limb.LimbError.NoKernel =>
+    ok fold_port.stats.basis.BasisError.OutOfRange
+
 /-- [apeiron_word::fold_port::stats::basis::energy_words]: loop body 1:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 481:8-488:9 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 518:12-521:13 -/
 @[rust_loop_body]
 def fold_port.stats.basis.energy_words_loop0_loop0.body
-  (b : Slice Std.I64) (n : Std.Usize) (axis : Std.Usize) (k : Std.Usize)
-  (iter : core.ops.range.Range Std.Usize) (acc : Std.I128) :
-  Result (ControlFlow ((core.ops.range.Range Std.Usize) × Std.I128) Std.I128)
+  (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) (i : Std.Usize)
+  (bt : alloc.vec.Vec Std.I64) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
   := do
-  let (o, iter1) ←
-    core.iter.range.IteratorRange.next core.iter.range.StepUsize iter
-  match o with
-  | none => ok (done acc)
-  | some j =>
-    let i ←
-      if axis = 0#usize
-      then do
-           let i1 ← k * n
-           let i2 ← i1 + j
-           Slice.index_usize b i2
-      else do
-           let i1 ← j * n
-           let i2 ← i1 + k
-           Slice.index_usize b i2
-    let v ← lift (core.convert.num.FromI128I64.from i)
-    let i1 ← v * v
-    let acc1 ← acc + i1
-    ok (cont (iter1, acc1))
+  if j < n
+  then
+    let i1 ← i * n
+    let i2 ← i1 + j
+    let i3 ← Slice.index_usize b i2
+    let i4 ← j * o
+    let i5 ← i4 + i
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64)
+        bt i5
+    let j1 ← j + 1#usize
+    let bt1 := index_mut_back i3
+    ok (cont (bt1, j1))
+  else ok (done bt)
 
 /-- [apeiron_word::fold_port::stats::basis::energy_words]: loop 1:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 481:8-488:9 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 518:12-521:13 -/
 @[rust_loop]
 def fold_port.stats.basis.energy_words_loop0_loop0
-  (iter : core.ops.range.Range Std.Usize) (b : Slice Std.I64) (n : Std.Usize)
-  (axis : Std.Usize) (k : Std.Usize) (acc : Std.I128) :
-  Result Std.I128
+  (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize)
+  (bt : alloc.vec.Vec Std.I64) (i : Std.Usize) (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
   := do
   loop
-    (fun (iter1, acc1) => fold_port.stats.basis.energy_words_loop0_loop0.body b
-      n axis k iter1 acc1)
-    (iter, acc)
+    (fun (bt1, j1) => fold_port.stats.basis.energy_words_loop0_loop0.body b o n
+      i bt1 j1)
+    (bt, j)
 
 /-- [apeiron_word::fold_port::stats::basis::energy_words]: loop body 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 479:4-492:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 516:8-523:9 -/
 @[rust_loop_body]
 def fold_port.stats.basis.energy_words_loop0.body
-  (deref_mut_back : Slice Std.I64 → alloc.vec.Vec Std.I64)
-  (iter_mut_back : core.slice.iter.IterMut Std.I64 → Slice Std.I64)
-  (trait_default_back : core.iter.adapters.enumerate.Enumerate
-  (core.slice.iter.IterMut Std.I64) → core.slice.iter.IterMut Std.I64)
-  (b : Slice Std.I64) (n : Std.Usize) (axis : Std.Usize) (inner : Std.Usize)
-  (iter : core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
-  Std.I64))
-  (back : core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
-  Std.I64) → core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
-  Std.I64)) :
-  Result (ControlFlow ((core.iter.adapters.enumerate.Enumerate
-    (core.slice.iter.IterMut Std.I64)) ×
-    (core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut Std.I64)
-    → core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
-    Std.I64))) (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_port.stats.basis.BasisError))
+  (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize)
+  (bt : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
+    Std.I64))
   := do
-  let (o, iter1, next_back) ←
-    core.iter.adapters.enumerate.IteratorEnumerate.next
-      (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT
-      Std.I64) iter
-  match o with
-  | none =>
-    let iter2 := next_back iter1 none
-    let im := trait_default_back (back iter2)
-    let s := iter_mut_back im
-    let e := deref_mut_back s
-    ok (done (core.result.Result.Ok e))
-  | some p =>
-    let (k, _) := p
-    let acc ←
-      fold_port.stats.basis.energy_words_loop0_loop0
-        { start := 0#usize, «end» := inner } b n axis k 0#i128
-    let r ← fold_port.stats.basis.round64 acc
-    let cf ← core.result.Result.Insts.CoreOpsTry.branch r
-    match cf with
-    | core.ops.control_flow.ControlFlow.Continue val =>
-      ok (cont (iter1, fun e => let e1 := next_back e (some (k, val))
-                                back e1))
-    | core.ops.control_flow.ControlFlow.Break residual =>
-      let r1 ←
-        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          (alloc.vec.Vec Std.I64) (core.convert.FromSame
-          fold_port.stats.basis.BasisError) residual
-      ok (done r1)
+  if i < o
+  then
+    let bt1 ←
+      fold_port.stats.basis.energy_words_loop0_loop0 b o n bt i 0#usize
+    let i1 ← i + 1#usize
+    ok (cont (bt1, i1))
+  else ok (done bt)
 
 /-- [apeiron_word::fold_port::stats::basis::energy_words]: loop 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 479:4-492:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 516:8-523:9 -/
 @[rust_loop]
 def fold_port.stats.basis.energy_words_loop0
-  (deref_mut_back : Slice Std.I64 → alloc.vec.Vec Std.I64)
-  (iter_mut_back : core.slice.iter.IterMut Std.I64 → Slice Std.I64)
-  (trait_default_back : core.iter.adapters.enumerate.Enumerate
-  (core.slice.iter.IterMut Std.I64) → core.slice.iter.IterMut Std.I64)
-  (iter : core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
-  Std.I64))
-  (back : core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
-  Std.I64) → core.iter.adapters.enumerate.Enumerate (core.slice.iter.IterMut
-  Std.I64)) (b : Slice Std.I64) (n : Std.Usize) (axis : Std.Usize)
-  (inner : Std.Usize) :
-  Result (core.result.Result (alloc.vec.Vec Std.I64)
-    fold_port.stats.basis.BasisError)
+  (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize)
+  (bt : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.I64)
   := do
   loop
-    (fun (iter1, back1) => fold_port.stats.basis.energy_words_loop0.body
-      deref_mut_back iter_mut_back trait_default_back b n axis inner iter1
-      back1)
-    (iter, back)
+    (fun (bt1, i1) => fold_port.stats.basis.energy_words_loop0.body b o n bt1
+      i1)
+    (bt, i)
 
 /-- [apeiron_word::fold_port::stats::basis::energy_words]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 475:0-492:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 508:0-530:1 -/
 def fold_port.stats.basis.energy_words
   (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) (axis : Std.Usize) :
   Result (core.result.Result (alloc.vec.Vec Std.I64)
@@ -83261,25 +89215,42 @@ def fold_port.stats.basis.energy_words
   let cf ← core.result.Result.Insts.CoreOpsTry.branch r
   match cf with
   | core.ops.control_flow.ControlFlow.Continue _ =>
-    let (len, inner) ← if axis = 0#usize
-                         then ok (o, n)
-                         else ok (n, o)
-    let e ← alloc.vec.from_elem core.clone.CloneI64 0#i64 len
-    let (s, deref_mut_back) ← lift (alloc.vec.Vec.deref_mut e)
-    let (im, iter_mut_back) ← core.slice.Slice.iter_mut s
-    let (iter, trait_default_back) ←
-      core.iter.traits.iterator.Iterator.enumerate.trait_default
-        (core.slice.iter.IterMut.Insts.CoreIterTraitsIteratorIteratorMutAT
-        Std.I64) im
-    fold_port.stats.basis.energy_words_loop0 deref_mut_back iter_mut_back
-      trait_default_back iter (fun e1 => e1) b n axis inner
+    if axis = 0#usize
+    then
+      let dots ←
+        kern.limb.rowdot_q32 b b o n fold_port.stats.basis.ENERGY_LIMBS
+      match dots with
+      | core.result.Result.Ok e => ok (core.result.Result.Ok e)
+      | core.result.Result.Err e =>
+        let be ← fold_port.stats.basis.map_rowdot e
+        ok (core.result.Result.Err be)
+    else
+      let r1 ← fold_port.stats.basis.square n o
+      let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
+      match cf1 with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let bt ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+        let bt1 ← fold_port.stats.basis.energy_words_loop0 b o n bt 0#usize
+        let s := alloc.vec.Vec.deref bt1
+        let s1 := alloc.vec.Vec.deref bt1
+        let dots ←
+          kern.limb.rowdot_q32 s s1 n o fold_port.stats.basis.ENERGY_LIMBS
+        match dots with
+        | core.result.Result.Ok e => ok (core.result.Result.Ok e)
+        | core.result.Result.Err e =>
+          let be ← fold_port.stats.basis.map_rowdot e
+          ok (core.result.Result.Err be)
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+          (alloc.vec.Vec Std.I64) (core.convert.FromSame
+          fold_port.stats.basis.BasisError) residual
   | core.ops.control_flow.ControlFlow.Break residual =>
     core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
       (alloc.vec.Vec Std.I64) (core.convert.FromSame
       fold_port.stats.basis.BasisError) residual
 
 /-- [apeiron_word::fold_port::stats::basis::row_energies]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 497:0-499:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 535:0-537:1
     Visibility: public -/
 def fold_port.stats.basis.row_energies
   (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
@@ -83289,7 +89260,7 @@ def fold_port.stats.basis.row_energies
   fold_port.stats.basis.energy_words b o n 0#usize
 
 /-- [apeiron_word::fold_port::stats::basis::column_energies]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 504:0-506:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 542:0-544:1
     Visibility: public -/
 def fold_port.stats.basis.column_energies
   (b : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
@@ -83299,7 +89270,7 @@ def fold_port.stats.basis.column_energies
   fold_port.stats.basis.energy_words b o n 1#usize
 
 /-- [apeiron_word::fold_port::stats::basis::sum_log_column_energies]: loop body 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 514:4-522:5
+    Source: '../../src/learn/fold/stats/basis.rs', lines 552:4-560:5
     Visibility: public -/
 @[rust_loop_body]
 def fold_port.stats.basis.sum_log_column_energies_loop.body
@@ -83323,7 +89294,7 @@ def fold_port.stats.basis.sum_log_column_energies_loop.body
     ok (cont (iter1, acc1))
 
 /-- [apeiron_word::fold_port::stats::basis::sum_log_column_energies]: loop 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 514:4-522:5
+    Source: '../../src/learn/fold/stats/basis.rs', lines 552:4-560:5
     Visibility: public -/
 @[rust_loop]
 def fold_port.stats.basis.sum_log_column_energies_loop
@@ -83336,7 +89307,7 @@ def fold_port.stats.basis.sum_log_column_energies_loop
     (iter, acc)
 
 /-- [apeiron_word::fold_port::stats::basis::sum_log_column_energies]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 512:0-524:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 550:0-562:1
     Visibility: public -/
 def fold_port.stats.basis.sum_log_column_energies
   (c : Slice Std.I64) : Result Std.I64 := do
@@ -83347,12 +89318,12 @@ def fold_port.stats.basis.sum_log_column_energies
   ok (core.option.Option.unwrap_or o core.num.I64.MAX)
 
 /-- [apeiron_word::fold_port::stats::basis::butterfly_side_bits::{closure}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 730:18-730:39 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 768:18-768:39 -/
 @[reducible]
 def fold_port.stats.basis.butterfly_side_bits.closure := Unit
 
 /-- [apeiron_word::fold_port::stats::basis::butterfly_side_bits::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::butterfly_side_bits::{closure}}::call_once]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 730:18-730:39 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 768:18-768:39 -/
 def
   fold_port.stats.basis.butterfly_side_bits.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
   (c : fold_port.stats.basis.butterfly_side_bits.closure)
@@ -83362,7 +89333,7 @@ def
   core.num.I64.checked_shl tupled_args 35#u32
 
 /-- Trait implementation: [apeiron_word::fold_port::stats::basis::butterfly_side_bits::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::butterfly_side_bits::{closure}}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 730:18-730:39 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 768:18-768:39 -/
 @[reducible]
 def
   fold_port.stats.basis.butterfly_side_bits.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
@@ -83373,7 +89344,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::stats::basis::butterfly_side_bits]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 726:0-732:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 764:0-770:1
     Visibility: public -/
 def fold_port.stats.basis.butterfly_side_bits
   (n : Std.Usize) : Result Std.I64 := do
@@ -83390,7 +89361,7 @@ def fold_port.stats.basis.butterfly_side_bits
   ok (core.option.Option.unwrap_or o1 core.num.I64.MAX)
 
 /-- [apeiron_word::fold_port::stats::basis::Density]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 763:0-770:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 801:0-808:1
     Visibility: public -/
 @[discriminant isize]
 inductive fold_port.stats.basis.Density where
@@ -83399,7 +89370,7 @@ inductive fold_port.stats.basis.Density where
 | Oracle : fold_port.stats.basis.Density
 
 /-- [apeiron_word::fold_port::stats::basis::separable_word]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 773:0-780:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 811:0-818:1 -/
 def fold_port.stats.basis.separable_word
   (r : Std.I64) (c : Std.I64) (m : Std.I64) :
   Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
@@ -83419,7 +89390,7 @@ def fold_port.stats.basis.separable_word
     core.option.Option.ok_or o1 fold_port.stats.basis.BasisError.OutOfRange
 
 /-- [apeiron_word::fold_port::stats::basis::tile_mean]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 784:0-789:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 822:0-827:1 -/
 def fold_port.stats.basis.tile_mean
   (sum : Std.I128) (count : Std.I128) :
   Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
@@ -83442,7 +89413,7 @@ def fold_port.stats.basis.tile_mean
         residual
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::side_bits]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 794:4-801:5
+    Source: '../../src/learn/fold/stats/basis.rs', lines 832:4-839:5
     Visibility: public -/
 def fold_port.stats.basis.Density.side_bits
   (self : fold_port.stats.basis.Density) (o : Std.Usize) (n : Std.Usize) :
@@ -83470,7 +89441,7 @@ def fold_port.stats.basis.Density.side_bits
   ok (core.option.Option.unwrap_or o1 core.num.I64.MAX)
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 823:16-825:17 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 861:16-863:17 -/
 @[rust_loop_body]
 def fold_port.stats.basis.Density.sigma_words_loop0.body
   (r : alloc.vec.Vec Std.I64) (iter : core.ops.range.Range Std.Usize)
@@ -83489,7 +89460,7 @@ def fold_port.stats.basis.Density.sigma_words_loop0.body
     ok (cont (iter1, total1))
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 823:16-825:17 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 861:16-863:17 -/
 @[rust_loop]
 def fold_port.stats.basis.Density.sigma_words_loop0
   (iter : core.ops.range.Range Std.Usize) (r : alloc.vec.Vec Std.I64)
@@ -83502,7 +89473,7 @@ def fold_port.stats.basis.Density.sigma_words_loop0
     (iter, total)
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 1:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 827:16-855:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 865:16-893:5 -/
 @[rust_loop_body]
 def fold_port.stats.basis.Density.sigma_words_loop1.body
   (n : Std.Usize) (r : alloc.vec.Vec Std.I64) (c : alloc.vec.Vec Std.I64)
@@ -83540,7 +89511,7 @@ def fold_port.stats.basis.Density.sigma_words_loop1.body
       ok (done r2)
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 1:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 827:16-855:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 865:16-893:5 -/
 @[rust_loop]
 def fold_port.stats.basis.Density.sigma_words_loop1
   (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
@@ -83555,7 +89526,7 @@ def fold_port.stats.basis.Density.sigma_words_loop1
     (iter, out)
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 3:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 836:20-841:21 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 874:20-879:21 -/
 @[rust_loop_body]
 def fold_port.stats.basis.Density.sigma_words_loop2_loop0.body
   (b : Slice Std.I64) (n : Std.Usize) (ntj : Std.Usize) (i : Std.Usize)
@@ -83592,7 +89563,7 @@ def fold_port.stats.basis.Density.sigma_words_loop2_loop0.body
     ok (cont (iter1, sums1, counts1))
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 3:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 836:20-841:21 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 874:20-879:21 -/
 @[rust_loop]
 def fold_port.stats.basis.Density.sigma_words_loop2_loop0
   (iter : core.ops.range.Range Std.Usize) (b : Slice Std.I64) (n : Std.Usize)
@@ -83607,7 +89578,7 @@ def fold_port.stats.basis.Density.sigma_words_loop2_loop0
     (iter, sums, counts)
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 2:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 835:16-842:17 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 873:16-880:17 -/
 @[rust_loop_body]
 def fold_port.stats.basis.Density.sigma_words_loop2.body
   (b : Slice Std.I64) (n : Std.Usize) (ntj : Std.Usize)
@@ -83628,7 +89599,7 @@ def fold_port.stats.basis.Density.sigma_words_loop2.body
     ok (cont (iter1, sums1, counts1))
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 2:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 835:16-842:17 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 873:16-880:17 -/
 @[rust_loop]
 def fold_port.stats.basis.Density.sigma_words_loop2
   (iter : core.ops.range.Range Std.Usize) (b : Slice Std.I64) (n : Std.Usize)
@@ -83643,7 +89614,7 @@ def fold_port.stats.basis.Density.sigma_words_loop2
     (iter, sums, counts)
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 6:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 848:20-850:21 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 886:20-888:21 -/
 @[rust_loop_body]
 def fold_port.stats.basis.Density.sigma_words_loop3_loop0_loop0.body
   (n : Std.Usize) (ntj : Std.Usize) (means : alloc.vec.Vec Std.I64)
@@ -83673,7 +89644,7 @@ def fold_port.stats.basis.Density.sigma_words_loop3_loop0_loop0.body
     ok (cont (iter1, out1))
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 6:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 848:20-850:21 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 886:20-888:21 -/
 @[rust_loop]
 def fold_port.stats.basis.Density.sigma_words_loop3_loop0_loop0
   (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
@@ -83688,7 +89659,7 @@ def fold_port.stats.basis.Density.sigma_words_loop3_loop0_loop0
     (iter, out)
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 5:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 847:16-851:17 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 885:16-889:17 -/
 @[rust_loop_body]
 def fold_port.stats.basis.Density.sigma_words_loop3_loop0.body
   (n : Std.Usize) (ntj : Std.Usize) (means : alloc.vec.Vec Std.I64)
@@ -83707,7 +89678,7 @@ def fold_port.stats.basis.Density.sigma_words_loop3_loop0.body
     ok (cont (iter1, out1))
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 5:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 847:16-851:17 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 885:16-889:17 -/
 @[rust_loop]
 def fold_port.stats.basis.Density.sigma_words_loop3_loop0
   (iter : core.ops.range.Range Std.Usize) (n : Std.Usize)
@@ -83722,7 +89693,7 @@ def fold_port.stats.basis.Density.sigma_words_loop3_loop0
     (iter, out)
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 4:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 844:16-855:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 882:16-893:5 -/
 @[rust_loop_body]
 def fold_port.stats.basis.Density.sigma_words_loop3.body
   (o : Std.Usize) (n : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -83765,7 +89736,7 @@ def fold_port.stats.basis.Density.sigma_words_loop3.body
       ok (done r1)
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 4:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 844:16-855:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 882:16-893:5 -/
 @[rust_loop]
 def fold_port.stats.basis.Density.sigma_words_loop3
   (iter : core.ops.range.Range Std.Usize) (o : Std.Usize) (n : Std.Usize)
@@ -83782,7 +89753,7 @@ def fold_port.stats.basis.Density.sigma_words_loop3
     (iter, means)
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop body 7:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 816:16-855:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 854:16-893:5 -/
 @[rust_loop_body]
 def fold_port.stats.basis.Density.sigma_words_loop4.body
   (b : Slice Std.I64) (iter : core.ops.range.Range Std.Usize)
@@ -83816,7 +89787,7 @@ def fold_port.stats.basis.Density.sigma_words_loop4.body
       ok (done r1)
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]: loop 7:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 816:16-855:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 854:16-893:5 -/
 @[rust_loop]
 def fold_port.stats.basis.Density.sigma_words_loop4
   (iter : core.ops.range.Range Std.Usize) (b : Slice Std.I64)
@@ -83830,7 +89801,7 @@ def fold_port.stats.basis.Density.sigma_words_loop4
     (iter, out)
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma_words]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 809:4-855:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 847:4-893:5 -/
 def fold_port.stats.basis.Density.sigma_words
   (self : fold_port.stats.basis.Density) (b : Slice Std.I64) (o : Std.Usize)
   (n : Std.Usize) :
@@ -83902,7 +89873,7 @@ def fold_port.stats.basis.Density.sigma_words
       fold_port.stats.basis.BasisError) residual
 
 /-- [apeiron_word::fold_port::stats::basis::{apeiron_word::fold_port::stats::basis::Density}::sigma]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 862:4-864:5
+    Source: '../../src/learn/fold/stats/basis.rs', lines 900:4-902:5
     Visibility: public -/
 def fold_port.stats.basis.Density.sigma
   (self : fold_port.stats.basis.Density) (b : Slice Std.I64) (o : Std.Usize)
@@ -83913,7 +89884,7 @@ def fold_port.stats.basis.Density.sigma
   fold_port.stats.basis.Density.sigma_words self b o n
 
 /-- [apeiron_word::fold_port::stats::basis::WaterFill]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 870:0-877:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 908:0-915:1
     Visibility: public -/
 structure fold_port.stats.basis.WaterFill where
   theta : Std.I64
@@ -83921,7 +89892,7 @@ structure fold_port.stats.basis.WaterFill where
   rate : Std.I64
 
 /-- [apeiron_word::fold_port::stats::basis::distortion_words]: loop body 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 885:4-887:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 923:4-925:5 -/
 @[rust_loop_body]
 def fold_port.stats.basis.distortion_words_loop.body
   (theta : Std.I64) (iter : core.slice.iter.Iter Std.I64) (acc : Std.I128) :
@@ -83939,7 +89910,7 @@ def fold_port.stats.basis.distortion_words_loop.body
     ok (cont (iter1, acc1))
 
 /-- [apeiron_word::fold_port::stats::basis::distortion_words]: loop 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 885:4-887:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 923:4-925:5 -/
 @[rust_loop]
 def fold_port.stats.basis.distortion_words_loop
   (iter : core.slice.iter.Iter Std.I64) (theta : Std.I64) (acc : Std.I128) :
@@ -83951,7 +89922,7 @@ def fold_port.stats.basis.distortion_words_loop
     (iter, acc)
 
 /-- [apeiron_word::fold_port::stats::basis::distortion_words]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 880:0-889:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 918:0-927:1 -/
 def fold_port.stats.basis.distortion_words
   (lambda : Slice Std.I64) (theta : Std.I64) :
   Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
@@ -83967,12 +89938,12 @@ def fold_port.stats.basis.distortion_words
     core.option.Option.ok_or o fold_port.stats.basis.BasisError.OutOfRange
 
 /-- [apeiron_word::fold_port::stats::basis::rate_words::{closure}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 910:35-910:57 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 948:35-948:57 -/
 @[reducible]
 def fold_port.stats.basis.rate_words.closure := Std.I64
 
 /-- [apeiron_word::fold_port::stats::basis::rate_words::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::rate_words::{closure}<'_0>}::call_once]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 910:35-910:57 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 948:35-948:57 -/
 def
   fold_port.stats.basis.rate_words.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
   (c : fold_port.stats.basis.rate_words.closure) (tupled_args : Std.I64) :
@@ -83981,7 +89952,7 @@ def
   ok (I64.checked_sub tupled_args c)
 
 /-- Trait implementation: [apeiron_word::fold_port::stats::basis::rate_words::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::rate_words::{closure}<'_0>}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 910:35-910:57 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 948:35-948:57 -/
 @[reducible]
 def
   fold_port.stats.basis.rate_words.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
@@ -83992,7 +89963,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::stats::basis::rate_words]: loop body 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 898:8-902:9 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 936:8-940:9 -/
 @[rust_loop_body]
 def fold_port.stats.basis.rate_words_loop0.body
   (iter : core.slice.iter.Iter Std.I64) (any : Bool) :
@@ -84007,7 +89978,7 @@ def fold_port.stats.basis.rate_words_loop0.body
     else ok (cont (iter1, any))
 
 /-- [apeiron_word::fold_port::stats::basis::rate_words]: loop 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 898:8-902:9 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 936:8-940:9 -/
 @[rust_loop]
 def fold_port.stats.basis.rate_words_loop0
   (iter : core.slice.iter.Iter Std.I64) (any : Bool) : Result Bool := do
@@ -84017,7 +89988,7 @@ def fold_port.stats.basis.rate_words_loop0
     (iter, any)
 
 /-- [apeiron_word::fold_port::stats::basis::rate_words]: loop body 1:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 908:4-915:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 946:4-953:5 -/
 @[rust_loop_body]
 def fold_port.stats.basis.rate_words_loop1.body
   (theta : Std.I64) (t : Std.I64) (iter : core.slice.iter.Iter Std.I64)
@@ -84048,7 +90019,7 @@ def fold_port.stats.basis.rate_words_loop1.body
       else ok (cont (iter1, acc, false))
 
 /-- [apeiron_word::fold_port::stats::basis::rate_words]: loop 1:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 908:4-915:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 946:4-953:5 -/
 @[rust_loop]
 def fold_port.stats.basis.rate_words_loop1
   (iter : core.slice.iter.Iter Std.I64) (theta : Std.I64) (t : Std.I64)
@@ -84061,7 +90032,7 @@ def fold_port.stats.basis.rate_words_loop1
     (iter, acc, failed)
 
 /-- [apeiron_word::fold_port::stats::basis::rate_words]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 893:0-920:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 931:0-958:1 -/
 def fold_port.stats.basis.rate_words
   (lambda : Slice Std.I64) (theta : Std.I64) :
   Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
@@ -84100,7 +90071,7 @@ def fold_port.stats.basis.rate_words
         residual
 
 /-- [apeiron_word::fold_port::stats::basis::converged]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1085:0-1094:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1123:0-1132:1 -/
 def fold_port.stats.basis.converged
   (r : Std.I64) (target : Std.I64) (tol : Std.I64) :
   Result (core.result.Result Bool fold_port.stats.basis.BasisError)
@@ -84130,7 +90101,7 @@ def fold_port.stats.basis.converged
       Bool (core.convert.FromSame fold_port.stats.basis.BasisError) residual
 
 /-- [apeiron_word::fold_port::stats::basis::rate_at_logs]: loop body 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1069:4-1077:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1107:4-1115:5 -/
 @[rust_loop_body]
 def fold_port.stats.basis.rate_at_logs_loop.body
   (logs : Slice Std.I64) (t : Std.I64) (iter : core.ops.range.Range Std.Usize)
@@ -84162,7 +90133,7 @@ def fold_port.stats.basis.rate_at_logs_loop.body
       else ok (cont (iter1, acc, false))
 
 /-- [apeiron_word::fold_port::stats::basis::rate_at_logs]: loop 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1069:4-1077:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1107:4-1115:5 -/
 @[rust_loop]
 def fold_port.stats.basis.rate_at_logs_loop
   (iter : core.ops.range.Range Std.Usize) (logs : Slice Std.I64) (t : Std.I64)
@@ -84175,7 +90146,7 @@ def fold_port.stats.basis.rate_at_logs_loop
     (iter, acc, failed)
 
 /-- [apeiron_word::fold_port::stats::basis::rate_at_logs]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1066:0-1082:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1104:0-1120:1 -/
 def fold_port.stats.basis.rate_at_logs
   (logs : Slice Std.I64) (t : Std.I64) :
   Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
@@ -84192,7 +90163,7 @@ def fold_port.stats.basis.rate_at_logs
     core.option.Option.ok_or o fold_port.stats.basis.BasisError.OutOfRange
 
 /-- [apeiron_word::fold_port::stats::basis::water_log]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1056:0-1062:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1094:0-1100:1 -/
 def fold_port.stats.basis.water_log
   (l : Std.I64) :
   Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
@@ -84204,12 +90175,12 @@ def fold_port.stats.basis.water_log
   else ok (core.result.Result.Ok core.num.I64.MIN)
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words::{closure#2}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 976:18-976:40 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1014:18-1014:40 -/
 @[reducible]
 def fold_port.stats.basis.water_fill_words.closure_2 := Unit
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::water_fill_words::{closure#2}}::call_once]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 976:18-976:40 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1014:18-1014:40 -/
 def
   fold_port.stats.basis.water_fill_words.closure_2.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
   (c : fold_port.stats.basis.water_fill_words.closure_2)
@@ -84220,7 +90191,7 @@ def
   ok (I64.checked_sub tupled_args i)
 
 /-- Trait implementation: [apeiron_word::fold_port::stats::basis::water_fill_words::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::water_fill_words::{closure#2}}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 976:18-976:40 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1014:18-1014:40 -/
 @[reducible]
 def
   fold_port.stats.basis.water_fill_words.closure_2.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
@@ -84231,12 +90202,12 @@ def
 }
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words::{closure#1}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 973:18-973:40 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1011:18-1011:40 -/
 @[reducible]
 def fold_port.stats.basis.water_fill_words.closure_1 := Unit
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::water_fill_words::{closure#1}}::call_once]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 973:18-973:40 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1011:18-1011:40 -/
 def
   fold_port.stats.basis.water_fill_words.closure_1.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
   (c : fold_port.stats.basis.water_fill_words.closure_1)
@@ -84247,7 +90218,7 @@ def
   ok (I64.checked_add tupled_args i)
 
 /-- Trait implementation: [apeiron_word::fold_port::stats::basis::water_fill_words::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_port::stats::basis::water_fill_words::{closure#1}}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 973:18-973:40 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1011:18-1011:40 -/
 @[reducible]
 def
   fold_port.stats.basis.water_fill_words.closure_1.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
@@ -84258,12 +90229,12 @@ def
 }
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words::{closure}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 929:52-929:76 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 967:52-967:76 -/
 @[reducible]
 def fold_port.stats.basis.water_fill_words.closure := Unit
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::water_fill_words::{closure}}::call_once]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 929:52-929:76 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 967:52-967:76 -/
 def
   fold_port.stats.basis.water_fill_words.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError.call_once
   (c : fold_port.stats.basis.water_fill_words.closure)
@@ -84273,7 +90244,7 @@ def
   ok fold_port.stats.basis.BasisError.Overflow
 
 /-- Trait implementation: [apeiron_word::fold_port::stats::basis::water_fill_words::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::water_fill_words::{closure}}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 929:52-929:76 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 967:52-967:76 -/
 @[reducible]
 def
   fold_port.stats.basis.water_fill_words.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError
@@ -84284,7 +90255,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop body 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 936:4-950:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 974:4-988:5 -/
 @[rust_loop_body]
 def fold_port.stats.basis.water_fill_words_loop0.body
   (lambda : Slice Std.I64) (iter : core.ops.range.Range Std.Usize)
@@ -84326,7 +90297,7 @@ def fold_port.stats.basis.water_fill_words_loop0.body
     else ok (cont (iter1, max1, min_pos1, logs, err))
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 936:4-950:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 974:4-988:5 -/
 @[rust_loop]
 def fold_port.stats.basis.water_fill_words_loop0
   (iter : core.ops.range.Range Std.Usize) (lambda : Slice Std.I64)
@@ -84342,7 +90313,7 @@ def fold_port.stats.basis.water_fill_words_loop0
     (iter, max, min_pos, logs, err)
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop body 1:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 962:4-964:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1000:4-1002:5 -/
 @[rust_loop_body]
 def fold_port.stats.basis.water_fill_words_loop1.body
   (lambda : Slice Std.I64) (iter : core.ops.range.Range Std.Usize)
@@ -84360,7 +90331,7 @@ def fold_port.stats.basis.water_fill_words_loop1.body
     ok (cont (iter1, sum_lambda1))
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop 1:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 962:4-964:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1000:4-1002:5 -/
 @[rust_loop]
 def fold_port.stats.basis.water_fill_words_loop1
   (iter : core.ops.range.Range Std.Usize) (lambda : Slice Std.I64)
@@ -84374,7 +90345,7 @@ def fold_port.stats.basis.water_fill_words_loop1
     (iter, sum_lambda)
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop body 2:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 983:4-1003:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1021:4-1041:5 -/
 @[rust_loop_body]
 def fold_port.stats.basis.water_fill_words_loop2.body
   (target : Std.I64) (logs : alloc.vec.Vec Std.I64)
@@ -84419,7 +90390,7 @@ def fold_port.stats.basis.water_fill_words_loop2.body
       else ok (cont (iter1, t_lo, gap, err, false))
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop 2:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 983:4-1003:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1021:4-1041:5 -/
 @[rust_loop]
 def fold_port.stats.basis.water_fill_words_loop2
   (iter : core.ops.range.Range Std.Usize) (target : Std.I64)
@@ -84434,7 +90405,7 @@ def fold_port.stats.basis.water_fill_words_loop2
     (iter, t_lo, gap, err, walked)
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop body 3:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1011:4-1042:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1049:4-1080:5 -/
 @[rust_loop_body]
 def fold_port.stats.basis.water_fill_words_loop3.body
   (target : Std.I64) (logs : alloc.vec.Vec Std.I64) (tol : Std.I64)
@@ -84500,7 +90471,7 @@ def fold_port.stats.basis.water_fill_words_loop3.body
       else ok (cont (iter1, t_hi, t_lo, t, err, false))
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words]: loop 3:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1011:4-1042:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1049:4-1080:5 -/
 @[rust_loop]
 def fold_port.stats.basis.water_fill_words_loop3
   (iter : core.ops.range.Range Std.Usize) (target : Std.I64)
@@ -84516,7 +90487,7 @@ def fold_port.stats.basis.water_fill_words_loop3
     (iter, t_hi, t_lo, t, err, done1)
 
 /-- [apeiron_word::fold_port::stats::basis::water_fill_words]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 927:0-1052:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 965:0-1090:1 -/
 def fold_port.stats.basis.water_fill_words
   (lambda : Slice Std.I64) (budget : Std.I64) (side : Std.I64) :
   Result (core.result.Result fold_port.stats.basis.WaterFill
@@ -84685,7 +90656,7 @@ def fold_port.stats.basis.water_fill_words
       fold_port.stats.basis.BasisError) residual
 
 /-- [apeiron_word::fold_port::stats::basis::solve_water_fill]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1100:0-1110:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1138:0-1148:1
     Visibility: public -/
 def fold_port.stats.basis.solve_water_fill
   (lambda : Slice Std.I64) (budget_bits : Std.I64) (side_bits : Std.I64) :
@@ -84698,7 +90669,7 @@ def fold_port.stats.basis.solve_water_fill
     ok { theta := 0#i64, distortion := 0#i64, rate := 0#i64 }
 
 /-- [apeiron_word::fold_port::stats::basis::distortion_at]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1115:0-1117:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1153:0-1155:1
     Visibility: public -/
 def fold_port.stats.basis.distortion_at
   (lambda : Slice Std.I64) (theta : Std.I64) :
@@ -84707,7 +90678,7 @@ def fold_port.stats.basis.distortion_at
   fold_port.stats.basis.distortion_words lambda theta
 
 /-- [apeiron_word::fold_port::stats::basis::rate_at]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1124:0-1126:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1162:0-1164:1
     Visibility: public -/
 def fold_port.stats.basis.rate_at
   (lambda : Slice Std.I64) (theta : Std.I64) :
@@ -84716,12 +90687,12 @@ def fold_port.stats.basis.rate_at
   fold_port.stats.basis.rate_words lambda theta
 
 /-- [apeiron_word::fold_port::stats::basis::uniform_words::{closure}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1134:52-1134:76 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1172:52-1172:76 -/
 @[reducible]
 def fold_port.stats.basis.uniform_words.closure := Unit
 
 /-- [apeiron_word::fold_port::stats::basis::uniform_words::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::uniform_words::{closure}}::call_once]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1134:52-1134:76 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1172:52-1172:76 -/
 def
   fold_port.stats.basis.uniform_words.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError.call_once
   (c : fold_port.stats.basis.uniform_words.closure)
@@ -84731,7 +90702,7 @@ def
   ok fold_port.stats.basis.BasisError.Overflow
 
 /-- Trait implementation: [apeiron_word::fold_port::stats::basis::uniform_words::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::stats::basis::BasisError> for apeiron_word::fold_port::stats::basis::uniform_words::{closure}}]
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1134:52-1134:76 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1172:52-1172:76 -/
 @[reducible]
 def
   fold_port.stats.basis.uniform_words.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorBasisError
@@ -84742,7 +90713,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::stats::basis::uniform_words]: loop body 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1146:4-1148:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1184:4-1186:5 -/
 @[rust_loop_body]
 def fold_port.stats.basis.uniform_words_loop.body
   (factor : Std.I64) (iter : core.slice.iter.Iter Std.I64) (acc : Std.I128) :
@@ -84759,7 +90730,7 @@ def fold_port.stats.basis.uniform_words_loop.body
     ok (cont (iter1, acc1))
 
 /-- [apeiron_word::fold_port::stats::basis::uniform_words]: loop 0:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1146:4-1148:5 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1184:4-1186:5 -/
 @[rust_loop]
 def fold_port.stats.basis.uniform_words_loop
   (iter : core.slice.iter.Iter Std.I64) (factor : Std.I64) (acc : Std.I128) :
@@ -84771,7 +90742,7 @@ def fold_port.stats.basis.uniform_words_loop
     (iter, acc)
 
 /-- [apeiron_word::fold_port::stats::basis::uniform_words]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1130:0-1150:1 -/
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1168:0-1188:1 -/
 def fold_port.stats.basis.uniform_words
   (lambda : Slice Std.I64) (budget : Std.I64) (side : Std.I64) :
   Result (core.result.Result Std.I64 fold_port.stats.basis.BasisError)
@@ -84857,7 +90828,7 @@ def fold_port.stats.basis.uniform_words
         residual
 
 /-- [apeiron_word::fold_port::stats::basis::uniform_distortion]:
-    Source: '../../src/learn/fold/stats/basis.rs', lines 1156:0-1162:1
+    Source: '../../src/learn/fold/stats/basis.rs', lines 1194:0-1200:1
     Visibility: public -/
 def fold_port.stats.basis.uniform_distortion
   (lambda : Slice Std.I64) (budget_bits : Std.I64) (side_bits : Std.I64) :
@@ -116329,15 +122300,70 @@ def hashtrinity.tregex.Match.range
   := do
   ok { start := self.start, «end» := self.end }
 
-/-- [apeiron_word::hashtrinity::tregex::match_segs::go]: loop body 0:
-    Source: '../../src/map/hashtrinity/tregex.rs', lines 1202:16-1207:17 -/
+/-- [apeiron_word::hashtrinity::tregex::lit_at]: loop body 0:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1186:4-1191:5 -/
 @[rust_loop_body]
-def hashtrinity.tregex.match_segs.go_loop0.body
-  (hay : Slice Std.U8) (pos : Std.Usize) (mask : Array Bool 256#usize)
+def hashtrinity.tregex.lit_at_loop.body
+  (hay : Slice Std.U8) (p : Std.Usize) (v : Slice Std.U8) (j : Std.Usize)
+  (eq : Bool) :
+  Result (ControlFlow (Std.Usize × Bool) Bool)
+  := do
+  let i := Slice.len v
+  if j < i
+  then
+    if eq
+    then
+      let i1 ← p + j
+      let i2 ← Slice.index_usize hay i1
+      let i3 ← Slice.index_usize v j
+      let eq1 ← if i2 != i3
+                  then ok false
+                  else ok true
+      let j1 ← j + 1#usize
+      ok (cont (j1, eq1))
+    else ok (done false)
+  else ok (done eq)
+
+/-- [apeiron_word::hashtrinity::tregex::lit_at]: loop 0:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1186:4-1191:5 -/
+@[rust_loop]
+def hashtrinity.tregex.lit_at_loop
+  (hay : Slice Std.U8) (p : Std.Usize) (v : Slice Std.U8) (j : Std.Usize)
+  (eq : Bool) :
+  Result Bool
+  := do
+  loop
+    (fun (j1, eq1) => hashtrinity.tregex.lit_at_loop.body hay p v j1 eq1)
+    (j, eq)
+
+/-- [apeiron_word::hashtrinity::tregex::lit_at]:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1180:0-1193:1 -/
+def hashtrinity.tregex.lit_at
+  (hay : Slice Std.U8) (p : Std.Usize) (v : Slice Std.U8) : Result Bool := do
+  let i := Slice.len v
+  let i1 ← p + i
+  let i2 := Slice.len hay
+  if i1 > i2
+  then ok false
+  else hashtrinity.tregex.lit_at_loop hay p v 0#usize true
+
+/-- [apeiron_word::hashtrinity::tregex::SegStep]
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1197:0-1201:1 -/
+@[discriminant isize]
+inductive hashtrinity.tregex.SegStep where
+| Next : Std.Usize → hashtrinity.tregex.SegStep
+| Class : Std.Usize → Std.Usize → hashtrinity.tregex.SegStep
+| Fail : hashtrinity.tregex.SegStep
+
+/-- [apeiron_word::hashtrinity::tregex::step_at]: loop body 0:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1223:12-1228:13 -/
+@[rust_loop_body]
+def hashtrinity.tregex.step_at_loop.body
+  (hay : Slice Std.U8) (p : Std.Usize) (mask : Array Bool 256#usize)
   (max : Std.Usize) (avail : Std.Usize) :
   Result (ControlFlow Std.Usize Std.Usize)
   := do
-  let i ← pos + avail
+  let i ← p + avail
   let i1 := Slice.len hay
   if i < i1
   then
@@ -116353,130 +122379,161 @@ def hashtrinity.tregex.match_segs.go_loop0.body
     else ok (done avail)
   else ok (done avail)
 
-/-- [apeiron_word::hashtrinity::tregex::match_segs::go]: loop 0:
-    Source: '../../src/map/hashtrinity/tregex.rs', lines 1202:16-1207:17 -/
+/-- [apeiron_word::hashtrinity::tregex::step_at]: loop 0:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1223:12-1228:13 -/
 @[rust_loop]
-def hashtrinity.tregex.match_segs.go_loop0
-  (hay : Slice Std.U8) (pos : Std.Usize) (mask : Array Bool 256#usize)
+def hashtrinity.tregex.step_at_loop
+  (hay : Slice Std.U8) (p : Std.Usize) (mask : Array Bool 256#usize)
   (max : Std.Usize) (avail : Std.Usize) :
   Result Std.Usize
   := do
   loop
-    (fun avail1 => hashtrinity.tregex.match_segs.go_loop0.body hay pos mask max
-      avail1)
+    (fun avail1 => hashtrinity.tregex.step_at_loop.body hay p mask max avail1)
     avail
 
-mutual
+/-- [apeiron_word::hashtrinity::tregex::step_at]:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1203:0-1236:1 -/
+def hashtrinity.tregex.step_at
+  (seg : hashtrinity.tregex.term.Seg) (hay : Slice Std.U8) (p : Std.Usize) :
+  Result hashtrinity.tregex.SegStep
+  := do
+  match seg with
+  | hashtrinity.tregex.term.Seg.Lit v =>
+    let s := alloc.vec.Vec.deref v
+    let b ← hashtrinity.tregex.lit_at hay p s
+    if b
+    then
+      let i := alloc.vec.Vec.len v
+      let i1 ← p + i
+      ok (hashtrinity.tregex.SegStep.Next i1)
+    else ok hashtrinity.tregex.SegStep.Fail
+  | hashtrinity.tregex.term.Seg.Class mask min max =>
+    let avail ← hashtrinity.tregex.step_at_loop hay p mask max 0#usize
+    if avail >= min
+    then ok (hashtrinity.tregex.SegStep.Class avail min)
+    else ok hashtrinity.tregex.SegStep.Fail
+  | hashtrinity.tregex.term.Seg.WordB =>
+    let before ←
+      if p > 0#usize
+      then
+        do
+        let i ← p - 1#usize
+        let i1 ← Slice.index_usize hay i
+        hashtrinity.tregex.term.is_word i1
+      else ok false
+    let i := Slice.len hay
+    let after ←
+      if p < i
+      then
+        do
+        let i1 ← Slice.index_usize hay p
+        hashtrinity.tregex.term.is_word i1
+      else ok false
+    if before != after
+    then ok (hashtrinity.tregex.SegStep.Next p)
+    else ok hashtrinity.tregex.SegStep.Fail
 
-/-- [apeiron_word::hashtrinity::tregex::match_segs::go]: loop 1:
-    Source: '../../src/map/hashtrinity/tregex.rs', lines 1212:16-1220:17 -/
+/-- [apeiron_word::hashtrinity::tregex::match_segs]: loop body 1:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1264:20-1282:21 -/
+@[rust_loop_body]
+def hashtrinity.tregex.match_segs_loop0_loop0.body
+  (stack : alloc.vec.Vec (Std.Usize × Std.Usize × Std.Usize × Std.Usize))
+  (si : Std.Usize) (p : Std.Usize) (done1 : Bool) (back : Bool) :
+  Result (ControlFlow ((alloc.vec.Vec (Std.Usize × Std.Usize × Std.Usize ×
+    Std.Usize)) × Std.Usize × Std.Usize × Bool × Bool) ((alloc.vec.Vec
+    (Std.Usize × Std.Usize × Std.Usize × Std.Usize)) × Std.Usize ×
+    Std.Usize × Bool))
+  := do
+  if back
+  then
+    let (popped, stack1) ← alloc.vec.Vec.pop Global stack
+    match popped with
+    | none => ok (cont (stack1, si, p, true, false))
+    | some entry =>
+      let (csi, cpos, take, cmin) := entry
+      if take > cmin
+      then
+        let nt ← take - 1#usize
+        let stack2 ← alloc.vec.Vec.push stack1 (csi, cpos, nt, cmin)
+        let p1 ← cpos + nt
+        let si1 ← csi + 1#usize
+        ok (cont (stack2, si1, p1, done1, false))
+      else ok (cont (stack1, si, p, done1, true))
+  else ok (done (stack, si, p, done1))
+
+/-- [apeiron_word::hashtrinity::tregex::match_segs]: loop 1:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1264:20-1282:21 -/
 @[rust_loop]
-def hashtrinity.tregex.match_segs.go_loop1
-  (segs : Slice hashtrinity.tregex.term.Seg) (si : Std.Usize)
-  (hay : Slice Std.U8) (pos : Std.Usize) (min : Std.Usize) (take : Std.Usize) :
+def hashtrinity.tregex.match_segs_loop0_loop0
+  (stack : alloc.vec.Vec (Std.Usize × Std.Usize × Std.Usize × Std.Usize))
+  (si : Std.Usize) (p : Std.Usize) (done1 : Bool) (back : Bool) :
+  Result ((alloc.vec.Vec (Std.Usize × Std.Usize × Std.Usize × Std.Usize)) ×
+    Std.Usize × Std.Usize × Bool)
+  := do
+  loop
+    (fun (stack1, si1, p1, done2, back1) =>
+      hashtrinity.tregex.match_segs_loop0_loop0.body stack1 si1 p1 done2 back1)
+    (stack, si, p, done1, back)
+
+/-- [apeiron_word::hashtrinity::tregex::match_segs]: loop body 0:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1246:4-1286:5 -/
+@[rust_loop_body]
+def hashtrinity.tregex.match_segs_loop0.body
+  (segs : Slice hashtrinity.tregex.term.Seg) (hay : Slice Std.U8)
+  (stack : alloc.vec.Vec (Std.Usize × Std.Usize × Std.Usize × Std.Usize))
+  (si : Std.Usize) (p : Std.Usize) (found : Option Std.Usize) (done1 : Bool) :
+  Result (ControlFlow ((alloc.vec.Vec (Std.Usize × Std.Usize × Std.Usize ×
+    Std.Usize)) × Std.Usize × Std.Usize × (Option Std.Usize) × Bool)
+    (Option Std.Usize))
+  := do
+  if done1
+  then ok (done found)
+  else
+    let i := Slice.len segs
+    if si = i
+    then ok (cont (stack, si, p, some p, true))
+    else
+      let s ← Slice.index_usize segs si
+      let st ← hashtrinity.tregex.step_at s hay p
+      match st with
+      | hashtrinity.tregex.SegStep.Next np =>
+        let si1 ← si + 1#usize
+        ok (cont (stack, si1, np, found, false))
+      | hashtrinity.tregex.SegStep.Class avail min =>
+        let stack1 ← alloc.vec.Vec.push stack (si, p, avail, min)
+        let p1 ← p + avail
+        let si1 ← si + 1#usize
+        ok (cont (stack1, si1, p1, found, false))
+      | hashtrinity.tregex.SegStep.Fail =>
+        let (stack1, si1, p1, done2) ←
+          hashtrinity.tregex.match_segs_loop0_loop0 stack si p false true
+        ok (cont (stack1, si1, p1, found, done2))
+
+/-- [apeiron_word::hashtrinity::tregex::match_segs]: loop 0:
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1246:4-1286:5 -/
+@[rust_loop]
+def hashtrinity.tregex.match_segs_loop0
+  (segs : Slice hashtrinity.tregex.term.Seg) (hay : Slice Std.U8)
+  (stack : alloc.vec.Vec (Std.Usize × Std.Usize × Std.Usize × Std.Usize))
+  (si : Std.Usize) (p : Std.Usize) (found : Option Std.Usize) (done1 : Bool) :
   Result (Option Std.Usize)
   := do
   loop
-    (fun take1 => hashtrinity.tregex.match_segs.go_loop1.body segs si hay pos
-      min take1)
-    take
-partial_fixpoint
-
-/-- [apeiron_word::hashtrinity::tregex::match_segs::go]: loop body 1:
-    Source: '../../src/map/hashtrinity/tregex.rs', lines 1212:16-1220:17 -/
-@[rust_loop_body]
-def hashtrinity.tregex.match_segs.go_loop1.body
-  (segs : Slice hashtrinity.tregex.term.Seg) (si : Std.Usize)
-  (hay : Slice Std.U8) (pos : Std.Usize) (min : Std.Usize) (take : Std.Usize) :
-  Result (ControlFlow Std.Usize (Option Std.Usize))
-  := do
-  let i ← si + 1#usize
-  let i1 ← pos + take
-  let o ← hashtrinity.tregex.match_segs.go segs i hay i1
-  match o with
-  | none =>
-    if take = min
-    then ok (done none)
-    else let take1 ← take - 1#usize
-         ok (cont take1)
-  | some _ => ok (done o)
-partial_fixpoint
-
-/-- [apeiron_word::hashtrinity::tregex::match_segs::go]:
-    Source: '../../src/map/hashtrinity/tregex.rs', lines 1179:4-1223:5 -/
-def hashtrinity.tregex.match_segs.go
-  (segs : Slice hashtrinity.tregex.term.Seg) (si : Std.Usize)
-  (hay : Slice Std.U8) (pos : Std.Usize) :
-  Result (Option Std.Usize)
-  := do
-  let i := Slice.len segs
-  if si = i
-  then ok (some pos)
-  else
-    let s ← Slice.index_usize segs si
-    match s with
-    | hashtrinity.tregex.term.Seg.Lit v =>
-      let i1 := alloc.vec.Vec.len v
-      let i2 ← pos + i1
-      let i3 := Slice.len hay
-      if i2 <= i3
-      then
-        let i4 := alloc.vec.Vec.len v
-        let i5 ← pos + i4
-        let s1 ←
-          core.slice.index.Slice.index
-            (core.slice.index.SliceIndexRangeUsizeSlice Std.U8) hay
-            { start := pos, «end» := i5 }
-        let s2 ← alloc.vec.Vec.as_slice Global v
-        let b ← core.slice.cmp.PartialEqSlice.eq core.cmp.PartialEqU8 s1 s2
-        if b
-        then
-          let i6 ← si + 1#usize
-          let i7 := alloc.vec.Vec.len v
-          let i8 ← pos + i7
-          hashtrinity.tregex.match_segs.go segs i6 hay i8
-        else ok none
-      else ok none
-    | hashtrinity.tregex.term.Seg.Class mask min max =>
-      let avail ←
-        hashtrinity.tregex.match_segs.go_loop0 hay pos mask max 0#usize
-      if avail < min
-      then ok none
-      else hashtrinity.tregex.match_segs.go_loop1 segs si hay pos min avail
-    | hashtrinity.tregex.term.Seg.WordB =>
-      let before ←
-        if pos > 0#usize
-        then
-          do
-          let i1 ← pos - 1#usize
-          let i2 ← Slice.index_usize hay i1
-          hashtrinity.tregex.term.is_word i2
-        else ok false
-      let i1 := Slice.len hay
-      let after ←
-        if pos < i1
-        then
-          do
-          let i2 ← Slice.index_usize hay pos
-          hashtrinity.tregex.term.is_word i2
-        else ok false
-      if before != after
-      then
-        let i2 ← si + 1#usize
-        hashtrinity.tregex.match_segs.go segs i2 hay pos
-      else ok none
-partial_fixpoint
-
-end
+    (fun (stack1, si1, p1, found1, done2) =>
+      hashtrinity.tregex.match_segs_loop0.body segs hay stack1 si1 p1 found1
+      done2)
+    (stack, si, p, found, done1)
 
 /-- [apeiron_word::hashtrinity::tregex::match_segs]:
-    Source: '../../src/map/hashtrinity/tregex.rs', lines 1178:0-1225:1 -/
+    Source: '../../src/map/hashtrinity/tregex.rs', lines 1238:0-1288:1 -/
+@[reducible]
 def hashtrinity.tregex.match_segs
   (segs : Slice hashtrinity.tregex.term.Seg) (hay : Slice Std.U8)
   (pos : Std.Usize) :
   Result (Option Std.Usize)
   := do
-  hashtrinity.tregex.match_segs.go segs 0#usize hay pos
+  hashtrinity.tregex.match_segs_loop0 segs hay (alloc.vec.Vec.new (Std.Usize ×
+    Std.Usize × Std.Usize × Std.Usize)) 0#usize pos none false
 
 /-- [apeiron_word::table::ResidentRead]
     Source: '../../src/map/table/getexact.rs', lines 41:0-48:1 -/
@@ -128057,12 +134114,12 @@ def fold_finish_port.finish.train.LayerTunables.bias_scale
     fold_finish_port.finish.train.bias_scale s
 
 /-- [apeiron_word::fold_finish_port::finish::train::add_scaled::{closure}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 869:38-869:64 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 876:38-876:64 -/
 def fold_finish_port.finish.train.add_scaled.closure :=
   Slice Std.I64 × Std.Usize
 
 /-- [apeiron_word::fold_finish_port::finish::train::add_scaled::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::add_scaled::{closure}<'_0, '_1>}::call_once]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 869:38-869:64 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 876:38-876:64 -/
 def
   fold_finish_port.finish.train.add_scaled.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
   (c : fold_finish_port.finish.train.add_scaled.closure)
@@ -128074,7 +134131,7 @@ def
   ok (I64.checked_add i1 tupled_args)
 
 /-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::add_scaled::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::add_scaled::{closure}<'_0, '_1>}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 869:38-869:64 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 876:38-876:64 -/
 @[reducible]
 def
   fold_finish_port.finish.train.add_scaled.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
@@ -128085,7 +134142,7 @@ def
 }
 
 /-- [apeiron_word::fold_finish_port::finish::train::add_scaled]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 868:4-874:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 875:4-881:5 -/
 @[rust_loop_body]
 def fold_finish_port.finish.train.add_scaled_loop.body
   (base : Slice Std.I64) (off : Slice Std.I64) (s : Std.I64) (len : Std.Usize)
@@ -128115,7 +134172,7 @@ def fold_finish_port.finish.train.add_scaled_loop.body
   else ok (done (out, bad))
 
 /-- [apeiron_word::fold_finish_port::finish::train::add_scaled]: loop 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 868:4-874:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 875:4-881:5 -/
 @[rust_loop]
 def fold_finish_port.finish.train.add_scaled_loop
   (base : Slice Std.I64) (off : Slice Std.I64) (s : Std.I64) (len : Std.Usize)
@@ -128128,7 +134185,7 @@ def fold_finish_port.finish.train.add_scaled_loop
     (out, bad, i)
 
 /-- [apeiron_word::fold_finish_port::finish::train::add_scaled]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 860:0-879:1 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 867:0-886:1 -/
 def fold_finish_port.finish.train.add_scaled
   (base : Slice Std.I64) (off : Slice Std.I64) (s : Std.I64) :
   Result (alloc.vec.Vec Std.I64)
@@ -128148,12 +134205,12 @@ def fold_finish_port.finish.train.add_scaled
     else ok out1
 
 /-- [apeiron_word::fold_finish_port::finish::train::scale_exp::{closure}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 847:46-847:65 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 854:46-854:65 -/
 def fold_finish_port.finish.train.scale_exp.closure :=
   Slice Std.I64 × Std.Usize
 
 /-- [apeiron_word::fold_finish_port::finish::train::scale_exp::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::scale_exp::{closure}<'_0, '_1>}::call_once]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 847:46-847:65 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 854:46-854:65 -/
 def
   fold_finish_port.finish.train.scale_exp.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64.call_once
   (c : fold_finish_port.finish.train.scale_exp.closure) (tupled_args : Std.I64)
@@ -128165,7 +134222,7 @@ def
   fold_finish_port.finish.plane.mul i1 tupled_args
 
 /-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::scale_exp::{impl core::ops::function::FnOnce<(i64,), core::option::Option<i64>> for apeiron_word::fold_finish_port::finish::train::scale_exp::{closure}<'_0, '_1>}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 847:46-847:65 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 854:46-854:65 -/
 @[reducible]
 def
   fold_finish_port.finish.train.scale_exp.closure.Insts.CoreOpsFunctionFnOnceTupleI64OptionI64
@@ -128176,7 +134233,7 @@ def
 }
 
 /-- [apeiron_word::fold_finish_port::finish::train::scale_exp]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 846:4-852:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 853:4-859:5 -/
 @[rust_loop_body]
 def fold_finish_port.finish.train.scale_exp_loop.body
   (base : Slice Std.I64) (off : Slice Std.I64) (len : Std.Usize)
@@ -128207,7 +134264,7 @@ def fold_finish_port.finish.train.scale_exp_loop.body
   else ok (done (out, bad))
 
 /-- [apeiron_word::fold_finish_port::finish::train::scale_exp]: loop 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 846:4-852:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 853:4-859:5 -/
 @[rust_loop]
 def fold_finish_port.finish.train.scale_exp_loop
   (base : Slice Std.I64) (off : Slice Std.I64) (len : Std.Usize)
@@ -128220,7 +134277,7 @@ def fold_finish_port.finish.train.scale_exp_loop
     (out, bad, i)
 
 /-- [apeiron_word::fold_finish_port::finish::train::scale_exp]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 838:0-857:1 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 845:0-864:1 -/
 def fold_finish_port.finish.train.scale_exp
   (base : Slice Std.I64) (off : Slice Std.I64) :
   Result (alloc.vec.Vec Std.I64)
@@ -128437,7 +134494,7 @@ def fold_finish_port.finish.train.Adam.is_empty
   alloc.vec.Vec.is_empty Global self.m
 
 /-- [apeiron_word::fold_finish_port::finish::train::pow_q32]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 814:4-828:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 821:4-835:5 -/
 @[rust_loop_body]
 def fold_finish_port.finish.train.pow_q32_loop.body
   (e : Std.U64) (acc : Std.I64) (b : Std.I64) (bad : Bool) :
@@ -128473,7 +134530,7 @@ def fold_finish_port.finish.train.pow_q32_loop.body
   else ok (done (acc, bad))
 
 /-- [apeiron_word::fold_finish_port::finish::train::pow_q32]: loop 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 814:4-828:5 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 821:4-835:5 -/
 @[rust_loop]
 def fold_finish_port.finish.train.pow_q32_loop
   (e : Std.U64) (acc : Std.I64) (b : Std.I64) (bad : Bool) :
@@ -128485,7 +134542,7 @@ def fold_finish_port.finish.train.pow_q32_loop
     (e, acc, b, bad)
 
 /-- [apeiron_word::fold_finish_port::finish::train::pow_q32]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 810:0-834:1 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 817:0-841:1 -/
 def fold_finish_port.finish.train.pow_q32
   (base : Std.I64) (e : Std.U64) : Result (Option Std.I64) := do
   let acc ← fold_finish_port.finish.plane.ONE
@@ -128495,11 +134552,11 @@ def fold_finish_port.finish.train.pow_q32
   then ok none
   else ok (some acc1)
 
-/-- [apeiron_word::fold_finish_port::finish::train::ok]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 797:0-802:1 -/
-def fold_finish_port.finish.train.ok
-  {T : Type} (v : Option T) :
-  Result (core.result.Result T fold_finish_port.finish.train.TrainError)
+/-- [apeiron_word::fold_finish_port::finish::train::ok64]:
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 804:0-809:1 -/
+def fold_finish_port.finish.train.ok64
+  (v : Option Std.I64) :
+  Result (core.result.Result Std.I64 fold_finish_port.finish.train.TrainError)
   := do
   match v with
   | none =>
@@ -128511,12 +134568,12 @@ def fold_finish_port.finish.train.ok
   | some x => ok (core.result.Result.Ok x)
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure#1}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 712:26-712:47 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 719:26-719:47 -/
 @[reducible]
 def fold_finish_port.finish.train.Adam.apply.closure_1 := Unit
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure#1}}::call_once]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 712:26-712:47 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 719:26-719:47 -/
 def
   fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   (c : fold_finish_port.finish.train.Adam.apply.closure_1)
@@ -128526,7 +134583,7 @@ def
   solve_port.q32.rshift_rne tupled_args 32#u32
 
 /-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure#1}}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 712:26-712:47 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 719:26-719:47 -/
 @[reducible]
 def
   fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
@@ -128537,12 +134594,12 @@ def
 }
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 702:26-702:47 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 709:26-709:47 -/
 @[reducible]
 def fold_finish_port.finish.train.Adam.apply.closure := Unit
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure}}::call_once]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 702:26-702:47 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 709:26-709:47 -/
 def
   fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128.call_once
   (c : fold_finish_port.finish.train.Adam.apply.closure)
@@ -128552,7 +134609,7 @@ def
   solve_port.q32.rshift_rne tupled_args 32#u32
 
 /-- Trait implementation: [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{impl core::ops::function::FnOnce<(i128,), core::option::Option<i128>> for apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply::{closure}}]
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 702:26-702:47 -/
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 709:26-709:47 -/
 @[reducible]
 def
   fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
@@ -128563,7 +134620,7 @@ def
 }
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 673:8-788:9
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 680:8-795:9
     Visibility: public -/
 @[rust_loop_body]
 def fold_finish_port.finish.train.Adam.apply_loop.body
@@ -128584,17 +134641,17 @@ def fold_finish_port.finish.train.Adam.apply_loop.body
     let o ←
       fold_finish_port.finish.plane.mul fold_finish_port.finish.train.BETA1_Q32
         i2
-    let r ← fold_finish_port.finish.train.ok o
+    let r ← fold_finish_port.finish.train.ok64 o
     match r with
     | core.result.Result.Ok v2 =>
       let o1 ←
         fold_finish_port.finish.plane.mul
           fold_finish_port.finish.train.ONE_MINUS_BETA1_Q32 gi
-      let r1 ← fold_finish_port.finish.train.ok o1
+      let r1 ← fold_finish_port.finish.train.ok64 o1
       match r1 with
       | core.result.Result.Ok v3 =>
         let o2 ← lift (I64.checked_add v2 v3)
-        let r2 ← fold_finish_port.finish.train.ok o2
+        let r2 ← fold_finish_port.finish.train.ok64 o2
         match r2 with
         | core.result.Result.Ok v4 =>
           let (_, index_mut_back) ←
@@ -128614,9 +134671,15 @@ def fold_finish_port.finish.train.Adam.apply_loop.body
             core.option.Option.and_then
               fold_finish_port.finish.train.Adam.apply.closure.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
               o3 ()
-          let r3 ← fold_finish_port.finish.train.ok o4
-          match r3 with
-          | core.result.Result.Ok v5 =>
+          match o4 with
+          | none =>
+            let s ←
+              alloc.string.ToString.Blanket.to_string Str.Insts.CoreFmtDisplay
+                (toStr "q64 word")
+            let v5 := index_mut_back v4
+            ok (done (v5, v1, p, some
+              (fold_finish_port.finish.train.TrainError.Range s)))
+          | some v5 =>
             let i7 ←
               lift (core.convert.num.FromI128I64.from
                 fold_finish_port.finish.train.ONE_MINUS_BETA2_Q32)
@@ -128625,13 +134688,25 @@ def fold_finish_port.finish.train.Adam.apply_loop.body
               core.option.Option.and_then
                 fold_finish_port.finish.train.Adam.apply.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128OptionI128
                 o5 ()
-            let r4 ← fold_finish_port.finish.train.ok o6
-            match r4 with
-            | core.result.Result.Ok v6 =>
+            match o6 with
+            | none =>
+              let s ←
+                alloc.string.ToString.Blanket.to_string
+                  Str.Insts.CoreFmtDisplay (toStr "q64 word")
+              let v6 := index_mut_back v4
+              ok (done (v6, v1, p, some
+                (fold_finish_port.finish.train.TrainError.Range s)))
+            | some v6 =>
               let o7 ← lift (I128.checked_add v5 v6)
-              let r5 ← fold_finish_port.finish.train.ok o7
-              match r5 with
-              | core.result.Result.Ok v7 =>
+              match o7 with
+              | none =>
+                let s ←
+                  alloc.string.ToString.Blanket.to_string
+                    Str.Insts.CoreFmtDisplay (toStr "q64 word")
+                let v7 := index_mut_back v4
+                ok (done (v7, v1, p, some
+                  (fold_finish_port.finish.train.TrainError.Range s)))
+              | some v7 =>
                 if v7 < 0#i128
                 then
                   let s ←
@@ -128645,34 +134720,34 @@ def fold_finish_port.finish.train.Adam.apply_loop.body
                     alloc.vec.Vec.index_mut
                       (core.slice.index.SliceIndexUsizeSlice Std.I128) v1 i
                   let o8 ← fold_finish_port.finish.plane.div v4 bc1
-                  let r6 ← fold_finish_port.finish.train.ok o8
-                  match r6 with
+                  let r3 ← fold_finish_port.finish.train.ok64 o8
+                  match r3 with
                   | core.result.Result.Ok v8 =>
                     let i8 ← fixed_rsqrt.isqrt v7
                     let o9 ← solve_port.q32.narrow i8
-                    let r7 ← fold_finish_port.finish.train.ok o9
-                    match r7 with
+                    let r4 ← fold_finish_port.finish.train.ok64 o9
+                    match r4 with
                     | core.result.Result.Ok v9 =>
                       let o10 ← fold_finish_port.finish.plane.div v9 root_bc2
-                      let r8 ← fold_finish_port.finish.train.ok o10
-                      match r8 with
+                      let r5 ← fold_finish_port.finish.train.ok64 o10
+                      match r5 with
                       | core.result.Result.Ok v10 =>
                         let o11 ←
                           lift (I64.checked_add v10
                             fold_finish_port.finish.train.ADAM_EPS_Q32)
-                        let r9 ← fold_finish_port.finish.train.ok o11
-                        match r9 with
+                        let r6 ← fold_finish_port.finish.train.ok64 o11
+                        match r6 with
                         | core.result.Result.Ok v11 =>
                           let o12 ← fold_finish_port.finish.plane.mul lr v8
-                          let r10 ← fold_finish_port.finish.train.ok o12
-                          match r10 with
+                          let r7 ← fold_finish_port.finish.train.ok64 o12
+                          match r7 with
                           | core.result.Result.Ok v12 =>
                             if v11 = 0#i64
                             then
                               let i9 ← Slice.index_usize p i
                               let o13 ← lift (I64.checked_sub i9 0#i64)
-                              let r11 ← fold_finish_port.finish.train.ok o13
-                              match r11 with
+                              let r8 ← fold_finish_port.finish.train.ok64 o13
+                              match r8 with
                               | core.result.Result.Ok v13 =>
                                 let s ← Slice.update p i v13
                                 let i10 ← i + 1#usize
@@ -128686,14 +134761,14 @@ def fold_finish_port.finish.train.Adam.apply_loop.body
                             else
                               let o13 ←
                                 fold_finish_port.finish.plane.div v12 v11
-                              let r11 ← fold_finish_port.finish.train.ok o13
-                              match r11 with
+                              let r8 ← fold_finish_port.finish.train.ok64 o13
+                              match r8 with
                               | core.result.Result.Ok v13 =>
                                 let i9 ← Slice.index_usize p i
                                 let o14 ← lift (I64.checked_sub i9 v13)
-                                let r12 ←
-                                  fold_finish_port.finish.train.ok o14
-                                match r12 with
+                                let r9 ←
+                                  fold_finish_port.finish.train.ok64 o14
+                                match r9 with
                                 | core.result.Result.Ok v14 =>
                                   let s ← Slice.update p i v14
                                   let i10 ← i + 1#usize
@@ -128728,22 +134803,13 @@ def fold_finish_port.finish.train.Adam.apply_loop.body
                     let v8 := index_mut_back1 v7
                     let v9 := index_mut_back v4
                     ok (done (v9, v8, p, some e))
-              | core.result.Result.Err e =>
-                let v7 := index_mut_back v4
-                ok (done (v7, v1, p, some e))
-            | core.result.Result.Err e =>
-              let v6 := index_mut_back v4
-              ok (done (v6, v1, p, some e))
-          | core.result.Result.Err e =>
-            let v5 := index_mut_back v4
-            ok (done (v5, v1, p, some e))
         | core.result.Result.Err e => ok (done (v, v1, p, some e))
       | core.result.Result.Err e => ok (done (v, v1, p, some e))
     | core.result.Result.Err e => ok (done (v, v1, p, some e))
   else ok (done (v, v1, p, none))
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply]: loop 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 673:8-788:9
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 680:8-795:9
     Visibility: public -/
 @[rust_loop]
 def fold_finish_port.finish.train.Adam.apply_loop
@@ -128759,7 +134825,7 @@ def fold_finish_port.finish.train.Adam.apply_loop
     (v, v1, p, i)
 
 /-- [apeiron_word::fold_finish_port::finish::train::{apeiron_word::fold_finish_port::finish::train::Adam}::apply]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 635:4-793:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 642:4-800:5
     Visibility: public -/
 def fold_finish_port.finish.train.Adam.apply
   (self : fold_finish_port.finish.train.Adam) (lr : Std.I64)
@@ -128917,7 +134983,7 @@ def fold_finish_port.finish.train.Adam.apply
                         { m := v5, v := v6, t := i6 }, p1)
 
 /-- [apeiron_word::fold_finish_port::finish::train::kl_mean]: loop body 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1070:4-1083:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1077:4-1090:5
     Visibility: public -/
 @[rust_loop_body]
 def fold_finish_port.finish.train.kl_mean_loop.body
@@ -128976,7 +135042,7 @@ def fold_finish_port.finish.train.kl_mean_loop.body
   else ok (done (dz, acc, err))
 
 /-- [apeiron_word::fold_finish_port::finish::train::kl_mean]: loop 0:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1070:4-1083:5
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1077:4-1090:5
     Visibility: public -/
 @[rust_loop]
 def fold_finish_port.finish.train.kl_mean_loop
@@ -128994,7 +135060,7 @@ def fold_finish_port.finish.train.kl_mean_loop
     (dz, acc, err, r)
 
 /-- [apeiron_word::fold_finish_port::finish::train::kl_mean]:
-    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1049:0-1091:1
+    Source: 'ports/../../../src/learn/fold/finish/train.rs', lines 1056:0-1098:1
     Visibility: public -/
 def fold_finish_port.finish.train.kl_mean
   (cfg : grad_solve_port.model.Config) (logits : Slice Std.I64)
@@ -132893,6 +138959,93 @@ def format_port.word_bpe_find_sub
   Result (Option Std.Usize)
   := do
   format_port.bpe.find_sub hay needle
+
+/-- [apeiron_word::gpu_port::word_gpu_two_level_chart_buffer]:
+    Source: 'ports/gpu_port.rs', lines 8:0-10:1
+    Visibility: public -/
+def gpu_port.word_gpu_two_level_chart_buffer
+  (sub : Slice Std.U32) (sup : Slice Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  gpu.nn.two_level_chart_buffer sub sup
+
+/-- [apeiron_word::gpu_port::word_gpu_embed_f16_module]:
+    Source: 'ports/gpu_port.rs', lines 13:0-15:1
+    Visibility: public -/
+def gpu_port.word_gpu_embed_f16_module
+  (hidden : Std.U32) (vocab : Std.U32) («local» : Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  gpu.nn.glue.embed_f16_module hidden vocab «local»
+
+/-- [apeiron_word::gpu_port::word_gpu_silu_mul_module]:
+    Source: 'ports/gpu_port.rs', lines 18:0-20:1
+    Visibility: public -/
+def gpu_port.word_gpu_silu_mul_module
+  (n : Std.U32) («local» : Std.U32) (u_off : Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  gpu.nn.glue.silu_mul_module n «local» u_off
+
+/-- [apeiron_word::gpu_port::word_gpu_add_inplace_module]:
+    Source: 'ports/gpu_port.rs', lines 23:0-25:1
+    Visibility: public -/
+def gpu_port.word_gpu_add_inplace_module
+  (n : Std.U32) («local» : Std.U32) : Result (alloc.vec.Vec Std.U32) := do
+  gpu.nn.glue.add_inplace_module n «local»
+
+/-- [apeiron_word::gpu_port::word_gpu_commit_advance_module]:
+    Source: 'ports/gpu_port.rs', lines 28:0-30:1
+    Visibility: public -/
+def gpu_port.word_gpu_commit_advance_module
+  (slot : Std.U32) : Result (alloc.vec.Vec Std.U32) := do
+  gpu.nn.glue.commit_advance_module slot
+
+/-- [apeiron_word::gpu_port::word_gpu_copy_vec_module]:
+    Source: 'ports/gpu_port.rs', lines 33:0-35:1
+    Visibility: public -/
+def gpu_port.word_gpu_copy_vec_module
+  (n : Std.U32) (src_off : Std.U32) : Result (alloc.vec.Vec Std.U32) := do
+  gpu.nn.glue.copy_vec_module n src_off
+
+/-- [apeiron_word::limb_port::word_limb_gemm_q32]:
+    Source: 'ports/limb_port.rs', lines 20:0-29:1
+    Visibility: public -/
+def limb_port.word_limb_gemm_q32
+  (a : Slice Std.I64) (m : Std.Usize) (b : Slice Std.I64) (p : Std.Usize)
+  (n : Std.Usize) (limbs : Std.U32) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
+  := do
+  kern.limb.gemm_q32 a m b p n limbs
+
+/-- [apeiron_word::limb_port::word_limb_syrk_q32]:
+    Source: 'ports/limb_port.rs', lines 32:0-39:1
+    Visibility: public -/
+def limb_port.word_limb_syrk_q32
+  (a : Slice Std.I64) (m : Std.Usize) (n : Std.Usize) (limbs : Std.U32) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
+  := do
+  kern.limb.syrk_q32 a m n limbs
+
+/-- [apeiron_word::limb_port::word_limb_gemv_q32]:
+    Source: 'ports/limb_port.rs', lines 42:0-50:1
+    Visibility: public -/
+def limb_port.word_limb_gemv_q32
+  (x : Slice Std.I64) (b : Slice Std.I64) (p : Std.Usize) (n : Std.Usize)
+  (limbs : Std.U32) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
+  := do
+  kern.limb.gemv_q32 x b p n limbs
+
+/-- [apeiron_word::limb_port::word_limb_rowdot_q32]:
+    Source: 'ports/limb_port.rs', lines 53:0-61:1
+    Visibility: public -/
+def limb_port.word_limb_rowdot_q32
+  (a : Slice Std.I64) (b : Slice Std.I64) (m : Std.Usize) (n : Std.Usize)
+  (limbs : Std.U32) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
+  := do
+  kern.limb.rowdot_q32 a b m n limbs
 
 /-- [apeiron_word::table_port::word_table_parallel_phase_absorb]:
     Source: 'ports/table_port.rs', lines 63:0-69:1

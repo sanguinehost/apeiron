@@ -162,15 +162,28 @@ const GLSL_UNPACK_HALF2X16: u32 = 62;
 
 /// A NUL-terminated LE-packed literal string (the SPIR-V string encoding).
 fn lit_string(s: &str) -> Vec<u32> {
-    let mut bytes: Vec<u8> = s.as_bytes().to_vec();
+    let sb = s.as_bytes();
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut j = 0;
+    while j < sb.len() {
+        bytes.push(sb[j]);
+        j += 1;
+    }
     bytes.push(0);
     while bytes.len() % 4 != 0 {
         bytes.push(0);
     }
-    bytes
-        .chunks(4)
-        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-        .collect()
+    let mut out: Vec<u32> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let w = (bytes[i] as u32)
+            | ((bytes[i + 1] as u32) << 8)
+            | ((bytes[i + 2] as u32) << 16)
+            | ((bytes[i + 3] as u32) << 24);
+        out.push(w);
+        i += 4;
+    }
+    out
 }
 
 /// The kernel builder: an id allocator over the module's fixed sections. The gemv encoder pins
@@ -361,45 +374,73 @@ impl Kb {
     fn deco(&mut self, words: &[u32]) {
         // `words[0]` is the opcode — the count is the whole slice's length
         self.deco.push(((words.len() as u32) << 16) | words[0]);
-        self.deco.extend(&words[1..]);
+        push_all(&mut self.deco, &words[1..]);
     }
     fn ty(&mut self, opcode: u32, operands: &[u32]) {
         self.tycon
             .push(((operands.len() as u32 + 1) << 16) | opcode);
-        self.tycon.extend(operands);
+        push_all(&mut self.tycon, operands);
     }
     fn ins(&mut self, opcode: u32, operands: &[u32]) {
         self.body.push(((operands.len() as u32 + 1) << 16) | opcode);
-        self.body.extend(operands);
+        push_all(&mut self.body, operands);
     }
     /// `res = op ty a b …` into the body; returns `res`.
     fn e(&mut self, opcode: u32, ty: u32, args: &[u32]) -> u32 {
         let res = self.id();
         let mut ops = vec![ty, res];
-        ops.extend(args);
+        push_all(&mut ops, args);
         self.ins(opcode, &ops);
         res
     }
     fn cu(&mut self, v: u32) -> u32 {
-        if let Some(&(_, id)) = self.ucache.iter().find(|&&(w, _)| w == v) {
-            return id;
+        let mut i = 0;
+        let mut hit: Option<u32> = None;
+        while i < self.ucache.len() {
+            let (w, id) = self.ucache[i];
+            if w == v {
+                hit = Some(id);
+            }
+            i += 1;
         }
-        let id = self.id();
-        let uint = self.uint;
-        self.ty(OP_CONSTANT, &[uint, id, v]);
-        self.ucache.push((v, id));
-        id
+        match hit {
+            Some(id) => id,
+            None => {
+                let id = self.id();
+                let uint = self.uint;
+                self.ty(OP_CONSTANT, &[uint, id, v]);
+                self.ucache.push((v, id));
+                id
+            }
+        }
     }
     fn cf(&mut self, v: f32) -> u32 {
         let bits = v.to_bits();
-        if let Some(&(_, id)) = self.fcache.iter().find(|&&(w, _)| w == bits) {
-            return id;
+        self.cf_bits(bits)
+    }
+    /// [`Kb::cf`] with the IEEE-754 bit pattern already formed. A literal `f32` argument reaches
+    /// `to_bits` as a constant in the Aeneas interpreter, which refuses a constant float there; the
+    /// bit pattern keeps the emitted `OpConstant` word identical.
+    fn cf_bits(&mut self, bits: u32) -> u32 {
+        let mut i = 0;
+        let mut hit: Option<u32> = None;
+        while i < self.fcache.len() {
+            let (w, id) = self.fcache[i];
+            if w == bits {
+                hit = Some(id);
+            }
+            i += 1;
         }
-        let id = self.id();
-        let float = self.float;
-        self.ty(OP_CONSTANT, &[float, id, bits]);
-        self.fcache.push((bits, id));
-        id
+        match hit {
+            Some(id) => id,
+            None => {
+                let id = self.id();
+                let float = self.float;
+                self.ty(OP_CONSTANT, &[float, id, bits]);
+                self.fcache.push((bits, id));
+                id
+            }
+        }
     }
     /// An SSBO of f32 at (set 0, `binding`); returns the variable id.
     fn ssbo_f(&mut self, binding: u32) -> u32 {
@@ -422,7 +463,7 @@ impl Kb {
     fn fvar(&mut self, ptr_ty: u32) -> u32 {
         let v = self.id();
         self.fvars.push((4 << 16) | OP_VARIABLE);
-        self.fvars.extend([ptr_ty, v, SC_FUNCTION]);
+        push_all(&mut self.fvars, &[ptr_ty, v, SC_FUNCTION]);
         v
     }
     fn fvar_f(&mut self) -> u32 {
@@ -543,18 +584,25 @@ impl Kb {
         let (u, g) = (self.uint, self.glsl);
         self.e(OP_EXT_INST, u, &[g, GLSL_UMIN, a, b])
     }
-    /// `if cond { then(self) }` — a selection construct.
-    fn iff(&mut self, cond: u32, then: impl FnOnce(&mut Kb)) {
+    /// `if cond { then(self) }` — a selection construct. The closure is threaded **by value**:
+    /// a closure typed `FnOnce(&mut Kb)` extracts as `FnOnce(Kb) -> Unit` while its generated body
+    /// returns the mutated `Kb`, and Aeneas emits the call site expecting `Unit × Kb`; the three
+    /// disagree. `FnOnce(Kb) -> Kb` has one type on all three sides. The receiver stays `&mut self`,
+    /// so `core.mem.replace` (modelled as `(dst, src)`) moves the builder out and the closure's
+    /// result is moved back in; no other builder helper changes shape.
+    fn iff(&mut self, cond: u32, then: impl FnOnce(Kb) -> Kb) {
         let (then_l, end_l) = (self.id(), self.id());
         self.ins(OP_SELECTION_MERGE, &[end_l, 0]);
         self.ins(OP_BRANCH_CONDITIONAL, &[cond, then_l, end_l]);
         self.ins(OP_LABEL, &[then_l]);
-        then(self);
+        let k = core::mem::replace(self, Kb::new());
+        *self = then(k);
         self.ins(OP_BRANCH, &[end_l]);
         self.ins(OP_LABEL, &[end_l]);
     }
     /// `for c in start..bound { body(self, c) }` — a structured loop; `c` is the loaded counter.
-    fn loop_u(&mut self, start: u32, bound: u32, body: impl FnOnce(&mut Kb, u32)) {
+    /// Closure and receiver threaded as in [`Kb::iff`].
+    fn loop_u(&mut self, start: u32, bound: u32, body: impl FnOnce(Kb, u32) -> Kb) {
         let ctr = self.fvar_u();
         self.store_var(ctr, start);
         let (hdr, chk, bod, cont, merge) = (self.id(), self.id(), self.id(), self.id(), self.id());
@@ -567,7 +615,8 @@ impl Kb {
         let cond = self.ult(c, bound);
         self.ins(OP_BRANCH_CONDITIONAL, &[cond, bod, merge]);
         self.ins(OP_LABEL, &[bod]);
-        body(self, c);
+        let k = core::mem::replace(self, Kb::new());
+        *self = body(k, c);
         self.ins(OP_BRANCH, &[cont]);
         self.ins(OP_LABEL, &[cont]);
         let c2 = self.load_var_u(ctr);
@@ -594,11 +643,11 @@ impl Kb {
             self.load_f(src, i)
         } else {
             let acc = self.fvar_f();
-            let z = self.cf(0.0);
+            let z = self.cf_bits(0x0000_0000);
             self.store_var(acc, z);
             let c0 = self.cu(0);
             let cseg = self.cu(segs);
-            self.loop_u(c0, cseg, |k, s| {
+            self.loop_u(c0, cseg, |mut k, s| {
                 let cn = k.cu(n);
                 let b = k.imul(s, cn);
                 let idx = k.iadd(b, i);
@@ -606,6 +655,7 @@ impl Kb {
                 let a0 = k.load_var_f(acc);
                 let a1 = k.fadd(a0, p);
                 k.store_var(acc, a1);
+                k
             });
             self.load_var_f(acc)
         };
@@ -647,30 +697,42 @@ impl Kb {
         let entry_l = self.id();
         let mut w = vec![SPV_MAGIC, SPV_VERSION_1_3, 0, self.next, 0];
         // SPIR-V logical layout: ALL OpCapability first, THEN ALL OpExtension.
-        w.extend([(2 << 16) | OP_CAPABILITY, CAP_SHADER]);
+        push_all(&mut w, &[(2 << 16) | OP_CAPABILITY, CAP_SHADER]);
         if self.f16_storage {
-            w.extend([(2 << 16) | OP_CAPABILITY, CAP_STORAGE_BUFFER_16BIT_ACCESS]);
+            push_all(
+                &mut w,
+                &[(2 << 16) | OP_CAPABILITY, CAP_STORAGE_BUFFER_16BIT_ACCESS],
+            );
         }
         if self.sg_arith {
-            w.extend([(2 << 16) | OP_CAPABILITY, CAP_GROUP_NON_UNIFORM]);
-            w.extend([(2 << 16) | OP_CAPABILITY, CAP_GROUP_NON_UNIFORM_ARITHMETIC]);
+            push_all(&mut w, &[(2 << 16) | OP_CAPABILITY, CAP_GROUP_NON_UNIFORM]);
+            push_all(
+                &mut w,
+                &[(2 << 16) | OP_CAPABILITY, CAP_GROUP_NON_UNIFORM_ARITHMETIC],
+            );
         }
         if self.dp4a {
-            w.extend([(2 << 16) | OP_CAPABILITY, CAP_DOT_PRODUCT]);
-            w.extend([(2 << 16) | OP_CAPABILITY, CAP_DOT_INPUT_4X8_PACKED]);
+            push_all(&mut w, &[(2 << 16) | OP_CAPABILITY, CAP_DOT_PRODUCT]);
+            push_all(
+                &mut w,
+                &[(2 << 16) | OP_CAPABILITY, CAP_DOT_INPUT_4X8_PACKED],
+            );
         }
         // OpExtension follows ALL capabilities, precedes ext-inst imports (logical layout).
         if self.dp4a {
             let ext = lit_string("SPV_KHR_integer_dot_product");
             w.push(((1 + ext.len() as u32) << 16) | OP_EXTENSION);
-            w.extend(&ext);
+            push_all(&mut w, &ext);
         }
         let g = lit_string("GLSL.std.450");
         w.push(((2 + g.len() as u32) << 16) | OP_EXT_INST_IMPORT);
         w.push(self.glsl);
-        w.extend(&g);
+        push_all(&mut w, &g);
         let mem_model = MEM_GLSL450;
-        w.extend([(3 << 16) | OP_MEMORY_MODEL, ADDR_LOGICAL, mem_model]);
+        push_all(
+            &mut w,
+            &[(3 << 16) | OP_MEMORY_MODEL, ADDR_LOGICAL, mem_model],
+        );
         // the entry-point interface: every Input/Output global the entry uses (SPIR-V ≤1.3).
         let mut iface = vec![self.gid];
         if self.lii != 0 {
@@ -681,37 +743,64 @@ impl Kb {
         }
         let main = lit_string("main");
         w.push(((3 + main.len() as u32 + iface.len() as u32) << 16) | OP_ENTRY_POINT);
-        w.extend([MODEL_GL_COMPUTE, self.main_id]);
-        w.extend(&main);
-        w.extend(&iface);
-        w.extend([
-            (6 << 16) | OP_EXECUTION_MODE,
-            self.main_id,
-            MODE_LOCAL_SIZE,
-            local,
-            1,
-            1,
-        ]);
-        w.extend(&self.deco);
-        w.extend(&self.tycon);
-        w.extend([
-            (5 << 16) | OP_FUNCTION,
-            self.void_t,
-            self.main_id,
-            0,
-            self.fnty,
-        ]);
-        w.extend([(2 << 16) | OP_LABEL, entry_l]);
-        w.extend(&self.fvars);
-        w.extend(&self.body);
-        w.extend([(1 << 16) | OP_RETURN]);
-        w.extend([(1 << 16) | OP_FUNCTION_END]);
+        push_all(&mut w, &[MODEL_GL_COMPUTE, self.main_id]);
+        push_all(&mut w, &main);
+        push_all(&mut w, &iface);
+        push_all(
+            &mut w,
+            &[
+                (6 << 16) | OP_EXECUTION_MODE,
+                self.main_id,
+                MODE_LOCAL_SIZE,
+                local,
+                1,
+                1,
+            ],
+        );
+        push_all(&mut w, &self.deco);
+        push_all(&mut w, &self.tycon);
+        push_all(
+            &mut w,
+            &[
+                (5 << 16) | OP_FUNCTION,
+                self.void_t,
+                self.main_id,
+                0,
+                self.fnty,
+            ],
+        );
+        push_all(&mut w, &[(2 << 16) | OP_LABEL, entry_l]);
+        push_all(&mut w, &self.fvars);
+        push_all(&mut w, &self.body);
+        push_all(&mut w, &[(1 << 16) | OP_RETURN]);
+        push_all(&mut w, &[(1 << 16) | OP_FUNCTION_END]);
         w
     }
 }
 
+/// Append every word of `xs`. The Aeneas interpreter refuses `Vec::extend` here (it is an
+/// unmodeled external, `alloc.vec.Vec.Insts.CoreIterTraitsCollectExtendSharedAT.extend`), so the
+/// append is the explicit index loop: O(xs.len()) time, O(1) extra space.
+fn push_all(dst: &mut Vec<u32>, xs: &[u32]) {
+    let mut i = 0;
+    while i < xs.len() {
+        dst.push(xs[i]);
+        i += 1;
+    }
+}
+
 fn bytes(words: Vec<u32>) -> Vec<u8> {
-    words.iter().flat_map(|w| w.to_le_bytes()).collect()
+    let mut out: Vec<u8> = Vec::new();
+    let mut i = 0;
+    while i < words.len() {
+        let b = words[i].to_le_bytes();
+        out.push(b[0]);
+        out.push(b[1]);
+        out.push(b[2]);
+        out.push(b[3]);
+        i += 1;
+    }
+    out
 }
 const OP_IEQ: u32 = 170;
 const OP_FNEG: u32 = 127;
@@ -728,13 +817,24 @@ const GLSL_FMAX2: u32 = 40;
 impl Kb {
     /// The signed i32 type, created on first use.
     fn sint_ty(&mut self) -> u32 {
-        if let Some(&(_, id)) = self.ucache.iter().find(|&&(v, _)| v == u32::MAX) {
-            return id; // stashed under the sentinel key
+        let mut i = 0;
+        let mut hit: Option<u32> = None;
+        while i < self.ucache.len() {
+            let (v, id) = self.ucache[i];
+            if v == u32::MAX {
+                hit = Some(id); // stashed under the sentinel key
+            }
+            i += 1;
         }
-        let id = self.id();
-        self.ty(OP_TYPE_INT, &[id, 32, 1]);
-        self.ucache.push((u32::MAX, id));
-        id
+        match hit {
+            Some(id) => id,
+            None => {
+                let id = self.id();
+                self.ty(OP_TYPE_INT, &[id, 32, 1]);
+                self.ucache.push((u32::MAX, id));
+                id
+            }
+        }
     }
 }
 
@@ -805,7 +905,7 @@ impl Kb {
         while stride >= 1 {
             let cs = self.cu(stride);
             let lt = self.ult(tid, cs);
-            self.iff(lt, |k| {
+            self.iff(lt, |mut k| {
                 let a = k.shared_load(red, redp, tid);
                 let ti = k.iadd(tid, cs);
                 let b = k.shared_load(red, redp, ti);
@@ -815,6 +915,7 @@ impl Kb {
                     k.fadd(a, b)
                 };
                 k.shared_store(red, redp, tid, r);
+                k
             });
             self.wg_barrier();
             stride /= 2;
@@ -850,7 +951,7 @@ impl Kb {
         let cn = self.cu(n);
         let u = n.div_ceil(wg);
         let acc = self.fvar_f();
-        let zero = self.cf(0.0);
+        let zero = self.cf_bits(0x0000_0000);
         self.store_var(acc, zero);
         // Arm (a): every lane issues all of its `⌈n/wg⌉` x loads before the first dependent
         // square/add, keeping each in a function register for the scale loop (no second load).
@@ -865,20 +966,22 @@ impl Kb {
             let ti = self.strided_idx(tid, t, wg);
             let inb = self.ult(ti, cn);
             let var = xv[t as usize];
-            self.iff(inb, |k| {
+            self.iff(inb, |mut k| {
                 let v = k.load_f(src, ti);
                 k.store_var(var, v);
+                k
             });
         }
         for t in 0..u {
             let ti = self.strided_idx(tid, t, wg);
             let inb = self.ult(ti, cn);
             let var = xv[t as usize];
-            self.iff(inb, |k| {
+            self.iff(inb, |mut k| {
                 let v = k.load_var_f(var);
                 let a0 = k.load_var_f(acc);
                 let a1 = k.fma(v, v, a0);
                 k.store_var(acc, a1);
+                k
             });
         }
         let af = self.load_var_f(acc);
@@ -900,9 +1003,10 @@ impl Kb {
             let ji = self.strided_idx(tid, t, wg);
             let inb = self.ult(ji, cn2);
             let var = gv[t as usize];
-            self.iff(inb, |k| {
+            self.iff(inb, |mut k| {
                 let v = k.load_f(gain, ji);
                 k.store_var(var, v);
+                k
             });
         }
         for t in 0..u {
@@ -910,7 +1014,7 @@ impl Kb {
             let inb = self.ult(ji, cn2);
             let xvar = xv[t as usize];
             let gvar = gv[t as usize];
-            self.iff(inb, |k| {
+            self.iff(inb, |mut k| {
                 let xj = k.load_var_f(xvar);
                 let gj = k.load_var_f(gvar);
                 let tt = k.fmul(xj, inv);
@@ -919,6 +1023,7 @@ impl Kb {
                     NormOut::Shared(buf, bufp) => k.shared_store(buf, bufp, ji, ov),
                     NormOut::Global(buf) => k.store_f(buf, ji, ov),
                 }
+                k
             });
         }
     }
@@ -998,13 +1103,13 @@ impl Kb {
             let base = k.imul(b, c32);
             let mxv = k.fvar_f();
             let sumv = k.fvar_f();
-            let tiny = k.cf(1.0e-12);
+            let tiny = k.cf_bits(0x2b8c_bccc);
             k.store_var(mxv, tiny);
-            let z = k.cf(0.0);
+            let z = k.cf_bits(0x0000_0000);
             k.store_var(sumv, z);
             let c0u = k.cu(0);
             let c32b = k.cu(32);
-            k.loop_u(c0u, c32b, |k, j| {
+            k.loop_u(c0u, c32b, |mut k, j| {
                 let idx = k.iadd(base, j);
                 let v = k.shared_load(nrm, nrmp, idx);
                 let f = k.float;
@@ -1016,9 +1121,10 @@ impl Kb {
                 let s0 = k.load_var_f(sumv);
                 let s1 = k.fadd(s0, v);
                 k.store_var(sumv, s1);
+                k
             });
             let mx = k.load_var_f(mxv);
-            let inv127 = k.cf(1.0 / 127.0);
+            let inv127 = k.cf_bits(0x3c01_0204);
             let sc = k.fmul(mx, inv127);
             let bo = match slot_base {
                 Some((_, bb)) => k.iadd(bb, b),
@@ -1047,21 +1153,21 @@ impl Kb {
             k.store_var(word, z);
             let c0u = k.cu(0);
             let four = k.cu(4);
-            k.loop_u(c0u, four, |k, b| {
+            k.loop_u(c0u, four, |mut k, b| {
                 let bd = k.imul(b, cdpw);
                 let idx = k.iadd(base, bd);
                 let v = k.shared_load(nrm, nrmp, idx);
                 let q = k.fdiv(v, sx);
-                let half = k.cf(0.5);
-                let nhalf = k.cf(-0.5);
-                let zf = k.cf(0.0);
+                let half = k.cf_bits(0x3f00_0000);
+                let nhalf = k.cf_bits(0xbf00_0000);
+                let zf = k.cf_bits(0x0000_0000);
                 let bt = k.bool_t;
                 let pos = k.e(OP_FORD_GREATER_THAN, bt, &[q, zf]);
                 let f = k.float;
                 let adj = k.e(OP_SELECT, f, &[pos, half, nhalf]);
                 let qa = k.fadd(q, adj);
-                let hi = k.cf(127.0);
-                let lo = k.cf(-127.0);
+                let hi = k.cf_bits(0x42fe_0000);
+                let lo = k.cf_bits(0xc2fe_0000);
                 let gl = k.glsl;
                 let q1 = k.e(OP_EXT_INST, f, &[gl, GLSL_FMIN, qa, hi]);
                 let q2 = k.e(OP_EXT_INST, f, &[gl, GLSL_FMAX2, q1, lo]);
@@ -1076,6 +1182,7 @@ impl Kb {
                 let w0 = k.load_var_u(word);
                 let w1 = k.e(OP_BITWISE_OR, u, &[w0, shifted]);
                 k.store_var(word, w1);
+                k
             });
             let wv = k.load_var_u(word);
             let psu = k.ptr_sb_u;
@@ -1159,9 +1266,9 @@ impl Kb {
             let base = k.imul(brel, c32);
             let mxv = k.fvar_f();
             let sumv = k.fvar_f();
-            let tiny = k.cf(1.0e-12);
+            let tiny = k.cf_bits(0x2b8c_bccc);
             k.store_var(mxv, tiny);
-            let z = k.cf(0.0);
+            let z = k.cf_bits(0x0000_0000);
             k.store_var(sumv, z);
             // Arm (b): the 32 shared loads issue back to back, then the max/add chain runs in the
             // same element order with the same single load per element as the naive loop.
@@ -1186,7 +1293,7 @@ impl Kb {
                 k.store_var(sumv, s1);
             }
             let mx = k.load_var_f(mxv);
-            let inv127 = k.cf(1.0 / 127.0);
+            let inv127 = k.cf_bits(0x3c01_0204);
             let sc = k.fmul(mx, inv127);
             k.shared_store(sxs, sxsp, brel, sc);
             let sm = k.load_var_f(sumv);
@@ -1221,7 +1328,7 @@ impl Kb {
             k.store_var(word, z);
             let c0u = k.cu(0);
             let four = k.cu(4);
-            k.loop_u(c0u, four, |k, b| {
+            k.loop_u(c0u, four, |mut k, b| {
                 let bd = k.imul(b, cdpw);
                 let idx = k.iadd(base, bd);
                 // `base` comes from `base0 = (c/dpw)·4·dpw` and `c` is the ABSOLUTE word index, so
@@ -1245,6 +1352,7 @@ impl Kb {
                 let w0 = k.load_var_u(word);
                 let w1 = k.e(OP_BITWISE_OR, u, &[w0, shifted]);
                 k.store_var(word, w1);
+                k
             });
             let wv = k.load_var_u(word);
             let c = match base_blk {

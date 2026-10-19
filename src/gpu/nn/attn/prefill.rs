@@ -94,7 +94,7 @@ pub fn attn_prefill_module(
         k.store_var(acc, z);
         let chdb = k.cu(hd);
         let c0b = k.cu(0);
-        k.loop_u(c0b, chdb, |k, d| {
+        k.loop_u(c0b, chdb, |mut k, d| {
             let qd = k.shared_load(qs, qsp, d);
             let kr0 = k.iadd(kdim0, d);
             let kr1 = k.imul(kr0, ct);
@@ -104,6 +104,7 @@ pub fn attn_prefill_module(
             let a0 = k.load_var_f(acc);
             let a1 = k.fadd(a0, pr);
             k.store_var(acc, a1);
+            k
         });
         let raw = k.load_var_f(acc);
         let srow = k.imul(s, cnkv);
@@ -188,7 +189,7 @@ pub fn attn_prefill_module(
         k.wg_barrier();
         let chdb = k.cu(hd);
         let c0b = k.cu(0);
-        k.loop_u(c0b, chdb, |k, j| {
+        k.loop_u(c0b, chdb, |mut k, j| {
             let pj = k.shared_load(psh, pshp, j);
             let sj0 = k.iadd(t0, j);
             let jin = k.ult(sj0, len);
@@ -205,6 +206,7 @@ pub fn attn_prefill_module(
             let a0 = k.load_var_f(oacc);
             let a1 = k.fadd(a0, pr);
             k.store_var(oacc, a1);
+            k
         });
     });
     let of = k.load_var_f(oacc);
@@ -574,7 +576,7 @@ pub fn attn_prefill_tiled_module_m(
         let score_chunk = |k: &mut Kb, p: u32| {
             let pbase = k.cu(p * dchunk);
             let cend = k.cu((p + 1) * dchunk);
-            k.loop_u(pbase, cend, |k, d| {
+            k.loop_u(pbase, cend, |mut k, d| {
                 let dl = if kp == 1 {
                     d
                 } else {
@@ -599,6 +601,7 @@ pub fn attn_prefill_tiled_module_m(
                         k.store_var(accs[j * ct as usize + c], a1);
                     }
                 }
+                k
             });
         };
         score_chunk(k, 0);
@@ -643,7 +646,7 @@ pub fn attn_prefill_tiled_module_m(
         while stride >= 1 {
             let cs = k.cu(stride);
             let lt = k.ult(dl, cs);
-            k.iff(lt, |k| {
+            k.iff(lt, |mut k| {
                 for rt in 0..rtf {
                     let crt = k.cu(rt);
                     let lr = k.iadd(fbase, crt);
@@ -659,6 +662,7 @@ pub fn attn_prefill_tiled_module_m(
                     };
                     k.shared_store(sst, sstp, ia, r);
                 }
+                k
             });
             k.wg_barrier();
             stride /= 2;
@@ -735,10 +739,10 @@ pub fn attn_prefill_tiled_module_m(
     // the value fold over one staged slab: one V element per (key, output dim) serves all `rtf`
     // rows the thread owns, and the per-key weight comes out of `sst` where the key's owner put it
     let fold_slab = |k: &mut Kb, t0: u32| {
-        k.loop_u(c0, c_kt, |k, jj| {
+        k.loop_u(c0, c_kt, |mut k, jj| {
             let s = k.iadd(t0, jj);
             let jin = k.ult(s, maxlen);
-            let sm = clampk(k, s);
+            let sm = clampk(&mut k, s);
             let vb0 = k.iadd(vrow0, sm);
             let vb1 = k.imul(vb0, c_hd);
             let vidx = k.iadd(vb1, dl);
@@ -757,6 +761,7 @@ pub fn attn_prefill_tiled_module_m(
                 let a1 = k.fadd(a0, pr);
                 k.store_var(oacc[rt as usize], a1);
             }
+            k
         });
     };
     if online {
@@ -820,8 +825,9 @@ pub fn attn_prefill_tiled_module_m(
                     k.shared_store(sst, sstp, q, p);
                 }
                 // one lane per subgroup publishes the row's α for the fold mapping
-                k.iff(lane0, |k| {
+                k.iff(lane0, |mut k| {
                     k.shared_store(als, alsp, lrow[j], alpha[j]);
+                    k
                 });
             }
             k.wg_barrier();
@@ -959,11 +965,12 @@ pub fn attn_prefill_tiled_module_m(
         } else {
             raw
         };
-        k.iff(live, |k| {
+        k.iff(live, |mut k| {
             let arow = k.imul(ir, c_qn);
             let ab = k.iadd(arow, hb);
             let aidx = k.iadd(ab, dl);
             k.store_f(attb, aidx, of);
+            k
         });
     }
     k.finish(tsz)

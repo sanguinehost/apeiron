@@ -14,7 +14,7 @@ impl Kb {
         let f = self.float;
         let g = self.glsl;
         let av = self.e(OP_EXT_INST, f, &[g, GLSL_FABS, v]);
-        let tiny = self.cf(1.0e-12);
+        let tiny = self.cf_bits(0x2b8c_bccc);
         let am = self.ext2(GLSL_FMAX, av, tiny);
         self.shared_store(red, redp, tid, am);
         self.wg_barrier();
@@ -29,7 +29,7 @@ impl Kb {
         self.store_var(word, z);
         let c0 = self.cu(0);
         let four = self.cu(4);
-        self.loop_u(c0, four, |k, b| {
+        self.loop_u(c0, four, |mut k, b| {
             let idx = k.iadd(base, b);
             let v = k.shared_load(buf, bufp, idx);
             let byte = k.int8_code(v, scale);
@@ -40,6 +40,7 @@ impl Kb {
             let w0 = k.load_var_u(word);
             let w1 = k.e(OP_BITWISE_OR, u, &[w0, shifted]);
             k.store_var(word, w1);
+            k
         });
         self.load_var_u(word)
     }
@@ -58,7 +59,7 @@ pub fn embed_f16_module(hidden: u32, vocab: u32, local: u32) -> Vec<u32> {
     let i = k.gid_comp(0);
     let ch = k.cu(hidden);
     let guard = k.ult(i, ch);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let c1 = k.cu(1);
         let tok = k.load_u(params, c1);
         let cv2 = k.cu(vocab / 2);
@@ -76,6 +77,7 @@ pub fn embed_f16_module(hidden: u32, vocab: u32, local: u32) -> Vec<u32> {
         let f = k.float;
         let val = k.e(OP_VECTOR_EXTRACT_DYNAMIC, f, &[unp, lane]);
         k.store_f(x, i, val);
+        k
     });
     k.finish(local)
 }
@@ -212,7 +214,7 @@ pub fn fused_rope_kv_fold_module(
     let lane = k.umod(gid, chd);
     let ntot = k.cu(nh + nkv);
     let guard = k.ult(slot, ntot);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let c0 = k.cu(0);
         let pos = k.load_u(params, c0);
         let cnh = k.cu(nh);
@@ -241,23 +243,25 @@ pub fn fused_rope_kv_fold_module(
             // read-after-write is ordered by program order alone, so it carries into `vf`.
             let xq = k.load_f(qkv, iq);
             k.store_var(vf, xq);
-            k.iff(is_k, |k| {
+            k.iff(is_k, |mut k| {
                 let v1 = k.iadd(vbase, kvbase0);
                 let vi = k.iadd(v1, lane);
                 k.fold_bias_store(src, qkvb, qkv, vi, qkvm, segs);
                 let xv = k.load_f(qkv, vi);
                 k.store_var(vv, xv);
+                k
             });
             k.wg_barrier();
         } else {
             let i0 = k.iadd(base, lane);
             let xq = k.load_f(qkv, i0);
             k.store_var(vf, xq);
-            k.iff(is_k, |k| {
+            k.iff(is_k, |mut k| {
                 let v1 = k.iadd(vbase, kvbase0);
                 let vsrc = k.iadd(v1, lane);
                 let xv = k.load_f(qkv, vsrc);
                 k.store_var(vv, xv);
+                k
             });
         }
         // ── RoPE, pair lanes; partners exchange through WORKGROUP memory (`red`), never the qkv
@@ -268,7 +272,7 @@ pub fn fused_rope_kv_fold_module(
         let vcur = k.load_var_f(vf);
         k.shared_store(red, redp, lane, vcur);
         k.wg_barrier();
-        k.iff(is_rot, |k| {
+        k.iff(is_rot, |mut k| {
             let jl = k.umod(lane, cd2);
             let is_hi = k.e(OP_UGE, k.bool_t, &[lane, cd2]);
             let jf = k.utof(jl);
@@ -287,11 +291,11 @@ pub fn fused_rope_kv_fold_module(
             // and every position ≥ 4096 was garbage (the entire >4k context was broken). Cody–
             // Waite two-part 2π so n·2π stays exact in f32 at pos ~64k (single-const loses ~0.5
             // ulp·n ≈ 0.04 rad by 64k). n = round(ang/2π); ang = (ang − n·C1) − n·C2.
-            let inv2pi = k.cf(1.0 / (2.0 * std::f32::consts::PI));
+            let inv2pi = k.cf_bits(0x3e22_f983);
             let nr0 = k.fmul(ang0, inv2pi);
             let n = k.ext1(GLSL_ROUND, nr0);
-            let c1 = k.cf(6.283203125_f32); // 2π high part, exact in f32 (13 bits)
-            let c2 = k.cf(2.0 * std::f32::consts::PI - 6.283203125_f32); // 2π low part
+            let c1 = k.cf_bits(0x40c9_1000); // 2π high part, exact in f32 (13 bits)
+            let c2 = k.cf_bits(0xb795_777a); // 2π low part
             let nc1 = k.fmul(n, c1);
             let a1 = k.fsub(ang0, nc1);
             let nc2 = k.fmul(n, c2);
@@ -310,6 +314,7 @@ pub fn fused_rope_kv_fold_module(
             let fl = k.float;
             let r = k.e(OP_SELECT, fl, &[is_hi, r_hi, r_lo]);
             k.store_var(vf, r);
+            k
         });
         k.wg_barrier(); // every lane has read `red`
 
@@ -319,7 +324,7 @@ pub fn fused_rope_kv_fold_module(
         let roped_i = k.iadd(base, lane);
         k.store_f(qkv, roped_i, vfin);
         // k-head workgroups append the roped k + the (unroped) v to the caches
-        k.iff(is_k, |k| {
+        k.iff(is_k, |mut k| {
             let ct = k.cu(tmax);
             let kval = vfin; // roped k at this lane (for the key box below)
                              // V[(kvh·tmax + pos)·hd + lane], carried unroped in the register `vv`
@@ -334,12 +339,13 @@ pub fn fused_rope_kv_fold_module(
                 k.absmax_reduce_reg(vv, red, redp, hd, lane);
                 let c0v = k.cu(0);
                 let vamax = k.shared_load(red, redp, c0v);
-                let inv127v = k.cf(1.0 / 127.0);
+                let inv127v = k.cf_bits(0x3c01_0204);
                 let vs = k.fmul(vamax, inv127v); // amax ≥ 1e-12 (floored) ⇒ nonzero scale
                 let isz = k.e(OP_IEQ, k.bool_t, &[lane, c0v]);
-                k.iff(isz, |k| {
+                k.iff(isz, |mut k| {
                     let vsi = k.iadd(v1, pos);
                     k.store_f(vsc, vsi, vs);
+                    k
                 });
                 // V is POSITION-major, so lanes 4w..4w+3 are contiguous and land in one word:
                 // Vq[(kvh·tmax + pos)·(hd/4) + w]. The four codes are packed from the
@@ -350,13 +356,14 @@ pub fn fused_rope_kv_fold_module(
                 let inpack = k.ult(lane, chd4v);
                 k.shared_store(sval, svalp, lane, vv);
                 k.wg_barrier();
-                k.iff(inpack, |k| {
+                k.iff(inpack, |mut k| {
                     let c4 = k.cu(4);
                     let l4 = k.imul(lane, c4);
                     let word = k.pack_int8_shared(sval, svalp, l4, vs);
                     let vr = k.imul(v2, chd4v);
                     let vidx = k.iadd(vr, lane);
                     k.store_u(vc, vidx, word);
+                    k
                 });
                 k.wg_barrier(); // `red` and `sval` are the centroid fold's / K pack's next
             } else {
@@ -385,16 +392,18 @@ pub fn fused_rope_kv_fold_module(
                 let rhi = k.iadd(rrow, block); // radius slot for (kvh, block)
                 let r = k.umod(pos, cblk);
                 let is_first = k.e(OP_IEQ, k.bool_t, &[r, c0]);
-                k.iff(is_first, |k| {
+                k.iff(is_first, |mut k| {
                     k.store_f16(bx, ci, kval); // c = k
                     let is0 = k.e(OP_IEQ, k.bool_t, &[lane, c0]);
-                    k.iff(is0, |k| {
-                        let z = k.cf(0.0);
+                    k.iff(is0, |mut k| {
+                        let z = k.cf_bits(0x0000_0000);
                         k.store_f(rho, rhi, z); // ρ = 0
+                        k
                     });
+                    k
                 });
                 let notf = k.ult(c0, r); // 0 < pos%blk (uniform: pos is params[0]) — not the first token
-                k.iff(notf, |k| {
+                k.iff(notf, |mut k| {
                     let cold = k.load_f16(bx, ci);
                     let diff = k.fsub(kval, cold); // k − c_old, this dim
                     let d2v = k.fmul(diff, diff);
@@ -409,7 +418,7 @@ pub fn fused_rope_kv_fold_module(
                     let cnew = k.fadd(cold, dc); // c' = c + (k−c)/count'
                     k.store_f16(bx, ci, cnew);
                     let is0 = k.e(OP_IEQ, k.bool_t, &[lane, c0]);
-                    k.iff(is0, |k| {
+                    k.iff(is0, |mut k| {
                         let rold = k.load_f(rho, rhi);
                         // ρ' = max(ρ_old, ‖k − c'‖) — running max distance to the CURRENT centroid.
                         let rf = k.utof(r);
@@ -417,7 +426,9 @@ pub fn fused_rope_kv_fold_module(
                         let dnew = k.fdiv(dnew0, cntf); // ‖k − c'‖ = ‖k−c‖·r/count'
                         let rnew = k.ext2(GLSL_FMAX, rold, dnew);
                         k.store_f(rho, rhi, rnew);
+                        k
                     });
+                    k
                 });
                 k.wg_barrier(); // centroid/ρ writes done before the int8 pack (below) re-reads bx
             }
@@ -428,19 +439,20 @@ pub fn fused_rope_kv_fold_module(
             k.absmax_reduce_reg(kval, red, redp, hd, lane);
             let c0b = k.cu(0);
             let amax = k.shared_load(red, redp, c0b);
-            let inv127 = k.cf(1.0 / 127.0);
+            let inv127 = k.cf_bits(0x3c01_0204);
             let sc = k.fmul(amax, inv127); // amax ≥ 1e-12 (floored) ⇒ nonzero scale
             let isz = k.e(OP_IEQ, k.bool_t, &[lane, c0b]);
-            k.iff(isz, |k| {
+            k.iff(isz, |mut k| {
                 let skrow = k.imul(kvh, ct);
                 let skidx = k.iadd(skrow, pos);
                 k.store_f(sk, skidx, sc);
+                k
             });
             let chd4 = k.cu(hd / 4);
             let inpack = k.ult(lane, chd4);
             k.shared_store(sval, svalp, lane, kval);
             k.wg_barrier();
-            k.iff(inpack, |k| {
+            k.iff(inpack, |mut k| {
                 let c4 = k.cu(4);
                 let l4 = k.imul(lane, c4);
                 let word = k.pack_int8_shared(sval, svalp, l4, sc);
@@ -449,6 +461,7 @@ pub fn fused_rope_kv_fold_module(
                 let w1 = k.imul(wrow, ct);
                 let kidx = k.iadd(w1, pos);
                 k.store_u(kcq, kidx, word);
+                k
             });
             // int8 selector chart: re-pack THIS block's f16 CENTROID → one SDot plane + per-block
             // scale (old blocks are immutable). Same-WG as the centroid fold; the barrier above
@@ -467,30 +480,31 @@ pub fn fused_rope_kv_fold_module(
                 let f = k.float;
                 let g = k.glsl;
                 let ac = k.e(OP_EXT_INST, f, &[g, GLSL_FABS, cval]);
-                let tiny = k.cf(1.0e-12);
+                let tiny = k.cf_bits(0x2b8c_bccc);
                 let am = k.ext2(GLSL_FMAX, ac, tiny);
                 k.shared_store(red, redp, lane, am);
                 k.wg_barrier();
                 k.tree_reduce(red, redp, hd, lane, true);
                 let c0r = k.cu(0);
                 let bam = k.shared_load(red, redp, c0r);
-                let inv127b = k.cf(1.0 / 127.0);
+                let inv127b = k.cf_bits(0x3c01_0204);
                 let sb = k.fmul(bam, inv127b);
                 let isz0 = k.e(OP_IEQ, k.bool_t, &[lane, c0r]);
-                k.iff(isz0, |k| {
+                k.iff(isz0, |mut k| {
                     let sbi0 = k.imul(kvh, cnb);
                     let sbi = k.iadd(sbi0, block);
                     k.store_f(sbb, sbi, sb);
+                    k
                 });
                 // lanes w < hd/4 pack word w of the centroid plane: bxq[(kvh·(hd/4)+w)·nblocks+block]
                 let inw = k.ult(lane, chd4);
-                k.iff(inw, |k| {
+                k.iff(inw, |mut k| {
                     let word = k.fvar_u();
                     let zw = k.cu(0);
                     k.store_var(word, zw);
                     let c0j = k.cu(0);
                     let four = k.cu(4);
-                    k.loop_u(c0j, four, |k, j| {
+                    k.loop_u(c0j, four, |mut k, j| {
                         let c4b = k.cu(4);
                         let l4b = k.imul(lane, c4b);
                         let i = k.iadd(l4b, j);
@@ -507,6 +521,7 @@ pub fn fused_rope_kv_fold_module(
                         let w0 = k.load_var_u(word);
                         let w1 = k.e(OP_BITWISE_OR, u, &[w0, shifted]);
                         k.store_var(word, w1);
+                        k
                     });
                     let wv = k.load_var_u(word);
                     let p0 = k.imul(kvh, chd4);
@@ -514,9 +529,12 @@ pub fn fused_rope_kv_fold_module(
                     let p4 = k.imul(p3, cnb);
                     let p5 = k.iadd(p4, block);
                     k.store_u(bxq, p5, wv);
+                    k
                 });
             }
+            k
         });
+        k
     });
     k.finish(hd)
 }
@@ -531,7 +549,7 @@ pub fn silu_mul_module(n: u32, local: u32, u_off: u32) -> Vec<u32> {
     let i = k.gid_comp(0);
     let cn = k.cu(n);
     let guard = k.ult(i, cn);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let gv = k.load_f(g, i);
         let cuo = k.cu(u_off);
         let ui = k.iadd(i, cuo);
@@ -539,11 +557,12 @@ pub fn silu_mul_module(n: u32, local: u32, u_off: u32) -> Vec<u32> {
         let f = k.float;
         let ng = k.e(OP_FNEG, f, &[gv]);
         let eg = k.ext1(GLSL_EXP, ng);
-        let one = k.cf(1.0);
+        let one = k.cf_bits(0x3f80_0000);
         let den = k.fadd(one, eg);
         let sil = k.fdiv(gv, den);
         let o = k.fmul(sil, uv);
         k.store_f(out, i, o);
+        k
     });
     k.finish(local)
 }
@@ -557,11 +576,12 @@ pub fn add_inplace_module(n: u32, local: u32) -> Vec<u32> {
     let i = k.gid_comp(0);
     let cn = k.cu(n);
     let guard = k.ult(i, cn);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let xv = k.load_f(x, i);
         let yv = k.load_f(y, i);
         let s = k.fadd(xv, yv);
         k.store_f(x, i, s);
+        k
     });
     k.finish(local)
 }
@@ -575,23 +595,24 @@ pub fn qk_norm_module(heads: u32, hd: u32, eps: f32, off: u32) -> Vec<u32> {
     let h = k.gid_comp(0);
     let ch = k.cu(heads);
     let guard = k.ult(h, ch);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let chd = k.cu(hd);
         let base0 = k.imul(h, chd);
         let coff = k.cu(off);
         let base = k.iadd(base0, coff);
         let acc = k.fvar_f();
-        let zero = k.cf(0.0);
+        let zero = k.cf_bits(0x0000_0000);
         k.store_var(acc, zero);
         let c0 = k.cu(0);
         let chd2 = k.cu(hd);
-        k.loop_u(c0, chd2, |k, i| {
+        k.loop_u(c0, chd2, |mut k, i| {
             let idx = k.iadd(base, i);
             let v = k.load_f(x, idx);
             let sq = k.fmul(v, v);
             let a0 = k.load_var_f(acc);
             let a1 = k.fadd(a0, sq);
             k.store_var(acc, a1);
+            k
         });
         let ss = k.load_var_f(acc);
         let invn = k.cf(1.0 / hd as f32);
@@ -601,14 +622,16 @@ pub fn qk_norm_module(heads: u32, hd: u32, eps: f32, off: u32) -> Vec<u32> {
         let inv = k.ext1(GLSL_INVERSE_SQRT, me);
         let c0b = k.cu(0);
         let chd3 = k.cu(hd);
-        k.loop_u(c0b, chd3, |k, i| {
+        k.loop_u(c0b, chd3, |mut k, i| {
             let idx = k.iadd(base, i);
             let v = k.load_f(x, idx);
             let gv = k.load_f(g, i);
             let t = k.fmul(v, inv);
             let o = k.fmul(t, gv);
             k.store_f(x, idx, o);
+            k
         });
+        k
     });
     k.finish(1)
 }
@@ -623,12 +646,12 @@ pub fn argmax_partial_module(n: u32, p_count: u32, local: u32) -> Vec<u32> {
     let p = k.gid_comp(0);
     let cp = k.cu(p_count);
     let guard = k.ult(p, cp);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let best = k.fvar_f();
         let bi = k.fvar_f();
-        let neg = k.cf(-1.0e30);
+        let neg = k.cf_bits(0xf149_f2ca);
         k.store_var(best, neg);
-        let z = k.cf(0.0);
+        let z = k.cf_bits(0x0000_0000);
         k.store_var(bi, z);
         let iv = k.fvar_u();
         k.store_var(iv, p);
@@ -647,10 +670,11 @@ pub fn argmax_partial_module(n: u32, p_count: u32, local: u32) -> Vec<u32> {
         let b0 = k.load_var_f(best);
         let bt = k.bool_t;
         let gt = k.e(OP_FORD_GREATER_THAN, bt, &[v, b0]);
-        k.iff(gt, |k| {
+        k.iff(gt, |mut k| {
             k.store_var(best, v);
             let inf = k.utof(i);
             k.store_var(bi, inf);
+            k
         });
         k.ins(OP_BRANCH, &[cont]);
         k.ins(OP_LABEL, &[cont]);
@@ -666,6 +690,7 @@ pub fn argmax_partial_module(n: u32, p_count: u32, local: u32) -> Vec<u32> {
         let cpp = k.cu(p_count);
         let pi = k.iadd(p, cpp);
         k.store_f(partials, pi, bif);
+        k
     });
     k.finish(local)
 }
@@ -681,16 +706,16 @@ pub fn argmax_finish_module(p_count: u32) -> Vec<u32> {
     let c0 = k.cu(0);
     let b = k.bool_t;
     let is0 = k.e(OP_IEQ, b, &[i, c0]);
-    k.iff(is0, |k| {
+    k.iff(is0, |mut k| {
         let best = k.fvar_f();
         let bi = k.fvar_f();
-        let neg = k.cf(-1.0e30);
+        let neg = k.cf_bits(0xf149_f2ca);
         k.store_var(best, neg);
-        let z = k.cf(0.0);
+        let z = k.cf_bits(0x0000_0000);
         k.store_var(bi, z);
         let c0u = k.cu(0);
         let cp = k.cu(p_count);
-        k.loop_u(c0u, cp, |k, j| {
+        k.loop_u(c0u, cp, |mut k, j| {
             let v = k.load_f(partials, j);
             let b0 = k.load_var_f(best);
             let bt = k.bool_t;
@@ -709,10 +734,12 @@ pub fn argmax_finish_module(p_count: u32) -> Vec<u32> {
             let lower = k.e(OP_FORD_LESS_THAN, bt, &[idxf, b1]);
             let eqlow = k.e(OP_LOGICAL_AND, bt, &[eq, lower]);
             let take = k.e(OP_LOGICAL_OR, bt, &[gt, eqlow]);
-            k.iff(take, |k| {
+            k.iff(take, |mut k| {
                 k.store_var(best, v);
                 k.store_var(bi, idxf);
+                k
             });
+            k
         });
         let bif = k.load_var_f(bi);
         let u = k.uint;
@@ -722,6 +749,7 @@ pub fn argmax_finish_module(p_count: u32) -> Vec<u32> {
         let c1 = k.cu(1);
         let ptr = k.e(OP_ACCESS_CHAIN, psu, &[params, c0b, c1]);
         k.ins(OP_STORE, &[ptr, tok]);
+        k
     });
     k.finish(1)
 }
@@ -750,9 +778,9 @@ pub fn argmax_finish_tree_module(p_count: u32) -> Vec<u32> {
     // Per-lane serial scan of the strided slice, the shipped stage-2 take rule.
     let best = k.fvar_f();
     let bi = k.fvar_f();
-    let neg = k.cf(-1.0e30);
+    let neg = k.cf_bits(0xf149_f2ca);
     k.store_var(best, neg);
-    let z = k.cf(0.0);
+    let z = k.cf_bits(0x0000_0000);
     k.store_var(bi, z);
     let cwg = k.cu(WG);
     let cp = k.cu(p_count);
@@ -768,9 +796,10 @@ pub fn argmax_finish_tree_module(p_count: u32) -> Vec<u32> {
         let lower = k.e(OP_FORD_LESS_THAN, bt, &[idxf, b1]);
         let eqlow = k.e(OP_LOGICAL_AND, bt, &[eq, lower]);
         let take = k.e(OP_LOGICAL_OR, bt, &[gt, eqlow]);
-        k.iff(take, |k| {
+        k.iff(take, |mut k| {
             k.store_var(best, v);
             k.store_var(bi, idxf);
+            k
         });
     });
     // Workgroup tree: (value, index) pairs in workgroup memory, combined with the same rule.
@@ -785,7 +814,7 @@ pub fn argmax_finish_tree_module(p_count: u32) -> Vec<u32> {
     while stride >= 1 {
         let cs = k.cu(stride);
         let lt = k.ult(i, cs);
-        k.iff(lt, |k| {
+        k.iff(lt, |mut k| {
             let a = k.shared_load(sval, svalp, i);
             let ti = k.iadd(i, cs);
             let b = k.shared_load(sval, svalp, ti);
@@ -797,10 +826,12 @@ pub fn argmax_finish_tree_module(p_count: u32) -> Vec<u32> {
             let lower = k.e(OP_FORD_LESS_THAN, bt, &[bvi, ai]);
             let eqlow = k.e(OP_LOGICAL_AND, bt, &[eq, lower]);
             let take = k.e(OP_LOGICAL_OR, bt, &[gt, eqlow]);
-            k.iff(take, |k| {
+            k.iff(take, |mut k| {
                 k.shared_store(sval, svalp, i, b);
                 k.shared_store(sidx, sidxp, i, bvi);
+                k
             });
+            k
         });
         k.wg_barrier();
         stride /= 2;
@@ -808,7 +839,7 @@ pub fn argmax_finish_tree_module(p_count: u32) -> Vec<u32> {
     // Lane 0 writes the winning index into `params[1]` — the sampled token, never leaving the device.
     let c0 = k.cu(0);
     let is0 = k.e(OP_IEQ, bt, &[i, c0]);
-    k.iff(is0, |k| {
+    k.iff(is0, |mut k| {
         let win = k.shared_load(sidx, sidxp, c0);
         let u = k.uint;
         let tok = k.e(OP_CONVERT_F_TO_U, u, &[win]);
@@ -817,6 +848,7 @@ pub fn argmax_finish_tree_module(p_count: u32) -> Vec<u32> {
         let c1 = k.cu(1);
         let ptr = k.e(OP_ACCESS_CHAIN, psu, &[params, c0b, c1]);
         k.ins(OP_STORE, &[ptr, tok]);
+        k
     });
     k.finish(WG)
 }
@@ -836,7 +868,7 @@ pub fn commit_advance_module(slot: u32) -> Vec<u32> {
     let c0 = k.cu(0);
     let b = k.bool_t;
     let is0 = k.e(OP_IEQ, b, &[i, c0]);
-    k.iff(is0, |k| {
+    k.iff(is0, |mut k| {
         // tokens_out[slot] = params[1] (the sampled token)
         let one = k.cu(1);
         let tok = k.load_u(params, one);
@@ -848,6 +880,7 @@ pub fn commit_advance_module(slot: u32) -> Vec<u32> {
         let cone = k.cu(1);
         let pos1 = k.iadd(pos, cone);
         k.store_u(params, zero, pos1);
+        k
     });
     k.finish(1)
 }
@@ -1098,11 +1131,11 @@ pub fn attn_qgate_split_module(nh: u32, nkv: u32, hd: u32) -> Vec<u32> {
     let i = k.gid_comp(0);
     let ctot = k.cu(qn + kvn);
     let guard = k.ult(i, ctot);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let cqn = k.cu(qn);
         let chd = k.cu(hd);
         let is_q = k.ult(i, cqn);
-        k.iff(is_q, |k| {
+        k.iff(is_q, |mut k| {
             // q element `i` is head `i/hd`, lane `i%hd`, living at `head·2·hd + lane`
             let h = k.udiv(i, chd);
             let lane = k.umod(i, chd);
@@ -1116,17 +1149,20 @@ pub fn attn_qgate_split_module(nh: u32, nkv: u32, hd: u32) -> Vec<u32> {
             let gi = k.iadd(gi0, lane);
             let gv = k.load_f(src, gi);
             k.store_f(gate, i, gv);
+            k
         });
         // k and v sit AFTER the interleaved q/gate block, i.e. at `nh·2·hd` in the source and at
         // `qn` in the destination — the whole point of the split.
         let is_kv = k.e(OP_UGE, k.bool_t, &[i, cqn]);
-        k.iff(is_kv, |k| {
+        k.iff(is_kv, |mut k| {
             let off = k.e(OP_ISUB, k.uint, &[i, cqn]);
             let csrc0 = k.cu(2 * qn);
             let si = k.iadd(csrc0, off);
             let v = k.load_f(src, si);
             k.store_f(dst, i, v);
+            k
         });
+        k
     });
     k.finish(LOCAL)
 }
@@ -1146,17 +1182,18 @@ pub fn attn_gate_apply_module(n: u32) -> Vec<u32> {
     let i = k.gid_comp(0);
     let cn = k.cu(n);
     let guard = k.ult(i, cn);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let f = k.float;
         let gv = k.load_f(gate, i);
         let ng = k.e(OP_FNEG, f, &[gv]);
         let eg = k.ext1(GLSL_EXP, ng);
-        let one = k.cf(1.0);
+        let one = k.cf_bits(0x3f80_0000);
         let den = k.fadd(one, eg);
         let sig = k.fdiv(one, den);
         let av = k.load_f(att, i);
         let o = k.fmul(av, sig);
         k.store_f(att, i, o);
+        k
     });
     k.finish(LOCAL)
 }
@@ -1185,11 +1222,12 @@ pub fn copy_vec_module(n: u32, src_off: u32) -> Vec<u32> {
     let i = k.gid_comp(0);
     let cn = k.cu(n);
     let guard = k.ult(i, cn);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let coff = k.cu(src_off);
         let si = k.iadd(i, coff);
         let v = k.load_f(src, si);
         k.store_f(dst, i, v);
+        k
     });
     k.finish(LOCAL)
 }

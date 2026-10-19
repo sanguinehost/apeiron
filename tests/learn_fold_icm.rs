@@ -20,8 +20,8 @@
 
 use apeiron::learn::code::e8::codeword;
 use apeiron::learn::fold::fit::icm::{
-    e8_icm_step, e8_joint_icm_2plane, j_rows, matmul, nearest_index, plane_w, r_step2,
-    ridged_metric, IcmError, JointStats, Plane, PlaneRef,
+    e8_icm_step, e8_joint_icm_2plane, j_rows, matmul, nearest_index, plane_w, product_bound,
+    r_step2, ridged_metric, IcmError, JointStats, Plane, PlaneRef,
 };
 use apeiron::learn::solve::q32;
 
@@ -645,7 +645,22 @@ fn learn_fold_icm_agrees_with_the_f64_oracles() {
                 .sum::<f64>(),
         )
     });
-    let jbound = u * (psum + (n as f64) * dmax * pe + 1.0);
+    // The kernel's `LIMBS`-limb product carries the block truncation on top of the grid bound:
+    // the `D·Hl` entries by `eps_p`, amplified by `Σ|D|`, and each row dot by `eps_dot`.
+    let eps_p = product_bound(n, dmax, max_abs(&hl));
+    let eps_dot = product_bound(
+        n,
+        dmax,
+        (n as f64 * dmax * max_abs(&hl)).max(f64::MIN_POSITIVE),
+    );
+    let l1 = (0..o).fold(0.0_f64, |m, row| {
+        m.max(
+            (0..n)
+                .map(|i| (ws[row * n + i] - want[row * n + i]).abs())
+                .sum::<f64>(),
+        )
+    });
+    let jbound = u * (psum + (n as f64) * dmax * pe + 1.0) + l1 * eps_p + o as f64 * eps_dot;
     let got_j = q32::from_grid(j_rows(&q(&ws), &q(&want), &q(&hl), o, n, None).expect("j_rows"));
     let want_j = ref_j_rows(&ws, &want, &hl, o, n, None);
     let jworst = (got_j - want_j).abs();
@@ -681,8 +696,18 @@ fn learn_fold_icm_agrees_with_the_f64_oracles() {
         let xsum: f64 = (0..g)
             .map(|k| q1[row * g + k].abs() + q2[row * g + k].abs())
             .sum();
-        let bound =
-            inv_norm * (u * (1.0 + pabs) * xsum + u + (1.0e-12 * mean_diag + u) * xsum) + 0.5 * u;
+        // The kernel's block truncation adds, per metric entry and per right-hand-side word,
+        // `eps_m` and `eps_t`, amplified by `‖M⁻¹‖∞` exactly as the grid terms are.
+        let eps_wh = product_bound(n, max_abs(&ws), max_abs(&hl));
+        let eps_m = product_bound(GROUP, pabs, max_abs(&hl));
+        let eps_t = product_bound(GROUP, pabs, max_abs(&wh)) + pabs * eps_wh;
+        let bound = inv_norm
+            * (u * (1.0 + pabs) * xsum
+                + u
+                + (1.0e-12 * mean_diag + u) * xsum
+                + eps_m * xsum
+                + eps_t)
+            + 0.5 * u;
         xbound = xbound.max(bound);
         for k in 0..g {
             worst_x = worst_x.max((r1[row * g + k] - q1[row * g + k]).abs());
@@ -842,7 +867,8 @@ fn learn_fold_icm_matmul_matches_the_f64_products() {
             let b: Vec<f64> = hl_f.iter().map(|v| v * scale).collect();
             let got = unq(&matmul(&q(&a), &q(&b), o, n, n).expect("matmul"));
             let want = old_matmul(&a, &b, o, n, n);
-            let bound = product_tolerance(n, max_abs(&a), max_abs(&b));
+            let bound = product_tolerance(n, max_abs(&a), max_abs(&b))
+                + product_bound(n, max_abs(&a), max_abs(&b));
             let worst = (0..o * n).fold(0.0_f64, |m, i| m.max((got[i] - want[i]).abs()));
             assert!(
                 worst <= bound,
@@ -862,7 +888,8 @@ fn learn_fold_icm_matmul_matches_the_f64_products() {
         };
         let got = unq(&matmul(&q(&b), &hl, o, n, n).expect("matmul"));
         let want = old_matmul(&b, &hl_f, o, n, n);
-        let bound = product_tolerance(n, max_abs(&b), max_abs(&hl_f));
+        let bound = product_tolerance(n, max_abs(&b), max_abs(&hl_f))
+            + product_bound(n, max_abs(&b), max_abs(&hl_f));
         let worst = (0..o * n).fold(0.0_f64, |m, i| m.max((got[i] - want[i]).abs()));
         assert!(
             worst <= bound,
@@ -959,7 +986,8 @@ fn learn_fold_icm_decision_safety_r_step2_is_no_worse_than_the_pre_change_fit() 
         let j_before = fitted(q(r1b), q(r2b));
         assert!(
             j_after <= j_before + 1e-9 * (1.0 + j_before.abs()),
-            "{o}x{n} r_step2: fitted J rose {j_before} -> {j_after}"
+            "{o}x{n} r_step2: fitted J rose {j_before} -> {j_after} (tol {})",
+            tol(j_before)
         );
     }
 }
@@ -1118,8 +1146,21 @@ fn learn_fold_icm_g_row_weights_the_reported_j() {
     // With sweeps = 0 nothing moves, so j_before = j_after = the weighted sum of the row norms.
     assert_eq!(st.j_after, st.j_before);
     assert_eq!(st.moves, 0);
-    let expect = ref_j_rows(&ws, &unq(&pair_w(&p1, &p2, o, n)), &hl, o, n, Some(&g_row));
-    assert!((q32::from_grid(st.j_before) - expect).abs() <= tol(expect));
+    let w = unq(&pair_w(&p1, &p2, o, n));
+    let expect = ref_j_rows(&ws, &w, &hl, o, n, Some(&g_row));
+    // `J = Σ_i g_i·d_i·(D·Hl)_i`: the ported `D·Hl` is the 3-limb product, so each of its entries
+    // carries at most `product_bound` of the operand peak and `J` at most the `|d|`-weighted sum.
+    let d: Vec<f64> = ws.iter().zip(&w).map(|(a, b)| a - b).collect();
+    let weight: f64 = (0..o)
+        .map(|i| g_row[i].abs() * (0..n).map(|j| d[i * n + j].abs()).sum::<f64>())
+        .sum();
+    let limb = weight * product_bound(n, max_abs(&d), max_abs(&hl));
+    assert!(
+        (q32::from_grid(st.j_before) - expect).abs() <= tol(expect) + limb,
+        "j_before {} vs oracle {expect} (tol {} + limb {limb})",
+        q32::from_grid(st.j_before),
+        tol(expect)
+    );
     assert!(st.j_before > 0 && unweighted > 0.0);
 }
 
@@ -1321,8 +1362,16 @@ fn learn_fold_icm_r_step2_satisfies_normal_equations() {
             worst = worst.max((mx - tvec[a_]).abs());
         }
     }
-    let bound =
-        u * (mrow_max + (1.0 + pabs_max) * xsum_max + 1.0) + (1.0e-12 * ridge_max + u) * xsum_max;
+    // The reference `M`, `t` are built from the ported `wh`; the body adds the kernel metric and
+    // right-hand-side truncation, so both terms are added at their grid sensitivities.
+    let eps_wh = product_bound(n, max_abs(&ws), max_abs(&hl));
+    let eps_m = product_bound(GROUP, pabs_max, max_abs(&hl));
+    let eps_t = product_bound(GROUP, pabs_max, max_abs(&wh));
+    let bound = u * (mrow_max + (1.0 + pabs_max) * xsum_max + 1.0)
+        + (1.0e-12 * ridge_max + u) * xsum_max
+        + eps_m * xsum_max
+        + eps_t
+        + pabs_max * eps_wh;
     assert!(
         worst <= bound,
         "r_step2 normal-equation residual {worst} > derived grid bound {bound}"

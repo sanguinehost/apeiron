@@ -104,9 +104,9 @@ pub fn pool_fill_module(
     let cnkv = k.cu(nkv);
     let c0 = k.cu(0);
     let inrange = k.ult(kvh, cnkv);
-    k.iff(inrange, |k| {
+    k.iff(inrange, |mut k| {
         let nfill = k.load_u(nfillb, kvh);
-        k.loop_u(c0, nfill, |k, f| {
+        k.loop_u(c0, nfill, |mut k, f| {
             let c1 = k.cu(1);
             let c2 = k.cu(2);
             let cmf = k.cu(maxfill);
@@ -129,7 +129,7 @@ pub fn pool_fill_module(
             // them back; both operands are powers of two and the driver still emitted the
             // divides. Nesting the loops means the address is two adds.
             let kbase = k.imul(kvh, chd4);
-            k.loop_u(c0, chd4, |k, w| {
+            k.loop_u(c0, chd4, |mut k, w| {
                 let row = k.iadd(kbase, w);
                 let srow = k.imul(row, ctm);
                 let drow = k.imul(row, cpb);
@@ -141,6 +141,7 @@ pub fn pool_fill_module(
                     let v = k.load_u(kcq, si);
                     k.store_u(pk, di, v);
                 });
+                k
             });
 
             // V — ONE contiguous run. `vc[(kvh·tmax + pos)·hd + i]` over `blk` consecutive
@@ -171,7 +172,9 @@ pub fn pool_fill_module(
                 let v = k.load_f(sk, si);
                 k.store_f(psk, di, v);
             });
+            k
         });
+        k
     });
     k.finish(WG)
 }

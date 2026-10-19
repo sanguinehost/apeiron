@@ -1496,5 +1496,12 @@ pub mod fold_layer_port;
 // The table's scoped-parallel scheduling and reservation seams (`src/map/table/parallel.rs`).
 #[path = "ports/table_port.rs"]
 pub mod table_port;
+// The shared Q32.32 limb product (`src/engine/kern/limb.rs`).
+#[path = "ports/limb_port.rs"]
+pub mod limb_port;
+#[path = "../../src/gpu/mod.rs"]
+pub mod gpu;
+#[path = "ports/gpu_port.rs"]
+pub mod gpu_port;
 /// Mirror of `crate::learn` for this extraction unit, carried in `fold_port.rs`.
 pub use fold_port::learn;

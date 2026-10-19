@@ -58,8 +58,9 @@ LEAN_BACKEND="$AENEAS_HOME/backends/lean"
 CHARON_TOOLCHAIN=$("$CHARON" toolchain-version)
 SYSROOT="$REPO_DIR/target/aeneas-sysroot/$CHARON_TOOLCHAIN"
 CHARON_MIRI_SYSROOT="$SYSROOT"
+CHARON_MIRI_SYSROOTS="$SYSROOT"
 MIRI_SYSROOT="$SYSROOT"
-export CHARON_MIRI_SYSROOT MIRI_SYSROOT
+export CHARON_MIRI_SYSROOT CHARON_MIRI_SYSROOTS MIRI_SYSROOT
 
 for f in "$CHARON" "$AENEAS"; do
     [ -f "$f" ] && [ -x "$f" ] || { echo "missing executable tool: $f" >&2; exit 2; }
@@ -241,6 +242,13 @@ $REPO_DIR/src/learn/fold/run/convert.rs
 $REPO_DIR/src/learn/fold/run/transfer.rs
 $EXTRACT_DIR/ports/fold_layer_port.rs
 $EXTRACT_DIR/ports/table_port.rs
+$REPO_DIR/src/engine/kern/limb.rs
+$EXTRACT_DIR/ports/limb_port.rs
+$REPO_DIR/src/gpu/mod.rs
+$REPO_DIR/src/gpu/simt/mod.rs
+$REPO_DIR/src/gpu/nn/mod.rs
+$REPO_DIR/src/gpu/nn/glue.rs
+$EXTRACT_DIR/ports/gpu_port.rs
 $REPO_DIR/src/learn/fold/layer/mod.rs
 $REPO_DIR/src/learn/fold/layer/driver.rs
 $REPO_DIR/src/learn/fold/layer/tensor.rs
@@ -785,6 +793,16 @@ run_extract() {
         --start-from crate::word_engine_prefill_state \
         --start-from crate::word_engine_next_token_state \
         --start-from crate::word_engine_generate_speculative \
+        --start-from crate::limb_port::word_limb_gemm_q32 \
+        --start-from crate::limb_port::word_limb_syrk_q32 \
+        --start-from crate::limb_port::word_limb_gemv_q32 \
+        --start-from crate::limb_port::word_limb_rowdot_q32 \
+        --start-from crate::gpu_port::word_gpu_two_level_chart_buffer \
+        --start-from crate::gpu_port::word_gpu_embed_f16_module \
+        --start-from crate::gpu_port::word_gpu_silu_mul_module \
+        --start-from crate::gpu_port::word_gpu_add_inplace_module \
+        --start-from crate::gpu_port::word_gpu_commit_advance_module \
+        --start-from crate::gpu_port::word_gpu_copy_vec_module \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \

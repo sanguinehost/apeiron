@@ -108,7 +108,7 @@ impl Kb {
         self.store_var(word, z);
         let c0 = self.cu(0);
         let four = self.cu(4);
-        self.loop_u(c0, four, |k, b| {
+        self.loop_u(c0, four, |mut k, b| {
             let idx = k.iadd(base, b);
             let v = k.load_f(buf, idx);
             let byte = k.int8_code(v, scale);
@@ -119,6 +119,7 @@ impl Kb {
             let w0 = k.load_var_u(word);
             let w1 = k.e(OP_BITWISE_OR, u, &[w0, shifted]);
             k.store_var(word, w1);
+            k
         });
         self.load_var_u(word)
     }
@@ -176,7 +177,7 @@ impl Kb {
         self.store_var(iacc, z);
         let c0 = self.cu(0);
         let cnw = self.cu(nwords);
-        self.loop_u(c0, cnw, |k, w| {
+        self.loop_u(c0, cnw, |mut k, w| {
             let qw = k.shared_load_u(qq, qqp, w);
             let krow = k.iadd(kbase_w, w);
             let kw1 = k.imul(krow, ct);
@@ -186,6 +187,7 @@ impl Kb {
             let a0 = k.load_var_s(iacc);
             let a1 = k.e(OP_IADD, sint, &[a0, d4]);
             k.store_var(iacc, a1);
+            k
         });
         let isum = self.load_var_s(iacc);
         let f = self.float;
@@ -294,7 +296,7 @@ two-level face has no such word"
         let accf = self.fvar_f();
         let zf = self.cf(0.0);
         self.store_var(accf, zf);
-        self.loop_u(start_blk, bound_blk, |kb, b| {
+        self.loop_u(start_blk, bound_blk, |mut kb, b| {
             // block prelude: the block's (d, lo) off whichever scale face is bound, and its sx / Σx
             let mut dmw_q6 = 0;
             let (dval, mval) = if two_level {
@@ -375,7 +377,7 @@ two-level face has no such word"
             kb.store_var(accq, s0);
             let ccpb = kb.cu(cpb);
             let c0b = kb.cu(0);
-            kb.loop_u(c0b, ccpb, |kb, cj| {
+            kb.loop_u(c0b, ccpb, |mut kb, cj| {
                 let ccpb2 = kb.cu(cpb);
                 let cbase = kb.imul(b, ccpb2);
                 let c = kb.iadd(cbase, cj);
@@ -527,6 +529,7 @@ two-level face has no such word"
                     let a1 = kb.e(OP_IADD, sint, &[a0, d4]);
                     kb.store_var(accq, a1);
                 }
+                kb
             });
             // block epilogue: acc += (d·float(Σqx))·sx + m·Σx
             let accqi = kb.load_var_s(accq);
@@ -544,6 +547,7 @@ two-level face has no such word"
             let a0 = kb.load_var_f(accf);
             let a1 = kb.fadd(a0, s2);
             kb.store_var(accf, a1);
+            kb
         });
         self.load_var_f(accf)
     }
@@ -577,7 +581,7 @@ two-level face has no such word"
             (r, 0)
         };
         let words_per_col = m / pack;
-        self.loop_u(start_k, bound_k, |kb, kid| {
+        self.loop_u(start_k, bound_k, |mut kb, kid| {
             let wval = if pack > 1 {
                 let cwords = kb.cu(words_per_col);
                 let wi1 = kb.imul(kid, cwords);
@@ -598,6 +602,7 @@ two-level face has no such word"
             let a0 = kb.load_var_f(accf);
             let a1 = kb.fadd(a0, prod);
             kb.store_var(accf, a1);
+            kb
         });
         self.load_var_f(accf)
     }

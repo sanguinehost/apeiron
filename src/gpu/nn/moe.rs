@@ -56,7 +56,7 @@ pub fn moe_topk_module(
     let bt = k.bool_t;
     let only0 = k.e(OP_IEQ, bt, &[gi, zero_u]);
 
-    k.iff(only0, |k| {
+    k.iff(only0, |mut k| {
         let c0 = k.cu(0);
         let c1 = k.cu(1);
         let cne = k.cu(n_experts);
@@ -68,17 +68,21 @@ pub fn moe_topk_module(
         // ── pass 1: the full-population statistics the softmax weight needs ──
         let mx = k.fvar_f();
         k.store_var(mx, neg);
-        k.loop_u(c0, cne, |k, e| {
+        k.loop_u(c0, cne, |mut k, e| {
             let l = k.load_f(logits, e);
             let m0 = k.load_var_f(mx);
             let bt = k.bool_t;
             let gt = k.e(OP_FORD_GREATER_THAN, bt, &[l, m0]);
-            k.iff(gt, |k| k.store_var(mx, l));
+            k.iff(gt, |mut k| {
+                k.store_var(mx, l);
+                k
+            });
+            k
         });
         let zsum = k.fvar_f();
         k.store_var(zsum, f0);
         if !sigmoid {
-            k.loop_u(c0, cne, |k, e| {
+            k.loop_u(c0, cne, |mut k, e| {
                 let l = k.load_f(logits, e);
                 let m0 = k.load_var_f(mx);
                 let d = k.fsub(l, m0);
@@ -86,30 +90,35 @@ pub fn moe_topk_module(
                 let z0 = k.load_var_f(zsum);
                 let z1 = k.fadd(z0, ex);
                 k.store_var(zsum, z1);
+                k
             });
         }
 
         // ── pass 2: pick n_used, excluding what is already picked ──
-        k.loop_u(c0, cnu, |k, s| {
+        k.loop_u(c0, cnu, |mut k, s| {
             let best = k.fvar_f();
             let bi = k.fvar_u();
             k.store_var(best, neg);
             k.store_var(bi, c0);
 
-            k.loop_u(c0, cne, |k, e| {
+            k.loop_u(c0, cne, |mut k, e| {
                 // already selected?
                 let taken = k.fvar_u();
                 k.store_var(taken, c0);
-                k.loop_u(c0, s, |k, t| {
+                k.loop_u(c0, s, |mut k, t| {
                     let prev = k.load_u(sel, t);
                     let bt = k.bool_t;
                     let same = k.e(OP_IEQ, bt, &[prev, e]);
-                    k.iff(same, |k| k.store_var(taken, c1));
+                    k.iff(same, |mut k| {
+                        k.store_var(taken, c1);
+                        k
+                    });
+                    k
                 });
                 let tk = k.load_var_u(taken);
                 let bt = k.bool_t;
                 let free = k.e(OP_IEQ, bt, &[tk, c0]);
-                k.iff(free, |k| {
+                k.iff(free, |mut k| {
                     // the SELECTION key: score + bias
                     let l = k.load_f(logits, e);
                     let score = if sigmoid {
@@ -125,11 +134,14 @@ pub fn moe_topk_module(
                     let b0 = k.load_var_f(best);
                     let bt = k.bool_t;
                     let gt = k.e(OP_FORD_GREATER_THAN, bt, &[key, b0]);
-                    k.iff(gt, |k| {
+                    k.iff(gt, |mut k| {
                         k.store_var(best, key);
                         k.store_var(bi, e);
+                        k
                     });
+                    k
                 });
+                k
             });
 
             // the WEIGHT is the unbiased score of the winner
@@ -149,38 +161,44 @@ pub fn moe_topk_module(
                 k.fdiv(ex, z)
             };
             k.store_f(swt, s, wv);
+            k
         });
 
         // ── renormalise: always for sigmoid (its scores sum to nothing in particular) ──
         if norm || sigmoid {
             let tot = k.fvar_f();
             k.store_var(tot, f0);
-            k.loop_u(c0, cnu, |k, s| {
+            k.loop_u(c0, cnu, |mut k, s| {
                 let v = k.load_f(swt, s);
                 let t0 = k.load_var_f(tot);
                 let t1 = k.fadd(t0, v);
                 k.store_var(tot, t1);
+                k
             });
             let t = k.load_var_f(tot);
             let bt = k.bool_t;
             let pos = k.e(OP_FORD_GREATER_THAN, bt, &[t, f0]);
-            k.iff(pos, |k| {
-                k.loop_u(c0, cnu, |k, s| {
+            k.iff(pos, |mut k| {
+                k.loop_u(c0, cnu, |mut k, s| {
                     let v = k.load_f(swt, s);
                     let t = k.load_var_f(tot);
                     let d = k.fdiv(v, t);
                     k.store_f(swt, s, d);
+                    k
                 });
+                k
             });
         }
         if routed_scale != 1.0 {
             let cs = k.cf(routed_scale);
-            k.loop_u(c0, cnu, |k, s| {
+            k.loop_u(c0, cnu, |mut k, s| {
                 let v = k.load_f(swt, s);
                 let p = k.fmul(v, cs);
                 k.store_f(swt, s, p);
+                k
             });
         }
+        k
     });
     k.finish(1)
 }
