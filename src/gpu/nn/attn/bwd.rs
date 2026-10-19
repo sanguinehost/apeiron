@@ -9,23 +9,29 @@
 //!    threads per `(h,i)`; lane `l` owns `j = l, l+256, …`, and the per-key terms are summed by a
 //!    shared-memory tree with a barrier per level.
 //! 2. `ds`: `dS[h,i,j] = P[h,i,j]·(dP_ij − r[h,i])` with `dP_ij = Σ_e dO[i,h,e]·V[j,h/rep,e]`,
-//!    one thread per `(h,i,j)`; `j > i` writes 0.
+//!    one 16×16 output tile per workgroup of 256 threads; the tile's `dout` and `v` rows are
+//!    staged in shared memory, `j > i` writes 0.
 //! 3. `dq`: `dq[i,h,d] = scale·Σ_{j≤i} dS[h,i,j]·K[j,h/rep,d]`, one thread per `(i,h,d)`.
 //! 4. `dk`/`dv`: `dk[j,g,d] = scale·Σ_{h∈g} Σ_{i≥j} dS[h,i,j]·Q[i,h,d]`,
 //!    `dv[j,g,d] = Σ_{h∈g} Σ_{i≥j} P[h,i,j]·dO[i,h,d]`, one workgroup of 256 threads per
 //!    `(j,g,d-tile)`: 32 lanes per `d` (`d = dtile·32 + lane`) and eight lane groups that split
 //!    the `i` walk, reduced through a fixed `8×32` shared array per output.
 //!
-//! Dispatch 2 materialises the score gradient once; before it, `dq` and `dk`/`dv` each recomputed
-//! `dP_ij` (a dot product of `dO_i` and `V_j` over the head width) for every `(h,i,j)` they visited.
-//! The materialised form pays `2·hd + 2` words in dispatch 2 and one `ds` word per visit in flight
-//! 3 and 4, replacing `2·hd` words per visit in each of them. The arithmetic order is unchanged:
-//! `dP_ij` sums `e` ascending with fused multiply-add, `dS` rounds once, `dq` sums `j` ascending and
-//! `dk`/`dv` sum `h` then `i` ascending, so the f32 values are bit-identical to the three-pass form.
+//! Dispatch 2 materialises the score gradient once and is tiled: workgroup `(h, ti, tj)` stages
+//! the 16 `dout` rows of `i ∈ [16·ti, 16·ti+16)` and the 16 `v` rows of
+//! `j ∈ [16·tj, 16·tj+16)` into two `16·hd`-word shared arrays, one barrier, then thread
+//! `tid = 16·ty + tx` computes the dot for `(i,j) = (16·ti+ty, 16·tj+tx)`. Every staged `v` word
+//! is read by 16 threads and every staged `dout` word likewise, so the dispatch reads each operand
+//! word `⌈t/16⌉` times instead of once per `(i,j)` pair. Before the tile, `dq` and `dk`/`dv` each
+//! recomputed `dP_ij` in thread; the materialised form pays the staged traffic in dispatch 2 and
+//! one `ds` word per visit in flight 3 and 4. The arithmetic order is unchanged: `dP_ij` sums `e`
+//! ascending with fused multiply-add from zero over the staged words (bit-identical operands), `dS`
+//! rounds once, `dq` sums `j` ascending and `dk`/`dv` sum `h` then `i` ascending, so the f32 values
+//! are bit-identical to the untiled form.
 //!
 //! The shapes `t`, `nh`, `nkv`, `hd` are module constants, the reduction bounds are compile-time
 //! integers, and the `rep = nh/nkv` query heads of a kv head are folded into one thread's
-//! accumulator in ascending head order. Tiling and reuse are open work.
+//! accumulator in ascending head order.
 //!
 //! Bindings follow the order of the twin's tensors; the layouts are `q`/`dout` token-major
 //! `[(i·nh+h)·hd+d]`, `k`/`v` `[(j·nkv+g)·hd+d]`, `P`/`dS` `[(h·t+i)·t+j]` and `rowsum[h·t+i]`. The
@@ -146,21 +152,34 @@ pub fn attn_bwd_rowsum_bytes(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u8> {
 }
 
 /// **Attention-backward score gradient (f32)** — dispatch 2, the materialisation of
-/// `dS[h,i,j] = P[h,i,j]·(dP_ij − rowsum[h·t+i])`. Thread `(h·t+i)·t+j` (of `nh·t·t`) computes
-/// `dP_ij = Σ_e dO[i,h,e]·V[j,h/rep,e]` with `e` ascending and fused multiply-add, rounds
-/// `dS` once and writes it; a thread with `j > i` writes `0` and reads nothing. It replaces the
-/// two in-thread recomputations in the `dq` and `dk`/`dv` passes. Grid `⌈nh·t·t/256⌉`,
-/// LocalSize 256.
+/// `dS[h,i,j] = P[h,i,j]·(dP_ij − rowsum[h·t+i])` as one 16×16 output tile per workgroup.
+/// Workgroup `(h, ti, tj)` of `nh·⌈t/16⌉²` owns the tile `i ∈ [16·ti, 16·ti+16)`,
+/// `j ∈ [16·tj, 16·tj+16)`; thread `tid = 16·ty + tx` computes `(i,j) = (16·ti+ty, 16·tj+tx)`.
+///
+/// Staging: every thread strides the `TILE·hd` positions (`TILE = 16`), position `s` standing for
+/// `(row, e) = (s/hd, s%hd)`; it writes `sdout[s] = dout[((ibase+row)·nh+h)·hd + e]` and
+/// `sv[s] = v[((jbase+row)·nkv+h/rep)·hd + e]`. A row past `t` (a partial last tile) is written
+/// `0`: the shared arrays start zeroed per position and only a valid row is loaded. One
+/// [`Kb::wg_barrier`] after the staging loop makes both tiles visible.
+///
+/// Each thread with `i < t` and `j < t` then computes `dP_ij = Σ_e sdout[ty·hd+e]·sv[tx·hd+e]`
+/// with `e` ascending and fused multiply-add — the stage holds the same f32 words the global loads
+/// held, so the sum is bit-identical — rounds `dS` once and writes it; `j > i` writes `0` without
+/// reading `p` or `rowsum`. Grid `nh·⌈t/16⌉²`, LocalSize 256.
 ///
 /// Bindings: 0 = v (f32, `t·nkv·hd`), 1 = p (f32, `nh·t·t`), 2 = dout (f32, `t·nh·hd`),
 /// 3 = rowsum (f32, `t·nh`), 4 = ds (f32, `nh·t·t`).
 ///
-/// Complexity: thread `(h,i,j)` with `j ≤ i` reads `2·hd` words of `dout`/`v`, one `p` word and
-/// one `rowsum` word and writes one `ds` word; `j > i` writes one word. The dispatch therefore
-/// moves `nh·t·t·(2·hd + 2) + nh·t·t` words — `O(hd)` per thread, `O(nh·t²·hd)` total — against
-/// the reused-read floor `t·nh·hd + t·nkv·hd + nh·t² + t·nh + nh·t²`.
+/// Complexity: workgroup `(h,ti,tj)` stages `min(16, t−16·ti)·hd` words of `dout` and
+/// `min(16, t−16·tj)·hd` of `v` (each valid row once), reads one `p` and one `rowsum` word per
+/// causal thread and writes one `ds` word per valid thread. Summed over tiles the operand reads
+/// are `⌈t/16⌉·t·hd` each and the causal threads are all `t(t+1)/2` pairs, so the dispatch moves
+/// `2·nh·⌈t/16⌉·t·hd + nh·t(t+1) + nh·t²` words (`O(hd)` per thread). The untiled form moved
+/// `nh·t²·(2·hd+2) + nh·t²`; at `hd = 32, t = 64, nh = 4` that is 1,097,728 words against
+/// 88,560, 12.4× less.
 pub fn attn_bwd_ds_module(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u32> {
     const WG: u32 = 256;
+    const TILE: u32 = 16;
     assert!(t > 0 && hd > 0, "attn_bwd_ds: shape must be non-zero");
     assert!(
         nh > 0 && nkv > 0 && nh % nkv == 0,
@@ -173,50 +192,95 @@ pub fn attn_bwd_ds_module(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u32> {
     let dout = k.ssbo_f(2);
     let rowsum = k.ssbo_f(3);
     let ds_buf = k.ssbo_f(4);
+    let tiles = t.div_ceil(TILE);
+    // Two 16-row operand tiles, `16·hd` f32 words (64·hd bytes) each: workgroup memory only,
+    // every staged word read by the 16 threads of the opposite tile axis.
+    let (sdout, sdoutp) = k.shared_f32(TILE * hd);
+    let (sv, svp) = k.shared_f32(TILE * hd);
     let gid = k.gid_comp(0);
+    let tid = k.local_index();
     let c0 = k.cu(0);
     let c1 = k.cu(1);
+    let c16 = k.cu(TILE);
+    let cwg = k.cu(WG);
     let ct = k.cu(t);
     let cnh = k.cu(nh);
     let ckv = k.cu(nkv);
     let chd = k.cu(hd);
     let crep = k.cu(rep);
-    let ctt = k.cu(t * t);
-    let total = k.cu(nh * t * t);
+    let ctiles = k.cu(tiles);
+    let ctt = k.cu(tiles * tiles);
+    let cstage = k.cu(TILE * hd);
     let zero = k.cf_bits(0x0000_0000);
-    let inb = k.ult(gid, total);
-    k.iff(inb, |mut k| {
-        // (h, i, j) from the flat id; every thread writes exactly one ds word.
-        let h = k.udiv(gid, ctt);
-        let rem = k.umod(gid, ctt);
-        let i = k.udiv(rem, ct);
-        let j = k.umod(rem, ct);
-        let kvh = k.udiv(h, crep);
-        let ht = k.imul(h, ct);
-        let hi = k.iadd(ht, i);
-        let pb = k.imul(hi, ct);
-        let didx = k.iadd(pb, j);
-        let out = k.fvar_f();
-        k.store_var(out, zero);
-        // dP ascending e over the head width; unchanged from the dq pass's inner loop.
+    let bt = k.bool_t;
+    // One workgroup per (h, i-tile, j-tile); h is the outer axis of the exact grid.
+    let wg = k.udiv(gid, cwg);
+    let h = k.udiv(wg, ctt);
+    let rem = k.umod(wg, ctt);
+    let ti = k.udiv(rem, ctiles);
+    let tj = k.umod(rem, ctiles);
+    let kvh = k.udiv(h, crep);
+    let ibase = k.imul(ti, c16);
+    let jbase = k.imul(tj, c16);
+    let ty = k.udiv(tid, c16);
+    let tx = k.umod(tid, c16);
+    let i = k.iadd(ibase, ty);
+    let j = k.iadd(jbase, tx);
+    // Stage both operand tiles: position `s` is `(row, e) = (s / hd, s % hd)`; a row past `t`
+    // keeps the zero already stored, so a partial tile stages only its valid rows.
+    k.loop_step(tid, cstage, cwg, |k, s| {
+        let row = k.udiv(s, chd);
+        let e = k.umod(s, chd);
+        let gi = k.iadd(ibase, row);
+        let i_ok = k.ult(gi, ct);
+        k.shared_store(sdout, sdoutp, s, zero);
+        k.iff(i_ok, |mut k| {
+            let rb = k.imul(gi, cnh);
+            let r = k.iadd(rb, h);
+            let base = k.imul(r, chd);
+            let idx = k.iadd(base, e);
+            let val = k.load_f(dout, idx);
+            k.shared_store(sdout, sdoutp, s, val);
+            k
+        });
+        let gj = k.iadd(jbase, row);
+        let j_ok = k.ult(gj, ct);
+        k.shared_store(sv, svp, s, zero);
+        k.iff(j_ok, |mut k| {
+            let rb = k.imul(gj, ckv);
+            let r = k.iadd(rb, kvh);
+            let base = k.imul(r, chd);
+            let idx = k.iadd(base, e);
+            let val = k.load_f(v, idx);
+            k.shared_store(sv, svp, s, val);
+            k
+        });
+    });
+    k.wg_barrier();
+    // (h·t+i)·t+j: `P` and the output share this index; `rowsum` is `h·t+i`.
+    let ht = k.imul(h, ct);
+    let hi = k.iadd(ht, i);
+    let pb = k.imul(hi, ct);
+    let didx = k.iadd(pb, j);
+    let out = k.fvar_f();
+    k.store_var(out, zero);
+    let i_ok = k.ult(i, ct);
+    let j_ok = k.ult(j, ct);
+    let act = k.e(OP_LOGICAL_AND, bt, &[i_ok, j_ok]);
+    k.iff(act, |mut k| {
+        // dP ascending e over the head width from the staged rows; one rounding for dS.
         let cj = k.iadd(i, c1);
         let causal = k.ult(j, cj);
         k.iff(causal, |mut k| {
             let dp = k.fvar_f();
             k.store_var(dp, zero);
-            // dout row of query i, head h: (i·nh+h)·hd.
-            let ih = k.imul(i, cnh);
-            let rb = k.iadd(ih, h);
-            let db = k.imul(rb, chd);
-            // v row of key j, kv head kvh: (j·nkv+kvh)·hd.
-            let jn = k.imul(j, ckv);
-            let jk = k.iadd(jn, kvh);
-            let vb = k.imul(jk, chd);
+            let drow = k.imul(ty, chd);
+            let vrow = k.imul(tx, chd);
             k.loop_u(c0, chd, |mut k, e| {
-                let da = k.iadd(db, e);
-                let dov = k.load_f(dout, da);
-                let va = k.iadd(vb, e);
-                let vv = k.load_f(v, va);
+                let da = k.iadd(drow, e);
+                let dov = k.shared_load(sdout, sdoutp, da);
+                let va = k.iadd(vrow, e);
+                let vv = k.shared_load(sv, svp, va);
                 let a0 = k.load_var_f(dp);
                 let a1 = k.fma(dov, vv, a0);
                 k.store_var(dp, a1);
@@ -225,7 +289,6 @@ pub fn attn_bwd_ds_module(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u32> {
             let pij = k.load_f(p, didx);
             let rs = k.load_f(rowsum, hi);
             let dpv = k.load_var_f(dp);
-            // One rounding for dS, as in the two in-thread passes it replaces.
             let diff = k.fsub(dpv, rs);
             let s = k.fmul(pij, diff);
             k.store_var(out, s);
@@ -513,7 +576,7 @@ pub unsafe fn attn_bwd_rowsum_dispatch(
 }
 
 /// Host wrapper: build and record the backward score-gradient pass. `ds` holds `nh·t·t` f32.
-/// Grid `(⌈nh·t·t/256⌉, 1, 1)`.
+/// Grid `(nh·⌈t/16⌉², 1, 1)` — one 256-thread workgroup per 16×16 output tile.
 ///
 /// # Safety
 /// Vulkan pipeline/descriptor creation over caller-owned handles; every buffer must hold at least
@@ -536,7 +599,7 @@ pub unsafe fn attn_bwd_ds_dispatch(
         g,
         &attn_bwd_ds_bytes(t, nh, nkv, hd),
         &[v, p, dout, rowsum, ds],
-        (nh * t * t).div_ceil(256),
+        nh * t.div_ceil(16) * t.div_ceil(16),
         1,
         "attn_bwd_ds",
     )

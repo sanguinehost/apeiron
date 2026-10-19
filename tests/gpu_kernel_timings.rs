@@ -1,5 +1,7 @@
 //! Timed dispatch campaign for the GPU training backward rows: `P83`, `P85`, `P86`, `P87`, `P88`,
-//! `P89`, `P90`, `P91` in the perf-predictions note.
+//! `P89`, `P90`, `P91`, `P97`, `P99` in the perf-predictions note. The attention shapes
+//! include the two production shapes `(t=256, nh=4, nkv=2, hd=32)` and `(t=512, nh=4, nkv=2, hd=32)`
+//! beside the six parity shapes.
 //!
 //! Every fixture is the one its parity test builds (`tests/gpu_norm_backward.rs`,
 //! `tests/gpu_linear_bwd.rs`, `tests/gpu_attn_bwd.rs`, `tests/gpu_adam.rs`): the same fixed-seed
@@ -275,7 +277,7 @@ fn gpu_training_dispatch_timings() {
     linear_bwd(&vk, &g, &pool);
     attn_bwd(&vk, &g, &pool);
     adam(&vk, &g, &pool);
-    println!("done: 25 dispatch cells + 4 four-pass cells + 1 control, {REPS} reported runs each");
+    println!("done: 49 dispatch cells (8 of them the four-pass chain) + 1 control, {REPS} reported runs each");
 }
 
 /// (a) `rmsnorm_bwd` main dispatch and the `dγ` reduce at `t = 512`, `w = 896` (P83, P85).
@@ -361,7 +363,8 @@ fn linear_bwd(vk: &Vk, g: &GpuCtx, pool: &QueryPool) {
     }
 }
 
-/// (c) the four attention-backward passes on the parity shapes (P88, P90).
+/// (c) the four attention-backward passes on the parity shapes plus the two production shapes
+/// (P88, P90, P97, P99).
 fn attn_bwd(vk: &Vk, g: &GpuCtx, pool: &QueryPool) {
     let shapes = [
         (1usize, 2usize, 1usize, 8usize),
@@ -371,6 +374,9 @@ fn attn_bwd(vk: &Vk, g: &GpuCtx, pool: &QueryPool) {
         // Two 32-column d-tiles and one full tile plus a 16-column partial tile (P97).
         (8, 2, 1, 64),
         (5, 2, 1, 48),
+        // Production shapes: the P99 `ds` tile campaign at the attention block widths.
+        (256, 4, 2, 32),
+        (512, 4, 2, 32),
     ];
     for (t, nh, nkv, hd) in shapes {
         // `tests/gpu_attn_bwd.rs`: LCG in [-0.5, 0.5) real for q, k, v, dout; `p` from the oracle

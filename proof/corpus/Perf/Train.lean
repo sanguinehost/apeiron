@@ -227,4 +227,29 @@ def ropeBwdReads (t nh hd : Nat) : Nat := 2 * t * nh * hd + t * hd
 theorem ropeBwdReads_eq (t nh hd : Nat) :
     ropeBwdReads t nh hd = 2 * t * nh * hd + t * hd := rfl
 
+/-- Words moved by the tiled attention-backward `ds` dispatch (P99): one 16×16 output tile per
+    workgroup, `nh·⌈t/16⌉²` workgroups of 256 threads, the tile's `dout` rows and `v` rows staged
+    in two `16·hd`-word shared arrays.
+
+    Workgroup `(h, ti, tj)` stages `min(16, t−16·ti)·hd` words of `dout` and
+    `min(16, t−16·tj)·hd` of `v` — a partial last tile stages only its valid rows, the rest of the
+    shared array stays zero — then reads one `p` and one `rowsum` word per causal thread and writes
+    one `ds` word per valid thread (`j > i` writes the zero, so every valid thread writes).
+
+    Summed over the exact grid: `Σ_ti min(16, t−16·ti) = t`, so each operand tile axis reads
+    `⌈t/16⌉·t·hd` words per head; the causal threads partition all `t(t+1)/2` pairs of a head, so
+    `p`/`rowsum` read `t(t+1)` words; the `ds` writes are the `t²` valid threads. Total
+    `2·nh·⌈t/16⌉·t·hd + nh·t·(t+1) + nh·t·t` words. The shared stores are workgroup memory, not
+    traffic.
+
+    The untiled form (P90) moved `nh·t·t·(2·hd+2) + nh·t·t` words, so the tile removes a factor
+    `⌈t/16⌉` from the operand traffic: 1,097,728 → 88,560 words at `(t, nh, hd) = (64, 4, 32)`. -/
+def attnBwdDsTiledReads (t nh hd : Nat) : Nat :=
+  2 * nh * ((t + 15) / 16) * t * hd + nh * t * (t + 1) + nh * t * t
+
+/-- The P99 cost equation in expanded form as defined above. -/
+theorem attnBwdDsTiledReads_eq (t nh hd : Nat) :
+    attnBwdDsTiledReads t nh hd =
+      2 * nh * ((t + 15) / 16) * t * hd + nh * t * (t + 1) + nh * t * t := rfl
+
 end Perf.Train
