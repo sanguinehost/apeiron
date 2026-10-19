@@ -12,7 +12,9 @@
 //!    one thread per `(h,i,j)`; `j > i` writes 0.
 //! 3. `dq`: `dq[i,h,d] = scale·Σ_{j≤i} dS[h,i,j]·K[j,h/rep,d]`, one thread per `(i,h,d)`.
 //! 4. `dk`/`dv`: `dk[j,g,d] = scale·Σ_{h∈g} Σ_{i≥j} dS[h,i,j]·Q[i,h,d]`,
-//!    `dv[j,g,d] = Σ_{h∈g} Σ_{i≥j} P[h,i,j]·dO[i,h,d]`, one thread per `(j,g,d)`.
+//!    `dv[j,g,d] = Σ_{h∈g} Σ_{i≥j} P[h,i,j]·dO[i,h,d]`, one workgroup of 256 threads per
+//!    `(j,g,d-tile)`: 32 lanes per `d` (`d = dtile·32 + lane`) and eight lane groups that split
+//!    the `i` walk, reduced through a fixed `8×32` shared array per output.
 //!
 //! Dispatch 2 materialises the score gradient once; before it, `dq` and `dk`/`dv` each recomputed
 //! `dP_ij` (a dot product of `dO_i` and `V_j` over the head width) for every `(h,i,j)` they visited.
@@ -317,22 +319,35 @@ pub fn attn_bwd_dq_bytes(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u8> {
 }
 
 /// **Attention-backward dK/dV (f32)** — dispatch 4, the twin of `attn_bwd_kern`'s `dK = scale·dSᵀ·Q`
-/// and `dV = Pᵀ·dO`. Thread `(j·nkv+g)·hd+d` (of `t·nkv·hd`) walks the `rep` query heads
-/// `h ∈ [g·rep, (g+1)·rep)` ascending, and inside each head the rows `i ∈ [j, t)` ascending: it
-/// reads `ds[h,i,j]`, accumulates `ds·Q[i,h,d]` into `dk` and `P[h,i,j]·dO[i,h,d]` into `dv`; it
-/// writes `scale·dk_acc` (the sum over the `rep` heads, one rounding at the end) and `dv_acc`. The
-/// `dP_ij` recomputation is gone. Grid `⌈t·nkv·hd/256⌉`, LocalSize 256.
+/// and `dV = Pᵀ·dO`. One workgroup per `(j,g,d-tile)` of `t·nkv·⌈hd/32⌉`: thread `(g_lane, lane)`
+/// owns one output column `d = dtile·32 + lane` (last tile partial, `d < hd`) and one of eight
+/// reduction groups `g_lane = tid / 32`. Group `g_lane` walks the `rep` query heads
+/// `h ∈ [g·rep, (g+1)·rep)` ascending and, inside each head, the rows
+/// `i = j+g_lane, j+g_lane+8, … < t` ascending; it reads `ds[h,i,j]`, accumulates `ds·Q[i,h,d]`
+/// and `P[h,i,j]·dO[i,h,d]` in two registers. The eight per-`d` partials go to two `8·32`-word
+/// shared arrays (dk and dv, indexed `g_lane·32 + lane`), and after one barrier the lanes with
+/// `d < hd` sum them in ascending group order, multiply dk's sum by `scale` once and write
+/// `dk`/`dv` at `(j·nkv+g)·hd+d`. Grid `t·nkv·⌈hd/32⌉`, LocalSize 256.
+///
+/// The product sequence per output is the same products in the same `h`-then-`i` order, cut into
+/// eight ascending sub-sequences and recombined by seven adds; the parity pins are bounds, and the
+/// measured maxima stay inside them.
 ///
 /// Bindings: 0 = q (f32, `t·nh·hd`), 1 = p (f32, `nh·t·t`), 2 = ds (f32, `nh·t·t`),
 /// 3 = dout (f32, `t·nh·hd`), 4 = dk (f32, `t·nkv·hd`), 5 = dv (f32, `t·nkv·hd`).
 ///
-/// Complexity: one thread walks `rep·(t−j)` `(h,i)` pairs, reading one `ds`, one `q`, one `dout`
-/// and one `p` word per pair and writing two words, so the dispatch moves
-/// `4·t²·nh·hd + 2·t·nkv·hd` words — `O(rep·t)` per thread — against the pre-change
-/// `≈ t²·nh·hd·(2·hd + 4)` words of the in-thread `dP` form and the reused-read floor
-/// `t·nh·hd + t·nkv·hd + nh·t² + nh·t² + 2·t·nkv·hd`.
+/// Complexity: a workgroup reads `32·4·rep·(t−j)` global words in a full tile (`4·rem·rep·(t−j)`
+/// with `rem = hd − dtile·32` active lanes), so the `⌈hd/32⌉` tiles of one `(j,g)` read the same
+/// `4·hd·rep·(t−j)` and the dispatch reads `2·hd·nh·t·(t+1)` words and writes `2·t·nkv·hd`;
+/// `O(rep·(t−j))` per lane, unchanged from the one-thread-per-output form, which read the same
+/// words. The grid drops from `⌈t·nkv·hd/256⌉` = 16 workgroups at (64,2,32) to
+/// `t·nkv·⌈hd/32⌉` = 128 (1 tile) and runs `t·nkv·2` = 256 at `hd = 64`; the serial walk per lane
+/// goes from `rep·(t−j)` to `rep·⌈(t−j)/8⌉`; the reduce adds one barrier plus `7·32` shared adds
+/// per full tile.
 pub fn attn_bwd_dkdv_module(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u32> {
     const WG: u32 = 256;
+    const GROUPS: u32 = 8;
+    const DLANES: u32 = 32;
     assert!(t > 0 && hd > 0, "attn_bwd_dkdv: shape must be non-zero");
     assert!(
         nh > 0 && nkv > 0 && nh % nkv == 0,
@@ -346,31 +361,54 @@ pub fn attn_bwd_dkdv_module(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u32> {
     let dout = k.ssbo_f(3);
     let dk = k.ssbo_f(4);
     let dv = k.ssbo_f(5);
+    // One 32-column d-tile per workgroup; the partial arrays are per tile, not per head width.
+    let tiles = hd.div_ceil(DLANES);
+    let (red_dk, dkp) = k.shared_f32(GROUPS * DLANES);
+    let (red_dv, dvp) = k.shared_f32(GROUPS * DLANES);
     let gid = k.gid_comp(0);
+    let tid = k.local_index();
     let c0 = k.cu(0);
+    let c8 = k.cu(GROUPS);
     let ct = k.cu(t);
     let cnh = k.cu(nh);
     let ckv = k.cu(nkv);
     let chd = k.cu(hd);
     let crep = k.cu(rep);
-    let total = k.cu(t * nkv * hd);
+    let clanes = k.cu(DLANES);
+    let cwg = k.cu(WG);
+    let ctiles = k.cu(tiles);
     let zero = k.cf_bits(0x0000_0000);
     let scale = k.cf(1.0 / (hd as f32).sqrt());
-    let inb = k.ult(gid, total);
-    k.iff(inb, |mut k| {
-        let d = k.umod(gid, chd);
-        let r = k.udiv(gid, chd);
-        let g = k.umod(r, ckv);
-        let j = k.udiv(r, ckv);
-        let dk_acc = k.fvar_f();
-        let dv_acc = k.fvar_f();
-        k.store_var(dk_acc, zero);
-        k.store_var(dv_acc, zero);
-        let h0 = k.imul(g, crep);
+    // One workgroup per (j,g,d-tile): the grid is exactly `t·nkv·⌈hd/32⌉`, so every workgroup
+    // writes, and the last d-tile carries `hd mod 32` columns. A one-tile shape emits no tile
+    // division at all, so `hd ≤ 32` keeps the grid and the lane map `d = lane` of the installed
+    // single-tile body.
+    let wg = k.udiv(gid, cwg);
+    // Lane layout: `d` is the output column, `grp` the reduction group that owns a slice of `i`.
+    let lane = k.umod(tid, clanes);
+    let grp = k.udiv(tid, clanes);
+    let (row_g, d) = if tiles == 1 {
+        (wg, lane)
+    } else {
+        let dtile = k.umod(wg, ctiles);
+        let row_g = k.udiv(wg, ctiles);
+        let dstart = k.imul(dtile, clanes);
+        (row_g, k.iadd(dstart, lane))
+    };
+    let kvh = k.umod(row_g, ckv);
+    let j = k.udiv(row_g, ckv);
+    let dk_acc = k.fvar_f();
+    let dv_acc = k.fvar_f();
+    k.store_var(dk_acc, zero);
+    k.store_var(dv_acc, zero);
+    let act = k.ult(d, chd);
+    k.iff(act, |mut k| {
+        let h0 = k.imul(kvh, crep);
         let h1 = k.iadd(h0, crep);
         k.loop_u(h0, h1, |mut k, h| {
             let ht = k.imul(h, ct);
-            k.loop_u(j, ct, |mut k, i| {
+            let istart = k.iadd(j, grp);
+            k.loop_step(istart, ct, c8, |k, i| {
                 // q/dout row of query i, head h: (i·nh+h)·hd; ds/P at (h·t+i)·t+j.
                 let ih = k.imul(i, cnh);
                 let rib = k.iadd(ih, h);
@@ -389,15 +427,52 @@ pub fn attn_bwd_dkdv_module(t: u32, nh: u32, nkv: u32, hd: u32) -> Vec<u32> {
                 let b0 = k.load_var_f(dv_acc);
                 let b1 = k.fma(pij, dod, b0);
                 k.store_var(dv_acc, b1);
-                k
             });
             k
         });
+        // Partial of this group at column `lane`: red[grp·32 + lane].
+        let goff = k.imul(grp, clanes);
+        let pidx = k.iadd(goff, lane);
         let dkv = k.load_var_f(dk_acc);
-        let s = k.fmul(scale, dkv);
-        k.store_f(dk, gid, s);
+        k.shared_store(red_dk, dkp, pidx, dkv);
         let dvv = k.load_var_f(dv_acc);
-        k.store_f(dv, gid, dvv);
+        k.shared_store(red_dv, dvp, pidx, dvv);
+        k
+    });
+    k.wg_barrier();
+    // Group 0's 32 threads reduce and write (as before); a partial last tile writes `hd mod 32`
+    // columns, so the column guard is separate from the lane-group guard.
+    let red = k.ult(tid, clanes);
+    k.iff(red, |mut k| {
+        let col = k.ult(d, chd);
+        k.iff(col, |mut k| {
+            let dk_sum = k.fvar_f();
+            let dv_sum = k.fvar_f();
+            k.store_var(dk_sum, zero);
+            k.store_var(dv_sum, zero);
+            k.loop_u(c0, c8, |mut k, g2| {
+                let goff = k.imul(g2, clanes);
+                let gi = k.iadd(goff, lane);
+                let a = k.shared_load(red_dk, dkp, gi);
+                let a0 = k.load_var_f(dk_sum);
+                let a1 = k.fadd(a0, a);
+                k.store_var(dk_sum, a1);
+                let b = k.shared_load(red_dv, dvp, gi);
+                let b0 = k.load_var_f(dv_sum);
+                let b1 = k.fadd(b0, b);
+                k.store_var(dv_sum, b1);
+                k
+            });
+            // One rounding after the head sum, as before; the output word is (j·nkv+g)·hd+d.
+            let ak = k.load_var_f(dk_sum);
+            let wgo = k.imul(row_g, chd);
+            let oi = k.iadd(wgo, d);
+            let akv = k.fmul(scale, ak);
+            k.store_f(dk, oi, akv);
+            let bv = k.load_var_f(dv_sum);
+            k.store_f(dv, oi, bv);
+            k
+        });
         k
     });
     k.finish(WG)
@@ -495,7 +570,7 @@ pub unsafe fn attn_bwd_dq_dispatch(
 }
 
 /// Host wrapper: build and record the backward dK/dV pass. `ds` holds `nh·t·t` f32.
-/// Grid `(⌈t·nkv·hd/256⌉, 1, 1)`.
+/// Grid `(t·nkv·⌈hd/32⌉, 1, 1)` — one workgroup of 256 threads per `(j,g,d-tile)`.
 ///
 /// # Safety
 /// Vulkan pipeline/descriptor creation over caller-owned handles; every buffer must hold at least
@@ -519,7 +594,7 @@ pub unsafe fn attn_bwd_dkdv_dispatch(
         g,
         &attn_bwd_dkdv_bytes(t, nh, nkv, hd),
         &[q, p, ds, dout, dk, dv],
-        (t * nkv * hd).div_ceil(256),
+        t * nkv * hd.div_ceil(32),
         1,
         "attn_bwd_dkdv",
     )

@@ -181,4 +181,23 @@ def klHeadReads (r v : Nat) : Nat := r * (6 * v + 1)
     adds `r·v`). -/
 theorem klHeadReads_eq (r v : Nat) : klHeadReads r v = r * (6 * v + 1) := rfl
 
+/-- Words moved by one attention-backward dK/dV dispatch (P97) at `t` keys, `nh` query heads,
+    `nkv` KV heads and head width `hd`: one workgroup of 256 threads per `(j,g,32-column d-tile)`
+    of `t·nkv·⌈hd/32⌉`, each thread owning one output column `d < hd` and one of eight reduction
+    groups. Group `grp` walks the `rep = nh/nkv` query heads and, inside each, the rows
+    `i = j+grp, j+grp+8, … < t`, reading one `ds`, one `p`, one `q` and one `dout` word per
+    `(h,i)` pair — `4·hd` words per pair across the `hd` lanes, so a full tile reads
+    `32·4·rep·(t−j)` and the `⌈hd/32⌉` tiles of one `(j,g)` read `4·hd·rep·(t−j)`. The grid reads
+    `Σ_j nkv·hd·4·rep·(t−j) = 2·hd·nh·t·(t+1)` words and writes `2·t·nkv·hd` (`dk`, `dv`).
+
+    The one-thread-per-output form read and wrote the same words; the shared `8·32`-word partial
+    arrays per output are workgroup memory, not traffic. At `(64,4,2,32)` the count is
+    1,064,960 + 8,192 words. -/
+def attnDkdvReads (t nh nkv hd : Nat) : Nat :=
+  2 * hd * nh * t * (t + 1) + 2 * t * nkv * hd
+
+/-- The P97 cost identity in the expanded form as defined above. -/
+theorem attnDkdvReads_eq (t nh nkv hd : Nat) :
+    attnDkdvReads t nh nkv hd = 2 * hd * nh * t * (t + 1) + 2 * t * nkv * hd := rfl
+
 end Perf.Train
