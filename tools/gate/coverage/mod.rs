@@ -23,6 +23,7 @@ use std::process::{Command, ExitCode};
 
 use crate::cli::{Verdict, EXIT_ACCEPTED, EXIT_ENVIRONMENT, EXIT_REFUSED};
 
+pub(crate) mod roots;
 mod scan;
 use scan::{scan_items, Item};
 

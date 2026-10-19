@@ -213,6 +213,12 @@ kernel_route() {
   return $bad
 }
 run_step kernel-route "$step_budget" bash -c "$(declare -f kernel_route); kernel_route"
+# Step 0c, kernel roots (AGENTS.md §0 K1/K2): the body-level routing gate. It reads the staged
+# `src/learn` tree from the index, so a product fn whose file mentions the kernel but whose own
+# body calls no `crate::engine::kern::limb` adapter is refused. `BASELINE` in
+# `tools/gate/coverage/roots.rs` is the exact unrooted set and only shrinks: a new product (a
+# second implementation) or a stale row (a body fixed without removing its row) exits 1.
+run_step kernel-roots "$step_budget" cargo run -q --locked --manifest-path tools/gate/Cargo.toml -- roots --check --staged
 run_step board-declaration "$step_budget" python3 -B tools/hooks/lane.py staged
 # The per-cycle checkpoint step is retired with the acceptance harness: it read a reg1
 # acceptance stream from `examples/reg1`, and with the comparison removed there is no such

@@ -6,6 +6,7 @@ fn item(name: &str, ty: Option<&str>) -> Item {
         ty: ty.map(String::from),
         mods: Vec::new(),
         line: 1,
+        body: None,
     }
 }
 

@@ -39,6 +39,48 @@ gates. None of those apply here. Do not import its commands, its `R1`–`R5` reg
 ontology, or its `law`/`spec` block semantics. Adopt only the lifecycle, the wave/task discipline and
 the writing rules below.
 
+## 0 · Kernel map
+
+MUST, MUST NOT, SHOULD and MAY are normative per RFC 2119 / RFC 8174.
+
+- K1. Every matrix product, Gram, dot and attention score in `src/` MUST execute on the kernel
+  below, or on its SPIR-V counterpart in `src/gpu/`. A scalar multiply-accumulate loop over a
+  product MUST NOT exist outside `src/engine/kern/`.
+- K2. `src/learn/` MUST reach the kernel only through `src/engine/kern/limb.rs`
+  (`gemm_q32`, `syrk_q32`, `gemv_q32`: block-floating signed-byte limbs, every limb pair on
+  `gemm_q8_0`). A second adapter MUST NOT exist.
+- K3. A call site MUST state its limb count. The default is 3 (24-bit mantissa, the precision of
+  the fp32 torch reference). Fewer limbs MAY be used only with a measured held-out metric no worse
+  than 3 limbs.
+- K4. An Aeneas-extracted body MUST stay as the proved contract; the kernel path MUST be tested
+  against it with a stated error bound. The bound's Lean theorem is an open obligation until written.
+- K5. A port MUST be faster than the body it replaces, measured in paired runs at the production
+  shape, and MUST report the per-entry error and held-out metric before any digest is re-pinned.
+- Spec and architecture: `/home/socol/oc-tmp/escalation/brief-KERN-COMMON.md`, to move into
+  `docs/epics/kern-route.md` at merge.
+
+Read this section before writing or dispatching any compute.
+
+| role | where |
+|---|---|
+| integer product | `src/engine/kern/gemm.rs:462` `gemm_q8_0`; `:782` `gemm_q8_0_group`; `:909` `gemm_q8_0_swiglu_carrier`. AVX-VNNI `vpdpbusd`: u8 activation codes × i8 words, 8 columns per instruction, `i64` lanes, exact Q32.32 contract under power-of-two scales; `exact_dot` (`:434`, `i128`) only for a group past `spread_limit` (`:97`) |
+| activation quantiser | `src/engine/chart/mod.rs:250` `quant_act`; pooled `src/engine/chart/ffn.rs:130` `quant_act_pooled`; scale `src/engine/kern/pow2.rs:22` `act_scale` |
+| contract fallback | `src/engine/kern/matmat.rs:125` `matmat_q8act`, run only when the kernel returns `None` |
+| carrier | `src/engine/mixer.rs:328` `Carrier::F32` (default); bound `Nous.Seq.DeltaCarrier.delta_carrier_error_uniform` (`proof/corpus/Nous/Seq/DeltaCarrier.lean`) |
+| pool | `src/engine/chart/pool.rs` `run_global`, `chunks_mut_global` |
+| GPU | `src/gpu/` (Vulkan/SPIR-V) |
+| measured rate | `docs/evidence/bench-ledger.md:1449-1456`: 337.8–780.5 GMAC/s per projection |
+
+**Enforcer:** `tools/gate roots --check` (run by `.githooks/pre-commit` step `kernel-roots` as
+`--staged`) refuses every non-test `src/learn/` product function whose **own body** calls no
+`crate::engine::kern::limb` adapter (`gemm_q32`, `syrk_q32`, `gemv_q32`, `rowdot_q32`). `BASELINE`
+in `tools/gate/coverage/roots.rs` is the exact unrooted set at introduction (15 files, 34 fns) and
+only shrinks: a new parallel implementation and a fixed body whose row stays are both refusals. A
+file that mentions the kernel in a sibling body does not root the product. The staged
+`kernel-route` step also refuses a staged `src/learn/` product body whose `i128` count grows. A
+second adapter, a direct `gemm_q8_0` call from `src/learn/`, or a replaced body left reachable is
+not a rooted body. No bypass.
+
 ## 0a · Layout
 
 One tree per concern. A new file goes into the tree that owns its concern; a second tree for the

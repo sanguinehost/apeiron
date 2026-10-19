@@ -12,6 +12,9 @@ pub(crate) struct Item {
     /// Inline `mod` names, outermost first, between the file's module and the item.
     pub mods: Vec<String>,
     pub line: usize,
+    /// The function body, braces included, with comments and string/char literals blanked. `None`
+    /// for a trait method declaration (`fn f(..);`).
+    pub body: Option<String>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -126,6 +129,8 @@ pub(crate) fn scan_items(src: &str) -> Result<Vec<Item>, String> {
     let n = ch.len();
     let mut items = Vec::new();
     let mut stack: Vec<Frame> = Vec::new();
+    // Parallel to `stack`: for the frame that is a fn body, the `{` position and the item index.
+    let mut marks: Vec<Option<(usize, usize)>> = Vec::new();
     let mut pending_test = false;
     let mut line = 1usize;
     let mut i = 0;
@@ -220,7 +225,7 @@ pub(crate) fn scan_items(src: &str) -> Result<Vec<Item>, String> {
                         if m >= n {
                             return Err(format!("fn `{name}` has no body or `;`"));
                         }
-                        if item_level(&stack) && !pending_test {
+                        let item = if item_level(&stack) && !pending_test {
                             let ty = match stack.last() {
                                 Some(Frame::Impl(t)) => t.clone(),
                                 _ => None,
@@ -237,14 +242,19 @@ pub(crate) fn scan_items(src: &str) -> Result<Vec<Item>, String> {
                                 ty,
                                 mods,
                                 line,
+                                body: None,
                             });
-                        }
+                            Some(items.len() - 1)
+                        } else {
+                            None
+                        };
                         if ch[m] == '{' {
                             stack.push(if pending_test {
                                 Frame::Test
                             } else {
                                 Frame::Other
                             });
+                            marks.push(item.map(|idx| (m, idx)));
                         }
                         pending_test = false;
                         i = m + 1;
@@ -262,6 +272,7 @@ pub(crate) fn scan_items(src: &str) -> Result<Vec<Item>, String> {
                         } else {
                             Frame::Mod(Some(name))
                         });
+                        marks.push(None);
                         i = k3 + 1;
                     } else {
                         i = k3;
@@ -310,6 +321,7 @@ pub(crate) fn scan_items(src: &str) -> Result<Vec<Item>, String> {
                         } else {
                             Frame::Impl(ty)
                         });
+                        marks.push(None);
                         i = m + 1;
                     }
                     pending_test = false;
@@ -322,11 +334,17 @@ pub(crate) fn scan_items(src: &str) -> Result<Vec<Item>, String> {
             } else {
                 Frame::Other
             });
+            marks.push(None);
             pending_test = false;
             i += 1;
         } else if c == '}' {
             if stack.pop().is_none() {
                 return Err(format!("unmatched `}}` at line {line}"));
+            }
+            if let Some(Some((start, idx))) = marks.pop() {
+                if let Some(item) = items.get_mut(idx) {
+                    item.body = Some(ch[start..=i].iter().collect());
+                }
             }
             i += 1;
         } else if c == ';' {
