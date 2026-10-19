@@ -532,10 +532,44 @@ from the pinned public artifacts and applies the two source patches:
 | Aeneas source | `https://github.com/AeneasVerif/aeneas.git` @ `505b6ca3…` | commit, tree and per-file base digests in `patches/PINS` |
 | Charon source | `https://github.com/AeneasVerif/charon.git` @ `b104e24fea7d721b71e6c39fd70f26ff20bc0980`, tree `784a177101bbfd956047ac2ee1b7335d4c057b7b`; `b104e24f` is an ancestor of the `nightly-2026.09.09` tag (`604ffdc746db0fc008a3401c4d412c8578eee104`) but **is not** that tag's tip, so no Charon release archive carries this revision | commit, tree and per-file base digests in `patches/PINS` |
 
+### Route cost (measured)
+
+`proof/regen.sh --check` on a prepared tree (pinned tools installed, `target/apeiron-extract`
+populated, `target/aeneas-sysroot/nightly-2026-08-18` built), 32 threads, each phase under
+`systemd-run --user --scope -p MemoryMax=20G -p MemorySwapMax=0`:
+
+| phase | wall (s) | exit |
+| --- | ---: | ---: |
+| Charon `cargo --preset aeneas` (511 `--start-from` roots), warm `target/apeiron-extract` | 6.9 | 0 |
+| Aeneas `-backend lean` on the 250 MB `.llbc` | 510 (peak RSS 13.7 GB) | 0 |
+| audit + `diff -u` | < 1 | 0 |
+| full `--check`, run 1 | 537.2 | 1 |
+| full `--check`, run 2 | 505.4 | 1 |
+| `cargo miri setup` sysroot, first use of a toolchain only | 11.5 | 0 |
+
+The wall is the Aeneas phase. `-diagnose-translation` attributes 159.7 s to
+`fold_port::fit::icm::r_band_q` (115 775 MIR statements), 107.4 s to `learn_port::attn::attn_bwd`
+and 84.9 s to `table::…::build_at`; the remaining 4014 translated function bodies total the
+remainder. A single Charon/Aeneas pass therefore fits a 600 s gate with ≈ 60 s headroom against a
+± 32 s run-to-run spread; batching the roots is not needed for the budget.
+
+The Aeneas phase does not fit a 12 GB cgroup: under `MemoryMax=12G` it is killed at 580 s with RSS
+pinned at 11.5 GB. The cap must exceed the 13.7 GB peak.
+
+Current state of the gate at `6c724104`: both runs exit 1 on
+`stale: ApeironWord.lean does not match regeneration from current source` (415 diff hunks). The
+committed file predates the extracted-source changes in `src/engine/kern/gemm.rs` (`cc5ed3f0`) and
+`src/engine/kern/limb.rs` (`89ee1732`): 37 trailing-blank lines, shifted `Source:` spans, and the
+`kern::limb::Prepared::syrk` loop decomposition differ. Regenerating `ApeironWord.lean` and
+re-elaborating `proof/corpus` is a separate task; the budget is not what holds the gate red.
+
+Board `APEIRON-AENEAS-ROUTE2-W1-T01`.
+
 A fresh clone `git clone`d from the published repository, with the changed `proof/` files added, ran
 `proof/bootstrap.sh && proof/regen.sh --check` to `extraction is fresh` (exit 0, 89 s wall clock)
 against `ApeironWord.lean`, with `APEIRON_AENEAS_BUILD_ROOT` set to a build root other than the one
-step 1 recorded. `bootstrap.sh` fetches the archive above, verifies its sha256 and refuses on
+step 1 recorded. That receipt is revision-bound to that clone; the measured route above supersedes it
+as the current cost. `bootstrap.sh` fetches the archive above, verifies its sha256 and refuses on
 mismatch, materialises both pinned revisions (local object databases when present, otherwise the
 public upstream repositories by commit), runs `proof/install-patches.sh` (which checks the commit,
 the git tree and every base file digest in `PINS`), builds `charon`/`charon-driver` (Rust) and
@@ -658,7 +692,8 @@ proof/regen.sh --check          # prints: extraction is fresh
 - Verified against a fresh local clone of the published repository at HEAD `65e4693` with `target/`
   absent, `APEIRON_AENEAS_BUILD_ROOT` set to a second build root (not the step-1 root): the
   chain exits 0 and `regen.sh --check` prints `extraction is fresh` (89 s wall clock; bootstrap 49 s,
-  of which the aeneas `dune build` from an empty `_build` is ≈42 s, and regen 40 s). `bootstrap.sh`
+  of which the aeneas `dune build` from an empty `_build` is ≈42 s, and regen 40 s). Revision-bound
+  to that clone; the measured route cost above is the current figure. `bootstrap.sh`
   reuses pinned products already present at `--build-root`, so a machine that already holds the
   toolchain does not rebuild it; a machine that does not needs `opam` with the OCaml closure of `proof/opam-switch.export` at
   `/tmp/apeiron-opam` (`opam init --bare --disable-sandboxing --root /tmp/apeiron-opam`, then
