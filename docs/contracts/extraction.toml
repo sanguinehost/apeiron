@@ -718,3 +718,33 @@ path = "src/scalar.rs"
 unextracted = 30
 row = "EXTRACT-COVERAGE"
 
+[[waiver]]
+path = "src/gpu/nn/norm_bwd.rs"
+fn = "round_q32"
+class = "gpu"
+reason = "SPIR-V builder helper: emits the floor(x + 0.5) Q32.32 round into the module; it computes no host value."
+
+[[waiver]]
+path = "src/gpu/nn/norm_bwd.rs"
+fn = "rmsnorm_bwd_module"
+class = "gpu"
+reason = "SPIR-V builder for the RMSNorm backward kernel; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/norm_bwd.rs"
+fn = "rmsnorm_bwd_bytes"
+class = "gpu"
+reason = "Word encoding of rmsnorm_bwd_module for pipeline creation; SPIR-V bytes, no extracted arithmetic."
+
+[[waiver]]
+path = "src/gpu/nn/norm_bwd.rs"
+fn = "rmsnorm_bwd_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/norm_bwd.rs"
+fn = "sum_dgamma_rows"
+class = "gpu"
+reason = "Host-side f32/f64 dγ row fold after device readback; the device-side reduction is the next task and float accumulation is outside the Q32.32 extraction model."
+
