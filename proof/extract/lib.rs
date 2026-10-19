@@ -1503,5 +1503,8 @@ pub mod limb_port;
 pub mod gpu;
 #[path = "ports/gpu_port.rs"]
 pub mod gpu_port;
+// The `Kb` SPIR-V builder in `src/gpu/nn/mod.rs`.
+#[path = "ports/gpu_nn_port.rs"]
+pub mod gpu_nn_port;
 /// Mirror of `crate::learn` for this extraction unit, carried in `fold_port.rs`.
 pub use fold_port::learn;
