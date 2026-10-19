@@ -111,7 +111,7 @@ pub fn deltanet_rule_module(
         let acc = k.fvar_f();
         let z = k.cf(0.0);
         k.store_var(acc, z);
-        k.loop_u(c0, chd, |k, i| {
+        k.loop_u(c0, chd, |mut k, i| {
             let idx = k.iadd(rowbase, i);
             let m0 = k.load_f(mm, idx);
             let m1 = k.fmul(m0, decay);
@@ -121,6 +121,7 @@ pub fn deltanet_rule_module(
             let a0 = k.load_var_f(acc);
             let a1 = k.fadd(a0, p);
             k.store_var(acc, a1);
+            k
         });
         let dot_k = k.load_var_f(acc);
         let vj_i = k.iadd(vbase, j);
@@ -131,7 +132,7 @@ pub fn deltanet_rule_module(
         // ── pass 2: rank-1 update, and dot the UPDATED row with q ──
         let acc2 = k.fvar_f();
         k.store_var(acc2, z);
-        k.loop_u(c0, chd, |k, i| {
+        k.loop_u(c0, chd, |mut k, i| {
             let idx = k.iadd(rowbase, i);
             let m0 = k.load_f(mm, idx);
             let kv = k.shared_load(shk, shkp, i);
@@ -143,6 +144,7 @@ pub fn deltanet_rule_module(
             let a0 = k.load_var_f(acc2);
             let a1 = k.fadd(a0, p);
             k.store_var(acc2, a1);
+            k
         });
         let dot_q = k.load_var_f(acc2);
         let ov = k.fmul(dot_q, scale);
@@ -193,7 +195,7 @@ pub fn deltanet_conv_silu_module(conv_dim: u32, d_conv: u32) -> Vec<u32> {
     let ch = k.gid_comp(0);
     let ccd = k.cu(conv_dim);
     let guard = k.ult(ch, ccd);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let cdc = k.cu(d_conv);
         let ctaps = k.cu(taps);
         let kb = k.imul(ch, cdc);
@@ -204,7 +206,7 @@ pub fn deltanet_conv_silu_module(conv_dim: u32, d_conv: u32) -> Vec<u32> {
         let z = k.cf(0.0);
         k.store_var(acc, z);
         // the history taps, oldest first
-        k.loop_u(c0, ctaps, |k, r| {
+        k.loop_u(c0, ctaps, |mut k, r| {
             let wi = k.iadd(kb, r);
             let si = k.iadd(sb, r);
             let p = {
@@ -215,6 +217,7 @@ pub fn deltanet_conv_silu_module(conv_dim: u32, d_conv: u32) -> Vec<u32> {
             let a0 = k.load_var_f(acc);
             let a1 = k.fadd(a0, p);
             k.store_var(acc, a1);
+            k
         });
         // and this token, which is the LAST tap
         let xv = k.load_f(qkv, ch);
@@ -241,7 +244,7 @@ pub fn deltanet_conv_silu_module(conv_dim: u32, d_conv: u32) -> Vec<u32> {
         if taps >= 1 {
             if taps >= 2 {
                 let cshift = k.cu(taps - 1);
-                k.loop_u(c0, cshift, |k, r| {
+                k.loop_u(c0, cshift, |mut k, r| {
                     let d = k.iadd(sb, r);
                     let s = {
                         let one_ = k.cu(1);
@@ -250,6 +253,7 @@ pub fn deltanet_conv_silu_module(conv_dim: u32, d_conv: u32) -> Vec<u32> {
                     };
                     let v = k.load_f(st, s);
                     k.store_f(st, d, v);
+                    k
                 });
             }
             let last = {
@@ -258,6 +262,7 @@ pub fn deltanet_conv_silu_module(conv_dim: u32, d_conv: u32) -> Vec<u32> {
             };
             k.store_f(st, last, xv);
         }
+        k
     });
     k.finish(LOCAL)
 }
@@ -306,7 +311,7 @@ pub fn deltanet_l2_heads2_module(
     let ch = k.cu(heads);
     let c2h = k.cu(2 * heads);
     let guard = k.ult(g, c2h);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let chd = k.cu(hd);
         // lower half -> window A, upper half -> window B; `h` is the head within its window
         let h = k.umod(g, ch);
@@ -325,24 +330,27 @@ pub fn deltanet_l2_heads2_module(
         let acc = k.fvar_f();
         let z = k.cf(0.0);
         k.store_var(acc, z);
-        k.loop_u(c0, chd, |k, i| {
+        k.loop_u(c0, chd, |mut k, i| {
             let idx = k.iadd(base, i);
             let v = k.load_f(x, idx);
             let sq = k.fmul(v, v);
             let a0 = k.load_var_f(acc);
             let a1 = k.fadd(a0, sq);
             k.store_var(acc, a1);
+            k
         });
         let ss = k.load_var_f(acc);
         let ce = k.cf(eps);
         let se = k.fadd(ss, ce);
         let inv = k.ext1(GLSL_INVERSE_SQRT, se);
-        k.loop_u(c0, chd, |k, i| {
+        k.loop_u(c0, chd, |mut k, i| {
             let idx = k.iadd(base, i);
             let v = k.load_f(x, idx);
             let o = k.fmul(v, inv);
             k.store_f(x, idx, o);
+            k
         });
+        k
     });
     k.finish(1)
 }
@@ -358,7 +366,7 @@ pub fn deltanet_l2_heads_module(heads: u32, hd: u32, eps: f32, off: u32) -> Vec<
     let h = k.gid_comp(0);
     let ch = k.cu(heads);
     let guard = k.ult(h, ch);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let chd = k.cu(hd);
         let coff = k.cu(off);
         let base = {
@@ -369,24 +377,27 @@ pub fn deltanet_l2_heads_module(heads: u32, hd: u32, eps: f32, off: u32) -> Vec<
         let acc = k.fvar_f();
         let z = k.cf(0.0);
         k.store_var(acc, z);
-        k.loop_u(c0, chd, |k, i| {
+        k.loop_u(c0, chd, |mut k, i| {
             let idx = k.iadd(base, i);
             let v = k.load_f(x, idx);
             let sq = k.fmul(v, v);
             let a0 = k.load_var_f(acc);
             let a1 = k.fadd(a0, sq);
             k.store_var(acc, a1);
+            k
         });
         let ss = k.load_var_f(acc);
         let ce = k.cf(eps);
         let se = k.fadd(ss, ce);
         let inv = k.ext1(GLSL_INVERSE_SQRT, se);
-        k.loop_u(c0, chd, |k, i| {
+        k.loop_u(c0, chd, |mut k, i| {
             let idx = k.iadd(base, i);
             let v = k.load_f(x, idx);
             let o = k.fmul(v, inv);
             k.store_f(x, idx, o);
+            k
         });
+        k
     });
     k.finish(1)
 }
@@ -419,7 +430,7 @@ pub fn deltanet_gk_module(n_v_heads: u32) -> Vec<u32> {
     let h = k.gid_comp(0);
     let cnv = k.cu(n_v_heads);
     let guard = k.ult(h, cnv);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let f = k.float;
         let one = k.cf(1.0);
         let zero = k.cf(0.0);
@@ -446,6 +457,7 @@ pub fn deltanet_gk_module(n_v_heads: u32) -> Vec<u32> {
         let av = k.load_f(aa, h);
         let g = k.fmul(sp, av);
         k.store_f(gg, h, g);
+        k
     });
     k.finish(1)
 }
@@ -466,7 +478,7 @@ pub fn deltanet_gate_norm_module(hd: u32, n_v_heads: u32, eps: f32) -> Vec<u32> 
     let h = k.gid_comp(0);
     let cnv = k.cu(n_v_heads);
     let guard = k.ult(h, cnv);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let f = k.float;
         let chd = k.cu(hd);
         let base = k.imul(h, chd);
@@ -474,13 +486,14 @@ pub fn deltanet_gate_norm_module(hd: u32, n_v_heads: u32, eps: f32) -> Vec<u32> 
         let acc = k.fvar_f();
         let z0 = k.cf(0.0);
         k.store_var(acc, z0);
-        k.loop_u(c0, chd, |k, j| {
+        k.loop_u(c0, chd, |mut k, j| {
             let idx = k.iadd(base, j);
             let v = k.load_f(oo, idx);
             let sq = k.fmul(v, v);
             let a0 = k.load_var_f(acc);
             let a1 = k.fadd(a0, sq);
             k.store_var(acc, a1);
+            k
         });
         let ss = k.load_var_f(acc);
         let invn = k.cf(1.0 / hd as f32);
@@ -489,7 +502,7 @@ pub fn deltanet_gate_norm_module(hd: u32, n_v_heads: u32, eps: f32) -> Vec<u32> 
         let me = k.fadd(mean, ce);
         let inv = k.ext1(GLSL_INVERSE_SQRT, me);
         let one = k.cf(1.0);
-        k.loop_u(c0, chd, |k, j| {
+        k.loop_u(c0, chd, |mut k, j| {
             let idx = k.iadd(base, j);
             let v = k.load_f(oo, idx);
             let gain = k.load_f(nn, j);
@@ -502,7 +515,9 @@ pub fn deltanet_gate_norm_module(hd: u32, n_v_heads: u32, eps: f32) -> Vec<u32> 
             let t1 = k.fmul(t0, gain);
             let out = k.fmul(t1, sz);
             k.store_f(oo, idx, out);
+            k
         });
+        k
     });
     k.finish(1)
 }

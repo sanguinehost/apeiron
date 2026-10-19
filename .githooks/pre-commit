@@ -173,6 +173,30 @@ executing_language() {
   return $bad
 }
 run_step executing-language "$step_budget" bash -c "$(declare -f executing_language); executing_language"
+
+# Step 0b, kernel route (AGENTS.md §0): a product in `src/learn/` runs on the engine kernel
+# (`src/engine/kern/gemm.rs` `gemm_q8_0`, AVX-VNNI `vpdpbusd`), never a hand-rolled scalar loop.
+# Refuse a staged `src/learn/` file that defines a dot/gemm/syrk/gram/matmul/matvec function
+# without referencing `crate::engine::kern`, and any staged `src/learn/` file whose `i128`
+# count grows over HEAD (the scalar i128 carrier only shrinks). No bypass.
+kernel_route() {
+  local f n o bad=0
+  while IFS= read -r -d '' f; do
+    if git show ":$f" | rg -q '^\s*(pub(\(crate\))?\s+)?fn\s+\w*(dot|gemm|syrk|gram|matmul|matvec)\w*\s*[<(]' \
+      && ! git show ":$f" | rg -q '^\s*[^/\s].*crate::engine::kern'; then
+      echo "pre-commit: kernel-route: hand-rolled-product: $f (route through src/engine/kern/gemm.rs gemm_q8_0; AGENTS.md §0)" >&2
+      bad=1
+    fi
+    n=$(git show ":$f" | rg -c '\bi128\b' || true)
+    o=$(git show "HEAD:$f" 2>/dev/null | rg -c '\bi128\b' || true)
+    if (( ${n:-0} > ${o:-0} )); then
+      echo "pre-commit: kernel-route: i128-grew: $f ${o:-0} -> ${n:-0} (AGENTS.md §0)" >&2
+      bad=1
+    fi
+  done < <(git diff --cached --name-only -z --diff-filter=ACMR -- 'src/learn/*.rs' 'src/learn/**/*.rs')
+  return $bad
+}
+run_step kernel-route "$step_budget" bash -c "$(declare -f kernel_route); kernel_route"
 run_step board-declaration "$step_budget" python3 -B tools/hooks/lane.py staged
 # The per-cycle checkpoint step is retired with the acceptance harness: it read a reg1
 # acceptance stream from `examples/reg1`, and with the comparison removed there is no such

@@ -632,6 +632,13 @@ impl Adam {
     /// # Complexity
     /// Temporal `O(p.len())` serial (three words per element, below the dispatch threshold);
     /// spatial `O(1)` in place.
+    // The two-arm match keeps the refusal (`err` + `break`) in one statement inside the loop;
+    // `if let` would split it across the branches.
+    #[allow(
+        clippy::single_match,
+        clippy::single_match_else,
+        reason = "the refusal and the loop exit stay in one statement"
+    )]
     pub fn apply(&mut self, lr: i64, p: &mut [i64], g: &[i64]) -> Result<(), TrainError> {
         if p.len() != g.len() || p.len() != self.m.len() || p.len() != self.v.len() {
             return Err(TrainError::Shape(format!(
@@ -672,21 +679,21 @@ impl Adam {
         let mut i = 0;
         while i < p.len() {
             let gi = g[i];
-            let mi = match ok(mul(BETA1_Q32, self.m[i])) {
+            let mi = match ok64(mul(BETA1_Q32, self.m[i])) {
                 Ok(v) => v,
                 Err(e) => {
                     err = Some(e);
                     break;
                 }
             };
-            let m2 = match ok(mul(ONE_MINUS_BETA1_Q32, gi)) {
+            let m2 = match ok64(mul(ONE_MINUS_BETA1_Q32, gi)) {
                 Ok(v) => v,
                 Err(e) => {
                     err = Some(e);
                     break;
                 }
             };
-            let mi = match ok(mi.checked_add(m2)) {
+            let mi = match ok64(mi.checked_add(m2)) {
                 Ok(v) => v,
                 Err(e) => {
                     err = Some(e);
@@ -697,30 +704,30 @@ impl Adam {
             // Second moment in Q64.64: `β₂·v + (1−β₂)·g²`, where `g²` is the exact `i128` square
             // of the Q32.32 word.
             let g2 = i128::from(gi) * i128::from(gi);
-            let t1 = match ok(i128::from(BETA2_Q32)
+            let t1 = match i128::from(BETA2_Q32)
                 .checked_mul(self.v[i])
-                .and_then(|x| rshift_rne(x, 32)))
+                .and_then(|x| rshift_rne(x, 32))
             {
-                Ok(v) => v,
-                Err(e) => {
-                    err = Some(e);
+                Some(v) => v,
+                None => {
+                    err = Some(TrainError::Range("q64 word".to_string()));
                     break;
                 }
             };
-            let t2 = match ok(i128::from(ONE_MINUS_BETA2_Q32)
+            let t2 = match i128::from(ONE_MINUS_BETA2_Q32)
                 .checked_mul(g2)
-                .and_then(|x| rshift_rne(x, 32)))
+                .and_then(|x| rshift_rne(x, 32))
             {
-                Ok(v) => v,
-                Err(e) => {
-                    err = Some(e);
+                Some(v) => v,
+                None => {
+                    err = Some(TrainError::Range("q64 word".to_string()));
                     break;
                 }
             };
-            let vi = match ok(t1.checked_add(t2)) {
-                Ok(v) => v,
-                Err(e) => {
-                    err = Some(e);
+            let vi = match t1.checked_add(t2) {
+                Some(v) => v,
+                None => {
+                    err = Some(TrainError::Range("q64 word".to_string()));
                     break;
                 }
             };
@@ -729,7 +736,7 @@ impl Adam {
                 break;
             }
             self.v[i] = vi;
-            let mhat = match ok(div(mi, bc1)) {
+            let mhat = match ok64(div(mi, bc1)) {
                 Ok(v) => v,
                 Err(e) => {
                     err = Some(e);
@@ -737,28 +744,28 @@ impl Adam {
                 }
             };
             // `√v̂ = √v / √bc2`, both square roots in Q32.32 from the Q64.64 word.
-            let root_v = match ok(narrow(isqrt(vi))) {
+            let root_v = match ok64(narrow(isqrt(vi))) {
                 Ok(v) => v,
                 Err(e) => {
                     err = Some(e);
                     break;
                 }
             };
-            let root = match ok(div(root_v, root_bc2)) {
+            let root = match ok64(div(root_v, root_bc2)) {
                 Ok(v) => v,
                 Err(e) => {
                     err = Some(e);
                     break;
                 }
             };
-            let denom = match ok(root.checked_add(ADAM_EPS_Q32)) {
+            let denom = match ok64(root.checked_add(ADAM_EPS_Q32)) {
                 Ok(v) => v,
                 Err(e) => {
                     err = Some(e);
                     break;
                 }
             };
-            let num = match ok(mul(lr, mhat)) {
+            let num = match ok64(mul(lr, mhat)) {
                 Ok(v) => v,
                 Err(e) => {
                     err = Some(e);
@@ -768,7 +775,7 @@ impl Adam {
             let step = if denom == 0 {
                 0
             } else {
-                match ok(div(num, denom)) {
+                match ok64(div(num, denom)) {
                     Ok(v) => v,
                     Err(e) => {
                         err = Some(e);
@@ -776,7 +783,7 @@ impl Adam {
                     }
                 }
             };
-            let next = match ok(p[i].checked_sub(step)) {
+            let next = match ok64(p[i].checked_sub(step)) {
                 Ok(v) => v,
                 Err(e) => {
                     err = Some(e);
@@ -794,7 +801,7 @@ impl Adam {
 }
 
 /// `result` or [`TrainError::Range`], for the checked-word chains above.
-fn ok<T>(v: Option<T>) -> Result<T, TrainError> {
+fn ok64(v: Option<i64>) -> Result<i64, TrainError> {
     match v {
         Some(x) => Ok(x),
         None => Err(TrainError::Range("q32 word".to_string())),

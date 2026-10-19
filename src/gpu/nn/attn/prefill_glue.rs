@@ -31,7 +31,7 @@ pub fn embed_chart_batch_module(
     let p = k.gid_comp(1);
     let ch = k.cu(hidden);
     let guard = k.ult(i, ch);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let tok = k.load_u(toks, p);
         let cv = k.cu(vocab);
         let cp = k.cu(pack);
@@ -65,6 +65,7 @@ pub fn embed_chart_batch_module(
         let xo = k.imul(p, ch2);
         let xi = k.iadd(xo, i);
         k.store_f(x, xi, val);
+        k
     });
     k.finish(local)
 }
@@ -106,7 +107,7 @@ pub fn kv_seed_module(nkv: u32, hd: u32, tmax: u32) -> Vec<u32> {
     // K word: lanes < hd/4 each pack dims 4w..4w+3
     let chd4 = k.cu(hd / 4);
     let packer = k.ult(lane, chd4);
-    k.iff(packer, |k| {
+    k.iff(packer, |mut k| {
         let u = k.uint;
         let one = k.cf(1.0);
         let mut word = k.cu(0);
@@ -130,12 +131,14 @@ pub fn kv_seed_module(nkv: u32, hd: u32, tmax: u32) -> Vec<u32> {
         let wr2 = k.imul(wr1, ct);
         let dst = k.iadd(wr2, pos);
         k.store_u(kcq, dst, word);
+        k
     });
     let is0 = k.e(OP_IEQ, k.bool_t, &[lane, c0]);
-    k.iff(is0, |k| {
+    k.iff(is0, |mut k| {
         let s = k.load_f(ks, sidx);
         let di = k.iadd(kvt, pos);
         k.store_f(sk, di, s);
+        k
     });
     // V: f16(code · scale)
     let vi0 = k.iadd(kvt, pos);

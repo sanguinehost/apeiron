@@ -156,7 +156,7 @@ pub fn gemv_coop_module_sc(
 
     let cm = k_.cu(m);
     let in_range = k_.ult(r, cm);
-    k_.iff(in_range, |kb| {
+    k_.iff(in_range, |mut kb| {
         let cchunk = kb.cu(chunk);
         let start = kb.imul(lane, cchunk);
         let raw_end = kb.iadd(start, cchunk);
@@ -194,6 +194,7 @@ pub fn gemv_coop_module_sc(
         } else {
             kb.shared_store(red, redp, tid, part);
         }
+        kb
     });
     if !sg_path {
         k_.wg_barrier();
@@ -205,13 +206,14 @@ pub fn gemv_coop_module_sc(
     while stride >= 1 {
         let cs = k_.cu(stride);
         let lt = k_.ult(lane, cs);
-        k_.iff(lt, |kb| {
+        k_.iff(lt, |mut kb| {
             let a = kb.shared_load(red, redp, tid);
             let ti = kb.iadd(tid, cs);
             let b = kb.shared_load(red, redp, ti);
             let f = kb.float;
             let s = kb.e(OP_FADD, f, &[a, b]);
             kb.shared_store(red, redp, tid, s);
+            kb
         });
         // OUTSIDE the conditional: a barrier must be reached by every lane of the workgroup
         k_.wg_barrier();
@@ -220,12 +222,14 @@ pub fn gemv_coop_module_sc(
 
     let zero = k_.cu(0);
     let is_lead = k_.e(OP_IEQ, k_.bool_t, &[lane, zero]);
-    k_.iff(is_lead, |kb| {
+    k_.iff(is_lead, |mut kb| {
         let ok = kb.ult(r, cm);
-        kb.iff(ok, |kb| {
+        kb.iff(ok, |mut kb| {
             let v = kb.shared_load(red, redp, tid);
             kb.store_f(y, r, v);
+            kb
         });
+        kb
     });
     k_.finish(local)
 }

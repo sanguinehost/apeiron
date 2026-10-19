@@ -47,7 +47,7 @@ pub fn theta_scan_module(
     let sp = k.umod(hs, cns);
     let ctot = k.cu(nh * nsplit);
     let guard = k.ult(hs, ctot);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let c0 = k.cu(0);
         let c1 = k.cu(1);
         let pos = k.load_u(params, c0);
@@ -117,7 +117,7 @@ pub fn theta_scan_module(
             k.store_var(iacc, sz);
             let crow = k.imul(kvh, chd4); // centroid plane row base (kvh·(hd/4)+w)·nblocks
             let c0w = k.cu(0);
-            k.loop_u(c0w, chd4, |k, w| {
+            k.loop_u(c0w, chd4, |mut k, w| {
                 let qw = k.shared_load_u(qq, qqp, w);
                 let cr0 = k.iadd(crow, w);
                 let cr1 = k.imul(cr0, cnb);
@@ -127,6 +127,7 @@ pub fn theta_scan_module(
                 let a0 = k.load_var_s(iacc);
                 let a1 = k.e(OP_IADD, sint, &[a0, d0]);
                 k.store_var(iacc, a1);
+                k
             });
             let f = k.float;
             let sbrow = k.imul(kvh, cnb);
@@ -167,9 +168,11 @@ pub fn theta_scan_module(
         k.tree_reduce(red, redp, WG, lane, true);
         let mlb = k.shared_load(red, redp, c0);
         let isz = k.e(OP_IEQ, k.bool_t, &[lane, c0]);
-        k.iff(isz, |k| {
+        k.iff(isz, |mut k| {
             k.store_f(pmax, hs, mlb); // pmax now carries the per-slice max lower bound
+            k
         });
+        k
     });
     k.finish(WG)
 }
@@ -199,7 +202,7 @@ pub fn escore_module(nh: u32, nkv: u32, hd: u32, tmax: u32, scale: f32, blk: u32
     let lane = k.umod(gid, cwg);
     let cnh = k.cu(nh);
     let guard = k.ult(h, cnh);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let c0 = k.cu(0);
         let c1 = k.cu(1);
         let pos = k.load_u(params, c0);
@@ -237,7 +240,7 @@ pub fn escore_module(nh: u32, nkv: u32, hd: u32, tmax: u32, scale: f32, blk: u32
             let s0e = k.iadd(s0, cblk);
             let over = k.ult(len, s0e);
             let s1 = k.e(OP_SELECT, k.uint, &[over, len, s0e]);
-            k.loop_u(s0, s1, |k, s| {
+            k.loop_u(s0, s1, |mut k, s| {
                 let fsum = k.dp4a_score(kcq, qq, qqp, kbase_w, s, ct, hd4);
                 let skidx = k.iadd(skrow, s);
                 let skv = k.load_f(sk, skidx);
@@ -248,12 +251,14 @@ pub fn escore_module(nh: u32, nkv: u32, hd: u32, tmax: u32, scale: f32, blk: u32
                 let m0 = k.load_var_f(bmax);
                 let m1 = k.ext2(GLSL_FMAX, m0, sc);
                 k.store_var(bmax, m1);
+                k
             });
             let bm = k.load_var_f(bmax);
             let erow = k.imul(h, cnb);
             let ei = k.iadd(erow, b);
             k.store_f(esc, ei, bm);
         });
+        k
     });
     k.finish(WG)
 }
@@ -343,12 +348,13 @@ threshold can satisfy it",
     let mv = k.fvar_f();
     let neg = k.cf(-1.0e30);
     k.store_var(mv, neg);
-    k.loop_u(lo, hi, |k, b| {
+    k.loop_u(lo, hi, |mut k, b| {
         let ubi = k.iadd(ubrow, b);
         let ub = k.load_f(ubo, ubi);
         let m0 = k.load_var_f(mv);
         let m1 = k.ext2(GLSL_FMAX, m0, ub);
         k.store_var(mv, m1);
+        k
     });
     let mmine = k.load_var_f(mv);
     k.shared_store(red, redp, lane, mmine);
@@ -371,7 +377,7 @@ threshold can satisfy it",
     let zf0 = k.cf(0.0);
     k.store_var(se, zf0);
     k.store_var(se2, zf0);
-    k.loop_u(lo, hi, |k, b| {
+    k.loop_u(lo, hi, |mut k, b| {
         let sink = k.ult(b, csink);
         let bl = k.iadd(b, clocal);
         let local = k.e(OP_UGE, k.bool_t, &[bl, nba]);
@@ -388,6 +394,7 @@ threshold can satisfy it",
         let q0 = k.load_var_f(se2);
         let q1 = k.fadd(q0, ee);
         k.store_var(se2, q1);
+        k
     });
     let sev = k.load_var_f(se);
     k.wg_barrier();
@@ -436,7 +443,7 @@ threshold can satisfy it",
             let cv = k.fvar_f();
             let zc = k.cf(0.0);
             k.store_var(cv, zc);
-            k.loop_u(lo, hi, |k, b| {
+            k.loop_u(lo, hi, |mut k, b| {
                 let sink = k.ult(b, csink);
                 let bl = k.iadd(b, clocal);
                 let local = k.e(OP_UGE, k.bool_t, &[bl, nba]);
@@ -453,6 +460,7 @@ threshold can satisfy it",
                 let a0 = k.load_var_f(cv);
                 let a1 = k.fadd(a0, add);
                 k.store_var(cv, a1);
+                k
             });
             let mine = k.load_var_f(cv);
             k.wg_barrier();
@@ -510,14 +518,16 @@ threshold can satisfy it",
     let cntv = k.fvar_u();
     let z = k.cu(0);
     k.store_var(cntv, z);
-    k.loop_u(lo, hi, |k, b| {
-        let kp = keepp(k, b);
-        k.iff(kp, |k| {
+    k.loop_u(lo, hi, |mut k, b| {
+        let kp = keepp(&mut k, b);
+        k.iff(kp, |mut k| {
             let c0v = k.load_var_u(cntv);
             let one = k.cu(1);
             let c1v = k.iadd(c0v, one);
             k.store_var(cntv, c1v);
+            k
         });
+        k
     });
     let myc = k.load_var_u(cntv);
     k.shared_store_u(cnt, cntp, lane, myc);
@@ -544,22 +554,25 @@ threshold can satisfy it",
     let off0 = k.e(OP_ISUB, k.uint, &[inc, myc]);
     let wv = k.fvar_u();
     k.store_var(wv, off0);
-    k.loop_u(lo, hi, |k, b| {
-        let kp = keepp(k, b);
-        k.iff(kp, |k| {
+    k.loop_u(lo, hi, |mut k, b| {
+        let kp = keepp(&mut k, b);
+        k.iff(kp, |mut k| {
             let w0 = k.load_var_u(wv);
             let ki = k.iadd(ubrow, w0); // kept row base = ub row base = h·nblocks
             k.store_u(kept, ki, b);
             let one = k.cu(1);
             let w1 = k.iadd(w0, one);
             k.store_var(wv, w1);
+            k
         });
+        k
     });
     let cwm1 = k.cu(WG - 1);
     let isl = k.e(OP_IEQ, k.bool_t, &[lane, cwm1]);
-    k.iff(isl, |k| {
+    k.iff(isl, |mut k| {
         let tot = k.shared_load_u(cnt, cntp, cwm1);
         k.store_u(nkept, h, tot);
+        k
     });
     k.finish(WG)
 }
@@ -664,7 +677,7 @@ pub fn flash_partial_module(
     let split = k.umod(hs, cns);
     let ctot = k.cu(nh * nsplit);
     let guard = k.ult(hs, ctot);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let c0 = k.cu(0);
         let c1 = k.cu(1);
         let pos = k.load_u(params, c0);
@@ -759,7 +772,7 @@ pub fn flash_partial_module(
                                     // WG enters `haswork` or a whole WG takes the neutral branch).
         let haswork = k.ult(v0, vtot);
         let mt = k.e(OP_UGE, k.bool_t, &[v0, vtot]);
-        k.iff(mt, |k| {
+        k.iff(mt, |mut k| {
             k.loop_step(lane, chd, cwg, |k, i| {
                 let ob = k.imul(hs, chd);
                 let oidx = k.iadd(ob, i);
@@ -767,14 +780,16 @@ pub fn flash_partial_module(
                 k.store_f(po, oidx, z);
             });
             let is0e = k.e(OP_IEQ, k.bool_t, &[lane, c0]);
-            k.iff(is0e, |k| {
+            k.iff(is0e, |mut k| {
                 let ng = k.cf(-1.0e30);
                 let z = k.cf(0.0);
                 k.store_f(pm, hs, ng);
                 k.store_f(pl, hs, z);
+                k
             });
+            k
         });
-        k.iff(haswork, |k| {
+        k.iff(haswork, |mut k| {
             // knot: preload the slice's kept range [v0/blk, ⌈v1/blk⌉] into shared — a per-key GLOBAL
             // kept load put a memory dependency in front of every score's address chain (measured 2×
             // the dense per-key cost); from shared it is off the critical path.
@@ -941,8 +956,8 @@ pub fn flash_partial_module(
                 let acc = k.fvar_f();
                 let z = k.cf(0.0);
                 k.store_var(acc, z);
-                k.loop_u(v0, v1, |k, v| {
-                    let (s, soff, valid) = key_of(k, v);
+                k.loop_u(v0, v1, |mut k, v| {
+                    let (s, soff, valid) = key_of(&mut k, v);
                     let p = k.shared_load(psh, pshp, soff); // 0 for poisoned slots (pass 2)
                     let vi1 = k.iadd(vbase0, s);
                     // int8: Vq[(kvh·tmax + s)·(hd/4) + i/4], byte i%4. The scale is already in `p`.
@@ -971,6 +986,7 @@ pub fn flash_partial_module(
                     let a0 = k.load_var_f(acc);
                     let a1 = k.fadd(a0, pr);
                     k.store_var(acc, a1);
+                    k
                 });
                 let af = k.load_var_f(acc);
                 let ob = k.imul(hs, chd);
@@ -979,11 +995,14 @@ pub fn flash_partial_module(
             });
             // lane 0 writes this slice's m and l
             let is0 = k.e(OP_IEQ, k.bool_t, &[lane, c0]);
-            k.iff(is0, |k| {
+            k.iff(is0, |mut k| {
                 k.store_f(pm, hs, m);
                 k.store_f(pl, hs, d);
+                k
             });
+            k
         }); // end iff(haswork) — empty slices skipped the drive above
+        k
     });
     k.finish(WG)
 }
@@ -1032,7 +1051,7 @@ fn pack_int8_shared(k: &mut Kb, src: u32, srcp: u32, base: u32, scale: u32) -> u
     k.store_var(word, z);
     let c0 = k.cu(0);
     let four = k.cu(4);
-    k.loop_u(c0, four, |k, b| {
+    k.loop_u(c0, four, |mut k, b| {
         let idx = k.iadd(base, b);
         let v = k.shared_load(src, srcp, idx);
         let byte = k.int8_code(v, scale);
@@ -1043,6 +1062,7 @@ fn pack_int8_shared(k: &mut Kb, src: u32, srcp: u32, base: u32, scale: u32) -> u
         let w0 = k.load_var_u(word);
         let w1 = k.e(OP_BITWISE_OR, u, &[w0, shifted]);
         k.store_var(word, w1);
+        k
     });
     k.load_var_u(word)
 }
@@ -1060,7 +1080,7 @@ fn fold_bias_reg(k: &mut Kb, src: u32, bias: Option<u32>, i: u32, n: u32, segs: 
         k.store_var(acc, z);
         let c0 = k.cu(0);
         let cseg = k.cu(segs);
-        k.loop_u(c0, cseg, |k, s| {
+        k.loop_u(c0, cseg, |mut k, s| {
             let cn = k.cu(n);
             let b = k.imul(s, cn);
             let idx = k.iadd(b, i);
@@ -1068,6 +1088,7 @@ fn fold_bias_reg(k: &mut Kb, src: u32, bias: Option<u32>, i: u32, n: u32, segs: 
             let a0 = k.load_var_f(acc);
             let a1 = k.fadd(a0, p);
             k.store_var(acc, a1);
+            k
         });
         k.load_var_f(acc)
     };
@@ -1151,13 +1172,14 @@ fn dp4a_score_shared(k: &mut Kb, qq: u32, qqp: u32, kqs: u32, kqsp: u32, nwords:
     k.store_var(iacc, z);
     let c0 = k.cu(0);
     let cnw = k.cu(nwords);
-    k.loop_u(c0, cnw, |k, w| {
+    k.loop_u(c0, cnw, |mut k, w| {
         let qw = k.shared_load_u(qq, qqp, w);
         let kw = k.shared_load_u(kqs, kqsp, w);
         let d4 = k.e(OP_SDOT, sint, &[qw, kw, PACKED_VEC_4X8]);
         let a0 = k.load_var_s(iacc);
         let a1 = k.e(OP_IADD, sint, &[a0, d4]);
         k.store_var(iacc, a1);
+        k
     });
     let isum = k.load_var_s(iacc);
     let f = k.float;
@@ -1322,7 +1344,7 @@ pub fn flash_partial_fold_module(
     let split = k.umod(hs, cns);
     let ctot = k.cu(nh * nsplit);
     let guard = k.ult(hs, ctot);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let c0 = k.cu(0);
         let c1 = k.cu(1);
         let pos = k.load_u(params, c0);
@@ -1364,12 +1386,13 @@ pub fn flash_partial_fold_module(
             let hb = k.e(OP_FCONVERT, k.float16, &[vval]);
             let back = k.e(OP_FCONVERT, k.float, &[hb]);
             k.shared_store(vsh, vshp, d, back);
-            k.iff(designated, |k| {
+            k.iff(designated, |mut k| {
                 let vrow = k.imul(kvh, ct);
                 let vpos = k.iadd(vrow, pos);
                 let vb = k.imul(vpos, chd);
                 let vidx = k.iadd(vb, d);
                 k.store_f16(vc, vidx, vval);
+                k
             });
         };
         // the packed int8 K chart into shared, the designated writer also storing it to the cache.
@@ -1379,22 +1402,24 @@ pub fn flash_partial_fold_module(
                 let l4 = k.imul(w, c4);
                 let word = pack_int8_shared(k, ksh, kshp, l4, skpos);
                 k.shared_store_u(kqs, kqsp, w, word);
-                k.iff(designated, |k| {
+                k.iff(designated, |mut k| {
                     let wrow0 = k.imul(kvh, chd4);
                     let wrow = k.iadd(wrow0, w);
                     let w1 = k.imul(wrow, ct);
                     let kidx = k.iadd(w1, pos);
                     k.store_u(kcq, kidx, word);
+                    k
                 });
             });
         };
         let store_sk = |k: &mut Kb, skpos: u32| {
             let isz = k.e(OP_IEQ, k.bool_t, &[lane, c0]);
             let st = k.e(OP_LOGICAL_AND, k.bool_t, &[designated, isz]);
-            k.iff(st, |k| {
+            k.iff(st, |mut k| {
                 let skrow = k.imul(kvh, ct);
                 let skidx = k.iadd(skrow, pos);
                 k.store_f(sk, skidx, skpos);
+                k
             });
         };
         let rope = |k: &mut Kb, src: u32, srcp: u32, dst: u32, dstp: u32| {
@@ -1420,27 +1445,32 @@ pub fn flash_partial_fold_module(
                 let iq = k.iadd(bq, d);
                 let v = fold_bias_reg(k, qkvp, qkvb, iq, qkvm, segs);
                 k.shared_store(qun, qunp, d, v);
-                k.iff(covering, |k| {
+                k.iff(covering, |mut k| {
                     let ik = k.iadd(kbase, d);
-                    let kv = fold_bias_reg(k, qkvp, qkvb, ik, qkvm, segs);
+                    let kv = fold_bias_reg(&mut k, qkvp, qkvb, ik, qkvm, segs);
                     k.shared_store(kun, kunp, d, kv);
-                    fold_v(k, d);
+                    fold_v(&mut k, d);
+                    k
                 });
             });
             k.wg_barrier();
-            rope(k, qun, qunp, qsh, qshp);
-            k.iff(covering, |k| rope(k, kun, kunp, ksh, kshp));
+            rope(&mut k, qun, qunp, qsh, qshp);
+            k.iff(covering, |mut k| {
+                rope(&mut k, kun, kunp, ksh, kshp);
+                k
+            });
             k.wg_barrier();
-            let lq = absmax_local_shared(k, qsh, qshp, hd, WG, lane);
+            let lq = absmax_local_shared(&mut k, qsh, qshp, hd, WG, lane);
             let lkv = k.fvar_f();
             let tiny = k.cf(1.0e-12);
             k.store_var(lkv, tiny);
-            k.iff(covering, |k| {
-                let l = absmax_local_shared(k, ksh, kshp, hd, WG, lane);
+            k.iff(covering, |mut k| {
+                let l = absmax_local_shared(&mut k, ksh, kshp, hd, WG, lane);
                 k.store_var(lkv, l);
+                k
             });
             let lk = k.load_var_f(lkv);
-            let mx = wg_fmax_sg(k, &[(lq, sgr, sgrp), (lk, sgk, sgkp)], lane, WG);
+            let mx = wg_fmax_sg(&mut k, &[(lq, sgr, sgrp), (lk, sgk, sgkp)], lane, WG);
             let sq = k.fmul(mx[0], inv127);
             let skpos = k.fmul(mx[1], inv127);
             k.loop_step(lane, chd4, cwg, |k, w| {
@@ -1449,18 +1479,20 @@ pub fn flash_partial_fold_module(
                 let word = pack_int8_shared(k, qsh, qshp, l4, sq);
                 k.shared_store_u(qq, qqp, w, word);
             });
-            k.iff(covering, |k| {
-                store_sk(k, skpos);
-                pack_k(k, skpos);
+            k.iff(covering, |mut k| {
+                store_sk(&mut k, skpos);
+                pack_k(&mut k, skpos);
+                k
             });
             k.wg_barrier();
-            k.iff(covering, |k| {
-                let fsum_pos = dp4a_score_shared(k, qq, qqp, kqs, kqsp, hd / 4);
+            k.iff(covering, |mut k| {
+                let fsum_pos = dp4a_score_shared(&mut k, qq, qqp, kqs, kqsp, hd / 4);
                 let csc = k.cf(scale);
                 let t0 = k.fmul(csc, sq);
                 let t1 = k.fmul(t0, skpos);
                 let scpv = k.fmul(t1, fsum_pos);
                 k.store_var(scposv, scpv);
+                k
             });
             sq
         } else {
@@ -1471,9 +1503,9 @@ pub fn flash_partial_fold_module(
                 k.shared_store(qun, qunp, d, v);
             });
             k.wg_barrier();
-            rope(k, qun, qunp, qsh, qshp);
+            rope(&mut k, qun, qunp, qsh, qshp);
             k.wg_barrier();
-            absmax_reduce_shared(k, qsh, qshp, red, redp, hd, WG, lane);
+            absmax_reduce_shared(&mut k, qsh, qshp, red, redp, hd, WG, lane);
             let qamax = k.shared_load(red, redp, c0);
             let sq = k.fmul(qamax, inv127);
             k.loop_step(lane, chd4, cwg, |k, w| {
@@ -1483,36 +1515,37 @@ pub fn flash_partial_fold_module(
                 k.shared_store_u(qq, qqp, w, word);
             });
             k.wg_barrier();
-            k.iff(covering, |k| {
+            k.iff(covering, |mut k| {
                 k.loop_step(lane, chd, cwg, |k, d| {
                     let iq = k.iadd(kbase, d);
                     let v = fold_bias_reg(k, qkvp, qkvb, iq, qkvm, segs);
                     k.shared_store(qun, qunp, d, v);
                 });
                 k.wg_barrier();
-                rope(k, qun, qunp, ksh, kshp);
+                rope(&mut k, qun, qunp, ksh, kshp);
                 k.wg_barrier();
                 k.loop_step(lane, chd, cwg, fold_v);
                 k.wg_barrier();
-                absmax_reduce_shared(k, ksh, kshp, red, redp, hd, WG, lane);
+                absmax_reduce_shared(&mut k, ksh, kshp, red, redp, hd, WG, lane);
                 let skamax = k.shared_load(red, redp, c0);
                 let skpos = k.fmul(skamax, inv127);
-                store_sk(k, skpos);
-                pack_k(k, skpos);
+                store_sk(&mut k, skpos);
+                pack_k(&mut k, skpos);
                 k.wg_barrier();
-                let fsum_pos = dp4a_score_shared(k, qq, qqp, kqs, kqsp, hd / 4);
+                let fsum_pos = dp4a_score_shared(&mut k, qq, qqp, kqs, kqsp, hd / 4);
                 let csc = k.cf(scale);
                 let t0 = k.fmul(csc, sq);
                 let t1 = k.fmul(t0, skpos);
                 let scpv = k.fmul(t1, fsum_pos);
                 k.store_var(scposv, scpv);
+                k
             });
             sq
         };
         // ── the fold (passes 1–3), reading the cache for earlier keys and shared for `pos` ────
         let haswork = k.ult(v0, len);
         let mt = k.e(OP_UGE, k.bool_t, &[v0, len]);
-        k.iff(mt, |k| {
+        k.iff(mt, |mut k| {
             k.loop_step(lane, chd, cwg, |k, i| {
                 let ob = k.imul(hs, chd);
                 let oidx = k.iadd(ob, i);
@@ -1520,14 +1553,16 @@ pub fn flash_partial_fold_module(
                 k.store_f(po, oidx, z);
             });
             let is0e = k.e(OP_IEQ, k.bool_t, &[lane, c0]);
-            k.iff(is0e, |k| {
+            k.iff(is0e, |mut k| {
                 let ng = k.cf(-1.0e30);
                 let z = k.cf(0.0);
                 k.store_f(pm, hs, ng);
                 k.store_f(pl, hs, z);
+                k
             });
+            k
         });
-        k.iff(haswork, |k| {
+        k.iff(haswork, |mut k| {
             let scpos = k.load_var_f(scposv);
             let dummy = k.umod(len, ct);
             let v0l = k.iadd(v0, lane);
@@ -1556,7 +1591,7 @@ pub fn flash_partial_fold_module(
             });
             let lm = k.load_var_f(lmax);
             let m = if v2 {
-                wg_fmax_sg(k, &[(lm, sgr, sgrp)], lane, WG)[0]
+                wg_fmax_sg(&mut k, &[(lm, sgr, sgrp)], lane, WG)[0]
             } else {
                 k.shared_store(red, redp, lane, lm);
                 k.wg_barrier();
@@ -1652,7 +1687,7 @@ pub fn flash_partial_fold_module(
                         terms.push((inb, p, vv));
                     }
                     for (inb, p, vv) in terms {
-                        k.iff(inb, |k| {
+                        k.iff(inb, |mut k| {
                             let a0 = k.load_var_f(acc);
                             let a1 = if fma_acc {
                                 k.fma(p, vv, a0)
@@ -1661,10 +1696,11 @@ pub fn flash_partial_fold_module(
                                 k.fadd(a0, pr)
                             };
                             k.store_var(acc, a1);
+                            k
                         });
                     }
                 } else {
-                    k.loop_u(v0, v1, |k, v| {
+                    k.loop_u(v0, v1, |mut k, v| {
                         let soff = k.e(OP_ISUB, k.uint, &[v, v0]);
                         let p = k.shared_load(psh, pshp, soff);
                         let is_pos = k.e(OP_IEQ, k.bool_t, &[v, pos]);
@@ -1683,6 +1719,7 @@ pub fn flash_partial_fold_module(
                             k.fadd(a0, pr)
                         };
                         k.store_var(acc, a1);
+                        k
                     });
                 }
                 let af = k.load_var_f(acc);
@@ -1691,11 +1728,14 @@ pub fn flash_partial_fold_module(
                 k.store_f(po, oidx, af);
             });
             let is0 = k.e(OP_IEQ, k.bool_t, &[lane, c0]);
-            k.iff(is0, |k| {
+            k.iff(is0, |mut k| {
                 k.store_f(pm, hs, m);
                 k.store_f(pl, hs, d);
+                k
             });
+            k
         });
+        k
     });
     k.finish(WG)
 }
@@ -1716,7 +1756,7 @@ pub fn flash_combine_module(nh: u32, hd: u32, nsplit: u32) -> Vec<u32> {
     let i = k.umod(gid, chd);
     let cnh = k.cu(nh);
     let guard = k.ult(h, cnh);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let cns = k.cu(nsplit);
         let hbase = k.imul(h, cns); // h·nsplit
                                     // global max over splits
@@ -1725,12 +1765,13 @@ pub fn flash_combine_module(nh: u32, hd: u32, nsplit: u32) -> Vec<u32> {
         k.store_var(gm, neg);
         let c0 = k.cu(0);
         let c1 = k.cu(1);
-        k.loop_u(c0, cns, |k, sp| {
+        k.loop_u(c0, cns, |mut k, sp| {
             let hs = k.iadd(hbase, sp);
             let mv = k.load_f(pm, hs);
             let g0 = k.load_var_f(gm);
             let g1 = k.ext2(GLSL_FMAX, g0, mv);
             k.store_var(gm, g1);
+            k
         });
         let g = k.load_var_f(gm);
         // O = Σ w·o_i ; L = Σ w·l ; w = exp(m_split − gm)
@@ -1739,7 +1780,7 @@ pub fn flash_combine_module(nh: u32, hd: u32, nsplit: u32) -> Vec<u32> {
         let z = k.cf(0.0);
         k.store_var(onum, z);
         k.store_var(lden, z);
-        k.loop_u(c0, cns, |k, sp| {
+        k.loop_u(c0, cns, |mut k, sp| {
             let hs = k.iadd(hbase, sp);
             let mv = k.load_f(pm, hs);
             let dd = k.fsub(mv, g);
@@ -1756,6 +1797,7 @@ pub fn flash_combine_module(nh: u32, hd: u32, nsplit: u32) -> Vec<u32> {
             let on0 = k.load_var_f(onum);
             let on1 = k.fadd(on0, wo);
             k.store_var(onum, on1);
+            k
         });
         let on = k.load_var_f(onum);
         let ld = k.load_var_f(lden);
@@ -1764,6 +1806,7 @@ pub fn flash_combine_module(nh: u32, hd: u32, nsplit: u32) -> Vec<u32> {
         let oidx = k.iadd(ob, i);
         k.store_f(out, oidx, res);
         let _ = c1;
+        k
     });
     k.finish(hd)
 }

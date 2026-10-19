@@ -130,8 +130,8 @@ fn pdl_producer(kb: &mut Kb, cnt: u32, tid: u32) {
     // every lane stores the same row value, so lane 0's store carries the workgroup's row.
     let z = kb.cu(0);
     let is0 = kb.e(OP_IEQ, kb.bool_t, &[tid, z]);
-    kb.iff(is0, |kb| {
-        let word = pdl_word_ptr(kb, cnt, z);
+    kb.iff(is0, |mut kb| {
+        let word = pdl_word_ptr(&mut kb, cnt, z);
         let sc = kb.cu(PDL_SCOPE_DEVICE);
         // AcquireRelease, not Release: the increments form an RMW release sequence, and an acquire
         // that reads the final count must synchronize with every workgroup's store (the same
@@ -139,6 +139,7 @@ fn pdl_producer(kb: &mut Kb, cnt: u32, tid: u32) {
         let sem = kb.cu(PDL_SEM_ACQREL);
         let one = kb.cu(1);
         let _ = kb.e(PDL_OP_ATOMIC_IADD, kb.uint, &[word, sc, sem, one]);
+        kb
     });
 }
 
@@ -147,7 +148,10 @@ fn pdl_producer(kb: &mut Kb, cnt: u32, tid: u32) {
 fn pdl_consumer(kb: &mut Kb, cnt: u32, ovf: u32, target: u32, tid: u32) {
     let z = kb.cu(0);
     let is0 = kb.e(OP_IEQ, kb.bool_t, &[tid, z]);
-    kb.iff(is0, |kb| pdl_spin(kb, cnt, ovf, target));
+    kb.iff(is0, |mut kb| {
+        pdl_spin(&mut kb, cnt, ovf, target);
+        kb
+    });
     kb.wg_barrier();
 }
 
@@ -187,12 +191,13 @@ fn pdl_spin(kb: &mut Kb, cnt: u32, ovf: u32, target: u32) {
         // record a give-up: a capped spin is an INVALID edge, not a cheap one
         let i3 = kb.load_var_u(ctr);
         let tripped = kb.e(OP_UGE, kb.bool_t, &[i3, cap]);
-        kb.iff(tripped, |kb| {
-            let ow = pdl_word_ptr(kb, ovf, z);
+        kb.iff(tripped, |mut kb| {
+            let ow = pdl_word_ptr(&mut kb, ovf, z);
             let sc2 = kb.cu(PDL_SCOPE_DEVICE);
             let sa = kb.cu(PDL_SEM_ACQREL);
             let one2 = kb.cu(1);
             let _ = kb.e(PDL_OP_ATOMIC_IADD, kb.uint, &[ow, sc2, sa, one2]);
+            kb
         });
     }
 }
@@ -207,26 +212,28 @@ fn pdl_grid_barrier(kb: &mut Kb, cnt: u32, ovf: u32, w: u32, tid: u32) {
     kb.wg_barrier();
     let z = kb.cu(0);
     let is0 = kb.e(OP_IEQ, kb.bool_t, &[tid, z]);
-    kb.iff(is0, |kb| {
-        let word = pdl_word_ptr(kb, cnt, z);
+    kb.iff(is0, |mut kb| {
+        let word = pdl_word_ptr(&mut kb, cnt, z);
         let sc = kb.cu(PDL_SCOPE_DEVICE);
         let sem = kb.cu(PDL_SEM_ACQREL);
         let one = kb.cu(1);
         let _ = kb.e(PDL_OP_ATOMIC_IADD, kb.uint, &[word, sc, sem, one]);
-        pdl_spin(kb, cnt, ovf, w);
-        let word2 = pdl_word_ptr(kb, cnt, z);
+        pdl_spin(&mut kb, cnt, ovf, w);
+        let word2 = pdl_word_ptr(&mut kb, cnt, z);
         let sc2 = kb.cu(PDL_SCOPE_DEVICE);
         let sem2 = kb.cu(PDL_SEM_ACQREL);
         let one2 = kb.cu(1);
         let old = kb.e(PDL_OP_ATOMIC_IADD, kb.uint, &[word2, sc2, sem2, one2]);
         let cl = kb.cu(2 * w - 1);
         let last = kb.e(OP_IEQ, kb.bool_t, &[old, cl]);
-        kb.iff(last, |kb| {
-            let word3 = pdl_word_ptr(kb, cnt, z);
+        kb.iff(last, |mut kb| {
+            let word3 = pdl_word_ptr(&mut kb, cnt, z);
             let sc3 = kb.cu(PDL_SCOPE_DEVICE);
             let sr = kb.cu(PDL_SEM_REL);
             kb.ins(PDL_OP_ATOMIC_STORE, &[word3, sc3, sr, z]);
+            kb
         });
+        kb
     });
     kb.wg_barrier();
 }
@@ -237,11 +244,12 @@ fn pdl_grid_barrier(kb: &mut Kb, cnt: u32, ovf: u32, w: u32, tid: u32) {
 fn pdl_reset(kb: &mut Kb, cnt: u32, tid: u32) {
     let z = kb.cu(0);
     let is0 = kb.e(OP_IEQ, kb.bool_t, &[tid, z]);
-    kb.iff(is0, |kb| {
-        let word = pdl_word_ptr(kb, cnt, z);
+    kb.iff(is0, |mut kb| {
+        let word = pdl_word_ptr(&mut kb, cnt, z);
         let sc = kb.cu(PDL_SCOPE_DEVICE);
         let sr = kb.cu(PDL_SEM_REL);
         kb.ins(PDL_OP_ATOMIC_STORE, &[word, sc, sr, z]);
+        kb
     });
 }
 
@@ -300,7 +308,7 @@ pub fn rmsnorm_module(
                 k.store_var(acc, z);
                 let c0 = k.cu(0);
                 let cseg = k.cu(res_segs);
-                k.loop_u(c0, cseg, |k, s| {
+                k.loop_u(c0, cseg, |mut k, s| {
                     let cnn = k.cu(n);
                     let base = k.imul(s, cnn);
                     let idx = k.iadd(base, i);
@@ -308,6 +316,7 @@ pub fn rmsnorm_module(
                     let a0 = k.load_var_f(acc);
                     let a1 = k.fadd(a0, p);
                     k.store_var(acc, a1);
+                    k
                 });
                 k.load_var_f(acc)
             };
@@ -595,7 +604,7 @@ pub fn gemv_norm_module_ks(
                 k.store_var(acc, z);
                 let c0 = k.cu(0);
                 let cseg = k.cu(res_segs);
-                k.loop_u(c0, cseg, |k, s| {
+                k.loop_u(c0, cseg, |mut k, s| {
                     let cnn = k.cu(n);
                     let base = k.imul(s, cnn);
                     let idx = k.iadd(base, i);
@@ -603,6 +612,7 @@ pub fn gemv_norm_module_ks(
                     let a0 = k.load_var_f(acc);
                     let a1 = k.fadd(a0, p);
                     k.store_var(acc, a1);
+                    k
                 });
                 k.load_var_f(acc)
             };
@@ -624,8 +634,12 @@ pub fn gemv_norm_module_ks(
             let i = kb.iadd(base, tid);
             let in_slice = kb.ult(tid, csl);
             let in_n = kb.ult(i, cn);
-            kb.iff(in_slice, |kb| {
-                kb.iff(in_n, |kb| elem(kb, i));
+            kb.iff(in_slice, |mut kb| {
+                kb.iff(in_n, |mut kb| {
+                    elem(&mut kb, i);
+                    kb
+                });
+                kb
             });
             let bar_b = pdl_base
                 + if pdl.flags & PDL_CONSUMER != 0 { 2 } else { 0 }
@@ -689,7 +703,7 @@ pub fn gemv_norm_module_ks(
         let c0 = kb.cu(0);
         let not0 = kb.ult(c0, slice);
         let crows = kb.cu(rows);
-        kb.iff(in_range, |kb| {
+        kb.iff(in_range, |mut kb| {
             let cl = kb.cu(slice_len);
             let b0 = kb.imul(slice, cl);
             let clast = kb.cu(span_blk - 1);
@@ -716,14 +730,15 @@ pub fn gemv_norm_module_ks(
                 );
                 terms.push((braw, s2));
             }
-            kb.iff(is0, |kb| {
+            kb.iff(is0, |mut kb| {
                 let mut acc = kb.cf(0.0);
                 for &(_, s2) in &terms {
                     acc = kb.fadd(acc, s2);
                 }
                 kb.store_var(acc0, acc);
+                kb
             });
-            kb.iff(not0, |kb| {
+            kb.iff(not0, |mut kb| {
                 let cl2 = kb.cu(slice_len);
                 for &(braw, s2) in &terms {
                     let u = kb.uint;
@@ -732,11 +747,13 @@ pub fn gemv_norm_module_ks(
                     let idx = kb.iadd(rr, lr);
                     kb.shared_store(part, partp, idx, s2);
                 }
+                kb
             });
+            kb
         });
         kb.wg_barrier();
-        kb.iff(in_range, |kb| {
-            kb.iff(is0, |kb| {
+        kb.iff(in_range, |mut kb| {
+            kb.iff(is0, |mut kb| {
                 let mut acc = kb.load_var_f(acc0);
                 for rel in 0..span_blk - slice_len {
                     let crr = kb.cu(rel * rows);
@@ -745,10 +762,12 @@ pub fn gemv_norm_module_ks(
                     acc = kb.fadd(acc, s2);
                 }
                 kb.store_f(out, out_idx, acc);
+                kb
             });
+            kb
         });
     } else {
-        kb.iff(in_range, |kb| {
+        kb.iff(in_range, |mut kb| {
             let outv = if chart {
                 let sc = if two_level {
                     crate::gpu::nn::ChartScale::two_level(dm, m, blocks)
@@ -777,6 +796,7 @@ pub fn gemv_norm_module_ks(
                 kb.direct_fold(w, r, start, bound, nrm, nrmp, m, carrier)
             };
             kb.store_f(out, out_idx, outv);
+            kb
         });
     }
     // ── [DEC-PDL] producer: after a workgroup barrier, lane 0 of every workgroup
@@ -1086,12 +1106,13 @@ pub fn gemv_actq_module_sc(
                 let neg = kb.cf(-1.0e30);
                 kb.store_var(gm, neg);
                 let c0 = kb.cu(0);
-                kb.loop_u(c0, cns, |k, sp| {
+                kb.loop_u(c0, cns, |mut k, sp| {
                     let hs = k.iadd(hbase, sp);
                     let mv = k.load_f(pm, hs);
                     let g0 = k.load_var_f(gm);
                     let g1 = k.ext2(GLSL_FMAX, g0, mv);
                     k.store_var(gm, g1);
+                    k
                 });
                 let gmax = kb.load_var_f(gm);
                 let onum = kb.fvar_f();
@@ -1099,7 +1120,7 @@ pub fn gemv_actq_module_sc(
                 let z = kb.cf(0.0);
                 kb.store_var(onum, z);
                 kb.store_var(lden, z);
-                kb.loop_u(c0, cns, |k, sp| {
+                kb.loop_u(c0, cns, |mut k, sp| {
                     let hs = k.iadd(hbase, sp);
                     let mv = k.load_f(pm, hs);
                     let dd = k.fsub(mv, gmax);
@@ -1116,6 +1137,7 @@ pub fn gemv_actq_module_sc(
                     let on0 = k.load_var_f(onum);
                     let on1 = k.fadd(on0, wo);
                     k.store_var(onum, on1);
+                    k
                 });
                 let on = kb.load_var_f(onum);
                 let ld = kb.load_var_f(lden);
@@ -1152,7 +1174,7 @@ pub fn gemv_actq_module_sc(
 
     // ── the gemv fold over that same window ──
     let in_range = kb.ult(r, cm);
-    kb.iff(in_range, |kb| {
+    kb.iff(in_range, |mut kb| {
         let sc = if two_level {
             crate::gpu::nn::ChartScale::two_level(dm, m, blocks)
         } else {
@@ -1177,6 +1199,7 @@ pub fn gemv_actq_module_sc(
             carrier.plane_b_off(m, k),
         );
         kb.store_f(out, out_idx, outv);
+        kb
     });
 
     // ── [DEC-PDL] the node's output ends. On the `o` shape (FlashCombine aux at 4/5) the counters
@@ -1340,7 +1363,7 @@ pub fn embed_chart_module(
     let i = k.gid_comp(0);
     let ch = k.cu(hidden);
     let guard = k.ult(i, ch);
-    k.iff(guard, |k| {
+    k.iff(guard, |mut k| {
         let c1 = k.cu(1);
         let tok = k.load_u(params, c1);
         let cv = k.cu(vocab);
@@ -1373,6 +1396,7 @@ pub fn embed_chart_module(
         let dq = k.fmul(d, qf);
         let val = k.fadd(dq, lo);
         k.store_f(x, i, val);
+        k
     });
     k.finish(local)
 }

@@ -89,9 +89,9 @@ impl Kb {
             k.store_var(sumv, z);
             let c0u = k.cu(0);
             let c32b = k.cu(32);
-            k.loop_u(c0u, c32b, |k, j| {
+            k.loop_u(c0u, c32b, |mut k, j| {
                 let idx = k.iadd(base, j);
-                let v = src.load(k, idx);
+                let v = src.load(&mut k, idx);
                 let f = k.float;
                 let gl = k.glsl;
                 let av = k.e(OP_EXT_INST, f, &[gl, GLSL_FABS, v]);
@@ -101,6 +101,7 @@ impl Kb {
                 let s0 = k.load_var_f(sumv);
                 let s1 = k.fadd(s0, v);
                 k.store_var(sumv, s1);
+                k
             });
             let mx = k.load_var_f(mxv);
             let inv127 = k.cf(1.0 / 127.0);
@@ -128,10 +129,10 @@ impl Kb {
             k.store_var(word, z);
             let c0u = k.cu(0);
             let four = k.cu(4);
-            k.loop_u(c0u, four, |k, b| {
+            k.loop_u(c0u, four, |mut k, b| {
                 let bd = k.imul(b, cdpw);
                 let idx = k.iadd(base, bd);
-                let v = src.load(k, idx);
+                let v = src.load(&mut k, idx);
                 let byte = k.int8_code(v, sx);
                 let u = k.uint;
                 let c8 = k.cu(8);
@@ -140,6 +141,7 @@ impl Kb {
                 let w0 = k.load_var_u(word);
                 let w1 = k.e(OP_BITWISE_OR, u, &[w0, shifted]);
                 k.store_var(word, w1);
+                k
             });
             let wv = k.load_var_u(word);
             let psu = k.ptr_sb_u;
@@ -235,13 +237,14 @@ impl Kb {
             k.store_var(mxv, z);
             let c0u = k.cu(0);
             let c32b = k.cu(32);
-            k.loop_u(c0u, c32b, |k, j| {
+            k.loop_u(c0u, c32b, |mut k, j| {
                 let idx = k.iadd(base, j);
-                let v = src.load(k, idx);
+                let v = src.load(&mut k, idx);
                 let av = k.ext1(GLSL_FABS, v);
                 let m0 = k.load_var_f(mxv);
                 let m1 = k.ext2(GLSL_FMAX, m0, av);
                 k.store_var(mxv, m1);
+                k
             });
             let mx = k.load_var_f(mxv);
             k.shared_store(pmax.0, pmax.1, b, mx);
@@ -256,11 +259,12 @@ impl Kb {
             let mxv = k.fvar_f();
             let z = k.cf(0.0);
             k.store_var(mxv, z);
-            k.loop_u(lo, hi, |k, j| {
+            k.loop_u(lo, hi, |mut k, j| {
                 let v = k.shared_load(pmax.0, pmax.1, j);
                 let m0 = k.load_var_f(mxv);
                 let m1 = k.ext2(GLSL_FMAX, m0, v);
                 k.store_var(mxv, m1);
+                k
             });
             let mx = k.load_var_f(mxv);
             // `quantize_act_sb`'s rule exactly: absmax/127, or 1.0 on an all-zero superblock
@@ -291,7 +295,7 @@ impl Kb {
             k.store_var(acc, z);
             let c0u = k.cu(0);
             let c8b = k.cu(8);
-            k.loop_u(c0u, c8b, |k, w| {
+            k.loop_u(c0u, c8b, |mut k, w| {
                 let c4 = k.cu(4);
                 let e0 = k.imul(w, c4);
                 let ebase = k.iadd(base, e0);
@@ -300,9 +304,9 @@ impl Kb {
                 k.store_var(word, zz);
                 let c0t = k.cu(0);
                 let c4b = k.cu(4);
-                k.loop_u(c0t, c4b, |k, t| {
+                k.loop_u(c0t, c4b, |mut k, t| {
                     let idx = k.iadd(ebase, t);
-                    let v = src.load(k, idx);
+                    let v = src.load(&mut k, idx);
                     let (byte, sgn) = k.int8_code_pair(v, sx);
                     let u = k.uint;
                     let c8s = k.cu(8);
@@ -314,10 +318,12 @@ impl Kb {
                     let a0 = k.load_var_u(acc);
                     let a1 = k.iadd(a0, sgn);
                     k.store_var(acc, a1);
+                    k
                 });
                 let wv = k.load_var_u(word);
                 let wi = k.iadd(wbase, w);
                 k.store_u(xq, wi, wv);
+                k
             });
             let av = k.load_var_u(acc);
             k.shared_store_u(psum.0, psum.1, b, av);
@@ -332,11 +338,12 @@ impl Kb {
             let acc = k.fvar_u();
             let z = k.cu(0);
             k.store_var(acc, z);
-            k.loop_u(lo, hi, |k, j| {
+            k.loop_u(lo, hi, |mut k, j| {
                 let v = k.shared_load_u(psum.0, psum.1, j);
                 let a0 = k.load_var_u(acc);
                 let a1 = k.iadd(a0, v);
                 k.store_var(acc, a1);
+                k
             });
             let av = k.load_var_u(acc);
             let si = k.iadd(boff, sb);
@@ -494,7 +501,7 @@ fn rmsnorm_batch_q_impl(
                 })
                 .collect();
             let ok = k.ult(j, cn);
-            k.iff(ok, |k| {
+            k.iff(ok, |mut k| {
                 let g = k.load_f(gain, j);
                 k.store_var(gvar, g);
                 let xv = k.load_f(x, idx);
@@ -511,6 +518,7 @@ fn rmsnorm_batch_q_impl(
                     let pv = k.load_f(res, pidx);
                     k.store_var(*rvar, pv);
                 }
+                k
             });
             gvs.push(k.load_var_f(gvar));
             xvs.push(k.load_var_f(xvar));
@@ -533,7 +541,10 @@ fn rmsnorm_batch_q_impl(
             let idx = k.iadd(xoff, j);
             if tail && t as u32 == trips - 1 {
                 let ok = k.ult(j, cn);
-                k.iff(ok, |k| k.store_f(x, idx, sv));
+                k.iff(ok, |mut k| {
+                    k.store_f(x, idx, sv);
+                    k
+                });
             } else {
                 k.store_f(x, idx, sv);
             }
@@ -562,11 +573,12 @@ fn rmsnorm_batch_q_impl(
         let idx = k.iadd(xoff, j);
         if tail && t as u32 == trips - 1 {
             let ok = k.ult(j, cn);
-            k.iff(ok, |k| {
+            k.iff(ok, |mut k| {
                 k.shared_store(nrm, nrmp, j, v);
                 if emit_h {
                     k.store_f(hout, idx, v);
                 }
+                k
             });
         } else {
             k.shared_store(nrm, nrmp, j, v);
@@ -1095,7 +1107,7 @@ pub fn qkv_rope_batch_module(
                                      //    pair sum, then a `log2(hd/2)` shared tree per row. The grouping differs from a `hd`-lane
                                      //    tree; the prefill planner passes `qknorm = false`.
     if qknorm {
-        k.iff(rotates, |k| {
+        k.iff(rotates, |mut k| {
             let a = k.load_var_f(vlo);
             let b = k.load_var_f(vhi);
             let sa = k.fmul(a, a);
@@ -1108,12 +1120,13 @@ pub fn qkv_rope_batch_module(
             while stride >= 1 {
                 let cs = k.cu(stride);
                 let lt = k.ult(lane, cs);
-                k.iff(lt, |k| {
+                k.iff(lt, |mut k| {
                     let x = k.shared_load(red, redp, rl);
                     let ti = k.iadd(rl, cs);
                     let y = k.shared_load(red, redp, ti);
                     let z = k.fadd(x, y);
                     k.shared_store(red, redp, rl, z);
+                    k
                 });
                 k.wg_barrier();
                 stride /= 2;
@@ -1136,11 +1149,12 @@ pub fn qkv_rope_batch_module(
                 k.store_var(var, o);
             }
             k.wg_barrier(); // every lane has read `red`
+            k
         });
     }
     // ── RoPE: the pair is `(vlo, vhi)`; the range reduction is `fused_rope_kv_module`'s (GPU
     //    sin/cos lose all range past ~2¹² rad, which is why >4k context collapsed before it existed).
-    k.iff(rotates, |k| {
+    k.iff(rotates, |mut k| {
         let jf = k.utof(lane);
         let two_over_hd = k.cf(-2.0 / hd as f32 * theta.ln());
         let expo = k.fmul(jf, two_over_hd);
@@ -1168,18 +1182,20 @@ pub fn qkv_rope_batch_module(
         let r_hi = k.fadd(cc, dd);
         k.store_var(vlo, r_lo);
         k.store_var(vhi, r_hi);
+        k
     });
     let lo_f = k.load_var_f(vlo);
     let hi_f = k.load_var_f(vhi);
     let chalf_off = k.cu(half);
     let idx_hi = k.iadd(idx, chalf_off);
-    k.iff(active, |k| {
+    k.iff(active, |mut k| {
         k.store_f(qkv, idx, lo_f);
         k.store_f(qkv, idx_hi, hi_f);
+        k
     });
     // ── KV append: absmax/127 per (head, position), the code map of `CpuState::kv_write`
     let does_kv = k.e(OP_UGE, k.bool_t, &[slot, cnh]);
-    k.iff(does_kv, |k| {
+    k.iff(does_kv, |mut k| {
         let f = k.float;
         let gl = k.glsl;
         let c0b = k.cu(0);
@@ -1188,7 +1204,7 @@ pub fn qkv_rope_batch_module(
         let al = k.e(OP_EXT_INST, f, &[gl, GLSL_FABS, lo_f]);
         let ah = k.e(OP_EXT_INST, f, &[gl, GLSL_FABS, hi_f]);
         let am = k.ext2(GLSL_FMAX, al, ah);
-        let sgm = sg_fmax(k, am);
+        let sgm = sg_fmax(&mut k, am);
         let amax = if nsg == 1 {
             sgm
         } else {
@@ -1196,7 +1212,10 @@ pub fn qkv_rope_batch_module(
             let sgi = k.udiv(local, c32);
             let sgl = k.umod(local, c32);
             let lead = k.e(OP_IEQ, k.bool_t, &[sgl, c0b]);
-            k.iff(lead, |k| k.shared_store(smax, smaxp, sgi, sgm));
+            k.iff(lead, |mut k| {
+                k.shared_store(smax, smaxp, sgi, sgm);
+                k
+            });
             k.wg_barrier();
             let csg = k.cu(nsg);
             let sgr = k.imul(r, csg); // this row's first subgroup slot
@@ -1234,7 +1253,7 @@ pub fn qkv_rope_batch_module(
         let ocidx_hi = k.iadd(ocidx, chalf_off); // d = lane + hd/2
         let is0 = k.e(OP_IEQ, k.bool_t, &[lane, c0b]);
         let notv = k.e(OP_LOGICAL_NOT, bt, &[is_v]);
-        k.iff(notv, |k| {
+        k.iff(notv, |mut k| {
             let kb0 = k.imul(kvh, chd);
             let kb1 = k.iadd(kb0, lane);
             let kb2 = k.imul(kb1, ct);
@@ -1242,15 +1261,17 @@ pub fn qkv_rope_batch_module(
             let kb1h = k.iadd(kb1, chalf_off);
             let kb2h = k.imul(kb1h, ct);
             let kidx_hi = k.iadd(kb2h, pos); // d = lane + hd/2
-            k.iff(active, |k| {
+            k.iff(active, |mut k| {
                 k.store_f(kc, kidx, code_lo);
                 k.store_f(kout, ocidx, code_lo);
                 k.store_f(kc, kidx_hi, code_hi);
                 k.store_f(kout, ocidx_hi, code_hi);
-                k.iff(is0, |k| {
+                k.iff(is0, |mut k| {
                     k.store_f(ks, sidx, sc);
                     k.store_f(ksout, orow, sc);
+                    k
                 });
+                k
             });
             // ── decode K: pack 4 int8 codes/word along the dim axis — `kv_seed_module`'s map, with
             //    this lane's two `code`s staged in `red` for the cross-lane gather. The branch is
@@ -1262,8 +1283,8 @@ pub fn qkv_rope_batch_module(
             k.wg_barrier();
             let chd4 = k.cu(hd / 4);
             let packer = k.ult(lane, chd4);
-            k.iff(active, |k| {
-                k.iff(packer, |k| {
+            k.iff(active, |mut k| {
+                k.iff(packer, |mut k| {
                     let u = k.uint;
                     let one = k.cf(1.0);
                     let mut word = k.cu(0);
@@ -1284,16 +1305,20 @@ pub fn qkv_rope_batch_module(
                     let wr2 = k.imul(wr1, ct);
                     let dst = k.iadd(wr2, pos);
                     k.store_u(kcq, dst, word);
+                    k
                 });
                 // decode K scale, transposed `[kvh·tmax + s]` (lane 0; `sc` is uniform)
-                k.iff(is0, |k| {
+                k.iff(is0, |mut k| {
                     let di = k.iadd(kvt, pos);
                     k.store_f(sk, di, sc);
+                    k
                 });
+                k
             });
+            k
         });
-        k.iff(is_v, |k| {
-            k.iff(active, |k| {
+        k.iff(is_v, |mut k| {
+            k.iff(active, |mut k| {
                 let vb0 = k.imul(kvh, ct);
                 let vb1 = k.iadd(vb0, pos);
                 let vb2 = k.imul(vb1, chd);
@@ -1303,17 +1328,21 @@ pub fn qkv_rope_batch_module(
                 k.store_f(vout, ocidx, code_lo);
                 k.store_f(vc, vidx_hi, code_hi);
                 k.store_f(vout, ocidx_hi, code_hi);
-                k.iff(is0, |k| {
+                k.iff(is0, |mut k| {
                     k.store_f(vs, sidx, sc);
                     k.store_f(vsout, orow, sc);
+                    k
                 });
                 // ── decode V: f16(code·scale), bit-identical to `kv_seed_module`'s read of `vc`/`vs`
                 let val_lo = k.fmul(code_lo, sc);
                 k.store_f16(vdec, vidx, val_lo);
                 let val_hi = k.fmul(code_hi, sc);
                 k.store_f16(vdec, vidx_hi, val_hi);
+                k
             });
+            k
         });
+        k
     });
     k.finish(half * rows)
 }

@@ -8,11 +8,13 @@
 //!
 //! # Carrier and boundary
 //!
-//! Every value is Q32.32: `x` is `round(x·2³²)` in an `i64`, each product is exact in `i128` brought
-//! back by one [`rshift_rne`] rounding, and block/pair costs compare as exact Q96.96 `i128`, so an
-//! argmin is the integer argmin and a tie goes to the first index. The 128-point transform is the
-//! engine's [`fwht_fixed`]; `gemm`/`chol` own the products and the solves; row bands of matrix-sized
-//! work run on the pool and every elementwise/transform pass is a serial integer loop. Every `pub`
+//! Every value is Q32.32: `x` is `round(x·2³²)` in an `i64`; matrix products, Grams and dots run on
+//! [`crate::engine::kern::limb`] at [`LIMBS`] limbs (block-floating, the bound in that module's
+//! `bound_ulps`, reported by [`product_bound`]), every other product is exact in `i128`, and
+//! block/pair costs compare as exact Q96.96 `i128`, so an argmin is the integer argmin and a tie goes
+//! to the first index. The 128-point transform is the engine's [`fwht_fixed`]; `chol` owns the solves;
+//! the kernel dispatches the engine pool, so the sweep bands run on the caller and every
+//! elementwise/transform pass is a serial integer loop. Every `pub`
 //! entry here takes and returns words: the planes, the metric and both `J` values are `Q32.32`, so
 //! a caller that holds reals converts once at its own boundary ([`codebook`] and [`JointStats`] are
 //! the read-out exceptions). No step pays a `from_grid`/`to_grid` round trip.
@@ -32,17 +34,12 @@
               `fold_transfer.py` arithmetic than enumerated iterators would"
 )]
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-use crate::engine::chart::pool::{
-    chunks_mut_global, for_chunks2, for_chunks3, width_global, FirstErr,
-};
-use crate::engine::chart::task::{ChunkTask, Task2, Task3};
+use crate::engine::chart::pool::width_global;
+use crate::engine::kern::limb::{gemm_q32, gemv_q32, rowdot_q32, LimbError};
 use crate::engine::ONE;
 use crate::engine::{fwht_fixed, HadamardError};
 use crate::learn::code::e8;
 use crate::learn::solve::chol::{chol_solve, SolveError};
-use crate::learn::solve::gemm::{gemm_nn, gemm_nt, GemmError};
 use crate::learn::solve::q32::{self, ilog2_pos, rshift_rne};
 
 /// Columns per `E8 ∪ O8` block: the code dimension.
@@ -149,20 +146,88 @@ fn qmul(a: i128, b: i128) -> Result<i128, IcmError> {
     a.checked_mul(b).ok_or(IcmError::Overflow)
 }
 
-/// `Σ a[k]·b[k]` at Q64.64, exact; `O(len)` multiply-adds, `O(1)` space.
-fn dot64(a: &[i64], b: &[i64]) -> Result<i128, IcmError> {
-    let mut acc: i128 = 0;
-    for k in 0..a.len() {
-        acc = qsum(acc, i128::from(a[k]) * i128::from(b[k]))?;
-    }
-    Ok(acc)
+/// Limbs per local (per-row, per-block) kernel product. The 3-limb route (`24`-bit mantissa per
+/// 32-element block) leaves a residual of about `2^-15` of the operand peak, which the joint
+/// two-plane sweep's `CODE_LEN²` pair search and the `r_step2` normal system turn into a decision
+/// that can be worse than the pre-change one; the R5 report carries the measured figures, so the
+/// local products carry 5 limbs (`2^-31`).
+const LIMBS: u32 = 5;
+
+/// Limbs of the public row-panel product [`matmul_q`]: the wave default, the R8 measured route and
+/// the operand of every tolerance derived from [`product_bound`].
+const LIMBS_MATMUL: u32 = 3;
+
+/// `Σ a[k]·b[k]` at Q32.32 on the limb kernel; `O(len)` multiply-adds, `O(1)` space.
+fn dot_q(a: &[i64], b: &[i64]) -> Result<i64, IcmError> {
+    let y = gemv_q(a, b, 1, a.len())?;
+    y.first().copied().ok_or(IcmError::Shape)
 }
 
-/// The exact Q96.96 block cost `a²·q − 2·a·dot` (`dot` at Q64.64), compared unrounded. `aa = a²`
-/// and `two_a = 2a` are the row scale's constant products, hoisted once per row-block; the value is
-/// `a·a·q − 2·a·dot` exactly, as before the hoist.
-fn block_cost(aa: i128, two_a: i128, q: i64, dot: i128) -> Result<i128, IcmError> {
-    qsub(qmul(aa, i128::from(q))?, qmul(two_a, dot)?)
+/// `gemm_q32` over row-major `[m, n] · [p, n]ᵀ` with this file's error map.
+fn nt_q(a: &[i64], m: usize, b: &[i64], p: usize, n: usize) -> Result<Vec<i64>, IcmError> {
+    gemm_q32(a, m, b, p, n, LIMBS).map_err(map_limb)
+}
+
+/// [`matmul_q`] at [`LIMBS`]: the decision-state products (the pre-change residual `G − B·H`), where
+/// a `2^-15` entry error of the operand peak survives the cancellation and moves the code choice.
+fn matmul_l(
+    a: &[i64],
+    b: &[i64],
+    rows: usize,
+    inner: usize,
+    cols: usize,
+    nt: bool,
+) -> Result<Vec<i64>, IcmError> {
+    if nt {
+        nt_l(a, rows, b, cols, inner)
+    } else {
+        nt_l(a, rows, &transpose_q(b, inner, cols), cols, inner)
+    }
+}
+
+/// [`nt_q`] at [`LIMBS`].
+fn nt_l(a: &[i64], m: usize, b: &[i64], p: usize, n: usize) -> Result<Vec<i64>, IcmError> {
+    gemm_q32(a, m, b, p, n, LIMBS).map_err(map_limb)
+}
+
+/// One row against `p` kernel rows: `y[j] = Σ_l x[l]·b[j·n + l]`.
+fn gemv_q(x: &[i64], b: &[i64], p: usize, n: usize) -> Result<Vec<i64>, IcmError> {
+    gemv_q32(x, b, p, n, LIMBS).map_err(map_limb)
+}
+
+/// The kernel's per-entry `Q32.32` word bound for a [`LIMBS_MATMUL`]-limb product of `inner` terms
+/// whose operands are bounded by the real magnitudes `max_a` and `max_b`
+/// ([`crate::engine::kern::limb`]'s `bound_ulps`, the assertion a product test runs against), as a
+/// real magnitude.
+#[must_use]
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "the two casts convert a finite non-negative real magnitude to its Q32.32 word count \
+              (range-checked) and the bound back; the bound is a tolerance, not an exact count"
+)]
+pub fn product_bound(inner: usize, max_a: f64, max_b: f64) -> f64 {
+    let words = |v: f64| -> u64 {
+        let w = v.abs() * 4_294_967_296.0;
+        if w >= 9.2e18 {
+            u64::MAX
+        } else {
+            w as u64
+        }
+    };
+    let b = crate::engine::kern::limb::bound_ulps(inner, LIMBS_MATMUL, words(max_a), words(max_b));
+    b as f64 / 4_294_967_296.0
+}
+
+/// The Q96.96 block cost `a²·q − 2·a·dot` (`dot` at Q32.32 from the kernel, lifted to Q64.64 by an
+/// exact shift), compared unrounded. `aa = a²` and `two_a = 2a` are the row scale's constant
+/// products, hoisted once per row-block.
+fn block_cost(aa: i128, two_a: i128, q: i64, dot: i64) -> Result<i128, IcmError> {
+    qsub(
+        qmul(aa, i128::from(q))?,
+        qmul(two_a, i128::from(dot) << 32)?,
+    )
 }
 
 /// The exact Q96.96 pair cost `2·a₁a₂·x + A + B` with `two_a12 = 2·a₁a₂` hoisted once per
@@ -171,20 +236,37 @@ fn pair_cost(two_a12: i128, x: i64, av: i128, bv: i128) -> Result<i128, IcmError
     qsum(qsum(qmul(two_a12, i128::from(x))?, av)?, bv)
 }
 
-/// The exact left shift of a Q32.32 word by `s` bits: the undo of a panel scaling.
-fn shl_q32(v: i64, s: u32) -> Result<i64, IcmError> {
-    if s >= 128 {
-        return Err(IcmError::Overflow);
+/// The `CODE_LEN`-way argmin of the exact Q96.96 block cost over one row-block's codebook dots:
+/// `q[j]` is the block's quadratic form, `dot[j]` the kernel product `s·c_j` at Q32.32. Kept out of
+/// the band loop: the pinned Aeneas refuses to compute a loop fixed point over the band's whole
+/// carried state.
+fn best_code_q(aa: i128, two_a: i128, q: &[i64], dot: &[i64]) -> Result<usize, IcmError> {
+    let (mut best, mut best_cost) = (0_u16, i128::MAX);
+    let mut err: Option<IcmError> = None;
+    let mut j = 0;
+    while j < CODE_LEN && err.is_none() {
+        match block_cost(aa, two_a, q[j], dot[j]) {
+            Ok(cost) => {
+                if cost < best_cost {
+                    best_cost = cost;
+                    best = j as u16;
+                }
+            }
+            Err(e) => err = Some(e),
+        }
+        j += 1;
     }
-    let scale = 1_i128 << s;
-    i64::try_from(qmul(i128::from(v), scale)?).map_err(|_| IcmError::Overflow)
+    if let Some(e) = err {
+        return Err(e);
+    }
+    Ok(usize::from(best))
 }
 
-/// An empty dimension or a length that disagrees with the checked shape is [`IcmError::Shape`]; a magnitude or range refusal is [`IcmError::Overflow`].
-fn map_gemm(e: GemmError) -> IcmError {
+/// An operand shape the kernel refuses is [`IcmError::Shape`]; a range or missing-kernel refusal is [`IcmError::Overflow`].
+fn map_limb(e: LimbError) -> IcmError {
     match e {
-        GemmError::ZeroDim | GemmError::ShapeMismatch => IcmError::Shape,
-        GemmError::InputBound | GemmError::Overflow => IcmError::Overflow,
+        LimbError::Shape => IcmError::Shape,
+        LimbError::Range | LimbError::NoKernel => IcmError::Overflow,
     }
 }
 
@@ -198,68 +280,10 @@ fn map_solve(e: SolveError) -> IcmError {
     }
 }
 
-/// The least shift bringing one panel's magnitude under the `gemm` input bound, and the shifted
-/// panel. `O(len)` comparisons and shifts; `O(len)` space.
-fn panel_shift(x: &[i64]) -> Result<(Vec<i64>, u32), IcmError> {
-    let mut mx: u128 = 0;
-    let mut i = 0;
-    while i < x.len() {
-        let m = u128::from(x[i].unsigned_abs());
-        if m > mx {
-            mx = m;
-        }
-        i += 1;
-    }
-    let s = match ilog2_pos(mx) {
-        Some(b) if b + 1 > 35 => b + 1 - 35,
-        _ => 0,
-    };
-    let mut p = vec![0_i64; x.len()];
-    let mut err: Option<IcmError> = None;
-    let mut i = 0;
-    while i < x.len() && err.is_none() {
-        match round_shift(i128::from(x[i]), s) {
-            Ok(v) => p[i] = v,
-            Err(e) => err = Some(e),
-        }
-        i += 1;
-    }
-    if let Some(e) = err {
-        return Err(e);
-    }
-    Ok((p, s))
-}
-
-/// The `gemm` product of two grid panels, with the common power-of-two panel scale undone.
+/// Row-major `[rows, inner] × [inner, cols]` product (`nt`: `b` is `[cols, inner]`) on the limb kernel.
 /// # Complexity
-/// `O(rows·inner·cols)` `i128` multiply-accumulates on the pool, `O(rows·cols)` space.
-fn product_panels(
-    a: &[i64],
-    b: &[i64],
-    rows: usize,
-    inner: usize,
-    cols: usize,
-    nt: bool,
-) -> Result<(Vec<i64>, u32), IcmError> {
-    let (Some(ri), Some(bi)) = (rows.checked_mul(inner), cols.checked_mul(inner)) else {
-        return Err(IcmError::Shape);
-    };
-    if rows == 0 || inner == 0 || cols == 0 || a.len() != ri || b.len() != bi {
-        return Err(IcmError::Shape);
-    }
-    // The least shift bringing each panel's magnitude under the `gemm` input bound.
-    let ((pa, sa), (pb, sb)) = (panel_shift(a)?, panel_shift(b)?);
-    let c = if nt {
-        gemm_nt(&pa, &pb, rows, inner, cols)
-    } else {
-        gemm_nn(&pa, &pb, rows, inner, cols)
-    }
-    .map_err(map_gemm)?;
-    Ok((c, sa + sb))
-}
-
-/// # Complexity
-/// As [`product_panels`] plus `O(rows·cols)` shifts.
+/// `O(rows·inner·cols)` kernel multiply-accumulates times the limb pairs, `O(rows·cols)` space plus an
+/// `O(inner·cols)` transpose when `!nt`.
 fn matmul_q(
     a: &[i64],
     b: &[i64],
@@ -268,21 +292,25 @@ fn matmul_q(
     cols: usize,
     nt: bool,
 ) -> Result<Vec<i64>, IcmError> {
-    let (c, back) = product_panels(a, b, rows, inner, cols, nt)?;
-    let mut out = vec![0_i64; c.len()];
-    let mut err: Option<IcmError> = None;
-    let mut i = 0;
-    while i < c.len() && err.is_none() {
-        match shl_q32(c[i], back) {
-            Ok(v) => out[i] = v,
-            Err(e) => err = Some(e),
-        }
-        i += 1;
+    let (Some(ri), Some(bi)) = (rows.checked_mul(inner), cols.checked_mul(inner)) else {
+        return Err(IcmError::Shape);
+    };
+    if rows == 0 || inner == 0 || cols == 0 || a.len() != ri || b.len() != bi {
+        return Err(IcmError::Shape);
     }
-    if let Some(e) = err {
-        return Err(e);
+    if nt {
+        gemm_q32(a, rows, b, cols, inner, LIMBS_MATMUL).map_err(map_limb)
+    } else {
+        gemm_q32(
+            a,
+            rows,
+            &transpose_q(b, inner, cols),
+            cols,
+            inner,
+            LIMBS_MATMUL,
+        )
+        .map_err(map_limb)
     }
-    Ok(out)
 }
 
 /// The 256 `E8 ∪ O8` codewords as Q32.32 words.
@@ -314,37 +342,6 @@ fn block_of_q(h: &[i64], n: usize, m: usize) -> [[i64; BLOCK]; BLOCK] {
     b
 }
 
-/// `Σ_a c[a]·H[a, :]` at Q64.64: the row reduction reused across the 256 codebook rows.
-fn mat_blk_row(c: &[i64; BLOCK], h: &[[i64; BLOCK]; BLOCK]) -> Result<[i128; BLOCK], IcmError> {
-    let mut out = [0_i128; BLOCK];
-    let mut err: Option<IcmError> = None;
-    let mut a = 0;
-    while a < BLOCK && err.is_none() {
-        let mut b = 0;
-        while b < BLOCK && err.is_none() {
-            match qsum(out[b], i128::from(c[a]) * i128::from(h[a][b])) {
-                Ok(v) => out[b] = v,
-                Err(e) => err = Some(e),
-            }
-            b += 1;
-        }
-        a += 1;
-    }
-    if let Some(e) = err {
-        return Err(e);
-    }
-    Ok(out)
-}
-
-/// `Σ_k t[k]·c[k]` at Q64.64, exact.
-fn row_dot(t: &[i128; BLOCK], c: &[i64; BLOCK]) -> Result<i128, IcmError> {
-    let mut acc: i128 = 0;
-    for k in 0..BLOCK {
-        acc = qsum(acc, qmul(t[k], i128::from(c[k]))?)?;
-    }
-    Ok(acc)
-}
-
 /// Rows per pool task of a pooled row band.
 fn rows_per_task(rows: usize) -> usize {
     rows.div_ceil(width_global()).max(1)
@@ -364,11 +361,14 @@ pub(super) fn bin_into(dst: &mut [i64], src: &[i64], op: BinOp) -> Result<(), Ic
     if dst.len() != src.len() {
         return Err(IcmError::Shape);
     }
-    for (d, &s) in dst.iter_mut().zip(src) {
-        *d = match op {
-            BinOp::Add => add_q(*d, s)?,
-            BinOp::Sub => sub_q(*d, s)?,
+    let mut i = 0;
+    while i < dst.len() {
+        let s = src[i];
+        dst[i] = match op {
+            BinOp::Add => add_q(dst[i], s)?,
+            BinOp::Sub => sub_q(dst[i], s)?,
         };
+        i += 1;
     }
     Ok(())
 }
@@ -440,13 +440,17 @@ fn fwht_rows(x: &mut [i64], o: usize, n: usize) -> Result<(), IcmError> {
     })
 }
 
-/// The transpose of a row-major `[n, n]` buffer; `O(n²)` copies, `O(n²)` space.
-fn transpose_q(h: &[i64], n: usize) -> Vec<i64> {
-    let mut t = vec![0_i64; n * n];
-    for r in 0..n {
-        for c in 0..n {
-            t[c * n + r] = h[r * n + c];
+/// The transpose of a row-major `[r, c]` buffer, as `[c, r]`; `O(r·c)` copies, `O(r·c)` space.
+fn transpose_q(h: &[i64], r: usize, c: usize) -> Vec<i64> {
+    let mut t = vec![0_i64; r * c];
+    let mut i = 0;
+    while i < r {
+        let mut j = 0;
+        while j < c {
+            t[j * r + i] = h[i * c + j];
+            j += 1;
         }
+        i += 1;
     }
     t
 }
@@ -460,9 +464,9 @@ fn had_gram_q(h: &[i64], n: usize) -> Result<Vec<i64>, IcmError> {
     }
     let mut t = h.to_vec();
     fwht_rows(&mut t, n, n)?;
-    let mut u = transpose_q(&t, n);
+    let mut u = transpose_q(&t, n, n);
     fwht_rows(&mut u, n, n)?;
-    Ok(transpose_q(&u, n))
+    Ok(transpose_q(&u, n, n))
 }
 
 /// `H_jk = had_gram(Hl ∘ c_j c_kᵀ) ∘ d_j d_kᵀ`, the scaled Hadamard–Gram metric of one (or two) plane.
@@ -686,25 +690,22 @@ fn j_rows_q(
     let mut row = 0;
     while row < o && err.is_none() {
         let (dr, pr) = (&d[row * n..(row + 1) * n], &prod[row * n..(row + 1) * n]);
-        match dot64(dr, pr) {
-            Ok(dot) => match round_shift(dot, 32) {
-                Ok(j0) => {
-                    let mut j = j0;
-                    if let Some(g) = g_row {
-                        match mul_q(g[row], j) {
-                            Ok(v) => j = v,
-                            Err(e) => err = Some(e),
-                        }
-                    }
-                    if err.is_none() {
-                        match qsum(total, i128::from(j)) {
-                            Ok(v) => total = v,
-                            Err(e) => err = Some(e),
-                        }
+        match dot_q(dr, pr) {
+            Ok(j0) => {
+                let mut j = j0;
+                if let Some(g) = g_row {
+                    match mul_q(g[row], j) {
+                        Ok(v) => j = v,
+                        Err(e) => err = Some(e),
                     }
                 }
-                Err(e) => err = Some(e),
-            },
+                if err.is_none() {
+                    match qsum(total, i128::from(j)) {
+                        Ok(v) => total = v,
+                        Err(e) => err = Some(e),
+                    }
+                }
+            }
             Err(e) => err = Some(e),
         }
         row += 1;
@@ -738,7 +739,7 @@ pub fn e8_icm_step(
     let metric = ridged_metric_q(hl, n, icm_ridge)?;
     let (g, nb, cb) = (n / GROUP, n / BLOCK, codebook_q());
     // G_rot = fwht128((Ws @ Hl) * c) * d, H_rot = had_gram(Hl ∘ c c^T) ∘ d d^T
-    let mut g_rot = matmul_q(ws, &metric, o, n, n, false)?;
+    let mut g_rot = matmul_l(ws, &metric, o, n, n, false)?;
     scale_by(&mut g_rot, o, n, p.c, g, ScaleBy::Column)?;
     fwht_rows(&mut g_rot, o, n)?;
     scale_by(&mut g_rot, o, n, p.d, g, ScaleBy::Column)?;
@@ -749,7 +750,7 @@ pub fn e8_icm_step(
     let mut f_res = g_rot;
     bin_into(
         &mut f_res,
-        &matmul_q(&b, &h_rot, o, n, n, false)?,
+        &matmul_l(&b, &h_rot, o, n, n, false)?,
         BinOp::Sub,
     )?;
     let q_all = block_quads_q(&h_rot, &cb, nb, n)?;
@@ -762,48 +763,66 @@ pub fn e8_icm_step(
         g,
         sweeps,
     };
-    let per = rows_per_task(o);
-    for_chunks3(
-        &mut f_res,
-        per * n,
-        &mut s_cur,
-        per * n,
-        &mut idx_cur,
-        per * nb,
-        &SweepTask {
-            cx: &cx,
-            r: p.r,
-            per,
-        },
-    )?;
+    let per = rows_per_task(o).max(1);
+    // The kernel dispatches the engine pool itself, and a pool task must not dispatch on its own
+    // pool, so the bands run on the caller: the products keep the pool, the per-row work is serial.
+    let mut row0 = 0usize;
+    while row0 < o {
+        let take = per.min(o - row0);
+        sweep_rows(
+            cx,
+            &mut f_res[row0 * n..(row0 + take) * n],
+            &mut s_cur[row0 * n..],
+            &mut idx_cur[row0 * nb..],
+            &p.r[row0 * g..(row0 + take) * g],
+        )?;
+        row0 += take;
+    }
     Ok(into_plane(&s_cur, idx_cur, p))
 }
 
-/// `Q_all[m][j] = C_jᵀ H_blk[m] C_j` over the `n/8` diagonal blocks; `O((n/8)·CODE_LEN·BLOCK²)`.
+/// `X_m[i₁,i₂] = C_i₁ᵀ H_blk[m] C_i₂` at Q32.32, row-major `[CODE_LEN, CODE_LEN]`, as two kernel
+/// products; `hbf`/`cbf` are the flat `[BLOCK, BLOCK]` block and the flat codebook.
+/// # Complexity
+/// `CODE_LEN·BLOCK² + CODE_LEN²·BLOCK` kernel multiply-accumulates, `O(CODE_LEN²)` space.
+fn block_x(hb: &[[i64; BLOCK]; BLOCK], cbf: &[i64]) -> Result<Vec<i64>, IcmError> {
+    let mut hbf = vec![0_i64; BLOCK * BLOCK];
+    let mut a = 0;
+    while a < BLOCK {
+        let mut b = 0;
+        while b < BLOCK {
+            hbf[a * BLOCK + b] = hb[a][b];
+            b += 1;
+        }
+        a += 1;
+    }
+    let hbt = transpose_q(&hbf, BLOCK, BLOCK);
+    let t = nt_q(cbf, CODE_LEN, &hbt, BLOCK, BLOCK)?;
+    nt_q(&t, CODE_LEN, cbf, CODE_LEN, BLOCK)
+}
+
+/// `Q_all[m][j] = C_jᵀ H_blk[m] C_j` over the `n/8` diagonal blocks: the diagonal of [`block_x`].
 fn block_quads_q(
     h: &[i64],
     cb: &[[i64; BLOCK]; CODE_LEN],
     nb: usize,
     n: usize,
 ) -> Result<Vec<i64>, IcmError> {
+    let cbf = flatten_codebook_q(cb);
     let mut out = vec![0_i64; nb * CODE_LEN];
     let mut err: Option<IcmError> = None;
     let mut m = 0;
     while m < nb && err.is_none() {
         let hb = block_of_q(h, n, m);
-        let mut j = 0;
-        while j < CODE_LEN && err.is_none() {
-            match mat_blk_row(&cb[j], &hb) {
-                Ok(t) => match row_dot(&t, &cb[j]) {
-                    Ok(d) => match round_shift(d, 64) {
-                        Ok(v) => out[m * CODE_LEN + j] = v,
-                        Err(e) => err = Some(e),
-                    },
-                    Err(e) => err = Some(e),
-                },
-                Err(e) => err = Some(e),
+        match block_x(&hb, &cbf) {
+            Ok(x) => {
+                let mut j = 0;
+                while j < CODE_LEN {
+                    out[m * CODE_LEN + j] = x[j * CODE_LEN + j];
+                    j += 1;
+                }
             }
-            j += 1;
+            Err(e) => err = Some(e),
         }
         m += 1;
     }
@@ -813,37 +832,28 @@ fn block_quads_q(
     Ok(out)
 }
 
-/// `X_m[i₁,i₂] = C_i₁ᵀ H_blk[m] C_i₂`; `O((n/8)·CODE_LEN²·BLOCK)` multiply-adds, `O((n/8)·CODE_LEN²)` space.
+/// `X_m[i₁,i₂] = C_i₁ᵀ H_blk[m] C_i₂` for every block, concatenated; `(n/8)·` [`block_x`].
 fn block_cross_q(
     h: &[i64],
     cb: &[[i64; BLOCK]; CODE_LEN],
     nb: usize,
     n: usize,
 ) -> Result<Vec<i64>, IcmError> {
+    let cbf = flatten_codebook_q(cb);
     let mut out = vec![0_i64; nb * CODE_LEN * CODE_LEN];
     let mut err: Option<IcmError> = None;
     let mut m = 0;
     while m < nb && err.is_none() {
         let hb = block_of_q(h, n, m);
-        let mut i1 = 0;
-        while i1 < CODE_LEN && err.is_none() {
-            match mat_blk_row(&cb[i1], &hb) {
-                Ok(tmp) => {
-                    let mut i2 = 0;
-                    while i2 < CODE_LEN && err.is_none() {
-                        match row_dot(&tmp, &cb[i2]) {
-                            Ok(d) => match round_shift(d, 64) {
-                                Ok(v) => out[(m * CODE_LEN + i1) * CODE_LEN + i2] = v,
-                                Err(e) => err = Some(e),
-                            },
-                            Err(e) => err = Some(e),
-                        }
-                        i2 += 1;
-                    }
+        match block_x(&hb, &cbf) {
+            Ok(x) => {
+                let mut i = 0;
+                while i < x.len() {
+                    out[m * CODE_LEN * CODE_LEN + i] = x[i];
+                    i += 1;
                 }
-                Err(e) => err = Some(e),
             }
-            i1 += 1;
+            Err(e) => err = Some(e),
         }
         m += 1;
     }
@@ -851,6 +861,21 @@ fn block_cross_q(
         return Err(e);
     }
     Ok(out)
+}
+
+/// The `256 × 8` codebook row-major, flat: the kernel operand of [`block_x`].
+fn flatten_codebook_q(cb: &[[i64; BLOCK]; CODE_LEN]) -> Vec<i64> {
+    let mut out = vec![0_i64; CODE_LEN * BLOCK];
+    let mut j = 0;
+    while j < CODE_LEN {
+        let mut k = 0;
+        while k < BLOCK {
+            out[j * BLOCK + k] = cb[j][k];
+            k += 1;
+        }
+        j += 1;
+    }
+    out
 }
 
 /// The read-only operands of [`sweep_rows`]. Passed by value: the pinned Aeneas refuses a shared
@@ -865,27 +890,15 @@ struct SweepCtx<'a> {
     sweeps: usize,
 }
 
-/// Pool task of [`e8_icm_step`]'s row split: `cx`, the per-row scales `r` (`[o, g]`) and rows per task.
-struct SweepTask<'a> {
-    cx: &'a SweepCtx<'a>,
-    r: &'a [i64],
-    per: usize,
-}
-
-impl Task3<i64, i64, u16, IcmError> for SweepTask<'_> {
-    fn run(&self, t: usize, f: &mut [i64], sc: &mut [i64], ix: &mut [u16]) -> Result<(), IcmError> {
-        let (g, lo) = (self.cx.g, t * self.per);
-        let hi = (lo + f.len() / self.cx.n) * g;
-        sweep_rows(*self.cx, f, sc, ix, &self.r[lo * g..hi])
-    }
-}
-
+/// One band of the single-plane sweep, every product on the limb kernel.
+///
 /// # Complexity
-/// `sweeps · (n/8) · rows · (BLOCK² + CODE_LEN·(BLOCK+2) + [BLOCK·n] changed)` checked operations: the
-/// residual update (`BLOCK·n` `i64·i64` products, one `a`-scaled rounding per column) dominates, and it
-/// runs only for a block whose code moved. The row scale `a` is factored out of both the offset and the
-/// residual products (exact: `a·Σ v = Σ a·v` in `i128`), so each product is the one-multiply
-/// `i64·i64 → i128` widening rather than an `i128·i128`. `O(BLOCK)` extra space.
+/// Per sweep, per block: one `rows × BLOCK × BLOCK` and one `rows × CODE_LEN × BLOCK` kernel product
+/// (`O(rows·(BLOCK² + CODE_LEN·BLOCK))` word multiply-adds times the limb pairs), the `CODE_LEN`-way
+/// argmin (`O(rows·CODE_LEN)` checked operations) and, only for the rows the block moved, one
+/// `moved × n × BLOCK` kernel product plus `n` elementwise products and subtractions per moved row.
+/// The block's `BLOCK × n` transposed window is copied once per block, not once per row. `O(rows·n)`
+/// for the band's block, code and difference buffers plus `O(BLOCK·n)` for the window.
 fn sweep_rows(
     cx: SweepCtx<'_>,
     f_res: &mut [i64],
@@ -895,6 +908,14 @@ fn sweep_rows(
 ) -> Result<(), IcmError> {
     let (n, nb) = (cx.n, cx.n / BLOCK);
     let rows = r.len() / cx.g;
+    let cbf = flatten_codebook_q(cx.cb);
+    let mut s_blk = vec![0_i64; rows * BLOCK];
+    let mut f_blk = vec![0_i64; rows * BLOCK];
+    let mut d_blk = vec![0_i64; rows * BLOCK];
+    let mut chg = vec![0_i64; rows * BLOCK];
+    let mut cols = vec![0_i64; BLOCK * n];
+    let mut moved_row = vec![0_usize; rows];
+    let mut moved_a = vec![0_i64; rows];
     let mut err: Option<IcmError> = None;
     let mut sw = 0;
     while sw < cx.sweeps && err.is_none() {
@@ -905,106 +926,135 @@ fn sweep_rows(
                 m = nb - 1 - step;
             }
             let b0 = m * BLOCK;
-            let hb = block_of_q(cx.h_rot, n, m);
+            // The block's `BLOCK × n` rows transposed to `[col, k]`: the kernel's `b` rows are its
+            // `[b0, b0 + BLOCK)` sub-block for the block product and the whole buffer for the
+            // residual update.
+            let mut k = 0;
+            while k < BLOCK {
+                let mut col = 0;
+                while col < n {
+                    cols[col * BLOCK + k] = cx.h_rot[(b0 + k) * n + col];
+                    col += 1;
+                }
+                k += 1;
+            }
             let mut row = 0;
-            while row < rows && err.is_none() {
-                let a = r[row * cx.g + b0 / GROUP];
-                let av = i128::from(a);
-                let (aa, two_a) = (av * av, av * 2);
-                let f_row = &mut f_res[row * n..(row + 1) * n];
-                let s_row = &mut s_cur[row * n..(row + 1) * n];
-                let mut f_m = [0_i64; BLOCK];
+            while row < rows {
                 let mut k = 0;
-                while k < BLOCK && err.is_none() {
-                    let mut acc: i128 = 0;
-                    let mut l = 0;
-                    while l < BLOCK && err.is_none() {
-                        match qsum(acc, i128::from(s_row[b0 + l]) * i128::from(hb[l][k])) {
-                            Ok(v) => acc = v,
-                            Err(e) => err = Some(e),
-                        }
-                        l += 1;
-                    }
-                    if err.is_none() {
-                        match qmul(av, acc) {
-                            Ok(p) => match round_shift(p, 64) {
-                                Ok(q) => match add_q(f_row[b0 + k], q) {
-                                    Ok(v) => f_m[k] = v,
+                while k < BLOCK {
+                    s_blk[row * BLOCK + k] = s_cur[row * n + b0 + k];
+                    k += 1;
+                }
+                row += 1;
+            }
+            match nt_q(
+                &s_blk,
+                rows,
+                &cols[b0 * BLOCK..(b0 + BLOCK) * BLOCK],
+                BLOCK,
+                BLOCK,
+            ) {
+                Ok(v) => {
+                    let mut row = 0;
+                    while row < rows && err.is_none() {
+                        let a = r[row * cx.g + b0 / GROUP];
+                        let mut k = 0;
+                        while k < BLOCK && err.is_none() {
+                            match mul_q(a, v[row * BLOCK + k]) {
+                                Ok(w) => match add_q(f_res[row * n + b0 + k], w) {
+                                    Ok(z) => f_blk[row * BLOCK + k] = z,
                                     Err(e) => err = Some(e),
                                 },
                                 Err(e) => err = Some(e),
-                            },
-                            Err(e) => err = Some(e),
-                        }
-                    }
-                    k += 1;
-                }
-                let (mut best, mut best_cost) = (0_u16, i128::MAX);
-                let mut j = 0;
-                while j < CODE_LEN && err.is_none() {
-                    match dot64(&f_m, &cx.cb[j]) {
-                        Ok(d) => match block_cost(aa, two_a, cx.q_all[m * CODE_LEN + j], d) {
-                            Ok(cost) => {
-                                if cost < best_cost {
-                                    best_cost = cost;
-                                    best = j as u16;
-                                }
                             }
-                            Err(e) => err = Some(e),
-                        },
-                        Err(e) => err = Some(e),
-                    }
-                    j += 1;
-                }
-                let best = usize::from(best);
-                let mut diff = [0_i64; BLOCK];
-                let mut changed = false;
-                let mut k = 0;
-                while k < BLOCK && err.is_none() {
-                    match sub_q(cx.cb[best][k], s_row[b0 + k]) {
-                        Ok(v) => {
-                            diff[k] = v;
-                            changed |= v != 0;
-                            s_row[b0 + k] = cx.cb[best][k];
+                            k += 1;
                         }
-                        Err(e) => err = Some(e),
+                        row += 1;
                     }
-                    k += 1;
                 }
-                if err.is_none() {
-                    idx[row * nb + m] = best as u16;
-                }
-                if changed && err.is_none() {
-                    let mut col = 0;
-                    while col < n && err.is_none() {
-                        let mut acc: i128 = 0;
-                        let mut kk = 0;
-                        while kk < BLOCK && err.is_none() {
-                            match qsum(
-                                acc,
-                                i128::from(diff[kk]) * i128::from(cx.h_rot[(b0 + kk) * n + col]),
+                Err(e) => err = Some(e),
+            }
+            let mut moved_n = 0usize;
+            if err.is_none() {
+                match nt_q(&f_blk, rows, &cbf, CODE_LEN, BLOCK) {
+                    Ok(dots) => {
+                        let mut row = 0;
+                        while row < rows && err.is_none() {
+                            let a = r[row * cx.g + b0 / GROUP];
+                            let av = i128::from(a);
+                            let (aa, two_a) = (av * av, av * 2);
+                            let qb = m * CODE_LEN;
+                            let db = row * CODE_LEN;
+                            let mut best = 0_usize;
+                            match best_code_q(
+                                aa,
+                                two_a,
+                                &cx.q_all[qb..qb + CODE_LEN],
+                                &dots[db..db + CODE_LEN],
                             ) {
-                                Ok(v) => acc = v,
+                                Ok(v) => best = v,
                                 Err(e) => err = Some(e),
                             }
-                            kk += 1;
+                            let mut changed = false;
+                            let mut k = 0;
+                            while k < BLOCK && err.is_none() {
+                                match sub_q(cx.cb[best][k], s_cur[row * n + b0 + k]) {
+                                    Ok(v) => {
+                                        changed |= v != 0;
+                                        d_blk[row * BLOCK + k] = v;
+                                        s_cur[row * n + b0 + k] = cx.cb[best][k];
+                                    }
+                                    Err(e) => err = Some(e),
+                                }
+                                k += 1;
+                            }
+                            if err.is_none() {
+                                idx[row * nb + m] = best as u16;
+                            }
+                            if changed && err.is_none() {
+                                moved_row[moved_n] = row;
+                                moved_a[moved_n] = a;
+                                moved_n += 1;
+                            }
+                            row += 1;
                         }
-                        if err.is_none() {
-                            match qmul(av, acc) {
-                                Ok(p) => match round_shift(p, 64) {
-                                    Ok(q) => match sub_q(f_row[col], q) {
-                                        Ok(v) => f_row[col] = v,
+                    }
+                    Err(e) => err = Some(e),
+                }
+            }
+            if moved_n > 0 && err.is_none() {
+                let mut i = 0;
+                while i < moved_n {
+                    let row = moved_row[i];
+                    let mut k = 0;
+                    while k < BLOCK {
+                        chg[i * BLOCK + k] = d_blk[row * BLOCK + k];
+                        k += 1;
+                    }
+                    i += 1;
+                }
+                match nt_q(&chg[..moved_n * BLOCK], moved_n, &cols, n, BLOCK) {
+                    Ok(e) => {
+                        let mut i = 0;
+                        while i < moved_n && err.is_none() {
+                            let row = moved_row[i];
+                            let a = moved_a[i];
+                            let mut col = 0;
+                            while col < n && err.is_none() {
+                                match mul_q(a, e[i * n + col]) {
+                                    Ok(w) => match sub_q(f_res[row * n + col], w) {
+                                        Ok(z) => f_res[row * n + col] = z,
                                         Err(e) => err = Some(e),
                                     },
                                     Err(e) => err = Some(e),
-                                },
-                                Err(e) => err = Some(e),
+                                }
+                                col += 1;
                             }
+                            i += 1;
                         }
-                        col += 1;
                     }
+                    Err(e) => err = Some(e),
                 }
-                row += 1;
             }
             step += 1;
         }
@@ -1073,7 +1123,7 @@ pub fn e8_joint_icm_2plane(
     let (mut s1, mut s2) = (p1.s.to_vec(), p2.s.to_vec());
     let (mut idx1, mut idx2) = (p1.idx.to_vec(), p2.idx.to_vec());
     // G_k = fwht128((Ws @ Hl) * c_k) * d_k
-    let wh = matmul_q(ws, &metric, o, n, n, false)?;
+    let wh = matmul_l(ws, &metric, o, n, n, false)?;
     let mut g1 = wh.clone();
     scale_by(&mut g1, o, n, p1.c, g, ScaleBy::Column)?;
     fwht_rows(&mut g1, o, n)?;
@@ -1092,17 +1142,17 @@ pub fn e8_joint_icm_2plane(
     let mut b2 = s2.clone();
     scale_by(&mut b2, o, n, p2.r, g, ScaleBy::Group)?;
     let mut f1 = g1;
-    bin_into(&mut f1, &matmul_q(&b1, &h11, o, n, n, false)?, BinOp::Sub)?;
-    bin_into(&mut f1, &matmul_q(&b2, &h12, o, n, n, true)?, BinOp::Sub)?;
+    bin_into(&mut f1, &matmul_l(&b1, &h11, o, n, n, false)?, BinOp::Sub)?;
+    bin_into(&mut f1, &matmul_l(&b2, &h12, o, n, n, true)?, BinOp::Sub)?;
     let mut f2 = g2;
-    bin_into(&mut f2, &matmul_q(&b2, &h22, o, n, n, false)?, BinOp::Sub)?;
-    bin_into(&mut f2, &matmul_q(&b1, &h12, o, n, n, false)?, BinOp::Sub)?;
+    bin_into(&mut f2, &matmul_l(&b2, &h22, o, n, n, false)?, BinOp::Sub)?;
+    bin_into(&mut f2, &matmul_l(&b1, &h12, o, n, n, false)?, BinOp::Sub)?;
     let (q1v, q2v) = (
         block_quads_q(&h11, &cb, nb, n)?,
         block_quads_q(&h22, &cb, nb, n)?,
     );
     let x_all = block_cross_q(&h12, &cb, nb, n)?;
-    let (moves, first) = (AtomicUsize::new(0), FirstErr::<usize, IcmError>::new());
+    let mut moves = 0usize;
     let mut rows: Vec<JointRow<'_>> = Vec::with_capacity(o);
     let mut rest_f1: &mut [i64] = f1.as_mut_slice();
     let mut rest_f2: &mut [i64] = f2.as_mut_slice();
@@ -1150,12 +1200,13 @@ pub fn e8_joint_icm_2plane(
         g,
         nb,
         sweeps,
-        first: &first,
-        moves: &moves,
     };
-    chunks_mut_global(&mut rows, per, &task);
-    if let Some((_, e)) = first.take() {
-        return Err(e);
+    // As in [`e8_icm_step`]: the kernel owns the engine pool, so the bands run on the caller.
+    let mut lo = 0usize;
+    while lo < rows.len() {
+        let hi = (lo + per).min(rows.len());
+        moves += joint_band(&task, &mut rows[lo..hi], lo)?;
+        lo = hi;
     }
     let mut wsum = plane_w_q(&s1, p1.r, p1.c, p1.d, o, n)?;
     bin_into(
@@ -1166,7 +1217,7 @@ pub fn e8_joint_icm_2plane(
     let stats = JointStats {
         j_before,
         j_after: j_rows_q(ws, &wsum, &metric, o, n, g_row)?,
-        moves: moves.load(Ordering::Relaxed),
+        moves,
     };
     Ok((into_plane(&s1, idx1, p1), into_plane(&s2, idx2, p2), stats))
 }
@@ -1181,7 +1232,7 @@ struct JointRow<'a> {
     idx2: &'a mut [u16],
 }
 
-/// The read-only operands and counters of [`JointSweep`].
+/// The read-only operands of the joint sweep.
 struct JointSweep<'a> {
     h11: &'a [i64],
     h22: &'a [i64],
@@ -1197,276 +1248,229 @@ struct JointSweep<'a> {
     g: usize,
     nb: usize,
     sweeps: usize,
-    first: &'a FirstErr<usize, IcmError>,
-    moves: &'a AtomicUsize,
 }
 
-impl ChunkTask<JointRow<'_>> for JointSweep<'_> {
-    fn run(&self, _c: usize, start: usize, piece: &mut [JointRow<'_>]) {
-        let mut moved = 0_usize;
-        for (rr, row) in piece.iter_mut().enumerate() {
-            match joint_row(self, row, start + rr) {
-                Ok(m) => moved += m,
-                Err(e) => {
-                    self.first.record(start, e);
-                    break;
-                }
-            }
-        }
-        self.moves.fetch_add(moved, Ordering::Relaxed);
-    }
-}
-
+/// One band of the joint sweep, every product on the limb kernel. The band's six per-row slices are
+/// gathered into flat `[rows, ·]` buffers so one kernel product serves the whole band: the two block
+/// products are `rows × 2·BLOCK × BLOCK`, the codebook product `rows × CODE_LEN × BLOCK` per plane,
+/// and the residual `moved × n × BLOCK` per plane.
+///
 /// # Complexity
-/// `sweeps · nb · (4·CODE_LEN·BLOCK + 2·BLOCK² + CODE_LEN² + [2·BLOCK·n] changed)` checked operations;
-/// the pair search (one `i128` multiply per `(i₁, i₂)` with `2·a₁a₂` hoisted) dominates, the residual
-/// update (`2·BLOCK·n` `i64·i64` products) runs only for a block whose code moved, and both row scales
-/// are factored out of their products exactly as in [`sweep_rows`]. `O(CODE_LEN)` space.
-fn joint_row(cx: &JointSweep<'_>, row: &mut JointRow<'_>, rowno: usize) -> Result<usize, IcmError> {
+/// Per sweep, per block: four `BLOCK × n` transposed windows copied once for the band, two
+/// `rows × 2·BLOCK × BLOCK` block products, two `rows × CODE_LEN × BLOCK` codebook products, the
+/// `CODE_LEN²`-way pair search (`O(rows·CODE_LEN²)` checked operations with `2·a₁a₂` hoisted) and,
+/// only for the rows a block moved, two `moved × 2·BLOCK × n` residual products plus `2n` elementwise
+/// products per moved row. `O(rows·(BLOCK + n))` for the gathered band and `O(BLOCK·n)` for the
+/// windows.
+fn joint_band(
+    cx: &JointSweep<'_>,
+    piece: &mut [JointRow<'_>],
+    start: usize,
+) -> Result<usize, IcmError> {
     let (n, nb) = (cx.n, cx.nb);
-    let mut moved = 0_usize;
-    let mut err: Option<IcmError> = None;
-    let mut sw = 0;
-    while sw < cx.sweeps && err.is_none() {
-        let count = match cx.blocks {
-            Some(bs) => bs.len(),
-            None => nb,
-        };
-        let mut step = 0;
-        while step < count && err.is_none() {
-            let mut m = step;
-            if let Some(bs) = cx.blocks {
-                m = bs[step];
-            } else if sw % 2 == 0 {
-                m = nb - 1 - step;
-            }
-            let (b0, gidx) = (m * BLOCK, m * BLOCK / GROUP);
-            let (hb11, hb22, hb12) = (
-                block_of_q(cx.h11, n, m),
-                block_of_q(cx.h22, n, m),
-                block_of_q(cx.h12, n, m),
-            );
-            let xm = &cx.x_all[m * CODE_LEN * CODE_LEN..(m + 1) * CODE_LEN * CODE_LEN];
-            let (a1, a2) = (cx.r1[rowno * cx.g + gidx], cx.r2[rowno * cx.g + gidx]);
-            let (av1, av2) = (i128::from(a1), i128::from(a2));
-            let (aa1, two_a1) = (av1 * av1, av1 * 2);
-            let (aa2, two_a2) = (av2 * av2, av2 * 2);
-            // `2·a₁a₂`, the pair search's constant factor; the refusal is the one `pair_cost` made.
-            let mut two_a12 = 0_i128;
-            match qmul(av1, av2) {
-                Ok(v) => match qmul(v, 2) {
-                    Ok(w) => two_a12 = w,
-                    Err(e) => err = Some(e),
-                },
-                Err(e) => err = Some(e),
-            }
-            let (mut f1m, mut f2m) = ([0_i64; BLOCK], [0_i64; BLOCK]);
-            let mut k = 0;
-            while k < BLOCK && err.is_none() {
-                let (mut d11, mut d12t, mut d22, mut d12) = (0_i128, 0_i128, 0_i128, 0_i128);
-                let mut l = 0;
-                while l < BLOCK && err.is_none() {
-                    let (s1o, s2o) = (row.s1[b0 + l], row.s2[b0 + l]);
-                    match (
-                        qsum(d11, i128::from(s1o) * i128::from(hb11[l][k])),
-                        qsum(d12t, i128::from(s2o) * i128::from(hb12[k][l])),
-                        qsum(d22, i128::from(s2o) * i128::from(hb22[l][k])),
-                        qsum(d12, i128::from(s1o) * i128::from(hb12[l][k])),
-                    ) {
-                        (Ok(v11), Ok(v12t), Ok(v22), Ok(v12)) => {
-                            d11 = v11;
-                            d12t = v12t;
-                            d22 = v22;
-                            d12 = v12;
-                        }
-                        _ => err = Some(IcmError::Overflow),
-                    }
-                    l += 1;
-                }
-                if err.is_none() {
-                    match qmul(av1, d11) {
-                        Ok(p1) => match qmul(av2, d12t) {
-                            Ok(p2) => match qsum(p1, p2) {
-                                Ok(acc1) => match round_shift(acc1, 64) {
-                                    Ok(r1) => match add_q(row.f1[b0 + k], r1) {
-                                        Ok(v) => f1m[k] = v,
-                                        Err(e) => err = Some(e),
-                                    },
-                                    Err(e) => err = Some(e),
-                                },
-                                Err(e) => err = Some(e),
-                            },
-                            Err(e) => err = Some(e),
-                        },
-                        Err(e) => err = Some(e),
-                    }
-                }
-                if err.is_none() {
-                    match qmul(av2, d22) {
-                        Ok(p1) => match qmul(av1, d12) {
-                            Ok(p2) => match qsum(p1, p2) {
-                                Ok(acc2) => match round_shift(acc2, 64) {
-                                    Ok(r2) => match add_q(row.f2[b0 + k], r2) {
-                                        Ok(v) => f2m[k] = v,
-                                        Err(e) => err = Some(e),
-                                    },
-                                    Err(e) => err = Some(e),
-                                },
-                                Err(e) => err = Some(e),
-                            },
-                            Err(e) => err = Some(e),
-                        },
-                        Err(e) => err = Some(e),
-                    }
-                }
-                k += 1;
-            }
-            let (mut av, mut bv) = ([0_i128; CODE_LEN], [0_i128; CODE_LEN]);
-            let mut j = 0;
-            while j < CODE_LEN && err.is_none() {
-                match dot64(&f1m, &cx.cb[j]) {
-                    Ok(d1) => match block_cost(aa1, two_a1, cx.q1[m * CODE_LEN + j], d1) {
-                        Ok(v) => av[j] = v,
-                        Err(e) => err = Some(e),
-                    },
-                    Err(e) => err = Some(e),
-                }
-                if err.is_none() {
-                    match dot64(&f2m, &cx.cb[j]) {
-                        Ok(d2) => match block_cost(aa2, two_a2, cx.q2[m * CODE_LEN + j], d2) {
-                            Ok(v) => bv[j] = v,
-                            Err(e) => err = Some(e),
-                        },
-                        Err(e) => err = Some(e),
-                    }
-                }
-                j += 1;
-            }
-            let (mut flat, mut best) = (0_usize, i128::MAX);
-            let mut i1v = 0;
-            while i1v < CODE_LEN && err.is_none() {
-                let (a_row, x_row) = (av[i1v], &xm[i1v * CODE_LEN..][..CODE_LEN]);
-                let mut i2v = 0;
-                while i2v < CODE_LEN && err.is_none() {
-                    match pair_cost(two_a12, x_row[i2v], a_row, bv[i2v]) {
-                        Ok(t) => {
-                            if t < best {
-                                best = t;
-                                flat = i1v * CODE_LEN + i2v;
-                            }
-                        }
-                        Err(e) => err = Some(e),
-                    }
-                    i2v += 1;
-                }
-                i1v += 1;
-            }
-            let (i1s, i2s) = (flat / CODE_LEN, flat % CODE_LEN);
-            let (mut n1, mut n2) = ([0_i64; BLOCK], [0_i64; BLOCK]);
-            let mut changed = false;
-            let mut k = 0;
-            while k < BLOCK && err.is_none() {
-                match sub_q(cx.cb[i1s][k], row.s1[b0 + k]) {
-                    Ok(v1) => match sub_q(cx.cb[i2s][k], row.s2[b0 + k]) {
-                        Ok(v2) => {
-                            n1[k] = v1;
-                            n2[k] = v2;
-                            changed |= v1 != 0 || v2 != 0;
-                            row.s1[b0 + k] = cx.cb[i1s][k];
-                            row.s2[b0 + k] = cx.cb[i2s][k];
-                        }
-                        Err(e) => err = Some(e),
-                    },
-                    Err(e) => err = Some(e),
-                }
-                k += 1;
-            }
-            if changed && err.is_none() {
-                moved += 1;
-            }
-            if err.is_none() {
-                row.idx1[m] = i1s as u16;
-                row.idx2[m] = i2s as u16;
-            }
-            if changed && err.is_none() {
-                let h11s: [&[i64]; BLOCK] = core::array::from_fn(|k| &cx.h11[(b0 + k) * n..][..n]);
-                let h22s: [&[i64]; BLOCK] = core::array::from_fn(|k| &cx.h22[(b0 + k) * n..][..n]);
-                let h12s: [&[i64]; BLOCK] = core::array::from_fn(|k| &cx.h12[(b0 + k) * n..][..n]);
-                let mut col = 0;
-                while col < n && err.is_none() {
-                    let h12t = &cx.h12[col * n + b0..][..BLOCK];
-                    let (mut d11, mut d12t, mut d22, mut d12) = (0_i128, 0_i128, 0_i128, 0_i128);
-                    let mut kk = 0;
-                    while kk < BLOCK && err.is_none() {
-                        match (
-                            qsum(d11, i128::from(n1[kk]) * i128::from(h11s[kk][col])),
-                            qsum(d12t, i128::from(n2[kk]) * i128::from(h12t[kk])),
-                            qsum(d22, i128::from(n2[kk]) * i128::from(h22s[kk][col])),
-                            qsum(d12, i128::from(n1[kk]) * i128::from(h12s[kk][col])),
-                        ) {
-                            (Ok(v11), Ok(v12t), Ok(v22), Ok(v12)) => {
-                                d11 = v11;
-                                d12t = v12t;
-                                d22 = v22;
-                                d12 = v12;
-                            }
-                            _ => err = Some(IcmError::Overflow),
-                        }
-                        kk += 1;
-                    }
-                    let mut u1 = 0_i128;
-                    let mut u2 = 0_i128;
-                    if err.is_none() {
-                        match qmul(av1, d11) {
-                            Ok(p1) => match qmul(av2, d12t) {
-                                Ok(p2) => match qsum(p1, p2) {
-                                    Ok(v) => u1 = v,
-                                    Err(e) => err = Some(e),
-                                },
-                                Err(e) => err = Some(e),
-                            },
-                            Err(e) => err = Some(e),
-                        }
-                    }
-                    if err.is_none() {
-                        match qmul(av2, d22) {
-                            Ok(p1) => match qmul(av1, d12) {
-                                Ok(p2) => match qsum(p1, p2) {
-                                    Ok(v) => u2 = v,
-                                    Err(e) => err = Some(e),
-                                },
-                                Err(e) => err = Some(e),
-                            },
-                            Err(e) => err = Some(e),
-                        }
-                    }
-                    if err.is_none() {
-                        match round_shift(u1, 64) {
-                            Ok(r1) => match sub_q(row.f1[col], r1) {
-                                Ok(v) => row.f1[col] = v,
-                                Err(e) => err = Some(e),
-                            },
-                            Err(e) => err = Some(e),
-                        }
-                    }
-                    if err.is_none() {
-                        match round_shift(u2, 64) {
-                            Ok(r2) => match sub_q(row.f2[col], r2) {
-                                Ok(v) => row.f2[col] = v,
-                                Err(e) => err = Some(e),
-                            },
-                            Err(e) => err = Some(e),
-                        }
-                    }
-                    col += 1;
-                }
-            }
-            step += 1;
-        }
-        sw += 1;
+    let rows = piece.len();
+    let cb = cx.cb.as_flattened();
+    let mut f1 = vec![0_i64; rows * n];
+    let mut f2 = vec![0_i64; rows * n];
+    let mut s1 = vec![0_i64; rows * n];
+    let mut s2 = vec![0_i64; rows * n];
+    for (rr, row) in piece.iter().enumerate() {
+        f1[rr * n..][..n].copy_from_slice(row.f1);
+        f2[rr * n..][..n].copy_from_slice(row.f2);
+        s1[rr * n..][..n].copy_from_slice(row.s1);
+        s2[rr * n..][..n].copy_from_slice(row.s2);
     }
-    if let Some(e) = err {
-        return Err(e);
+    let mut hc11 = vec![0_i64; BLOCK * n];
+    let mut hc22 = vec![0_i64; BLOCK * n];
+    let mut hc12 = vec![0_i64; BLOCK * n];
+    let mut cx12 = vec![0_i64; BLOCK * n];
+    let mut bb1 = vec![0_i64; 2 * BLOCK * BLOCK];
+    let mut bb2 = vec![0_i64; 2 * BLOCK * BLOCK];
+    let mut s1b = vec![0_i64; rows * BLOCK];
+    let mut s2b = vec![0_i64; rows * BLOCK];
+    let mut f1b = vec![0_i64; rows * BLOCK];
+    let mut f2b = vec![0_i64; rows * BLOCK];
+    let mut d1b = vec![0_i64; rows * BLOCK];
+    let mut d2b = vec![0_i64; rows * BLOCK];
+    let mut c1b = vec![0_i64; rows * 2 * BLOCK];
+    let mut c2b = vec![0_i64; rows * 2 * BLOCK];
+    let mut m1: Vec<(usize, i128, i128)> = Vec::with_capacity(rows);
+    let mut m2: Vec<(usize, i128, i128)> = Vec::with_capacity(rows);
+    let mut moved = 0_usize;
+    for sw in 0..cx.sweeps {
+        let count = cx.blocks.map_or(nb, <[usize]>::len);
+        for step in 0..count {
+            let m = match cx.blocks {
+                Some(bs) => bs[step],
+                None if sw % 2 == 0 => nb - 1 - step,
+                None => step,
+            };
+            let (b0, gidx) = (m * BLOCK, m * BLOCK / GROUP);
+            let xm = &cx.x_all[m * CODE_LEN * CODE_LEN..(m + 1) * CODE_LEN * CODE_LEN];
+            for k in 0..BLOCK {
+                for col in 0..n {
+                    hc11[col * BLOCK + k] = cx.h11[(b0 + k) * n + col];
+                    hc22[col * BLOCK + k] = cx.h22[(b0 + k) * n + col];
+                    hc12[col * BLOCK + k] = cx.h12[(b0 + k) * n + col];
+                    cx12[col * BLOCK + k] = cx.h12[col * n + b0 + k];
+                }
+            }
+            // `b[k][l] = h[(b0+k)·n + b0+l]` for the three blocks the gradient needs. Row `k` of
+            // the kernel operand is the contraction against `s`, so: `bb1` is `[col_k(H₁₁);
+            // col_k(H₁₂)]` for `d₁₁` and `d₁₂`, `bb2` is `[row_k(H₁₂); col_k(H₂₂)]` for `d₁₂ᵀ`
+            // and `d₂₂` (`hb12[k][l]` is a row, `hb12[l][k]` a column; `H₁₂` is not symmetric).
+            for j in 0..BLOCK {
+                for l in 0..BLOCK {
+                    // Written directly rather than through a shared scratch block: the second half
+                    // of `bb1` is a column of `H₁₂`, the first half of `bb2` its row.
+                    bb1[j * BLOCK + l] = hc11[(b0 + j) * BLOCK + l];
+                    bb1[(BLOCK + j) * BLOCK + l] = hc12[(b0 + j) * BLOCK + l];
+                    bb2[j * BLOCK + l] = hc12[(b0 + l) * BLOCK + j];
+                    bb2[(BLOCK + j) * BLOCK + l] = hc22[(b0 + j) * BLOCK + l];
+                }
+            }
+            for row in 0..rows {
+                s1b[row * BLOCK..][..BLOCK].copy_from_slice(&s1[row * n + b0..][..BLOCK]);
+                s2b[row * BLOCK..][..BLOCK].copy_from_slice(&s2[row * n + b0..][..BLOCK]);
+            }
+            let p1v = nt_q(&s1b, rows, &bb1, 2 * BLOCK, BLOCK)?;
+            let p2v = nt_q(&s2b, rows, &bb2, 2 * BLOCK, BLOCK)?;
+            for row in 0..rows {
+                let (a1, a2) = (
+                    cx.r1[(start + row) * cx.g + gidx],
+                    cx.r2[(start + row) * cx.g + gidx],
+                );
+                let (av1, av2) = (i128::from(a1), i128::from(a2));
+                let o1 = row * 2 * BLOCK;
+                for k in 0..BLOCK {
+                    // `d₁₁ = s₁·H₁₁ᵀ`, `d₁₂ = s₁·H₁₂`, `d₁₂ᵀ = s₂·H₁₂`, `d₂₂ = s₂·H₂₂ᵀ`.
+                    let u1 = qsum(
+                        qmul(av1, i128::from(p1v[o1 + k]))?,
+                        qmul(av2, i128::from(p2v[o1 + k]))?,
+                    )?;
+                    let u2 = qsum(
+                        qmul(av2, i128::from(p2v[o1 + BLOCK + k]))?,
+                        qmul(av1, i128::from(p1v[o1 + BLOCK + k]))?,
+                    )?;
+                    f1b[row * BLOCK + k] = add_q(f1[row * n + b0 + k], round_shift(u1, 32)?)?;
+                    f2b[row * BLOCK + k] = add_q(f2[row * n + b0 + k], round_shift(u2, 32)?)?;
+                }
+            }
+            let z1 = nt_q(&f1b, rows, cb, CODE_LEN, BLOCK)?;
+            let z2 = nt_q(&f2b, rows, cb, CODE_LEN, BLOCK)?;
+            m1.clear();
+            m2.clear();
+            for row in 0..rows {
+                let (a1, a2) = (
+                    cx.r1[(start + row) * cx.g + gidx],
+                    cx.r2[(start + row) * cx.g + gidx],
+                );
+                let (av1, av2) = (i128::from(a1), i128::from(a2));
+                let (aa1, two_a1) = (av1 * av1, av1 * 2);
+                let (aa2, two_a2) = (av2 * av2, av2 * 2);
+                let two_a12 = qmul(qmul(av1, av2)?, 2)?;
+                let (mut av, mut bv) = ([0_i128; CODE_LEN], [0_i128; CODE_LEN]);
+                for j in 0..CODE_LEN {
+                    av[j] =
+                        block_cost(aa1, two_a1, cx.q1[m * CODE_LEN + j], z1[row * CODE_LEN + j])?;
+                    bv[j] =
+                        block_cost(aa2, two_a2, cx.q2[m * CODE_LEN + j], z2[row * CODE_LEN + j])?;
+                }
+                let (mut flat, mut best) = (0_usize, i128::MAX);
+                for i1v in 0..CODE_LEN {
+                    let (a_row, x_row) = (av[i1v], &xm[i1v * CODE_LEN..][..CODE_LEN]);
+                    for i2v in 0..CODE_LEN {
+                        let t = pair_cost(two_a12, x_row[i2v], a_row, bv[i2v])?;
+                        if t < best {
+                            best = t;
+                            flat = i1v * CODE_LEN + i2v;
+                        }
+                    }
+                }
+                let (i1s, i2s) = (flat / CODE_LEN, flat % CODE_LEN);
+                let mut ch1 = false;
+                let mut ch2 = false;
+                for k in 0..BLOCK {
+                    let n1 = sub_q(cx.cb[i1s][k], s1[row * n + b0 + k])?;
+                    let n2 = sub_q(cx.cb[i2s][k], s2[row * n + b0 + k])?;
+                    ch1 |= n1 != 0;
+                    ch2 |= n2 != 0;
+                    d1b[row * BLOCK + k] = n1;
+                    d2b[row * BLOCK + k] = n2;
+                    s1[row * n + b0 + k] = cx.cb[i1s][k];
+                    s2[row * n + b0 + k] = cx.cb[i2s][k];
+                }
+                piece[row].idx1[m] = i1s as u16;
+                piece[row].idx2[m] = i2s as u16;
+                if ch1 || ch2 {
+                    // Both residuals contract *both* planes' deltas, so a row whose other plane
+                    // moved still needs its own residual updated (a zero delta where it did not).
+                    m1.push((row, av1, av2));
+                    m2.push((row, av2, av1));
+                    moved += 1;
+                }
+            }
+            if !m1.is_empty() {
+                // `f₁ -= a₁·(H₁₁ Δ₁) + a₂·(H₁₂ Δ₂)`: the second term contracts the *other*
+                // plane's delta against the transposed window `H₁₂[col, b0+k]`.
+                for (i, &(row, ..)) in m1.iter().enumerate() {
+                    let at = i * BLOCK;
+                    c1b[at..at + BLOCK].copy_from_slice(&d1b[row * BLOCK..][..BLOCK]);
+                    c1b[m1.len() * BLOCK + at..][..BLOCK]
+                        .copy_from_slice(&d2b[row * BLOCK..][..BLOCK]);
+                }
+                let e11 = nt_q(&c1b[..m1.len() * BLOCK], m1.len(), &hc11, n, BLOCK)?;
+                let e12 = nt_q(
+                    &c1b[m1.len() * BLOCK..m1.len() * 2 * BLOCK],
+                    m1.len(),
+                    &cx12,
+                    n,
+                    BLOCK,
+                )?;
+                for (i, &(row, s11, s12)) in m1.iter().enumerate() {
+                    for col in 0..n {
+                        let u = qsum(
+                            qmul(s11, i128::from(e11[i * n + col]))?,
+                            qmul(s12, i128::from(e12[i * n + col]))?,
+                        )?;
+                        f1[row * n + col] = sub_q(f1[row * n + col], round_shift(u, 32)?)?;
+                    }
+                }
+            }
+            if !m2.is_empty() {
+                // `f₂ -= a₂·(H₂₂ Δ₂) + a₁·(H₁₂ᵀ Δ₁)`: the row window `H₁₂[b0+k, col]` contracts the
+                // first plane's delta.
+                for (i, &(row, ..)) in m2.iter().enumerate() {
+                    let at = i * BLOCK;
+                    c2b[at..at + BLOCK].copy_from_slice(&d2b[row * BLOCK..][..BLOCK]);
+                    c2b[m2.len() * BLOCK + at..][..BLOCK]
+                        .copy_from_slice(&d1b[row * BLOCK..][..BLOCK]);
+                }
+                let e22 = nt_q(&c2b[..m2.len() * BLOCK], m2.len(), &hc22, n, BLOCK)?;
+                let e21 = nt_q(
+                    &c2b[m2.len() * BLOCK..m2.len() * 2 * BLOCK],
+                    m2.len(),
+                    &hc12,
+                    n,
+                    BLOCK,
+                )?;
+                for (i, &(row, s22, s21)) in m2.iter().enumerate() {
+                    for col in 0..n {
+                        let u = qsum(
+                            qmul(s22, i128::from(e22[i * n + col]))?,
+                            qmul(s21, i128::from(e21[i * n + col]))?,
+                        )?;
+                        f2[row * n + col] = sub_q(f2[row * n + col], round_shift(u, 32)?)?;
+                    }
+                }
+            }
+        }
+    }
+    for (rr, row) in piece.iter_mut().enumerate() {
+        row.f1.copy_from_slice(&f1[rr * n..][..n]);
+        row.f2.copy_from_slice(&f2[rr * n..][..n]);
+        row.s1.copy_from_slice(&s1[rr * n..][..n]);
+        row.s2.copy_from_slice(&s2[rr * n..][..n]);
     }
     Ok(moved)
 }
@@ -1481,9 +1485,10 @@ fn joint_row(cx: &JointSweep<'_>, row: &mut JointRow<'_>, rowno: usize) -> Resul
 /// a positive multiple of [`BLOCK`] and [`GROUP`]; [`IcmError::NotPositiveDefinite`] if the per-row
 /// normal matrix is not positive-definite after the ridge; [`IcmError::Overflow`] off the grid.
 /// # Complexity
-/// `2G` row-panel products of `o × 128` by `128 × n` (`2G·o·128·n` checked multiply-adds) plus `o`
-/// solves of `2G × 2G` (`o·(2G)³/3`), rows split across the pool; `O(o·(2G)²)` for the per-row normal
-/// matrix plus `O(o·n)`.
+/// `g` band products of `rows·2` windows against `n × GROUP` (`rows·2g·n·GROUP` word multiply-adds
+/// times the limb pairs), `rows·g²` `2 × GROUP` normal-matrix products, one `rows·2g` row dot against
+/// `wh`, and `rows` solves of `2G × 2G` (`rows·(2G)³/3`); the kernel dispatches the engine pool, so
+/// the bands run on the caller. `O(rows·(2G)·n)` for the metric buffer plus `O(rows·(2G)²)`.
 pub fn r_step2(
     ws: &[i64],
     hl: &[i64],
@@ -1496,57 +1501,54 @@ pub fn r_step2(
     check_plane(p1, o, n)?;
     check_plane(p2, o, n)?;
     let (g, per) = (n / GROUP, rows_per_task(o));
-    let wh = matmul_q(ws, hl, o, n, n, false)?;
+    let wh = matmul_l(ws, hl, o, n, n, false)?;
     let mut r1_out = vec![0_i64; o * g];
     let mut r2_out = vec![0_i64; o * g];
-    let task = RStepRows {
-        hl,
-        wh: &wh,
-        p1,
-        p2,
-        n,
-        g,
-        per,
-    };
-    for_chunks2(&mut r1_out, per * g, &mut r2_out, per * g, &task)?;
+    // The kernel owns the engine pool, so the bands run on the caller.
+    let per = per.max(1);
+    let mut row0 = 0usize;
+    while row0 < o {
+        let take = per.min(o - row0);
+        r_band_q(
+            hl,
+            &wh,
+            p1,
+            p2,
+            n,
+            g,
+            row0,
+            &mut r1_out[row0 * g..(row0 + take) * g],
+            &mut r2_out[row0 * g..(row0 + take) * g],
+        )?;
+        row0 += take;
+    }
     Ok((r1_out, r2_out))
 }
 
-/// The pool task of [`r_step2`]: one band of rows of the two normal systems.
-struct RStepRows<'a> {
-    hl: &'a [i64],
-    wh: &'a [i64],
-    p1: PlaneRef<'a>,
-    p2: PlaneRef<'a>,
-    n: usize,
-    g: usize,
-    per: usize,
-}
-
-impl Task2<i64, i64, IcmError> for RStepRows<'_> {
-    fn run(&self, t: usize, r1: &mut [i64], r2: &mut [i64]) -> Result<(), IcmError> {
-        r_step_rows(
-            self.hl,
-            self.wh,
-            self.p1,
-            self.p2,
-            self.n,
-            self.g,
-            t * self.per,
-            r1,
-            r2,
-        )
+/// The panel rule's `2^k` scaling of a `Q64.64` elementwise product onto the `Q32.32` grid.
+fn fill_q(v: i128, k: u32) -> Result<i64, IcmError> {
+    if k <= 32 {
+        round_shift(v, 32 - k)
+    } else {
+        q32::narrow(qmul(v, 1_i128 << (k - 32))?).ok_or(IcmError::Overflow)
     }
 }
 
-/// The loop of [`RStepRows::run`], kept out of the `&self` method: the pinned Aeneas refuses a loop
-/// in a method whose receiver is a struct holding slices (`Internal error`).
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the reference signature carries one argument per matrix operand and scale; the \
-              extraction fragment takes the signature unchanged"
-)]
-fn r_step_rows(
+/// The same `2^k` scaling of a `Q32.32` word already on the grid (a kernel product's output).
+fn lift_q(t: i64, k: u32) -> Result<i64, IcmError> {
+    q32::narrow(qmul(i128::from(t), 1_i128 << k)?).ok_or(IcmError::Overflow)
+}
+
+/// One band of [`r_step2`]'s rows, every product on the limb kernel. `P[a_, j]` (`a_ < G` plane 1's
+/// block `a_`, `a_ ≥ G` plane 2's) is filled from below so `max|P| ∈ (2³⁴, 2³⁵]` raw (`steps`' panel
+/// rule), `M' = 2²ᵏM` and `t` is read at `2²ᵏ`, so the solve returns `x` itself at the grid quantum.
+///
+/// # Complexity
+/// `rows·2g·n·GROUP` metric word multiply-adds, `rows·g²·4·GROUP` normal-matrix word multiply-adds
+/// and `rows·2g·GROUP` right-hand-side dots, times the limb pairs, plus the `2G × 2G` solves
+/// (`rows·(2G)³/3`); the block windows are gathered once per band. `O(rows·2G·n)` for the metric
+/// buffer and `O(rows·(2G)²)` for the normal systems.
+fn r_band_q(
     hl: &[i64],
     wh: &[i64],
     p1: PlaneRef<'_>,
@@ -1554,17 +1556,187 @@ fn r_step_rows(
     n: usize,
     g: usize,
     row0: usize,
-    r1: &mut [i64],
-    r2: &mut [i64],
+    r1_out: &mut [i64],
+    r2_out: &mut [i64],
 ) -> Result<(), IcmError> {
+    let two_g = 2 * g;
+    let rows = r1_out.len() / g;
+    let mut pv = vec![0_i64; rows * two_g * GROUP];
+    let mut pv2 = vec![0_i64; rows * g * 2 * GROUP];
+    let mut ks = vec![0_u32; rows];
+    let mut prod = vec![0_i128; two_g * GROUP];
     let mut err: Option<IcmError> = None;
     let mut rr = 0;
-    while rr < r1.len() / g && err.is_none() {
-        match r_row_q(hl, wh, p1, p2, n, g, row0 + rr) {
-            Ok((a, b)) => {
-                r1[rr * g..(rr + 1) * g].copy_from_slice(&a);
-                r2[rr * g..(rr + 1) * g].copy_from_slice(&b);
+    while rr < rows && err.is_none() {
+        let row = row0 + rr;
+        let mut a_ = 0;
+        while a_ < two_g && err.is_none() {
+            let (s, c) = if a_ < g { (p1.s, p1.c) } else { (p2.s, p2.c) };
+            let aa = a_ % g;
+            let mut j = 0;
+            while j < GROUP {
+                let sv = s[row * n + aa * GROUP + j];
+                let cv = c[aa * GROUP + j];
+                let p: i128 = i128::from(sv) * i128::from(cv);
+                prod[a_ * GROUP + j] = p;
+                j += 1;
             }
+            a_ += 1;
+        }
+        let mut max: u128 = 0;
+        let mut idx = 0;
+        while idx < two_g * GROUP {
+            // `unsigned_abs` is an unmodeled external in the pinned Aeneas model; the cast of a
+            // non-negative magnitude is exact.
+            #[allow(
+                clippy::cast_abs_to_unsigned,
+                clippy::cast_sign_loss,
+                reason = "the pinned model carries no `I128.unsigned_abs`; `abs()` is non-negative \
+                          here and the cast preserves every bit"
+            )]
+            let m = prod[idx].abs() as u128;
+            if m > max {
+                max = m;
+            }
+            idx += 1;
+        }
+        let k = match ilog2_pos(max) {
+            Some(l) => 66_u32.saturating_sub(l),
+            None => 0_u32,
+        };
+        ks[rr] = k;
+        let mut idx = 0;
+        while idx < two_g * GROUP && err.is_none() {
+            match fill_q(prod[idx], k) {
+                Ok(v) => pv[rr * two_g * GROUP + idx] = v,
+                Err(e) => err = Some(e),
+            }
+            idx += 1;
+        }
+        if err.is_none() {
+            // The two `q` panels of a window, contiguous: the normal matrix's `b` rows.
+            let mut w = 0;
+            while w < g {
+                let mut q = 0;
+                while q < 2 {
+                    let a_ = w + q * g;
+                    let dst = ((rr * g + w) * 2 + q) * GROUP;
+                    let src = (rr * two_g + a_) * GROUP;
+                    let mut t = 0;
+                    while t < GROUP {
+                        pv2[dst + t] = pv[src + t];
+                        t += 1;
+                    }
+                    q += 1;
+                }
+                w += 1;
+            }
+        }
+        rr += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    let mut mmat = vec![0_i64; rows * two_g * two_g];
+    let mut a2 = vec![0_i64; 2 * GROUP];
+    let mut arows = vec![0_i64; rows * 2 * GROUP];
+    let mut hb = vec![0_i64; n * GROUP];
+    let mut ga = 0;
+    while ga < g && err.is_none() {
+        // `hb[j, k] = Hl[ga·GROUP + k, j]`: the metric's `b` rows for this row block.
+        let mut j = 0;
+        while j < n {
+            let mut k = 0;
+            while k < GROUP {
+                hb[j * GROUP + k] = hl[(ga * GROUP + k) * n + j];
+                k += 1;
+            }
+            j += 1;
+        }
+        let mut rr = 0;
+        while rr < rows {
+            let mut q = 0;
+            while q < 2 {
+                let a_ = ga + q * g;
+                let src = (rr * two_g + a_) * GROUP;
+                let mut t = 0;
+                while t < GROUP {
+                    arows[(rr * 2 + q) * GROUP + t] = pv[src + t];
+                    t += 1;
+                }
+                q += 1;
+            }
+            rr += 1;
+        }
+        match nt_q(&arows, rows * 2, &hb, n, GROUP) {
+            Ok(kk) => {
+                let mut rr = 0;
+                while rr < rows && err.is_none() {
+                    let mut w = 0;
+                    while w < g && err.is_none() {
+                        let mut q = 0;
+                        while q < 2 {
+                            let src = (rr * 2 + q) * n + w * GROUP;
+                            let mut t = 0;
+                            while t < GROUP {
+                                a2[q * GROUP + t] = kk[src + t];
+                                t += 1;
+                            }
+                            q += 1;
+                        }
+                        let bs = ((rr * g + w) * 2) * GROUP;
+                        match nt_q(&a2, 2, &pv2[bs..bs + 2 * GROUP], 2, GROUP) {
+                            Ok(c) => {
+                                let base = (rr * two_g + ga) * two_g;
+                                mmat[base + w] = c[0];
+                                mmat[base + w + g] = c[1];
+                                mmat[base + two_g * g + w] = c[2];
+                                mmat[base + two_g * g + w + g] = c[3];
+                            }
+                            Err(e) => err = Some(e),
+                        }
+                        w += 1;
+                    }
+                    rr += 1;
+                }
+            }
+            Err(e) => err = Some(e),
+        }
+        ga += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    let mut whrows = vec![0_i64; rows * two_g * GROUP];
+    let mut rr = 0;
+    while rr < rows {
+        let row = row0 + rr;
+        let mut a_ = 0;
+        while a_ < two_g {
+            let src = row * n + (a_ % g) * GROUP;
+            let dst = (rr * two_g + a_) * GROUP;
+            let mut t = 0;
+            while t < GROUP {
+                whrows[dst + t] = wh[src + t];
+                t += 1;
+            }
+            a_ += 1;
+        }
+        rr += 1;
+    }
+    let tvals = rowdot_q32(&pv, &whrows, rows * two_g, GROUP, LIMBS).map_err(map_limb)?;
+    let mut rr = 0;
+    while rr < rows && err.is_none() {
+        match r_ridge_solve_q(
+            &mut mmat[rr * two_g * two_g..(rr + 1) * two_g * two_g],
+            &tvals[rr * two_g..(rr + 1) * two_g],
+            ks[rr],
+            two_g,
+            g,
+            &mut r1_out[rr * g..(rr + 1) * g],
+            &mut r2_out[rr * g..(rr + 1) * g],
+        ) {
+            Ok(()) => {}
             Err(e) => err = Some(e),
         }
         rr += 1;
@@ -1575,150 +1747,26 @@ fn r_step_rows(
     Ok(())
 }
 
-/// The Q32.32 dot of a `GROUP`-word window against a `GROUP`-long window of stride `stride`, one rounding.
-fn dot_window(a: &[i64], h: &[i64], stride: usize) -> Result<i64, IcmError> {
-    let mut acc: i128 = 0;
-    for k in 0..GROUP {
-        acc = qsum(acc, i128::from(a[k]) * i128::from(h[k * stride]))?;
-    }
-    round_shift(acc, 32)
-}
-
-/// The `fill` of [`r_row_q`]: the panel scale undo at exponent `k`.
-fn fill_panel(v: i128, k: u32) -> Result<i64, IcmError> {
-    if k <= 32 {
-        round_shift(v, 32 - k)
-    } else {
-        match qmul(v, 1_i128 << (k - 32)) {
-            Ok(w) => q32::narrow(w).ok_or(IcmError::Overflow),
-            Err(e) => Err(e),
-        }
-    }
-}
-
-/// # Complexity
-/// `2G·GROUP` exact panel products and one fill shift, `2G·G·GROUP²` checked multiply-adds for the metric products and the right-hand side, plus
-/// the `2G × 2G` solve (`(2G)³/3`); `O(2G·n + g·GROUP)` space.
-fn r_row_q(
-    hl: &[i64],
-    wh: &[i64],
-    p1: PlaneRef<'_>,
-    p2: PlaneRef<'_>,
-    n: usize,
+/// One row of [`r_band_q`]'s normal system: the `1e-12 · mean(diag M)` ridge, the `2^k` undo of the
+/// batched right-hand side, and the `2G × 2G` solve into the two group scales. `O((2G)²)` space.
+fn r_ridge_solve_q(
+    mm: &mut [i64],
+    t: &[i64],
+    k: u32,
+    two_g: usize,
     g: usize,
-    row: usize,
-) -> Result<(Vec<i64>, Vec<i64>), IcmError> {
-    let two_g = 2 * g;
-    // P[a_, j]: `a_ < G` is plane 1's block `a_`, `a_ >= G` plane 2's block `a_ - G`.
-    // `P` is filled from below so `max|P| ∈ (2³⁴, 2³⁵]` raw (`steps`' panel rule): a top row's tiny
-    // `s·c` would otherwise round `P·Hl·Pᵀ` under the quantum and refuse a positive-definite system.
-    // `M' = 2²ᵏM` and `t` is read at `2²ᵏ` (`2ᵏP'·w`, one rounding), so the solve returns `x` itself
-    // at the grid quantum.
-    let mut prod = vec![0_i128; two_g * GROUP];
-    for a_ in 0..two_g {
-        let (s, c) = if a_ < g { (p1.s, p1.c) } else { (p2.s, p2.c) };
-        let aa = a_ % g;
-        for j in 0..GROUP {
-            let sv = s[row * n + aa * GROUP + j];
-            let cv = c[aa * GROUP + j];
-            let p: i128 = i128::from(sv) * i128::from(cv);
-            prod[a_ * GROUP + j] = p;
-        }
-    }
-    let mut max: u128 = 0;
-    let mut idx = 0;
-    while idx < prod.len() {
-        // `unsigned_abs` is an unmodeled external in the pinned Aeneas model; the cast of a
-        // non-negative magnitude is exact.
-        #[allow(
-            clippy::cast_abs_to_unsigned,
-            clippy::cast_sign_loss,
-            reason = "the pinned model carries no `I128.unsigned_abs`; `abs()` is non-negative \
-                      here and the cast preserves every bit"
-        )]
-        let m = prod[idx].abs() as u128;
-        if m > max {
-            max = m;
-        }
-        idx += 1;
-    }
-    let k = match ilog2_pos(max) {
-        Some(l) => 66_u32.saturating_sub(l),
-        None => 0_u32,
-    };
+    r1_out: &mut [i64],
+    r2_out: &mut [i64],
+) -> Result<(), IcmError> {
     let mut err: Option<IcmError> = None;
-    let mut pv = vec![0_i64; two_g * GROUP];
-    let mut idx = 0;
-    while idx < prod.len() && err.is_none() {
-        match fill_panel(prod[idx], k) {
-            Ok(v) => pv[idx] = v,
-            Err(e) => err = Some(e),
-        }
-        idx += 1;
-    }
-    if let Some(e) = err {
-        return Err(e);
-    }
-    let mut kvec = vec![0_i64; g * GROUP];
-    let mut mmat = vec![0_i64; two_g * two_g];
-    let mut a_ = 0;
-    while a_ < two_g && err.is_none() {
-        let (ga, pa) = (a_ % g, &pv[a_ * GROUP..(a_ + 1) * GROUP]);
-        let mut gidx = 0;
-        while gidx < g && err.is_none() {
-            let mut j = 0;
-            while j < GROUP && err.is_none() {
-                let h = &hl[(ga * GROUP) * n + gidx * GROUP + j..];
-                match dot_window(pa, h, n) {
-                    Ok(v) => kvec[gidx * GROUP + j] = v,
-                    Err(e) => err = Some(e),
-                }
-                j += 1;
-            }
-            gidx += 1;
-        }
-        let mut bcol = 0;
-        while bcol < two_g && err.is_none() {
-            let kb = &kvec[(bcol % g) * GROUP..(bcol % g) * GROUP + GROUP];
-            match dot_window(kb, &pv[bcol * GROUP..(bcol + 1) * GROUP], 1) {
-                Ok(v) => mmat[a_ * two_g + bcol] = v,
-                Err(e) => err = Some(e),
-            }
-            bcol += 1;
-        }
-        a_ += 1;
-    }
-    let mut tvec = vec![0_i64; two_g];
-    let mut a_ = 0;
-    while a_ < two_g && err.is_none() {
-        let ga = a_ % g;
-        let p = &pv[a_ * GROUP..(a_ + 1) * GROUP];
-        let w = &wh[row * n + ga * GROUP..];
-        let mut acc: i128 = 0;
-        let mut j = 0;
-        while j < GROUP && err.is_none() {
-            match qsum(acc, i128::from(p[j]) * i128::from(w[j])) {
-                Ok(v) => acc = v,
-                Err(e) => err = Some(e),
-            }
-            j += 1;
-        }
-        if err.is_none() {
-            match fill_panel(acc, k) {
-                Ok(v) => tvec[a_] = v,
-                Err(e) => err = Some(e),
-            }
-        }
-        a_ += 1;
-    }
     let mut mean: i128 = 0;
-    let mut kk = 0;
-    while kk < two_g && err.is_none() {
-        match qsum(mean, i128::from(mmat[kk * two_g + kk])) {
+    let mut i = 0;
+    while i < two_g && err.is_none() {
+        match qsum(mean, i128::from(mm[i * two_g + i])) {
             Ok(v) => mean = v,
             Err(e) => err = Some(e),
         }
-        kk += 1;
+        i += 1;
     }
     if let Some(e) = err {
         return Err(e);
@@ -1728,19 +1776,41 @@ fn r_row_q(
     let add =
         q32::narrow(div_round(i128::from(mean), 1_000_000_000_000)?).ok_or(IcmError::Overflow)?;
     let add = if mean > 0 && add < 1 { 1 } else { add };
-    let mut kk = 0;
-    while kk < two_g && err.is_none() {
-        match add_q(mmat[kk * two_g + kk], add) {
-            Ok(v) => mmat[kk * two_g + kk] = v,
+    let mut i = 0;
+    while i < two_g && err.is_none() {
+        match add_q(mm[i * two_g + i], add) {
+            Ok(v) => mm[i * two_g + i] = v,
             Err(e) => err = Some(e),
         }
-        kk += 1;
+        i += 1;
     }
     if let Some(e) = err {
         return Err(e);
     }
-    let solved = chol_solve(&mmat, &tvec, two_g, 1).map_err(map_solve)?;
-    Ok((solved.x[..g].to_vec(), solved.x[g..].to_vec()))
+    let mut tvec = vec![0_i64; two_g];
+    let mut i = 0;
+    while i < two_g && err.is_none() {
+        match lift_q(t[i], k) {
+            Ok(v) => tvec[i] = v,
+            Err(e) => err = Some(e),
+        }
+        i += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    match chol_solve(mm, &tvec, two_g, 1) {
+        Ok(solved) => {
+            let mut i = 0;
+            while i < g {
+                r1_out[i] = solved.x[i];
+                r2_out[i] = solved.x[g + i];
+                i += 1;
+            }
+            Ok(())
+        }
+        Err(e) => Err(map_solve(e)),
+    }
 }
 
 /// Validate `o`, `n` and every slice length of a plane.
@@ -1762,14 +1832,16 @@ fn check_plane(p: PlaneRef<'_>, o: usize, n: usize) -> Result<(), IcmError> {
     Ok(())
 }
 
-/// Row-major `[rows, inner] × [inner, cols]` product on the shared `Q32.32` path. The panel scale
-/// rule and the grid rounding are [`product_panels`]'s, and the exact power-of-two undo is
-/// [`shl_q32`], so a product outside the `i64` grid range is still representable.
+/// Row-major `[rows, inner] × [inner, cols]` product on the shared `Q32.32` path: the operands go to
+/// [`crate::engine::kern::limb`] at [`LIMBS_MATMUL`] limbs after one transpose when `b` is row-major
+/// `[inner, cols]`, so a product outside the `i64` grid range is carried by the limb block scales
+/// rather than refused.
 /// # Errors
 /// [`IcmError::Shape`] for an empty dimension or a length that disagrees with the shape;
 /// [`IcmError::Overflow`] for a product that leaves the grid.
 /// # Complexity
-/// As [`product_panels`]: `O(rows·inner·cols)` pool multiply-accumulates, `O(rows·cols)` space.
+/// `O(rows·inner·cols)` kernel word multiply-accumulates times the limb pairs, `O(rows·cols)` space
+/// plus the `O(inner·cols)` transpose.
 pub fn matmul(
     a: &[i64],
     b: &[i64],

@@ -1927,3 +1927,247 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit apeiron_word.solve_port.chol.solve_cols
 #audit_chol_boundary apeiron_word.solve_port.chol.solve_rhs
 #audit_chol_boundary apeiron_word.solve_port.chol.RhsColumns.Insts.Apeiron_wordChartTaskChunkTaskI64.run
+
+-- ── Bounded-surface epic: the table, hashtrinity and fold-fit bodies rooted by the last waves ──
+
+-- Table locator bodies (`src/map/table/locator.rs`, `include!`d into `table`): path plan, refusal, bound, locator methods and loops.
+#audit apeiron_word.table.live_locations_of
+#audit apeiron_word.table.live_locations_of_loop0
+#audit apeiron_word.table.live_locations_of_loop0.body
+#audit apeiron_word.table.live_locations_of_loop1
+#audit apeiron_word.table.live_locations_of_loop1.body
+#audit apeiron_word.table.locator_bound
+#audit apeiron_word.table.locator_path_plan
+#audit apeiron_word.table.locator_refusal
+#audit apeiron_word.table.observe_locator_receipt
+#audit apeiron_word.table.payload_of
+#audit apeiron_word.table.push_live_spill
+#audit apeiron_word.table.push_live_spill_loop
+#audit apeiron_word.table.push_live_spill_loop.body
+#audit apeiron_word.table.query_identity_bytes_equal
+#audit apeiron_word.table.query_identity_bytes_equal_loop
+#audit apeiron_word.table.query_identity_bytes_equal_loop.body
+#audit apeiron_word.table.QueryIdentity.Insts.CoreCmpEq
+#audit apeiron_word.table.QueryIdentity.Insts.CoreCmpPartialEqQueryIdentity.eq
+#audit apeiron_word.table.same_location
+#audit apeiron_word.table.Table.assemble_directory
+#audit apeiron_word.table.Table.assemble_directory_loop
+#audit apeiron_word.table.Table.assemble_directory_loop.body
+#audit apeiron_word.table.TableLocator.linked_handle
+#audit apeiron_word.table.TableLocator.profile_or_init
+#audit apeiron_word.table.TableLocator.publish_for_query
+#audit apeiron_word.table.TableLocator.record_admitted_link
+#audit apeiron_word.table.TableLocator.record_link
+#audit apeiron_word.table.TableLocator.reserve_batch_paths
+#audit apeiron_word.table.TableLocator.reserve_batch_paths.closure
+#audit apeiron_word.table.TableLocator.reserve_bytes
+#audit apeiron_word.table.TableLocator.reserve_path
+#audit apeiron_word.table.TableLocator.reserve_path.closure
+#audit apeiron_word.table.TableLocator.retarget_held
+#audit apeiron_word.table.Table.reserve_locator_batch
+#audit apeiron_word.table.Table.reserve_locator_path
+
+-- Table state bodies (`src/map/table/state.rs`): Region/Flat/SearchDecision, `matches`, `slots_for`, `valid_n`, `capacity_bound`.
+#audit apeiron_word.table.ASSUMED_SLOT_BYTES
+#audit apeiron_word.table.capacity_bound
+#audit apeiron_word.table.COORD_EMPTY
+#audit apeiron_word.table.Flat.byte_len_for
+#audit apeiron_word.table.Flat.empty
+#audit apeiron_word.table.flat_index
+#audit apeiron_word.table.Flat.index
+#audit apeiron_word.table.Flat.initialize
+#audit apeiron_word.table.Flat.initialize_loop
+#audit apeiron_word.table.Flat.initialize_loop.body
+#audit apeiron_word.table.Flat.reserve
+#audit apeiron_word.table.HOME_SPREAD
+#audit apeiron_word.table.matches
+#audit apeiron_word.table.Region.bound
+#audit apeiron_word.table.Region.coord_of
+#audit apeiron_word.table.Region.empty
+#audit apeiron_word.table.Region.home
+#audit apeiron_word.table.Region.initialize
+#audit apeiron_word.table.Region.initialize_loop0
+#audit apeiron_word.table.Region.initialize_loop0.body
+#audit apeiron_word.table.Region.initialize_loop1
+#audit apeiron_word.table.Region.initialize_loop1.body
+#audit apeiron_word.table.Region.initialize_loop2
+#audit apeiron_word.table.Region.initialize_loop2.body
+#audit apeiron_word.table.Region.publish_live
+#audit apeiron_word.table.Region.reserve_empty
+#audit apeiron_word.table.SearchClass.Insts.CoreCmpPartialEqSearchClass.eq
+#audit apeiron_word.table.SearchDecision.found_flat
+#audit apeiron_word.table.SearchDecision.from_spill
+#audit apeiron_word.table.SearchDecision.vacant_flat
+#audit apeiron_word.table.shard
+#audit apeiron_word.table.slots_for
+#audit apeiron_word.table.slots_for_loop
+#audit apeiron_word.table.slots_for_loop.body
+#audit apeiron_word.table.SpillSlot.live
+#audit apeiron_word.table.TableLocator.new
+#audit apeiron_word.table.tag
+#audit apeiron_word.table.valid_n
+
+-- Table prepared and exact-read bodies (`src/map/table/prepared.rs`, `getexact.rs`): reservation, placement, spill accounting.
+#audit apeiron_word.table.account_spill_load
+#audit apeiron_word.table.apply_prepared_shard
+#audit apeiron_word.table.apply_prepared_shard_placed
+#audit apeiron_word.table.get_prepared_shard
+#audit apeiron_word.table.increment_spill_load
+#audit apeiron_word.table.initialize_reserved_regions
+#audit apeiron_word.table.initialize_reserved_regions_loop
+#audit apeiron_word.table.initialize_reserved_regions_loop.body
+#audit apeiron_word.table.mark_selected_occupied
+#audit apeiron_word.table.reserve_plan_regions
+#audit apeiron_word.table.reserve_plan_regions_loop
+#audit apeiron_word.table.reserve_plan_regions_loop.body
+#audit apeiron_word.table.Table.get_exact_spill
+#audit apeiron_word.table.Table.resident_exact
+
+-- Table parallel bodies (`src/map/table/parallel.rs`) and the eight `table_port` word roots that call them.
+#audit apeiron_word.table.parallel.distribute_regions
+#audit apeiron_word.table.parallel.distribute_regions_loop0
+#audit apeiron_word.table.parallel.distribute_regions_loop0.body
+#audit apeiron_word.table.parallel.distribute_regions_loop0_loop0
+#audit apeiron_word.table.parallel.distribute_regions_loop0_loop0.body
+#audit apeiron_word.table.parallel.PhaseNanos.absorb
+#audit apeiron_word.table.parallel.PhaseNanos.total
+#audit apeiron_word.table.parallel.reserve_all_shards
+#audit apeiron_word.table.parallel.reserve_all_shards_loop
+#audit apeiron_word.table.parallel.reserve_all_shards_loop.body
+#audit apeiron_word.table.parallel.reserve_placement_records
+#audit apeiron_word.table.parallel.reserve_placement_records_loop
+#audit apeiron_word.table.parallel.reserve_placement_records_loop.body
+#audit apeiron_word.table.parallel.reserve_worker_outcomes
+#audit apeiron_word.table.parallel.reserve_worker_outcomes_loop
+#audit apeiron_word.table.parallel.reserve_worker_outcomes_loop.body
+#audit apeiron_word.table.parallel.schedule_bins_with_regions
+#audit apeiron_word.table.parallel.schedule_bins_with_regions_loop0
+#audit apeiron_word.table.parallel.schedule_bins_with_regions_loop0.body
+#audit apeiron_word.table.parallel.schedule_bins_with_regions_loop0_loop0
+#audit apeiron_word.table.parallel.schedule_bins_with_regions_loop0_loop0.body
+#audit apeiron_word.table_port.word_table_parallel_distribute_regions
+#audit apeiron_word.table_port.word_table_parallel_phase_absorb
+#audit apeiron_word.table_port.word_table_parallel_phase_total
+#audit apeiron_word.table_port.word_table_parallel_reserve_all_shards
+#audit apeiron_word.table_port.word_table_parallel_reserve_placement_records
+#audit apeiron_word.table_port.word_table_parallel_reserve_worker_outcomes
+#audit apeiron_word.table_port.word_table_parallel_schedule_bins_with_regions
+
+-- Hashtrinity algebra roots (`hashtrinity_port::word_alg_*`, nine wrappers over the word table).
+#audit apeiron_word.hashtrinity_port.word_alg_fold
+#audit apeiron_word.hashtrinity_port.word_alg_has
+#audit apeiron_word.hashtrinity_port.word_alg_keep
+#audit apeiron_word.hashtrinity_port.word_alg_merge_count
+#audit apeiron_word.hashtrinity_port.word_alg_put
+#audit apeiron_word.hashtrinity_port.word_alg_set
+#audit apeiron_word.hashtrinity_port.word_alg_species
+#audit apeiron_word.hashtrinity_port.word_alg_table_count
+
+-- Hashtrinity freq roots (`hashtrinity_port::word_freq_*`, five wrappers and the `insert_with` closure).
+#audit apeiron_word.hashtrinity_port.word_freq_insert
+#audit apeiron_word.hashtrinity_port.word_freq_insert_with
+#audit apeiron_word.hashtrinity_port.word_freq_insert_with.closure
+#audit apeiron_word.hashtrinity_port.word_freq_longest_probe
+#audit apeiron_word.hashtrinity_port.word_freq_primary_examinations
+#audit apeiron_word.hashtrinity_port.word_freq_stream_with_capacity
+
+-- Crypto wrappers (`crypto_port::word_crypto2_*`, forty roots over big-integer, RSA/PSS, DER/X.509 and base64).
+#audit apeiron_word.crypto_port.word_crypto2_bitlen
+#audit apeiron_word.crypto_port.word_crypto2_bn_add
+#audit apeiron_word.crypto_port.word_crypto2_bn_divmod
+#audit apeiron_word.crypto_port.word_crypto2_bn_from_u64
+#audit apeiron_word.crypto_port.word_crypto2_bn_is_even
+#audit apeiron_word.crypto_port.word_crypto2_bn_is_zero
+#audit apeiron_word.crypto_port.word_crypto2_bn_modexp_big
+#audit apeiron_word.crypto_port.word_crypto2_bn_shr1
+#audit apeiron_word.crypto_port.word_crypto2_bn_sub1
+#audit apeiron_word.crypto_port.word_crypto2_der_algid_ed25519
+#audit apeiron_word.crypto_port.word_crypto2_der_bitstr
+#audit apeiron_word.crypto_port.word_crypto2_der_ctx_explicit
+#audit apeiron_word.crypto_port.word_crypto2_der_int
+#audit apeiron_word.crypto_port.word_crypto2_der_len
+#audit apeiron_word.crypto_port.word_crypto2_der_oid
+#audit apeiron_word.crypto_port.word_crypto2_der_seq
+#audit apeiron_word.crypto_port.word_crypto2_der_set
+#audit apeiron_word.crypto_port.word_crypto2_der_spki
+#audit apeiron_word.crypto_port.word_crypto2_der_tlv
+#audit apeiron_word.crypto_port.word_crypto2_der_validity
+#audit apeiron_word.crypto_port.word_crypto2_emsa_pss_encode
+#audit apeiron_word.crypto_port.word_crypto2_mgf1
+#audit apeiron_word.crypto_port.word_crypto2_mod_inverse
+#audit apeiron_word.crypto_port.word_crypto2_rsa_algid
+#audit apeiron_word.crypto_port.word_crypto2_rsa_from_pkcs8_der
+#audit apeiron_word.crypto_port.word_crypto2_rsa_to_pkcs8_der
+#audit apeiron_word.crypto_port.word_crypto2_trim_int
+#audit apeiron_word.crypto_port.word_crypto2_x509_der_children
+#audit apeiron_word.crypto_port.word_crypto2_x509_der_tlv
+
+-- Crypto callees the wrappers call directly (`hashtrinity.crypto.{rsa,x509,certgen,jwt,age}.*`).
+#audit apeiron_word.hashtrinity.crypto.x509.der_tlv
+#audit apeiron_word.hashtrinity.crypto.x509.der_children
+#audit apeiron_word.hashtrinity.crypto.rsa.trim_int
+#audit apeiron_word.hashtrinity.crypto.rsa.rsa_to_pkcs8_der
+#audit apeiron_word.hashtrinity.crypto.rsa.rsa_from_pkcs8_der
+#audit apeiron_word.hashtrinity.crypto.rsa.rsa_algid
+#audit apeiron_word.hashtrinity.crypto.rsa.mod_inverse
+#audit apeiron_word.hashtrinity.crypto.rsa.mgf1
+#audit apeiron_word.hashtrinity.crypto.rsa.emsa_pss_encode
+#audit apeiron_word.hashtrinity.crypto.rsa.bn_sub1
+#audit apeiron_word.hashtrinity.crypto.rsa.bn_shr1
+#audit apeiron_word.hashtrinity.crypto.rsa.bn_modexp_big
+#audit apeiron_word.hashtrinity.crypto.rsa.bn_is_zero
+#audit apeiron_word.hashtrinity.crypto.rsa.bn_is_even
+#audit apeiron_word.hashtrinity.crypto.rsa.bn_from_u64
+#audit apeiron_word.hashtrinity.crypto.rsa.bn_divmod
+#audit apeiron_word.hashtrinity.crypto.rsa.bn_add
+#audit apeiron_word.hashtrinity.crypto.rsa.bitlen
+#audit apeiron_word.hashtrinity.crypto.certgen.validity
+#audit apeiron_word.hashtrinity.crypto.certgen.tlv
+#audit apeiron_word.hashtrinity.crypto.certgen.spki
+#audit apeiron_word.hashtrinity.crypto.certgen.set
+#audit apeiron_word.hashtrinity.crypto.certgen.seq
+#audit apeiron_word.hashtrinity.crypto.certgen.oid
+#audit apeiron_word.hashtrinity.crypto.certgen.der_len
+#audit apeiron_word.hashtrinity.crypto.certgen.der_int
+#audit apeiron_word.hashtrinity.crypto.certgen.ctx_explicit
+#audit apeiron_word.hashtrinity.crypto.certgen.bitstr
+#audit apeiron_word.hashtrinity.crypto.certgen.algid_ed25519
+
+-- Fold fit ICM roots (`fit_port::word_fit_icm_*`, eight wrappers over the `fold_port.fit.icm` bodies).
+#audit apeiron_word.fit_port.word_fit_icm_codebook
+#audit apeiron_word.fit_port.word_fit_icm_nearest_index
+#audit apeiron_word.fit_port.word_fit_icm_plane_w
+
+/- Open cones, 2026-10-19: these extracted defs are not audited because each depends on an
+   unmodeled external. Re-enable the `#audit` line once the external is modeled or the source
+   avoids it. The finding is the coverage root that pulled it in, not the name. -/
+-- #audit apeiron_word.table.parallel.reserve_handle_table  -- apeiron_word.core.option.Option.Insts.CoreCloneClone.clone, apeiron_word.core.option.Option.Insts.CoreCloneClone.clone_from
+-- #audit apeiron_word.table_port.word_table_parallel_reserve_handle_table  -- apeiron_word.core.option.Option.Insts.CoreCloneClone.clone, apeiron_word.core.option.Option.Insts.CoreCloneClone.clone_from
+-- #audit apeiron_word.hashtrinity_port.word_alg_merge_link  -- apeiron_word.alloc.vec.Vec.Insts.CoreIterTraitsCollectExtend.extend
+-- #audit apeiron_word.crypto_port.word_crypto2_age_b64d  -- apeiron_word.core.str.Str.as_bytes
+-- #audit apeiron_word.crypto_port.word_crypto2_der_name_cn  -- apeiron_word.core.str.Str.as_bytes
+-- #audit apeiron_word.crypto_port.word_crypto2_jwt_b64url_decode  -- apeiron_word.core.str.Str.as_bytes
+-- #audit apeiron_word.crypto_port.word_crypto2_rsa_pkcs1_sha256_sign  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.crypto_port.word_crypto2_rsa_pkcs1_sha384_sign  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.crypto_port.word_crypto2_rsa_pkcs1_sha384_verify  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.crypto_port.word_crypto2_rsa_pkcs1_sha512_sign  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.crypto_port.word_crypto2_rsa_pkcs1_sha512_verify  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.crypto_port.word_crypto2_rsa_pkcs1_sign_generic  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.crypto_port.word_crypto2_rsa_pss_sha256_sign  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.crypto_port.word_crypto2_rsa_pss_sha256_verify  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.hashtrinity.crypto.rsa.rsa_pss_sha256_verify  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.hashtrinity.crypto.rsa.rsa_pss_sha256_sign  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.hashtrinity.crypto.rsa.rsa_pkcs1_sign_generic  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.hashtrinity.crypto.rsa.rsa_pkcs1_sha512_verify  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.hashtrinity.crypto.rsa.rsa_pkcs1_sha512_sign  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.hashtrinity.crypto.rsa.rsa_pkcs1_sha384_verify  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.hashtrinity.crypto.rsa.rsa_pkcs1_sha384_sign  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.hashtrinity.crypto.rsa.rsa_pkcs1_sha256_sign  -- Aeneas.Std.core.fmt.Formatter
+-- #audit apeiron_word.hashtrinity.crypto.jwt.b64url_decode  -- apeiron_word.core.str.Str.as_bytes
+-- #audit apeiron_word.hashtrinity.crypto.certgen.name_cn  -- apeiron_word.core.str.Str.as_bytes
+-- #audit apeiron_word.hashtrinity.crypto.age.b64d  -- apeiron_word.core.str.Str.as_bytes
+-- #audit apeiron_word.fit_port.word_fit_icm_e8_icm_step  -- apeiron_word.chart.pool.width_global, apeiron_word.solve_port.gemm.block_rows_pool, apeiron_word.chart.pool.chunks.for_chunks3, apeiron_word.core.option.Option.map
+-- #audit apeiron_word.fit_port.word_fit_icm_j_rows  -- apeiron_word.solve_port.gemm.block_rows_pool
+-- #audit apeiron_word.fit_port.word_fit_icm_matmul  -- apeiron_word.solve_port.gemm.block_rows_pool
+-- #audit apeiron_word.fit_port.word_fit_icm_ridged_metric  -- apeiron_word.core.option.Option.map
+-- #audit apeiron_word.fit_port.word_fit_icm_r_step2  -- apeiron_word.chart.pool.FirstErr, apeiron_word.chart.pool.chunks_mut_global, apeiron_word.chart.pool.width_global, apeiron_word.solve_port.chol.trailing_update_pool, apeiron_word.solve_port.gemm.block_rows_pool, apeiron_word.chart.pool.FirstErr.new, apeiron_word.chart.pool.FirstErr.record, apeiron_word.chart.pool.FirstErr.take, apeiron_word.chart.pool.chunks.for_chunks2, apeiron_word.core.option.Option.is_none_or, apeiron_word.core.option.Option.map
