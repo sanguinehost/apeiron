@@ -2,15 +2,15 @@
 //! `learn::grad::attn::attn_bwd_kern`.
 //!
 //! The oracle forward `attn_fwd_kern` produces the probabilities `p`; the same `p` is passed to the
-//! CPU backward and uploaded to the device, so the three device passes and the reference share one
+//! CPU backward and uploaded to the device, so the four device passes and the reference share one
 //! softmax row exactly. The device accumulates in f32 with fused multiply-add; the reference
 //! accumulates Q32.32 products in `i128` and rounds once. Each device output is converted to
 //! Q32.32 by round-to-nearest (saturating) and the per-entry difference is bounded in Q32.32 units,
 //! measured per shape and product.
 //!
 //! Shapes `(t, nh, nkv, hd)`: `(1,2,1,8)`, `(7,2,1,16)`, `(16,4,2,16)`, `(64,4,2,32)`. Inputs are a
-//! fixed-seed LCG in `[-0.5, 0.5)` real. The three dispatches are recorded in one command buffer in
-//! the order rowsum, dq, dk/dv; `rec_step` emits the compute→compute barrier
+//! fixed-seed LCG in `[-0.5, 0.5)` real. The four dispatches are recorded in one command buffer in
+//! the order rowsum, ds, dq, dk/dv; `rec_step` emits the compute→compute barrier
 //! (`vk.barrier(cb, STAGE_COMPUTE, STAGE_COMPUTE, ACCESS_SHADER_WRITE, ACCESS_SHADER_READ |
 //! ACCESS_SHADER_WRITE)`) after each, so every dependent pass reads the previous results.
 //!
@@ -29,7 +29,9 @@
 )]
 
 use apeiron::gpu::decode::{rec_step, GpuCtx};
-use apeiron::gpu::nn::{attn_bwd_dkdv_dispatch, attn_bwd_dq_dispatch, attn_bwd_rowsum_dispatch};
+use apeiron::gpu::nn::{
+    attn_bwd_dkdv_dispatch, attn_bwd_dq_dispatch, attn_bwd_ds_dispatch, attn_bwd_rowsum_dispatch,
+};
 use apeiron::gpu::vulkan::*;
 use apeiron::learn::grad::attn::{attn_bwd_kern, attn_fwd_kern};
 
@@ -163,6 +165,7 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
     let p_buf = unsafe { g.up_f32(&pf) };
     let do_buf = unsafe { g.up_f32(&dof) };
     let rs_buf = unsafe { g.dev(t * nh * 4) };
+    let ds_buf = unsafe { g.dev(nh * t * t * 4) };
     let dq_buf = unsafe { g.dev(t * nh * hd * 4) };
     let dk_buf = unsafe { g.dev(t * nkv * hd * 4) };
     let dv_buf = unsafe { g.dev(t * nkv * hd * 4) };
@@ -170,14 +173,13 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
     let (tu, nhu, nkvu, hdu) = (t as u32, nh as u32, nkv as u32, hd as u32);
     let step_rs =
         unsafe { attn_bwd_rowsum_dispatch(&g, v_buf, p_buf, do_buf, rs_buf, tu, nhu, nkvu, hdu) };
-    let step_dq = unsafe {
-        attn_bwd_dq_dispatch(
-            &g, k_buf, v_buf, p_buf, do_buf, rs_buf, dq_buf, tu, nhu, nkvu, hdu,
-        )
+    let step_ds = unsafe {
+        attn_bwd_ds_dispatch(&g, v_buf, p_buf, do_buf, rs_buf, ds_buf, tu, nhu, nkvu, hdu)
     };
+    let step_dq = unsafe { attn_bwd_dq_dispatch(&g, k_buf, ds_buf, dq_buf, tu, nhu, nkvu, hdu) };
     let step_dkdv = unsafe {
         attn_bwd_dkdv_dispatch(
-            &g, q_buf, v_buf, p_buf, do_buf, rs_buf, dk_buf, dv_buf, tu, nhu, nkvu, hdu,
+            &g, q_buf, p_buf, ds_buf, do_buf, dk_buf, dv_buf, tu, nhu, nkvu, hdu,
         )
     };
 
@@ -198,6 +200,7 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
     unsafe {
         vk.begin(cb);
         rec_step(vk, cb, &step_rs);
+        rec_step(vk, cb, &step_ds);
         rec_step(vk, cb, &step_dq);
         rec_step(vk, cb, &step_dkdv);
         vk.barrier(
