@@ -64,6 +64,7 @@ mod norm_bwd;
 mod spec;
 #[cfg(test)]
 mod tests;
+pub mod train;
 
 pub use attn::*;
 pub use batch::*;
