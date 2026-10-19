@@ -1,4 +1,11 @@
 #![cfg(feature = "gpu")]
+#![allow(
+    clippy::all,
+    clippy::pedantic,
+    clippy::allow_attributes_without_reason,
+    missing_docs,
+    reason = "measurement test; lint profile follows the gpu_linear_bwd/gpu_norm_backward tests"
+)]
 //! **DP4A correctness sweep, before any ratio claim.**
 //!
 //! Every shape below is built synthetically (no GGUF, no model file), packed into the chart the
@@ -27,6 +34,7 @@
 //! No timing, no ratio, no claim beyond this comparison.
 //!
 //! Board row: `apeiron-kern-dp4a-w1-t01-DnMhEktartal5Q65p8dxKE`.
+//! Current campaign row: `apeiron-gpu-train-w1-t05-GVrduzS5mnRVc4oeQ1xRD7`.
 
 use apeiron::format::quant::f16_to_f32;
 use apeiron::gpu::decode::layer::make_actq_gemv;
