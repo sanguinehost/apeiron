@@ -170,4 +170,15 @@ def swigluBwdReads (n : Nat) : Nat := 5 * n
 /-- The P96 backward cost equation: `5·n` words. -/
 theorem swigluBwdReads_eq (n : Nat) : swigluBwdReads n = 5 * n := rfl
 
+/-- Words moved by one KL-head dispatch (P95) over `r` rows of vocabulary `v`: one workgroup per
+    row strides the vocabulary three times — the maxima pass reads `z_s` and `z_t` (`2·v`), the
+    partition-function pass reads them again (`2·v`), and the loss/dz pass reads them a third time
+    (`2·v`) — so `6·v` words are read per row; the single `loss` word per row is written here, and
+    the `dz` row adds `v` more written words. -/
+def klHeadReads (r v : Nat) : Nat := r * (6 * v + 1)
+
+/-- The P95 cost equation in expanded form: `r·(6·v + 1)` words (reads plus the loss word; `dz`
+    adds `r·v`). -/
+theorem klHeadReads_eq (r v : Nat) : klHeadReads r v = r * (6 * v + 1) := rfl
+
 end Perf.Train

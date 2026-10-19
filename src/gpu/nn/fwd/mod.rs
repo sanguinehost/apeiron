@@ -3,5 +3,7 @@
 //! `lin` carries the forward map `y = x·Wᵀ`; the backward adjoints that invert it live in the
 //! sibling `bwd` module.
 
+pub mod head;
 pub mod lin;
+pub use head::*;
 pub use lin::*;

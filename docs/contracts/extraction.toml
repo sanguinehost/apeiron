@@ -976,3 +976,21 @@ path = "src/gpu/nn/bwd/opt.rs"
 fn = "adam_update_dispatch"
 class = "ffi"
 reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/fwd/head.rs"
+fn = "kl_row_module"
+class = "gpu"
+reason = "SPIR-V builder for the KL loss head (maxima, partition functions, loss and dz); Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/fwd/head.rs"
+fn = "kl_row_bytes"
+class = "gpu"
+reason = "Word encoding of kl_row_module for pipeline creation; SPIR-V bytes, no extracted arithmetic."
+
+[[waiver]]
+path = "src/gpu/nn/fwd/head.rs"
+fn = "kl_row_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
