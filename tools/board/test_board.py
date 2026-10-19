@@ -1180,6 +1180,24 @@ class PlanBoardLinkTests(unittest.TestCase):
             "the plan row's gate, paths and board cell must satisfy the task",
         )
 
+    def test_two_plan_rows_naming_one_ticket_are_both_mirrored(self) -> None:
+        """APEIRON-BOARD-W1-T01: one ticket may mirror several plan rows."""
+        doc = linked_document()
+        source = doc["plan"]["sources"][0]["text"].rstrip("\n")
+        doc["plan"]["sources"][0]["text"] = (
+            source
+            + "\n| `LINK-ROW-TWO` | `FIXTURE-LINK-W1-T01` | `tools/board/board.py` | "
+            "`python3 tools/board/board.py --check --controls` | open |\n"
+        )
+        plan = board.plan_from_document(doc)
+        self.assertEqual(plan["rows"][1]["id"], "LINK-ROW-TWO")
+        classifications, findings = board.reconcile(doc, plan)
+        self.assertEqual(findings, [])
+        mirrored = [item for item in classifications if item["class"] == "mirrored"]
+        self.assertEqual(len(mirrored), 1, "the task is mirrored once")
+        self.assertEqual(mirrored[0]["plan"], "LINK-ROW")
+        self.assertEqual(board.rules_of(board.check(doc, plan=plan)), set())
+
     def test_a_non_existent_board_cell_reddens_by_name(self) -> None:
         doc = linked_document("FIXTURE-NOPE-W1-T99")
         classifications, findings = board.reconcile(doc, board.plan_from_document(doc))

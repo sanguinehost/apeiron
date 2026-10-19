@@ -60,17 +60,21 @@ from board_fixtures import (
 # ---------------------------------------------------------------------------
 
 
-def board_cell_links(plan: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
-    """The plan's inverse link: ticket id -> the plan row whose board cell names it.
+def board_cell_links(plan: dict[str, Any] | None) -> dict[str, list[dict[str, Any]]]:
+    """The plan's inverse link: ticket id -> the plan rows whose board cell names it.
 
     A plan row's ``board`` cell is authoritative for the row it is tracked by, so
-    it names the board task from the plan side. The first row wins because the
-    parser emits a row once per id alias, with the same cell on each.
+    it names the board task from the plan side. One ticket can be named by more
+    than one row (a ticket whose ``done_when`` also holds untracked rows, or two
+    rows that share one ticket), so every row is kept in document order: the
+    first is the task's detail row and all of them are mirrored.
     """
-    links: dict[str, dict[str, Any]] = {}
+    links: dict[str, list[dict[str, Any]]] = {}
     for row in (plan or {}).get("rows") or []:
         for ticket_id in row.get("board_ids") or []:
-            links.setdefault(ticket_id, row)
+            rows = links.setdefault(ticket_id, [])
+            if not any(existing["id"] == row["id"] for existing in rows):
+                rows.append(row)
     return links
 
 
@@ -127,8 +131,10 @@ def reconcile(
     links = board_cell_links(plan)
     for task in board_rows:
         # The plan's own board cell naming this task is the first link; a plan id
-        # the ticket names, then the slug, follow.
-        matched = links.get(task["id"])
+        # the ticket names, then the slug, follow. Every row naming the task is
+        # mirrored; the first one is the detail row.
+        linked_rows = links.get(task["id"]) or []
+        matched = linked_rows[0] if linked_rows else None
         if matched is None:
             for plan_id in task["plan_ids"]:
                 candidate = next((r for r in plan_rows if r["id"] == plan_id), None)
@@ -138,6 +144,8 @@ def reconcile(
         if matched is None:
             matched = match_by_slug(task["name"])
         if matched is not None:
+            for row in linked_rows:
+                matched_plan_ids.add(row["id"])
             matched_plan_ids.add(matched["id"])
             classification = "mirrored"
             detail = f"plan row {matched['id']} ({matched['name']})"
@@ -246,11 +254,11 @@ def check(
 
     links = board_cell_links(plan)
     for task in scope:
-        # The plan is authoritative for a row it names: when the plan's board
-        # cell names this task, the row's gate and source paths are the task's,
+        # The plan is authoritative for a row it names: when a plan row's board
+        # cell names this task, that row's gate and source paths are the task's,
         # and the cell is the declaration the dispatch is traced from.
-        linked = links.get(task["id"])
-        if not task["paths"] and not (linked and linked["paths"]):
+        linked_rows = links.get(task["id"]) or []
+        if not task["paths"] and not any(row["paths"] for row in linked_rows):
             findings.append(
                 _finding(
                     RULE_NO_PATHS,
@@ -258,7 +266,7 @@ def check(
                     task=task["id"],
                 )
             )
-        if not task["gates"] and not (linked and linked["gates"]):
+        if not task["gates"] and not any(row["gates"] for row in linked_rows):
             findings.append(
                 _finding(
                     RULE_NO_GATE,
@@ -287,9 +295,9 @@ def check(
                 )
             )
         kind, declared = board_declaration(task["text"])
-        if not kind and linked is not None:
-            # The plan row's board cell names this task: the plan side carries
-            # the declaration, so the task text need not repeat it.
+        if not kind and linked_rows:
+            # A plan row's board cell names this task: the plan side carries the
+            # declaration, so the task text need not repeat it.
             kind, declared = "linked", task["id"]
         if not kind:
             findings.append(
