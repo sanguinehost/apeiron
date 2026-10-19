@@ -98,4 +98,14 @@ theorem attnBwdDsReads_eq (t nh hd : Nat) :
       nh * t * t * (2 * hd + 2) + nh * t * t + t * nh * hd * (t + 2) + 4 * t * t * nh * hd +
         2 * t * nh * hd := rfl
 
+/-- Words read by one tiled `linear_bwd_input` dispatch at `t` rows, input width `i`, output
+    width `o`: each 16-row tile of `dy` is read once per column tile (`i/16` of them), each
+    16-column tile of `w` once per row tile (`t/16`), and the `t·i` outputs are written. -/
+def denseBwdTiledReads (t i o : Nat) : Nat := t * o * (i / 16) + o * i * (t / 16) + t * i
+
+/-- The P89 cost equation in expanded form: `t·o·⌊i/16⌋ + o·i·⌊t/16⌋ + t·i` words, 16× below the
+    naive `2·t·i·o + t·i` of P86 at square multiples of 16 (`t·i·o/8` against `2·t·i·o`). -/
+theorem denseBwdTiledReads_eq (t i o : Nat) :
+    denseBwdTiledReads t i o = t * o * (i / 16) + o * i * (t / 16) + t * i := rfl
+
 end Perf.Train
