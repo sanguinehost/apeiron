@@ -15,16 +15,20 @@ The CUDA comparators are `llama-bench -ngl 99` runs: decode 880.9 tok/s (P62), p
 not paired-round medians; the prefill comparator is the weaker of the two because its host was loaded.
 
 Kernel K5 receipts compare a `limb` port against its exact contract body on the same host, not against
-llama.cpp. `resq` at the 2x128x128 group shape (`inter` 16, `hidden` 8, 8 limbs): exact
-`solve::{gemm,syrk}` 1.174 ms, `engine::kern::limb` 4.657 ms, 3.968x slower, five paired runs with
-observed spreads 1.110-1.273 ms and 4.156-5.031 ms; the port is exact against the 8-limb contract
-(0 words) and test-only, and the exact call site stays.
+llama.cpp. `resq` at the 2x128x128 group shape (`inter` 16, `hidden` 8, 1,180,672 word-MACs), nine
+paired runs: exact `solve::{gemm,syrk}` 1.245 ms (1.054 ns/MAC); `engine::kern::limb` at 3/4/5/8
+limbs is 0.864x/0.934x/1.714x/3.094x the exact wall; the per-entry error against exact is
+44-507x the 2^-28 bound at 3 limbs, 0.72-28.8x at 4, 0.02-0.04x at 5, 0 words at 8. The smallest
+admissible count is 5 and it is slower (all nine pairs 1.533-2.348x), so K3's 3-limb default is not
+admissible at this shape and the exact call site stays.
 
-The exact fallback's per-block scale is a power of two and is folded into one exponent shift
-(`exact_dot_avx`, one i128 multiply per block instead of two, round-trip overflow refused);
-`limb::Prepared` builds the first operand's plane once for several products. Neither changes the
-numbers above; the scalar oracle and the 8-limb K5 still pin the outputs. Board
-`APEIRON-FORM-QUANT-W1-T01`.
+On the production GEMM `m512 p896 n896` the 3-limb port is 0.374x the exact `i128` body (9.149 vs
+24.546 ms, five paired runs, 0.280-0.446, every pair faster) with 59,654,891 words of error against
+the 3,816,816,700 bound. The exact fallback's per-block scale is a power of two and folds into one
+exponent shift (`exact_dot_avx`, one i128 multiply per block instead of two, round-trip overflow
+refused) and its bias term is one `i64` correction instead of a second `dpbusd`; `limb::Prepared`
+builds the first operand's plane once for several products. The scalar oracle still pins the exact
+path and the 8-limb K5 still pins the port. Board `APEIRON-FORM-QUANT-W1-T01`.
 
 The P-rows below are historical. A `red` verdict in a row is relative to that row's measured revision and
 is not current status; § Current supersedes every one of them.
