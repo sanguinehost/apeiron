@@ -57,6 +57,7 @@ mod glue;
 mod gridsync;
 mod moe;
 mod norm;
+mod norm_bwd;
 mod spec;
 #[cfg(test)]
 mod tests;
@@ -70,6 +71,7 @@ pub use glue::*;
 pub use gridsync::*;
 pub use moe::*;
 pub use norm::*;
+pub use norm_bwd::*;
 pub use spec::*;
 
 use crate::gpu::simt::{SPV_MAGIC, SPV_VERSION_1_3};
