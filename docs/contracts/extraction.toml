@@ -762,6 +762,42 @@ reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the
 
 
 [[waiver]]
+path = "src/gpu/nn/act/swiglu.rs"
+fn = "swiglu_fwd_module"
+class = "gpu"
+reason = "SPIR-V builder for the SwiGLU forward elementwise map; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/act/swiglu.rs"
+fn = "swiglu_fwd_bytes"
+class = "gpu"
+reason = "Word encoding of swiglu_fwd_module for pipeline creation; SPIR-V bytes, no extracted arithmetic."
+
+[[waiver]]
+path = "src/gpu/nn/act/swiglu.rs"
+fn = "swiglu_fwd_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/act/swiglu.rs"
+fn = "swiglu_bwd_module"
+class = "gpu"
+reason = "SPIR-V builder for the SwiGLU backward elementwise map; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/act/swiglu.rs"
+fn = "swiglu_bwd_bytes"
+class = "gpu"
+reason = "Word encoding of swiglu_bwd_module for pipeline creation; SPIR-V bytes, no extracted arithmetic."
+
+[[waiver]]
+path = "src/gpu/nn/act/swiglu.rs"
+fn = "swiglu_bwd_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
 path = "src/gpu/nn/bwd/lin.rs"
 fn = "linear_bwd_input_module"
 class = "gpu"

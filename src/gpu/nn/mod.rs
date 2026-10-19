@@ -48,6 +48,7 @@
 // had, private items included.
 // ---------------------------------------------------------------------------------------------
 
+pub mod act;
 mod attn;
 mod batch;
 mod bwd;
