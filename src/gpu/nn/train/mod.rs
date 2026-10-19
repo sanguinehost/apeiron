@@ -7,7 +7,7 @@
 //! `x2 = x1 + f`; `(loss, dz) = kl_row(x2, target)`; `dWd = dzᵀ·ha`, `dha = dz·Wd`,
 //! `(dg,du) = swiglu_bwd`, `dxn2 = dg·Wgᵀ + du·Wuᵀ`, `dWg = dgᵀ·xn2`, `dWu = duᵀ·xn2`,
 //! `dx1 = dz + rmsnorm_bwd_dx(x1,g2,dxn2)`, `dg2 = dgamma_reduce`, `dWo = dx1ᵀ·oa`,
-//! `do = dx1·Wo`, the four attention-backward passes on `(do,q,k,v,p)`, `dq = rope_bwd(dq)`,
+//! `do = dx1·Wo`, the five attention-backward passes on `(do,q,k,v,p)`, `dq = rope_bwd(dq)`,
 //! `dk = rope_bwd(dk)`, `dWq = dqᵀ·xn`, `dWk = dkᵀ·xn`, `dWv = dvᵀ·xn`,
 //! `dxn = dq·Wqᵀ + dk·Wkᵀ + dv·Wvᵀ`, `dx = rmsnorm_bwd_dx(x,g1,dxn)`, `dg1 = dgamma_reduce`, then
 //! `adam_update_dispatch` on the nine tensors `Wq, Wk, Wv, Wo, Wg, Wu, Wd, g1, g2`.
@@ -35,8 +35,9 @@ use crate::gpu::nn::fwd::{
 };
 use crate::gpu::nn::{
     adam_update_dispatch, add_inplace_bytes, attn_bwd_dkdv_dispatch, attn_bwd_dq_dispatch,
-    attn_bwd_ds_dispatch, attn_bwd_rowsum_dispatch, attn_fwd_dispatch, linear_bwd_input_dispatch,
-    linear_bwd_weight_dispatch, rmsnorm_bwd_dispatch, rmsnorm_dgamma_dispatch,
+    attn_bwd_ds_dispatch, attn_bwd_rowsum_dispatch, attn_bwd_rowsum_reduce_dispatch,
+    attn_fwd_dispatch, linear_bwd_input_dispatch, linear_bwd_weight_dispatch, rmsnorm_bwd_dispatch,
+    rmsnorm_dgamma_dispatch,
 };
 use crate::gpu::vulkan::*;
 use crate::numeric::fixed_trig::{fixed_sin_cos, turn_to_radians};
@@ -300,6 +301,7 @@ pub struct Trainer {
     s_dwo: Step,
     s_do: Step,
     s_rs: Step,
+    s_rsr: Step,
     s_ds: Step,
     s_dq: Step,
     s_dkdv: Step,
@@ -400,6 +402,7 @@ impl Trainer {
         let dwo = dev(i * qw * 4);
         let d_out = dev(t * qw * 4);
         let rs = dev(cfg.nh as usize * t * 4);
+        let rs_parts = dev(cfg.nh as usize * t * t.div_ceil(16) * 4);
         let ds = dev(cfg.nh as usize * t * t * 4);
         let dq_rope = dev(t * qw * 4);
         let dk_rope = dev(t * kw * 4);
@@ -482,7 +485,9 @@ impl Trainer {
         let s_dx1 = add(dx1, dz, (t * i) as u32);
         let s_dwo = unsafe { linear_bwd_weight_dispatch(g, dx1, oa, dwo, tu, qwu, iu) };
         let s_do = unsafe { linear_bwd_input_dispatch(g, dx1, w[3], d_out, tu, qwu, iu) };
-        let s_rs = unsafe { attn_bwd_rowsum_dispatch(g, val, p, d_out, rs, tu, nhu, nkvu, hdu) };
+        let s_rs =
+            unsafe { attn_bwd_rowsum_dispatch(g, val, p, d_out, rs_parts, tu, nhu, nkvu, hdu) };
+        let s_rsr = unsafe { attn_bwd_rowsum_reduce_dispatch(g, rs_parts, rs, tu, nhu) };
         let s_ds = unsafe { attn_bwd_ds_dispatch(g, val, p, d_out, rs, ds, tu, nhu, nkvu, hdu) };
         let s_dq = unsafe { attn_bwd_dq_dispatch(g, k, ds, dq_rope, tu, nhu, nkvu, hdu) };
         let s_dkdv =
@@ -559,6 +564,7 @@ impl Trainer {
             s_dwo,
             s_do,
             s_rs,
+            s_rsr,
             s_ds,
             s_dq,
             s_dkdv,
@@ -736,6 +742,8 @@ impl Trainer {
             rec_step(vk, cb, &self.s_do);
             cbar(cb);
             rec_step(vk, cb, &self.s_rs);
+            cbar(cb);
+            rec_step(vk, cb, &self.s_rsr);
             cbar(cb);
             rec_step(vk, cb, &self.s_ds);
             cbar(cb);

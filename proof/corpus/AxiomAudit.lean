@@ -1442,6 +1442,7 @@ import Gpu.Handoff
 #audit Perf.Train.denseFwdTiledReads_eq
 #audit Perf.Train.attnFwdReads_eq
 #audit Perf.Train.attnRowsumReads_eq
+#audit Perf.Train.attnBwdRowsumTiledReads_eq
 #audit Perf.Train.swigluFwdReads_eq
 #audit Perf.Train.swigluBwdReads_eq
 #audit Perf.Train.klHeadReads_eq
