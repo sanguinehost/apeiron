@@ -418,3 +418,306 @@ pub fn rescale_hier_top(
     }
     Ok(quant_r_hier(&scaled, o, g)?)
 }
+
+/// The K5 paired receipt for the resq call-site port: the live exact `solve::{gemm,syrk}` bodies
+/// against a test-only `engine::kern::limb` port at the production group shape. The port is
+/// bit-identical to the exact bodies but slower, so the live call site stays exact; the test's
+/// speed assertion is the red gate. Run in release with `cargo test --release --test learn_fold_resq
+/// -- --ignored --nocapture resq_call_site_k5`.
+#[cfg(test)]
+mod call_site_k5 {
+    #![allow(
+        clippy::cast_precision_loss,
+        reason = "the RNG maps the 53 high bits of a u64 into [0, 1) and the sample mean divides \
+                  by a five-run count; both conversions are exact in f64 by construction"
+    )]
+
+    use super::*;
+    use crate::engine::kern::limb::{gemm_q32, syrk_q32};
+    use crate::engine::{row_dot_fixed, silu_fixed};
+    use crate::learn::solve::chol::{chol_solve, SolveError};
+    use crate::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+    use crate::learn::solve::syrk::hadamard_into;
+    use std::time::Instant;
+
+    /// The K5 candidate's limb count: 8 (7-bit limbs, 56 bits) carries the fitted `< 2³⁶`
+    /// operands exactly. The production call site keeps the exact bodies: this port is slower at
+    /// the group shape.
+    const PORT_LIMBS: u32 = 8;
+
+    fn port_product(
+        a: &[i64],
+        b: &[i64],
+        m: usize,
+        k: usize,
+        n: usize,
+        nt: bool,
+    ) -> Result<Vec<i64>, ResqError> {
+        let ((pa, ka), (pb, kb)) = (fit(a)?, fit(b)?);
+        let c = if nt {
+            gemm_q32(&pa, m, &pb, n, k, PORT_LIMBS)
+        } else {
+            let bt = transpose(&pb, k, n);
+            gemm_q32(&pa, m, &bt, n, k, PORT_LIMBS)
+        };
+        unfix(&c.map_err(|_| ResqError::Overflow)?, ka + kb)
+    }
+
+    fn port_gram(x: &[i64], o: usize, n: usize) -> Result<Vec<i64>, ResqError> {
+        let (xs, k) = fit(x)?;
+        let xt = transpose(&xs, o, n);
+        let g = syrk_q32(&xt, n, o, PORT_LIMBS).map_err(|_| ResqError::Overflow)?;
+        unfix(&g, 2 * k)
+    }
+
+    fn port_project(
+        slab: &[i64],
+        rows: usize,
+        n: usize,
+        inter: usize,
+        wg: &[i64],
+        wu: &[i64],
+    ) -> Result<Vec<i64>, ResqError> {
+        let gate = port_product(slab, wg, rows, n, inter, true)?;
+        let up = port_product(slab, wu, rows, n, inter, true)?;
+        let mut out = Vec::with_capacity(rows * inter);
+        for k in 0..rows * inter {
+            let s = silu_fixed(gate[k]).map_err(|_| ResqError::Overflow)?;
+            out.push(mul_q32(s, up[k])?);
+        }
+        Ok(out)
+    }
+
+    /// [`resq_solve`]'s body with the limb products; the ridge and `Cholesky` solve are the live
+    /// exact bodies.
+    fn port_resq_solve(inputs: &ResqInputs<'_>) -> Result<ResqSolution, ResqError> {
+        let (n, inter, hidden) = (inputs.n, inputs.inter, inputs.hidden);
+        if n == 0 || inter == 0 || hidden == 0 {
+            return Err(ResqError::Empty);
+        }
+        let inter_n = inter.checked_mul(n).ok_or(ResqError::ShapeMismatch)?;
+        let hidden_inter = hidden.checked_mul(inter).ok_or(ResqError::ShapeMismatch)?;
+        let inter2 = inter.checked_mul(inter).ok_or(ResqError::ShapeMismatch)?;
+        if inputs.w_g0.len() != inter_n
+            || inputs.w_u0.len() != inter_n
+            || inputs.wq_g.len() != inter_n
+            || inputs.wq_u.len() != inter_n
+        {
+            return Err(ResqError::ShapeMismatch);
+        }
+        if inputs.w_down.len() != hidden_inter {
+            return Err(ResqError::ShapeMismatch);
+        }
+        for slab in inputs.x_slabs {
+            if slab.len() % n != 0 {
+                return Err(ResqError::ShapeMismatch);
+            }
+        }
+        let (down, g0, u0, qg, qu) = (
+            inputs.w_down,
+            inputs.w_g0,
+            inputs.w_u0,
+            inputs.wq_g,
+            inputs.wq_u,
+        );
+        let g = port_gram(down, hidden, inter)?;
+        let mut p_mat = vec![0_i64; inter2];
+        let mut c_mat = vec![0_i64; inter2];
+        for slab in inputs.x_slabs {
+            let rows = slab.len() / n;
+            if rows == 0 {
+                continue;
+            }
+            let p0 = port_project(slab, rows, n, inter, g0, u0)?;
+            let pq = port_project(slab, rows, n, inter, qg, qu)?;
+            let pp = port_gram(&pq, rows, inter)?;
+            let pqt = transpose(&pq, rows, inter);
+            let pc = port_product(&pqt, &p0, inter, rows, inter, false)?;
+            for idx in 0..inter2 {
+                p_mat[idx] = p_mat[idx].checked_add(pp[idx]).ok_or(ResqError::Overflow)?;
+                c_mat[idx] = c_mat[idx].checked_add(pc[idx]).ok_or(ResqError::Overflow)?;
+            }
+        }
+        let mut gop = g.clone();
+        hadamard_into(&mut gop, &p_mat).map_err(|_| ResqError::Overflow)?;
+        let mut goc = g;
+        hadamard_into(&mut goc, &c_mat).map_err(|_| ResqError::Overflow)?;
+        let ones = vec![ONE; inter];
+        let mut rhs = vec![0_i64; inter];
+        let mut diag_sum: i128 = 0;
+        for i in 0..inter {
+            rhs[i] = row_dot_fixed(&goc[i * inter..(i + 1) * inter], &ones)
+                .map_err(|_| ResqError::Overflow)?;
+            diag_sum = diag_sum
+                .checked_add(i128::from(gop[i * inter + i]))
+                .ok_or(ResqError::Overflow)?;
+        }
+        let mean = div_q32(
+            diag_sum,
+            i64::try_from(inter).map_err(|_| ResqError::Overflow)?,
+        )
+        .ok_or(ResqError::Overflow)?;
+        let lam = div_q32(i128::from(mean.max(0)), 20).ok_or(ResqError::Overflow)?;
+        for i in 0..inter {
+            gop[i * inter + i] = gop[i * inter + i]
+                .checked_add(lam)
+                .ok_or(ResqError::Overflow)?;
+            rhs[i] = rhs[i].checked_add(lam).ok_or(ResqError::Overflow)?;
+        }
+        let solved = chol_solve(&gop, &rhs, inter, 1).map_err(|e| match e {
+            SolveError::NotPositiveDefinite | SolveError::NonPositiveDiagonal => {
+                ResqError::NotPositiveDefinite
+            }
+            SolveError::Overflow => ResqError::Overflow,
+            SolveError::ShapeMismatch | SolveError::Empty => ResqError::ShapeMismatch,
+        })?;
+        let half = ONE / 2;
+        let twice = 2 * ONE;
+        Ok(ResqSolution {
+            gop,
+            rhs,
+            lam,
+            s_raw: solved.x.clone(),
+            s_clamped: solved.x.iter().map(|&v| v.clamp(half, twice)).collect(),
+        })
+    }
+
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> f64 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            ((x >> 11) as f64 / 9_007_199_254_740_992.0) * 2.0 - 1.0
+        }
+    }
+
+    fn matrix(rng: &mut Rng, r: usize, c: usize) -> Vec<i64> {
+        (0..r * c)
+            .map(|_| to_grid(rng.next(), GRID_BOUND).expect("fixture on the grid"))
+            .collect()
+    }
+
+    fn scale(x: &[i64], k: f64) -> Vec<i64> {
+        x.iter()
+            .map(|&w| to_grid(k * from_grid(w), GRID_BOUND).expect("scaled fixture on the grid"))
+            .collect()
+    }
+
+    fn max_abs_diff(a: &[i64], b: &[i64]) -> u128 {
+        a.iter()
+            .zip(b)
+            .map(|(&x, &y)| (i128::from(x) - i128::from(y)).unsigned_abs())
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn mean(xs: &[f64]) -> f64 {
+        xs.iter().sum::<f64>() / xs.len() as f64
+    }
+
+    #[test]
+    #[ignore = "paired K5 receipt; run in release with --ignored"]
+    fn resq_call_site_k5() {
+        // One `up` plane's production group: 2 slabs x 128 rows at n=128, inter=16, hidden=8
+        // (the 2 seqs x t=128 shape the transfer runs).
+        const ROWS: usize = 128;
+        const N: usize = 128;
+        const INTER: usize = 16;
+        const HIDDEN: usize = 8;
+        const SLABS: usize = 2;
+        const RUNS: usize = 5;
+
+        let mut rng = Rng(0x5e51_0001);
+        let xs: Vec<Vec<i64>> = (0..SLABS).map(|_| matrix(&mut rng, ROWS, N)).collect();
+        let w_g0 = matrix(&mut rng, INTER, N);
+        let w_u0 = matrix(&mut rng, INTER, N);
+        let w_down = matrix(&mut rng, HIDDEN, INTER);
+        let wq_g = w_g0.clone();
+        let wq_u = scale(&w_u0, 0.5);
+        let slabs: Vec<&[i64]> = xs.iter().map(std::vec::Vec::as_slice).collect();
+        let inputs = ResqInputs {
+            x_slabs: &slabs,
+            n: N,
+            w_g0: &w_g0,
+            w_u0: &w_u0,
+            wq_g: &wq_g,
+            wq_u: &wq_u,
+            w_down: &w_down,
+            inter: INTER,
+            hidden: HIDDEN,
+        };
+
+        let want = resq_solve(&inputs).expect("exact solve");
+        let got = port_resq_solve(&inputs).expect("limb solve");
+
+        assert_eq!(got.gop, want.gop, "8-limb gop differs from the exact body");
+        assert_eq!(got.rhs, want.rhs, "8-limb rhs differs from the exact body");
+        assert_eq!(got.lam, want.lam, "8-limb lam differs");
+        assert_eq!(got.s_raw, want.s_raw, "8-limb s_raw differs");
+        assert_eq!(got.s_clamped, want.s_clamped, "8-limb s_clamped differs");
+
+        // The K3 default 3: fewer digits than the fitted 36-bit operand cannot reproduce the exact
+        // Gram, so the 8-limb candidate is the one the held-out bound needs.
+        let (xs0, k0) = fit(&xs[0]).expect("fit");
+        let xt0 = transpose(&xs0, ROWS, N);
+        let p3 = syrk_q32(&xt0, N, ROWS, 3).expect("3-limb syrk");
+        let p3 = unfix(&p3, 2 * k0).expect("unfix");
+        let exact_pp = gram(&xs[0], ROWS, N).expect("exact gram");
+        let e3 = max_abs_diff(&p3, &exact_pp);
+        assert!(
+            e3 > 0,
+            "the 3-limb control is not distinguishable from exact"
+        );
+
+        let mut te = Vec::with_capacity(RUNS);
+        let mut tp = Vec::with_capacity(RUNS);
+        for _ in 0..RUNS {
+            let t = Instant::now();
+            let _ = resq_solve(&inputs).expect("exact solve");
+            te.push(t.elapsed().as_secs_f64());
+            let t = Instant::now();
+            let _ = port_resq_solve(&inputs).expect("limb solve");
+            tp.push(t.elapsed().as_secs_f64());
+        }
+        let (me, mp) = (mean(&te), mean(&tp));
+        let spread = |xs: &[f64]| {
+            (
+                xs.iter().copied().fold(f64::INFINITY, f64::min),
+                xs.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+            )
+        };
+        let (lo_e, hi_e) = spread(&te);
+        let (lo_p, hi_p) = spread(&tp);
+        println!(
+            "resq K5 production shape: {SLABS}x{ROWS} rows, n={N}, inter={INTER}, hidden={HIDDEN}, \
+             limbs={PORT_LIMBS}"
+        );
+        println!(
+            "exact mean {:.3} ms (spread {:.3}-{:.3} ms)",
+            me * 1e3,
+            lo_e * 1e3,
+            hi_e * 1e3
+        );
+        println!(
+            "limb  mean {:.3} ms (spread {:.3}-{:.3} ms)",
+            mp * 1e3,
+            lo_p * 1e3,
+            hi_p * 1e3
+        );
+        println!("ratio {:.3}x (limb/exact)", mp / me);
+        println!("8-limb per-entry error vs exact: 0 words (bit-identical)");
+        println!("3-limb Gram max |diff|: {e3} words");
+        assert!(
+            mp < me,
+            "K5: the limb port is slower than the exact body: {:.3}x (limb {:.3} ms vs exact \
+             {:.3} ms)",
+            mp / me,
+            mp * 1e3,
+            me * 1e3
+        );
+    }
+}
