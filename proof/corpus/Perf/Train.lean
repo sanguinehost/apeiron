@@ -209,4 +209,22 @@ def rmsnormFwdReads (t w : Nat) : Nat := 2 * t * w + w
 /-- The P98 cost identity in the expanded form as defined above. -/
 theorem rmsnormFwdReads_eq (t w : Nat) : rmsnormFwdReads t w = 2 * t * w + w := rfl
 
+/-- Words read and written by one `rope_fwd` dispatch at `t` rows, `nh` heads and head width
+    `hd`: each of the `t·nh·hd/2` threads reads two words of `x` and one `cos` and one `sin`
+    word, and writes two words of `out` — `x` and `out` are `t·nh·hd` words each and the two
+    half-tables `t·hd/2` each. -/
+def ropeFwdReads (t nh hd : Nat) : Nat := 2 * t * nh * hd + t * hd
+
+/-- The P100 forward cost equation: `2·t·nh·hd + t·hd` words. -/
+theorem ropeFwdReads_eq (t nh hd : Nat) :
+    ropeFwdReads t nh hd = 2 * t * nh * hd + t * hd := rfl
+
+/-- Words read and written by one `rope_bwd` dispatch (a second definition, the same count: the
+    adjoint reads `dy` and the two half-tables and writes `dx`, one word per component). -/
+def ropeBwdReads (t nh hd : Nat) : Nat := 2 * t * nh * hd + t * hd
+
+/-- The P100 adjoint cost equation: `2·t·nh·hd + t·hd` words. -/
+theorem ropeBwdReads_eq (t nh hd : Nat) :
+    ropeBwdReads t nh hd = 2 * t * nh * hd + t * hd := rfl
+
 end Perf.Train
