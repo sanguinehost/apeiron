@@ -108,4 +108,11 @@ def denseBwdTiledReads (t i o : Nat) : Nat := t * o * (i / 16) + o * i * (t / 16
 theorem denseBwdTiledReads_eq (t i o : Nat) :
     denseBwdTiledReads t i o = t * o * (i / 16) + o * i * (t / 16) + t * i := rfl
 
+/-- Words read by one `adam_update` dispatch at `n` elements: `p`, `g`, `m`, `v` read and `p`,
+    `m`, `v` written, seven words per element. -/
+def adamUpdateReads (n : Nat) : Nat := 7 * n
+
+/-- The P91 cost equation: `7·n` words. -/
+theorem adamUpdateReads_eq (n : Nat) : adamUpdateReads n = 7 * n := rfl
+
 end Perf.Train

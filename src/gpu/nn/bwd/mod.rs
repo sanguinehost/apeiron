@@ -4,4 +4,6 @@
 //! backward live in the sibling modules whose kernels they invert.
 
 pub mod lin;
+pub mod opt;
 pub use lin::*;
+pub use opt::*;
