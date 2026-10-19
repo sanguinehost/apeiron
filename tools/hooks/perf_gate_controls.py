@@ -23,8 +23,9 @@ file move forces and nothing else:
   * the module/path token substitutions of the staged rename map (``crate::simt``
     -> ``crate::gpu::simt``, ``src/spirv`` -> ``src/gpu/spirv``, from the actual
     ``src/{ => gpu}/simt`` and ``src/{ => gpu}/spirv`` renames);
-  * ``pub(super)`` -> ``pub(crate)``, the visibility widening one directory deeper
-    forces;
+  * visibility qualifiers (``pub``, ``pub(crate)``, ``pub(super)``,
+    ``pub(in ...)``), which cannot change an emitted kernel's cost; this subsumes
+    the ``pub(super)`` -> ``pub(crate)`` widening a file move forces;
   * the leading ``../`` depth of an ``include_bytes!``/``include_str!`` path,
     which is relative to the moved file;
   * whitespace, line breaks and commas; and
@@ -213,7 +214,7 @@ WIRING = re.compile(
     r"^(?:#!?\[|use\b|pub\s+use\b|pub\([^)]*\)\s+use\b|mod\b|pub\s+mod\b|"
     r"pub\([^)]*\)\s+mod\b|extern\s+crate\b)"
 )
-VISIBILITY = re.compile(r"pub\s*\(\s*super\s*\)")
+VISIBILITY = re.compile(r"\bpub\s*(?:\([^)]*\))?")
 INCLUDE = re.compile(r'((?:include_bytes!|include_str!)\s*\(\s*")(?:\.\./)+')
 TOKEN = re.compile(r"[A-Za-z0-9_]+|[^\sA-Za-z0-9_]")
 
@@ -233,7 +234,7 @@ def code_tokens(data, normalise):
         text = line.strip()
         if not text or text.startswith("//") or WIRING.match(text):
             continue
-        text = VISIBILITY.sub("pub(crate)", text)
+        text = VISIBILITY.sub("", text)
         text = INCLUDE.sub(r"\1", text)
         text = normalise(text)
         tokens.extend(t for t in TOKEN.findall(text) if t != ",")
@@ -417,7 +418,7 @@ def _write(path, text):
 def build_repo(path):
     _write(
         path / "src" / "gpu" / "nn" / "norm.rs",
-        "use crate::simt::Carrier;\n\nconst N: u32 = 4;\n",
+        "use crate::simt::Carrier;\n\nconst N: u32 = 4;\n\nfn helper() -> u32 { N }\n",
     )
     _write(path / "src" / "simt" / "mod.rs", "pub struct Carrier;\n")
     _write(path / "docs" / "evidence" / "perf-predictions.md", BASE_PERF_TABLE)
@@ -485,14 +486,32 @@ def _move_simt(repo, body):
 
 def case_path_rewrite_only(repo):
     return _move_simt(
-        repo, "use crate::gpu::simt::Carrier;\n\nconst N: u32 = 4;\n"
+        repo,
+        "use crate::gpu::simt::Carrier;\n\nconst N: u32 = 4;\n\nfn helper() -> u32 { N }\n",
     )
 
 
 def case_neg_path_rewrite_plus_code(repo):
     return _move_simt(
-        repo, "use crate::gpu::simt::Carrier;\n\nconst N: u32 = 8;\n"
+        repo,
+        "use crate::gpu::simt::Carrier;\n\nconst N: u32 = 8;\n\nfn helper() -> u32 { N }\n",
     )
+
+
+def case_visibility_only(repo):
+    (repo / "src" / "gpu" / "nn" / "norm.rs").write_text(
+        "use crate::simt::Carrier;\n\nconst N: u32 = 4;\n\npub(crate) fn helper() -> u32 { N }\n",
+        encoding="utf-8",
+    )
+    return _stage(repo)
+
+
+def case_neg_visibility_plus_code(repo):
+    (repo / "src" / "gpu" / "nn" / "norm.rs").write_text(
+        "use crate::simt::Carrier;\n\nconst N: u32 = 4;\n\npub(crate) fn helper() -> u32 { N + 1 }\n",
+        encoding="utf-8",
+    )
+    return _stage(repo)
 
 
 def case_neg_a_perf_only(repo):
@@ -576,6 +595,18 @@ CASES = (
     (
         "negative f: path rewrite plus one changed token -> refuse",
         case_neg_path_rewrite_plus_code,
+        1,
+        ("adds no P-row",),
+    ),
+    (
+        "visibility-only change in a perf path -> skip",
+        case_visibility_only,
+        0,
+        ("SKIP",),
+    ),
+    (
+        "negative g: visibility plus one cost token -> refuse",
+        case_neg_visibility_plus_code,
         1,
         ("adds no P-row",),
     ),

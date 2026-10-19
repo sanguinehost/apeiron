@@ -249,6 +249,7 @@ $REPO_DIR/src/gpu/simt/mod.rs
 $REPO_DIR/src/gpu/nn/mod.rs
 $REPO_DIR/src/gpu/nn/glue.rs
 $EXTRACT_DIR/ports/gpu_port.rs
+$EXTRACT_DIR/ports/gpu_nn_port.rs
 $REPO_DIR/src/learn/fold/layer/mod.rs
 $REPO_DIR/src/learn/fold/layer/driver.rs
 $REPO_DIR/src/learn/fold/layer/tensor.rs
@@ -803,6 +804,33 @@ run_extract() {
         --start-from crate::gpu_port::word_gpu_add_inplace_module \
         --start-from crate::gpu_port::word_gpu_commit_advance_module \
         --start-from crate::gpu_port::word_gpu_copy_vec_module \
+        --start-from crate::gpu_nn_port::word_gpu_kb_ensure_f16 \
+        --start-from crate::gpu_nn_port::word_gpu_kb_ssbo_f16 \
+        --start-from crate::gpu_nn_port::word_gpu_kb_load_f16 \
+        --start-from crate::gpu_nn_port::word_gpu_kb_store_f16 \
+        --start-from crate::gpu_nn_port::word_gpu_kb_fvar \
+        --start-from crate::gpu_nn_port::word_gpu_kb_fvar_f \
+        --start-from crate::gpu_nn_port::word_gpu_kb_fvar_u \
+        --start-from crate::gpu_nn_port::word_gpu_kb_load_var_f \
+        --start-from crate::gpu_nn_port::word_gpu_kb_load_var_u \
+        --start-from crate::gpu_nn_port::word_gpu_kb_store_var \
+        --start-from crate::gpu_nn_port::word_gpu_kb_sint_ty \
+        --start-from crate::gpu_nn_port::word_gpu_kb_mandala \
+        --start-from crate::gpu_nn_port::word_gpu_kb_fsub \
+        --start-from crate::gpu_nn_port::word_gpu_kb_fma \
+        --start-from crate::gpu_nn_port::word_gpu_kb_utof \
+        --start-from crate::gpu_nn_port::word_gpu_kb_ext2 \
+        --start-from crate::gpu_nn_port::word_gpu_kb_umin \
+        --start-from crate::gpu_nn_port::word_gpu_kb_loop_u \
+        --start-from crate::gpu_nn_port::word_gpu_kb_fold_bias_store \
+        --start-from crate::gpu_nn_port::word_gpu_kb_shared_f32 \
+        --start-from crate::gpu_nn_port::word_gpu_kb_shared_load \
+        --start-from crate::gpu_nn_port::word_gpu_kb_shared_store \
+        --start-from crate::gpu_nn_port::word_gpu_kb_wg_barrier \
+        --start-from crate::gpu_nn_port::word_gpu_kb_strided_idx \
+        --start-from crate::gpu_nn_port::word_gpu_kb_local_index \
+        --start-from crate::gpu_nn_port::word_gpu_bytes \
+        --start-from crate::gpu_nn_port::word_gpu_chart_scale_dm \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \

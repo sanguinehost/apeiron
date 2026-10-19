@@ -320,7 +320,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/gpu/nn/mod.rs"
-unextracted = 36
+unextracted = 9
 row = "EXTRACT-COVERAGE"
 
 [[debt]]

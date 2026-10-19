@@ -190,7 +190,7 @@ fn lit_string(s: &str) -> Vec<u32> {
 /// its ids by hand (it mirrors song's ISA tables); a dozen glue kernels would breed id bugs that
 /// way, so these allocate — the assembled module is gated by `module walks` + spirv-val + the
 /// metal check, same as the hand-pinned ones.
-struct Kb {
+pub(crate) struct Kb {
     deco: Vec<u32>,
     tycon: Vec<u32>, // types, constants, global variables
     fvars: Vec<u32>, // function-scope OpVariables (spliced at the entry block's head)
@@ -228,7 +228,7 @@ struct Kb {
 }
 
 impl Kb {
-    fn new() -> Kb {
+    pub(crate) fn new() -> Kb {
         let mut k = Kb {
             deco: vec![],
             tycon: vec![],
@@ -319,7 +319,7 @@ impl Kb {
     }
     /// Lazily declare the f16 storage-buffer types (only kernels that use the KV cache get the
     /// `OpTypeFloat 16` + `StorageBuffer16BitAccess` — else spirv-val rejects the unused f16 type).
-    fn ensure_f16(&mut self) {
+    pub(crate) fn ensure_f16(&mut self) {
         if self.f16_storage {
             return;
         }
@@ -340,7 +340,7 @@ impl Kb {
         self.ptr_sb_buf_f16 = pbf16;
     }
     /// A binding to an f16 storage buffer (the KV cache) → `StorageBuffer16BitAccess`.
-    fn ssbo_f16(&mut self, binding: u32) -> u32 {
+    pub(crate) fn ssbo_f16(&mut self, binding: u32) -> u32 {
         self.ensure_f16();
         let pbf16 = self.ptr_sb_buf_f16;
         let id = self.id();
@@ -350,7 +350,7 @@ impl Kb {
         id
     }
     /// Load `buf[idx]` as f16, converted up to f32 for arithmetic.
-    fn load_f16(&mut self, buf: u32, idx: u32) -> u32 {
+    pub(crate) fn load_f16(&mut self, buf: u32, idx: u32) -> u32 {
         let (psf16, f16, f) = (self.ptr_sb_f16, self.float16, self.float);
         let c0 = self.cu(0);
         let p = self.e(OP_ACCESS_CHAIN, psf16, &[buf, c0, idx]);
@@ -358,7 +358,7 @@ impl Kb {
         self.e(OP_FCONVERT, f, &[h])
     }
     /// Store f32 `val` as f16 into `buf[idx]`.
-    fn store_f16(&mut self, buf: u32, idx: u32, val: u32) {
+    pub(crate) fn store_f16(&mut self, buf: u32, idx: u32, val: u32) {
         let (psf16, f16) = (self.ptr_sb_f16, self.float16);
         let c0 = self.cu(0);
         let p = self.e(OP_ACCESS_CHAIN, psf16, &[buf, c0, idx]);
@@ -460,29 +460,29 @@ impl Kb {
         self.deco(&[OP_DECORATE, var, DEC_BINDING, binding]);
         var
     }
-    fn fvar(&mut self, ptr_ty: u32) -> u32 {
+    pub(crate) fn fvar(&mut self, ptr_ty: u32) -> u32 {
         let v = self.id();
         self.fvars.push((4 << 16) | OP_VARIABLE);
         push_all(&mut self.fvars, &[ptr_ty, v, SC_FUNCTION]);
         v
     }
-    fn fvar_f(&mut self) -> u32 {
+    pub(crate) fn fvar_f(&mut self) -> u32 {
         let t = self.ptr_fn_f;
         self.fvar(t)
     }
-    fn fvar_u(&mut self) -> u32 {
+    pub(crate) fn fvar_u(&mut self) -> u32 {
         let t = self.ptr_fn_u;
         self.fvar(t)
     }
-    fn load_var_f(&mut self, var: u32) -> u32 {
+    pub(crate) fn load_var_f(&mut self, var: u32) -> u32 {
         let f = self.float;
         self.e(OP_LOAD, f, &[var])
     }
-    fn load_var_u(&mut self, var: u32) -> u32 {
+    pub(crate) fn load_var_u(&mut self, var: u32) -> u32 {
         let u = self.uint;
         self.e(OP_LOAD, u, &[var])
     }
-    fn store_var(&mut self, var: u32, val: u32) {
+    pub(crate) fn store_var(&mut self, var: u32, val: u32) {
         self.ins(OP_STORE, &[var, val]);
     }
     /// `buf[idx]` load, f32 SSBO.
@@ -533,7 +533,7 @@ impl Kb {
     /// edge to walk off, so the vulnerability class is EMPTY rather than caught. `mask` must be
     /// `2^k − 1` for a region of `2^k` elements — the caller sizes the buffer to the power of two so
     /// the closure costs exactly the `andRR` the ISA already emits (song `emitMaskHeap`).
-    fn mandala(&mut self, idx: u32, mask: u32) -> u32 {
+    pub(crate) fn mandala(&mut self, idx: u32, mask: u32) -> u32 {
         let u = self.uint;
         let m = self.cu(mask);
         self.e(OP_BITWISE_AND, u, &[idx, m])
@@ -542,7 +542,7 @@ impl Kb {
         let f = self.float;
         self.e(OP_FADD, f, &[a, b])
     }
-    fn fsub(&mut self, a: u32, b: u32) -> u32 {
+    pub(crate) fn fsub(&mut self, a: u32, b: u32) -> u32 {
         let f = self.float;
         self.e(OP_FSUB, f, &[a, b])
     }
@@ -553,7 +553,7 @@ impl Kb {
     /// `fma(a, b, c) = a·b + c` with a single rounding (`GLSL.std.450 Fma`, enumerant 50). Emitted
     /// where the driver would otherwise contract the multiply into the add on one arm but not
     /// another; the explicit form pins the f32 value on both.
-    fn fma(&mut self, a: u32, b: u32, c: u32) -> u32 {
+    pub(crate) fn fma(&mut self, a: u32, b: u32, c: u32) -> u32 {
         let (f, g) = (self.float, self.glsl);
         self.e(OP_EXT_INST, f, &[g, GLSL_FMA, a, b, c])
     }
@@ -565,7 +565,7 @@ impl Kb {
         let b_t = self.bool_t;
         self.e(OP_ULESS_THAN, b_t, &[a, b])
     }
-    fn utof(&mut self, a: u32) -> u32 {
+    pub(crate) fn utof(&mut self, a: u32) -> u32 {
         let f = self.float;
         self.e(OP_CONVERT_U_TO_F, f, &[a])
     }
@@ -574,13 +574,13 @@ impl Kb {
         let (f, g) = (self.float, self.glsl);
         self.e(OP_EXT_INST, f, &[g, inst, x])
     }
-    fn ext2(&mut self, inst: u32, x: u32, y: u32) -> u32 {
+    pub(crate) fn ext2(&mut self, inst: u32, x: u32, y: u32) -> u32 {
         let (f, g) = (self.float, self.glsl);
         self.e(OP_EXT_INST, f, &[g, inst, x, y])
     }
     /// `min(a, b)` on **uint** — the ring closure for a fold whose last petal is partial. Unlike
     /// [`Kb::ext2`] the result type is the integer, so it can bound a loop counter.
-    fn umin(&mut self, a: u32, b: u32) -> u32 {
+    pub(crate) fn umin(&mut self, a: u32, b: u32) -> u32 {
         let (u, g) = (self.uint, self.glsl);
         self.e(OP_EXT_INST, u, &[g, GLSL_UMIN, a, b])
     }
@@ -602,7 +602,7 @@ impl Kb {
     }
     /// `for c in start..bound { body(self, c) }` — a structured loop; `c` is the loaded counter.
     /// Closure and receiver threaded as in [`Kb::iff`].
-    fn loop_u(&mut self, start: u32, bound: u32, body: impl FnOnce(Kb, u32) -> Kb) {
+    pub(crate) fn loop_u(&mut self, start: u32, bound: u32, body: impl FnOnce(Kb, u32) -> Kb) {
         let ctr = self.fvar_u();
         self.store_var(ctr, start);
         let (hdr, chk, bod, cont, merge) = (self.id(), self.id(), self.id(), self.id(), self.id());
@@ -630,7 +630,7 @@ impl Kb {
     /// prologue instead of its own dispatch. The summation walks `s` ascending, which is exactly the
     /// order the `gemv_bytes(m, segs, …, F32)` stage-2 gemv folds in (`Σ_j partials[j·m+r]·ones[j]`,
     /// `ones ≡ 1`), so the f32 association is unchanged and the result is bit-identical.
-    fn fold_bias_store(
+    pub(crate) fn fold_bias_store(
         &mut self,
         src: u32,
         bias: Option<u32>,
@@ -789,7 +789,7 @@ fn push_all(dst: &mut Vec<u32>, xs: &[u32]) {
     }
 }
 
-fn bytes(words: Vec<u32>) -> Vec<u8> {
+pub(crate) fn bytes(words: Vec<u32>) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::new();
     let mut i = 0;
     while i < words.len() {
@@ -816,7 +816,7 @@ const GLSL_FMAX2: u32 = 40;
 
 impl Kb {
     /// The signed i32 type, created on first use.
-    fn sint_ty(&mut self) -> u32 {
+    pub(crate) fn sint_ty(&mut self) -> u32 {
         let mut i = 0;
         let mut hit: Option<u32> = None;
         while i < self.ucache.len() {
@@ -855,7 +855,7 @@ enum NormOut {
 
 impl Kb {
     /// A Workgroup-scope shared f32 array of `len`; returns (var id, element ptr type id).
-    fn shared_f32(&mut self, len: u32) -> (u32, u32) {
+    pub(crate) fn shared_f32(&mut self, len: u32) -> (u32, u32) {
         let clen = self.cu(len);
         let (arr, ptr_arr, var, ptr_el) = (self.id(), self.id(), self.id(), self.id());
         let f = self.float;
@@ -865,23 +865,23 @@ impl Kb {
         self.ty(OP_TYPE_POINTER, &[ptr_el, SC_WORKGROUP, f]);
         (var, ptr_el)
     }
-    fn shared_load(&mut self, var: u32, ptr_el: u32, idx: u32) -> u32 {
+    pub(crate) fn shared_load(&mut self, var: u32, ptr_el: u32, idx: u32) -> u32 {
         let f = self.float;
         let p = self.e(OP_ACCESS_CHAIN, ptr_el, &[var, idx]);
         self.e(OP_LOAD, f, &[p])
     }
-    fn shared_store(&mut self, var: u32, ptr_el: u32, idx: u32, val: u32) {
+    pub(crate) fn shared_store(&mut self, var: u32, ptr_el: u32, idx: u32, val: u32) {
         let p = self.e(OP_ACCESS_CHAIN, ptr_el, &[var, idx]);
         self.ins(OP_STORE, &[p, val]);
     }
     /// OpControlBarrier at Workgroup scope, acquire-release on workgroup memory.
-    fn wg_barrier(&mut self) {
+    pub(crate) fn wg_barrier(&mut self) {
         let sc = self.cu(SCOPE_WORKGROUP);
         let sem = self.cu(SEM_WG_ACQREL);
         self.ins(OP_CONTROL_BARRIER, &[sc, sc, sem]);
     }
     /// `tid + t·wg` as an id (`t == 0` is `tid`).
-    fn strided_idx(&mut self, tid: u32, t: u32, wg: u32) -> u32 {
+    pub(crate) fn strided_idx(&mut self, tid: u32, t: u32, wg: u32) -> u32 {
         if t == 0 {
             return tid;
         }
@@ -1451,7 +1451,7 @@ const BUILTIN_LOCAL_INVOCATION_INDEX: u32 = 29;
 
 impl Kb {
     /// The `LocalInvocationIndex` builtin (the flattened lane id within a workgroup), lazily made.
-    fn local_index(&mut self) -> u32 {
+    pub(crate) fn local_index(&mut self) -> u32 {
         if self.lii == 0 {
             let ptr_in_u = self.id();
             let u = self.uint;
