@@ -250,6 +250,8 @@ $REPO_DIR/src/gpu/nn/mod.rs
 $REPO_DIR/src/gpu/nn/glue.rs
 $EXTRACT_DIR/ports/gpu_port.rs
 $EXTRACT_DIR/ports/gpu_nn_port.rs
+$REPO_DIR/src/gpu/runtime.rs
+$EXTRACT_DIR/ports/gpu_runtime_port.rs
 $REPO_DIR/src/learn/fold/layer/mod.rs
 $REPO_DIR/src/learn/fold/layer/driver.rs
 $REPO_DIR/src/learn/fold/layer/tensor.rs
@@ -831,6 +833,13 @@ run_extract() {
         --start-from crate::gpu_nn_port::word_gpu_kb_local_index \
         --start-from crate::gpu_nn_port::word_gpu_bytes \
         --start-from crate::gpu_nn_port::word_gpu_chart_scale_dm \
+        --start-from crate::gpu_runtime_port::word_gpu_runtime_stage_align \
+        --start-from crate::gpu_runtime_port::word_gpu_runtime_stage_fit \
+        --start-from crate::gpu_runtime_port::word_gpu_runtime_stage_region \
+        --start-from crate::gpu_runtime_port::word_gpu_runtime_scatter_src \
+        --start-from crate::gpu_runtime_port::word_gpu_runtime_binds_exactly \
+        --start-from crate::gpu_runtime_port::word_gpu_runtime_write_chunk \
+        --start-from crate::gpu_runtime_port::word_gpu_runtime_bar_emits \
         -- \
         --manifest-path "$EXTRACT_DIR/Cargo.toml" \
         --locked \

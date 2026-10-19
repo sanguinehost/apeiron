@@ -100,6 +100,7 @@ import Numeric.Quantum.BranchQuantization
 import Numeric.Quantum.PathDensity
 import Perf.QuantumRotation
 import Perf.SpecDraftKL
+import Perf.Handoff
 import Perf.Train
 import Numeric.Quantum.Ledger.FaceShift
 import Numeric.Quantum.Ledger.AmplitudeKL
@@ -1431,6 +1432,9 @@ import Gpu.Handoff
 #audit Perf.SpecDraftKL.verify_best_k
 #audit Perf.SpecDraftKL.spec27b_cpu
 #audit Perf.Train.rmsnormBwdBytes_eq
+#audit Perf.Handoff.align256_eq
+#audit Perf.Handoff.writeChunk_le_cap
+#audit Perf.Handoff.writeChunk_le_remaining
 #audit apeiron_word.RegisterRefinement.checked_mul_spec
 #audit apeiron_word.RegisterRefinement.checked_mul_none
 #audit apeiron_word.RegisterRefinement.checked_mul_none_of_a

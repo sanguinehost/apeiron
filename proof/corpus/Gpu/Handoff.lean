@@ -11,19 +11,23 @@ halves of that layer.
 * The **handoff**: the pure arithmetic and list structure of the runtime — binding order,
   staging offsets and 256-byte alignment, uploads before dispatches, one submit per command
   buffer, a memory barrier between consecutive dispatches, and region containment for `scatter`.
-  These are proved from definitions that mirror the Rust bodies. The Rust wiring that calls the
-  extracted `word_gpu_runtime_*` roots is not installed yet: it waits on a completed
-  regeneration, so this file is a standalone model of the current `src/gpu/runtime.rs` and
-  claims no extraction link until that patch lands.
+  These are proved from definitions that mirror the Rust bodies. The `word_gpu_runtime_*` roots
+  of `src/gpu/runtime.rs` are in `ApeironWord`, and the executing Vulkan path calls the same pure
+  functions: `stage_fit`, `scatter_src` and `stage_align` in `Gpu::scatter`/`staged_dispatch`,
+  `stage_region` in `Gpu::write`/`staged_dispatch`, `write_chunk` in `Gpu::write`,
+  `binds_exactly` in `Gpu::bind`, `bar_emits` in `Gpu::step_barrier`. The model's statements are
+  therefore about the functions the runtime executes. A refinement theorem equating each
+  extracted `word_gpu_runtime_*` body to the definition below is not yet written; it is the open
+  obligation this file names.
 * The **Vulkan operating contract** (`VulkanContract`): four obligations a conforming driver
   supplies. They are hypotheses over an abstract `System`, not axioms; the handoff theorems do
   not depend on them, and the one composition theorem below consumes them explicitly.
 
 Nothing here claims the driver, the SPIR-V kernels, rustc/LLVM codegen or the `unsafe`
-container. The arithmetic is graded `proved` for its Lean statements only; the current Rust
-bodies are graded `tested` by the crate's tests, and no refinement theorem connects the two
-until the extraction patch lands. `import ApeironWord` is the corpus reachability edge the
-structure gate requires; no statement below uses an extracted definition yet.
+container. The arithmetic is graded `proved` for its Lean statements only; the Rust bodies are
+graded `tested` by the crate's tests, and the refinement theorem that would connect the two is
+open. `import ApeironWord` is the corpus reachability edge the structure gate requires; no
+statement below uses an extracted definition.
 
 Board row: `apeiron-gpu-handoff-w1-E07GEZ6NatfOs4dGjhJl3c`.
 -/

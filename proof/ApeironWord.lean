@@ -68907,6 +68907,60 @@ def gpu.nn.Kb.local_index
   let s ← lift (Array.to_slice (Array.make 1#usize [ self1.lii ]))
   gpu.nn.Kb.e self1 gpu.nn.OP_LOAD self1.uint s
 
+/-- [apeiron_word::gpu::runtime::stage_align]:
+    Source: '../../src/gpu/runtime.rs', lines 28:0-30:1 -/
+def gpu.runtime.stage_align (n : Std.Usize) : Result Std.Usize := do
+  let i ← n + 255#usize
+  let i1 ← lift (~~~ 255#usize)
+  ok (i &&& i1)
+
+/-- [apeiron_word::gpu::runtime::stage_fit]:
+    Source: '../../src/gpu/runtime.rs', lines 34:0-36:1 -/
+def gpu.runtime.stage_fit
+  (off : Std.Usize) (len : Std.Usize) (cap : Std.Usize) : Result Bool := do
+  let i ← off + len
+  ok (i <= cap)
+
+/-- [apeiron_word::gpu::runtime::stage_region]:
+    Source: '../../src/gpu/runtime.rs', lines 40:0-42:1 -/
+def gpu.runtime.stage_region
+  (off : Std.Usize) (len : Std.Usize) :
+  Result (Std.U64 × Std.U64 × Std.U64)
+  := do
+  let i ← lift (UScalar.cast .U64 off)
+  let i1 ← lift (UScalar.cast .U64 len)
+  ok (i, 0#u64, i1)
+
+/-- [apeiron_word::gpu::runtime::scatter_src]:
+    Source: '../../src/gpu/runtime.rs', lines 46:0-48:1 -/
+def gpu.runtime.scatter_src
+  (off : Std.Usize) (s : Std.U64) : Result Std.U64 := do
+  let i ← lift (UScalar.cast .U64 off)
+  i + s
+
+/-- [apeiron_word::gpu::runtime::binds_exactly]:
+    Source: '../../src/gpu/runtime.rs', lines 52:0-54:1 -/
+def gpu.runtime.binds_exactly
+  (n : Std.Usize) (bindings : Std.U32) : Result Bool := do
+  let i ← lift (UScalar.cast .Usize bindings)
+  ok (n = i)
+
+/-- [apeiron_word::gpu::runtime::write_chunk]:
+    Source: '../../src/gpu/runtime.rs', lines 58:0-65:1 -/
+def gpu.runtime.write_chunk
+  (done1 : Std.Usize) (bytes : Std.Usize) (cap : Std.Usize) :
+  Result Std.Usize
+  := do
+  let n ← bytes - done1
+  if n < cap
+  then ok n
+  else ok cap
+
+/-- [apeiron_word::gpu::runtime::bar_emits]:
+    Source: '../../src/gpu/runtime.rs', lines 69:0-71:1 -/
+def gpu.runtime.bar_emits (mode : Std.U32) : Result Bool := do
+  ok (mode != 9#u32)
+
 /-- [apeiron_word::spirv::check::HEADER_WORDS]
     Source: '../../src/gpu/spirv/check.rs', lines 34:0-34:30 -/
 @[global_simps, irreducible]
@@ -139941,6 +139995,59 @@ def gpu_port.word_gpu_commit_advance_module
 def gpu_port.word_gpu_copy_vec_module
   (n : Std.U32) (src_off : Std.U32) : Result (alloc.vec.Vec Std.U32) := do
   gpu.nn.glue.copy_vec_module n src_off
+
+/-- [apeiron_word::gpu_runtime_port::word_gpu_runtime_stage_align]:
+    Source: 'ports/gpu_runtime_port.rs', lines 12:0-14:1
+    Visibility: public -/
+def gpu_runtime_port.word_gpu_runtime_stage_align
+  (n : Std.Usize) : Result Std.Usize := do
+  gpu.runtime.stage_align n
+
+/-- [apeiron_word::gpu_runtime_port::word_gpu_runtime_stage_fit]:
+    Source: 'ports/gpu_runtime_port.rs', lines 17:0-19:1
+    Visibility: public -/
+def gpu_runtime_port.word_gpu_runtime_stage_fit
+  (off : Std.Usize) (len : Std.Usize) (cap : Std.Usize) : Result Bool := do
+  gpu.runtime.stage_fit off len cap
+
+/-- [apeiron_word::gpu_runtime_port::word_gpu_runtime_stage_region]:
+    Source: 'ports/gpu_runtime_port.rs', lines 22:0-24:1
+    Visibility: public -/
+def gpu_runtime_port.word_gpu_runtime_stage_region
+  (off : Std.Usize) (len : Std.Usize) :
+  Result (Std.U64 × Std.U64 × Std.U64)
+  := do
+  gpu.runtime.stage_region off len
+
+/-- [apeiron_word::gpu_runtime_port::word_gpu_runtime_scatter_src]:
+    Source: 'ports/gpu_runtime_port.rs', lines 27:0-29:1
+    Visibility: public -/
+def gpu_runtime_port.word_gpu_runtime_scatter_src
+  (off : Std.Usize) (s : Std.U64) : Result Std.U64 := do
+  gpu.runtime.scatter_src off s
+
+/-- [apeiron_word::gpu_runtime_port::word_gpu_runtime_binds_exactly]:
+    Source: 'ports/gpu_runtime_port.rs', lines 32:0-34:1
+    Visibility: public -/
+def gpu_runtime_port.word_gpu_runtime_binds_exactly
+  (n : Std.Usize) (bindings : Std.U32) : Result Bool := do
+  gpu.runtime.binds_exactly n bindings
+
+/-- [apeiron_word::gpu_runtime_port::word_gpu_runtime_write_chunk]:
+    Source: 'ports/gpu_runtime_port.rs', lines 37:0-39:1
+    Visibility: public -/
+def gpu_runtime_port.word_gpu_runtime_write_chunk
+  (done1 : Std.Usize) (bytes : Std.Usize) (cap : Std.Usize) :
+  Result Std.Usize
+  := do
+  gpu.runtime.write_chunk done1 bytes cap
+
+/-- [apeiron_word::gpu_runtime_port::word_gpu_runtime_bar_emits]:
+    Source: 'ports/gpu_runtime_port.rs', lines 42:0-44:1
+    Visibility: public -/
+def gpu_runtime_port.word_gpu_runtime_bar_emits
+  (mode : Std.U32) : Result Bool := do
+  gpu.runtime.bar_emits mode
 
 /-- [apeiron_word::limb_port::word_limb_gemm_q32]:
     Source: 'ports/limb_port.rs', lines 20:0-29:1

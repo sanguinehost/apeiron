@@ -36,7 +36,10 @@ pub mod spirv;
 
 #[cfg(feature = "gpu")]
 pub mod decode;
-#[cfg(feature = "gpu")]
+// `runtime` is declared unconditionally so the extraction unit compiles its pure handoff
+// arithmetic (`stage_align`, `stage_fit`, `stage_region`, `scatter_src`, `binds_exactly`,
+// `write_chunk`, `bar_emits`) without the `gpu` feature; the Vulkan half of the file is gated
+// inside it. See `proof/corpus/Gpu/Handoff.lean`.
 pub mod runtime;
 #[cfg(feature = "gpu")]
 pub mod vulkan;
