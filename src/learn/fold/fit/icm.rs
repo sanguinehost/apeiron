@@ -222,6 +222,12 @@ pub fn product_bound(inner: usize, max_a: f64, max_b: f64) -> f64 {
     b as f64 / 4_294_967_296.0
 }
 
+/// The row scale's constant products `(a², 2a)`, exact in `i128`.
+fn row_scale(a: i64) -> (i128, i128) {
+    let av = i128::from(a);
+    (av * av, av * 2)
+}
+
 /// The Q96.96 block cost `a²·q − 2·a·dot` (`dot` at Q32.32 from the kernel, lifted to Q64.64 by an
 /// exact shift), compared unrounded. `aa = a²` and `two_a = 2a` are the row scale's constant
 /// products, hoisted once per row-block.
@@ -950,7 +956,8 @@ fn j_rows_q(
 /// [`IcmError::Shape`] on a slice length that disagrees with `o`/`n`; [`IcmError::Width`] if `n` is not a positive multiple of [`BLOCK`] `*` [`GROUP`]; [`IcmError::Overflow`] off the grid.
 /// # Complexity
 /// `sweeps · (n/8) · O · (BLOCK² + CODE_LEN·(BLOCK+2) + [BLOCK·n] changed)` checked operations over
-/// the `n/8` independent blocks of each row, plus `O(o·n²)` setup for `Ws@Hl` and the transforms;
+/// the `n/8` independent blocks of each row, `O(sweeps·n²)` words copied for the block windows, plus
+/// `O(o·n²)` setup for `Ws@Hl` and the transforms;
 /// `O(n²)` for `H_rot`/`q_all` plus `O(o·n)`.
 pub fn e8_icm_step(
     ws: &[i64],
@@ -993,18 +1000,7 @@ pub fn e8_icm_step(
     let per = rows_per_task(o).max(1);
     // The kernel dispatches the engine pool itself, and a pool task must not dispatch on its own
     // pool, so the bands run on the caller: the products keep the pool, the per-row work is serial.
-    let mut row0 = 0usize;
-    while row0 < o {
-        let take = per.min(o - row0);
-        sweep_rows(
-            cx,
-            &mut f_res[row0 * n..(row0 + take) * n],
-            &mut s_cur[row0 * n..],
-            &mut idx_cur[row0 * nb..],
-            &p.r[row0 * g..(row0 + take) * g],
-        )?;
-        row0 += take;
-    }
+    sweep_blocks(cx, &mut f_res, &mut s_cur, &mut idx_cur, p.r, per)?;
     Ok(into_plane(&s_cur, idx_cur, p))
 }
 
@@ -1105,7 +1101,7 @@ fn flatten_codebook_q(cb: &[[i64; BLOCK]; CODE_LEN]) -> Vec<i64> {
     out
 }
 
-/// The read-only operands of [`sweep_rows`]. Passed by value: the pinned Aeneas refuses a shared
+/// The read-only operands of [`sweep_blocks`]. Passed by value: the pinned Aeneas refuses a shared
 /// reference to a struct holding a slice across the nested sweep loops (`Internal error`).
 #[derive(Clone, Copy)]
 struct SweepCtx<'a> {
@@ -1117,32 +1113,37 @@ struct SweepCtx<'a> {
     sweeps: usize,
 }
 
-/// One band of the single-plane sweep, every product on the limb kernel.
+/// The single-plane sweep: `sweeps` passes over the `n / 8` blocks (block order reversed on even
+/// sweeps), every product on the limb kernel. The sweep is block-outer and band-inner: the block's
+/// `BLOCK × n` transposed window is copied once per block and the row bands are walked inside it.
+/// Rows are independent — a row's residual and codes depend only on that row — so the row order is
+/// free and the fitted planes are bit-identical to the band-outer walk.
 ///
 /// # Complexity
-/// Per sweep, per block: one `rows × BLOCK × BLOCK` and one `rows × CODE_LEN × BLOCK` kernel product
-/// (`O(rows·(BLOCK² + CODE_LEN·BLOCK))` word multiply-adds times the limb pairs), the `CODE_LEN`-way
-/// argmin (`O(rows·CODE_LEN)` checked operations) and, only for the rows the block moved, one
-/// `moved × n × BLOCK` kernel product plus `n` elementwise products and subtractions per moved row.
-/// The block's `BLOCK × n` transposed window is copied once per block, not once per row. `O(rows·n)`
-/// for the band's block, code and difference buffers plus `O(BLOCK·n)` for the window.
-fn sweep_rows(
+/// Per sweep and block: one `O(BLOCK·n)` window copy, then per band one `rows × BLOCK × BLOCK` and
+/// one `rows × CODE_LEN × BLOCK` kernel product (`O(rows·(BLOCK² + CODE_LEN·BLOCK))` word
+/// multiply-adds times the limb pairs), the `CODE_LEN`-way argmin (`O(rows·CODE_LEN)` checked
+/// operations) and, only for the rows the block moved, one `moved × n × BLOCK` kernel product plus
+/// `n` elementwise products and subtractions per moved row. `O(per·BLOCK)` for the band's block,
+/// code and difference buffers plus `O(BLOCK·n)` for the window.
+fn sweep_blocks(
     cx: SweepCtx<'_>,
     f_res: &mut [i64],
     s_cur: &mut [i64],
     idx: &mut [u16],
     r: &[i64],
+    per: usize,
 ) -> Result<(), IcmError> {
-    let (n, nb) = (cx.n, cx.n / BLOCK);
-    let rows = r.len() / cx.g;
+    let (n, nb, g) = (cx.n, cx.n / BLOCK, cx.g);
+    let o = f_res.len() / n;
     let cbf = flatten_codebook_q(cx.cb);
-    let mut s_blk = vec![0_i64; rows * BLOCK];
-    let mut f_blk = vec![0_i64; rows * BLOCK];
-    let mut d_blk = vec![0_i64; rows * BLOCK];
-    let mut chg = vec![0_i64; rows * BLOCK];
+    let mut s_blk = vec![0_i64; per * BLOCK];
+    let mut f_blk = vec![0_i64; per * BLOCK];
+    let mut d_blk = vec![0_i64; per * BLOCK];
+    let mut chg = vec![0_i64; per * BLOCK];
     let mut cols = vec![0_i64; BLOCK * n];
-    let mut moved_row = vec![0_usize; rows];
-    let mut moved_a = vec![0_i64; rows];
+    let mut moved_row = vec![0_usize; per];
+    let mut moved_a = vec![0_i64; per];
     let mut err: Option<IcmError> = None;
     let mut sw = 0;
     while sw < cx.sweeps && err.is_none() {
@@ -1155,7 +1156,7 @@ fn sweep_rows(
             let b0 = m * BLOCK;
             // The block's `BLOCK × n` rows transposed to `[col, k]`: the kernel's `b` rows are its
             // `[b0, b0 + BLOCK)` sub-block for the block product and the whole buffer for the
-            // residual update.
+            // residual update. Copied once per block, outside the row bands.
             let mut k = 0;
             while k < BLOCK {
                 let mut col = 0;
@@ -1165,123 +1166,127 @@ fn sweep_rows(
                 }
                 k += 1;
             }
-            let mut row = 0;
-            while row < rows {
-                let mut k = 0;
-                while k < BLOCK {
-                    s_blk[row * BLOCK + k] = s_cur[row * n + b0 + k];
-                    k += 1;
-                }
-                row += 1;
-            }
-            match nt_q(
-                &s_blk,
-                rows,
-                &cols[b0 * BLOCK..(b0 + BLOCK) * BLOCK],
-                BLOCK,
-                BLOCK,
-            ) {
-                Ok(v) => {
-                    let mut row = 0;
-                    while row < rows && err.is_none() {
-                        let a = r[row * cx.g + b0 / GROUP];
-                        let mut k = 0;
-                        while k < BLOCK && err.is_none() {
-                            match mul_q(a, v[row * BLOCK + k]) {
-                                Ok(w) => match add_q(f_res[row * n + b0 + k], w) {
-                                    Ok(z) => f_blk[row * BLOCK + k] = z,
-                                    Err(e) => err = Some(e),
-                                },
-                                Err(e) => err = Some(e),
-                            }
-                            k += 1;
-                        }
-                        row += 1;
+            let mut row0 = 0;
+            while row0 < o && err.is_none() {
+                let take = per.min(o - row0);
+                let mut row = 0;
+                while row < take {
+                    let mut k = 0;
+                    while k < BLOCK {
+                        s_blk[row * BLOCK + k] = s_cur[(row0 + row) * n + b0 + k];
+                        k += 1;
                     }
+                    row += 1;
                 }
-                Err(e) => err = Some(e),
-            }
-            let mut moved_n = 0usize;
-            if err.is_none() {
-                match nt_q(&f_blk, rows, &cbf, CODE_LEN, BLOCK) {
-                    Ok(dots) => {
+                match nt_q(
+                    &s_blk[..take * BLOCK],
+                    take,
+                    &cols[b0 * BLOCK..(b0 + BLOCK) * BLOCK],
+                    BLOCK,
+                    BLOCK,
+                ) {
+                    Ok(v) => {
                         let mut row = 0;
-                        while row < rows && err.is_none() {
-                            let a = r[row * cx.g + b0 / GROUP];
-                            let av = i128::from(a);
-                            let (aa, two_a) = (av * av, av * 2);
-                            let qb = m * CODE_LEN;
-                            let db = row * CODE_LEN;
-                            let mut best = 0_usize;
-                            match best_code_q(
-                                aa,
-                                two_a,
-                                &cx.q_all[qb..qb + CODE_LEN],
-                                &dots[db..db + CODE_LEN],
-                            ) {
-                                Ok(v) => best = v,
-                                Err(e) => err = Some(e),
-                            }
-                            let mut changed = false;
+                        while row < take && err.is_none() {
+                            let a = r[(row0 + row) * g + b0 / GROUP];
                             let mut k = 0;
                             while k < BLOCK && err.is_none() {
-                                match sub_q(cx.cb[best][k], s_cur[row * n + b0 + k]) {
-                                    Ok(v) => {
-                                        changed |= v != 0;
-                                        d_blk[row * BLOCK + k] = v;
-                                        s_cur[row * n + b0 + k] = cx.cb[best][k];
-                                    }
+                                match mul_q(a, v[row * BLOCK + k]) {
+                                    Ok(w) => match add_q(f_res[(row0 + row) * n + b0 + k], w) {
+                                        Ok(z) => f_blk[row * BLOCK + k] = z,
+                                        Err(e) => err = Some(e),
+                                    },
                                     Err(e) => err = Some(e),
                                 }
                                 k += 1;
-                            }
-                            if err.is_none() {
-                                idx[row * nb + m] = best as u16;
-                            }
-                            if changed && err.is_none() {
-                                moved_row[moved_n] = row;
-                                moved_a[moved_n] = a;
-                                moved_n += 1;
                             }
                             row += 1;
                         }
                     }
                     Err(e) => err = Some(e),
                 }
-            }
-            if moved_n > 0 && err.is_none() {
-                let mut i = 0;
-                while i < moved_n {
-                    let row = moved_row[i];
-                    let mut k = 0;
-                    while k < BLOCK {
-                        chg[i * BLOCK + k] = d_blk[row * BLOCK + k];
-                        k += 1;
-                    }
-                    i += 1;
-                }
-                match nt_q(&chg[..moved_n * BLOCK], moved_n, &cols, n, BLOCK) {
-                    Ok(e) => {
-                        let mut i = 0;
-                        while i < moved_n && err.is_none() {
-                            let row = moved_row[i];
-                            let a = moved_a[i];
-                            let mut col = 0;
-                            while col < n && err.is_none() {
-                                match mul_q(a, e[i * n + col]) {
-                                    Ok(w) => match sub_q(f_res[row * n + col], w) {
-                                        Ok(z) => f_res[row * n + col] = z,
-                                        Err(e) => err = Some(e),
-                                    },
+                let mut moved_n = 0usize;
+                if err.is_none() {
+                    match nt_q(&f_blk[..take * BLOCK], take, &cbf, CODE_LEN, BLOCK) {
+                        Ok(dots) => {
+                            let mut row = 0;
+                            while row < take && err.is_none() {
+                                let a = r[(row0 + row) * g + b0 / GROUP];
+                                let (aa, two_a) = row_scale(a);
+                                let qb = m * CODE_LEN;
+                                let db = row * CODE_LEN;
+                                let mut best = 0_usize;
+                                match best_code_q(
+                                    aa,
+                                    two_a,
+                                    &cx.q_all[qb..qb + CODE_LEN],
+                                    &dots[db..db + CODE_LEN],
+                                ) {
+                                    Ok(v) => best = v,
                                     Err(e) => err = Some(e),
                                 }
-                                col += 1;
+                                let mut changed = false;
+                                let mut k = 0;
+                                while k < BLOCK && err.is_none() {
+                                    match sub_q(cx.cb[best][k], s_cur[(row0 + row) * n + b0 + k]) {
+                                        Ok(v) => {
+                                            changed |= v != 0;
+                                            d_blk[row * BLOCK + k] = v;
+                                            s_cur[(row0 + row) * n + b0 + k] = cx.cb[best][k];
+                                        }
+                                        Err(e) => err = Some(e),
+                                    }
+                                    k += 1;
+                                }
+                                if err.is_none() {
+                                    idx[(row0 + row) * nb + m] = best as u16;
+                                }
+                                if changed && err.is_none() {
+                                    moved_row[moved_n] = row;
+                                    moved_a[moved_n] = a;
+                                    moved_n += 1;
+                                }
+                                row += 1;
                             }
-                            i += 1;
                         }
+                        Err(e) => err = Some(e),
                     }
-                    Err(e) => err = Some(e),
                 }
+                if moved_n > 0 && err.is_none() {
+                    let mut i = 0;
+                    while i < moved_n {
+                        let row = moved_row[i];
+                        let mut k = 0;
+                        while k < BLOCK {
+                            chg[i * BLOCK + k] = d_blk[row * BLOCK + k];
+                            k += 1;
+                        }
+                        i += 1;
+                    }
+                    match nt_q(&chg[..moved_n * BLOCK], moved_n, &cols, n, BLOCK) {
+                        Ok(e) => {
+                            let mut i = 0;
+                            while i < moved_n && err.is_none() {
+                                let row = moved_row[i];
+                                let a = moved_a[i];
+                                let mut col = 0;
+                                while col < n && err.is_none() {
+                                    match mul_q(a, e[i * n + col]) {
+                                        Ok(w) => match sub_q(f_res[(row0 + row) * n + col], w) {
+                                            Ok(z) => f_res[(row0 + row) * n + col] = z,
+                                            Err(e) => err = Some(e),
+                                        },
+                                        Err(e) => err = Some(e),
+                                    }
+                                    col += 1;
+                                }
+                                i += 1;
+                            }
+                        }
+                        Err(e) => err = Some(e),
+                    }
+                }
+                row0 += take;
             }
             step += 1;
         }
@@ -2288,9 +2293,9 @@ mod tests {
         );
     }
 
-    /// The limb-path error at the shapes [`sweep_rows`] actually calls, against the exact `i128` dot.
+    /// The limb-path error at the shapes [`sweep_blocks`] actually calls, against the exact `i128` dot.
     ///
-    /// `sweep_rows` makes two band products per block, both with contraction `BLOCK`: the `q`
+    /// `sweep_blocks` makes two band products per block, both with contraction `BLOCK`: the `q`
     /// product `rows × BLOCK × BLOCK` (`nt_q(&s_blk, rows, …, BLOCK, BLOCK)`) and the code-dot
     /// product `rows × CODE_LEN × BLOCK` (`nt_q(&f_blk, rows, &cbf, CODE_LEN, BLOCK)`). Both run at
     /// [`LIMBS`]; the public row-panel product `matmul_q` runs at [`LIMBS_MATMUL`], so both limb
@@ -2369,11 +2374,11 @@ mod tests {
         }
     }
 
-    /// The `moved × n × BLOCK` row-update product of `sweep_rows` at the production `Kind::Down`
+    /// The `moved × n × BLOCK` row-update product of `sweep_blocks` at the production `Kind::Down`
     /// shape: `n = 4864`, `moved = rows_per_task(896)` (the largest band the sweep hands the
     /// product), against the exact `i128` dot.
     ///
-    /// `sweep_rows` runs it as `nt_q(&chg[..moved·BLOCK], moved, &cols, n, BLOCK)` at [`LIMBS`],
+    /// `sweep_blocks` runs it as `nt_q(&chg[..moved·BLOCK], moved, &cols, n, BLOCK)` at [`LIMBS`],
     /// with `chg` a codeword difference (`|x| ≤ 4·2^32`) and `cols` the block-transposed `H_rot`
     /// window. The `b` band is the peak the real run reaches ([`PROD_H_ROT_PEAK`]); the 3-limb and
     /// 2-limb arms are the controls. Printed errors are Q32.32 words; divide by `2^32` for the real
