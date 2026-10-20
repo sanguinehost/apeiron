@@ -18787,12 +18787,12 @@ def kern.lut.LutTables.p
   let i ← g * 16#usize
   let i1 ← i + n
   let i2 ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) 
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8)
       self.lo i1
   let i3 ← I16.Insts.CoreConvertFromU8.from i2
   let i4 ← i + n
   let i5 ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8) 
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U8)
       self.hi i4
   let i6 ← I16.Insts.CoreConvertFromU8.from i5
   let i7 ← i6 * 256#i16
@@ -19832,11 +19832,11 @@ def kern.lut.matvec_lut_rows_with
                 let i5 ← row_hi * row_bytes
                 let bytes ←
                   alloc.vec.Vec.index
-                    (core.slice.index.SliceIndexRangeUsizeSlice Std.U8) 
+                    (core.slice.index.SliceIndexRangeUsizeSlice Std.U8)
                     lut.raw { start := i4, «end» := i5 }
                 let s1 := alloc.vec.Vec.deref xhat
                 let r ←
-                  matvec.matvec_fixed quant.GGML_TYPE_PQ2_0 bytes i2 
+                  matvec.matvec_fixed quant.GGML_TYPE_PQ2_0 bytes i2
                     lut.n_in s1
                 let cf ← core.result.Result.Insts.CoreOpsTry.branch r
                 match cf with
@@ -22702,7 +22702,7 @@ def
   := do
   let i ← t * self.per
   let (r, slot1) ←
-    kern.bitplane.BitplaneHead.stage2_chunk self.head self.q self.tau 
+    kern.bitplane.BitplaneHead.stage2_chunk self.head self.q self.tau
       self.avx i dst slot
   ok (r, dst, slot1)
 
@@ -24043,7 +24043,7 @@ structure kern.gemm.SwigluPtrs where
   ptrs : alloc.vec.Vec (MutRawPtr Std.I64)
 
 /-- [apeiron_word::kern::gemm::x86::rows]:
-    Source: '../../src/engine/kern/gemm.rs', lines 1601:4-1892:5 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 1689:4-1986:5 -/
 axiom kern.gemm.x86.rows
   {S : Type} (RowSinkInst : kern.gemm.RowSink S) :
   Slice Std.U8 → Std.Usize → Std.Usize → Std.Usize → Std.Usize →
@@ -24051,7 +24051,7 @@ axiom kern.gemm.x86.rows
     (Bool × S)
 
 /-- [apeiron_word::kern::gemm::gemm_rows_task]:
-    Source: '../../src/engine/kern/gemm.rs', lines 585:0-621:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 589:0-625:1 -/
 def kern.gemm.gemm_rows_task
   (t : Std.Usize) (rpt : Std.Usize) (n_out : Std.Usize) (raw : Slice Std.U8)
   (row_bytes : Std.Usize) (blocks : Std.Usize) (qs : Slice chart.QuantAct)
@@ -24072,7 +24072,7 @@ def kern.gemm.gemm_rows_task
   else chart.pool.Flag.set bad
 
 /-- [apeiron_word::kern::gemm::RowsCtx]
-    Source: '../../src/engine/kern/gemm.rs', lines 547:0-558:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 551:0-562:1 -/
 structure kern.gemm.RowsCtx where
   raw : Slice Std.U8
   n_out : Std.Usize
@@ -24086,14 +24086,14 @@ structure kern.gemm.RowsCtx where
   bad : chart.pool.Flag
 
 /-- [apeiron_word::kern::gemm::{impl apeiron_word::chart::task::IndexTask for apeiron_word::kern::gemm::RowsCtx<'_0>}::run]:
-    Source: '../../src/engine/kern/gemm.rs', lines 562:4-576:5 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 566:4-580:5 -/
 def kern.gemm.RowsCtx.Insts.Apeiron_wordChartTaskIndexTask.run
   (self : kern.gemm.RowsCtx) (t : Std.Usize) : Result Unit := do
   kern.gemm.gemm_rows_task t self.rpt self.n_out self.raw self.row_bytes
     self.blocks self.qs self.packed self.limit self.ptrs self.bad
 
 /-- Trait implementation: [apeiron_word::kern::gemm::{impl apeiron_word::chart::task::IndexTask for apeiron_word::kern::gemm::RowsCtx<'_0>}]
-    Source: '../../src/engine/kern/gemm.rs', lines 561:0-577:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 565:0-581:1 -/
 @[reducible]
 def kern.gemm.RowsCtx.Insts.Apeiron_wordChartTaskIndexTask :
   chart.task.IndexTask kern.gemm.RowsCtx := {
@@ -24101,7 +24101,7 @@ def kern.gemm.RowsCtx.Insts.Apeiron_wordChartTaskIndexTask :
 }
 
 /-- [apeiron_word::kern::gemm::gemm_q8_0]:
-    Source: '../../src/engine/kern/gemm.rs', lines 462:0-544:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 466:0-548:1 -/
 def kern.gemm.gemm_q8_0
   (ggml_type : Std.U32) (raw : Slice Std.U8) (n_out : Std.Usize)
   (n_in : Std.Usize) (qs : Slice chart.QuantAct) :
@@ -24206,7 +24206,7 @@ def kern.gemm.gemm_q8_0
         else ok none
 
 /-- [apeiron_word::kern::gemm::part_refused]:
-    Source: '../../src/engine/kern/gemm.rs', lines 625:0-631:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 629:0-635:1 -/
 def kern.gemm.part_refused
   (file : Slice Std.U8) (part : kern.gemm.GemmPart) (row_bytes : Std.Usize) :
   Result Bool
@@ -24226,7 +24226,7 @@ def kern.gemm.part_refused
         ok (part.at.len < i1)
 
 /-- [apeiron_word::kern::gemm::GroupBandCtx]
-    Source: '../../src/engine/kern/gemm.rs', lines 635:0-644:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 639:0-648:1 -/
 structure kern.gemm.GroupBandCtx where
   file : Slice Std.U8
   parts : Slice kern.gemm.GemmPart
@@ -24238,7 +24238,7 @@ structure kern.gemm.GroupBandCtx where
   limit : Std.U32
 
 /-- [apeiron_word::kern::gemm::group_band]: loop body 0:
-    Source: '../../src/engine/kern/gemm.rs', lines 732:4-755:5 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 736:4-759:5 -/
 @[rust_loop_body]
 def kern.gemm.group_band_loop.body
   (file : Slice Std.U8) (parts : Slice kern.gemm.GemmPart)
@@ -24278,7 +24278,7 @@ def kern.gemm.group_band_loop.body
   else ok (done (band, ok1))
 
 /-- [apeiron_word::kern::gemm::group_band]: loop 0:
-    Source: '../../src/engine/kern/gemm.rs', lines 732:4-755:5 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 736:4-759:5 -/
 @[rust_loop]
 def kern.gemm.group_band_loop
   (file : Slice Std.U8) (parts : Slice kern.gemm.GemmPart)
@@ -24294,7 +24294,7 @@ def kern.gemm.group_band_loop
     (band, ok1, p)
 
 /-- [apeiron_word::kern::gemm::group_band]:
-    Source: '../../src/engine/kern/gemm.rs', lines 717:0-761:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 721:0-765:1 -/
 def kern.gemm.group_band
   (file : Slice Std.U8) (parts : Slice kern.gemm.GemmPart)
   (rstarts : Slice Std.Usize) (row_bytes : Std.Usize) (blocks : Std.Usize)
@@ -24312,7 +24312,7 @@ def kern.gemm.group_band
   else ok (core.result.Result.Err (), band1)
 
 /-- [apeiron_word::kern::gemm::{impl apeiron_word::chart::task::BandTask<i64, ()> for apeiron_word::kern::gemm::GroupBandCtx<'_0>}::run]:
-    Source: '../../src/engine/kern/gemm.rs', lines 648:4-661:5 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 652:4-665:5 -/
 def kern.gemm.GroupBandCtx.Insts.Apeiron_wordChartTaskBandTaskI64Tuple.run
   (self : kern.gemm.GroupBandCtx) (_t : Std.Usize) (f0 : Std.Usize)
   (band : chart.pool.chunks.PBand Std.I64) :
@@ -24322,7 +24322,7 @@ def kern.gemm.GroupBandCtx.Insts.Apeiron_wordChartTaskBandTaskI64Tuple.run
     self.blocks self.qs self.packed self.limit f0 band
 
 /-- Trait implementation: [apeiron_word::kern::gemm::{impl apeiron_word::chart::task::BandTask<i64, ()> for apeiron_word::kern::gemm::GroupBandCtx<'_0>}]
-    Source: '../../src/engine/kern/gemm.rs', lines 647:0-662:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 651:0-666:1 -/
 @[reducible]
 def kern.gemm.GroupBandCtx.Insts.Apeiron_wordChartTaskBandTaskI64Tuple :
   chart.task.BandTask kern.gemm.GroupBandCtx Std.I64 Unit := {
@@ -24330,12 +24330,12 @@ def kern.gemm.GroupBandCtx.Insts.Apeiron_wordChartTaskBandTaskI64Tuple :
 }
 
 /-- [apeiron_word::kern::gemm::part_row_starts::{closure}]
-    Source: '../../src/engine/kern/gemm.rs', lines 678:63-678:83 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 682:63-682:83 -/
 @[reducible]
 def kern.gemm.part_row_starts.closure := Std.Usize
 
 /-- [apeiron_word::kern::gemm::part_row_starts::{impl core::ops::function::FnOnce<(usize,), core::option::Option<usize>> for apeiron_word::kern::gemm::part_row_starts::{closure}<'_0>}::call_once]:
-    Source: '../../src/engine/kern/gemm.rs', lines 678:63-678:83 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 682:63-682:83 -/
 def
   kern.gemm.part_row_starts.closure.Insts.CoreOpsFunctionFnOnceTupleUsizeOptionUsize.call_once
   (c : kern.gemm.part_row_starts.closure) (tupled_args : Std.Usize) :
@@ -24344,7 +24344,7 @@ def
   ok (Usize.checked_mul tupled_args c)
 
 /-- Trait implementation: [apeiron_word::kern::gemm::part_row_starts::{impl core::ops::function::FnOnce<(usize,), core::option::Option<usize>> for apeiron_word::kern::gemm::part_row_starts::{closure}<'_0>}]
-    Source: '../../src/engine/kern/gemm.rs', lines 678:63-678:83 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 682:63-682:83 -/
 @[reducible]
 def
   kern.gemm.part_row_starts.closure.Insts.CoreOpsFunctionFnOnceTupleUsizeOptionUsize
@@ -24355,7 +24355,7 @@ def
 }
 
 /-- [apeiron_word::kern::gemm::part_row_starts]: loop body 0:
-    Source: '../../src/engine/kern/gemm.rs', lines 676:4-681:5 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 680:4-685:5 -/
 @[rust_loop_body]
 def kern.gemm.part_row_starts_loop.body
   (parts : Slice kern.gemm.GemmPart) (k : Std.Usize)
@@ -24392,7 +24392,7 @@ def kern.gemm.part_row_starts_loop.body
   else ok (done (rstarts, overflow))
 
 /-- [apeiron_word::kern::gemm::part_row_starts]: loop 0:
-    Source: '../../src/engine/kern/gemm.rs', lines 676:4-681:5 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 680:4-685:5 -/
 @[rust_loop]
 def kern.gemm.part_row_starts_loop
   (parts : Slice kern.gemm.GemmPart) (k : Std.Usize)
@@ -24405,7 +24405,7 @@ def kern.gemm.part_row_starts_loop
     (rstarts, overflow, p)
 
 /-- [apeiron_word::kern::gemm::part_row_starts]:
-    Source: '../../src/engine/kern/gemm.rs', lines 671:0-687:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 675:0-691:1 -/
 def kern.gemm.part_row_starts
   (parts : Slice kern.gemm.GemmPart) (k : Std.Usize) :
   Result (Option (alloc.vec.Vec Std.Usize))
@@ -24421,7 +24421,7 @@ def kern.gemm.part_row_starts
   else ok (some rstarts2)
 
 /-- [apeiron_word::kern::gemm::split_part]: loop body 0:
-    Source: '../../src/engine/kern/gemm.rs', lines 697:4-700:5 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 701:4-704:5 -/
 @[rust_loop_body]
 def kern.gemm.split_part_loop.body
   (flat : Slice (alloc.vec.Vec Std.I64)) (start : Std.Usize)
@@ -24445,7 +24445,7 @@ def kern.gemm.split_part_loop.body
   else ok (done cols)
 
 /-- [apeiron_word::kern::gemm::split_part]: loop 0:
-    Source: '../../src/engine/kern/gemm.rs', lines 697:4-700:5 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 701:4-704:5 -/
 @[rust_loop]
 def kern.gemm.split_part_loop
   (flat : Slice (alloc.vec.Vec Std.I64)) (start : Std.Usize)
@@ -24459,7 +24459,7 @@ def kern.gemm.split_part_loop
     (cols, c)
 
 /-- [apeiron_word::kern::gemm::split_part]:
-    Source: '../../src/engine/kern/gemm.rs', lines 694:0-702:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 698:0-706:1 -/
 def kern.gemm.split_part
   (flat : Slice (alloc.vec.Vec Std.I64)) (start : Std.Usize)
   (n_out : Std.Usize) :
@@ -24470,7 +24470,7 @@ def kern.gemm.split_part
   kern.gemm.split_part_loop flat start n_out cols 0#usize
 
 /-- [apeiron_word::kern::gemm::gemm_q8_0_group]: loop body 0:
-    Source: '../../src/engine/kern/gemm.rs', lines 804:8-807:9 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 808:8-811:9 -/
 @[rust_loop_body]
 def kern.gemm.gemm_q8_0_group_loop0.body
   (file : Slice Std.U8) (parts : Slice kern.gemm.GemmPart)
@@ -24492,7 +24492,7 @@ def kern.gemm.gemm_q8_0_group_loop0.body
   else ok (done refuse)
 
 /-- [apeiron_word::kern::gemm::gemm_q8_0_group]: loop 0:
-    Source: '../../src/engine/kern/gemm.rs', lines 804:8-807:9 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 808:8-811:9 -/
 @[rust_loop]
 def kern.gemm.gemm_q8_0_group_loop0
   (file : Slice Std.U8) (parts : Slice kern.gemm.GemmPart)
@@ -24505,7 +24505,7 @@ def kern.gemm.gemm_q8_0_group_loop0
     (refuse, pi)
 
 /-- [apeiron_word::kern::gemm::gemm_q8_0_group]: loop body 1:
-    Source: '../../src/engine/kern/gemm.rs', lines 820:8-823:9 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 824:8-827:9 -/
 @[rust_loop_body]
 def kern.gemm.gemm_q8_0_group_loop1.body
   (k : Std.Usize) (flat : alloc.vec.Vec (alloc.vec.Vec Std.I64))
@@ -24521,7 +24521,7 @@ def kern.gemm.gemm_q8_0_group_loop1.body
   else ok (done flat)
 
 /-- [apeiron_word::kern::gemm::gemm_q8_0_group]: loop 1:
-    Source: '../../src/engine/kern/gemm.rs', lines 820:8-823:9 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 824:8-827:9 -/
 @[rust_loop]
 def kern.gemm.gemm_q8_0_group_loop1
   (k : Std.Usize) (flat : alloc.vec.Vec (alloc.vec.Vec Std.I64))
@@ -24533,7 +24533,7 @@ def kern.gemm.gemm_q8_0_group_loop1
     (flat, c)
 
 /-- [apeiron_word::kern::gemm::gemm_q8_0_group]: loop body 2:
-    Source: '../../src/engine/kern/gemm.rs', lines 842:8-845:9 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 846:8-849:9 -/
 @[rust_loop_body]
 def kern.gemm.gemm_q8_0_group_loop2.body
   (parts : Slice kern.gemm.GemmPart) (rstarts : alloc.vec.Vec Std.Usize)
@@ -24558,7 +24558,7 @@ def kern.gemm.gemm_q8_0_group_loop2.body
   else ok (done out)
 
 /-- [apeiron_word::kern::gemm::gemm_q8_0_group]: loop 2:
-    Source: '../../src/engine/kern/gemm.rs', lines 842:8-845:9 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 846:8-849:9 -/
 @[rust_loop]
 def kern.gemm.gemm_q8_0_group_loop2
   (parts : Slice kern.gemm.GemmPart) (rstarts : alloc.vec.Vec Std.Usize)
@@ -24573,7 +24573,7 @@ def kern.gemm.gemm_q8_0_group_loop2
     (out, p)
 
 /-- [apeiron_word::kern::gemm::gemm_q8_0_group]:
-    Source: '../../src/engine/kern/gemm.rs', lines 782:0-855:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 786:0-859:1 -/
 def kern.gemm.gemm_q8_0_group
   (file : Slice Std.U8) (parts : Slice kern.gemm.GemmPart) (n_in : Std.Usize)
   (qs : Slice chart.QuantAct) :
@@ -24673,7 +24673,7 @@ def kern.gemm.gemm_q8_0_group
     else ok none
 
 /-- [apeiron_word::kern::gemm::x86::rows_swiglu]:
-    Source: '../../src/engine/kern/gemm.rs', lines 1918:4-2249:5 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 2012:4-2343:5 -/
 axiom kern.gemm.x86.rows_swiglu
   :
   Slice Std.U8 → Slice Std.U8 → Std.Usize → Std.Usize → Std.Usize →
@@ -24682,7 +24682,7 @@ axiom kern.gemm.x86.rows_swiglu
     mixer.Carrier → Result Bool
 
 /-- [apeiron_word::kern::gemm::swiglu_rows_task]:
-    Source: '../../src/engine/kern/gemm.rs', lines 1053:0-1084:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 1057:0-1088:1 -/
 def kern.gemm.swiglu_rows_task
   (t : Std.Usize) (rpt : Std.Usize) (n_ff : Std.Usize)
   (raw_gate : Slice Std.U8) (raw_up : Slice Std.U8) (row_bytes : Std.Usize)
@@ -24703,7 +24703,7 @@ def kern.gemm.swiglu_rows_task
   else chart.pool.Flag.set bad
 
 /-- [apeiron_word::kern::gemm::SwigluRowsCtx]
-    Source: '../../src/engine/kern/gemm.rs', lines 1009:0-1023:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 1013:0-1027:1 -/
 structure kern.gemm.SwigluRowsCtx where
   raw_gate : Slice Std.U8
   raw_up : Slice Std.U8
@@ -24720,7 +24720,7 @@ structure kern.gemm.SwigluRowsCtx where
   bad : chart.pool.Flag
 
 /-- [apeiron_word::kern::gemm::{impl apeiron_word::chart::task::IndexTask for apeiron_word::kern::gemm::SwigluRowsCtx<'_0>}::run]:
-    Source: '../../src/engine/kern/gemm.rs', lines 1027:4-1044:5 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 1031:4-1048:5 -/
 def kern.gemm.SwigluRowsCtx.Insts.Apeiron_wordChartTaskIndexTask.run
   (self : kern.gemm.SwigluRowsCtx) (t : Std.Usize) : Result Unit := do
   kern.gemm.swiglu_rows_task t self.rpt self.n_ff self.raw_gate self.raw_up
@@ -24728,7 +24728,7 @@ def kern.gemm.SwigluRowsCtx.Insts.Apeiron_wordChartTaskIndexTask.run
     self.first self.carrier self.bad
 
 /-- Trait implementation: [apeiron_word::kern::gemm::{impl apeiron_word::chart::task::IndexTask for apeiron_word::kern::gemm::SwigluRowsCtx<'_0>}]
-    Source: '../../src/engine/kern/gemm.rs', lines 1026:0-1045:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 1030:0-1049:1 -/
 @[reducible]
 def kern.gemm.SwigluRowsCtx.Insts.Apeiron_wordChartTaskIndexTask :
   chart.task.IndexTask kern.gemm.SwigluRowsCtx := {
@@ -24736,7 +24736,7 @@ def kern.gemm.SwigluRowsCtx.Insts.Apeiron_wordChartTaskIndexTask :
 }
 
 /-- [apeiron_word::kern::gemm::gemm_q8_0_swiglu_carrier]: loop body 0:
-    Source: '../../src/engine/kern/gemm.rs', lines 953:8-956:9 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 957:8-960:9 -/
 @[rust_loop_body]
 def kern.gemm.gemm_q8_0_swiglu_carrier_loop.body
   (k : Std.Usize) (cols : alloc.vec.Vec (alloc.vec.Vec Std.I64))
@@ -24762,7 +24762,7 @@ def kern.gemm.gemm_q8_0_swiglu_carrier_loop.body
   else ok (done (cols, col_ptrs))
 
 /-- [apeiron_word::kern::gemm::gemm_q8_0_swiglu_carrier]: loop 0:
-    Source: '../../src/engine/kern/gemm.rs', lines 953:8-956:9 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 957:8-960:9 -/
 @[rust_loop]
 def kern.gemm.gemm_q8_0_swiglu_carrier_loop
   (k : Std.Usize) (cols : alloc.vec.Vec (alloc.vec.Vec Std.I64))
@@ -24776,7 +24776,7 @@ def kern.gemm.gemm_q8_0_swiglu_carrier_loop
     (cols, col_ptrs, c)
 
 /-- [apeiron_word::kern::gemm::gemm_q8_0_swiglu_carrier]:
-    Source: '../../src/engine/kern/gemm.rs', lines 909:0-1004:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 913:0-1008:1 -/
 def kern.gemm.gemm_q8_0_swiglu_carrier
   (raw_gate : Slice Std.U8) (raw_up : Slice Std.U8) (n_ff : Std.Usize)
   (n_in : Std.Usize) (qs : Slice chart.QuantAct) (carrier : mixer.Carrier) :
@@ -24898,7 +24898,7 @@ def kern.gemm.gemm_q8_0_swiglu_carrier
       else ok none
 
 /-- [apeiron_word::kern::gemm::gemm_q8_0_swiglu]:
-    Source: '../../src/engine/kern/gemm.rs', lines 897:0-905:1 -/
+    Source: '../../src/engine/kern/gemm.rs', lines 901:0-909:1 -/
 def kern.gemm.gemm_q8_0_swiglu
   (raw_gate : Slice Std.U8) (raw_up : Slice Std.U8) (n_ff : Std.Usize)
   (n_in : Std.Usize) (qs : Slice chart.QuantAct) :
@@ -24960,12 +24960,12 @@ inductive kern.limb.LimbError where
 | NoKernel : kern.limb.LimbError
 
 /-- [apeiron_word::kern::limb::transpose_rows::TRANSPOSE_TILE]
-    Source: '../../src/engine/kern/limb.rs', lines 1047:4-1047:37 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1245:4-1245:37 -/
 @[global_simps, irreducible]
 def kern.limb.transpose_rows.TRANSPOSE_TILE : Std.Usize := 32#usize
 
 /-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop body 3:
-    Source: '../../src/engine/kern/limb.rs', lines 1074:24-1077:25 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1272:24-1275:25 -/
 @[rust_loop_body]
 def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0_loop0.body
   (rb : Std.Usize) (row0 : Std.Usize) (i1 : Std.Usize) (j : Std.Usize)
@@ -24985,7 +24985,7 @@ def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0_loop0.body
   else ok (done piece)
 
 /-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop 3:
-    Source: '../../src/engine/kern/limb.rs', lines 1074:24-1077:25 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1272:24-1275:25 -/
 @[rust_loop]
 def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0_loop0
   (rb : Std.Usize) (piece : Slice Std.I64) (row0 : Std.Usize) (i1 : Std.Usize)
@@ -24999,7 +24999,7 @@ def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0_loop0
     (piece, r)
 
 /-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop body 2:
-    Source: '../../src/engine/kern/limb.rs', lines 1071:20-1079:21 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1269:20-1277:21 -/
 @[rust_loop_body]
 def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0.body
   (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize) (row0 : Std.Usize)
@@ -25018,7 +25018,7 @@ def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0.body
   else ok (done piece)
 
 /-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop 2:
-    Source: '../../src/engine/kern/limb.rs', lines 1071:20-1079:21 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1269:20-1277:21 -/
 @[rust_loop]
 def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0
   (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize)
@@ -25033,7 +25033,7 @@ def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0_loop0
     (piece, j)
 
 /-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop body 1:
-    Source: '../../src/engine/kern/limb.rs', lines 1068:16-1081:17 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1266:16-1279:17 -/
 @[rust_loop_body]
 def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0.body
   (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize) (row0 : Std.Usize)
@@ -25052,7 +25052,7 @@ def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0.body
   else ok (done piece)
 
 /-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop 1:
-    Source: '../../src/engine/kern/limb.rs', lines 1068:16-1081:17 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1266:16-1279:17 -/
 @[rust_loop]
 def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0
   (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize)
@@ -25067,7 +25067,7 @@ def kern.limb.transpose_rows.TransposeTask.body_loop0_loop0
     (piece, i)
 
 /-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 1065:12-1083:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1263:12-1281:13 -/
 @[rust_loop_body]
 def kern.limb.transpose_rows.TransposeTask.body_loop0.body
   (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize) (row0 : Std.Usize)
@@ -25085,7 +25085,7 @@ def kern.limb.transpose_rows.TransposeTask.body_loop0.body
   else ok (done piece)
 
 /-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 1065:12-1083:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1263:12-1281:13 -/
 @[rust_loop]
 def kern.limb.transpose_rows.TransposeTask.body_loop0
   (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize)
@@ -25100,7 +25100,7 @@ def kern.limb.transpose_rows.TransposeTask.body_loop0
     (piece, j0)
 
 /-- [apeiron_word::kern::limb::transpose_rows::{apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::body]:
-    Source: '../../src/engine/kern/limb.rs', lines 1061:8-1084:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1259:8-1282:9 -/
 def kern.limb.transpose_rows.TransposeTask.body
   (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize) (start : Std.Usize)
   (piece : Slice Std.I64) :
@@ -25113,13 +25113,13 @@ def kern.limb.transpose_rows.TransposeTask.body
     row_count 0#usize
 
 /-- [apeiron_word::kern::limb::transpose_rows::TransposeTask]
-    Source: '../../src/engine/kern/limb.rs', lines 1048:4-1051:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1246:4-1249:5 -/
 structure kern.limb.transpose_rows.TransposeTask where
   cols : Slice (alloc.vec.Vec Std.I64)
   rb : Std.Usize
 
 /-- [apeiron_word::kern::limb::transpose_rows::{impl apeiron_word::chart::task::ChunkTask<i64> for apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}::run]:
-    Source: '../../src/engine/kern/limb.rs', lines 1053:8-1055:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1251:8-1253:9 -/
 def
   kern.limb.transpose_rows.TransposeTask.Insts.Apeiron_wordChartTaskChunkTaskI64.run
   (self : kern.limb.transpose_rows.TransposeTask) (_c : Std.Usize)
@@ -25129,7 +25129,7 @@ def
   kern.limb.transpose_rows.TransposeTask.body self.cols self.rb start piece
 
 /-- Trait implementation: [apeiron_word::kern::limb::transpose_rows::{impl apeiron_word::chart::task::ChunkTask<i64> for apeiron_word::kern::limb::transpose_rows::TransposeTask<'_0>}]
-    Source: '../../src/engine/kern/limb.rs', lines 1052:4-1056:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1250:4-1254:5 -/
 @[reducible]
 def
   kern.limb.transpose_rows.TransposeTask.Insts.Apeiron_wordChartTaskChunkTaskI64
@@ -25139,7 +25139,7 @@ def
 }
 
 /-- [apeiron_word::kern::limb::transpose_rows]: loop body 3:
-    Source: '../../src/engine/kern/limb.rs', lines 1097:20-1100:21 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1295:20-1298:21 -/
 @[rust_loop_body]
 def kern.limb.transpose_rows_loop0_loop0_loop0_loop0.body
   (rb : Std.Usize) (i1 : Std.Usize) (j : Std.Usize)
@@ -25158,7 +25158,7 @@ def kern.limb.transpose_rows_loop0_loop0_loop0_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::kern::limb::transpose_rows]: loop 3:
-    Source: '../../src/engine/kern/limb.rs', lines 1097:20-1100:21 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1295:20-1298:21 -/
 @[rust_loop]
 def kern.limb.transpose_rows_loop0_loop0_loop0_loop0
   (out : Slice Std.I64) (rb : Std.Usize) (i1 : Std.Usize) (j : Std.Usize)
@@ -25171,7 +25171,7 @@ def kern.limb.transpose_rows_loop0_loop0_loop0_loop0
     (out, i)
 
 /-- [apeiron_word::kern::limb::transpose_rows]: loop body 2:
-    Source: '../../src/engine/kern/limb.rs', lines 1094:16-1102:17 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1292:16-1300:17 -/
 @[rust_loop_body]
 def kern.limb.transpose_rows_loop0_loop0_loop0.body
   (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize) (j1 : Std.Usize)
@@ -25188,7 +25188,7 @@ def kern.limb.transpose_rows_loop0_loop0_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::kern::limb::transpose_rows]: loop 2:
-    Source: '../../src/engine/kern/limb.rs', lines 1094:16-1102:17 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1292:16-1300:17 -/
 @[rust_loop]
 def kern.limb.transpose_rows_loop0_loop0_loop0
   (out : Slice Std.I64) (cols : Slice (alloc.vec.Vec Std.I64)) (rb : Std.Usize)
@@ -25201,7 +25201,7 @@ def kern.limb.transpose_rows_loop0_loop0_loop0
     (out, j)
 
 /-- [apeiron_word::kern::limb::transpose_rows]: loop body 1:
-    Source: '../../src/engine/kern/limb.rs', lines 1091:12-1104:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1289:12-1302:13 -/
 @[rust_loop_body]
 def kern.limb.transpose_rows_loop0_loop0.body
   (cols : Slice (alloc.vec.Vec Std.I64)) (ra : Std.Usize) (rb : Std.Usize)
@@ -25218,7 +25218,7 @@ def kern.limb.transpose_rows_loop0_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::kern::limb::transpose_rows]: loop 1:
-    Source: '../../src/engine/kern/limb.rs', lines 1091:12-1104:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1289:12-1302:13 -/
 @[rust_loop]
 def kern.limb.transpose_rows_loop0_loop0
   (out : Slice Std.I64) (cols : Slice (alloc.vec.Vec Std.I64)) (ra : Std.Usize)
@@ -25231,7 +25231,7 @@ def kern.limb.transpose_rows_loop0_loop0
     (out, i0)
 
 /-- [apeiron_word::kern::limb::transpose_rows]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 1088:8-1106:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1286:8-1304:9 -/
 @[rust_loop_body]
 def kern.limb.transpose_rows_loop0.body
   (cols : Slice (alloc.vec.Vec Std.I64)) (ra : Std.Usize) (rb : Std.Usize)
@@ -25248,7 +25248,7 @@ def kern.limb.transpose_rows_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::kern::limb::transpose_rows]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 1088:8-1106:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1286:8-1304:9 -/
 @[rust_loop]
 def kern.limb.transpose_rows_loop0
   (out : Slice Std.I64) (cols : Slice (alloc.vec.Vec Std.I64)) (ra : Std.Usize)
@@ -25261,7 +25261,7 @@ def kern.limb.transpose_rows_loop0
     (out, j0)
 
 /-- [apeiron_word::kern::limb::transpose_rows]:
-    Source: '../../src/engine/kern/limb.rs', lines 1046:0-1113:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1244:0-1311:1 -/
 def kern.limb.transpose_rows
   (out : Slice Std.I64) (cols : Slice (alloc.vec.Vec Std.I64)) (ra : Std.Usize)
   (rb : Std.Usize) :
@@ -27387,12 +27387,12 @@ def kern.matmat.matmat_q8act
   | some cols => ok (core.result.Result.Ok cols)
 
 /-- [apeiron_word::kern::limb::projection::{closure}]
-    Source: '../../src/engine/kern/limb.rs', lines 1031:72-1031:92 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1229:72-1229:92 -/
 @[reducible]
 def kern.limb.projection.closure := Unit
 
 /-- [apeiron_word::kern::limb::projection::{impl core::ops::function::FnOnce<(apeiron_word::matvec::MatvecError,), apeiron_word::kern::limb::LimbError> for apeiron_word::kern::limb::projection::{closure}}::call_once]:
-    Source: '../../src/engine/kern/limb.rs', lines 1031:72-1031:92 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1229:72-1229:92 -/
 def
   kern.limb.projection.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorLimbError.call_once
   (c : kern.limb.projection.closure) (tupled_args : matvec.MatvecError) :
@@ -27401,7 +27401,7 @@ def
   ok kern.limb.LimbError.Range
 
 /-- Trait implementation: [apeiron_word::kern::limb::projection::{impl core::ops::function::FnOnce<(apeiron_word::matvec::MatvecError,), apeiron_word::kern::limb::LimbError> for apeiron_word::kern::limb::projection::{closure}}]
-    Source: '../../src/engine/kern/limb.rs', lines 1031:72-1031:92 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1229:72-1229:92 -/
 @[reducible]
 def
   kern.limb.projection.closure.Insts.CoreOpsFunctionFnOnceTupleMatvecErrorLimbError
@@ -27412,7 +27412,7 @@ def
 }
 
 /-- [apeiron_word::kern::limb::projection]:
-    Source: '../../src/engine/kern/limb.rs', lines 1021:0-1033:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1219:0-1231:1 -/
 def kern.limb.projection
   (raw : Slice Std.U8) (ra : Std.Usize) (n_in : Std.Usize)
   (qs : Slice chart.QuantAct) :
@@ -27429,14 +27429,14 @@ def kern.limb.projection
   | some cols => ok (core.result.Result.Ok cols)
 
 /-- [apeiron_word::kern::limb::Place]
-    Source: '../../src/engine/kern/limb.rs', lines 684:0-691:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 882:0-889:1 -/
 structure kern.limb.Place where
   dw : Std.I32
   sigma : Std.I32
   live : Bool
 
 /-- [apeiron_word::kern::limb::Plane]
-    Source: '../../src/engine/kern/limb.rs', lines 322:0-337:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 384:0-399:1 -/
 structure kern.limb.Plane where
   rows : Std.Usize
   n : Std.Usize
@@ -27447,7 +27447,7 @@ structure kern.limb.Plane where
   dig : alloc.vec.Vec Std.I8
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::digit_block]:
-    Source: '../../src/engine/kern/limb.rs', lines 659:4-663:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 857:4-861:5 -/
 def kern.limb.Plane.digit_block
   (self : kern.limb.Plane) (row : Std.Usize) (block : Std.Usize)
   (limb : Std.U32) :
@@ -27466,7 +27466,7 @@ def kern.limb.Plane.digit_block
     self.dig { start := «at», «end» := i6 }
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]: loop body 2:
-    Source: '../../src/engine/kern/limb.rs', lines 981:16-989:17 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1179:16-1187:17 -/
 @[rust_loop_body]
 def kern.limb.ColumnsTask.body_loop0_loop0_loop0.body
   (b : kern.limb.Plane) (place : Slice kern.limb.Place) (g0 : Std.Usize)
@@ -27511,7 +27511,7 @@ def kern.limb.ColumnsTask.body_loop0_loop0_loop0.body
   else ok (done (scales, codes))
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]: loop 2:
-    Source: '../../src/engine/kern/limb.rs', lines 981:16-989:17 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1179:16-1187:17 -/
 @[rust_loop]
 def kern.limb.ColumnsTask.body_loop0_loop0_loop0
   (b : kern.limb.Plane) (place : Slice kern.limb.Place) (g0 : Std.Usize)
@@ -27527,7 +27527,7 @@ def kern.limb.ColumnsTask.body_loop0_loop0_loop0
     (scales, codes, blk)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]: loop body 1:
-    Source: '../../src/engine/kern/limb.rs', lines 978:12-991:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1176:12-1189:13 -/
 @[rust_loop_body]
 def kern.limb.ColumnsTask.body_loop0_loop0.body
   (b : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
@@ -27550,7 +27550,7 @@ def kern.limb.ColumnsTask.body_loop0_loop0.body
   else ok (done (scales, codes))
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]: loop 1:
-    Source: '../../src/engine/kern/limb.rs', lines 978:12-991:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1176:12-1189:13 -/
 @[rust_loop]
 def kern.limb.ColumnsTask.body_loop0_loop0
   (b : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
@@ -27566,7 +27566,7 @@ def kern.limb.ColumnsTask.body_loop0_loop0
     (scales, codes, g)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 973:14-975:58 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1171:14-1173:58 -/
 @[rust_loop_body]
 def kern.limb.ColumnsTask.body_loop0.body
   (b : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
@@ -27598,7 +27598,7 @@ def kern.limb.ColumnsTask.body_loop0.body
   else ok (done piece)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 973:14-975:58 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1171:14-1173:58 -/
 @[rust_loop]
 def kern.limb.ColumnsTask.body_loop0
   (b : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
@@ -27613,7 +27613,7 @@ def kern.limb.ColumnsTask.body_loop0
     (piece, k)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::body]:
-    Source: '../../src/engine/kern/limb.rs', lines 960:4-995:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1158:4-1193:5 -/
 @[reducible]
 def kern.limb.ColumnsTask.body
   (b : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
@@ -27626,7 +27626,7 @@ def kern.limb.ColumnsTask.body
     piece 0#usize
 
 /-- [apeiron_word::kern::limb::Layout]
-    Source: '../../src/engine/kern/limb.rs', lines 695:0-704:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 893:0-902:1 -/
 structure kern.limb.Layout where
   a : kern.limb.Plane
   b : kern.limb.Plane
@@ -27634,7 +27634,7 @@ structure kern.limb.Layout where
   place : alloc.vec.Vec kern.limb.Place
 
 /-- [apeiron_word::kern::limb::ColumnsTask]
-    Source: '../../src/engine/kern/limb.rs', lines 879:0-886:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1077:0-1084:1 -/
 structure kern.limb.ColumnsTask where
   layout : kern.limb.Layout
   b0 : Std.Usize
@@ -27644,7 +27644,7 @@ structure kern.limb.ColumnsTask where
   padded : Std.Usize
 
 /-- [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<apeiron_word::chart::QuantAct> for apeiron_word::kern::limb::ColumnsTask<'_0>}::run]:
-    Source: '../../src/engine/kern/limb.rs', lines 999:4-1013:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1197:4-1211:5 -/
 def kern.limb.ColumnsTask.Insts.Apeiron_wordChartTaskChunkTaskQuantAct.run
   (self : kern.limb.ColumnsTask) (_c : Std.Usize) (start : Std.Usize)
   (piece : Slice chart.QuantAct) :
@@ -27656,7 +27656,7 @@ def kern.limb.ColumnsTask.Insts.Apeiron_wordChartTaskChunkTaskQuantAct.run
     self.blocks self.padded start piece
 
 /-- Trait implementation: [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<apeiron_word::chart::QuantAct> for apeiron_word::kern::limb::ColumnsTask<'_0>}]
-    Source: '../../src/engine/kern/limb.rs', lines 998:0-1014:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1196:0-1212:1 -/
 @[reducible]
 def kern.limb.ColumnsTask.Insts.Apeiron_wordChartTaskChunkTaskQuantAct :
   chart.task.ChunkTask kern.limb.ColumnsTask chart.QuantAct := {
@@ -27664,7 +27664,7 @@ def kern.limb.ColumnsTask.Insts.Apeiron_wordChartTaskChunkTaskQuantAct :
 }
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::empty_columns]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 901:8-904:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1099:8-1102:9 -/
 @[rust_loop_body]
 def kern.limb.ColumnsTask.empty_columns_loop.body
   (rb : Std.Usize) (parts : alloc.vec.Vec chart.QuantAct) (z : Std.Usize) :
@@ -27682,7 +27682,7 @@ def kern.limb.ColumnsTask.empty_columns_loop.body
   else ok (done parts)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::empty_columns]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 901:8-904:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1099:8-1102:9 -/
 @[rust_loop]
 def kern.limb.ColumnsTask.empty_columns_loop
   (rb : Std.Usize) (parts : alloc.vec.Vec chart.QuantAct) (z : Std.Usize) :
@@ -27694,14 +27694,14 @@ def kern.limb.ColumnsTask.empty_columns_loop
     (parts, z)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::empty_columns]:
-    Source: '../../src/engine/kern/limb.rs', lines 898:4-906:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1096:4-1104:5 -/
 def kern.limb.ColumnsTask.empty_columns
   (rb : Std.Usize) : Result (alloc.vec.Vec chart.QuantAct) := do
   let parts := alloc.vec.Vec.with_capacity chart.QuantAct rb
   kern.limb.ColumnsTask.empty_columns_loop rb parts 0#usize
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::ColumnsTask<'_0>}::dispatch]:
-    Source: '../../src/engine/kern/limb.rs', lines 922:4-951:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1120:4-1149:5 -/
 def kern.limb.ColumnsTask.dispatch
   (layout : kern.limb.Layout) (b0 : Std.Usize) (rb : Std.Usize)
   (g0 : Std.Usize) (g1 : Std.Usize) (blocks : Std.Usize) (padded : Std.Usize) :
@@ -27729,7 +27729,7 @@ def kern.limb.ColumnsTask.dispatch
     ok (deref_mut_back s1)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::columns]:
-    Source: '../../src/engine/kern/limb.rs', lines 796:4-800:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 994:4-998:5 -/
 def kern.limb.Layout.columns
   (self : kern.limb.Layout) (b0 : Std.Usize) (rb : Std.Usize) (g0 : Std.Usize)
   (g1 : Std.Usize) :
@@ -27738,7 +27738,7 @@ def kern.limb.Layout.columns
   kern.limb.ColumnsTask.dispatch self b0 rb g0 g1 self.b.blocks self.b.padded
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::digit_block_u8]:
-    Source: '../../src/engine/kern/limb.rs', lines 672:4-678:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 870:4-876:5 -/
 def kern.limb.Plane.digit_block_u8
   (self : kern.limb.Plane) (row : Std.Usize) (block : Std.Usize)
   (limb : Std.U32) :
@@ -27750,7 +27750,7 @@ def kern.limb.Plane.digit_block_u8
   core.slice.raw.from_raw_parts p1 kern.limb.ACT_QK
 
 /-- [apeiron_word::kern::limb::f16_pow2]:
-    Source: '../../src/engine/kern/limb.rs', lines 391:0-398:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 453:0-460:1 -/
 def kern.limb.f16_pow2 (dw : Std.I32) : Result Std.U16 := do
   let p ← dw - 32#i32
   if p >= (-14)#i32
@@ -27762,7 +27762,7 @@ def kern.limb.f16_pow2 (dw : Std.I32) : Result Std.U16 := do
        1#u16 <<< i
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]: loop body 2:
-    Source: '../../src/engine/kern/limb.rs', lines 843:16-852:17 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1041:16-1050:17 -/
 @[rust_loop_body]
 def kern.limb.PayloadTask.body_loop0_loop0_loop0.body
   (a : kern.limb.Plane) (place : Slice kern.limb.Place) (g0 : Std.Usize)
@@ -27809,7 +27809,7 @@ def kern.limb.PayloadTask.body_loop0_loop0_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]: loop 2:
-    Source: '../../src/engine/kern/limb.rs', lines 843:16-852:17 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1041:16-1050:17 -/
 @[rust_loop]
 def kern.limb.PayloadTask.body_loop0_loop0_loop0
   (a : kern.limb.Plane) (place : Slice kern.limb.Place) (g0 : Std.Usize)
@@ -27823,7 +27823,7 @@ def kern.limb.PayloadTask.body_loop0_loop0_loop0
     (out, blk)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]: loop body 1:
-    Source: '../../src/engine/kern/limb.rs', lines 840:12-854:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1038:12-1052:13 -/
 @[rust_loop_body]
 def kern.limb.PayloadTask.body_loop0_loop0.body
   (a : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
@@ -27843,7 +27843,7 @@ def kern.limb.PayloadTask.body_loop0_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]: loop 1:
-    Source: '../../src/engine/kern/limb.rs', lines 840:12-854:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1038:12-1052:13 -/
 @[rust_loop]
 def kern.limb.PayloadTask.body_loop0_loop0
   (a : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
@@ -27857,7 +27857,7 @@ def kern.limb.PayloadTask.body_loop0_loop0
     (out, g)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 836:8-856:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1034:8-1054:9 -/
 @[rust_loop_body]
 def kern.limb.PayloadTask.body_loop0.body
   (a : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
@@ -27887,7 +27887,7 @@ def kern.limb.PayloadTask.body_loop0.body
   else ok (done piece)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 836:8-856:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1034:8-1054:9 -/
 @[rust_loop]
 def kern.limb.PayloadTask.body_loop0
   (a : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
@@ -27903,7 +27903,7 @@ def kern.limb.PayloadTask.body_loop0
     (piece, k)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::PayloadTask<'_0>}::body]:
-    Source: '../../src/engine/kern/limb.rs', lines 821:4-857:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1019:4-1055:5 -/
 def kern.limb.PayloadTask.body
   (a : kern.limb.Plane) (pairs : Slice (Std.U32 × Std.U32))
   (place : Slice kern.limb.Place) (a0 : Std.Usize) (g0 : Std.Usize)
@@ -27918,7 +27918,7 @@ def kern.limb.PayloadTask.body
     piece row0 row_count 0#usize
 
 /-- [apeiron_word::kern::limb::PayloadTask]
-    Source: '../../src/engine/kern/limb.rs', lines 804:0-811:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1002:0-1009:1 -/
 structure kern.limb.PayloadTask where
   layout : kern.limb.Layout
   a0 : Std.Usize
@@ -27928,7 +27928,7 @@ structure kern.limb.PayloadTask where
   row_bytes : Std.Usize
 
 /-- [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<u8> for apeiron_word::kern::limb::PayloadTask<'_0>}::run]:
-    Source: '../../src/engine/kern/limb.rs', lines 861:4-875:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1059:4-1073:5 -/
 def kern.limb.PayloadTask.Insts.Apeiron_wordChartTaskChunkTaskU8.run
   (self : kern.limb.PayloadTask) (_c : Std.Usize) (start : Std.Usize)
   (piece : Slice Std.U8) :
@@ -27940,7 +27940,7 @@ def kern.limb.PayloadTask.Insts.Apeiron_wordChartTaskChunkTaskU8.run
     self.blocks self.row_bytes start piece
 
 /-- Trait implementation: [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<u8> for apeiron_word::kern::limb::PayloadTask<'_0>}]
-    Source: '../../src/engine/kern/limb.rs', lines 860:0-876:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1058:0-1074:1 -/
 @[reducible]
 def kern.limb.PayloadTask.Insts.Apeiron_wordChartTaskChunkTaskU8 :
   chart.task.ChunkTask kern.limb.PayloadTask Std.U8 := {
@@ -27948,7 +27948,7 @@ def kern.limb.PayloadTask.Insts.Apeiron_wordChartTaskChunkTaskU8 :
 }
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::weight_payload]:
-    Source: '../../src/engine/kern/limb.rs', lines 768:4-787:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 966:4-985:5 -/
 def kern.limb.Layout.weight_payload
   (self : kern.limb.Layout) (a0 : Std.Usize) (ra : Std.Usize) (g0 : Std.Usize)
   (g1 : Std.Usize) :
@@ -27981,14 +27981,14 @@ def kern.limb.Layout.weight_payload
     ok (deref_mut_back s1)
 
 /-- [apeiron_word::kern::limb::{impl core::clone::Clone for apeiron_word::kern::limb::Place}::clone]:
-    Source: '../../src/engine/kern/limb.rs', lines 683:9-683:14
+    Source: '../../src/engine/kern/limb.rs', lines 881:9-881:14
     Visibility: public -/
 def kern.limb.Place.Insts.CoreCloneClone.clone
   (self : kern.limb.Place) : Result kern.limb.Place := do
   ok self
 
 /-- Trait implementation: [apeiron_word::kern::limb::{impl core::clone::Clone for apeiron_word::kern::limb::Place}]
-    Source: '../../src/engine/kern/limb.rs', lines 683:9-683:14 -/
+    Source: '../../src/engine/kern/limb.rs', lines 881:9-881:14 -/
 @[reducible]
 impl_def kern.limb.Place.Insts.CoreCloneClone : core.clone.Clone
   kern.limb.Place := {
@@ -27998,7 +27998,7 @@ impl_def kern.limb.Place.Insts.CoreCloneClone : core.clone.Clone
 }
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::placement]: loop body 1:
-    Source: '../../src/engine/kern/limb.rs', lines 733:12-752:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 931:12-950:13 -/
 @[rust_loop_body]
 def kern.limb.Layout.placement_loop0_loop0.body
   (a : kern.limb.Plane) (v : alloc.vec.Vec Std.U32) (b : kern.limb.Plane)
@@ -28018,7 +28018,7 @@ def kern.limb.Layout.placement_loop0_loop0.body
           blk
       let i1 ← lift (UScalar.hcast .I32 i)
       let i2 ←
-        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U32) 
+        alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.U32)
           b.e blk
       let i3 ← lift (UScalar.hcast .I32 i2)
       let i4 ← i1 + i3
@@ -28050,7 +28050,7 @@ def kern.limb.Layout.placement_loop0_loop0.body
   else ok (done (b, place, err))
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::placement]: loop 1:
-    Source: '../../src/engine/kern/limb.rs', lines 733:12-752:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 931:12-950:13 -/
 @[rust_loop]
 def kern.limb.Layout.placement_loop0_loop0
   (a : kern.limb.Plane) (v : alloc.vec.Vec Std.U32) (b : kern.limb.Plane)
@@ -28065,7 +28065,7 @@ def kern.limb.Layout.placement_loop0_loop0
     (place, err, blk)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::placement]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 729:8-754:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 927:8-952:9 -/
 @[rust_loop_body]
 def kern.limb.Layout.placement_loop0.body
   (a : kern.limb.Plane) (v : alloc.vec.Vec Std.U32)
@@ -28098,7 +28098,7 @@ def kern.limb.Layout.placement_loop0.body
   else ok (done (place, err))
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::placement]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 729:8-754:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 927:8-952:9 -/
 @[rust_loop]
 def kern.limb.Layout.placement_loop0
   (a : kern.limb.Plane) (v : alloc.vec.Vec Std.U32) (b : kern.limb.Plane)
@@ -28112,7 +28112,7 @@ def kern.limb.Layout.placement_loop0
     (b, place, gi, err)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Layout<'_0>}::placement]:
-    Source: '../../src/engine/kern/limb.rs', lines 717:4-759:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 915:4-957:5 -/
 def kern.limb.Layout.placement
   (a : kern.limb.Plane) (b : kern.limb.Plane)
   (pairs : Slice (Std.U32 × Std.U32)) :
@@ -28131,7 +28131,7 @@ def kern.limb.Layout.placement
   | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::kern::limb::kept_pairs]: loop body 1:
-    Source: '../../src/engine/kern/limb.rs', lines 356:8-362:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 418:8-424:9 -/
 @[rust_loop_body]
 def kern.limb.kept_pairs_loop0_loop0.body
   (limbs : Std.U32) (sum : Std.U32) (out : alloc.vec.Vec (Std.U32 × Std.U32))
@@ -28150,7 +28150,7 @@ def kern.limb.kept_pairs_loop0_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::kern::limb::kept_pairs]: loop 1:
-    Source: '../../src/engine/kern/limb.rs', lines 356:8-362:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 418:8-424:9 -/
 @[rust_loop]
 def kern.limb.kept_pairs_loop0_loop0
   (limbs : Std.U32) (out : alloc.vec.Vec (Std.U32 × Std.U32)) (sum : Std.U32)
@@ -28162,7 +28162,7 @@ def kern.limb.kept_pairs_loop0_loop0
     (out, s)
 
 /-- [apeiron_word::kern::limb::kept_pairs]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 354:4-364:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 416:4-426:5 -/
 @[rust_loop_body]
 def kern.limb.kept_pairs_loop0.body
   (limbs : Std.U32) (out : alloc.vec.Vec (Std.U32 × Std.U32)) (sum : Std.U32)
@@ -28178,7 +28178,7 @@ def kern.limb.kept_pairs_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::kern::limb::kept_pairs]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 354:4-364:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 416:4-426:5 -/
 @[rust_loop]
 def kern.limb.kept_pairs_loop0
   (limbs : Std.U32) (out : alloc.vec.Vec (Std.U32 × Std.U32)) (sum : Std.U32)
@@ -28190,7 +28190,7 @@ def kern.limb.kept_pairs_loop0
     (out, sum)
 
 /-- [apeiron_word::kern::limb::kept_pairs]:
-    Source: '../../src/engine/kern/limb.rs', lines 351:0-366:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 413:0-428:1 -/
 def kern.limb.kept_pairs
   (limbs : Std.U32) : Result (alloc.vec.Vec (Std.U32 × Std.U32)) := do
   let i ← limbs + 1#u32
@@ -28201,7 +28201,7 @@ def kern.limb.kept_pairs
   kern.limb.kept_pairs_loop0 limbs out 0#u32
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop body 2:
-    Source: '../../src/engine/kern/limb.rs', lines 1183:24-1186:25 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1381:24-1384:25 -/
 @[rust_loop_body]
 def kern.limb.Plane.product_rows_loop0_loop0_loop0.body
   (ra : Std.Usize) (col : alloc.vec.Vec Std.I64) (base : Std.Usize)
@@ -28225,7 +28225,7 @@ def kern.limb.Plane.product_rows_loop0_loop0_loop0.body
   else ok (done acc)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop 2:
-    Source: '../../src/engine/kern/limb.rs', lines 1183:24-1186:25 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1381:24-1384:25 -/
 @[rust_loop]
 def kern.limb.Plane.product_rows_loop0_loop0_loop0
   (ra : Std.Usize) (acc : alloc.vec.Vec Std.I128) (col : alloc.vec.Vec Std.I64)
@@ -28238,7 +28238,7 @@ def kern.limb.Plane.product_rows_loop0_loop0_loop0
     (acc, i)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop body 1:
-    Source: '../../src/engine/kern/limb.rs', lines 1179:20-1188:21 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1377:20-1386:21 -/
 @[rust_loop_body]
 def kern.limb.Plane.product_rows_loop0_loop0.body
   (ra : Std.Usize) (rb : Std.Usize)
@@ -28260,7 +28260,7 @@ def kern.limb.Plane.product_rows_loop0_loop0.body
   else ok (done acc)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop 1:
-    Source: '../../src/engine/kern/limb.rs', lines 1179:20-1188:21 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1377:20-1386:21 -/
 @[rust_loop]
 def kern.limb.Plane.product_rows_loop0_loop0
   (ra : Std.Usize) (rb : Std.Usize) (acc : alloc.vec.Vec Std.I128)
@@ -28273,7 +28273,7 @@ def kern.limb.Plane.product_rows_loop0_loop0
     (acc, j)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 1171:8-1193:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1369:8-1391:9 -/
 @[rust_loop_body]
 def kern.limb.Plane.product_rows_loop0.body
   (i : Std.Usize) (i1 : Std.Usize) (i2 : Std.Usize) (i3 : Std.Usize)
@@ -28365,7 +28365,7 @@ def kern.limb.Plane.product_rows_loop0.body
   else ok (done (acc, err))
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 1171:8-1193:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1369:8-1391:9 -/
 @[rust_loop]
 def kern.limb.Plane.product_rows_loop0
   (i : Std.Usize) (i1 : Std.Usize) (i2 : Std.Usize) (i3 : Std.Usize)
@@ -28386,7 +28386,7 @@ def kern.limb.Plane.product_rows_loop0
     (acc, g0, err)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop body 4:
-    Source: '../../src/engine/kern/limb.rs', lines 1201:12-1207:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1399:12-1405:13 -/
 @[rust_loop_body]
 def kern.limb.Plane.product_rows_loop1_loop0.body
   (ra : Std.Usize) (rb : Std.Usize) (acc : alloc.vec.Vec Std.I128)
@@ -28424,7 +28424,7 @@ def kern.limb.Plane.product_rows_loop1_loop0.body
   else ok (done (out, err2))
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop 4:
-    Source: '../../src/engine/kern/limb.rs', lines 1201:12-1207:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1399:12-1405:13 -/
 @[rust_loop]
 def kern.limb.Plane.product_rows_loop1_loop0
   (ra : Std.Usize) (rb : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -28438,7 +28438,7 @@ def kern.limb.Plane.product_rows_loop1_loop0
     (out, err2, j)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop body 3:
-    Source: '../../src/engine/kern/limb.rs', lines 1199:8-1209:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1397:8-1407:9 -/
 @[rust_loop_body]
 def kern.limb.Plane.product_rows_loop1.body
   (ra : Std.Usize) (rb : Std.Usize) (acc : alloc.vec.Vec Std.I128)
@@ -28461,7 +28461,7 @@ def kern.limb.Plane.product_rows_loop1.body
   else ok (done (out, err2))
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]: loop 3:
-    Source: '../../src/engine/kern/limb.rs', lines 1199:8-1209:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1397:8-1407:9 -/
 @[rust_loop]
 def kern.limb.Plane.product_rows_loop1
   (ra : Std.Usize) (rb : Std.Usize) (out : alloc.vec.Vec Std.I64)
@@ -28475,7 +28475,7 @@ def kern.limb.Plane.product_rows_loop1
     (out, i, err2)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::product_rows]:
-    Source: '../../src/engine/kern/limb.rs', lines 1129:4-1214:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 1327:4-1412:5 -/
 def kern.limb.Plane.product_rows
   (self : kern.limb.Plane) (b : kern.limb.Plane) (a0 : Std.Usize)
   (ra : Std.Usize) (b0 : Std.Usize) (rb : Std.Usize) (n : Std.Usize) :
@@ -28570,8 +28570,19 @@ def kern.limb.Plane.product_rows
                     (alloc.vec.Vec Std.I64) (core.convert.FromSame
                     kern.limb.LimbError) residual
 
+/-- [apeiron_word::kern::limb::simd::split_block_avx2]:
+    Source: '../../src/engine/kern/limb.rs', lines 620:4-661:5 -/
+axiom kern.limb.simd.split_block_avx2
+  :
+  Slice Std.I64 → Std.U32 → Std.U32 → Slice Std.I8 → Result (Slice
+    Std.I8)
+
+/-- [apeiron_word::kern::limb::SIMD_MAX_E]
+    Source: '../../src/engine/kern/limb.rs', lines 540:0-540:27 -/
+@[global_simps, irreducible] def kern.limb.SIMD_MAX_E : Std.U32 := 62#u32
+
 /-- [apeiron_word::kern::limb::split_digits]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 453:4-472:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 515:4-534:5 -/
 @[rust_loop_body]
 def kern.limb.split_digits_loop.body
   (e : Std.U32) (limbs : Std.U32) (out : Slice Std.I8) (u : Std.I64)
@@ -28623,7 +28634,7 @@ def kern.limb.split_digits_loop.body
   else ok (done out)
 
 /-- [apeiron_word::kern::limb::split_digits]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 453:4-472:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 515:4-534:5 -/
 @[rust_loop]
 def kern.limb.split_digits_loop
   (e : Std.U32) (limbs : Std.U32) (out : Slice Std.I8) (u : Std.I64)
@@ -28635,7 +28646,7 @@ def kern.limb.split_digits_loop
     (out, u, s)
 
 /-- [apeiron_word::kern::limb::split_digits]:
-    Source: '../../src/engine/kern/limb.rs', lines 448:0-473:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 510:0-535:1 -/
 @[reducible]
 def kern.limb.split_digits
   (x : Std.I64) (e : Std.U32) (limbs : Std.U32) (out : Slice Std.I8) :
@@ -28643,8 +28654,156 @@ def kern.limb.split_digits
   := do
   kern.limb.split_digits_loop e limbs out x 0#u32
 
+/-- [apeiron_word::kern::limb::split_block]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 569:8-572:9 -/
+@[rust_loop_body]
+def kern.limb.split_block_loop0_loop0.body
+  (limbs : Std.U32) (tmp : Array Std.I8 8#usize) (lane : Std.Usize)
+  (out : Slice Std.I8) (s : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I8) × Std.Usize) (Slice Std.I8))
+  := do
+  let i ← lift (UScalar.cast .Usize limbs)
+  if s < i
+  then
+    let i1 ← Array.index_usize tmp s
+    let i2 ← s * kern.limb.ACT_QK
+    let i3 ← i2 + lane
+    let s1 ← Slice.update out i3 i1
+    let s2 ← s + 1#usize
+    ok (cont (s1, s2))
+  else ok (done out)
+
+/-- [apeiron_word::kern::limb::split_block]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 569:8-572:9 -/
+@[rust_loop]
+def kern.limb.split_block_loop0_loop0
+  (limbs : Std.U32) (out : Slice Std.I8) (tmp : Array Std.I8 8#usize)
+  (lane : Std.Usize) (s : Std.Usize) :
+  Result (Slice Std.I8)
+  := do
+  loop
+    (fun (out1, s1) => kern.limb.split_block_loop0_loop0.body limbs tmp lane
+      out1 s1)
+    (out, s)
+
+/-- [apeiron_word::kern::limb::split_block]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 566:4-574:5 -/
+@[rust_loop_body]
+def kern.limb.split_block_loop0.body
+  (x : Slice Std.I64) (e : Std.U32) (limbs : Std.U32) (out : Slice Std.I8)
+  (tmp : Array Std.I8 8#usize) (lane : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I8) × (Array Std.I8 8#usize) × Std.Usize)
+    (Slice Std.I8))
+  := do
+  if lane < kern.limb.ACT_QK
+  then
+    let i ← Slice.index_usize x lane
+    let (s, to_slice_mut_back) ← lift (Array.to_slice_mut tmp)
+    let s1 ← kern.limb.split_digits i e limbs s
+    let tmp1 := to_slice_mut_back s1
+    let out1 ← kern.limb.split_block_loop0_loop0 limbs out tmp1 lane 0#usize
+    let lane1 ← lane + 1#usize
+    ok (cont (out1, tmp1, lane1))
+  else ok (done out)
+
+/-- [apeiron_word::kern::limb::split_block]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 566:4-574:5 -/
+@[rust_loop]
+def kern.limb.split_block_loop0
+  (x : Slice Std.I64) (e : Std.U32) (limbs : Std.U32) (out : Slice Std.I8)
+  (tmp : Array Std.I8 8#usize) (lane : Std.Usize) :
+  Result (Slice Std.I8)
+  := do
+  loop
+    (fun (out1, tmp1, lane1) => kern.limb.split_block_loop0.body x e limbs out1
+      tmp1 lane1)
+    (out, tmp, lane)
+
+/-- [apeiron_word::kern::limb::split_block]: loop body 3:
+    Source: '../../src/engine/kern/limb.rs', lines 569:8-572:9 -/
+@[rust_loop_body]
+def kern.limb.split_block_loop1_loop0.body
+  (limbs : Std.U32) (tmp : Array Std.I8 8#usize) (lane : Std.Usize)
+  (out : Slice Std.I8) (s : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I8) × Std.Usize) (Slice Std.I8))
+  := do
+  let i ← lift (UScalar.cast .Usize limbs)
+  if s < i
+  then
+    let i1 ← Array.index_usize tmp s
+    let i2 ← s * kern.limb.ACT_QK
+    let i3 ← i2 + lane
+    let s1 ← Slice.update out i3 i1
+    let s2 ← s + 1#usize
+    ok (cont (s1, s2))
+  else ok (done out)
+
+/-- [apeiron_word::kern::limb::split_block]: loop 3:
+    Source: '../../src/engine/kern/limb.rs', lines 569:8-572:9 -/
+@[rust_loop]
+def kern.limb.split_block_loop1_loop0
+  (limbs : Std.U32) (out : Slice Std.I8) (tmp : Array Std.I8 8#usize)
+  (lane : Std.Usize) (s : Std.Usize) :
+  Result (Slice Std.I8)
+  := do
+  loop
+    (fun (out1, s1) => kern.limb.split_block_loop1_loop0.body limbs tmp lane
+      out1 s1)
+    (out, s)
+
+/-- [apeiron_word::kern::limb::split_block]: loop body 2:
+    Source: '../../src/engine/kern/limb.rs', lines 566:4-574:5 -/
+@[rust_loop_body]
+def kern.limb.split_block_loop1.body
+  (x : Slice Std.I64) (e : Std.U32) (limbs : Std.U32) (out : Slice Std.I8)
+  (tmp : Array Std.I8 8#usize) (lane : Std.Usize) :
+  Result (ControlFlow ((Slice Std.I8) × (Array Std.I8 8#usize) × Std.Usize)
+    (Slice Std.I8))
+  := do
+  if lane < kern.limb.ACT_QK
+  then
+    let i ← Slice.index_usize x lane
+    let (s, to_slice_mut_back) ← lift (Array.to_slice_mut tmp)
+    let s1 ← kern.limb.split_digits i e limbs s
+    let tmp1 := to_slice_mut_back s1
+    let out1 ← kern.limb.split_block_loop1_loop0 limbs out tmp1 lane 0#usize
+    let lane1 ← lane + 1#usize
+    ok (cont (out1, tmp1, lane1))
+  else ok (done out)
+
+/-- [apeiron_word::kern::limb::split_block]: loop 2:
+    Source: '../../src/engine/kern/limb.rs', lines 566:4-574:5 -/
+@[rust_loop]
+def kern.limb.split_block_loop1
+  (x : Slice Std.I64) (e : Std.U32) (limbs : Std.U32) (out : Slice Std.I8)
+  (tmp : Array Std.I8 8#usize) (lane : Std.Usize) :
+  Result (Slice Std.I8)
+  := do
+  loop
+    (fun (out1, tmp1, lane1) => kern.limb.split_block_loop1.body x e limbs out1
+      tmp1 lane1)
+    (out, tmp, lane)
+
+/-- [apeiron_word::kern::limb::split_block]:
+    Source: '../../src/engine/kern/limb.rs', lines 554:0-575:1 -/
+def kern.limb.split_block
+  (x : Slice Std.I64) (e : Std.U32) (limbs : Std.U32) (out : Slice Std.I8) :
+  Result (Slice Std.I8)
+  := do
+  if e <= kern.limb.SIMD_MAX_E
+  then
+    let b ← std_detect.detect.arch.x86.__is_feature_detected.avx2
+    if b
+    then kern.limb.simd.split_block_avx2 x e limbs out
+    else
+      let tmp := Array.repeat 8#usize 0#i8
+      kern.limb.split_block_loop0 x e limbs out tmp 0#usize
+  else
+    let tmp := Array.repeat 8#usize 0#i8
+    kern.limb.split_block_loop1 x e limbs out tmp 0#usize
+
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop body 3:
-    Source: '../../src/engine/kern/limb.rs', lines 555:20-558:21 -/
+    Source: '../../src/engine/kern/limb.rs', lines 752:24-755:25 -/
 @[rust_loop_body]
 def kern.limb.DigitsTask.body_loop0_loop0_loop0_loop0.body
   (limbs : Std.U32) (tmp : Array Std.I8 8#usize) («at» : Std.Usize)
@@ -28664,7 +28823,7 @@ def kern.limb.DigitsTask.body_loop0_loop0_loop0_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop 3:
-    Source: '../../src/engine/kern/limb.rs', lines 555:20-558:21 -/
+    Source: '../../src/engine/kern/limb.rs', lines 752:24-755:25 -/
 @[rust_loop]
 def kern.limb.DigitsTask.body_loop0_loop0_loop0_loop0
   (limbs : Std.U32) (tmp : Array Std.I8 8#usize) (out : Slice Std.I8)
@@ -28677,7 +28836,7 @@ def kern.limb.DigitsTask.body_loop0_loop0_loop0_loop0
     (out, s)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop body 2:
-    Source: '../../src/engine/kern/limb.rs', lines 551:16-560:17 -/
+    Source: '../../src/engine/kern/limb.rs', lines 748:20-757:21 -/
 @[rust_loop_body]
 def kern.limb.DigitsTask.body_loop0_loop0_loop0.body
   (data : Slice Std.I64) (limbs : Std.U32) (e : Slice Std.U32) (b : Std.Usize)
@@ -28704,7 +28863,7 @@ def kern.limb.DigitsTask.body_loop0_loop0_loop0.body
   else ok (done (tmp, out))
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop 2:
-    Source: '../../src/engine/kern/limb.rs', lines 551:16-560:17 -/
+    Source: '../../src/engine/kern/limb.rs', lines 748:20-757:21 -/
 @[rust_loop]
 def kern.limb.DigitsTask.body_loop0_loop0_loop0
   (data : Slice Std.I64) (limbs : Std.U32) (e : Slice Std.U32)
@@ -28719,7 +28878,7 @@ def kern.limb.DigitsTask.body_loop0_loop0_loop0
     (tmp, out, lane)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop body 1:
-    Source: '../../src/engine/kern/limb.rs', lines 546:12-562:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 735:12-760:13 -/
 @[rust_loop_body]
 def kern.limb.DigitsTask.body_loop0_loop0.body
   (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
@@ -28737,15 +28896,32 @@ def kern.limb.DigitsTask.body_loop0_loop0.body
     let i2 ← base + n
     let hi ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i1 i2
     let «at» ← b * lane_words
-    let (tmp1, out1) ←
-      kern.limb.DigitsTask.body_loop0_loop0_loop0 data limbs e tmp out b lo hi
-        «at» 0#usize
-    let b1 ← b + 1#usize
-    ok (cont (tmp1, out1, b1))
+    if i1 <= hi
+    then
+      let s ←
+        core.slice.index.Slice.index
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I64) data
+          { start := lo, «end» := i1 }
+      let i3 ← Slice.index_usize e b
+      let i4 ← «at» + lane_words
+      let (s1, index_mut_back) ←
+        core.slice.index.Slice.index_mut
+          (core.slice.index.SliceIndexRangeUsizeSlice Std.I8) out
+          { start := «at», «end» := i4 }
+      let s2 ← kern.limb.split_block s i3 limbs s1
+      let b1 ← b + 1#usize
+      let out1 := index_mut_back s2
+      ok (cont (tmp, out1, b1))
+    else
+      let (tmp1, out1) ←
+        kern.limb.DigitsTask.body_loop0_loop0_loop0 data limbs e tmp out b lo
+          hi «at» 0#usize
+      let b1 ← b + 1#usize
+      ok (cont (tmp1, out1, b1))
   else ok (done (tmp, out))
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop 1:
-    Source: '../../src/engine/kern/limb.rs', lines 546:12-562:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 735:12-760:13 -/
 @[rust_loop]
 def kern.limb.DigitsTask.body_loop0_loop0
   (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
@@ -28760,7 +28936,7 @@ def kern.limb.DigitsTask.body_loop0_loop0
     (tmp, out, b)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 541:8-564:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 730:8-762:9 -/
 @[rust_loop_body]
 def kern.limb.DigitsTask.body_loop0.body
   (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
@@ -28790,7 +28966,7 @@ def kern.limb.DigitsTask.body_loop0.body
   else ok (done piece)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 541:8-564:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 730:8-762:9 -/
 @[rust_loop]
 def kern.limb.DigitsTask.body_loop0
   (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
@@ -28805,7 +28981,7 @@ def kern.limb.DigitsTask.body_loop0
     (piece, tmp, k)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::DigitsTask<'_0>}::body]:
-    Source: '../../src/engine/kern/limb.rs', lines 526:4-565:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 715:4-763:5 -/
 def kern.limb.DigitsTask.body
   (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
   (lane_words : Std.Usize) (limbs : Std.U32) (e : Slice Std.U32)
@@ -28821,7 +28997,7 @@ def kern.limb.DigitsTask.body
     per_row row0 tmp row_count 0#usize
 
 /-- [apeiron_word::kern::limb::DigitsTask]
-    Source: '../../src/engine/kern/limb.rs', lines 509:0-516:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 698:0-705:1 -/
 structure kern.limb.DigitsTask where
   data : Slice Std.I64
   n : Std.Usize
@@ -28831,7 +29007,7 @@ structure kern.limb.DigitsTask where
   e : Slice Std.U32
 
 /-- [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<i8> for apeiron_word::kern::limb::DigitsTask<'_0>}::run]:
-    Source: '../../src/engine/kern/limb.rs', lines 569:4-580:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 767:4-778:5 -/
 def kern.limb.DigitsTask.Insts.Apeiron_wordChartTaskChunkTaskI8.run
   (self : kern.limb.DigitsTask) (_c : Std.Usize) (start : Std.Usize)
   (piece : Slice Std.I8) :
@@ -28841,7 +29017,7 @@ def kern.limb.DigitsTask.Insts.Apeiron_wordChartTaskChunkTaskI8.run
     self.limbs self.e start piece
 
 /-- Trait implementation: [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<i8> for apeiron_word::kern::limb::DigitsTask<'_0>}]
-    Source: '../../src/engine/kern/limb.rs', lines 568:0-581:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 766:0-779:1 -/
 @[reducible]
 def kern.limb.DigitsTask.Insts.Apeiron_wordChartTaskChunkTaskI8 :
   chart.task.ChunkTask kern.limb.DigitsTask Std.I8 := {
@@ -28849,13 +29025,13 @@ def kern.limb.DigitsTask.Insts.Apeiron_wordChartTaskChunkTaskI8 :
 }
 
 /-- [apeiron_word::kern::limb::bitlen]:
-    Source: '../../src/engine/kern/limb.rs', lines 370:0-372:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 432:0-434:1 -/
 def kern.limb.bitlen (x : Std.U64) : Result Std.U32 := do
   let i ← lift (core.num.U64.leading_zeros x)
   core.num.U64.BITS - i
 
 /-- [apeiron_word::kern::limb::block_exp]:
-    Source: '../../src/engine/kern/limb.rs', lines 420:0-426:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 482:0-488:1 -/
 def kern.limb.block_exp (absmax : Std.U64) : Result Std.U32 := do
   if absmax = 0#u64
   then ok 1#u32
@@ -28863,7 +29039,7 @@ def kern.limb.block_exp (absmax : Std.U64) : Result Std.U32 := do
        i + 1#u32
 
 /-- [apeiron_word::kern::limb::block_absmax]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 407:4-409:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 469:4-471:5 -/
 @[rust_loop_body]
 def kern.limb.block_absmax_loop.body
   (iter : core.slice.iter.Iter Std.I64) (m : Std.U64) :
@@ -28878,7 +29054,7 @@ def kern.limb.block_absmax_loop.body
     ok (cont (iter1, m1))
 
 /-- [apeiron_word::kern::limb::block_absmax]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 407:4-409:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 469:4-471:5 -/
 @[rust_loop]
 def kern.limb.block_absmax_loop
   (iter : core.slice.iter.Iter Std.I64) (m : Std.U64) : Result Std.U64 := do
@@ -28887,7 +29063,7 @@ def kern.limb.block_absmax_loop
     (iter, m)
 
 /-- [apeiron_word::kern::limb::block_absmax]:
-    Source: '../../src/engine/kern/limb.rs', lines 405:0-411:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 467:0-473:1 -/
 def kern.limb.block_absmax (words : Slice Std.I64) : Result Std.U64 := do
   let iter ←
     SharedSlice.Insts.CoreIterTraitsCollectIntoIteratorSharedIter.into_iter
@@ -28895,7 +29071,7 @@ def kern.limb.block_absmax (words : Slice Std.I64) : Result Std.U64 := do
   kern.limb.block_absmax_loop iter 0#u64
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::RowExpTask<'_0>}::body]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 490:8-498:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 679:8-687:9 -/
 @[rust_loop_body]
 def kern.limb.RowExpTask.body_loop.body
   (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
@@ -28925,7 +29101,7 @@ def kern.limb.RowExpTask.body_loop.body
   else ok (done piece)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::RowExpTask<'_0>}::body]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 490:8-498:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 679:8-687:9 -/
 @[rust_loop]
 def kern.limb.RowExpTask.body_loop
   (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
@@ -28938,7 +29114,7 @@ def kern.limb.RowExpTask.body_loop
     (piece, k)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::RowExpTask<'_0>}::body]:
-    Source: '../../src/engine/kern/limb.rs', lines 487:4-499:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 676:4-688:5 -/
 def kern.limb.RowExpTask.body
   (data : Slice Std.I64) (n : Std.Usize) (blocks : Std.Usize)
   (start : Std.Usize) (piece : Slice Std.U32) :
@@ -28948,14 +29124,14 @@ def kern.limb.RowExpTask.body
   kern.limb.RowExpTask.body_loop data n blocks piece row0 0#usize
 
 /-- [apeiron_word::kern::limb::RowExpTask]
-    Source: '../../src/engine/kern/limb.rs', lines 477:0-481:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 666:0-670:1 -/
 structure kern.limb.RowExpTask where
   data : Slice Std.I64
   n : Std.Usize
   blocks : Std.Usize
 
 /-- [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<u32> for apeiron_word::kern::limb::RowExpTask<'_0>}::run]:
-    Source: '../../src/engine/kern/limb.rs', lines 503:4-505:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 692:4-694:5 -/
 def kern.limb.RowExpTask.Insts.Apeiron_wordChartTaskChunkTaskU32.run
   (self : kern.limb.RowExpTask) (_c : Std.Usize) (start : Std.Usize)
   (piece : Slice Std.U32) :
@@ -28964,7 +29140,7 @@ def kern.limb.RowExpTask.Insts.Apeiron_wordChartTaskChunkTaskU32.run
   kern.limb.RowExpTask.body self.data self.n self.blocks start piece
 
 /-- Trait implementation: [apeiron_word::kern::limb::{impl apeiron_word::chart::task::ChunkTask<u32> for apeiron_word::kern::limb::RowExpTask<'_0>}]
-    Source: '../../src/engine/kern/limb.rs', lines 502:0-506:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 691:0-695:1 -/
 @[reducible]
 def kern.limb.RowExpTask.Insts.Apeiron_wordChartTaskChunkTaskU32 :
   chart.task.ChunkTask kern.limb.RowExpTask Std.U32 := {
@@ -28972,7 +29148,7 @@ def kern.limb.RowExpTask.Insts.Apeiron_wordChartTaskChunkTaskU32 :
 }
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::build]: loop body 1:
-    Source: '../../src/engine/kern/limb.rs', lines 616:12-622:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 814:12-820:13 -/
 @[rust_loop_body]
 def kern.limb.Plane.build_loop0_loop0.body
   (blocks : Std.Usize) (row_e : alloc.vec.Vec Std.U32) (r : Std.Usize)
@@ -29003,7 +29179,7 @@ def kern.limb.Plane.build_loop0_loop0.body
   else ok (done e)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::build]: loop 1:
-    Source: '../../src/engine/kern/limb.rs', lines 616:12-622:13 -/
+    Source: '../../src/engine/kern/limb.rs', lines 814:12-820:13 -/
 @[rust_loop]
 def kern.limb.Plane.build_loop0_loop0
   (blocks : Std.Usize) (row_e : alloc.vec.Vec Std.U32)
@@ -29016,7 +29192,7 @@ def kern.limb.Plane.build_loop0_loop0
     (e, b)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::build]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 614:8-624:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 812:8-822:9 -/
 @[rust_loop_body]
 def kern.limb.Plane.build_loop0.body
   (rows : Std.Usize) (blocks : Std.Usize) (row_e : alloc.vec.Vec Std.U32)
@@ -29032,7 +29208,7 @@ def kern.limb.Plane.build_loop0.body
   else ok (done e)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::build]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 614:8-624:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 812:8-822:9 -/
 @[rust_loop]
 def kern.limb.Plane.build_loop0
   (rows : Std.Usize) (blocks : Std.Usize) (row_e : alloc.vec.Vec Std.U32)
@@ -29044,7 +29220,7 @@ def kern.limb.Plane.build_loop0
     (e, r)
 
 /-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Plane}::build]:
-    Source: '../../src/engine/kern/limb.rs', lines 595:4-651:5 -/
+    Source: '../../src/engine/kern/limb.rs', lines 793:4-849:5 -/
 def kern.limb.Plane.build
   (data : Slice Std.I64) (rows : Std.Usize) (n : Std.Usize) (limbs : Std.U32) :
   Result (core.result.Result kern.limb.Plane kern.limb.LimbError)
@@ -29191,15 +29367,21 @@ def kern.limb.gemm_q32
       residual
 
 /-- [apeiron_word::kern::limb::SYRK_COLS]
-    Source: '../../src/engine/kern/limb.rs', lines 315:0-315:28 -/
+    Source: '../../src/engine/kern/limb.rs', lines 377:0-377:28 -/
 @[global_simps, irreducible] def kern.limb.SYRK_COLS : Std.Usize := 16#usize
 
-/-- [apeiron_word::kern::limb::syrk_q32]: loop body 1:
-    Source: '../../src/engine/kern/limb.rs', lines 207:8-214:9 -/
+/-- [apeiron_word::kern::limb::Prepared]
+    Source: '../../src/engine/kern/limb.rs', lines 204:0-206:1 -/
+structure kern.limb.Prepared where
+  plane : kern.limb.Plane
+
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Prepared}::syrk]: loop body 1:
+    Source: '../../src/engine/kern/limb.rs', lines 268:12-275:13 -/
 @[rust_loop_body]
-def kern.limb.syrk_q32_loop0_loop0.body
-  (m : Std.Usize) (j0 : Std.Usize) (j1 : Std.Usize) (width : Std.Usize)
-  (block : alloc.vec.Vec Std.I64) (c : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+def kern.limb.Prepared.syrk_loop0_loop0.body
+  (self : kern.limb.Prepared) (j0 : Std.Usize) (j1 : Std.Usize)
+  (width : Std.Usize) (block : alloc.vec.Vec Std.I64)
+  (c : alloc.vec.Vec Std.I64) (i : Std.Usize) :
   Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
     Std.I64))
   := do
@@ -29213,7 +29395,7 @@ def kern.limb.syrk_q32_loop0_loop0.body
         let i1 ← i * width
         let i2 ← lo - j0
         let «from» ← i1 + i2
-        let i3 ← i * m
+        let i3 ← i * self.plane.rows
         let i4 ← i3 + lo
         let i5 ← i3 + j1
         let (s, index_mut_back) ←
@@ -29231,34 +29413,36 @@ def kern.limb.syrk_q32_loop0_loop0.body
     ok (cont (c1, i1))
   else ok (done c)
 
-/-- [apeiron_word::kern::limb::syrk_q32]: loop 1:
-    Source: '../../src/engine/kern/limb.rs', lines 207:8-214:9 -/
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Prepared}::syrk]: loop 1:
+    Source: '../../src/engine/kern/limb.rs', lines 268:12-275:13 -/
 @[rust_loop]
-def kern.limb.syrk_q32_loop0_loop0
-  (m : Std.Usize) (c : alloc.vec.Vec Std.I64) (j0 : Std.Usize) (j1 : Std.Usize)
-  (width : Std.Usize) (block : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+def kern.limb.Prepared.syrk_loop0_loop0
+  (self : kern.limb.Prepared) (c : alloc.vec.Vec Std.I64) (j0 : Std.Usize)
+  (j1 : Std.Usize) (width : Std.Usize) (block : alloc.vec.Vec Std.I64)
+  (i : Std.Usize) :
   Result (alloc.vec.Vec Std.I64)
   := do
   loop
-    (fun (c1, i1) => kern.limb.syrk_q32_loop0_loop0.body m j0 j1 width block c1
-      i1)
+    (fun (c1, i1) => kern.limb.Prepared.syrk_loop0_loop0.body self j0 j1 width
+      block c1 i1)
     (c, i)
 
-/-- [apeiron_word::kern::limb::syrk_q32]: loop body 3:
-    Source: '../../src/engine/kern/limb.rs', lines 221:8-224:9 -/
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Prepared}::syrk]: loop body 3:
+    Source: '../../src/engine/kern/limb.rs', lines 282:12-285:13 -/
 @[rust_loop_body]
-def kern.limb.syrk_q32_loop0_loop1_loop0.body
-  (m : Std.Usize) (i : Std.Usize) (c : alloc.vec.Vec Std.I64) (j : Std.Usize) :
+def kern.limb.Prepared.syrk_loop0_loop1_loop0.body
+  (self : kern.limb.Prepared) (i : Std.Usize) (c : alloc.vec.Vec Std.I64)
+  (j : Std.Usize) :
   Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
     Std.I64))
   := do
-  if j < m
+  if j < self.plane.rows
   then
-    let i1 ← i * m
+    let i1 ← i * self.plane.rows
     let i2 ← i1 + j
     let i3 ←
       alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) c i2
-    let i4 ← j * m
+    let i4 ← j * self.plane.rows
     let i5 ← i4 + i
     let (_, index_mut_back) ←
       alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice Std.I64) c
@@ -29268,63 +29452,87 @@ def kern.limb.syrk_q32_loop0_loop1_loop0.body
     ok (cont (c1, j1))
   else ok (done c)
 
-/-- [apeiron_word::kern::limb::syrk_q32]: loop 3:
-    Source: '../../src/engine/kern/limb.rs', lines 221:8-224:9 -/
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Prepared}::syrk]: loop 3:
+    Source: '../../src/engine/kern/limb.rs', lines 282:12-285:13 -/
 @[rust_loop]
-def kern.limb.syrk_q32_loop0_loop1_loop0
-  (m : Std.Usize) (c : alloc.vec.Vec Std.I64) (i : Std.Usize) (j : Std.Usize) :
+def kern.limb.Prepared.syrk_loop0_loop1_loop0
+  (self : kern.limb.Prepared) (c : alloc.vec.Vec Std.I64) (i : Std.Usize)
+  (j : Std.Usize) :
   Result (alloc.vec.Vec Std.I64)
   := do
   loop
-    (fun (c1, j1) => kern.limb.syrk_q32_loop0_loop1_loop0.body m i c1 j1)
+    (fun (c1, j1) => kern.limb.Prepared.syrk_loop0_loop1_loop0.body self i c1
+      j1)
     (c, j)
 
-/-- [apeiron_word::kern::limb::syrk_q32]: loop body 2:
-    Source: '../../src/engine/kern/limb.rs', lines 219:4-226:5 -/
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Prepared}::syrk]: loop body 2:
+    Source: '../../src/engine/kern/limb.rs', lines 280:8-287:9 -/
 @[rust_loop_body]
-def kern.limb.syrk_q32_loop0_loop1.body
-  (m : Std.Usize) (c : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+def kern.limb.Prepared.syrk_loop0_loop1.body
+  (self : kern.limb.Prepared) (c : alloc.vec.Vec Std.I64) (i : Std.Usize) :
   Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize) (alloc.vec.Vec
     Std.I64))
   := do
-  if i < m
+  if i < self.plane.rows
   then
     let j ← i + 1#usize
-    let c1 ← kern.limb.syrk_q32_loop0_loop1_loop0 m c i j
+    let c1 ← kern.limb.Prepared.syrk_loop0_loop1_loop0 self c i j
     let i1 ← i + 1#usize
     ok (cont (c1, i1))
   else ok (done c)
 
-/-- [apeiron_word::kern::limb::syrk_q32]: loop 2:
-    Source: '../../src/engine/kern/limb.rs', lines 219:4-226:5 -/
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Prepared}::syrk]: loop 2:
+    Source: '../../src/engine/kern/limb.rs', lines 280:8-287:9 -/
 @[rust_loop]
-def kern.limb.syrk_q32_loop0_loop1
-  (m : Std.Usize) (c : alloc.vec.Vec Std.I64) (i : Std.Usize) :
+def kern.limb.Prepared.syrk_loop0_loop1
+  (self : kern.limb.Prepared) (c : alloc.vec.Vec Std.I64) (i : Std.Usize) :
   Result (alloc.vec.Vec Std.I64)
   := do
   loop
-    (fun (c1, i1) => kern.limb.syrk_q32_loop0_loop1.body m c1 i1)
+    (fun (c1, i1) => kern.limb.Prepared.syrk_loop0_loop1.body self c1 i1)
     (c, i)
 
-/-- [apeiron_word::kern::limb::syrk_q32]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 201:4-228:1 -/
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Prepared}::syrk]: loop body 0:
+    Source: '../../src/engine/kern/limb.rs', lines 262:8-289:5 -/
 @[rust_loop_body]
-def kern.limb.syrk_q32_loop0.body
-  (m : Std.Usize) (n : Std.Usize) (plane : kern.limb.Plane)
-  (c : alloc.vec.Vec Std.I64) (j0 : Std.Usize) :
+def kern.limb.Prepared.syrk_loop0.body
+  (self : kern.limb.Prepared) (m : Std.Usize) (n : Std.Usize) (i : Std.Usize)
+  (i1 : Std.Usize) (i2 : Std.U32) (v : alloc.vec.Vec Std.U32)
+  (v1 : alloc.vec.Vec Std.I8) (c : alloc.vec.Vec Std.I64) (j0 : Std.Usize) :
   Result (ControlFlow ((alloc.vec.Vec Std.I64) × Std.Usize)
     (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError))
   := do
-  if j0 < m
+  if j0 < self.plane.rows
   then
-    let i ← j0 + kern.limb.SYRK_COLS
-    let j1 ← core.cmp.Ord.min.trait_default core.cmp.OrdUsize i m
+    let i3 ← j0 + kern.limb.SYRK_COLS
+    let j1 ←
+      core.cmp.Ord.min.trait_default core.cmp.OrdUsize i3 self.plane.rows
     let width ← j1 - j0
-    let r ← kern.limb.Plane.product_rows plane plane 0#usize j1 j0 width n
+    let r ←
+      kern.limb.Plane.product_rows
+        {
+          rows := m,
+          n,
+          blocks := i,
+          padded := i1,
+          limbs := i2,
+          e := v,
+          dig := v1
+        }
+        {
+          rows := m,
+          n,
+          blocks := i,
+          padded := i1,
+          limbs := i2,
+          e := v,
+          dig := v1
+        } 0#usize j1 j0 width self.plane.n
     let cf ← core.result.Result.Insts.CoreOpsTry.branch r
     match cf with
     | core.ops.control_flow.ControlFlow.Continue val =>
-      let c1 ← kern.limb.syrk_q32_loop0_loop0 m c j0 j1 width val 0#usize
+      let c1 ←
+        kern.limb.Prepared.syrk_loop0_loop0 self c j0 j1 width val 0#usize
       ok (cont (c1, j1))
     | core.ops.control_flow.ControlFlow.Break residual =>
       let r1 ←
@@ -29333,29 +29541,51 @@ def kern.limb.syrk_q32_loop0.body
           residual
       ok (done r1)
   else
-    let c1 ← kern.limb.syrk_q32_loop0_loop1 m c 0#usize
+    let c1 ← kern.limb.Prepared.syrk_loop0_loop1 self c 0#usize
     ok (done (core.result.Result.Ok c1))
 
-/-- [apeiron_word::kern::limb::syrk_q32]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 201:4-228:1 -/
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Prepared}::syrk]: loop 0:
+    Source: '../../src/engine/kern/limb.rs', lines 262:8-289:5 -/
 @[rust_loop]
-def kern.limb.syrk_q32_loop0
-  (m : Std.Usize) (n : Std.Usize) (plane : kern.limb.Plane)
-  (c : alloc.vec.Vec Std.I64) (j0 : Std.Usize) :
+def kern.limb.Prepared.syrk_loop0
+  (self : kern.limb.Prepared) (m : Std.Usize) (n : Std.Usize) (i : Std.Usize)
+  (i1 : Std.Usize) (i2 : Std.U32) (v : alloc.vec.Vec Std.U32)
+  (v1 : alloc.vec.Vec Std.I8) (c : alloc.vec.Vec Std.I64) (j0 : Std.Usize) :
   Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
   := do
   loop
-    (fun (c1, j01) => kern.limb.syrk_q32_loop0.body m n plane c1 j01)
+    (fun (c1, j01) => kern.limb.Prepared.syrk_loop0.body self m n i i1 i2 v v1
+      c1 j01)
     (c, j0)
 
-/-- [apeiron_word::kern::limb::syrk_q32]:
-    Source: '../../src/engine/kern/limb.rs', lines 194:0-228:1 -/
-def kern.limb.syrk_q32
-  (a : Slice Std.I64) (m : Std.Usize) (n : Std.Usize) (limbs : Std.U32) :
+/-- [apeiron_word::kern::limb::{apeiron_word::kern::limb::Prepared}::syrk]:
+    Source: '../../src/engine/kern/limb.rs', lines 256:4-289:5 -/
+def kern.limb.Prepared.syrk
+  (self : kern.limb.Prepared) :
   Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
   := do
+  let o ← lift (Usize.checked_mul self.plane.rows self.plane.rows)
+  let r ← core.option.Option.ok_or o kern.limb.LimbError.Shape
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    let c ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val
+    kern.limb.Prepared.syrk_loop0 self self.plane.rows self.plane.n
+      self.plane.blocks self.plane.padded self.plane.limbs self.plane.e
+      self.plane.dig c 0#usize
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+      residual
+
+/-- [apeiron_word::kern::limb::prepare]:
+    Source: '../../src/engine/kern/limb.rs', lines 218:0-225:1 -/
+def kern.limb.prepare
+  (a : Slice Std.I64) (rows : Std.Usize) (n : Std.Usize) (limbs : Std.U32) :
+  Result (core.result.Result kern.limb.Prepared kern.limb.LimbError)
+  := do
   let i := Slice.len a
-  let o ← lift (Usize.checked_mul m n)
+  let o ← lift (Usize.checked_mul rows n)
   let r ← core.option.Option.ok_or o kern.limb.LimbError.Shape
   let cf ← core.result.Result.Insts.CoreOpsTry.branch r
   match cf with
@@ -29363,32 +29593,37 @@ def kern.limb.syrk_q32
     if i != val
     then ok (core.result.Result.Err kern.limb.LimbError.Shape)
     else
-      let r1 ← kern.limb.Plane.build a m n limbs
+      let r1 ← kern.limb.Plane.build a rows n limbs
       let cf1 ← core.result.Result.Insts.CoreOpsTry.branch r1
       match cf1 with
       | core.ops.control_flow.ControlFlow.Continue val1 =>
-        let o1 ← lift (Usize.checked_mul m m)
-        let r2 ← core.option.Option.ok_or o1 kern.limb.LimbError.Shape
-        let cf2 ← core.result.Result.Insts.CoreOpsTry.branch r2
-        match cf2 with
-        | core.ops.control_flow.ControlFlow.Continue val2 =>
-          let c ← alloc.vec.from_elem core.clone.CloneI64 0#i64 val2
-          kern.limb.syrk_q32_loop0 m n val1 c 0#usize
-        | core.ops.control_flow.ControlFlow.Break residual =>
-          core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-            (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
-            residual
+        ok (core.result.Result.Ok { plane := val1 })
       | core.ops.control_flow.ControlFlow.Break residual =>
         core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
-          (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
+          kern.limb.Prepared (core.convert.FromSame kern.limb.LimbError)
           residual
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
+      kern.limb.Prepared (core.convert.FromSame kern.limb.LimbError) residual
+
+/-- [apeiron_word::kern::limb::syrk_q32]:
+    Source: '../../src/engine/kern/limb.rs', lines 194:0-196:1 -/
+def kern.limb.syrk_q32
+  (a : Slice Std.I64) (m : Std.Usize) (n : Std.Usize) (limbs : Std.U32) :
+  Result (core.result.Result (alloc.vec.Vec Std.I64) kern.limb.LimbError)
+  := do
+  let r ← kern.limb.prepare a m n limbs
+  let cf ← core.result.Result.Insts.CoreOpsTry.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    kern.limb.Prepared.syrk val
   | core.ops.control_flow.ControlFlow.Break residual =>
     core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
       (alloc.vec.Vec Std.I64) (core.convert.FromSame kern.limb.LimbError)
       residual
 
 /-- [apeiron_word::kern::limb::gemv_q32]:
-    Source: '../../src/engine/kern/limb.rs', lines 246:0-259:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 308:0-321:1 -/
 def kern.limb.gemv_q32
   (x : Slice Std.I64) (b : Slice Std.I64) (p : Std.Usize) (n : Std.Usize)
   (limbs : Std.U32) :
@@ -29430,11 +29665,11 @@ def kern.limb.gemv_q32
         residual
 
 /-- [apeiron_word::kern::limb::ROWDOT_TILE]
-    Source: '../../src/engine/kern/limb.rs', lines 319:0-319:29 -/
+    Source: '../../src/engine/kern/limb.rs', lines 381:0-381:29 -/
 @[global_simps, irreducible] def kern.limb.ROWDOT_TILE : Std.Usize := 8#usize
 
 /-- [apeiron_word::kern::limb::rowdot_q32]: loop body 1:
-    Source: '../../src/engine/kern/limb.rs', lines 304:8-307:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 366:8-369:9 -/
 @[rust_loop_body]
 def kern.limb.rowdot_q32_loop0_loop0.body
   (i0 : Std.Usize) (w : Std.Usize) (tile : alloc.vec.Vec Std.I64)
@@ -29459,7 +29694,7 @@ def kern.limb.rowdot_q32_loop0_loop0.body
   else ok (done y)
 
 /-- [apeiron_word::kern::limb::rowdot_q32]: loop 1:
-    Source: '../../src/engine/kern/limb.rs', lines 304:8-307:9 -/
+    Source: '../../src/engine/kern/limb.rs', lines 366:8-369:9 -/
 @[rust_loop]
 def kern.limb.rowdot_q32_loop0_loop0
   (y : alloc.vec.Vec Std.I64) (i0 : Std.Usize) (w : Std.Usize)
@@ -29471,7 +29706,7 @@ def kern.limb.rowdot_q32_loop0_loop0
     (y, i)
 
 /-- [apeiron_word::kern::limb::rowdot_q32]: loop body 0:
-    Source: '../../src/engine/kern/limb.rs', lines 299:4-311:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 361:4-373:1 -/
 @[rust_loop_body]
 def kern.limb.rowdot_q32_loop0.body
   (m : Std.Usize) (n : Std.Usize) (pa : kern.limb.Plane) (pb : kern.limb.Plane)
@@ -29499,7 +29734,7 @@ def kern.limb.rowdot_q32_loop0.body
   else ok (done (core.result.Result.Ok y))
 
 /-- [apeiron_word::kern::limb::rowdot_q32]: loop 0:
-    Source: '../../src/engine/kern/limb.rs', lines 299:4-311:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 361:4-373:1 -/
 @[rust_loop]
 def kern.limb.rowdot_q32_loop0
   (m : Std.Usize) (n : Std.Usize) (pa : kern.limb.Plane) (pb : kern.limb.Plane)
@@ -29511,7 +29746,7 @@ def kern.limb.rowdot_q32_loop0
     (y, i0)
 
 /-- [apeiron_word::kern::limb::rowdot_q32]:
-    Source: '../../src/engine/kern/limb.rs', lines 284:0-311:1 -/
+    Source: '../../src/engine/kern/limb.rs', lines 346:0-373:1 -/
 def kern.limb.rowdot_q32
   (a : Slice Std.I64) (b : Slice Std.I64) (m : Std.Usize) (n : Std.Usize)
   (limbs : Std.U32) :
@@ -35521,7 +35756,7 @@ structure gguf.Cur where
     Source: '../../src/format/gguf.rs', lines 241:4-245:5 -/
 def gguf.Cur.u8 (self : gguf.Cur) : Result ((Option Std.U8) × gguf.Cur) := do
   let o ←
-    core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8) 
+    core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8)
       self.b self.i
   let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
   match cf with
@@ -40331,7 +40566,7 @@ def mixer.conv_f32.conv_silu_cols_f32
               let result ←
                 if flat.k = 1#usize
                 then
-                  mixer.conv_f32.range w window xs kernel val flat.ch 
+                  mixer.conv_f32.range w window xs kernel val flat.ch
                     flat.k p1 writers 0#usize flat.ch avx2
                 else
                   mixer.conv_f32.run_pooled w window xs kernel val flat.ch
@@ -40421,7 +40656,7 @@ def mixer.conv_f32.conv_silu_cols_f32
               let result ←
                 if flat.k = 1#usize
                 then
-                  mixer.conv_f32.range w window xs kernel val flat.ch 
+                  mixer.conv_f32.range w window xs kernel val flat.ch
                     flat.k p1 writers 0#usize flat.ch avx2
                 else
                   mixer.conv_f32.run_pooled w window xs kernel val flat.ch
@@ -43545,7 +43780,7 @@ structure mixer.StageCtx where
     Source: '../../src/engine/mixer.rs', lines 697:4-710:5 -/
 def mixer.StageCtx.Insts.Apeiron_wordChartTaskIndexTask.run
   (self : mixer.StageCtx) (t : Std.Usize) : Result Unit := do
-  mixer.stage_task self.packed self.scalar self.window self.xsf self.ch 
+  mixer.stage_task self.packed self.scalar self.window self.xsf self.ch
     self.k self.per t self.writers self.first
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::IndexTask for apeiron_word::mixer::StageCtx<'_0>}]
@@ -47356,7 +47591,7 @@ def mixer.UpdateQ32Ctx.Insts.Apeiron_wordChartTaskHeadTaskI64StepError.run
   (self : mixer.UpdateQ32Ctx) (t : Std.Usize) (dst : Slice Std.I64) :
   Result ((core.result.Result Unit step.StepError) × (Slice Std.I64))
   := do
-  mixer.update_q32 self.layer self.g self.fa self.snap self.has_snap 
+  mixer.update_q32 self.layer self.g self.fa self.snap self.has_snap
     self.qk self.bd self.chunked t dst
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::HeadTask<i64, apeiron_word::step::StepError> for apeiron_word::mixer::UpdateQ32Ctx<'_0>}]
@@ -49104,12 +49339,12 @@ def mixer.head_gates_f32_loop.body
     let i ← c * nv
     let i1 ← i + h
     let i2 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) 
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
         fa.b i1
     let b_f ← mixer.f32_carrier.q32_to_f32 i2
     let i3 ← i + h
     let i4 ←
-      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) 
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
         fa.a i3
     let a_f ← mixer.f32_carrier.q32_to_f32 i4
     let beta ← mixer.f32_carrier.sigmoid_f32 b_f
@@ -49755,7 +49990,7 @@ structure mixer.Stage2Ctx where
     Source: '../../src/engine/mixer.rs', lines 2849:4-2860:5 -/
 def mixer.Stage2Ctx.Insts.Apeiron_wordChartTaskIndexTask.run
   (self : mixer.Stage2Ctx) (t : Std.Usize) : Result Unit := do
-  mixer.stage2_pool_task self.raw_f32 self.z self.ssm_norm_f self.eps_f 
+  mixer.stage2_pool_task self.raw_f32 self.z self.ssm_norm_f self.eps_f
     self.sg t self.writers self.first
 
 /-- Trait implementation: [apeiron_word::mixer::{impl apeiron_word::chart::task::IndexTask for apeiron_word::mixer::Stage2Ctx<'_0>}]
@@ -58711,7 +58946,7 @@ def
   Result ((core.result.Result Unit Unit) × (Slice Std.I64) × (Slice (Option
     step.StepError)))
   := do
-  step.softmax.attn_head_task self.kv self.layer self.flags self.prep 
+  step.softmax.attn_head_task self.kv self.layer self.flags self.prep
     self.last self.dims t dst st
 
 /-- Trait implementation: [apeiron_word::step::softmax::{impl apeiron_word::chart::task::Task2<i64, core::option::Option<apeiron_word::step::StepError>, ()> for apeiron_word::step::softmax::AttnHeadCtx<'_0>}]
@@ -63708,7 +63943,7 @@ def packing.Packing.groups
       let i1 ← val % i
       if i1 != 0#usize
       then
-        ok (core.result.Result.Err (packing.PackingError.BadGeometry 
+        ok (core.result.Result.Err (packing.PackingError.BadGeometry
           self.block self.group))
       else
         let i2 ← lift (UScalar.cast .Usize self.group)
@@ -65695,7 +65930,7 @@ def packing.Packing.encode_block
                   ok (true, out3)
                 else ok (false, out1)
               let (b3, out3) ←
-                packing.Packing.encode_block_loop b2 self.signed_coeff 
+                packing.Packing.encode_block_loop b2 self.signed_coeff
                   b.coeffs val1 out2 0#usize
               let s := alloc.vec.Vec.deref b.codes
               let (r3, out4) ←
@@ -69836,7 +70071,7 @@ def spirv.check.apply_shape
       then
         match shape.sudot with
         | none =>
-          spirv.check.apply_shape_loop2 index shape.result shape.uses 
+          spirv.check.apply_shape_loop2 index shape.result shape.uses
             shape.tag defs tys 0#usize
         | some t =>
           let (ty, a, b1) := t
@@ -69921,7 +70156,7 @@ def spirv.check.apply_shape
       | none =>
         match shape.sudot with
         | none =>
-          spirv.check.apply_shape_loop4 index shape.result shape.uses 
+          spirv.check.apply_shape_loop4 index shape.result shape.uses
             shape.tag defs tys 0#usize
         | some t =>
           let (ty, a, b1) := t
@@ -81624,24 +81859,24 @@ def fold_port.fit.gptq_e8_carrier.feedback_u
           fold_port.fit.gptq_e8.GptqE8Error) residual
 
 /-- [apeiron_word::fold_port::fit::icm::BLOCK]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 46:0-46:27
+    Source: '../../src/learn/fold/fit/icm.rs', lines 48:0-48:27
     Visibility: public -/
 @[global_simps, irreducible] def fold_port.fit.icm.BLOCK : Std.Usize := 8#usize
 
 /-- [apeiron_word::fold_port::fit::icm::GROUP]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 48:0-48:29
+    Source: '../../src/learn/fold/fit/icm.rs', lines 50:0-50:29
     Visibility: public -/
 @[global_simps, irreducible]
 def fold_port.fit.icm.GROUP : Std.Usize := 128#usize
 
 /-- [apeiron_word::fold_port::fit::icm::CODE_LEN]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 50:0-50:45
+    Source: '../../src/learn/fold/fit/icm.rs', lines 52:0-52:45
     Visibility: public -/
 @[global_simps, irreducible]
 def fold_port.fit.icm.CODE_LEN : Std.Usize := learn_port.e8.CODEBOOK_LEN
 
 /-- [apeiron_word::fold_port::fit::icm::IcmError]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 54:0-67:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 56:0-69:1
     Visibility: public -/
 @[discriminant isize]
 inductive fold_port.fit.icm.IcmError where
@@ -81653,7 +81888,7 @@ inductive fold_port.fit.icm.IcmError where
 | NotPositiveDefinite : fold_port.fit.icm.IcmError
 
 /-- [apeiron_word::fold_port::fit::icm::PlaneRef]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 71:0-82:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 73:0-84:1
     Visibility: public -/
 structure fold_port.fit.icm.PlaneRef where
   s : Slice Std.I64
@@ -81663,7 +81898,7 @@ structure fold_port.fit.icm.PlaneRef where
   d : Slice Std.I64
 
 /-- [apeiron_word::fold_port::fit::icm::Plane]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 86:0-97:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 88:0-99:1
     Visibility: public -/
 structure fold_port.fit.icm.Plane where
   s : alloc.vec.Vec Std.I64
@@ -81673,7 +81908,7 @@ structure fold_port.fit.icm.Plane where
   d : alloc.vec.Vec Std.I64
 
 /-- [apeiron_word::fold_port::fit::icm::JointStats]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 101:0-109:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 103:0-111:1
     Visibility: public -/
 structure fold_port.fit.icm.JointStats where
   j_before : Std.I64
@@ -81681,12 +81916,12 @@ structure fold_port.fit.icm.JointStats where
   moves : Std.Usize
 
 /-- [apeiron_word::fold_port::fit::icm::round_shift::{closure}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 114:44-114:66 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 116:44-116:66 -/
 @[reducible]
 def fold_port.fit.icm.round_shift.closure := Unit
 
 /-- [apeiron_word::fold_port::fit::icm::round_shift::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::round_shift::{closure}}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 114:44-114:66 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 116:44-116:66 -/
 def
   fold_port.fit.icm.round_shift.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError.call_once
   (c : fold_port.fit.icm.round_shift.closure)
@@ -81696,7 +81931,7 @@ def
   ok fold_port.fit.icm.IcmError.Overflow
 
 /-- Trait implementation: [apeiron_word::fold_port::fit::icm::round_shift::{impl core::ops::function::FnOnce<(core::num::error::TryFromIntError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::round_shift::{closure}}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 114:44-114:66 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 116:44-116:66 -/
 @[reducible]
 def
   fold_port.fit.icm.round_shift.closure.Insts.CoreOpsFunctionFnOnceTupleTryFromIntErrorIcmError
@@ -81707,7 +81942,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::fit::icm::round_shift]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 112:0-117:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 114:0-119:1 -/
 def fold_port.fit.icm.round_shift
   (v : Std.I128) (s : Std.U32) :
   Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
@@ -81722,7 +81957,7 @@ def fold_port.fit.icm.round_shift
       r ()
 
 /-- [apeiron_word::fold_port::fit::icm::add_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 120:0-122:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 122:0-124:1 -/
 def fold_port.fit.icm.add_q
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
@@ -81731,7 +81966,7 @@ def fold_port.fit.icm.add_q
   core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
 
 /-- [apeiron_word::fold_port::fit::icm::sub_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 125:0-127:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 127:0-129:1 -/
 def fold_port.fit.icm.sub_q
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
@@ -81740,7 +81975,7 @@ def fold_port.fit.icm.sub_q
   core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
 
 /-- [apeiron_word::fold_port::fit::icm::mul_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 130:0-132:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 132:0-134:1 -/
 def fold_port.fit.icm.mul_q
   (a : Std.I64) (b : Std.I64) :
   Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
@@ -81751,7 +81986,7 @@ def fold_port.fit.icm.mul_q
   fold_port.fit.icm.round_shift i2 32#u32
 
 /-- [apeiron_word::fold_port::fit::icm::qsum]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 135:0-137:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 137:0-139:1 -/
 def fold_port.fit.icm.qsum
   (a : Std.I128) (b : Std.I128) :
   Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
@@ -81760,7 +81995,7 @@ def fold_port.fit.icm.qsum
   core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
 
 /-- [apeiron_word::fold_port::fit::icm::qsub]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 140:0-142:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 142:0-144:1 -/
 def fold_port.fit.icm.qsub
   (a : Std.I128) (b : Std.I128) :
   Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
@@ -81769,7 +82004,7 @@ def fold_port.fit.icm.qsub
   core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
 
 /-- [apeiron_word::fold_port::fit::icm::qmul]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 145:0-147:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 147:0-149:1 -/
 def fold_port.fit.icm.qmul
   (a : Std.I128) (b : Std.I128) :
   Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
@@ -81778,16 +82013,16 @@ def fold_port.fit.icm.qmul
   core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
 
 /-- [apeiron_word::fold_port::fit::icm::LIMBS]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 154:0-154:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 156:0-156:21 -/
 @[global_simps, irreducible] def fold_port.fit.icm.LIMBS : Std.U32 := 5#u32
 
 /-- [apeiron_word::fold_port::fit::icm::LIMBS_MATMUL]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 158:0-158:28 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 160:0-160:28 -/
 @[global_simps, irreducible]
 def fold_port.fit.icm.LIMBS_MATMUL : Std.U32 := 3#u32
 
 /-- [apeiron_word::fold_port::fit::icm::map_limb]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 266:0-271:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 493:0-498:1 -/
 def fold_port.fit.icm.map_limb
   (e : kern.limb.LimbError) : Result fold_port.fit.icm.IcmError := do
   match e with
@@ -81796,7 +82031,7 @@ def fold_port.fit.icm.map_limb
   | kern.limb.LimbError.NoKernel => ok fold_port.fit.icm.IcmError.Overflow
 
 /-- [apeiron_word::fold_port::fit::icm::{impl core::ops::function::FnOnce<(apeiron_word::kern::limb::LimbError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::map_limb}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 266:0-271:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 493:0-498:1 -/
 def P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError.call_once
   (state : kern.limb.LimbError → Result fold_port.fit.icm.IcmError)
   (args : kern.limb.LimbError) :
@@ -81805,7 +82040,7 @@ def P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError.call_once
   fold_port.fit.icm.map_limb args
 
 /-- Trait implementation: [apeiron_word::fold_port::fit::icm::{impl core::ops::function::FnOnce<(apeiron_word::kern::limb::LimbError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::map_limb}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 266:0-271:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 493:0-498:1 -/
 @[reducible]
 def P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError :
   core.ops.function.FnOnce (kern.limb.LimbError → Result
@@ -81815,7 +82050,7 @@ def P.Insts.CoreOpsFunctionFnOnceTupleLimbErrorIcmError :
 }
 
 /-- [apeiron_word::fold_port::fit::icm::gemv_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 194:0-196:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 196:0-198:1 -/
 def fold_port.fit.icm.gemv_q
   (x : Slice Std.I64) (b : Slice Std.I64) (p : Std.Usize) (n : Std.Usize) :
   Result (core.result.Result (alloc.vec.Vec Std.I64)
@@ -81827,7 +82062,7 @@ def fold_port.fit.icm.gemv_q
     (fold_port.fit.icm.map_limb)
 
 /-- [apeiron_word::fold_port::fit::icm::dot_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 161:0-164:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 163:0-166:1 -/
 def fold_port.fit.icm.dot_q
   (a : Slice Std.I64) (b : Slice Std.I64) :
   Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
@@ -81846,7 +82081,7 @@ def fold_port.fit.icm.dot_q
       Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::nt_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 167:0-169:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 169:0-171:1 -/
 def fold_port.fit.icm.nt_q
   (a : Slice Std.I64) (m : Std.Usize) (b : Slice Std.I64) (p : Std.Usize)
   (n : Std.Usize) :
@@ -81859,7 +82094,7 @@ def fold_port.fit.icm.nt_q
     (fold_port.fit.icm.map_limb)
 
 /-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 449:8-452:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 676:8-679:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.transpose_q_loop0_loop0.body
   (h : Slice Std.I64) (r : Std.Usize) (c : Std.Usize) (i : Std.Usize)
@@ -81883,7 +82118,7 @@ def fold_port.fit.icm.transpose_q_loop0_loop0.body
   else ok (done t)
 
 /-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 449:8-452:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 676:8-679:9 -/
 @[rust_loop]
 def fold_port.fit.icm.transpose_q_loop0_loop0
   (h : Slice Std.I64) (r : Std.Usize) (c : Std.Usize)
@@ -81896,7 +82131,7 @@ def fold_port.fit.icm.transpose_q_loop0_loop0
     (t, j)
 
 /-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 447:4-454:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 674:4-681:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.transpose_q_loop0.body
   (h : Slice Std.I64) (r : Std.Usize) (c : Std.Usize)
@@ -81912,7 +82147,7 @@ def fold_port.fit.icm.transpose_q_loop0.body
   else ok (done t)
 
 /-- [apeiron_word::fold_port::fit::icm::transpose_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 447:4-454:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 674:4-681:5 -/
 @[rust_loop]
 def fold_port.fit.icm.transpose_q_loop0
   (h : Slice Std.I64) (r : Std.Usize) (c : Std.Usize)
@@ -81924,7 +82159,7 @@ def fold_port.fit.icm.transpose_q_loop0
     (t, i)
 
 /-- [apeiron_word::fold_port::fit::icm::transpose_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 444:0-456:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 671:0-683:1 -/
 def fold_port.fit.icm.transpose_q
   (h : Slice Std.I64) (r : Std.Usize) (c : Std.Usize) :
   Result (alloc.vec.Vec Std.I64)
@@ -81934,7 +82169,7 @@ def fold_port.fit.icm.transpose_q
   fold_port.fit.icm.transpose_q_loop0 h r c t 0#usize
 
 /-- [apeiron_word::fold_port::fit::icm::nt_l]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 189:0-191:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 191:0-193:1 -/
 def fold_port.fit.icm.nt_l
   (a : Slice Std.I64) (m : Std.Usize) (b : Slice Std.I64) (p : Std.Usize)
   (n : Std.Usize) :
@@ -81947,7 +82182,7 @@ def fold_port.fit.icm.nt_l
     (fold_port.fit.icm.map_limb)
 
 /-- [apeiron_word::fold_port::fit::icm::matmul_l]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 173:0-186:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 175:0-188:1 -/
 def fold_port.fit.icm.matmul_l
   (a : Slice Std.I64) (b : Slice Std.I64) (rows : Std.Usize)
   (inner : Std.Usize) (cols : Std.Usize) (nt : Bool) :
@@ -81962,7 +82197,7 @@ def fold_port.fit.icm.matmul_l
     fold_port.fit.icm.nt_l a rows s cols inner
 
 /-- [apeiron_word::fold_port::fit::icm::block_cost]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 226:0-231:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 228:0-233:1 -/
 def fold_port.fit.icm.block_cost
   (aa : Std.I128) (two_a : Std.I128) (q : Std.I64) (dot : Std.I64) :
   Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
@@ -81987,7 +82222,7 @@ def fold_port.fit.icm.block_cost
       Std.I128 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::best_code_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 247:4-258:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 254:4-265:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.best_code_q_loop.body
   (aa : Std.I128) (two_a : Std.I128) (q : Slice Std.I64) (dot : Slice Std.I64)
@@ -82023,7 +82258,7 @@ def fold_port.fit.icm.best_code_q_loop.body
   else ok (done (best, err))
 
 /-- [apeiron_word::fold_port::fit::icm::best_code_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 247:4-258:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 254:4-265:5 -/
 @[rust_loop]
 def fold_port.fit.icm.best_code_q_loop
   (aa : Std.I128) (two_a : Std.I128) (q : Slice Std.I64) (dot : Slice Std.I64)
@@ -82038,7 +82273,7 @@ def fold_port.fit.icm.best_code_q_loop
     (best, best_cost, err, j)
 
 /-- [apeiron_word::fold_port::fit::icm::best_code_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 243:0-263:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 245:0-270:1 -/
 def fold_port.fit.icm.best_code_q
   (aa : Std.I128) (two_a : Std.I128) (q : Slice Std.I64) (dot : Slice Std.I64)
   :
@@ -82054,7 +82289,7 @@ def fold_port.fit.icm.best_code_q
   | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::fold_port::fit::icm::map_solve]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 274:0-281:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 501:0-508:1 -/
 def fold_port.fit.icm.map_solve
   (e : solve_port.chol.SolveError) : Result fold_port.fit.icm.IcmError := do
   match e with
@@ -82068,7 +82303,7 @@ def fold_port.fit.icm.map_solve
   | solve_port.chol.SolveError.Overflow => ok fold_port.fit.icm.IcmError.Shape
 
 /-- [apeiron_word::fold_port::fit::icm::matmul_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 287:0-314:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 514:0-541:1 -/
 def fold_port.fit.icm.matmul_q
   (a : Slice Std.I64) (b : Slice Std.I64) (rows : Std.Usize)
   (inner : Std.Usize) (cols : Std.Usize) (nt : Bool) :
@@ -82119,7 +82354,7 @@ def fold_port.fit.icm.matmul_q
                     (fold_port.fit.icm.map_limb)
 
 /-- [apeiron_word::fold_port::fit::icm::codebook_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 320:4-326:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 547:4-553:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.codebook_q_loop.body
   (cb : Array (Array Std.I64 8#usize) 256#usize) (j : Std.Usize) :
@@ -82140,7 +82375,7 @@ def fold_port.fit.icm.codebook_q_loop.body
   else ok (done cb)
 
 /-- [apeiron_word::fold_port::fit::icm::codebook_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 320:4-326:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 547:4-553:5 -/
 @[rust_loop]
 def fold_port.fit.icm.codebook_q_loop
   (cb : Array (Array Std.I64 8#usize) 256#usize) (j : Std.Usize) :
@@ -82151,7 +82386,7 @@ def fold_port.fit.icm.codebook_q_loop
     (cb, j)
 
 /-- [apeiron_word::fold_port::fit::icm::codebook_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 317:0-328:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 544:0-555:1 -/
 def fold_port.fit.icm.codebook_q
   : Result (Array (Array Std.I64 8#usize) 256#usize) := do
   let a := Array.repeat 8#usize 0#i64
@@ -82159,7 +82394,7 @@ def fold_port.fit.icm.codebook_q
   fold_port.fit.icm.codebook_q_loop cb 0#usize
 
 /-- [apeiron_word::fold_port::fit::icm::block_of_q]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 336:8-339:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 563:8-566:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.block_of_q_loop0_loop0.body
   (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize) (a : Std.Usize)
@@ -82183,7 +82418,7 @@ def fold_port.fit.icm.block_of_q_loop0_loop0.body
   else ok (done b)
 
 /-- [apeiron_word::fold_port::fit::icm::block_of_q]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 336:8-339:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 563:8-566:9 -/
 @[rust_loop]
 def fold_port.fit.icm.block_of_q_loop0_loop0
   (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize)
@@ -82196,7 +82431,7 @@ def fold_port.fit.icm.block_of_q_loop0_loop0
     (b, c)
 
 /-- [apeiron_word::fold_port::fit::icm::block_of_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 334:4-341:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 561:4-568:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.block_of_q_loop0.body
   (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize)
@@ -82212,7 +82447,7 @@ def fold_port.fit.icm.block_of_q_loop0.body
   else ok (done b)
 
 /-- [apeiron_word::fold_port::fit::icm::block_of_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 334:4-341:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 561:4-568:5 -/
 @[rust_loop]
 def fold_port.fit.icm.block_of_q_loop0
   (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize)
@@ -82224,7 +82459,7 @@ def fold_port.fit.icm.block_of_q_loop0
     (b, a)
 
 /-- [apeiron_word::fold_port::fit::icm::block_of_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 331:0-343:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 558:0-570:1 -/
 def fold_port.fit.icm.block_of_q
   (h : Slice Std.I64) (n : Std.Usize) (m : Std.Usize) :
   Result (Array (Array Std.I64 8#usize) 8#usize)
@@ -82234,21 +82469,21 @@ def fold_port.fit.icm.block_of_q
   fold_port.fit.icm.block_of_q_loop0 h n m b 0#usize
 
 /-- [apeiron_word::fold_port::fit::icm::rows_per_task]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 346:0-348:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 573:0-575:1 -/
 def fold_port.fit.icm.rows_per_task (rows : Std.Usize) : Result Std.Usize := do
   let i ← chart.pool.width_global
   let i1 ← core.num.Usize.div_ceil rows i
   core.cmp.Ord.max.default core.cmp.OrdUsize i1 1#usize
 
 /-- [apeiron_word::fold_port::fit::icm::BinOp]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 352:0-357:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 579:0-584:1 -/
 @[discriminant isize]
 inductive fold_port.fit.icm.BinOp where
 | Add : fold_port.fit.icm.BinOp
 | Sub : fold_port.fit.icm.BinOp
 
 /-- [apeiron_word::fold_port::fit::icm::bin_into]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 365:4-374:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 592:4-601:1 -/
 @[rust_loop_body]
 def fold_port.fit.icm.bin_into_loop.body
   (src : Slice Std.I64) (dst : Slice Std.I64) (op : fold_port.fit.icm.BinOp)
@@ -82292,7 +82527,7 @@ def fold_port.fit.icm.bin_into_loop.body
   else ok (done (core.result.Result.Ok (), dst))
 
 /-- [apeiron_word::fold_port::fit::icm::bin_into]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 365:4-374:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 592:4-601:1 -/
 @[rust_loop]
 def fold_port.fit.icm.bin_into_loop
   (dst : Slice Std.I64) (src : Slice Std.I64) (op : fold_port.fit.icm.BinOp)
@@ -82306,7 +82541,7 @@ def fold_port.fit.icm.bin_into_loop
     (dst, op, i)
 
 /-- [apeiron_word::fold_port::fit::icm::bin_into]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 360:0-374:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 587:0-601:1 -/
 def fold_port.fit.icm.bin_into
   (dst : Slice Std.I64) (src : Slice Std.I64) (op : fold_port.fit.icm.BinOp) :
   Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
@@ -82319,7 +82554,7 @@ def fold_port.fit.icm.bin_into
   else fold_port.fit.icm.bin_into_loop dst src op 0#usize
 
 /-- [apeiron_word::fold_port::fit::icm::ScaleBy]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 378:0-385:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 605:0-612:1 -/
 @[discriminant isize]
 inductive fold_port.fit.icm.ScaleBy where
 | Column : fold_port.fit.icm.ScaleBy
@@ -82327,7 +82562,7 @@ inductive fold_port.fit.icm.ScaleBy where
 | Row : fold_port.fit.icm.ScaleBy
 
 /-- [apeiron_word::fold_port::fit::icm::scale_by]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 409:8-420:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 636:8-647:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.scale_by_loop0_loop0.body
   (n : Std.Usize) (v : Slice Std.I64) (g : Std.Usize)
@@ -82368,7 +82603,7 @@ def fold_port.fit.icm.scale_by_loop0_loop0.body
   else ok (done (x, err))
 
 /-- [apeiron_word::fold_port::fit::icm::scale_by]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 409:8-420:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 636:8-647:9 -/
 @[rust_loop]
 def fold_port.fit.icm.scale_by_loop0_loop0
   (x : Slice Std.I64) (n : Std.Usize) (v : Slice Std.I64) (g : Std.Usize)
@@ -82383,7 +82618,7 @@ def fold_port.fit.icm.scale_by_loop0_loop0
     (x, err, col)
 
 /-- [apeiron_word::fold_port::fit::icm::scale_by]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 407:4-422:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 634:4-649:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.scale_by_loop0.body
   (o : Std.Usize) (n : Std.Usize) (v : Slice Std.I64) (g : Std.Usize)
@@ -82405,7 +82640,7 @@ def fold_port.fit.icm.scale_by_loop0.body
   else ok (done (x, err))
 
 /-- [apeiron_word::fold_port::fit::icm::scale_by]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 407:4-422:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 634:4-649:5 -/
 @[rust_loop]
 def fold_port.fit.icm.scale_by_loop0
   (x : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) (v : Slice Std.I64)
@@ -82419,7 +82654,7 @@ def fold_port.fit.icm.scale_by_loop0
     (x, err, row)
 
 /-- [apeiron_word::fold_port::fit::icm::scale_by]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 388:0-427:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 615:0-654:1 -/
 def fold_port.fit.icm.scale_by
   (x : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) (v : Slice Std.I64)
   (g : Std.Usize) («by» : fold_port.fit.icm.ScaleBy) :
@@ -82467,12 +82702,12 @@ def fold_port.fit.icm.scale_by
           else ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, x)
 
 /-- [apeiron_word::fold_port::fit::icm::fwht_rows::{closure}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 437:39-440:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 664:39-667:5 -/
 @[reducible]
 def fold_port.fit.icm.fwht_rows.closure := Unit
 
 /-- [apeiron_word::fold_port::fit::icm::fwht_rows::{impl core::ops::function::FnOnce<(apeiron_word::hadamard::HadamardError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::fwht_rows::{closure}}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 437:39-440:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 664:39-667:5 -/
 def
   fold_port.fit.icm.fwht_rows.closure.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorIcmError.call_once
   (c : fold_port.fit.icm.fwht_rows.closure)
@@ -82487,7 +82722,7 @@ def
   | hadamard.HadamardError.Overflow => ok fold_port.fit.icm.IcmError.Overflow
 
 /-- Trait implementation: [apeiron_word::fold_port::fit::icm::fwht_rows::{impl core::ops::function::FnOnce<(apeiron_word::hadamard::HadamardError,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::fwht_rows::{closure}}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 437:39-440:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 664:39-667:5 -/
 @[reducible]
 def
   fold_port.fit.icm.fwht_rows.closure.Insts.CoreOpsFunctionFnOnceTupleHadamardErrorIcmError
@@ -82498,7 +82733,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::fit::icm::fwht_rows]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 433:0-441:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 660:0-668:1 -/
 def fold_port.fit.icm.fwht_rows
   (x : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
   Result ((core.result.Result Unit fold_port.fit.icm.IcmError) × (Slice
@@ -82527,7 +82762,7 @@ def fold_port.fit.icm.fwht_rows
       else ok (core.result.Result.Err fold_port.fit.icm.IcmError.Shape, x)
 
 /-- [apeiron_word::fold_port::fit::icm::had_gram_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 461:0-470:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 688:0-697:1 -/
 def fold_port.fit.icm.had_gram_q
   (h : Slice Std.I64) (n : Std.Usize) :
   Result (core.result.Result (alloc.vec.Vec Std.I64)
@@ -82573,7 +82808,7 @@ def fold_port.fit.icm.had_gram_q
     else ok (core.result.Result.Err fold_port.fit.icm.IcmError.Width)
 
 /-- [apeiron_word::fold_port::fit::icm::cross_metric_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 475:0-493:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 702:0-720:1 -/
 def fold_port.fit.icm.cross_metric_q
   (hl : Slice Std.I64) (n : Std.Usize) (c1 : Slice Std.I64)
   (c2 : Slice Std.I64) (d1 : Slice Std.I64) (d2 : Slice Std.I64) :
@@ -82646,7 +82881,7 @@ def fold_port.fit.icm.cross_metric_q
         fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::check_inputs]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 496:0-512:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 723:0-739:1 -/
 def fold_port.fit.icm.check_inputs
   (ws : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize) (n : Std.Usize)
   (g : Option (Slice Std.I64)) :
@@ -82671,7 +82906,7 @@ def fold_port.fit.icm.check_inputs
         else ok (core.result.Result.Ok ())
 
 /-- [apeiron_word::fold_port::fit::icm::into_plane]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 515:0-523:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 742:0-750:1 -/
 def fold_port.fit.icm.into_plane
   (s : Slice Std.I64) (idx : alloc.vec.Vec Std.U16)
   (p : fold_port.fit.icm.PlaneRef) :
@@ -82684,19 +82919,19 @@ def fold_port.fit.icm.into_plane
   ok { s := v, idx, r := v1, c := v2, d := v3 }
 
 /-- [apeiron_word::fold_port::fit::icm::codebook]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 527:0-529:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 754:0-756:1
     Visibility: public -/
 def fold_port.fit.icm.codebook
   : Result (Array (Array Std.I64 8#usize) 256#usize) := do
   fold_port.fit.icm.codebook_q
 
 /-- [apeiron_word::fold_port::fit::icm::nearest_index::{closure}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 539:30-539:52 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 766:30-766:52 -/
 @[reducible]
 def fold_port.fit.icm.nearest_index.closure := Unit
 
 /-- [apeiron_word::fold_port::fit::icm::nearest_index::{impl core::ops::function::FnOnce<(apeiron_word::learn_port::e8::E8Error,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::nearest_index::{closure}}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 539:30-539:52 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 766:30-766:52 -/
 def
   fold_port.fit.icm.nearest_index.closure.Insts.CoreOpsFunctionFnOnceTupleE8ErrorIcmError.call_once
   (c : fold_port.fit.icm.nearest_index.closure)
@@ -82706,7 +82941,7 @@ def
   ok fold_port.fit.icm.IcmError.Overflow
 
 /-- Trait implementation: [apeiron_word::fold_port::fit::icm::nearest_index::{impl core::ops::function::FnOnce<(apeiron_word::learn_port::e8::E8Error,), apeiron_word::fold_port::fit::icm::IcmError> for apeiron_word::fold_port::fit::icm::nearest_index::{closure}}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 539:30-539:52 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 766:30-766:52 -/
 @[reducible]
 def
   fold_port.fit.icm.nearest_index.closure.Insts.CoreOpsFunctionFnOnceTupleE8ErrorIcmError
@@ -82717,7 +82952,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::fit::icm::nearest_index]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 538:0-540:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 765:0-767:1
     Visibility: public -/
 def fold_port.fit.icm.nearest_index
   (code : Array Std.I64 8#usize) :
@@ -82729,12 +82964,12 @@ def fold_port.fit.icm.nearest_index
     r ()
 
 /-- [apeiron_word::fold_port::fit::icm::div_round::{closure#1}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 605:32-605:41 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 832:32-832:41 -/
 @[reducible]
 def fold_port.fit.icm.div_round.closure_1 := Std.I128
 
 /-- [apeiron_word::fold_port::fit::icm::div_round::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::icm::div_round::{closure#1}<'_0>}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 605:32-605:41 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 832:32-832:41 -/
 def
   fold_port.fit.icm.div_round.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
   (c : fold_port.fit.icm.div_round.closure_1) (tupled_args : Std.I128) :
@@ -82743,7 +82978,7 @@ def
   tupled_args / c
 
 /-- Trait implementation: [apeiron_word::fold_port::fit::icm::div_round::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::icm::div_round::{closure#1}<'_0>}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 605:32-605:41 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 832:32-832:41 -/
 @[reducible]
 def
   fold_port.fit.icm.div_round.closure_1.Insts.CoreOpsFunctionFnOnceTupleI128I128
@@ -82754,12 +82989,12 @@ def
 }
 
 /-- [apeiron_word::fold_port::fit::icm::div_round::{closure}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 603:32-603:41 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 830:32-830:41 -/
 @[reducible]
 def fold_port.fit.icm.div_round.closure := Std.I128
 
 /-- [apeiron_word::fold_port::fit::icm::div_round::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::icm::div_round::{closure}<'_0>}::call_once]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 603:32-603:41 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 830:32-830:41 -/
 def
   fold_port.fit.icm.div_round.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128.call_once
   (c : fold_port.fit.icm.div_round.closure) (tupled_args : Std.I128) :
@@ -82768,7 +83003,7 @@ def
   tupled_args / c
 
 /-- Trait implementation: [apeiron_word::fold_port::fit::icm::div_round::{impl core::ops::function::FnOnce<(i128,), i128> for apeiron_word::fold_port::fit::icm::div_round::{closure}<'_0>}]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 603:32-603:41 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 830:32-830:41 -/
 @[reducible]
 def
   fold_port.fit.icm.div_round.closure.Insts.CoreOpsFunctionFnOnceTupleI128I128
@@ -82779,7 +83014,7 @@ def
 }
 
 /-- [apeiron_word::fold_port::fit::icm::div_round]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 597:0-608:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 824:0-835:1 -/
 def fold_port.fit.icm.div_round
   (v : Std.I128) (d : Std.I128) :
   Result (core.result.Result Std.I128 fold_port.fit.icm.IcmError)
@@ -82805,7 +83040,7 @@ def fold_port.fit.icm.div_round
     core.option.Option.ok_or o fold_port.fit.icm.IcmError.Overflow
 
 /-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 564:8-570:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 791:8-797:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.ridged_metric_q_loop0.body
   (hl : Slice Std.I64) (n : Std.Usize) (sum : Std.I128)
@@ -82833,7 +83068,7 @@ def fold_port.fit.icm.ridged_metric_q_loop0.body
   else ok (done (sum, err))
 
 /-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 564:8-570:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 791:8-797:9 -/
 @[rust_loop]
 def fold_port.fit.icm.ridged_metric_q_loop0
   (hl : Slice Std.I64) (n : Std.Usize) (sum : Std.I128)
@@ -82846,7 +83081,7 @@ def fold_port.fit.icm.ridged_metric_q_loop0
     (sum, err, i)
 
 /-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 581:8-587:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 808:8-814:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.ridged_metric_q_loop1.body
   (n : Std.Usize) (add : Std.I64) (h : alloc.vec.Vec Std.I64)
@@ -82883,7 +83118,7 @@ def fold_port.fit.icm.ridged_metric_q_loop1.body
   else ok (done (h, err))
 
 /-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 581:8-587:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 808:8-814:9 -/
 @[rust_loop]
 def fold_port.fit.icm.ridged_metric_q_loop1
   (n : Std.Usize) (h : alloc.vec.Vec Std.I64)
@@ -82896,7 +83131,7 @@ def fold_port.fit.icm.ridged_metric_q_loop1
     (h, err, i)
 
 /-- [apeiron_word::fold_port::fit::icm::ridged_metric_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 558:0-593:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 785:0-820:1 -/
 def fold_port.fit.icm.ridged_metric_q
   (hl : Slice Std.I64) (n : Std.Usize) (icm_ridge : Std.I64) :
   Result (core.result.Result (alloc.vec.Vec Std.I64)
@@ -82980,7 +83215,7 @@ def fold_port.fit.icm.ridged_metric_q
   else ok (core.result.Result.Ok h)
 
 /-- [apeiron_word::fold_port::fit::icm::ridged_metric]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 549:0-554:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 776:0-781:1
     Visibility: public -/
 def fold_port.fit.icm.ridged_metric
   (hl : Slice Std.I64) (n : Std.Usize) (icm_ridge : Std.I64) :
@@ -82997,7 +83232,7 @@ def fold_port.fit.icm.ridged_metric
     else fold_port.fit.icm.ridged_metric_q hl n icm_ridge
 
 /-- [apeiron_word::fold_port::fit::icm::check_plane]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1817:0-1833:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2108:0-2124:1 -/
 def fold_port.fit.icm.check_plane
   (p : fold_port.fit.icm.PlaneRef) (o : Std.Usize) (n : Std.Usize) :
   Result (core.result.Result Unit fold_port.fit.icm.IcmError)
@@ -83046,7 +83281,7 @@ def fold_port.fit.icm.check_plane
       else ok (core.result.Result.Err fold_port.fit.icm.IcmError.Width)
 
 /-- [apeiron_word::fold_port::fit::icm::code_transform_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 624:0-634:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 851:0-861:1 -/
 def fold_port.fit.icm.code_transform_q
   (s : Slice Std.I64) (d : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
   Result (core.result.Result (alloc.vec.Vec Std.I64)
@@ -83078,7 +83313,7 @@ def fold_port.fit.icm.code_transform_q
       fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::plane_w_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 638:0-651:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 865:0-878:1 -/
 def fold_port.fit.icm.plane_w_q
   (s : Slice Std.I64) (r : Slice Std.I64) (c : Slice Std.I64)
   (d : Slice Std.I64) (o : Std.Usize) (n : Std.Usize) :
@@ -83119,7 +83354,7 @@ def fold_port.fit.icm.plane_w_q
       fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::plane_w]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 617:0-620:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 844:0-847:1
     Visibility: public -/
 def fold_port.fit.icm.plane_w
   (p : fold_port.fit.icm.PlaneRef) (o : Std.Usize) (n : Std.Usize) :
@@ -83137,7 +83372,7 @@ def fold_port.fit.icm.plane_w
       fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::j_rows_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 691:4-712:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 918:4-939:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.j_rows_q_loop.body
   (o : Std.Usize) (n : Std.Usize) (d : alloc.vec.Vec Std.I64)
@@ -83196,7 +83431,7 @@ def fold_port.fit.icm.j_rows_q_loop.body
   else ok (done (total, err))
 
 /-- [apeiron_word::fold_port::fit::icm::j_rows_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 691:4-712:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 918:4-939:5 -/
 @[rust_loop]
 def fold_port.fit.icm.j_rows_q_loop
   (o : Std.Usize) (n : Std.Usize) (g_row : Option (Slice Std.I64))
@@ -83210,7 +83445,7 @@ def fold_port.fit.icm.j_rows_q_loop
     (g_row, total, err, row)
 
 /-- [apeiron_word::fold_port::fit::icm::j_rows_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 677:0-717:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 904:0-944:1 -/
 def fold_port.fit.icm.j_rows_q
   (ws : Slice Std.I64) (w : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize)
   (n : Std.Usize) (g_row : Option (Slice Std.I64)) :
@@ -83243,7 +83478,7 @@ def fold_port.fit.icm.j_rows_q
       Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::j_rows]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 659:0-672:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 886:0-899:1
     Visibility: public -/
 def fold_port.fit.icm.j_rows
   (ws : Slice Std.I64) (w : Slice Std.I64) (hl : Slice Std.I64) (o : Std.Usize)
@@ -83264,7 +83499,7 @@ def fold_port.fit.icm.j_rows
       Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::SweepCtx]
-    Source: '../../src/learn/fold/fit/icm.rs', lines 884:0-891:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1111:0-1118:1 -/
 structure fold_port.fit.icm.SweepCtx where
   h_rot : Slice Std.I64
   q_all : Slice Std.I64
@@ -83274,7 +83509,7 @@ structure fold_port.fit.icm.SweepCtx where
   sweeps : Std.Usize
 
 /-- [apeiron_word::fold_port::fit::icm::flatten_codebook_q]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 872:8-875:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1099:8-1102:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.flatten_codebook_q_loop0_loop0.body
   (cb : Array (Array Std.I64 8#usize) 256#usize) (j : Std.Usize)
@@ -83297,7 +83532,7 @@ def fold_port.fit.icm.flatten_codebook_q_loop0_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::fold_port::fit::icm::flatten_codebook_q]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 872:8-875:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1099:8-1102:9 -/
 @[rust_loop]
 def fold_port.fit.icm.flatten_codebook_q_loop0_loop0
   (cb : Array (Array Std.I64 8#usize) 256#usize) (out : alloc.vec.Vec Std.I64)
@@ -83310,7 +83545,7 @@ def fold_port.fit.icm.flatten_codebook_q_loop0_loop0
     (out, k)
 
 /-- [apeiron_word::fold_port::fit::icm::flatten_codebook_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 870:4-877:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1097:4-1104:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.flatten_codebook_q_loop0.body
   (cb : Array (Array Std.I64 8#usize) 256#usize) (out : alloc.vec.Vec Std.I64)
@@ -83327,7 +83562,7 @@ def fold_port.fit.icm.flatten_codebook_q_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::fold_port::fit::icm::flatten_codebook_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 870:4-877:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1097:4-1104:5 -/
 @[rust_loop]
 def fold_port.fit.icm.flatten_codebook_q_loop0
   (cb : Array (Array Std.I64 8#usize) 256#usize) (out : alloc.vec.Vec Std.I64)
@@ -83340,7 +83575,7 @@ def fold_port.fit.icm.flatten_codebook_q_loop0
     (out, j)
 
 /-- [apeiron_word::fold_port::fit::icm::flatten_codebook_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 867:0-879:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1094:0-1106:1 -/
 def fold_port.fit.icm.flatten_codebook_q
   (cb : Array (Array Std.I64 8#usize) 256#usize) :
   Result (alloc.vec.Vec Std.I64)
@@ -83350,7 +83585,7 @@ def fold_port.fit.icm.flatten_codebook_q
   fold_port.fit.icm.flatten_codebook_q_loop0 cb out 0#usize
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 3:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 935:16-938:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1162:16-1165:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0.body
   (s : Slice Std.I64) (n : Std.Usize) (b0 : Std.Usize) (k : Std.Usize)
@@ -83375,7 +83610,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0.body
   else ok (done cols)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 3:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 935:16-938:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1162:16-1165:17 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0
   (s : Slice Std.I64) (n : Std.Usize) (cols : alloc.vec.Vec Std.I64)
@@ -83389,7 +83624,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0_loop0
     (cols, col)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 2:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 933:12-940:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1160:12-1167:13 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0.body
   (s : Slice Std.I64) (n : Std.Usize) (b0 : Std.Usize)
@@ -83407,7 +83642,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0.body
   else ok (done cols)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 2:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 933:12-940:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1160:12-1167:13 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0
   (s : Slice Std.I64) (n : Std.Usize) (cols : alloc.vec.Vec Std.I64)
@@ -83420,7 +83655,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop0
     (cols, k)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 5:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 944:16-947:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1171:16-1174:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop1_loop0.body
   (n : Std.Usize) (s_cur : Slice Std.I64) (b0 : Std.Usize) (row : Std.Usize)
@@ -83445,7 +83680,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop1_loop0.body
   else ok (done s_blk)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 5:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 944:16-947:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1171:16-1174:17 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop1_loop0
   (n : Std.Usize) (s_cur : Slice Std.I64) (s_blk : alloc.vec.Vec Std.I64)
@@ -83459,7 +83694,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop1_loop0
     (s_blk, k)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 4:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 942:12-949:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1169:12-1176:13 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop1.body
   (n : Std.Usize) (s_cur : Slice Std.I64) (rows : Std.Usize) (b0 : Std.Usize)
@@ -83477,7 +83712,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop1.body
   else ok (done s_blk)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 4:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 942:12-949:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1169:12-1176:13 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop1
   (n : Std.Usize) (s_cur : Slice Std.I64) (rows : Std.Usize)
@@ -83490,7 +83725,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop1
     (s_blk, row)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 7:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 962:24-971:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1189:24-1198:25 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop2_loop0.body
   (n : Std.Usize) (f_res : Slice Std.I64) (b0 : Std.Usize)
@@ -83537,7 +83772,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop2_loop0.body
   else ok (done (f_blk, err))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 7:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 962:24-971:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1189:24-1198:25 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop2_loop0
   (n : Std.Usize) (f_res : Slice Std.I64) (f_blk : alloc.vec.Vec Std.I64)
@@ -83552,7 +83787,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop2_loop0
     (f_blk, err, k)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 6:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 959:20-973:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1186:20-1200:21 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop2.body
   (n : Std.Usize) (i : Std.Usize) (f_res : Slice Std.I64) (r : Slice Std.I64)
@@ -83581,7 +83816,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop2.body
   else ok (done (f_blk, err))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 6:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 959:20-973:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1186:20-1200:21 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop2
   (n : Std.Usize) (i : Std.Usize) (f_res : Slice Std.I64) (r : Slice Std.I64)
@@ -83597,7 +83832,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop2
     (f_blk, err, row)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 9:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1000:28-1010:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1227:28-1237:29 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop3_loop0.body
   (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize)
@@ -83641,7 +83876,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop3_loop0.body
   else ok (done (s_cur, d_blk, err, changed))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 9:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1000:28-1010:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1227:28-1237:29 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop3_loop0
   (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize)
@@ -83658,7 +83893,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop3_loop0
     (s_cur, d_blk, err, changed, k)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 8:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 982:24-1020:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1209:24-1247:25 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop3.body
   (s : Slice Std.I64) (a : Array (Array Std.I64 8#usize) 256#usize)
@@ -83742,7 +83977,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop3.body
   else ok (done (s_cur, idx, d_blk, moved_row, moved_a, err, moved_n))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 8:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 982:24-1020:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1209:24-1247:25 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop3
   (s : Slice Std.I64) (a : Array (Array Std.I64 8#usize) 256#usize)
@@ -83763,7 +83998,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop3
     (s_cur, idx, d_blk, moved_row, moved_a, err, moved_n, row)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 11:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1257:20-1260:21 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop4_loop0.body
   (d_blk : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
@@ -83789,7 +84024,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop4_loop0.body
   else ok (done chg)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 11:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1257:20-1260:21 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop4_loop0
   (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize)
@@ -83803,7 +84038,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop4_loop0
     (chg, k)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 10:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1254:16-1262:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop4.body
   (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
@@ -83824,7 +84059,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop4.body
   else ok (done chg)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 10:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1254:16-1262:17 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop4
   (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64)
@@ -83837,7 +84072,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop4
     (chg, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 13:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1270:28-1279:29 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop5_loop0.body
   (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
@@ -83879,7 +84114,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop5_loop0.body
   else ok (done (f_res, err))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 13:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1270:28-1279:29 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop5_loop0
   (n : Std.Usize) (f_res : Slice Std.I64)
@@ -83894,7 +84129,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop5_loop0
     (f_res, err, col)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 12:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1266:24-1281:25 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop5.body
   (n : Std.Usize) (moved_row : alloc.vec.Vec Std.Usize)
@@ -83924,7 +84159,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop5.body
   else ok (done (f_res, err))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 12:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1266:24-1281:25 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop5
   (n : Std.Usize) (f_res : Slice Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
@@ -83939,7 +84174,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop5
     (f_res, err, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 15:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1257:20-1260:21 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop6_loop0.body
   (d_blk : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
@@ -83965,7 +84200,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop6_loop0.body
   else ok (done chg)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 15:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1257:20-1260:21 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop6_loop0
   (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize)
@@ -83979,7 +84214,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop6_loop0
     (chg, k)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 14:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1254:16-1262:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop6.body
   (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84000,7 +84235,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop6.body
   else ok (done chg)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 14:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1254:16-1262:17 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop6
   (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64)
@@ -84013,7 +84248,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop6
     (chg, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 17:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1270:28-1279:29 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop7_loop0.body
   (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
@@ -84055,7 +84290,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop7_loop0.body
   else ok (done (f_res, ie))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 17:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1270:28-1279:29 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop7_loop0
   (n : Std.Usize) (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError)
@@ -84070,7 +84305,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop7_loop0
     (f_res, ie, col)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 16:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1266:24-1281:25 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop7.body
   (n : Std.Usize) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84099,7 +84334,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop7.body
   else ok (done (f_res, ie))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 16:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1266:24-1281:25 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop7
   (n : Std.Usize) (f_res : Slice Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84114,7 +84349,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop7
     (f_res, ie, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 19:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1257:20-1260:21 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop8_loop0.body
   (d_blk : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
@@ -84140,7 +84375,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop8_loop0.body
   else ok (done chg)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 19:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1257:20-1260:21 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop8_loop0
   (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize)
@@ -84154,7 +84389,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop8_loop0
     (chg, k)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 18:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1254:16-1262:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop8.body
   (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84175,7 +84410,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop8.body
   else ok (done chg)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 18:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1254:16-1262:17 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop8
   (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64)
@@ -84188,7 +84423,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop8
     (chg, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 21:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1270:28-1279:29 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop9_loop0.body
   (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
@@ -84230,7 +84465,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop9_loop0.body
   else ok (done (f_res, err))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 21:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1270:28-1279:29 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop9_loop0
   (n : Std.Usize) (f_res : Slice Std.I64)
@@ -84245,7 +84480,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop9_loop0
     (f_res, err, col)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 20:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1266:24-1281:25 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop9.body
   (n : Std.Usize) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84275,7 +84510,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop9.body
   else ok (done (f_res, err))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 20:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1266:24-1281:25 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop9
   (n : Std.Usize) (f_res : Slice Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84290,7 +84525,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop9
     (f_res, err, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 23:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1000:28-1010:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1227:28-1237:29 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop10_loop0.body
   (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize)
@@ -84334,7 +84569,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop10_loop0.body
   else ok (done (s_cur, d_blk, ie, changed))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 23:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1000:28-1010:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1227:28-1237:29 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop10_loop0
   (a : Array (Array Std.I64 8#usize) 256#usize) (n : Std.Usize)
@@ -84351,7 +84586,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop10_loop0
     (s_cur, d_blk, ie, changed, k)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 22:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 982:24-1020:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1209:24-1247:25 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop10.body
   (s : Slice Std.I64) (a : Array (Array Std.I64 8#usize) 256#usize)
@@ -84434,7 +84669,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop10.body
   else ok (done (s_cur, idx, d_blk, moved_row, moved_a, e, moved_n))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 22:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 982:24-1020:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1209:24-1247:25 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop10
   (s : Slice Std.I64) (a : Array (Array Std.I64 8#usize) 256#usize)
@@ -84455,7 +84690,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop10
     (s_cur, idx, d_blk, moved_row, moved_a, e, moved_n, row)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 25:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1257:20-1260:21 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop11_loop0.body
   (d_blk : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
@@ -84481,7 +84716,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop11_loop0.body
   else ok (done chg)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 25:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1257:20-1260:21 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop11_loop0
   (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize)
@@ -84495,7 +84730,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop11_loop0
     (chg, k)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 24:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1254:16-1262:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop11.body
   (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84516,7 +84751,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop11.body
   else ok (done chg)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 24:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1254:16-1262:17 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop11
   (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64)
@@ -84529,7 +84764,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop11
     (chg, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 27:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1270:28-1279:29 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop12_loop0.body
   (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
@@ -84571,7 +84806,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop12_loop0.body
   else ok (done (f_res, ie))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 27:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1270:28-1279:29 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop12_loop0
   (n : Std.Usize) (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError)
@@ -84586,7 +84821,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop12_loop0
     (f_res, ie, col)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 26:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1266:24-1281:25 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop12.body
   (n : Std.Usize) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84616,7 +84851,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop12.body
   else ok (done (f_res, ie))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 26:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1266:24-1281:25 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop12
   (n : Std.Usize) (f_res : Slice Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84631,7 +84866,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop12
     (f_res, ie, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 29:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1257:20-1260:21 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop13_loop0.body
   (d_blk : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
@@ -84657,7 +84892,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop13_loop0.body
   else ok (done chg)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 29:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1257:20-1260:21 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop13_loop0
   (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize)
@@ -84671,7 +84906,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop13_loop0
     (chg, k)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 28:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1254:16-1262:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop13.body
   (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84692,7 +84927,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop13.body
   else ok (done chg)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 28:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1254:16-1262:17 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop13
   (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64)
@@ -84705,7 +84940,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop13
     (chg, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 31:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1270:28-1279:29 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop14_loop0.body
   (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
@@ -84747,7 +84982,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop14_loop0.body
   else ok (done (f_res, ie))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 31:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1270:28-1279:29 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop14_loop0
   (n : Std.Usize) (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError)
@@ -84762,7 +84997,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop14_loop0
     (f_res, ie, col)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 30:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1266:24-1281:25 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop14.body
   (n : Std.Usize) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84791,7 +85026,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop14.body
   else ok (done (f_res, ie))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 30:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1266:24-1281:25 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop14
   (n : Std.Usize) (f_res : Slice Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84806,7 +85041,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop14
     (f_res, ie, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 33:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1257:20-1260:21 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop15_loop0.body
   (d_blk : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
@@ -84832,7 +85067,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop15_loop0.body
   else ok (done chg)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 33:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1030:20-1033:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1257:20-1260:21 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop15_loop0
   (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64) (i : Std.Usize)
@@ -84846,7 +85081,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop15_loop0
     (chg, k)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 32:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1254:16-1262:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop15.body
   (d_blk : alloc.vec.Vec Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84867,7 +85102,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop15.body
   else ok (done chg)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 32:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1027:16-1035:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1254:16-1262:17 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop15
   (d_blk : alloc.vec.Vec Std.I64) (chg : alloc.vec.Vec Std.I64)
@@ -84880,7 +85115,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop15
     (chg, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 35:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1270:28-1279:29 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop16_loop0.body
   (n : Std.Usize) (e : alloc.vec.Vec Std.I64) (i : Std.Usize) (row : Std.Usize)
@@ -84922,7 +85157,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop16_loop0.body
   else ok (done (f_res, ie))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 35:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1043:28-1052:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1270:28-1279:29 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop16_loop0
   (n : Std.Usize) (f_res : Slice Std.I64) (ie : fold_port.fit.icm.IcmError)
@@ -84937,7 +85172,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop16_loop0
     (f_res, ie, col)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 34:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1266:24-1281:25 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop16.body
   (n : Std.Usize) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84966,7 +85201,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop16.body
   else ok (done (f_res, ie))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 34:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1039:24-1054:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1266:24-1281:25 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0_loop16
   (n : Std.Usize) (f_res : Slice Std.I64) (moved_row : alloc.vec.Vec Std.Usize)
@@ -84981,7 +85216,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0_loop16
     (f_res, ie, i)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 923:8-1060:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1150:8-1287:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0_loop0.body
   (s : Slice Std.I64) (s1 : Slice Std.I64)
@@ -85297,7 +85532,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0.body
       moved_a, err))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 923:8-1060:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1150:8-1287:9 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0_loop0
   (s : Slice Std.I64) (s1 : Slice Std.I64)
@@ -85326,7 +85561,7 @@ def fold_port.fit.icm.sweep_rows_loop0_loop0
       err, step)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 921:4-1062:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1148:4-1289:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.sweep_rows_loop0.body
   (s : Slice Std.I64) (s1 : Slice Std.I64)
@@ -85362,7 +85597,7 @@ def fold_port.fit.icm.sweep_rows_loop0.body
   else ok (done (f_res, s_cur, idx, err))
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 921:4-1062:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1148:4-1289:5 -/
 @[rust_loop]
 def fold_port.fit.icm.sweep_rows_loop0
   (s : Slice Std.I64) (s1 : Slice Std.I64)
@@ -85387,7 +85622,7 @@ def fold_port.fit.icm.sweep_rows_loop0
       err, sw)
 
 /-- [apeiron_word::fold_port::fit::icm::sweep_rows]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 902:0-1067:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1129:0-1294:1 -/
 def fold_port.fit.icm.sweep_rows
   (cx : fold_port.fit.icm.SweepCtx) (f_res : Slice Std.I64)
   (s_cur : Slice Std.I64) (idx : Slice Std.U16) (r : Slice Std.I64) :
@@ -85416,7 +85651,7 @@ def fold_port.fit.icm.sweep_rows
   | some e => ok (core.result.Result.Err e, f_res1, s_cur1, idx1)
 
 /-- [apeiron_word::fold_port::fit::icm::block_x]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 793:8-796:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1020:8-1023:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.block_x_loop0_loop0.body
   (hb : Array (Array Std.I64 8#usize) 8#usize) (a : Std.Usize)
@@ -85439,7 +85674,7 @@ def fold_port.fit.icm.block_x_loop0_loop0.body
   else ok (done hbf)
 
 /-- [apeiron_word::fold_port::fit::icm::block_x]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 793:8-796:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1020:8-1023:9 -/
 @[rust_loop]
 def fold_port.fit.icm.block_x_loop0_loop0
   (hb : Array (Array Std.I64 8#usize) 8#usize) (hbf : alloc.vec.Vec Std.I64)
@@ -85451,7 +85686,7 @@ def fold_port.fit.icm.block_x_loop0_loop0
     (hbf, b)
 
 /-- [apeiron_word::fold_port::fit::icm::block_x]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 791:4-798:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1018:4-1025:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.block_x_loop0.body
   (hb : Array (Array Std.I64 8#usize) 8#usize) (hbf : alloc.vec.Vec Std.I64)
@@ -85467,7 +85702,7 @@ def fold_port.fit.icm.block_x_loop0.body
   else ok (done hbf)
 
 /-- [apeiron_word::fold_port::fit::icm::block_x]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 791:4-798:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1018:4-1025:5 -/
 @[rust_loop]
 def fold_port.fit.icm.block_x_loop0
   (hb : Array (Array Std.I64 8#usize) 8#usize) (hbf : alloc.vec.Vec Std.I64)
@@ -85479,7 +85714,7 @@ def fold_port.fit.icm.block_x_loop0
     (hbf, a)
 
 /-- [apeiron_word::fold_port::fit::icm::block_x]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 788:0-802:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1015:0-1029:1 -/
 def fold_port.fit.icm.block_x
   (hb : Array (Array Std.I64 8#usize) 8#usize) (cbf : Slice Std.I64) :
   Result (core.result.Result (alloc.vec.Vec Std.I64)
@@ -85508,7 +85743,7 @@ def fold_port.fit.icm.block_x
       fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::block_quads_q]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 820:16-823:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1047:16-1050:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.block_quads_q_loop0_loop0.body
   (m : Std.Usize) (x : alloc.vec.Vec Std.I64) (out : alloc.vec.Vec Std.I64)
@@ -85533,7 +85768,7 @@ def fold_port.fit.icm.block_quads_q_loop0_loop0.body
   else ok (done out)
 
 /-- [apeiron_word::fold_port::fit::icm::block_quads_q]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 820:16-823:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1047:16-1050:17 -/
 @[rust_loop]
 def fold_port.fit.icm.block_quads_q_loop0_loop0
   (out : alloc.vec.Vec Std.I64) (m : Std.Usize) (x : alloc.vec.Vec Std.I64)
@@ -85546,7 +85781,7 @@ def fold_port.fit.icm.block_quads_q_loop0_loop0
     (out, j)
 
 /-- [apeiron_word::fold_port::fit::icm::block_quads_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 815:4-828:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1042:4-1055:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.block_quads_q_loop0.body
   (h : Slice Std.I64) (nb : Std.Usize) (n : Std.Usize)
@@ -85577,7 +85812,7 @@ def fold_port.fit.icm.block_quads_q_loop0.body
   else ok (done (out, err))
 
 /-- [apeiron_word::fold_port::fit::icm::block_quads_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 815:4-828:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1042:4-1055:5 -/
 @[rust_loop]
 def fold_port.fit.icm.block_quads_q_loop0
   (h : Slice Std.I64) (nb : Std.Usize) (n : Std.Usize)
@@ -85591,7 +85826,7 @@ def fold_port.fit.icm.block_quads_q_loop0
     (out, err, m)
 
 /-- [apeiron_word::fold_port::fit::icm::block_quads_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 805:0-833:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1032:0-1060:1 -/
 def fold_port.fit.icm.block_quads_q
   (h : Slice Std.I64) (cb : Array (Array Std.I64 8#usize) 256#usize)
   (nb : Std.Usize) (n : Std.Usize) :
@@ -85608,7 +85843,7 @@ def fold_port.fit.icm.block_quads_q
   | some e => ok (core.result.Result.Err e)
 
 /-- [apeiron_word::fold_port::fit::icm::e8_icm_step]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 770:4-782:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 997:4-1009:1
     Visibility: public -/
 @[rust_loop_body]
 def fold_port.fit.icm.e8_icm_step_loop.body
@@ -85669,7 +85904,7 @@ def fold_port.fit.icm.e8_icm_step_loop.body
     ok (done (core.result.Result.Ok p))
 
 /-- [apeiron_word::fold_port::fit::icm::e8_icm_step]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 770:4-782:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 997:4-1009:1
     Visibility: public -/
 @[rust_loop]
 def fold_port.fit.icm.e8_icm_step_loop
@@ -85690,7 +85925,7 @@ def fold_port.fit.icm.e8_icm_step_loop
     (f_res, s_cur, idx_cur, row0)
 
 /-- [apeiron_word::fold_port::fit::icm::e8_icm_step]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 728:0-782:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 955:0-1009:1
     Visibility: public -/
 def fold_port.fit.icm.e8_icm_step
   (ws : Slice Std.I64) (hl : Slice Std.I64) (p : fold_port.fit.icm.PlaneRef)
@@ -85787,7 +86022,7 @@ def fold_port.fit.icm.e8_icm_step
                             core.cmp.Ord.max.default core.cmp.OrdUsize i
                               1#usize
                           let val8 := deref_mut_back4 s14
-                          fold_port.fit.icm.e8_icm_step_loop p.s p.idx 
+                          fold_port.fit.icm.e8_icm_step_loop p.s p.idx
                             p.r p.c p.d o n sweeps g nb cb val8 b idx_cur s16
                             s17 per 0#usize
                         | core.ops.control_flow.ControlFlow.Break residual =>
@@ -85840,7 +86075,7 @@ def fold_port.fit.icm.e8_icm_step
       fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::lift_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1538:0-1540:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1829:0-1831:1 -/
 def fold_port.fit.icm.lift_q
   (t : Std.I64) (k : Std.U32) :
   Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
@@ -85858,7 +86093,7 @@ def fold_port.fit.icm.lift_q
       Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1764:4-1770:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2055:4-2061:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_ridge_solve_q_loop0.body
   (mm : Slice Std.I64) (two_g : Std.Usize)
@@ -85886,7 +86121,7 @@ def fold_port.fit.icm.r_ridge_solve_q_loop0.body
   else ok (done (err, mean))
 
 /-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1764:4-1770:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2055:4-2061:5 -/
 @[rust_loop]
 def fold_port.fit.icm.r_ridge_solve_q_loop0
   (mm : Slice Std.I64) (two_g : Std.Usize)
@@ -85899,7 +86134,7 @@ def fold_port.fit.icm.r_ridge_solve_q_loop0
     (err, mean, i)
 
 /-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1780:4-1786:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2071:4-2077:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_ridge_solve_q_loop1.body
   (two_g : Std.Usize) (add : Std.I64) (mm : Slice Std.I64)
@@ -85929,7 +86164,7 @@ def fold_port.fit.icm.r_ridge_solve_q_loop1.body
   else ok (done (mm, err))
 
 /-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1780:4-1786:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2071:4-2077:5 -/
 @[rust_loop]
 def fold_port.fit.icm.r_ridge_solve_q_loop1
   (mm : Slice Std.I64) (two_g : Std.Usize)
@@ -85942,7 +86177,7 @@ def fold_port.fit.icm.r_ridge_solve_q_loop1
     (mm, err, i)
 
 /-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop body 2:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1792:4-1798:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2083:4-2089:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_ridge_solve_q_loop2.body
   (t : Slice Std.I64) (k : Std.U32) (two_g : Std.Usize)
@@ -85975,7 +86210,7 @@ def fold_port.fit.icm.r_ridge_solve_q_loop2.body
   else ok (done (err, tvec))
 
 /-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop 2:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1792:4-1798:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2083:4-2089:5 -/
 @[rust_loop]
 def fold_port.fit.icm.r_ridge_solve_q_loop2
   (t : Slice Std.I64) (k : Std.U32) (two_g : Std.Usize)
@@ -85989,7 +86224,7 @@ def fold_port.fit.icm.r_ridge_solve_q_loop2
     (err, tvec, i)
 
 /-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop body 3:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1805:12-1809:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2096:12-2100:13 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_ridge_solve_q_loop3.body
   (g : Std.Usize) (solved : solve_port.chol.Solved) (r1_out : Slice Std.I64)
@@ -86013,7 +86248,7 @@ def fold_port.fit.icm.r_ridge_solve_q_loop3.body
   else ok (done (r1_out, r2_out))
 
 /-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]: loop 3:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1805:12-1809:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2096:12-2100:13 -/
 @[rust_loop]
 def fold_port.fit.icm.r_ridge_solve_q_loop3
   (g : Std.Usize) (r1_out : Slice Std.I64) (r2_out : Slice Std.I64)
@@ -86026,7 +86261,7 @@ def fold_port.fit.icm.r_ridge_solve_q_loop3
     (r1_out, r2_out, i)
 
 /-- [apeiron_word::fold_port::fit::icm::r_ridge_solve_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1752:0-1814:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2043:0-2105:1 -/
 def fold_port.fit.icm.r_ridge_solve_q
   (mm : Slice Std.I64) (t : Slice Std.I64) (k : Std.U32) (two_g : Std.Usize)
   (g : Std.Usize) (r1_out : Slice Std.I64) (r2_out : Slice Std.I64) :
@@ -86111,7 +86346,7 @@ def fold_port.fit.icm.r_ridge_solve_q
   | some e => ok (core.result.Result.Err e, mm, r1_out, r2_out)
 
 /-- [apeiron_word::fold_port::fit::icm::fill_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1529:0-1535:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1820:0-1826:1 -/
 def fold_port.fit.icm.fill_q
   (v : Std.I128) (k : Std.U32) :
   Result (core.result.Result Std.I64 fold_port.fit.icm.IcmError)
@@ -86133,7 +86368,7 @@ def fold_port.fit.icm.fill_q
         Std.I64 (core.convert.FromSame fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 2:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1577:12-1583:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1868:12-1874:13 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop0_loop0_loop0.body
   (n : Std.Usize) (row : Std.Usize) (a_ : Std.Usize) (s : Slice Std.I64)
@@ -86165,7 +86400,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop0_loop0.body
   else ok (done prod)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 2:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1577:12-1583:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1868:12-1874:13 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop0_loop0_loop0
   (n : Std.Usize) (prod : alloc.vec.Vec Std.I128) (row : Std.Usize)
@@ -86179,7 +86414,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop0_loop0
     (prod, j)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1573:8-1585:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1864:8-1876:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop0_loop0.body
   (s : Slice Std.I64) (s1 : Slice Std.I64) (s2 : Slice Std.I64)
@@ -86207,7 +86442,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop0.body
   else ok (done prod)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 1:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1573:8-1585:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1864:8-1876:9 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop0_loop0
   (s : Slice Std.I64) (s1 : Slice Std.I64) (s2 : Slice Std.I64)
@@ -86222,7 +86457,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop0
     (prod, a_)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 3:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1588:8-1602:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1879:8-1893:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop0_loop1.body
   (two_g : Std.Usize) (prod : alloc.vec.Vec Std.I128) (max : Std.U128)
@@ -86245,7 +86480,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop1.body
   else ok (done max)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 3:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1588:8-1602:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1879:8-1893:9 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop0_loop1
   (two_g : Std.Usize) (prod : alloc.vec.Vec Std.I128) (max : Std.U128)
@@ -86258,7 +86493,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop1
     (max, idx)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 4:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1609:8-1615:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1900:8-1906:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop0_loop2.body
   (two_g : Std.Usize) (prod : alloc.vec.Vec Std.I128) (rr : Std.Usize)
@@ -86297,7 +86532,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop2.body
   else ok (done (pv, err))
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 4:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1609:8-1615:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1900:8-1906:9 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop0_loop2
   (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
@@ -86311,7 +86546,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop2
     (pv, err, idx)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 7:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1626:20-1629:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1917:20-1920:21 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop0_loop3_loop0_loop0.body
   (pv : alloc.vec.Vec Std.I64) (dst : Std.Usize) (src : Std.Usize)
@@ -86334,7 +86569,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop3_loop0_loop0.body
   else ok (done pv2)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 7:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1626:20-1629:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1917:20-1920:21 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop0_loop3_loop0_loop0
   (pv : alloc.vec.Vec Std.I64) (pv2 : alloc.vec.Vec Std.I64) (dst : Std.Usize)
@@ -86347,7 +86582,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop3_loop0_loop0
     (pv2, t)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 6:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1621:16-1631:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1912:16-1922:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop0_loop3_loop0.body
   (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
@@ -86375,7 +86610,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop3_loop0.body
   else ok (done pv2)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 6:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1621:16-1631:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1912:16-1922:17 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop0_loop3_loop0
   (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
@@ -86389,7 +86624,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop3_loop0
     (pv2, q)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 5:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1619:12-1633:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1910:12-1924:13 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop0_loop3.body
   (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
@@ -86406,7 +86641,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop3.body
   else ok (done pv2)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 5:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1619:12-1633:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1910:12-1924:13 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop0_loop3
   (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
@@ -86419,7 +86654,7 @@ def fold_port.fit.icm.r_band_q_loop0_loop3
     (pv2, w)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1570:4-1636:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1861:4-1927:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop0.body
   (s : Slice Std.I64) (s1 : Slice Std.I64) (s2 : Slice Std.I64)
@@ -86469,7 +86704,7 @@ def fold_port.fit.icm.r_band_q_loop0.body
   else ok (done (pv, pv2, ks, err))
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1570:4-1636:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1861:4-1927:5 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop0
   (s : Slice Std.I64) (s1 : Slice Std.I64) (s2 : Slice Std.I64)
@@ -86488,7 +86723,7 @@ def fold_port.fit.icm.r_band_q_loop0
     (pv, pv2, ks, prod, err, rr)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 10:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1650:12-1653:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1941:12-1944:13 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop1_loop0_loop0.body
   (hl : Slice Std.I64) (n : Std.Usize) (ga : Std.Usize) (j : Std.Usize)
@@ -86514,7 +86749,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop0_loop0.body
   else ok (done hb)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 10:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1650:12-1653:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1941:12-1944:13 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop1_loop0_loop0
   (hl : Slice Std.I64) (n : Std.Usize) (hb : alloc.vec.Vec Std.I64)
@@ -86527,7 +86762,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop0_loop0
     (hb, k)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 9:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1648:8-1655:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1939:8-1946:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop1_loop0.body
   (hl : Slice Std.I64) (n : Std.Usize) (ga : Std.Usize)
@@ -86544,7 +86779,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop0.body
   else ok (done hb)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 9:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1648:8-1655:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1939:8-1946:9 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop1_loop0
   (hl : Slice Std.I64) (n : Std.Usize) (hb : alloc.vec.Vec Std.I64)
@@ -86557,7 +86792,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop0
     (hb, j)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 13:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1663:16-1666:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1954:16-1957:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop1_loop1_loop0_loop0.body
   (pv : alloc.vec.Vec Std.I64) (rr : Std.Usize) (q : Std.Usize)
@@ -86583,7 +86818,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop1_loop0_loop0.body
   else ok (done arows)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 13:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1663:16-1666:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1954:16-1957:17 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop1_loop1_loop0_loop0
   (pv : alloc.vec.Vec Std.I64) (arows : alloc.vec.Vec Std.I64) (rr : Std.Usize)
@@ -86597,7 +86832,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop1_loop0_loop0
     (arows, t)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 12:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1659:12-1668:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1950:12-1959:13 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop1_loop1_loop0.body
   (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
@@ -86621,7 +86856,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop1_loop0.body
   else ok (done arows)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 12:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1659:12-1668:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1950:12-1959:13 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop1_loop1_loop0
   (g : Std.Usize) (two_g : Std.Usize) (pv : alloc.vec.Vec Std.I64)
@@ -86635,7 +86870,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop1_loop0
     (arows, q)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 11:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1657:8-1670:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1948:8-1961:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop1_loop1.body
   (g : Std.Usize) (two_g : Std.Usize) (rows : Std.Usize)
@@ -86654,7 +86889,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop1.body
   else ok (done arows)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 11:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1657:8-1670:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1948:8-1961:9 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop1_loop1
   (g : Std.Usize) (two_g : Std.Usize) (rows : Std.Usize)
@@ -86668,7 +86903,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop1
     (arows, rr)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 17:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1681:28-1684:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1972:28-1975:29 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0_loop0.body
   (kk : alloc.vec.Vec Std.I64) (q : Std.Usize) (src : Std.Usize)
@@ -86692,7 +86927,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0_loop0.body
   else ok (done a2)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 17:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1681:28-1684:29 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1972:28-1975:29 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0_loop0
   (a2 : alloc.vec.Vec Std.I64) (kk : alloc.vec.Vec Std.I64) (q : Std.Usize)
@@ -86706,7 +86941,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0_loop0
     (a2, t)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 16:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1678:24-1686:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1969:24-1977:25 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0.body
   (n : Std.Usize) (kk : alloc.vec.Vec Std.I64) (rr : Std.Usize) (w : Std.Usize)
@@ -86729,7 +86964,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0.body
   else ok (done a2)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 16:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1678:24-1686:25 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1969:24-1977:25 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0
   (n : Std.Usize) (a2 : alloc.vec.Vec Std.I64) (kk : alloc.vec.Vec Std.I64)
@@ -86742,7 +86977,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop2_loop0_loop0
     (a2, q)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 15:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1676:20-1699:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1967:20-1990:21 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop1_loop2_loop0.body
   (i : Std.Usize) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
@@ -86823,7 +87058,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop2_loop0.body
   else ok (done (err, mmat, a2))
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 15:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1676:20-1699:21 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1967:20-1990:21 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop1_loop2_loop0
   (i : Std.Usize) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
@@ -86840,7 +87075,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop2_loop0
     (err, mmat, a2, w)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 14:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1674:16-1701:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1965:16-1992:17 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop1_loop2.body
   (i : Std.Usize) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
@@ -86867,7 +87102,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop2.body
   else ok (done (err, mmat, a2))
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 14:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1674:16-1701:17 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1965:16-1992:17 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop1_loop2
   (i : Std.Usize) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
@@ -86884,7 +87119,7 @@ def fold_port.fit.icm.r_band_q_loop1_loop2
     (err, mmat, a2, rr)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 8:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1645:4-1706:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1936:4-1997:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop1.body
   (i : Std.Usize) (hl : Slice Std.I64) (n : Std.Usize) (g : Std.Usize)
@@ -86924,7 +87159,7 @@ def fold_port.fit.icm.r_band_q_loop1.body
   else ok (done (err, mmat))
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 8:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1645:4-1706:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1936:4-1997:5 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop1
   (i : Std.Usize) (hl : Slice Std.I64) (n : Std.Usize) (g : Std.Usize)
@@ -86942,7 +87177,7 @@ def fold_port.fit.icm.r_band_q_loop1
     (err, mmat, a2, arows, hb, ga)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 20:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1719:12-1722:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2010:12-2013:13 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop2_loop0_loop0.body
   (wh : Slice Std.I64) (src : Std.Usize) (dst : Std.Usize)
@@ -86964,7 +87199,7 @@ def fold_port.fit.icm.r_band_q_loop2_loop0_loop0.body
   else ok (done whrows)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 20:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1719:12-1722:13 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2010:12-2013:13 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop2_loop0_loop0
   (wh : Slice Std.I64) (whrows : alloc.vec.Vec Std.I64) (src : Std.Usize)
@@ -86977,7 +87212,7 @@ def fold_port.fit.icm.r_band_q_loop2_loop0_loop0
     (whrows, t)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 19:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1715:8-1724:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2006:8-2015:9 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop2_loop0.body
   (wh : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
@@ -87002,7 +87237,7 @@ def fold_port.fit.icm.r_band_q_loop2_loop0.body
   else ok (done whrows)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 19:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1715:8-1724:9 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2006:8-2015:9 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop2_loop0
   (wh : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (two_g : Std.Usize)
@@ -87016,7 +87251,7 @@ def fold_port.fit.icm.r_band_q_loop2_loop0
     (whrows, a_)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 18:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1712:4-1726:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2003:4-2017:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop2.body
   (wh : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (row0 : Std.Usize)
@@ -87035,7 +87270,7 @@ def fold_port.fit.icm.r_band_q_loop2.body
   else ok (done whrows)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 18:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1712:4-1726:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2003:4-2017:5 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop2
   (wh : Slice Std.I64) (n : Std.Usize) (g : Std.Usize) (row0 : Std.Usize)
@@ -87049,7 +87284,7 @@ def fold_port.fit.icm.r_band_q_loop2
     (whrows, rr)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop body 21:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1729:4-1743:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2020:4-2034:5 -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_band_q_loop3.body
   (g : Std.Usize) (two_g : Std.Usize) (rows : Std.Usize)
@@ -87107,7 +87342,7 @@ def fold_port.fit.icm.r_band_q_loop3.body
   else ok (done (r1_out, r2_out, err))
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]: loop 21:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1729:4-1743:5 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2020:4-2034:5 -/
 @[rust_loop]
 def fold_port.fit.icm.r_band_q_loop3
   (g : Std.Usize) (r1_out : Slice Std.I64) (r2_out : Slice Std.I64)
@@ -87124,7 +87359,7 @@ def fold_port.fit.icm.r_band_q_loop3
     (r1_out, r2_out, err, mmat, rr)
 
 /-- [apeiron_word::fold_port::fit::icm::r_band_q]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1551:0-1748:1 -/
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1842:0-2039:1 -/
 def fold_port.fit.icm.r_band_q
   (hl : Slice Std.I64) (wh : Slice Std.I64) (p1 : fold_port.fit.icm.PlaneRef)
   (p2 : fold_port.fit.icm.PlaneRef) (n : Std.Usize) (g : Std.Usize)
@@ -87198,7 +87433,7 @@ def fold_port.fit.icm.r_band_q
   | some e => ok (core.result.Result.Err e, r1_out, r2_out)
 
 /-- [apeiron_word::fold_port::fit::icm::r_step2]: loop body 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1510:4-1526:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1801:4-1817:1
     Visibility: public -/
 @[rust_loop_body]
 def fold_port.fit.icm.r_step2_loop.body
@@ -87247,7 +87482,7 @@ def fold_port.fit.icm.r_step2_loop.body
   else ok (done (core.result.Result.Ok (r1_out, r2_out)))
 
 /-- [apeiron_word::fold_port::fit::icm::r_step2]: loop 0:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1510:4-1526:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1801:4-1817:1
     Visibility: public -/
 @[rust_loop]
 def fold_port.fit.icm.r_step2_loop
@@ -87266,7 +87501,7 @@ def fold_port.fit.icm.r_step2_loop
     (r1_out, r2_out, row0)
 
 /-- [apeiron_word::fold_port::fit::icm::r_step2]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1492:0-1526:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 1783:0-1817:1
     Visibility: public -/
 def fold_port.fit.icm.r_step2
   (ws : Slice Std.I64) (hl : Slice Std.I64) (p1 : fold_port.fit.icm.PlaneRef)
@@ -87296,7 +87531,7 @@ def fold_port.fit.icm.r_step2
           let r1_out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
           let r2_out ← alloc.vec.from_elem core.clone.CloneI64 0#i64 i
           let per1 ← core.cmp.Ord.max.default core.cmp.OrdUsize per 1#usize
-          fold_port.fit.icm.r_step2_loop hl p1.s p1.idx p1.r p1.c p1.d 
+          fold_port.fit.icm.r_step2_loop hl p1.s p1.idx p1.r p1.c p1.d
             p2.s p2.idx p2.r p2.c p2.d o n g val r1_out r2_out per1 0#usize
         | core.ops.control_flow.ControlFlow.Break residual =>
           core.result.Result.Insts.CoreOpsTryTraitFromResidualResultInfallible.from_residual
@@ -87316,7 +87551,7 @@ def fold_port.fit.icm.r_step2
       (core.convert.FromSame fold_port.fit.icm.IcmError) residual
 
 /-- [apeiron_word::fold_port::fit::icm::matmul]:
-    Source: '../../src/learn/fold/fit/icm.rs', lines 1845:0-1853:1
+    Source: '../../src/learn/fold/fit/icm.rs', lines 2136:0-2144:1
     Visibility: public -/
 def fold_port.fit.icm.matmul
   (a : Slice Std.I64) (b : Slice Std.I64) (rows : Std.Usize)
@@ -94635,7 +94870,7 @@ def
   let (i, rt, i1, i2) := c
   let i3 ← i1 + i2
   let i4 ←
-    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64) 
+    alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice Std.I64)
       rt.sin i3
   let o ← fold_port.stats.parts.mul i i4
   core.option.Option.and_then
@@ -100448,7 +100683,7 @@ def learn_port.head.rows_loop
     Std.I64) × (Slice Std.I128))
   := do
   let (dh1, dw1, loss_acc, fail1) ←
-    learn_port.head.rows_loop_loop objective hidden w_head z_t dims.n 
+    learn_port.head.rows_loop_loop objective hidden w_head z_t dims.n
       dims.d dims.v n_scale dh dw 0#i128 none 0#usize
   match fail1 with
   | none => ok (core.result.Result.Ok loss_acc, dh1, dw1)
@@ -108380,7 +108615,7 @@ def
     Visibility: public -/
 def hashtrinity.algebra.Stored.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.set
   {K : Type} (CoordInst : hashtrinity.algebra.Coord K) (corecmpEqInst :
-  core.cmp.Eq K) (self : hashtrinity.algebra.Stored K) (i : Std.Usize) 
+  core.cmp.Eq K) (self : hashtrinity.algebra.Stored K) (i : Std.Usize)
   (k : K) :
   Result (hashtrinity.algebra.Stored K)
   := do
@@ -108496,7 +108731,7 @@ def
     Visibility: public -/
 def hashtrinity.algebra.Regen.Insts.Apeiron_wordHashtrinityAlgebraKeyStore.set
   {K : Type} (CoordInvInst : hashtrinity.algebra.CoordInv K) (corecmpEqInst :
-  core.cmp.Eq K) (self : hashtrinity.algebra.Regen K) (_i : Std.Usize) 
+  core.cmp.Eq K) (self : hashtrinity.algebra.Regen K) (_i : Std.Usize)
   (_k : K) :
   Result (hashtrinity.algebra.Regen K)
   := do
@@ -109464,7 +109699,7 @@ def hashtrinity.overflow.Table.probe_capped_cold
       let (hits, empties) ←
         hashtrinity.overflow.prefix_masks self.coords home coord
       hashtrinity.overflow.Table.probe_capped_cold_loop corecmpEqInst
-        algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords 
+        algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords
         self.vals self.keys self.side self.overflow self.bits self.len
         self.tombs self._k coord home confirm limit hits empties
     else
@@ -109989,7 +110224,7 @@ def hashtrinity.overflow.Overflow.find_node
     Source: '../../src/map/hashtrinity/overflow.rs', lines 304:4-320:5 -/
 def hashtrinity.overflow.Overflow.alloc
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (key : Std.U64) (k : K) 
+  (self : hashtrinity.overflow.Overflow K V) (key : Std.U64) (k : K)
   (v : V) :
   Result (Std.U32 × (hashtrinity.overflow.Overflow K V))
   := do
@@ -110035,7 +110270,7 @@ def hashtrinity.overflow.Overflow.alloc
     Source: '../../src/map/hashtrinity/overflow.rs', lines 414:4-427:5 -/
 def hashtrinity.overflow.Overflow.insert_new_at
   {K : Type} {V : Type} (algebraCoordInst : hashtrinity.algebra.Coord K)
-  (self : hashtrinity.overflow.Overflow K V) (coord : Std.U64) (k : K) 
+  (self : hashtrinity.overflow.Overflow K V) (coord : Std.U64) (k : K)
   (v : V) :
   Result ((Std.U32 × Std.Usize) × (hashtrinity.overflow.Overflow K V))
   := do
@@ -110880,7 +111115,7 @@ def hashtrinity.is_sentinel (c : Std.U64) : Result Bool := do
 def hashtrinity.Table.insert_core
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
   (k : K) (new : V) (last_write : Bool) :
   Result ((Option (hashtrinity.InsertHit V)) × (hashtrinity.Table K V KS))
   := do
@@ -111047,7 +111282,7 @@ def hashtrinity.Table.insert_core
 def hashtrinity.Table.insert_merge_last_write
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
   (k : K) (new : V) :
   Result (hashtrinity.Table K V KS)
   := do
@@ -111163,7 +111398,7 @@ def hashtrinity.overflow.Table.probe_capped_with
       hashtrinity.overflow.prefix_masks self.coords home coord
     hashtrinity.overflow.Table.probe_capped_with_loop corecmpEqInst
       algebraCoordInst algebraKeyStoreInst ConfirmInst self.coords self.vals
-      self.keys self.side self.overflow self.bits self.len self.tombs 
+      self.keys self.side self.overflow self.bits self.len self.tombs
       self._k coord home confirm hits empties
   else
     hashtrinity.overflow.Table.probe_capped_cold corecmpEqInst algebraCoordInst
@@ -111202,7 +111437,7 @@ def hashtrinity.overflow.Overflow.get
 def hashtrinity.Table.get_coord
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
   (k : K) :
   Result (Option V)
   := do
@@ -111355,7 +111590,7 @@ def hashtrinity.Table.get_coord
 def hashtrinity.Table.get
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
   (k : K) :
   Result (Option V)
   := do
@@ -111393,7 +111628,7 @@ def hashtrinity.algebra.Table.fold
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K) (CoordInst
   : hashtrinity.algebra.Coord K) (MonoidInst : hashtrinity.algebra.Monoid V)
   (corecloneCloneInst : core.clone.Clone V) (KeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
   (k : K) :
   Result V
   := do
@@ -120814,7 +121049,7 @@ def
 def hashtrinity.face.Table.entry
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
   (k : K) :
   Result ((hashtrinity.face.Entry K V KS) × (hashtrinity.face.Entry K V KS →
     hashtrinity.Table K V KS))
@@ -120946,7 +121181,7 @@ def hashtrinity.face.Table.entry
 def hashtrinity.face.Table.contains_key
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
   (k : K) :
   Result Bool
   := do
@@ -122808,7 +123043,7 @@ def hashtrinity.Table.capacity
 def hashtrinity.Table.get_exact
   {K : Type} {V : Type} {KS : Type} (corecmpEqInst : core.cmp.Eq K)
   (algebraCoordInst : hashtrinity.algebra.Coord K) (algebraKeyStoreInst :
-  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS) 
+  hashtrinity.algebra.KeyStore KS K) (self : hashtrinity.Table K V KS)
   (k : K) :
   Result (Option V)
   := do

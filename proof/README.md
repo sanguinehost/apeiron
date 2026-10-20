@@ -84,6 +84,10 @@ The authoritative Charon selection is the `--start-from` entries in `regen.sh`. 
 diff from the committed `ApeironWord.lean`, so a source change that alters the generated
 definitions cannot pass silently.
 
+At `9eed90e5` on this 32-thread host the plain run writes the generated file in 566 s; `--check`
+did not complete within the 600 s ceiling in three runs (598 s each). The extraction's budget
+headroom is the route's open item under `APEIRON-AENEAS-ROUTE2-W1-T01`.
+
 `word_exchange_impulse`, `word_elastic_exchange` and `word_accept_derived_impulse` are thin wrappers
 over the real `src/exchange.rs::{exchange_impulse, elastic_exchange, accept_derived_impulse}`; the
 generated `exchange.Exchange<i64>` and `exchange.exchange_impulse`/`elastic_exchange`/
