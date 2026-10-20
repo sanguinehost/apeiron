@@ -287,6 +287,7 @@ SERVING_OPAQUE=(
     --opaque 'crate::mixer::f32_carrier::delta_step_f32_avx2_inner' # simd-twin: twin = delta_step_f32_scalar
     --opaque 'crate::kern::lut::block_inners_avx2' # simd-twin: scalar block inner of the Pq2 LUT row
     --opaque 'crate::kern::lut::tile_accs_avx2' # simd-twin: scalar tile accumulate of the Pq2 LUT
+    --opaque 'crate::kern::limb::simd' # simd-twin: AVX2 block digit split, twin = the scalar split_digits/split_block body
     --opaque 'crate::mixer::f32_carrier::exp_f32_avx2' # simd-twin: twin = exp_f32_scalar
     --opaque 'crate::mixer::f32_carrier::silu_f32_avx2' # simd-twin: twin = silu_f32_scalar
     --opaque 'crate::mixer::f32_carrier::conv_silu_tap4_avx2' # simd-twin: scalar conv_silu tap
