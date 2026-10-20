@@ -563,6 +563,12 @@ committed file predates the extracted-source changes in `src/engine/kern/gemm.rs
 `kern::limb::Prepared::syrk` loop decomposition differ. Regenerating `ApeironWord.lean` and
 re-elaborating `proof/corpus` is a separate task; the budget is not what holds the gate red.
 
+Between `6c724104` and `e1d3af8e` the translated set grows by one function,
+`limb::split_block` (1,586 MIR nodes against `r_band_q`'s 343,781, 0.46 %). The pack writer and
+reader and the fit's `flat_pair_sum` are included by `#[path]` but are not roots, so they do not
+translate; a 580 s timeout on the loaded box (a 15–20-core peer lane) is the single-threaded tail
+plus contention, not source growth. Board .
+
 Board .
 
 A fresh clone `git clone`d from the published repository, with the changed `proof/` files added, ran
