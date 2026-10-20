@@ -64,6 +64,11 @@ up 51.0 [50.2,54.6], down 896x4864 192.5 [161.3,272.0]. The layer at t=64 is ~54
 bilinear products run scalar; the record `docs/evidence/perf-predictions.md` carries the phase
 closure (0.02-0.13 % unaccounted; dropping `icm1` moves it to 55 %). Board `APEIRON-QUALITY-118-W1-T01`.
 
+Inverting the `e8_icm_step` window build to once per block cuts the down fit at t=64 from 158.81 s
+to 153.27 s (3.5 %, 5 interleaved pairs, fitted-plane digest `502b3437…` both) and leaves Q
+unchanged (13.2 -> 13.1 s); the window copy phase falls 1.09 -> 0.05 s per call, the block product
+and the code dot move +0.05/+0.3 s inside the spread. Board `APEIRON-QUALITY-118-W1-T01`.
+
 The P-rows below are historical. A `red` verdict in a row is relative to that row's measured revision and
 is not current status; § Current supersedes every one of them.
 
