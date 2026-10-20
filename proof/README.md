@@ -569,6 +569,11 @@ reader and the fit's `flat_pair_sum` are included by `#[path]` but are not roots
 translate; a 580 s timeout on the loaded box (a 15–20-core peer lane) is the single-threaded tail
 plus contention, not source growth. Board .
 
+The limb's AVX2 `simd` twin (`split_block_avx2`, reached by `split_block`'s x86 branch) is opaque
+under the `simd-twin` class in `proof/regen.sh`; the scalar `split_digits` body stays extracted.
+The audit admitted 159 items and rejected 13 unlisted intrinsics before the entry was added.
+Board .
+
 Board .
 
 A fresh clone `git clone`d from the published repository, with the changed `proof/` files added, ran
