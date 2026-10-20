@@ -53,6 +53,17 @@ transfer route's defect: one layer at 512 tokens (`APEIRON_PROBE_SEQ=1`, `k=1`) 
 inside 560 s (exit 124), so 24 layers project past 13,400 s against the 93.9 s whole-model bar, and
 the 4-layer header re-fit's measured 2,511 s is the same term. Board `APEIRON-QUALITY-118-W1-T01`.
 
+The fit is row-free: per tensor at t=64, real layer-0 weights and Gram (median [min,max] of 4-7
+interleaved samples, release, box load 29.6): Q 896x896 13.5 s [12.3,30.0], K 128x896 33.9
+[33.9,86.6], V 33.0 [29.1,116.3], O 896x896 86.9 [78.7,120.0], gate 4864x896 50.5 [50.3,78.4],
+up 51.0 [50.2,54.6], down 896x4864 192.5 [161.3,272.0]. The layer at t=64 is ~545 s with the fit at
+83 % of it, and the whole model projects 24 x 545 s = 13,080 s = 3.63 h against the 93.9 s bar
+(139x). At t=512 Q is 19.1 s and down 189.3 s, so the row term is negligible. Inside the fit, the
+`e8_icm_step` sweep is 80-90 % of each ICM call (~45 % of the layer), and inside it the transposed
+`BLOCK x n` slice of `H_rot` is rebuilt once per row band (24x at o=896) while the two per-block
+bilinear products run scalar; the record `docs/evidence/perf-predictions.md` carries the phase
+closure (0.02-0.13 % unaccounted; dropping `icm1` moves it to 55 %). Board `APEIRON-QUALITY-118-W1-T01`.
+
 The P-rows below are historical. A `red` verdict in a row is relative to that row's measured revision and
 is not current status; § Current supersedes every one of them.
 
