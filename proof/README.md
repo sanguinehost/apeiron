@@ -575,6 +575,7 @@ plus contention, not source growth. Board .
 
 The limb's AVX2 `simd` twin (`split_block_avx2`, reached by `split_block`'s x86 branch) is opaque
 under the `simd-twin` class in `proof/regen.sh`; the scalar `split_digits` body stays extracted.
+The opaque boundary item is admitted in `proof/boundary-axioms.txt`.
 The audit admitted 159 items and rejected 13 unlisted intrinsics before the entry was added.
 Board .
 
