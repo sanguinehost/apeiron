@@ -95,6 +95,7 @@ kern.bitplane.x86.low_dot_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_e
 kern.bitplane.x86.row_interval_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 kern.gemm.x86.rows	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 kern.gemm.x86.rows_swiglu	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+kern.limb.simd.split_block_avx2	AVX2/stdarch SIMD operation; scalar twin = the split_digits loop in split_block, reached only under is_x86_feature_detected; the pinned-output tests run the split path; MXCSR and LLVM codegen outside the claim. Grade tested.
 kern.lut.block_inners_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 kern.lut.tile_accs_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 kern.matmat.q5_0_block_kdots_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
