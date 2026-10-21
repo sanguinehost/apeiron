@@ -37,7 +37,12 @@
 //! # Partiality and trust boundary
 //! A shape disagreement, `n` not a multiple of 128 and a checked overflow are refused with
 //! [`StepsError::ShapeMismatch`]; a non-SPD `Hl` is refused with
-//! [`StepsError::NotPositiveDefinite`]. No function panics on caller input. The bodies are `tested`
+//! [`StepsError::NotPositiveDefinite`]. A normal system whose `Cholesky` factor refuses at the
+//! script's ridge `1e-12·mean(diag A)` — a direction whose curvature is below the limb product's
+//! own per-entry truncation is then supported by the ridge alone — is solved once more with the
+//! ridge raised to [`limb_error_floor`]; a system that is still not positive-definite at that floor
+//! is refused, so the raise is a stated ridge floor, not a swallowed refusal. Where the first
+//! factor succeeds, the words are the script's. No function panics on caller input. The bodies are `tested`
 //! (`tests/learn_fold_steps.rs`), not extracted, so not `proved`; the primitives are `tested` too.
 //! The pool is the thread trust boundary; no performance claim is made.
 
@@ -287,6 +292,34 @@ fn filled_diag_mean(a: &[i64], e: &[i32], n: usize) -> Result<i128, StepsError> 
     Ok(acc / n as i128)
 }
 
+/// The ridge's floor on the filled diagonal of a normal system: the limb product's own per-entry
+/// truncation bound at the matrix's maximum, in `Q32.32` words — `⌈P/2⌉ + 1 + B·(1 + ⌈C_L·2^{Ea+Eb−32}⌉)`
+/// with `P = L(L+1)/2`, `C_L = (33 + 16(L−1))·2⁻⁷ᴸ` and `B = ⌈inner/32⌉`, the bound
+/// [`gemm_q32`](crate::engine::kern::limb::gemm_q32) states for the product that built the matrix.
+///
+/// A ridge below this floor is smaller than the error the product carries into the same entries, so
+/// the elimination cannot certify `s > 0` for a direction whose curvature is under that error: a
+/// normal system the exact `i128` body factorises is then refused `NotPositiveDefinite`. The
+/// alternating steps' Hadamard-domain matrices are the case: `A = G ⊙ H_rot` carries `H_rot`'s own
+/// dynamic range, so its smallest diagonal is orders below the ridge `1e-12·mean(diag A)` the
+/// reference script uses, and every direction at that scale is supported by the ridge alone. The
+/// floor only binds where the reference ridge is below the port's own resolution; where the
+/// system's curvature is above the floor the fit is unchanged to the ridge's relative size.
+///
+/// # Complexity
+/// `O(1)`.
+fn limb_error_floor(inner: usize, max_abs: u128) -> Result<i64, StepsError> {
+    if max_abs == 0 {
+        return Ok(1);
+    }
+    let pairs = u128::from(LIMBS) * u128::from(LIMBS + 1) / 2;
+    let coeff = 33 + 16 * (u128::from(LIMBS) - 1);
+    let trunc = ((coeff * max_abs) >> (7 * LIMBS)) + 1;
+    let blocks = u128::from((inner.div_ceil(32)) as u64);
+    let total = pairs.div_ceil(2) + 1 + blocks * (1 + trunc);
+    i64::try_from(total).map_err(|_| StepsError::ShapeMismatch)
+}
+
 /// Add `ridge·D²` to the diagonal of `A'' = D·A·D`: the ridge `ridge·I` of `A`, exact.
 /// `O(n)` checked shifts and adds, `O(1)` space.
 fn add_filled_ridge(a: &mut [i64], e: &[i32], n: usize, ridge: i64) -> Result<(), StepsError> {
@@ -297,6 +330,68 @@ fn add_filled_ridge(a: &mut [i64], e: &[i32], n: usize, ridge: i64) -> Result<()
             .ok_or(StepsError::ShapeMismatch)?;
     }
     Ok(())
+}
+
+/// Raise the ridge a factorisation already carries — `ridge·2^{2e_j}` on column `j` — to `floor`
+/// wherever it is below it: the smallest diagonal increment that puts every column's ridge above
+/// the limb product's own per-entry truncation ([`limb_error_floor`]).
+///
+/// # Complexity
+/// `O(n)` checked shifts and adds, `O(1)` space.
+fn raise_ridge_to_floor(
+    a: &mut [i64],
+    e: &[i32],
+    n: usize,
+    ridge: i64,
+    floor: i64,
+) -> Result<(), StepsError> {
+    for (j, &ej) in e.iter().enumerate() {
+        let have = shift_word(ridge, -2 * ej)?;
+        if have < floor {
+            let d = &mut a[j * n + j];
+            *d = d
+                .checked_add(floor - have)
+                .ok_or(StepsError::ShapeMismatch)?;
+        }
+    }
+    Ok(())
+}
+
+/// The `Cholesky` solve of a topped normal system, retried once with the ridge raised to
+/// [`limb_error_floor`] when the script's own ridge is below the port's resolution.
+///
+/// The script's ridge is `1e-12·mean(diag A)`; a direction whose curvature is under the product's
+/// per-entry truncation is then supported by the ridge alone, and the elimination cannot certify a
+/// positive pivot for it, so a system the exact `i128` body factorises is refused
+/// [`StepsError::NotPositiveDefinite`]. The retry raises the ridge to the floor for exactly that
+/// case and solves again. It is not a swallowed refusal: a system that is not positive-definite at
+/// the floored ridge is still refused. Where the first factorisation succeeds the returned words
+/// are the ones the script's ridge gives, unchanged.
+///
+/// # Complexity
+/// `O(n³/3 + n²)` (one factorisation, two triangular solves, two exact residuals) plus, on the
+/// refusal path only, `O(n)` diagonal raises and a second factorisation. Space `O(n·k)` for the
+/// solution plus the factor's `O(n²)` inside [`chol_solve`].
+fn solve_with_ridge_floor(
+    a: &mut [i64],
+    b: &[i64],
+    e: &[i32],
+    n: usize,
+    inner: usize,
+    ridge: i64,
+) -> Result<Vec<i64>, StepsError> {
+    match chol_solve(a, b, n, 1) {
+        Ok(solved) => Ok(solved.x),
+        Err(SolveError::NotPositiveDefinite | SolveError::NonPositiveDiagonal) => {
+            let floor = limb_error_floor(inner, max_mag(a))?;
+            raise_ridge_to_floor(a, e, n, ridge, floor)?;
+            match chol_solve(a, b, n, 1) {
+                Ok(solved) => Ok(solved.x),
+                Err(other) => Err(map_solve(other)),
+            }
+        }
+        Err(other) => Err(map_solve(other)),
+    }
 }
 
 /// The normalised 128-block transform on words, one `H₁₂₈/√128` image per 128-chunk: the engine's
@@ -649,10 +744,10 @@ pub fn c_step_wshl(
     // b = D·Σ_o (Ws·Hl)⊙Sh·g_row, on the grid, at the matrix's `2^-s`.
     let mut b = rhs_grid(wshl, &sh, &gr_g, o, n)?;
     shift_in_place(&mut b, s)?;
-    let solved = chol_solve(&a, &b, n, 1).map_err(map_solve)?;
+    let solved = solve_with_ridge_floor(&mut a, &b, &e, n, o, ridge)?;
     // x = D·y, then the global shift: one rounding per entry.
     (0..n)
-        .map(|j| shift_word(solved.x[j], k - e[j]))
+        .map(|j| shift_word(solved[j], k - e[j]))
         .collect::<Result<Vec<i64>, StepsError>>()
 }
 
@@ -884,9 +979,9 @@ pub fn d_step_wshl(
     add_filled_ridge(&mut a, &e, n, ridge)?;
     let mut b = rhs_grid(&b_scaled, &g_rot, &gr_g, o, n)?;
     shift_in_place(&mut b, s)?;
-    let solved = chol_solve(&a, &b, n, 1).map_err(map_solve)?;
+    let solved = solve_with_ridge_floor(&mut a, &b, &e, n, o, ridge)?;
     (0..n)
-        .map(|j| shift_word(solved.x[j], k - e[j]))
+        .map(|j| shift_word(solved[j], k - e[j]))
         .collect::<Result<Vec<i64>, StepsError>>()
 }
 
@@ -968,6 +1063,24 @@ fn flat_pair_sum(a: &[i64], b: &[i64]) -> Result<i64, StepsError> {
     q32::narrow(acc).ok_or(StepsError::ShapeMismatch)
 }
 
+/// `Ws·Hl` through [`limb::gemm_q32`], with [`metric_grid`]'s operand shift and exact undo.
+///
+/// # Errors
+/// [`StepsError::ShapeMismatch`] on a length, grid-range or product refusal. Never a panic.
+///
+/// # Complexity
+/// As [`limb::gemm_q32`] at `m = O`, `k = n`, `n = n` (`O(O·n²)` multiply-accumulates), pooled inside
+/// `limb::gemm_q32`; one call per step. Spatial `O(O·n)` words.
+pub fn mul_metric(ws: &[i64], hl: &[i64], o: usize, n: usize) -> Result<Vec<i64>, StepsError> {
+    if ws.len() != o * n || hl.len() != n * n {
+        return Err(StepsError::ShapeMismatch);
+    }
+    if o == 0 || n == 0 {
+        return Ok(vec![0i64; o * n]);
+    }
+    metric_grid(ws, hl, o, n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -995,22 +1108,4 @@ mod tests {
             "grouped {got} vs exact {want}: error {err} over bound {bound}"
         );
     }
-}
-
-/// `Ws·Hl` through [`limb::gemm_q32`], with [`metric_grid`]'s operand shift and exact undo.
-///
-/// # Errors
-/// [`StepsError::ShapeMismatch`] on a length, grid-range or product refusal. Never a panic.
-///
-/// # Complexity
-/// As [`limb::gemm_q32`] at `m = O`, `k = n`, `n = n` (`O(O·n²)` multiply-accumulates), pooled inside
-/// `limb::gemm_q32`; one call per step. Spatial `O(O·n)` words.
-pub fn mul_metric(ws: &[i64], hl: &[i64], o: usize, n: usize) -> Result<Vec<i64>, StepsError> {
-    if ws.len() != o * n || hl.len() != n * n {
-        return Err(StepsError::ShapeMismatch);
-    }
-    if o == 0 || n == 0 {
-        return Ok(vec![0i64; o * n]);
-    }
-    metric_grid(ws, hl, o, n)
 }

@@ -610,6 +610,57 @@ fn learn_fold_nb_refine_row_chunk_is_the_documented_constant() {
     assert!(f.o <= ROW_CHUNK);
 }
 
+/// `J(Ws, Wp, Hl) = tr(D·Hl·Dᵀ)` on the pre-port exact body (`src/learn/fold/fit/steps.rs` at base
+/// `7a56eb47`, sha256 `8b43418206b454182b09372debb939c49d72d12f6e1311a0674b81d7e886c7c8`):
+/// `D = Ws − Wp`, `D·Hl` by one exact `i128` contraction per entry after the operands' exact
+/// power-of-two shifts, the trace one exact `i128` dot rounded once. Copied in, so the K5 report
+/// below compares the limb port against a body that shares no product with `src`.
+#[allow(clippy::cast_possible_wrap)] // `bits` is an `ilog2` of a `u128` magnitude, at most 128
+fn exact_objective(ws: &[i64], wp: &[i64], hl: &[i64], o: usize, n: usize) -> i64 {
+    use apeiron::learn::solve::q32::{ilog2_pos, narrow, round_q32_even, rshift_rne};
+    fn sh(v: i64, k: i32) -> i64 {
+        match k.signum() {
+            1 => narrow(rshift_rne(i128::from(v), k as u32).expect("shift")).expect("narrow"),
+            -1 => narrow(i128::from(v).checked_shl((-k) as u32).expect("shift")).expect("narrow"),
+            _ => v,
+        }
+    }
+    fn panel(x: &[i64]) -> i32 {
+        let m = x
+            .iter()
+            .fold(0u128, |m, &v| m.max(u128::from(v.unsigned_abs())));
+        match ilog2_pos(m) {
+            Some(bits) => bits as i32 + 1 - 35,
+            None => 0,
+        }
+    }
+    let len = o * n;
+    let mut d = vec![0_i64; len];
+    for i in 0..len {
+        d[i] = ws[i] - wp[i];
+    }
+    let (ka, kb) = (panel(&d), panel(hl));
+    let ds: Vec<i64> = d.iter().map(|&v| sh(v, ka)).collect();
+    let hs: Vec<i64> = hl.iter().map(|&v| sh(v, kb)).collect();
+    let mut y = vec![0_i64; len];
+    for i in 0..o {
+        for j in 0..n {
+            let mut acc = 0_i128;
+            for l in 0..n {
+                acc += i128::from(ds[i * n + l]) * i128::from(hs[l * n + j]);
+            }
+            let s = acc.checked_add(1_i128 << 31).expect("gemm");
+            y[i * n + j] = i64::try_from(s >> 32).expect("gemm");
+        }
+    }
+    let y: Vec<i64> = y.iter().map(|&v| sh(v, -(ka + kb))).collect();
+    let mut acc = 0_i128;
+    for i in 0..len {
+        acc += i128::from(d[i]) * i128::from(y[i]);
+    }
+    round_q32_even(acc).expect("J")
+}
+
 /// FNV-1a over the little-endian bytes of a word buffer.
 fn fnv_words(d: &mut u64, xs: &[i64]) {
     for &v in xs {
@@ -628,9 +679,13 @@ fn fnv_u64(d: &mut u64, v: u64) {
     }
 }
 
-/// The word `nb_refine` is bit-identical to the `f64` wrapper it replaced on these fixtures: the
-/// digests were recorded through the old `f64` entry before the flip. The fixture generator is the
-/// one the recording used, kept verbatim so the inputs are the same words.
+/// The `nb_refine` word digests, re-pinned under §0 K5 after the port of `steps.rs`'s products onto
+/// the limb kernel. The pre-port digests were `0xd837_5ee3_af49_df9b` and
+/// `0xa037_2afc_ee43_289a`; the K5 table behind the re-pin compares the port's own `J` against the
+/// exact pre-port body ([`exact_objective`]) on the same words, per seed: `J(in)` relative
+/// `2.9e-7` / `6.2e-7`, `J(out)` relative `3.8e-7` / `1.1e-6`, and the round's accept margin
+/// `0.99` / `0.98` relative — six orders above the `J` error, so the kept/rejected decision is the
+/// exact arm's. The fixture generator is the one the recording used, kept verbatim.
 #[test]
 fn learn_fold_nb_refine_words_are_bit_identical_to_the_recorded_wrapper() {
     /// The recorder's LCG (Numerical Recipes constants) and its `[-1, 1)` draw.
@@ -698,8 +753,8 @@ fn learn_fold_nb_refine_words_are_bit_identical_to_the_recorded_wrapper() {
     }
     let (o, n) = (8usize, 128usize);
     for (seed, want, moves) in [
-        (0x9b0_0001u64, 0xd837_5ee3_af49_df9bu64, 170usize),
-        (0x9b0_0002, 0xa037_2afc_ee43_289a, 171),
+        (0x9b0_0001u64, 0xeccb_fce5_c8c7_48a9u64, 170usize),
+        (0x9b0_0002, 0xfdce_e4a8_3fa8_86df, 171),
     ] {
         let mut rng = Recorder::new(seed);
         let hl = spd(n, &mut rng);
@@ -728,6 +783,29 @@ fn learn_fold_nb_refine_words_are_bit_identical_to_the_recorded_wrapper() {
             2,
         )
         .expect("nb_refine");
+        // K5 before the re-pin: `J` of the input pair and of the returned pair, the port's own words
+        // against the exact arm, and the round's decision margin.
+        let in1 = plane_w(pref(&p1), o, n).expect("input plane 1");
+        let in2 = plane_w(pref(&p2), o, n).expect("input plane 2");
+        let wp_in: Vec<i64> = in1.iter().zip(&in2).map(|(a, b)| a + b).collect();
+        let wp_out: Vec<i64> = out.w1.iter().zip(&out.w2).map(|(a, b)| a + b).collect();
+        let hlq = qw(&hl);
+        let j_in = exact_objective(&qw(&ws), &wp_in, &hlq, o, n);
+        let j_out = exact_objective(&qw(&ws), &wp_out, &hlq, o, n);
+        let rel = |a: i64, b: i64| (a - b).abs() as f64 / (1.0 + (b as f64).abs());
+        eprintln!(
+            "seed={seed:x}: J(in) port {} exact {j_in} rel {:e}; J(out) port {} exact {j_out} rel {:e}; margin {} words ({:e} relative)",
+            out.log.j_seq,
+            rel(out.log.j_seq, j_in),
+            out.log.j_nb,
+            rel(out.log.j_nb, j_out),
+            out.log.j_seq - out.log.j_nb,
+            (out.log.j_seq - out.log.j_nb) as f64 / (1.0 + (j_in as f64).abs()),
+        );
+        assert!(
+            rel(out.log.j_seq, j_in) <= 1e-4 && rel(out.log.j_nb, j_out) <= 1e-4,
+            "seed={seed:x}: the port's J is beyond the K5 bound of the exact arm"
+        );
         let mut d = 0xcbf2_9ce4_8422_2325u64;
         fnv_words(&mut d, &out.w1);
         fnv_words(&mut d, &out.w2);

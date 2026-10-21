@@ -1269,6 +1269,77 @@ quarter of `gptq_e8` at `down`, even at the base beam rate. -/
 theorem bc_down_residual :
     (bcDownFactor + bcDownBeamCalls * bcPassBase) * 4 < bcDownGptq := by decide
 
+/-! ## §22 The `steps.rs` limb-port refusal: the product's own truncation outruns the ridge, fixed by a retry-only floor
+
+PIN-FIX, `tested` and `measured` on base `7e3c4dbd`. `src/learn/fold/fit/steps.rs` (sha256 `81f15290…`)
+adds `solve_with_ridge_floor`: `chol_solve` at the script's ridge; only on `NotPositiveDefinite` or
+`NonPositiveDiagonal`, raise each diagonal increment to `limb_error_floor` (the truncation bound `gemm_q32`
+states, `L = 3`) and solve once more. A second refusal is returned. Where the first factorisation succeeds the
+words are the script's, bit for bit. `tests/learn_fold_fold_fit.rs` (`c300ffb0…`) and
+`tests/learn_fold_nb_refine.rs` (`39c88cf9…`) carry the pre-port exact bodies as the K5 reference arm and the
+re-pinned digests. The receipt is `lead-1021/PINFIX/receipt.md`. Board row
+.
+
+- Cause: on the second `Gate` plane of `qmlp_top_rows_and_boundaries` (`o = 3`, `n = 256`) the ridge is
+  58 words while the 3-limb product's largest per-entry error is 4e5 words; the exact `i128` body
+  factorises the same panel.
+- Rejected, measured: 5, 6, 7 and 8 limbs all still refuse. An unconditional floor moves seed
+  `0x3d3d0001`'s `J` by 2.12e-4 relative (over the K5 `1e-4` bound) and `production_numbers` trace[1] to
+  2.45e-5 (over its 2e-5 pin).
+- Control: the base `steps.rs` turns `qmlp_top_rows_and_boundaries` red with
+  `Fit(NotPositiveDefinite)`; the fix restores it.
+- Open: no fixture reaches the second-refusal branch, and no theorem bounds the floor's effect on the
+  trajectory in general. -/
+
+/-- The refusing panel, in words: the script's ridge, the 3-limb product's largest per-entry error, and the
+largest diagonal entry. -/
+def pfRidge : ℕ := 58
+
+def pfLimbErr : ℕ := 400000
+
+def pfDiagMax : ℕ := 848586733170972
+
+/-- `J` on seed `0x3d3d0001` with an unconditional floor, and the exact arm's `J`. -/
+def pfJFloorAll : ℕ := 210618887738
+
+def pfJExact1 : ℕ := 210574216632
+
+/-- `production_numbers` trace[1] under the unconditional floor and its pin, in 1e-7. -/
+def pfTraceFloorAll : ℕ := 245
+
+def pfTracePin : ℕ := 200
+
+/-- `J` on seed `0x3d3d0002` with the retry-only floor, and the exact arm's `J`. -/
+def pfJRetry2 : ℕ := 204105833529
+
+def pfJExact2 : ℕ := 204105833402
+
+/-- `mul_metric` at (896, 4864), in 1e-4 ns per MAC: limb mean and max, exact mean and min. -/
+def pfLimbNs : ℕ := 231
+
+def pfLimbNsMax : ℕ := 235
+
+def pfExactNs : ℕ := 375
+
+def pfExactNsMin : ℕ := 371
+
+/-- **The truncation outruns the ridge** by more than 6000×, and the ridge sits more than twelve
+decimal digits below the largest diagonal entry. -/
+theorem pin_truncation_beats_ridge :
+    pfRidge * 6000 < pfLimbErr ∧ pfRidge * 1000000000000 < pfDiagMax := by decide
+
+/-- **An unconditional floor breaks K5 and the trace pin.** -/
+theorem pin_floor_all_rejected :
+    pfJExact1 < (pfJFloorAll - pfJExact1) * 10000 ∧ pfTracePin < pfTraceFloorAll := by decide
+
+/-- **The retry-only floor is inside K5** on the one seed that takes the retry (under 1e-9
+relative). -/
+theorem pin_retry_within_k5 : (pfJRetry2 - pfJExact2) * 1000000000 < pfJExact2 := by decide
+
+/-- **The limb product stays faster than the exact body**, at least 1.62×, with disjoint spreads. -/
+theorem pin_limb_faster :
+    pfLimbNsMax < pfExactNsMin ∧ pfLimbNs * 162 ≤ pfExactNs * 100 := by decide
+
 end QuantVerdicts
 
 end Learn
