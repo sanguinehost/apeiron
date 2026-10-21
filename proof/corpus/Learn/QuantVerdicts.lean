@@ -984,6 +984,74 @@ theorem sweeplb_nonsweep_dominates :
       4 * sweeplbSweepProj < attribNonSweep ∧
       9 * teqR3 < attribFit - attribSweep + sweeplbSweepProj := by decide
 
+/-! ## §18 The red `fold_fit` pins: first bad commit `ee33eacc`, a route change carrying a defect
+
+`tested`, PIN-BISECT: `cargo test --release --test learn_fold_fold_fit` over `57d21789..84f2d8d3`
+(104 commits, 7 bisection probes). The first bad commit `ee33eacc` moves the eight `steps.rs` product
+sites onto `limb.rs` at 3 limbs (`i128` count 33 → 20); its own gate (`learn_fold_steps`, 17 passed)
+never ran the `fold_fit`, `nb_refine` and `tensor` pins whose words it moves. The `fold_fit` oracle
+calls the same `src` bodies, so its `1e-9` pin moves with any `steps.rs` change. One moved test is a
+refusal: `qmlp_top_rows_and_boundaries` fits at the parent `7a56eb47` and returns
+`Fit(NotPositiveDefinite)` at `ee33eacc`. A revert is refused by §0 K2: the kernel-route hook refuses a
+grown `i128` count. Board row `APEIRON-FORM-QUANT-W1-T01`. -/
+def pinRange : ℕ := 104
+
+def pinProbes : ℕ := 7
+
+/-- `fold_fit` seed `0x3d3d0002` words: the recorded pin, and the moved value at `ee33eacc` and at
+`84f2d8d3`. -/
+def pinSeed2Pin : ℕ := 14662245486467828602
+
+def pinSeed2FirstBad : ℕ := 11813287334381752278
+
+def pinSeed2RangeEnd : ℕ := 11813287334381752278
+
+/-- `fold_fit` oracle `trace[0]` at `ee33eacc` and its pin, in units of `10⁻¹⁴`. -/
+def pinTraceFirstBad : ℕ := 9553691067174077
+
+def pinTracePin : ℕ := 9553694787010723
+
+/-- `nb_refine` words: the pin, the value at `ee33eacc`, the value at `84f2d8d3`. -/
+def pinNbPin : ℕ := 15580025767902961563
+
+def pinNbFirstBad : ℕ := 14276473178736957625
+
+def pinNbRangeEnd : ℕ := 17063009677069469865
+
+/-- `steps.rs` `i128` count before and after `ee33eacc`. -/
+def pinI128Before : ℕ := 33
+
+def pinI128After : ℕ := 20
+
+/-- Whether `qmlp_top_rows_and_boundaries` fits at the parent and at the first bad commit. -/
+def pinFitsParent : Bool := true
+
+def pinFitsFirstBad : Bool := false
+
+/-- **The search was a bisection.** 104 commits need 7 probes, and 7 were run. -/
+theorem pin_bisect_probes : 2 ^ (pinProbes - 1) < pinRange ∧ pinRange ≤ 2 ^ pinProbes := by decide
+
+/-- **One commit moves the `fold_fit` witness**: the seed-2 words differ from the pin and are the same at
+the first bad commit and the range end. -/
+theorem pin_seed2_one_commit :
+    pinSeed2FirstBad ≠ pinSeed2Pin ∧ pinSeed2FirstBad = pinSeed2RangeEnd := by decide
+
+/-- **The oracle drift is inside the limb bound and outside the pin.** The `trace[0]` move is more than
+`10⁻⁹` relative (the pin's tolerance) and at most `2·10⁻⁵` (the test's stated limb bound). -/
+theorem pin_oracle_drift :
+    pinTracePin < (pinTracePin - pinTraceFirstBad) * 1000000000 ∧
+      (pinTracePin - pinTraceFirstBad) * 50000 ≤ pinTracePin := by decide
+
+/-- **`nb_refine` moved twice in the range**: at the first bad commit and again after it. -/
+theorem pin_nb_moved_twice :
+    pinNbFirstBad ≠ pinNbPin ∧ pinNbRangeEnd ≠ pinNbFirstBad ∧ pinNbRangeEnd ≠ pinNbPin := by decide
+
+/-- **A defect, not only a moved digest; the fix is forward.** The fixture fitted at the parent and
+refuses at the first bad commit, so no re-pin absorbs it; a revert grows the `i128` count the
+kernel-route hook refuses. -/
+theorem pin_defect_fix_forward :
+    pinFitsParent = true ∧ pinFitsFirstBad = false ∧ pinI128After < pinI128Before := by decide
+
 end QuantVerdicts
 
 end Learn
