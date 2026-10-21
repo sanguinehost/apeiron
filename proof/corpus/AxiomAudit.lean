@@ -2781,3 +2781,8 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.sweeplb_exact
 #audit Learn.QuantVerdicts.sweeplb_flush_residual
 #audit Learn.QuantVerdicts.sweeplb_nonsweep_dominates
+#audit Learn.QuantVerdicts.pin_bisect_probes
+#audit Learn.QuantVerdicts.pin_seed2_one_commit
+#audit Learn.QuantVerdicts.pin_oracle_drift
+#audit Learn.QuantVerdicts.pin_nb_moved_twice
+#audit Learn.QuantVerdicts.pin_defect_fix_forward
