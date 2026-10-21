@@ -24,8 +24,9 @@ use crate::engine::error::{
     TensorKey, PART_ATTN_NORM, PART_FFN_NORM, PART_OUTPUT_NORM, PART_SSM_CONV1D,
 };
 use crate::engine::kern::gemm::{gemm_q8_0_group, gemm_q8_0_swiglu, GemmPart};
+use crate::engine::kern::limb::{f16_project, f16_tile};
 use crate::engine::kern::matmat::matmat_q8act;
-use crate::engine::loader::{opt_slice, DecodeVectors};
+use crate::engine::loader::{opt_slice, DecodeVectors, PayloadRef};
 use crate::engine::mixer::{AffineLayer, AffineState};
 use crate::engine::trace::{self, Phase};
 use crate::engine::{
@@ -37,6 +38,10 @@ use crate::format::quant;
 mod tap;
 
 use tap::{Tap, STAGE_ATTN_OUT, STAGE_HIDDEN_IN, STAGE_LN1_OUT, STAGE_LN2_OUT, STAGE_M};
+
+/// Limbs per `F16` weight block on the engine path (K3): 21 digit bits against the 11-bit `f16`
+/// mantissa, so the block truncation `C_3 = 65·2^{−21}` is below the weights' own rounding.
+const F16_LIMBS: u32 = 3;
 
 impl Engine {
     /// [`Engine::compose_cols_in`] with the optional affine state and rollback sink resolved once
@@ -486,7 +491,7 @@ impl Engine {
         let budget = crate::engine::ops::par::row_chunk_budget(n_out);
         if xs.len() > 1 && self.hadamard().is_none() {
             let (ggml_type, at) = self.payload_at(idx, n_out, n_in, Sched::Resident)?;
-            if ggml_type == quant::GGML_TYPE_Q8_0 {
+            if ggml_type == quant::GGML_TYPE_Q8_0 || ggml_type == quant::GGML_TYPE_F16 {
                 let owned;
                 let qs = if let Some(q) = pre {
                     q
@@ -494,14 +499,22 @@ impl Engine {
                     owned = quant_cols(xs)?;
                     &owned
                 };
-                return matmat_q8act(
-                    ggml_type,
-                    &self.resident()[at.off..at.off + at.len],
-                    n_out,
-                    n_in,
-                    qs,
-                )
-                .map_err(StepError::Matvec);
+                if ggml_type == quant::GGML_TYPE_Q8_0 {
+                    return matmat_q8act(
+                        ggml_type,
+                        &self.resident()[at.off..at.off + at.len],
+                        n_out,
+                        n_in,
+                        qs,
+                    )
+                    .map_err(StepError::Matvec);
+                }
+                // F16 weights: the packed limb tile, three kernel passes over the same codes. A
+                // refusal (a placement past the scale range, a non-finite half) falls through to
+                // the scalar `matvec_q8act` oracle below, which is the behaviour before this route.
+                if let Some(cols) = self.proj_f16_limb(idx, at, n_out, n_in, qs) {
+                    return Ok(cols);
+                }
             }
         }
         let mut out = Vec::with_capacity(xs.len());
@@ -518,6 +531,27 @@ impl Engine {
             i += 1;
         }
         Ok(out)
+    }
+
+    /// The multi-column `F16` projection on the packed limb tile, or `None` when the limb route
+    /// refuses and the caller must keep the scalar `matvec_q8act` oracle.
+    ///
+    /// # Complexity
+    ///
+    /// `O(F16_LIMBS·n_out·n_in·k)` byte multiply-adds after the one-time tile build
+    /// (the per-engine tile map); `O(k·F16_LIMBS·n_in)` activation bytes.
+    fn proj_f16_limb(
+        &self,
+        idx: usize,
+        at: PayloadRef,
+        n_out: usize,
+        n_in: usize,
+        qs: &[QuantAct],
+    ) -> Option<Vec<Vec<i64>>> {
+        let tile = self.f16_tile(idx, || {
+            f16_tile(at.bytes(self.resident()), n_out, n_in, F16_LIMBS).ok()
+        })?;
+        f16_project(&tile, qs).ok()
     }
 
     /// A group of parts that read the same input: the single-column group kernel for one column

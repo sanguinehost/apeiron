@@ -406,6 +406,9 @@ pub struct Engine {
     /// The head split into bit planes, built on first greedy `Q8Act` step; `None` inside when the
     /// head is not `Q8_0` or the model carries a Hadamard fold.
     bitplane: std::sync::OnceLock<Option<Arc<super::kern::bitplane::BitplaneHead>>>,
+    /// The `F16` limb tile of each projection tensor, keyed by directory index and packed on the
+    /// first multi-column `Q8Act` projection of that tensor; owned by this engine, dropped with it.
+    f16_tiles: std::sync::Mutex<std::collections::HashMap<usize, Arc<super::kern::limb::F16Tile>>>,
 }
 
 /// A checked byte extent of the resident file: the payload `resident()[off..off + len]`, resolved
@@ -897,6 +900,26 @@ fn hold_heap() {
 }
 
 impl Engine {
+    /// The cached `F16` limb tile of directory entry `idx`, built by `build` on the first call;
+    /// `None` when `build` refuses or the cache lock is poisoned (the caller keeps the scalar path).
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` on a hit; on a miss the cost of `build`.
+    pub(crate) fn f16_tile(
+        &self,
+        idx: usize,
+        build: impl FnOnce() -> Option<super::kern::limb::F16Tile>,
+    ) -> Option<Arc<super::kern::limb::F16Tile>> {
+        let mut guard = self.f16_tiles.lock().ok()?;
+        if let Some(t) = guard.get(&idx) {
+            return Some(Arc::clone(t));
+        }
+        let t = Arc::new(build()?);
+        guard.insert(idx, Arc::clone(&t));
+        Some(t)
+    }
+
     /// Open a GGUF file, resolve the config and build the checked tensor table.
     ///
     /// # Errors
@@ -942,6 +965,7 @@ impl Engine {
             vectors: DecodeVectors::default(),
             pq2_luts: Vec::new(),
             bitplane: std::sync::OnceLock::new(),
+            f16_tiles: std::sync::Mutex::new(std::collections::HashMap::new()),
         };
         let vectors = engine.load_decode_vectors()?;
         engine.vectors = vectors;
