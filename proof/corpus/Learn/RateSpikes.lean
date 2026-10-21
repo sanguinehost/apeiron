@@ -6,6 +6,7 @@ import Learn.QuantVerdicts
 | spike | receipt | sha256 |
 |---|---|---|
 | M1 (plane walk, KL against the streamed fraction `a`) | `/home/socol/oc-tmp/escalation/lead-1021/PW1/receipt.md` | `82bab1e69d6714b0` |
+| KW1 (sign walker at three rates, per-row water-fill at 1.18 b/w) | `/home/socol/oc-tmp/escalation/lead-1021/KW1/receipt.md` | `526c604d76f7d58a` |
 
 Every figure is a `model` input copied from its receipt: a KL in millionths of a nat over chunks 0..3
 of `train400k` (`n_ctx` 512), a rate in ten-thousandths of a bit per weight over the 357.83 M scoped
@@ -159,6 +160,49 @@ theorem m1_footprint_not_rate :
       79000 < rResA8 + rStreamA8 ∧ 79000 < rResB + rStreamB ∧
         rMission * 67 < (rResA5 + rStreamA5) * 10 := by
   decide
+
+/-! ## KW1 · sign walker
+
+`J(W, Wq) = tr((W − Wq) H (W − Wq)ᵀ)` per linear on layers 0, 11, 23 (21 linears), `H` the `Mean` Gram of
+256 calibration tokens. Every figure is a median over the 21 linears of `J_arm / J_E`, in thousandths, where
+`E` is `gptq_e8` beam 4 (1.125 b/w all-in). `S1_L` emits ±1 from the newest bit of an `L`-bit register at 1 code
+bit per weight; `S2` emits {±1, ±3} from the newest two bits; `mix` is the per-row water-fill over
+{Z, Sh, S1_8, S2} at 1.18 b/w.
+-/
+
+/-- Median `J_S1_1 / J_E`, thousandths. -/
+def kwS1_1 : Nat := 3177
+
+/-- Median `J_S1_8 / J_E`, thousandths. -/
+def kwS1_8 : Nat := 2881
+
+/-- Median `J_S2 / J_E` (2.125 b/w), thousandths. -/
+def kwS2 : Nat := 528
+
+/-- Median `J_mix / J_E` at 1.18 b/w, thousandths. -/
+def kwMix : Nat := 2423
+
+/-- Smallest `J_S1_8 / J_E` over the 21 linears (layer 11 `o`), thousandths. -/
+def kwS1_8Min : Nat := 1441
+
+/-- **KILL**: both KILL clauses hold (median `S1_8` at or above `E`, median `mix` at or above 0.95 of
+`E`), and neither GO clause (0.95 and 0.80).
+`∧` [both are true]; `≤` [is smaller than or equal to]; `<` [is smaller than]. -/
+theorem kw1_kill :
+    1000 ≤ kwS1_8 ∧ 950 ≤ kwMix ∧ 950 < kwS1_8 ∧ 800 < kwMix := by decide
+
+/-- **No linear is won**: the best `S1_8` cell over all 21 linears is still 1.44× `E`.
+`<` [is smaller than]. -/
+theorem kw1_no_linear_won : 1000 < kwS1_8Min := by decide
+
+/-- **The register does no coding work**: eight state bits move the median `J` by less than 10% against one,
+because the emitted value reads only the newest bit, so every sign sequence is reachable at every `L`.
+`*` [times]; `<` [is smaller than]. -/
+theorem kw1_register_idle : kwS1_1 * 9 < kwS1_8 * 10 := by decide
+
+/-- **The alphabet carries the loss**: the two-bit alphabet at 2.125 b/w is under `E` in the median.
+`<` [is smaller than]. -/
+theorem kw1_alphabet : kwS2 < 1000 := by decide
 
 end RateSpikes
 
