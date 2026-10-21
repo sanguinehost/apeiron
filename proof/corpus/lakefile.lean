@@ -107,6 +107,11 @@ lean_lib ApeironWordBridge where
     -- The per-entry step count (`Learn/IcmCount.lean`): `N ≤ sweeps·blocks` from the move
     -- structure, and the Down margin at the structural maximum (1216).
     `Learn.IcmCount,
+    -- The low-limb argmin certificate (`Learn/IcmCert.lean`): the `2·δ` clearance rule that keeps an
+    -- `L < 5` limb argmin when the winner clears the runner-up in the two word executions
+    -- (`argmin_certified`, `argmin_certified_words`), the `L`-to-5-limb dot gap
+    -- (`dot_gap_two_limb`) and the block-cost composition (`argmin_certified_limbs`).
+    `Learn.IcmCert,
     -- Reverse water-filling specification and Gaussian bridge (`Learn/WaterFill.lean`): the
     -- extracted `word_stats_basis_solve_water_fill` triple, the integer level/active-set/budget
     -- invariants, and the exact denotation onto `Perf.CostCorrespondence.waterfill_floor`.

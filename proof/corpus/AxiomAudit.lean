@@ -80,6 +80,7 @@ import Learn.Limb
 import Learn.WaterFill
 import Learn.IcmError
 import Learn.IcmCount
+import Learn.IcmCert
 import Learn.Log2
 import Learn.Grad.DenseLinear
 import Learn.Grad.DenseLinearWitness
@@ -2693,6 +2694,25 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.IcmCount.stepCount_sweeps_le
 #audit Learn.IcmCount.word_argmin_cost_bound_end2end_derived_Ea35_count
 #audit Learn.IcmCount.word_argmin_cost_bound_end2end_derived_Ea35_count_down
+
+-- The low-limb argmin certificate (`Learn/IcmCert.lean`): `gap_lt_of_close` is the `ℤ` clearance of
+-- `token_survives_margin` over `ℝ`; `argmin_certified`/`argmin_certified_unique` are the rule and its
+-- uniqueness; `argmin_certified_words` is the rule in the words `icm.rs` compares;
+-- `dots_end2end_state_G` is `dots_end2end_state` with the call bound as a parameter;
+-- `dot_gap_two_limb` is the `L`-to-5-limb dot gap with the shared carried state (`εres` absent);
+-- `blockCost_gap`/`argmin_certified_limbs` carry it through the block cost; the last two rows are
+-- the joint witness and the tightness counterexample at `2·δ`.
+#audit Learn.IcmCert.argmin_certified
+#audit Learn.IcmCert.argmin_certified_limbs
+#audit Learn.IcmCert.argmin_certified_unique
+#audit Learn.IcmCert.argmin_certified_words
+#audit Learn.IcmCert.argmin_gap_tight
+#audit Learn.IcmCert.argmin_joint_witness
+#audit Learn.IcmCert.blockCost_gap
+#audit Learn.IcmCert.dot8_shift_le
+#audit Learn.IcmCert.dot_gap_two_limb
+#audit Learn.IcmCert.dots_end2end_state_G
+#audit Learn.IcmCert.gap_lt_of_close
 
 -- The chain's looseness as a kernel-checked statement: the increment is positive, the base and the
 -- Down margin exceed the measured `1.75e-7` at every `N ≥ 1`, and the exact ratios (`> 900×` base,
