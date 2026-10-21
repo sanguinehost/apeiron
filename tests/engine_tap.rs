@@ -4,6 +4,8 @@
 //! row. The tests assert (a) the tapped run is bit-identical to the untapped one and to the
 //! single-token public path, and (b) the tapped `attn_norm` output is exactly the engine's own
 //! `RMSNorm` recomputed from the tapped residual input.
+//!
+//! Board: APEIRON-QUALITY-118-W1-T01 (post-`RoPE` q/k/v tap stages).
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -14,7 +16,7 @@
 )]
 
 use apeiron::engine::loader::Engine;
-use apeiron::engine::{rms_norm_fixed, KernelMode};
+use apeiron::engine::{rms_norm_fixed, KernelMode, KvState};
 use apeiron::format::quant;
 
 /// Stage slots of the tapped rows, in the order `prefill_tap_cols` returns them.
@@ -23,6 +25,9 @@ const STAGE_LN1_OUT: usize = 1;
 const STAGE_ATTN_OUT: usize = 2;
 const STAGE_LN2_OUT: usize = 3;
 const STAGE_M: usize = 4;
+const STAGE_Q: usize = 5;
+const STAGE_K: usize = 6;
+const STAGE_V: usize = 7;
 
 const F_E: usize = 8;
 const F_FF: usize = 16;
@@ -249,8 +254,8 @@ fn tap_rows_are_bit_identical_and_have_the_stage_widths() {
     assert_eq!(cols_off, cols_on, "tap changed the final columns");
     assert!(rows_off.is_empty(), "record=false allocated stage rows");
     assert_eq!(rows_on.len(), engine.config.n_layer);
-    assert_eq!(rows_on[0].len(), 5);
-    for stage in 0..5 {
+    assert_eq!(rows_on[0].len(), 8);
+    for stage in 0..8 {
         assert_eq!(rows_on[0][stage].len(), k, "stage {stage} column count");
     }
     for c in 0..k {
@@ -259,6 +264,9 @@ fn tap_rows_are_bit_identical_and_have_the_stage_widths() {
         assert_eq!(rows_on[0][STAGE_ATTN_OUT][c].len(), F_Q);
         assert_eq!(rows_on[0][STAGE_LN2_OUT][c].len(), F_E);
         assert_eq!(rows_on[0][STAGE_M][c].len(), F_FF);
+        assert_eq!(rows_on[0][STAGE_Q][c].len(), F_Q);
+        assert_eq!(rows_on[0][STAGE_K][c].len(), F_KO);
+        assert_eq!(rows_on[0][STAGE_V][c].len(), F_KO);
     }
 
     // The logits from the final columns agree.
@@ -289,8 +297,7 @@ fn untapped_prefill_equals_single_token_steps() {
     }
 }
 
-/// The tapped `attn_norm` output is the engine's own `RMSNorm` of the tapped residual input (the
-/// fixture's gain is exactly one), and the `ffn_norm` stage is the same norm of the residual after
+/// The tapped `attn_norm` output is the engine's own `RMSNorm` of the tapped residual input (the/// fixture's gain is exactly one), and the `ffn_norm` stage is the same norm of the residual after
 /// the attention block.
 #[test]
 fn tap_ln1_out_is_the_engine_norm_of_the_tapped_input() {
@@ -313,4 +320,92 @@ fn tap_ln1_out_is_the_engine_norm_of_the_tapped_input() {
     }
     // The two norm stages are distinct activations, not one copied into both slots.
     assert_ne!(rows[0][STAGE_LN1_OUT], rows[0][STAGE_LN2_OUT]);
+}
+
+/// The tapped post-`RoPE` query and key and the tapped value reproduce the tapped `attn_out` rows:
+/// the engine's own attention read ([`KvState::attn_head`]: the Q32 score dot, the exact-max
+/// `fixed_exp` softmax and the weight/value fold) over a fresh cache holding exactly the tapped
+/// `k`/`v` rows returns the tapped output word for word. This is the property that lets a backward
+/// pass recompute the attention probabilities from q and k instead of a recorded `p`.
+#[test]
+fn tapped_q_k_v_reproduce_attn_out() {
+    let (engine, path) = open("qkv");
+    let tokens = [1u32, 2, 3, 4];
+    let cfg = &engine.config;
+    let (n_head, hd, n_kv) = (cfg.n_head, cfg.head_dim, cfg.n_head_kv);
+    let q_out = n_head * hd;
+    let mut st = engine.state(16).expect("state");
+    let (_, rows) = engine
+        .prefill_tap_cols(&mut st, &tokens, KernelMode::Q8Act, true)
+        .expect("tapped prefill");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(rows[0][STAGE_Q][0].len(), q_out);
+    let mut kv = KvState::new(1, n_head, n_kv, hd, tokens.len()).expect("kv");
+    let mut last: Vec<usize> = Vec::with_capacity(tokens.len());
+    for c in 0..tokens.len() {
+        let pos = kv
+            .append(0, &rows[0][STAGE_K][c], &rows[0][STAGE_V][c])
+            .expect("append tapped key/value");
+        last.push(pos);
+    }
+    let mut got: Vec<i64> = vec![0i64; q_out];
+    let mut max_abs: i64 = 0;
+    for c in 0..tokens.len() {
+        let q = &rows[0][STAGE_Q][c];
+        for h in 0..n_head {
+            kv.attn_head(
+                0,
+                h,
+                &q[h * hd..(h + 1) * hd],
+                last[c],
+                &mut got[h * hd..(h + 1) * hd],
+            )
+            .expect("attention over the tapped rows");
+        }
+        for i in 0..q_out {
+            let d = (got[i] - rows[0][STAGE_ATTN_OUT][c][i]).abs();
+            if d > max_abs {
+                max_abs = d;
+            }
+        }
+    }
+    println!("q/k/v -> attn_out max abs word difference = {max_abs}");
+    assert_eq!(
+        max_abs, 0,
+        "tapped q/k/v do not reproduce attn_out (max abs word difference {max_abs})"
+    );
+}
+
+/// Off-path cost of the tap: `prefill_tap_cols(record = false)` on the fixture, `ROUNDS` timed
+/// rounds of `INNER` fresh-state prefills, `ns` per prefill. Run with
+/// `cargo test --release --test engine_tap tap_off_path -- --ignored --nocapture`; it prints the
+/// untapped path's spacing at this fixture's shape (8-wide embedding, four columns), which is a
+/// microbench, not a model-scale timing.
+#[test]
+#[ignore = "microbench: run explicitly with --ignored --nocapture"]
+fn tap_off_path_microbench() {
+    const INNER: usize = 4000;
+    const ROUNDS: usize = 5;
+    let (engine, path) = open("bench");
+    let tokens = [1u32, 2, 3, 4];
+    for _ in 0..200 {
+        let mut warm = engine.state(16).expect("state");
+        let _ = engine
+            .prefill_tap_cols(&mut warm, &tokens, KernelMode::Q8Act, false)
+            .expect("prefill");
+    }
+    let mut rounds: Vec<f64> = Vec::with_capacity(ROUNDS);
+    for r in 0..ROUNDS {
+        let t0 = std::time::Instant::now();
+        for _ in 0..INNER {
+            let mut s = engine.state(16).expect("state");
+            let _ = engine
+                .prefill_tap_cols(&mut s, &tokens, KernelMode::Q8Act, false)
+                .expect("prefill");
+        }
+        let ns = t0.elapsed().as_nanos() as f64 / INNER as f64;
+        rounds.push(ns);
+        println!("round {r}: {ns:.1} ns/prefill");
+    }
+    let _ = std::fs::remove_file(&path);
 }

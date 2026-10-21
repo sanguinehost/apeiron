@@ -1,10 +1,16 @@
 //! The opt-in per-layer activation tap. Board APEIRON-QUALITY-118-W1-T01.
 //!
-//! [`Tap`] holds, per trunk layer and per column, the five stage inputs the activation-Gram
+//! [`Tap`] holds, per trunk layer and per column, the eight stage inputs the activation-Gram
 //! capture reads ([`crate::learn::fold::stats::capture`]): the residual stream entering the layer,
 //! the attention-side `RMSNorm` output (the Q/K/V projection input), the output projection's input
 //! (the attention output, or the affine mixer's value output), the FFN-side `RMSNorm` output (the
-//! gate/up input), and the `SwiGLU` product (the down projection's input).
+//! gate/up input), the `SwiGLU` product (the down projection's input), and the attention's own
+//! post-`RoPE` query, key and value rows.
+//!
+//! The three attention rows are the words the attention reads, so a backward pass recomputes the
+//! attention probabilities from them instead of a recorded `p` (the reference saves `q, k, v,
+//! output, logsumexp` and recomputes `attn <- exp(attn - normalizer)`; `PyTorch` `93537cd6472`
+//! `aten/src/ATen/native/cpu/FlashAttentionKernel.cpp:1000-1005`).
 //!
 //! It is allocated only when a caller asks for it: the layer loop carries `Option<&mut Tap>` and
 //! the off path allocates nothing and records nothing.
@@ -19,8 +25,17 @@ pub(crate) const STAGE_ATTN_OUT: usize = 2;
 pub(crate) const STAGE_LN2_OUT: usize = 3;
 /// Stage slot of the `SwiGLU` product (the down projection input).
 pub(crate) const STAGE_M: usize = 4;
+/// Stage slot of the column's post-`RoPE` query, `n_head·head_dim` words wide (the attention's
+/// score input).
+pub(crate) const STAGE_Q: usize = 5;
+/// Stage slot of the column's post-`RoPE` key, `n_head_kv·head_dim` words wide (the attention's
+/// score input, and the row appended to [`crate::engine::KvState`]).
+pub(crate) const STAGE_K: usize = 6;
+/// Stage slot of the column's value, `n_head_kv·head_dim` words wide (the attention's value input,
+/// and the row appended to [`crate::engine::KvState`]).
+pub(crate) const STAGE_V: usize = 7;
 /// The number of stage slots in [`Tap::rows`].
-pub(crate) const STAGE_COUNT: usize = 5;
+pub(crate) const STAGE_COUNT: usize = 8;
 
 /// One pass's captured stage inputs, `[layer][stage][column][width]` Q32.32 rows.
 ///
@@ -62,5 +77,15 @@ impl Tap {
     /// `O(cols.len()·width)` words copied; `O(1)` besides the replaced rows.
     pub(crate) fn record(&mut self, layer: usize, stage: usize, cols: &[Vec<i64>]) {
         self.rows[layer][stage] = cols.to_vec();
+    }
+
+    /// Append one column `row` to stage `stage` of `layer`; the per-column stages ([`STAGE_Q`],
+    /// [`STAGE_K`], [`STAGE_V`]) are filled as the pass computes each column.
+    ///
+    /// # Complexity
+    ///
+    /// `O(row.len())` words copied into the grown stage; `O(1)` besides, amortised.
+    pub(crate) fn push(&mut self, layer: usize, stage: usize, row: &[i64]) {
+        self.rows[layer][stage].push(row.to_vec());
     }
 }

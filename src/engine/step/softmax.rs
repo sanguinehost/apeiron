@@ -4,6 +4,7 @@
 //! Split out of `step/cols.rs` by moving items, not by changing them; module paths in the generated
 //! extraction move with it (`step.cols.*` -> `step.softmax.*`, `proof/boundary-axioms.txt`).
 
+use super::cols::tap::{Tap, STAGE_K, STAGE_Q, STAGE_V};
 use super::cols::{first_by_key, fold_col};
 use super::{
     add_assign_fixed, apply_sigmoid_gate, qk_norm_and_rope, split_query_gate, LayerIndex, Sched,
@@ -72,12 +73,17 @@ impl Engine {
     /// The serial per-column attention loop of [`Engine::softmax_cols`]: column `c` runs at position
     /// `occupied + c`, in token order, on the calling thread.
     ///
+    /// With `tap`, each column's post-`RoPE` query and key and its value are appended to
+    /// [`STAGE_Q`], [`STAGE_K`] and [`STAGE_V`] of the layer, in column order; the off path adds
+    /// one `Option` test per column and copies nothing.
+    ///
     /// # Complexity
     ///
-    /// `O(Σ_c cost(softmax_col(c)))`; `O(k)` output rows.
+    /// `O(Σ_c cost(softmax_col(c)))`; `O(k)` output rows, plus `O(k·(q_out + 2·kv_out))` copied
+    /// when the tap records.
     #[allow(
         clippy::too_many_arguments,
-        reason = "the layer, slot, cache, projections, norm epsilon, rotation table and dispatch are the loop's input"
+        reason = "the layer, slot, cache, projections, norm epsilon, rotation table, dispatch and tap are the loop's input"
     )]
     pub(super) fn softmax_serial_cols(
         &self,
@@ -88,13 +94,14 @@ impl Engine {
         eps: i64,
         table: &crate::engine::ops::rope::RopeTable,
         parallel_heads: bool,
+        tap: &mut Option<Tap>,
     ) -> Result<Vec<Vec<i64>>, StepError> {
         let k = qkv[0].len();
         let mut atts = Vec::with_capacity(k);
         let mut err: Option<StepError> = None;
         let mut c = 0usize;
         while c < k && err.is_none() {
-            match self.softmax_col(layer, slot, kv, qkv, c, eps, table, parallel_heads) {
+            match self.softmax_col(layer, slot, kv, qkv, c, eps, table, parallel_heads, tap) {
                 Ok(att) => atts.push(att),
                 Err(e) => err = Some(e),
             }
@@ -136,11 +143,12 @@ impl Engine {
     }
 
     /// One column of [`Engine::softmax_cols`]: bias, gate split, q/k norm and `RoPE` at its position,
-    /// append, then attention over the prefix including itself.
+    /// append, then attention over the prefix including itself. With `tap`, the post-`RoPE` query
+    /// and key and the value are appended to [`STAGE_Q`], [`STAGE_K`] and [`STAGE_V`].
     #[allow(
         clippy::too_many_arguments,
         clippy::index_refutable_slice,
-        reason = "the per-column inputs of softmax_cols: layer, slot, cache, columns, column, eps, table, dispatch; the three biases are read by constant index because an array pattern does not extract"
+        reason = "the per-column inputs of softmax_cols: layer, slot, cache, columns, column, eps, table, dispatch, tap; the three biases are read by constant index because an array pattern does not extract"
     )]
     fn softmax_col(
         &self,
@@ -152,6 +160,7 @@ impl Engine {
         eps: i64,
         table: &crate::engine::ops::rope::RopeTable,
         parallel_heads: bool,
+        tap: &mut Option<Tap>,
     ) -> Result<Vec<i64>, StepError> {
         let cfg = &self.config;
         let (n_head, hd) = (cfg.n_head, cfg.head_dim);
@@ -172,6 +181,11 @@ impl Engine {
             pos_u32,
             parallel_heads,
         )?;
+        if let Some(t) = tap {
+            t.push(layer, STAGE_Q, &query);
+            t.push(layer, STAGE_K, &key);
+            t.push(layer, STAGE_V, &value);
+        }
         let appended = Self::softmax_kv_append(kv, slot, &key, &value)?;
         let kv_ro: &KvState = kv;
         let mut att = Self::softmax_head_loop(
@@ -343,12 +357,17 @@ impl Engine {
     /// # Complexity
     ///
     /// `O(k·n_head·(pos₀ + k)·head_dim)` for the attention over `k·n_head` pool tasks, plus
-    /// `O(k·(q_proj + 2·kv_out))` for stages 1–2; three dispatches instead of `k`.
+    /// `O(k·(q_proj + 2·kv_out))` for stages 1–2; three dispatches instead of `k`. With `tap`,
+    /// stage 1's post-`RoPE` query and key and its value are appended to [`STAGE_Q`], [`STAGE_K`]
+    /// and [`STAGE_V`] in block column order, one `O(q_out + 2·kv_out)` copy per column; the off
+    /// path tests the `Option` once per block.
     #[allow(
         clippy::too_many_lines,
+        clippy::too_many_arguments,
         clippy::many_single_char_names,
         reason = "the three stages read in order; c, h, n, q are the column, head, fold and query \
-                  words"
+                  words; the layer, slot, cache, columns, epsilon, rotation table and tap are the \
+                  block's input"
     )]
     pub(super) fn softmax_core_block(
         &self,
@@ -358,6 +377,7 @@ impl Engine {
         qkv: &[Vec<Vec<i64>>],
         eps: i64,
         table: &crate::engine::ops::rope::RopeTable,
+        tap: &mut Option<Tap>,
     ) -> Result<Vec<Vec<i64>>, StepError> {
         let cfg = &self.config;
         let (n_head, hd) = (cfg.n_head, cfg.head_dim);
@@ -383,6 +403,22 @@ impl Engine {
             crate::engine::chart::ffn::attn_heads(k, stride, &mut prep, true, &one)
         {
             return Err(e);
+        }
+        // The tap's attention rows: stage 1's `[query | key | value]` per column, in block order.
+        // The gate half after them is not an attention input.
+        if let Some(t) = tap {
+            let mut c = 0usize;
+            while c < k {
+                let base = c * stride;
+                t.push(layer, STAGE_Q, &prep[base..base + q_out]);
+                t.push(layer, STAGE_K, &prep[base + q_out..base + q_out + kv_out]);
+                t.push(
+                    layer,
+                    STAGE_V,
+                    &prep[base + q_out + kv_out..base + q_out + 2 * kv_out],
+                );
+                c += 1;
+            }
         }
         // Stage 2: append in token order.
         let mut last = Vec::with_capacity(k);

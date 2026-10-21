@@ -114,7 +114,7 @@ const TAP_LN2_OUT: usize = 3;
 /// Stage slot of the `SwiGLU` product (`STAGE_M`).
 const TAP_M: usize = 4;
 /// Stage slots in one layer's tap (`STAGE_COUNT`).
-const TAP_STAGES: usize = 5;
+const TAP_STAGES: usize = 8;
 
 /// A refusal from the Gram capture.
 #[derive(Debug, Clone, PartialEq, Eq)]
