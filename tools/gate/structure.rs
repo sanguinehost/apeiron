@@ -204,7 +204,7 @@ fn count_lines(
 // ---- the rules file: a TOML subset -------------------------------------------------------------------
 
 #[derive(Debug)]
-enum Value {
+pub(crate) enum Value {
     Int(i64),
     Str(String),
     Bool(bool),
@@ -212,26 +212,28 @@ enum Value {
 }
 
 #[derive(Debug)]
-struct Field {
-    key: String,
-    value: Value,
-    at: (usize, usize),
+pub(crate) struct Field {
+    pub(crate) key: String,
+    pub(crate) value: Value,
+    pub(crate) at: (usize, usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
+pub(crate) enum Kind {
     Top,
     Dir,
     Debt,
     Python,
     Lean,
+    /// A header another contract admits through `parse_tables`' `extra` list.
+    Named(&'static str),
 }
 
 #[derive(Debug)]
-struct Table {
-    kind: Kind,
-    at: (usize, usize),
-    fields: Vec<Field>,
+pub(crate) struct Table {
+    pub(crate) kind: Kind,
+    pub(crate) at: (usize, usize),
+    pub(crate) fields: Vec<Field>,
 }
 
 /// A position in the rules text, tracked as 1-based line and column in characters.
@@ -356,11 +358,15 @@ fn excerpt(text: &str) -> String {
     text.lines().next().unwrap_or("").chars().take(60).collect()
 }
 
-/// Parses the file into tables. Every error carries `line:col`.
+/// Parses the file into tables. Every error carries `line:col`. `extra` admits further headers as
+/// (array of tables, name) pairs, parsed as [`Kind::Named`].
 ///
 /// Cost: time O(N) over the N bytes of the text (one pass; each character is read once), space
 /// O(N) for the owned keys and strings.
-fn parse_tables(src: &str) -> Result<Vec<Table>, String> {
+pub(crate) fn parse_tables(
+    src: &str,
+    extra: &[(bool, &'static str)],
+) -> Result<Vec<Table>, String> {
     let mut c = Cursor::new(src);
     let mut tables = vec![Table {
         kind: Kind::Top,
@@ -387,6 +393,11 @@ fn parse_tables(src: &str) -> Result<Vec<Table>, String> {
                 (true, "debt") => Kind::Debt,
                 (false, "python") => Kind::Python,
                 (false, "lean") => Kind::Lean,
+                (d, n) if extra.contains(&(d, n)) => extra
+                    .iter()
+                    .find(|e| **e == (d, n))
+                    .map(|e| Kind::Named(e.1))
+                    .unwrap_or(Kind::Top),
                 _ => {
                     return Err(format!(
                         "{}:{}: unknown table header `{}`",
@@ -526,7 +537,11 @@ fn parse_string(c: &mut Cursor) -> Result<String, String> {
 }
 
 /// Rejects an unknown key, a repeated key, and a key of the wrong type; returns the field by name.
-fn field<'a>(t: &'a Table, allowed: &[&str], key: &str) -> Result<Option<&'a Field>, String> {
+pub(crate) fn field<'a>(
+    t: &'a Table,
+    allowed: &[&str],
+    key: &str,
+) -> Result<Option<&'a Field>, String> {
     let mut found = None;
     for f in &t.fields {
         if !allowed.contains(&f.key.as_str()) {
@@ -545,7 +560,7 @@ fn field<'a>(t: &'a Table, allowed: &[&str], key: &str) -> Result<Option<&'a Fie
     Ok(found)
 }
 
-fn need<'a>(t: &'a Table, allowed: &[&str], key: &str) -> Result<&'a Field, String> {
+pub(crate) fn need<'a>(t: &'a Table, allowed: &[&str], key: &str) -> Result<&'a Field, String> {
     field(t, allowed, key)?.ok_or_else(|| format!("{}:{}: missing key `{key}`", t.at.0, t.at.1))
 }
 
@@ -553,21 +568,21 @@ fn mismatch(f: &Field, what: &str) -> String {
     format!("{}:{}: key `{}` must be {what}", f.at.0, f.at.1, f.key)
 }
 
-fn as_str(f: &Field) -> Result<String, String> {
+pub(crate) fn as_str(f: &Field) -> Result<String, String> {
     match &f.value {
         Value::Str(s) => Ok(s.clone()),
         _ => Err(mismatch(f, "a string")),
     }
 }
 
-fn as_list(f: &Field) -> Result<Vec<String>, String> {
+pub(crate) fn as_list(f: &Field) -> Result<Vec<String>, String> {
     match &f.value {
         Value::List(items) => Ok(items.clone()),
         _ => Err(mismatch(f, "an array of strings")),
     }
 }
 
-fn as_u64(f: &Field) -> Result<u64, String> {
+pub(crate) fn as_u64(f: &Field) -> Result<u64, String> {
     match f.value {
         Value::Int(n) if n >= 0 => Ok(n as u64),
         _ => Err(mismatch(f, "a non-negative integer")),
@@ -580,7 +595,7 @@ fn as_u64(f: &Field) -> Result<u64, String> {
 /// Cost: time O(N + D log D) for N bytes of text and D `[[dir]]` entries (the uniqueness check is a
 /// B-tree insert per entry); space O(N).
 pub(crate) fn parse_rules(src: &str) -> Result<Rules, String> {
-    let tables = parse_tables(src)?;
+    let tables = parse_tables(src, &[])?;
     let mut rules = Rules::default();
     let mut seen_dirs = BTreeSet::new();
     for t in &tables {
@@ -654,6 +669,7 @@ pub(crate) fn parse_rules(src: &str) -> Result<Rules, String> {
                     orphan_debt: as_list(need(t, LEAN, "orphan_debt")?)?,
                 });
             }
+            Kind::Named(n) => unreachable!("parse_tables admits no `{n}` header here"),
         }
     }
     rules.dirs.sort_by(|a, b| a.path.cmp(&b.path));

@@ -25,6 +25,7 @@ mod cli;
 mod coverage;
 mod docs;
 mod hold;
+mod onepath;
 mod registry;
 mod report;
 mod runner;
@@ -52,9 +53,10 @@ fn main() -> ExitCode {
         Some("structure") => structure::structure_command(&args[1..]),
         Some("coverage") => coverage::coverage_command(&args[1..]),
         Some("roots") => coverage::roots::roots_command(&args[1..]),
+        Some("onepath") => onepath::onepath_command(&args[1..]),
         Some(other) => {
             eprintln!(
-                "gate: unknown subcommand `{other}`; known: docs, hold, run, structure, coverage, roots"
+                "gate: unknown subcommand `{other}`; known: docs, hold, run, structure, coverage, roots, onepath"
             );
             ExitCode::from(2)
         }
@@ -66,7 +68,8 @@ fn main() -> ExitCode {
                  hold         refuse while a HOLD marker is in force\n  \
                  structure --check  refuse a tracked layout that breaks docs/contracts/tree.toml\n  \
                  coverage (--check | --report | --baseline)  extraction coverage of src/ fns\n  \
-                 roots (--check | --report | --baseline)  kernel routing of src/learn product fns"
+                 roots (--check | --report | --baseline)  kernel routing of src/learn product fns\n  \
+                 onepath (--check | --report)  one forward, one optimiser, no unrooted body, crate-wide"
             );
             ExitCode::from(2)
         }

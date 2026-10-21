@@ -1,0 +1,987 @@
+# The one-path contract read by `gate onepath` (tools/gate/onepath/mod.rs).
+#
+# `[forward] bodies`: the declared minimal forward bodies. Each `[[debt]]` row carries one finding
+# the source still has, the open ticket that removes it, and, for forward/backward/descent, the
+# consumer count. Debt only shrinks: a new finding, a stale row and a moved count are refusals.
+
+schema = 1
+
+[forward]
+bodies = ["src/engine/step/cols.rs:Engine::softmax_cols_tap"]
+
+[[debt]]
+rule = "product"
+item = "src/attn_cut.rs:Part::exact"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/engine/chart/portable.rs:portable_i8_dot"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/engine/chart/portable.rs:portable_u8_i8_dot"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/engine/chart/portable.rs:portable_q5_0_dot"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/engine/chart/portable.rs:portable_q4_k_window_dots"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/engine/chart/mod.rs:q8_0_row_kcols_avx2"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/engine/chart/mod.rs:Q6_KDecoder::decode_step_portable"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/engine/mixer.rs:delta_head_step_ref"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/engine/mixer.rs:delta_head_step_fast"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/gpu/simt/mod.rs:gemv_ref"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/learn/seal.rs:make_qkx3_quants"
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/learn/seal.rs:make_qp_quants"
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/learn/seal.rs:make_qx_quants"
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/learn/iq1s.rs:best_neighbour"
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/learn/iq1s.rs:quantize_row"
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/learn/fold/finish/plane.rs:row_group_dots"
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/learn/fold/finish/plane.rs:dot_cols"
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/learn/fold/finish/plane.rs:encode"
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/learn/fold/run/pack.rs:fold_pack_of_planes"
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/learn/fold/stats/basis.rs:MetricRows::rows"
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "product"
+item = "src/learn/solve/gemm.rs:micro_4x4"
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "kernel-adapter"
+item = "src/learn/gram.rs:gram_columns"
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "descent"
+item = "src/gpu/nn/bwd/opt.rs:adam_module"
+consumers = 19
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "descent"
+item = "src/learn/fold/finish/train.rs:Adam::apply"
+consumers = 21
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/gpu/nn/attn/bwd.rs:attn_bwd_rowsum_dispatch"
+consumers = 10
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/gpu/nn/attn/bwd.rs:attn_bwd_rowsum_reduce_dispatch"
+consumers = 10
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/gpu/nn/attn/bwd.rs:attn_bwd_ds_dispatch"
+consumers = 10
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/gpu/nn/attn/bwd.rs:attn_bwd_dq_dispatch"
+consumers = 10
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/gpu/nn/attn/bwd.rs:attn_bwd_dkdv_dispatch"
+consumers = 10
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/gpu/nn/bwd/lin.rs:linear_bwd_input_dispatch"
+consumers = 12
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/gpu/nn/bwd/lin.rs:linear_bwd_weight_dispatch"
+consumers = 12
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/gpu/nn/bwd/opt.rs:adam_bias_corrections"
+consumers = 20
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/gpu/nn/bwd/opt.rs:adam_update_dispatch_reused"
+consumers = 4
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/gpu/nn/norm_bwd.rs:rmsnorm_dgamma_dispatch"
+consumers = 8
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/gpu/nn/norm_bwd.rs:rmsnorm_bwd_dispatch"
+consumers = 8
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/attn.rs:rope_bwd"
+consumers = 33
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/attn.rs:attn_bwd"
+consumers = 33
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/dense.rs:linear_bwd_input"
+consumers = 34
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/dense.rs:linear_bwd_weight"
+consumers = 34
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/dense.rs:rmsnorm_bwd"
+consumers = 35
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/dense.rs:swiglu_bwd"
+consumers = 34
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/head.rs:log_softmax_row"
+consumers = 902
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/head.rs:kl_row"
+consumers = 919
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/head.rs:tv_row"
+consumers = 911
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/model.rs:Config::q_out"
+consumers = 68
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/model.rs:Config::kv_out"
+consumers = 57
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/model.rs:Config::checked"
+consumers = 45
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/model.rs:forward"
+consumers = 35
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/model.rs:backward"
+consumers = 14
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/engine/testdata.rs:model_path"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/engine/trace.rs:enabled"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/engine/chart/pool.rs:Pool::global"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/engine/chart/pool.rs:pinned_off"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/engine/chart/pool.rs:efficiency_weight"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/engine/mixer.rs:head_slices_setting"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/engine/mixer.rs:exact_scan"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/engine/mixer.rs:carrier_from_env"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/engine/step.rs:prefill_block"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/engine/step.rs:bitplane_enabled"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/engine/step/softmax.rs:exact_scan_enabled"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/nn/attn/sparse.rs:flash_unroll"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/nn/attn/sparse.rs:flash_partial_fold_module"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/nn/norm.rs:gemv_actq_module_sc"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/simt/superblock.rs:sb_accsat"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/simt/superblock.rs:sb_lds"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/decode/model.rs:GpuDecode::new_with_prefill"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/decode/prefill.rs:prefill_tile"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/decode/prefill.rs:attn_tile"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/decode/prefill.rs:PrefillStack::build"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/decode.rs:envu"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/decode.rs:GpuCtx::host"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/runtime.rs:bar_mode"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/vulkan.rs:Vk::load"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/gpu/vulkan.rs:Vk::disasm"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/map/hashtrinity/par.rs:Pool::new"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/engine/chart/pool.rs:pin_current_thread"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/map/hashtrinity/tregex.rs:find_literal"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "switch"
+item = "src/map/hashtrinity/tregex.rs:find_multi"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/engine/attn/f32_core.rs:attn_core_f32_scalar"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/engine/chart/portable.rs:q4_k_row_portable", "src/engine/chart/portable.rs:q5_0_row_portable", "src/engine/chart/portable.rs:q6_k_row_portable", "src/engine/chart/portable.rs:q8_0_row_portable"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/engine/kern/bitplane.rs:BitplaneHead::stage2_bytes"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/engine/kern/lut.rs:q8act_projection"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/engine/mixer/f32_carrier.rs:l2_norm_sum_sq_avx2"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/engine/prefix/mod.rs:DEFAULT_BLOCK_SIZE", "src/engine/prefix/mod.rs:PrefixCache::byte_budget", "src/engine/prefix/mod.rs:PrefixCache::new"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/decode.rs:GpuCtx::host", "src/gpu/decode.rs:Step::with_bytes", "src/gpu/decode.rs:make_step", "src/gpu/decode.rs:pdl_overflow", "src/gpu/decode.rs:sb_chart_bytes"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/decode/layer.rs:make_gemv3", "src/gpu/decode/layer.rs:make_moe_gemv"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/gpu/decode/model.rs:GpuDecode::step_profile"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/decode/pack.rs:Proj::empty", "src/gpu/decode/pack.rs:Proj::served_bytes", "src/gpu/decode/pack.rs:pack_gguf_tensor", "src/gpu/decode/pack.rs:tl_face"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/nn/attn/pool.rs:pool_fill_bytes", "src/gpu/nn/attn/pool.rs:pool_fill_groups"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/gpu/nn/attn/prefill.rs:attn_prefill_tiled_bytes"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/gpu/nn/attn/prefill_glue.rs:kv_seed_bytes"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/gpu/nn/attn/sparse.rs:escore_module"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/nn/batch.rs:last_row_gather_sb_bytes", "src/gpu/nn/batch.rs:quantize_batch_sb_bytes", "src/gpu/nn/batch.rs:rmsnorm_batch_qsb_bytes"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/nn/coop.rs:gemv_coop_bytes", "src/gpu/nn/coop.rs:gemv_coop_sg_bytes"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/nn/deltanet.rs:deltanet_conv_silu_bytes", "src/gpu/nn/deltanet.rs:deltanet_gate_norm_bytes", "src/gpu/nn/deltanet.rs:deltanet_gk_bytes", "src/gpu/nn/deltanet.rs:deltanet_l2_heads2_bytes", "src/gpu/nn/deltanet.rs:deltanet_l2_heads2_module", "src/gpu/nn/deltanet.rs:deltanet_l2_heads_bytes", "src/gpu/nn/deltanet.rs:deltanet_rule_bytes", "src/gpu/nn/deltanet.rs:words_to_bytes"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/nn/glue.rs:attn_gate_apply_bytes", "src/gpu/nn/glue.rs:attn_qgate_split_bytes", "src/gpu/nn/glue.rs:commit_advance_bytes", "src/gpu/nn/glue.rs:commit_advance_module", "src/gpu/nn/glue.rs:copy_vec_bytes", "src/gpu/nn/glue.rs:embed_f16_bytes", "src/gpu/nn/glue.rs:escore_bytes", "src/gpu/nn/glue.rs:flash_combine_bytes", "src/gpu/nn/glue.rs:fused_rope_kv_bytes", "src/gpu/nn/glue.rs:gemv_dp4a_norm_bytes", "src/gpu/nn/glue.rs:gemv_norm_bytes", "src/gpu/nn/glue.rs:qk_norm_bytes", "src/gpu/nn/glue.rs:rmsnorm_fused_bytes", "src/gpu/nn/glue.rs:rmsnorm_fused_q_bytes", "src/gpu/nn/glue.rs:silu_mul_bytes", "src/gpu/nn/glue.rs:silu_mul_q_bytes", "src/gpu/nn/glue.rs:theta_scan_bytes", "src/gpu/nn/glue.rs:theta_select_bytes"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/nn/gridsync.rs:CTL_LEN", "src/gpu/nn/gridsync.rs:gridsync_bytes", "src/gpu/nn/gridsync.rs:nulldispatch_bytes"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/gpu/nn/mod.rs:two_level_chart_buffer"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/nn/moe.rs:moe_topk_bytes", "src/gpu/nn/moe.rs:silu_mul_q_slot_bytes"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/nn/norm.rs:gemv_actq_bytes", "src/gpu/nn/norm.rs:pdl_flags"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/gpu/nn/train/mod.rs:Trainer::last_host_us"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/runtime.rs:Gpu::bind", "src/gpu/runtime.rs:Gpu::bind_addrs", "src/gpu/runtime.rs:Gpu::descriptor_set", "src/gpu/runtime.rs:Gpu::device_address", "src/gpu/runtime.rs:Gpu::device_buffer", "src/gpu/runtime.rs:Gpu::device_name", "src/gpu/runtime.rs:Gpu::dsl", "src/gpu/runtime.rs:Gpu::has_bda", "src/gpu/runtime.rs:Gpu::host_buffer", "src/gpu/runtime.rs:Gpu::host_read_buffer", "src/gpu/runtime.rs:Gpu::new", "src/gpu/runtime.rs:Gpu::pipeline", "src/gpu/runtime.rs:Gpu::pipeline_layout", "src/gpu/runtime.rs:Gpu::scatter", "src/gpu/runtime.rs:Gpu::staged_dispatch", "src/gpu/runtime.rs:Gpu::time", "src/gpu/runtime.rs:Gpu::upload", "src/gpu/runtime.rs:Gpu::with_stage_capacity", "src/gpu/runtime.rs:Gpu::write_into", "src/gpu/runtime.rs:STAGE_CAP", "src/gpu/runtime.rs:binds_exactly", "src/gpu/runtime.rs:scatter_src", "src/gpu/runtime.rs:stage_align", "src/gpu/runtime.rs:stage_fit"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/simt/dp4a.rs:dp4a_roofline_bytes", "src/gpu/simt/dp4a.rs:dp4a_roofline_module", "src/gpu/simt/dp4a.rs:gemv_dp4a_batch_bytes", "src/gpu/simt/dp4a.rs:gemv_dp4a_batch_module", "src/gpu/simt/dp4a.rs:gemv_dp4a_dyn_bytes"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/simt/gemv.rs:CAP_COOPERATIVE_MATRIX", "src/gpu/simt/gemv.rs:CAP_FLOAT16", "src/gpu/simt/gemv.rs:CAP_STORAGE_BUFFER_16BIT", "src/gpu/simt/gemv.rs:CAP_VULKAN_MEMORY_MODEL", "src/gpu/simt/gemv.rs:COOPMAT_SCOPE_SUBGROUP", "src/gpu/simt/gemv.rs:COOP_LAYOUT_COL", "src/gpu/simt/gemv.rs:COOP_LAYOUT_ROW", "src/gpu/simt/gemv.rs:COOP_USE_A", "src/gpu/simt/gemv.rs:COOP_USE_ACC", "src/gpu/simt/gemv.rs:COOP_USE_B", "src/gpu/simt/gemv.rs:MEM_VULKAN", "src/gpu/simt/gemv.rs:OP_COMPOSITE_CONSTRUCT", "src/gpu/simt/gemv.rs:OP_COOPMAT_LOAD", "src/gpu/simt/gemv.rs:OP_COOPMAT_MULADD", "src/gpu/simt/gemv.rs:OP_COOPMAT_STORE", "src/gpu/simt/gemv.rs:OP_PHI", "src/gpu/simt/gemv.rs:OP_TYPE_COOPMAT", "src/gpu/simt/gemv.rs:OP_TYPE_RUNTIME_ARRAY_", "src/gpu/simt/gemv.rs:coopmat_gemm_bytes", "src/gpu/simt/gemv.rs:coopmat_gemm_module", "src/gpu/simt/gemv.rs:gemm_dw_bytes", "src/gpu/simt/gemv.rs:gemm_dw_module", "src/gpu/simt/gemv.rs:gemv_batch_bytes", "src/gpu/simt/gemv.rs:gemv_batch_module", "src/gpu/simt/gemv.rs:gemv_moe_bytes", "src/gpu/simt/gemv.rs:gemv_moe_module"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/gpu/simt/mod.rs:Carrier::bytes_per_elem_x4"
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/simt/superblock.rs:gemv_dp4a_sb_pb_bytes", "src/gpu/simt/superblock.rs:gemv_dp4a_sb_pb_module", "src/gpu/simt/superblock.rs:q2sb_gpu_chart"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/gpu/vulkan.rs:EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION", "src/gpu/vulkan.rs:MAP_SHARED", "src/gpu/vulkan.rs:MAP_SHARED_ANON", "src/gpu/vulkan.rs:Nvml::energy_mj", "src/gpu/vulkan.rs:Nvml::power_mw", "src/gpu/vulkan.rs:PROT_READ", "src/gpu/vulkan.rs:PROT_WRITE", "src/gpu/vulkan.rs:STAGE_TOP_OF_PIPE", "src/gpu/vulkan.rs:ST_BUFFER_DEVICE_ADDRESS_INFO", "src/gpu/vulkan.rs:ST_FENCE_CREATE_INFO", "src/gpu/vulkan.rs:ST_IMPORT_MEMORY_HOST_POINTER_INFO", "src/gpu/vulkan.rs:ST_MEMORY_HOST_POINTER_PROPERTIES", "src/gpu/vulkan.rs:ST_PIPELINE_EXECUTABLE_INFO", "src/gpu/vulkan.rs:ST_PIPELINE_EXECUTABLE_INTERNAL_REPRESENTATION", "src/gpu/vulkan.rs:ST_PIPELINE_EXECUTABLE_PROPERTIES", "src/gpu/vulkan.rs:ST_PIPELINE_EXECUTABLE_STATISTIC", "src/gpu/vulkan.rs:ST_PIPELINE_INFO", "src/gpu/vulkan.rs:VK_TIMEOUT", "src/gpu/vulkan.rs:Vk::buffer_from_anon_ptr", "src/gpu/vulkan.rs:Vk::buffer_from_host_ptr", "src/gpu/vulkan.rs:Vk::buffer_from_mapping", "src/gpu/vulkan.rs:Vk::cache_data", "src/gpu/vulkan.rs:Vk::device_address", "src/gpu/vulkan.rs:Vk::disasm", "src/gpu/vulkan.rs:Vk::import_anon_probe", "src/gpu/vulkan.rs:Vk::isolated_cache_blob", "src/gpu/vulkan.rs:Vk::reset_timestamps_host", "src/gpu/vulkan.rs:Vk::stats", "src/gpu/vulkan.rs:Vk::submit_timeout"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/learn/fold/finish/train.rs:Finisher::step_index", "src/learn/fold/finish/train.rs:Planes::linear_mut"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/learn/fold/stats/hocapture.rs:Hocapture::k", "src/learn/fold/stats/hocapture.rs:Kind::stage"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/learn/fold/stats/parts.rs:RopeTables::head_dim", "src/learn/fold/stats/parts.rs:RopeTables::t_max"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/learn/gguf.rs:TYPE_INT16", "src/learn/gguf.rs:TYPE_INT32", "src/learn/gguf.rs:TYPE_INT64", "src/learn/gguf.rs:TYPE_INT8", "src/learn/gguf.rs:TYPE_UINT16", "src/learn/gguf.rs:TYPE_UINT32", "src/learn/gguf.rs:TYPE_UINT64", "src/learn/gguf.rs:TYPE_UINT8", "src/learn/gguf.rs:write_int", "src/learn/gguf.rs:write_payload_scalar"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/learn/seal.rs:quantize_matrix_q5_0", "src/learn/seal.rs:quantize_matrix_q6_k"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/map/coord/address.rs:ParabolicDual::scalar"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/map/hashtrinity/algebra.rs:FoldExt::count_by", "src/map/hashtrinity/algebra.rs:FoldExt::fold_table", "src/map/hashtrinity/algebra.rs:FoldExt::group_by", "src/map/hashtrinity/algebra.rs:FoldExt::index_by", "src/map/hashtrinity/algebra.rs:FoldExt::set_by", "src/map/hashtrinity/algebra.rs:Regen::migrate", "src/map/hashtrinity/algebra.rs:Stored::migrate", "src/map/hashtrinity/algebra.rs:Table::accumulate", "src/map/hashtrinity/algebra.rs:Table::has", "src/map/hashtrinity/algebra.rs:Table::mark", "src/map/hashtrinity/algebra.rs:Table::neighbors", "src/map/hashtrinity/algebra.rs:keep", "src/map/hashtrinity/algebra.rs:set"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/map/hashtrinity/base64.rs:Engine::decode_vec", "src/map/hashtrinity/base64.rs:Engine::encode_string", "src/map/hashtrinity/base64.rs:STANDARD", "src/map/hashtrinity/base64.rs:URL_SAFE", "src/map/hashtrinity/base64.rs:URL_SAFE_ALPHABET", "src/map/hashtrinity/base64.rs:URL_SAFE_NO_PAD"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/map/hashtrinity/crypto.rs:B64", "src/map/hashtrinity/crypto.rs:B64#2", "src/map/hashtrinity/crypto.rs:BigUint::to_bytes_be", "src/map/hashtrinity/crypto.rs:CHARSET", "src/map/hashtrinity/crypto.rs:CN_OID", "src/map/hashtrinity/crypto.rs:DU", "src/map/hashtrinity/crypto.rs:DV", "src/map/hashtrinity/crypto.rs:ETA1", "src/map/hashtrinity/crypto.rs:ETA2", "src/map/hashtrinity/crypto.rs:EXT_REQ_OID", "src/map/hashtrinity/crypto.rs:GX", "src/map/hashtrinity/crypto.rs:GX#2", "src/map/hashtrinity/crypto.rs:GX#3", "src/map/hashtrinity/crypto.rs:GY", "src/map/hashtrinity/crypto.rs:GY#2", "src/map/hashtrinity/crypto.rs:GY#3", "src/map/hashtrinity/crypto.rs:H384", "src/map/hashtrinity/crypto.rs:Hasher::new", "src/map/hashtrinity/crypto.rs:K", "src/map/hashtrinity/crypto.rs:KL", "src/map/hashtrinity/crypto.rs:KR", "src/map/hashtrinity/crypto.rs:MD5_INIT", "src/map/hashtrinity/crypto.rs:MD5_K", "src/map/hashtrinity/crypto.rs:MD5_S", "src/map/hashtrinity/crypto.rs:N", "src/map/hashtrinity/crypto.rs:N#3", "src/map/hashtrinity/crypto.rs:N#4", "src/map/hashtrinity/crypto.rs:P", "src/map/hashtrinity/crypto.rs:P#2", "src/map/hashtrinity/crypto.rs:P#3", "src/map/hashtrinity/crypto.rs:PI", "src/map/hashtrinity/crypto.rs:Params::output_len", "src/map/hashtrinity/crypto.rs:ParamsBuilder::build", "src/map/hashtrinity/crypto.rs:ParamsBuilder::m_cost", "src/map/hashtrinity/crypto.rs:ParamsBuilder::new", "src/map/hashtrinity/crypto.rs:ParamsBuilder::output_len", "src/map/hashtrinity/crypto.rs:ParamsBuilder::p_cost", "src/map/hashtrinity/crypto.rs:ParamsBuilder::t_cost", "src/map/hashtrinity/crypto.rs:Q", "src/map/hashtrinity/crypto.rs:RC", "src/map/hashtrinity/crypto.rs:RHO", "src/map/hashtrinity/crypto.rs:RL", "src/map/hashtrinity/crypto.rs:RR", "src/map/hashtrinity/crypto.rs:RsaPublicKey::n", "src/map/hashtrinity/crypto.rs:SAN_OID", "src/map/hashtrinity/crypto.rs:SL", "src/map/hashtrinity/crypto.rs:SR", "src/map/hashtrinity/crypto.rs:Sha512::finalize_384", "src/map/hashtrinity/crypto.rs:Sha512::new_384", "src/map/hashtrinity/crypto.rs:_block256", "src/map/hashtrinity/crypto.rs:a32", "src/map/hashtrinity/crypto.rs:acme_dns01_txt", "src/map/hashtrinity/crypto.rs:acme_key_authorization", "src/map/hashtrinity/crypto.rs:add_rk", "src/map/hashtrinity/crypto.rs:addmod", "src/map/hashtrinity/crypto.rs:addmod#2", "src/map/hashtrinity/crypto.rs:addmod#3", "src/map/hashtrinity/crypto.rs:aead_mac", "src/map/hashtrinity/crypto.rs:aes128_cbc_decrypt", "src/map/hashtrinity/crypto.rs:aes128_cbc_encrypt", "src/map/hashtrinity/crypto.rs:aes128_ecb_block", "src/map/hashtrinity/crypto.rs:aes128_gcm_decrypt", "src/map/hashtrinity/crypto.rs:aes128_gcm_encrypt", "src/map/hashtrinity/crypto.rs:aes256_cbc_decrypt", "src/map/hashtrinity/crypto.rs:aes256_cbc_encrypt", "src/map/hashtrinity/crypto.rs:aes256_ctr", "src/map/hashtrinity/crypto.rs:aes256_ecb_block", "src/map/hashtrinity/crypto.rs:aes256_gcm_decrypt", "src/map/hashtrinity/crypto.rs:aes256_gcm_encrypt", "src/map/hashtrinity/crypto.rs:affine", "src/map/hashtrinity/crypto.rs:affine#2", "src/map/hashtrinity/crypto.rs:affine_x", "src/map/hashtrinity/crypto.rs:affine_x#2", "src/map/hashtrinity/crypto.rs:age_decrypt", "src/map/hashtrinity/crypto.rs:age_encrypt", "src/map/hashtrinity/crypto.rs:age_keygen", "src/map/hashtrinity/crypto.rs:age_pubkey_string", "src/map/hashtrinity/crypto.rs:age_secret_string", "src/map/hashtrinity/crypto.rs:b64d", "src/map/hashtrinity/crypto.rs:b64e", "src/map/hashtrinity/crypto.rs:b64url", "src/map/hashtrinity/crypto.rs:b64url_decode", "src/map/hashtrinity/crypto.rs:b64url_encode", "src/map/hashtrinity/crypto.rs:bao_emit", "src/map/hashtrinity/crypto.rs:bao_encode", "src/map/hashtrinity/crypto.rs:bao_verify", "src/map/hashtrinity/crypto.rs:bao_verify_chunk", "src/map/hashtrinity/crypto.rs:bao_verify_rec", "src/map/hashtrinity/crypto.rs:basepoint", "src/map/hashtrinity/crypto.rs:bech32_encode", "src/map/hashtrinity/crypto.rs:bech32_polymod", "src/map/hashtrinity/crypto.rs:bitlen", "src/map/hashtrinity/crypto.rs:bitrev7", "src/map/hashtrinity/crypto.rs:bitstr", "src/map/hashtrinity/crypto.rs:blake2b512", "src/map/hashtrinity/crypto.rs:block_mix", "src/map/hashtrinity/crypto.rs:byte_decode", "src/map/hashtrinity/crypto.rs:byte_encode", "src/map/hashtrinity/crypto.rs:cbc_decrypt", "src/map/hashtrinity/crypto.rs:cbc_encrypt", "src/map/hashtrinity/crypto.rs:cbd", "src/map/hashtrinity/crypto.rs:chacha20", "src/map/hashtrinity/crypto.rs:chacha20_block", "src/map/hashtrinity/crypto.rs:chacha20poly1305_decrypt", "src/map/hashtrinity/crypto.rs:chacha20poly1305_encrypt", "src/map/hashtrinity/crypto.rs:chacha_block", "src/map/hashtrinity/crypto.rs:client_derive", "src/map/hashtrinity/crypto.rs:compress#2", "src/map/hashtrinity/crypto.rs:compress#3", "src/map/hashtrinity/crypto.rs:compress_md5", "src/map/hashtrinity/crypto.rs:compress_poly", "src/map/hashtrinity/crypto.rs:convert_bits", "src/map/hashtrinity/crypto.rs:convertbits", "src/map/hashtrinity/crypto.rs:csr_ed25519", "src/map/hashtrinity/crypto.rs:ctx_explicit", "src/map/hashtrinity/crypto.rs:cv_bytes", "src/map/hashtrinity/crypto.rs:cv_from_bytes", "src/map/hashtrinity/crypto.rs:decaps", "src/map/hashtrinity/crypto.rs:decompress", "src/map/hashtrinity/crypto.rs:decompress_poly", "src/map/hashtrinity/crypto.rs:decrypt_block", "src/map/hashtrinity/crypto.rs:e_mod", "src/map/hashtrinity/crypto.rs:ecdh_p256", "src/map/hashtrinity/crypto.rs:ecdsa_p256_sign", "src/map/hashtrinity/crypto.rs:ecdsa_p256_verify", "src/map/hashtrinity/crypto.rs:ecdsa_p384_sign", "src/map/hashtrinity/crypto.rs:ecdsa_p384_verify", "src/map/hashtrinity/crypto.rs:ed25519_sign_daa", "src/map/hashtrinity/crypto.rs:emsa_pss_encode", "src/map/hashtrinity/crypto.rs:encaps", "src/map/hashtrinity/crypto.rs:encode", "src/map/hashtrinity/crypto.rs:encrypt_block", "src/map/hashtrinity/crypto.rs:expand128", "src/map/hashtrinity/crypto.rs:expand128_w", "src/map/hashtrinity/crypto.rs:expand256", "src/map/hashtrinity/crypto.rs:expand256_w", "src/map/hashtrinity/crypto.rs:extract_uri_san", "src/map/hashtrinity/crypto.rs:f", "src/map/hashtrinity/crypto.rs:fadd", "src/map/hashtrinity/crypto.rs:fadd#2", "src/map/hashtrinity/crypto.rs:fadd#3", "src/map/hashtrinity/crypto.rs:fmul", "src/map/hashtrinity/crypto.rs:fmul#2", "src/map/hashtrinity/crypto.rs:fmul#3", "src/map/hashtrinity/crypto.rs:from_be", "src/map/hashtrinity/crypto.rs:from_be#2", "src/map/hashtrinity/crypto.rs:from_be#3", "src/map/hashtrinity/crypto.rs:fsq", "src/map/hashtrinity/crypto.rs:fsq#2", "src/map/hashtrinity/crypto.rs:fsq#3", "src/map/hashtrinity/crypto.rs:fsub", "src/map/hashtrinity/crypto.rs:fsub#2", "src/map/hashtrinity/crypto.rs:fsub#3", "src/map/hashtrinity/crypto.rs:gcm_core", "src/map/hashtrinity/crypto.rs:gcm_mul", "src/map/hashtrinity/crypto.rs:gcm_tag", "src/map/hashtrinity/crypto.rs:ge4", "src/map/hashtrinity/crypto.rs:ge4#2", "src/map/hashtrinity/crypto.rs:ge5", "src/map/hashtrinity/crypto.rs:ge5#2", "src/map/hashtrinity/crypto.rs:ge6", "src/map/hashtrinity/crypto.rs:ge7", "src/map/hashtrinity/crypto.rs:gen_matrix", "src/map/hashtrinity/crypto.rs:ghash", "src/map/hashtrinity/crypto.rs:gmul", "src/map/hashtrinity/crypto.rs:hash160", "src/map/hashtrinity/crypto.rs:hkdf_expand_label", "src/map/hashtrinity/crypto.rs:hkdf_expand_sha256", "src/map/hashtrinity/crypto.rs:hkdf_extract_sha256", "src/map/hashtrinity/crypto.rs:hkdf_sha256", "src/map/hashtrinity/crypto.rs:hkdf_sha384", "src/map/hashtrinity/crypto.rs:hkdf_sha512", "src/map/hashtrinity/crypto.rs:hmac", "src/map/hashtrinity/crypto.rs:hmac#2", "src/map/hashtrinity/crypto.rs:hmac384", "src/map/hashtrinity/crypto.rs:hmac_sha256", "src/map/hashtrinity/crypto.rs:hmac_sha384", "src/map/hashtrinity/crypto.rs:hmac_sha512", "src/map/hashtrinity/crypto.rs:hrp_expand", "src/map/hashtrinity/crypto.rs:hrp_expand#2", "src/map/hashtrinity/crypto.rs:inc128", "src/map/hashtrinity/crypto.rs:inc32", "src/map/hashtrinity/crypto.rs:internal_node_count", "src/map/hashtrinity/crypto.rs:intt", "src/map/hashtrinity/crypto.rs:inv_mix_cols", "src/map/hashtrinity/crypto.rs:inv_sbox", "src/map/hashtrinity/crypto.rs:inv_shift_rows", "src/map/hashtrinity/crypto.rs:inv_sub_bytes", "src/map/hashtrinity/crypto.rs:invmod", "src/map/hashtrinity/crypto.rs:invmod#2", "src/map/hashtrinity/crypto.rs:invmod#3", "src/map/hashtrinity/crypto.rs:is_zero", "src/map/hashtrinity/crypto.rs:is_zero#2", "src/map/hashtrinity/crypto.rs:is_zero#3", "src/map/hashtrinity/crypto.rs:issue_ed25519_cert", "src/map/hashtrinity/crypto.rs:issue_ed25519_svid", "src/map/hashtrinity/crypto.rs:issue_ed25519_svid_ca", "src/map/hashtrinity/crypto.rs:jadd", "src/map/hashtrinity/crypto.rs:jadd#2", "src/map/hashtrinity/crypto.rs:jadd#3", "src/map/hashtrinity/crypto.rs:jdouble", "src/map/hashtrinity/crypto.rs:jdouble#2", "src/map/hashtrinity/crypto.rs:jdouble#3", "src/map/hashtrinity/crypto.rs:jinf", "src/map/hashtrinity/crypto.rs:jinf#2", "src/map/hashtrinity/crypto.rs:jinf#3", "src/map/hashtrinity/crypto.rs:jscalar", "src/map/hashtrinity/crypto.rs:jscalar#2", "src/map/hashtrinity/crypto.rs:jscalar#3", "src/map/hashtrinity/crypto.rs:jwk_thumbprint_ec_p256", "src/map/hashtrinity/crypto.rs:jwk_thumbprint_ed25519", "src/map/hashtrinity/crypto.rs:jwk_thumbprint_rsa", "src/map/hashtrinity/crypto.rs:jwt_sign_eddsa", "src/map/hashtrinity/crypto.rs:jwt_sign_es256", "src/map/hashtrinity/crypto.rs:jwt_sign_hs256", "src/map/hashtrinity/crypto.rs:jwt_verify", "src/map/hashtrinity/crypto.rs:keccak256", "src/map/hashtrinity/crypto.rs:keccakf", "src/map/hashtrinity/crypto.rs:keygen", "src/map/hashtrinity/crypto.rs:kpke_decrypt", "src/map/hashtrinity/crypto.rs:kpke_encrypt", "src/map/hashtrinity/crypto.rs:kpke_keygen", "src/map/hashtrinity/crypto.rs:md5", "src/map/hashtrinity/crypto.rs:memory_hard", "src/map/hashtrinity/crypto.rs:mgf1", "src/map/hashtrinity/crypto.rs:mix_cols", "src/map/hashtrinity/crypto.rs:mod_gen", "src/map/hashtrinity/crypto.rs:mod_gen#2", "src/map/hashtrinity/crypto.rs:mod_gen#3", "src/map/hashtrinity/crypto.rs:modq", "src/map/hashtrinity/crypto.rs:mul", "src/map/hashtrinity/crypto.rs:mul512", "src/map/hashtrinity/crypto.rs:mul512#2", "src/map/hashtrinity/crypto.rs:mul_ntts", "src/map/hashtrinity/crypto.rs:mulmod", "src/map/hashtrinity/crypto.rs:mulmod#2", "src/map/hashtrinity/crypto.rs:mulmod#3", "src/map/hashtrinity/crypto.rs:name_cn", "src/map/hashtrinity/crypto.rs:nostr_npub", "src/map/hashtrinity/crypto.rs:ntt", "src/map/hashtrinity/crypto.rs:p256_pubkey", "src/map/hashtrinity/crypto.rs:packet_nonce", "src/map/hashtrinity/crypto.rs:pad64_le", "src/map/hashtrinity/crypto.rs:padd", "src/map/hashtrinity/crypto.rs:pbkdf2_sha256", "src/map/hashtrinity/crypto.rs:poly1305", "src/map/hashtrinity/crypto.rs:poly_key", "src/map/hashtrinity/crypto.rs:polymod", "src/map/hashtrinity/crypto.rs:pow_mod", "src/map/hashtrinity/crypto.rs:powmod", "src/map/hashtrinity/crypto.rs:powmod#2", "src/map/hashtrinity/crypto.rs:powmod#3", "src/map/hashtrinity/crypto.rs:prf", "src/map/hashtrinity/crypto.rs:pubkey", "src/map/hashtrinity/crypto.rs:qr", "src/map/hashtrinity/crypto.rs:quic_hp_mask", "src/map/hashtrinity/crypto.rs:quic_hp_mask_aes128", "src/map/hashtrinity/crypto.rs:quic_hp_mask_aes256", "src/map/hashtrinity/crypto.rs:quic_initial_secret", "src/map/hashtrinity/crypto.rs:quic_open", "src/map/hashtrinity/crypto.rs:quic_seal", "src/map/hashtrinity/crypto.rs:quic_seal_batch", "src/map/hashtrinity/crypto.rs:recover", "src/map/hashtrinity/crypto.rs:rfc6979_k", "src/map/hashtrinity/crypto.rs:rfc6979_k#2", "src/map/hashtrinity/crypto.rs:rfc6979_k#3", "src/map/hashtrinity/crypto.rs:ripemd160", "src/map/hashtrinity/crypto.rs:ro_mix", "src/map/hashtrinity/crypto.rs:rsa_pss_sha256_sign", "src/map/hashtrinity/crypto.rs:rsa_pss_sha256_verify", "src/map/hashtrinity/crypto.rs:salsa20_8", "src/map/hashtrinity/crypto.rs:sample_ntt", "src/map/hashtrinity/crypto.rs:san_dns_ext", "src/map/hashtrinity/crypto.rs:san_uri_ext", "src/map/hashtrinity/crypto.rs:sbox", "src/map/hashtrinity/crypto.rs:scrypt", "src/map/hashtrinity/crypto.rs:segwit_encode", "src/map/hashtrinity/crypto.rs:server_store", "src/map/hashtrinity/crypto.rs:server_verify", "src/map/hashtrinity/crypto.rs:set", "src/map/hashtrinity/crypto.rs:sha256", "src/map/hashtrinity/crypto.rs:sha384", "src/map/hashtrinity/crypto.rs:sha3_256", "src/map/hashtrinity/crypto.rs:sha3_512", "src/map/hashtrinity/crypto.rs:shake128", "src/map/hashtrinity/crypto.rs:shake256", "src/map/hashtrinity/crypto.rs:shift_rows", "src/map/hashtrinity/crypto.rs:shr1", "src/map/hashtrinity/crypto.rs:sign", "src/map/hashtrinity/crypto.rs:spki", "src/map/hashtrinity/crypto.rs:sponge", "src/map/hashtrinity/crypto.rs:stream_nonce", "src/map/hashtrinity/crypto.rs:sub5", "src/map/hashtrinity/crypto.rs:sub5#2", "src/map/hashtrinity/crypto.rs:sub7", "src/map/hashtrinity/crypto.rs:sub_bytes", "src/map/hashtrinity/crypto.rs:sub_small", "src/map/hashtrinity/crypto.rs:sub_small#2", "src/map/hashtrinity/crypto.rs:sub_small#3", "src/map/hashtrinity/crypto.rs:submod", "src/map/hashtrinity/crypto.rs:submod#2", "src/map/hashtrinity/crypto.rs:submod#3", "src/map/hashtrinity/crypto.rs:tables", "src/map/hashtrinity/crypto.rs:to_be", "src/map/hashtrinity/crypto.rs:to_be32", "src/map/hashtrinity/crypto.rs:to_be48", "src/map/hashtrinity/crypto.rs:to_hex", "src/map/hashtrinity/crypto.rs:validity", "src/map/hashtrinity/crypto.rs:verify", "src/map/hashtrinity/crypto.rs:verify_chain", "src/map/hashtrinity/crypto.rs:verify_link", "src/map/hashtrinity/crypto.rs:verify_x509_svid"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/map/hashtrinity/face.rs:Entry::and_modify", "src/map/hashtrinity/face.rs:Entry::or_insert_with_key", "src/map/hashtrinity/face.rs:VacantEntry::into_key"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/map/hashtrinity/freq.rs:FreqLine::encircle", "src/map/hashtrinity/freq.rs:FreqLine::prefetch_group", "src/map/hashtrinity/freq.rs:FreqLine::tag", "src/map/hashtrinity/freq.rs:FreqMap::count_get", "src/map/hashtrinity/freq.rs:FreqMap::count_get_arr", "src/map/hashtrinity/freq.rs:FreqMap::encircle", "src/map/hashtrinity/freq.rs:FreqMap::get_all", "src/map/hashtrinity/freq.rs:FreqMap::get_each", "src/map/hashtrinity/freq.rs:FreqMap::get_reduce", "src/map/hashtrinity/freq.rs:FreqMap::overflow_height", "src/map/hashtrinity/freq.rs:FreqMap::stream_with_capacity", "src/map/hashtrinity/freq.rs:LANE_HI"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/map/hashtrinity/hex.rs:DECODE_TABLE", "src/map/hashtrinity/hex.rs:LOWER", "src/map/hashtrinity/hex.rs:T::encode_hex", "src/map/hashtrinity/hex.rs:T::encode_hex_upper", "src/map/hashtrinity/hex.rs:UPPER", "src/map/hashtrinity/hex.rs:Vec::from_hex", "src/map/hashtrinity/hex.rs:[]::from_hex", "src/map/hashtrinity/hex.rs:__", "src/map/hashtrinity/hex.rs:byte2hex", "src/map/hashtrinity/hex.rs:decode", "src/map/hashtrinity/hex.rs:decode_in_slice", "src/map/hashtrinity/hex.rs:decode_to_slice", "src/map/hashtrinity/hex.rs:encode", "src/map/hashtrinity/hex.rs:encode_to_slice", "src/map/hashtrinity/hex.rs:encode_to_slice_inner", "src/map/hashtrinity/hex.rs:encode_to_slice_upper", "src/map/hashtrinity/hex.rs:encode_upper", "src/map/hashtrinity/hex.rs:val"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/map/hashtrinity/tregex.rs:Dfa::num_classes", "src/map/hashtrinity/tregex.rs:Dfa::num_states", "src/map/hashtrinity/tregex.rs:Match::end", "src/map/hashtrinity/tregex.rs:Match::range", "src/map/hashtrinity/tregex.rs:Match::start", "src/map/hashtrinity/tregex.rs:MemMatch::find_at", "src/map/hashtrinity/tregex.rs:MemMatch::matches_nonoverlapping", "src/map/hashtrinity/tregex.rs:P::alt", "src/map/hashtrinity/tregex.rs:P::bump", "src/map/hashtrinity/tregex.rs:P::class_atom", "src/map/hashtrinity/tregex.rs:P::peek", "src/map/hashtrinity/tregex.rs:P::quant", "src/map/hashtrinity/tregex.rs:Regex::alt_literals", "src/map/hashtrinity/tregex.rs:Regex::find_iter", "src/map/hashtrinity/tregex.rs:Regex::is_match", "src/map/hashtrinity/tregex.rs:Regex::is_membership", "src/map/hashtrinity/tregex.rs:Regex::new", "src/map/hashtrinity/tregex.rs:Regex::required_literals", "src/map/hashtrinity/tregex.rs:find_multi", "src/map/hashtrinity/tregex.rs:find_multi#2", "src/map/hashtrinity/tregex.rs:find_multi_avx2", "src/map/hashtrinity/tregex.rs:find_multi_sse2", "src/map/hashtrinity/tregex.rs:lead_idx", "src/map/hashtrinity/tregex.rs:lower", "src/map/hashtrinity/tregex.rs:lower_concat", "src/map/hashtrinity/tregex.rs:parse", "src/map/hashtrinity/tregex.rs:parse_lower", "src/map/hashtrinity/tregex.rs:verify_longest"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/map/merge.rs:approx_count", "src/map/merge.rs:approx_count_into"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/map/pepper.rs:COMMITTED", "src/map/pepper.rs:PEPPER", "src/map/pepper.rs:READY", "src/map/pepper.rs:SETTING", "src/map/pepper.rs:STATE", "src/map/pepper.rs:UNSET", "src/map/pepper.rs:peek_process_pepper", "src/map/pepper.rs:pepper_is_committed", "src/map/pepper.rs:process_pepper", "src/map/pepper.rs:set_process_pepper", "src/map/pepper.rs:try_set_process_pepper"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/map/table/keyrep.rs:I64WordCodec::identity_encoding_byte", "src/map/table/keyrep.rs:I64WordCodec::identity_encoding_len", "src/map/table/keyrep.rs:Regen::held_encoding_byte", "src/map/table/keyrep.rs:Regen::held_encoding_len", "src/map/table/keyrep.rs:Stored::held_encoding_byte", "src/map/table/keyrep.rs:Stored::held_encoding_len"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+item = "src/map/table/parallel.rs:PhaseNanos::total"
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "orphan"
+items = ["src/map/table/probe.rs:clear#2", "src/map/table/probe.rs:snapshot"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/engine/chart/x86.rs:q4_k_scale_min_at", "src/format/quant.rs:q4_k_scale_min"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/engine/chart/portable.rs:portable_u8_i8_dot", "src/engine/kern/matmat.rs:portable_u8_i8_dot"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/engine/chart/portable.rs:portable_q5_0_dot", "src/engine/kern/matmat.rs:portable_q5_0_dot"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/engine/chart/ffn.rs:copy_i64_at", "src/engine/chart/ffn.rs:copy_i8_at"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/engine/chart/ffn.rs:swiglu_one", "src/engine/kern/gemm.rs:swiglu_one", "src/engine/kern/tp.rs:swiglu_one"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/engine/kern/gemm.rs:empty_columns", "src/engine/mixer.rs:alloc_cols"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/engine/mixer/conv_f32.rs:Rng::next", "src/learn/solve/eig.rs:Lcg::next_u64", "tests/learn_fold_icm.rs:Lcg::next_u64", "tests/learn_fold_icm_speed.rs:Lcg::next_u64", "tests/learn_solve_eig.rs:Lcg::next_u64", "tests/learn_solve_gemm.rs:Lcg::next_u64", "tests/learn_solve_syrk.rs:Lcg::next_u64", "tests/learn_solve_xref_eig.rs:Lcg::next_u64", "tests/learn_solve_xref_gemm.rs:Lcg::next_u64", "tests/learn_solve_xref_syrk.rs:Lcg::next_u64"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/engine/mixer.rs:head_slices_setting", "src/gpu/runtime.rs:bar_mode"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/engine/num/dequant_lowbit.rs:pq2_0_block", "src/engine/num/dequant_lowbit.rs:q1_q2_block"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/engine/num/dequant_lowbit.rs:ptq1_0_block", "src/engine/num/dequant_lowbit.rs:tq1_0_block"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/engine/num/dequant_lowbit.rs:dequant_ptq1_0_row", "src/engine/num/dequant_lowbit.rs:dequant_tq1_0_row"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/engine/num/value.rs:fixed_vector_checksum", "tests/learn_fold_fold_fit.rs:fnv_words", "tests/learn_fold_gptq_e8_words.rs:hash_idx", "tests/learn_fold_gptq_e8_words.rs:hash_words"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/format/quant.rs:q5_0_scale", "src/format/quant.rs:q8_0_scale"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/gpu/nn/attn/prefill.rs:sg_fmax", "src/gpu/nn/batch.rs:sg_fmax"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/gpu/nn/fwd/rope.rs:rope_bwd_module", "src/gpu/nn/fwd/rope.rs:rope_fwd_module"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/gpu/nn/train/mod.rs:Lcg::unit", "tests/gpu_attn_bwd.rs:Lcg::unit", "tests/gpu_attn_fwd.rs:Lcg::unit", "tests/gpu_attn_step.rs:Lcg::unit", "tests/gpu_layer_step.rs:Lcg::unit", "tests/gpu_linear_fwd.rs:Lcg::unit", "tests/gpu_rope.rs:Lcg::unit", "tests/gpu_train_timeline.rs:Lcg::unit"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/gpu/simt/superblock.rs:sb_accsat", "src/gpu/simt/superblock.rs:sb_lds"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/gpu/simt/mod.rs:Carrier::bytes_per_elem_x4", "src/gpu/simt/mod.rs:Carrier::pack"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/gpu/vulkan.rs:Vk::command_buffer", "src/gpu/vulkan.rs:Vk::reusable_command_buffer"]
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/kepler.rs:two_sum", "tests/kepler.rs:two_sum"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/learn/seal.rs:quantize_row_q4_k", "src/learn/seal.rs:quantize_row_q6_k"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/learn/seal.rs:quantize_matrix_q4_k", "src/learn/seal.rs:quantize_matrix_q5_0", "src/learn/seal.rs:quantize_matrix_q6_k"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/learn/fold/fit/gptq_e8_carrier.rs:narrow_q", "tests/learn_fold_gptq_e8_feedback.rs:base_narrow_q"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/learn/fold/fit/nb_refine.rs:pref", "tests/learn_fold_icm.rs:pref", "tests/learn_fold_icm_gibbs.rs:pref", "tests/learn_fold_icm_speed.rs:pref", "tests/learn_fold_nb_refine.rs:pref"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/learn/fold/fit/steps.rs:product_shift", "tests/support/fold_fit_xref.rs:product_shift"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/learn/fold/fit/steps.rs:filled_diag_mean", "tests/support/fold_fit_xref.rs:filled_diag_mean"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/learn/fold/fit/steps.rs:transpose_grid", "tests/support/fold_fit_xref.rs:transpose_grid"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/learn/fold/layer/resq.rs:transpose", "tests/learn_fold_corrector.rs:transpose", "tests/learn_fold_eigh.rs:transpose", "tests/learn_fold_stage.rs:transpose"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/learn/fold/run/finish.rs:kind_of", "tests/learn_fold_run_finish.rs:kind_of", "tests/learn_fold_run_transfer.rs:finish_kind"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/learn/fold/run/transfer.rs:hex", "tests/learn_fold_run_transfer.rs:hex"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone-test"
+items = ["src/learn/fold/run/transfer.rs:kind_code", "tests/learn_fold_run_transfer.rs:kind_code"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/learn/solve/gemm.rs:pack_a", "src/learn/solve/gemm.rs:pack_b_nt"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/learn/solve/q32.rs:narrow", "src/numeric/fixed_trig.rs:narrow"]
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/face.rs:OccupiedEntry::get_mut", "src/map/hashtrinity/face.rs:OccupiedEntry::get_mut_owned"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:sub5", "src/map/hashtrinity/crypto.rs:sub5#2", "src/map/hashtrinity/crypto.rs:sub7", "src/map/hashtrinity/crypto.rs:sub_u256"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:PublicKey::from_slice", "src/map/hashtrinity/crypto.rs:Signature::from_slice"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:from_be", "src/map/hashtrinity/crypto.rs:from_be#2", "src/map/hashtrinity/crypto.rs:from_be#3"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:ge4", "src/map/hashtrinity/crypto.rs:ge4#2", "src/map/hashtrinity/crypto.rs:ge5", "src/map/hashtrinity/crypto.rs:ge5#2", "src/map/hashtrinity/crypto.rs:ge6", "src/map/hashtrinity/crypto.rs:ge7"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:mul", "src/map/hashtrinity/crypto.rs:mul512", "src/map/hashtrinity/crypto.rs:mul512#2"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:mod_gen", "src/map/hashtrinity/crypto.rs:mod_gen#2"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:addmod", "src/map/hashtrinity/crypto.rs:addmod#2"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:submod", "src/map/hashtrinity/crypto.rs:submod#2", "src/map/hashtrinity/crypto.rs:submod#3"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:sub_small", "src/map/hashtrinity/crypto.rs:sub_small#2", "src/map/hashtrinity/crypto.rs:sub_small#3"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:powmod", "src/map/hashtrinity/crypto.rs:powmod#2"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:jinf", "src/map/hashtrinity/crypto.rs:jinf#2"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:jdouble", "src/map/hashtrinity/crypto.rs:jdouble#3"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:jadd", "src/map/hashtrinity/crypto.rs:jadd#2", "src/map/hashtrinity/crypto.rs:jadd#3"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:jscalar", "src/map/hashtrinity/crypto.rs:jscalar#2", "src/map/hashtrinity/crypto.rs:jscalar#3"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:affine_x", "src/map/hashtrinity/crypto.rs:affine_x#2"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:to_be", "src/map/hashtrinity/crypto.rs:to_be32", "src/map/hashtrinity/crypto.rs:to_be48"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:rfc6979_k", "src/map/hashtrinity/crypto.rs:rfc6979_k#2"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:affine", "src/map/hashtrinity/crypto.rs:affine#2"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:aes128_gcm_decrypt", "src/map/hashtrinity/crypto.rs:aes256_gcm_decrypt"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:hrp_expand", "src/map/hashtrinity/crypto.rs:hrp_expand#2"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:g", "src/map/hashtrinity/crypto.rs:g#3"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/crypto.rs:Sha256::update", "src/map/hashtrinity/crypto.rs:Sha512::update"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/hashtrinity/freq.rs:FreqMap::count_get", "src/map/hashtrinity/freq.rs:FreqMap::count_get_arr"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/map/table/parallel.rs:consume", "src/map/table/parallel.rs:consume_finalize", "src/map/table/parallel.rs:consume_output", "src/map/table/parallel.rs:consume_records"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "clone"
+items = ["src/numeric/fixed_exp.rs:round_div_2p32", "src/numeric/fixed_ln.rs:round_div_2p32"]
+ticket = "APEIRON-PORT-ROOTING-W1-T01"
+
+[[debt]]
+rule = "forward"
+item = "src/gpu/nn/train/mod.rs:Trainer::new"
+consumers = 3
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "forward"
+item = "src/gpu/decode/prefill.rs:PrefillStack::build"
+consumers = 11
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "forward"
+item = "src/learn/grad/attn.rs:attn_fwd_kern"
+consumers = 18
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "forward"
+item = "src/learn/fold/run/finish.rs:finish_model"
+consumers = 2
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "forward"
+item = "src/learn/fold/stats/parts.rs:attn_words"
+consumers = 43
+ticket = "APEIRON-QUALITY-118-W1-T01"

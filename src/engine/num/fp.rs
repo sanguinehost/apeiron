@@ -41,11 +41,6 @@ pub struct F64(pub u64);
 
 impl F64 {
     #[inline(always)]
-    pub const fn from_bits(bits: u64) -> F64 {
-        F64(bits)
-    }
-
-    #[inline(always)]
     pub const fn to_bits(self) -> u64 {
         self.0
     }
@@ -168,12 +163,6 @@ impl F32 {
     #[inline(always)]
     pub fn from_i64(i: i64) -> F32 {
         prim::from_i64(i)
-    }
-
-    /// Rust `as i64`: truncate toward zero, saturate, NaN to 0.
-    #[inline(always)]
-    pub fn to_i64_sat(self) -> i64 {
-        prim::to_i64_sat(self)
     }
 
     /// Rust `as i32`: truncate toward zero, saturate, NaN to 0.
@@ -345,18 +334,6 @@ pub mod prim {
             reason = "the rounding is the specification"
         )]
         g(i as f32)
-    }
-
-    /// Rust `as i64`.
-    #[inline(always)]
-    pub fn to_i64_sat(a: F32) -> i64 {
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "saturating cast is the specification"
-        )]
-        {
-            f(a) as i64
-        }
     }
 
     /// Rust `as i32`.
@@ -625,7 +602,6 @@ mod tests {
                 "rte {x:#x}"
             );
             assert!(same(prim::floor(a), p.floor()), "floor {x:#x}");
-            assert_eq!(prim::to_i64_sat(a), p as i64, "to_i64 {x:#x}");
             assert_eq!(prim::to_i32_sat(a), p as i32, "to_i32 {x:#x}");
             assert!(same(-a, -p), "neg {x:#x}");
             assert!(same(a.abs(), p.abs()), "abs {x:#x}");

@@ -135,12 +135,8 @@ pub(crate) fn scan_items(src: &str) -> Result<Vec<Item>, String> {
     let mut line = 1usize;
     let mut i = 0;
 
-    let item_level = |s: &Vec<Frame>| {
-        matches!(
-            s.last(),
-            None | Some(Frame::Mod(_)) | Some(Frame::Impl(_))
-        )
-    };
+    let item_level =
+        |s: &Vec<Frame>| matches!(s.last(), None | Some(Frame::Mod(_)) | Some(Frame::Impl(_)));
     let ident = |ch: &Vec<char>, i: usize| -> Option<(String, usize)> {
         let mut j = i;
         while j < ch.len() && (ch[j].is_alphanumeric() || ch[j] == '_') {

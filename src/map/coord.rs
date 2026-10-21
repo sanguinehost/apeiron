@@ -393,12 +393,8 @@ pub const PHI_INV: u64 = 0xF1DE_83E1_9937_733D;
 /// there as a literal). Odd, so it is a bijection on `Z/2^64`.
 ///
 /// It was [`spread`]'s second multiplier too, until the identity/placement split made `spread` a
-/// single widening multiply on 2026-08-29. It is kept because `finish` still uses the value and
-/// because `proofs.rs` checks [`inverse_odd`] against it as a known-answer fixture.
+/// single widening multiply. It is kept because `finish` still uses the value.
 pub const PSI: u64 = 0x94D0_49BB_1331_11EB;
-
-/// `PSI * PSI_INV == 1` in `Z/2^64`. Checked by `proofs.rs`, not taken on faith.
-pub const PSI_INV: u64 = 0x3196_42B2_D24D_8EC3;
 
 /// The inverse of an odd number mod `2^64`.
 ///

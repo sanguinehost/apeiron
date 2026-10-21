@@ -12,3 +12,14 @@ name = "gate"
 path = "main.rs"
 
 [workspace]
+
+# `gate onepath` parses every crate in the repository with a real Rust parser; a lexical scanner is
+# the failure it replaces (`docs/contracts/one-path.toml`).
+[dependencies]
+syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "printing", "visit", "proc-macro", "clone-impls"] }
+quote = { version = "=1.0.47", default-features = false }
+proc-macro2 = { version = "=1.0.107", default-features = false, features = ["span-locations"] }
+
+# `cargo run -q` builds the debug profile; the parse of ~230k lines runs on an optimised parser.
+[profile.dev.package."*"]
+opt-level = 3

@@ -91,7 +91,10 @@ const BASELINE: &[(&str, &str)] = &[
     ("src/learn/fold/stats/capture.rs", "fold_upper_rows"),
     ("src/learn/fold/stats/hocapture.rs", "accumulate->forward"),
     ("src/learn/fold/stats/hocapture.rs", "accumulate_kind"),
-    ("src/learn/fold/stats/hocapture.rs", "accumulate_with_targets->forward"),
+    (
+        "src/learn/fold/stats/hocapture.rs",
+        "accumulate_with_targets->forward",
+    ),
     ("src/learn/fold/stats/hocapture.rs", "col_sum"),
     ("src/learn/fold/stats/hocapture.rs", "embedding_grad"),
     ("src/learn/fold/stats/hocapture.rs", "ho_row"),
@@ -145,7 +148,6 @@ const BASELINE: &[(&str, &str)] = &[
     ("src/learn/solve/inv.rs", "inv_row_entry"),
     ("src/learn/solve/syrk.rs", "block_rows"),
     ("src/learn/solve/syrk.rs", "wsyrk"),
-
 ];
 
 const USAGE: &str =

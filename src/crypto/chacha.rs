@@ -40,10 +40,6 @@ pub const TAG_LEN: usize = 16;
 /// Errors returned by the AEAD entry points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    /// The supplied key was not [`KEY_LEN`] bytes.
-    InvalidKeyLength,
-    /// The supplied nonce was not [`NONCE_LEN`] bytes.
-    InvalidNonceLength,
     /// The supplied ciphertext was shorter than a single tag.
     CiphertextTooShort,
     /// The tag did not verify; the plaintext was discarded and not returned.
@@ -529,47 +525,4 @@ pub fn chacha20poly1305_decrypt(
     out.extend_from_slice(ciphertext);
     chacha20_xor(key, 1, nonce, &mut out);
     Ok(out)
-}
-
-/// Encrypts with byte-slice `key` and `nonce`, checking their lengths.
-///
-/// The only partial cases are the two length checks: a `key` of [`KEY_LEN`] bytes and a `nonce`
-/// of [`NONCE_LEN`] bytes succeed, any other length returns [`Error::InvalidKeyLength`] or
-/// [`Error::InvalidNonceLength`] without touching `plaintext`.
-///
-/// # Errors
-///
-/// [`Error::InvalidKeyLength`] when `key` is not [`KEY_LEN`] bytes, and
-/// [`Error::InvalidNonceLength`] when `nonce` is not [`NONCE_LEN`] bytes. The key length is checked
-/// first; on success there is no further failure.
-pub fn chacha20poly1305_encrypt_slice(
-    key: &[u8],
-    nonce: &[u8],
-    aad: &[u8],
-    plaintext: &[u8],
-) -> Result<Vec<u8>, Error> {
-    let key: &[u8; KEY_LEN] = key.try_into().map_err(|_| Error::InvalidKeyLength)?;
-    let nonce: &[u8; NONCE_LEN] = nonce.try_into().map_err(|_| Error::InvalidNonceLength)?;
-    Ok(chacha20poly1305_encrypt(key, nonce, aad, plaintext))
-}
-
-/// Decrypts with byte-slice `key` and `nonce`, checking their lengths.
-///
-/// The length failures are [`Error::InvalidKeyLength`] and [`Error::InvalidNonceLength`], checked
-/// before the ciphertext; an authentic but wrong-length key or nonce never decrypts.
-///
-/// # Errors
-///
-/// [`Error::InvalidKeyLength`] when `key` is not [`KEY_LEN`] bytes, [`Error::InvalidNonceLength`]
-/// when `nonce` is not [`NONCE_LEN`] bytes, and otherwise whatever
-/// [`chacha20poly1305_decrypt`] returns for the ciphertext. The key length is checked first.
-pub fn chacha20poly1305_decrypt_slice(
-    key: &[u8],
-    nonce: &[u8],
-    aad: &[u8],
-    ciphertext_and_tag: &[u8],
-) -> Result<Vec<u8>, Error> {
-    let key: &[u8; KEY_LEN] = key.try_into().map_err(|_| Error::InvalidKeyLength)?;
-    let nonce: &[u8; NONCE_LEN] = nonce.try_into().map_err(|_| Error::InvalidNonceLength)?;
-    chacha20poly1305_decrypt(key, nonce, aad, ciphertext_and_tag)
 }
