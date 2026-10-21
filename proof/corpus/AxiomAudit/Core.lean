@@ -2,6 +2,7 @@ import WordRefinement
 import Native.HyperbolicBase
 import Native.LocatorSpec
 import Security.InterpretationWitnesses
+import Security.HashDosCapped
 import Growable.Identity
 import Growable.Geometry
 import Growable.Scan
@@ -749,6 +750,25 @@ elab "#audit " id:ident : command => do
 #audit Apeiron.Security.InterpretationWitnesses.cipher_fiber_is_a_singleton
 #audit Apeiron.Security.InterpretationWitnesses.public_message_key_map_not_injective
 #audit Apeiron.Security.InterpretationWitnesses.short_key_passthrough
+
+-- The shipped capped probe and its AVL overflow (Security/HashDosCapped.lean): the probe examines at
+-- most PROBE_CAP primary slots for every key set, the overflow is O(log n) in AVL height, and any key
+-- stream costs n*(PROBE_CAP + 2 log2(n+1) + 1). .
+#audit Apeiron.Security.HashDos.exams_le
+#audit Apeiron.Security.HashDos.exams_le_cap
+#audit Apeiron.Security.HashDos.exams_eq_limit_of_occupied
+#audit Apeiron.Security.HashDos.cap_is_attained
+#audit Apeiron.Security.HashDos.shipped_probe_exams_le
+#audit Apeiron.Security.HashDos.extracted_probe_limit_le_cap
+#audit Apeiron.Security.HashDos.blocked_all_steps_pass
+#audit Apeiron.Security.HashDos.vacant_stop_below_cap
+#audit Apeiron.MapExecuted.pow_half_add_le
+#audit Apeiron.MapExecuted.size_ge_two_pow_half
+#audit Apeiron.MapExecuted.avl_height_le
+#audit Apeiron.MapExecuted.avl_height_le_of_len
+#audit Apeiron.Security.HashDos.op_cost_le_capped
+#audit Apeiron.Security.HashDos.capped_build_cost_le
+#audit Apeiron.Security.HashDos.capped_table_bounds
 
 -- Conditional Kepler certificate over exact rational denotations
 #audit Kepler.Certificate.FiniteBinary64
