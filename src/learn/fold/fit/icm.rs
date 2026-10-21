@@ -13,8 +13,10 @@
 //! `bound_ulps`, reported by [`product_bound`]), every other product is exact in `i128`, and
 //! block/pair costs compare as exact Q96.96 `i128`, so an argmin is the integer argmin and a tie goes
 //! to the first index. The 128-point transform is the engine's [`fwht_fixed`]; `chol` owns the solves;
-//! the kernel dispatches the engine pool, so the sweep bands run on the caller and every
-//! elementwise/transform pass is a serial integer loop. Every `pub`
+//! the kernel dispatches the engine pool, so the sweep bands' products run on the caller, and the one
+//! pass that itself dispatches the pool is the joint pair decision ([`pair_decisions`]: the rows are
+//! independent, so it runs in row chunks); every other elementwise/transform pass is a serial integer
+//! loop. Every `pub`
 //! entry here takes and returns words: the planes, the metric and both `J` values are `Q32.32`, so
 //! a caller that holds reals converts once at its own boundary ([`codebook`] and [`JointStats`] are
 //! the read-out exceptions). No step pays a `from_grid`/`to_grid` round trip.
@@ -36,7 +38,8 @@
               `fold_transfer.py` arithmetic than enumerated iterators would"
 )]
 
-use crate::engine::chart::pool::width_global;
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::ChunkTask;
 use crate::engine::kern::limb::{gemm_q32, gemv_q32, rowdot_q32, LimbError};
 use crate::engine::ONE;
 use crate::engine::{fwht_fixed, HadamardError};
@@ -1386,10 +1389,12 @@ pub fn e8_joint_icm_2plane(
 /// # Complexity
 /// `sweeps · (n/8) · O · (4·CODE_LEN·BLOCK + 2·BLOCK² + CODE_LEN² + [2·BLOCK·n] changed)` checked
 /// operations for the pair decision and the two residual updates, plus `O(n²·log2(GROUP))` for the
-/// three `had_gram` passes and `(n/8)·CODE_LEN²·BLOCK` for `X`; rows split across the pool. The
-/// scheduled path adds one `CODE_LEN²` `i128` table rebuild per row and block, reused per band.
+/// three `had_gram` passes and `(n/8)·CODE_LEN²·BLOCK` for `X`; the pair decision's rows are split
+/// across the engine pool in `width_global()` chunks, and every other pass runs on the caller. The
+/// scheduled path adds one `CODE_LEN²` `i128` table rebuild per row and block, reused per chunk of a
+/// block's rows.
 /// `O(o·n)` for `s`, `F`, `G`, `B`, `O(n²)` for `H11/H22/H12`, `(n/8)·CODE_LEN²` `i64` for `X`,
-/// `O(rows·CODE_LEN²)` `i128` for the cost buffer.
+/// `O(rows)` picks plus `O(rows·CODE_LEN²)` `i128` for the cost buffers.
 #[allow(
     clippy::too_many_arguments,
     reason = "the option surface (sweeps, icm_ridge, g_row, row_chunk, blocks, schedule) mirrors the \
@@ -1502,8 +1507,9 @@ pub fn e8_joint_icm_2plane_annealed(
         rest_i2 = t_i2;
         r += 1;
     }
-    // The kernel owns the engine pool, so the bands run on the caller. A full sweep runs one band:
-    // the group flush contracts every row of the band against `n` columns in one dispatch, and a
+    // The kernel owns the engine pool, so the bands' products run on the caller; the pair decision is
+    // the one pass inside a band that dispatches the pool itself, in row chunks. A full sweep runs one
+    // band: the group flush contracts every row of the band against `n` columns in one dispatch, and a
     // band per `row_chunk` would pay the call's fixed cost 32 times over at `o = 896`. A `blocks`
     // subset — whose order is caller-given — keeps the band split.
     let per = if blocks.is_some() {
@@ -1591,6 +1597,165 @@ struct JointSweep<'a> {
     sweeps: usize,
 }
 
+/// One row's joint pair decision: the `CODE_LEN²`-way `flat` index and the row's xorshift state after
+/// the draw. Written per row by [`pair_decisions`], so the decision phase can run in row chunks on the
+/// engine pool while both quantities stay row-local.
+#[derive(Clone, Copy)]
+struct PairPick {
+    /// `i₁·CODE_LEN + i₂` as [`best_pair_q`] or [`gibbs_choice`] returns it, below `CODE_LEN² = 2¹⁶`.
+    flat: u16,
+    /// The row's xorshift state (unchanged on the `T = 0` path, which draws nothing).
+    rng: u64,
+}
+
+/// One block's per-row decision over a chunk of the band's rows. Row `row` reads only
+/// `z1/z2[row·CODE_LEN..]`, `r1/r2[(base+row)·g + gidx]` and its own `picks[row].rng`, and writes only
+/// `picks[row]`, so a chunk's decisions are the serial loop's.
+struct PairRows<'a> {
+    /// Block quadratic forms, `[nb·CODE_LEN]`, first plane.
+    q1: &'a [i64],
+    /// Block quadratic forms, `[nb·CODE_LEN]`, second plane.
+    q2: &'a [i64],
+    /// The `[nb, CODE_LEN, CODE_LEN]` cross tables of the two planes.
+    x_all: &'a [i64],
+    /// Group scales `[o·g]`, first plane.
+    r1: &'a [i64],
+    /// Group scales `[o·g]`, second plane.
+    r2: &'a [i64],
+    /// The band's `[rows, CODE_LEN]` codebook dots, first plane.
+    z1: &'a [i64],
+    /// The band's `[rows, CODE_LEN]` codebook dots, second plane.
+    z2: &'a [i64],
+    /// Group scales per row.
+    g: usize,
+    /// The band's first row in the plane (the `r` index offset).
+    base: usize,
+    /// The block's `r` group index.
+    gidx: usize,
+    /// The block.
+    m: usize,
+    /// The inverse temperature in force, `None` for the `T = 0` argmin.
+    beta: Option<i64>,
+    /// Lowest-offset refusal recorded by the tasks.
+    first: &'a FirstErr<usize, IcmError>,
+}
+
+impl PairRows<'_> {
+    /// Rows `start .. start + piece.len()`: one exact `CODE_LEN²` cost table per row and, with `beta`,
+    /// one [`gibbs_choice`] draw of that table.
+    ///
+    /// # Errors
+    /// [`IcmError::Overflow`] off the grid.
+    /// # Complexity
+    /// Time: `rows·(2·CODE_LEN + CODE_LEN²)` checked operations. Space: one reused `CODE_LEN²` `i128`
+    /// table per task on the scheduled path, `O(1)` on the `T = 0` path.
+    fn pick_rows(&self, start: usize, piece: &mut [PairPick]) -> Result<(), IcmError> {
+        let xm = &self.x_all[self.m * CODE_LEN * CODE_LEN..(self.m + 1) * CODE_LEN * CODE_LEN];
+        let mut costs: Vec<i128> = Vec::new();
+        for (i, pick) in piece.iter_mut().enumerate() {
+            let row = start + i;
+            let r = self.base + row;
+            let (av1, av2) = (
+                i128::from(self.r1[r * self.g + self.gidx]),
+                i128::from(self.r2[r * self.g + self.gidx]),
+            );
+            let (aa1, two_a1) = (av1 * av1, av1 * 2);
+            let (aa2, two_a2) = (av2 * av2, av2 * 2);
+            let two_a12 = qmul(qmul(av1, av2)?, 2)?;
+            let (mut av, mut bv) = ([0_i128; CODE_LEN], [0_i128; CODE_LEN]);
+            for j in 0..CODE_LEN {
+                av[j] = block_cost(
+                    aa1,
+                    two_a1,
+                    self.q1[self.m * CODE_LEN + j],
+                    self.z1[row * CODE_LEN + j],
+                )?;
+                bv[j] = block_cost(
+                    aa2,
+                    two_a2,
+                    self.q2[self.m * CODE_LEN + j],
+                    self.z2[row * CODE_LEN + j],
+                )?;
+            }
+            let flat = match self.beta {
+                Some(beta) => {
+                    pair_costs_into(two_a12, &av, xm, &bv, &mut costs)?;
+                    gibbs_choice(&costs, beta, &mut pick.rng)?
+                }
+                None => best_pair_q(two_a12, &av, xm, &bv)?,
+            };
+            // `flat < CODE_LEN² == 2¹⁶`, so the narrowing never leaves `u16`.
+            pick.flat = u16::try_from(flat).map_err(|_| IcmError::Overflow)?;
+        }
+        Ok(())
+    }
+}
+
+impl ChunkTask<PairPick> for PairRows<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [PairPick]) {
+        if let Err(e) = self.pick_rows(start, piece) {
+            self.first.record(start, e);
+        }
+    }
+}
+
+/// The row-wise pair decision of one block over the whole band: every row's `CODE_LEN²` cost table and
+/// its draw, in `width_global()` row chunks on the engine pool.
+///
+/// The rows are independent, so the chunking changes no decision: row `row` reads only its own `z`,
+/// `r` and xorshift state, so the returned `flat` and the states written back are the serial row
+/// loop's, bit for bit, on the `T = 0` argmin and the finite-temperature draw alike.
+///
+/// # Errors
+/// The refusal of the lowest-offset failing chunk, e.g. [`IcmError::Overflow`].
+/// # Complexity
+/// Time: `rows·(2·CODE_LEN + CODE_LEN²)` checked operations, split across the pool, plus `O(rows)` for
+/// the xorshift state copy in and out. Space: `O(rows)` picks plus one `CODE_LEN²` `i128` table per
+/// participant on the scheduled path.
+fn pair_decisions(
+    cx: &JointSweep<'_>,
+    z1: &[i64],
+    z2: &[i64],
+    start: usize,
+    m: usize,
+    beta: Option<i64>,
+    rng: &mut [u64],
+    picks: &mut [PairPick],
+) -> Result<(), IcmError> {
+    let rows = picks.len();
+    for (pick, &state) in picks.iter_mut().zip(rng.iter()) {
+        pick.rng = state;
+    }
+    let first: FirstErr<usize, IcmError> = FirstErr::new();
+    let chunk = rows.div_ceil(width_global()).max(1);
+    chunks_mut_global(
+        picks,
+        chunk,
+        &PairRows {
+            q1: cx.q1,
+            q2: cx.q2,
+            x_all: cx.x_all,
+            r1: cx.r1,
+            r2: cx.r2,
+            z1,
+            z2,
+            g: cx.g,
+            base: start,
+            gidx: m * BLOCK / GROUP,
+            m,
+            beta,
+            first: &first,
+        },
+    );
+    if let Some((_, e)) = first.take() {
+        return Err(e);
+    }
+    for (pick, state) in picks.iter().zip(rng.iter_mut()) {
+        *state = pick.rng;
+    }
+    Ok(())
+}
+
 /// One band of the joint sweep, every product on the limb kernel. The band's per-row slices are
 /// gathered into flat `[rows, ·]` buffers so one kernel product serves the whole band: the two block
 /// products are `rows × 2·BLOCK × BLOCK`, the codebook product `rows × CODE_LEN × BLOCK` per plane,
@@ -1614,13 +1779,15 @@ struct JointSweep<'a> {
 /// Per sweep, per group: four `n × GROUP` window copies, one `O(rows·GROUP)` accumulator clear and
 /// four `moved × n × GROUP` flush products. Per sweep, per block: one `O(BLOCK²)` diagonal gather,
 /// two `rows × 2·BLOCK × BLOCK` block products, two `rows × CODE_LEN × BLOCK` codebook products, the
-/// `CODE_LEN²`-way pair search (`O(rows·CODE_LEN²)` checked operations with `2·a₁a₂` hoisted) and,
+/// `CODE_LEN²`-way pair search (`O(rows·CODE_LEN²)` checked operations with `2·a₁a₂` hoisted, in
+/// `width_global()` row chunks on the engine pool: see [`pair_decisions`]) and,
 /// off the group's first block with a change in the group, four `rows × BLOCK × GROUP` in-batch
 /// products. `O(rows·n)` for the gathered band, `O(n·GROUP)` for the windows and `O(rows·GROUP)` for
-/// the flush gathers; a scheduled band adds `O(rows·CODE_LEN²)` `i128` for the reused cost table.
+/// the flush gathers; a scheduled band adds `O(rows·CODE_LEN²)` `i128` for the per-task cost tables.
 ///
 /// The pair decision is [`best_pair_q`] when `beta` is `None` and one [`gibbs_choice`] draw of the
-/// same table at `beta.beta_at(sw)` otherwise; `rng[row]` is that row's xorshift state.
+/// same table at `beta.beta_at(sw)` otherwise; `rng[row]` is that row's xorshift state. Both are row-
+/// local, so the pool split runs them per row without changing a decision.
 fn joint_band(
     cx: &JointSweep<'_>,
     piece: &mut [JointRow<'_>],
@@ -1694,7 +1861,7 @@ fn joint_bands_per_block(
     let mut c2b = vec![0_i64; rows * 2 * BLOCK];
     let mut m1: Vec<(usize, i128, i128)> = Vec::with_capacity(rows);
     let mut m2: Vec<(usize, i128, i128)> = Vec::with_capacity(rows);
-    let mut costs: Vec<i128> = Vec::with_capacity(CODE_LEN * CODE_LEN);
+    let mut picks = vec![PairPick { flat: 0, rng: 0 }; rows];
     let mut moved = 0_usize;
     for sw in 0..cx.sweeps {
         let count = cx.blocks.map_or(nb, <[usize]>::len);
@@ -1705,7 +1872,6 @@ fn joint_bands_per_block(
                 None => step,
             };
             let (b0, gidx) = (m * BLOCK, m * BLOCK / GROUP);
-            let xm = &cx.x_all[m * CODE_LEN * CODE_LEN..(m + 1) * CODE_LEN * CODE_LEN];
             for k in 0..BLOCK {
                 for col in 0..n {
                     hc11[col * BLOCK + k] = cx.h11[(b0 + k) * n + col];
@@ -1757,6 +1923,16 @@ fn joint_bands_per_block(
             }
             let z1 = nt_q(&f1b, rows, cb, CODE_LEN, BLOCK)?;
             let z2 = nt_q(&f2b, rows, cb, CODE_LEN, BLOCK)?;
+            pair_decisions(
+                cx,
+                &z1,
+                &z2,
+                start,
+                m,
+                beta.map(|sched| sched.beta_at(sw)),
+                rng,
+                &mut picks,
+            )?;
             m1.clear();
             m2.clear();
             for row in 0..rows {
@@ -1765,23 +1941,7 @@ fn joint_bands_per_block(
                     cx.r2[(start + row) * cx.g + gidx],
                 );
                 let (av1, av2) = (i128::from(a1), i128::from(a2));
-                let (aa1, two_a1) = (av1 * av1, av1 * 2);
-                let (aa2, two_a2) = (av2 * av2, av2 * 2);
-                let two_a12 = qmul(qmul(av1, av2)?, 2)?;
-                let (mut av, mut bv) = ([0_i128; CODE_LEN], [0_i128; CODE_LEN]);
-                for j in 0..CODE_LEN {
-                    av[j] =
-                        block_cost(aa1, two_a1, cx.q1[m * CODE_LEN + j], z1[row * CODE_LEN + j])?;
-                    bv[j] =
-                        block_cost(aa2, two_a2, cx.q2[m * CODE_LEN + j], z2[row * CODE_LEN + j])?;
-                }
-                let flat = match beta {
-                    Some(sched) => {
-                        pair_costs_into(two_a12, &av, xm, &bv, &mut costs)?;
-                        gibbs_choice(&costs, sched.beta_at(sw), &mut rng[row])?
-                    }
-                    None => best_pair_q(two_a12, &av, xm, &bv)?,
-                };
+                let flat = usize::from(picks[row].flat);
                 let (i1s, i2s) = (flat / CODE_LEN, flat % CODE_LEN);
                 let mut ch1 = false;
                 let mut ch2 = false;
@@ -1909,7 +2069,7 @@ fn joint_bands_batched(
     let mut f2b = vec![0_i64; rows * BLOCK];
     let mut d1b = vec![0_i64; rows * BLOCK];
     let mut d2b = vec![0_i64; rows * BLOCK];
-    let mut costs: Vec<i128> = Vec::with_capacity(CODE_LEN * CODE_LEN);
+    let mut picks = vec![PairPick { flat: 0, rng: 0 }; rows];
     let mut moved = 0_usize;
     for sw in 0..cx.sweeps {
         for step in 0..nb {
@@ -2014,30 +2174,18 @@ fn joint_bands_batched(
             }
             let z1 = nt_q(&f1b, rows, cb, CODE_LEN, BLOCK)?;
             let z2 = nt_q(&f2b, rows, cb, CODE_LEN, BLOCK)?;
+            pair_decisions(
+                cx,
+                &z1,
+                &z2,
+                start,
+                m,
+                beta.map(|sched| sched.beta_at(sw)),
+                rng,
+                &mut picks,
+            )?;
             for row in 0..rows {
-                let (a1, a2) = (
-                    cx.r1[(start + row) * g + gidx],
-                    cx.r2[(start + row) * g + gidx],
-                );
-                let (av1, av2) = (i128::from(a1), i128::from(a2));
-                let (aa1, two_a1) = (av1 * av1, av1 * 2);
-                let (aa2, two_a2) = (av2 * av2, av2 * 2);
-                let two_a12 = qmul(qmul(av1, av2)?, 2)?;
-                let (mut av, mut bv) = ([0_i128; CODE_LEN], [0_i128; CODE_LEN]);
-                for j in 0..CODE_LEN {
-                    av[j] =
-                        block_cost(aa1, two_a1, cx.q1[m * CODE_LEN + j], z1[row * CODE_LEN + j])?;
-                    bv[j] =
-                        block_cost(aa2, two_a2, cx.q2[m * CODE_LEN + j], z2[row * CODE_LEN + j])?;
-                }
-                let xm = &cx.x_all[m * CODE_LEN * CODE_LEN..(m + 1) * CODE_LEN * CODE_LEN];
-                let flat = match beta {
-                    Some(sched) => {
-                        pair_costs_into(two_a12, &av, xm, &bv, &mut costs)?;
-                        gibbs_choice(&costs, sched.beta_at(sw), &mut rng[row])?
-                    }
-                    None => best_pair_q(two_a12, &av, xm, &bv)?,
-                };
+                let flat = usize::from(picks[row].flat);
                 let (i1s, i2s) = (flat / CODE_LEN, flat % CODE_LEN);
                 let mut ch1 = false;
                 let mut ch2 = false;

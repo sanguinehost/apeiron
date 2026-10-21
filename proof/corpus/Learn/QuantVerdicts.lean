@@ -1340,6 +1340,92 @@ theorem pin_retry_within_k5 : (pfJRetry2 - pfJExact2) * 1000000000 < pfJExact2 :
 theorem pin_limb_faster :
     pfLimbNsMax < pfExactNsMin ∧ pfLimbNs * 162 ≤ pfExactNs * 100 := by decide
 
+/-! ## §23 The joint sweep's pair decision on the engine pool: bit-identical, 5.63× per sweep
+
+NB-JOINT-2, `tested` and `measured` on base `4aa0ec23`. `src/learn/fold/fit/icm.rs` (sha256 `5e4a60a6…`)
+moves `best_pair_q` out of the row loop of `joint_bands_batched` and `joint_bands_per_block`: phase A
+evaluates every row's pair decision and its per-row xorshift draw on the pool (`PairRows`, `width_global()`
+row chunks); phase B applies the codes, deltas and move count in ascending row order, unchanged. A row reads
+and writes only its own slices and its own `rng[row]`, so the result is independent of the chunking.
+`tests/learn_fold_icm_speed.rs` (`40feca22…`) asserts the scheduled arm's `(d1, d2, moves, J)` against the
+base capture; the constants it held at the base were the `7e3c4dbd` values, stale since §20. The receipt is
+`/home/socol/oc-tmp/escalation/lead-1021/NBJOINT2/receipt.md`. Board row `APEIRON-ICM-W1-T03`.
+
+- Speed: `icm_joint_lazy_batch_microbench`, s per sweep in ms, 3 reps per arm per shape, i9-14900KF.
+- Control: `pick_rows(start.saturating_sub(1), piece)` reddens the fixture-0 witness (`J` +5.53 relative,
+  5958 vs 5770 moves); the restored body passes.
+- The one-participant pool (`APEIRON_THREADS=1 APEIRON_ECORES=0`) is slower than the base: the speed is the
+  pool's, not a cheaper algorithm.
+- `model`: the decision's share of the new sweep comes from §20's probe (`nbPair896`) and §20's
+  non-decision residual, not from a probe of the new body.
+- Open: the decision is still most of the sweep; an exact bound-and-prune inside `pick_rows` is the next
+  lane. `ApeironWord.lean` extraction of the new body is unverified. -/
+
+/-- (896, 896), ms per sweep: base mean and min, new mean and max. -/
+def njBase896 : ℕ := 13961
+
+def njBase896Min : ℕ := 13900
+
+def njNew896 : ℕ := 2478
+
+def njNew896Max : ℕ := 2485
+
+/-- (128, 896), ms per sweep: base mean and min, new mean and max. -/
+def njBase128 : ℕ := 2087
+
+def njBase128Min : ℕ := 2078
+
+def njNew128 : ℕ := 411
+
+def njNew128Max : ℕ := 426
+
+/-- (896, 896) with one pool participant, ms per sweep: the minimum of three. -/
+def njOneThreadMin : ℕ := 22120
+
+/-- (896, 896) seed 9, `T = 0` arm: `J` and moves, base and new. -/
+def njJBase : ℕ := 432176896298905
+
+def njJNew : ℕ := 432176896298905
+
+def njMovesBase : ℕ := 142478
+
+def njMovesNew : ℕ := 142478
+
+/-- (896, 896) scheduled arm: `J` and moves, base capture and new. -/
+def njSchedJBase : ℕ := 1472210229791615
+
+def njSchedJNew : ℕ := 1472210229791615
+
+def njSchedMovesBase : ℕ := 200698
+
+def njSchedMovesNew : ℕ := 200698
+
+/-- **Faster, with disjoint spreads**, on both shapes. -/
+theorem nj_faster_disjoint : njNew896Max < njBase896Min ∧ njNew128Max < njBase128Min := by decide
+
+/-- **At least 5.6× at (896, 896) and 5.0× at (128, 896)** on the means; at least 5.59× min-over-max. -/
+theorem nj_ratios :
+    njNew896 * 56 ≤ njBase896 * 10 ∧ njNew128 * 5 ≤ njBase128 ∧
+      njNew896Max * 559 ≤ njBase896Min * 100 := by decide
+
+/-- **Bit-identical at (896, 896)** on both arms: `J` and moves. -/
+theorem nj_identity_896 :
+    njJNew = njJBase ∧ njMovesNew = njMovesBase ∧ njSchedJNew = njSchedJBase ∧
+      njSchedMovesNew = njSchedMovesBase := by decide
+
+/-- **The speed is the pool's**: with one participant the sweep is slower than the base. -/
+theorem nj_pool_is_the_cause : njBase896Min < njOneThreadMin ∧ njNew896Max < njOneThreadMin := by
+  decide
+
+/-- **Across §20 and §23** the (896, 896) sweep moved more than 8× (20.29 s → 2.48 s). -/
+theorem nj_cumulative_eight_x : njNew896 * 8 < nbBase896 := by decide
+
+/-- `model`: holding §20's non-decision residual (`nbNew896 - nbPair896`), the new decision is more than
+7× faster than §20's serial one and still at least 70% of the sweep. -/
+theorem nj_decision_still_dominates :
+    (njNew896 - (nbNew896 - nbPair896)) * 7 < nbPair896 ∧
+      njNew896 * 70 ≤ (njNew896 - (nbNew896 - nbPair896)) * 100 := by decide
+
 end QuantVerdicts
 
 end Learn
