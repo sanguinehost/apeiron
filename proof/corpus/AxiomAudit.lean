@@ -2797,3 +2797,9 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.nb_residual_cut
 #audit Learn.QuantVerdicts.nb_three_x_unreachable
 #audit Learn.QuantVerdicts.nb_decision_dominates
+#audit Learn.QuantVerdicts.bc_scan_seven_x
+#audit Learn.QuantVerdicts.bc_pass_disjoint
+#audit Learn.QuantVerdicts.bc_pass_ratios
+#audit Learn.QuantVerdicts.bc_r2_ceiling
+#audit Learn.QuantVerdicts.bc_gptq_ratio
+#audit Learn.QuantVerdicts.bc_down_residual

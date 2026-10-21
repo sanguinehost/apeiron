@@ -98,6 +98,7 @@ use super::gptq_e8_carrier::{
 pub use super::gptq_e8_carrier::{feedback_u, UFac};
 use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;
+use crate::engine::ONE;
 use crate::learn::code::e8::{self, E8Error};
 use crate::learn::solve::q32::{rshift_rne, Fx};
 
@@ -122,6 +123,21 @@ pub const E8_SCALE: i64 = 3_556_232_921;
 /// The largest admitted beam width. `K = min(beam, B·256)` saturates at 256, and the production arm
 /// uses `beam = 4`; the ported domain is `1..=MAX_BEAM`.
 pub const MAX_BEAM: usize = 16;
+
+/// The seven Q32.32 values a codebook coordinate takes, ascending: `−√8, −2, −1, 0, 1, 2, √8` in
+/// units of [`ONE`]. [`e8::codeword`] rows `0..128` are the spinors `±1`, `128..240` the `D8` roots
+/// `±2e_a ±2e_b`, `240..256` the `O8` vertices `±√8 e_i`, so every coordinate of every row is one of
+/// these seven; `codeword_coordinates_are_the_seven_values` in `tests/learn_fold_gptq_e8_beam.rs`
+/// checks the whole codebook against this list.
+const CW_VALUES: [i64; 7] = [
+    -e8::SQRT8_Q32,
+    -2 * ONE,
+    -ONE,
+    0,
+    ONE,
+    2 * ONE,
+    e8::SQRT8_Q32,
+];
 
 /// A refusal of [`feedback_u`] or [`gptq_e8`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -416,6 +432,94 @@ pub(super) fn second_pass_wins(n1: i128, n2: i128) -> bool {
     n2 < n1
 }
 
+/// The per-block 256-way cost scan: `out[k] = Σ_t (cw[k][t]·G_t − H_t)²` over the 256 codebook rows,
+/// with `vi` the [`value_index_table`] of those rows. `None` on a checked `i128` overflow.
+///
+/// The production body is [`table_scan`]. The pointer type exists so [`beam_pass_probe`] can run the
+/// pre-change body, kept only in `tests/learn_fold_gptq_e8_beam.rs`, against the same [`beam_row`].
+pub type BlockScan = fn(
+    &[i128; BLOCK],
+    &[i128; BLOCK],
+    &[[u8; BLOCK]; e8::CODEBOOK_LEN],
+) -> Option<[i128; e8::CODEBOOK_LEN]>;
+
+/// The index of a codebook coordinate in [`CW_VALUES`]; `None` if the coordinate is outside the
+/// seven values. `O(7)` comparisons.
+fn cw_value_index(v: i64) -> Option<u8> {
+    let mut i = 0usize;
+    while i < CW_VALUES.len() {
+        if CW_VALUES[i] == v {
+            return u8::try_from(i).ok();
+        }
+        i += 1;
+    }
+    None
+}
+
+/// The [`CW_VALUES`] index of every coordinate of every codebook row: `vi[k][t] ∈ 0..7`.
+///
+/// # Errors
+///
+/// [`GptqE8Error::Codebook`] if a row coordinate is outside the seven values, which would mean the
+/// codebook is not the `E8 ∪ O8` set [`CW_VALUES`] describes.
+///
+/// # Complexity
+///
+/// Temporal `O(256·8·7)` comparisons; spatial `O(256·8)` bytes. One call per [`beam_pass`].
+fn value_index_table() -> Result<[[u8; BLOCK]; e8::CODEBOOK_LEN], GptqE8Error> {
+    let mut vi = [[0u8; BLOCK]; e8::CODEBOOK_LEN];
+    let mut k = 0usize;
+    while k < e8::CODEBOOK_LEN {
+        let row = e8::codeword(k).map_err(map_e8)?;
+        let mut t = 0usize;
+        while t < BLOCK {
+            vi[k][t] = cw_value_index(row[t]).ok_or(GptqE8Error::Codebook)?;
+            t += 1;
+        }
+        k += 1;
+    }
+    Ok(vi)
+}
+
+/// The separable 256-way cost scan: `T[t][v] = (CW_VALUES[v]·G_t − H_t)²` formed once, then
+/// `out[k] = Σ_t T[t][vi[k][t]]` over `t` ascending.
+///
+/// This is the pre-change body's arithmetic and nothing else: for a fixed `(t, v)` the product
+/// `CW_VALUES[v]·G_t`, its subtraction of `H_t` and its square are the terms `beam_row`'s inner loop
+/// formed for every row `k` with `vi[k][t] = v`; the sum runs over the same eight terms in the same
+/// ascending order from the same `0` start, in the same checked `i128`. So every `out[k]` is the
+/// same integer and every overflow is the same overflow. The product count per beam-block falls
+/// from `256·8` multiply-squares to `8·7`, and the `256·8` term count becomes adds.
+///
+/// # Complexity
+///
+/// Temporal `56` `i128` multiply-squares plus `256·8` checked `i128` adds per call; space
+/// `O(8·7)` for `T`.
+#[doc(hidden)]
+#[must_use]
+pub fn table_scan(
+    gvec: &[i128; BLOCK],
+    hvec: &[i128; BLOCK],
+    vi: &[[u8; BLOCK]; e8::CODEBOOK_LEN],
+) -> Option<[i128; e8::CODEBOOK_LEN]> {
+    let mut t = [[0i128; 7]; BLOCK];
+    for (c, &g) in gvec.iter().enumerate() {
+        for (v, &word) in CW_VALUES.iter().enumerate() {
+            let e = i128::from(word).checked_mul(g)?.checked_sub(hvec[c])?;
+            t[c][v] = e.checked_mul(e)?;
+        }
+    }
+    let mut out = [0i128; e8::CODEBOOK_LEN];
+    for (k, idx) in vi.iter().enumerate() {
+        let mut acc: i128 = 0;
+        for (c, &v) in idx.iter().enumerate() {
+            acc = acc.checked_add(t[c][usize::from(v)])?;
+        }
+        out[k] = acc;
+    }
+    Some(out)
+}
+
 /// One row of the beam pass over the group `[g0, g0+gs)` of the permuted factor `u`: the row's
 /// integer weight row `wk_row` at exponent `er` (real weight `wk_row[c]·2^er`) and its group scale
 /// `a` (a [`group_scale_int`] output), written to `out`: the Python's lines 333–378.
@@ -432,6 +536,12 @@ pub(super) fn second_pass_wins(n1: i128, n2: i128) -> bool {
 /// exactly, with no rounding inside the 256-way scan. The beams are compared **across parents with
 /// different `Z_w`**, so the `|Z_w|²` term is kept — unlike [`quantise_pass`], where it is common to
 /// all 256 candidates — and `cum[b]` is carried on.
+///
+/// Each coordinate of every codebook row is one of the seven [`CW_VALUES`], so the block's term is
+/// separable: `T[t][v] = (CW_VALUES[v]·G_t − H_t)²` is formed once in `8·7` squares and the 256
+/// costs are eight checked adds each over [`value_index_table`] ([`table_scan`]). The arithmetic is
+/// the pre-change body's — the same products, squares and ascending sum in the same checked
+/// `i128`, so `cost[b·256 + k]` is the same integer and the same overflow.
 ///
 /// # The cumulative error and its headroom
 ///
@@ -476,8 +586,10 @@ pub(super) fn second_pass_wins(n1: i128, n2: i128) -> bool {
 ///
 /// # Complexity
 ///
-/// Temporal `O([gs/8]·beam·256·8 + Σ_blocks beam·(gs − b1) + beam·gs²)` `i128` multiply-adds per
-/// row (the caller multiplies by `o`); spatial `O(beam·gs + beam·256)` row-local beam state.
+/// Temporal `O([gs/8]·beam·(8·7 + 256·8) + Σ_blocks beam·(gs − b1) + beam·gs²)` `i128`
+/// operations per row (the caller multiplies by `o`): per beam-block `56` multiply-squares and
+/// `256·8` checked adds by [`table_scan`], where the pre-change body did `256·8` multiply-squares
+/// and the same adds. Spatial `O(beam·gs + beam·256)` row-local beam state.
 #[allow(
     clippy::too_many_arguments,
     reason = "the row body reads the factor, the row, its scale and the codebook and writes one row \
@@ -494,6 +606,8 @@ fn beam_row(
     gs: usize,
     nb: usize,
     cw: &[[i64; BLOCK]; e8::CODEBOOK_LEN],
+    vi: &[[u8; BLOCK]; e8::CODEBOOK_LEN],
+    scan: BlockScan,
     wk_row: &[i64],
     er: i32,
     a: &Fx,
@@ -582,7 +696,8 @@ fn beam_row(
                     }
                 };
             }
-            // (4) The exact 256-way scan per live beam.
+            // (4) The exact 256-way scan per live beam: 8 × 7 squared terms once, then eight adds
+            // per codeword.
             for b in 0..b_cur {
                 for t in 0..BLOCK {
                     let j = g0 + b0 + t;
@@ -593,23 +708,8 @@ fn beam_row(
                     )?;
                 }
                 let bb = base[b];
-                for (k, row) in cw.iter().enumerate() {
-                    let mut c: i128 = 0;
-                    for t in 0..BLOCK {
-                        let Some(e) = i128::from(row[t])
-                            .checked_mul(gvec[t])
-                            .and_then(|v| v.checked_sub(hvec[t]))
-                        else {
-                            return Err(GptqE8Error::Overflow);
-                        };
-                        let Some(e2) = e.checked_mul(e) else {
-                            return Err(GptqE8Error::Overflow);
-                        };
-                        let Some(next) = c.checked_add(e2) else {
-                            return Err(GptqE8Error::Overflow);
-                        };
-                        c = next;
-                    }
+                let costs = scan(&gvec, &hvec, vi).ok_or(GptqE8Error::Overflow)?;
+                for (k, &c) in costs.iter().enumerate() {
                     cost[b * e8::CODEBOOK_LEN + k] =
                         bb.checked_add(c).ok_or(GptqE8Error::Overflow)?;
                 }
@@ -793,6 +893,8 @@ struct BeamRows<'a> {
     gs: usize,
     nb: usize,
     cw: &'a [[i64; BLOCK]; e8::CODEBOOK_LEN],
+    vi: &'a [[u8; BLOCK]; e8::CODEBOOK_LEN],
+    scan: BlockScan,
     mant: &'a [i64],
     e_row: &'a [i32],
     a: &'a [Fx],
@@ -813,6 +915,8 @@ impl ChunkTask<RowBeam> for BeamRows<'_> {
                 self.gs,
                 self.nb,
                 self.cw,
+                self.vi,
+                self.scan,
                 wk,
                 self.e_row[lr],
                 &self.a[lr],
@@ -827,9 +931,45 @@ impl ChunkTask<RowBeam> for BeamRows<'_> {
     }
 }
 
+/// The beam pass over the group `[g0, g1)` of the permuted factor `u` with the production cost scan:
+/// [`beam_pass_with_scan`] at [`table_scan`].
+///
+/// # Errors
+///
+/// As [`beam_pass_with_scan`].
+///
+/// # Complexity
+///
+/// As [`beam_pass_with_scan`].
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the wrapper keeps the pass's production signature (the carrier's per-row equivalence \
+              test calls it) while the scan is a parameter"
+)]
+pub(super) fn beam_pass(
+    u: &UFac,
+    n: usize,
+    g0: usize,
+    g1: usize,
+    mant: &[i64],
+    e_row: &[i32],
+    a: &[Fx],
+    o: usize,
+    beam: usize,
+    wscale: bool,
+    s_out: &mut [Fx],
+    e_out: &mut [Fx],
+    i_out: &mut [u16],
+) -> Result<Vec<Fx>, GptqE8Error> {
+    beam_pass_with_scan(
+        u, n, g0, g1, mant, e_row, a, o, beam, wscale, table_scan, s_out, e_out, i_out,
+    )
+}
+
 /// The beam pass over the group `[g0, g1)` of the permuted factor `u`: every row of `mant`/`e_row`
 /// at its group scale `a` (the Python's lines 333–378), returned as the per-row scales and written
-/// into the group-local `s_out` (`o × gs`), `e_out` (`o × gs`) and `i_out` (`o × nb`).
+/// into the group-local `s_out` (`o × gs`), `e_out` (`o × gs`) and `i_out` (`o × nb`), with `scan`
+/// as the per-block cost body.
 ///
 /// Rows are independent (see [`beam_row`]), so the rows are split into `width_global()` contiguous
 /// chunks of [`RowBeam`] records through [`chunks_mut_global`]; each record holds exactly the values
@@ -843,8 +983,8 @@ impl ChunkTask<RowBeam> for BeamRows<'_> {
 ///
 /// # Complexity
 ///
-/// Temporal: `o` × [`beam_row`] — `O(o·[gs/8]·beam·256·8 + o·Σ_blocks beam·(gs − b1) +
-/// o·beam·gs²)` `i128` multiply-adds — plus `O(o·gs)` scatter, split across the pool. The product
+/// Temporal: `o` × [`beam_row`] — `O(o·[gs/8]·beam·(8·7 + 256·8) + o·Σ_blocks beam·(gs − b1) +
+/// o·beam·gs²)` `i128` operations — plus `O(o·gs)` scatter, split across the pool. The product
 /// `o·[gs/8]·beam·256·8` is the pool admission unit: at `o = 4864`, `gs = 128`, `beam = 4` it is
 /// `≈ 6·10^8` per call and 2 calls per group per layer, far above [`BEAM_POOL_MIN_OPS`]; below the
 /// threshold the same rows run serially (no second body).
@@ -854,7 +994,7 @@ impl ChunkTask<RowBeam> for BeamRows<'_> {
     reason = "the pass writes three group planes plus the working rows and reads the factor, the \
               rows and the scale; the caller's signature is fixed by gptq_e8"
 )]
-pub(super) fn beam_pass(
+pub(super) fn beam_pass_with_scan(
     u: &UFac,
     n: usize,
     g0: usize,
@@ -865,6 +1005,7 @@ pub(super) fn beam_pass(
     o: usize,
     beam: usize,
     wscale: bool,
+    scan: BlockScan,
     s_out: &mut [Fx],
     e_out: &mut [Fx],
     i_out: &mut [u16],
@@ -885,6 +1026,7 @@ pub(super) fn beam_pass(
     for (k, row) in cw.iter_mut().enumerate() {
         *row = e8::codeword(k).map_err(map_e8)?;
     }
+    let vi = value_index_table()?;
     let mut rows: Vec<RowBeam> = (0..o).map(|_| RowBeam::zeroed(gs)).collect();
     let ops = o
         .checked_mul(nb)
@@ -899,6 +1041,8 @@ pub(super) fn beam_pass(
                 gs,
                 nb,
                 &cw,
+                &vi,
+                scan,
                 &mant[lr * gs..(lr + 1) * gs],
                 e_row[lr],
                 &a[lr],
@@ -920,6 +1064,8 @@ pub(super) fn beam_pass(
                 gs,
                 nb,
                 cw: &cw,
+                vi: &vi,
+                scan,
                 mant,
                 e_row,
                 a,
@@ -940,6 +1086,64 @@ pub(super) fn beam_pass(
         i_out[lr * nb..(lr + 1) * nb].copy_from_slice(&r.i);
     }
     Ok(a_new)
+}
+
+/// One group's beam-pass output: the row scales (`o`), the codeword images (`o·gs`), the whitened
+/// residuals (`o·gs`) and the codes (`o·nb`). The return of [`beam_pass_probe`].
+#[doc(hidden)]
+pub type BeamGroupOut = (Vec<Fx>, Vec<Fx>, Vec<Fx>, Vec<u16>);
+
+/// The row-group entry of [`beam_pass`] on a raw Q32.32 weight: [`w_to_rows`], the group slice, the
+/// group scale [`group_scale_int`], then the pass with `scan` as its cost body, returning the row
+/// scales and the group's codeword images, residuals and codes.
+///
+/// This is the seam `tests/learn_fold_gptq_e8_beam.rs` runs twice on the same fixture — once with
+/// [`table_scan`] and once with the pre-change 256-way body it keeps itself — so the exactness
+/// witness and the interleaved timing compare two scans through one production row body.
+///
+/// # Errors
+///
+/// [`GptqE8Error::ShapeMismatch`] if `w.len() != o·n`; otherwise every refusal of [`w_to_rows`],
+/// [`group_scale_int`] and [`beam_pass`].
+///
+/// # Complexity
+///
+/// Temporal `O(o·n)` for the row carrier plus [`beam_pass`]; spatial `O(o·gs)`.
+#[doc(hidden)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the probe is the beam_pass argument list plus the raw weight it converts"
+)]
+pub fn beam_pass_probe(
+    u: &UFac,
+    n: usize,
+    g0: usize,
+    g1: usize,
+    w: &[i64],
+    o: usize,
+    beam: usize,
+    wscale: bool,
+    scan: BlockScan,
+) -> Result<BeamGroupOut, GptqE8Error> {
+    let gs = g1 - g0;
+    let gb = gs / BLOCK;
+    if w.len() != o * n {
+        return Err(GptqE8Error::ShapeMismatch);
+    }
+    let (mant, er) = w_to_rows(w, o, n)?;
+    let mut gm = vec![0i64; o * gs];
+    let mut a_fx = vec![Fx { m: 0, e: 0 }; o];
+    for r in 0..o {
+        gm[r * gs..(r + 1) * gs].copy_from_slice(&mant[r * n + g0..r * n + g1]);
+        a_fx[r] = group_scale_int(&gm[r * gs..(r + 1) * gs], er[r], u, g0)?;
+    }
+    let mut s = vec![Fx { m: 0, e: 0 }; o * gs];
+    let mut e = vec![Fx { m: 0, e: 0 }; o * gs];
+    let mut i = vec![0u16; o * gb];
+    let a = beam_pass_with_scan(
+        u, n, g0, g1, &gm, &er, &a_fx, o, beam, wscale, scan, &mut s, &mut e, &mut i,
+    )?;
+    Ok((a, s, e, i))
 }
 
 /// One `wscale` candidate of a group: the per-row scale, codeword image, whitened residual and
@@ -1018,11 +1222,11 @@ fn second_pass_pick(
 /// [`GptqE8Error::Codebook`] from the exact code index decode.
 ///
 /// # Complexity
-/// - Temporal: `O(n³ + o·n³/8²·256·8·beam + o·n²·beam)` checked `i128` multiply-adds — the factor
-///   `U` (`n³/3`), the `256·8` scan per 8-block per row (×`beam` for the candidate expansion), and
-///   the two feedback sweeps. Measure: multiply-adds. Derivation: `[n/8]` blocks × `256` rows ×
-///   `8` coordinates × `beam` beams, plus `Σ_j (n − j)` per row per sweep. At `beam = 1` this is
-///   the pre-beam cost.
+/// - Temporal: `O(n³ + o·n³/8²·(8·7 + 256·8) + o·n²·beam)` checked `i128` operations — the factor
+///   `U` (`n³/3`), the separable `256`-way scan per 8-block per row (×`beam` for the candidate
+///   expansion), and the two feedback sweeps. Measure: multiply-squares plus adds. Derivation:
+///   `[n/8]` blocks × (`56` squares + `256·8` adds) × `beam` beams, plus `Σ_j (n − j)` per row per
+///   sweep. At `beam = 1` this is the pre-beam cost.
 /// - Spatial: `O(n² + o·n·beam)` words — `U`, the working copy of `w`, and the per-group beam
 ///   buffers.
 ///

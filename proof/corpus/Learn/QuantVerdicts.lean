@@ -1195,6 +1195,80 @@ theorem nb_three_x_unreachable : nbBase896 < 3 * nbPair896 := by decide
 /-- **The decision is the sweep now.** Over 95 % of the new sweep is the serial pair scan. -/
 theorem nb_decision_dominates : nbNew896 * 95 < nbPair896 * 100 := by decide
 
+/-! ## §21 `beam_row`'s 256-way scan made multiply-free: bit-identical, 1.53× per pass, and not the `down` residual
+
+BEAM-CVP, `tested` and `measured` on base `3b4758f7`. `src/learn/fold/fit/gptq_e8.rs` (sha256
+`760153f0…`) replaces the per-candidate multiply in the 256-row shell scan of `beam_row` with a table read.
+`tests/learn_fold_gptq_e8_beam.rs` (sha256 `5688f713…`) carries `scan_arms_are_identical` and the probe. The
+receipt is `lead-1021/BEAMCVP/receipt.md`. Board row
+.
+
+- R0 attribution at (896, 896), `wscale = true` (production): scan 47.6 %, `wscale` tail 24.4 %,
+  rebuild + feedback 16.9 %, align 7.4 %, `select_k` 3.8 % of `beam_row` CPU.
+- R1 is bit-identical on the pinned digests. The control `t[2][1] += 1` turns `scan_arms_are_identical`
+  red at `k = 132`.
+- R2 (a pruned scan) is killed by its ceiling: after R1 the scan is 11.4 % of row work.
+- The `down` residual: GFACT's factor plus 76 beam calls at the base rate is under a quarter of the
+  ATTRIB `gptq_e8` at `down`. That row is `model` (the per-call beam time is measured at n = 896); the
+  next lane, GFEED, measures `inter_group_feedback` there. -/
+
+/-- The scan stage's CPU per call at (896, 896), `wscale = true`, in µs: base, new. -/
+def bcScanBase : ℕ := 561500
+
+def bcScanNew : ℕ := 80000
+
+/-- `beam_pass` per call at (896, 896), in µs, `wscale = true`: base mean, base min, new mean, new max. -/
+def bcPassBase : ℕ := 80400
+
+def bcPassBaseMin : ℕ := 80200
+
+def bcPassNew : ℕ := 52500
+
+def bcPassNewMax : ℕ := 52900
+
+/-- The same, `wscale = false`: base mean, new mean. -/
+def bcPassBaseNoW : ℕ := 60000
+
+def bcPassNewNoW : ℕ := 31400
+
+/-- Scan fraction of row work after R1, in per-mille. -/
+def bcScanAfterPermille : ℕ := 114
+
+/-- Whole `gptq_e8` at (896, 896), in 0.1 ms: ATTRIB (n = 1) and the new mean (n = 3). -/
+def bcGptqAttrib : ℕ := 22090
+
+def bcGptqNew : ℕ := 18262
+
+/-- At `down` (896, 4864), in µs: ATTRIB `gptq_e8`, GFACT `inv_factor_upper(4864)`, and the beam calls
+(38 groups × 2). -/
+def bcDownGptq : ℕ := 52324000
+
+def bcDownFactor : ℕ := 6312000
+
+def bcDownBeamCalls : ℕ := 76
+
+/-- **The scan is 7× cheaper.** -/
+theorem bc_scan_seven_x : 7 * bcScanNew ≤ bcScanBase := by decide
+
+/-- **Faster per pass, with disjoint spreads** (`wscale = true`). -/
+theorem bc_pass_disjoint : bcPassNewMax < bcPassBaseMin := by decide
+
+/-- **The ratios.** At least 1.53× with `wscale` and 1.9× without, on the means. -/
+theorem bc_pass_ratios :
+    bcPassNew * 153 ≤ bcPassBase * 100 ∧ bcPassNewNoW * 190 ≤ bcPassBaseNoW * 100 := by decide
+
+/-- **R2's ceiling is below 1.15×.** Removing the whole post-R1 scan leaves `1 − 0.114` of the row
+work. -/
+theorem bc_r2_ceiling : 1000 * 1000 < (1000 - bcScanAfterPermille) * 1150 := by decide
+
+/-- **Whole `gptq_e8` at (896, 896) is at least 1.20× faster** than the ATTRIB sample. -/
+theorem bc_gptq_ratio : bcGptqNew * 120 ≤ bcGptqAttrib * 100 := by decide
+
+/-- **The `down` residual is neither the factor nor the beam** (`model`): both together are under a
+quarter of `gptq_e8` at `down`, even at the base beam rate. -/
+theorem bc_down_residual :
+    (bcDownFactor + bcDownBeamCalls * bcPassBase) * 4 < bcDownGptq := by decide
+
 end QuantVerdicts
 
 end Learn
