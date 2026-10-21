@@ -2791,3 +2791,9 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.gf_kernel_slower
 #audit Learn.QuantVerdicts.gf_ceiling_below_five
 #audit Learn.QuantVerdicts.gf_attrib_residual
+#audit Learn.QuantVerdicts.nb_faster_disjoint
+#audit Learn.QuantVerdicts.nb_ratios
+#audit Learn.QuantVerdicts.nb_identity_896
+#audit Learn.QuantVerdicts.nb_residual_cut
+#audit Learn.QuantVerdicts.nb_three_x_unreachable
+#audit Learn.QuantVerdicts.nb_decision_dominates

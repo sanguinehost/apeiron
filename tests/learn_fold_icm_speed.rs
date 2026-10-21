@@ -25,7 +25,8 @@
 
 use apeiron::learn::code::e8::codeword;
 use apeiron::learn::fold::fit::icm::{
-    e8_icm_step, e8_joint_icm_2plane, j_rows, plane_w, JointStats, Plane, PlaneRef,
+    e8_icm_step, e8_joint_icm_2plane, e8_joint_icm_2plane_annealed, j_rows, plane_w, BetaSchedule,
+    JointStats, Plane, PlaneRef,
 };
 use apeiron::learn::solve::q32;
 
@@ -394,4 +395,356 @@ fn icm_lazy_batch_microbench() {
         }
         report("step", o, n, &sweeps);
     }
+}
+
+// ── the joint two-plane sweep's lazy batch ────────────────────────────────────────────────────
+//
+// `joint_band`'s residual is batched by `GROUP` (`128` columns = `16` blocks) in the new form: a
+// block's change accumulates in a `[rows, GROUP]` matrix, the block's decision reads the running
+// prefix for its own eight columns, and one flush per group applies the whole group's change to
+// every out-of-group column. The base arm is the per-block residual of `icm.rs` at `7e3c4dbd`.
+//
+// The base arm is **not** callable from here: its products run on `engine::kern::limb::gemm_q32`,
+// which is `pub(crate)`, and a 5-limb reference body in `src/` is the parallel path §4 obligation 1
+// refuses. Its observations are therefore the captured constants below — taken by `JOINT_CAPTURE` on
+// this file at `7e3c4dbd` with the same harness — and every arm is judged against them.
+
+/// One arm's observation: both planes' code digests, the pair's `J` word and the move count.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct JointArm {
+    d1: u64,
+    d2: u64,
+    j: i64,
+    moves: usize,
+}
+
+/// One `e8_joint_icm_2plane_annealed` call at the production option surface
+/// (`g_row = None`, `row_chunk = 256`, all blocks, `ridge = 0`).
+fn joint_arm(
+    ws: &[i64],
+    hl: &[i64],
+    p1: &Plane,
+    p2: &Plane,
+    o: usize,
+    n: usize,
+    sweeps: usize,
+    schedule: Option<&BetaSchedule>,
+) -> JointArm {
+    let (a, b, st) = e8_joint_icm_2plane_annealed(
+        ws,
+        hl,
+        pref(p1),
+        pref(p2),
+        o,
+        n,
+        sweeps,
+        0,
+        None,
+        256,
+        None,
+        schedule,
+    )
+    .expect("joint");
+    JointArm {
+        d1: fnv_plane(&a),
+        d2: fnv_plane(&b),
+        j: st.j_after,
+        moves: st.moves,
+    }
+}
+
+/// The joint witness shape and its three seeds.
+const JOINT_SHAPE: (usize, usize) = (64, 512);
+
+const JOINT_SEEDS: [u64; 3] = [0x4C_5EED, 0x5C_5EED, 0x6C_5EED];
+
+/// The production `o`-kind joint shape.
+const JOINT_O_SHAPE: (usize, usize) = (896, 896);
+
+/// The one annealing schedule of the witness: a two-sweep cooling ramp, seeded.
+const JOINT_SEED: u64 = 0x00C0_FFEE;
+
+fn joint_schedule() -> BetaSchedule {
+    BetaSchedule::new(1_i64 << 28, 1_i64 << 32, 2, JOINT_SEED).expect("schedule")
+}
+
+/// `(ws, hl, p1, p2)` for one joint fixture: the `rho = 0.37` metric, two random planes, a random
+/// target.
+fn joint_case(seed: u64, o: usize, n: usize) -> (Vec<i64>, Vec<i64>, Plane, Plane) {
+    let mut rng = Lcg(seed);
+    let hl = q(&toeplitz(n, 0.37));
+    let p1 = rand_plane(o, n, &mut rng);
+    let p2 = rand_plane(o, n, &mut rng);
+    (q(&rand_mat(o, n, &mut rng)), hl, p1, p2)
+}
+
+/// The base arm's observations at [`JOINT_SHAPE`], `sweeps = 2`, per seed: the `T = 0` arm and the
+/// [`JOINT_SEED`] schedule's arm.
+const JOINT_BASE: [(JointArm, JointArm); 3] = [
+    (
+        JointArm {
+            d1: 0xf0cf_a451_13ed_af9d,
+            d2: 0x4436_69ae_b687_9813,
+            j: 16_709_021_102_793,
+            moves: 5770,
+        },
+        JointArm {
+            d1: 0x3a5b_9b51_e6fd_fc9a,
+            d2: 0x7f53_6214_a27f_aaa3,
+            j: 60_153_568_769_653,
+            moves: 8192,
+        },
+    ),
+    (
+        JointArm {
+            d1: 0x470f_7bec_b982_4fc8,
+            d2: 0x6754_f2b1_874a_d69c,
+            j: 17_464_437_631_886,
+            moves: 5816,
+        },
+        JointArm {
+            d1: 0x51e8_cfb7_f5ae_b75b,
+            d2: 0xb35a_7dfe_88e7_b46e,
+            j: 59_781_448_909_579,
+            moves: 8192,
+        },
+    ),
+    (
+        JointArm {
+            d1: 0x9807_92d3_0e13_c5e1,
+            d2: 0x4d1f_bc77_03c6_6be6,
+            j: 17_468_087_684_731,
+            moves: 5814,
+        },
+        JointArm {
+            d1: 0xc37f_e8eb_34a4_94c9,
+            d2: 0xc510_ee96_56f0_2c11,
+            j: 58_917_920_103_505,
+            moves: 8191,
+        },
+    ),
+];
+
+/// The base arm's observations at [`JOINT_O_SHAPE`], `sweeps = 2`: `T = 0` and the schedule.
+const JOINT_BASE_O: (JointArm, JointArm) = (
+    JointArm {
+        d1: 0xf0cf_b496_206d_a901,
+        d2: 0xe40b_4b14_a503_a493,
+        j: 432_176_896_298_905,
+        moves: 142_478,
+    },
+    JointArm {
+        d1: 0x21ed_8f20_e227_78ec,
+        d2: 0x1ae8_5bf1_c238_4948,
+        j: 1_475_866_660_403_872,
+        moves: 200_699,
+    },
+);
+
+/// One witness row: `J` never worse than the base arm by more than one part in `1e6`, and both
+/// planes' digests equal to the base arm's — i.e. every block code of both planes agrees.
+fn joint_witness(tag: &str, got: JointArm, base: JointArm) {
+    joint_report(tag, got, base);
+    assert!(
+        got.j as f64 <= base.j as f64 * (1.0 + 1e-6),
+        "{tag}: J {} exceeds the base arm {} by more than 1e-6 relative",
+        got.j,
+        base.j
+    );
+    assert_eq!(
+        (got.d1, got.d2, got.moves),
+        (base.d1, base.d2, base.moves),
+        "{tag}: the block codes or the move count differ from the base arm's — the in-batch \
+         prefix correction is the term that holds them"
+    );
+}
+
+/// The same row without the identity assertion, for the scheduled arm (see
+/// [`joint_schedule_witness`]).
+fn joint_report(tag: &str, got: JointArm, base: JointArm) {
+    println!(
+        "joint lazy batch {tag}: J {} vs base {} ({:+.3e} relative), digests {:#018x}/{:#018x} vs \
+         {:#018x}/{:#018x}, moves {} vs {}",
+        got.j,
+        base.j,
+        (got.j as f64 - base.j as f64) / base.j as f64,
+        got.d1,
+        got.d2,
+        base.d1,
+        base.d2,
+        got.moves,
+        base.moves,
+    );
+}
+
+/// The scheduled arm's witness: the same schedule on the same inputs reproduces the same planes
+/// decision for decision (the row `moves` count and both digests), and the base arm's observation is
+/// reported beside it.
+///
+/// Identity with the base arm is **not** the criterion here, and cannot be: the scheduled path draws
+/// each block's pair from the `CODE_LEN²` Boltzmann table, so a cost table that differs in its last
+/// word — which a regrouped `i128` sum does, inside the `2^-32` grid — flips a draw that no margin
+/// protects, and one flipped draw changes the whole trajectory. The `T = 0` arm, where the decision
+/// is an argmin and therefore has a margin, is the identity witness; this arm's is determinism.
+fn joint_schedule_witness(tag: &str, first: JointArm, second: Option<JointArm>, base: JointArm) {
+    joint_report(tag, first, base);
+    if let Some(second) = second {
+        assert_eq!(
+            (first.d1, first.d2, first.moves),
+            (second.d1, second.d2, second.moves),
+            "{tag}: the scheduled arm is not reproducible on the same inputs"
+        );
+    }
+}
+
+#[test]
+fn learn_fold_icm_joint_lazy_batch_matches_base() {
+    let (o, n) = JOINT_SHAPE;
+    let schedule = joint_schedule();
+    for (i, seed) in JOINT_SEEDS.iter().enumerate() {
+        let (ws, hl, p1, p2) = joint_case(*seed, o, n);
+        joint_witness(
+            &format!("fixture {i}"),
+            joint_arm(&ws, &hl, &p1, &p2, o, n, 2, None),
+            JOINT_BASE[i].0,
+        );
+    }
+    for (i, seed) in JOINT_SEEDS.iter().enumerate() {
+        let (ws, hl, p1, p2) = joint_case(*seed, o, n);
+        let a = joint_arm(&ws, &hl, &p1, &p2, o, n, 2, Some(&schedule));
+        let b = joint_arm(&ws, &hl, &p1, &p2, o, n, 2, Some(&schedule));
+        joint_schedule_witness(
+            &format!("fixture {i} scheduled"),
+            a,
+            Some(b),
+            JOINT_BASE[i].1,
+        );
+    }
+}
+
+/// The `(896, 896)` witness: the production `o`-kind joint shape, two sweeps, both arms.
+#[test]
+fn learn_fold_icm_joint_lazy_batch_o_shape() {
+    let (o, n) = JOINT_O_SHAPE;
+    let (ws, hl, p1, p2) = joint_case(9, o, n);
+    let schedule = joint_schedule();
+    joint_witness(
+        "o-shape",
+        joint_arm(&ws, &hl, &p1, &p2, o, n, 2, None),
+        JOINT_BASE_O.0,
+    );
+    joint_schedule_witness(
+        "o-shape scheduled",
+        joint_arm(&ws, &hl, &p1, &p2, o, n, 2, Some(&schedule)),
+        None,
+        JOINT_BASE_O.1,
+    );
+}
+
+/// The capture arm: the base observations the constants above hold. `JOINT_CAPTURE=1` prints them
+/// and the wall of each call, so neither a constant nor a unit cost is guessed.
+#[test]
+#[ignore = "capture of the joint base arm's observations"]
+fn icm_joint_capture() {
+    if std::env::var("JOINT_CAPTURE").is_err() {
+        return;
+    }
+    let arm = |tag: &str, o: usize, n: usize, seed: u64| {
+        let (ws, hl, p1, p2) = joint_case(seed, o, n);
+        let schedule = joint_schedule();
+        for (name, sched) in [("none", None), ("sched", Some(&schedule))] {
+            let t0 = std::time::Instant::now();
+            let a = joint_arm(&ws, &hl, &p1, &p2, o, n, 2, sched);
+            let wall = t0.elapsed().as_secs_f64();
+            println!(
+                "CAPTURE {tag} {name} seed={seed:#x} d1={:#018x} d2={:#018x} j={} moves={} wall={wall:.3}s",
+                a.d1, a.d2, a.j, a.moves
+            );
+        }
+    };
+    let (o, n) = JOINT_SHAPE;
+    for seed in JOINT_SEEDS {
+        arm("witness", o, n, seed);
+    }
+    let (o, n) = JOINT_O_SHAPE;
+    arm("o-shape", o, n, 9);
+    // The one-sweep unit cost of the two shapes the microbench measures.
+    for (tag, o, n, seed) in [
+        ("probe1", 896usize, 896usize, 9u64),
+        ("probe128", 128, 896, 11),
+    ] {
+        let (ws, hl, p1, p2) = joint_case(seed, o, n);
+        let t0 = std::time::Instant::now();
+        let a = joint_arm(&ws, &hl, &p1, &p2, o, n, 1, None);
+        println!(
+            "CAPTURE {tag} one sweep o={o} n={n}: {:.3} s, moves {}",
+            t0.elapsed().as_secs_f64(),
+            a.moves
+        );
+    }
+}
+
+/// The joint sweep microbench: `cargo test --release --test learn_fold_icm_speed -- --ignored
+/// --nocapture icm_joint_lazy_batch_microbench`.
+///
+/// One arm is `t(sweeps = 2) − t(sweeps = 0)` per rep (the setup cancels), so the number is two
+/// sweeps; the table reports the per-sweep mean and `[min, max]` over three reps.
+#[test]
+#[ignore = "release-mode microbench of the joint two-plane sweep"]
+fn icm_joint_lazy_batch_microbench() {
+    use std::hint::black_box;
+    use std::time::Instant;
+    for (o, n, seed) in [(896usize, 896usize, 9u64), (128, 896, 11)] {
+        let (ws, hl, p1, p2) = joint_case(seed, o, n);
+        let mut per_sweep = Vec::new();
+        for _ in 0..3 {
+            let t0 = Instant::now();
+            black_box(joint_arm(&ws, &hl, &p1, &p2, o, n, 0, None));
+            let setup = t0.elapsed().as_secs_f64();
+            let t1 = Instant::now();
+            black_box(joint_arm(&ws, &hl, &p1, &p2, o, n, 2, None));
+            let two = t1.elapsed().as_secs_f64();
+            per_sweep.push((two - setup) / 2.0);
+        }
+        let mean = per_sweep.iter().sum::<f64>() / per_sweep.len() as f64;
+        let min = per_sweep.iter().copied().fold(f64::INFINITY, f64::min);
+        let max = per_sweep.iter().copied().fold(0.0_f64, f64::max);
+        println!(
+            "joint sweep o={o} n={n}: {mean:.3} s/sweep [{min:.3}, {max:.3}] over {} reps",
+            per_sweep.len()
+        );
+    }
+}
+
+/// The pair-search cost of one `(896, 896)` joint sweep, isolated: `896` rows × `112` blocks calls of
+/// the public [`best_pair_q`] against the block's own `CODE_LEN²` cross table. Upper bound on the
+/// sweep's serial decision phase (the real sweep also builds `av`/`bv` and writes two planes'
+/// codes), measured so a regression in `joint_band` can be attributed.
+#[test]
+#[ignore = "isolated cost of the joint sweep's pair search"]
+fn icm_joint_pair_search_probe() {
+    use apeiron::learn::fold::fit::icm::best_pair_q;
+    use std::hint::black_box;
+    use std::time::Instant;
+    const O: usize = 896;
+    const NB: usize = 112;
+    let mut rng = Lcg(0xA11CE);
+    let x_all: Vec<i64> = (0..NB * CODE_LEN * CODE_LEN)
+        .map(|_| i64::from((rng.next_u64() >> 40) as u32))
+        .collect();
+    let av = [0_i128; CODE_LEN];
+    let bv = [0_i128; CODE_LEN];
+    let t0 = Instant::now();
+    let mut acc = 0_usize;
+    for _ in 0..O {
+        for m in 0..NB {
+            let xm = &x_all[m * CODE_LEN * CODE_LEN..(m + 1) * CODE_LEN * CODE_LEN];
+            acc ^= black_box(best_pair_q(0, &av, xm, &bv).expect("pair"));
+        }
+    }
+    let wall = t0.elapsed().as_secs_f64();
+    println!(
+        "joint pair search (896, 896) one sweep: {wall:.3} s, {:.3}e9 costs, acc {acc}",
+        (O * NB * CODE_LEN * CODE_LEN) as f64 / 1e9
+    );
 }
