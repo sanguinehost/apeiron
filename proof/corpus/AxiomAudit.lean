@@ -2807,3 +2807,9 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.pin_floor_all_rejected
 #audit Learn.QuantVerdicts.pin_retry_within_k5
 #audit Learn.QuantVerdicts.pin_limb_faster
+#audit Learn.QuantVerdicts.nj_faster_disjoint
+#audit Learn.QuantVerdicts.nj_ratios
+#audit Learn.QuantVerdicts.nj_identity_896
+#audit Learn.QuantVerdicts.nj_pool_is_the_cause
+#audit Learn.QuantVerdicts.nj_cumulative_eight_x
+#audit Learn.QuantVerdicts.nj_decision_still_dominates

@@ -480,6 +480,11 @@ fn joint_case(seed: u64, o: usize, n: usize) -> (Vec<i64>, Vec<i64>, Plane, Plan
 
 /// The base arm's observations at [`JOINT_SHAPE`], `sweeps = 2`, per seed: the `T = 0` arm and the
 /// [`JOINT_SEED`] schedule's arm.
+///
+/// The `T = 0` tuple is `icm.rs` at `7e3c4dbd`, preserved decision for decision by the lazy batch. The
+/// scheduled tuple is the **base `4aa0ec23`** arm (the lazy batch), captured by `JOINT_CAPTURE=1`,
+/// which is the arm the row-chunked decision must reproduce: NB-JOINT-1's regrouped cost table moved
+/// it off `7e3c4dbd`'s values, and the R1 split of the decision across the pool must not move it again.
 const JOINT_BASE: [(JointArm, JointArm); 3] = [
     (
         JointArm {
@@ -489,9 +494,9 @@ const JOINT_BASE: [(JointArm, JointArm); 3] = [
             moves: 5770,
         },
         JointArm {
-            d1: 0x3a5b_9b51_e6fd_fc9a,
-            d2: 0x7f53_6214_a27f_aaa3,
-            j: 60_153_568_769_653,
+            d1: 0x34ed_28bb_33d2_6ed5,
+            d2: 0x5e9c_0a77_3fdd_ba51,
+            j: 58_498_768_205_220,
             moves: 8192,
         },
     ),
@@ -503,9 +508,9 @@ const JOINT_BASE: [(JointArm, JointArm); 3] = [
             moves: 5816,
         },
         JointArm {
-            d1: 0x51e8_cfb7_f5ae_b75b,
-            d2: 0xb35a_7dfe_88e7_b46e,
-            j: 59_781_448_909_579,
+            d1: 0x0b22_9870_0692_0a56,
+            d2: 0xf3a3_ae25_29df_f477,
+            j: 59_739_165_032_925,
             moves: 8192,
         },
     ),
@@ -517,10 +522,10 @@ const JOINT_BASE: [(JointArm, JointArm); 3] = [
             moves: 5814,
         },
         JointArm {
-            d1: 0xc37f_e8eb_34a4_94c9,
-            d2: 0xc510_ee96_56f0_2c11,
-            j: 58_917_920_103_505,
-            moves: 8191,
+            d1: 0x473a_98d7_b67b_9010,
+            d2: 0x1bac_354c_1727_165f,
+            j: 60_148_663_403_158,
+            moves: 8192,
         },
     ),
 ];
@@ -534,10 +539,10 @@ const JOINT_BASE_O: (JointArm, JointArm) = (
         moves: 142_478,
     },
     JointArm {
-        d1: 0x21ed_8f20_e227_78ec,
-        d2: 0x1ae8_5bf1_c238_4948,
-        j: 1_475_866_660_403_872,
-        moves: 200_699,
+        d1: 0x6679_abaa_4aa8_1975,
+        d2: 0xeae1_0681_7f2e_0b0a,
+        j: 1_472_210_229_791_615,
+        moves: 200_698,
     },
 );
 
@@ -577,21 +582,26 @@ fn joint_report(tag: &str, got: JointArm, base: JointArm) {
     );
 }
 
-/// The scheduled arm's witness: the same schedule on the same inputs reproduces the same planes
-/// decision for decision (the row `moves` count and both digests), and the base arm's observation is
-/// reported beside it.
+/// The scheduled arm's witness: the same schedule on the same inputs reproduces the base arm's planes
+/// decision for decision — both digests, the move count and `J` — and does so on a second call
+/// (determinism).
 ///
-/// Identity with the base arm is **not** the criterion here, and cannot be: the scheduled path draws
-/// each block's pair from the `CODE_LEN²` Boltzmann table, so a cost table that differs in its last
-/// word — which a regrouped `i128` sum does, inside the `2^-32` grid — flips a draw that no margin
-/// protects, and one flipped draw changes the whole trajectory. The `T = 0` arm, where the decision
-/// is an argmin and therefore has a margin, is the identity witness; this arm's is determinism.
+/// Identity holds here because the pair decision is row-local: row `row` reads only its own `z`,
+/// `r` and xorshift state, so splitting the decision into pool row chunks changes neither the
+/// `CODE_LEN²` cost table nor the draw, and no margin is involved. (NB-JOINT-1's regrouped *sum* did
+/// move this arm, which is why its constants are the base `4aa0ec23` ones and not `7e3c4dbd`'s.)
 fn joint_schedule_witness(tag: &str, first: JointArm, second: Option<JointArm>, base: JointArm) {
     joint_report(tag, first, base);
+    assert_eq!(
+        (first.d1, first.d2, first.moves, first.j),
+        (base.d1, base.d2, base.moves, base.j),
+        "{tag}: the scheduled arm differs from the base arm's — the row-chunked decision changed a \
+         draw"
+    );
     if let Some(second) = second {
         assert_eq!(
-            (first.d1, first.d2, first.moves),
-            (second.d1, second.d2, second.moves),
+            (first.d1, first.d2, first.moves, first.j),
+            (second.d1, second.d2, second.moves, second.j),
             "{tag}: the scheduled arm is not reproducible on the same inputs"
         );
     }
