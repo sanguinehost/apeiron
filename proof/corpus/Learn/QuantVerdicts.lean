@@ -7,7 +7,7 @@ set_option linter.apeiron.notation false
 /-!
 # The 1-bit quantiser spikes: every clause against its measured constant
 
-Seven receipts. The six spikes ran on qwen2.5-0.5B (`blk.{0,11,23}.{attn_q,attn_v,ffn_gate,ffn_down}`,
+Eight receipts. The six spikes ran on qwen2.5-0.5B (`blk.{0,11,23}.{attn_q,attn_v,ffn_gate,ffn_down}`,
 imatrix-weighted
 `D_H = Σh e² / Σh w²`) and on synthetic `N(0,1)`; R1 is a refinement audit (§9). Receipts, by sha256 prefix:
 
@@ -20,10 +20,13 @@ imatrix-weighted
 | R2 (prior art, codebook model) | `/home/socol/oc-tmp/escalation/lead-1021/R2/receipt.md` | `543662be74dbd54a` |
 | RT-2 (radius as bulk coordinate) | `/home/socol/oc-tmp/escalation/lead-1021/RT2/receipt.md` | `6203395b72d30be9` |
 | PF (contact map as `H`, funnel, Gibbs) | `/home/socol/oc-tmp/escalation/lead-1021/PF/receipt.md` | `7cd6ff26c0c8ac69` |
+| KLICM (KL-driven Gauss–Seidel ICM, §12) | `/home/socol/oc-tmp/escalation/lead-1021/KLICM/receipt.md` | `81d872f66b96efee` |
+| KLICM (KL-driven Gauss–Seidel ICM, §12) | `/home/socol/oc-tmp/escalation/lead-1021/KLICM/receipt.md` | `81d872f66b96efee` |
 
 Every figure below is a `model` input copied from its receipt table: a distortion in millionths
 (`D × 10⁶`), a rate in ten-thousandths of a bit. No theorem here produces a measurement. Every
-`D_H` is a weight-space proxy: no clause here moves, bounds or predicts KL, and nothing here is on the
+`D_H` is a weight-space proxy: no clause before §12 moves, bounds or predicts KL; §12's KL figures are
+on a 2-layer fixture, not the 0.5B model. Nothing here is on the
 production fit path (`src/learn/fold/fit/{icm,gptq_e8}.rs`). rustc, the harnesses and the imatrix
 itself are outside every statement.
 
@@ -584,6 +587,69 @@ metric closes; composing the two is PF's one open measurement. -/
 theorem pf_waterfill_third :
     34 * (pfBase - pfRef) < 100 * (pfBase - pfWaterFill) ∧
       100 * (pfBase - pfWaterFill) < 35 * (pfBase - pfRef) ∧ pfHIcm < pfWaterFill := by decide
+
+
+/-! ## 12 · KLICM: KL-driven Gauss–Seidel ICM, `Q(d) = g·d + ½(F+λ) dᵀH d` (KILL)
+
+Receipt `/home/socol/oc-tmp/escalation/lead-1021/KLICM/receipt.md`, sha256 `81d872f66b96efee`; a 2-layer,
+128-wide, 64-vocab Qwen2 fixture on the crate's Q32.32 `forward`/`backward`/`kl_mean`, head codes movable,
+3 seeds, held-out batch disjoint; board row `APEIRON-FORM-QUANT-W1-T01`. The lead re-ran the gate
+(`tests/spike_klicm.rs` sha256 `efab0a13…`, `1 passed`) and every mean reproduced. Figures are held-out
+KL `× 10⁶` measured against the fit-only arm A, and ratios realised/predicted in thousandths. The
+model-level descent of each accepted move is already `Learn.FitIcm.spec_quad_le`; what these clauses
+record is that the quadratic's descent does not carry over to the realised KL at codeword step size. -/
+
+/-- `model` (KLICM table, held-out): fit-only KL; the increase over A of C@4, its spread, B and D@4; C@4's
+predicted drop; `−(realised/predicted)` for C@4; the increase of the `g`-free mover E′@4; the exact
+re-linearisation C_X@1's calibration drop and held-out increase; the one-block realised/predicted on
+the three seeds (the third negative, stored as its magnitude). -/
+def klicmKlA : ℕ := 22940
+
+def klicmC4Worse : ℕ := 165409
+
+def klicmC4Spread : ℕ := 53320
+
+def klicmBWorse : ℕ := 165479
+
+def klicmD4Worse : ℕ := 165409
+
+def klicmC4PredDrop : ℕ := 282000
+
+def klicmC4RatioNeg : ℕ := 510
+
+def klicmEp4Worse : ℕ := 5408
+
+def klicmCX1CalDrop : ℕ := 21718
+
+def klicmCX1HoldWorse : ℕ := 24734
+
+def klicmBlockRatioS1 : ℕ := 866
+
+def klicmBlockRatioS2 : ℕ := 110
+
+def klicmBlockRatioS3Neg : ℕ := 1553
+
+/-- **KLICM kill.** The quadratic predicts a drop and the held-out KL rises by more than three spreads, so
+realised/predicted is negative (`−0.510`), and the `g`-free mover E′ is 30× closer to A than C. -/
+theorem klicm_kill :
+    0 < klicmC4PredDrop ∧ 3 * klicmC4Spread < klicmC4Worse ∧ 0 < klicmC4RatioNeg ∧
+      30 * klicmEp4Worse < klicmC4Worse := by decide
+
+/-- **The cross-block term carries nothing here.** Replacing `H` by its block diagonal (D) gives C's
+held-out KL exactly, and C's edge over the all-at-once V-step B is far inside one spread. -/
+theorem klicm_cross_block_null :
+    klicmD4Worse = klicmC4Worse ∧ klicmC4Worse < klicmBWorse ∧
+      100 * (klicmBWorse - klicmC4Worse) < klicmC4Spread := by decide
+
+/-- **One codeword step is outside the quadratic's radius.** One seed of three realises at least half
+the predicted drop of a single block's best move; one realises 11 %, one reverses sign. -/
+theorem klicm_outside_radius :
+    500 ≤ klicmBlockRatioS1 ∧ klicmBlockRatioS2 < 500 ∧ 0 < klicmBlockRatioS3Neg := by decide
+
+/-- **Exact re-linearisation fits the batch, not the model.** C_X@1 lowers the calibration KL and raises
+the held-out KL by more than KL_A itself (+108 %). -/
+theorem klicm_relinearisation_overfits :
+    0 < klicmCX1CalDrop ∧ klicmKlA < klicmCX1HoldWorse := by decide
 
 end QuantVerdicts
 

@@ -2754,3 +2754,7 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.pf_metric_is_the_lever
 #audit Learn.QuantVerdicts.pf_hyperbolic_face_diverges
 #audit Learn.QuantVerdicts.pf_waterfill_third
+#audit Learn.QuantVerdicts.klicm_kill
+#audit Learn.QuantVerdicts.klicm_cross_block_null
+#audit Learn.QuantVerdicts.klicm_outside_radius
+#audit Learn.QuantVerdicts.klicm_relinearisation_overfits
