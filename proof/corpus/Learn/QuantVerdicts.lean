@@ -1127,6 +1127,74 @@ theorem gf_ceiling_below_five : gfInvTotalMs < 5 * (gfInvTotalMs - gfFactorMs) :
 theorem gf_attrib_residual :
     gfAttribDownMs * 8 < (gfAttribDownMs - gfInvTotalMs) * 10 := by decide
 
+/-! ## §20 The lazy-batch residual in `joint_band`: bit-identical, 1.46×, and the serial decision is the floor
+
+NB-JOINT, `tested` and `measured` on base `7e3c4dbd`. `src/learn/fold/fit/icm.rs` (sha256 `f57a1791…`)
+splits `joint_band` into `joint_bands_batched` (the full sweep: one flush per `GROUP = 128`-column group,
+an in-batch prefix per 8-block, one band) and `joint_bands_per_block` (the base body, kept for a caller
+`blocks` subset). The receipt is `/home/socol/oc-tmp/escalation/lead-1021/NBJOINT/receipt.md`. Board row
+`APEIRON-ICM-W1-T03`.
+
+- Speed: per sweep of `e8_joint_icm_2plane`, `(t(2) − t(0))/2`, 3 reps per arm. The arms ran in
+  separate processes, with the base file swapped in and then restored (`cmp` identical).
+- Identity: the `T = 0` arm, 2 sweeps, matches the base arm's captured `J`, both plane digests and
+  `moves` on four fixtures, the (896, 896) one at 71 % movement. The scheduled arm is deterministic but
+  not identical: a regrouped `i128` sum flips a Boltzmann draw that no margin protects.
+- The serial `best_pair_q` scan: 100,352 calls for one sweep take 13.213 s. That is the floor of any
+  residual regroup, so the brief's `≥ 3×` at (896, 896) is out of reach on this route. The next lane
+  (NB-JOINT-2) moves that decision onto the pool. -/
+
+/-- Seconds per sweep in ms, `(o, n) = (896, 896)`: base mean, base min, new mean, new max. -/
+def nbBase896 : ℕ := 20292
+
+def nbBase896Min : ℕ := 20263
+
+def nbNew896 : ℕ := 13905
+
+def nbNew896Max : ℕ := 13918
+
+/-- The same at `(128, 896)`. -/
+def nbBase128 : ℕ := 5919
+
+def nbBase128Min : ℕ := 5909
+
+def nbNew128 : ℕ := 2076
+
+def nbNew128Max : ℕ := 2085
+
+/-- One sweep's serial `best_pair_q` decision at (896, 896), in ms. -/
+def nbPair896 : ℕ := 13213
+
+/-- The (896, 896) identity fixture: `J` and `moves`, base arm and new arm. -/
+def nbJBase : ℕ := 432176896298905
+
+def nbJNew : ℕ := 432176896298905
+
+def nbMovesBase : ℕ := 142478
+
+def nbMovesNew : ℕ := 142478
+
+/-- **Faster at both shapes, with disjoint spreads.** The slowest new rep beats the fastest base
+rep. -/
+theorem nb_faster_disjoint : nbNew896Max < nbBase896Min ∧ nbNew128Max < nbBase128Min := by decide
+
+/-- **The ratios.** At least 1.45× at (896, 896) and 2.8× at (128, 896), on the means. -/
+theorem nb_ratios : nbNew896 * 145 ≤ nbBase896 * 100 ∧ nbNew128 * 28 ≤ nbBase128 * 10 := by decide
+
+/-- **The (896, 896) witness is bit-identical.** `J` and `moves` agree between arms. -/
+theorem nb_identity_896 : nbJNew = nbJBase ∧ nbMovesNew = nbMovesBase := by decide
+
+/-- **The residual work was cut by over 90 %.** What is left after the decision fell from 7.08 s
+to 0.69 s. -/
+theorem nb_residual_cut : (nbNew896 - nbPair896) * 10 < nbBase896 - nbPair896 := by decide
+
+/-- **`≥ 3×` is unreachable by a residual regroup.** Even with no residual left, the base is below
+three times the serial decision. -/
+theorem nb_three_x_unreachable : nbBase896 < 3 * nbPair896 := by decide
+
+/-- **The decision is the sweep now.** Over 95 % of the new sweep is the serial pair scan. -/
+theorem nb_decision_dominates : nbNew896 * 95 < nbPair896 * 100 := by decide
+
 end QuantVerdicts
 
 end Learn

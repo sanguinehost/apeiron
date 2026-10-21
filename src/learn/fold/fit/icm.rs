@@ -1337,7 +1337,9 @@ fn sweep_blocks(
 
 /// Joint block ICM over two planes: `sweeps` passes over the `n / 8` blocks (or the `blocks` subset, in
 /// the given order), each replacing both planes' codes of one block by the pair `(i₁, i₂)` minimising
-/// `2 a₁a₂ X_m[i₁,i₂] + A[i₁] + B[i₂]`. `row_chunk` bounds the rows one pool task works on.
+/// `2 a₁a₂ X_m[i₁,i₂] + A[i₁] + B[i₂]`. `row_chunk` bounds the rows one pool task works on for a
+/// `blocks` subset; a full sweep runs one band, because the group flush contracts the whole band
+/// against `n` columns in one dispatch.
 ///
 /// This is the `T = 0` control: it is [`e8_joint_icm_2plane_annealed`] with no schedule, so every
 /// decision is the exact [`best_pair_q`] argmin and `J` is non-increasing per sweep.
@@ -1500,7 +1502,15 @@ pub fn e8_joint_icm_2plane_annealed(
         rest_i2 = t_i2;
         r += 1;
     }
-    let per = row_chunk.min(rows_per_task(o)).max(1);
+    // The kernel owns the engine pool, so the bands run on the caller. A full sweep runs one band:
+    // the group flush contracts every row of the band against `n` columns in one dispatch, and a
+    // band per `row_chunk` would pay the call's fixed cost 32 times over at `o = 896`. A `blocks`
+    // subset — whose order is caller-given — keeps the band split.
+    let per = if blocks.is_some() {
+        row_chunk.min(rows_per_task(o)).max(1)
+    } else {
+        rows.len().max(1)
+    };
     let task = JointSweep {
         h11: &h11,
         h22: &h22,
@@ -1581,18 +1591,33 @@ struct JointSweep<'a> {
     sweeps: usize,
 }
 
-/// One band of the joint sweep, every product on the limb kernel. The band's six per-row slices are
+/// One band of the joint sweep, every product on the limb kernel. The band's per-row slices are
 /// gathered into flat `[rows, ·]` buffers so one kernel product serves the whole band: the two block
 /// products are `rows × 2·BLOCK × BLOCK`, the codebook product `rows × CODE_LEN × BLOCK` per plane,
-/// and the residual `moved × n × BLOCK` per plane.
+/// and the residual one `GROUP`-wide batch per group.
+///
+/// The residual is updated in **lazy batches** of `GROUP / BLOCK` blocks (`GROUP` columns, one `r`
+/// period, as in [`sweep_blocks`]). A block's change is written unscaled into the group's
+/// `[rows, GROUP]` accumulator; the block's decision reads the in-batch part of its own `BLOCK`
+/// columns as one `[rows, BLOCK] × [BLOCK, GROUP]` product per contraction against that accumulator
+/// — the term that keeps the sweep a coordinate descent — and at the group's last block one
+/// `[moved, GROUP] × [n, GROUP]` product per contraction applies the whole group's change to every
+/// column. Both planes' changes contract both residuals, so a group is four contractions (`H₁₁Δ₁`,
+/// `H₁₂Δ₂`, `H₂₂Δ₂`, `H₁₂ᵀΔ₁`). The deltas stay unscaled and the `a₁`/`a₂` combine is the same exact
+/// `i128` sum [`round_shift`]ed once per element, so the scaling is unchanged.
+///
+/// A `blocks` subset keeps the per-block residual ([`joint_bands_per_block`]): its order is
+/// caller-given, so a `GROUP`'s blocks need not be visited consecutively or completely, and the
+/// in-batch prefix is only the coordinate-descent term when they are.
 ///
 /// # Complexity
-/// Per sweep, per block: four `BLOCK × n` transposed windows copied once for the band, two
-/// `rows × 2·BLOCK × BLOCK` block products, two `rows × CODE_LEN × BLOCK` codebook products, the
+/// Per sweep, per group: four `n × GROUP` window copies, one `O(rows·GROUP)` accumulator clear and
+/// four `moved × n × GROUP` flush products. Per sweep, per block: one `O(BLOCK²)` diagonal gather,
+/// two `rows × 2·BLOCK × BLOCK` block products, two `rows × CODE_LEN × BLOCK` codebook products, the
 /// `CODE_LEN²`-way pair search (`O(rows·CODE_LEN²)` checked operations with `2·a₁a₂` hoisted) and,
-/// only for the rows a block moved, two `moved × 2·BLOCK × n` residual products plus `2n` elementwise
-/// products per moved row. `O(rows·(BLOCK + n))` for the gathered band and `O(BLOCK·n)` for the
-/// windows; a scheduled band adds `O(rows·CODE_LEN²)` `i128` for the reused cost table.
+/// off the group's first block with a change in the group, four `rows × BLOCK × GROUP` in-batch
+/// products. `O(rows·n)` for the gathered band, `O(n·GROUP)` for the windows and `O(rows·GROUP)` for
+/// the flush gathers; a scheduled band adds `O(rows·CODE_LEN²)` `i128` for the reused cost table.
 ///
 /// The pair decision is [`best_pair_q`] when `beta` is `None` and one [`gibbs_choice`] draw of the
 /// same table at `beta.beta_at(sw)` otherwise; `rng[row]` is that row's xorshift state.
@@ -1603,9 +1628,8 @@ fn joint_band(
     beta: Option<&BetaSchedule>,
     rng: &mut [u64],
 ) -> Result<usize, IcmError> {
-    let (n, nb) = (cx.n, cx.nb);
+    let n = cx.n;
     let rows = piece.len();
-    let cb = cx.cb.as_flattened();
     let mut f1 = vec![0_i64; rows * n];
     let mut f2 = vec![0_i64; rows * n];
     let mut s1 = vec![0_i64; rows * n];
@@ -1616,6 +1640,44 @@ fn joint_band(
         s1[rr * n..][..n].copy_from_slice(row.s1);
         s2[rr * n..][..n].copy_from_slice(row.s2);
     }
+    let moved = if cx.blocks.is_some() {
+        joint_bands_per_block(
+            cx, piece, start, beta, rng, &mut f1, &mut f2, &mut s1, &mut s2,
+        )?
+    } else {
+        joint_bands_batched(
+            cx, piece, start, beta, rng, &mut f1, &mut f2, &mut s1, &mut s2,
+        )?
+    };
+    for (rr, row) in piece.iter_mut().enumerate() {
+        row.f1.copy_from_slice(&f1[rr * n..][..n]);
+        row.f2.copy_from_slice(&f2[rr * n..][..n]);
+        row.s1.copy_from_slice(&s1[rr * n..][..n]);
+        row.s2.copy_from_slice(&s2[rr * n..][..n]);
+    }
+    Ok(moved)
+}
+
+/// The per-block residual of [`joint_band`], kept for a caller-given `blocks` subset.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the band's four carried fields are separate slices, as in `sweep_blocks`: the pinned \
+              Aeneas refuses a reference to a struct holding a slice across the nested sweep loops"
+)]
+fn joint_bands_per_block(
+    cx: &JointSweep<'_>,
+    piece: &mut [JointRow<'_>],
+    start: usize,
+    beta: Option<&BetaSchedule>,
+    rng: &mut [u64],
+    f1: &mut [i64],
+    f2: &mut [i64],
+    s1: &mut [i64],
+    s2: &mut [i64],
+) -> Result<usize, IcmError> {
+    let (n, nb) = (cx.n, cx.nb);
+    let rows = piece.len();
+    let cb = cx.cb.as_flattened();
     let mut hc11 = vec![0_i64; BLOCK * n];
     let mut hc22 = vec![0_i64; BLOCK * n];
     let mut hc12 = vec![0_i64; BLOCK * n];
@@ -1799,11 +1861,256 @@ fn joint_band(
             }
         }
     }
-    for (rr, row) in piece.iter_mut().enumerate() {
-        row.f1.copy_from_slice(&f1[rr * n..][..n]);
-        row.f2.copy_from_slice(&f2[rr * n..][..n]);
-        row.s1.copy_from_slice(&s1[rr * n..][..n]);
-        row.s2.copy_from_slice(&s2[rr * n..][..n]);
+    Ok(moved)
+}
+
+/// The group-batched residual of [`joint_band`]: see its doc for the shape. A block's change is
+/// accumulated in the group's `[rows, GROUP]` delta matrices and applied in one flush per group; the
+/// block's own eight columns read the in-batch prefix.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the band's four carried fields are separate slices, as in `sweep_blocks`: the pinned \
+              Aeneas refuses a reference to a struct holding a slice across the nested sweep loops"
+)]
+fn joint_bands_batched(
+    cx: &JointSweep<'_>,
+    piece: &mut [JointRow<'_>],
+    start: usize,
+    beta: Option<&BetaSchedule>,
+    rng: &mut [u64],
+    f1: &mut [i64],
+    f2: &mut [i64],
+    s1: &mut [i64],
+    s2: &mut [i64],
+) -> Result<usize, IcmError> {
+    let (n, nb, g) = (cx.n, cx.nb, cx.g);
+    let rows = piece.len();
+    let cb = cx.cb.as_flattened();
+    let per_group = GROUP / BLOCK;
+    // The group's `GROUP` rows of the three metrics as `[col, in-group index]`: the kernel's `b`
+    // rows are the flush's whole `n` columns and, sliced at a block's eight columns, the in-batch
+    // contraction's operand rows, so one copy serves both.
+    let mut u11 = vec![0_i64; n * GROUP];
+    let mut u22 = vec![0_i64; n * GROUP];
+    let mut u12c = vec![0_i64; n * GROUP];
+    let mut u12r = vec![0_i64; n * GROUP];
+    // The group's accumulated column changes, unscaled: `d1a[row, jj] = Δ₁` of in-group column `jj`.
+    let mut d1a = vec![0_i64; rows * GROUP];
+    let mut d2a = vec![0_i64; rows * GROUP];
+    let mut seen = vec![0_u8; rows];
+    let mut mv: Vec<usize> = Vec::with_capacity(rows);
+    let mut g1 = vec![0_i64; rows * GROUP];
+    let mut g2 = vec![0_i64; rows * GROUP];
+    let mut bb1 = vec![0_i64; 2 * BLOCK * BLOCK];
+    let mut bb2 = vec![0_i64; 2 * BLOCK * BLOCK];
+    let mut s1b = vec![0_i64; rows * BLOCK];
+    let mut s2b = vec![0_i64; rows * BLOCK];
+    let mut f1b = vec![0_i64; rows * BLOCK];
+    let mut f2b = vec![0_i64; rows * BLOCK];
+    let mut d1b = vec![0_i64; rows * BLOCK];
+    let mut d2b = vec![0_i64; rows * BLOCK];
+    let mut costs: Vec<i128> = Vec::with_capacity(CODE_LEN * CODE_LEN);
+    let mut moved = 0_usize;
+    for sw in 0..cx.sweeps {
+        for step in 0..nb {
+            let m = if sw % 2 == 0 { nb - 1 - step } else { step };
+            let (b0, gidx) = (m * BLOCK, m * BLOCK / GROUP);
+            let j0 = b0 - gidx * GROUP;
+            let first = step % per_group == 0;
+            let last = step % per_group == per_group - 1;
+            if first {
+                let mut col = 0;
+                while col < n {
+                    let mut jj = 0;
+                    while jj < GROUP {
+                        u11[col * GROUP + jj] = cx.h11[(gidx * GROUP + jj) * n + col];
+                        u22[col * GROUP + jj] = cx.h22[(gidx * GROUP + jj) * n + col];
+                        u12c[col * GROUP + jj] = cx.h12[col * n + gidx * GROUP + jj];
+                        u12r[col * GROUP + jj] = cx.h12[(gidx * GROUP + jj) * n + col];
+                        jj += 1;
+                    }
+                    col += 1;
+                }
+                let mut i = 0;
+                while i < rows * GROUP {
+                    d1a[i] = 0;
+                    d2a[i] = 0;
+                    i += 1;
+                }
+                let mut r = 0;
+                while r < rows {
+                    seen[r] = 0;
+                    r += 1;
+                }
+                mv.clear();
+            }
+            // `b[k][l] = h[(b0+k)·n + b0+l]` for the three diagonal metric blocks the gradient
+            // needs, in the operand layout the kernel takes: `bb1` is `[col_k(H₁₁); col_k(H₁₂)]` for
+            // `d₁₁` and `d₁₂`, `bb2` is `[row_k(H₁₂); col_k(H₂₂)]` for `d₁₂ᵀ` and `d₂₂`.
+            for j in 0..BLOCK {
+                for l in 0..BLOCK {
+                    bb1[j * BLOCK + l] = cx.h11[(b0 + l) * n + b0 + j];
+                    bb1[(BLOCK + j) * BLOCK + l] = cx.h12[(b0 + l) * n + b0 + j];
+                    bb2[j * BLOCK + l] = cx.h12[(b0 + j) * n + b0 + l];
+                    bb2[(BLOCK + j) * BLOCK + l] = cx.h22[(b0 + l) * n + b0 + j];
+                }
+            }
+            for row in 0..rows {
+                s1b[row * BLOCK..][..BLOCK].copy_from_slice(&s1[row * n + b0..][..BLOCK]);
+                s2b[row * BLOCK..][..BLOCK].copy_from_slice(&s2[row * n + b0..][..BLOCK]);
+            }
+            let p1v = nt_q(&s1b, rows, &bb1, 2 * BLOCK, BLOCK)?;
+            let p2v = nt_q(&s2b, rows, &bb2, 2 * BLOCK, BLOCK)?;
+            for row in 0..rows {
+                let (a1, a2) = (
+                    cx.r1[(start + row) * g + gidx],
+                    cx.r2[(start + row) * g + gidx],
+                );
+                let (av1, av2) = (i128::from(a1), i128::from(a2));
+                let o1 = row * 2 * BLOCK;
+                for k in 0..BLOCK {
+                    // `d₁₁ = s₁·H₁₁ᵀ`, `d₁₂ = s₁·H₁₂`, `d₁₂ᵀ = s₂·H₁₂`, `d₂₂ = s₂·H₂₂ᵀ`.
+                    let u1 = qsum(
+                        qmul(av1, i128::from(p1v[o1 + k]))?,
+                        qmul(av2, i128::from(p2v[o1 + k]))?,
+                    )?;
+                    let u2 = qsum(
+                        qmul(av2, i128::from(p2v[o1 + BLOCK + k]))?,
+                        qmul(av1, i128::from(p1v[o1 + BLOCK + k]))?,
+                    )?;
+                    f1b[row * BLOCK + k] = add_q(f1[row * n + b0 + k], round_shift(u1, 32)?)?;
+                    f2b[row * BLOCK + k] = add_q(f2[row * n + b0 + k], round_shift(u2, 32)?)?;
+                }
+            }
+            // The in-batch part of the residual: the group's changes so far against this block's own
+            // eight columns. Zero while no block of the group has moved, so it is skipped there.
+            if !first && !mv.is_empty() {
+                let jt = b0 * GROUP;
+                let jb = (b0 + BLOCK) * GROUP;
+                let p11 = nt_q(&d1a, rows, &u11[jt..jb], BLOCK, GROUP)?;
+                let p12 = nt_q(&d2a, rows, &u12c[jt..jb], BLOCK, GROUP)?;
+                let p22 = nt_q(&d2a, rows, &u22[jt..jb], BLOCK, GROUP)?;
+                let p21 = nt_q(&d1a, rows, &u12r[jt..jb], BLOCK, GROUP)?;
+                for row in 0..rows {
+                    let (a1, a2) = (
+                        cx.r1[(start + row) * g + gidx],
+                        cx.r2[(start + row) * g + gidx],
+                    );
+                    let (av1, av2) = (i128::from(a1), i128::from(a2));
+                    for k in 0..BLOCK {
+                        let at = row * BLOCK + k;
+                        let u1 = qsum(
+                            qmul(av1, i128::from(p11[at]))?,
+                            qmul(av2, i128::from(p12[at]))?,
+                        )?;
+                        let u2 = qsum(
+                            qmul(av2, i128::from(p22[at]))?,
+                            qmul(av1, i128::from(p21[at]))?,
+                        )?;
+                        f1b[at] = sub_q(f1b[at], round_shift(u1, 32)?)?;
+                        f2b[at] = sub_q(f2b[at], round_shift(u2, 32)?)?;
+                    }
+                }
+            }
+            let z1 = nt_q(&f1b, rows, cb, CODE_LEN, BLOCK)?;
+            let z2 = nt_q(&f2b, rows, cb, CODE_LEN, BLOCK)?;
+            for row in 0..rows {
+                let (a1, a2) = (
+                    cx.r1[(start + row) * g + gidx],
+                    cx.r2[(start + row) * g + gidx],
+                );
+                let (av1, av2) = (i128::from(a1), i128::from(a2));
+                let (aa1, two_a1) = (av1 * av1, av1 * 2);
+                let (aa2, two_a2) = (av2 * av2, av2 * 2);
+                let two_a12 = qmul(qmul(av1, av2)?, 2)?;
+                let (mut av, mut bv) = ([0_i128; CODE_LEN], [0_i128; CODE_LEN]);
+                for j in 0..CODE_LEN {
+                    av[j] =
+                        block_cost(aa1, two_a1, cx.q1[m * CODE_LEN + j], z1[row * CODE_LEN + j])?;
+                    bv[j] =
+                        block_cost(aa2, two_a2, cx.q2[m * CODE_LEN + j], z2[row * CODE_LEN + j])?;
+                }
+                let xm = &cx.x_all[m * CODE_LEN * CODE_LEN..(m + 1) * CODE_LEN * CODE_LEN];
+                let flat = match beta {
+                    Some(sched) => {
+                        pair_costs_into(two_a12, &av, xm, &bv, &mut costs)?;
+                        gibbs_choice(&costs, sched.beta_at(sw), &mut rng[row])?
+                    }
+                    None => best_pair_q(two_a12, &av, xm, &bv)?,
+                };
+                let (i1s, i2s) = (flat / CODE_LEN, flat % CODE_LEN);
+                let mut ch1 = false;
+                let mut ch2 = false;
+                for k in 0..BLOCK {
+                    let w1 = sub_q(cx.cb[i1s][k], s1[row * n + b0 + k])?;
+                    let w2 = sub_q(cx.cb[i2s][k], s2[row * n + b0 + k])?;
+                    ch1 |= w1 != 0;
+                    ch2 |= w2 != 0;
+                    d1b[row * BLOCK + k] = w1;
+                    d2b[row * BLOCK + k] = w2;
+                    s1[row * n + b0 + k] = cx.cb[i1s][k];
+                    s2[row * n + b0 + k] = cx.cb[i2s][k];
+                }
+                piece[row].idx1[m] = i1s as u16;
+                piece[row].idx2[m] = i2s as u16;
+                if ch1 || ch2 {
+                    // Both residuals contract *both* planes' deltas, so a row whose other plane
+                    // moved still needs its own residual updated (a zero delta where it did not).
+                    moved += 1;
+                    for k in 0..BLOCK {
+                        d1a[row * GROUP + j0 + k] = d1b[row * BLOCK + k];
+                        d2a[row * GROUP + j0 + k] = d2b[row * BLOCK + k];
+                    }
+                    if seen[row] == 0 {
+                        seen[row] = 1;
+                        mv.push(row);
+                    }
+                }
+            }
+            if last && !mv.is_empty() {
+                // The batch flush: the whole group's change, contracted once per plane pair against
+                // the group's columns and subtracted from every column of the accumulated rows.
+                let cnt = mv.len();
+                for (i, &row) in mv.iter().enumerate() {
+                    g1[i * GROUP..][..GROUP].copy_from_slice(&d1a[row * GROUP..][..GROUP]);
+                    g2[i * GROUP..][..GROUP].copy_from_slice(&d2a[row * GROUP..][..GROUP]);
+                }
+                // `f₁ -= a₁·(H₁₁ Δ₁) + a₂·(H₁₂ Δ₂)`.
+                let x11 = nt_q(&g1[..cnt * GROUP], cnt, &u11, n, GROUP)?;
+                let x12 = nt_q(&g2[..cnt * GROUP], cnt, &u12c, n, GROUP)?;
+                for (i, &row) in mv.iter().enumerate() {
+                    let (a1, a2) = (
+                        cx.r1[(start + row) * g + gidx],
+                        cx.r2[(start + row) * g + gidx],
+                    );
+                    let (av1, av2) = (i128::from(a1), i128::from(a2));
+                    for col in 0..n {
+                        let u = qsum(
+                            qmul(av1, i128::from(x11[i * n + col]))?,
+                            qmul(av2, i128::from(x12[i * n + col]))?,
+                        )?;
+                        f1[row * n + col] = sub_q(f1[row * n + col], round_shift(u, 32)?)?;
+                    }
+                }
+                // `f₂ -= a₂·(H₂₂ Δ₂) + a₁·(H₁₂ᵀ Δ₁)`.
+                let x22 = nt_q(&g2[..cnt * GROUP], cnt, &u22, n, GROUP)?;
+                let x21 = nt_q(&g1[..cnt * GROUP], cnt, &u12r, n, GROUP)?;
+                for (i, &row) in mv.iter().enumerate() {
+                    let (a1, a2) = (
+                        cx.r1[(start + row) * g + gidx],
+                        cx.r2[(start + row) * g + gidx],
+                    );
+                    let (av1, av2) = (i128::from(a1), i128::from(a2));
+                    for col in 0..n {
+                        let u = qsum(
+                            qmul(av2, i128::from(x22[i * n + col]))?,
+                            qmul(av1, i128::from(x21[i * n + col]))?,
+                        )?;
+                        f2[row * n + col] = sub_q(f2[row * n + col], round_shift(u, 32)?)?;
+                    }
+                }
+            }
+        }
     }
     Ok(moved)
 }
