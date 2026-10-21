@@ -7,6 +7,7 @@ import Learn.QuantVerdicts
 |---|---|---|
 | M1 (plane walk, KL against the streamed fraction `a`) | `lead-1021/PW1/receipt.md` | `82bab1e69d6714b0` |
 | KW1 (sign walker at three rates, per-row water-fill at 1.18 b/w) | `lead-1021/KW1/receipt.md` | `526c604d76f7d58a` |
+| MT1 (trellis-coded E8, Sturmian rates, per-row water-fill at 1.18 b/w) | `lead-1021/MT1/receipt.md` | `6b94b3b9997de7bd` |
 
 Every figure is a `model` input copied from its receipt: a KL in millionths of a nat over chunks 0..3
 of `train400k` (`n_ctx` 512), a rate in ten-thousandths of a bit per weight over the 357.83 M scoped
@@ -203,6 +204,73 @@ theorem kw1_register_idle : kwS1_1 * 9 < kwS1_8 * 10 := by decide
 /-- **The alphabet carries the loss**: the two-bit alphabet at 2.125 b/w is under `E` in the median.
 `<` [is smaller than]. -/
 theorem kw1_alphabet : kwS2 < 1000 := by decide
+
+/-! ## MT1 · trellis-coded E8
+
+The same 21 linears, Grams and `J` as KW1 (`J_E` reproduced on 21/21 at relative deviation 0). Block
+value `a·ρ_s·c[idx]`, `c` the 256-word E8 ∪ O8 codebook, `s` the low `Lr` bits of the previous block's
+`idx`; `T_Lr` is the Viterbi over `2^Lr` states with per-survivor whitened feedback, radii a Lloyd fit
+to the `E1` gains. `R_x` reads `⌈8(m+1)x⌉ − ⌈8mx⌉` bits for block `m` (7: half codebook; 9, 10: explicit
+radii). Every figure is a median over the 21 linears, in thousandths unless named otherwise; `p` marks
+`E`'s production scale, the others the diagonal-block refit.
+-/
+
+/-- Median `J_T_best / J_E`, refit scale (the brief's decision figure), thousandths. -/
+def mtTBest : Nat := 2369
+
+/-- Median `J_mix / J_E`, the nine-option water-fill at 1.18 b/w, thousandths. -/
+def mtMix : Nat := 993
+
+/-- Median `J_mix / J_mixE` (the menu with the trellis against the menu without it), ten-thousandths. -/
+def mtMixOverMixE : Nat := 9999
+
+/-- Median `J_T_2 / J_T_0`, refit scale, thousandths. -/
+def mtT2T0 : Nat := 1087
+
+/-- Median `J_T_2 / J_T_0`, production scale, thousandths. -/
+def mtT2T0p : Nat := 1058
+
+/-- Median `J_T_1 / J_T_0`, production scale, thousandths. -/
+def mtT1T0p : Nat := 1017
+
+/-- Rows of all 21 linears for which the water-fill bought `E`. -/
+def mtRowsE : Nat := 36648
+
+/-- Rows of all 21 linears. -/
+def mtRows : Nat := 38016
+
+/-- Median `J_R_5/4 / J_E`, production scale, at 1.375 b/w all-in, thousandths. -/
+def mtR54p : Nat := 906
+
+/-- Linears on which `J(R_17/16)` lies strictly between `J(R_1)` and `J(R_9/8)` and below their chord. -/
+def mtDialHolds : Nat := 3
+
+/-- The linears measured. -/
+def mtLinears : Nat := 21
+
+/-- **KILL**: both KILL clauses hold (the best trellis arm at or above `E`, and the trellis buying
+less than 3% over the menu without it), and neither GO clause (0.95 and 0.80).
+`∧` [both are true]; `≤` [is smaller than or equal to]; `<` [is smaller than]. -/
+theorem mt1_kill :
+    1000 ≤ mtTBest ∧ 9700 ≤ mtMixOverMixE ∧ 950 < mtTBest ∧ 800 < mtMix := by decide
+
+/-- **The state costs `J` at both scales**: four states lose to one, and two lose to one, so a radius
+chosen by the previous codeword's low bits costs the direction more than the radius returns.
+`∧` [both are true]; `<` [is smaller than]. -/
+theorem mt1_state_costs : 1000 < mtT2T0 ∧ 1000 < mtT2T0p ∧ 1000 < mtT1T0p := by decide
+
+/-- **The water-fill is `E`**: more than 95% of rows buy `E`.
+`*` [times]; `<` [is smaller than]. -/
+theorem mt1_mix_is_e : 95 * mtRows < 100 * mtRowsE := by decide
+
+/-- **Rate buys `J`, at a price**: `R_5/4` (1.375 b/w all-in) is under `E` (1.125) in the median.
+`<` [is smaller than]. -/
+theorem mt1_rate_pays : mtR54p < 1000 := by decide
+
+/-- **The Sturmian dial is not a convex rate curve here**: the 17/16 rung sits below the chord on
+fewer than half the linears.
+`*` [times]; `<` [is smaller than]. -/
+theorem mt1_dial_not_convex : mtDialHolds * 2 < mtLinears := by decide
 
 end RateSpikes
 

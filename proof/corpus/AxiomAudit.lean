@@ -2838,3 +2838,9 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.RateSpikes.kw1_no_linear_won
 #audit Learn.RateSpikes.kw1_register_idle
 #audit Learn.RateSpikes.kw1_alphabet
+-- MT1 trellis-coded E8 clauses against its receipt (board row ).
+#audit Learn.RateSpikes.mt1_kill
+#audit Learn.RateSpikes.mt1_state_costs
+#audit Learn.RateSpikes.mt1_mix_is_e
+#audit Learn.RateSpikes.mt1_rate_pays
+#audit Learn.RateSpikes.mt1_dial_not_convex
