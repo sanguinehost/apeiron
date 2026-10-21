@@ -651,6 +651,201 @@ the held-out KL by more than KL_A itself (+108 %). -/
 theorem klicm_relinearisation_overfits :
     0 < klicmCX1CalDrop ∧ klicmKlA < klicmCX1HoldWorse := by decide
 
+/-! ## 13 · SCHUR: real-Schur 2×2 eigenblock faces of the quantisation error (KILL)
+
+Receipt `lead-1021/SCHUR/receipt.md`, sha256 `93a7038608fddb23`; six square
+896×896 f16 tensors of qwen2.5-0.5B (`blk.{0,11,23}.{attn_q,attn_output}`), error `E = W − Ŵ` of the
+sign + FWHT-128 + E8 baseline at 1.125 b/w against an i.i.d. Gaussian `G` of equal variance, 3 sign seeds;
+`tests/spike_schur.rs` sha256 `81ed8f3b…`; board row . The face of a block is the sign of its discriminant
+`(a−d)² + 4bc`, the matrix image of `Nous.Model.SpectralTrichotomy.charpoly_discriminant`. Face fractions
+are `× 10⁵`, `D_H` is `× 10⁶`, energy shares are in thousandths. -/
+
+/-- `model` (SCHUR face table): per tensor, `|E_ell − mean G_ell|`, three times G's seed range, and G's seed
+sd, in the order q0, o0, q11, o11, q23, o23. -/
+def schurEllDelta : List ℕ := [75, 350, 170, 373, 437, 305]
+
+def schurEll3Range : List ℕ := [2193, 1083, 4177, 1300, 1396, 1147]
+
+def schurEllSd : List ℕ := [398, 200, 697, 232, 237, 208]
+
+/-- `model` (SCHUR lever table, pooled `D_H`): the baseline, the face-directed lever at 8 bits per pair,
+Eckart–Young rank 1 at equal bits (2-bit `u`, `v`, fp16 `σ`), rank 1 at fp16 (8× the bits), the
+baseline's gap to Q4_K_M; the ρ-weighted share of block-diagonal energy, E's largest against G's. -/
+def schurDhBase : ℕ := 434830
+
+def schurDhLever : ℕ := 2082302
+
+def schurDhRank1 : ℕ := 433345
+
+def schurDhRank1Fp16 : ℕ := 423746
+
+def schurGapQ4 : ℕ := 431496
+
+def schurEShareMax : ℕ := 416
+
+def schurGShare : ℕ := 500
+
+def schurGShareSd : ℕ := 1
+
+/-- **The error's face split is the i.i.d. split.** On every tensor E's elliptic fraction is within three
+of G's seed ranges, so clause A of the kill criterion is false. -/
+theorem schur_face_split_iid :
+    (List.zip schurEllDelta schurEll3Range).all (fun p => decide (p.1 < p.2)) = true := by decide
+
+/-- **The receipt's "below one seed sd" is not what the table says.** On four of six tensors (o0, o11,
+q23, o23) the difference exceeds G's seed sd; the face-split verdict rests on the three-range criterion
+alone. -/
+theorem schur_delta_not_within_sd :
+    (List.zip schurEllSd schurEllDelta).countP (fun p => decide (p.1 < p.2)) = 4 := by decide
+
+/-- **The face-directed lever is dominated.** At equal bits, rank 1 lowers `D_H` and the face lever
+raises it more than fourfold, so clause B of the kill criterion is false. -/
+theorem schur_lever_dominated :
+    schurDhRank1 < schurDhBase ∧ 4 * schurDhBase < schurDhLever := by decide
+
+/-- **Neither arm closes a tenth of the gap.** Rank 1 at equal bits closes 0.34 % of the gap to Q4_K_M,
+and at 8× the bits 2.6 %. -/
+theorem schur_closes_under_tenth :
+    10 * (schurDhBase - schurDhRank1) < schurGapQ4 ∧
+      10 * (schurDhBase - schurDhRank1Fp16) < schurGapQ4 := by decide
+
+/-- **The structure that does exist is coupling, not face.** E's largest block-diagonal energy share is
+more than 80 of G's seed sds below G's, so E's excess energy sits in the strictly-upper coupling, which a
+per-block lever cannot reach. -/
+theorem schur_nonnormal_coupling :
+    schurEShareMax + 80 * schurGShareSd < schurGShare := by decide
+
+/-! ## 14 · KLICM-2: top-`k` accept and the KL line search (KILL; the line search transfers 23 %)
+
+Receipt `lead-1021/KLICM2/receipt.md`, sha256 `71a06e9efb7c1b7f`; the §12
+fixture, 3 seeds, held-out batch disjoint; `tests/spike_klicm2.rs` sha256 `7f350b8f…`, re-run by the lead
+(`1 passed`, every mean reproduced). KL is `× 10⁶`, measured against fit-only arm A; ratios
+realised/predicted are in thousandths. -/
+
+/-- `model` (KLICM-2 means): `KL_A` held-out; K1's held-out drop, spread, held-out and calibration ratio;
+K8's calibration increase; the held-out increase of K8, K64, K256, K1024; LS8's held-out drop, spread,
+ratio; the moves and repeated moves of seed `0x33` K8 and seed `0x22` K1024; mean moves of K8 and LS8. -/
+def klicm2KlAHold : ℕ := 22060
+
+def klicm2K1Drop : ℕ := 3049
+
+def klicm2K1Spread : ℕ := 2213
+
+def klicm2K1HoldRatio : ℕ := 174
+
+def klicm2K1CalRatio : ℕ := 673
+
+def klicm2K8CalWorse : ℕ := 1210
+
+def klicm2K8Worse : ℕ := 4647
+
+def klicm2K64Worse : ℕ := 60441
+
+def klicm2K256Worse : ℕ := 217295
+
+def klicm2K1024Worse : ℕ := 610240
+
+def klicm2LsDrop : ℕ := 5179
+
+def klicm2LsSpread : ℕ := 3939
+
+def klicm2LsHoldRatio : ℕ := 144
+
+def klicm2K8Moves : ℕ := 128
+
+def klicm2K8Repeats : ℕ := 109
+
+def klicm2K1024Moves : ℕ := 16383
+
+def klicm2K1024Repeats : ℕ := 15359
+
+def klicm2LsMoves : ℕ := 45
+
+/-- **KLICM-2 kill.** No arm realises half its predicted held-out drop; K8 raises the held-out KL. -/
+theorem klicm2_kill :
+    klicm2K1HoldRatio < 500 ∧ klicm2LsHoldRatio < 500 ∧ 0 < klicm2K8Worse := by decide
+
+/-- **The quadratic's trust region is one block per re-linearisation.** K1 realises at least half its
+predicted calibration drop; K8 raises the calibration KL. -/
+theorem klicm2_trust_region_one_block :
+    500 ≤ klicm2K1CalRatio ∧ 0 < klicm2K8CalWorse := by decide
+
+/-- **Past one block the accept is a 2-cycle.** The held-out increase grows with `k`, and more than 80 %
+of the moves at `k = 8` and `k = 1024` re-move a block already moved. -/
+theorem klicm2_two_cycle :
+    klicm2K8Worse < klicm2K64Worse ∧ klicm2K64Worse < klicm2K256Worse ∧
+      klicm2K256Worse < klicm2K1024Worse ∧ 8 * klicm2K8Moves ≤ 10 * klicm2K8Repeats ∧
+      8 * klicm2K1024Moves ≤ 10 * klicm2K1024Repeats := by decide
+
+/-- **The KL line search transfers a fifth of the fit error, at 1.3 spreads.** LS8's held-out drop is
+above one spread and below three, between 20 % and 25 % of `KL_A`; its edge over K1 is inside K1's
+spread. The control K8 is LS8 with the accept test removed and takes more moves. -/
+theorem klicm2_line_search_partial :
+    klicm2LsSpread < klicm2LsDrop ∧ klicm2LsDrop < 3 * klicm2LsSpread ∧
+      klicm2KlAHold ≤ 5 * klicm2LsDrop ∧ 4 * klicm2LsDrop < klicm2KlAHold ∧
+      klicm2LsDrop - klicm2K1Drop < klicm2K1Spread ∧ klicm2LsMoves < klicm2K8Moves := by decide
+
+/-! ## 15 · TEQ: the per-layer transfer cost equation (GO)
+
+Receipt `lead-1021/TEQ/receipt.md`, sha256 `3377bbeea7675d05`;
+`tests/spike_transfer_eq.rs` sha256 `1fa2c6c6…`, re-run by the lead (`1 passed`, units within 2.4 %). One
+qwen2.5-0.5B layer; walls in tenths of a second. The equation's units are `measured`; the projections are
+`model`; R4 and R5 borrow the engine's Q8_0 rate on its own operands and are `anchor`. -/
+
+/-- `model` (TEQ §3–§5): projected and recorded fit and layer walls; the largest per-tensor residual in
+thousandths; the sweep's share of the layer; the minimum-work wall at the 5-limb rate (9.7e11 MAC at
+39 GMAC/s); the rung walls R1–R5; the 0.5B transfer bar (24 layers, fp32 reference) and one run's
+ceiling. -/
+def teqFitProj : ℕ := 4740
+
+def teqFitRec : ℕ := 4613
+
+def teqLayerProj : ℕ := 5710
+
+def teqLayerRec : ℕ := 5450
+
+def teqMaxResidual : ℕ := 112
+
+def teqSweep : ℕ := 2450
+
+def teqMinWork : ℕ := 249
+
+def teqR1 : ℕ := 3750
+
+def teqR2 : ℕ := 3210
+
+def teqR3 : ℕ := 380
+
+def teqR4 : ℕ := 176
+
+def teqR5 : ℕ := 29
+
+def teqTransferBar : ℕ := 939
+
+def teqRunCeiling : ℕ := 6000
+
+/-- **The equation reproduces the record.** Fit and layer projections are within 25 %, and so is every
+per-tensor row. -/
+theorem teq_equation_fits :
+    4 * teqFitProj ≤ 5 * teqFitRec ∧ 4 * teqLayerProj ≤ 5 * teqLayerRec ∧ teqMaxResidual < 250 := by
+  decide
+
+/-- **The sweep dominates, and the layer is far from its minimum work.** The `e8_icm_step` sweep is over
+40 % of the layer; the layer runs more than 21× its minimum-work wall at the shaped kernel's rate. -/
+theorem teq_sweep_dominates :
+    4 * teqLayerRec ≤ 10 * teqSweep ∧ 21 * teqMinWork ≤ teqLayerRec := by decide
+
+/-- **Lazy batching alone does not reach the bar.** R1 and R2 stay above a 25 s layer; R3 (every product
+on the 5-limb kernel) misses it, and R4 (residual at the Q8_0 rate) meets it. -/
+theorem teq_rungs_layer :
+    250 < teqR2 ∧ teqR2 < teqR1 ∧ 250 < teqR3 ∧ teqR4 ≤ 250 := by decide
+
+/-- **The 0.5B transfer bar needs R5.** At 24 layers R4 fits one run's 600 s ceiling but is 4.5× the
+93.9 s reference; only R5 (every product at the Q8_0 rate) is under it. R3 does not fit one run. -/
+theorem teq_transfer_bar_needs_r5 :
+    24 * teqR4 ≤ teqRunCeiling ∧ teqRunCeiling < 24 * teqR3 ∧ teqTransferBar < 24 * teqR4 ∧
+      24 * teqR5 ≤ teqTransferBar := by decide
+
 end QuantVerdicts
 
 end Learn

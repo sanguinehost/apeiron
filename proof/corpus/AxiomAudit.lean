@@ -2758,3 +2758,16 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.klicm_cross_block_null
 #audit Learn.QuantVerdicts.klicm_outside_radius
 #audit Learn.QuantVerdicts.klicm_relinearisation_overfits
+#audit Learn.QuantVerdicts.schur_face_split_iid
+#audit Learn.QuantVerdicts.schur_delta_not_within_sd
+#audit Learn.QuantVerdicts.schur_lever_dominated
+#audit Learn.QuantVerdicts.schur_closes_under_tenth
+#audit Learn.QuantVerdicts.schur_nonnormal_coupling
+#audit Learn.QuantVerdicts.klicm2_kill
+#audit Learn.QuantVerdicts.klicm2_trust_region_one_block
+#audit Learn.QuantVerdicts.klicm2_two_cycle
+#audit Learn.QuantVerdicts.klicm2_line_search_partial
+#audit Learn.QuantVerdicts.teq_equation_fits
+#audit Learn.QuantVerdicts.teq_sweep_dominates
+#audit Learn.QuantVerdicts.teq_rungs_layer
+#audit Learn.QuantVerdicts.teq_transfer_bar_needs_r5
