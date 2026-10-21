@@ -1,3 +1,4 @@
+//! Board: APEIRON-QUALITY-118-W1-T01 (student path override).
 //! Board: APEIRON-QUALITY-118-W1-T01.
 //! The held-out evaluator and the `--kl-divergence-base` port: identical models give zero KL and TV,
 //! a perturbed student tensor matches an independent `f64` softmax-KL, the pooled mean is
@@ -883,7 +884,9 @@ fn heldout_kldbase_qwen05b() {
 fn heldout_engine_qwen05b_f16_vs_q8() {
     const F16: &str = "/home/socol/models/gguf/qwen05b-f16.gguf";
     let teacher = Engine::open(F16).expect("open f16 teacher");
-    let student = Engine::open(QWEN05B_Q8).expect("open Q8_0 student");
+    let student_path =
+        std::env::var("APEIRON_HELDOUT_STUDENT").unwrap_or_else(|_| QWEN05B_Q8.to_string());
+    let student = Engine::open(&student_path).expect("open student");
     let vocab = teacher.config.vocab_size as u32;
     let n_tok: u32 = std::env::var("APEIRON_HELDOUT_TOKENS")
         .ok()
@@ -911,7 +914,7 @@ fn heldout_engine_qwen05b_f16_vs_q8() {
     };
     let h = last.expect("at least one run");
     println!(
-        "qwen05b f16 teacher vs Q8_0 student, {n_tok} tok: {mean:.3} s mean ± {spread:.3} sd over {runs} runs; \
+        "qwen05b f16 teacher vs {student_path}, {n_tok} tok: {mean:.3} s mean ± {spread:.3} sd over {runs} runs; \
          KL {:.6} tv {:.6} top1 {:.4} nll_s {:.4} nll_t {:.4}",
         from_grid(h.kl),
         from_grid(h.tv),
