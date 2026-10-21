@@ -9,6 +9,8 @@ import Learn.QuantVerdicts
 | KW1 (sign walker at three rates, per-row water-fill at 1.18 b/w) | `lead-1021/KW1/receipt.md` | `526c604d76f7d58a` |
 | MT1 (trellis-coded E8, Sturmian rates, per-row water-fill at 1.18 b/w) | `lead-1021/MT1/receipt.md` | `6b94b3b9997de7bd` |
 | KW1 + MT1 same-scale attribution (rows re-read, no new run) | `lead-1021/MT1/attr/attr.out` | `f04177880afb495e` |
+| MT2 (beam 4 per state, radius grid, per-row water-fill at 1.18 b/w, production scale) | `lead-1021/MT2/receipt.md` | `5f82d9aa88fdebc8` |
+| MT2 per-linear ratios / allocation log | `~/mt2-table.tsv` / `~/mt2-alloc.log` | `0345663b0ec2a6a1` / `992087e5beee94ee` |
 
 Every figure is a `model` input copied from its receipt: a KL in millionths of a nat over chunks 0..3
 of `train400k` (`n_ctx` 512), a rate in ten-thousandths of a bit per weight over the 357.83 M scoped
@@ -305,9 +307,10 @@ def mtDialHolds : Nat := 3
 /-- The same count at production scale. -/
 def mtDialHoldsP : Nat := 0
 
-/-- **At equal beam the walker with a radius beats `E`** on 20 of 21 linears, by up to 1.9× (layer 0 `q`).
+/-- **At equal beam, `E1` at a fitted radius beats `E1`** on 20 of 21 linears, by up to 1.9× (layer 0 `q`).
+`T0p` is one state and one radius, so this is a radius finding, not a walker finding.
 `∧` [both are true]; `<` [is smaller than]. -/
-theorem mt1_walker_beats_beam1 :
+theorem mt1_radius_beats_beam1 :
     mtT0pE1 < 1000 ∧ mtT0pE1Won + 1 = spLinears ∧ mtT0pE1Min < 550 := by decide
 
 /-- **Against full `E` the beam-1 walker wins three linears and loses the median**; the median gap (1.150)
@@ -332,6 +335,171 @@ theorem mt1_rate_pays : mtR98p < 1000 ∧ mtR98pWon = 15 ∧ mtR54p < 1000 := by
 linears at refit scale and on none at production scale.
 `∧` [both are true]; `*` [times]; `<` [is smaller than]. -/
 theorem mt1_dial_not_convex : mtDialHolds * 2 < spLinears ∧ mtDialHoldsP = 0 := by decide
+
+/-! ### Verdicts: a KILL or a GO is a term, and its constructor takes the comparison's witnesses
+
+KW1's and MT1's KILLs failed every field below: refit challengers against a production incumbent, beam 1
+without `wscale` against beam 4 with it, no arm reproducing the incumbent, and a part's loss read as the
+concept's. `Killed c` and `Goes c bar` both require `c.Fair`; a KILL also requires the fair mix to give the
+part no rows, because a part the mix buys rows from is not dead at that rate. `c.part` names the component
+under test, so a KILL is of that component and never of the concept. `#verdict_guard` refuses any
+declaration whose name says `kill` or ends in `_go` unless its type is one of the two. -/
+
+/-- The scale an arm's codewords are scored at: `E`'s group scale on the `E8_SCALE` word, or the per-group
+diagonal-block refit. -/
+inductive Scale
+  | production
+  | refit
+  deriving DecidableEq
+
+/-- The encoder search an arm ran: survivors per state, the `wscale` projection, and the encodings offered
+per row (1 for one arm, the menu size for a water-fill). -/
+structure Search where
+  beam : Nat
+  wscale : Bool
+  menu : Nat
+  deriving DecidableEq
+
+/-- One challenger-against-incumbent comparison over a population of linears, read off a receipt. `ratio` is
+the median `J_challenger / J_incumbent` in thousandths, `won` the linears below 1, `degen` the linears on
+which the challenger's degenerate setting reproduced the incumbent bit for bit, `mixRows` the rows the
+fair water-fill at equal rate gives the challenger. -/
+structure Comparison where
+  part : String
+  population : Nat
+  ratio : Nat
+  won : Nat
+  challengerScale : Scale
+  incumbentScale : Scale
+  challengerSearch : Search
+  incumbentSearch : Search
+  degen : Nat
+  mixRows : Nat
+
+/-- The witnesses a decisive verdict needs: one scale, equal search, the incumbent reproduced on every
+linear. -/
+structure Comparison.Fair (c : Comparison) : Prop where
+  sameScale : c.challengerScale = c.incumbentScale
+  equalSearch : c.challengerSearch = c.incumbentSearch
+  degenerate : c.degen = c.population
+  nonempty : 0 < c.population
+
+/-- A KILL of `c.part`: fair, not better at the median, under the incumbent on at most half the linears,
+and given no rows by the fair mix. -/
+structure Killed (c : Comparison) : Prop where
+  fair : c.Fair
+  loses : 1000 ≤ c.ratio
+  minority : 2 * c.won ≤ c.population
+  unselected : c.mixRows = 0
+
+/-- A GO of `c.part` at `bar` thousandths: fair, and the median ratio at or under the bar. -/
+structure Goes (c : Comparison) (bar : Nat) : Prop where
+  fair : c.Fair
+  wins : c.ratio ≤ bar
+
+/-- PROMISING needs no witness: under the incumbent in the median and on a majority of linears. -/
+abbrev Promising (c : Comparison) : Prop := c.ratio < 1000 ∧ c.population < 2 * c.won
+
+open Lean Elab Command in
+/-- `#verdict_guard ns` throws on every theorem under `ns` whose last name component contains `kill` (any
+case) or ends in `_go`, unless its type is `Killed _` or `Goes _ _`. Theorems only: the recursors, constructor
+and projections Lean generates for `Killed` itself are not verdicts. Cost: one fold over the environment's
+constants, `O(|env|)` name tests, each `O(|name|)`. -/
+elab "#verdict_guard " ns:ident : command => do
+  let pre := ns.getId
+  let bad := (← getEnv).constants.fold (init := (#[] : Array Name)) fun acc n ci =>
+    let s := (match n with | .str _ s => s | _ => "").toLower
+    let verdict := (s.splitOn "kill").length > 1 || s.endsWith "_go"
+    if pre.isPrefixOf n && !n.isInternal && ci matches .thmInfo _ && verdict then
+      match ci.type.getAppFn.constName? with
+      | some k => if k == ``Killed || k == ``Goes then acc else acc.push n
+      | none => acc.push n
+    else acc
+  unless bad.isEmpty do
+    throwError "verdict_guard: {bad.size} verdict(s) under {pre} are not Killed/Goes terms: {bad.toList}"
+  logInfo m!"verdict_guard: every kill/go under {pre} is a Killed/Goes term"
+
+/-! ### MT2 · the walker at beam 4 per state, production scale
+
+`T_Lr K4`: `2^Lr` states, `K = 4` survivors per state, `wscale` on the final survivors, all at `E`'s scale.
+Arm C sweeps one state's radius over {0.88, …, 1.24}; arm D fits `T1`/`T2` radii by Lloyd to arm C's argmin
+gains. `T0K4` at `ρ = 1` is `gptq_e8(…, true, true, 4)` bit for bit (test
+`the_beam_tube_is_gptq_e8_beam_four`, and 21/21 row dumps sha-equal to MT1's `E`). -/
+
+/-- `E`'s search: beam 4, `wscale`, one encoding per row. -/
+def searchE : Search := ⟨4, true, 1⟩
+
+/-- Arm C: one state, radius `ρ*` per linear. -/
+def mt2Radius : Comparison :=
+  ⟨"one state, K = 4 + wscale, radius rho* per linear from the 7-point grid", 21, 993, 13,
+    .production, .production, searchE, searchE, 21, 1179⟩
+
+/-- Arm D at two states. -/
+def mt2State1 : Comparison :=
+  ⟨"two states, K = 4 per state + wscale, Lloyd radii fitted to arm C's argmin gains", 21, 1010, 9,
+    .production, .production, searchE, searchE, 21, 6940⟩
+
+/-- Arm D at four states. -/
+def mt2State2 : Comparison :=
+  ⟨"four states, K = 4 per state + wscale, Lloyd radii fitted to arm C's argmin gains", 21, 1040, 4,
+    .production, .production, searchE, searchE, 21, 3983⟩
+
+/-- The best of arms C and D per linear, against `E`. -/
+def mt2Best : Comparison :=
+  ⟨"min over T0K4(rho*), T1K4, T2K4 per linear", 21, 993, 13,
+    .production, .production, searchE, searchE, 21, 12102⟩
+
+/-- Arms B–D added to MT1's walker-free per-row menu, against that menu, both at 1.18 b/w all-in. The
+challenger chooses among 19 encodings per row, the incumbent among 7. -/
+def mt2Mix : Comparison :=
+  ⟨"arms B-D in the per-row water-fill at 1.18 b/w", 21, 947, 21,
+    .production, .production, ⟨4, true, 19⟩, ⟨4, true, 7⟩, 21, 38016⟩
+
+/-- Median `J_T2K4 / J_T0K4(ρ*)`, thousandths. -/
+def mt2T2T0 : Nat := 1064
+
+/-- Median `J_T0K4(ρ*) / J_E` over the 12 attention linears (q, k, v, o), thousandths. -/
+def mt2RadiusAttn : Nat := 973
+
+/-- Wide linears (gate, up, down). -/
+def mt2Wide : Nat := 9
+
+/-- Wide linears with `ρ* = 1.00`. -/
+def mt2WideRho1 : Nat := 8
+
+/-- **Arms C and D are fair comparisons against `E`**: one scale, `E`'s search, `E` reproduced on 21/21.
+`∧` [both are true]. -/
+theorem mt2_fair : mt2Radius.Fair ∧ mt2State1.Fair ∧ mt2State2.Fair :=
+  ⟨⟨rfl, rfl, rfl, by decide⟩, ⟨rfl, rfl, rfl, by decide⟩, ⟨rfl, rfl, rfl, by decide⟩⟩
+
+/-- **The walker at beam 4 is PROMISING, not GO**: median 0.993, under `E` on 13 of 21.
+`∧` [both are true]; `¬` [this is not true]. -/
+theorem mt2_promising : Promising mt2Best ∧ ¬ Goes mt2Best 950 :=
+  ⟨by decide, fun h => absurd h.wins (by decide)⟩
+
+/-- **The radius survives beam 4 only on attention linears**: median 0.973 there, `ρ* = 1.00` on 8 of the
+9 wide linears. `∧` [both are true]; `<` [is smaller than]. -/
+theorem mt2_radius_attention : Promising mt2Radius ∧ mt2RadiusAttn < 980 ∧ mt2WideRho1 + 1 = mt2Wide := by
+  refine ⟨by decide, by decide, by decide⟩
+
+/-- **The state loses the per-linear median and is not killed**: `T1K4` 1.010 and `T2K4` 1.040 against `E`,
+`T2K4` 1.064 against `T0K4(ρ*)`, yet the fair mix gives the state 6940 and 3983 of 38016 rows, so no
+`Killed` term exists for either. `∧` [both are true]; `<` [is smaller than]; `¬` [this is not true]. -/
+theorem mt2_state_open :
+    1000 < mt2State1.ratio ∧ 1000 < mt2State2.ratio ∧ 1060 < mt2T2T0 ∧
+      ¬ Killed mt2State1 ∧ ¬ Killed mt2State2 :=
+  ⟨by decide, by decide, by decide, fun h => absurd h.unselected (by decide),
+    fun h => absurd h.unselected (by decide)⟩
+
+/-- **The mix gain is not a GO**: arms B–D lower the equal-rate water-fill by a median 5.3%, under it on
+21/21, past the 0.95 bar, but the challenger chooses among 19 encodings per row against 7, so the
+comparison is not fair and no `Goes` term exists. Whether the rows are bought by the state or by a
+second search is the open question.
+`∧` [both are true]; `≤` [is smaller than or equal to]; `¬` [this is not true]. -/
+theorem mt2_mix_unequal_search : Promising mt2Mix ∧ mt2Mix.ratio ≤ 950 ∧ ¬ Goes mt2Mix 950 :=
+  ⟨by decide, by decide, fun h => absurd h.fair.equalSearch (by decide)⟩
+
+#verdict_guard Learn.RateSpikes
 
 end RateSpikes
 
