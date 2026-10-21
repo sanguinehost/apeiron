@@ -35,7 +35,7 @@ use crate::engine::{
 use crate::format::quant;
 
 #[path = "tap.rs"]
-mod tap;
+pub(super) mod tap;
 
 use tap::{Tap, STAGE_ATTN_OUT, STAGE_HIDDEN_IN, STAGE_LN1_OUT, STAGE_LN2_OUT, STAGE_M};
 
@@ -268,9 +268,10 @@ impl Engine {
     /// output-normed final column of every token plus, when `record`, the per-layer stage rows.
     ///
     /// The rows are `[layer][stage][column][width]`, the stage slots in the order
-    /// `[residual input, attn_norm output, o-projection input, ffn_norm output, SwiGLU product]`
-    /// (the [`tap`] module's constants). `record == false` runs the untapped path and returns no
-    /// rows, so a caller can compare the two runs bit for bit.
+    /// `[residual input, attn_norm output, o-projection input, ffn_norm output, SwiGLU product,
+    /// post-RoPE query, post-RoPE key, value]` (the [`tap`] module's constants). `record == false`
+    /// runs the untapped path and returns no rows, so a caller can compare the two runs bit for
+    /// bit.
     ///
     /// The single-column FFN fuses its `SwiGLU` product inside `ffn_q8act_at`, so that stage is
     /// empty when the block is one column; the pooled multi-column path fills every stage.
@@ -754,7 +755,10 @@ impl Engine {
     }
 
     /// [`Engine::softmax_cols`] with the opt-in tap: records the output projection's input (the
-    /// concatenated per-head attention output) into [`STAGE_ATTN_OUT`] before it is projected.
+    /// concatenated per-head attention output) into [`STAGE_ATTN_OUT`] before it is projected, and
+    /// the attention's own inputs — the post-`RoPE` query and key and the value of every column of
+    /// the block — into [`STAGE_Q`], [`STAGE_K`] and [`STAGE_V`]. The probabilities are not
+    /// recorded: a backward pass recomputes them from q and k.
     #[allow(
         clippy::too_many_arguments,
         clippy::needless_range_loop,
@@ -801,14 +805,15 @@ impl Engine {
         drop(t_in);
         let t_core = trace::span(Phase::AttnCore, k, 0, 0);
         if k > 1 && parallel_heads {
-            let atts = self.softmax_core_block(layer, slot, kv, &qkv, eps, &table)?;
+            let atts = self.softmax_core_block(layer, slot, kv, &qkv, eps, &table, tap)?;
             drop(t_core);
             if let Some(t) = tap {
                 t.record(layer, STAGE_ATTN_OUT, &atts);
             }
             return self.softmax_proj_out(li, layer, n_embd, q_out, &atts, sched, mode);
         }
-        let atts = self.softmax_serial_cols(layer, slot, kv, &qkv, eps, &table, parallel_heads)?;
+        let atts =
+            self.softmax_serial_cols(layer, slot, kv, &qkv, eps, &table, parallel_heads, tap)?;
         drop(t_core);
         if let Some(t) = tap {
             t.record(layer, STAGE_ATTN_OUT, &atts);
