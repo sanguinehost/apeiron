@@ -165,7 +165,7 @@ files = ["*"]
 [[dir]]
 path = "examples"
 holds = "the measurement instrument only"
-files = ["engine_profile.rs"]
+files = ["engine_profile.rs", "hashdos.rs"]
 
 # ---- proofs -------------------------------------------------------------------------------------------------------
 [[dir]]
