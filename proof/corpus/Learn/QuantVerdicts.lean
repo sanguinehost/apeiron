@@ -7,7 +7,7 @@ set_option linter.apeiron.notation false
 /-!
 # The 1-bit quantiser spikes: every clause against its measured constant
 
-Six receipts. The five spikes ran on qwen2.5-0.5B (`blk.{0,11,23}.{attn_q,attn_v,ffn_gate,ffn_down}`,
+Seven receipts. The six spikes ran on qwen2.5-0.5B (`blk.{0,11,23}.{attn_q,attn_v,ffn_gate,ffn_down}`,
 imatrix-weighted
 `D_H = Σh e² / Σh w²`) and on synthetic `N(0,1)`; R1 is a refinement audit (§9). Receipts, by sha256 prefix:
 
@@ -19,6 +19,7 @@ imatrix-weighted
 | R1 (refinement audit of `Learn.FitIcm`) | `/home/socol/oc-tmp/escalation/lead-1021/R1/receipt.md` | `b5daa7c47da05abf` |
 | R2 (prior art, codebook model) | `/home/socol/oc-tmp/escalation/lead-1021/R2/receipt.md` | `543662be74dbd54a` |
 | RT-2 (radius as bulk coordinate) | `/home/socol/oc-tmp/escalation/lead-1021/RT2/receipt.md` | `6203395b72d30be9` |
+| PF (contact map as `H`, funnel, Gibbs) | `/home/socol/oc-tmp/escalation/lead-1021/PF/receipt.md` | `7cd6ff26c0c8ac69` |
 
 Every figure below is a `model` input copied from its receipt table: a distortion in millionths
 (`D × 10⁶`), a rate in ten-thousandths of a bit. No theorem here produces a measurement. Every
@@ -534,6 +535,55 @@ shipped pack, and `rt2_ceiling_as_predicted` shows the payable gain headroom on 
 theorem r2_group_defect :
     77 * r2FreeGain < 100 * (r2GroupGain4bit - r2FreeGain) ∧
       100 * (r2GroupGain4bit - r2FreeGain) < 78 * r2FreeGain := by decide
+
+/-! ## 11 · PF: the contact map as `H`, funnel order, Gibbs/mean-field (KILL)
+
+Receipt `/home/socol/oc-tmp/escalation/lead-1021/PF/receipt.md`, sha256 `7cd6ff26c0c8ac69`; 12 tensors,
+3 seeds, 1.125 b/w; board row `APEIRON-FORM-QUANT-W1-T01`. The spike baseline is deliberately unweighted; production `e8_icm_step` already
+minimises the `H`-weighted `J`, so the `H`-weighted arm is the production objective, not a lever the
+mapping adds. -/
+
+/-- `model` (PF table, `D_H × 10⁶`): unweighted baseline, `H`-weighted ICM, funnel + Gibbs anneal,
+funnel at `T = 0`, the hyperbolic face swap `−H`, the metric-off mutation, three-tier water-fill, and
+the Q4_K_M file. -/
+def pfBase : ℕ := 415040
+
+def pfHIcm : ℕ := 144582
+
+def pfFunnelGibbs : ℕ := 163854
+
+def pfFunnelT0 : ℕ := 145306
+
+def pfFaceSwap : ℕ := 28012000
+
+def pfNoMetric : ℕ := 415040
+
+def pfWaterFill : ℕ := 273073
+
+def pfRef : ℕ := 1961
+
+/-- **PF kill.** The folding-specific content never beats the `H`-weighted ICM: funnel order sits within
+1 % of it and the Gibbs anneal is worse. -/
+theorem pf_kill :
+    pfHIcm ≤ pfFunnelT0 ∧ 100 * (pfFunnelT0 - pfHIcm) < pfHIcm ∧ pfHIcm < pfFunnelGibbs := by
+  decide
+
+/-- **The metric is the whole effect.** Switching it off reproduces the baseline exactly, and the
+`H`-weighted objective closes between 65 % and 66 % of the gap to Q4_K_M. -/
+theorem pf_metric_is_the_lever :
+    pfNoMetric = pfBase ∧ 65 * (pfBase - pfRef) < 100 * (pfBase - pfHIcm) ∧
+      100 * (pfBase - pfHIcm) < 66 * (pfBase - pfRef) := by decide
+
+/-- **The hyperbolic face is not a quantiser metric.** `−H` multiplies `D_H` by more than 193 against the
+`H`-weighted arm, the measured side of `Perf.Iq1s.pair_discriminant_nonpos` (`H = XᵀX` is never
+hyperbolic). -/
+theorem pf_hyperbolic_face_diverges : 193 * pfHIcm < pfFaceSwap := by decide
+
+/-- **Water-fill alone closes about a third**: between 34 % and 35 % of the gap, about half of what the
+metric closes; composing the two is PF's one open measurement. -/
+theorem pf_waterfill_third :
+    34 * (pfBase - pfRef) < 100 * (pfBase - pfWaterFill) ∧
+      100 * (pfBase - pfWaterFill) < 35 * (pfBase - pfRef) ∧ pfHIcm < pfWaterFill := by decide
 
 end QuantVerdicts
 

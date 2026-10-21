@@ -2750,3 +2750,7 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.prior_art_gap
 #audit Learn.QuantVerdicts.prior_art_finish_share
 #audit Learn.QuantVerdicts.r2_group_defect
+#audit Learn.QuantVerdicts.pf_kill
+#audit Learn.QuantVerdicts.pf_metric_is_the_lever
+#audit Learn.QuantVerdicts.pf_hyperbolic_face_diverges
+#audit Learn.QuantVerdicts.pf_waterfill_third
