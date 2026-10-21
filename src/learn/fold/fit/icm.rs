@@ -2313,6 +2313,11 @@ pub fn r_step2(
     Ok((r1_out, r2_out))
 }
 
+/// The same `2^k` scaling of a `Q32.32` word already on the grid (a kernel product's output).
+fn lift_q(t: i64, k: u32) -> Result<i64, IcmError> {
+    q32::narrow(qmul(i128::from(t), 1_i128 << k)?).ok_or(IcmError::Overflow)
+}
+
 /// The panel rule's `2^k` scaling of a `Q64.64` elementwise product onto the `Q32.32` grid.
 fn fill_q(v: i128, k: u32) -> Result<i64, IcmError> {
     if k <= 32 {
@@ -2322,14 +2327,242 @@ fn fill_q(v: i128, k: u32) -> Result<i64, IcmError> {
     }
 }
 
-/// The same `2^k` scaling of a `Q32.32` word already on the grid (a kernel product's output).
-fn lift_q(t: i64, k: u32) -> Result<i64, IcmError> {
-    q32::narrow(qmul(i128::from(t), 1_i128 << k)?).ok_or(IcmError::Overflow)
+/// Copy one `GROUP`-wide block. The only body here that walks a window.
+///
+/// # Complexity
+/// `O(GROUP)` words moved, no allocation.
+fn copy_group(src: &[i64], dst: &mut [i64]) {
+    let mut t = 0;
+    while t < GROUP {
+        dst[t] = src[t];
+        t += 1;
+    }
+}
+
+/// `P[a_, j] = s[row, a_ % g, j] · c[a_ % g, j]` over both planes' blocks.
+///
+/// # Complexity
+/// `2g·GROUP` integer products, no allocation.
+fn band_prod_fill(
+    p1: PlaneRef<'_>,
+    p2: PlaneRef<'_>,
+    row: usize,
+    n: usize,
+    g: usize,
+    prod: &mut [i128],
+) {
+    let two_g = 2 * g;
+    let mut a_ = 0;
+    while a_ < two_g {
+        let (s, c) = if a_ < g { (p1.s, p1.c) } else { (p2.s, p2.c) };
+        let aa = a_ % g;
+        let mut j = 0;
+        while j < GROUP {
+            let sv = s[row * n + aa * GROUP + j];
+            let cv = c[aa * GROUP + j];
+            let p: i128 = i128::from(sv) * i128::from(cv);
+            prod[a_ * GROUP + j] = p;
+            j += 1;
+        }
+        a_ += 1;
+    }
+}
+
+/// `max|P|` over the band's product buffer.
+///
+/// # Complexity
+/// `2g·GROUP` magnitude reads, no allocation.
+fn band_prod_max(prod: &[i128]) -> u128 {
+    let mut max: u128 = 0;
+    let mut idx = 0;
+    while idx < prod.len() {
+        // `unsigned_abs` is an unmodeled external in the pinned Aeneas model; the cast of a
+        // non-negative magnitude is exact.
+        #[allow(
+            clippy::cast_abs_to_unsigned,
+            clippy::cast_sign_loss,
+            reason = "the pinned model carries no `I128.unsigned_abs`; `abs()` is non-negative \
+                      here and the cast preserves every bit"
+        )]
+        let m = prod[idx].abs() as u128;
+        if m > max {
+            max = m;
+        }
+        idx += 1;
+    }
+    max
+}
+
+/// The panel rule's `k` from `max|P|` raw: `k = 66 − log2(max)`, so `2²ᵏ·M` lands in `(2³⁴, 2³⁵]`.
+///
+/// # Complexity
+/// `O(2g·GROUP)` for the scan, no allocation.
+fn band_scale_k(prod: &[i128]) -> u32 {
+    match ilog2_pos(band_prod_max(prod)) {
+        Some(l) => 66_u32.saturating_sub(l),
+        None => 0_u32,
+    }
+}
+
+/// `fill_q` over the band's product buffer into the `pv` window row.
+///
+/// # Complexity
+/// `2g·GROUP` shifts, no allocation.
+fn band_fill_pv(prod: &[i128], k: u32, dst: &mut [i64]) -> Result<(), IcmError> {
+    let mut err: Option<IcmError> = None;
+    let mut idx = 0;
+    while idx < dst.len() && err.is_none() {
+        match fill_q(prod[idx], k) {
+            Ok(v) => dst[idx] = v,
+            Err(e) => err = Some(e),
+        }
+        idx += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// The two `q` panels of one band row, contiguous: the normal matrix's `b` rows.
+///
+/// # Complexity
+/// `2g·GROUP` words copied, no allocation.
+fn band_pv2_gather(pv: &[i64], rr: usize, g: usize, two_g: usize, pv2: &mut [i64]) {
+    let mut w = 0;
+    while w < g {
+        let mut q = 0;
+        while q < 2 {
+            let a_ = w + q * g;
+            let dst = ((rr * g + w) * 2 + q) * GROUP;
+            let src = (rr * two_g + a_) * GROUP;
+            copy_group(&pv[src..src + GROUP], &mut pv2[dst..dst + GROUP]);
+            q += 1;
+        }
+        w += 1;
+    }
+}
+
+/// `hb[j, k] = Hl[ga·GROUP + k, j]`: the metric's `b` rows transposed for this row block.
+///
+/// # Complexity
+/// `n·GROUP` word copies at stride `n`, no allocation.
+fn band_hb_fill(hl: &[i64], ga: usize, n: usize, hb: &mut [i64]) {
+    let mut j = 0;
+    while j < n {
+        let mut k = 0;
+        while k < GROUP {
+            hb[j * GROUP + k] = hl[(ga * GROUP + k) * n + j];
+            k += 1;
+        }
+        j += 1;
+    }
+}
+
+/// The band's `a` rows for row block `ga`: both planes' window rows stacked in `q` order.
+///
+/// # Complexity
+/// `rows·2·GROUP` word copies, no allocation.
+fn band_arows_fill(pv: &[i64], ga: usize, rows: usize, g: usize, two_g: usize, arows: &mut [i64]) {
+    let mut rr = 0;
+    while rr < rows {
+        let mut q = 0;
+        while q < 2 {
+            let a_ = ga + q * g;
+            let src = (rr * two_g + a_) * GROUP;
+            let dst = (rr * 2 + q) * GROUP;
+            copy_group(&pv[src..src + GROUP], &mut arows[dst..dst + GROUP]);
+            q += 1;
+        }
+        rr += 1;
+    }
+}
+
+/// One `(rr, w)` block's gathered `a2` window: the two `q` panels of `kk`'s row.
+///
+/// # Complexity
+/// `2·GROUP` word copies, no allocation.
+fn band_a2_gather(kk: &[i64], rr: usize, w: usize, n: usize, a2: &mut [i64]) {
+    let mut q = 0;
+    while q < 2 {
+        let src = (rr * 2 + q) * n + w * GROUP;
+        copy_group(&kk[src..src + GROUP], &mut a2[q * GROUP..(q + 1) * GROUP]);
+        q += 1;
+    }
+}
+
+/// One band row's `ga` row block of the normal matrix: `nt_q` per window against the two panels.
+///
+/// # Complexity
+/// `g` window products of `2×2` on `GROUP`-wide dots, `O(g·GROUP·n)` word multiply-adds.
+fn band_mmat_row(
+    kk: &[i64],
+    pv2: &[i64],
+    a2: &mut [i64],
+    rr: usize,
+    n: usize,
+    g: usize,
+    two_g: usize,
+    ga: usize,
+    out: &mut [i64],
+) -> Result<(), IcmError> {
+    let mut err: Option<IcmError> = None;
+    let mut w = 0;
+    while w < g && err.is_none() {
+        band_a2_gather(kk, rr, w, n, a2);
+        let bs = ((rr * g + w) * 2) * GROUP;
+        match nt_q(a2, 2, &pv2[bs..bs + 2 * GROUP], 2, GROUP) {
+            Ok(c) => {
+                let base = ga * two_g;
+                out[base + w] = c[0];
+                out[base + w + g] = c[1];
+                out[base + two_g * g + w] = c[2];
+                out[base + two_g * g + w + g] = c[3];
+            }
+            Err(e) => err = Some(e),
+        }
+        w += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// The band's `wh` window rows: `whrows[rr, a_, ·] = wh[row0 + rr, a_ % g, ·]`.
+///
+/// # Complexity
+/// `rows·2g·GROUP` word copies, no allocation.
+fn band_whrows_fill(
+    wh: &[i64],
+    row0: usize,
+    rows: usize,
+    n: usize,
+    g: usize,
+    two_g: usize,
+    whrows: &mut [i64],
+) {
+    let mut rr = 0;
+    while rr < rows {
+        let row = row0 + rr;
+        let mut a_ = 0;
+        while a_ < two_g {
+            let src = row * n + (a_ % g) * GROUP;
+            let dst = (rr * two_g + a_) * GROUP;
+            copy_group(&wh[src..src + GROUP], &mut whrows[dst..dst + GROUP]);
+            a_ += 1;
+        }
+        rr += 1;
+    }
 }
 
 /// One band of [`r_step2`]'s rows, every product on the limb kernel. `P[a_, j]` (`a_ < G` plane 1's
 /// block `a_`, `a_ ≥ G` plane 2's) is filled from below so `max|P| ∈ (2³⁴, 2³⁵]` raw (`steps`' panel
 /// rule), `M' = 2²ᵏM` and `t` is read at `2²ᵏ`, so the solve returns `x` itself at the grid quantum.
+///
+/// The three phases are one band each: the scaled product window, the per-`ga` normal matrix, and
+/// the right-hand-side dot plus the `2G × 2G` solve. Every loop body is a separate function, so a
+/// phase carries only its own buffers (AGENTS.md §11, Aeneas loop shapes).
 ///
 /// # Complexity
 /// `rows·2g·n·GROUP` metric word multiply-adds, `rows·g²·4·GROUP` normal-matrix word multiply-adds
@@ -2357,68 +2590,19 @@ fn r_band_q(
     let mut rr = 0;
     while rr < rows && err.is_none() {
         let row = row0 + rr;
-        let mut a_ = 0;
-        while a_ < two_g && err.is_none() {
-            let (s, c) = if a_ < g { (p1.s, p1.c) } else { (p2.s, p2.c) };
-            let aa = a_ % g;
-            let mut j = 0;
-            while j < GROUP {
-                let sv = s[row * n + aa * GROUP + j];
-                let cv = c[aa * GROUP + j];
-                let p: i128 = i128::from(sv) * i128::from(cv);
-                prod[a_ * GROUP + j] = p;
-                j += 1;
-            }
-            a_ += 1;
-        }
-        let mut max: u128 = 0;
-        let mut idx = 0;
-        while idx < two_g * GROUP {
-            // `unsigned_abs` is an unmodeled external in the pinned Aeneas model; the cast of a
-            // non-negative magnitude is exact.
-            #[allow(
-                clippy::cast_abs_to_unsigned,
-                clippy::cast_sign_loss,
-                reason = "the pinned model carries no `I128.unsigned_abs`; `abs()` is non-negative \
-                          here and the cast preserves every bit"
-            )]
-            let m = prod[idx].abs() as u128;
-            if m > max {
-                max = m;
-            }
-            idx += 1;
-        }
-        let k = match ilog2_pos(max) {
-            Some(l) => 66_u32.saturating_sub(l),
-            None => 0_u32,
-        };
+        band_prod_fill(p1, p2, row, n, g, &mut prod);
+        let k = band_scale_k(&prod);
         ks[rr] = k;
-        let mut idx = 0;
-        while idx < two_g * GROUP && err.is_none() {
-            match fill_q(prod[idx], k) {
-                Ok(v) => pv[rr * two_g * GROUP + idx] = v,
-                Err(e) => err = Some(e),
-            }
-            idx += 1;
+        match band_fill_pv(
+            &prod,
+            k,
+            &mut pv[rr * two_g * GROUP..(rr + 1) * two_g * GROUP],
+        ) {
+            Ok(()) => {}
+            Err(e) => err = Some(e),
         }
         if err.is_none() {
-            // The two `q` panels of a window, contiguous: the normal matrix's `b` rows.
-            let mut w = 0;
-            while w < g {
-                let mut q = 0;
-                while q < 2 {
-                    let a_ = w + q * g;
-                    let dst = ((rr * g + w) * 2 + q) * GROUP;
-                    let src = (rr * two_g + a_) * GROUP;
-                    let mut t = 0;
-                    while t < GROUP {
-                        pv2[dst + t] = pv[src + t];
-                        t += 1;
-                    }
-                    q += 1;
-                }
-                w += 1;
-            }
+            band_pv2_gather(&pv, rr, g, two_g, &mut pv2);
         }
         rr += 1;
     }
@@ -2431,59 +2615,25 @@ fn r_band_q(
     let mut hb = vec![0_i64; n * GROUP];
     let mut ga = 0;
     while ga < g && err.is_none() {
-        // `hb[j, k] = Hl[ga·GROUP + k, j]`: the metric's `b` rows for this row block.
-        let mut j = 0;
-        while j < n {
-            let mut k = 0;
-            while k < GROUP {
-                hb[j * GROUP + k] = hl[(ga * GROUP + k) * n + j];
-                k += 1;
-            }
-            j += 1;
-        }
-        let mut rr = 0;
-        while rr < rows {
-            let mut q = 0;
-            while q < 2 {
-                let a_ = ga + q * g;
-                let src = (rr * two_g + a_) * GROUP;
-                let mut t = 0;
-                while t < GROUP {
-                    arows[(rr * 2 + q) * GROUP + t] = pv[src + t];
-                    t += 1;
-                }
-                q += 1;
-            }
-            rr += 1;
-        }
+        band_hb_fill(hl, ga, n, &mut hb);
+        band_arows_fill(&pv, ga, rows, g, two_g, &mut arows);
         match nt_q(&arows, rows * 2, &hb, n, GROUP) {
             Ok(kk) => {
                 let mut rr = 0;
                 while rr < rows && err.is_none() {
-                    let mut w = 0;
-                    while w < g && err.is_none() {
-                        let mut q = 0;
-                        while q < 2 {
-                            let src = (rr * 2 + q) * n + w * GROUP;
-                            let mut t = 0;
-                            while t < GROUP {
-                                a2[q * GROUP + t] = kk[src + t];
-                                t += 1;
-                            }
-                            q += 1;
-                        }
-                        let bs = ((rr * g + w) * 2) * GROUP;
-                        match nt_q(&a2, 2, &pv2[bs..bs + 2 * GROUP], 2, GROUP) {
-                            Ok(c) => {
-                                let base = (rr * two_g + ga) * two_g;
-                                mmat[base + w] = c[0];
-                                mmat[base + w + g] = c[1];
-                                mmat[base + two_g * g + w] = c[2];
-                                mmat[base + two_g * g + w + g] = c[3];
-                            }
-                            Err(e) => err = Some(e),
-                        }
-                        w += 1;
+                    match band_mmat_row(
+                        &kk,
+                        &pv2,
+                        &mut a2,
+                        rr,
+                        n,
+                        g,
+                        two_g,
+                        ga,
+                        &mut mmat[rr * two_g * two_g..(rr + 1) * two_g * two_g],
+                    ) {
+                        Ok(()) => {}
+                        Err(e) => err = Some(e),
                     }
                     rr += 1;
                 }
@@ -2496,22 +2646,7 @@ fn r_band_q(
         return Err(e);
     }
     let mut whrows = vec![0_i64; rows * two_g * GROUP];
-    let mut rr = 0;
-    while rr < rows {
-        let row = row0 + rr;
-        let mut a_ = 0;
-        while a_ < two_g {
-            let src = row * n + (a_ % g) * GROUP;
-            let dst = (rr * two_g + a_) * GROUP;
-            let mut t = 0;
-            while t < GROUP {
-                whrows[dst + t] = wh[src + t];
-                t += 1;
-            }
-            a_ += 1;
-        }
-        rr += 1;
-    }
+    band_whrows_fill(wh, row0, rows, n, g, two_g, &mut whrows);
     let tvals = rowdot_q32(&pv, &whrows, rows * two_g, GROUP, LIMBS).map_err(map_limb)?;
     let mut rr = 0;
     while rr < rows && err.is_none() {

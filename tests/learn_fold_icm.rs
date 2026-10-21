@@ -1309,6 +1309,31 @@ fn learn_fold_icm_block_argmin_is_exact() {
     }
 }
 
+/// Bit-identity of `r_step2`'s returned words: the FNV-1a digest over every `i64` of both group
+/// scales on the fixture the normal-equation test uses. `r_band_q`'s loop bodies are split into
+/// separate functions for the Aeneas wall; the arithmetic and its order do not move, so this digest
+/// is the witness that the split returned the same words. Board: .
+#[test]
+fn learn_fold_icm_r_step2_words_are_pinned() {
+    let (o, n) = (5_usize, 256);
+    let hl = toeplitz(n, 0.45);
+    let mut rng = Lcg(31);
+    let p1 = rand_plane(o, n, &mut rng);
+    let p2 = rand_plane(o, n, &mut rng);
+    let ws = rand_mat(o, n, &mut rng);
+    let (r1, r2) = r_step2(&q(&ws), &q(&hl), pref(&p1), pref(&p2), o, n).expect("r_step2");
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for w in r1.iter().chain(r2.iter()) {
+        for b in w.to_le_bytes() {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    assert_eq!(r1.len() + r2.len(), 20);
+    println!("r_step2 words digest {h:#018x}");
+    assert_eq!(h, 0xa5a8_4b8f_cc87_5750, "r_step2 words moved");
+}
+
 #[test]
 fn learn_fold_icm_r_step2_satisfies_normal_equations() {
     let (o, n) = (5_usize, 256);
