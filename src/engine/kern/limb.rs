@@ -1456,9 +1456,344 @@ pub(crate) fn bound_ulps(n: usize, limbs: u32, max_a: u64, max_b: u64) -> i128 {
     (pairs / 2 + 1) + blocks * (1 + trunc)
 }
 
+/// One `F16` weight matrix in the limb representation, packed once for repeated projections.
+///
+/// The weights are decoded to Q32.32 words, split into `limbs` balanced signed-byte digits by
+/// [`Plane::build`], and repacked as one [`Q8_0_BLOCK_BYTES`] block per `(pair, block)` with the
+/// `f16` scale `2^{clamp(e[b] − 7(s+1), 8, 47)}` ([`f16_pow2`]). The activation side is the chart's
+/// one-limb [`QuantAct`], so one projection is `limbs` kernel passes over the same codes rather
+/// than the `limbs(limbs+1)/2` pair passes of [`gemm_q32`]. The scale exponent is independent of the
+/// activation, which is what lets the tensor be packed before any column is known.
+///
+/// The activation scale of `(column c, pair s, block b)` is
+/// `sigma = e[b] + q(c, b) − 7(s+1) − dw(s, b)`, with `q` the exponent of the column's own
+/// `QuantAct` block scale; `T = e[b] + q − 7(s+1)` is the block pair's Q32.32 exponent, and a
+/// pair is dropped (scale `0`) exactly when `T < 8`, the same rule and the same `+1`-per-block
+/// accounting as [`gemm_q32`]'s bound.
+pub(crate) struct F16Tile {
+    /// Output rows (weights per output).
+    rows: usize,
+    /// Inputs per row, unpadded.
+    n: usize,
+    /// Blocks per row, `⌈n/32⌉`.
+    blocks: usize,
+    /// `blocks·32`, the padded row length the kernel reads.
+    padded: usize,
+    /// Limbs per block (the weight-side pair count).
+    limbs: u32,
+    /// Per block, the exponent shared by the block's weight words.
+    e: Vec<u32>,
+    /// Per `(pair, block)`, the packed `f16` weight scale exponent.
+    dw: Vec<i32>,
+    /// One packed payload per kept-pair group.
+    groups: Vec<F16Group>,
+}
+
+impl std::fmt::Debug for F16Tile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("F16Tile")
+            .field("rows", &self.rows)
+            .field("n", &self.n)
+            .field("limbs", &self.limbs)
+            .finish_non_exhaustive()
+    }
+}
+
+/// One `Q8_0` group of a packed [`F16Tile`]: pairs `[g0, g1)`.
+struct F16Group {
+    /// First pair of the group.
+    g0: usize,
+    /// One past the last pair.
+    g1: usize,
+    /// `rows × (g1−g0) × blocks` `Q8_0` blocks, row-major.
+    raw: Vec<u8>,
+}
+
+/// Decode an `F16` payload and pack it as a [`F16Tile`], or a refusal.
+///
+/// # Errors
+///
+/// [`LimbError::Shape`] on a zero dimension, `limbs == 0`, `limbs > MAX_LIMBS`, `n > MAX_INNER`, or
+/// a payload whose length is not `2·rows·n`; [`LimbError::Range`] on an `Inf`/`NaN` half word or a
+/// block exponent the scale placement cannot carry.
+///
+/// # Complexity
+///
+/// Temporal `O(rows·n·limbs)` for the decode, the [`Plane::build`] passes and the repack; spatial
+/// `O(rows·n)` `i64` words transiently, `O(rows·⌈n/32⌉·limbs)` digit bytes, and the returned
+/// `O(rows·limbs·⌈n/32⌉·34)` payload bytes.
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_possible_truncation,
+    clippy::manual_clamp,
+    reason = "`e ≤ 65`, `s < MAX_LIMBS ≤ 8` and `g < limbs`, so every index and exponent cast is \
+              exact; the clamp is written as two comparisons so the extraction sees plain `if`s"
+)]
+pub(crate) fn f16_tile(
+    raw: &[u8],
+    rows: usize,
+    n: usize,
+    limbs: u32,
+) -> Result<F16Tile, LimbError> {
+    let cells = rows.checked_mul(n).ok_or(LimbError::Shape)?;
+    let bytes = cells.checked_mul(2).ok_or(LimbError::Shape)?;
+    if rows == 0 || n == 0 || limbs == 0 || limbs > MAX_LIMBS || n > MAX_INNER || raw.len() != bytes
+    {
+        return Err(LimbError::Shape);
+    }
+    let mut words: Vec<i64> = Vec::with_capacity(cells);
+    let mut ok = true;
+    let mut i = 0usize;
+    while i < cells && ok {
+        let h = u16::from_le_bytes([raw[2 * i], raw[2 * i + 1]]);
+        match super::pow2::f16_split(h) {
+            Some((m, k)) => words.push(i64::from(m) << k),
+            None => ok = false,
+        }
+        i += 1;
+    }
+    if !ok {
+        return Err(LimbError::Range);
+    }
+    let plane = Plane::build(&words, rows, n, limbs)?;
+    let blocks = plane.blocks;
+    let padded = plane.padded;
+    // The packed weight scale of `(pair, block)`: the pair's own exponent clamped into the finite
+    // `f16` power-of-two range. It is activation-independent by construction.
+    let mut dw = vec![0i32; limbs as usize * blocks];
+    let mut s = 0u32;
+    while s < limbs {
+        let mut b = 0usize;
+        while b < blocks {
+            let t = plane.e[b] as i32 - LIMB_BITS * (s as i32 + 1);
+            let d = if t < MIN_PAIR_EXP {
+                MIN_PAIR_EXP
+            } else if t > MAX_WEIGHT_EXP {
+                MAX_WEIGHT_EXP
+            } else {
+                t
+            };
+            dw[s as usize * blocks + b] = d;
+            b += 1;
+        }
+        s += 1;
+    }
+    let group = (MAX_INNER / padded).max(1).min(limbs as usize);
+    let mut groups: Vec<F16Group> = Vec::new();
+    let mut g0 = 0usize;
+    while g0 < limbs as usize {
+        let g1 = (g0 + group).min(limbs as usize);
+        let row_bytes = (g1 - g0) * blocks * Q8_0_BLOCK_BYTES;
+        let mut packed = vec![0u8; rows * row_bytes];
+        let mut r = 0usize;
+        while r < rows {
+            let out = &mut packed[r * row_bytes..(r + 1) * row_bytes];
+            let mut g = g0;
+            while g < g1 {
+                let mut b = 0usize;
+                while b < blocks {
+                    let at = (g - g0) * blocks * Q8_0_BLOCK_BYTES + b * Q8_0_BLOCK_BYTES;
+                    out[at..at + 2].copy_from_slice(&f16_pow2(dw[g * blocks + b]).to_le_bytes());
+                    out[at + 2..at + Q8_0_BLOCK_BYTES]
+                        .copy_from_slice(plane.digit_block_u8(r, b, g as u32));
+                    b += 1;
+                }
+                g += 1;
+            }
+            r += 1;
+        }
+        groups.push(F16Group {
+            g0,
+            g1,
+            raw: packed,
+        });
+        g0 = g1;
+    }
+    Ok(F16Tile {
+        rows,
+        n,
+        blocks,
+        padded,
+        limbs,
+        e: plane.e,
+        dw,
+        groups,
+    })
+}
+
+/// The one-limb activation columns of pairs `[g0, g1)` for every `QuantAct` in `qs`, or a refusal
+/// when a block pair's scales cannot be placed.
+///
+/// # Errors
+///
+/// [`LimbError::Shape`] on a column whose length is not the tile's `n`; [`LimbError::Range`] on a
+/// pair exponent past [`MAX_PAIR_EXP`], an activation scale that is not a non-negative power of two,
+/// or a `sigma` past the kernel's `44`.
+///
+/// # Complexity
+///
+/// Temporal and spatial `O(k·(g1−g0)·blocks + k·(g1−g0)·padded)` bytes for the columns.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::manual_range_contains,
+    reason = "`q` is a `trailing_zeros` of a positive `i64` (≤ 63) and `s` is a pair index below \
+              `MAX_LIMBS`; both casts are exact, and the sigma range is written as two comparisons \
+              so the extraction sees plain `if`s"
+)]
+fn f16_columns(
+    tile: &F16Tile,
+    qs: &[QuantAct],
+    g0: usize,
+    g1: usize,
+) -> Result<Vec<QuantAct>, LimbError> {
+    let blocks = tile.blocks;
+    let padded = tile.padded;
+    let ng = g1 - g0;
+    let mut out: Vec<QuantAct> = Vec::with_capacity(qs.len());
+    let mut c = 0usize;
+    let mut err: Option<LimbError> = None;
+    while c < qs.len() && err.is_none() {
+        if qs[c].len() == tile.n {
+            let codes_c = qs[c].codes();
+            let scales_c = qs[c].scales();
+            let mut scales = vec![0i64; ng * blocks];
+            let mut codes = vec![0i8; ng * padded];
+            let mut g = g0;
+            while g < g1 && err.is_none() {
+                let s = (g - g0) as u32;
+                let mut b = 0usize;
+                while b < blocks && err.is_none() {
+                    let scale = scales_c[b];
+                    if scale != 0 && (scale < 0 || (scale & (scale - 1)) != 0) {
+                        err = Some(LimbError::Range);
+                    } else {
+                        let q = if scale == 0 {
+                            0
+                        } else {
+                            scale.trailing_zeros() as i32
+                        };
+                        let t = tile.e[b] as i32 + q - LIMB_BITS * (s as i32 + 1);
+                        if t > MAX_PAIR_EXP {
+                            err = Some(LimbError::Range);
+                        } else if t >= MIN_PAIR_EXP {
+                            let sigma = t - tile.dw[g * blocks + b];
+                            if sigma < 0 || sigma > 44 {
+                                err = Some(LimbError::Range);
+                            } else {
+                                scales[(g - g0) * blocks + b] = 1i64 << sigma;
+                                let lo = b * ACT_QK;
+                                let take = ACT_QK.min(tile.n - lo);
+                                let at = (g - g0) * padded + lo;
+                                codes[at..at + take].copy_from_slice(&codes_c[lo..lo + take]);
+                            }
+                        }
+                        // `t < 8`: the block pair's whole contribution is below `2^-8` words and is
+                        // dropped, exactly as `Layout::placement` drops it; the scale stays `0`.
+                    }
+                    b += 1;
+                }
+                g += 1;
+            }
+            out.push(QuantAct::from_parts(scales, codes));
+        }
+        c += 1;
+    }
+    match err {
+        Some(e) => Err(e),
+        None => Ok(out),
+    }
+}
+
+/// `C[j][i] = Σ_l w[i·n + l]·x_j[l]` in Q32.32 for the packed F16 weights of `tile` and the
+/// activation columns `qs`, or a refusal the caller answers with the scalar oracle.
+///
+/// One projection is `tile.limbs` kernel passes ([`projection`]) over the same activation codes;
+/// the passes are summed in `i128` and narrowed once, so the call-level rounding is one
+/// `round_shift_32` per pass. The result is within [`gemm_q32`]'s `G(n, limbs, max|w|, max|x|)`
+/// of the scalar [`matvec_q8act`] oracle on the same words: the activation is exact in one limb
+/// (its codes are the digits), the weight keeps `limbs` digits, and the `+1` per block covers the
+/// dropped `T < 8` pairs.
+///
+/// # Errors
+///
+/// [`LimbError::Shape`] on an empty `qs` or a column of the wrong length; [`LimbError::Range`] on
+/// the placements [`f16_columns`] refuses, a kernel refusal on the packed planes, or an output
+/// that leaves `i64`.
+///
+/// # Complexity
+///
+/// Temporal `O(k·limbs·rows·n)` byte multiply-adds on the kernel plus the `O(k·limbs·n)` column
+/// build; spatial `O(k·limbs·n)` activation bytes and `O(k·rows)` output words.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the `i128`-to-`i64` narrowing follows an explicit `i64::MIN`/`i64::MAX` check; \
+              `TryFrom` emits an unmodeled external the pinned fail-closed extraction audit rejects"
+)]
+pub(crate) fn f16_project(tile: &F16Tile, qs: &[QuantAct]) -> Result<Vec<Vec<i64>>, LimbError> {
+    let k = qs.len();
+    if k == 0 || tile.rows == 0 {
+        return Err(LimbError::Shape);
+    }
+    let mut result: Vec<Vec<i64>> = Vec::with_capacity(k);
+    let mut acc = vec![0i128; k * tile.rows];
+    let mut err: Option<LimbError> = None;
+    let mut gi = 0usize;
+    while gi < tile.groups.len() && err.is_none() {
+        let g0 = tile.groups[gi].g0;
+        let g1 = tile.groups[gi].g1;
+        let n_in = (g1 - g0) * tile.padded;
+        match f16_columns(tile, qs, g0, g1) {
+            Err(e) => err = Some(e),
+            Ok(columns) => match projection(&tile.groups[gi].raw, tile.rows, n_in, &columns) {
+                Err(e) => err = Some(e),
+                Ok(cols) => {
+                    let mut j = 0usize;
+                    while j < k {
+                        let col = &cols[j];
+                        let base = j * tile.rows;
+                        let mut i = 0usize;
+                        while i < tile.rows {
+                            acc[base + i] += i128::from(col[i]);
+                            i += 1;
+                        }
+                        j += 1;
+                    }
+                }
+            },
+        }
+        gi += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    let mut j = 0usize;
+    while j < k && err.is_none() {
+        let mut col: Vec<i64> = Vec::with_capacity(tile.rows);
+        let base = j * tile.rows;
+        let mut i = 0usize;
+        while i < tile.rows && err.is_none() {
+            let v = acc[base + i];
+            if v < i128::from(i64::MIN) || v > i128::from(i64::MAX) {
+                err = Some(LimbError::Range);
+            } else {
+                col.push(v as i64);
+            }
+            i += 1;
+        }
+        result.push(col);
+        j += 1;
+    }
+    match err {
+        Some(e) => Err(e),
+        None => Ok(result),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::chart::matvec_q8act;
     use crate::engine::num::value::round_shift_32;
 
     /// xorshift64*: the seeded generator the tests use (no `rand` dependency).
@@ -1998,6 +2333,246 @@ mod tests {
                     mean * 1e9 / macs
                 );
             }
+        }
+    }
+
+    /// The `F16` projection on the packed tile is within [`bound_ulps`] of the scalar
+    /// `matvec_q8act` oracle, and one flipped limb byte of that tile leaves the bound: the
+    /// mutation control for the tile's digits.
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        clippy::manual_is_multiple_of,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        reason = "one measured fixture with its oracle and mutation control; every cast is on a \
+                  bounded test index or a masked half-word field"
+    )]
+    fn f16_tile_is_within_the_limb_bound_and_a_flipped_digit_breaks_it() {
+        let (rows, n, k) = (64usize, 256usize, 5usize);
+        // Half words with two exponent bands twelve powers apart, so a 21-bit block expansion
+        // truncates the small band and the deviation is not identically zero.
+        let mut st = 0x1234_5678_9abc_def0u64;
+        let mut raw: Vec<u8> = Vec::with_capacity(rows * n * 2);
+        let mut r = 0usize;
+        while r < rows * n {
+            st ^= st << 13;
+            st ^= st >> 7;
+            st ^= st << 17;
+            let e: u16 = if st % 7 == 0 { 2 } else { 14 };
+            let h = ((st >> 32) as u16 & 0x83ff) | (e << 10);
+            raw.extend_from_slice(&h.to_le_bytes());
+            r += 1;
+        }
+        let mut qs: Vec<QuantAct> = Vec::with_capacity(k);
+        let mut c = 0usize;
+        while c < k {
+            let mut x: Vec<i64> = Vec::with_capacity(n);
+            let mut j = 0usize;
+            while j < n {
+                let v = (((j * 37 + c * 11) % 257) as i64 - 128) << 20;
+                x.push(v);
+                j += 1;
+            }
+            qs.push(crate::engine::chart::quant_act(&x).expect("quant"));
+            c += 1;
+        }
+        let tile = f16_tile(&raw, rows, n, 3).expect("tile");
+        let got = f16_project(&tile, &qs).expect("projection");
+        let mut max_dev: i128 = 0;
+        let mut max_a: u64 = 0;
+        let mut max_b: u64 = 0;
+        let mut c = 0usize;
+        while c < k {
+            let want = matvec_q8act(crate::format::quant::GGML_TYPE_F16, &raw, rows, n, &qs[c])
+                .expect("oracle");
+            let mut i = 0usize;
+            while i < rows {
+                let d = i128::from(got[c][i]) - i128::from(want[i]);
+                let d = d.abs();
+                if d > max_dev {
+                    max_dev = d;
+                }
+                i += 1;
+            }
+            let mut b = 0usize;
+            while b < qs[c].scales().len() {
+                let s = qs[c].scales()[b].unsigned_abs();
+                let w = s.saturating_mul(127);
+                if w > max_b {
+                    max_b = w;
+                }
+                b += 1;
+            }
+            c += 1;
+        }
+        let mut r = 0usize;
+        while r < rows * n {
+            let h = u16::from_le_bytes([raw[2 * r], raw[2 * r + 1]]);
+            let (m, kk) = super::super::pow2::f16_split(h).expect("finite");
+            let w = (i64::from(m).unsigned_abs()) << kk;
+            if w > max_a {
+                max_a = w;
+            }
+            r += 1;
+        }
+        let bound = bound_ulps(n, 3, max_a, max_b);
+        assert!(
+            max_dev <= bound,
+            "max |C_limb - C_scalar| {max_dev} > bound {bound}"
+        );
+        println!("f16 tile: max deviation {max_dev} words, bound {bound}");
+
+        // Mutation control: replace the block's largest weight digit, in the cached payload,
+        // with the opposite extreme. A check that cannot fail has no weight.
+        let mut tile = tile;
+        let block = &mut tile.groups[0].raw[2..Q8_0_BLOCK_BYTES];
+        let mut at = 0usize;
+        let mut best = 0i16;
+        let mut i = 0usize;
+        while i < ACT_QK {
+            let d = i16::from(block[i].cast_signed()).abs();
+            if d > best {
+                best = d;
+                at = i;
+            }
+            i += 1;
+        }
+        block[at] = if block[at].cast_signed() > 0 {
+            0x80
+        } else {
+            0x7f
+        };
+        let mutated = f16_project(&tile, &qs).expect("mutated projection");
+        let mut dev: i128 = 0;
+        let mut c = 0usize;
+        while c < k {
+            let want = matvec_q8act(crate::format::quant::GGML_TYPE_F16, &raw, rows, n, &qs[c])
+                .expect("oracle");
+            let mut i = 0usize;
+            while i < rows {
+                let d = (i128::from(mutated[c][i]) - i128::from(want[i])).abs();
+                if d > dev {
+                    dev = d;
+                }
+                i += 1;
+            }
+            c += 1;
+        }
+        assert!(
+            dev > bound,
+            "a flipped limb byte stayed inside the bound: {dev} <= {bound}"
+        );
+        println!("f16 tile mutation: deviation {dev} > bound {bound}");
+    }
+
+    /// Measured report: the per-entry deviation and [`bound_ulps`] on qwen05b layer 0's seven
+    /// projections with representative activation magnitudes. Run with
+    /// `cargo test --release --lib -- --ignored --nocapture f16_qwen05b_layer0`.
+    #[test]
+    #[ignore = "measured report: reads models/gguf/qwen05b-f16.gguf"]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        reason = "the printed relative error is a diagnostic ratio of two bounded word counts; the \
+                  activation index is a bounded `usize` below 2049"
+    )]
+    fn f16_qwen05b_layer0_deviation_and_bound() {
+        use crate::engine::loader::Engine;
+        let path = crate::engine::testdata::model_path("models/gguf/qwen05b-f16.gguf");
+        let Some(path) = path else {
+            println!("qwen05b-f16.gguf absent; skipped");
+            return;
+        };
+        let engine = Engine::open(&path).expect("open");
+        let parts = [
+            "blk.0.attn_q.weight",
+            "blk.0.attn_k.weight",
+            "blk.0.attn_v.weight",
+            "blk.0.attn_output.weight",
+            "blk.0.ffn_gate.weight",
+            "blk.0.ffn_up.weight",
+            "blk.0.ffn_down.weight",
+        ];
+        let k = 8usize;
+        let entries = engine.table().entries();
+        for name in parts {
+            let Some(t) = entries.iter().find(|e| e.name == name) else {
+                println!("{name}: absent");
+                continue;
+            };
+            assert_eq!(t.ggml_type, crate::format::quant::GGML_TYPE_F16, "{name}");
+            assert_eq!(t.dims.len(), 2, "{name}");
+            let n_in = usize::try_from(t.dims[0]).expect("dim");
+            let n_out = usize::try_from(t.dims[1]).expect("dim");
+            let raw = engine
+                .payload(t.byte_range.start, t.n_bytes.expect("bytes"))
+                .expect("payload");
+            let mut qs: Vec<QuantAct> = Vec::with_capacity(k);
+            let mut c = 0usize;
+            while c < k {
+                // Representative hidden-state magnitude: |x| near 2^{34} in Q32.32, deterministic.
+                let mut x: Vec<i64> = Vec::with_capacity(n_in);
+                let mut j = 0usize;
+                while j < n_in {
+                    let v = (((j * 2_654_435_761usize + c * 40503) % 2049) as i64 - 1024) << 24;
+                    x.push(v);
+                    j += 1;
+                }
+                qs.push(crate::engine::chart::quant_act(&x).expect("quant"));
+                c += 1;
+            }
+            let tile = f16_tile(raw, n_out, n_in, 3).expect("tile");
+            let got = f16_project(&tile, &qs).expect("projection");
+            let mut max_dev: i128 = 0;
+            let mut max_a: u64 = 0;
+            let mut max_b: u64 = 0;
+            let mut c = 0usize;
+            while c < k {
+                let want = matvec_q8act(
+                    crate::format::quant::GGML_TYPE_F16,
+                    raw,
+                    n_out,
+                    n_in,
+                    &qs[c],
+                )
+                .expect("oracle");
+                let mut i = 0usize;
+                while i < n_out {
+                    let d = (i128::from(got[c][i]) - i128::from(want[i])).abs();
+                    if d > max_dev {
+                        max_dev = d;
+                    }
+                    i += 1;
+                }
+                let mut b = 0usize;
+                while b < qs[c].scales().len() {
+                    let w = qs[c].scales()[b].unsigned_abs().saturating_mul(127);
+                    if w > max_b {
+                        max_b = w;
+                    }
+                    b += 1;
+                }
+                c += 1;
+            }
+            let mut i = 0usize;
+            while i < n_out * n_in {
+                let h = u16::from_le_bytes([raw[2 * i], raw[2 * i + 1]]);
+                let (m, kk) = super::super::pow2::f16_split(h).expect("finite");
+                let w = (i64::from(m).unsigned_abs()) << kk;
+                if w > max_a {
+                    max_a = w;
+                }
+                i += 1;
+            }
+            let bound = bound_ulps(n_in, 3, max_a, max_b);
+            println!(
+                "{name}: n_out {n_out} n_in {n_in} max|C_limb-C_scalar| {max_dev} words, \
+                 bound {bound}, relative {:.3e}",
+                max_dev as f64 / bound as f64
+            );
+            assert!(max_dev <= bound, "{name}: {max_dev} > {bound}");
         }
     }
 }
