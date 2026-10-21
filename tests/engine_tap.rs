@@ -5,7 +5,7 @@
 //! single-token public path, and (b) the tapped `attn_norm` output is exactly the engine's own
 //! `RMSNorm` recomputed from the tapped residual input.
 //!
-//! Board: (post-`RoPE` q/k/v tap stages).
+//! Board: (post-`RoPE` q/k/v and pre-activation gate/up tap stages).
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -16,7 +16,7 @@
 )]
 
 use apeiron::engine::loader::Engine;
-use apeiron::engine::{rms_norm_fixed, KernelMode, KvState};
+use apeiron::engine::{rms_norm_fixed, silu_fixed, KernelMode, KvState};
 use apeiron::format::quant;
 
 /// Stage slots of the tapped rows, in the order `prefill_tap_cols` returns them.
@@ -28,9 +28,16 @@ const STAGE_M: usize = 4;
 const STAGE_Q: usize = 5;
 const STAGE_K: usize = 6;
 const STAGE_V: usize = 7;
+const STAGE_GATE: usize = 8;
+const STAGE_UP: usize = 9;
+/// The stage count `Tap::new` allocates.
+const STAGE_COUNT: usize = 10;
 
 const F_E: usize = 8;
 const F_FF: usize = 16;
+/// The `Q8_0`-FFN fixture's width and hidden rows (one 32-input block per weight row).
+const Q8_E: usize = 32;
+const Q8_FF: usize = 32;
 const F_Q: usize = 8;
 const F_KO: usize = 4;
 
@@ -99,6 +106,30 @@ fn f16_weight(rows: usize, cols: usize, salt: usize) -> Vec<u8> {
     b
 }
 
+/// A deterministic `Q8_0` payload of `rows` rows of `cols` inputs (`cols` a multiple of 32):
+/// every 34-byte block is the `f16` scale `2^-10` then 32 codes in `{-8..=8}`.
+fn q8_0_weight(rows: usize, cols: usize, salt: usize) -> Vec<u8> {
+    assert_eq!(cols % 32, 0, "a Q8_0 block is 32 inputs");
+    let scale = f16_round(1.0 / 1024.0).to_le_bytes();
+    let mut b: Vec<u8> = Vec::with_capacity(rows * (cols / 32) * 34);
+    let mut r = 0usize;
+    while r < rows {
+        let mut blk = 0usize;
+        while blk < cols / 32 {
+            b.extend_from_slice(&scale);
+            let mut j = 0usize;
+            while j < 32 {
+                let code = i32::try_from((r * 5 + blk * 3 + j + salt * 7) % 17).expect("small") - 8;
+                b.push(code as i8 as u8);
+                j += 1;
+            }
+            blk += 1;
+        }
+        r += 1;
+    }
+    b
+}
+
 /// An all-`1.0` `F32` vector of `n` gains.
 fn f32_gain(n: usize) -> Vec<u8> {
     let mut b: Vec<u8> = Vec::with_capacity(n * 4);
@@ -110,75 +141,88 @@ fn f32_gain(n: usize) -> Vec<u8> {
     b
 }
 
-/// One full dense `qwen2` layer plus the head.
+/// One full dense `qwen2` layer plus the head, of width `e` with `ff` hidden rows.
+///
+/// With `q8_ffn`, the gate and up projections are `Q8_0` (`e` a multiple of 32), so the pooled
+/// prefill takes the fused `gemm_q8_0_swiglu_carrier` branch; otherwise they are `F16`, which takes
+/// the separate gate/up/`SwiGLU` branch.
 #[allow(clippy::too_many_lines, reason = "one tabular fixture")]
-fn build_layer_gguf() -> Vec<u8> {
+fn build_layer_gguf_with(e: usize, ff: usize, q8_ffn: bool) -> Vec<u8> {
+    let (q, ko) = (e, e / 2);
+    let (ffn_ty, gate_payload, up_payload) = if q8_ffn {
+        (
+            quant::GGML_TYPE_Q8_0,
+            q8_0_weight(ff, e, 5),
+            q8_0_weight(ff, e, 6),
+        )
+    } else {
+        (
+            quant::GGML_TYPE_F16,
+            f16_weight(ff, e, 5),
+            f16_weight(ff, e, 6),
+        )
+    };
     let ts: Vec<(&str, Vec<u64>, u32, Vec<u8>)> = vec![
         (
             "blk.0.attn_norm.weight",
-            vec![u(F_E)],
+            vec![u(e)],
             quant::GGML_TYPE_F32,
-            f32_gain(F_E),
+            f32_gain(e),
         ),
         (
             "blk.0.attn_q.weight",
-            vec![u(F_E), u(F_Q)],
+            vec![u(e), u(q)],
             quant::GGML_TYPE_F16,
-            f16_weight(F_Q, F_E, 1),
+            f16_weight(q, e, 1),
         ),
         (
             "blk.0.attn_k.weight",
-            vec![u(F_E), u(F_KO)],
+            vec![u(e), u(ko)],
             quant::GGML_TYPE_F16,
-            f16_weight(F_KO, F_E, 2),
+            f16_weight(ko, e, 2),
         ),
         (
             "blk.0.attn_v.weight",
-            vec![u(F_E), u(F_KO)],
+            vec![u(e), u(ko)],
             quant::GGML_TYPE_F16,
-            f16_weight(F_KO, F_E, 3),
+            f16_weight(ko, e, 3),
         ),
         (
             "blk.0.attn_output.weight",
-            vec![u(F_E), u(F_E)],
+            vec![u(e), u(e)],
             quant::GGML_TYPE_F16,
-            f16_weight(F_E, F_E, 4),
+            f16_weight(e, e, 4),
         ),
         (
             "blk.0.ffn_norm.weight",
-            vec![u(F_E)],
+            vec![u(e)],
             quant::GGML_TYPE_F32,
-            f32_gain(F_E),
+            f32_gain(e),
         ),
         (
             "blk.0.ffn_gate.weight",
-            vec![u(F_E), u(F_FF)],
-            quant::GGML_TYPE_F16,
-            f16_weight(F_FF, F_E, 5),
+            vec![u(e), u(ff)],
+            ffn_ty,
+            gate_payload,
         ),
-        (
-            "blk.0.ffn_up.weight",
-            vec![u(F_E), u(F_FF)],
-            quant::GGML_TYPE_F16,
-            f16_weight(F_FF, F_E, 6),
-        ),
+        ("blk.0.ffn_up.weight", vec![u(e), u(ff)], ffn_ty, up_payload),
         (
             "blk.0.ffn_down.weight",
-            vec![u(F_FF), u(F_E)],
+            vec![u(ff), u(e)],
             quant::GGML_TYPE_F16,
-            f16_weight(F_E, F_FF, 7),
+            f16_weight(e, ff, 7),
         ),
         (
             "output_norm.weight",
-            vec![u(F_E)],
+            vec![u(e)],
             quant::GGML_TYPE_F32,
-            f32_gain(F_E),
+            f32_gain(e),
         ),
         (
             "token_embd.weight",
-            vec![u(F_E), u(F_FF)],
+            vec![u(e), u(ff)],
             quant::GGML_TYPE_F16,
-            f16_weight(F_FF, F_E, 9),
+            f16_weight(ff, e, 9),
         ),
     ];
     let mut b: Vec<u8> = Vec::new();
@@ -193,12 +237,12 @@ fn build_layer_gguf() -> Vec<u8> {
     kv_u32(
         &mut b,
         "qwen2.embedding_length",
-        u32::try_from(F_E).expect("small"),
+        u32::try_from(e).expect("small"),
     );
     kv_u32(
         &mut b,
         "qwen2.feed_forward_length",
-        u32::try_from(F_FF).expect("small"),
+        u32::try_from(ff).expect("small"),
     );
     let mut off = 0u64;
     for (name, dims, ty, payload) in &ts {
@@ -219,13 +263,28 @@ fn build_layer_gguf() -> Vec<u8> {
     b
 }
 
-/// Write the fixture to a per-process temp file and open it.
-fn open(tag: &str) -> (Engine, String) {
+/// The `F16`-FFN fixture the tap tests share.
+fn build_layer_gguf() -> Vec<u8> {
+    build_layer_gguf_with(F_E, F_FF, false)
+}
+
+/// The `Q8_0`-FFN fixture: width 32, 32 hidden rows, so the fused kernel's shape gate holds.
+fn build_layer_gguf_q8() -> Vec<u8> {
+    build_layer_gguf_with(Q8_E, Q8_FF, true)
+}
+
+/// Write `bytes` to a per-process temp file and open it.
+fn open_bytes(bytes: &[u8], tag: &str) -> (Engine, String) {
     let path =
         std::env::temp_dir().join(format!("apeiron_engine_tap_{}_{tag}", std::process::id()));
-    std::fs::write(&path, build_layer_gguf()).expect("write fixture");
+    std::fs::write(&path, bytes).expect("write fixture");
     let path = path.to_str().expect("utf8 temp path").to_string();
     (Engine::open(&path).expect("open fixture"), path)
+}
+
+/// Write the `F16`-FFN fixture to a per-process temp file and open it.
+fn open(tag: &str) -> (Engine, String) {
+    open_bytes(&build_layer_gguf(), tag)
 }
 
 /// The fixed-point `RMSNorm` epsilon the engine resolves from its config.
@@ -254,8 +313,8 @@ fn tap_rows_are_bit_identical_and_have_the_stage_widths() {
     assert_eq!(cols_off, cols_on, "tap changed the final columns");
     assert!(rows_off.is_empty(), "record=false allocated stage rows");
     assert_eq!(rows_on.len(), engine.config.n_layer);
-    assert_eq!(rows_on[0].len(), 8);
-    for stage in 0..8 {
+    assert_eq!(rows_on[0].len(), STAGE_COUNT);
+    for stage in 0..STAGE_COUNT {
         assert_eq!(rows_on[0][stage].len(), k, "stage {stage} column count");
     }
     for c in 0..k {
@@ -267,6 +326,8 @@ fn tap_rows_are_bit_identical_and_have_the_stage_widths() {
         assert_eq!(rows_on[0][STAGE_Q][c].len(), F_Q);
         assert_eq!(rows_on[0][STAGE_K][c].len(), F_KO);
         assert_eq!(rows_on[0][STAGE_V][c].len(), F_KO);
+        assert_eq!(rows_on[0][STAGE_GATE][c].len(), F_FF);
+        assert_eq!(rows_on[0][STAGE_UP][c].len(), F_FF);
     }
 
     // The logits from the final columns agree.
@@ -408,4 +469,115 @@ fn tap_off_path_microbench() {
         println!("round {r}: {ns:.1} ns/prefill");
     }
     let _ = std::fs::remove_file(&path);
+}
+
+/// `round(silu(gate)·up / 2^32)`, the engine's `swiglu_one` element: [`silu_fixed`], the checked
+/// `i128` product and one round-shift-32 narrowing (`src/engine/kern/gemm.rs:869`).
+fn swiglu_q32(gate: i64, up: i64) -> i64 {
+    let s = silu_fixed(gate).expect("gate inside the SiLU window");
+    let prod = i128::from(s)
+        .checked_mul(i128::from(up))
+        .expect("product inside i128");
+    i64::try_from((prod + (1_i128 << 31)) >> 32).expect("activation inside i64")
+}
+
+/// Recompute every tapped `m` word from the tapped gate and up words of the same column and return
+/// the maximum absolute word difference.
+fn gate_up_reproduction_max_abs(bytes: &[u8], tag: &str, mode: KernelMode) -> i64 {
+    let (engine, path) = open_bytes(bytes, tag);
+    let n_ff = engine.config.n_ff;
+    let tokens = [1u32, 2, 3, 4];
+    let mut st = engine.state(16).expect("state");
+    let (_, rows) = engine
+        .prefill_tap_cols(&mut st, &tokens, mode, true)
+        .expect("tapped prefill");
+    let _ = std::fs::remove_file(&path);
+    let mut max_abs = 0i64;
+    for c in 0..tokens.len() {
+        assert_eq!(rows[0][STAGE_GATE][c].len(), n_ff, "gate width column {c}");
+        assert_eq!(rows[0][STAGE_UP][c].len(), n_ff, "up width column {c}");
+        assert_eq!(rows[0][STAGE_M][c].len(), n_ff, "m width column {c}");
+        for i in 0..n_ff {
+            let h = swiglu_q32(rows[0][STAGE_GATE][c][i], rows[0][STAGE_UP][c][i]);
+            let d = (h - rows[0][STAGE_M][c][i]).abs();
+            if d > max_abs {
+                max_abs = d;
+            }
+        }
+    }
+    max_abs
+}
+
+/// The carrier worker: prints the reproduction difference for the fused (`Q8_0`) branch and the
+/// separate gate/up/`SwiGLU` (`F16`) branch under the carrier its launcher pins.
+#[test]
+#[ignore = "worker: run by tapped_gate_up_reproduce_stage_m under a pinned carrier"]
+fn gate_up_reproduction_worker() {
+    let fused = gate_up_reproduction_max_abs(&build_layer_gguf_q8(), "q8", KernelMode::Q8Act);
+    let separate = gate_up_reproduction_max_abs(&build_layer_gguf(), "f16", KernelMode::Q8Act);
+    println!("GATE_UP_FUSED_MAX_ABS={fused}");
+    println!("GATE_UP_SEPARATE_MAX_ABS={separate}");
+}
+
+/// The tapped gate and up rows put back through the engine's own `SwiGLU` reproduce the tapped
+/// [`STAGE_M`] rows exactly on the `Q32` carrier, in the fused `Q8_0` branch and in the separate
+/// gate/up/`SwiGLU` branch. The `F32` carrier reproduces them within the measured low-bit
+/// difference of at most 5 words, which is the carrier's own rounding, not a tap defect.
+///
+/// The carrier is process-global (`carrier_from_env`'s `OnceLock`) and the harness runs tests
+/// concurrently, so the measurement runs in this binary's worker under a pinned
+/// `APEIRON_F32_CARRIER` in a child process.
+#[test]
+fn tapped_gate_up_reproduce_stage_m() {
+    /// Measured maximum absolute word difference between the reproduced and tapped `m` rows on the
+    /// `F32` carrier, at the two fixtures' shapes: 5 words on the separate branch, 0 on the fused
+    /// branch (measured on 2026-10-22 on this fixture, not a general bound).
+    const F32_MAX_ABS: i64 = 5;
+    let exe = std::env::current_exe().expect("test executable");
+    let mut got: Vec<(String, i64, i64)> = Vec::new();
+    for (carrier, value) in [("q32", "0"), ("f32", "1")] {
+        let out = std::process::Command::new(&exe)
+            .args([
+                "--exact",
+                "gate_up_reproduction_worker",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("APEIRON_F32_CARRIER", value)
+            .output()
+            .expect("spawn carrier worker");
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(
+            out.status.success(),
+            "carrier {carrier} worker failed:\n{stdout}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let field = |key: &str| -> i64 {
+            stdout
+                .lines()
+                .find_map(|l| l.strip_prefix(key))
+                .unwrap_or_else(|| panic!("carrier {carrier}: no {key} in\n{stdout}"))
+                .trim()
+                .parse()
+                .expect("word difference")
+        };
+        let fused = field("GATE_UP_FUSED_MAX_ABS=");
+        let separate = field("GATE_UP_SEPARATE_MAX_ABS=");
+        println!("carrier {carrier}: fused = {fused}, separate = {separate}");
+        got.push((carrier.to_string(), fused, separate));
+    }
+    let (_, q32_fused, q32_separate) = &got[0];
+    let (_, f32_fused, f32_separate) = &got[1];
+    assert_eq!(
+        *q32_fused, 0,
+        "fused branch (Q8_0) gate/up do not reproduce m"
+    );
+    assert_eq!(
+        *q32_separate, 0,
+        "separate branch (F16) gate/up do not reproduce m"
+    );
+    assert!(
+        *f32_fused <= F32_MAX_ABS && *f32_separate <= F32_MAX_ABS,
+        "f32 carrier difference {f32_fused} / {f32_separate} exceeds the measured bound {F32_MAX_ABS}"
+    );
 }

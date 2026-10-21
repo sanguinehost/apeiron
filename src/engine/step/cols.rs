@@ -23,7 +23,7 @@ use crate::engine::chart::QuantAct;
 use crate::engine::error::{
     TensorKey, PART_ATTN_NORM, PART_FFN_NORM, PART_OUTPUT_NORM, PART_SSM_CONV1D,
 };
-use crate::engine::kern::gemm::{gemm_q8_0_group, gemm_q8_0_swiglu, GemmPart};
+use crate::engine::kern::gemm::{gemm_q8_0_group, gemm_q8_0_swiglu_carrier, GemmPart, SwigluTape};
 use crate::engine::kern::limb::{f16_project, f16_tile};
 use crate::engine::kern::matmat::matmat_q8act;
 use crate::engine::loader::{opt_slice, DecodeVectors, PayloadRef};
@@ -37,7 +37,10 @@ use crate::format::quant;
 #[path = "tap.rs"]
 pub(super) mod tap;
 
-use tap::{Tap, STAGE_ATTN_OUT, STAGE_HIDDEN_IN, STAGE_LN1_OUT, STAGE_LN2_OUT, STAGE_M};
+use tap::{
+    Tap, STAGE_ATTN_OUT, STAGE_GATE, STAGE_HIDDEN_IN, STAGE_LN1_OUT, STAGE_LN2_OUT, STAGE_M,
+    STAGE_UP,
+};
 
 /// Limbs per `F16` weight block on the engine path (K3): 21 digit bits against the 11-bit `f16`
 /// mantissa, so the block truncation `C_3 = 65·2^{−21}` is below the weights' own rounding.
@@ -922,9 +925,12 @@ impl Engine {
         self.ffn_cols_tap(li, layer, xs, sched, mode, scratch, &mut tap)
     }
 
-    /// [`Engine::ffn_cols`] with the opt-in tap: records the `SwiGLU` product (the down
-    /// projection's input) into [`STAGE_M`] before the down projection. The single-column branch
-    /// fuses the product inside `ffn_q8act_at` and leaves the stage empty.
+    /// [`Engine::ffn_cols`] with the opt-in tap: records the gate and up pre-activations the
+    /// `SwiGLU` epilogue consumes ([`STAGE_GATE`], [`STAGE_UP`]) and its product (the down
+    /// projection's input, [`STAGE_M`]) before the down projection. The fused `Q8_0` branch stores
+    /// the gate and up words from inside its epilogue; the separate gate/up/`SwiGLU` branch records
+    /// the two projection results it already holds. The single-column branch fuses the product
+    /// inside `ffn_q8act_at` and leaves [`STAGE_M`], [`STAGE_GATE`] and [`STAGE_UP`] empty.
     #[allow(
         clippy::too_many_arguments,
         reason = "the layer index, layer, columns, schedule, kernel, scratch and tap are the input"
@@ -957,16 +963,42 @@ impl Engine {
             return Ok(out);
         }
         let qs = quant_cols(xs)?;
+        // The tap's gate/up buffers, `k·n_ff` column-major words each, exist only when recording:
+        // the fused epilogue stores into them and the separate path's gate/up projections are
+        // recorded directly. Nothing is allocated on the off path.
+        let mut gate_flat: Option<Vec<i64>> = tap.as_ref().map(|_| vec![0i64; xs.len() * n_ff]);
+        let mut up_flat: Option<Vec<i64>> = tap.as_ref().map(|_| vec![0i64; xs.len() * n_ff]);
+        let tape = match (&mut gate_flat, &mut up_flat) {
+            (Some(g), Some(u)) => Some(SwigluTape {
+                gate: g.as_mut_slice(),
+                up: u.as_mut_slice(),
+            }),
+            _ => None,
+        };
         // One pooled `[W_gate; W_up]` GEMM with the `SwiGLU` epilogue when both weights are `Q8_0`
         // and the fused kernel applies; `None` keeps the separate gate/up/`SwiGLU` path, which is
         // also the refusal owner for any gate/up value the fused kernel cannot produce exactly.
-        let hs = match self.ffn_fused_swiglu(li, layer, n_ff, n_embd, &qs) {
-            Some(Ok(hs)) => hs,
+        let hs = match self.ffn_fused_swiglu(li, layer, n_ff, n_embd, &qs, tape) {
+            Some(Ok(hs)) => {
+                if let Some(t) = tap.as_mut() {
+                    if let (Some(g), Some(u)) = (gate_flat.as_ref(), up_flat.as_ref()) {
+                        t.record_flat(layer, STAGE_GATE, g, n_ff);
+                        t.record_flat(layer, STAGE_UP, u, n_ff);
+                    }
+                }
+                hs
+            }
             Some(Err(e)) => return Err(StepError::Ffn(e)),
             None => {
                 let gate =
                     self.proj_cols(li, layer, 4, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
                 let up = self.proj_cols(li, layer, 5, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
+                // The separate path holds the same pre-activations as its two projection
+                // outputs, so the tap takes them there.
+                if let Some(t) = tap.as_mut() {
+                    t.record(layer, STAGE_GATE, &gate);
+                    t.record(layer, STAGE_UP, &up);
+                }
                 let mut hs: Vec<Vec<i64>> = Vec::with_capacity(xs.len());
                 let mut c = 0usize;
                 while c < xs.len() {
@@ -990,6 +1022,11 @@ impl Engine {
     ///
     /// # Complexity
     ///
+    /// With `tape: Some`, the fused epilogue also stores the gate and up words it consumes
+    /// ([`SwigluTape`]); the returned activations are unchanged.
+    ///
+    /// # Complexity
+    ///
     /// `O(n_ff·n_in·k)` multiply-adds in one pool dispatch plus the two resident payload resolves;
     /// the gate/up matrices are not built.
     fn ffn_fused_swiglu(
@@ -999,6 +1036,7 @@ impl Engine {
         n_ff: usize,
         n_embd: usize,
         qs: &[QuantAct],
+        tape: Option<SwigluTape<'_>>,
     ) -> Option<Result<Vec<Vec<i64>>, crate::engine::FfnError>> {
         let li = li?;
         if self.hadamard().is_some() {
@@ -1017,12 +1055,14 @@ impl Engine {
             return None;
         }
         let file = self.resident();
-        gemm_q8_0_swiglu(
+        gemm_q8_0_swiglu_carrier(
             &file[gat.off..gat.off + gat.len],
             &file[uat.off..uat.off + uat.len],
             n_ff,
             n_embd,
             qs,
+            crate::engine::mixer::carrier_from_env(),
+            tape,
         )
     }
 

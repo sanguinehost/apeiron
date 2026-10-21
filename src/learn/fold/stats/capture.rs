@@ -113,8 +113,9 @@ const TAP_ATTN_OUT: usize = 2;
 const TAP_LN2_OUT: usize = 3;
 /// Stage slot of the `SwiGLU` product (`STAGE_M`).
 const TAP_M: usize = 4;
-/// Stage slots in one layer's tap (`STAGE_COUNT`).
-const TAP_STAGES: usize = 8;
+/// Stage slots in one layer's tap (`STAGE_COUNT`): the rows this capture reads plus the attention
+/// rows and the `SwiGLU` gate/up pre-activations it does not read.
+const TAP_STAGES: usize = 10;
 
 /// A refusal from the Gram capture.
 #[derive(Debug, Clone, PartialEq, Eq)]
