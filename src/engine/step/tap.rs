@@ -1,12 +1,15 @@
 //! The opt-in per-layer activation tap. Board .
 //!
-//! [`Tap`] holds, per trunk layer and per column, the ten stage inputs the activation-Gram capture
-//! reads ([`crate::learn::fold::stats::capture`]): the residual stream entering the layer, the
+//! [`Tap`] holds, per trunk layer and per column, the twelve stage inputs the activation-Gram
+//! capture reads ([`crate::learn::fold::stats::capture`]) and the backward pass needs
+//! ([`crate::learn::grad::model::backward_with_taps`]): the residual stream entering the layer, the
 //! attention-side `RMSNorm` output (the Q/K/V projection input), the output projection's input
 //! (the attention output, or the affine mixer's value output), the FFN-side `RMSNorm` output (the
 //! gate/up input), the `SwiGLU` product (the down projection's input), the attention's own
-//! post-`RoPE` query, key and value rows, and the gate and up pre-activations the `SwiGLU`
-//! epilogue consumes.
+//! post-`RoPE` query, key and value rows, the gate and up pre-activations the `SwiGLU` epilogue
+//! consumes, the residual after the attention add (the `ffn_norm` input, the reference
+//! `LayerTape.h2`), and the layer's output residual (the next layer's input; the last layer's row
+//! is the `output_norm` input, the reference `Tape.final_hidden`).
 //!
 //! The three attention rows are the words the attention reads, so a backward pass recomputes the
 //! attention probabilities from them instead of a recorded `p` (the reference saves `q, k, v,
@@ -41,8 +44,16 @@ pub(crate) const STAGE_GATE: usize = 8;
 /// Stage slot of the column's up pre-activation, `n_ff` words wide: the `SwiGLU` epilogue's
 /// multiplier.
 pub(crate) const STAGE_UP: usize = 9;
+/// Stage slot of the residual stream after the attention add and before the FFN-side `RMSNorm`,
+/// `n_embd` words wide: the `ffn_norm` input the backward pass needs (the reference
+/// `LayerTape.h2`, `rmsnorm_bwd_rows(&lt.h2, ..)`).
+pub(crate) const STAGE_H2: usize = 10;
+/// Stage slot of the layer's output residual stream, `n_embd` words wide: the FFN add's result,
+/// which is the next layer's input; the last layer's row is the `output_norm` input (the reference
+/// `Tape.final_hidden`).
+pub(crate) const STAGE_OUT: usize = 11;
 /// The number of stage slots in [`Tap::rows`].
-pub(crate) const STAGE_COUNT: usize = 10;
+pub(crate) const STAGE_COUNT: usize = 12;
 
 /// One pass's captured stage inputs, `[layer][stage][column][width]` Q32.32 rows.
 ///
