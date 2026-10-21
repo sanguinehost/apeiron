@@ -118,6 +118,9 @@ lean_lib ApeironWordBridge where
     -- Transfer admission (`Learn/Admission.lean`): the Amdahl refusal of a lane whose terms, zeroed,
     -- miss the 0.5B transfer bar or the 600 s ceiling (board row APEIRON-FORM-QUANT-W1-T01).
     `Learn.Admission,
+    -- Rate-spike verdicts (`Learn/RateSpikes.lean`): the M1 plane walk's GO/PROMISING/footprint
+    -- clauses against its receipt (board row APEIRON-QUALITY-118-W1-T01).
+    `Learn.RateSpikes,
     -- The `basis.log2`/`fixed_ln` real-value spec (`Learn/Log2.lean`): the certified `LN2_Q32` and
     -- `SQRT2_Q62` constant errors, the `ln_atanh_poly` coefficient rounding and truncation
     -- remainder, the normalization identity and the `|s| ≤ 1/3` range. The composition is named

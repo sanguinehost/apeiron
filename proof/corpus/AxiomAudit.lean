@@ -97,6 +97,7 @@ import Learn.Solve.Wsyrk
 import Learn.Solve.WsyrkWitness
 import Learn.QuantVerdicts
 import Learn.Admission
+import Learn.RateSpikes
 import Perf.BitsRefine
 import Numeric.Quantum.Register
 import Numeric.Quantum.RegisterRefinement
@@ -2826,3 +2827,9 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.Admission.gfeed_projection
 #audit Learn.Admission.gfeed_every_single_term_refused
 #audit Learn.Admission.nbjoint3_kill
+#audit Learn.RateSpikes.m1_go_fails
+#audit Learn.RateSpikes.m1_promising
+#audit Learn.RateSpikes.m1_a5_monotone
+#audit Learn.RateSpikes.m1_selection_control
+#audit Learn.RateSpikes.m1_all_scope_wins
+#audit Learn.RateSpikes.m1_footprint_not_rate
