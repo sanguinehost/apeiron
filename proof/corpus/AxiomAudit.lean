@@ -2803,3 +2803,7 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.bc_r2_ceiling
 #audit Learn.QuantVerdicts.bc_gptq_ratio
 #audit Learn.QuantVerdicts.bc_down_residual
+#audit Learn.QuantVerdicts.pin_truncation_beats_ridge
+#audit Learn.QuantVerdicts.pin_floor_all_rejected
+#audit Learn.QuantVerdicts.pin_retry_within_k5
+#audit Learn.QuantVerdicts.pin_limb_faster

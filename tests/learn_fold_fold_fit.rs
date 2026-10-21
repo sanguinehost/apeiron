@@ -31,9 +31,7 @@ use apeiron::learn::fold::fit::fold_fit::{
 use apeiron::learn::fold::fit::gptq_e8::gptq_e8;
 use apeiron::learn::fold::fit::icm::{e8_icm_step, nearest_index, plane_w, PlaneRef};
 use apeiron::learn::fold::fit::quant::{f16r, quant_c_u8, quant_r_hier};
-use apeiron::learn::fold::fit::steps::{
-    c_step_wshl, compose, d_step_wshl, had_gram, mul_metric, objective, r_step_wshl,
-};
+use apeiron::learn::fold::fit::steps::{compose, had_gram};
 use apeiron::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
 include!("support/fwht_oracle.rs");
 
@@ -185,7 +183,7 @@ fn metric(h: &[f64], n: usize, ridge: f64) -> Vec<f64> {
 /// `J(Ws, Wp, Hl)` of a returned `Wp`.
 fn wp_objective(ws: &[f64], h: &[f64], o: usize, n: usize, wp: &[f64]) -> f64 {
     let hl = metric(h, n, from_grid(production_cfg().ridge));
-    from_grid(objective(&qw(ws), &qw(wp), &qw(&hl), o, n).expect("objective"))
+    from_grid(xref::objective(&qw(ws), &qw(wp), &qw(&hl), o, n).expect("objective"))
 }
 
 /// A value on the Q32.32 grid: `round(x·2³²)` exists and is within the grid range.
@@ -477,14 +475,18 @@ fn learn_fold_fold_fit_g_row_changes_the_result() {
 ///
 /// # The bound
 ///
-/// The oracle (`ref_fold_fit`, the `f64` body at base `9f440192`) reproduces the recorded run to
-/// `1e-9` relative. The migrated body is the oracle's Q32.32 image: at most `R = 64` carrier
-/// roundings (`3` refit passes × ~12 plane writes, plus ~12 in the pack phase) each move an entry
-/// by at most `2⁻³³` relative, the c/d normal systems square the Toeplitz Gram's conditioning
-/// (≤ `2⁹` for `rho = 0.4`, `n = 256`), and the fit's `≤ 5` passes compose those: the stated bound
-/// is `R·2⁻³³·2⁹·5 ≈ 1.9e-5` relative, taken as `2e-5·(1+|J|)`. The recorded pins are the
-/// oracle's values, so the migration cannot move the sensor: a change in the alternation or the
-/// pack rule moves `J` by `O(1)`, four orders above this bound.
+/// The oracle (`ref_fold_fit`) is the pre-port `steps.rs` arm (`xref`: exact `i128` contraction,
+/// one rounding per entry), copied into this test, so this comparison binds two different bodies.
+/// It reproduces the recorded run to `1e-9` relative. The ported body is the oracle's Q32.32 image
+/// plus one ridge floor: `R = 64` carrier roundings (`3` refit passes × ~12 plane writes, plus ~12
+/// in the pack phase) each move an entry by at most `2⁻³³` relative, the c/d normal systems square
+/// the Toeplitz Gram's conditioning (≤ `2⁹` for `rho = 0.4`, `n = 256`), `≤ 5` passes compose
+/// those, and the normal systems' ridge is floored at the limb product's own per-entry truncation
+/// (`steps::limb_error_floor`, `C₃ = 65·2⁻²¹` of the filled matrix's maximum) when, and only when,
+/// the script's ridge cannot certify a pivot; on these fixtures the first factorisation succeeds, so
+/// the floor does not bind and the ported `J` is the rounding sum's `1.9e-5`. The stated bound is
+/// `2e-5·(1+|J|)`. A change in the
+/// alternation or the pack rule moves `J` by `O(1)`, four orders above this bound.
 #[test]
 fn learn_fold_fold_fit_production_numbers_are_pinned() {
     let (o, n, ws, h, fit) = run();
@@ -608,6 +610,19 @@ fn ref_parity_signs(d: &[f64], n: usize) -> Vec<f64> {
     sign
 }
 
+/// The exact reference arm: the pre-port `steps.rs` bodies (base `7a56eb47`, sha256
+/// `8b43418206b454182b09372debb939c49d72d12f6e1311a0674b81d7e886c7c8`) copied into the test with the
+/// `x` prefix, so `ref_fold_fit` compares the limb port against a body that shares **no** product
+/// with `src`: every contraction below is an exact `i128` accumulation rounded once per entry, and
+/// [`apeiron::learn::solve::syrk::wsyrk`]/`gemm_nn` are not called. `fwht_words` and `had_gram` stay
+/// `src` (`src/learn/fold/fit/steps.rs`): they are transforms, not products, and the port did not
+/// move them. Test-only; nothing on the crate's build path runs this.
+// The copies keep the deleted bodies' signatures and shifts verbatim, so the port is measured
+// against the body it replaced rather than a reshaped variant of it.
+#[allow(clippy::too_many_arguments, clippy::cast_possible_wrap)]
+#[path = "support/fold_fit_xref.rs"]
+mod xref;
+
 fn ref_fold_fit(
     ws: &[f64],
     h: &[f64],
@@ -649,7 +664,7 @@ fn ref_fold_fit(
     // One metric product `Ws·Hl` for the whole fit: every `c`/`r`/`d` step below reuses it, so the
     // redundant per-step `mul_metric` calls collapse to one. Same refusal path as the first step's
     // internal product.
-    let wshl = uw(&mul_metric(&qw(ws), &qw(&hl), o, n)?);
+    let wshl = uw(&xref::mul_metric(&qw(ws), &qw(&hl), o, n)?);
     let idx_zero = vec![0_u16; o * nb];
 
     // Step 2: the `gptq_e8` candidate (lines 843–860).
@@ -671,7 +686,7 @@ fn ref_fold_fit(
     let d0 = vec![1.0_f64; n];
     let s0 = fwht128(&s_rot0)?;
     let wq0 = uw(&compose(&qw(&s0), &qw(&r0), &qw(&c0), o, n)?);
-    let j0 = from_grid(objective(&qw(ws), &qw(&wq0), &qw(&hl), o, n)?);
+    let j0 = from_grid(xref::objective(&qw(ws), &qw(&wq0), &qw(&hl), o, n)?);
 
     let mut cands: Vec<RefCand> = vec![RefCand {
         j: j0,
@@ -691,7 +706,7 @@ fn ref_fold_fit(
     let mut c_cur = cands[0].c.clone();
     let mut d_cur = cands[0].d.clone();
     for _ in 0..cfg.inner_iters {
-        c_cur = uw(&c_step_wshl(
+        c_cur = uw(&xref::c_step_wshl(
             &qw(ws),
             &qw(&hl),
             &qw(&wshl),
@@ -708,7 +723,7 @@ fn ref_fold_fit(
         for v in &mut r_cur {
             *v *= smean;
         }
-        r_cur = uw(&r_step_wshl(
+        r_cur = uw(&xref::r_step_wshl(
             &qw(ws),
             &qw(&hl),
             &qw(&wshl),
@@ -718,7 +733,7 @@ fn ref_fold_fit(
             n,
         )?);
 
-        let d_new = uw(&d_step_wshl(
+        let d_new = uw(&xref::d_step_wshl(
             &qw(ws),
             &qw(&hl),
             &qw(&wshl),
@@ -767,7 +782,7 @@ fn ref_fold_fit(
         let mut rotated = s_rot.clone();
         ref_scale_columns(&mut rotated, o, n, &d_cur);
         s_cur = fwht128(&rotated)?;
-        r_cur = uw(&r_step_wshl(
+        r_cur = uw(&xref::r_step_wshl(
             &qw(ws),
             &qw(&hl),
             &qw(&wshl),
@@ -778,7 +793,7 @@ fn ref_fold_fit(
         )?);
     }
     let wq1 = uw(&compose(&qw(&s_cur), &qw(&r_cur), &qw(&c_cur), o, n)?);
-    let j1 = from_grid(objective(&qw(ws), &qw(&wq1), &qw(&hl), o, n)?);
+    let j1 = from_grid(xref::objective(&qw(ws), &qw(&wq1), &qw(&hl), o, n)?);
     cands.push(RefCand {
         j: j1,
         tag: FoldFitTag::Refit0,
@@ -809,7 +824,7 @@ fn ref_fold_fit(
     ref_scale_columns(&mut rotated, o, n, &dh);
     let s_dh = fwht128(&rotated)?;
     let rh_hier = quant_r_hier(
-        &r_step_wshl(
+        &xref::r_step_wshl(
             &qw(ws),
             &qw(&hl),
             &qw(&wshl),
@@ -823,7 +838,7 @@ fn ref_fold_fit(
     )?;
     let bits_r = rh_hier.bits;
     let rh = uw(&rh_hier.rq);
-    let c_ref = uw(&c_step_wshl(
+    let c_ref = uw(&xref::c_step_wshl(
         &qw(ws),
         &qw(&hl),
         &qw(&wshl),
@@ -836,7 +851,7 @@ fn ref_fold_fit(
     let (ch, bits_c) = quant_c_u8(&qw(&c_ref), 6)?;
     let ch = uw(&ch);
     let mut wp = uw(&compose(&qw(&s_dh), &qw(&rh), &qw(&ch), o, n)?);
-    let mut j_wp = from_grid(objective(&qw(ws), &qw(&wp), &qw(&hl), o, n)?);
+    let mut j_wp = from_grid(xref::objective(&qw(ws), &qw(&wp), &qw(&hl), o, n)?);
     let mut pack_s_rot = s_rot_best.clone();
     let mut pack_rh = rh;
     let mut pack_ch = ch;
@@ -861,7 +876,7 @@ fn ref_fold_fit(
         ref_scale_columns(&mut rotated, o, n, &pack_dh);
         let s_dh_q = fwht128(&rotated)?;
         let rh_q = quant_r_hier(
-            &r_step_wshl(
+            &xref::r_step_wshl(
                 &qw(ws),
                 &qw(&hl),
                 &qw(&wshl),
@@ -876,7 +891,7 @@ fn ref_fold_fit(
         .rq;
         let rh_q = uw(&rh_q);
         let ch_q = quant_c_u8(
-            &c_step_wshl(
+            &xref::c_step_wshl(
                 &qw(ws),
                 &qw(&hl),
                 &qw(&wshl),
@@ -891,7 +906,7 @@ fn ref_fold_fit(
         .0;
         let ch_q = uw(&ch_q);
         let wp_q = uw(&compose(&qw(&s_dh_q), &qw(&rh_q), &qw(&ch_q), o, n)?);
-        let j_q = from_grid(objective(&qw(ws), &qw(&wp_q), &qw(&hl), o, n)?);
+        let j_q = from_grid(xref::objective(&qw(ws), &qw(&wp_q), &qw(&hl), o, n)?);
         if j_q < j_wp {
             j_wp = j_q;
             wp = wp_q;
@@ -905,7 +920,7 @@ fn ref_fold_fit(
     // The un-`d` fallback candidate (lines 960–967).
     {
         let s_1 = fwht128(&s_rot_cur)?;
-        let r_1 = uw(&r_step_wshl(
+        let r_1 = uw(&xref::r_step_wshl(
             &qw(ws),
             &qw(&hl),
             &qw(&wshl),
@@ -916,7 +931,7 @@ fn ref_fold_fit(
         )?);
         let rh_1 = uw(&quant_r_hier(&qw(&r_1), o, g)?.rq);
         let ch_1 = quant_c_u8(
-            &c_step_wshl(
+            &xref::c_step_wshl(
                 &qw(ws),
                 &qw(&hl),
                 &qw(&wshl),
@@ -931,7 +946,7 @@ fn ref_fold_fit(
         .0;
         let ch_1 = uw(&ch_1);
         let wp_1 = uw(&compose(&qw(&s_1), &qw(&rh_1), &qw(&ch_1), o, n)?);
-        if from_grid(objective(&qw(ws), &qw(&wp_1), &qw(&hl), o, n)?) < j_wp {
+        if from_grid(xref::objective(&qw(ws), &qw(&wp_1), &qw(&hl), o, n)?) < j_wp {
             wp = wp_1;
             pack_s_rot = s_rot_cur;
             pack_rh = rh_1;
@@ -1005,30 +1020,60 @@ impl WitnessLcg {
 /// `round(x·2³²)` of the same real fixture.
 const WITNESS_WP: [u64; 3] = [
     0xb538_94be_bd5f_fc80,
-    0xcb7a_c296_067d_4b7a,
+    0xa3f1_3a3d_bb72_0fd6,
     0xc493_8987_0d01_8f31,
 ];
+/// Seed `0x3d3d0002`'s pre-re-pin digest was `0xcb7a_c296_067d_4b7a`; the other two are unchanged.
+/// The K5 table behind the re-pin (limb against the exact arm on the same words, `n xref`):
+/// `J = 210574216632 / 204105833529 / 207964608657` words against the arm's
+/// `210574216632 / 204105833402 / 207964608657`, i.e. `0`, `6.2e-10` and `0` relative, with every
+/// `s_rot` code word identical (`1024/1024`) on all three seeds.
+const _WITNESS_REPIN: () = ();
 
-/// The flip onto Q32.32 words moved no value: `fold_fit`'s `wp` words hash to the digests recorded
-/// through the declared-`f64` wrapper before the flip, on three fixtures. A digest that moves names
-/// the crossing that rounded: the weight or Hessian grid conversion, the `gptq_e8` scale, or a step
-/// boundary.
+/// The `wp` word digests of the ported body per seed, re-pinned under §0 K5 after the ridge floor:
+/// the pre-floor digests were `0xb538_94be_bd5f_fc80`, `0xcb7a_c296_067d_4b7a`, `0xc493_8987_0d01_8f31`
+/// (the values recorded through the pre-port `f64` wrapper). `fold_fit` is the only body that moved:
+/// the floor raises the c/d normal systems' ridge where the script's `1e-12·mean(diag A)` sits below
+/// the limb product's own per-entry truncation (`steps::limb_error_floor`), so a system the exact
+/// arm factorises is not refused `NotPositiveDefinite`.
 #[test]
 fn fold_fit_words_are_bit_identical_to_the_recorded_f64_wrapper() {
     let (o, n) = (4usize, 256usize);
     let h = toeplitz(n, 0.4);
     let hq = qw(&h);
+    let hl = xref::metric_words(&h, n, production_cfg().ridge);
     for (i, seed) in [0x3D3D_0001u64, 0x3D3D_0002, 0x3D3D_0003]
         .iter()
         .enumerate()
     {
         let mut rng = WitnessLcg(*seed);
         let w: Vec<f64> = (0..o * n).map(|_| rng.uniform(-1.0, 1.0)).collect();
-        let fit = fold_fit(&qw(&w), &hq, o, n, None, &production_cfg()).expect("fit");
+        let wq = qw(&w);
+        let fit = fold_fit(&wq, &hq, o, n, None, &production_cfg()).expect("fit");
+        // K5 before the re-pin: the held-out metric limb against the exact arm, on the same words.
+        let ex = ref_fold_fit(&w, &h, o, n, None, &production_cfg()).expect("exact arm");
+        let j_limb = xref::objective(&wq, &fit.wp, &hl, o, n).expect("J limb");
+        let j_exact = xref::objective(&wq, &qw(&ex.wp), &hl, o, n).expect("J exact");
+        let agree = fit
+            .pack
+            .s_rot
+            .iter()
+            .zip(&qw(&ex.pack.s_rot))
+            .filter(|(a, b)| a == b)
+            .count();
+        let rel = (j_limb - j_exact).abs() as f64 / (1.0 + (j_exact as f64).abs());
+        eprintln!(
+            "seed {seed:#x}: J limb {j_limb} exact {j_exact} rel {rel:e}; s_rot {agree}/{} words agree",
+            o * n
+        );
+        assert!(
+            rel <= 1e-4,
+            "seed {seed:#x}: J {j_limb} vs exact arm {j_exact} is {rel:e} relative, above the K5 bound"
+        );
         assert_eq!(
             fnv_words(&fit.wp),
             WITNESS_WP[i],
-            "seed {seed:#x}: wp words moved from the recorded f64 wrapper"
+            "seed {seed:#x}: wp words moved from the K5 re-pin"
         );
     }
 }
