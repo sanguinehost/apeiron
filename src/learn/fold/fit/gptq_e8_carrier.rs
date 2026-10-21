@@ -19,6 +19,8 @@
 )]
 
 use super::gptq_e8::{GptqE8Error, BLOCK, E8_SCALE, GROUP};
+use crate::engine::chart::pool::{for_chunks2, width_global};
+use crate::engine::chart::task::Task2;
 use crate::learn::solve::chol::SolveError;
 use crate::learn::solve::inv::inv_factor_upper;
 use crate::learn::solve::q32::{ilog2_pos, round_q32_even, rshift_rne, Fx, Q32Error, SpdQ};
@@ -547,24 +549,42 @@ pub(super) fn project_scale_int(
     Ok((a_new, e_new))
 }
 
+/// The pool admission unit of [`inter_group_feedback`], in the `o·gs·(n − g1)` checked `i128` terms
+/// one call adds: the `down` group is `5.4·10^8` terms and the whole call `1.03·10^10`. A short group
+/// stays on the serial row loop, which is the same [`feedback_row`] body.
+const FEEDBACK_POOL_MIN_OPS: usize = 1 << 20;
+
 /// `wk[:, g1:] -= E·U[g0:g1, g1:]` on the integer working rows: `e` is the group's `Fx` residual
 /// (`o × gs`), `wm` the row-major `o × n` mantissas at the per-row exponents `e_row` and
 /// `U_jc = hat[(g0+j)·n + c]·2^-32·2^-d_c`. Per stored entry the `gs` products are one exact `i128`
 /// accumulation and the update is **one** round-to-nearest to the row's grid `2^e_row`, with the
 /// row exponent rising by one (all mantissas halved with RNE) only at `|m| < 2^62`.
 ///
+/// Rows are independent: row `r` reads only `e[r·gs..]`, `u` and its own `wm[r·n..]`/`e_row[r]`, and
+/// nothing is reduced across rows. Above [`FEEDBACK_POOL_MIN_OPS`] the rows are split between
+/// `width_global()` contiguous bands of [`feedback_row`] calls through [`for_chunks2`], and the pool
+/// entry returns the lowest failing band's [`GptqE8Error`]; below it the same body runs serially over
+/// `r`. The dispatch holds the process pool's serializing lock, so the caller must not itself be a
+/// pool task: the fit path reaches it from the driver thread (`fold_fit` → `gptq_e8`).
+///
 /// # Errors
 ///
-/// [`GptqE8Error::ShapeMismatch`] or [`GptqE8Error::Overflow`].
+/// [`GptqE8Error::ShapeMismatch`], or [`GptqE8Error::Overflow`] from a checked `i128` operation. The
+/// pool form reports the lowest failing row's variant; those partial writes are not observable, as
+/// every caller discards `wm`/`e_row` on `Err`.
 ///
 /// # Complexity
 ///
-/// Temporal `O(o·gs·(n − g1))` checked `i128` multiply-adds; spatial `O(1)` beyond the row.
+/// Temporal `O(o·gs·(n − g1))` checked `i128` multiply-adds: `o` rows × `gs` residual entries × `tail`
+/// columns, one multiply, one shift and one add per term, plus one `O(n)` RNE halving of the row per
+/// headroom event. The measure is multiply-adds; the derivation is the three loops of [`feedback_row`],
+/// whose `j` loop is hoisted over `t` so each `hat` row segment is read once, contiguously. Spatial
+/// `O(n)` beyond the buffers: the per-row `tail`-word accumulator.
 #[allow(
     clippy::too_many_arguments,
     reason = "one distinct buffer and geometry value per parameter; the call sites name them"
 )]
-pub(super) fn inter_group_feedback(
+pub fn inter_group_feedback(
     wm: &mut [i64],
     e_row: &mut [i32],
     e: &[Fx],
@@ -584,58 +604,165 @@ pub(super) fn inter_group_feedback(
     }
     let o = e_row.len();
     let tail = n - g1;
-    for r in 0..o {
-        // The shared exponent of this row's residual terms.
-        let mut emin = i32::MAX;
-        for j in 0..gs {
-            let x = &e[r * gs + j];
-            if x.m != 0 {
-                emin = emin.min(x.e);
-            }
+    if o.saturating_mul(gs).saturating_mul(tail) < FEEDBACK_POOL_MIN_OPS {
+        let mut acc = vec![0i128; tail];
+        for r in 0..o {
+            feedback_row(
+                &mut wm[r * n..(r + 1) * n],
+                &mut e_row[r],
+                &e[r * gs..(r + 1) * gs],
+                u,
+                n,
+                g0,
+                gs,
+                &mut acc,
+            )?;
         }
-        let emin = if emin == i32::MAX { 0 } else { emin };
-        for t in 0..tail {
-            let c = g1 + t;
-            let dc = u.d[c];
-            let mut sum: i128 = 0;
-            for j in 0..gs {
-                let h = u.hat[(g0 + j) * n + c];
-                let x = &e[r * gs + j];
-                if h == 0 || x.m == 0 {
-                    continue;
-                }
-                let pr = i128::from(x.m)
-                    .checked_mul(i128::from(h))
-                    .ok_or(GptqE8Error::Overflow)?;
-                let term = shift_left_i128(pr, x.e - emin).ok_or(GptqE8Error::Overflow)?;
-                sum = sum.checked_add(term).ok_or(GptqE8Error::Overflow)?;
+        return Ok(());
+    }
+    let chunk_rows = o.div_ceil(width_global()).max(1);
+    let rows = FeedbackRows {
+        e,
+        u,
+        n,
+        g0,
+        gs,
+        rows_per: chunk_rows,
+    };
+    for_chunks2(wm, chunk_rows * n, e_row, chunk_rows, &rows)
+}
+
+/// The row bands of [`inter_group_feedback`] on the engine pool: one [`feedback_row`] call per row of
+/// the band, in row order. [`Task2`] carries the task index but not the piece's start (unlike
+/// [`ChunkTask`]), so the band's first row is `t·rows_per` (`pool/chunks.rs`, `chunk_part`).
+struct FeedbackRows<'a> {
+    e: &'a [Fx],
+    u: &'a UFac,
+    n: usize,
+    g0: usize,
+    gs: usize,
+    rows_per: usize,
+}
+
+impl Task2<i64, i32, GptqE8Error> for FeedbackRows<'_> {
+    fn run(&self, t: usize, wm: &mut [i64], e_row: &mut [i32]) -> Result<(), GptqE8Error> {
+        let tail = self.n - self.g0 - self.gs;
+        let mut acc = vec![0i128; tail];
+        let first = t * self.rows_per;
+        debug_assert_eq!(e_row.len() * self.n, wm.len());
+        for (k, er) in e_row.iter_mut().enumerate() {
+            let r = first + k;
+            feedback_row(
+                &mut wm[k * self.n..(k + 1) * self.n],
+                er,
+                &self.e[r * self.gs..(r + 1) * self.gs],
+                self.u,
+                self.n,
+                self.g0,
+                self.gs,
+                &mut acc,
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// One row of [`inter_group_feedback`]: `wm[g1..] -= Σ_j e[j]·hat[(g0+j)·n + g1..]·2^(e[j].e − emin)`
+/// accumulated exactly, then written at the row grid `2^e_row` with the headroom halving. The
+/// accumulator holds the same `i128` partial sums in the same order the column loop produces: for a
+/// fixed column the terms arrive in ascending `j` either way, so hoisting `j` outside `t` changes no
+/// rounding and no overflow point. `acc` is the caller's `tail`-word scratch buffer, zeroed here.
+///
+/// # Errors
+///
+/// [`GptqE8Error::Overflow`] from a checked `i128` operation, at the same term the column loop refuses.
+///
+/// # Complexity
+///
+/// Temporal `O(gs·(n − g1))` checked `i128` multiply-adds plus `O(n)` per headroom event; spatial
+/// `O(n)` (the caller's accumulator). The measure is multiply-adds.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::manual_range_contains,
+    reason = "one buffer and geometry value per parameter, as the parent signature names them; the \
+              comparison form is the one the pinned Aeneas translates, and `Range::contains` does \
+              not appear in the extracted fragment"
+)]
+fn feedback_row(
+    wm: &mut [i64],
+    e_row: &mut i32,
+    e: &[Fx],
+    u: &UFac,
+    n: usize,
+    g0: usize,
+    gs: usize,
+    acc: &mut [i128],
+) -> Result<(), GptqE8Error> {
+    let g1 = g0 + gs;
+    let tail = n - g1;
+    let mut emin = i32::MAX;
+    for x in e {
+        if x.m != 0 {
+            emin = emin.min(x.e);
+        }
+    }
+    let emin = if emin == i32::MAX { 0 } else { emin };
+    acc.fill(0);
+    for j in 0..gs {
+        let x = &e[j];
+        if x.m == 0 {
+            continue;
+        }
+        let base = (g0 + j) * n + g1;
+        let h_row = &u.hat[base..base + tail];
+        let k = x.e - emin;
+        if k < 0 || k >= 127 {
+            // `shift_left_i128` refuses every non-zero product at this exponent; a fully zero
+            // segment raises nothing, as the column loop had it.
+            if h_row.iter().any(|&h| h != 0) {
+                return Err(GptqE8Error::Overflow);
             }
-            // `Δw = −sum·2^(emin − 32 − d_c)`, one RNE to the row grid.
-            let mut sh = i64::from(emin) - 32 - i64::from(dc) - i64::from(e_row[r]);
-            let mut v = i128::from(wm[r * n + c])
+            continue;
+        }
+        // `term = m·h·2^k`, exactly `shift_left_i128(m·h, k)` for `0 ≤ k < 127`, one per entry.
+        let f = 1_i128 << k;
+        let m = i128::from(x.m);
+        for (a, &h) in acc.iter_mut().zip(h_row) {
+            if h == 0 {
+                continue;
+            }
+            let pr = m.checked_mul(i128::from(h)).ok_or(GptqE8Error::Overflow)?;
+            let term = pr.checked_mul(f).ok_or(GptqE8Error::Overflow)?;
+            *a = a.checked_add(term).ok_or(GptqE8Error::Overflow)?;
+        }
+    }
+    for (t, &sum) in acc.iter().enumerate() {
+        let c = g1 + t;
+        let dc = u.d[c];
+        // `Δw = −sum·2^(emin − 32 − d_c)`, one RNE to the row grid.
+        let mut sh = i64::from(emin) - 32 - i64::from(dc) - i64::from(*e_row);
+        let mut v = i128::from(wm[c])
+            .checked_add(round_at(
+                sum.checked_neg().ok_or(GptqE8Error::Overflow)?,
+                sh,
+            )?)
+            .ok_or(GptqE8Error::Overflow)?;
+        if blen(v) > 62 {
+            // Headroom: halve the whole row (RNE), bump the row exponent, re-round this entry.
+            for q in 0..n {
+                let half = rshift_rne(i128::from(wm[q]), 1).ok_or(GptqE8Error::Overflow)?;
+                wm[q] = narrow_q(half)?;
+            }
+            *e_row = e_row.checked_add(1).ok_or(GptqE8Error::Overflow)?;
+            sh -= 1;
+            v = i128::from(wm[c])
                 .checked_add(round_at(
                     sum.checked_neg().ok_or(GptqE8Error::Overflow)?,
                     sh,
                 )?)
                 .ok_or(GptqE8Error::Overflow)?;
-            if blen(v) > 62 {
-                // The headroom rule: halve the whole row (RNE) and re-round this entry.
-                for q in 0..n {
-                    let cur = i128::from(wm[r * n + q]);
-                    let half = rshift_rne(cur, 1).ok_or(GptqE8Error::Overflow)?;
-                    wm[r * n + q] = narrow_q(half)?;
-                }
-                e_row[r] = e_row[r].checked_add(1).ok_or(GptqE8Error::Overflow)?;
-                sh -= 1;
-                v = i128::from(wm[r * n + c])
-                    .checked_add(round_at(
-                        sum.checked_neg().ok_or(GptqE8Error::Overflow)?,
-                        sh,
-                    )?)
-                    .ok_or(GptqE8Error::Overflow)?;
-            }
-            wm[r * n + c] = narrow_q(v)?;
         }
+        wm[c] = narrow_q(v)?;
     }
     Ok(())
 }
@@ -1012,11 +1139,12 @@ mod tests {
                   `f64` in `[-1, 1)` and to the `i64` row words"
     )]
 
-    use super::super::gptq_e8::{beam_pass, second_pass_wins, select_k, BLOCK};
+    use super::super::gptq_e8::{beam_pass, gptq_e8, second_pass_wins, select_k, BLOCK, GROUP};
     use super::{
-        feedback_u, fx_to_word, group_scale_int, inter_group_feedback, tri_upper_solve, w_to_rows,
-        Fx, UFac,
+        block_order, feedback_u, fx_to_word, group_scale_int, inter_group_feedback,
+        tri_upper_solve, w_to_rows, Fx, UFac,
     };
+    use std::time::Instant;
 
     /// `len` LCG values in `[-1, 1)` from `seed`.
     fn lcg(len: usize, seed: u64) -> Vec<f64> {
@@ -1171,5 +1299,202 @@ mod tests {
         }
         assert_ne!(w1, wm, "the feedback did not move the rows");
         assert_eq!((w1, er1), (w2, er2), "per-row calls changed the feedback");
+    }
+
+    /// [`inter_group_feedback`] above [`FEEDBACK_POOL_MIN_OPS`] — rows on the pool — writes the bits
+    /// the per-row call writes: at `(64, 512)` the whole call is pooled and each per-row call serial.
+    #[test]
+    fn inter_group_feedback_pooled_equals_the_per_row_body() {
+        let (o, n, gs) = (64usize, 512usize, GROUP);
+        let h = spd_words(n, 0x0F1A_5EED_0F1A_5EED);
+        let ufac = feedback_u(&h, n, words(&[0.05])[0]).expect("SPD factor");
+        let wm = lcg_words(o * n, 0xDEAD_BEEF_0BAD_F00D);
+        let er: Vec<i32> = (0..o).map(|r| -24 - (r % 3) as i32).collect();
+        // Distinct residual exponents, so the `2^(e_j − emin)` shift is not the identity.
+        let e: Vec<Fx> = (0..o * gs)
+            .map(|i| Fx {
+                m: 1_000_000 + i as i64,
+                e: (i % 5) as i32 - 2,
+            })
+            .collect();
+        let (mut w1, mut er1) = (wm.clone(), er.clone());
+        inter_group_feedback(&mut w1, &mut er1, &e, &ufac, n, 0, gs).expect("pooled feedback");
+        let (mut w2, mut er2) = (wm.clone(), er.clone());
+        for r in 0..o {
+            inter_group_feedback(
+                &mut w2[r * n..(r + 1) * n],
+                &mut er2[r..=r],
+                &e[r * gs..(r + 1) * gs],
+                &ufac,
+                n,
+                0,
+                gs,
+            )
+            .expect("feedback, one row");
+        }
+        assert_ne!(w1, wm, "the feedback did not move the rows");
+        assert_eq!(er1, er2, "the pooled rows changed the row exponents");
+        assert_eq!(w1, w2, "the pooled rows changed the feedback");
+    }
+
+    /// `len` words from `seed`: a dense LCG sequence in `±2^52`, the Q32.32 scale range [`w_to_rows`]
+    /// renormalises.
+    fn lcg_words(len: usize, seed: u64) -> Vec<i64> {
+        let mut state = seed;
+        (0..len)
+            .map(|_| {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                (state >> 11) as i64 - (1_i64 << 52)
+            })
+            .collect()
+    }
+
+    /// A dense symmetric strictly diagonally dominant `[n, n]` word Hessian: `h[i·n+j] = ±2^20` for
+    /// `i ≠ j`, `h[i·n+i]` the row's absolute off-diagonal sum plus `2^24`. Strict dominance makes it
+    /// positive definite (Gershgorin) and its inverse factor dense, the production Gram's shape.
+    fn spd_words(n: usize, seed: u64) -> Vec<i64> {
+        let mut state = seed;
+        let mut h = vec![0i64; n * n];
+        let mut row_abs = vec![0i128; n];
+        for i in 0..n {
+            for j in (i + 1)..n {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                let v = (((state >> 11) & 0x1F_FFFF) as i64) - (1_i64 << 20);
+                h[i * n + j] = v;
+                h[j * n + i] = v;
+                row_abs[i] += i128::from(v.abs());
+                row_abs[j] += i128::from(v.abs());
+            }
+        }
+        for i in 0..n {
+            h[i * n + i] = (row_abs[i] + (1_i128 << 24)) as i64;
+        }
+        h
+    }
+
+    /// R0 attribution (`APEIRON-FIT-GFEED-1`): the per-stage wall-clock of `gptq_e8` at `down`
+    /// (`o = 896`, `n = 4864`, `beam = 4`, `wscale`, `act_order`), in the order `gptq_e8` makes the
+    /// calls. Its private pick, scatter and unpermutation land in the residual column. `n = 1`.
+    #[test]
+    #[ignore = "measurement: --release --ignored --nocapture"]
+    fn stage_profile_down() {
+        let (o, n, beam) = (896usize, 4864usize, 4usize);
+        let ng = n.div_ceil(GROUP);
+        let damp = words(&[0.108_6])[0];
+
+        let t = Instant::now();
+        let h = spd_words(n, 0x5EED_0F1A_5EED_0F1A);
+        let w = lcg_words(o * n, 0x1234_5678_9ABC_DEF0);
+        let t_fixture = t.elapsed().as_secs_f64();
+
+        let t = Instant::now();
+        let full = gptq_e8(&w, &h, o, n, damp, true, true, beam).expect("gptq_e8");
+        let t_total = t.elapsed().as_secs_f64();
+
+        let t = Instant::now();
+        let (mut wk, mut er) = w_to_rows(&w, o, n).expect("rows");
+        let (blk_perm, _inv_blk) = block_order(&h, n).expect("order");
+        let mut perm_col = vec![0usize; n];
+        for c in 0..n {
+            perm_col[c] = blk_perm[c / BLOCK] * BLOCK + c % BLOCK;
+        }
+        let mut wk_p = vec![0i64; o * n];
+        for r in 0..o {
+            for c in 0..n {
+                wk_p[r * n + c] = wk[r * n + perm_col[c]];
+            }
+        }
+        let mut hp = vec![0i64; n * n];
+        for i in 0..n {
+            let ri = perm_col[i];
+            for c in 0..n {
+                hp[i * n + c] = h[ri * n + perm_col[c]];
+            }
+        }
+        wk.clone_from(&wk_p);
+        let t_rows_perm = t.elapsed().as_secs_f64();
+
+        let t = Instant::now();
+        let ufac = feedback_u(&hp, n, damp).expect("factor");
+        let t_u = t.elapsed().as_secs_f64();
+
+        let (mut t_scale, mut t_b1, mut t_b2, mut t_igf) = (0.0, 0.0, 0.0, 0.0);
+        let mut terms: u128 = 0;
+        for gi in 0..ng {
+            let g0 = gi * GROUP;
+            let g1 = (g0 + GROUP).min(n);
+            let gs = g1 - g0;
+            let gb = gs / BLOCK;
+            let mut gm = vec![0i64; o * gs];
+            let mut a_fx = vec![Fx { m: 0, e: 0 }; o];
+            let t = Instant::now();
+            for r in 0..o {
+                gm[r * gs..(r + 1) * gs].copy_from_slice(&wk[r * n + g0..r * n + g1]);
+                a_fx[r] =
+                    group_scale_int(&gm[r * gs..(r + 1) * gs], er[r], &ufac, g0).expect("scale");
+            }
+            t_scale += t.elapsed().as_secs_f64();
+
+            let mut s1 = vec![Fx { m: 0, e: 0 }; o * gs];
+            let mut e1 = vec![Fx { m: 0, e: 0 }; o * gs];
+            let mut i1 = vec![0u16; o * gb];
+            let t = Instant::now();
+            let a1 = beam_pass(
+                &ufac, n, g0, g1, &gm, &er, &a_fx, o, beam, true, &mut s1, &mut e1, &mut i1,
+            )
+            .expect("beam 1");
+            t_b1 += t.elapsed().as_secs_f64();
+
+            let mut s2 = vec![Fx { m: 0, e: 0 }; o * gs];
+            let mut e2 = vec![Fx { m: 0, e: 0 }; o * gs];
+            let mut i2 = vec![0u16; o * gb];
+            let t = Instant::now();
+            let _a2 = beam_pass(
+                &ufac, n, g0, g1, &gm, &er, &a1, o, beam, true, &mut s2, &mut e2, &mut i2,
+            )
+            .expect("beam 2");
+            t_b2 += t.elapsed().as_secs_f64();
+
+            if g1 < n {
+                terms += (o as u128) * (gs as u128) * ((n - g1) as u128);
+                let t = Instant::now();
+                inter_group_feedback(&mut wk, &mut er, &e1, &ufac, n, g0, gs).expect("feedback");
+                t_igf += t.elapsed().as_secs_f64();
+            }
+        }
+        let stages = [
+            ("w_to_rows+order+perm", t_rows_perm),
+            ("feedback_u", t_u),
+            ("group_scale_int", t_scale),
+            ("beam_pass 1", t_b1),
+            ("beam_pass 2", t_b2),
+            ("inter_group_feedback", t_igf),
+        ];
+        eprintln!(
+            "R0 fixture {t_fixture:.3} s | gptq_e8 total {t_total:.3} s (chk {}) | terms {terms:.3e}",
+            full.scale[0]
+        );
+        let mut sum = 0.0;
+        for (name, s) in stages {
+            sum += s;
+            eprintln!(
+                "R0 {name}: {s:.3} s = {:.1} % of total, {:.2} ns/term",
+                100.0 * s / t_total,
+                if name == "inter_group_feedback" && terms > 0 {
+                    s * 1e9 / terms as f64
+                } else {
+                    f64::NAN
+                }
+            );
+        }
+        eprintln!(
+            "R0 residual (pick+scatter+unpermute): {:.3} s = {:.1} % of total",
+            t_total - sum,
+            100.0 * (t_total - sum) / t_total
+        );
     }
 }

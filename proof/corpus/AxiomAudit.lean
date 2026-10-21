@@ -2823,3 +2823,6 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.Admission.no_speedup_of_refused
 #audit Learn.Admission.total_zero_le_set
 #audit Learn.Admission.other_le_total
+#audit Learn.Admission.gfeed_projection
+#audit Learn.Admission.gfeed_every_single_term_refused
+#audit Learn.Admission.nbjoint3_kill
