@@ -1052,6 +1052,81 @@ kernel-route hook refuses. -/
 theorem pin_defect_fix_forward :
     pinFitsParent = true ∧ pinFitsFirstBad = false ∧ pinI128After < pinI128Before := by decide
 
+/-! ## §19 `gptq_e8`'s `feedback_u` on the limb kernel: KILL, and the 52.3 s is not the factor
+
+GFACT, `tested` and `measured` on base `66ef2f9c`. The attempt moves the block-Cholesky trailing
+update of `inv_factor_upper` onto `syrk_q32` (`src/learn/solve/chol_kern.rs`, sha256 `3c56cadb…`, not
+installed). The speeds are means of 3 alternating pairs. The receipt is
+`lead-1021/GFACT/receipt.md`. Board row .
+
+Three grounds:
+1. A factor word is `≤ 2³²`, so a 32-lane block exponent is `≤ 35`, which is `⌈35/7⌉ = 5` signed-byte
+   digits. The exact product needs the pair `(4,4)`. `kept_pairs` keeps `s + t < limbs`
+   (`src/engine/kern/limb.rs:413`), so the exact product needs 9 limbs, against `MAX_LIMBS = 8`
+   (`limb.rs:86`).
+2. The diagonal solve, the panel solve and `inv_row_entry` consume the unrounded `i128` dot. The kernel
+   returns the `Q32.32` word, and 1125 of 2016 inverse entries change at `n = 129`.
+3. The one reachable stage is slower than the contract. Even an infinitely fast trailing update leaves
+   `inv_factor_upper(4864)` over `1/5` of its time, against the brief's `≥ 5×`.
+
+Re-attribution: ATTRIB timed `gptq_e8` at `down` (896, 4864) at 52.324 s (1 rep). There,
+`inv_factor_upper(4864)` is 6.312 s, so more than 80 % of that term lies outside the factor. The
+largest remaining body is the `beam_row` scan (lane BEAM-CVP). -/
+
+/-- Block exponent bound and digit width of a factor word. -/
+def gfBlockExp : ℕ := 35
+
+def gfDigitBits : ℕ := 7
+
+def gfDigits : ℕ := (gfBlockExp + gfDigitBits - 1) / gfDigitBits
+
+def gfMaxLimbs : ℕ := 8
+
+/-- Speed ratios contract/kernel in thousandths: `(n, limbs)` = (4864, 3), (4864, 8), (896, 3),
+(896, 8). -/
+def gfRatio4864L3 : ℕ := 716
+
+def gfRatio4864L8 : ℕ := 278
+
+def gfRatio896L3 : ℕ := 925
+
+def gfRatio896L8 : ℕ := 250
+
+/-- `inv_factor_upper(4864)` total and its factor stage, in ms. -/
+def gfInvTotalMs : ℕ := 6312
+
+def gfFactorMs : ℕ := 1851
+
+/-- Inverse entries that change when the dot returns as a word, of all, at `n = 129`, block `[0,64)`. -/
+def gfInvChanged : ℕ := 1125
+
+def gfInvEntries : ℕ := 2016
+
+/-- ATTRIB's `gptq_e8` time at `down`, in ms. -/
+def gfAttribDownMs : ℕ := 52324
+
+/-- **The exact product does not fit the kernel.** Five digits per operand; the pair `(4,4)` needs
+`limbs > 8`, and the kernel caps at 8. -/
+theorem gf_exact_needs_nine_limbs :
+    gfDigits = 5 ∧ gfMaxLimbs < (gfDigits - 1) + (gfDigits - 1) + 1 := by decide
+
+/-- **The word-returning dot changes the inverse.** A nonzero share of entries move. -/
+theorem gf_word_dot_moves_inverse : 0 < gfInvChanged ∧ gfInvChanged < gfInvEntries := by decide
+
+/-- **The kernel route is slower at every measured shape and limb count.** -/
+theorem gf_kernel_slower :
+    gfRatio4864L3 < 1000 ∧ gfRatio4864L8 < 1000 ∧ gfRatio896L3 < 1000 ∧ gfRatio896L8 < 1000 := by
+  decide
+
+/-- **The 5× bar is unreachable on this primitive.** With the trailing update at zero cost, the
+inverse stage alone is more than `1/5` of the total. -/
+theorem gf_ceiling_below_five : gfInvTotalMs < 5 * (gfInvTotalMs - gfFactorMs) := by decide
+
+/-- **ATTRIB's `gptq_e8` term is mostly not the factor.** More than 80 % of the 52.3 s lies outside
+`inv_factor_upper`. -/
+theorem gf_attrib_residual :
+    gfAttribDownMs * 8 < (gfAttribDownMs - gfInvTotalMs) * 10 := by decide
+
 end QuantVerdicts
 
 end Learn

@@ -2786,3 +2786,8 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.pin_oracle_drift
 #audit Learn.QuantVerdicts.pin_nb_moved_twice
 #audit Learn.QuantVerdicts.pin_defect_fix_forward
+#audit Learn.QuantVerdicts.gf_exact_needs_nine_limbs
+#audit Learn.QuantVerdicts.gf_word_dot_moves_inverse
+#audit Learn.QuantVerdicts.gf_kernel_slower
+#audit Learn.QuantVerdicts.gf_ceiling_below_five
+#audit Learn.QuantVerdicts.gf_attrib_residual
