@@ -920,6 +920,70 @@ theorem attrib_teq_premise_false :
 theorem attrib_control_two_of_three :
     attribCtrlK < 100 ∧ attribCtrlO < 100 ∧ 100 < attribCtrlGate := by decide
 
+/-! ## §17 Lazy-batch residual in `sweep_blocks` (SWEEP-LB, TEQ R1/R2), board APEIRON-ICM-W1-T03
+
+`measured`: one `e8_icm_step` sweep, `t(sweeps = 1) − t(sweeps = 0)`, 3 paired runs per shape, mean and
+`[min, max]` in milliseconds (`icm_lazy_batch_microbench`, `tests/learn_fold_icm_speed.rs`). The base arm is
+the `84f2d8d3` `icm.rs` in the lane's tree; the new arm is the lead's re-run on the live tree (`icm.rs`
+sha256 `1a2e89f9…`). GPTQ's lazy batch (Frantar et al., arXiv 2210.17323 §3) over `GROUP = 128` columns,
+row bands folded into the kernel's `m`. `tested`: `J` and every block code equal to the base arm on three
+`(64, 512)` fixtures and the `down` shape `(896, 4864)`. -/
+def sweeplbDownBase : ℕ := 26527
+
+def sweeplbDownBaseMin : ℕ := 26494
+
+def sweeplbDownNew : ℕ := 6733
+
+def sweeplbDownNewMax : ℕ := 6765
+
+def sweeplb896Base : ℕ := 1921
+
+def sweeplb896New : ℕ := 423
+
+/-- The brief's projection for the `down` sweep, in milliseconds. -/
+def sweeplbDownProj : ℕ := 6000
+
+/-- `down`, 2 sweeps: `J` of the new and base arms, and the codes that agree out of the total. -/
+def sweeplbJBase : ℕ := 6998698622758382
+
+def sweeplbJNew : ℕ := 6998698622758382
+
+def sweeplbAgree : ℕ := 544768
+
+def sweeplbBlocks : ℕ := 544768
+
+/-- `measured`: the remaining out-of-group flush at inner 128, against the 5-limb kernel at inner 4864, in
+tenths of GMAC/s. -/
+def sweeplbFlushRate : ℕ := 37
+
+def sweeplbKernelRate : ℕ := 390
+
+/-- `model`: the per-layer sweep after the change, in tenths of a second: ATTRIB's 246.5 s scaled by the
+`down` ratio's conservative bound `max_new / min_base`, rounded up. -/
+def sweeplbSweepProj : ℕ := 630
+
+/-- **The lazy batch is ≥ 3.9× on `down`, conservatively.** The worst new run is under a tenth of 39 times
+the best base run, and the `(896, 896)` shape is over 4×. -/
+theorem sweeplb_down_ratio :
+    39 * sweeplbDownNewMax ≤ 10 * sweeplbDownBaseMin ∧ sweeplbDownBaseMin ≤ sweeplbDownBase ∧
+      4 * sweeplb896New < sweeplb896Base := by decide
+
+/-- **The brief's ≤ 6 s projection is missed.** -/
+theorem sweeplb_projection_missed : sweeplbDownProj < sweeplbDownNew := by decide
+
+/-- **No re-pin.** On `down` the objective is equal and every code agrees. -/
+theorem sweeplb_exact : sweeplbJNew = sweeplbJBase ∧ sweeplbAgree = sweeplbBlocks := by decide
+
+/-- **The flush is the sweep's next term.** It runs under a tenth of the kernel's rate at full inner. -/
+theorem sweeplb_flush_residual : 10 * sweeplbFlushRate < sweeplbKernelRate := by decide
+
+/-- **The sweep no longer dominates the fit** (`model`). The projected sweep bounds ATTRIB's sweep scaled by
+the conservative ratio; the non-sweep time is over 4× it; the projected fit is still over 9× R3. -/
+theorem sweeplb_nonsweep_dominates :
+    attribSweep * sweeplbDownNewMax ≤ sweeplbDownBaseMin * sweeplbSweepProj ∧
+      4 * sweeplbSweepProj < attribNonSweep ∧
+      9 * teqR3 < attribFit - attribSweep + sweeplbSweepProj := by decide
+
 end QuantVerdicts
 
 end Learn

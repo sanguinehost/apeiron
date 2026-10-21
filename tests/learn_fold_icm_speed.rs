@@ -1,6 +1,12 @@
-//! `tests/learn_fold_icm_speed.rs` — the bit-identity witness of the `E8 ∪ O8` ICM sweep
-//! (`e8_icm_step`, `e8_joint_icm_2plane`) at `o = 64`, `n = 512` on three fixed LCG fixtures, and the
-//! release-mode microbench of the sweep's unit cost. Grade `tested`.
+//! `tests/learn_fold_icm_speed.rs`  — the witness and microbench of the `E8 ∪ O8` ICM sweep
+//! (`e8_icm_step`, `e8_joint_icm_2plane`) at `o = 64`, `n = 512` and at the production `down`
+//! shape `(o, n) = (896, 4864)`. Grade `tested`.
+//!
+//! The sweep's residual (`sweep_blocks`) updates in lazy batches: one `GROUP`-wide column batch per
+//! dispatch instead of one `BLOCK`-wide one, with the in-batch columns applied to the decisions from
+//! a running prefix. The base arm is the per-block form (`icm.rs` at `84f2d8d3`), captured by the
+//! constants below; the witness pins the two quantities the regrouping must preserve — `J` never
+//! worse and the code decisions unchanged on at least 99 % of the blocks.
 
 #![allow(
     clippy::cast_precision_loss,
@@ -12,13 +18,14 @@
     clippy::similar_names,
     clippy::too_many_arguments,
     clippy::too_many_lines,
+    clippy::type_complexity,
     clippy::unreadable_literal,
-    reason = "the LCG maps integers to `f64` by division, the flat row-major index arithmetic is the reference payload format, the representability and argmin checks are exact float comparisons, and the test helpers mirror the ported option surface"
+    reason = "the witness table pairs a recorded `J` with its disagreement rows, the LCG maps integers to `f64` by division, the flat row-major index arithmetic is the reference payload format, the representability and argmin checks are exact float comparisons, and the test helpers mirror the ported option surface"
 )]
 
 use apeiron::learn::code::e8::codeword;
 use apeiron::learn::fold::fit::icm::{
-    e8_icm_step, e8_joint_icm_2plane, JointStats, Plane, PlaneRef,
+    e8_icm_step, e8_joint_icm_2plane, j_rows, plane_w, JointStats, Plane, PlaneRef,
 };
 use apeiron::learn::solve::q32;
 
@@ -155,6 +162,18 @@ fn witness_case(seed: u64) -> (Vec<i64>, Vec<i64>, Plane, Plane) {
     (ws, hl, p1, p2)
 }
 
+/// The production `down` fixture: `(o, n) = (896, 4864)`, the same `rho = 0.37` metric.
+const DOWN_SHAPE: (usize, usize) = (896, 4864);
+
+/// One seeded `(896, 4864)` fixture: `(ws, hl, p1)`.
+fn down_case(seed: u64) -> (Vec<i64>, Vec<i64>, Plane) {
+    let (o, n) = DOWN_SHAPE;
+    let mut rng = Lcg(seed);
+    let hl = q(&toeplitz(n, 0.37));
+    let p1 = rand_plane(o, n, &mut rng);
+    (q(&rand_mat(o, n, &mut rng)), hl, p1)
+}
+
 /// FNV-1a over a plane's code words then its code indices.
 fn fnv_plane(p: &Plane) -> u64 {
     let mut d = 0xcbf2_9ce4_8422_2325u64;
@@ -168,10 +187,26 @@ fn fnv_plane(p: &Plane) -> u64 {
     d
 }
 
-/// The recorded `e8_icm_step` / `e8_joint_icm_2plane` outputs at [`WITNESS_SHAPE`], `sweeps = 2`,
+/// `J` of a returned step: the module's own objective at the plane's real weights.
+fn j_of(ws: &[i64], hl: &[i64], p: &Plane, o: usize, n: usize) -> i64 {
+    let w = plane_w(pref(p), o, n).expect("plane_w");
+    j_rows(ws, &w, hl, o, n, None).expect("j_rows")
+}
+
+// ── the base arm at `84f2d8d3` ────────────────────────────────────────────────────────────────
+//
+// The base arm is the per-block residual of `icm.rs` at `84f2d8d3`
+// (`nt_q(&chg[..moved·BLOCK], moved, &cols, n, BLOCK)` once per block per row band). Its own source
+// is not kept reachable in `src/` (§4 obligation 1: no parallel path), so its observations are the
+// captured constants below, taken by `LB_CAPTURE` on this file at that revision. Both arms agree bit
+// for bit on all four fixtures, so every disagreement list below is empty.
+/// The base arm's `e8_icm_step` / `e8_joint_icm_2plane` outputs at [`WITNESS_SHAPE`], `sweeps = 2`,
 /// `ridge = 0`: `(step s+idx digest, joint plane-1 digest, joint plane-2 digest, moves)` per seed.
-/// The optimization that hoists the row scale out of the residual update is bit-identical when
-/// these reproduce exactly.
+///
+/// The lazy batch reproduces every one of these, the step digest included: the regrouping is exact at
+/// the `Q32.32` word on these fixtures (no decision margin is inside the `2^-31`-relative limb
+/// difference), so no digest is re-pinned. `e8_joint_icm_2plane` has its own sweep, which the
+/// regrouping does not reach.
 const WITNESS: [(u64, u64, u64, usize); 3] = [
     (
         0xc55a_bd47_15e7_9ff3,
@@ -207,62 +242,156 @@ fn learn_fold_icm_sweep_outputs_are_bit_identical() {
     }
     assert_eq!(seen, WITNESS, "sweep outputs drifted");
 }
+/// The base arm's `J` and plane digest (`s` then `idx`) after
+/// `e8_icm_step(..., sweeps = 2, ridge = 0)`, per witness fixture. The digest is the code-agreement
+/// witness: it is equal exactly when every one of the `o·n/BLOCK` block codes is.
+const BASE_WITNESS: [(i64, u64); 3] = [
+    (52_156_689_818_262, 0xc55a_bd47_15e7_9ff3),
+    (53_721_755_482_564, 0x21a8_1e41_2c18_e424),
+    (50_206_656_982_787, 0x492d_b452_26fb_3436),
+];
+
+/// The base arm's `J` at the `(896, 4864)` fixture, `sweeps = 2`.
+const BASE_DOWN_J: i64 = 6_998_698_622_758_382;
+
+/// The base arm's plane digest at the `(896, 4864)` fixture, `sweeps = 2`.
+const BASE_DOWN_DIGEST: u64 = 0x0a83_7c2c_e4f2_04de;
+
+/// One lazy-batch witness row: `J` never worse than the base arm by more than one part in `1e6`, and
+/// the plane digest equal to it, i.e. **every** block code agrees (agreement `1.00000`, not `>= 0.99`
+/// — the bar the brief sets is the weaker one, and it is met with equality by construction of the
+/// regrouped sum). A moved decision moves the digest and names itself here.
+fn witness_arm(tag: &str, ws: &[i64], hl: &[i64], p: &Plane, o: usize, n: usize, base: (i64, u64)) {
+    let (base_j, base_digest) = base;
+    let step = e8_icm_step(ws, hl, pref(p), o, n, 2, 0).expect("step");
+    let j_new = j_of(ws, hl, &step, o, n);
+    let digest = fnv_plane(&step);
+    println!(
+        "lazy batch {tag}: J {j_new} vs base {base_j} ({:+.3e} relative), codes agree {}/{} = \
+         {:.5}",
+        (j_new as f64 - base_j as f64) / base_j as f64,
+        usize::from(digest == base_digest) * step.idx.len(),
+        step.idx.len(),
+        f64::from(u8::from(digest == base_digest)),
+    );
+    assert!(
+        j_new as f64 <= base_j as f64 * (1.0 + 1e-6),
+        "{tag}: J {j_new} exceeds the base arm {base_j} by more than 1e-6 relative"
+    );
+    assert_eq!(
+        digest, base_digest,
+        "{tag}: the block codes differ from the base arm's — the in-batch prefix correction is the \
+         term that holds them"
+    );
+}
+
+#[test]
+fn learn_fold_icm_lazy_batch_matches_base() {
+    let (o, n) = WITNESS_SHAPE;
+    for (i, seed) in WITNESS_SEEDS.iter().enumerate() {
+        let (ws, hl, p1, _) = witness_case(*seed);
+        witness_arm(
+            &format!("fixture {i}"),
+            &ws,
+            &hl,
+            &p1,
+            o,
+            n,
+            BASE_WITNESS[i],
+        );
+    }
+}
+
+/// The `(896, 4864)` witness: `J` and the plane digest at the production `down` shape, two sweeps.
+#[test]
+fn learn_fold_icm_lazy_batch_down_shape() {
+    let (o, n) = DOWN_SHAPE;
+    let (ws, hl, p1) = down_case(8);
+    witness_arm("down", &ws, &hl, &p1, o, n, (BASE_DOWN_J, BASE_DOWN_DIGEST));
+}
+
+/// The capture arm: the base observations the constants above hold. `LB_CAPTURE=1` prints them and
+/// returns, so the constants are never guessed.
+#[test]
+#[ignore = "capture of the base arm's observations"]
+fn icm_lazy_batch_capture() {
+    if std::env::var("LB_CAPTURE").is_err() {
+        return;
+    }
+    let (o, n) = WITNESS_SHAPE;
+    for seed in WITNESS_SEEDS {
+        let (ws, hl, p1, _) = witness_case(seed);
+        let step = e8_icm_step(&ws, &hl, pref(&p1), o, n, 2, 0).expect("step");
+        println!(
+            "CAPTURE witness {seed:#x} digest={:#018x} j={} codes={}",
+            fnv_plane(&step),
+            j_of(&ws, &hl, &step, o, n),
+            hex_codes(&step.idx)
+        );
+    }
+    let (o, n) = DOWN_SHAPE;
+    let (ws, hl, p1) = down_case(8);
+    let step = e8_icm_step(&ws, &hl, pref(&p1), o, n, 2, 0).expect("step");
+    println!(
+        "CAPTURE down digest={:#018x} j={} codes={}",
+        fnv_plane(&step),
+        j_of(&ws, &hl, &step, o, n),
+        hex_codes(&step.idx)
+    );
+}
+
+/// A plane's block codes as two hex digits each, `u16` low byte (every code is `< 256`).
+fn hex_codes(idx: &[u16]) -> String {
+    const HEX: [u8; 16] = *b"0123456789abcdef";
+    let mut s = String::with_capacity(idx.len() * 2);
+    for &v in idx {
+        s.push(HEX[usize::from(v >> 4)] as char);
+        s.push(HEX[usize::from(v & 0xf)] as char);
+    }
+    s
+}
 
 /// The ICM sweep microbench, release only:
-/// `cargo test --release --locked --test learn_fold_icm_speed -- --ignored --nocapture icm_sweep_microbench`.
+/// `cargo test --release --locked --test learn_fold_icm_speed -- --ignored --nocapture icm_lazy_batch_microbench`.
 ///
-/// `sweeps = 0` isolates the setup (metric, three products, the quad tensors); the difference to
-/// `sweeps = 9` is nine sweeps, so `ns / (row, block)` is the sweep's unit cost at `o = 64`,
-/// `n = 512` (4096 row-blocks per sweep). Paired three-run means with the observed spread.
+/// One `e8_icm_step` sweep is measured as `t(sweeps = 1) − t(sweeps = 0)`: the setup is the same
+/// call in both and cancels. Three paired reps per shape; the mean and the observed `[min, max]`.
 #[test]
 #[ignore = "release-mode microbench of the ICM sweep"]
-fn icm_sweep_microbench() {
+fn icm_lazy_batch_microbench() {
     use std::hint::black_box;
     use std::time::Instant;
-    // The sweep is measured as `t(sweeps = k) − t(sweeps = 0)`; the setup is the same call in both
-    // and cancels. Production runs `sweeps = 2`; `k = 9` shows the converged regime the change
-    // skips. A single run is a sample: three paired runs, mean and observed spread.
-    let report = |name: &str, o: usize, n: usize, k: usize, xs: &[f64]| {
-        let mean = xs.iter().sum::<f64>() / 3.0;
+    let report = |name: &str, o: usize, n: usize, xs: &[f64]| {
+        let mean = xs.iter().sum::<f64>() / xs.len() as f64;
         let min = xs.iter().copied().fold(f64::INFINITY, f64::min);
         let max = xs.iter().copied().fold(0.0, f64::max);
         println!(
-            "icm {name} o={o} n={n} sweeps={k}: {mean:.2} ns/(row,block) [{min:.2}, {max:.2}] \
-             over 3 paired runs, sweeps 0 vs {k}"
+            "icm sweep {name} o={o} n={n}: {mean:.3} s [{min:.3}, {max:.3}] over {} paired runs",
+            xs.len()
         );
     };
-    // `n = 512` and the residual-dominated `n = 2048`; both pooled over the engine's width.
-    for (o, n) in [(64usize, 512usize), (16, 2048)] {
-        let (ws, hl, p1, p2) = if (o, n) == WITNESS_SHAPE {
-            witness_case(WITNESS_SEEDS[0])
+    for (o, n, seed) in [(64usize, 512usize, 0u64), (896, 896, 1), (896, 4864, 8)] {
+        let (ws, hl, p1) = if (o, n) == WITNESS_SHAPE {
+            let (ws, hl, p1, _) = witness_case(WITNESS_SEEDS[0]);
+            (ws, hl, p1)
+        } else if (o, n) == DOWN_SHAPE {
+            down_case(seed)
         } else {
-            let mut rng = Lcg(WITNESS_SEEDS[0]);
+            let mut rng = Lcg(seed);
             let hl = q(&toeplitz(n, 0.37));
             let p1 = rand_plane(o, n, &mut rng);
-            let p2 = rand_plane(o, n, &mut rng);
-            (q(&rand_mat(o, n, &mut rng)), hl, p1, p2)
+            (q(&rand_mat(o, n, &mut rng)), hl, p1)
         };
-        let row_blocks = o * (n / BLOCK);
-        let step = |sw: usize| {
-            let t = Instant::now();
-            black_box(e8_icm_step(&ws, &hl, pref(&p1), o, n, sw, 0).expect("step"));
-            t.elapsed().as_nanos() as f64
-        };
-        let joint_run = |sw: usize| {
-            let t = Instant::now();
-            black_box(joint(&ws, &hl, pref(&p1), pref(&p2), o, n, sw, 0));
-            t.elapsed().as_nanos() as f64
-        };
-        for k in [1usize, 2, 9] {
-            let (mut step_ns, mut joint_ns) = (Vec::new(), Vec::new());
-            for _ in 0..3 {
-                let (s0, sk) = (step(0), step(k));
-                step_ns.push((sk - s0) / (k as f64 * row_blocks as f64));
-                let (j0, jk) = (joint_run(0), joint_run(k));
-                joint_ns.push((jk - j0) / (k as f64 * row_blocks as f64));
-            }
-            report("step", o, n, k, &step_ns);
-            report("joint", o, n, k, &joint_ns);
+        let mut sweeps = Vec::new();
+        for _ in 0..3 {
+            let t0 = Instant::now();
+            black_box(e8_icm_step(&ws, &hl, pref(&p1), o, n, 0, 0).expect("step"));
+            let setup = t0.elapsed().as_secs_f64();
+            let t1 = Instant::now();
+            black_box(e8_icm_step(&ws, &hl, pref(&p1), o, n, 1, 0).expect("step"));
+            let one = t1.elapsed().as_secs_f64();
+            sweeps.push(one - setup);
         }
+        report("step", o, n, &sweeps);
     }
 }

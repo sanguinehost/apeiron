@@ -2776,3 +2776,8 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.attrib_largest_terms
 #audit Learn.QuantVerdicts.attrib_teq_premise_false
 #audit Learn.QuantVerdicts.attrib_control_two_of_three
+#audit Learn.QuantVerdicts.sweeplb_down_ratio
+#audit Learn.QuantVerdicts.sweeplb_projection_missed
+#audit Learn.QuantVerdicts.sweeplb_exact
+#audit Learn.QuantVerdicts.sweeplb_flush_residual
+#audit Learn.QuantVerdicts.sweeplb_nonsweep_dominates
