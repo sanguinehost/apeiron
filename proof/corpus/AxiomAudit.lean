@@ -2833,3 +2833,8 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.RateSpikes.m1_selection_control
 #audit Learn.RateSpikes.m1_all_scope_wins
 #audit Learn.RateSpikes.m1_footprint_not_rate
+-- KW1 sign-walker clauses against its receipt (board row ).
+#audit Learn.RateSpikes.kw1_kill
+#audit Learn.RateSpikes.kw1_no_linear_won
+#audit Learn.RateSpikes.kw1_register_idle
+#audit Learn.RateSpikes.kw1_alphabet
