@@ -1235,6 +1235,71 @@ impl Engine {
         self.lm_head_fixed_sched(x, Sched::Resident, KernelMode::Exact)
     }
 
+    /// The Q32.32 logits of every residual column in `xs`: one head projection per column through
+    /// the engine's own path, with `mode` choosing the arithmetic (port-map row 7).
+    ///
+    /// [`KernelMode::Exact`] is the oracle: column `c` is
+    /// [`Engine::lm_head_fixed_sched`]`(&xs[c], Resident, Exact)`, the checked `i128` per-column
+    /// projection. [`KernelMode::Q8Act`] is the shipped head: for more than one column the whole
+    /// block runs through the engine's multi-column route ([`Engine::head_cols_kernel`]:
+    /// `matmat_q8act`/`gemm_q8_0` on a `Q8_0` head, the cached limb tile on an `F16` head), reading
+    /// the head weights once for all columns; a head of any other quant family, a folded
+    /// (`Hadamard`) model or any kernel refusal falls back to one
+    /// [`Engine::lm_head_fixed_sched`]`(&xs[c], Resident, Q8Act)` per column. The multi-column
+    /// `F16` limb route is not bit-identical to the per-column `Q8Act` path; its deviation is
+    /// bounded in `tests/engine_f16_limb.rs` (K4), not claimed equal.
+    ///
+    /// # Errors
+    ///
+    /// [`LmHeadError`]'s shape, quant, payload, length, read and matvec refusals; no clamping. A
+    /// column whose width is not `n_embd` refuses with [`LmHeadError::ShapeMismatch`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(k·vocab·n_embd)` checked multiply-adds and one dequantization per weight element; the
+    /// multi-column `Q8Act` route reads the `O(vocab·n_embd)` payload once, the per-column path
+    /// once per column; space `O(k·vocab)` logit words.
+    pub fn lm_head_cols(
+        &self,
+        xs: &[Vec<i64>],
+        mode: KernelMode,
+    ) -> Result<Vec<Vec<i64>>, LmHeadError> {
+        let n_embd = self.config.n_embd;
+        let vocab = self.config.vocab_size;
+        if xs.len() > 1 && mode == KernelMode::Q8Act {
+            let t = self.lm_head();
+            let need = lm_head::head_payload_len(t.ggml_type, &t.dims, n_embd, vocab)?;
+            let extent = t.byte_range.end - t.byte_range.start;
+            if need > extent {
+                return Err(LmHeadError::ShortPayload { need, have: extent });
+            }
+            let mut i = 0usize;
+            while i < xs.len() {
+                if xs[i].len() != n_embd {
+                    return Err(LmHeadError::ShapeMismatch {
+                        x: xs[i].len(),
+                        n_embd,
+                    });
+                }
+                i += 1;
+            }
+            let at = self
+                .payload_ref(t.byte_range.start, need)
+                .map_err(LmHeadError::Read)?;
+            let idx = self.lm_head_index();
+            if let Some(cols) = self.head_cols_kernel(idx, t.ggml_type, at, vocab, n_embd, xs) {
+                return Ok(cols);
+            }
+        }
+        let mut out = Vec::with_capacity(xs.len());
+        let mut i = 0usize;
+        while i < xs.len() {
+            out.push(self.lm_head_fixed_sched(&xs[i], Sched::Resident, mode)?);
+            i += 1;
+        }
+        Ok(out)
+    }
+
     /// [`Engine::lm_head_fixed`]'s body with the payload source and row schedule chosen by
     /// `sched`: a borrowed resident slice projected by [`super::par::matvec_rows_chunked`] under
     /// [`Sched::Resident`], an owned `read_range` copy projected by the unchunked
