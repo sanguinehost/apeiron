@@ -1,11 +1,12 @@
 //! The opt-in per-layer activation tap. Board APEIRON-QUALITY-118-W1-T01.
 //!
-//! [`Tap`] holds, per trunk layer and per column, the eight stage inputs the activation-Gram
-//! capture reads ([`crate::learn::fold::stats::capture`]): the residual stream entering the layer,
-//! the attention-side `RMSNorm` output (the Q/K/V projection input), the output projection's input
+//! [`Tap`] holds, per trunk layer and per column, the ten stage inputs the activation-Gram capture
+//! reads ([`crate::learn::fold::stats::capture`]): the residual stream entering the layer, the
+//! attention-side `RMSNorm` output (the Q/K/V projection input), the output projection's input
 //! (the attention output, or the affine mixer's value output), the FFN-side `RMSNorm` output (the
-//! gate/up input), the `SwiGLU` product (the down projection's input), and the attention's own
-//! post-`RoPE` query, key and value rows.
+//! gate/up input), the `SwiGLU` product (the down projection's input), the attention's own
+//! post-`RoPE` query, key and value rows, and the gate and up pre-activations the `SwiGLU`
+//! epilogue consumes.
 //!
 //! The three attention rows are the words the attention reads, so a backward pass recomputes the
 //! attention probabilities from them instead of a recorded `p` (the reference saves `q, k, v,
@@ -34,14 +35,22 @@ pub(crate) const STAGE_K: usize = 6;
 /// Stage slot of the column's value, `n_head_kv·head_dim` words wide (the attention's value input,
 /// and the row appended to [`crate::engine::KvState`]).
 pub(crate) const STAGE_V: usize = 7;
+/// Stage slot of the column's gate pre-activation, `n_ff` words wide: the `SiLU` argument the
+/// `SwiGLU` epilogue consumes.
+pub(crate) const STAGE_GATE: usize = 8;
+/// Stage slot of the column's up pre-activation, `n_ff` words wide: the `SwiGLU` epilogue's
+/// multiplier.
+pub(crate) const STAGE_UP: usize = 9;
 /// The number of stage slots in [`Tap::rows`].
-pub(crate) const STAGE_COUNT: usize = 8;
+pub(crate) const STAGE_COUNT: usize = 10;
 
 /// One pass's captured stage inputs, `[layer][stage][column][width]` Q32.32 rows.
 ///
 /// Every stage starts empty; a stage a schedule does not route through a tap point stays empty. The
-/// single-column FFN fuses its `SwiGLU` product inside `ffn_q8act_at`, so [`STAGE_M`] is empty
-/// there; the pooled multi-column path fills every stage.
+/// single-column FFN fuses its `SwiGLU` product inside `ffn_q8act_at`, so [`STAGE_M`] and the
+/// [`STAGE_GATE`]/[`STAGE_UP`] pre-activations are empty there; the pooled multi-column path fills
+/// every stage. The pre-activations let a backward pass recompute `silu` from the saved words
+/// (`unsloth/kernels/fast_lora.py:110` saves `X, e, g`).
 pub(crate) struct Tap {
     /// `[layer][stage][column][width]`, the stage slots named by [`STAGE_HIDDEN_IN`] and below.
     pub(crate) rows: Vec<Vec<Vec<Vec<i64>>>>,
@@ -77,6 +86,21 @@ impl Tap {
     /// `O(cols.len()·width)` words copied; `O(1)` besides the replaced rows.
     pub(crate) fn record(&mut self, layer: usize, stage: usize, cols: &[Vec<i64>]) {
         self.rows[layer][stage] = cols.to_vec();
+    }
+
+    /// Copy the column-major flat stage `flat` (`width` words per column) into stage `stage` of
+    /// `layer`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(flat.len())` words copied; `O(flat.len()/width)` row allocations. `width` must be
+    /// non-zero (`n_ff` on every call), which the caller's config guarantees.
+    pub(crate) fn record_flat(&mut self, layer: usize, stage: usize, flat: &[i64], width: usize) {
+        let mut rows: Vec<Vec<i64>> = Vec::with_capacity(flat.len() / width.max(1));
+        for col in flat.chunks(width.max(1)) {
+            rows.push(col.to_vec());
+        }
+        self.rows[layer][stage] = rows;
     }
 
     /// Append one column `row` to stage `stage` of `layer`; the per-column stages ([`STAGE_Q`],

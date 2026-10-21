@@ -35,7 +35,9 @@ use crate::engine::chart::pool::{set_written_lens, FirstErr, Flag, PBand};
 use crate::engine::chart::task::{BandTask, IndexTask, Task4};
 use crate::engine::chart::{ActMagnitude, QuantAct};
 use crate::engine::loader::PayloadRef;
-use crate::engine::mixer::{carrier_from_env, Carrier};
+#[cfg(test)]
+use crate::engine::mixer::carrier_from_env;
+use crate::engine::mixer::Carrier;
 use crate::engine::num::value::round_shift_32;
 use crate::engine::{silu_fixed, FfnError};
 use crate::format::quant::{GGML_TYPE_Q8_0, Q8_0_BLOCK_BYTES};
@@ -396,6 +398,36 @@ unsafe impl Send for SwigluPtrs {}
 // SAFETY: as above.
 #[cfg(target_arch = "x86_64")]
 unsafe impl Sync for SwigluPtrs {}
+
+/// The fused `SwiGLU` epilogue's optional gate/up word sinks: the pre-activation words the epilogue
+/// consumes, `k·n_ff` column-major words each, element `(column c, hidden index i)` at `c·n_ff + i`.
+///
+/// The tap records them so a backward pass can recompute `silu(gate)` and the product from the
+/// saved words (the reference saves the gate and up pre-activations: `unsloth/kernels/fast_lora.py:110`
+/// saves `X, e, g`). A sink shorter than `k·n_ff` makes the fused kernel return `None`, so the
+/// caller's separate gate/up path owns the output and the tap.
+pub(crate) struct SwigluTape<'a> {
+    /// `k·n_ff` gate words, column-major.
+    pub(crate) gate: &'a mut [i64],
+    /// `k·n_ff` up words, column-major.
+    pub(crate) up: &'a mut [i64],
+}
+
+/// The tapped fused epilogue's per-column gate and up sink pointers, one per column into caller
+/// buffers of at least `n_ff` words. Task `t` writes hidden indices `[t·task_rows, ...)` of every
+/// column, so one element has one writer, as [`SwigluPtrs`] argues for the output.
+#[cfg(target_arch = "x86_64")]
+struct SwigluSink {
+    gate: Vec<*mut i64>,
+    up: Vec<*mut i64>,
+}
+// SAFETY: as [`SwigluPtrs`]: disjoint row ranges per task and one pointer per column into that
+// column's own caller-held buffer; no two tasks alias an element.
+#[cfg(target_arch = "x86_64")]
+unsafe impl Send for SwigluSink {}
+// SAFETY: as above.
+#[cfg(target_arch = "x86_64")]
+unsafe impl Sync for SwigluSink {}
 
 /// A row's per-block `(m, k − k_min, 128·Σ q)` and its `k_min` and exponent spread, or `None`
 /// for a non-finite scale. The scalar definition and the oracle of `x86::row_scales_avx2`.
@@ -897,7 +929,11 @@ fn swiglu_one(gate: i64, up: i64) -> Result<i64, FfnError> {
 /// Temporal `O(n_ff·n_in·k)` exact multiply-adds — the gate and up dots — plus `O(n_ff·k)`
 /// `swiglu_one` evaluations over `⌈n_ff/task_rows⌉` pool tasks in one dispatch. Spatial
 /// `O(k·n_in)` packed activation bytes plus `O(n_ff·k)` output; no `n_ff·k` gate or up matrix.
+/// The [`Carrier`] the shell resolves once: `APEIRON_F32_CARRIER=0` selects `Q32`, anything else
+/// `F32`. Test-only entry; the step path calls [`gemm_q8_0_swiglu_carrier`] directly with the
+/// optional tape.
 #[must_use]
+#[cfg(test)]
 pub(crate) fn gemm_q8_0_swiglu(
     raw_gate: &[u8],
     raw_up: &[u8],
@@ -905,10 +941,16 @@ pub(crate) fn gemm_q8_0_swiglu(
     n_in: usize,
     qs: &[QuantAct],
 ) -> Option<Result<Vec<Vec<i64>>, FfnError>> {
-    gemm_q8_0_swiglu_carrier(raw_gate, raw_up, n_ff, n_in, qs, carrier_from_env())
+    gemm_q8_0_swiglu_carrier(raw_gate, raw_up, n_ff, n_in, qs, carrier_from_env(), None)
 }
 
-/// The fused `[W_gate; W_up]` projection with the `SwiGLU` epilogue under explicit [`Carrier`].
+/// The fused `[W_gate; W_up]` projection with the `SwiGLU` epilogue under explicit [`Carrier`],
+/// optionally writing the gate and up words it consumes into [`SwigluTape`].
+///
+/// With `tape: Some`, every `(column, hidden index)` the epilogue evaluates also stores its gate and
+/// up word, on the exact-value and the failing-lane branches alike; the returned activation is
+/// unchanged. With `tape: None` the epilogue stores nothing (one `Option` test per group) and
+/// allocates nothing.
 #[must_use]
 pub(crate) fn gemm_q8_0_swiglu_carrier(
     raw_gate: &[u8],
@@ -917,6 +959,7 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
     n_in: usize,
     qs: &[QuantAct],
     carrier: Carrier,
+    tape: Option<SwigluTape<'_>>,
 ) -> Option<Result<Vec<Vec<i64>>, FfnError>> {
     #[cfg(target_arch = "x86_64")]
     {
@@ -960,6 +1003,13 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
         }
         let ptrs = SwigluPtrs { ptrs: col_ptrs };
         let out = &ptrs;
+        // The tapped epilogue's gate/up sinks; a short buffer refuses the fused kernel, leaving
+        // the words to the caller's separate gate/up path.
+        let sink_store = match tape {
+            Some(mut tape) => Some(tape_sink(&mut tape, n_ff, k)?),
+            None => None,
+        };
+        let sink = sink_store.as_ref();
         let bad = crate::engine::chart::pool::Flag::new();
         let first: crate::engine::chart::pool::FirstErr<u128, FfnError> =
             crate::engine::chart::pool::FirstErr::new();
@@ -978,6 +1028,7 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
             packed: &packed,
             limit,
             out,
+            sink,
             first: first_ref,
             carrier,
             bad: &bad,
@@ -1002,13 +1053,38 @@ pub(crate) fn gemm_q8_0_swiglu_carrier(
     }
     #[cfg(not(target_arch = "x86_64"))]
     {
-        let _ = (raw_gate, raw_up, n_ff, n_in, qs, carrier);
+        let _ = (raw_gate, raw_up, n_ff, n_in, qs, carrier, tape);
         None
     }
 }
 
-/// The [`gemm_q8_0_swiglu_carrier`] row-task context: both payloads, the packed columns and the
-/// output pointers, the first-error slot and the refusal flag.
+/// The tapped epilogue's per-column gate/up pointers into the caller's column-major buffers, or
+/// `None` when a buffer holds fewer than `n_ff·k` words.
+#[cfg(target_arch = "x86_64")]
+fn tape_sink(tape: &mut SwigluTape<'_>, n_ff: usize, k: usize) -> Option<SwigluSink> {
+    let words = n_ff.checked_mul(k)?;
+    if tape.gate.len() < words || tape.up.len() < words {
+        return None;
+    }
+    let mut gate = Vec::with_capacity(k);
+    let mut up = Vec::with_capacity(k);
+    let base_gate = tape.gate.as_mut_ptr();
+    let base_up = tape.up.as_mut_ptr();
+    let mut c = 0usize;
+    while c < k {
+        // SAFETY: `c < k` and `c·n_ff + n_ff ≤ n_ff·k ≤ tape.gate.len()`; the same bound holds for
+        // `tape.up`.
+        unsafe {
+            gate.push(base_gate.add(c * n_ff));
+            up.push(base_up.add(c * n_ff));
+        }
+        c += 1;
+    }
+    Some(SwigluSink { gate, up })
+}
+
+/// The [`gemm_q8_0_swiglu_carrier`] row-task context: both payloads, the packed columns, the
+/// output pointers and the optional gate/up sinks, the first-error slot and the refusal flag.
 #[cfg(target_arch = "x86_64")]
 struct SwigluRowsCtx<'a> {
     raw_gate: &'a [u8],
@@ -1021,6 +1097,7 @@ struct SwigluRowsCtx<'a> {
     packed: &'a Packed,
     limit: u32,
     out: &'a SwigluPtrs,
+    sink: Option<&'a SwigluSink>,
     first: &'a FirstErr<u128, FfnError>,
     carrier: Carrier,
     bad: &'a Flag,
@@ -1041,6 +1118,7 @@ impl IndexTask for SwigluRowsCtx<'_> {
             self.packed,
             self.limit,
             self.out,
+            self.sink,
             self.first,
             self.carrier,
             self.bad,
@@ -1066,6 +1144,7 @@ fn swiglu_rows_task(
     packed: &Packed,
     limit: u32,
     out: &SwigluPtrs,
+    sink: Option<&SwigluSink>,
     first: &FirstErr<u128, FfnError>,
     carrier: Carrier,
     bad: &Flag,
@@ -1079,7 +1158,8 @@ fn swiglu_rows_task(
     // `[r0, r0 + rows)` and writes each column's own allocation there.
     let ok = unsafe {
         x86::rows_swiglu(
-            raw_gate, raw_up, row_bytes, blocks, r0, rows, qs, packed, limit, out, first, carrier,
+            raw_gate, raw_up, row_bytes, blocks, r0, rows, qs, packed, limit, out, sink, first,
+            carrier,
         )
     };
     if !ok {
@@ -1989,6 +2069,9 @@ mod x86 {
     /// activation dots gate row `i` and up row `i` for every column (`group2` shares the activation
     /// loads), the epilogue applies [`super::swiglu_one`], and `h[c][i]` is written directly.
     ///
+    /// When `sink` is present, every `(column, hidden index)` the epilogue evaluates also stores its
+    /// gate and up word there, on the exact-value and the failing-lane branches alike.
+    ///
     /// Returns `false` when a weight scale is non-finite or a gate/up value leaves `i64`; the caller
     /// then runs the separate gate/up/`SwiGLU` path, which owns the refusal. A refused `SwiGLU`
     /// element is recorded as the minimal `(column, index)` in `first`; every row is still scanned
@@ -1998,7 +2081,9 @@ mod x86 {
     ///
     /// AVX2 and AVX-VNNI; `raw_gate`/`raw_up` hold indices `r0..r0 + rows` of `row_bytes` bytes;
     /// each `qs[c].codes()` holds `blocks·32` lanes and `qs[c].scales()` `blocks` values; `out` has
-    /// one pointer per column into a distinct allocation of at least `n_ff` `i64`s.
+    /// one pointer per column into a distinct allocation of at least `n_ff` `i64`s; `sink`, when
+    /// present, has one gate and one up pointer per column into distinct allocations of at least
+    /// `n_ff` `i64`s.
     #[target_feature(enable = "avx2")]
     #[allow(
         clippy::too_many_arguments,
@@ -2020,6 +2105,7 @@ mod x86 {
         p: &Packed,
         limit: u32,
         out: &super::SwigluPtrs,
+        sink: Option<&super::SwigluSink>,
         first: &crate::engine::chart::pool::FirstErr<u128, crate::engine::FfnError>,
         carrier: super::Carrier,
     ) -> bool {
@@ -2050,6 +2136,17 @@ mod x86 {
             };
             let eval_sub_g = |sub_g: usize, gate_arr: &[i64; 8], up_arr: &[i64; 8]| {
                 let active = (k - sub_g * LANES).min(LANES);
+                if let Some(s) = sink {
+                    for lane in 0..active {
+                        let c = sub_g * LANES + lane;
+                        // SAFETY: `c < k`; the task's hidden-index range is disjoint from every
+                        // other task's, so this element has one writer in the gate and up buffers.
+                        unsafe {
+                            *s.gate[c].add(i) = gate_arr[lane];
+                            *s.up[c].add(i) = up_arr[lane];
+                        }
+                    }
+                }
                 #[cfg(test)]
                 pc.add(if carrier == super::Carrier::F32 {
                     probe_hooks::SWIGLU_F32
@@ -2882,6 +2979,46 @@ mod tests {
         }
     }
 
+    /// Off-path cost of the optional gate/up tape: the fused `[W_gate; W_up]` kernel at the
+    /// `qwen2.5-0.5B` FFN shape (`n_ff = 4864`, `n_in = 896`, eight columns) with the tape off.
+    /// Run with
+    /// `cargo test --release --lib --locked swiglu_off_path_microbench -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "microbench: run explicitly with --ignored --nocapture"]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "the microbench prints microseconds per call"
+    )]
+    fn swiglu_off_path_microbench() {
+        const N_FF: usize = 4864;
+        const N_IN: usize = 896;
+        const K: usize = 8;
+        const INNER: usize = 200;
+        const ROUNDS: usize = 5;
+        if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+            return;
+        }
+        let mut seed = 0x51e5_0f00_u64;
+        let g_raw = payload(N_FF, N_IN, &[0x2000, 0x2400], &mut seed);
+        let u_raw = payload(N_FF, N_IN, &[0x2000, 0x2400], &mut seed);
+        let qs = columns(K, N_IN, 4, &mut seed);
+        assert!(
+            gemm_q8_0_swiglu(&g_raw, &u_raw, N_FF, N_IN, &qs).is_some(),
+            "the measured call must take the fused path"
+        );
+        for _ in 0..20 {
+            let _ = std::hint::black_box(gemm_q8_0_swiglu(&g_raw, &u_raw, N_FF, N_IN, &qs));
+        }
+        for r in 0..ROUNDS {
+            let t0 = std::time::Instant::now();
+            for _ in 0..INNER {
+                let _ = std::hint::black_box(gemm_q8_0_swiglu(&g_raw, &u_raw, N_FF, N_IN, &qs));
+            }
+            let us = t0.elapsed().as_nanos() as f64 / (INNER as f64 * 1000.0);
+            println!("round {r}: {us:.1} us/call");
+        }
+    }
+
     /// The fused kernel takes its fast path on ordinary inputs (a test that always fell back would
     /// pass vacuously).
     #[test]
@@ -2897,6 +3034,55 @@ mod tests {
             gemm_q8_0_swiglu(&g_raw, &u_raw, 64, 1024, &qs),
             Some(Ok(_))
         ));
+    }
+
+    /// The tapped epilogue's [`SwigluTape`] holds the gate and up words the epilogue consumed: every
+    /// stored word is the exact `Q8_0` contract value of its `(row, column)` ([`exact_dot`]), and
+    /// putting the stored pair back through the carrier's own [`swiglu_one_carrier`] reproduces the
+    /// fused output word for word, on both carriers.
+    #[test]
+    fn swiglu_tape_stores_the_consumed_gate_and_up() {
+        if !(std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("avxvnni")) {
+            return;
+        }
+        let (n_ff, n_in, k) = (24usize, 64usize, 5usize);
+        let blocks = n_in / ACT_QK;
+        let row_bytes = blocks * Q8_0_BLOCK_BYTES;
+        let mut seed = 0x7a9e_0b5eu64;
+        let g_raw = payload(n_ff, n_in, &[0x2000, 0x2400, 0xa000], &mut seed);
+        let u_raw = payload(n_ff, n_in, &[0x2000, 0x2400, 0xa000], &mut seed);
+        let qs = columns(k, n_in, 4, &mut seed);
+        for carrier in [Carrier::Q32, Carrier::F32] {
+            let mut gate = vec![0i64; k * n_ff];
+            let mut up = vec![0i64; k * n_ff];
+            let hs = gemm_q8_0_swiglu_carrier(
+                &g_raw,
+                &u_raw,
+                n_ff,
+                n_in,
+                &qs,
+                carrier,
+                Some(SwigluTape {
+                    gate: &mut gate,
+                    up: &mut up,
+                }),
+            )
+            .expect("runs")
+            .expect("ok");
+            for c in 0..k {
+                for i in 0..n_ff {
+                    let g = &g_raw[i * row_bytes..(i + 1) * row_bytes];
+                    let u = &u_raw[i * row_bytes..(i + 1) * row_bytes];
+                    let want_g = exact_dot(g, blocks, &qs[c]).expect("finite scale");
+                    let want_u = exact_dot(u, blocks, &qs[c]).expect("finite scale");
+                    assert_eq!(gate[c * n_ff + i], want_g, "gate ({c}, {i}) {carrier:?}");
+                    assert_eq!(up[c * n_ff + i], want_u, "up ({c}, {i}) {carrier:?}");
+                    let h = crate::engine::chart::ffn::swiglu_one_carrier(want_g, want_u, carrier)
+                        .expect("in range");
+                    assert_eq!(hs[c][i], h, "activation ({c}, {i}) {carrier:?}");
+                }
+            }
+        }
     }
 
     /// A `SwiGLU` element whose product leaves `i64` refuses through the fused path with the same
@@ -2922,7 +3108,7 @@ mod tests {
             Some(Err(FfnError::Overflow))
         );
         assert_eq!(
-            gemm_q8_0_swiglu_carrier(&raw, &raw, n_ff, n_in, &qs, Carrier::F32),
+            gemm_q8_0_swiglu_carrier(&raw, &raw, n_ff, n_in, &qs, Carrier::F32, None),
             Some(Err(FfnError::Overflow))
         );
     }
@@ -2937,10 +3123,10 @@ mod tests {
         let u_raw = payload(64, 1024, &[0x2000, 0x2400, 0xa000], &mut seed);
         let qs = columns(8, 1024, 4, &mut seed);
 
-        let q32_res = gemm_q8_0_swiglu_carrier(&g_raw, &u_raw, 64, 1024, &qs, Carrier::Q32)
+        let q32_res = gemm_q8_0_swiglu_carrier(&g_raw, &u_raw, 64, 1024, &qs, Carrier::Q32, None)
             .expect("runs")
             .expect("ok");
-        let f32_res = gemm_q8_0_swiglu_carrier(&g_raw, &u_raw, 64, 1024, &qs, Carrier::F32)
+        let f32_res = gemm_q8_0_swiglu_carrier(&g_raw, &u_raw, 64, 1024, &qs, Carrier::F32, None)
             .expect("runs")
             .expect("ok");
 
