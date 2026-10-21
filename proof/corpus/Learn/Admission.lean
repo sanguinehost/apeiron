@@ -119,6 +119,31 @@ theorem fit_phases_cannot_admit (a b c d : ℕ) :
   have : ceiling < 24 * nowWall.other := by decide
   omega
 
+/-- `nowWall` after GFEED: `gptq_e8` × 12856/50191 (whole `gptq_e8` at (896, 4864), restructured
+12.856 s against a base-equivalent 50.191 s, three interleaved pairs, ratios 3.90–3.94×). -/
+def gfeedWall : Wall := ⟨626, 141, 181, 546, 427⟩
+
+/-- **GFEED moved the projection 1.27×, to 49× the bar.** 244.7 s → 192.1 s per layer. -/
+theorem gfeed_projection :
+    gfeedWall.total = 1921 ∧ 5 * gfeedWall.total < 4 * nowWall.total ∧
+      10 * nowWall.total < 13 * gfeedWall.total ∧
+      49 * bar < 24 * gfeedWall.total ∧ 24 * gfeedWall.total < 50 * bar := by decide
+
+/-- After GFEED no single-term lane admits against the ceiling either (board row
+). -/
+theorem gfeed_every_single_term_refused :
+    ∀ t : Term, admits gfeedWall [t] 24 ceiling = false := by
+  intro t; cases t <;> decide
+
+/-- **NB-JOINT-3 KILL.** Bound-pruning of the joint pair scan kept 8737 of every 10000 pairs (87.37 %),
+so its speedup ceiling is 10000/8737 = 1.145×, under the brief's 2×; measured 0.93× (100 per 93) at
+(896, 896). Basis points. -/
+def nbJoint3Kept : ℕ := 8737
+
+theorem nbjoint3_kill :
+    10000 < 2 * nbJoint3Kept ∧ 114 * nbJoint3Kept < 100 * 10000 ∧
+      100 * 10000 < 115 * nbJoint3Kept ∧ (93 : ℕ) < 100 := by decide
+
 /-- **Only a whole-layer route admits.** TEQ's R5 (every product at the Q8_0 rate) is a rescaling of
 every term at once: 2.9 s per layer, 69.6 s at 24 layers, under the bar. R4 fits the ceiling and
 misses the bar. -/
