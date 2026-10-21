@@ -28,8 +28,15 @@ use crate::engine::kern::matmat::matmat_q8act;
 use crate::engine::loader::{opt_slice, DecodeVectors};
 use crate::engine::mixer::{AffineLayer, AffineState};
 use crate::engine::trace::{self, Phase};
-use crate::engine::{ffn_fixed, Engine, KernelMode, KvState, MatvecError, MixerKind, ProjWeights};
+use crate::engine::{
+    ffn_fixed, DecodeState, Engine, KernelMode, KvState, MatvecError, MixerKind, ProjWeights,
+};
 use crate::format::quant;
+
+#[path = "tap.rs"]
+mod tap;
+
+use tap::{Tap, STAGE_ATTN_OUT, STAGE_HIDDEN_IN, STAGE_LN1_OUT, STAGE_LN2_OUT, STAGE_M};
 
 impl Engine {
     /// [`Engine::compose_cols_in`] with the optional affine state and rollback sink resolved once
@@ -57,18 +64,71 @@ impl Engine {
         parallel_heads: bool,
         snapshot: Option<&mut [AffineLayer]>,
     ) -> Result<Vec<Vec<i64>>, StepError> {
+        let (out, _) = self.compose_cols_tap(
+            kv,
+            affine,
+            tokens,
+            sched,
+            mode,
+            parallel_heads,
+            snapshot,
+            false,
+        )?;
+        Ok(out)
+    }
+
+    /// [`Engine::compose_cols`] with the optional activation tap: `record` allocates a [`Tap`] and
+    /// records the per-layer stage inputs, `false` is the untapped path (no allocation, no copy).
+    ///
+    /// # Errors
+    ///
+    /// As [`Engine::compose_cols_in`].
+    ///
+    /// # Complexity
+    ///
+    /// As [`Engine::compose_cols`], plus one `O(width)` copy per stage per layer per column when
+    /// `record`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the caches, columns, schedule, kernel, dispatch, rollback sink and tap are its input"
+    )]
+    fn compose_cols_tap(
+        &self,
+        kv: &mut KvState,
+        affine: Option<&mut AffineState>,
+        tokens: &[u32],
+        sched: Sched,
+        mode: KernelMode,
+        parallel_heads: bool,
+        snapshot: Option<&mut [AffineLayer]>,
+        record: bool,
+    ) -> Result<(Vec<Vec<i64>>, Option<Tap>), StepError> {
         let mut none_state = AffineState::empty();
         let mut none_snap: [AffineLayer; 0] = [];
         match (affine, snapshot) {
             (Some(a), Some(s)) => {
-                self.compose_cols_in(kv, a, tokens, sched, mode, parallel_heads, s)
+                self.compose_cols_in(kv, a, tokens, sched, mode, parallel_heads, s, record)
             }
-            (Some(a), None) => {
-                self.compose_cols_in(kv, a, tokens, sched, mode, parallel_heads, &mut none_snap)
-            }
-            (None, Some(s)) => {
-                self.compose_cols_in(kv, &mut none_state, tokens, sched, mode, parallel_heads, s)
-            }
+            (Some(a), None) => self.compose_cols_in(
+                kv,
+                a,
+                tokens,
+                sched,
+                mode,
+                parallel_heads,
+                &mut none_snap,
+                record,
+            ),
+            (None, Some(s)) => self.compose_cols_in(
+                kv,
+                &mut none_state,
+                tokens,
+                sched,
+                mode,
+                parallel_heads,
+                s,
+                record,
+            ),
             (None, None) => self.compose_cols_in(
                 kv,
                 &mut none_state,
@@ -77,12 +137,14 @@ impl Engine {
                 mode,
                 parallel_heads,
                 &mut none_snap,
+                record,
             ),
         }
     }
 
     /// `k = tokens.len()` consecutive decode steps through the trunk, in one pass over the weights
-    /// where the kernel allows; returns each column's output-normed final state.
+    /// where the kernel allows; returns each column's output-normed final state and, when
+    /// `record`, the per-layer stage rows of [`Tap`].
     ///
     /// # Errors
     ///
@@ -92,14 +154,15 @@ impl Engine {
     /// # Complexity
     ///
     /// The single step's cost per column for everything but the weight streams, which are read
-    /// once per pass for `Q8_0` tensors (`O(bytes)` rather than `O(k·bytes)`).
+    /// once per pass for `Q8_0` tensors (`O(bytes)` rather than `O(k·bytes)`); when `record`, one
+    /// `O(width)` copy per stage per layer per column.
     #[allow(
         clippy::too_many_lines,
         clippy::too_many_arguments,
         reason = "one linear composition of the block; the caches, columns, schedule, kernel, \
-                  dispatch and rollback sink are its input"
+                  dispatch, rollback sink and tap are its input"
     )]
-    pub(crate) fn compose_cols_in(
+    fn compose_cols_in(
         &self,
         kv: &mut KvState,
         affine: &mut AffineState,
@@ -108,7 +171,8 @@ impl Engine {
         mode: KernelMode,
         parallel_heads: bool,
         snapshot: &mut [AffineLayer],
-    ) -> Result<Vec<Vec<i64>>, StepError> {
+        record: bool,
+    ) -> Result<(Vec<Vec<i64>>, Option<Tap>), StepError> {
         let cfg = &self.config;
         if tokens.is_empty() {
             return Err(StepError::BadConfig(String::from("empty token block")));
@@ -157,6 +221,13 @@ impl Engine {
             Vec::new()
         };
         let mut ffn_scratch = crate::engine::chart::ffn::FfnScratch::default();
+        // One allocation per pass when the tap is asked for; the layer loop carries only the
+        // reference, so the off path adds no allocation and no per-column work.
+        let mut tap: Option<Tap> = if record {
+            Some(Tap::new(cfg.n_layer))
+        } else {
+            None
+        };
 
         let mut layer = 0usize;
         let mut res: Result<(), StepError> = Ok(());
@@ -175,6 +246,7 @@ impl Engine {
                 sched,
                 mode,
                 parallel_heads,
+                &mut tap,
             );
             layer += 1;
         }
@@ -183,7 +255,99 @@ impl Engine {
         let out_gain = opt_slice(&vectors.output_norm)
             .ok_or_else(|| StepError::MissingTensor(TensorKey::top(PART_OUTPUT_NORM)))?;
         let _norm = trace::span(Phase::Norm, k, 0, 0);
-        norm_cols(out_gain, &hidden, eps)
+        let out = norm_cols(out_gain, &hidden, eps)?;
+        Ok((out, tap))
+    }
+
+    /// One tapped prefill pass over `tokens` in blocks of [`super::prefill_block`]: the
+    /// output-normed final column of every token plus, when `record`, the per-layer stage rows.
+    ///
+    /// The rows are `[layer][stage][column][width]`, the stage slots in the order
+    /// `[residual input, attn_norm output, o-projection input, ffn_norm output, SwiGLU product]`
+    /// (the [`tap`] module's constants). `record == false` runs the untapped path and returns no
+    /// rows, so a caller can compare the two runs bit for bit.
+    ///
+    /// The single-column FFN fuses its `SwiGLU` product inside `ffn_q8act_at`, so that stage is
+    /// empty when the block is one column; the pooled multi-column path fills every stage.
+    ///
+    /// # Errors
+    ///
+    /// As [`Engine::compose_cols_in`], plus [`StepError::BadConfig`] for an empty block.
+    ///
+    /// # Complexity
+    ///
+    /// `⌈n / prefill_block()⌉` passes; when `record`, one `O(width)` copy per stage per layer per
+    /// column over the block.
+    #[allow(
+        clippy::type_complexity,
+        reason = "the stage rows are nested by layer, stage, column and width"
+    )]
+    pub fn prefill_tap_cols(
+        &self,
+        st: &mut DecodeState,
+        tokens: &[u32],
+        mode: KernelMode,
+        record: bool,
+    ) -> Result<(Vec<Vec<i64>>, Vec<Vec<Vec<Vec<i64>>>>), StepError> {
+        if tokens.is_empty() {
+            return Err(StepError::BadConfig(String::from("empty token block")));
+        }
+        let width = super::prefill_block();
+        let num_blocks = tokens.len().div_ceil(width);
+        let base = tokens.len().checked_div(num_blocks).unwrap_or(0);
+        let rem = tokens.len().checked_rem(num_blocks).unwrap_or(0);
+        let mut out: Vec<Vec<i64>> = Vec::with_capacity(tokens.len());
+        let mut rows: Vec<Vec<Vec<Vec<i64>>>> = Vec::new();
+        if record {
+            rows = Vec::with_capacity(self.config.n_layer);
+            let mut lay = 0usize;
+            while lay < self.config.n_layer {
+                let mut stages: Vec<Vec<Vec<i64>>> = Vec::with_capacity(tap::STAGE_COUNT);
+                let mut stage = 0usize;
+                while stage < tap::STAGE_COUNT {
+                    stages.push(Vec::new());
+                    stage += 1;
+                }
+                rows.push(stages);
+                lay += 1;
+            }
+        }
+        let mut start = 0usize;
+        let mut bi = 0usize;
+        while bi < num_blocks {
+            let size = if bi < rem { base + 1 } else { base };
+            let block = &tokens[start..start + size];
+            start += size;
+            let (cols, block_tap) = self.compose_cols_tap(
+                &mut st.kv,
+                st.affine.as_mut(),
+                block,
+                Sched::Resident,
+                mode,
+                mode == KernelMode::Q8Act,
+                None,
+                record,
+            )?;
+            out.extend(cols);
+            if let Some(t) = block_tap {
+                let block_rows = t.rows;
+                let mut lay = 0usize;
+                while lay < block_rows.len() && lay < rows.len() {
+                    let mut stage = 0usize;
+                    while stage < tap::STAGE_COUNT {
+                        let mut col = 0usize;
+                        while col < block_rows[lay][stage].len() {
+                            rows[lay][stage].push(block_rows[lay][stage][col].clone());
+                            col += 1;
+                        }
+                        stage += 1;
+                    }
+                    lay += 1;
+                }
+            }
+            bi += 1;
+        }
+        Ok((out, rows))
     }
 
     /// Block `layer` over the columns: the attention-side `RMSNorm`, the mixer primitive (the
@@ -219,25 +383,48 @@ impl Engine {
         sched: Sched,
         mode: KernelMode,
         parallel_heads: bool,
+        tap: &mut Option<Tap>,
     ) -> Result<(), StepError> {
         let k = hidden.len();
         let vectors = self.decode_vectors();
         let li = layers.get(layer);
+        if let Some(t) = tap {
+            t.record(layer, STAGE_HIDDEN_IN, hidden);
+        }
         let attn_gain = norm_gain(vectors, layer, 0, PART_ATTN_NORM)?;
         let t_norm = trace::span(Phase::Norm, k, 0, 0);
         let normed = norm_cols(attn_gain, hidden, eps)?;
         drop(t_norm);
+        if let Some(t) = tap {
+            t.record(layer, STAGE_LN1_OUT, &normed);
+        }
         let mixed = match (slot, aslot) {
-            (Some(slot), _) => {
-                self.softmax_cols(li, layer, slot, kv, &normed, sched, mode, parallel_heads)
-            }
+            (Some(slot), _) => self.softmax_cols_tap(
+                li,
+                layer,
+                slot,
+                kv,
+                &normed,
+                sched,
+                mode,
+                parallel_heads,
+                tap,
+            ),
             (None, Some(aslot)) => {
                 let state = affine.layer_mut(aslot);
                 let snap = snapshot.get_mut(aslot);
                 match state {
-                    Some(st) => {
-                        self.affine_cols(li, layer, st, &normed, sched, mode, parallel_heads, snap)
-                    }
+                    Some(st) => self.affine_cols(
+                        li,
+                        layer,
+                        st,
+                        &normed,
+                        sched,
+                        mode,
+                        parallel_heads,
+                        snap,
+                        tap,
+                    ),
                     None => Err(StepError::BadConfig(String::from(
                         "affine state for an affine layer",
                     ))),
@@ -252,7 +439,10 @@ impl Engine {
         let t_norm = trace::span(Phase::Norm, k, 0, 0);
         let h2 = norm_cols(ffn_gain, hidden, eps)?;
         drop(t_norm);
-        let ffn_out = self.ffn_cols(li, layer, &h2, sched, mode, ffn_scratch)?;
+        if let Some(t) = tap {
+            t.record(layer, STAGE_LN2_OUT, &h2);
+        }
+        let ffn_out = self.ffn_cols_tap(li, layer, &h2, sched, mode, ffn_scratch, tap)?;
         let t_res = trace::span(Phase::Residual, k, 0, 0);
         add_cols(hidden, &ffn_out)?;
         drop(t_res);
@@ -480,6 +670,43 @@ impl Engine {
         mode: KernelMode,
         parallel_heads: bool,
     ) -> Result<Vec<Vec<i64>>, StepError> {
+        let mut tap: Option<Tap> = None;
+        self.softmax_cols_tap(
+            li,
+            layer,
+            slot,
+            kv,
+            xs,
+            sched,
+            mode,
+            parallel_heads,
+            &mut tap,
+        )
+    }
+
+    /// [`Engine::softmax_cols`] with the opt-in tap: records the output projection's input (the
+    /// concatenated per-head attention output) into [`STAGE_ATTN_OUT`] before it is projected.
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::needless_range_loop,
+        reason = "the layer index, layer, slot, cache, columns, schedule, kernel, dispatch and tap"
+    )]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "this per-column attention path keeps bias, gate, normalization, cache append and attention in their required state order"
+    )]
+    fn softmax_cols_tap(
+        &self,
+        li: Option<&LayerIndex>,
+        layer: usize,
+        slot: usize,
+        kv: &mut KvState,
+        xs: &[Vec<i64>],
+        sched: Sched,
+        mode: KernelMode,
+        parallel_heads: bool,
+        tap: &mut Option<Tap>,
+    ) -> Result<Vec<Vec<i64>>, StepError> {
         let cfg = &self.config;
         let (n_head, hd, n_embd) = (cfg.n_head, cfg.head_dim, cfg.n_embd);
         let q_out = n_head.checked_mul(hd).ok_or(StepError::LengthOverflow)?;
@@ -507,10 +734,16 @@ impl Engine {
         if k > 1 && parallel_heads {
             let atts = self.softmax_core_block(layer, slot, kv, &qkv, eps, &table)?;
             drop(t_core);
+            if let Some(t) = tap {
+                t.record(layer, STAGE_ATTN_OUT, &atts);
+            }
             return self.softmax_proj_out(li, layer, n_embd, q_out, &atts, sched, mode);
         }
         let atts = self.softmax_serial_cols(layer, slot, kv, &qkv, eps, &table, parallel_heads)?;
         drop(t_core);
+        if let Some(t) = tap {
+            t.record(layer, STAGE_ATTN_OUT, &atts);
+        }
         self.softmax_proj_out(li, layer, n_embd, q_out, &atts, sched, mode)
     }
 
@@ -524,9 +757,12 @@ impl Engine {
     ///
     /// The projections' multiply-adds over `k` columns plus `k` times
     /// [`crate::engine::mixer::delta_heads`]'s `O(n_v_heads · head_k · head_v)`.
+    ///
+    /// With `tap`, records the output projection's input (the mixer's value output) into
+    /// [`STAGE_ATTN_OUT`] before it is projected.
     #[allow(
         clippy::too_many_arguments,
-        reason = "the layer index, layer, state, columns, schedule, kernel, dispatch and snapshot"
+        reason = "the layer index, layer, state, columns, schedule, kernel, dispatch, snapshot and tap"
     )]
     pub(super) fn affine_cols(
         &self,
@@ -538,6 +774,7 @@ impl Engine {
         mode: KernelMode,
         parallel: bool,
         snapshot: Option<&mut AffineLayer>,
+        tap: &mut Option<Tap>,
     ) -> Result<Vec<Vec<i64>>, StepError> {
         let cfg = &self.config;
         let geom = cfg
@@ -583,6 +820,9 @@ impl Engine {
             st, &geom, params, &convs, &proj[1], &proj[2], &proj[3], eps, parallel, snapshot,
         )?;
         drop(t_heads);
+        if let Some(t) = tap {
+            t.record(layer, STAGE_ATTN_OUT, &os);
+        }
         let _out = trace::span(
             Phase::AffineProjOut,
             k,
@@ -603,6 +843,27 @@ impl Engine {
         sched: Sched,
         mode: KernelMode,
         scratch: &mut crate::engine::chart::ffn::FfnScratch,
+    ) -> Result<Vec<Vec<i64>>, StepError> {
+        let mut tap: Option<Tap> = None;
+        self.ffn_cols_tap(li, layer, xs, sched, mode, scratch, &mut tap)
+    }
+
+    /// [`Engine::ffn_cols`] with the opt-in tap: records the `SwiGLU` product (the down
+    /// projection's input) into [`STAGE_M`] before the down projection. The single-column branch
+    /// fuses the product inside `ffn_q8act_at` and leaves the stage empty.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the layer index, layer, columns, schedule, kernel, scratch and tap are the input"
+    )]
+    fn ffn_cols_tap(
+        &self,
+        li: Option<&LayerIndex>,
+        layer: usize,
+        xs: &[Vec<i64>],
+        sched: Sched,
+        mode: KernelMode,
+        scratch: &mut crate::engine::chart::ffn::FfnScratch,
+        tap: &mut Option<Tap>,
     ) -> Result<Vec<Vec<i64>>, StepError> {
         let (n_ff, n_embd) = (self.config.n_ff, self.config.n_embd);
         let _ffn = trace::span(
@@ -642,6 +903,9 @@ impl Engine {
                 hs
             }
         };
+        if let Some(t) = tap {
+            t.record(layer, STAGE_M, &hs);
+        }
         self.proj_cols(li, layer, 6, n_embd, n_ff, &hs, sched, mode, None)
     }
 
