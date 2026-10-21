@@ -110,6 +110,11 @@ lean_lib ApeironWordBridge where
     -- extracted `word_stats_basis_solve_water_fill` triple, the integer level/active-set/budget
     -- invariants, and the exact denotation onto `Perf.CostCorrespondence.waterfill_floor`.
     `Learn.WaterFill,
+    -- The 1-bit quantiser spike verdicts (`Learn/QuantVerdicts.lean`): each measured clause of the IC,
+    -- RT-1, QM, RT-2 and R2 receipts, R1's refutation of the exact word-cost correspondence at the O8
+    -- rows, the sign-code nearest point, selection-vs-argmin, and the 27.318 G footprint
+    -- (board row APEIRON-FORM-QUANT-W1-T01).
+    `Learn.QuantVerdicts,
     -- The `basis.log2`/`fixed_ln` real-value spec (`Learn/Log2.lean`): the certified `LN2_Q32` and
     -- `SQRT2_Q62` constant errors, the `ln_atanh_poly` coefficient rounding and truncation
     -- remainder, the normalization identity and the `|s| ≤ 1/3` range. The composition is named
