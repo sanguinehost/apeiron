@@ -115,6 +115,9 @@ lean_lib ApeironWordBridge where
     -- rows, the sign-code nearest point, selection-vs-argmin, and the 27.318 G footprint
     -- (board row APEIRON-FORM-QUANT-W1-T01).
     `Learn.QuantVerdicts,
+    -- Transfer admission (`Learn/Admission.lean`): the Amdahl refusal of a lane whose terms, zeroed,
+    -- miss the 0.5B transfer bar or the 600 s ceiling (board row APEIRON-FORM-QUANT-W1-T01).
+    `Learn.Admission,
     -- The `basis.log2`/`fixed_ln` real-value spec (`Learn/Log2.lean`): the certified `LN2_Q32` and
     -- `SQRT2_Q62` constant errors, the `ln_atanh_poly` coefficient rounding and truncation
     -- remainder, the normalization identity and the `|s| ≤ 1/3` range. The composition is named

@@ -96,6 +96,7 @@ import Learn.Solve.WsyrkSpec
 import Learn.Solve.Wsyrk
 import Learn.Solve.WsyrkWitness
 import Learn.QuantVerdicts
+import Learn.Admission
 import Perf.BitsRefine
 import Numeric.Quantum.Register
 import Numeric.Quantum.RegisterRefinement
@@ -2813,3 +2814,12 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.nj_pool_is_the_cause
 #audit Learn.QuantVerdicts.nj_cumulative_eight_x
 #audit Learn.QuantVerdicts.nj_decision_still_dominates
+#audit Learn.Admission.attrib_wall_is_the_record
+#audit Learn.Admission.now_projection
+#audit Learn.Admission.attrib_every_single_term_refused
+#audit Learn.Admission.now_every_single_term_refused
+#audit Learn.Admission.fit_phases_cannot_admit
+#audit Learn.Admission.whole_layer_route_admits
+#audit Learn.Admission.no_speedup_of_refused
+#audit Learn.Admission.total_zero_le_set
+#audit Learn.Admission.other_le_total
