@@ -229,20 +229,6 @@ impl ConvState {
             Self::F32(_) => panic!("expected Q32 conv state"),
         }
     }
-
-    pub fn as_f32_slice(&self) -> &[F32] {
-        match self {
-            Self::F32(v) => v,
-            Self::Q32(_) => panic!("expected F32 conv state"),
-        }
-    }
-
-    pub fn as_f32_mut(&mut self) -> &mut Vec<F32> {
-        match self {
-            Self::F32(v) => v,
-            Self::Q32(_) => panic!("expected F32 conv state"),
-        }
-    }
 }
 
 /// One affine layer's state.

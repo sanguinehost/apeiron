@@ -121,8 +121,8 @@ pub trait KeyStore<K: Coord>: Sized {
 ///
 /// The split is the route-1 extraction adaptation: the executing `new`/`with_capacity`/`get`/
 /// `insert_with`/growth bodies never read a key back, so they need only [`KeyStore`] and translate
-/// once the GAT is out of that trait. Only the readback faces (`Table::iter`, `Table::encircle_floor`
-/// and the `face` iteration surfaces) require this extension trait.
+/// once the GAT is out of that trait. Only the readback faces (`Table::iter` and the `face`
+/// iteration surfaces) require this extension trait.
 pub trait KeyReadout<K: Coord>: KeyStore<K> {
     /// The key as read back — `&K` when stored, `K` (regenerated) when not.
     type Key<'a>
@@ -132,8 +132,8 @@ pub trait KeyReadout<K: Coord>: KeyStore<K> {
     /// The key at slot `i` — borrowed if stored, regenerated from `coord` if not.
     fn key(&self, i: usize, coord: u64) -> Self::Key<'_>;
     /// The readout of an already-materialized key `k` — the [`Overflow`](crate::map::hashtrinity::Overflow)
-    /// tree stores keys inline rather than in the index-addressed store, so its iteration and
-    /// `encircle_floor` project a key they hold directly. `&K` when stored; regenerated from the key's
+    /// tree stores keys inline rather than in the index-addressed store, so its iteration projects
+    /// a key it holds directly. `&K` when stored; regenerated from the key's
     /// coordinate when not (exact: a `Regen` coordinate round-trips).
     fn key_of<'a>(&'a self, k: &'a K) -> Self::Key<'a>
     where

@@ -32,8 +32,6 @@ use crate::engine::num::value::round_shift_32;
 mod hadamard;
 pub use hadamard::{hadamard_meta, HadamardMeta};
 
-/// The `general.architecture` this loader resolves config keys for.
-pub const QWEN2_ARCH: &str = "qwen2";
 /// Bits of the default `RoPE` base (`10_000.0_f64`) when `*.rope.freq_base` is absent. A bit pattern,
 /// not a float constant: the extraction cannot translate float constants.
 pub const DEFAULT_ROPE_THETA_BITS: u64 = 0x40C3_8800_0000_0000;

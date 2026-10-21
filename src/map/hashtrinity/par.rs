@@ -1,5 +1,4 @@
-//! A persistent worker pool for static-partition parallel passes ([`Table::get_all`],
-//! [`Table::encircle`], [`Table::encircle_floor`], servefold's decode matvecs).
+//! A persistent worker pool for static-partition parallel passes over a table.
 //!
 //! The reduce is **schedule-free** — `Web.preduceAt_schedule_free` proves the answer is invariant
 //! under any bijection relabeling which unit handles which task — so an equal partition needs no
@@ -64,10 +63,7 @@ use std::thread::JoinHandle;
 /// Spin iterations before a worker parks (and between the dispatcher's barrier yields). Song's
 /// encircle measured the knee's worth; tens of µs of `spin_loop` covers the µs-scale gaps
 /// between a decode's back-to-back dispatches without burning cores on an idle pool.
-#[cfg(not(miri))]
 const SPIN_KNEE: u32 = 1 << 15;
-#[cfg(miri)]
-const SPIN_KNEE: u32 = 8; // Miri executes pauses literally; keep the loop tiny.
 
 /// Low bits of the claim word holding the next task index; the rest is the epoch tag.
 /// `tasks` per dispatch must fit (dispatch asserts) — partitions are ≤ pool width or a few

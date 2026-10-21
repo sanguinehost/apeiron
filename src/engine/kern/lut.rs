@@ -16,9 +16,8 @@
 //! equality with the portable twin is `tested`.
 #![allow(
     dead_code,
-    reason = "[`INNER_ABS_MAX`] documents the sub-block bound, and [`matvec_lut`] / \
-              [`matvec_lut_rows`] are the unchunked reference the tests compare against; the \
-              executing path is `matvec_lut_chunked` via `q8act_projection`"
+    reason = "[`matvec_lut`] / [`matvec_lut_rows`] are the unchunked reference the tests \
+              compare against; the executing path is `matvec_lut_chunked` via `q8act_projection`"
 )]
 
 use crate::engine::chart::task::{ChunkTask, Task3};
@@ -52,7 +51,11 @@ const INNER_ABS_MAX: i64 = 16_256;
 
 /// The largest `|Σ_{sb<4} S_sb·inner_sb|` of one 128-weight block divided by `max_b |S_b|`:
 /// `SUBS_PER_BLOCK = 4` sub-blocks, each `|inner_sb| ≤ `[`INNER_ABS_MAX`], so `4·16_256 = 65_024`.
-const BLOCK_INNER_ABS_MAX: i64 = 65_024;
+#[allow(
+    clippy::cast_possible_wrap,
+    reason = "SUBS_PER_BLOCK = PQ2_0_QK / ACT_QK = 4 fits i64"
+)]
+const BLOCK_INNER_ABS_MAX: i64 = SUBS_PER_BLOCK as i64 * INNER_ABS_MAX;
 
 /// The `+508` offsets folded into the `GROUPS_PER_SUB = 8` groups' lookups of one sub-block,
 /// removed once in the reduction: `(2 + 1)·508·8 = 12_192`.

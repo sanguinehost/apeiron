@@ -956,8 +956,8 @@ impl<V> FreqLine<V> {
         main.chain(side).chain(overflow)
     }
 
-    /// Reduce the whole table in parallel over live values — `encircle` on the group-probe engine
-    /// (mirror of `Table::encircle`; schedule-free, `Web.preduceAt_schedule_free`).
+    /// Reduce the whole table in parallel over live values on the group-probe engine
+    /// (schedule-free, `Web.preduceAt_schedule_free`).
     fn encircle<M, R, C>(&self, id: M, residual: R, combine: C) -> M
     where
         M: Send + Sync + Clone,
@@ -1412,7 +1412,7 @@ impl<K: Coord, V> FreqMap<K, V> {
         }
     }
 
-    /// Reduce the whole table in parallel over live values — [`Table::encircle`] on the group probe.
+    /// Reduce the whole table in parallel over live values on the group probe.
     pub fn encircle<M, R, C>(&self, id: M, residual: R, combine: C) -> M
     where
         M: Send + Sync + Clone,
@@ -1423,7 +1423,7 @@ impl<K: Coord, V> FreqMap<K, V> {
         self.inner.encircle(id, residual, combine)
     }
 
-    /// **The threaded stream read** ([`Table::get_all`] on the group probe): split the keys one slice
+    /// **The threaded stream read** on the group probe: split the keys one slice
     /// per core, each pipelines internally into a disjoint output slice. A read can't affect another,
     /// so the split is safe and `out[i] = get(keys[i])`, order preserved.
     pub fn get_all<'a>(&'a self, keys: &'a [K]) -> Vec<Option<&'a V>>
@@ -1461,7 +1461,7 @@ impl<K: Coord, V> FreqMap<K, V> {
         out
     }
 
-    /// **The fused parallel key-stream reduce** ([`Table::get_reduce`] on the group probe): each core
+    /// **The fused parallel key-stream reduce** on the group probe: each core
     /// pipelines its slice and folds locally, partials combined once — no `N`-alloc.
     pub fn get_reduce<'a, M, Rf, C>(&'a self, keys: &'a [K], id: M, map: Rf, combine: C) -> M
     where
