@@ -1,7 +1,9 @@
+//! Board: APEIRON-QUALITY-118-W1-T01.
 //! The held-out evaluator and the `--kl-divergence-base` port: identical models give zero KL and TV,
-//! a perturbed `lm_head` row matches an independent `f64` softmax-KL, the pooled mean is
+//! a perturbed student tensor matches an independent `f64` softmax-KL, the pooled mean is
 //! token-weighted, the reader round-trips and refuses, and `heldout_kldbase_qwen05b` checks the
-//! `Q8Act` engine against llama.cpp's own KLD. Grade `tested`.
+//! `Q8Act` engine against llama.cpp's own KLD. The teacher and student are engines on the one
+//! inference path. Grade `tested`.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -16,26 +18,276 @@
               independent recomputation; the exact float comparisons are the identical-model test"
 )]
 
-use apeiron::engine::{Engine, ONE};
+use apeiron::engine::loader::Engine;
+use apeiron::engine::{KernelMode, ONE};
+use apeiron::format::quant;
 use apeiron::learn::fold::stats::heldout::{
     held_out, held_out_kldbase_chunk, held_out_seq, score_base_row, BaseScore,
 };
 use apeiron::learn::fold::stats::kldbase::KldBase;
-use apeiron::learn::grad::model::{forward, Config, LayerWeights, Weights};
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
-/// Embedding width, query heads, KV head width, feed-forward width, vocabulary, layers.
-const E: usize = 4;
-const NH: usize = 1;
+/// Residual width, query heads, KV heads, per-head width, feed-forward width, vocabulary, layers.
+///
+/// The fixture's tied head is `token_embd.weight` `[E, FF]`, so its row count is also the vocabulary.
+const E: usize = 8;
+const NH: usize = 2;
 const NKV: usize = 1;
-const HD: usize = 2;
-const QW: usize = NH * HD; // 2
-const KVW: usize = NKV * HD; // 2
-const FF: usize = 6;
-const V: usize = 8;
+const HD: usize = 4;
+const Q: usize = NH * HD; // 8
+const KV: usize = NKV * HD; // 4
+const FF: usize = 16;
+const V: usize = FF; // tied head: `token_embd.weight` rows
 const L: usize = 1;
+/// The scored sequence the fixture tests run.
+const TOKENS: [u32; 4] = [1, 2, 3, 4];
 
-/// A fixed-seed 64-bit LCG (Knuth's MMIX constants), the crate's test drift.
+fn put_u32(b: &mut Vec<u8>, v: u32) {
+    b.extend_from_slice(&v.to_le_bytes());
+}
+
+fn put_u64(b: &mut Vec<u8>, v: u64) {
+    b.extend_from_slice(&v.to_le_bytes());
+}
+
+fn put_str(b: &mut Vec<u8>, s: &str) {
+    put_u64(b, u64::try_from(s.len()).expect("small"));
+    b.extend_from_slice(s.as_bytes());
+}
+
+fn kv_u32(b: &mut Vec<u8>, k: &str, v: u32) {
+    put_str(b, k);
+    put_u32(b, 4);
+    put_u32(b, v);
+}
+
+fn kv_str(b: &mut Vec<u8>, k: &str, v: &str) {
+    put_str(b, k);
+    put_u32(b, 8);
+    put_str(b, v);
+}
+
+/// Round-to-nearest-even `f16` bits for a finite normal `f32` in `(2^-14, 65504)`.
+fn f16_round(x: f32) -> u16 {
+    let bits = x.to_bits();
+    if bits << 1 == 0 {
+        return 0;
+    }
+    let sign = ((bits >> 16) & 0x8000) as u16;
+    let e = i32::try_from((bits >> 23) & 0xff).expect("8 bits") - 127 + 15;
+    let mut m = i32::try_from((bits >> 13) & 0x3ff).expect("10 bits");
+    let rem = bits & 0x1fff;
+    if rem > 0x1000 || (rem == 0x1000 && m & 1 == 1) {
+        m += 1;
+    }
+    let carry = m >> 10;
+    m &= 0x3ff;
+    sign | (((e + carry) as u16) << 10) | (m as u16)
+}
+
+fn u(x: usize) -> u64 {
+    u64::try_from(x).expect("fixture dims fit u64")
+}
+
+/// A deterministic `F16` payload of `rows · cols` weights in `{-2, -1, 0, 1, 2}·2⁻⁵`; `salt` selects
+/// the pattern, so a different salt is a different tensor.
+fn f16_weight(rows: usize, cols: usize, salt: usize) -> Vec<u8> {
+    const SCALE: f32 = 1.0 / 32.0;
+    let mut b: Vec<u8> = Vec::with_capacity(rows * cols * 2);
+    let mut r = 0usize;
+    while r < rows {
+        let mut c = 0usize;
+        while c < cols {
+            let code = i32::try_from((r * 7 + c * 3 + salt * 11) % 5).expect("small") - 2;
+            b.extend_from_slice(&f16_round(code as f32 * SCALE).to_le_bytes());
+            c += 1;
+        }
+        r += 1;
+    }
+    b
+}
+
+/// An all-`1.0` `F32` vector of `n` gains.
+fn f32_gain(n: usize) -> Vec<u8> {
+    let mut b: Vec<u8> = Vec::with_capacity(n * 4);
+    let mut i = 0usize;
+    while i < n {
+        b.extend_from_slice(&1.0f32.to_bits().to_le_bytes());
+        i += 1;
+    }
+    b
+}
+
+/// One dense `qwen2` layer with a tied head, every matrix `F16` and every norm gain exactly one.
+///
+/// `shift` re-salts exactly one tensor (`token_embd.weight`, also the tied head), so `shift != 0`
+/// is the perturbed student of the KL tests and `shift == 0` the teacher; `flip_q` flips the low
+/// byte of that tensor's first `F16` word, the one-byte mutation control.
+fn build_gguf_with(shift: usize, flip_q: bool) -> Vec<u8> {
+    let mut ts: Vec<(&str, Vec<u64>, u32, Vec<u8>)> = vec![
+        (
+            "blk.0.attn_norm.weight",
+            vec![u(E)],
+            quant::GGML_TYPE_F32,
+            f32_gain(E),
+        ),
+        (
+            "blk.0.attn_q.weight",
+            vec![u(E), u(Q)],
+            quant::GGML_TYPE_F16,
+            f16_weight(Q, E, 1),
+        ),
+        (
+            "blk.0.attn_k.weight",
+            vec![u(E), u(KV)],
+            quant::GGML_TYPE_F16,
+            f16_weight(KV, E, 2),
+        ),
+        (
+            "blk.0.attn_v.weight",
+            vec![u(E), u(KV)],
+            quant::GGML_TYPE_F16,
+            f16_weight(KV, E, 3),
+        ),
+        (
+            "blk.0.attn_output.weight",
+            vec![u(Q), u(E)],
+            quant::GGML_TYPE_F16,
+            f16_weight(E, Q, 4),
+        ),
+        (
+            "blk.0.ffn_norm.weight",
+            vec![u(E)],
+            quant::GGML_TYPE_F32,
+            f32_gain(E),
+        ),
+        (
+            "blk.0.ffn_gate.weight",
+            vec![u(E), u(FF)],
+            quant::GGML_TYPE_F16,
+            f16_weight(FF, E, 5),
+        ),
+        (
+            "blk.0.ffn_up.weight",
+            vec![u(E), u(FF)],
+            quant::GGML_TYPE_F16,
+            f16_weight(FF, E, 6),
+        ),
+        (
+            "blk.0.ffn_down.weight",
+            vec![u(FF), u(E)],
+            quant::GGML_TYPE_F16,
+            f16_weight(E, FF, 7),
+        ),
+        (
+            "output_norm.weight",
+            vec![u(E)],
+            quant::GGML_TYPE_F32,
+            f32_gain(E),
+        ),
+        (
+            "token_embd.weight",
+            vec![u(E), u(FF)],
+            quant::GGML_TYPE_F16,
+            f16_weight(FF, E, 9 + shift),
+        ),
+    ];
+    if flip_q {
+        // `token_embd` is entry 10 and its first word is nonzero (`+0.0625`), so this moves its
+        // last mantissa bit: one weight byte, not a rewritten tensor.
+        ts[10].3[0] ^= 1;
+    }
+    let mut b: Vec<u8> = Vec::new();
+    b.extend_from_slice(b"GGUF");
+    put_u32(&mut b, 3);
+    put_u64(&mut b, u64::try_from(ts.len()).expect("small"));
+    put_u64(&mut b, 6);
+    kv_str(&mut b, "general.architecture", "qwen2");
+    kv_u32(
+        &mut b,
+        "qwen2.block_count",
+        u32::try_from(L).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.attention.head_count",
+        u32::try_from(NH).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.attention.head_count_kv",
+        u32::try_from(NKV).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.embedding_length",
+        u32::try_from(E).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.feed_forward_length",
+        u32::try_from(FF).expect("small"),
+    );
+    let mut off = 0u64;
+    for (name, dims, ty, payload) in &ts {
+        put_str(&mut b, name);
+        put_u32(&mut b, u32::try_from(dims.len()).expect("rank 2"));
+        for &d in dims {
+            put_u64(&mut b, d);
+        }
+        put_u32(&mut b, *ty);
+        put_u64(&mut b, off);
+        off += u64::try_from(payload.len()).expect("small");
+    }
+    let pad = (32 - b.len() % 32) % 32;
+    b.resize(b.len() + pad, 0);
+    for (_, _, _, payload) in &ts {
+        b.extend_from_slice(payload);
+    }
+    b
+}
+
+/// [`build_gguf_with`] without the byte flip.
+fn build_gguf(shift: usize) -> Vec<u8> {
+    build_gguf_with(shift, false)
+}
+
+/// Write `bytes` to a per-process temp file and open the engine.
+fn open_bytes(tag: &str, bytes: &[u8]) -> (Engine, String) {
+    let path =
+        std::env::temp_dir().join(format!("apeiron_heldout_{}_{tag}.gguf", std::process::id()));
+    std::fs::write(&path, bytes).expect("write fixture");
+    let path = path.to_str().expect("utf8 temp path").to_string();
+    (Engine::open(&path).expect("open fixture"), path)
+}
+
+/// The teacher (`shift = 0`) and the perturbed student (`shift = 1`).
+fn teacher_student(tag: &str) -> (Engine, String, Engine, String) {
+    let (t, tp) = open_bytes(&format!("{tag}_t"), &build_gguf(0));
+    let (s, sp) = open_bytes(&format!("{tag}_s"), &build_gguf(1));
+    (t, tp, s, sp)
+}
+
+/// Every position's engine logits, through the same two calls the evaluator makes. The test's
+/// independent step is the `f64` softmax-KL below, not a second forward: there is one inference
+/// path.
+fn engine_logits(engine: &Engine, tokens: &[u32]) -> Vec<i64> {
+    let mut st = engine.state(tokens.len()).expect("state");
+    let (cols, _tap) = engine
+        .prefill_tap_cols(&mut st, tokens, KernelMode::Q8Act, false)
+        .expect("prefill");
+    assert_eq!(cols.len(), tokens.len());
+    let v = engine.config.vocab_size;
+    let mut out = Vec::with_capacity(tokens.len() * v);
+    for x in &cols {
+        let z = engine.lm_head_fixed(x).expect("head");
+        assert_eq!(z.len(), v);
+        out.extend_from_slice(&z);
+    }
+    out
+}
+
+/// A fixed-seed 64-bit LCG (Knuth's MMIX constants), the base-row fixture's drift.
 struct Lcg(u64);
 
 impl Lcg {
@@ -47,62 +299,7 @@ impl Lcg {
             .wrapping_add(1_442_695_040_888_963_407);
         self.0
     }
-
-    /// A Q32.32 weight uniform on `[−0.5, 0.5)`, i.e. `[−ONE/2, ONE/2)`.
-    fn weight(&mut self) -> i64 {
-        let r = ((self.next() >> 33) & 0xffff) as i64; // 0..=65535
-        (r - 32768) * (ONE >> 16)
-    }
-
-    /// `n` weights.
-    fn vec(&mut self, n: usize) -> Vec<i64> {
-        (0..n).map(|_| self.weight()).collect()
-    }
 }
-
-/// The tiny model geometry; `eps` is `round(2^-12 · ONE)`.
-fn config() -> Config {
-    Config {
-        n_layer: L,
-        n_head: NH,
-        n_head_kv: NKV,
-        n_embd: E,
-        n_ff: FF,
-        vocab: V,
-        head_dim: HD,
-        eps: ONE >> 12,
-        rope_theta: 10_000.0,
-    }
-}
-
-/// A one-layer Q32.32 model with `seed`'s weights and unit norm gains.
-fn weights(seed: u64) -> Weights {
-    let mut g = Lcg(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1));
-    let one = vec![ONE; E];
-    let layers = (0..L)
-        .map(|_| LayerWeights {
-            attn_norm: one.clone(),
-            wq: g.vec(QW * E),
-            bq: Some(g.vec(QW)),
-            wk: g.vec(KVW * E),
-            bk: Some(g.vec(KVW)),
-            wv: g.vec(KVW * E),
-            bv: Some(g.vec(KVW)),
-            wo: g.vec(E * QW),
-            ffn_norm: one.clone(),
-            w_gate: g.vec(FF * E),
-            w_up: g.vec(FF * E),
-            w_down: g.vec(E * FF),
-        })
-        .collect();
-    Weights {
-        layers,
-        output_norm: one,
-        token_embd: g.vec(V * E),
-        lm_head: g.vec(V * E),
-    }
-}
-
 /// The `f64` softmax of one row of real logits.
 fn softmax_f64(z: &[f64]) -> Vec<f64> {
     let m = z.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -171,56 +368,26 @@ fn witness_base_row(seed: u64) -> u64 {
     h
 }
 
-/// The recorded held-out aggregate digest: [`weights`]`(seed)`, a perturbed `lm_head`, and the five
-/// mean words over the `[1, 2, 3, 4, 5]` sequence.
-fn witness_heldout(seed: u64) -> u64 {
-    let teacher = weights(seed);
-    let mut student = teacher.clone();
-    for k in 0..E {
-        student.lm_head[k] += 3 * (ONE >> 2);
-    }
-    let toks: [u32; 5] = [1, 2, 3, 4, 5];
-    let hh = held_out_seq(&teacher, &student, &config(), &toks).expect("eval");
-    let tokens = i64::try_from(hh.tokens).expect("tokens");
-    let mut h = fnv1a(0xcbf2_9ce4_8422_2325, b"heldout");
-    for w in [
-        tokens,
-        hh.kl,
-        hh.tv,
-        hh.top1,
-        hh.nll_student,
-        hh.nll_teacher,
-    ] {
-        h = fnv1a(h, &w.to_le_bytes());
-    }
-    h
-}
-
-/// The recorded pre-migration digests of the held-out face, from the source at base `57d21789`.
-/// The word accumulators are unchanged by the migration; only the report struct's field type moved
-/// from a decimal to the exact word, so these digests must hold exactly.
+/// The recorded base-row digests, from the source at base `57d21789`. The word accumulators are
+/// unchanged by the migration; only the report struct's field type moved from a decimal to the
+/// exact word, so these digests must hold exactly.
+///
+/// The old whole-model held-out digest is not reproduced: the `learn::grad::model::forward` path it
+/// pinned is deleted, and the engine's logits are a different arithmetic.
 #[test]
-fn recorded_heldout_digests_hold() {
+fn recorded_base_row_digests_hold() {
     for (seed, want) in [
         (0x0BA5_E001u64, 0xc408_a9ce_25fa_6911u64),
         (0x0BA5_E002, 0x2933_5644_f070_f9ff),
     ] {
         assert_eq!(witness_base_row(seed), want, "base row seed {seed:016x}");
     }
-    for (seed, want) in [
-        (0x5EED_0001u64, 0x04b1_ffdc_6145_1ee5u64),
-        (0x5EED_0002, 0x411a_4aa3_4db2_9db4),
-    ] {
-        assert_eq!(witness_heldout(seed), want, "held-out seed {seed:016x}");
-    }
 }
 
 /// The independent reference: the mean forward `KL(teacher ‖ student)` in nats from the Q32.32
-/// logits, computed in `f64`, one row at a time (`Σ_x p_t(x)·(ln p_t(x) − ln p_s(x)) / T`).
-fn f64_kl_mean(teacher: &Weights, student: &Weights, cfg: &Config, toks: &[u32]) -> f64 {
-    let (lt, _) = forward(teacher, cfg, toks).expect("teacher forward");
-    let (ls, _) = forward(student, cfg, toks).expect("student forward");
-    let (t, v) = (toks.len(), cfg.vocab);
+/// logits, computed in `f64`, one row at a time (`Σ_x p_t(x)·(ln p_t(x) − ln p_s(x)) / T`). The
+/// logits are the engine's own; only the softmax-KL arithmetic is the independent recomputation.
+fn f64_kl_mean(lt: &[i64], ls: &[i64], t: usize, v: usize) -> f64 {
     let mut total = 0.0;
     for r in 0..t {
         let (pt, ps) = (
@@ -274,67 +441,93 @@ fn row_tol(v: usize) -> f64 {
 /// KL tests below are not vacuous.
 #[test]
 fn fixture_is_non_degenerate() {
-    let cfg = config();
-    let teacher = weights(1);
-    let student = weights(2);
-    let toks: [u32; 4] = [1, 2, 3, 4];
-    let h = held_out_seq(&teacher, &student, &cfg, &toks).expect("eval");
+    let (teacher, tp, student, sp) = teacher_student("nondeg");
+    let h = held_out_seq(&teacher, &student, &TOKENS).expect("eval");
     assert!(h.kl > 0, "distinct models must give positive KL");
     assert!((0..=ONE).contains(&h.tv), "tv is a fraction of ONE");
     assert!((0..=ONE).contains(&h.top1), "top1 is a fraction of ONE");
     assert!(h.nll_teacher > 0 && h.nll_student > 0);
+    let (lt, ls) = (
+        engine_logits(&teacher, &TOKENS),
+        engine_logits(&student, &TOKENS),
+    );
+    assert_ne!(lt, ls, "the fixture's two logit blocks are identical");
+    let _ = std::fs::remove_file(&tp);
+    let _ = std::fs::remove_file(&sp);
 }
 
 /// Teacher equal to student: zero KL, zero TV, unit top-1, equal NLLs — exactly, not approximately.
+///
+/// Two independently opened engines from the same bytes, so the equality is the arithmetic's, not a
+/// shared object's.
 #[test]
 fn identical_teacher_student_is_zero() {
-    let cfg = config();
-    let w = weights(1);
+    let (teacher, tp) = open_bytes("same_t", &build_gguf(0));
+    let (student, sp) = open_bytes("same_s", &build_gguf(0));
     let s1: [u32; 3] = [1, 2, 3];
     let s2: [u32; 4] = [4, 5, 6, 7];
     let seqs: [&[u32]; 2] = [&s1, &s2];
-    let h = held_out(&w, &w, &cfg, &seqs).expect("eval");
+    let h = held_out(&teacher, &student, &seqs).expect("eval");
     let want = (h.tokens, h.kl, h.tv, h.top1);
     assert_eq!(want, (7, 0, 0, ONE), "equal logits give 0 and 1");
     assert_eq!(h.nll_student, h.nll_teacher);
+    let _ = std::fs::remove_file(&tp);
+    let _ = std::fs::remove_file(&sp);
 }
 
-/// A perturbed `lm_head` row gives a positive KL that equals the independent `f64` softmax-KL
-/// recomputation to `1e-6` relative. The mutation control swaps `kl_row`'s arguments, which breaks
-/// this equality: `KL(p_t ‖ p_s) ≠ KL(p_s ‖ p_t)`.
+/// One flipped byte of one student weight is not zero KL: the mutation control's positive side.
 #[test]
-fn perturbed_lm_head_matches_f64_softmax_kl() {
-    let cfg = config();
-    let teacher = weights(1);
-    let mut student = teacher.clone();
-    for k in 0..E {
-        student.lm_head[k] += 3 * (ONE >> 2);
-    }
-    let toks: [u32; 5] = [1, 2, 3, 4, 5];
-    let h = held_out_seq(&teacher, &student, &cfg, &toks).expect("eval");
+fn one_flipped_student_weight_byte_moves_the_logits() {
+    let (teacher, tp) = open_bytes("flip_t", &build_gguf(0));
+    let (student, sp) = open_bytes("flip_s", &build_gguf_with(0, true));
+    let h = held_out_seq(&teacher, &student, &TOKENS).expect("eval");
+    assert!(
+        h.kl > 0,
+        "one flipped f16 mantissa byte left every logit word unchanged"
+    );
+    assert_ne!(
+        engine_logits(&teacher, &TOKENS),
+        engine_logits(&student, &TOKENS),
+        "the flipped byte did not reach the logits"
+    );
+    let _ = std::fs::remove_file(&tp);
+    let _ = std::fs::remove_file(&sp);
+}
+
+/// A perturbed student tensor gives a positive KL that equals the independent `f64` softmax-KL
+/// recomputation of the engine's own logits to `1e-6` relative. The mutation control swaps
+/// `kl_row`'s arguments, which breaks this equality: `KL(p_t ‖ p_s) ≠ KL(p_s ‖ p_t)`.
+#[test]
+fn perturbed_student_matches_f64_softmax_kl() {
+    let (teacher, tp, student, sp) = teacher_student("f64");
+    let h = held_out_seq(&teacher, &student, &TOKENS).expect("eval");
     assert!(h.kl > 0, "the perturbed student must give positive KL");
-    let want = f64_kl_mean(&teacher, &student, &cfg, &toks);
+    let (lt, ls) = (
+        engine_logits(&teacher, &TOKENS),
+        engine_logits(&student, &TOKENS),
+    );
+    let want = f64_kl_mean(&lt, &ls, TOKENS.len(), V);
     let got = from_grid(h.kl);
     let rel = (got - want).abs() / want.abs().max(1e-12);
     assert!(
         rel <= 1e-6,
         "KL {got:.12} vs f64 reference {want:.12} (relative {rel:e})"
     );
+    let _ = std::fs::remove_file(&tp);
+    let _ = std::fs::remove_file(&sp);
 }
 
 /// The pooled mean over several sequences is the token-weighted mean of the per-sequence values:
 /// KL/TV/top-1 weighted by `T_i`, the NLL by the `T_i − 1` next-token positions.
 #[test]
 fn multi_sequence_mean_is_token_weighted() {
-    let cfg = config();
-    let teacher = weights(1);
-    let student = weights(2);
+    let (teacher, tp, student, sp) = teacher_student("pooled");
     let s1: [u32; 3] = [1, 2, 3];
-    let s2: [u32; 5] = [7, 6, 5, 4, 3];
+    let s2: [u32; 5] = [9, 6, 5, 4, 3];
     let seqs: [&[u32]; 2] = [&s1, &s2];
-    let h = held_out(&teacher, &student, &cfg, &seqs).expect("pooled");
-    let a = held_out_seq(&teacher, &student, &cfg, &s1).expect("s1");
-    let b = held_out_seq(&teacher, &student, &cfg, &s2).expect("s2");
+    let h = held_out(&teacher, &student, &seqs).expect("pooled");
+    let a = held_out_seq(&teacher, &student, &s1).expect("s1");
+    let b = held_out_seq(&teacher, &student, &s2).expect("s2");
     assert_eq!(h.tokens, a.tokens + b.tokens);
 
     let n = (a.tokens + b.tokens) as f64;
@@ -353,6 +546,8 @@ fn multi_sequence_mean_is_token_weighted() {
     let nt = wn(a.nll_teacher, b.nll_teacher);
     assert!(close(from_grid(h.nll_student), ns), "nll_s");
     assert!(close(from_grid(h.nll_teacher), nt), "nll_t");
+    let _ = std::fs::remove_file(&tp);
+    let _ = std::fs::remove_file(&sp);
 }
 
 /// The fixed-point base row agrees with its `f64` oracle ([`ref_score_base_row`]) within the derived
@@ -360,7 +555,8 @@ fn multi_sequence_mean_is_token_weighted() {
 #[test]
 fn base_row_matches_the_f64_oracle() {
     let mut g = Lcg(0x5EED_5EED);
-    let v = V;
+    // The base-row fixture is independent of the model: the width the recorded test has always used.
+    let v = 8usize;
     let z: Vec<i64> = (0..v)
         .map(|_| ((g.next() >> 40) % 7) as i64 * (ONE >> 1) - 3 * ONE)
         .collect();
@@ -405,15 +601,18 @@ fn base_row_matches_the_f64_oracle() {
 /// Refusals: empty inputs, a one-token sequence, and a token id at or past the vocabulary.
 #[test]
 fn refusals() {
-    let cfg = config();
-    let w = weights(1);
-    let bad = |t: &[u32]| held_out_seq(&w, &w, &cfg, t).is_err();
+    let (teacher, tp) = open_bytes("refuse", &build_gguf(0));
+    let bad = |t: &[u32]| held_out_seq(&teacher, &teacher, t).is_err();
     assert!(bad(&[]), "empty sequence");
     assert!(bad(&[1]), "1 token");
     assert!(bad(&[1, V as u32]), "token == vocab");
     assert!(bad(&[1, V as u32 + 3]), "token > vocab");
     let empty: [&[u32]; 0] = [];
-    assert!(held_out(&w, &w, &cfg, &empty).is_err(), "no sequences");
+    assert!(
+        held_out(&teacher, &teacher, &empty).is_err(),
+        "no sequences"
+    );
+    let _ = std::fs::remove_file(&tp);
 }
 
 /// The llama.cpp base files, its own KLD logs and the `Q8_0` student.
@@ -663,4 +862,56 @@ fn heldout_kldbase_qwen05b() {
         let q4 = llama_log(&format!("{KLD_DIR}/{text}.c40.qwen05b-Q4_K_M.log"));
         report_kld(text, skip, &scores, &walls, &q8, &q4);
     }
+}
+
+/// The engine teacher/student evaluator at the production shape: the `F16` teacher and the `Q8_0`
+/// student of the same Qwen2.5-0.5B model, 512 tokens, `APEIRON_HELDOUT_RUNS` (default 3) paired
+/// runs of [`held_out_seq`], reporting the mean wall and its observed spread plus the scored KL.
+///
+/// No ratio is claimed here: the two files are different quantisations of one model, so this is the
+/// evaluator's own throughput at the shape the quantiser gate runs, not a like-for-like comparison.
+/// One 512-token run is ~257 s on this box (the `F16` teacher's prefill dominates); the run count is
+/// an env knob so each round stays under the 580 s budget.
+#[test]
+#[ignore = "loads a 1.2 GB F16 and a 0.5 GB Q8_0 GGUF; run explicitly with --ignored"]
+fn heldout_engine_qwen05b_f16_vs_q8() {
+    const F16: &str = "/home/socol/models/gguf/qwen05b-f16.gguf";
+    let teacher = Engine::open(F16).expect("open f16 teacher");
+    let student = Engine::open(QWEN05B_Q8).expect("open Q8_0 student");
+    let vocab = teacher.config.vocab_size as u32;
+    let n_tok: u32 = std::env::var("APEIRON_HELDOUT_TOKENS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(512);
+    let toks: Vec<u32> = (0..n_tok).map(|i| (i * 37 + 11) % vocab).collect();
+    let runs = std::env::var("APEIRON_HELDOUT_RUNS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3usize);
+    let mut walls = Vec::with_capacity(runs);
+    let mut last = None;
+    for _ in 0..runs {
+        let t = std::time::Instant::now();
+        last = Some(held_out_seq(&teacher, &student, &toks).expect("eval"));
+        walls.push(t.elapsed().as_secs_f64());
+    }
+    let n = walls.len() as f64;
+    let mean = walls.iter().sum::<f64>() / n;
+    let spread = if runs > 1 {
+        let var = walls.iter().map(|w| (w - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        var.sqrt()
+    } else {
+        0.0
+    };
+    let h = last.expect("at least one run");
+    println!(
+        "qwen05b f16 teacher vs Q8_0 student, {n_tok} tok: {mean:.3} s mean ± {spread:.3} sd over {runs} runs; \
+         KL {:.6} tv {:.6} top1 {:.4} nll_s {:.4} nll_t {:.4}",
+        from_grid(h.kl),
+        from_grid(h.tv),
+        from_grid(h.top1),
+        from_grid(h.nll_student),
+        from_grid(h.nll_teacher)
+    );
+    assert_eq!(h.tokens, u64::from(n_tok));
 }

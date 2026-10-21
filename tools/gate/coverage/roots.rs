@@ -89,7 +89,6 @@ const BASELINE: &[(&str, &str)] = &[
     ("src/learn/fold/stats/basis.rs", "sweep"),
     ("src/learn/fold/stats/basis.rs", "uniform_words"),
     ("src/learn/fold/stats/capture.rs", "fold_upper_rows"),
-    ("src/learn/fold/stats/heldout.rs", "score->forward"),
     ("src/learn/fold/stats/hocapture.rs", "accumulate->forward"),
     ("src/learn/fold/stats/hocapture.rs", "accumulate_kind"),
     ("src/learn/fold/stats/hocapture.rs", "accumulate_with_targets->forward"),
