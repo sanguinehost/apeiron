@@ -34,7 +34,10 @@ of `ZMod (2^W)` (odd). What that buys, and what it does not, is below.
   descent will try (`descent_can_be_wholly_blocked`; `shipped_probe_can_be_wholly_blocked` for the
   probe as shipped). Termination itself is what the craft removes, not a short walk, so the only
   worst-case aggregate left is `Θ(n²)` (`build_bounded_by_n_squared`), the same ceiling a flooded
-  `hash & mask` pays (`flood_is_quadratic`). This section is carried over from the upstream corpus
+  `hash & mask` pays (`flood_is_quadratic`). This is the ceiling of the **uncapped** model, and it
+  stays as that statement: the shipped table caps the primary probe at `probe_limit` and routes the
+  balance to an AVL overflow, which `Security/HashDosCapped.lean` proves costs
+  `n·(PROBE_CAP + 2·log2(n + 1) + 1)`, not `Θ(n²)`. This section is carried over from the upstream corpus
   (`../sanguine-ref` `Substrate/Algebra/Security/AggregationBound.lean`); the apeiron
   `Closures/Engineering/RadixDescent.lean` cites those declarations but does not carry them.
 * **Trust boundary — the seed story, stated.** The multipliers are fixed source constants, not
@@ -46,15 +49,22 @@ of `ZMod (2^W)` (odd). What that buys, and what it does not, is below.
   bounds are therefore claims about the mixing's *structure*, never about secrecy. Grade of "the
   constant is secret": **not claimed, and false** — no random seed exists on this face.
 * **Where the extraction does not reach.** `addr`/`homeSlot`/`seqLin`/`plen` are the hand-transcribed
-  model of `Table::home`/`Table::descend` (`src/hashtrinity/mod.rs`); no refinement theorem binds them
-  to the Rust. The generated body `table.Region.home` (`proof/ApeironWord.lean`, from
-  `src/table/state.rs`) reads the same multiplier this model does — `table.HOME_SPREAD` equals
-  `homeSpread` (§0b) — and the generated `table.Region.home` spread arithmetic is the model's
-  `homeSlot` at `bits = b`, `bound = 2^b` (§0b). What stays open is the input plumbing: `Region::home`
-  folds `coord_of place` (not the key) and casts the top window through `Usize`, and the extraction
-  carries no `descend` body at all, so `seqLin`/`plen` have nothing to bind to. The *link* from the
-  model to the generated body is therefore partial: constants and slot arithmetic discharged, input
-  and probe blocked, named at the end.
+  model of `Table::home`/`Table::descend` (`src/map/hashtrinity/mod.rs`); no refinement theorem in
+  *this* file binds them to the Rust. The generated body `table.Region.home`
+  (`proof/ApeironWord.lean`, from `src/table/state.rs`) reads the same multiplier this model does —
+  `table.HOME_SPREAD` equals `homeSpread` (§0b) — and the generated `table.Region.home` spread
+  arithmetic is the model's `homeSlot` at `bits = b`, `bound = 2^b` (§0b). What stays open here is the
+  input plumbing: `Region::home` folds `coord_of place` (not the key) and casts the top window
+  through `Usize`. The *link* from this model to the generated body is therefore partial: constants
+  and slot arithmetic discharged, the `seqLin`/`plen` step functions not bound here.
+
+  The extraction DOES now carry the probe. `hashtrinity.Table.descend`
+  (`proof/ApeironWord.lean:109330`) and `hashtrinity.overflow.Table.probe_limit` / `probe_rest_with`
+  with its loop body (`:109503`, `:109435`) are generated, and `Security/HashDosCapped.lean` states
+  the shipped table's bounds over them: `probe_limit_val` (`Map/ExecutedProbe.lean:178`) and
+  `CappedOK` (`:89`) are the extracted objects that file's §A′ consumes. The sentence "the extraction
+  carries no `descend` body" was true of the extraction this paragraph was written against and is
+  stale.
 
 No `sorry`, no `axiom`, no `maxHeartbeats`: every headline carries an in-module `#print axioms` row.
 -/
@@ -224,6 +234,12 @@ theorem shipped_window_pile (s : (ZMod (2 ^ 64))ˣ) (k : ZMod (2 ^ 64)) :
 -- ═══════════════════════════════════════════════════════════════════
 -- §3 · THE HOLE — the descent can be wholly blocked (carried over)
 -- ═══════════════════════════════════════════════════════════════════
+-- This section is the statement about the UNCAPPED walk: `plen` runs until it finds a free lane, so
+-- an adversary who fills every lane it would try removes termination, not a short walk. The shipped
+-- probe does not run that walk — it examines at most `probe_limit = min 16 (8 + 64/bits - 1)` slots
+-- and hands the key to the overflow — so the theorems below bound the model those lines describe,
+-- not the shipped table. `Security/HashDosCapped.lean` carries the shipped bound.
+--
 -- `chain_separates_within_radix` bounds a PAIR: two distinct keys differ in some digit below the
 -- radix depth. It forbids no SINGLE collision, and a probe length is a function of the OCCUPIED SET.
 -- So for every step of a key's descent there is a distinct key colliding at exactly that step, and
@@ -506,7 +522,7 @@ theorem hashdos_invulnerability_and_its_limit {b D W : ℕ} (hb : 0 < b) (hD : 2
 -- §6 · THE RESIDUAL — where the extraction does not reach
 -- ═══════════════════════════════════════════════════════════════════
 -- (a) MODEL LINK, PARTIAL. `addr`/`homeSlot`/`seqLin`/`plen` are a hand transcription of
---     `src/hashtrinity/mod.rs` (`Table::home` at `:602-610`, `Table::descend` at `:626-654`); no
+--     `src/map/hashtrinity/mod.rs` (`Table::home` at `:502`, `Table::descend` at `:528`); no
 --     Aeneas refinement theorem binds them to the Rust. §0b discharges the CONSTANT and SLOT
 --     ARITHMETIC: `table.HOME_SPREAD` equals `homeSpread` and `Region::home`'s spread value is
 --     `homeSlot` at `bits = b`, `bound = 2^b`. Still OPEN and precisely blocked:
@@ -515,8 +531,10 @@ theorem hashdos_invulnerability_and_its_limit {b D W : ℕ} (hb : 0 < b) (hD : 2
 --         the remainder needs the `Result` do-block inversion of `table.Region.home`
 --         (`proof/ApeironWord.lean`, `table.Region.home`), including its `UScalar.cast .Usize` of
 --         the top window (platform-`Usize`-width) and its `c < len` / `len = 0` branches.
---       · `seqLin`/`plen`: the extraction carries NO `Table::descend` body, so these have no
---         generated definition to bind to. Blocked on a `descend` extraction, not on a lemma.
+--       · `seqLin`/`plen`: the extraction DOES carry `hashtrinity.Table.descend`
+--         (`proof/ApeironWord.lean:109330`); no theorem in THIS file binds `seqLin` to it. The
+--         shipped-probe bounds over the extracted body are in `Security/HashDosCapped.lean` §A′, and
+--         the binding of `seqLin` to `hashtrinity.Table.descend` itself is still open.
 --     The `home_lt_bound` fact the earlier note cited lives in `Growable/HomeBound.lean`, which is
 --     NOT a `lakefile.lean` root and still inverts `table.Region.home` against `table.TAG_SPREAD`
 --     (lines 74/94/113/127) — the body now reads `table.HOME_SPREAD`, so that historical file no

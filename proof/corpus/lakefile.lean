@@ -33,6 +33,7 @@ lean_lib ApeironWordBridge where
     -- `table.Region.home`; the input inversion, the power-of-two bound and the `descend` binding
     -- stay blocked (no `Table::descend` body exists in the extraction).
     `Security.HashDos,
+    `Security.HashDosCapped,
     `Growable.Geometry, `Growable.Identity, `Growable.Scan,
     `Growable.ReadLoop, `Growable.LocateLoop, `Growable.ReadState, `Kepler.Certificate,
     `Growable.Search, `Growable.Read, `Growable.ReadComposition, `Growable.RelocationWF, `Growable.Classifier,
