@@ -5,7 +5,8 @@
 //! single-token public path, and (b) the tapped `attn_norm` output is exactly the engine's own
 //! `RMSNorm` recomputed from the tapped residual input.
 //!
-//! Board: APEIRON-QUALITY-118-W1-T01 (post-`RoPE` q/k/v and pre-activation gate/up tap stages).
+//! Board: APEIRON-QUALITY-118-W1-T01 (post-`RoPE` q/k/v, pre-activation gate/up, post-attention
+//! residual and layer-output tap stages).
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -30,8 +31,10 @@ const STAGE_K: usize = 6;
 const STAGE_V: usize = 7;
 const STAGE_GATE: usize = 8;
 const STAGE_UP: usize = 9;
+const STAGE_H2: usize = 10;
+const STAGE_OUT: usize = 11;
 /// The stage count `Tap::new` allocates.
-const STAGE_COUNT: usize = 10;
+const STAGE_COUNT: usize = 12;
 
 const F_E: usize = 8;
 const F_FF: usize = 16;
@@ -148,90 +151,110 @@ fn f32_gain(n: usize) -> Vec<u8> {
 /// the separate gate/up/`SwiGLU` branch.
 #[allow(clippy::too_many_lines, reason = "one tabular fixture")]
 fn build_layer_gguf_with(e: usize, ff: usize, q8_ffn: bool) -> Vec<u8> {
+    build_n_layer_gguf(e, ff, q8_ffn, 1)
+}
+
+/// `n_layer` copies of the dense `qwen2` layer, each block's weights salted by its layer index so
+/// the layers are not bit-identical, plus the tied head.
+#[allow(clippy::too_many_lines, reason = "one tabular fixture")]
+fn build_n_layer_gguf(e: usize, ff: usize, q8_ffn: bool, n_layer: usize) -> Vec<u8> {
     let (q, ko) = (e, e / 2);
-    let (ffn_ty, gate_payload, up_payload) = if q8_ffn {
+    let mut ts: Vec<(String, Vec<u64>, u32, Vec<u8>)> = Vec::new();
+    let mut l = 0usize;
+    while l < n_layer {
+        let salt = l * 20;
+        let (ffn_ty, gate_payload, up_payload) = if q8_ffn {
+            (
+                quant::GGML_TYPE_Q8_0,
+                q8_0_weight(ff, e, 5 + salt),
+                q8_0_weight(ff, e, 6 + salt),
+            )
+        } else {
+            (
+                quant::GGML_TYPE_F16,
+                f16_weight(ff, e, 5 + salt),
+                f16_weight(ff, e, 6 + salt),
+            )
+        };
+        let blk = |name: &str| format!("blk.{l}.{name}");
+        ts.extend([
+            (
+                blk("attn_norm.weight"),
+                vec![u(e)],
+                quant::GGML_TYPE_F32,
+                f32_gain(e),
+            ),
+            (
+                blk("attn_q.weight"),
+                vec![u(e), u(q)],
+                quant::GGML_TYPE_F16,
+                f16_weight(q, e, 1 + salt),
+            ),
+            (
+                blk("attn_k.weight"),
+                vec![u(e), u(ko)],
+                quant::GGML_TYPE_F16,
+                f16_weight(ko, e, 2 + salt),
+            ),
+            (
+                blk("attn_v.weight"),
+                vec![u(e), u(ko)],
+                quant::GGML_TYPE_F16,
+                f16_weight(ko, e, 3 + salt),
+            ),
+            (
+                blk("attn_output.weight"),
+                vec![u(e), u(e)],
+                quant::GGML_TYPE_F16,
+                f16_weight(e, e, 4 + salt),
+            ),
+            (
+                blk("ffn_norm.weight"),
+                vec![u(e)],
+                quant::GGML_TYPE_F32,
+                f32_gain(e),
+            ),
+            (
+                blk("ffn_gate.weight"),
+                vec![u(e), u(ff)],
+                ffn_ty,
+                gate_payload,
+            ),
+            (blk("ffn_up.weight"), vec![u(e), u(ff)], ffn_ty, up_payload),
+            (
+                blk("ffn_down.weight"),
+                vec![u(ff), u(e)],
+                quant::GGML_TYPE_F16,
+                f16_weight(e, ff, 7 + salt),
+            ),
+        ]);
+        l += 1;
+    }
+    ts.extend([
         (
-            quant::GGML_TYPE_Q8_0,
-            q8_0_weight(ff, e, 5),
-            q8_0_weight(ff, e, 6),
-        )
-    } else {
-        (
-            quant::GGML_TYPE_F16,
-            f16_weight(ff, e, 5),
-            f16_weight(ff, e, 6),
-        )
-    };
-    let ts: Vec<(&str, Vec<u64>, u32, Vec<u8>)> = vec![
-        (
-            "blk.0.attn_norm.weight",
+            "output_norm.weight".to_string(),
             vec![u(e)],
             quant::GGML_TYPE_F32,
             f32_gain(e),
         ),
         (
-            "blk.0.attn_q.weight",
-            vec![u(e), u(q)],
-            quant::GGML_TYPE_F16,
-            f16_weight(q, e, 1),
-        ),
-        (
-            "blk.0.attn_k.weight",
-            vec![u(e), u(ko)],
-            quant::GGML_TYPE_F16,
-            f16_weight(ko, e, 2),
-        ),
-        (
-            "blk.0.attn_v.weight",
-            vec![u(e), u(ko)],
-            quant::GGML_TYPE_F16,
-            f16_weight(ko, e, 3),
-        ),
-        (
-            "blk.0.attn_output.weight",
-            vec![u(e), u(e)],
-            quant::GGML_TYPE_F16,
-            f16_weight(e, e, 4),
-        ),
-        (
-            "blk.0.ffn_norm.weight",
-            vec![u(e)],
-            quant::GGML_TYPE_F32,
-            f32_gain(e),
-        ),
-        (
-            "blk.0.ffn_gate.weight",
-            vec![u(e), u(ff)],
-            ffn_ty,
-            gate_payload,
-        ),
-        ("blk.0.ffn_up.weight", vec![u(e), u(ff)], ffn_ty, up_payload),
-        (
-            "blk.0.ffn_down.weight",
-            vec![u(ff), u(e)],
-            quant::GGML_TYPE_F16,
-            f16_weight(e, ff, 7),
-        ),
-        (
-            "output_norm.weight",
-            vec![u(e)],
-            quant::GGML_TYPE_F32,
-            f32_gain(e),
-        ),
-        (
-            "token_embd.weight",
+            "token_embd.weight".to_string(),
             vec![u(e), u(ff)],
             quant::GGML_TYPE_F16,
             f16_weight(ff, e, 9),
         ),
-    ];
+    ]);
     let mut b: Vec<u8> = Vec::new();
     b.extend_from_slice(b"GGUF");
     put_u32(&mut b, 3);
     put_u64(&mut b, u64::try_from(ts.len()).expect("small"));
     put_u64(&mut b, 6);
     kv_str(&mut b, "general.architecture", "qwen2");
-    kv_u32(&mut b, "qwen2.block_count", 1);
+    kv_u32(
+        &mut b,
+        "qwen2.block_count",
+        u32::try_from(n_layer).expect("small"),
+    );
     kv_u32(&mut b, "qwen2.attention.head_count", 2);
     kv_u32(&mut b, "qwen2.attention.head_count_kv", 1);
     kv_u32(
@@ -328,6 +351,8 @@ fn tap_rows_are_bit_identical_and_have_the_stage_widths() {
         assert_eq!(rows_on[0][STAGE_V][c].len(), F_KO);
         assert_eq!(rows_on[0][STAGE_GATE][c].len(), F_FF);
         assert_eq!(rows_on[0][STAGE_UP][c].len(), F_FF);
+        assert_eq!(rows_on[0][STAGE_H2][c].len(), F_E);
+        assert_eq!(rows_on[0][STAGE_OUT][c].len(), F_E);
     }
 
     // The logits from the final columns agree.
@@ -381,6 +406,110 @@ fn tap_ln1_out_is_the_engine_norm_of_the_tapped_input() {
     }
     // The two norm stages are distinct activations, not one copied into both slots.
     assert_ne!(rows[0][STAGE_LN1_OUT], rows[0][STAGE_LN2_OUT]);
+}
+
+/// The maximum absolute word difference between two rows of the same width.
+fn max_abs_row_diff(a: &[i64], b: &[i64]) -> i64 {
+    assert_eq!(a.len(), b.len(), "row widths");
+    let mut m = 0i64;
+    for i in 0..a.len() {
+        let d = (a[i] - b[i]).abs();
+        if d > m {
+            m = d;
+        }
+    }
+    m
+}
+
+/// The tap's post-attention residual ([`STAGE_H2`]) is the `ffn_norm` input, and the last layer's
+/// output residual ([`STAGE_OUT`]) is the `output_norm` input: the engine's own `RMSNorm` of each
+/// row (the fixture's gains are exactly one) reproduces the tapped `ffn_norm` output and the
+/// returned final column word for word.
+#[test]
+fn tap_h2_feeds_ffn_norm_and_out_is_the_output_norm_input() {
+    let (engine, path) = open("h2out");
+    let tokens = [2u32, 4, 6];
+    let eps = eps_fixed(&engine);
+    let mut st = engine.state(16).expect("state");
+    let (cols, rows) = engine
+        .prefill_tap_cols(&mut st, &tokens, KernelMode::Q8Act, true)
+        .expect("tapped prefill");
+    let _ = std::fs::remove_file(&path);
+    let last = engine.config.n_layer - 1;
+    let mut h2_max = 0i64;
+    let mut out_max = 0i64;
+    for c in 0..tokens.len() {
+        let ln2 = rms_norm_fixed(&rows[0][STAGE_H2][c], eps).expect("norm of the tapped h2");
+        let h2_d = max_abs_row_diff(&ln2, &rows[0][STAGE_LN2_OUT][c]);
+        let final_normed =
+            rms_norm_fixed(&rows[last][STAGE_OUT][c], eps).expect("norm of the tapped out");
+        let out_d = max_abs_row_diff(&final_normed, &cols[c]);
+        println!(
+            "column {c}: ffn_norm(h2) vs ln2_out max abs = {h2_d}; output_norm(out) vs final \
+             column max abs = {out_d}"
+        );
+        h2_max = h2_max.max(h2_d);
+        out_max = out_max.max(out_d);
+    }
+    // The two rows are new activations, not the residual input or the norm output copied.
+    assert_ne!(rows[0][STAGE_H2], rows[0][STAGE_HIDDEN_IN]);
+    assert_ne!(rows[0][STAGE_OUT], rows[last][STAGE_LN2_OUT]);
+    assert_eq!(
+        h2_max, 0,
+        "ffn_norm of the tapped h2 is not the tapped ln2_out (max abs {h2_max})"
+    );
+    assert_eq!(
+        out_max, 0,
+        "output_norm of the tapped out is not the final column (max abs {out_max})"
+    );
+}
+
+/// The layer's output residual is the next layer's input: [`STAGE_OUT`] of layer `l` is
+/// [`STAGE_HIDDEN_IN`] of layer `l + 1` word for word, on a two-layer fixture whose layers carry
+/// different weights, and the last layer's [`STAGE_OUT`] is the `output_norm` input.
+#[test]
+fn tap_out_chains_into_the_next_layer() {
+    let bytes = build_n_layer_gguf(F_E, F_FF, false, 2);
+    let (engine, path) = open_bytes(&bytes, "chain");
+    assert_eq!(engine.config.n_layer, 2, "the chain fixture has two layers");
+    let tokens = [1u32, 2, 3];
+    let eps = eps_fixed(&engine);
+    let mut st = engine.state(16).expect("state");
+    let (cols, rows) = engine
+        .prefill_tap_cols(&mut st, &tokens, KernelMode::Q8Act, true)
+        .expect("tapped prefill");
+    let _ = std::fs::remove_file(&path);
+    let last = engine.config.n_layer - 1;
+    let mut chain_max = 0i64;
+    let mut out_max = 0i64;
+    for l in 0..last {
+        for c in 0..tokens.len() {
+            let d = max_abs_row_diff(&rows[l][STAGE_OUT][c], &rows[l + 1][STAGE_HIDDEN_IN][c]);
+            if d > chain_max {
+                chain_max = d;
+            }
+        }
+    }
+    for c in 0..tokens.len() {
+        let final_normed =
+            rms_norm_fixed(&rows[last][STAGE_OUT][c], eps).expect("norm of the last out");
+        let d = max_abs_row_diff(&final_normed, &cols[c]);
+        if d > out_max {
+            out_max = d;
+        }
+    }
+    println!(
+        "out[l] vs hidden_in[l+1] max abs = {chain_max}; output_norm(out[last]) vs final column \
+         max abs = {out_max}"
+    );
+    assert_eq!(
+        chain_max, 0,
+        "layer output is not the next layer's input (max abs {chain_max})"
+    );
+    assert_eq!(
+        out_max, 0,
+        "the last layer's out is not the output_norm input (max abs {out_max})"
+    );
 }
 
 /// The tapped post-`RoPE` query and key and the tapped value reproduce the tapped `attn_out` rows:

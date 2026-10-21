@@ -38,8 +38,8 @@ use crate::format::quant;
 pub(super) mod tap;
 
 use tap::{
-    Tap, STAGE_ATTN_OUT, STAGE_GATE, STAGE_HIDDEN_IN, STAGE_LN1_OUT, STAGE_LN2_OUT, STAGE_M,
-    STAGE_UP,
+    Tap, STAGE_ATTN_OUT, STAGE_GATE, STAGE_H2, STAGE_HIDDEN_IN, STAGE_LN1_OUT, STAGE_LN2_OUT,
+    STAGE_M, STAGE_OUT, STAGE_UP,
 };
 
 /// Limbs per `F16` weight block on the engine path (K3): 21 digit bits against the 11-bit `f16`
@@ -272,9 +272,9 @@ impl Engine {
     ///
     /// The rows are `[layer][stage][column][width]`, the stage slots in the order
     /// `[residual input, attn_norm output, o-projection input, ffn_norm output, SwiGLU product,
-    /// post-RoPE query, post-RoPE key, value]` (the [`tap`] module's constants). `record == false`
-    /// runs the untapped path and returns no rows, so a caller can compare the two runs bit for
-    /// bit.
+    /// post-RoPE query, post-RoPE key, value, gate, up, post-attention residual, layer output]`
+    /// (the [`tap`] module's constants). `record == false` runs the untapped path and returns no
+    /// rows, so a caller can compare the two runs bit for bit.
     ///
     /// The single-column FFN fuses its `SwiGLU` product inside `ffn_q8act_at`, so that stage is
     /// empty when the block is one column; the pooled multi-column path fills every stage.
@@ -444,6 +444,9 @@ impl Engine {
         let t_res = trace::span(Phase::Residual, k, 0, 0);
         add_cols(hidden, &mixed)?;
         drop(t_res);
+        if let Some(t) = tap {
+            t.record(layer, STAGE_H2, hidden);
+        }
         let ffn_gain = norm_gain(vectors, layer, 1, PART_FFN_NORM)?;
         let t_norm = trace::span(Phase::Norm, k, 0, 0);
         let h2 = norm_cols(ffn_gain, hidden, eps)?;
@@ -455,6 +458,9 @@ impl Engine {
         let t_res = trace::span(Phase::Residual, k, 0, 0);
         add_cols(hidden, &ffn_out)?;
         drop(t_res);
+        if let Some(t) = tap {
+            t.record(layer, STAGE_OUT, hidden);
+        }
         Ok(())
     }
 
