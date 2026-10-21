@@ -193,9 +193,12 @@ fn build_gguf_with(shift: usize, flip_q: bool) -> Vec<u8> {
         ),
     ];
     if flip_q {
-        // `token_embd` is entry 10 and its first word is nonzero (`+0.0625`), so this moves its
-        // last mantissa bit: one weight byte, not a rewritten tensor.
-        ts[10].3[0] ^= 1;
+        // `token_embd` is entry 10 and its first word is nonzero (`+0.0625`). The shipped `Q8Act`
+        // head quantizes the `F16` weight to an int8 block code whose step is `max/127`, so the
+        // lowest mantissa bit of a `2^-5`-quantum weight (a `2^-10` relative move) is below that
+        // step and leaves every logit word. This moves mantissa bit 8 instead — a `2^-2` relative
+        // move, four quantization steps — so the one-byte change is one the head can carry.
+        ts[10].3[1] ^= 0x04;
     }
     let mut b: Vec<u8> = Vec::new();
     b.extend_from_slice(b"GGUF");
@@ -278,11 +281,14 @@ fn engine_logits(engine: &Engine, tokens: &[u32]) -> Vec<i64> {
         .expect("prefill");
     assert_eq!(cols.len(), tokens.len());
     let v = engine.config.vocab_size;
+    let rows = engine
+        .lm_head_cols(&cols, KernelMode::Q8Act)
+        .expect("head cols");
+    assert_eq!(rows.len(), tokens.len());
     let mut out = Vec::with_capacity(tokens.len() * v);
-    for x in &cols {
-        let z = engine.lm_head_fixed(x).expect("head");
-        assert_eq!(z.len(), v);
-        out.extend_from_slice(&z);
+    for row in &rows {
+        assert_eq!(row.len(), v);
+        out.extend_from_slice(row);
     }
     out
 }

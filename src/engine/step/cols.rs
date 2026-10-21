@@ -554,6 +554,41 @@ impl Engine {
         f16_project(&tile, qs).ok()
     }
 
+    /// The LM head's multi-column projection on the engine's own multi-column route, or `None` when
+    /// the route does not apply and the caller keeps one [`Engine::lm_head_fixed_sched`] per column.
+    ///
+    /// `Q8_0` heads run [`matmat_q8act`] (`gemm_q8_0` when the host carries AVX-VNNI, the pooled or
+    /// contract path otherwise); `F16` heads run the cached limb tile through
+    /// [`Engine::proj_f16_limb`], the same route the layer projections take. Both read the head
+    /// weights once for all `xs.len()` columns. `None` is returned for a folded (`Hadamard`) model,
+    /// a head quant family other than `Q8_0`/`F16`, a column-quantization refusal, or any kernel
+    /// refusal, so the caller's per-column path owns every refusal.
+    ///
+    /// # Complexity
+    ///
+    /// `O(vocab·n_embd·k)` multiply-adds with one `O(vocab·n_embd)` weight read; space
+    /// `O(vocab·k)` output words and `O(k·n_embd)` activation codes.
+    pub(super) fn head_cols_kernel(
+        &self,
+        idx: usize,
+        ggml_type: u32,
+        at: PayloadRef,
+        vocab: usize,
+        n_embd: usize,
+        xs: &[Vec<i64>],
+    ) -> Option<Vec<Vec<i64>>> {
+        if self.hadamard().is_some() {
+            return None;
+        }
+        let qs = quant_cols(xs).ok()?;
+        let raw = &self.resident()[at.off..at.off + at.len];
+        match ggml_type {
+            quant::GGML_TYPE_Q8_0 => matmat_q8act(ggml_type, raw, vocab, n_embd, &qs).ok(),
+            quant::GGML_TYPE_F16 => self.proj_f16_limb(idx, at, vocab, n_embd, &qs),
+            _ => None,
+        }
+    }
+
     /// A group of parts that read the same input: the single-column group kernel for one column
     /// (one pooled quantization, one dispatch), [`Engine::proj_cols`] per part for more.
     #[allow(
