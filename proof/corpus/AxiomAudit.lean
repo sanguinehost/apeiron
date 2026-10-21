@@ -2839,8 +2839,15 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.RateSpikes.kw1_register_idle
 #audit Learn.RateSpikes.kw1_alphabet_on_slope
 #audit Learn.RateSpikes.kw1_mix_nine
-#audit Learn.RateSpikes.mt1_walker_beats_beam1
+#audit Learn.RateSpikes.mt1_radius_beats_beam1
 #audit Learn.RateSpikes.mt1_gap_under_beam
 #audit Learn.RateSpikes.mt1_state_at_beam1
 #audit Learn.RateSpikes.mt1_rate_pays
 #audit Learn.RateSpikes.mt1_dial_not_convex
+-- MT2 clauses and the verdict guard (board row APEIRON-QUALITY-118-W1-T01).
+#audit Learn.RateSpikes.mt2_fair
+#audit Learn.RateSpikes.mt2_promising
+#audit Learn.RateSpikes.mt2_radius_attention
+#audit Learn.RateSpikes.mt2_state_open
+#audit Learn.RateSpikes.mt2_mix_unequal_search
+#verdict_guard Learn.RateSpikes
