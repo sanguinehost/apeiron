@@ -2833,14 +2833,14 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.RateSpikes.m1_selection_control
 #audit Learn.RateSpikes.m1_all_scope_wins
 #audit Learn.RateSpikes.m1_footprint_not_rate
--- KW1 sign-walker clauses against its receipt (board row ).
-#audit Learn.RateSpikes.kw1_kill
-#audit Learn.RateSpikes.kw1_no_linear_won
+-- KW1/MT1 same-scale attribution clauses against their receipts (board row ).
+#audit Learn.RateSpikes.refit_defect
+#audit Learn.RateSpikes.kw1_one_bit_loses
 #audit Learn.RateSpikes.kw1_register_idle
-#audit Learn.RateSpikes.kw1_alphabet
--- MT1 trellis-coded E8 clauses against its receipt (board row ).
-#audit Learn.RateSpikes.mt1_kill
-#audit Learn.RateSpikes.mt1_state_costs
-#audit Learn.RateSpikes.mt1_mix_is_e
+#audit Learn.RateSpikes.kw1_alphabet_on_slope
+#audit Learn.RateSpikes.kw1_mix_nine
+#audit Learn.RateSpikes.mt1_walker_beats_beam1
+#audit Learn.RateSpikes.mt1_gap_under_beam
+#audit Learn.RateSpikes.mt1_state_at_beam1
 #audit Learn.RateSpikes.mt1_rate_pays
 #audit Learn.RateSpikes.mt1_dial_not_convex
