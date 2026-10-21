@@ -846,6 +846,80 @@ theorem teq_transfer_bar_needs_r5 :
     24 * teqR4 ≤ teqRunCeiling ∧ teqRunCeiling < 24 * teqR3 ∧ teqTransferBar < 24 * teqR4 ∧
       24 * teqR5 ≤ teqTransferBar := by decide
 
+/-! ## 16 · ATTRIB: where the fit time outside the sweep goes (REFUTED)
+
+Receipt `/home/socol/oc-tmp/escalation/lead-1021/ATTRIB/receipt.md`, sha256 `98e153f40b5b859b`;
+`tests/spike_fit_attrib.rs` sha256 `015336ec…`, re-run by the lead on `t_k_128_896`; board row
+`APEIRON-FORM-QUANT-W1-T01`. One qwen2.5-0.5B layer; walls in tenths of a second, rates in tenths of
+GMAC/s, control residuals in thousandths. Walls are `measured` (each phase called through its public entry
+and multiplied by the calls `fold_fit` makes; `perf` is refused at `perf_event_paranoid=2`); MAC and call
+counts are `model`. The hypothesis was: the non-sweep fit time is at least half `limb::*` calls below
+10 GMAC/s. -/
+
+/-- `measured` (ATTRIB §3–§4): the layer's fit and its sweep and non-sweep shares; the non-sweep split
+into `nb_refine` (`e8_joint_icm_2plane`, a `limb` call at 1–2 GMAC/s), `gptq_e8` (scalar block-Cholesky
+and CVP scan, no kernel call), the `c`/`r`/`d` steps, `objective` and the unphased residue; the slowest
+shaped-product rate measured against TEQ's assumed 2.2 GMAC/s; the steps' wall after a swap to the
+5-limb rate (39 GMAC/s). -/
+def attribFit : ℕ := 5331
+
+def attribSweep : ℕ := 2465
+
+def attribNonSweep : ℕ := 2866
+
+def attribNbRefine : ℕ := 1157
+
+def attribGptq : ℕ := 855
+
+def attribSteps : ℕ := 546
+
+def attribObjective : ℕ := 69
+
+def attribResidue : ℕ := 240
+
+def attribShapedRateMin : ℕ := 71
+
+def teqShapedRateAssumed : ℕ := 22
+
+def attribStepsSwapped : ℕ := 90
+
+/-- `measured` (ATTRIB §2): phase sum against measured `fit_tensor` wall, in thousandths of the wall:
+`k` −2.1 %, `o` −8.2 %, `gate` +11.3 %. -/
+def attribCtrlK : ℕ := 21
+
+def attribCtrlO : ℕ := 82
+
+def attribCtrlGate : ℕ := 113
+
+/-- **The sweep is reproduced independently.** Four measured shapes give the sweep within 1 % of TEQ's
+245 s, and the fit splits into sweep and non-sweep exactly. -/
+theorem attrib_sweep_reproduces :
+    attribSweep ≤ teqSweep + teqSweep / 100 ∧ teqSweep ≤ attribSweep ∧
+      attribSweep + attribNonSweep = attribFit := by decide
+
+/-- **The hypothesis is refuted.** The non-sweep time is five mechanisms summing to the measured total;
+the `limb` calls below 10 GMAC/s (`nb_refine`) hold under half of it. -/
+theorem attrib_slow_kernel_not_dominant :
+    attribNbRefine + attribGptq + attribSteps + attribObjective + attribResidue = attribNonSweep + 1 ∧
+      2 * attribNbRefine < attribNonSweep := by decide
+
+/-- **The largest non-sweep terms are `nb_refine` then `gptq_e8`, and the second is no kernel call.**
+Together they hold over two thirds of the non-sweep time. -/
+theorem attrib_largest_terms :
+    attribGptq < attribNbRefine ∧ attribSteps < attribGptq ∧
+      3 * (attribNbRefine + attribGptq) ≥ 2 * attribNonSweep := by decide
+
+/-- **TEQ's shaped-product premise is false.** The slowest shaped product runs over 3× TEQ's assumed
+2.2 GMAC/s, and a swap of every shaped product to the 5-limb rate leaves the fit above 470 s, over 12×
+R3's 38 s/layer. R3 is not reachable by the rung it names. -/
+theorem attrib_teq_premise_false :
+    3 * teqShapedRateAssumed < attribShapedRateMin ∧
+      12 * teqR3 < attribFit - attribSteps + attribStepsSwapped := by decide
+
+/-- **The control is two of three.** `k` and `o` close within 10 %; `gate` misses by 1.3 points. -/
+theorem attrib_control_two_of_three :
+    attribCtrlK < 100 ∧ attribCtrlO < 100 ∧ 100 < attribCtrlGate := by decide
+
 end QuantVerdicts
 
 end Learn

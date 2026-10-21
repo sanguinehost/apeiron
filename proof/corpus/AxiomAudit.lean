@@ -2771,3 +2771,8 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.teq_sweep_dominates
 #audit Learn.QuantVerdicts.teq_rungs_layer
 #audit Learn.QuantVerdicts.teq_transfer_bar_needs_r5
+#audit Learn.QuantVerdicts.attrib_sweep_reproduces
+#audit Learn.QuantVerdicts.attrib_slow_kernel_not_dominant
+#audit Learn.QuantVerdicts.attrib_largest_terms
+#audit Learn.QuantVerdicts.attrib_teq_premise_false
+#audit Learn.QuantVerdicts.attrib_control_two_of_three
