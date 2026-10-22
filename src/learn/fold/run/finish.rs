@@ -7,14 +7,16 @@
 //! Every value is a Q32.32 `i64` word. A [`SinkPlane`] pack (`s_rot`, `rh`, `ch`, `dh`) enters
 //! [`CodedPlane::from_pack`] verbatim; the pack does not retain the `r` hierarchy's `(lo, sp)`, so
 //! [`row_grid`] recovers a grid on which every stored row value is a fixed point of the plane's own
-//! snap. A dense corrector plane becomes [`Linear::extra`]. The teacher logit source is the
-//! existing whole-model [`forward`] that `run/convert.rs` and `stats/heldout.rs` already call; this
-//! module adds no forward.
+//! snap. A dense corrector plane becomes [`Linear::extra`]. The teacher logit source is the engine
+//! route `stats/heldout.rs` scores with — one [`crate::engine::KernelMode::Q8Act`] prefill and one
+//! multi-column head projection per chunk, through
+//! [`crate::learn::fold::stats::heldout::engine_logits`]; this module adds no logits body and no
+//! forward.
 //!
 //! # Execution
 //!
 //! [`planes_from_fits`] is `Σ` over the `o × n` planes of [`CodedPlane::from_pack`]'s codebook
-//! encode, pooled inside the plane; [`finish_model`] is `steps` teacher forwards plus `steps`
+//! encode, pooled inside the plane; [`finish_model`] is `steps` teacher engine prefills plus `steps`
 //! finisher steps. No loop here is tensor-sized beyond those calls, so none dispatches its own pool
 //! work.
 //!
@@ -25,7 +27,8 @@
 //! # Trust boundary
 //!
 //! Not covered: rustc/LLVM codegen, the `GGUF` write ([`crate::learn::fold::run::transfer`]), and
-//! the teacher forward's own contract ([`crate::learn::grad::model::forward`]).
+//! the teacher engine's own contract
+//! ([`crate::learn::fold::stats::heldout::engine_logits`]).
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -38,6 +41,7 @@
               fields `rh`/`ch`/`dh`; the `usize → i128` casts are on validated shape counts"
 )]
 
+use crate::engine::Engine;
 use crate::learn::fold::finish::plane::{div_ne, CodedPlane, PlaneError};
 use crate::learn::fold::finish::train::{
     assemble, Finisher, Frozen, LayerTunables, LayerTuned, Linear, Planes, Schedule, TrainError,
@@ -47,7 +51,8 @@ use crate::learn::fold::fit::quant::quant_r_hier;
 use crate::learn::fold::fit::steps::GROUP;
 use crate::learn::fold::layer::driver::ModelResult;
 use crate::learn::fold::layer::tensor::{TensorFit, TensorKind};
-use crate::learn::grad::model::{forward, Config, LayerWeights, ModelError, Weights};
+use crate::learn::fold::stats::heldout::{engine_logits, HeldOutError};
+use crate::learn::grad::model::{Config, LayerWeights, ModelError, Weights};
 use crate::learn::solve::q32::narrow;
 
 /// A refusal from the fold-fit-to-finisher glue.
@@ -59,8 +64,10 @@ pub enum FinishRunError {
     Plane(PlaneError),
     /// The finishing step refused.
     Train(TrainError),
-    /// The teacher forward refused.
+    /// A geometry product refused: the `q_out`/`kv_out` of the configuration.
     Model(ModelError),
+    /// The teacher engine's logit pass refused.
+    HeldOut(HeldOutError),
     /// A fitted row scale has no 16-level grid on which its stored values are fixed points, so the
     /// plane cannot be rebuilt exactly.
     Grid(String),
@@ -84,13 +91,20 @@ impl From<ModelError> for FinishRunError {
     }
 }
 
+impl From<HeldOutError> for FinishRunError {
+    fn from(e: HeldOutError) -> Self {
+        FinishRunError::HeldOut(e)
+    }
+}
+
 impl core::fmt::Display for FinishRunError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Shape(m) => write!(f, "shape: {m}"),
             Self::Plane(e) => write!(f, "plane: {e:?}"),
             Self::Train(e) => write!(f, "finishing step: {e:?}"),
-            Self::Model(e) => write!(f, "teacher forward: {e:?}"),
+            Self::Model(e) => write!(f, "model geometry: {e:?}"),
+            Self::HeldOut(e) => write!(f, "teacher engine logits: {e:?}"),
             Self::Grid(m) => write!(f, "row grid: {m}"),
         }
     }
@@ -413,21 +427,27 @@ pub struct Finished {
 }
 
 /// Build the finisher from a [`ModelResult`] and run `steps` of [`Finisher::step`] over the
-/// calibration chunks, cycling them, against the teacher's own logits; the teacher's embedding and
-/// head are the frozen tensors.
+/// calibration chunks, cycling them, against the teacher engine's own logits; the teacher's
+/// embedding and head are the frozen tensors.
+///
+/// `teacher_engine` is the teacher `GGUF` the caller opened ([`Engine::open`]); every chunk's
+/// teacher logits are [`engine_logits`]'s `Q8Act` prefill and head, so the teacher's distribution is
+/// the one that ships. `teacher` supplies only [`Frozen::new`]'s `token_embd` and `lm_head`.
 ///
 /// # Errors
 /// [`FinishRunError::Shape`] on an empty chunk list, an empty chunk or a fit/geometry disagreement;
-/// [`FinishRunError::Model`]/[`FinishRunError::Train`] from the teacher forward or a step.
+/// [`FinishRunError::HeldOut`] from the teacher engine's logit pass; [`FinishRunError::Model`] from
+/// the geometry products; [`FinishRunError::Train`] from a step.
 ///
 /// # Complexity
-/// Temporal `O(steps·(cost(forward(teacher, chunk)) + Finisher::step))` plus one
+/// Temporal `O(steps·(cost(engine_logits(teacher, chunk)) + Finisher::step))` plus one
 /// `O(Σ o·n·CODE_LEN)` plane build and one `O(Σ o·n·log2(GROUP))` assemble; spatial
-/// `O(t·vocab + Σ o·n)`.
+/// `O(t·vocab + t·n_embd + Σ o·n)`.
 pub fn finish_model(
     cfg: &Config,
     res: &ModelResult,
     teacher: &Weights,
+    teacher_engine: &Engine,
     tokens: &[Vec<u32>],
     steps: u64,
     warmup: u64,
@@ -447,7 +467,7 @@ pub fn finish_model(
     let mut loss: Vec<i64> = Vec::with_capacity(len);
     for i in 0..len {
         let chunk = &tokens[i % tokens.len()];
-        let (logits, _tape) = forward(teacher, cfg, chunk)?;
+        let logits = engine_logits(teacher_engine, chunk)?;
         loss.push(fin.step(chunk, &logits)?);
     }
     let weights = assemble(cfg, &fin.planes, &fin.tun, &fin.frozen)?;
