@@ -9,10 +9,26 @@ below are the prediction/measurement history, not a second current status.
 |---|---|---:|---:|---:|---|
 | pp512 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 113,099 tok/s | 63,018.5 tok/s | 1.795x | `021ab9d5` (P31) |
 | tg128 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 973.8 tok/s | 880.9 tok/s | 1.105x | `392e08e6` (P71) |
+| pp512 | Qwen3.5-0.8B Q8_0 / i9-14900KF CPU | 917.82 tok/s | 416.41 tok/s (CPU) | 2.24x | `eb5efdfa` |
+| tg128 | Qwen3.5-0.8B Q8_0 / i9-14900KF CPU | 92.13 tok/s | 51.42 tok/s (CPU) | 1.80x | `eb5efdfa` |
+| pp512 | Qwen3.5-0.8B Q4_K_M / i9-14900KF CPU | 166.37 tok/s | 594.16 tok/s (CPU) | 0.27x | `eb5efdfa` |
+| tg128 | Qwen3.5-0.8B Q4_K_M / i9-14900KF CPU | 85.17 tok/s | 42.06 tok/s (CPU) | 1.81x | `eb5efdfa` |
 
 The CUDA comparators are `llama-bench -ngl 99` runs: decode 880.9 tok/s (P62), prefill 63,018.5 tok/s
 (pp512 campaign at `b82ae99`, 15 samples, contended host). The ratios are quotients of recorded medians,
 not paired-round medians; the prefill comparator is the weaker of the two because its host was loaded.
+
+The Qwen3.5-0.8B (`qwen35`: 18 Gated DeltaNet + 6 gated-attention layers) CPU rows are
+`engine_profile --pp 512 --tg 128 --reps 5 --llama-threads 16,32` against llama.cpp `60bc8866b`
+`-ngl 0` at its best thread count; the ratio is the median of five paired rounds (Q8_0 pp 2.14-2.25,
+tg 1.70-1.81; Q4_K_M pp 0.14-0.32, tg 1.41-2.06). Receipts
+`/home/socol/oc-tmp/escalation/lead-1022/SPEED35/1792648053-qwen08b-q8-cpu.md` and
+`1792647368-qwen08b-q4km-cpu.md`. Q4_K_M prefill reads every weight byte once per token: its
+projections run per column on `q8act_q4_k_row_fast` (`src/engine/chart/mod.rs:1079`) because
+`gemm_q8_0_group` refuses Q4_K (`src/engine/kern/gemm.rs:818`); Q8_0 runs on `gemm_q8_0` with
+256-column reuse. No first-token agreement ran on these two files (no llama.cpp greedy binary is
+built); `qwen35_long_prompt` matches llama.cpp's recorded 32 greedy ids on Q8_0. Board
+`APEIRON-QUALITY-118-W1-T01`.
 
 Kernel K5 receipts compare a `limb` port against its exact contract body on the same host, not against
 llama.cpp. `resq` at the 2x128x128 group shape (`inter` 16, `hidden` 8, 1,180,672 word-MACs), nine
