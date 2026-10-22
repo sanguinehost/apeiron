@@ -497,6 +497,218 @@ fn gate_code_fit_down() {
     );
 }
 
+/// `tr(E H Eᵀ)` for the `o × n` word matrix `e` under the symmetric `n × n` Gram `h`: one [`quad`]
+/// per row, `Σ_u e_uᵀ H e_u`.
+///
+/// `O(o·n²)` multiply-adds for the `o` quadratic forms, the dominant per-layer term beside
+/// `fold_fit`; space `O(n)` for the converted row.
+fn energy(h: &[f64], e: &[i64], o: usize, n: usize) -> f64 {
+    let mut acc = 0.0f64;
+    for u in 0..o {
+        acc += quad(h, &unq(&e[u * n..(u + 1) * n]), n);
+    }
+    acc
+}
+
+/// The input saliency of each of the `n` input columns of the `o × n` teacher tensor `w`
+/// (LLM.int8, Dettmers et al. 2022; `SpQR`, Dettmers et al. 2023, arXiv 2306.03078):
+/// `s_i = H_ii · Σ_u W_ui²`.
+///
+/// `O(o·n)` multiply-adds, one pass over `w`; space `O(n)`.
+fn salience(h: &[f64], w: &[i64], o: usize, n: usize) -> Vec<f64> {
+    let mut sq = vec![0.0f64; n];
+    for u in 0..o {
+        for (i, &word) in w[u * n..(u + 1) * n].iter().enumerate() {
+            let v = from_grid(word);
+            sq[i] += v * v;
+        }
+    }
+    (0..n).map(|i| h[i * n + i] * sq[i]).collect()
+}
+
+/// The per-input score `c_i = Σ_j (EᵀE)_ij H_ji` of the `o × n` word error `e`: the `energy`
+/// selector, the closed form of the energy a column's removal takes (`down_keep_fit`'s `c`).
+///
+/// `O(o·n²)` multiply-adds for the symmetric `EᵀE` (each of the `n²/2` upper entries one `o`-term
+/// dot), then `O(n²)` for the contraction; space `O(n²)` for the Gram.
+fn energy_cols(e: &[i64], h: &[f64], o: usize, n: usize) -> Vec<f64> {
+    let mut g = vec![0.0f64; n * n];
+    for u in 0..o {
+        let row = unq(&e[u * n..(u + 1) * n]);
+        for i in 0..n {
+            let vi = row[i];
+            let dst = &mut g[i * n + i..(i + 1) * n];
+            for (a, &vj) in dst.iter_mut().zip(&row[i..]) {
+                *a += vi * vj;
+            }
+        }
+    }
+    for i in 0..n {
+        for j in 0..i {
+            g[i * n + j] = g[j * n + i];
+        }
+    }
+    (0..n)
+        .map(|i| (0..n).map(|j| g[i * n + j] * h[j * n + i]).sum::<f64>())
+        .collect()
+}
+
+/// The `k` largest entries of `score`, ties broken by the lower index: a descending sort on the
+/// score with ascending index as its second key, truncated.
+///
+/// `O(n log n)`; space `O(n)` for the index vector.
+fn top_k(score: &[f64], k: usize) -> Vec<usize> {
+    let mut idx: Vec<usize> = (0..score.len()).collect();
+    idx.sort_by(|&a, &b| {
+        score[b]
+            .partial_cmp(&score[a])
+            .expect("finite score")
+            .then(a.cmp(&b))
+    });
+    idx.truncate(k.min(idx.len()));
+    idx
+}
+
+/// **Measurement 6** (board ). The `SpQR` masked refit of `ffn_up` or
+/// `ffn_gate`, ported from `down_spqr_fit` (`tests/learn_down_code.rs`): `K` input columns `S` are
+/// restored from the teacher after a fit of the other columns that already knows they will be, so
+/// the fit minimises its error on the masked metric `Hm` — `H` with `S`'s rows and columns zeroed
+/// and `ε` on `S`'s diagonal — against the target `W' = zeroCols(S, W)`.
+///
+/// The identity (`QuantVerdicts.ColumnRestore.masked_energy`) is
+/// `tr(E Hm Eᵀ) = J(zeroCols_S E) + ε Σ_S ‖e_i‖²`, so the masked fit minimises the restored energy
+/// plus an `ε` penalty on `S` alone; `Hm`'s off-`S` blocks are `H`'s, so the fit spends no error on
+/// columns that will be overwritten. `ε = 1e-2 · mean(diag H)` keeps `Hm`'s `S`-diagonal above the
+/// rounding grid.
+///
+/// `APEIRON_GATE_KIND` (`up` | `gate`), `APEIRON_GATE_LAYERS` (default: every layer), `K` =
+/// `APEIRON_GATE_KEEP` (default 10, the top 0.98% of `n_embd`), `APEIRON_GATE_SELECT`
+/// (`salience` | `energy`). `H` is the cached `h{l}.i64`, the calibration `gate_up` Gram of chunks
+/// `0..CALIB`; no held-out chunk is read. Writes `{CACHE}/l{l}.{kind}-spqr{K}-{select}.i64`, the fit
+/// with `S`'s columns taken from the teacher, for [`gate_code_kl`] (`APEIRON_GATE_ARM`).
+///
+/// Cost: `fold_fit` dominates at ~50 s per layer measured on this box (the count, not the wall, is
+/// the claim: `O(o·n² + gptq + inner_iters·(o·n² + n³ + e8_icm))`); three [`energy`] calls at
+/// `O(n_ff·n_embd²)` each — the `before` one, the masked `obj` one and the restored `after` one —
+/// with the `energy` selector's `EᵀE` another `O(n_ff·n_embd²)`, `O(n²)` to mask `Hm`, and `O(o·n)`
+/// to zero `W'` and restore `S`. Space `O(n² + o·n)` per layer.
+#[test]
+#[ignore = "reads the cached gate_up Gram and runs production fold_fit on the masked metric"]
+fn ffn_spqr_fit() {
+    let engine = Engine::open(&model_path()).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let layers = env_layers(cfg.n_layer);
+    let kind = std::env::var("APEIRON_GATE_KIND").unwrap_or_else(|_| String::from("up"));
+    assert!(
+        matches!(kind.as_str(), "gate" | "up"),
+        "APEIRON_GATE_KIND {kind}"
+    );
+    let k = env_usize("APEIRON_GATE_KEEP", 10);
+    let select = std::env::var("APEIRON_GATE_SELECT").unwrap_or_else(|_| String::from("salience"));
+    assert!(
+        matches!(select.as_str(), "salience" | "energy"),
+        "APEIRON_GATE_SELECT {select}"
+    );
+    // The tensor is `n_ff × n_embd`: `o` rows, `n` input columns, `H` the `gate_up` Gram.
+    let (o, n) = (cfg.n_ff, cfg.n_embd);
+    let bits = k * o * 16 + k * 12;
+    println!(
+        "SPQR layers {layers:?} kind {kind} K {k} select {select} n_ff {o} n_embd {n} \
+         (H = calibration chunks 0..{CALIB} gate_up Gram)"
+    );
+    let t0 = Instant::now();
+    let (mut sum_before, mut sum_after) = (0.0f64, 0.0f64);
+    for &l in &layers {
+        let (ho, hn, hw) = read_words(&format!("{CACHE}/h{l}.i64"));
+        assert_eq!((ho, hn, hw.len()), (n, n, n * n), "layer {l}: cached H");
+        let h = unq(&hw);
+        let (g, up, _mixer) = gate_up(&engine, &cfg, l);
+        let w = if kind == "gate" { g } else { up };
+        let (wo, wn, cached) = read_words(&format!("{CACHE}/l{l}.{kind}.i64"));
+        assert_eq!((wo, wn), (o, n), "layer {l}: cached {kind} fit shape");
+        let e: Vec<i64> = cached.iter().zip(&w).map(|(a, b)| a - b).collect();
+        let before = energy(&h, &e, o, n);
+        let score = if select == "salience" {
+            salience(&h, &w, o, n)
+        } else {
+            energy_cols(&e, &h, o, n)
+        };
+        let keep = top_k(&score, k);
+        let mean_diag = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
+        let eps = 1e-2 * mean_diag;
+        let mut mask = vec![false; n];
+        for &i in &keep {
+            mask[i] = true;
+        }
+        let mut hm = vec![0.0f64; n * n];
+        for i in 0..n {
+            for j in 0..n {
+                hm[i * n + j] = if mask[i] || mask[j] {
+                    if i == j {
+                        eps
+                    } else {
+                        0.0
+                    }
+                } else {
+                    h[i * n + j]
+                };
+            }
+        }
+        let mut dp = w.clone();
+        for &i in &keep {
+            for row in 0..o {
+                dp[row * n + i] = 0;
+            }
+        }
+        let t = Instant::now();
+        let fit = match fold_fit(&dp, &qv(&hm), o, n, None, &production_cfg()) {
+            Ok(fit) => fit,
+            Err(err) => {
+                println!("SPQR layer {l:02} kind {kind} select {select} K {k} fit error {err:?}");
+                continue;
+            }
+        };
+        let wall = t.elapsed().as_secs_f64();
+        let mut out = fit.wp.clone();
+        for &i in &keep {
+            for row in 0..o {
+                out[row * n + i] = w[row * n + i];
+            }
+        }
+        let e2: Vec<i64> = out.iter().zip(&w).map(|(a, b)| a - b).collect();
+        let after = energy(&h, &e2, o, n);
+        let ego: Vec<i64> = fit.wp.iter().zip(&dp).map(|(a, b)| a - b).collect();
+        let obj = energy(&hm, &ego, o, n);
+        let mut pen = 0.0f64;
+        for &i in &keep {
+            for row in 0..o {
+                let v = from_grid(ego[row * n + i]);
+                pen += v * v;
+            }
+        }
+        let rhs = after + eps * pen;
+        let rel = (obj - rhs).abs() / rhs.abs().max(f64::MIN_POSITIVE);
+        let ratio = if before > 0.0 { after / before } else { 0.0 };
+        println!(
+            "SPQR layer {l:02} kind {kind} select {select} K {k} before {before:.6e} after \
+             {after:.6e} ratio {ratio:.4} ident rel {rel:.2e} fit {wall:.1} s bits +{bits}"
+        );
+        let path = format!("{CACHE}/l{l}.{kind}-spqr{k}-{select}.i64");
+        write_words(&path, o, n, &out).expect("write spqr fit");
+        println!("SPQR wrote {path}");
+        sum_before += before;
+        sum_after += after;
+    }
+    println!(
+        "SPQR sum layers {} kind {kind} select {select} K {k} before {sum_before:.6e} after \
+         {sum_after:.6e} ratio {:.4} bits +{bits} (+{:.4} b/w) wall {:.1} s",
+        layers.len(),
+        sum_after / sum_before.max(f64::MIN_POSITIVE),
+        bits as f64 / (o * n) as f64,
+        t0.elapsed().as_secs_f64()
+    );
+}
+
 /// The per-layer table: off/near/on, flip against `arccos(ρ_H)/π`, the `H` errors and the split.
 #[test]
 #[ignore = "opens the 3.1 GB F32 teacher and reads the cached fits; run explicitly with --ignored"]
@@ -684,19 +896,21 @@ fn fitted_layers(key: &str) -> Vec<usize> {
     out
 }
 
-/// The teacher image with only `ffn_gate`, `ffn_up` or `ffn_down` (arm of that name) replaced by the
-/// fitted words in every measured layer, every other byte the teacher's.
+/// The teacher image with one FFN tensor replaced by an arm's cached words in every listed layer,
+/// every other byte the teacher's. The tensor kind is the arm's prefix before the first `-`
+/// (`up-spqr10-salience` → `up`, `gate` → `gate`); the fit is read from `{CACHE}/l{l}.{arm}.i64`.
 ///
 /// `O(file bytes)` to read plus `O(layers·n_ff·n_embd)` written; the whole image is held once.
 fn student_bytes(arm: &str, layers: &[usize]) -> Vec<u8> {
+    let kind = arm.split('-').next().unwrap_or(arm);
+    assert!(
+        matches!(kind, "gate" | "up" | "down"),
+        "APEIRON_GATE_ARM {arm}: tensor kind {kind} is not gate | up | down"
+    );
     let mut data = std::fs::read(model_path()).expect("read teacher");
     let gguf = Gguf::open(&model_path()).expect("teacher directory");
     for &l in layers {
-        assert!(
-            matches!(arm, "gate" | "up" | "down"),
-            "APEIRON_GATE_ARM {arm}"
-        );
-        let name = format!("blk.{l}.ffn_{arm}.weight");
+        let name = format!("blk.{l}.ffn_{kind}.weight");
         let (_, _, words) = read_words(&format!("{CACHE}/l{l}.{arm}.i64"));
         let t = gguf
             .header
