@@ -26,7 +26,7 @@ use crate::cli::{EXIT_ACCEPTED, EXIT_ENVIRONMENT, EXIT_REFUSED};
 
 use super::scan::scan_items;
 
-/// (APEIRON-QUALITY-118-W1-T01) The unrooted set: 113 fns in 36 files (34 name-matched products at introduction; the body rules `mac_loop`, `whole_forward` and `forward_caller` add the rest). A file-level reference audit
+/// (APEIRON-QUALITY-118-W1-T01) The unrooted set: 106 fns in 33 files (34 name-matched products at introduction; the body rules `mac_loop`, `whole_forward` and `forward_caller` add the rest). A file-level reference audit
 /// found 8 files with no `crate::engine::kern` text at all; this body-level gate also finds the
 /// products in files whose kernel mention is a sibling body, not the product's own call. Rows
 /// leave only when the body is rooted through `limb.rs` and its old body is deleted or test-only;
@@ -108,7 +108,6 @@ const BASELINE: &[(&str, &str)] = &[
     ("src/learn/grad/head.rs", "tv_dz"),
     ("src/learn/grad/model.rs", "col_sum"),
     ("src/learn/grad/model.rs", "embedding_grad"),
-    ("src/learn/grad/model.rs", "forward"),
     ("src/learn/gram.rs", "gram_accumulate"),
     ("src/learn/gram.rs", "gram_accumulator_clear"),
     ("src/learn/gram.rs", "gram_columns"),

@@ -510,7 +510,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/grad/model.rs"
-unextracted = 5
+unextracted = 4
 row = "EXTRACT-COVERAGE"
 
 [[debt]]

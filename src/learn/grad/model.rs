@@ -1,13 +1,15 @@
-//! Whole-model Qwen2 forward with stage capture and whole-model backward in Q32.32 (W19 wave 2).
+//! Whole-model Qwen2 backward in Q32.32 (W19 wave 2) over the engine's exact forward tape.
 //!
-//! Composes the landed per-op modules [`dense`], [`attn`] and [`super::head`] into the engine's
-//! per-layer schedule: `attn_norm` → Q/K/V projection with the Qwen2 attention bias → `RoPE` →
-//! causal GQA attention → O projection → residual; then `ffn_norm` → `SwiGLU` → down → residual;
-//! then `output_norm` → head. The order, bias placement, GQA head mapping, `RoPE` table, residual
-//! placement and `eps` are `Engine::compose_cols`'s (`src/engine/step/cols.rs`) and
-//! `Engine::step_logits`'s exact path, so under the engine's Q32 `KvState` carrier [`forward`]'s
-//! logits are bit-identical per position to `Engine::step_logits` over the same token sequence (see
-//! the trust boundary: the default carrier is the `f32` one).
+//! The forward is the engine's: `Engine::prefill_tap_cols` under `KernelMode::Exact`, materialised
+//! as a [`Tape`] by
+//! [`engine_tape_mode`](crate::learn::fold::stats::hocapture::engine_tape_mode). Its per-layer
+//! schedule — `attn_norm` → Q/K/V projection with the Qwen2 attention bias → `RoPE` → causal GQA
+//! attention → O projection → residual; then `ffn_norm` → `SwiGLU` → down → residual; then
+//! `output_norm` → head — is `Engine::compose_cols`'s (`src/engine/step/cols.rs`) and
+//! `Engine::step_logits`'s exact path. This module holds the backward over that tape, the checked
+//! Q32.32 stage helpers the extracted word bodies call ([`add_flat`], [`rmsnorm_rows`],
+//! [`rope_rows_fwd`], [`add_bias`], [`col_sum`], [`embedding_grad`]), and [`dense`]'s and
+//! [`attn`]'s per-op kernels.
 //!
 //! Every weight is an `i64` Q32.32 row-major buffer loaded from an [`Engine`] with the engine's own
 //! row dequantizer ([`dequant_row_fixed`]); the norm gains and attention biases are the engine's
@@ -15,24 +17,21 @@
 //!
 //! # Evidence grade
 //!
-//! `tested`: the gate's `cargo test` on the build path. The test module asserts bit-equality of the
-//! forward logits against `Engine::step_logits` and the backward's analytic gradient against a
-//! central difference of the KL loss. No Lean refinement links this file yet (`proved` is open); it
-//! is not on the extracted fragment.
+//! `tested`: the gate's `cargo test` on the build path. The test module asserts the backward's
+//! analytic gradient against a central difference of the KL loss whose logits and tape are the
+//! engine's `KernelMode::Exact` prefill. The integer helpers are translated by Aeneas through
+//! `proof/extract/grad_solve_port.rs`; `backward` is not (it builds a host `f64` `RopeTable`). No Lean
+//! refinement links this file yet (`proved` is open).
 //!
 //! # Trust boundary
 //!
-//! The forward refines the engine's **Q32 `KvState` carrier** decode path, not the process default:
-//! `carrier_from_env()` selects the native-binary32 carrier unless `APEIRON_F32_CARRIER=0`, and its
-//! attention (`attn_head_f32`) is a float path this Q32 composition does not and cannot match. Gate
-//! A runs in a child process with `APEIRON_F32_CARRIER=0` (the engine caches the carrier
-//! process-wide) and there [`forward`]'s logits are
-//! bit-identical to `Engine::step_logits` at every position. `i128` accumulation and the per-op
-//! rounding are the per-op modules' contracts. Not covered here: partial rotary
-//! (`rot_dims < head_dim`), MoE/routed experts, the affine mixer, the per-head QK `RMSNorm`, the
-//! attention output gate, Hadamard-folded weights and the stochastic sampler. The residual and bias
-//! adds are checked `i64` adds; every overflow returns [`ModelError::Overflow`]. No float and no
-//! `unsafe` appear after the load boundary.
+//! The backward differentiates the Q32.32 forward the engine runs; the engine's `Exact` prefill is
+//! the oracle. `i128` accumulation and the per-op rounding are the per-op modules' contracts. Not
+//! covered here: a float carrier's attention, partial rotary (`rot_dims < head_dim`), MoE/routed
+//! experts, the affine mixer, the per-head QK `RMSNorm`, the attention output gate,
+//! Hadamard-folded weights and the stochastic sampler. The residual and bias adds are checked `i64`
+//! adds; every overflow returns [`ModelError::Overflow`]. No float and no `unsafe` appear after the
+//! load boundary.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -420,6 +419,10 @@ pub(crate) fn col_sum(x: &[i64], t: usize, w: usize) -> Result<Vec<i64>, ModelEr
 ///
 /// # Complexity
 /// `O(t·w)`; one [`dense::rmsnorm_fwd`] per row.
+#[allow(
+    dead_code,
+    reason = "the extracted word body `word_model_rmsnorm_rows` in `proof/extract/grad_solve_port.rs` is its only consumer; the in-crate consumer was the deleted `forward`"
+)]
 pub(crate) fn rmsnorm_rows(
     x: &[i64],
     gamma: &[i64],
@@ -485,6 +488,10 @@ pub(crate) fn rmsnorm_bwd_rows(
 ///
 /// # Complexity
 /// `O(t·row)`; one [`attn::rope_fwd`] per token.
+#[allow(
+    dead_code,
+    reason = "the extracted word body `word_model_rope_rows_fwd` in `proof/extract/grad_solve_port.rs` is its only consumer; the in-crate consumer was the deleted `forward`"
+)]
 pub(crate) fn rope_rows_fwd(
     x: &[i64],
     t: usize,
@@ -523,6 +530,10 @@ pub(crate) fn rope_rows_bwd(
 ///
 /// # Complexity
 /// `O(t·w)`.
+#[allow(
+    dead_code,
+    reason = "the extracted word body `word_model_add_bias` in `proof/extract/grad_solve_port.rs` is its only consumer; the in-crate consumer was the deleted `forward`"
+)]
 pub(crate) fn add_bias(
     x: &mut [i64],
     bias: Option<&[i64]>,
@@ -556,7 +567,7 @@ pub(crate) fn add_bias(
     Ok(())
 }
 
-/// Every stage input the backward reads for one layer, captured by [`forward`].
+/// Every stage input the backward reads for one layer, captured by the engine's exact prefill.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayerTape {
     /// Hidden before `attn_norm`, `t × n_embd`.
@@ -598,100 +609,6 @@ pub struct Tape {
     pub final_hidden: Vec<i64>,
     /// `output_norm` output (the head input), `t × n_embd`.
     pub final_normed: Vec<i64>,
-}
-
-/// The whole-model Qwen2 forward over `tokens`, causal, returning `t × vocab` Q32.32 logits and the
-/// [`Tape`] the backward consumes.
-///
-/// # Errors
-///
-/// [`ModelError::Shape`] for an empty token sequence or a token id past the vocabulary;
-/// [`ModelError::Overflow`] when a checked add leaves `i64` or a length product leaves `usize`;
-/// [`ModelError::Attn`] from the `RoPE` table or an attention kernel; [`ModelError::Dense`] from a
-/// projection, norm or `SwiGLU` kernel.
-///
-/// # Complexity
-/// Per layer `O(t·n_embd·(n_embd + q_out + 2·kv_out + n_ff) + n_head·t²·head_dim)`; the head
-/// `O(t·vocab·n_embd)`. Space `O(t·(n_embd + q_out + kv_out + n_ff) + n_head·t²)` for the tape.
-pub fn forward(w: &Weights, cfg: &Config, tokens: &[u32]) -> Result<(Vec<i64>, Tape), ModelError> {
-    cfg.checked()?;
-    let t = tokens.len();
-    if t == 0 {
-        return Err(ModelError::Shape("empty token sequence".to_string()));
-    }
-    let e = cfg.n_embd;
-    let q_out = cfg.q_out()?;
-    let kv_out = cfg.kv_out()?;
-    let n_ff = cfg.n_ff;
-    let rope = RopeTable::new(F64::from_f64(cfg.rope_theta), cfg.head_dim)
-        .map_err(|err| ModelError::Attn(AttnError::Rope(err)))?;
-
-    let mut h: Vec<i64> = Vec::with_capacity(t * e);
-    for &tok in tokens {
-        let id = usize::try_from(tok).map_err(|_| ModelError::Overflow)?;
-        if id >= cfg.vocab {
-            return Err(ModelError::Shape(format!(
-                "token {tok} >= vocab {}",
-                cfg.vocab
-            )));
-        }
-        h.extend_from_slice(&w.token_embd[id * e..id * e + e]);
-    }
-
-    let mut layers: Vec<LayerTape> = Vec::with_capacity(cfg.n_layer);
-    for lw in &w.layers {
-        let ln1_in = h.clone();
-        let ln1_out = rmsnorm_rows(&h, &lw.attn_norm, t, e, cfg.eps)?;
-        let mut q = dense::linear_fwd(&ln1_out, &lw.wq, t, e, q_out)?;
-        add_bias(&mut q, lw.bq.as_deref(), t, q_out)?;
-        let mut k = dense::linear_fwd(&ln1_out, &lw.wk, t, e, kv_out)?;
-        add_bias(&mut k, lw.bk.as_deref(), t, kv_out)?;
-        let mut v = dense::linear_fwd(&ln1_out, &lw.wv, t, e, kv_out)?;
-        add_bias(&mut v, lw.bv.as_deref(), t, kv_out)?;
-        let q = rope_rows_fwd(&q, t, q_out, &rope)?;
-        let k = rope_rows_fwd(&k, t, kv_out, &rope)?;
-        let (attn_out, p) = attn::attn_fwd(&q, &k, &v, cfg.n_head, cfg.n_head_kv, cfg.head_dim)?;
-        let o = dense::linear_fwd(&attn_out, &lw.wo, t, q_out, e)?;
-        let mut h2 = h;
-        add_flat(&mut h2, &o)?;
-        let ln2_out = rmsnorm_rows(&h2, &lw.ffn_norm, t, e, cfg.eps)?;
-        let gate = dense::linear_fwd(&ln2_out, &lw.w_gate, t, e, n_ff)?;
-        let up = dense::linear_fwd(&ln2_out, &lw.w_up, t, e, n_ff)?;
-        let m = dense::swiglu_fwd(&gate, &up)?;
-        let d = dense::linear_fwd(&m, &lw.w_down, t, n_ff, e)?;
-        let mut h3 = h2.clone();
-        add_flat(&mut h3, &d)?;
-        h = h3;
-        layers.push(LayerTape {
-            ln1_in,
-            ln1_out,
-            q,
-            k,
-            v,
-            p,
-            attn_out,
-            h2,
-            ln2_out,
-            gate,
-            up,
-            m,
-        });
-    }
-
-    let final_hidden = h;
-    let final_normed = rmsnorm_rows(&final_hidden, &w.output_norm, t, e, cfg.eps)?;
-    let logits = dense::linear_fwd(&final_normed, &w.lm_head, t, e, cfg.vocab)?;
-
-    Ok((
-        logits,
-        Tape {
-            t,
-            tokens: tokens.to_vec(),
-            layers,
-            final_hidden,
-            final_normed,
-        },
-    ))
 }
 
 /// The per-layer gradient buffers, mirroring [`LayerWeights`].

@@ -15,9 +15,9 @@ pub mod gguf;
 /// `super::{dense,attn}` imports resolve to the modules `learn_port` already includes.
 pub use crate::learn_port::{attn, dense};
 
-/// The whole-model forward/backward module. Only its integer bodies below are rooted: `forward`
-/// and `backward` construct a `RopeTable` from a host `f64` (`F64::from_f64`), which the pinned
-/// Aeneas does not translate, so those two bodies stay outside this extraction unit.
+/// The whole-model backward module. Only its integer bodies below are rooted: `backward`
+/// constructs a `RopeTable` from a host `f64` (`F64::from_f64`), which the pinned Aeneas does not
+/// translate, so that body stays outside this extraction unit.
 #[path = "../../src/learn/grad/model.rs"]
 pub mod model;
 
