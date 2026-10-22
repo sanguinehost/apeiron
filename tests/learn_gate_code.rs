@@ -497,6 +497,60 @@ fn gate_code_fit_down() {
     );
 }
 
+/// The output projection's calibration `H` (the production `Grams::o`, stage 2, `q_out × q_out`) over
+/// chunks `0..CALIB`, then the production fit of `attn_output` (or `ssm_out` on a Gated `DeltaNet`
+/// layer) for `APEIRON_GATE_LAYERS`, cached as `l{l}.o.i64`, with `tr(E H Eᵀ)` before and after.
+///
+/// `H` costs what [`calib_grams`] states; then one `fold_fit` and one [`energy`] (`O(n_embd·q_out²)`)
+/// per layer.
+#[test]
+#[ignore = "opens the teacher and runs production fold_fit on the output projection; run explicitly"]
+fn gate_code_fit_o() {
+    let engine = Engine::open(&model_path()).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let (chunks, _) = base_tokens(&base_path());
+    let layers = env_layers(cfg.n_layer);
+    let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
+    std::fs::create_dir_all(CACHE).expect("cache dir");
+    let grams = calib_grams(&engine, &cfg, &chunks, calib, &layers);
+    for &l in &layers {
+        let ll = layer_from_engine(&engine, &cfg, l).expect("layer linears");
+        let w = ll
+            .linears
+            .iter()
+            .find(|x| matches!(x.name, "attn_output" | "ssm_out"))
+            .unwrap_or_else(|| panic!("blk.{l} output projection"));
+        let (o, q) = (w.rows, w.cols);
+        assert_eq!(o, cfg.n_embd, "layer {l}: o rows");
+        assert_eq!(
+            grams[l].o.len(),
+            q * q,
+            "layer {l}: o Gram is q_out x q_out"
+        );
+        let hw = qv(&grams[l].o);
+        let h = unq(&hw);
+        let t = Instant::now();
+        let fit = fold_fit(&w.w, &hw, o, q, None, &production_cfg()).expect("fit");
+        let wall = t.elapsed().as_secs_f64();
+        let diff = |a: &[i64]| -> Vec<i64> { a.iter().zip(&w.w).map(|(x, y)| x - y).collect() };
+        let before = energy(&h, &w.w, o, q);
+        let after = energy(&h, &diff(&fit.wp), o, q);
+        write_words(&format!("{CACHE}/l{l}.o.i64"), o, q, &fit.wp).expect("cache fit");
+        let bits = (o * q) as u64 + fit.bits_r + fit.bits_c + fit.bits_d;
+        println!(
+            "FITO layer {l:02} {:?} {} {o}x{q} {wall:.2} s rel energy {:.4} bits sign/r/c/d {}/{}/{}/{} b/w {:.4}",
+            ll.mixer,
+            w.name,
+            after / before,
+            o * q,
+            fit.bits_r,
+            fit.bits_c,
+            fit.bits_d,
+            bits as f64 / (o * q) as f64
+        );
+    }
+}
+
 /// `tr(E H Eᵀ)` for the `o × n` word matrix `e` under the symmetric `n × n` Gram `h`: one [`quad`]
 /// per row, `Σ_u e_uᵀ H e_u`.
 ///
@@ -714,14 +768,19 @@ fn ffn_spqr_fit() {
 /// fit of the same tensor: its sign plane `o·n` plus `bits_r + bits_c + bits_d`; the metric is
 /// unchanged.
 ///
-/// `APEIRON_GATE_KIND` (`up` | `gate`, default `up`), `APEIRON_GATE_LAYERS` (default: every layer),
-/// `APEIRON_GATE_PASSES` (`P`, default 2: the cached fit plus `P − 1` residual passes). `H` is the
-/// cached `h{l}.i64`, the calibration `gate_up` Gram of chunks `0..CALIB`; no held-out chunk is read.
+/// `APEIRON_GATE_KIND` (`up` | `gate` | `down` | `o`, default `up`), `APEIRON_GATE_LAYERS` (default:
+/// every layer), `APEIRON_GATE_PASSES` (`P`, default 2: the cached fit plus `P − 1` residual passes).
+/// `H` is the calibration Gram of chunks `0..CALIB`: the cached `h{l}.i64` for gate/up, the
+/// [`calib_grams`] `down` or `o` Gram for down/o; no held-out chunk is read.
 /// Writes `{CACHE}/l{l}.{kind}-res{P}.i64`, the summed words, for [`gate_code_kl`]
 /// (`APEIRON_GATE_ARM=up-res2`); `P = 1` writes the cached fit back unchanged.
 ///
-/// Cost: `(P−1)` `fold_fit` per layer (~33 s each, measured) plus `2(P−1)` [`energy`] at `O(o·n²)`;
-/// space `O(n² + o·n)` per layer for the Gram, the words and the residual.
+/// Cost: `(P−1)` `fold_fit` per layer (~33 s each for gate/up, ~52–75 s down, measured) plus `2(P−1)`
+/// [`energy`] at `O(o·n²)`, and for down/o one [`calib_grams`] (~70 s); space `O(n² + o·n)` per layer
+/// for the Gram, the words and the residual.
+///
+/// **Measurement 11** (board `APEIRON-QUALITY-118-W1-T01`): the output projection `o` and the
+/// residual pass on `down` and `o`.
 #[test]
 #[ignore = "opens the teacher and runs production fold_fit on the residual; run explicitly"]
 fn ffn_residual_fit() {
@@ -730,19 +789,43 @@ fn ffn_residual_fit() {
     let layers = env_layers(cfg.n_layer);
     let kind = std::env::var("APEIRON_GATE_KIND").unwrap_or_else(|_| String::from("up"));
     assert!(
-        matches!(kind.as_str(), "gate" | "up"),
+        matches!(kind.as_str(), "gate" | "up" | "down" | "o"),
         "APEIRON_GATE_KIND {kind}"
     );
     let passes = env_usize("APEIRON_GATE_PASSES", 2).max(1);
-    let (o, n) = (cfg.n_ff, cfg.n_embd);
-    println!("RES layers {layers:?} kind {kind} passes {passes} n_ff {o} n_embd {n}");
+    println!("RES layers {layers:?} kind {kind} passes {passes}");
     let t0 = Instant::now();
+    let grams = if matches!(kind.as_str(), "down" | "o") {
+        let (chunks, _) = base_tokens(&base_path());
+        calib_grams(&engine, &cfg, &chunks, CALIB, &layers)
+    } else {
+        Vec::new()
+    };
     for &l in &layers {
-        let (ho, hn, hw) = read_words(&format!("{CACHE}/h{l}.i64"));
-        assert_eq!((ho, hn, hw.len()), (n, n, n * n), "layer {l}: cached H");
-        let h = unq(&hw);
-        let (g, up, _mixer) = gate_up(&engine, &cfg, l);
-        let w = if kind == "gate" { g } else { up };
+        let (w, o, n, h) = match kind.as_str() {
+            "down" => {
+                let (d, _mixer) = ffn_down(&engine, &cfg, l);
+                (d, cfg.n_embd, cfg.n_ff, unq(&qv(&grams[l].down)))
+            }
+            "o" => {
+                let ll = layer_from_engine(&engine, &cfg, l).expect("layer linears");
+                let w = ll
+                    .linears
+                    .into_iter()
+                    .find(|x| matches!(x.name, "attn_output" | "ssm_out"))
+                    .unwrap_or_else(|| panic!("blk.{l} output projection"));
+                let (o, q) = (w.rows, w.cols);
+                (w.w, o, q, unq(&qv(&grams[l].o)))
+            }
+            _ => {
+                let n = cfg.n_embd;
+                let (ho, hn, hw) = read_words(&format!("{CACHE}/h{l}.i64"));
+                assert_eq!((ho, hn, hw.len()), (n, n, n * n), "layer {l}: cached H");
+                let (g, up, _mixer) = gate_up(&engine, &cfg, l);
+                let w = if kind == "gate" { g } else { up };
+                (w, cfg.n_ff, n, unq(&hw))
+            }
+        };
         let (wo, wn, cached) = read_words(&format!("{CACHE}/l{l}.{kind}.i64"));
         assert_eq!(
             (wo, wn, cached.len()),
@@ -1001,8 +1084,8 @@ fn student_bytes(arm: &str) -> (Vec<u8>, usize) {
     for part in arm.split('+') {
         let kind = part.split('-').next().unwrap_or(part);
         assert!(
-            matches!(kind, "gate" | "up" | "down"),
-            "APEIRON_GATE_ARM {arm}: tensor kind {kind} is not gate | up | down"
+            matches!(kind, "gate" | "up" | "down" | "o"),
+            "APEIRON_GATE_ARM {arm}: tensor kind {kind} is not gate | up | down | o"
         );
         assert!(
             !kinds.contains(&kind),
@@ -1020,17 +1103,30 @@ fn student_bytes(arm: &str) -> (Vec<u8>, usize) {
     (data, replaced)
 }
 
-/// Overwrites `blk.{l}.ffn_{kind}.weight` in `data` with `{CACHE}/l{l}.{part}.i64` for each layer.
+/// Overwrites `blk.{l}.ffn_{kind}.weight` (kind `o`: `attn_output`, or `ssm_out` on a Gated
+/// `DeltaNet` layer) in `data` with `{CACHE}/l{l}.{part}.i64` for each layer.
 fn replace_kind(data: &mut [u8], gguf: &Gguf, kind: &str, part: &str, layers: &[usize]) {
     for &l in layers {
-        let name = format!("blk.{l}.ffn_{kind}.weight");
+        let names = if kind == "o" {
+            vec![
+                format!("blk.{l}.attn_output.weight"),
+                format!("blk.{l}.ssm_out.weight"),
+            ]
+        } else {
+            vec![format!("blk.{l}.ffn_{kind}.weight")]
+        };
         let (_, _, words) = read_words(&format!("{CACHE}/l{l}.{part}.i64"));
         let t = gguf
             .header
             .tensors
             .iter()
-            .find(|t| String::from_utf8_lossy(&t.name) == name)
-            .unwrap_or_else(|| panic!("{name}"));
+            .find(|t| {
+                names
+                    .iter()
+                    .any(|n| String::from_utf8_lossy(&t.name) == n.as_str())
+            })
+            .unwrap_or_else(|| panic!("{names:?}"));
+        let name = String::from_utf8_lossy(&t.name).into_owned();
         let off = usize::try_from(gguf.header.data0 + t.offset).expect("offset");
         let bytes = match t.ggml_type {
             quant::GGML_TYPE_F16 => encode_f16(&words).expect("binary16 encode"),
