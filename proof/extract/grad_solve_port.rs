@@ -101,17 +101,6 @@ pub fn word_model_col_sum(x: &[i64], t: usize, w: usize) -> Result<Vec<i64>, mod
     model::col_sum(x, t, w)
 }
 
-/// Real `learn::grad::model::rmsnorm_rows`: `RMSNorm` over every row, one `dense::rmsnorm_fwd` each.
-pub fn word_model_rmsnorm_rows(
-    x: &[i64],
-    gamma: &[i64],
-    t: usize,
-    w: usize,
-    eps: i64,
-) -> Result<Vec<i64>, model::ModelError> {
-    model::rmsnorm_rows(x, gamma, t, w, eps)
-}
-
 /// Real `learn::grad::model::rmsnorm_bwd_rows`: the row-wise `RMSNorm` backward and gain sum.
 pub fn word_model_rmsnorm_bwd_rows(
     x: &[i64],
@@ -124,16 +113,6 @@ pub fn word_model_rmsnorm_bwd_rows(
     model::rmsnorm_bwd_rows(x, gamma, eps, dy, t, w)
 }
 
-/// Real `learn::grad::model::rope_rows_fwd`: `RoPE` on every row at its own position.
-pub fn word_model_rope_rows_fwd(
-    x: &[i64],
-    t: usize,
-    row: usize,
-    rope: &crate::engine::RopeTable,
-) -> Result<Vec<i64>, model::ModelError> {
-    model::rope_rows_fwd(x, t, row, rope)
-}
-
 /// Real `learn::grad::model::rope_rows_bwd`: the row-wise `RoPE` adjoint.
 pub fn word_model_rope_rows_bwd(
     dy: &[i64],
@@ -142,16 +121,6 @@ pub fn word_model_rope_rows_bwd(
     rope: &crate::engine::RopeTable,
 ) -> Result<Vec<i64>, model::ModelError> {
     model::rope_rows_bwd(dy, t, row, rope)
-}
-
-/// Real `learn::grad::model::add_bias`: checked bias add over every row.
-pub fn word_model_add_bias(
-    x: &mut [i64],
-    bias: Option<&[i64]>,
-    t: usize,
-    w: usize,
-) -> Result<(), model::ModelError> {
-    model::add_bias(x, bias, t, w)
 }
 
 /// Real `learn::grad::model::embedding_grad`: the scatter-add `dembedding[token[r],:] += dh[r,:]`.
