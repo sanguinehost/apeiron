@@ -277,12 +277,6 @@ ticket = "APEIRON-QUALITY-118-W1-T01"
 
 [[debt]]
 rule = "backward"
-item = "src/learn/grad/model.rs:forward"
-consumers = 33
-ticket = "APEIRON-QUALITY-118-W1-T01"
-
-[[debt]]
-rule = "backward"
 item = "src/learn/grad/model.rs:backward"
 consumers = 15
 ticket = "APEIRON-QUALITY-118-W1-T01"
@@ -978,12 +972,6 @@ ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
 rule = "forward"
 item = "src/learn/grad/attn.rs:attn_fwd_kern"
 consumers = 18
-ticket = "APEIRON-QUALITY-118-W1-T01"
-
-[[debt]]
-rule = "forward"
-item = "src/learn/fold/run/finish.rs:finish_model"
-consumers = 2
 ticket = "APEIRON-QUALITY-118-W1-T01"
 
 [[debt]]

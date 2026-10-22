@@ -19,14 +19,17 @@
               refusal test enumerates the geometry arms in one body."
 )]
 
+use apeiron::format::quant;
+use apeiron::learn::fold::finish::assemble::{assemble, assemble_unquantized};
 use apeiron::learn::fold::finish::plane::CodedPlane;
 use apeiron::learn::fold::finish::train::{
-    assemble, assemble_unquantized, kl_mean, Adam, Finisher, Frozen, Gradients, LayerTunables,
-    Linear, Planes, Schedule, TrainError, Tunables, N_KINDS,
+    kl_mean, Adam, Finisher, Frozen, Gradients, LayerTunables, Linear, Planes, Schedule,
+    TrainError, Tunables, N_KINDS,
 };
 use apeiron::learn::fold::fit::icm::{codebook, BLOCK};
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
 use apeiron::learn::fold::fit::steps::GROUP;
+use apeiron::learn::fold::run::convert::{encode_f16, encode_f32};
 use apeiron::learn::grad::model::{forward, Config, Weights};
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
@@ -191,11 +194,200 @@ fn perturb(w: &mut Weights, amp: i64) {
 }
 
 /// The fixture: a two-layer coded-plane student, its zero-bit tunables, the frozen embedding and
-/// head, a fixed 16-token batch and the fixed teacher logits of a nudged copy of the student.
+/// head, a fixed 16-token batch, the fixed teacher logits of a nudged copy of the student and the
+/// teacher `GGUF` the student image is encoded into.
 struct Fixture {
     fin: Finisher,
     tokens: Vec<u32>,
     teacher: Vec<i64>,
+}
+
+// ---- the teacher image: the assembled `Weights` as the `GGUF` the engine opens ----
+//
+// The finisher's forward is the engine over the student image, and that image is the teacher
+// `GGUF`'s directory re-encoded from the master weights. The fixture's teacher is therefore the
+// unperturbed student written as a `GGUF`: every matrix and the embedding table binary16, every
+// norm and bias binary32, `cfg()`'s own geometry, eps and `RoPE` theta.
+
+fn put_u32(b: &mut Vec<u8>, v: u32) {
+    b.extend_from_slice(&v.to_le_bytes());
+}
+
+fn put_u64(b: &mut Vec<u8>, v: u64) {
+    b.extend_from_slice(&v.to_le_bytes());
+}
+
+fn put_str(b: &mut Vec<u8>, s: &str) {
+    put_u64(b, u64::try_from(s.len()).expect("small"));
+    b.extend_from_slice(s.as_bytes());
+}
+
+fn kv_u32(b: &mut Vec<u8>, k: &str, v: u32) {
+    put_str(b, k);
+    put_u32(b, 4);
+    put_u32(b, v);
+}
+
+fn kv_str(b: &mut Vec<u8>, k: &str, v: &str) {
+    put_str(b, k);
+    put_u32(b, 8);
+    put_str(b, v);
+}
+
+fn kv_f32(b: &mut Vec<u8>, k: &str, v: f32) {
+    put_str(b, k);
+    put_u32(b, 6);
+    b.extend_from_slice(&v.to_bits().to_le_bytes());
+}
+
+fn u(x: usize) -> u64 {
+    u64::try_from(x).expect("fixture dims fit u64")
+}
+
+fn gguf_matrix(
+    ts: &mut Vec<(String, Vec<u64>, u32, Vec<u8>)>,
+    name: String,
+    dims: Vec<u64>,
+    words: &[i64],
+) {
+    ts.push((
+        name,
+        dims,
+        quant::GGML_TYPE_F16,
+        encode_f16(words).expect("fixture matrix f16"),
+    ));
+}
+
+fn gguf_vector(
+    ts: &mut Vec<(String, Vec<u64>, u32, Vec<u8>)>,
+    name: String,
+    dims: Vec<u64>,
+    words: &[i64],
+) {
+    ts.push((name, dims, quant::GGML_TYPE_F32, encode_f32(words)));
+}
+
+/// `w` as one `qwen2` `GGUF` in `cfg()`'s geometry.
+fn build_gguf(w: &Weights) -> Vec<u8> {
+    let c = cfg();
+    let mut ts: Vec<(String, Vec<u64>, u32, Vec<u8>)> = Vec::new();
+    for (l, lw) in w.layers.iter().enumerate() {
+        let p = |s: &str| format!("blk.{l}.{s}");
+        gguf_vector(&mut ts, p("attn_norm.weight"), vec![u(E)], &lw.attn_norm);
+        gguf_matrix(&mut ts, p("attn_q.weight"), vec![u(E), u(NH * HD)], &lw.wq);
+        gguf_matrix(&mut ts, p("attn_k.weight"), vec![u(E), u(NKV * HD)], &lw.wk);
+        gguf_matrix(&mut ts, p("attn_v.weight"), vec![u(E), u(NKV * HD)], &lw.wv);
+        gguf_vector(
+            &mut ts,
+            p("attn_q.bias"),
+            vec![u(NH * HD)],
+            lw.bq.as_ref().expect("fixture q bias"),
+        );
+        gguf_vector(
+            &mut ts,
+            p("attn_k.bias"),
+            vec![u(NKV * HD)],
+            lw.bk.as_ref().expect("fixture k bias"),
+        );
+        gguf_vector(
+            &mut ts,
+            p("attn_v.bias"),
+            vec![u(NKV * HD)],
+            lw.bv.as_ref().expect("fixture v bias"),
+        );
+        gguf_matrix(
+            &mut ts,
+            p("attn_output.weight"),
+            vec![u(NH * HD), u(E)],
+            &lw.wo,
+        );
+        gguf_vector(&mut ts, p("ffn_norm.weight"), vec![u(E)], &lw.ffn_norm);
+        gguf_matrix(&mut ts, p("ffn_gate.weight"), vec![u(E), u(FF)], &lw.w_gate);
+        gguf_matrix(&mut ts, p("ffn_up.weight"), vec![u(E), u(FF)], &lw.w_up);
+        gguf_matrix(&mut ts, p("ffn_down.weight"), vec![u(FF), u(E)], &lw.w_down);
+    }
+    gguf_vector(
+        &mut ts,
+        "output_norm.weight".to_string(),
+        vec![u(E)],
+        &w.output_norm,
+    );
+    gguf_matrix(
+        &mut ts,
+        "token_embd.weight".to_string(),
+        vec![u(E), u(V)],
+        &w.token_embd,
+    );
+    gguf_matrix(
+        &mut ts,
+        "output.weight".to_string(),
+        vec![u(E), u(V)],
+        &w.lm_head,
+    );
+    let mut b: Vec<u8> = Vec::new();
+    b.extend_from_slice(b"GGUF");
+    put_u32(&mut b, 3);
+    put_u64(&mut b, u64::try_from(ts.len()).expect("small"));
+    put_u64(&mut b, 8);
+    kv_str(&mut b, "general.architecture", "qwen2");
+    kv_u32(
+        &mut b,
+        "qwen2.block_count",
+        u32::try_from(c.n_layer).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.attention.head_count",
+        u32::try_from(NH).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.attention.head_count_kv",
+        u32::try_from(NKV).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.embedding_length",
+        u32::try_from(E).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.feed_forward_length",
+        u32::try_from(FF).expect("small"),
+    );
+    kv_f32(
+        &mut b,
+        "qwen2.attention.layer_norm_rms_epsilon",
+        (c.eps as f64 / 4_294_967_296.0) as f32,
+    );
+    kv_f32(&mut b, "qwen2.rope.freq_base", c.rope_theta as f32);
+    let mut off = 0u64;
+    for (name, dims, ty, payload) in &ts {
+        put_str(&mut b, name);
+        put_u32(&mut b, u32::try_from(dims.len()).expect("rank"));
+        for &d in dims {
+            put_u64(&mut b, d);
+        }
+        put_u32(&mut b, *ty);
+        put_u64(&mut b, off);
+        off += u64::try_from(payload.len()).expect("small");
+    }
+    let pad = (32 - b.len() % 32) % 32;
+    b.resize(b.len() + pad, 0);
+    for (_, _, _, payload) in &ts {
+        b.extend_from_slice(payload);
+    }
+    b
+}
+
+/// Write `w` as the teacher `GGUF` of one fixture seed and return its path.
+fn teacher_gguf(seed: u64, w: &Weights) -> String {
+    let path = std::env::temp_dir().join(format!(
+        "apeiron_fold_train_{seed}_{}.gguf",
+        std::process::id()
+    ));
+    std::fs::write(&path, build_gguf(w)).expect("write teacher fixture");
+    path.to_str().expect("utf8 temp path").to_string()
 }
 
 fn fixture(seed: u64) -> Fixture {
@@ -244,11 +436,12 @@ fn fixture(seed: u64) -> Fixture {
     let cfg = cfg();
     let planes = Planes::new(layers);
     let w = assemble(&cfg, &planes, &tun, &frozen).unwrap();
+    let path = teacher_gguf(seed, &w);
     let mut tw = w.clone();
     perturb(&mut tw, 1 << 26);
     let (teacher, _) = forward(&tw, &cfg, &tokens).unwrap();
 
-    let fin = Finisher::new(cfg, planes, tun, frozen, Schedule::new(10, 100)).unwrap();
+    let fin = Finisher::new(cfg, planes, tun, frozen, Schedule::new(10, 100), path).unwrap();
     Fixture {
         fin,
         tokens,
@@ -369,6 +562,11 @@ fn fnv_grads(d: &mut u64, g: &Gradients) {
 /// The recorded word digests of every train entry point on two seeds: the assembled whole-model
 /// weights, every resolved tunable, the schedule, `kl_mean`, `loss`, `gradients`, `Adam::apply`
 /// and twenty `step`s.
+///
+/// `loss`, `gradients` and `steps` moved at the mixed-precision change: the student forward is the
+/// engine's `Q8Act` prefill over the encoded student image, not the Q32 forward, so those three
+/// words bind the engine route. `assemble`, `tunables`, `factor`, the `kl_mean` head at the
+/// unquantized forward and `Adam::apply` are unchanged.
 #[test]
 fn recorded_train_digests() {
     let names = [
@@ -391,10 +589,10 @@ fn recorded_train_digests() {
                 0x4a20_4ff2_f857_a988,
                 0x2609_62a5_4062_e4e0,
                 0x2c6b_6668_f0ea_420f,
-                0xe38b_665e_a900_bc94,
-                0x01b2_63d5_bc44_2587,
+                0xf30d_3ef5_a5fc_1936,
+                0x115b_1ddf_7796_dd5d,
                 0x5c83_e96b_cfe6_2406,
-                0x7c4f_f32b_8714_b65b,
+                0x467c_ff5f_e514_0767,
             ]
         } else {
             [
@@ -403,10 +601,10 @@ fn recorded_train_digests() {
                 0x929e_aeec_1120_5212,
                 0x2609_62a5_4062_e4e0,
                 0x17d6_3f8e_039c_2c23,
-                0x7d05_e155_a069_ef74,
-                0xa298_bd0c_a7fa_1656,
+                0x1f18_8de6_d2ad_7548,
+                0x39e2_5c8c_cd11_dcff,
                 0xf448_5d34_a3d7_5749,
-                0xb66b_2cd5_605a_9227,
+                0x7bfe_9a8c_914d_a6f1,
             ]
         };
         let mut got = [0_u64; 9];
@@ -512,6 +710,15 @@ fn training_lowers_the_kl_on_a_fixed_batch() {
 /// (b) Central differences of the unquantized-forward loss against the analytic gradient of one
 /// plane latent (at the quantizers' fixed point, so the straight-through Jacobian is exact) and of
 /// one norm latent (at `exp(d) != 1`, so the chain factor is exercised).
+///
+/// The analytic values are the straight-through gradient of the **engine's** quantised forward
+/// ([`Finisher::gradients`]); the reference is the central difference of the Q32 unquantized
+/// forward's loss, the closest smooth oracle at the same master weights. The two are not the same
+/// derivative: the engine's forward quantises its activations to 8 bits per block, so its gradient
+/// carries that route's error, measured at 6.3% (`pa[0]`) and 5.0% (`ln1_d[0]`) on this fixture.
+/// The bound is `1e-1` relative — 1.5x the larger of the two — so the check reds on a sign error, a
+/// scale error of 1.15x or more, or a wrong Jacobian, and does not claim the exact identity the
+/// Q32 route had.
 #[test]
 fn latent_gradient_matches_finite_difference() {
     let f = fixture(2);
@@ -528,7 +735,7 @@ fn latent_gradient_matches_finite_difference() {
     let fd_pa = (lp - lm) / (2.0 * H);
     eprintln!("pa: analytic {an_pa:e} fd {fd_pa:e}");
     assert!(
-        (fd_pa - an_pa).abs() <= 1e-8 + 2e-3 * an_pa.abs(),
+        (fd_pa - an_pa).abs() <= 1e-8 + 1e-1 * an_pa.abs(),
         "pa[0]: analytic {an_pa:e} vs fd {fd_pa:e}"
     );
 
@@ -543,7 +750,7 @@ fn latent_gradient_matches_finite_difference() {
     let fd_ln1 = (lp - lm) / (2.0 * H);
     eprintln!("ln1_d: analytic {an_ln1:e} fd {fd_ln1:e}");
     assert!(
-        (fd_ln1 - an_ln1).abs() <= 1e-8 + 2e-3 * an_ln1.abs(),
+        (fd_ln1 - an_ln1).abs() <= 1e-8 + 1e-1 * an_ln1.abs(),
         "ln1_d[0]: analytic {an_ln1:e} vs fd {fd_ln1:e}"
     );
     // The check is not vacuous: `exp(D_NORM) = 1` would make the two agree for the wrong reason.
@@ -664,6 +871,7 @@ fn refuses_mismatched_shapes() {
         f.fin.tun.clone(),
         f.fin.frozen.clone(),
         Schedule::new(10, 100),
+        f.fin.teacher_path.clone(),
     );
     assert!(matches!(err, Err(TrainError::Shape(_))), "got {err:?}");
 

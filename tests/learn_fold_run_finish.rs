@@ -1,7 +1,7 @@
 //! `tests/learn_fold_run_finish.rs` — the fold fit wired to the finishing P-step: every fitted
 //! `TensorFit` sink plane rebuilds into the finisher's `CodedPlane`s and reassembles to `fit.wp`
-//! bit-for-bit (quantized and unquantized fronts), a synthetic `ModelResult` drives one
-//! `finish_model` step that strictly lowers the batch mean KL, and the plane / loss digests are
+//! bit-for-bit (quantized and unquantized fronts), a synthetic `ModelResult` drives a 20-step
+//! `finish_model` horizon that strictly lowers the batch mean KL, and the plane / loss digests are
 //! pinned. Grade `tested`; nothing here is `proved`.
 //!
 //! Tolerance: zero words. [`CodedPlane::weight_unquantized`] uses the latent bases `(r0, c0, d0)`
@@ -25,7 +25,8 @@
 
 use apeiron::engine::{Engine, KernelMode};
 use apeiron::format::quant;
-use apeiron::learn::fold::finish::train::{assemble, assemble_unquantized, kl_mean, Frozen};
+use apeiron::learn::fold::finish::assemble::{assemble, assemble_unquantized};
+use apeiron::learn::fold::finish::train::{kl_mean, Frozen};
 use apeiron::learn::fold::fit::icm::{codebook, BLOCK};
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
 use apeiron::learn::fold::fit::steps::GROUP;
@@ -33,7 +34,9 @@ use apeiron::learn::fold::layer::driver::ModelResult;
 use apeiron::learn::fold::layer::tensor::{recon, SinkPlane, TensorBits, TensorFit, TensorKind};
 use apeiron::learn::fold::run::convert::{encode_f16, encode_f32};
 use apeiron::learn::fold::run::finish::{finish_model, planes_from_fits, tunables_from_weights};
-use apeiron::learn::grad::model::{forward, Config, LayerWeights, Weights};
+use apeiron::learn::fold::run::transfer::student_gguf_bytes;
+use apeiron::learn::fold::stats::hocapture::engine_tape;
+use apeiron::learn::grad::model::{Config, LayerWeights, Weights};
 use apeiron::learn::solve::q32::{to_grid, GRID_BOUND};
 
 /// Trunk layers of the tiny configuration.
@@ -583,9 +586,12 @@ fn planes_digest(planes: &apeiron::learn::fold::finish::train::Planes) -> u64 {
     d
 }
 
-/// (b): one `finish_model` step lowers the batch mean KL on the tiny model.
+/// (b): a 20-step `finish_model` horizon lowers the batch mean KL on the tiny model, on the engine
+/// route. 20 is the horizon of `training_lowers_the_kl_on_a_fixed_batch`
+/// (`tests/learn_fold_train.rs`), fixed in advance; one Adam step is below the quantised forward's
+/// KL quantum (~2e-4) and does not carry the sign, so it is not the installed forward's property.
 #[test]
-fn one_finish_step_lowers_kl() {
+fn finish_lowers_kl_on_the_engine_route() {
     let cfg = cfg();
     let mut rng = Lcg::new(0xB2);
     let res = model_result(&mut rng);
@@ -605,8 +611,7 @@ fn one_finish_step_lowers_kl() {
 
     let before = {
         let w = assemble(&cfg, &planes, &tun, &frozen).expect("student");
-        let (logits, _) = forward(&w, &cfg, &tokens).expect("student logits");
-        kl_mean(&cfg, &logits, &tlogits).expect("kl").0
+        student_kl(&tpath, &w, &cfg, &tokens, &tlogits)
     };
     assert!(before > 0, "the teacher and student must differ");
 
@@ -615,31 +620,41 @@ fn one_finish_step_lowers_kl() {
         &res,
         &teacher,
         &tengine,
+        &tpath,
         std::slice::from_ref(&tokens),
-        1,
+        20,
         0,
     )
     .expect("finish");
-    let _ = std::fs::remove_file(&tpath);
-    assert_eq!(fin.loss.len(), 1, "one step, one loss word");
+    assert_eq!(fin.loss.len(), 20, "20 steps, 20 loss words");
     assert_eq!(
         fin.loss[0], before,
         "the step reports the pre-update KL of the same student"
     );
-    let (logits, _) = forward(&fin.weights, &cfg, &tokens).expect("finished logits");
-    let after = kl_mean(&cfg, &logits, &tlogits).expect("kl after").0;
+    let after = student_kl(&tpath, &fin.weights, &cfg, &tokens, &tlogits);
+    let _ = std::fs::remove_file(&tpath);
     assert!(
         after < before,
-        "one step must lower KL: before {before}, after {after}"
+        "20 steps must lower KL: before {before}, after {after}"
     );
 
     let mut d = FNV0;
     fnv_buf(&mut d, &fin.loss);
     println!(
-        "loss={before}->{after} loss_digest={d:#018x} planes_digest={:#018x}",
+        "loss={before}->{after} steps=20 loss_digest={d:#018x} planes_digest={:#018x}",
         planes_digest(&planes)
     );
     assert_eq!(d, LOSS_DIGEST, "loss trace digest");
+}
+
+/// The batch mean KL of `w` against `teacher` through the finisher's own route: the master weights
+/// encoded into the teacher `GGUF`'s directory, the engine over those bytes and its tapped
+/// `Q8Act` prefill and LM head, the logits [`Finisher::loss`] and [`Finisher::gradients`] score.
+fn student_kl(path: &str, w: &Weights, cfg: &Config, tokens: &[u32], teacher: &[i64]) -> i64 {
+    let bytes = student_gguf_bytes(path, w).expect("student image");
+    let engine = Engine::from_bytes(path, bytes).expect("student engine");
+    let (logits, _) = engine_tape(&engine, cfg, tokens).expect("student tape");
+    kl_mean(cfg, &logits, teacher).expect("kl").0
 }
 
 /// (a): every fit's stored weight is reproduced exactly by the rebuilt planes.
@@ -682,7 +697,7 @@ fn planes_from_fits_reproduces_each_fit_weight_exactly() {
 }
 
 /// The pinned plane and loss digests (FNV-1a over the little-endian words, length-prefixed). The
-/// loss digest is the engine-teacher trace (`finish_model` reads the teacher `GGUF`'s `Q8Act`
-/// prefill), so it moves with the teacher route, not with the exact forward.
+/// loss digest is the 20-word engine-teacher trace (`finish_model` reads the teacher `GGUF`'s
+/// `Q8Act` prefill), so it moves with the teacher route, not with the exact forward.
 const PLANES_DIGEST: u64 = 0xfc3f_0275_32c2_7602;
-const LOSS_DIGEST: u64 = 0x0c05_b36d_81a0_f285;
+const LOSS_DIGEST: u64 = 0xeb50_b7ae_efb4_01ee;

@@ -37,15 +37,19 @@
     clippy::many_single_char_names,
     clippy::needless_range_loop,
     clippy::similar_names,
+    clippy::too_many_arguments,
     reason = "the plane kernels index row-major `[o, n]` buffers by `o/i/j/g` and name the pack \
-              fields `rh`/`ch`/`dh`; the `usize → i128` casts are on validated shape counts"
+              fields `rh`/`ch`/`dh`; the `usize → i128` casts are on validated shape counts; \
+              `finish_model` takes the fit, the teacher's weights, its engine and its path \
+              separately because each is a distinct product of the caller's one load"
 )]
 
 use crate::engine::Engine;
+use crate::learn::fold::finish::assemble::assemble;
 use crate::learn::fold::finish::plane::{div_ne, CodedPlane, PlaneError};
 use crate::learn::fold::finish::train::{
-    assemble, Finisher, Frozen, LayerTunables, LayerTuned, Linear, Planes, Schedule, TrainError,
-    Tunables, N_KINDS,
+    Finisher, Frozen, LayerTunables, LayerTuned, Linear, Planes, Schedule, TrainError, Tunables,
+    N_KINDS,
 };
 use crate::learn::fold::fit::quant::quant_r_hier;
 use crate::learn::fold::fit::steps::GROUP;
@@ -432,7 +436,9 @@ pub struct Finished {
 ///
 /// `teacher_engine` is the teacher `GGUF` the caller opened ([`Engine::open`]); every chunk's
 /// teacher logits are [`engine_logits`]'s `Q8Act` prefill and head, so the teacher's distribution is
-/// the one that ships. `teacher` supplies only [`Frozen::new`]'s `token_embd` and `lm_head`.
+/// the one that ships. `teacher_path` is that same file's path: the student's master weights are
+/// re-encoded into its directory on every step, and the finisher's forward is the engine over those
+/// bytes. `teacher` supplies only [`Frozen::new`]'s `token_embd` and `lm_head`.
 ///
 /// # Errors
 /// [`FinishRunError::Shape`] on an empty chunk list, an empty chunk or a fit/geometry disagreement;
@@ -440,14 +446,15 @@ pub struct Finished {
 /// the geometry products; [`FinishRunError::Train`] from a step.
 ///
 /// # Complexity
-/// Temporal `O(steps·(cost(engine_logits(teacher, chunk)) + Finisher::step))` plus one
+/// Temporal `O(steps·(cost(engine_logits(teacher, chunk)) + cost(Finisher::step)))` plus one
 /// `O(Σ o·n·CODE_LEN)` plane build and one `O(Σ o·n·log2(GROUP))` assemble; spatial
-/// `O(t·vocab + t·n_embd + Σ o·n)`.
+/// `O(t·vocab + t·n_embd + Σ o·n + student image bytes)`.
 pub fn finish_model(
     cfg: &Config,
     res: &ModelResult,
     teacher: &Weights,
     teacher_engine: &Engine,
+    teacher_path: &str,
     tokens: &[Vec<u32>],
     steps: u64,
     warmup: u64,
@@ -461,7 +468,14 @@ pub fn finish_model(
     let tun = tunables_from_weights(&res.layers, &res.fnorm, &res.fits)?;
     let frozen = Frozen::new(&teacher.token_embd, &teacher.lm_head);
     let schedule = Schedule::new(warmup, steps.max(1));
-    let mut fin = Finisher::new(cfg.clone(), planes, tun, frozen, schedule)?;
+    let mut fin = Finisher::new(
+        cfg.clone(),
+        planes,
+        tun,
+        frozen,
+        schedule,
+        teacher_path.to_string(),
+    )?;
     let len =
         usize::try_from(steps).map_err(|_| FinishRunError::Shape("step count".to_string()))?;
     let mut loss: Vec<i64> = Vec::with_capacity(len);

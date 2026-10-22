@@ -36,8 +36,6 @@ const BASELINE: &[(&str, &str)] = &[
     ("src/learn/fold/finish/plane.rs", "dot_cols"),
     ("src/learn/fold/finish/plane.rs", "row_group_dots"),
     ("src/learn/fold/finish/plane.rs", "run"),
-    ("src/learn/fold/finish/train.rs", "gradients->forward"),
-    ("src/learn/fold/finish/train.rs", "loss->forward"),
     ("src/learn/fold/fit/corrector.rs", "ridge_solve"),
     ("src/learn/fold/fit/eigh.rs", "eigen_gram"),
     ("src/learn/fold/fit/eigh.rs", "gemm_err"),

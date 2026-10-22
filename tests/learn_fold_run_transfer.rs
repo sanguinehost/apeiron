@@ -25,7 +25,8 @@ use std::time::Instant;
 
 use apeiron::crypto::sha256::sha256;
 use apeiron::engine::{Engine, KernelMode};
-use apeiron::learn::fold::finish::train::{assemble, Frozen};
+use apeiron::learn::fold::finish::assemble::assemble;
+use apeiron::learn::fold::finish::train::Frozen;
 use apeiron::learn::fold::fit::corrector::Factors;
 use apeiron::learn::fold::fit::icm::{codebook, BLOCK};
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
@@ -1097,7 +1098,7 @@ fn transfer_qwen05b() {
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
         let (student, source) = if steps > 0 {
-            let fin = finish_model(&config, &res, &weights, &engine, &cal, steps, warmup)
+            let fin = finish_model(&config, &res, &weights, &engine, MODEL, &cal, steps, warmup)
                 .expect("finish_model");
             eprintln!(
                 "[4] finish_model {steps} steps (warmup {warmup}): {} loss words, last {:?}",
