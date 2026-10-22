@@ -1,9 +1,9 @@
 //! `tests/learn_fold_train.rs` — the finishing P-step: the KL falls on a fixed batch over 20 Adam
 //! steps, one plane latent's and one norm latent's gradient match a central difference of the
-//! unquantized-forward loss, the frozen codes are bit-identical before and after training, the
-//! step-counted learning-rate schedule matches its hand-computed factors, the geometry refusals
-//! fire, and the tiny-configuration step cost and flop count are reported. Grade `tested`; nothing
-//! here is `proved`.
+//! exact-activation loss at the shipping image, the frozen codes are bit-identical before and after
+//! training, the step-counted learning-rate schedule matches its hand-computed factors, the
+//! geometry refusals fire, and the tiny-configuration step cost and flop count are reported. Grade
+//! `tested`; nothing here is `proved`.
 
 #![allow(
     clippy::cast_precision_loss,
@@ -19,6 +19,7 @@
               refusal test enumerates the geometry arms in one body."
 )]
 
+use apeiron::engine::{Engine, KernelMode};
 use apeiron::format::quant;
 use apeiron::learn::fold::finish::assemble::{assemble, assemble_unquantized};
 use apeiron::learn::fold::finish::plane::CodedPlane;
@@ -29,8 +30,9 @@ use apeiron::learn::fold::finish::train::{
 use apeiron::learn::fold::fit::icm::{codebook, BLOCK};
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
 use apeiron::learn::fold::fit::steps::GROUP;
-use apeiron::learn::fold::run::convert::{encode_f16, encode_f32};
-use apeiron::learn::grad::model::{forward, Config, Weights};
+use apeiron::learn::fold::run::convert::{encode_f16, encode_f32, student_gguf_bytes};
+use apeiron::learn::fold::stats::hocapture::engine_tape_mode;
+use apeiron::learn::grad::model::{Config, Weights};
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
 /// The f64 fixture as Q32.32 words, the quantiser's input at the test's own data.
@@ -61,10 +63,11 @@ const T: usize = 16;
 const EPS_Q32: i64 = 42_950;
 /// `RoPE` theta.
 const THETA: f64 = 10_000.0;
-/// The central-difference step of the latent gradient check.
-const H: f64 = 1e-3;
+/// The central-difference step of the latent gradient check: twenty binary16 image ulps of a
+/// fixture weight, so the difference quotient measures the slope rather than the image rounding.
+const H: f64 = 2e-2;
 /// `H` on the Q32.32 grid, the step a latent word is nudged by.
-const H_Q32: i64 = 4_294_967;
+const H_Q32: i64 = 85_899_346;
 /// The nonzero norm latent the chain-rule check runs at (`exp(0) = 1` hides the chain factor).
 const D_NORM: f64 = 0.2;
 
@@ -390,6 +393,23 @@ fn teacher_gguf(seed: u64, w: &Weights) -> String {
     path.to_str().expect("utf8 temp path").to_string()
 }
 
+/// The exact Q32.32 logits of `w` as the engine runs them: the master weights encoded into the
+/// teacher `GGUF`'s directory by [`student_gguf_bytes`] (binary16 matrices, binary32 norms and
+/// biases), the engine over those bytes, and one [`KernelMode::Exact`] prefill with the head.
+///
+/// The engine decodes each binary16 weight to its Q32.32 word, so this is the exact forward over
+/// the image those weights ship as: the smooth oracle the finisher's `Q8Act` route is measured
+/// against. Gate A (`learn::grad::model::tests::forward_logits_match_step_logits_bit_for_bit`, the
+/// deleted `forward`'s identity) pinned this route equal, bit for bit, to `forward` over the
+/// engine's own decoded weights.
+fn exact_logits(teacher_path: &str, w: &Weights, cfg: &Config, tokens: &[u32]) -> Vec<i64> {
+    let bytes = student_gguf_bytes(teacher_path, w).expect("student image");
+    let engine = Engine::from_bytes(teacher_path, bytes).expect("student engine");
+    engine_tape_mode(&engine, cfg, tokens, KernelMode::Exact)
+        .expect("exact engine tape")
+        .0
+}
+
 fn fixture(seed: u64) -> Fixture {
     let mut rng = Lcg::new(seed);
     let mut layers: Vec<Vec<Linear>> = Vec::with_capacity(L);
@@ -439,7 +459,7 @@ fn fixture(seed: u64) -> Fixture {
     let path = teacher_gguf(seed, &w);
     let mut tw = w.clone();
     perturb(&mut tw, 1 << 26);
-    let (teacher, _) = forward(&tw, &cfg, &tokens).unwrap();
+    let teacher = exact_logits(&path, &tw, &cfg, &tokens);
 
     let fin = Finisher::new(cfg, planes, tun, frozen, Schedule::new(10, 100), path).unwrap();
     Fixture {
@@ -449,11 +469,11 @@ fn fixture(seed: u64) -> Fixture {
     }
 }
 
-/// The batch mean KL word over the differentiable (unquantized-weight) forward: the Q32.32 loss the
-/// latent gradient is the exact gradient of.
-fn loss_unquantized(fin: &Finisher, tokens: &[u32], teacher: &[i64]) -> i64 {
+/// The batch mean KL word over the exact forward at the master weights' shipping image: the Q32.32
+/// loss the finisher's quantised latent gradient is measured against.
+fn loss_exact(fin: &Finisher, tokens: &[u32], teacher: &[i64]) -> i64 {
     let w = assemble_unquantized(&fin.cfg, &fin.planes, &fin.tun, &fin.frozen).unwrap();
-    let (logits, _) = forward(&w, &fin.cfg, tokens).unwrap();
+    let logits = exact_logits(&fin.teacher_path, &w, &fin.cfg, tokens);
     kl_mean(&fin.cfg, &logits, teacher).unwrap().0
 }
 
@@ -563,10 +583,11 @@ fn fnv_grads(d: &mut u64, g: &Gradients) {
 /// weights, every resolved tunable, the schedule, `kl_mean`, `loss`, `gradients`, `Adam::apply`
 /// and twenty `step`s.
 ///
-/// `loss`, `gradients` and `steps` moved at the mixed-precision change: the student forward is the
-/// engine's `Q8Act` prefill over the encoded student image, not the Q32 forward, so those three
-/// words bind the engine route. `assemble`, `tunables`, `factor`, the `kl_mean` head at the
-/// unquantized forward and `Adam::apply` are unchanged.
+/// `kl_mean`, `loss`, `gradients` and `steps` moved twice: once at the mixed-precision change, when
+/// the student forward became the engine's `Q8Act` prefill over the encoded student image, and once
+/// when the deleted `grad::model::forward` was replaced by the engine's `Exact` forward over the
+/// same binary16 image. The teacher logits and the `kl_mean` head therefore bind the engine route.
+/// `assemble`, `assemble_unquantized`, `tunables`, `factor` and `Adam::apply` are unchanged.
 #[test]
 fn recorded_train_digests() {
     let names = [
@@ -588,11 +609,11 @@ fn recorded_train_digests() {
                 0xaeaa_3d79_9ef4_5e12,
                 0x4a20_4ff2_f857_a988,
                 0x2609_62a5_4062_e4e0,
-                0x2c6b_6668_f0ea_420f,
-                0xf30d_3ef5_a5fc_1936,
-                0x115b_1ddf_7796_dd5d,
+                0xce88_7d10_d26b_3f62,
+                0x8d42_64f8_2fbd_89cc,
+                0x4b9e_ccd0_6f84_a7cb,
                 0x5c83_e96b_cfe6_2406,
-                0x467c_ff5f_e514_0767,
+                0x2aa5_8f36_eaf3_382d,
             ]
         } else {
             [
@@ -600,11 +621,11 @@ fn recorded_train_digests() {
                 0xd810_6de9_81a7_b516,
                 0x929e_aeec_1120_5212,
                 0x2609_62a5_4062_e4e0,
-                0x17d6_3f8e_039c_2c23,
-                0x1f18_8de6_d2ad_7548,
-                0x39e2_5c8c_cd11_dcff,
+                0xc260_23aa_0f6f_0f44,
+                0xd3b5_9c2f_7e7a_a9f0,
+                0xe63c_9213_b331_82c0,
                 0xf448_5d34_a3d7_5749,
-                0x7bfe_9a8c_914d_a6f1,
+                0x733b_c0f0_d113_551f,
             ]
         };
         let mut got = [0_u64; 9];
@@ -635,7 +656,7 @@ fn recorded_train_digests() {
         got[3] = d;
 
         let w = assemble_unquantized(&f.fin.cfg, &f.fin.planes, &f.fin.tun, &f.fin.frozen).unwrap();
-        let (logits, _) = forward(&w, &f.fin.cfg, &f.tokens).unwrap();
+        let logits = exact_logits(&f.fin.teacher_path, &w, &f.fin.cfg, &f.tokens);
         let (mean, dz) = kl_mean(&f.fin.cfg, &logits, &f.teacher).unwrap();
         let mut d = FNV0;
         fnv_word(&mut d, mean);
@@ -707,18 +728,20 @@ fn training_lowers_the_kl_on_a_fixed_batch() {
     );
 }
 
-/// (b) Central differences of the unquantized-forward loss against the analytic gradient of one
-/// plane latent (at the quantizers' fixed point, so the straight-through Jacobian is exact) and of
-/// one norm latent (at `exp(d) != 1`, so the chain factor is exercised).
+/// (b) Central differences of the exact-activation loss at the shipping image against the analytic
+/// gradient of one plane latent (at the quantizers' fixed point, so the straight-through Jacobian is
+/// exact) and of one norm latent (at `exp(d) != 1`, so the chain factor is exercised).
 ///
 /// The analytic values are the straight-through gradient of the **engine's** quantised forward
-/// ([`Finisher::gradients`]); the reference is the central difference of the Q32 unquantized
-/// forward's loss, the closest smooth oracle at the same master weights. The two are not the same
-/// derivative: the engine's forward quantises its activations to 8 bits per block, so its gradient
-/// carries that route's error, measured at 6.3% (`pa[0]`) and 5.0% (`ln1_d[0]`) on this fixture.
-/// The bound is `1e-1` relative — 1.5x the larger of the two — so the check reds on a sign error, a
-/// scale error of 1.15x or more, or a wrong Jacobian, and does not claim the exact identity the
-/// Q32 route had.
+/// ([`Finisher::gradients`]); the reference is the central difference of the engine's
+/// [`KernelMode::Exact`] forward over the binary16 student image, the closest smooth oracle the tree
+/// still carries at the same master weights. The two are not the same derivative: the engine's
+/// `Q8Act` forward quantises its activations to 8 bits per block, so its gradient carries that
+/// route's error, measured at 7.7% (`pa[0]`) and 5.6% (`ln1_d[0]`) on this fixture. The step is
+/// `2e-2`: the oracle's binary16 weight image quantises a latent nudge of `1e-3` to a few image
+/// ulps, so the smaller step measured the rounding, not the slope (17% on `pa[0]`). The bound stays
+/// `1e-1` relative, so the check reds on a sign error, a scale error of 1.15x or more, or a wrong
+/// Jacobian, and does not claim the exact identity the `Q32` route had.
 #[test]
 fn latent_gradient_matches_finite_difference() {
     let f = fixture(2);
@@ -728,10 +751,10 @@ fn latent_gradient_matches_finite_difference() {
     let an_pa = from_grid(g.planes[0][0][0].0[0]);
     let mut plus = f.fin.clone();
     plus.planes.layers[0][0].planes[0].pa[0] += H_Q32;
-    let lp = from_grid(loss_unquantized(&plus, &f.tokens, &f.teacher));
+    let lp = from_grid(loss_exact(&plus, &f.tokens, &f.teacher));
     let mut minus = f.fin.clone();
     minus.planes.layers[0][0].planes[0].pa[0] -= H_Q32;
-    let lm = from_grid(loss_unquantized(&minus, &f.tokens, &f.teacher));
+    let lm = from_grid(loss_exact(&minus, &f.tokens, &f.teacher));
     let fd_pa = (lp - lm) / (2.0 * H);
     eprintln!("pa: analytic {an_pa:e} fd {fd_pa:e}");
     assert!(
@@ -743,10 +766,10 @@ fn latent_gradient_matches_finite_difference() {
     let an_ln1 = from_grid(g.norms[0].ln1[0]);
     let mut plus = f.fin.clone();
     plus.tun.layers[0].ln1_d[0] += H_Q32;
-    let lp = from_grid(loss_unquantized(&plus, &f.tokens, &f.teacher));
+    let lp = from_grid(loss_exact(&plus, &f.tokens, &f.teacher));
     let mut minus = f.fin.clone();
     minus.tun.layers[0].ln1_d[0] -= H_Q32;
-    let lm = from_grid(loss_unquantized(&minus, &f.tokens, &f.teacher));
+    let lm = from_grid(loss_exact(&minus, &f.tokens, &f.teacher));
     let fd_ln1 = (lp - lm) / (2.0 * H);
     eprintln!("ln1_d: analytic {an_ln1:e} fd {fd_ln1:e}");
     assert!(
