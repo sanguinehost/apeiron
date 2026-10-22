@@ -36,6 +36,7 @@
               and every loop is one linear composition of the stage it measures"
 )]
 
+use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
 
@@ -109,6 +110,20 @@ fn read_words(path: &str) -> (usize, usize, Vec<i64>) {
         .map(|c| i64::from_le_bytes(c.try_into().expect("8")))
         .collect();
     (o, n, words)
+}
+
+/// Write `words` as a little-endian `i64` payload with an `(o, n)` header — the exact bytes
+/// [`read_words`] reads back.
+///
+/// `O(o·n)` 8-byte writes, one unbuffered `write_all` per word; space `O(1)` beyond `words`.
+fn write_words(path: &str, o: usize, n: usize, words: &[i64]) -> std::io::Result<()> {
+    let mut f = std::fs::File::create(path)?;
+    f.write_all(&(o as u64).to_le_bytes())?;
+    f.write_all(&(n as u64).to_le_bytes())?;
+    for w in words {
+        f.write_all(&w.to_le_bytes())?;
+    }
+    Ok(())
 }
 
 /// The chunk token block of a base file, `n_chunk` rows of `n_ctx` tokens.
@@ -189,12 +204,12 @@ fn fitted_layers(key: &str) -> Vec<usize> {
 /// listed layers, every other byte the teacher's.
 ///
 /// `O(file bytes)` to read plus `O(layers·n_ff·n_embd)` written; the whole image is held once.
-fn student_bytes(layers: &[usize]) -> Vec<u8> {
+fn student_bytes(key: &str, layers: &[usize]) -> Vec<u8> {
     let mut data = std::fs::read(model_path()).expect("read teacher");
     let gguf = Gguf::open(&model_path()).expect("teacher directory");
     for &l in layers {
         let name = format!("blk.{l}.ffn_down.weight");
-        let (_, _, words) = read_words(&format!("{CACHE}/l{l}.down.i64"));
+        let (_, _, words) = read_words(&format!("{CACHE}/l{l}.{key}.i64"));
         let t = gguf
             .header
             .tensors
@@ -258,14 +273,15 @@ fn down_one_layer_kl() {
     let skip = env_usize("APEIRON_DOWN_SKIP", CALIB);
     let count = env_usize("APEIRON_DOWN_CHUNKS", 1);
     println!(
-        "DOWNKL layers {layers:?} chunks {skip}..{} (all-seven reference 0.5493 at 37c7e59c)",
+        "DOWNKL layers {layers:?} chunks {skip}..{} (all-seven down arm 0.102195 on chunk 8 at \
+         f13cf1a5)",
         skip + count
     );
     let mut per = Vec::new();
     let mut sum = 0.0f64;
     for &l in &layers {
         let t0 = Instant::now();
-        let data = student_bytes(&[l]);
+        let data = student_bytes("down", &[l]);
         let engine = Engine::from_bytes(&format!("down-l{l}"), data).expect("student engine");
         println!(
             "DOWNKL layer {l} image ready at {:.1} s",
@@ -506,6 +522,214 @@ fn down_unit_energy() {
         layers.len(),
         best_c.1,
         best_c.0,
+        t0.elapsed().as_secs_f64()
+    );
+}
+
+/// One xorshift64 step (Marsaglia 2003): `O(1)`, a pure function of `state`.
+fn xorshift64(state: &mut u64) -> u64 {
+    let mut x = *state;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    *state = x;
+    x
+}
+
+/// The `k` retained `n_ff` columns under `select`: `energy` the `k` largest `c_i`, `random` `k`
+/// distinct indices from [`xorshift64`] seeded `0x9E3779B97F4A7C15 ^ l`.
+///
+/// `O(n log n)` for the energy sort. The random walk draws `O(k / (1 − k/n))` in expectation (the
+/// coupon-collector tail over `n` distinct indices); space `O(n)` for the index vector and the seen
+/// map.
+fn keep_indices(c: &[f64], k: usize, l: usize, select: &str) -> Vec<usize> {
+    let n = c.len();
+    let k = k.min(n);
+    if select != "random" {
+        let mut idx: Vec<usize> = (0..n).collect();
+        idx.sort_by(|&a, &b| c[b].partial_cmp(&c[a]).expect("finite"));
+        idx.truncate(k);
+        return idx;
+    }
+    let mut state = 0x9E37_79B9_7F4A_7C15u64 ^ (l as u64);
+    let mut seen = vec![false; n];
+    let mut out: Vec<usize> = Vec::with_capacity(k);
+    while out.len() < k {
+        let i = (xorshift64(&mut state) % n as u64) as usize;
+        if !seen[i] {
+            seen[i] = true;
+            out.push(i);
+        }
+    }
+    out
+}
+
+/// **Measurement 3** (board ). What keeping `K` teacher `ffn_down` columns per layer buys on the calibration
+/// error energy `tr(E H Eᵀ) = Σ_i c_i`, against `K` random columns.
+///
+/// `APEIRON_DOWN_LAYERS` (default: every cached `down` fit), `APEIRON_DOWN_KEEP` (`K`, default 36,
+/// the top 1% of `n_ff`), `APEIRON_DOWN_SELECT` (`energy` | `random`). `H` is the mean Gram of calibration
+/// chunks `0..CALIB`, never a held-out chunk; no chunk `≥ CALIB` is read. Writes
+/// `{CACHE}/l{l}.down-keep{K}-{select}.i64`, the fit with the selected columns taken from the
+/// teacher, for [`down_arm_kl`].
+///
+/// Cost: the calibration Grams is `O(CALIB·tokens·(n_ff² + n_embd²))`; per layer two `energy_of` at
+/// `O(n_embd·n_ff²)` each, one symmetric `n_ff × n_ff` Gram of `E`, the dominant term. Space
+/// `O(n_layer·n_ff²)` for the Grams plus `O(n_embd·n_ff)` for one layer's words.
+#[test]
+#[ignore = "builds the 8-chunk calibration n_ff x n_ff Grams and two Gram energies per layer"]
+fn down_keep_fit() {
+    let engine = Engine::open(&model_path()).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let (chunks, n_ctx) = base_tokens(&base_path());
+    let layers = down_layers();
+    let k = env_usize("APEIRON_DOWN_KEEP", 36);
+    let select = std::env::var("APEIRON_DOWN_SELECT").unwrap_or_else(|_| String::from("energy"));
+    let (o, n) = (cfg.n_embd, cfg.n_ff);
+    let bits = k * o * 16 + k * 12;
+    println!(
+        "DOWNKEEP layers {layers:?} K {k} select {select} calib chunks 0..{CALIB} tokens/chunk \
+         {n_ctx} n_embd {o} n_ff {n} (H = calibration chunks 0..{CALIB} mean Gram)"
+    );
+    let t0 = Instant::now();
+    let mut grams = Grams::new(&cfg).expect("grams");
+    let mut dm = vec![vec![0.0f64; n]; layers.len()];
+    let mut tokens = 0usize;
+    for c in 0..CALIB {
+        let rows = tapped(&engine, &chunks[c]);
+        grams.accumulate_tap(&rows).expect("accumulate");
+        let t = rows.first().map_or(0, |st| st[TAP_M].len());
+        for (i, &l) in layers.iter().enumerate() {
+            for col in &rows[l][TAP_M] {
+                for (u, v) in unq(col).iter().enumerate() {
+                    dm[i][u] += v * v;
+                }
+            }
+        }
+        tokens += t;
+        println!(
+            "DOWNKEEP chunk {c} tokens {t} {:.1} s",
+            t0.elapsed().as_secs_f64()
+        );
+    }
+    let cal = grams.finish(Normalisation::Mean).expect("finish");
+    drop(grams);
+    println!(
+        "DOWNKEEP calibration Grams {:.1} s",
+        t0.elapsed().as_secs_f64()
+    );
+    for (i, &l) in layers.iter().enumerate() {
+        let h: &[f64] = &cal[l].down;
+        let (num, den) = (0..n).fold((0.0f64, 0.0f64), |(a, b), u| {
+            let m = dm[i][u] / tokens as f64;
+            (a + (h[u * n + u] - m).powi(2), b + m * m)
+        });
+        let layout = (num / den).sqrt();
+        assert!(
+            layout < 1e-4,
+            "layer {l}: Gram diagonal off the tap columns by {layout}"
+        );
+        println!("DOWNKEEP layer {l} Gram diag layout rel {layout:.3e}");
+    }
+    for &l in &layers {
+        let t = Instant::now();
+        let h: &[f64] = &cal[l].down;
+        let (d, _mixer) = ffn_down(&engine, &cfg, l);
+        let (ro, co, dhw) = read_words(&format!("{CACHE}/l{l}.down.i64"));
+        assert_eq!((ro, co), (o, n), "layer {l}: cached down shape");
+        let e: Vec<i64> = dhw.iter().zip(&d).map(|(a, b)| a - b).collect();
+        let (before, _diag, c) = energy_of(&e, h, o, n);
+        let keep = keep_indices(&c, k, l, &select);
+        let mut kept = dhw.clone();
+        for &i in &keep {
+            for u in 0..o {
+                kept[u * n + i] = d[u * n + i];
+            }
+        }
+        let e2: Vec<i64> = kept.iter().zip(&d).map(|(a, b)| a - b).collect();
+        let after = energy_of(&e2, h, o, n).0;
+        let removed = if before > 0.0 {
+            (before - after) / before
+        } else {
+            0.0
+        };
+        // Closed form of the drop: zeroing error column `k` also removes the two cross blocks, so the
+        // energy removed by a set `S` is `2Σ_{k∈S} c_k − Σ_{i,j∈S} (EᵀE)_ij H_ji`, not `Σ c_k`. A
+        // positive `c_k` does not imply a drop.
+        let sum_c: f64 = keep.iter().map(|&i| c[i]).sum();
+        let mut within = 0.0f64;
+        for q in 0..o {
+            let xs: Vec<f64> = keep.iter().map(|&i| from_grid(e[q * n + i])).collect();
+            for (a, &i) in keep.iter().enumerate() {
+                for (b, &j) in keep.iter().enumerate() {
+                    within += xs[a] * xs[b] * h[j * n + i];
+                }
+            }
+        }
+        let mut drop_max = f64::NEG_INFINITY;
+        let mut drop_arg = 0usize;
+        for i in 0..n {
+            let mut s = 0.0f64;
+            for u in 0..o {
+                let v = from_grid(e[u * n + i]);
+                s += v * v;
+            }
+            let d = 2.0 * c[i] - s * h[i * n + i];
+            if d > drop_max {
+                drop_max = d;
+                drop_arg = i;
+            }
+        }
+        let drop_pred = 2.0 * sum_c - within;
+        let bperw = bits as f64 / (o * n) as f64;
+        println!(
+            "KEEP layer {l:02} select {select} K {k} before {before:.6e} after {after:.6e} \
+             removed {removed:.4} bits +{bits} (+{bperw:.4} b/w on this tensor) wall {:.1} s",
+            t.elapsed().as_secs_f64()
+        );
+        println!(
+            "KEEPIDENT layer {l:02} sum_c {sum_c:.6e} c_top1 {:.4} within {within:.6e} \
+             drop_pred {drop_pred:.6e} drop_meas {:.6e} rel {:.2e} drop_max {drop_max:.6e} \
+             at {drop_arg}",
+            top_share(&c, 0.01),
+            before - after,
+            (after - (before - drop_pred)) / before
+        );
+        let path = format!("{CACHE}/l{l}.down-keep{k}-{select}.i64");
+        write_words(&path, o, n, &kept).expect("write kept fit");
+        println!("KEEP wrote {path}");
+    }
+}
+
+/// **Measurement 4.** Held-out KL of one image whose `blk.<l>.ffn_down.weight` is the cached `KEY`
+/// fit in every layer that has one. `APEIRON_DOWN_KEY` (default `down`), `APEIRON_DOWN_SKIP`
+/// (default [`CALIB`]), `APEIRON_DOWN_CHUNKS` (default 1).
+///
+/// Cost: `O(file bytes)` to read and replace, plus `O(chunks·(prefill + tokens·head))`; one 512-token
+/// prefill dominates at ~175 s per chunk. Space the image once.
+#[test]
+#[ignore = "builds a 1.6 GB image and scores held-out KL chunks (~175 s each)"]
+fn down_arm_kl() {
+    let key = std::env::var("APEIRON_DOWN_KEY").unwrap_or_else(|_| String::from("down"));
+    let skip = env_usize("APEIRON_DOWN_SKIP", CALIB);
+    let count = env_usize("APEIRON_DOWN_CHUNKS", 1);
+    let layers = fitted_layers(&key);
+    assert_eq!(
+        layers,
+        fitted_layers("down"),
+        "the {key} arm must cover every fitted down layer"
+    );
+    let t0 = Instant::now();
+    let data = student_bytes(&key, &layers);
+    let engine = Engine::from_bytes(&format!("down-{key}"), data).expect("student engine");
+    println!(
+        "DOWNARM key {key} layers {layers:?} chunks {skip}..{} image ready at {:.1} s",
+        skip + count,
+        t0.elapsed().as_secs_f64()
+    );
+    let (kl, top1, _rows) = held_out_kl(&engine, &base_path(), skip, count);
+    println!(
+        "DOWNARM key {key} kl {kl:.6} top1 {top1:.6} wall {:.1} s",
         t0.elapsed().as_secs_f64()
     );
 }
