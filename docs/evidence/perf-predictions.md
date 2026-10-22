@@ -11,8 +11,8 @@ below are the prediction/measurement history, not a second current status.
 | tg128 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 973.8 tok/s | 880.9 tok/s | 1.105x | `392e08e6` (P71) |
 | pp512 | Qwen3.5-0.8B Q8_0 / i9-14900KF CPU | 917.82 tok/s | 416.41 tok/s (CPU) | 2.24x | `eb5efdfa` |
 | tg128 | Qwen3.5-0.8B Q8_0 / i9-14900KF CPU | 92.13 tok/s | 51.42 tok/s (CPU) | 1.80x | `eb5efdfa` |
-| pp512 | Qwen3.5-0.8B Q4_K_M / i9-14900KF CPU | 166.37 tok/s | 594.16 tok/s (CPU) | 0.27x | `eb5efdfa` |
-| tg128 | Qwen3.5-0.8B Q4_K_M / i9-14900KF CPU | 85.17 tok/s | 42.06 tok/s (CPU) | 1.81x | `eb5efdfa` |
+| pp512 | Qwen3.5-0.8B Q4_K_M / i9-14900KF CPU | 658.10 tok/s | 632.67 tok/s (CPU) | 1.02x | `chart::kcols` |
+| tg128 | Qwen3.5-0.8B Q4_K_M / i9-14900KF CPU | 84.19 tok/s | 60.39 tok/s (CPU) | 1.39x | `chart::kcols` |
 
 The CUDA comparators are `llama-bench -ngl 99` runs: decode 880.9 tok/s (P62), prefill 63,018.5 tok/s
 (pp512 campaign at `b82ae99`, 15 samples, contended host). The ratios are quotients of recorded medians,
@@ -21,14 +21,18 @@ not paired-round medians; the prefill comparator is the weaker of the two becaus
 The Qwen3.5-0.8B (`qwen35`: 18 Gated DeltaNet + 6 gated-attention layers) CPU rows are
 `engine_profile --pp 512 --tg 128 --reps 5 --llama-threads 16,32` against llama.cpp `60bc8866b`
 `-ngl 0` at its best thread count; the ratio is the median of five paired rounds (Q8_0 pp 2.14-2.25,
-tg 1.70-1.81; Q4_K_M pp 0.14-0.32, tg 1.41-2.06). Receipts
+tg 1.70-1.81 at `eb5efdfa`; Q4_K_M pp 1.00-1.10, tg 1.33-1.40 on the commit that adds
+`src/engine/chart/kcols.rs`). Receipts
 `/home/socol/oc-tmp/escalation/lead-1022/SPEED35/1792648053-qwen08b-q8-cpu.md` and
-`1792647368-qwen08b-q4km-cpu.md`. Q4_K_M prefill reads every weight byte once per token: its
-projections run per column on `q8act_q4_k_row_fast` (`src/engine/chart/mod.rs:1079`) because
-`gemm_q8_0_group` refuses Q4_K (`src/engine/kern/gemm.rs:818`); Q8_0 runs on `gemm_q8_0` with
-256-column reuse. No first-token agreement ran on these two files (no llama.cpp greedy binary is
-built); `qwen35_long_prompt` matches llama.cpp's recorded 32 greedy ids on Q8_0. Board
-`APEIRON-QUALITY-118-W1-T01`.
+`/home/socol/oc-tmp/escalation/lead-1022/KQ/pp/1792653496-qwen08b-q4km-kqc-live.md`. Q4_K_M prefill
+runs on the packed-lane AVX-VNNI kernels `gemm_q4_k`/`gemm_q6_k` (`src/engine/chart/kcols.rs`), which
+`matmat_q8act` calls before its per-column fallback; the FFN moved from 2.850 to 0.658 ms/token (92 to
+401 GMAC/s, 42.2% of prefill wall), with `pool.wait` at 13.9%. Q4_K_M decode is unchanged by the
+kernels (85.17 tok/s at `eb5efdfa`, 84.19 here); its ratio fell from 1.81x because the llama.cpp
+comparator measured 60.39 tok/s against 42.06 then. Decode is DRAM-bound: ffn and the Q6_K head run at
+84 GB/s against a 92 GB/s read ceiling, and the head is not on `head_cols_kernel` (Q8_0/F16 only). No
+first-token agreement ran on these two files (no llama.cpp greedy binary is built); `qwen35_long_prompt`
+matches llama.cpp's recorded 32 greedy ids on Q8_0. Board `APEIRON-QUALITY-118-W1-T01`.
 
 Kernel K5 receipts compare a `limb` port against its exact contract body on the same host, not against
 llama.cpp. `resq` at the 2x128x128 group shape (`inter` 16, `hidden` 8, 1,180,672 word-MACs), nine

@@ -40,6 +40,14 @@ use x86::{q4_k_scale_min_at, scale_word};
 
 mod portable;
 
+#[cfg(target_arch = "x86_64")]
+mod kcols;
+
+#[cfg(target_arch = "x86_64")]
+pub(crate) use kcols::{gemm_q4_k, gemm_q6_k};
+#[cfg(all(test, target_arch = "x86_64"))]
+use kcols::{q4_k_row_kcols_avx2, q6_k_row_kcols_avx2};
+
 use portable::{
     block_xsums, f16_to_fixed_fast, group_dot, group_xsum, portable_q4_k_window_dots,
     portable_q5_0_dot, portable_u8_i8_dot,

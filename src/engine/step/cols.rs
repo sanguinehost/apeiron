@@ -467,12 +467,14 @@ impl Engine {
     }
 
     /// Layer part `part`'s projection of every column: the single-column helpers for one column;
-    /// for more, the pooled `matmat_q8act` kernel on a resident `Q8_0` tensor (weights read once),
-    /// else one single-column projection per column. Every column equals the single path's.
+    /// for more, the pooled `matmat_q8act` kernel on a resident `Q8_0`, `Q4_K` or `Q6_K` tensor
+    /// (weights read once per column group), else one single-column projection per column. Every
+    /// column equals the single path's.
     ///
     /// # Complexity
     ///
-    /// `O(n_out·n_in·k)` multiply-adds; weight bytes read once (`Q8_0`, `k > 1`) or `k` times.
+    /// `O(n_out·n_in·k)` multiply-adds; weight bytes read once (`Q8_0`/`Q4_K`/`Q6_K`, `k > 1`) or
+    /// `k` times.
     #[allow(
         clippy::too_many_arguments,
         reason = "the layer index, part, shape, columns, schedule and kernel are the input"
@@ -503,7 +505,11 @@ impl Engine {
         let budget = crate::engine::ops::par::row_chunk_budget(n_out);
         if xs.len() > 1 && self.hadamard().is_none() {
             let (ggml_type, at) = self.payload_at(idx, n_out, n_in, Sched::Resident)?;
-            if ggml_type == quant::GGML_TYPE_Q8_0 || ggml_type == quant::GGML_TYPE_F16 {
+            if ggml_type == quant::GGML_TYPE_Q8_0
+                || ggml_type == quant::GGML_TYPE_Q4_K
+                || ggml_type == quant::GGML_TYPE_Q6_K
+                || ggml_type == quant::GGML_TYPE_F16
+            {
                 let owned;
                 let qs = if let Some(q) = pre {
                     q
@@ -511,7 +517,13 @@ impl Engine {
                     owned = quant_cols(xs)?;
                     &owned
                 };
-                if ggml_type == quant::GGML_TYPE_Q8_0 {
+                // The K-quant families share the same contract: `matmat_q8act` runs the pooled
+                // row kernels when it admits every column and the per-column oracle otherwise, so
+                // a refusal here is the single-column call's own value.
+                if ggml_type == quant::GGML_TYPE_Q8_0
+                    || ggml_type == quant::GGML_TYPE_Q4_K
+                    || ggml_type == quant::GGML_TYPE_Q6_K
+                {
                     return matmat_q8act(
                         ggml_type,
                         &self.resident()[at.off..at.off + at.len],
