@@ -4,16 +4,17 @@
 //! Two measurements, both on the engine's one inference path (`KernelMode::Q8Act`):
 //!
 //! - `down_one_layer_kl`: the teacher image with `blk.<l>.ffn_down.weight` replaced by the cached
-//!   production fit of ONE layer, held-out KL against llama.cpp's own base distribution on chunk 2.
-//!   One image per listed layer, scored in turn, so the per-layer KL costs are additive by
-//!   construction (`APEIRON_DOWN_LAYERS`, `APEIRON_DOWN_SKIP`, `APEIRON_DOWN_CHUNKS`).
+//!   production fit of ONE layer, held-out KL against llama.cpp's own base distribution on chunk
+//!   `CALIB` (8). One image per listed layer, scored in turn, so the per-layer KL costs are additive
+//!   by construction (`APEIRON_DOWN_LAYERS`, `APEIRON_DOWN_SKIP`, `APEIRON_DOWN_CHUNKS`).
 //! - `down_unit_energy`: the exact decomposition of the hidden-layer error energy
 //!   `tr(E H Eᵀ) = Σ_i c_i` with `E = D̂ − D` (`n_embd × n_ff`) and `H` the held-out down Gram
-//!   `E[h hᵀ]` (`n_ff × n_ff`, `h = silu(g·x)⊙(u·x)` from tap stages 8 and 9).
+//!   `E[m mᵀ]` (`n_ff × n_ff`, the production `Grams::down` over tap stage 4, the engine's `SwiGLU`
+//!   product `m = silu(g·x)⊙(u·x)`).
 //!
-//! Token disjointness: `H` for the energy is the mean Gram over chunk 2 of the base file's token
-//! block — the same held-out chunk the KL is scored on, and no calibration chunk. The cached fits
-//! were fitted on chunks `0..2` (`gate_code_fit_down`, `tests/learn_gate_code.rs`).
+//! Token disjointness: `H` for the energy is the mean Gram over chunk `CALIB` (8) of the base file's
+//! token block — the same held-out chunk the KL is scored on, and no calibration chunk. The cached fits
+//! were fitted on chunks `0..CALIB` (`gate_code_fit_down`, `tests/learn_gate_code.rs`).
 //!
 //! Grade `measured`: every number is the print of a command that ran.
 //!
@@ -43,11 +44,12 @@ use apeiron::engine::KernelMode;
 use apeiron::format::gguf::Gguf;
 use apeiron::format::quant;
 use apeiron::learn::fold::run::convert::{encode_f16, encode_f32};
+use apeiron::learn::fold::stats::capture::{Grams, Normalisation};
 use apeiron::learn::fold::stats::heldout::{held_out, held_out_kldbase_chunk};
 use apeiron::learn::fold::stats::kldbase::KldBase;
 use apeiron::learn::grad::load::layer_from_engine;
 use apeiron::learn::grad::model::Config;
-use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
+use apeiron::learn::solve::q32::from_grid;
 
 /// The teacher image: the `Qwen3.5-0.8B` artefact, binary16 (`llama-quantize f32 f16`), the image
 /// the cached fits were scored against.
@@ -61,18 +63,20 @@ fn model_path() -> String {
 /// llama.cpp's `--kl-divergence-base` file for the binary16 teacher, 40 chunks of `n_ctx = 512`.
 const BASE: &str = "/home/socol/oc-tmp/kld08/calib.c40.kld";
 
+/// The calibration chunk count of `gate_code_fit_down` (`tests/learn_gate_code.rs`): the cached fits
+/// saw chunks `0..CALIB`, so every held-out read here starts at chunk `CALIB` or later.
+const CALIB: usize = 8;
+
 /// The base file path, overridable by `APEIRON_DOWN_BASE`.
 fn base_path() -> String {
     std::env::var("APEIRON_DOWN_BASE").unwrap_or_else(|_| String::from(BASE))
 }
 
 /// Where the fitted rows and the calibration Grams are cached as Q32.32 words.
-const CACHE: &str = "/home/socol/oc-tmp/kld08/gatecode";
+const CACHE: &str = "/home/socol/oc-tmp/kld08/gatecode-tok";
 
-/// Tap slot of the gate pre-activation (`STAGE_GATE`), `n_ff` wide.
-const TAP_GATE: usize = 8;
-/// Tap slot of the up pre-activation (`STAGE_UP`), `n_ff` wide.
-const TAP_UP: usize = 9;
+/// Tap slot of the `SwiGLU` product `m`, the `ffn_down` input (`STAGE_M`), `n_ff` wide.
+const TAP_M: usize = 4;
 
 /// An environment knob with a default.
 fn env_usize(key: &str, default: usize) -> usize {
@@ -95,13 +99,6 @@ fn unq(words: &[i64]) -> Vec<f64> {
     words.iter().map(|&w| from_grid(w)).collect()
 }
 
-/// `x` as Q32.32 words, the one rounding into the grid.
-fn qv(x: &[f64]) -> Vec<i64> {
-    x.iter()
-        .map(|&v| to_grid(v, GRID_BOUND).expect("grid"))
-        .collect()
-}
-
 /// Read the `(o, n)`-headed little-endian `i64` payload back as `(o, n, words)`.
 fn read_words(path: &str) -> (usize, usize, Vec<i64>) {
     let b = std::fs::read(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
@@ -112,34 +109,6 @@ fn read_words(path: &str) -> (usize, usize, Vec<i64>) {
         .map(|c| i64::from_le_bytes(c.try_into().expect("8")))
         .collect();
     (o, n, words)
-}
-
-/// The logistic function.
-fn sigmoid(x: f64) -> f64 {
-    1.0 / (1.0 + (-x).exp())
-}
-
-/// `silu(x) = x·σ(x)`.
-fn silu(x: f64) -> f64 {
-    x * sigmoid(x)
-}
-
-/// The down input `h = silu(g·x)⊙(u·x)` per column, from the tapped gate and up pre-activations,
-/// as Q32.32 words in the feature-major `n_ff × t` layout. `O(t·n_ff)`.
-fn down_input(gate: &[Vec<i64>], up: &[Vec<i64>], f: usize) -> Vec<i64> {
-    let t = gate.len();
-    let mut out = vec![0i64; f * t];
-    for (c, (gc, uc)) in gate.iter().zip(up).enumerate() {
-        assert_eq!(gc.len(), f, "stage 8 width");
-        assert_eq!(uc.len(), f, "stage 9 width");
-        let g = unq(gc);
-        let u = unq(uc);
-        let h: Vec<f64> = g.iter().zip(&u).map(|(a, b)| silu(*a) * b).collect();
-        for (j, w) in qv(&h).into_iter().enumerate() {
-            out[j * t + c] = w;
-        }
-    }
-    out
 }
 
 /// The chunk token block of a base file, `n_chunk` rows of `n_ctx` tokens.
@@ -278,7 +247,7 @@ fn held_out_kl(
 }
 
 /// **Measurement 1.** Held-out KL of the teacher with only `ffn_down` replaced in one layer at a
-/// time, chunk 2 by default.
+/// time, chunk `CALIB` (8) by default.
 ///
 /// `APEIRON_DOWN_LAYERS` names the layers (default: every cached fit); one image is built and one
 /// engine opened per layer, so the wall is additive and each invocation stays inside its budget.
@@ -286,7 +255,7 @@ fn held_out_kl(
 #[ignore = "reads the 1.6 GB teacher image per layer and scores ~174 s of held-out KL each"]
 fn down_one_layer_kl() {
     let layers = down_layers();
-    let skip = env_usize("APEIRON_DOWN_SKIP", 2);
+    let skip = env_usize("APEIRON_DOWN_SKIP", CALIB);
     let count = env_usize("APEIRON_DOWN_CHUNKS", 1);
     println!(
         "DOWNKL layers {layers:?} chunks {skip}..{} (all-seven reference 0.5493 at 37c7e59c)",
@@ -338,7 +307,7 @@ fn down_control_self() {
     let data = std::fs::read(model_path()).expect("read teacher");
     let student = Engine::from_bytes("down-roundtrip", data).expect("student engine");
     let (chunks, _n_ctx) = base_tokens(&base_path());
-    let at = env_usize("APEIRON_DOWN_SKIP", 2);
+    let at = env_usize("APEIRON_DOWN_SKIP", CALIB);
     let len = env_usize("APEIRON_DOWN_T", 128);
     let seq: &[u32] = chunks[at].get(..len).expect("column prefix");
     let t = Instant::now();
@@ -406,7 +375,7 @@ fn median(v: &[f64]) -> f64 {
 }
 
 /// **Measurement 2.** The per-unit decomposition of `tr(E H Eᵀ)` for each layer's `ffn_down` fit,
-/// with `H` the held-out down Gram of chunk `APEIRON_DOWN_HELD` (default 2) — the held-out chunk,
+/// with `H` the held-out down Gram of chunk `APEIRON_DOWN_HELD` (default [`CALIB`]) — the held-out chunk,
 /// not the calibration chunks the fit used.
 #[test]
 #[ignore = "opens the 1.6 GB teacher and rebuilds the n_ff x n_ff down Gram per layer"]
@@ -414,7 +383,7 @@ fn down_unit_energy() {
     let engine = Engine::open(&model_path()).expect("open teacher");
     let cfg = Config::from_engine(&engine).expect("config");
     let (chunks, n_ctx) = base_tokens(&base_path());
-    let held = env_usize("APEIRON_DOWN_HELD", 2);
+    let held = env_usize("APEIRON_DOWN_HELD", CALIB);
     let layers = down_layers();
     let (o, n) = (cfg.n_embd, cfg.n_ff);
     println!(
@@ -423,24 +392,36 @@ fn down_unit_energy() {
     );
     let t0 = Instant::now();
     let rows = tapped(&engine, &chunks[held]);
-    println!("DOWNEN tap {:.1} s", t0.elapsed().as_secs_f64());
+    let mut grams = Grams::new(&cfg).expect("grams");
+    grams.accumulate_tap(&rows).expect("accumulate");
+    let held_grams = grams.finish(Normalisation::Mean).expect("finish");
+    drop(grams);
+    println!("DOWNEN tap and Grams {:.1} s", t0.elapsed().as_secs_f64());
     let mut control_done = false;
     let mut best_c = (0usize, 0.0f64);
     for &l in &layers {
         let t = Instant::now();
-        let x = down_input(&rows[l][TAP_GATE], &rows[l][TAP_UP], n);
-        let mut h = vec![0.0f64; n * n];
-        gram_add(&x, n_ctx, n, &mut h);
-        mirror(&mut h, n);
-        let scale = 1.0 / n_ctx as f64;
-        for v in &mut h {
-            *v *= scale;
+        let h: &[f64] = &held_grams[l].down;
+        let mut dm = vec![0.0f64; n];
+        for col in &rows[l][TAP_M] {
+            for (k, v) in unq(col).iter().enumerate() {
+                dm[k] += v * v / n_ctx as f64;
+            }
         }
+        let (num, den) = (0..n).fold((0.0f64, 0.0f64), |(a, b), k| {
+            (a + (h[k * n + k] - dm[k]).powi(2), b + dm[k] * dm[k])
+        });
+        let layout = (num / den).sqrt();
+        assert!(
+            layout < 1e-4,
+            "layer {l}: Gram diagonal off the tap columns by {layout}"
+        );
+        println!("DOWNEN layer {l} Gram diag layout rel {layout:.3e}");
         let (d, mixer) = ffn_down(&engine, &cfg, l);
         let (ro, co, dhw) = read_words(&format!("{CACHE}/l{l}.down.i64"));
         assert_eq!((ro, co), (o, n), "layer {l}: cached down shape");
         let e: Vec<i64> = dhw.iter().zip(&d).map(|(a, b)| a - b).collect();
-        let (total, diag, c) = energy_of(&e, &h, o, n);
+        let (total, diag, c) = energy_of(&e, h, o, n);
         let mut gd = vec![0.0f64; n * n];
         gram_add(&d, o, n, &mut gd);
         mirror(&mut gd, n);
@@ -484,7 +465,7 @@ fn down_unit_energy() {
         if !control_done {
             control_done = true;
             // Negative: `D̂ = D`, so `E = 0`: zero energy and every `c_i = 0`.
-            let (zt, zd, zc) = energy_of(&vec![0i64; o * n], &h, o, n);
+            let (zt, zd, zc) = energy_of(&vec![0i64; o * n], h, o, n);
             println!(
                 "CONTROL negative total {zt:.1e} diag {zd:.1e} max|c| {:.1e}",
                 zc.iter().map(|v| v.abs()).fold(0.0f64, f64::max)
@@ -501,7 +482,7 @@ fn down_unit_energy() {
             for u in 0..o {
                 ek[u * n + k] = -d[u * n + k];
             }
-            let (kt, _kd, kc) = energy_of(&ek, &h, o, n);
+            let (kt, _kd, kc) = energy_of(&ek, h, o, n);
             let want = h[k * n + k] * gd[k * n + k];
             let off: f64 = kc
                 .iter()
