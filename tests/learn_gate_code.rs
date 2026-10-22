@@ -1102,3 +1102,274 @@ fn gate_code_control_self() {
         "identical images agree on top-1"
     );
 }
+
+/// The scale bits `bits_r + bits_c + bits_d` of one production [`fold_fit`] on `o × n` words:
+/// `quant_r_hier`'s `4·o·(n/128) + 8·o + 64` (128 is [`fold_fit`]'s `GROUP`), `quant_c_u8`'s
+/// `6·n + 32` for the row carrier and `5·n + 32` for the column carrier. `154752` at `3584 × 1024`,
+/// the measured figure of T07's layer-23 residual fit.
+///
+/// `O(1)`; space none.
+fn plane_scale_bits(o: usize, n: usize) -> u64 {
+    let ou = u64::try_from(o).expect("o fits u64");
+    let nu = u64::try_from(n).expect("n fits u64");
+    (4 * ou * (nu / 128) + 8 * ou + 64) + (6 * nu + 32) + (5 * nu + 32)
+}
+
+/// The bits of one rows plane over `k` of the `o` rows: `k·n` sign bits plus
+/// [`plane_scale_bits`]`(k, n)` (`40·k + 64 + 6176 + 5152` at `n = 1024`), the sign plane counted
+/// with its own `r`/`c`/`d` carriers.
+///
+/// `O(1)`; space none.
+fn rows_plane_bits(k: usize, n: usize) -> u64 {
+    let ku = u64::try_from(k).expect("k fits u64");
+    let nu = u64::try_from(n).expect("n fits u64");
+    ku * nu + plane_scale_bits(k, n)
+}
+
+/// The largest `k ≤ o` whose rows plane keeps the tensor at or below `cap = ⌊1.18·o·n⌋` bits, given
+/// the first plane `o·n` sign plus [`plane_scale_bits`]`(o, n)`.
+///
+/// `O(o)` iterations of an `O(1)` sum; space `O(1)`.
+fn rows_k_max(o: usize, n: usize, cap: u64) -> usize {
+    let first = rows_plane_bits(o, n);
+    let mut k = 0;
+    while k < o && first + rows_plane_bits(k + 1, n) <= cap {
+        k += 1;
+    }
+    k
+}
+
+/// The `mass` row score `Σ_j W[u,j]²` of the `o × n` word tensor `w`: the production `q_mlp_trans`
+/// rule (`row_mass`, `src/learn/fold/layer/tensor.rs`).
+///
+/// `O(o·n)` multiply-adds, one read of `w`; space `O(o)`.
+fn row_mass(w: &[i64], o: usize, n: usize) -> Vec<f64> {
+    (0..o)
+        .map(|u| {
+            w[u * n..(u + 1) * n]
+                .iter()
+                .map(|&x| {
+                    let v = from_grid(x);
+                    v * v
+                })
+                .sum()
+        })
+        .collect()
+}
+
+/// The `resid` row score `e_u H e_uᵀ` of the `o × n` word error `e`: the energy one row's residual
+/// costs under the calibration Gram. The form is sign-invariant, so `Ŵ0 − W` and `W − Ŵ0` score
+/// alike.
+///
+/// `O(o·n²)` multiply-adds, one [`quad`] per row; space `O(n)` for the converted row.
+fn row_resid(h: &[f64], e: &[i64], o: usize, n: usize) -> Vec<f64> {
+    (0..o)
+        .map(|u| quad(h, &unq(&e[u * n..(u + 1) * n]), n))
+        .collect()
+}
+
+/// The column norms `‖D[:,u]‖²` of the `rows × cols` word tensor `d` (`ffn_down` as
+/// `n_embd × n_ff`).
+///
+/// `O(rows·cols)` multiply-adds, one read of `d`; space `O(cols)`.
+fn col_norms(d: &[i64], rows: usize, cols: usize) -> Vec<f64> {
+    let mut out = vec![0.0f64; cols];
+    for i in 0..rows {
+        for (u, &x) in d[i * cols..(i + 1) * cols].iter().enumerate() {
+            let v = from_grid(x);
+            out[u] += v * v;
+        }
+    }
+    out
+}
+
+/// **Measurement 9** (board `APEIRON-QUALITY-118-W1-T01`), lane `APEIRON-QUALITY-UP-W1-T08`. A rows
+/// plane on `ffn_up` inside the 1.18 b/w budget: one more production `fold_fit` on the residual
+/// `R = W[rows] − Ŵ0[rows]`, scattered back into the cached fit `Ŵ0`, where `rows` are the `k`
+/// largest by `APEIRON_ROWS_SEL` (`mass` | `resid` | `sal` | `pool`) and then gathered in ascending
+/// row order.
+///
+/// Scores: `mass` = `Σ_j W[u,j]²` (the production `q_mlp_trans` rule); `resid` = `e_u H e_uᵀ`;
+/// `sal` = `‖D[:,u]‖² · e_u H e_uᵀ` with `D` the layer's `ffn_down` teacher; `pool` = `sal` scored on
+/// every listed layer at once and cut jointly at `k·|layers|` rows, ties to the lower `(layer, row)`,
+/// so a layer takes 0 rows or any count up to `n_ff`. `APEIRON_GATE_LAYERS` and `APEIRON_ROWS_K`
+/// (default: the largest `k` within `⌊1.18·o·n⌋` bits). `H` and `Ŵ0` are the cached `h{l}.i64` and
+/// `l{l}.up.i64`; no held-out chunk is read. Writes `{CACHE}/l{l}.up-rows-{sel}.i64` for
+/// [`gate_code_kl`] (`APEIRON_GATE_ARM=up-rows-{sel}`).
+///
+/// Cost per layer: one `fold_fit` on `k_l` rows (~33 s · `k_l/3584`, measured 32.7 s at 3584), two
+/// [`energy`] and the `resid`/`sal` score each `O(o·n²)` multiply-adds; `pool` scores every listed
+/// layer before any fit and sorts `|layers|·o` triples. Space `O(n² + o·n)` per layer.
+#[test]
+#[ignore = "opens the teacher and runs one production fold_fit on the top-k residual rows; run explicitly"]
+fn up_rows_fit() {
+    let engine = Engine::open(&model_path()).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let layers = env_layers(cfg.n_layer);
+    let sel = std::env::var("APEIRON_ROWS_SEL").unwrap_or_else(|_| String::from("mass"));
+    assert!(
+        matches!(sel.as_str(), "mass" | "resid" | "sal" | "pool"),
+        "APEIRON_ROWS_SEL {sel}"
+    );
+    let (o, n) = (cfg.n_ff, cfg.n_embd);
+    let cells = u64::try_from(o * n).expect("cells");
+    let cap = 118 * cells / 100;
+    let k_max = rows_k_max(o, n, cap);
+    let k = env_usize("APEIRON_ROWS_K", k_max).min(o);
+    let first = rows_plane_bits(o, n);
+    assert!(
+        cap >= first,
+        "the first plane alone is over budget: {first} > {cap}"
+    );
+    let (add, tensor) = (rows_plane_bits(k, n), first + rows_plane_bits(k, n));
+    println!(
+        "ROWS sel {sel} layers {layers:?} n_ff {o} n_embd {n} first {first} bits ({:.4} b/w) cap \
+         {cap} k_max {k_max} k {k} rows plane {add} bits, tensor {tensor} ({:.4} b/w)",
+        first as f64 / cells as f64,
+        tensor as f64 / cells as f64
+    );
+    let t0 = Instant::now();
+    let picked: std::collections::BTreeMap<usize, Vec<usize>> = if sel == "pool" {
+        let mut all: Vec<(usize, usize, f64)> = Vec::new();
+        for (li, &l) in layers.iter().enumerate() {
+            let (wo, wn, cached) = read_words(&format!("{CACHE}/l{l}.up.i64"));
+            assert_eq!(
+                (wo, wn, cached.len()),
+                (o, n, o * n),
+                "layer {l}: cached up"
+            );
+            let (_, up, _mixer) = gate_up(&engine, &cfg, l);
+            let e: Vec<i64> = cached.iter().zip(&up).map(|(a, b)| a - b).collect();
+            let (ho, hn, hw) = read_words(&format!("{CACHE}/h{l}.i64"));
+            assert_eq!((ho, hn, hw.len()), (n, n, n * n), "layer {l}: cached H");
+            let resid = row_resid(&unq(&hw), &e, o, n);
+            let (dn, _mixer) = ffn_down(&engine, &cfg, l);
+            let norms = col_norms(&dn, n, o);
+            for u in 0..o {
+                all.push((li, u, norms[u] * resid[u]));
+            }
+            println!(
+                "ROWS pool scored layer {l:02} at {:.1} s",
+                t0.elapsed().as_secs_f64()
+            );
+        }
+        all.sort_by(|a, b| {
+            b.2.partial_cmp(&a.2)
+                .expect("finite score")
+                .then(a.0.cmp(&b.0))
+                .then(a.1.cmp(&b.1))
+        });
+        all.truncate(k * layers.len());
+        let mut out: std::collections::BTreeMap<usize, Vec<usize>> =
+            std::collections::BTreeMap::new();
+        for (li, u, _s) in all {
+            out.entry(layers[li]).or_default().push(u);
+        }
+        for v in out.values_mut() {
+            v.sort_unstable();
+        }
+        out
+    } else {
+        std::collections::BTreeMap::new()
+    };
+    let mut total_bits = 0u64;
+    for &l in &layers {
+        let (ho, hn, hw) = read_words(&format!("{CACHE}/h{l}.i64"));
+        assert_eq!((ho, hn, hw.len()), (n, n, n * n), "layer {l}: cached H");
+        let h = unq(&hw);
+        let (_, up, _mixer) = gate_up(&engine, &cfg, l);
+        let (wo, wn, cached) = read_words(&format!("{CACHE}/l{l}.up.i64"));
+        assert_eq!(
+            (wo, wn, cached.len()),
+            (o, n, o * n),
+            "layer {l}: cached up"
+        );
+        let rows = if sel == "pool" {
+            picked.get(&l).cloned().unwrap_or_default()
+        } else {
+            let score = if sel == "mass" {
+                row_mass(&up, o, n)
+            } else {
+                let e: Vec<i64> = cached.iter().zip(&up).map(|(a, b)| a - b).collect();
+                let resid = row_resid(&h, &e, o, n);
+                if sel == "resid" {
+                    resid
+                } else {
+                    let (dn, _mixer) = ffn_down(&engine, &cfg, l);
+                    let norms = col_norms(&dn, n, o);
+                    (0..o).map(|u| norms[u] * resid[u]).collect()
+                }
+            };
+            let mut r = top_k(&score, k);
+            r.sort_unstable();
+            r
+        };
+        let e0: Vec<i64> = cached.iter().zip(&up).map(|(a, b)| a - b).collect();
+        let before = energy(&h, &e0, o, n);
+        let mut what = cached.clone();
+        let (mut bits_r, mut bits_c, mut bits_d, mut wall) = (0u64, 0u64, 0u64, 0.0f64);
+        if !rows.is_empty() {
+            let mut r = Vec::with_capacity(rows.len() * n);
+            for &u in &rows {
+                for j in 0..n {
+                    r.push(up[u * n + j] - cached[u * n + j]);
+                }
+            }
+            let t = Instant::now();
+            match fold_fit(&r, &qv(&h), rows.len(), n, None, &production_cfg()) {
+                Ok(fit) => {
+                    wall = t.elapsed().as_secs_f64();
+                    bits_r = fit.bits_r;
+                    bits_c = fit.bits_c;
+                    bits_d = fit.bits_d;
+                    for (i, &u) in rows.iter().enumerate() {
+                        for j in 0..n {
+                            what[u * n + j] += fit.wp[i * n + j];
+                        }
+                    }
+                }
+                Err(err) => {
+                    println!(
+                        "ROWS layer {l:02} sel {sel} k {} fit error {err:?}",
+                        rows.len()
+                    );
+                }
+            }
+        }
+        let e1: Vec<i64> = what.iter().zip(&up).map(|(a, b)| a - b).collect();
+        let after = energy(&h, &e1, o, n);
+        let ratio = if before > 0.0 { after / before } else { 0.0 };
+        let sign = u64::try_from(rows.len() * n).expect("sign bits");
+        let bits = first + sign + bits_r + bits_c + bits_d;
+        total_bits += bits;
+        println!(
+            "ROWS layer {l:02} sel {sel} k {} energy before {before:.6e} after {after:.6e} ratio \
+             {ratio:.4} fit {wall:.1} s bits sign/r/c/d {sign}/{bits_r}/{bits_c}/{bits_d} tensor \
+             b/w {:.4}",
+            rows.len(),
+            bits as f64 / cells as f64
+        );
+        let path = format!("{CACHE}/l{l}.up-rows-{sel}.i64");
+        write_words(&path, o, n, &what).expect("write rows fit");
+    }
+    let nl = u64::try_from(layers.len()).expect("layers");
+    let (total_cap, base, model) = (cap * nl, first * nl, (cells * nl) as f64);
+    // The budget assert is the lane's contract for an in-budget `k`; a larger `k`
+    // (`APEIRON_ROWS_K` above `k_max`) is the over-budget control and is reported, not refused.
+    assert!(
+        k > k_max || total_bits <= total_cap,
+        "rows plane over the model budget: {total_bits} > {total_cap} at k {k} <= k_max {k_max}"
+    );
+    if k > k_max {
+        println!("ROWS over budget (control) k {k} > k_max {k_max}: {total_bits} > {total_cap}");
+    }
+    println!(
+        "ROWS sum layers {} sel {sel} k {k} total {total_bits} bits added {} cap {total_cap} \
+         model b/w {:.4} added b/w {:.4} wall {:.1} s",
+        layers.len(),
+        total_bits - base,
+        total_bits as f64 / model,
+        (total_bits - base) as f64 / model,
+        t0.elapsed().as_secs_f64()
+    );
+}
