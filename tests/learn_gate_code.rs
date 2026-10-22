@@ -983,22 +983,48 @@ fn fitted_layers(key: &str) -> Vec<usize> {
     out
 }
 
-/// The teacher image with one FFN tensor replaced by an arm's cached words in every listed layer,
-/// every other byte the teacher's. The tensor kind is the arm's prefix before the first `-`
-/// (`up-spqr10-salience` → `up`, `gate` → `gate`); the fit is read from `{CACHE}/l{l}.{arm}.i64`.
+/// The teacher image with FFN tensors replaced by cached words, every other byte the teacher's.
+/// The arm is one or more parts joined by `+` (`gate+up-rows-sal+down-spqr9-salience`); each part's
+/// tensor kind is its prefix before the first `-`, and it replaces that kind in every layer holding
+/// `{CACHE}/l{l}.{part}.i64`. Returns the image and the number of tensors replaced.
 ///
-/// `O(file bytes)` to read plus `O(layers·n_ff·n_embd)` written; the whole image is held once.
-fn student_bytes(arm: &str, layers: &[usize]) -> Vec<u8> {
-    let kind = arm.split('-').next().unwrap_or(arm);
-    assert!(
-        matches!(kind, "gate" | "up" | "down"),
-        "APEIRON_GATE_ARM {arm}: tensor kind {kind} is not gate | up | down"
-    );
+/// **Measurement 10** (board `APEIRON-QUALITY-118-W1-T01`). Held-out KL, chunks 8/9/10 mean, all
+/// three kinds in the seven fitted layers: `gate+up+down` 0.354304; `gate+up-rows-sal+down-spqr9-
+/// salience` 0.334319. Up alone is 0.128001 and down alone 0.1465.
+///
+/// `O(file bytes)` to read plus `O(tensors·n_ff·n_embd)` written; the whole image is held once.
+fn student_bytes(arm: &str) -> (Vec<u8>, usize) {
     let mut data = std::fs::read(model_path()).expect("read teacher");
     let gguf = Gguf::open(&model_path()).expect("teacher directory");
+    let mut kinds = Vec::new();
+    let mut replaced = 0;
+    for part in arm.split('+') {
+        let kind = part.split('-').next().unwrap_or(part);
+        assert!(
+            matches!(kind, "gate" | "up" | "down"),
+            "APEIRON_GATE_ARM {arm}: tensor kind {kind} is not gate | up | down"
+        );
+        assert!(
+            !kinds.contains(&kind),
+            "APEIRON_GATE_ARM {arm}: kind {kind} twice"
+        );
+        kinds.push(kind);
+        let layers = fitted_layers(part);
+        assert!(
+            !layers.is_empty(),
+            "APEIRON_GATE_ARM {arm}: no cached {part}"
+        );
+        replaced += layers.len();
+        replace_kind(&mut data, &gguf, kind, part, &layers);
+    }
+    (data, replaced)
+}
+
+/// Overwrites `blk.{l}.ffn_{kind}.weight` in `data` with `{CACHE}/l{l}.{part}.i64` for each layer.
+fn replace_kind(data: &mut [u8], gguf: &Gguf, kind: &str, part: &str, layers: &[usize]) {
     for &l in layers {
         let name = format!("blk.{l}.ffn_{kind}.weight");
-        let (_, _, words) = read_words(&format!("{CACHE}/l{l}.{arm}.i64"));
+        let (_, _, words) = read_words(&format!("{CACHE}/l{l}.{part}.i64"));
         let t = gguf
             .header
             .tensors
@@ -1013,7 +1039,6 @@ fn student_bytes(arm: &str, layers: &[usize]) -> Vec<u8> {
         };
         data[off..off + bytes.len()].copy_from_slice(&bytes);
     }
-    data
 }
 
 /// Held-out KL of one arm against llama.cpp's own base distribution.
@@ -1028,16 +1053,14 @@ fn gate_code_kl() {
         "held-out chunk {skip} lies inside calibration 0..{calib}"
     );
     let count = env_usize("APEIRON_GATE_CHUNKS", 10);
-    let layers = fitted_layers(if arm == "teacher" { "gate" } else { &arm });
     let t0 = Instant::now();
-    let data = if arm == "teacher" {
-        std::fs::read(model_path()).expect("read teacher")
+    let (data, replaced) = if arm == "teacher" {
+        (std::fs::read(model_path()).expect("read teacher"), 0)
     } else {
-        student_bytes(&arm, &layers)
+        student_bytes(&arm)
     };
     println!(
-        "KL arm {arm} layers {} image {:.1} GB in {:.1} s",
-        layers.len(),
+        "KL arm {arm} tensors {replaced} image {:.1} GB in {:.1} s",
         data.len() as f64 / 1e9,
         t0.elapsed().as_secs_f64()
     );
