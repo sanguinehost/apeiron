@@ -73,7 +73,6 @@ const BASELINE: &[(&str, &str)] = &[
     ("src/learn/fold/layer/stage.rs", "run"),
     ("src/learn/fold/layer/stage.rs", "solve_stage"),
     ("src/learn/fold/layer/tensor.rs", "scatter_add"),
-    ("src/learn/fold/run/finish.rs", "finish_model->forward"),
     ("src/learn/fold/run/npy.rs", "shape_len"),
     ("src/learn/fold/run/pack.rs", "fold_pack_of_planes"),
     ("src/learn/fold/run/transfer.rs", "split_layer"),

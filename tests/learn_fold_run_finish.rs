@@ -23,12 +23,15 @@
               one body."
 )]
 
+use apeiron::engine::{Engine, KernelMode};
+use apeiron::format::quant;
 use apeiron::learn::fold::finish::train::{assemble, assemble_unquantized, kl_mean, Frozen};
 use apeiron::learn::fold::fit::icm::{codebook, BLOCK};
 use apeiron::learn::fold::fit::quant::{quant_c_u8, quant_r_hier};
 use apeiron::learn::fold::fit::steps::GROUP;
 use apeiron::learn::fold::layer::driver::ModelResult;
 use apeiron::learn::fold::layer::tensor::{recon, SinkPlane, TensorBits, TensorFit, TensorKind};
+use apeiron::learn::fold::run::convert::{encode_f16, encode_f32};
 use apeiron::learn::fold::run::finish::{finish_model, planes_from_fits, tunables_from_weights};
 use apeiron::learn::grad::model::{forward, Config, LayerWeights, Weights};
 use apeiron::learn::solve::q32::{to_grid, GRID_BOUND};
@@ -305,6 +308,222 @@ fn perturb(w: &mut Weights, amp: i64) {
     }
 }
 
+// ---- the teacher engine fixture: the assembled `Weights` as the `GGUF` the engine opens ----
+//
+// Every tensor goes through the production `F32` encoder, so the engine reads the same Q32.32
+// words the exact forward scores, narrowed once to binary32; the fixture's words are ~0.1, far
+// inside binary32's range. The header carries `cfg()`'s own geometry, eps and `RoPE` theta, so
+// `Config::from_engine` equals `cfg()`.
+
+fn put_u32(b: &mut Vec<u8>, v: u32) {
+    b.extend_from_slice(&v.to_le_bytes());
+}
+
+fn put_u64(b: &mut Vec<u8>, v: u64) {
+    b.extend_from_slice(&v.to_le_bytes());
+}
+
+fn put_str(b: &mut Vec<u8>, s: &str) {
+    put_u64(b, u64::try_from(s.len()).expect("small"));
+    b.extend_from_slice(s.as_bytes());
+}
+
+fn kv_u32(b: &mut Vec<u8>, k: &str, v: u32) {
+    put_str(b, k);
+    put_u32(b, 4);
+    put_u32(b, v);
+}
+
+fn kv_str(b: &mut Vec<u8>, k: &str, v: &str) {
+    put_str(b, k);
+    put_u32(b, 8);
+    put_str(b, v);
+}
+
+fn kv_f32(b: &mut Vec<u8>, k: &str, v: f32) {
+    put_str(b, k);
+    put_u32(b, 6);
+    b.extend_from_slice(&v.to_bits().to_le_bytes());
+}
+
+fn u(x: usize) -> u64 {
+    u64::try_from(x).expect("fixture dims fit u64")
+}
+
+/// One directory entry: an `F16` payload for a matrix the engine's matvec reads (`F32` refuses
+/// with `UnsupportedEmbeddingQuant`), `F32` for a norm or bias.
+fn gguf_matrix(
+    ts: &mut Vec<(String, Vec<u64>, u32, Vec<u8>)>,
+    name: String,
+    dims: Vec<u64>,
+    words: &[i64],
+) {
+    ts.push((
+        name,
+        dims,
+        quant::GGML_TYPE_F16,
+        encode_f16(words).expect("fixture matrix f16"),
+    ));
+}
+
+fn gguf_vector(
+    ts: &mut Vec<(String, Vec<u64>, u32, Vec<u8>)>,
+    name: String,
+    dims: Vec<u64>,
+    words: &[i64],
+) {
+    ts.push((name, dims, quant::GGML_TYPE_F32, encode_f32(words)));
+}
+
+/// `w` as one `qwen2` `GGUF`: every matrix and the embedding table `F16`, every norm and bias
+/// `F32`, a separate `output.weight` head, and `cfg()`'s eps and `RoPE` theta. One binary16
+/// narrowing per matrix on the fixture's ~0.1 words.
+fn build_gguf(w: &Weights) -> Vec<u8> {
+    let c = cfg();
+    let mut ts: Vec<(String, Vec<u64>, u32, Vec<u8>)> = Vec::new();
+    for (l, lw) in w.layers.iter().enumerate() {
+        let p = |s: &str| format!("blk.{l}.{s}");
+        gguf_vector(&mut ts, p("attn_norm.weight"), vec![u(E)], &lw.attn_norm);
+        gguf_matrix(&mut ts, p("attn_q.weight"), vec![u(E), u(NH * HD)], &lw.wq);
+        gguf_matrix(&mut ts, p("attn_k.weight"), vec![u(E), u(NKV * HD)], &lw.wk);
+        gguf_matrix(&mut ts, p("attn_v.weight"), vec![u(E), u(NKV * HD)], &lw.wv);
+        gguf_vector(
+            &mut ts,
+            p("attn_q.bias"),
+            vec![u(NH * HD)],
+            lw.bq.as_ref().expect("fixture q bias"),
+        );
+        gguf_vector(
+            &mut ts,
+            p("attn_k.bias"),
+            vec![u(NKV * HD)],
+            lw.bk.as_ref().expect("fixture k bias"),
+        );
+        gguf_vector(
+            &mut ts,
+            p("attn_v.bias"),
+            vec![u(NKV * HD)],
+            lw.bv.as_ref().expect("fixture v bias"),
+        );
+        gguf_matrix(
+            &mut ts,
+            p("attn_output.weight"),
+            vec![u(NH * HD), u(E)],
+            &lw.wo,
+        );
+        gguf_vector(&mut ts, p("ffn_norm.weight"), vec![u(E)], &lw.ffn_norm);
+        gguf_matrix(&mut ts, p("ffn_gate.weight"), vec![u(E), u(FF)], &lw.w_gate);
+        gguf_matrix(&mut ts, p("ffn_up.weight"), vec![u(E), u(FF)], &lw.w_up);
+        gguf_matrix(&mut ts, p("ffn_down.weight"), vec![u(FF), u(E)], &lw.w_down);
+    }
+    gguf_vector(
+        &mut ts,
+        "output_norm.weight".to_string(),
+        vec![u(E)],
+        &w.output_norm,
+    );
+    gguf_matrix(
+        &mut ts,
+        "token_embd.weight".to_string(),
+        vec![u(E), u(V)],
+        &w.token_embd,
+    );
+    gguf_matrix(
+        &mut ts,
+        "output.weight".to_string(),
+        vec![u(E), u(V)],
+        &w.lm_head,
+    );
+
+    let mut b: Vec<u8> = Vec::new();
+    b.extend_from_slice(b"GGUF");
+    put_u32(&mut b, 3);
+    put_u64(&mut b, u64::try_from(ts.len()).expect("small"));
+    put_u64(&mut b, 8);
+    kv_str(&mut b, "general.architecture", "qwen2");
+    kv_u32(
+        &mut b,
+        "qwen2.block_count",
+        u32::try_from(c.n_layer).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.attention.head_count",
+        u32::try_from(NH).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.attention.head_count_kv",
+        u32::try_from(NKV).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.embedding_length",
+        u32::try_from(E).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.feed_forward_length",
+        u32::try_from(FF).expect("small"),
+    );
+    kv_f32(
+        &mut b,
+        "qwen2.attention.layer_norm_rms_epsilon",
+        (c.eps as f64 / 4_294_967_296.0) as f32,
+    );
+    kv_f32(&mut b, "qwen2.rope.freq_base", c.rope_theta as f32);
+    let mut off = 0u64;
+    for (name, dims, ty, payload) in &ts {
+        put_str(&mut b, name);
+        put_u32(&mut b, u32::try_from(dims.len()).expect("rank"));
+        for &d in dims {
+            put_u64(&mut b, d);
+        }
+        put_u32(&mut b, *ty);
+        put_u64(&mut b, off);
+        off += u64::try_from(payload.len()).expect("small");
+    }
+    let pad = (32 - b.len() % 32) % 32;
+    b.resize(b.len() + pad, 0);
+    for (_, _, _, payload) in &ts {
+        b.extend_from_slice(payload);
+    }
+    b
+}
+
+/// Write `w` as a `GGUF` to a per-process temp file and open the engine; also returns the path.
+fn open_teacher_engine(tag: &str, w: &Weights) -> (Engine, String) {
+    let path = std::env::temp_dir().join(format!(
+        "apeiron_run_finish_{}_{tag}.gguf",
+        std::process::id()
+    ));
+    std::fs::write(&path, build_gguf(w)).expect("write teacher fixture");
+    let path = path.to_str().expect("utf8 temp path").to_string();
+    (Engine::open(&path).expect("open teacher engine"), path)
+}
+
+/// Every position's engine logits through the same `Q8Act` prefill and head calls
+/// `stats::heldout` scores with. The test's independent step is the KL below, not a logits route.
+fn engine_logits(engine: &Engine, tokens: &[u32]) -> Vec<i64> {
+    let mut st = engine.state(tokens.len()).expect("state");
+    let (cols, _tap) = engine
+        .prefill_tap_cols(&mut st, tokens, KernelMode::Q8Act, false)
+        .expect("prefill");
+    assert_eq!(cols.len(), tokens.len());
+    let v = engine.config.vocab_size;
+    assert_eq!(v, V, "the fixture's vocabulary");
+    let rows = engine
+        .lm_head_cols(&cols, KernelMode::Q8Act)
+        .expect("head cols");
+    assert_eq!(rows.len(), tokens.len());
+    let mut out = Vec::with_capacity(tokens.len() * v);
+    for row in &rows {
+        assert_eq!(row.len(), v);
+        out.extend_from_slice(row);
+    }
+    out
+}
+
 /// FNV-1a over a word's eight little-endian bytes, the recorded-witness hash.
 fn fnv_word(d: &mut u64, v: i64) {
     for b in v.to_le_bytes() {
@@ -379,7 +598,10 @@ fn one_finish_step_lowers_kl() {
     perturb(&mut teacher, 1 << 26);
     let frozen = Frozen::new(&teacher.token_embd, &teacher.lm_head);
     let tokens: Vec<u32> = (0..T).map(|_| (rng.next_u64() % V as u64) as u32).collect();
-    let (tlogits, _) = forward(&teacher, &cfg, &tokens).expect("teacher logits");
+    // The teacher's logits are the teacher GGUF's own `Q8Act` prefill and head, not the exact
+    // forward: the finisher fits toward the distribution that ships.
+    let (tengine, tpath) = open_teacher_engine("kl", &teacher);
+    let tlogits = engine_logits(&tengine, &tokens);
 
     let before = {
         let w = assemble(&cfg, &planes, &tun, &frozen).expect("student");
@@ -388,8 +610,17 @@ fn one_finish_step_lowers_kl() {
     };
     assert!(before > 0, "the teacher and student must differ");
 
-    let fin =
-        finish_model(&cfg, &res, &teacher, std::slice::from_ref(&tokens), 1, 0).expect("finish");
+    let fin = finish_model(
+        &cfg,
+        &res,
+        &teacher,
+        &tengine,
+        std::slice::from_ref(&tokens),
+        1,
+        0,
+    )
+    .expect("finish");
+    let _ = std::fs::remove_file(&tpath);
     assert_eq!(fin.loss.len(), 1, "one step, one loss word");
     assert_eq!(
         fin.loss[0], before,
@@ -450,6 +681,8 @@ fn planes_from_fits_reproduces_each_fit_weight_exactly() {
     assert_eq!(d, PLANES_DIGEST, "rebuilt plane digest");
 }
 
-/// The pinned plane and loss digests (FNV-1a over the little-endian words, length-prefixed).
+/// The pinned plane and loss digests (FNV-1a over the little-endian words, length-prefixed). The
+/// loss digest is the engine-teacher trace (`finish_model` reads the teacher `GGUF`'s `Q8Act`
+/// prefill), so it moves with the teacher route, not with the exact forward.
 const PLANES_DIGEST: u64 = 0xfc3f_0275_32c2_7602;
-const LOSS_DIGEST: u64 = 0x9aa4_b6eb_ff6e_2abf;
+const LOSS_DIGEST: u64 = 0x0c05_b36d_81a0_f285;

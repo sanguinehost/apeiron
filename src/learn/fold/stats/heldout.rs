@@ -402,6 +402,9 @@ impl Acc {
 /// Every position's Q32.32 logit row from one engine: one [`KernelMode::Q8Act`] prefill and one
 /// multi-column head projection over all positions.
 ///
+/// `pub(crate)`: the finisher's teacher logits come from this one body
+/// ([`crate::learn::fold::run::finish::finish_model`]); no second logits route exists.
+///
 /// [`Engine::prefill_tap_cols`] with `record = false` returns each column's output-normed final
 /// state — the same activation the decode path hands the head — in `t × n_embd` row order, and
 /// [`Engine::lm_head_cols`] projects them together under [`KernelMode::Q8Act`]: the engine's own
@@ -417,7 +420,7 @@ impl Acc {
 /// # Complexity
 /// Time `O(n_ctx·cost(prefill column) + vocab·n_embd·n_ctx)`; space `O(n_ctx·n_embd)` for the
 /// prefill states plus `O(n_ctx·vocab)` for the logits.
-fn engine_logits(engine: &Engine, tokens: &[u32]) -> Result<Vec<i64>, HeldOutError> {
+pub(crate) fn engine_logits(engine: &Engine, tokens: &[u32]) -> Result<Vec<i64>, HeldOutError> {
     let n_ctx = tokens.len();
     let v = engine.config.vocab_size;
     if v == 0 {

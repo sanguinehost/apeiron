@@ -1097,8 +1097,8 @@ fn transfer_qwen05b() {
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
         let (student, source) = if steps > 0 {
-            let fin =
-                finish_model(&config, &res, &weights, &cal, steps, warmup).expect("finish_model");
+            let fin = finish_model(&config, &res, &weights, &engine, &cal, steps, warmup)
+                .expect("finish_model");
             eprintln!(
                 "[4] finish_model {steps} steps (warmup {warmup}): {} loss words, last {:?}",
                 fin.loss.len(),
