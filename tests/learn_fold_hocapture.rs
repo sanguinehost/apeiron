@@ -25,14 +25,15 @@
 )]
 
 use apeiron::engine::loader::Engine;
-use apeiron::engine::ONE;
+use apeiron::engine::{KernelMode, ONE};
 use apeiron::format::quant;
 use apeiron::learn::fold::stats::hocapture::{
-    accumulate_kind, backward_with_taps, cross_entropy_sum, engine_tape, logits_grad_ce,
-    sample_targets, softmax_row, Hocapture, HocaptureError, Kind, KindStats, DEFAULT_EPS, N_KINDS,
+    accumulate_kind, backward_with_taps, cross_entropy_sum, engine_tape, engine_tape_mode,
+    logits_grad_ce, sample_targets, softmax_row, Hocapture, HocaptureError, Kind, KindStats,
+    DEFAULT_EPS, N_KINDS,
 };
 use apeiron::learn::grad::head::kl_row;
-use apeiron::learn::grad::model::{backward, forward, Config, LayerTape, LayerWeights, Weights};
+use apeiron::learn::grad::model::{backward, Config, LayerTape, LayerWeights, Tape, Weights};
 use apeiron::learn::solve::q32::{from_grid, Fx};
 
 #[path = "support/ridge_oracle.rs"]
@@ -111,9 +112,10 @@ fn model() -> Weights {
     }
 }
 
-/// The sampled-label cross-entropy of `tokens` at the fixed `targets`, in Q32.32.
+/// The sampled-label cross-entropy of `tokens` at the fixed `targets`, in Q32.32, over the engine's
+/// `Exact` tape of `w`'s own `GGUF` image.
 fn ce(w: &Weights, c: &Config, tokens: &[u32], targets: &[u32]) -> i64 {
-    let (logits, _tape) = forward(w, c, tokens).unwrap();
+    let (logits, _tape) = exact(w, c, tokens);
     cross_entropy_sum(&logits, tokens.len(), c.vocab, targets).unwrap()
 }
 
@@ -365,6 +367,18 @@ fn open_engine(tag: &str) -> (Engine, String) {
     (Engine::open(&path).expect("open fixture"), path)
 }
 
+/// `w`'s `GGUF` image parsed in memory, without a file.
+fn engine_of(w: &Weights) -> Engine {
+    Engine::from_bytes("hocapture fixture", build_gguf(w)).expect("engine from fixture bytes")
+}
+
+/// `w`'s logits and backward [`Tape`] from the engine under [`KernelMode::Exact`]: the replacement
+/// oracle for the deleted `grad::model::forward`, whose logits the engine's `Exact` step logits were
+/// pinned equal to bit for bit.
+fn exact(w: &Weights, c: &Config, tokens: &[u32]) -> (Vec<i64>, Tape) {
+    engine_tape_mode(&engine_of(w), c, tokens, KernelMode::Exact).expect("engine exact tape")
+}
+
 /// The attention probabilities in `f64`: the causal softmax of `q_i·k_j/√hd`, GQA
 /// `kvh = h / (nh/nkv)`. The oracle [`engine_tape`]'s `p` is compared against, so a swapped `q`/`k`
 /// or a dropped causal extent changes a word past the comparison.
@@ -522,7 +536,7 @@ fn ho_is_symmetric_psd_and_finishes_to_mean_diagonal_one() {
     let c = cfg();
     let w = model();
     let tokens = [1u32, 2, 3];
-    let (logits, tape) = forward(&w, &c, &tokens).unwrap();
+    let (logits, tape) = exact(&w, &c, &tokens);
     let targets = sample_targets(&logits, tokens.len(), c.vocab, 2, 5).unwrap();
     let mut cap = Hocapture::new(&c, 2, 5).unwrap();
     cap.add_taps(&w, &c, &logits, &tape, &targets).unwrap();
@@ -612,7 +626,7 @@ fn down_tap_matches_finite_difference_and_outer_product() {
     // the signal (`2h·∂CE/∂W ≈ 8e-3·0.026`) about four orders above that floor and four times above
     // the observed `±0.2 %` scatter of the quotient. It is `0.26 %` of a unit weight here.
     let h = ONE >> 7;
-    let (logits, tape) = forward(&w, &c, &tokens).unwrap();
+    let (logits, tape) = exact(&w, &c, &tokens);
     let mut dlogits = vec![0i64; c.vocab];
     logits_grad_ce(&logits, &target, c.vocab, &mut dlogits).unwrap();
     let (grads, taps) = backward_with_taps(&w, &c, &tape, &dlogits).unwrap();
@@ -687,7 +701,7 @@ fn ho_matches_the_independent_scatter_and_adds_across_calls() {
     let w = model();
     let tokens = [4u32, 5, 6, 7];
     let target = [1u32, 0, 3, 2];
-    let (logits, tape) = forward(&w, &c, &tokens).unwrap();
+    let (logits, tape) = exact(&w, &c, &tokens);
     let mut dlogits = vec![0i64; tokens.len() * c.vocab];
     logits_grad_ce(&logits, &target, c.vocab, &mut dlogits).unwrap();
     let (_grads, taps) = backward_with_taps(&w, &c, &tape, &dlogits).unwrap();
@@ -829,7 +843,7 @@ fn taps_reproduce_the_backward_and_leave_the_tape_untouched() {
     let c = cfg();
     let w = model();
     let tokens = [2u32, 0, 6];
-    let (logits, tape) = forward(&w, &c, &tokens).unwrap();
+    let (logits, tape) = exact(&w, &c, &tokens);
     let before = tape.clone();
     let targets = sample_targets(&logits, tokens.len(), c.vocab, 3, 11).unwrap();
     let mut dlogits = vec![0i64; tokens.len() * c.vocab];
@@ -974,7 +988,7 @@ fn sampler_is_deterministic_and_in_support() {
     let c = cfg();
     let w = model();
     let tokens = [1u32, 5];
-    let (logits, _tape) = forward(&w, &c, &tokens).unwrap();
+    let (logits, _tape) = exact(&w, &c, &tokens);
     let a = sample_targets(&logits, 2, c.vocab, 4, 12345).unwrap();
     let b = sample_targets(&logits, 2, c.vocab, 4, 12345).unwrap();
     assert_eq!(a, b);
@@ -1009,7 +1023,7 @@ fn refusals_are_reached() {
     let c = cfg();
     let w = model();
     let tokens = [1u32, 2];
-    let (logits, tape) = forward(&w, &c, &tokens).unwrap();
+    let (logits, tape) = exact(&w, &c, &tokens);
 
     assert!(matches!(
         Hocapture::new(&c, 0, 0),

@@ -26,7 +26,7 @@
 use std::fs;
 use std::time::Instant;
 
-use apeiron::engine::Engine;
+use apeiron::engine::{Engine, KernelMode};
 use apeiron::learn::fold::run::npy::read_npy_i4;
 use apeiron::learn::fold::stats::basis::{
     apply_basis, block_metric, butterfly_basis, butterfly_basis_fixed, butterfly_side_bits,
@@ -35,7 +35,8 @@ use apeiron::learn::fold::stats::basis::{
     uniform_distortion, BasisError, Coefficients, Density, GROUP,
 };
 use apeiron::learn::fold::stats::capture::{Grams, Normalisation};
-use apeiron::learn::grad::model::{forward, Config, Weights};
+use apeiron::learn::fold::stats::hocapture::engine_tape_mode;
+use apeiron::learn::grad::model::{Config, Weights};
 use apeiron::learn::solve::q32::{from_grid, round_q32_even, to_grid, GRID_BOUND};
 
 #[path = "support/fwht_oracle.rs"]
@@ -549,7 +550,7 @@ const PROJECT_SECONDS: f64 = 300.0;
 const MIN_TOKENS: usize = 256;
 const TAPE_CAP_BYTES: u128 = 6 * (1u128 << 30);
 
-/// A conservative tape-size estimate at `t` tokens, from the forward's own buffer widths.
+/// A conservative tape-size estimate at `t` tokens, from the tape's own buffer widths.
 fn tape_bytes_at(cfg: &Config, t: usize) -> u128 {
     let e = cfg.n_embd as u128;
     let q = (cfg.n_head * cfg.head_dim) as u128;
@@ -738,7 +739,7 @@ fn e_energy_words_are_bit_exact_on_the_kernel() {
 /// The real `Qwen2.5 0.5B` 1.18 b/w table over layers 2, 11 and 20 and the seven linears.
 #[test]
 #[allow(clippy::type_complexity)]
-#[ignore = "loads ~1 GB and runs the crate forward over the C4 calibration tokens; --release --ignored --nocapture"]
+#[ignore = "loads ~1 GB and runs the engine's exact tape over the C4 calibration tokens; --release --ignored --nocapture"]
 fn basis_rate_qwen05b() {
     let start = Instant::now();
     let bytes = fs::read(TOKENS).expect("read token npy");
@@ -755,13 +756,14 @@ fn basis_rate_qwen05b() {
     let kv_out = cfg.kv_out().expect("kv_out");
     let n_ff = cfg.n_ff;
 
-    // Probe: 32 tokens, forward plus the full Gram accumulation, then project the wall linearly.
+    // Probe: 32 tokens, exact tape plus the full Gram accumulation, then project the wall linearly.
     let probe: Vec<u32> = ids[..32]
         .iter()
         .map(|&v| u32::try_from(v).expect("token"))
         .collect();
     let t0 = Instant::now();
-    let (_, tape32) = forward(&weights, &cfg, &probe).expect("forward probe");
+    let (_, tape32) =
+        engine_tape_mode(&engine, &cfg, &probe, KernelMode::Exact).expect("tape probe");
     let mut grams32 = Grams::new(&cfg).expect("grams");
     grams32.accumulate(&tape32, &cfg).expect("accumulate probe");
     let wall32 = t0.elapsed().as_secs_f64();
@@ -782,7 +784,7 @@ fn basis_rate_qwen05b() {
         .collect();
 
     let t1 = Instant::now();
-    let (_, tape) = forward(&weights, &cfg, &tokens).expect("forward");
+    let (_, tape) = engine_tape_mode(&engine, &cfg, &tokens, KernelMode::Exact).expect("tape");
     let mut grams = Grams::new(&cfg).expect("grams");
     grams.accumulate(&tape, &cfg).expect("accumulate");
     let wall_capture = t1.elapsed().as_secs_f64();
