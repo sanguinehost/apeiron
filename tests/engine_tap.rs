@@ -710,3 +710,61 @@ fn tapped_gate_up_reproduce_stage_m() {
         "f32 carrier difference {f32_fused} / {f32_separate} exceeds the measured bound {F32_MAX_ABS}"
     );
 }
+
+/// The tapped `Exact` prefill records the gate, up and `SwiGLU` rows on both FFN fixtures: every
+/// column's three stages are `n_ff` wide, the tapped gate and up put back through [`swiglu_q32`]
+/// reproduce every `m` word exactly (the `Exact` path is Q32 `round_shift_32`, no carrier), and the
+/// tapped run leaves the final columns and the `lm_head_fixed` logits bit-identical to the
+/// untapped run.
+#[test]
+fn exact_tap_records_gate_up_m() {
+    for (bytes, tag) in [(build_layer_gguf(), "f16"), (build_layer_gguf_q8(), "q8")] {
+        let (engine, path) = open_bytes(&bytes, tag);
+        let n_ff = engine.config.n_ff;
+        let tokens = [1u32, 2, 3, 4];
+        let mut st_off = engine.state(16).expect("state");
+        let (cols_off, rows_off) = engine
+            .prefill_tap_cols(&mut st_off, &tokens, KernelMode::Exact, false)
+            .expect("untapped prefill");
+        let mut st_on = engine.state(16).expect("state");
+        let (cols_on, rows) = engine
+            .prefill_tap_cols(&mut st_on, &tokens, KernelMode::Exact, true)
+            .expect("tapped prefill");
+        let _ = std::fs::remove_file(&path);
+
+        assert!(
+            rows_off.is_empty(),
+            "{tag}: record=false allocated stage rows"
+        );
+        assert_eq!(
+            cols_off, cols_on,
+            "{tag}: the tapped Exact tap changed the final columns"
+        );
+        let last = cols_on.len() - 1;
+        assert_eq!(
+            engine.lm_head_fixed(&cols_off[last]).expect("logits"),
+            engine.lm_head_fixed(&cols_on[last]).expect("logits"),
+            "{tag}: the tapped Exact tap changed the logits"
+        );
+        for c in 0..tokens.len() {
+            assert_eq!(
+                rows[0][STAGE_GATE][c].len(),
+                n_ff,
+                "{tag}: gate width column {c}"
+            );
+            assert_eq!(
+                rows[0][STAGE_UP][c].len(),
+                n_ff,
+                "{tag}: up width column {c}"
+            );
+            assert_eq!(rows[0][STAGE_M][c].len(), n_ff, "{tag}: m width column {c}");
+            for i in 0..n_ff {
+                let want = swiglu_q32(rows[0][STAGE_GATE][c][i], rows[0][STAGE_UP][c][i]);
+                assert_eq!(
+                    rows[0][STAGE_M][c][i], want,
+                    "{tag}: m != swiglu(gate, up) at column {c} word {i}"
+                );
+            }
+        }
+    }
+}

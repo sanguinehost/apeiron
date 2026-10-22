@@ -104,7 +104,7 @@ use crate::learn::fold::finish::plane::{
     div, div_ne, mul, CodedPlane, LatentGrad, PlaneError, ONE,
 };
 use crate::learn::fold::fit::steps::GROUP;
-use crate::learn::fold::run::transfer::{student_gguf_bytes, TransferError};
+use crate::learn::fold::run::convert::{student_gguf_bytes, ConvertError};
 use crate::learn::fold::stats::hocapture::{engine_tape, HocaptureError};
 use crate::learn::grad::head::{kl_row, HeadError};
 use crate::learn::grad::model::{backward, Config, Grads, LayerGrads, ModelError, Tape, Weights};
@@ -193,8 +193,8 @@ impl From<HeadError> for TrainError {
     }
 }
 
-impl From<TransferError> for TrainError {
-    fn from(e: TransferError) -> Self {
+impl From<ConvertError> for TrainError {
+    fn from(e: ConvertError) -> Self {
         TrainError::Transfer(e.to_string())
     }
 }
@@ -1073,7 +1073,7 @@ impl Finisher {
         teacher_path: String,
     ) -> Result<Self, TrainError> {
         cfg.checked()?;
-        Gguf::open(&teacher_path).map_err(TransferError::from)?;
+        Gguf::open(&teacher_path).map_err(ConvertError::from)?;
         let e = cfg.n_embd;
         let q_out = cfg.q_out()?;
         let kv_out = cfg.kv_out()?;

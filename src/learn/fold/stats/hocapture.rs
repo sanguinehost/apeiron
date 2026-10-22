@@ -884,9 +884,16 @@ pub fn accumulate_kind(
     Ok(())
 }
 
-/// Build the backward's [`Tape`] from the engine's own forward: one tapped [`KernelMode::Q8Act`]
-/// prefill, the tapped stage rows laid out row-major, `p` recomputed from the tapped `q`/`k`, and the
-/// logits from the engine's LM head.
+/// Build the backward's [`Tape`] from the engine's own forward at `mode`: one tapped prefill, the
+/// tapped stage rows laid out row-major, `p` recomputed from the tapped `q`/`k`, and the logits from
+/// the engine's LM head.
+///
+/// `mode` is the engine's arithmetic for that prefill: [`KernelMode::Q8Act`] is the production
+/// capture path and the fixed choice of [`engine_tape`]. [`KernelMode::Exact`] runs the engine's
+/// untapped projections, whose single-column fused FFN records no `gate`/`up`/`m` stage
+/// (`src/engine/step/cols.rs` resolves the layer index only for `Q8Act`), so this function refuses
+/// that mode with [`HocaptureError::Shape`]; a full exact tape needs those three stages recorded
+/// first.
 ///
 /// [`crate::engine::Engine::prefill_tap_cols`] records `[layer][stage][column][width]`; each stage is
 /// stacked column-major into its `t × width` row-major buffer. The attention probabilities are not
@@ -906,10 +913,11 @@ pub fn accumulate_kind(
 /// # Complexity
 /// Per layer `O(t·(n_embd² + n_embd·n_ff) + n_head·t²·head_dim)`, the head `O(t·vocab·n_embd)`,
 /// `O(t·(n_embd + q_out + kv_out + n_ff))` words copied and `O(n_head·t²)` for `p`.
-pub fn engine_tape(
+pub fn engine_tape_mode(
     engine: &Engine,
     cfg: &Config,
     tokens: &[u32],
+    mode: KernelMode,
 ) -> Result<(Vec<i64>, Tape), HocaptureError> {
     cfg.checked()?;
     let t = tokens.len();
@@ -924,7 +932,7 @@ pub fn engine_tape(
         .state(t)
         .map_err(|err| HocaptureError::Engine(format!("state: {err}")))?;
     let (final_cols, rows) = engine
-        .prefill_tap_cols(&mut st, tokens, KernelMode::Q8Act, true)
+        .prefill_tap_cols(&mut st, tokens, mode, true)
         .map_err(|err| HocaptureError::Engine(format!("prefill_tap_cols: {err}")))?;
     if rows.len() != cfg.n_layer {
         return Err(shape("engine_tape tap layers != cfg.n_layer"));
@@ -992,6 +1000,21 @@ pub fn engine_tape(
             final_normed,
         },
     ))
+}
+
+/// [`engine_tape_mode`] at [`KernelMode::Q8Act`], the production capture path every caller uses.
+///
+/// # Errors
+/// As [`engine_tape_mode`].
+///
+/// # Complexity
+/// As [`engine_tape_mode`]; the wrapper adds one call.
+pub fn engine_tape(
+    engine: &Engine,
+    cfg: &Config,
+    tokens: &[u32],
+) -> Result<(Vec<i64>, Tape), HocaptureError> {
+    engine_tape_mode(engine, cfg, tokens, KernelMode::Q8Act)
 }
 
 /// Stack one tapped stage's `[column][width]` rows into a `t × width` row-major buffer.

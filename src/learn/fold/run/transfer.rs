@@ -66,14 +66,12 @@ use std::fs;
 use std::path::Path;
 
 use crate::crypto::sha256::sha256;
-use crate::format::gguf::{Gguf, GgufError};
-use crate::format::quant;
+use crate::format::gguf::GgufError;
 use crate::learn::fold::layer::driver::{
     fit_count, DriverError, LayerProgress, LayerWeights, ModelState, STAGES,
 };
 use crate::learn::fold::layer::tensor::{SinkPlane, TensorBits, TensorFit, TensorKind};
-use crate::learn::fold::run::convert::{encode_f16, encode_f32, ConvertError, Teacher};
-use crate::learn::gguf::write_file;
+use crate::learn::fold::run::convert::{student_gguf_bytes, ConvertError, Teacher};
 use crate::learn::grad::model::Weights;
 
 pub use crate::learn::fold::run::pack::{
@@ -123,8 +121,6 @@ pub enum TransferError {
     Shape(String),
     /// The `Q32.32` value has no finite binary16 encoding.
     F16(String),
-    /// The teacher stores a tensor in a `ggml` type this writer does not re-encode.
-    Type(u32),
     /// The teacher `GGUF` was refused.
     Gguf(GgufError),
     /// A `GGUF` encoder refused a `Q32.32` word.
@@ -161,7 +157,6 @@ impl core::fmt::Display for TransferError {
             }
             Self::Shape(m) => write!(f, "shape: {m}"),
             Self::F16(m) => write!(f, "F16 encoding refused: {m}"),
-            Self::Type(t) => write!(f, "ggml type {t} has no re-encoder here"),
             Self::Gguf(e) => write!(f, "teacher GGUF: {e}"),
             Self::Convert(e) => write!(f, "weights conversion: {e}"),
             Self::Driver(e) => write!(f, "driver: {e}"),
@@ -1146,59 +1141,14 @@ pub fn load(dir: &str) -> Result<ModelState, TransferError> {
     })
 }
 
-/// The student values of the `GGUF` tensor `name`, or `None` when the teacher carries a tensor the
-/// [`Weights`] struct does not ([`write_student_gguf`] then copies its teacher payload).
-fn student_values<'a>(w: &'a Weights, name: &[u8]) -> Option<&'a [i64]> {
-    let s = core::str::from_utf8(name).ok()?;
-    match s {
-        "token_embd.weight" => Some(&w.token_embd),
-        "output_norm.weight" => Some(&w.output_norm),
-        "output.weight" => Some(&w.lm_head),
-        _ => {
-            let rest = s.strip_prefix("blk.")?;
-            let (num, suffix) = rest.split_once('.')?;
-            let l: usize = num.parse().ok()?;
-            let lw = w.layers.get(l)?;
-            match suffix {
-                "attn_norm.weight" => Some(&lw.attn_norm),
-                "attn_q.weight" => Some(&lw.wq),
-                "attn_q.bias" => lw.bq.as_deref(),
-                "attn_k.weight" => Some(&lw.wk),
-                "attn_k.bias" => lw.bk.as_deref(),
-                "attn_v.weight" => Some(&lw.wv),
-                "attn_v.bias" => lw.bv.as_deref(),
-                "attn_output.weight" => Some(&lw.wo),
-                "ffn_norm.weight" => Some(&lw.ffn_norm),
-                "ffn_gate.weight" => Some(&lw.w_gate),
-                "ffn_up.weight" => Some(&lw.w_up),
-                "ffn_down.weight" => Some(&lw.w_down),
-                _ => None,
-            }
-        }
-    }
-}
-
-/// Re-encode `v` into the teacher's `ggml` type.
-///
-/// # Errors
-/// [`TransferError::Type`] for a type other than F16 or F32; [`TransferError::F16`] when a word has
-/// no finite binary16 encoding; [`TransferError::Convert`] for any other refusal.
-fn encode(ggml_type: u32, v: &[i64]) -> Result<Vec<u8>, TransferError> {
-    match ggml_type {
-        quant::GGML_TYPE_F16 => encode_f16(v).map_err(|e| TransferError::F16(e.to_string())),
-        quant::GGML_TYPE_F32 => Ok(encode_f32(v)),
-        other => Err(TransferError::Type(other)),
-    }
-}
-
 /// Write `student` as a `GGUF` under the teacher's directory at `teacher_path`, to `out_path`.
 ///
-/// The bytes are [`student_gguf_bytes`]; this is the atomic write of those bytes and nothing else,
+/// The bytes are [`student_gguf_bytes`] (`run/convert.rs`); this is the atomic write of those bytes and nothing else,
 /// so the file and an in-memory engine over the same student share one encoder.
 ///
 /// # Errors
 ///
-/// Every refusal of [`student_gguf_bytes`]; [`TransferError::Io`] on a write failure.
+/// [`TransferError::Convert`] for every refusal of [`student_gguf_bytes`]; [`TransferError::Io`] on a write failure.
 pub fn write_student_gguf(
     teacher_path: &str,
     student: &Weights,
@@ -1206,67 +1156,4 @@ pub fn write_student_gguf(
 ) -> Result<(), TransferError> {
     let file = student_gguf_bytes(teacher_path, student)?;
     write_atomic(Path::new(out_path), &file)
-}
-
-/// `student` as a complete `GGUF` image under the teacher's directory at `teacher_path`.
-///
-/// The teacher header is parsed by [`Gguf::open`]; every tensor keeps its name, dimensions, `ggml`
-/// type and offset, so the directory is unchanged. Each tensor the student carries is re-encoded
-/// from its `Q32.32` words ([`encode`]) — one pooled pass per tensor — and a tensor name the
-/// [`Weights`] struct does not carry copies the teacher payload byte-for-byte.
-///
-/// This is the one encoder: [`write_student_gguf`] writes these bytes to disk, and a caller that
-/// needs the model in memory hands them to the engine instead of a path.
-///
-/// # Complexity
-/// Time and space `O(file bytes)` = `O(2·W)` for an F16 teacher of `W` weights: one pooled encode
-/// pass per tensor plus one header pass; the whole image is held once.
-///
-/// # Errors
-/// [`TransferError::Gguf`] on a teacher refusal; [`TransferError::Type`] for a source type other
-/// than F16/F32 or a tensor with no geometry; [`TransferError::Shape`] when a tensor's element
-/// count, payload size or offset disagrees with the student; [`TransferError::F16`] for a value
-/// outside binary16's finite range.
-pub fn student_gguf_bytes(teacher_path: &str, student: &Weights) -> Result<Vec<u8>, TransferError> {
-    let g = Gguf::open(teacher_path)?;
-    let data_len = g
-        .file_len
-        .checked_sub(g.header.data0)
-        .ok_or_else(|| TransferError::Shape("teacher data section".to_string()))?;
-    let data_len = usize::try_from(data_len)
-        .map_err(|_| TransferError::Shape("teacher data section".to_string()))?;
-    let mut data = vec![0u8; data_len];
-    for t in &g.header.tensors {
-        let n = t.n_bytes()?.ok_or(TransferError::Type(t.ggml_type))?;
-        let n_el = t.n_elements()?;
-        let off = usize::try_from(t.offset)
-            .map_err(|_| TransferError::Shape("tensor offset".to_string()))?;
-        let n = usize::try_from(n).map_err(|_| TransferError::Shape("tensor size".to_string()))?;
-        let slot = data
-            .get_mut(off..off + n)
-            .ok_or_else(|| TransferError::Shape("tensor past the data section".to_string()))?;
-        let name = String::from_utf8_lossy(&t.name).into_owned();
-        if let Some(v) = student_values(student, &t.name) {
-            if u64::try_from(v.len()).ok() != Some(n_el) {
-                return Err(TransferError::Shape(format!(
-                    "{name}: {} weights != {n_el} directory elements",
-                    v.len()
-                )));
-            }
-            let bytes = encode(t.ggml_type, v)?;
-            if bytes.len() != slot.len() {
-                return Err(TransferError::Shape(format!("{name}: encoded size")));
-            }
-            slot.copy_from_slice(&bytes);
-        } else {
-            let raw = g.tensor_bytes(t)?;
-            if raw.len() != slot.len() {
-                return Err(TransferError::Shape(format!(
-                    "{name}: teacher payload size"
-                )));
-            }
-            slot.copy_from_slice(&raw);
-        }
-    }
-    write_file(&g.header, &data).map_err(TransferError::from)
 }

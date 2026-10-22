@@ -52,6 +52,20 @@ pub struct ProjWeights<'a> {
     pub raw: &'a [u8],
 }
 
+/// The three `n_ff`-word vectors an FFN block computes before the down projection, retained by
+/// [`ffn_fixed_tapped`]: the gate projection (`silu`'s argument), the up projection (`silu`'s
+/// multiplier) and the `SwiGLU` product `h` (the down projection's input). Each is moved out of
+/// [`ffn_fixed_chunks`], not copied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FfnStages {
+    /// `gate = matvec_rows_chunked(W_gate, x)`, the `SiLU` argument.
+    pub gate: Vec<i64>,
+    /// `up = matvec_rows_chunked(W_up, x)`, the `SwiGLU` multiplier.
+    pub up: Vec<i64>,
+    /// `h_i = round(silu(gate_i)·up_i / 2^32)`, the down projection's input.
+    pub h: Vec<i64>,
+}
+
 /// Fixed-point `SiLU` (port-map row 6): `silu(v) = v / (1 + exp(-v))` in Q32.32.
 ///
 /// The real body is [`silu::silu_fixed`], the scalar kernel isolated from the projection kernels so
@@ -103,6 +117,45 @@ pub fn ffn_fixed(
     x: &[i64],
 ) -> Result<Vec<i64>, FfnError> {
     let n_embd = x.len();
+    match ffn_fixed_chunks(
+        gate,
+        up,
+        down,
+        n_ff,
+        x,
+        row_chunk_budget(n_ff),
+        row_chunk_budget(n_embd),
+    ) {
+        Ok((y, _)) => Ok(y),
+        Err(e) => Err(e),
+    }
+}
+
+/// [`ffn_fixed`] with the gate, up and `SwiGLU` vectors retained: the same block bit for bit, plus
+/// an [`FfnStages`] holding the three `n_ff`-word rows the down projection consumed.
+///
+/// The executing body is [`ffn_fixed_chunks`], the one [`ffn_fixed`] runs, so the returned output is
+/// not a second implementation of the block; it returns the vectors the body already
+/// computes. The engine's tap path uses this to record the FFN pre-activations and product.
+///
+/// # Errors
+///
+/// As [`ffn_fixed`]: [`FfnError::BadGeometry`] for a zero `n_ff` or an empty `x`,
+/// [`FfnError::Matvec`] for a projection refusal, and [`FfnError::Overflow`] for an elementwise
+/// product or narrowing outside its range. On a refusal no [`FfnStages`] is returned.
+///
+/// # Complexity
+///
+/// Exactly [`ffn_fixed`]'s `O(n_ff·n_embd)` time and `O(n_ff)` scratch; the difference is that the
+/// `O(n_ff)` gate, up and `h` vectors are moved into the returned [`FfnStages`] instead of dropped.
+pub fn ffn_fixed_tapped(
+    gate: ProjWeights<'_>,
+    up: ProjWeights<'_>,
+    down: ProjWeights<'_>,
+    n_ff: usize,
+    x: &[i64],
+) -> Result<(Vec<i64>, FfnStages), FfnError> {
+    let n_embd = x.len();
     ffn_fixed_chunks(
         gate,
         up,
@@ -114,12 +167,17 @@ pub fn ffn_fixed(
     )
 }
 
-/// [`ffn_fixed`]'s body with the hidden projections' row-chunk counts supplied by the caller.
+/// [`ffn_fixed`]'s body with the hidden projections' row-chunk counts supplied by the caller,
+/// returning the output with the gate, up and `SwiGLU` vectors it computed.
 ///
 /// [`ffn_fixed`] passes [`row_chunk_budget`]`(n_ff)` for the `n_ff`-row gate and up projections and
 /// [`row_chunk_budget`]`(n_embd)` for the `n_embd`-row down projection. Splitting the two counts out
 /// lets the equivalence test drive every split, including counts that do not divide a row count and
 /// counts of one row per chunk; the executing path always passes the budget.
+///
+/// The three vectors are moved into the returned [`FfnStages`], not copied; [`ffn_fixed`] drops
+/// them. The stages are returned by value rather than through a borrowed sink so the body stays in
+/// the extracted fragment (`proof/extract/lib.rs` includes this file).
 fn ffn_fixed_chunks(
     gate: ProjWeights<'_>,
     up: ProjWeights<'_>,
@@ -128,7 +186,7 @@ fn ffn_fixed_chunks(
     x: &[i64],
     gate_chunks: usize,
     down_chunks: usize,
-) -> Result<Vec<i64>, FfnError> {
+) -> Result<(Vec<i64>, FfnStages), FfnError> {
     let n_embd = x.len();
     if n_ff == 0 || n_embd == 0 {
         return Err(FfnError::BadGeometry);
@@ -154,14 +212,15 @@ fn ffn_fixed_chunks(
     if let Some(failure) = err {
         return Err(failure);
     }
-    Ok(matvec_rows_chunked(
-        down.ggml_type,
-        down.raw,
-        n_embd,
-        n_ff,
-        &h,
-        down_chunks,
-    )?)
+    let y = matvec_rows_chunked(down.ggml_type, down.raw, n_embd, n_ff, &h, down_chunks)?;
+    Ok((
+        y,
+        FfnStages {
+            gate: gate_vec,
+            up: up_vec,
+            h,
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -287,7 +346,9 @@ mod tests {
             for &(gc, dc) in &SPLITS {
                 let (wg, wu, wd) = weights();
                 assert_eq!(
-                    ffn_fixed_chunks(wg, wu, wd, n_ff, &x, gc, dc).expect("chunked"),
+                    ffn_fixed_chunks(wg, wu, wd, n_ff, &x, gc, dc)
+                        .expect("chunked")
+                        .0,
                     want,
                     "n_ff {n_ff}: gate chunks {gc}, down chunks {dc}"
                 );
@@ -296,7 +357,9 @@ mod tests {
             for &(gc, dc) in &[(n_ff, N_IN), (n_ff + 3, N_IN + 3)] {
                 let (wg, wu, wd) = weights();
                 assert_eq!(
-                    ffn_fixed_chunks(wg, wu, wd, n_ff, &x, gc, dc).expect("chunked-max"),
+                    ffn_fixed_chunks(wg, wu, wd, n_ff, &x, gc, dc)
+                        .expect("chunked-max")
+                        .0,
                     want,
                     "n_ff {n_ff}: gate chunks {gc}, down chunks {dc}"
                 );
