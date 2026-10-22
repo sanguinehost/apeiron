@@ -504,3 +504,132 @@ theorem mt2_mix_unequal_search : Promising mt2Mix ∧ mt2Mix.ratio ≤ 950 ∧ �
 end RateSpikes
 
 end Learn
+
+/-!
+# First-order held-out quality model on qwen2.5-0.5B layer 0 (`Learn.QualityModel`)
+
+Receipt: `/home/socol/oc-tmp/gen-w1-t01/gen-n8.json` (GEN-W1-T01, `ncal` 8, arm `plain`, one row per
+linear of layer 0). Every constant is a `model` input copied from that file: `KL_out` is the held-out
+KL of the tensor quantised alone, in millionths of a nat.
+
+## The model
+
+`KL_total ≈ Σ_t κ_t · J_t`, with `J_t` the tensor's Hessian-weighted output error and `κ_t` a per-tensor
+constant (`KL_out / J_out` in the receipt, a 5× spread across tensors). A change that scales `J_t` by
+`r_t / 1000` moves the predicted KL by the factor `r_t / 1000` on that tensor's term. The model is
+derived to first order and is **not** validated for additivity across tensors (GEN-W1-T02 is the test);
+the theorems below are consequences of it, graded `model`.
+
+## What it says about the walker
+
+The walker's measured `J` ratios on layer 0 (`q 0.759`, `k 0.946`, `v 0.970`, `o 0.936`) apply to the
+four tensors that carry 29.2% of the summed held-out KL. Under the model the gate/up/down tensors carry
+the other 70.8%, and the walker leaves them unchanged, so its layer-0 gain is bounded by that 29.2% and
+is 1.9% at the measured ratios.
+-/
+
+namespace Learn
+
+namespace QualityModel
+
+/-! ### Constants (`gen-n8.json`, millionths of a nat) -/
+
+/-- Held-out KL of `q` alone. -/
+def klQ : Nat := 8137
+
+/-- Held-out KL of `k` alone. -/
+def klK : Nat := 8635
+
+/-- Held-out KL of `v` alone. -/
+def klV : Nat := 29956
+
+/-- Held-out KL of `o` alone. -/
+def klO : Nat := 189236
+
+/-- Held-out KL of `gate` alone. -/
+def klGate : Nat := 124482
+
+/-- Held-out KL of `up` alone. -/
+def klUp : Nat := 241787
+
+/-- Held-out KL of `down` alone. -/
+def klDown : Nat := 207099
+
+/-- The model's per-tensor `J` scale factors, per mille, in the order `q k v o gate up down`. -/
+structure Ratios where
+  q : Nat
+  k : Nat
+  v : Nat
+  o : Nat
+  gate : Nat
+  up : Nat
+  down : Nat
+
+/-- Predicted summed held-out KL times 1000: `Σ_t KL_t · r_t`, `r_t` per mille. -/
+def predicted (r : Ratios) : Nat :=
+  klQ * r.q + klK * r.k + klV * r.v + klO * r.o + klGate * r.gate + klUp * r.up + klDown * r.down
+
+/-- The unchanged encoder: every ratio is 1000. -/
+def unity : Ratios := ⟨1000, 1000, 1000, 1000, 1000, 1000, 1000⟩
+
+/-- The walker at its measured layer-0 ratios on `q k v o`, unchanged on `gate up down`. -/
+def walker : Ratios := ⟨759, 946, 970, 936, 1000, 1000, 1000⟩
+
+/-- Pointwise order on ratios. -/
+def Ratios.le (a b : Ratios) : Prop :=
+  a.q ≤ b.q ∧ a.k ≤ b.k ∧ a.v ≤ b.v ∧ a.o ≤ b.o ∧ a.gate ≤ b.gate ∧ a.up ≤ b.up ∧ a.down ≤ b.down
+
+/-- Pointwise minimum: the hybrid that takes the better arm per tensor. -/
+def Ratios.min (a b : Ratios) : Ratios :=
+  ⟨Nat.min a.q b.q, Nat.min a.k b.k, Nat.min a.v b.v, Nat.min a.o b.o,
+    Nat.min a.gate b.gate, Nat.min a.up b.up, Nat.min a.down b.down⟩
+
+/-! ### Structure of the model -/
+
+/-- **Lower ratios never raise the prediction.** `≤` [is smaller than or equal to]; `∧` [and]. -/
+theorem predicted_mono {a b : Ratios} (h : a.le b) : predicted a ≤ predicted b := by
+  obtain ⟨h1, h2, h3, h4, h5, h6, h7⟩ := h
+  unfold predicted
+  exact Nat.add_le_add (Nat.add_le_add (Nat.add_le_add (Nat.add_le_add (Nat.add_le_add
+    (Nat.add_le_add (Nat.mul_le_mul_left _ h1) (Nat.mul_le_mul_left _ h2))
+    (Nat.mul_le_mul_left _ h3)) (Nat.mul_le_mul_left _ h4)) (Nat.mul_le_mul_left _ h5))
+    (Nat.mul_le_mul_left _ h6)) (Nat.mul_le_mul_left _ h7)
+
+/-- **The per-tensor hybrid is no worse than either arm** under the model.
+`∧` [both are true]; `≤` [is smaller than or equal to]. -/
+theorem hybrid_dominates (a b : Ratios) :
+    predicted (a.min b) ≤ predicted a ∧ predicted (a.min b) ≤ predicted b := by
+  refine ⟨predicted_mono ?_, predicted_mono ?_⟩
+  · exact ⟨Nat.min_le_left _ _, Nat.min_le_left _ _, Nat.min_le_left _ _, Nat.min_le_left _ _,
+      Nat.min_le_left _ _, Nat.min_le_left _ _, Nat.min_le_left _ _⟩
+  · exact ⟨Nat.min_le_right _ _, Nat.min_le_right _ _, Nat.min_le_right _ _, Nat.min_le_right _ _,
+      Nat.min_le_right _ _, Nat.min_le_right _ _, Nat.min_le_right _ _⟩
+
+/-! ### The receipt's numbers -/
+
+/-- The summed held-out KL, millionths of a nat, times 1000 under `unity`. -/
+theorem total_unity : predicted unity = 809332 * 1000 := by decide
+
+/-- **`gate`, `up`, `down` carry more than half of the summed KL** (573 368 of 809 332), so a method
+confined to `q k v o` cannot recover more than the other share. `<` [is smaller than]. -/
+theorem gate_up_down_majority : 809332 < 2 * (klGate + klUp + klDown) := by decide
+
+/-- **`q`, `k`, `v`, `o` carry 235 964 of 809 332** (29.2%). Even `J = 0` on all four leaves at least
+70.8% of the prediction. `∧` [both are true]. -/
+theorem attention_share : klQ + klK + klV + klO = 235964 ∧ klGate + klUp + klDown = 573368 := by
+  exact ⟨by decide, by decide⟩
+
+/-- **Zeroing `J` on `q k v o` caps the model's gain at 29.2%**: the prediction stays above 70% of the
+unchanged value. `≤` [is smaller than or equal to]. -/
+theorem attention_zero_floor :
+    700 * predicted unity ≤ 1000 * predicted ⟨0, 0, 0, 0, 1000, 1000, 1000⟩ := by decide
+
+/-- **The walker's predicted layer-0 gain is 15 437 091 / 1000 millionths, under 2%** of the summed KL:
+`predicted walker` is within 2% of `predicted unity`. `∧` [both are true]; `<` [is smaller than]. -/
+theorem walker_gain : predicted unity - predicted walker = 15437091 ∧
+    98 * predicted unity < 100 * predicted walker := by
+  exact ⟨by decide, by decide⟩
+
+end QualityModel
+
+end Learn
