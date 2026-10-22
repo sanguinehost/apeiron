@@ -905,9 +905,7 @@ impl Engine {
             st, &geom, params, &convs, &proj[1], &proj[2], &proj[3], eps, parallel, snapshot,
         )?;
         drop(t_heads);
-        if let Some(t) = tap {
-            t.record(layer, STAGE_ATTN_OUT, &os);
-        }
+        record_tap(tap, layer, STAGE_ATTN_OUT, &os);
         let _out = trace::span(
             Phase::AffineProjOut,
             k,
@@ -1011,12 +1009,7 @@ impl Engine {
         // also the refusal owner for any gate/up value the fused kernel cannot produce exactly.
         let hs = match self.ffn_fused_swiglu(li, layer, n_ff, n_embd, &qs, tape) {
             Some(Ok(hs)) => {
-                if let Some(t) = tap.as_mut() {
-                    if let (Some(g), Some(u)) = (gate_flat.as_ref(), up_flat.as_ref()) {
-                        t.record_flat(layer, STAGE_GATE, g, n_ff);
-                        t.record_flat(layer, STAGE_UP, u, n_ff);
-                    }
-                }
+                record_flat_tap(tap, layer, &gate_flat, &up_flat, n_ff);
                 hs
             }
             Some(Err(e)) => return Err(StepError::Ffn(e)),
@@ -1026,10 +1019,8 @@ impl Engine {
                 let up = self.proj_cols(li, layer, 5, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
                 // The separate path holds the same pre-activations as its two projection
                 // outputs, so the tap takes them there.
-                if let Some(t) = tap.as_mut() {
-                    t.record(layer, STAGE_GATE, &gate);
-                    t.record(layer, STAGE_UP, &up);
-                }
+                record_tap(tap, layer, STAGE_GATE, &gate);
+                record_tap(tap, layer, STAGE_UP, &up);
                 let mut hs: Vec<Vec<i64>> = Vec::with_capacity(xs.len());
                 let mut c = 0usize;
                 while c < xs.len() {
@@ -1040,9 +1031,7 @@ impl Engine {
                 hs
             }
         };
-        if let Some(t) = tap {
-            t.record(layer, STAGE_M, &hs);
-        }
+        record_tap(tap, layer, STAGE_M, &hs);
         self.proj_cols(li, layer, 6, n_embd, n_ff, &hs, sched, mode, None)
     }
 
@@ -1273,6 +1262,36 @@ fn lowest_key(status: &[Option<StepError>], k: usize, n_head: usize) -> Option<u
         Some(best)
     } else {
         None
+    }
+}
+
+/// Record `rows` as `stage` of `layer` when a tap is installed; a no-op otherwise.
+///
+/// The recording sites call this instead of writing `if let Some(t) = tap { .. }` in place: the
+/// branch arms then differ by the tap's borrow alone, which Aeneas cannot match against the
+/// `Option<&AffineLayer>` rollback value live in the caller. One call statement carries the same
+/// values and order with no branch in the caller. O(1) plus [`Tap::record`]'s copy.
+fn record_tap(tap: &mut Option<Tap>, layer: usize, stage: usize, rows: &[Vec<i64>]) {
+    if let Some(t) = tap {
+        t.record(layer, stage, rows);
+    }
+}
+
+/// Record the fused kernel's [`STAGE_GATE`] and [`STAGE_UP`] from its flat `width`-word buffers
+/// when the kernel ran and a tap is installed; a no-op otherwise ([`record_tap`]'s reason for
+/// being a call rather than a branch at the site). O(`tap`'s two copies) via [`Tap::record_flat`].
+fn record_flat_tap(
+    tap: &mut Option<Tap>,
+    layer: usize,
+    gate: &Option<Vec<i64>>,
+    up: &Option<Vec<i64>>,
+    width: usize,
+) {
+    if let Some(t) = tap {
+        if let (Some(g), Some(u)) = (gate.as_ref(), up.as_ref()) {
+            t.record_flat(layer, STAGE_GATE, g, width);
+            t.record_flat(layer, STAGE_UP, u, width);
+        }
     }
 }
 
