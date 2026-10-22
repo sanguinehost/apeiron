@@ -1193,26 +1193,41 @@ fn encode(ggml_type: u32, v: &[i64]) -> Result<Vec<u8>, TransferError> {
 
 /// Write `student` as a `GGUF` under the teacher's directory at `teacher_path`, to `out_path`.
 ///
-/// The teacher header is parsed by [`Gguf::open`]; every tensor keeps its name, dimensions, `ggml`
-/// type and offset, so the directory is unchanged. Each tensor the student carries is re-encoded
-/// from its `Q32.32` words ([`encode`]) — one pooled pass per tensor — and a tensor name the
-/// [`Weights`] struct does not carry copies the teacher payload byte-for-byte.
-///
-/// # Complexity
-/// Time and space `O(file bytes)` = `O(2·W)` for an F16 teacher of `W` weights: one pooled encode
-/// pass per tensor plus one header pass; the whole data section is held once before the atomic
-/// write.
+/// The bytes are [`student_gguf_bytes`]; this is the atomic write of those bytes and nothing else,
+/// so the file and an in-memory engine over the same student share one encoder.
 ///
 /// # Errors
-/// [`TransferError::Gguf`] on a teacher refusal; [`TransferError::Type`] for a source type other
-/// than F16/F32 or a tensor with no geometry; [`TransferError::Shape`] when a tensor's element
-/// count, payload size or offset disagrees with the student; [`TransferError::F16`] for a value
-/// outside binary16's finite range; [`TransferError::Io`] on a write failure.
+///
+/// Every refusal of [`student_gguf_bytes`]; [`TransferError::Io`] on a write failure.
 pub fn write_student_gguf(
     teacher_path: &str,
     student: &Weights,
     out_path: &str,
 ) -> Result<(), TransferError> {
+    let file = student_gguf_bytes(teacher_path, student)?;
+    write_atomic(Path::new(out_path), &file)
+}
+
+/// `student` as a complete `GGUF` image under the teacher's directory at `teacher_path`.
+///
+/// The teacher header is parsed by [`Gguf::open`]; every tensor keeps its name, dimensions, `ggml`
+/// type and offset, so the directory is unchanged. Each tensor the student carries is re-encoded
+/// from its `Q32.32` words ([`encode`]) — one pooled pass per tensor — and a tensor name the
+/// [`Weights`] struct does not carry copies the teacher payload byte-for-byte.
+///
+/// This is the one encoder: [`write_student_gguf`] writes these bytes to disk, and a caller that
+/// needs the model in memory hands them to the engine instead of a path.
+///
+/// # Complexity
+/// Time and space `O(file bytes)` = `O(2·W)` for an F16 teacher of `W` weights: one pooled encode
+/// pass per tensor plus one header pass; the whole image is held once.
+///
+/// # Errors
+/// [`TransferError::Gguf`] on a teacher refusal; [`TransferError::Type`] for a source type other
+/// than F16/F32 or a tensor with no geometry; [`TransferError::Shape`] when a tensor's element
+/// count, payload size or offset disagrees with the student; [`TransferError::F16`] for a value
+/// outside binary16's finite range.
+pub fn student_gguf_bytes(teacher_path: &str, student: &Weights) -> Result<Vec<u8>, TransferError> {
     let g = Gguf::open(teacher_path)?;
     let data_len = g
         .file_len
@@ -1253,6 +1268,5 @@ pub fn write_student_gguf(
             slot.copy_from_slice(&raw);
         }
     }
-    let file = write_file(&g.header, &data)?;
-    write_atomic(Path::new(out_path), &file)
+    write_file(&g.header, &data).map_err(TransferError::from)
 }

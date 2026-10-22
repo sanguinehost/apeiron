@@ -22,10 +22,12 @@
 use apeiron::engine::loader::Engine;
 use apeiron::engine::{KernelMode, ONE};
 use apeiron::format::quant;
+use apeiron::learn::fold::run::transfer::{student_gguf_bytes, write_student_gguf};
 use apeiron::learn::fold::stats::heldout::{
     held_out, held_out_kldbase_chunk, held_out_seq, score_base_row, BaseScore,
 };
 use apeiron::learn::fold::stats::kldbase::KldBase;
+use apeiron::learn::grad::model::Weights;
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
 /// Residual width, query heads, KV heads, per-head width, feed-forward width, vocabulary, layers.
@@ -923,4 +925,120 @@ fn heldout_engine_qwen05b_f16_vs_q8() {
         from_grid(h.nll_teacher)
     );
     assert_eq!(h.tokens, u64::from(n_tok));
+}
+
+/// The two engine loaders agree on one image: `Engine::open(path)` and `Engine::from_bytes(label,
+/// bytes)` give bit-identical `prefill_tap_cols` columns and `lm_head_cols` rows.
+///
+/// The control is a `from_bytes` that skips `load_decode_vectors`: the fixture's norm gains are
+/// exactly one, so the default (all-zero) vectors move every column and this test goes red.
+#[test]
+fn from_bytes_matches_open() {
+    let bytes = build_gguf(0);
+    let (opened, path) = open_bytes("frombytes", &bytes);
+    let label = "in-memory-fixture";
+    let in_memory = Engine::from_bytes(label, bytes).expect("from_bytes on the fixture bytes");
+    assert_eq!(in_memory.path, label, "the label is the engine's name");
+
+    let mut st_open = opened.state(TOKENS.len()).expect("state");
+    let (cols_open, _tap) = opened
+        .prefill_tap_cols(&mut st_open, &TOKENS, KernelMode::Q8Act, false)
+        .expect("prefill of the opened engine");
+    let mut st_mem = in_memory.state(TOKENS.len()).expect("state");
+    let (cols_mem, _tap) = in_memory
+        .prefill_tap_cols(&mut st_mem, &TOKENS, KernelMode::Q8Act, false)
+        .expect("prefill of the in-memory engine");
+    assert_eq!(cols_open, cols_mem, "prefill tap columns differ");
+
+    let rows_open = opened
+        .lm_head_cols(&cols_open, KernelMode::Q8Act)
+        .expect("head of the opened engine");
+    let rows_mem = in_memory
+        .lm_head_cols(&cols_mem, KernelMode::Q8Act)
+        .expect("head of the in-memory engine");
+    assert_eq!(rows_open, rows_mem, "lm head rows differ");
+
+    // Non-vacuity: an all-zero block would compare equal under either loader.
+    let nonzero = rows_mem.iter().flatten().any(|&w| w != 0);
+    assert!(nonzero, "the fixture's logits are all zero");
+    let _ = std::fs::remove_file(&path);
+}
+
+/// One encoder, two consumers: `student_gguf_bytes` is exactly the bytes `write_student_gguf`
+/// writes, and `Engine::from_bytes` over those bytes opens and reproduces the teacher's columns.
+///
+/// The student is the teacher's own weights read back through `Weights::from_engine`, so the
+/// re-encode is the identity up to the binary16 round trip already exact in `Q32.32`.
+#[test]
+fn student_gguf_bytes_matches_the_written_file() {
+    let (teacher, path) = open_bytes("student_bytes", &build_gguf(0));
+    let (weights, _cfg) = Weights::from_engine(&teacher).expect("teacher weights");
+
+    let bytes = student_gguf_bytes(&path, &weights).expect("encode in memory");
+    let out = std::env::temp_dir().join(format!(
+        "apeiron_student_bytes_{}_{}.gguf",
+        std::process::id(),
+        "one"
+    ));
+    let out = out.to_str().expect("utf8 temp path").to_string();
+    write_student_gguf(&path, &weights, &out).expect("write student gguf");
+    let file = std::fs::read(&out).expect("read the written student");
+    assert_eq!(bytes, file, "the in-memory encoder and the writer disagree");
+
+    let student = Engine::from_bytes(&out, file).expect("from_bytes over the student image");
+    assert_eq!(student.path, out);
+    let mut st_t = teacher.state(TOKENS.len()).expect("state");
+    let (cols_t, _tap) = teacher
+        .prefill_tap_cols(&mut st_t, &TOKENS, KernelMode::Q8Act, false)
+        .expect("teacher prefill");
+    let mut st_s = student.state(TOKENS.len()).expect("state");
+    let (cols_s, _tap) = student
+        .prefill_tap_cols(&mut st_s, &TOKENS, KernelMode::Q8Act, false)
+        .expect("student prefill");
+    assert_eq!(
+        cols_t, cols_s,
+        "the round-tripped student is not the teacher"
+    );
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&out);
+}
+
+/// Wall of the two loaders on the fixture: `Engine::open` (read + parse) against `from_bytes` on
+/// pre-read bytes (parse only), five paired runs.
+///
+/// A measurement, not a gate: it asserts nothing about time and prints on `--nocapture`.
+#[test]
+#[ignore = "wall measurement; --release --ignored --nocapture"]
+fn from_bytes_wall_against_open() {
+    let bytes = build_gguf(0);
+    let (engine, path) = open_bytes("frombytes_wall", &bytes);
+    drop(engine);
+    let runs = 5usize;
+    let mut open_s = Vec::with_capacity(runs);
+    let mut mem_s = Vec::with_capacity(runs);
+    for _ in 0..runs {
+        let t = std::time::Instant::now();
+        let e = Engine::open(&path).expect("open");
+        open_s.push(t.elapsed().as_secs_f64());
+        drop(e);
+        let copy = bytes.clone();
+        let t = std::time::Instant::now();
+        let e = Engine::from_bytes("wall", copy).expect("from_bytes");
+        mem_s.push(t.elapsed().as_secs_f64());
+        drop(e);
+    }
+    let stat = |v: &[f64]| {
+        let n = v.len() as f64;
+        let mean = v.iter().sum::<f64>() / n;
+        let var = v.iter().map(|w| (w - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        (mean * 1e6, var.sqrt() * 1e6)
+    };
+    let (om, os) = stat(&open_s);
+    let (mm, ms) = stat(&mem_s);
+    println!(
+        "loader wall over {runs} paired runs, fixture {} bytes: open {om:.1} us mean ± {os:.1} sd; \
+         from_bytes (bytes pre-read) {mm:.1} us mean ± {ms:.1} sd",
+        bytes.len()
+    );
+    let _ = std::fs::remove_file(&path);
 }
