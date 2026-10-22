@@ -584,12 +584,265 @@ fn acc_add(acc: &mut [i128], idx: usize, a: i64, b: i64) -> Result<(), AttnError
 /// The three input gradients of [`attn_bwd`], in the order `(dq, dk, dv)`.
 pub type AttnGrads = (Vec<i64>, Vec<i64>, Vec<i64>);
 
+/// The `hd`-wide accumulation of one key `j` of one query row into the three gradients:
+/// `dV_j += P_ij·dO_i`, `dK_j += dS_ij·q_i`, then `dQ_i += dS_ij·k_j`, in that order, each refused
+/// on overflow.
+///
+/// # Complexity
+/// `O(hd)` checked `i128` multiply-adds (three per dimension); space `O(1)`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "three operand rows, the two saved scalars, the three gradient rows and the row length; \
+              one loop per function is the shape the translator reaches in budget"
+)]
+fn bwd_key_acc(
+    q_i: &[i64],
+    k_j: &[i64],
+    do_i: &[i64],
+    pij: i64,
+    dsij: i64,
+    dq_i: &mut [i128],
+    dk_j: &mut [i128],
+    dv_j: &mut [i128],
+    hd: usize,
+) -> Result<(), AttnError> {
+    let mut d = 0usize;
+    let mut ok = true;
+    let mut err = AttnError::Overflow;
+    while d < hd && ok {
+        match acc_add(dv_j, d, pij, do_i[d]) {
+            Ok(()) => {}
+            Err(e) => {
+                ok = false;
+                err = e;
+            }
+        }
+        if ok {
+            match acc_add(dk_j, d, dsij, q_i[d]) {
+                Ok(()) => {}
+                Err(e) => {
+                    ok = false;
+                    err = e;
+                }
+            }
+        }
+        if ok {
+            match acc_add(dq_i, d, dsij, k_j[d]) {
+                Ok(()) => {}
+                Err(e) => {
+                    ok = false;
+                    err = e;
+                }
+            }
+        }
+        d += 1;
+    }
+    if ok {
+        Ok(())
+    } else {
+        Err(err)
+    }
+}
+
+/// One query row `(h, i)` of [`attn_bwd`]: its `dS` row by [`attn_row_ds`], then the `i + 1` key
+/// accumulations by [`bwd_key_acc`]. `kvh` is the kv head this query head reads.
+///
+/// # Complexity
+/// `O(n·hd)` checked `i128` operations for `n = i + 1` keys; space `O(1)` beyond the row.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the five forward operands, the head counts and row length, the head and row indices, \
+              and the four gradient buffers; one loop per function is the shape the translator \
+              reaches in budget"
+)]
+fn bwd_row(
+    q: &[i64],
+    k: &[i64],
+    v: &[i64],
+    p: &[i64],
+    dout: &[i64],
+    nh: usize,
+    nkv: usize,
+    hd: usize,
+    t: usize,
+    h: usize,
+    kvh: usize,
+    i: usize,
+    ds: &mut [i64],
+    dq_acc: &mut [i128],
+    dk_acc: &mut [i128],
+    dv_acc: &mut [i128],
+) -> Result<(), AttnError> {
+    let qbase = (i * nh + h) * hd;
+    let pbase = (h * t + i) * t;
+    let n = i + 1;
+    let mut ok = true;
+    let mut err = AttnError::Overflow;
+    match attn_row_ds(
+        &dout[qbase..qbase + hd],
+        v,
+        kvh,
+        nkv,
+        hd,
+        n,
+        &p[pbase..pbase + n],
+        &mut ds[pbase..pbase + n],
+    ) {
+        Ok(()) => {}
+        Err(e) => {
+            ok = false;
+            err = e;
+        }
+    }
+    let mut j = 0usize;
+    while j < n && ok {
+        let kbase = (j * nkv + kvh) * hd;
+        match bwd_key_acc(
+            &q[qbase..qbase + hd],
+            &k[kbase..kbase + hd],
+            &dout[qbase..qbase + hd],
+            p[pbase + j],
+            ds[pbase + j],
+            &mut dq_acc[qbase..qbase + hd],
+            &mut dk_acc[kbase..kbase + hd],
+            &mut dv_acc[kbase..kbase + hd],
+            hd,
+        ) {
+            Ok(()) => {}
+            Err(e) => {
+                ok = false;
+                err = e;
+            }
+        }
+        j += 1;
+    }
+    if ok {
+        Ok(())
+    } else {
+        Err(err)
+    }
+}
+
+/// One query head `h` of [`attn_bwd`]: its `t` causal rows, each by [`bwd_row`]. Query head `h`
+/// reads kv head `h / rep`.
+///
+/// # Complexity
+/// `O(t²·hd)` checked `i128` operations: every row's `dS` row and its causal keys.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the five forward operands, the head counts and row length, the head index and the \
+              repeat count, and the four gradient buffers; one loop per function is the shape the \
+              translator reaches in budget"
+)]
+fn bwd_head(
+    q: &[i64],
+    k: &[i64],
+    v: &[i64],
+    p: &[i64],
+    dout: &[i64],
+    nh: usize,
+    nkv: usize,
+    hd: usize,
+    t: usize,
+    rep: usize,
+    h: usize,
+    ds: &mut [i64],
+    dq_acc: &mut [i128],
+    dk_acc: &mut [i128],
+    dv_acc: &mut [i128],
+) -> Result<(), AttnError> {
+    let kvh = h / rep;
+    let mut i = 0usize;
+    let mut ok = true;
+    let mut err = AttnError::Overflow;
+    while i < t && ok {
+        match bwd_row(
+            q, k, v, p, dout, nh, nkv, hd, t, h, kvh, i, ds, dq_acc, dk_acc, dv_acc,
+        ) {
+            Ok(()) => {}
+            Err(e) => {
+                ok = false;
+                err = e;
+            }
+        }
+        i += 1;
+    }
+    if ok {
+        Ok(())
+    } else {
+        Err(err)
+    }
+}
+
+/// `round(acc[x]) · scale` over every entry, refused on overflow: the final rounding of `dq` and
+/// `dk`.
+///
+/// # Complexity
+/// `O(acc.len())` checked `i128` operations; space `O(acc.len())` words for the result.
+fn bwd_round_scaled(acc: &[i128], scale: i64) -> Result<Vec<i64>, AttnError> {
+    let mut out: Vec<i64> = vec![0; acc.len()];
+    let mut x = 0usize;
+    let mut ok = true;
+    let mut err = AttnError::Overflow;
+    while x < acc.len() && ok {
+        match acc_round(acc[x]) {
+            Ok(a) => match mul_round(a, scale) {
+                Ok(b) => out[x] = b,
+                Err(e) => {
+                    ok = false;
+                    err = e;
+                }
+            },
+            Err(e) => {
+                ok = false;
+                err = e;
+            }
+        }
+        x += 1;
+    }
+    if ok {
+        Ok(out)
+    } else {
+        Err(err)
+    }
+}
+
+/// `round(acc[x])` over every entry, refused on overflow: the final rounding of `dv`, which carries
+/// no `scale`.
+///
+/// # Complexity
+/// `O(acc.len())` checked `i128` operations; space `O(acc.len())` words for the result.
+fn bwd_round_plain(acc: &[i128]) -> Result<Vec<i64>, AttnError> {
+    let mut out: Vec<i64> = vec![0; acc.len()];
+    let mut x = 0usize;
+    let mut ok = true;
+    let mut err = AttnError::Overflow;
+    while x < acc.len() && ok {
+        match acc_round(acc[x]) {
+            Ok(a) => out[x] = a,
+            Err(e) => {
+                ok = false;
+                err = e;
+            }
+        }
+        x += 1;
+    }
+    if ok {
+        Ok(out)
+    } else {
+        Err(err)
+    }
+}
+
 /// Causal GQA attention backward: returns `(dq, dk, dv)` from the forward inputs, the saved `P` and
 /// the output gradient `dout` (`t × nh × hd`).
 ///
 /// `dV_j = Σ_{h,i ≥ j} P_ij dO_i`, `dS_ij = P_ij (dP_ij − Σ_j' dP_ij' P_ij')` with `dP_ij = dO_i · v_j`,
 /// `dQ_i = scale Σ_j dS_ij k_j`, `dK_j = scale Σ_{h,i ≥ j} dS_ij q_i`. The kv gradients accumulate
 /// unrounded in `i128` over the `rep` query heads and rows, and round once.
+///
+/// One loop per function: a head by [`bwd_head`], its rows by [`bwd_row`], each row's causal keys by
+/// [`bwd_key_acc`], and the three final roundings by [`bwd_round_scaled`] and [`bwd_round_plain`].
 ///
 /// # Errors
 /// As [`attn_fwd`] for the shapes and scale, plus [`AttnError::BadShape`] when `p` is not `nh × t × t`
@@ -603,11 +856,6 @@ pub type AttnGrads = (Vec<i64>, Vec<i64>, Vec<i64>);
     clippy::too_many_arguments,
     reason = "the backward takes the three forward inputs, the saved P, the output gradient and the \
               head counts; the fixed signature is the one the extraction and its refinement name"
-)]
-#[allow(
-    clippy::too_many_lines,
-    reason = "one pass per (head, row) with the dS row helper, three i128 accumulations and three final \
-              roundings; splitting the carried error flag across helpers would not shorten the recurrence"
 )]
 pub fn attn_bwd(
     q: &[i64],
@@ -642,121 +890,38 @@ pub fn attn_bwd(
     let mut ok = true;
     let mut err = AttnError::Overflow;
     while h < nh && ok {
-        let kvh = h / rep;
-        let mut i = 0usize;
-        while i < t && ok {
-            let qbase = (i * nh + h) * hd;
-            let pbase = (h * t + i) * t;
-            let n = i + 1;
-            match attn_row_ds(
-                &dout[qbase..qbase + hd],
-                v,
-                kvh,
-                nkv,
-                hd,
-                n,
-                &p[pbase..pbase + n],
-                &mut ds[pbase..pbase + n],
-            ) {
-                Ok(()) => {}
-                Err(e) => {
-                    ok = false;
-                    err = e;
-                }
+        match bwd_head(
+            q,
+            k,
+            v,
+            p,
+            dout,
+            nh,
+            nkv,
+            hd,
+            t,
+            rep,
+            h,
+            &mut ds,
+            &mut dq_acc,
+            &mut dk_acc,
+            &mut dv_acc,
+        ) {
+            Ok(()) => {}
+            Err(e) => {
+                ok = false;
+                err = e;
             }
-            let mut j = 0usize;
-            while j < n && ok {
-                let kbase = (j * nkv + kvh) * hd;
-                let pij = p[pbase + j];
-                let dsij = ds[pbase + j];
-                let mut d = 0usize;
-                while d < hd && ok {
-                    match acc_add(&mut dv_acc, kbase + d, pij, dout[qbase + d]) {
-                        Ok(()) => {}
-                        Err(e) => {
-                            ok = false;
-                            err = e;
-                        }
-                    }
-                    if ok {
-                        match acc_add(&mut dk_acc, kbase + d, dsij, q[qbase + d]) {
-                            Ok(()) => {}
-                            Err(e) => {
-                                ok = false;
-                                err = e;
-                            }
-                        }
-                    }
-                    if ok {
-                        match acc_add(&mut dq_acc, qbase + d, dsij, k[kbase + d]) {
-                            Ok(()) => {}
-                            Err(e) => {
-                                ok = false;
-                                err = e;
-                            }
-                        }
-                    }
-                    d += 1;
-                }
-                j += 1;
-            }
-            i += 1;
         }
         h += 1;
     }
-    let mut dq: Vec<i64> = vec![0; qn];
-    let mut dk: Vec<i64> = vec![0; kvn];
-    let mut dv: Vec<i64> = vec![0; kvn];
-    let mut x = 0usize;
-    while x < qn && ok {
-        match acc_round(dq_acc[x]) {
-            Ok(a) => match mul_round(a, scale) {
-                Ok(b) => dq[x] = b,
-                Err(e) => {
-                    ok = false;
-                    err = e;
-                }
-            },
-            Err(e) => {
-                ok = false;
-                err = e;
-            }
-        }
-        x += 1;
+    if !ok {
+        return Err(err);
     }
-    x = 0;
-    while x < kvn && ok {
-        match acc_round(dk_acc[x]) {
-            Ok(a) => match mul_round(a, scale) {
-                Ok(b) => dk[x] = b,
-                Err(e) => {
-                    ok = false;
-                    err = e;
-                }
-            },
-            Err(e) => {
-                ok = false;
-                err = e;
-            }
-        }
-        x += 1;
-    }
-    x = 0;
-    while x < kvn && ok {
-        match acc_round(dv_acc[x]) {
-            Ok(a) => dv[x] = a,
-            Err(e) => {
-                ok = false;
-                err = e;
-            }
-        }
-        x += 1;
-    }
-    if ok {
-        Ok((dq, dk, dv))
-    } else {
-        Err(err)
-    }
+    let dq = bwd_round_scaled(&dq_acc, scale)?;
+    let dk = bwd_round_scaled(&dk_acc, scale)?;
+    let dv = bwd_round_plain(&dv_acc)?;
+    Ok((dq, dk, dv))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1524,6 +1689,38 @@ mod tests {
             attn_bwd_kern(&[0], &[0], &mx, &pm, &mx, 1, 1, 1),
             Err(AttnError::Overflow)
         );
+    }
+
+    /// [`attn_bwd`]'s three output vectors, every word pinned, on the seeded fixture
+    /// [`dims_fixture`]`(11, 3, 2, 1, 4)` (`t = 3`, `nh = 2`, `nkv = 1`, `hd = 4`, so `dq` is `t·nh·hd`
+    /// words and `dk`/`dv` are `t·nkv·hd`). The one-loop-per-function split of the backward is
+    /// arithmetic-preserving only while these words stand, so this test is its bit-identity gate.
+    #[test]
+    #[rustfmt::skip]
+    fn bwd_output_words_pinned() {
+        const DQ: [i64; 24] = [
+            0, 0, 0, 0, 0, 0, 0, 0,
+            -89_412_537, -105_019_881, -3_493_041, -19_389_255,
+            24_857_984, 29_197_053, 971_116, 5_390_495,
+            34_089_437, 20_786_620, 27_624_452, 29_569_978,
+            87_743_158, 57_758_291, 65_291_610, 71_208_737,
+        ];
+        const DK: [i64; 12] = [
+            -55_669_523, -47_028_061, -60_587_317, -41_268_569,
+            46_627_329, 46_199_651, 88_503_440, 44_676_327,
+            9_042_195, 828_411, -27_916_123, -3_407_757,
+        ];
+        const DV: [i64; 12] = [
+            2_642_607_552, 3_099_871_362, 1_620_427_068, 895_180_150,
+            822_966_771, -424_474_006, -177_315_446, 1_356_158_190,
+            231_325_757, -790_148_033, -1_326_414_850, 296_716_257,
+        ];
+        let (q, k, v, dout) = dims_fixture(11, 3, 2, 1, 4);
+        let (_, p) = attn_fwd(&q, &k, &v, 2, 1, 4).expect("forward");
+        let (dq, dk, dv) = attn_bwd(&q, &k, &v, &p, &dout, 2, 1, 4).expect("backward");
+        assert_eq!(dq, DQ, "dq words");
+        assert_eq!(dk, DK, "dk words");
+        assert_eq!(dv, DV, "dv words");
     }
 
     /// R8: paired microbench of the exact bodies and the kernel route at the file's production
