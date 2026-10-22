@@ -44,13 +44,14 @@ use apeiron::engine::loader::Engine;
 use apeiron::engine::KernelMode;
 use apeiron::format::gguf::Gguf;
 use apeiron::format::quant;
+use apeiron::learn::fold::fit::fold_fit::{fold_fit, FoldFitConfig};
 use apeiron::learn::fold::run::convert::{encode_f16, encode_f32};
 use apeiron::learn::fold::stats::capture::{Grams, Normalisation};
 use apeiron::learn::fold::stats::heldout::{held_out, held_out_kldbase_chunk};
 use apeiron::learn::fold::stats::kldbase::KldBase;
 use apeiron::learn::grad::load::layer_from_engine;
 use apeiron::learn::grad::model::Config;
-use apeiron::learn::solve::q32::from_grid;
+use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
 /// The teacher image: the `Qwen3.5-0.8B` artefact, binary16 (`llama-quantize f32 f16`), the image
 /// the cached fits were scored against.
@@ -187,6 +188,27 @@ fn ffn_down(engine: &Engine, cfg: &Config, l: usize) -> (Vec<i64>, String) {
     assert_eq!(d.rows, cfg.n_embd, "layer {l}: down rows");
     assert_eq!(d.cols, cfg.n_ff, "layer {l}: down cols");
     (d.w, format!("{:?}", ll.mixer))
+}
+
+/// The production call-site configuration (`fold_transfer.py:1733-1736`), copied from
+/// `tests/learn_gate_code.rs`.
+fn production_cfg() -> FoldFitConfig {
+    FoldFitConfig {
+        iters: 1,
+        ridge: 4_294_967,
+        damp: 42_949_673,
+        inner_iters: 3,
+        e8_beam: 4,
+        icm_ridge: 858_993_459,
+        sweeps: 2,
+    }
+}
+
+/// `x` as Q32.32 words, the one rounding into the grid; copied from `tests/learn_gate_code.rs`.
+fn qv(x: &[f64]) -> Vec<i64> {
+    x.iter()
+        .map(|&v| to_grid(v, GRID_BOUND).expect("grid"))
+        .collect()
 }
 
 /// The measured layers: every layer with a cached `key` fit.
@@ -536,18 +558,19 @@ fn xorshift64(state: &mut u64) -> u64 {
     x
 }
 
-/// The `k` retained `n_ff` columns under `select`: `energy` the `k` largest `c_i`, `random` `k`
-/// distinct indices from [`xorshift64`] seeded `0x9E3779B97F4A7C15 ^ l`.
+/// The `k` retained `n_ff` columns under `select`: the `k` largest entries of `score` for `energy`
+/// (the per-unit energy `c_i`) and `salience` (the input saliency), `random` `k` distinct indices
+/// from [`xorshift64`] seeded `0x9E3779B97F4A7C15 ^ l`.
 ///
-/// `O(n log n)` for the energy sort. The random walk draws `O(k / (1 − k/n))` in expectation (the
+/// `O(n log n)` for the sort. The random walk draws `O(k / (1 − k/n))` in expectation (the
 /// coupon-collector tail over `n` distinct indices); space `O(n)` for the index vector and the seen
 /// map.
-fn keep_indices(c: &[f64], k: usize, l: usize, select: &str) -> Vec<usize> {
-    let n = c.len();
+fn keep_indices(score: &[f64], k: usize, l: usize, select: &str) -> Vec<usize> {
+    let n = score.len();
     let k = k.min(n);
     if select != "random" {
         let mut idx: Vec<usize> = (0..n).collect();
-        idx.sort_by(|&a, &b| c[b].partial_cmp(&c[a]).expect("finite"));
+        idx.sort_by(|&a, &b| score[b].partial_cmp(&score[a]).expect("finite"));
         idx.truncate(k);
         return idx;
     }
@@ -562,6 +585,89 @@ fn keep_indices(c: &[f64], k: usize, l: usize, select: &str) -> Vec<usize> {
         }
     }
     out
+}
+
+/// The calibration `ffn_down` input Grams (`Grams::down`, tap stage [`TAP_M`]) over chunks `0..CALIB`
+/// of `chunks`, mean-normalised, returned per layer index over `0..cfg.n_layer` — empty for a layer
+/// not in `layers`.
+///
+/// Layout control per listed layer: the Gram diagonal against `Σ_t m_t[k]² / T` summed straight from
+/// the tap columns, relative error below `1e-4`. A feature-major buffer read as token rows (the
+/// defect this replaces) misses it by `O(1)`.
+///
+/// `Grams::accumulate_tap` carries the accumulation, `O(CALIB·tokens·(n_embd² + q_out² + n_ff²))`;
+/// this block adds `O(CALIB·|layers|·tokens·n_ff)` for the control. Space `O(n_layer·n_ff²)` for the
+/// finished Grams plus `O(|layers|·n_ff)`.
+fn calib_down(
+    engine: &Engine,
+    cfg: &Config,
+    chunks: &[Vec<u32>],
+    layers: &[usize],
+) -> Vec<Vec<f64>> {
+    let n = cfg.n_ff;
+    let mut grams = Grams::new(cfg).expect("grams");
+    let mut dm = vec![vec![0.0f64; n]; layers.len()];
+    let mut tokens = 0usize;
+    let t0 = Instant::now();
+    for c in 0..CALIB.min(chunks.len()) {
+        let rows = tapped(engine, &chunks[c]);
+        grams.accumulate_tap(&rows).expect("accumulate");
+        let t = rows.first().map_or(0, |st| st[TAP_M].len());
+        for (i, &l) in layers.iter().enumerate() {
+            for col in &rows[l][TAP_M] {
+                for (u, v) in unq(col).iter().enumerate() {
+                    dm[i][u] += v * v;
+                }
+            }
+        }
+        tokens += t;
+        println!(
+            "CALIB chunk {c} tokens {t} {:.1} s",
+            t0.elapsed().as_secs_f64()
+        );
+    }
+    let done = grams.finish(Normalisation::Mean).expect("finish");
+    drop(grams);
+    println!(
+        "CALIB calibration Grams {:.1} s",
+        t0.elapsed().as_secs_f64()
+    );
+    let mut out: Vec<Vec<f64>> = Vec::with_capacity(done.len());
+    for (l, g) in done.into_iter().enumerate() {
+        if let Some(i) = layers.iter().position(|&x| x == l) {
+            let h = &g.down;
+            let (num, den) = (0..n).fold((0.0f64, 0.0f64), |(a, b), u| {
+                let m = dm[i][u] / tokens as f64;
+                (a + (h[u * n + u] - m).powi(2), b + m * m)
+            });
+            let layout = (num / den).sqrt();
+            assert!(
+                layout < 1e-4,
+                "layer {l}: Gram diagonal off the tap columns by {layout}"
+            );
+            println!("CALIB layer {l} Gram diag layout rel {layout:.3e}");
+            out.push(g.down);
+        } else {
+            out.push(Vec::new());
+        }
+    }
+    out
+}
+
+/// The input saliency of each `ffn_down` column (LLM.int8, Dettmers et al. 2022; `SpQR`, Dettmers et al.
+/// 2023, arXiv 2306.03078): `s_i = H_ii · Σ_u D_ui²`, the metric weight on a column times the
+/// calibration activation energy it multiplies. Needs no fit.
+///
+/// `O(o·n)` multiply-adds, one pass over `d`; space `O(n)`.
+fn salience(h: &[f64], d: &[i64], o: usize, n: usize) -> Vec<f64> {
+    let mut sq = vec![0.0f64; n];
+    for u in 0..o {
+        for i in 0..n {
+            let v = from_grid(d[u * n + i]);
+            sq[i] += v * v;
+        }
+    }
+    (0..n).map(|i| h[i * n + i] * sq[i]).collect()
 }
 
 /// **Measurement 3** (board ). What keeping `K` teacher `ffn_down` columns per layer buys on the calibration
@@ -591,49 +697,10 @@ fn down_keep_fit() {
         "DOWNKEEP layers {layers:?} K {k} select {select} calib chunks 0..{CALIB} tokens/chunk \
          {n_ctx} n_embd {o} n_ff {n} (H = calibration chunks 0..{CALIB} mean Gram)"
     );
-    let t0 = Instant::now();
-    let mut grams = Grams::new(&cfg).expect("grams");
-    let mut dm = vec![vec![0.0f64; n]; layers.len()];
-    let mut tokens = 0usize;
-    for c in 0..CALIB {
-        let rows = tapped(&engine, &chunks[c]);
-        grams.accumulate_tap(&rows).expect("accumulate");
-        let t = rows.first().map_or(0, |st| st[TAP_M].len());
-        for (i, &l) in layers.iter().enumerate() {
-            for col in &rows[l][TAP_M] {
-                for (u, v) in unq(col).iter().enumerate() {
-                    dm[i][u] += v * v;
-                }
-            }
-        }
-        tokens += t;
-        println!(
-            "DOWNKEEP chunk {c} tokens {t} {:.1} s",
-            t0.elapsed().as_secs_f64()
-        );
-    }
-    let cal = grams.finish(Normalisation::Mean).expect("finish");
-    drop(grams);
-    println!(
-        "DOWNKEEP calibration Grams {:.1} s",
-        t0.elapsed().as_secs_f64()
-    );
-    for (i, &l) in layers.iter().enumerate() {
-        let h: &[f64] = &cal[l].down;
-        let (num, den) = (0..n).fold((0.0f64, 0.0f64), |(a, b), u| {
-            let m = dm[i][u] / tokens as f64;
-            (a + (h[u * n + u] - m).powi(2), b + m * m)
-        });
-        let layout = (num / den).sqrt();
-        assert!(
-            layout < 1e-4,
-            "layer {l}: Gram diagonal off the tap columns by {layout}"
-        );
-        println!("DOWNKEEP layer {l} Gram diag layout rel {layout:.3e}");
-    }
+    let cal = calib_down(&engine, &cfg, &chunks, &layers);
     for &l in &layers {
         let t = Instant::now();
-        let h: &[f64] = &cal[l].down;
+        let h: &[f64] = &cal[l];
         let (d, _mixer) = ffn_down(&engine, &cfg, l);
         let (ro, co, dhw) = read_words(&format!("{CACHE}/l{l}.down.i64"));
         assert_eq!((ro, co), (o, n), "layer {l}: cached down shape");
@@ -699,6 +766,158 @@ fn down_keep_fit() {
         write_words(&path, o, n, &kept).expect("write kept fit");
         println!("KEEP wrote {path}");
     }
+}
+
+/// **Measurement 5** (board ). The `SpQR` form of the `ffn_down` fit
+/// (Dettmers et al. 2023, arXiv 2306.03078): `K` teacher columns `S` are restored exactly after a fit
+/// of the other columns that already knows they will be, so the fit minimises its error on the masked
+/// metric `Hm` — `H` with `S`'s rows and columns zeroed and `ε` on `S`'s diagonal — against the target
+/// `D' = zeroCols(S, D)`.
+///
+/// The identity (`QuantVerdicts.ColumnRestore.masked_energy`) is
+/// `tr(E Hm Eᵀ) = J(zeroCols_S E) + ε Σ_S ‖e_i‖²`, so the masked fit minimises the restored energy
+/// plus an `ε` penalty on `S` alone; `Hm`'s off-`S` blocks are `H`'s, so the fit spends no error on
+/// columns that will be overwritten. `ε = 1e-2 · mean(diag H)` keeps `Hm`'s `S`-diagonal above the
+/// rounding grid.
+///
+/// `APEIRON_DOWN_LAYERS`, `APEIRON_DOWN_KEEP` (`K`, default 36), `APEIRON_DOWN_SELECT` (`energy` |
+/// `salience` | `random`). `H` is the mean Gram of calibration chunks `0..CALIB`, never a held-out
+/// chunk. Writes `{CACHE}/l{l}.down-spqr{K}-{select}.i64`, the fit with `S`'s columns taken from the
+/// teacher, for [`down_arm_kl`] (`APEIRON_DOWN_KEY=down-spqr{K}-{select}`).
+///
+/// A `random` mask whose masked fit refuses `NotPositiveDefinite` is redrawn (at most twice, seed
+/// `0x9E3779B97F4A7C15 ^ (l + 1024·attempt)`), with each refusal printed: the control's subject is a
+/// random `K`-set, not one particular draw. `energy` and `salience` are never redrawn.
+///
+/// Cost: `fold_fit` dominates at ~52 s per layer measured on this box (the count, not the wall, is
+/// the claim: `O(o·n² + gptq + inner_iters·(o·n² + n³ + e8_icm))`); three `energy_of` calls at
+/// `O(n_embd·n_ff²)` each — the `before`/`c` one, the masked `obj` one and the restored `after` one —
+/// plus `O(n²)` to mask `Hm` and `O(o·n)` to zero `D'` and restore `S`. Space `O(n² + o·n)` per
+/// layer.
+#[test]
+#[ignore = "builds the 8-chunk calibration Grams and runs production fold_fit on the masked metric"]
+fn down_spqr_fit() {
+    let engine = Engine::open(&model_path()).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let (chunks, n_ctx) = base_tokens(&base_path());
+    let layers = down_layers();
+    let k = env_usize("APEIRON_DOWN_KEEP", 36);
+    let select = std::env::var("APEIRON_DOWN_SELECT").unwrap_or_else(|_| String::from("energy"));
+    let (o, n) = (cfg.n_embd, cfg.n_ff);
+    let bits = k * o * 16 + k * 12;
+    println!(
+        "SPQR layers {layers:?} K {k} select {select} calib chunks 0..{CALIB} tokens/chunk {n_ctx} \
+         n_embd {o} n_ff {n} eps 1e-2*mean(diag H)"
+    );
+    let t0 = Instant::now();
+    let cal = calib_down(&engine, &cfg, &chunks, &layers);
+    let (mut sum_before, mut sum_after) = (0.0f64, 0.0f64);
+    for &l in &layers {
+        let h: &[f64] = &cal[l];
+        let (d, _mixer) = ffn_down(&engine, &cfg, l);
+        let (ro, co, dhw) = read_words(&format!("{CACHE}/l{l}.down.i64"));
+        assert_eq!((ro, co), (o, n), "layer {l}: cached down shape");
+        let e: Vec<i64> = dhw.iter().zip(&d).map(|(a, b)| a - b).collect();
+        let (before, _diag, c) = energy_of(&e, h, o, n);
+        let score = if select == "salience" {
+            salience(h, &d, o, n)
+        } else {
+            c
+        };
+        let mean_diag = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
+        let eps = 1e-2 * mean_diag;
+        let mut keep = keep_indices(&score, k, l, &select);
+        let mut attempt = 0usize;
+        let (fit, hm, dp, wall) = loop {
+            let mut mask = vec![false; n];
+            for &i in &keep {
+                mask[i] = true;
+            }
+            let mut hm = vec![0.0f64; n * n];
+            for i in 0..n {
+                for j in 0..n {
+                    hm[i * n + j] = if mask[i] || mask[j] {
+                        if i == j {
+                            eps
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        h[i * n + j]
+                    };
+                }
+            }
+            let mut dp = d.clone();
+            for &i in &keep {
+                for u in 0..o {
+                    dp[u * n + i] = 0;
+                }
+            }
+            let t = Instant::now();
+            match fold_fit(&dp, &qv(&hm), o, n, None, &production_cfg()) {
+                Ok(fit) => break (fit, hm, dp, t.elapsed().as_secs_f64()),
+                Err(err) => {
+                    // A random mask can leave the masked metric too near singular for the reduced
+                    // normal systems; the control's purpose is a random `K`-set, not this one, so
+                    // it is redrawn with `l + 1024·attempt` as the seed argument.
+                    println!(
+                        "SPQR layer {l:02} select {select} K {k} attempt {attempt} refused \
+                         {err:?}"
+                    );
+                    if select != "random" || attempt >= 2 {
+                        println!("SPQR layer {l:02} select {select} K {k} fit error {err:?}");
+                        return;
+                    }
+                    attempt += 1;
+                    keep = keep_indices(&score, k, l + 1024 * attempt, &select);
+                }
+            }
+        };
+        let mut out = fit.wp.clone();
+        for &i in &keep {
+            for u in 0..o {
+                out[u * n + i] = d[u * n + i];
+            }
+        }
+        let e2: Vec<i64> = out.iter().zip(&d).map(|(a, b)| a - b).collect();
+        let after = energy_of(&e2, h, o, n).0;
+        let ego: Vec<i64> = fit.wp.iter().zip(&dp).map(|(a, b)| a - b).collect();
+        let (obj, _od, _oc) = energy_of(&ego, &hm, o, n);
+        let mut pen = 0.0f64;
+        for &i in &keep {
+            for u in 0..o {
+                let v = from_grid(ego[u * n + i]);
+                pen += v * v;
+            }
+        }
+        let rhs = after + eps * pen;
+        let rel = (obj - rhs).abs() / rhs.abs().max(f64::MIN_POSITIVE);
+        let ratio = if before > 0.0 { after / before } else { 0.0 };
+        let bperw = bits as f64 / (o * n) as f64;
+        println!(
+            "SPQR layer {l:02} select {select} K {k} before {before:.6e} after {after:.6e} ratio \
+             {ratio:.4} ident rel {rel:.2e} fit {wall:.1} s bits +{bits} (+{bperw:.4} b/w)"
+        );
+        let path = format!("{CACHE}/l{l}.down-spqr{k}-{select}.i64");
+        write_words(&path, o, n, &out).expect("write spqr fit");
+        println!(
+            "SPQRIDENT layer {l:02} obj {obj:.6e} after {after:.6e} eps {eps:.6e} pen {pen:.6e} \
+             max|wp| on S {:.3e}",
+            keep.iter().fold(0.0f64, |m, &i| (0..o)
+                .map(|u| from_grid(fit.wp[u * n + i]).abs())
+                .fold(m, f64::max))
+        );
+        println!("SPQR wrote {path}");
+        sum_before += before;
+        sum_after += after;
+    }
+    println!(
+        "SPQR sum layers {} select {select} K {k} before {sum_before:.6e} after {sum_after:.6e} \
+         ratio {:.4} wall {:.1} s",
+        layers.len(),
+        sum_after / sum_before.max(f64::MIN_POSITIVE),
+        t0.elapsed().as_secs_f64()
+    );
 }
 
 /// **Measurement 4.** Held-out KL of one image whose `blk.<l>.ffn_down.weight` is the cached `KEY`
