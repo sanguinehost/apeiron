@@ -57,9 +57,8 @@
 //! [`crate::engine::Engine::lm_head_fixed`] produces the logits. `p` is not taped:
 //! [`attn::attn_fwd`] recomputes it from the tapped `q`/`k`/`v`, the same function whose `p`
 //! [`attn::attn_bwd`] consumes, so the file carries no second softmax body. The engine path is
-//! quantised, so its rows are not the exact `i128` forward's: the engine tape is the production
-//! source, and [`crate::learn::grad::model::forward`] remains only as the exact reference the tests
-//! compare against.
+//! quantised, so its rows are not the exact forward's: the engine tape is the production source, and
+//! the same engine under `KernelMode::Exact` is the reference the tests compare against.
 //!
 //! # Sampled targets: the sampler deviation
 //!
@@ -1146,8 +1145,7 @@ impl Hocapture {
     }
 
     /// Folds `K` draws of fixed `targets` into the accumulator from an already-computed forward:
-    /// `logits` (`t × vocab`) and `tape` as [`engine_tape`] or
-    /// [`crate::learn::grad::model::forward`] returned them.
+    /// `logits` (`t × vocab`) and `tape` as [`engine_tape`] returned them.
     ///
     /// One [`logits_grad_ce`] and one [`backward_with_taps`] per draw; the taps are folded by
     /// [`accumulate_kind`] against the tape's own input rows, so the weighting is the linear's real

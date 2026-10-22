@@ -1,5 +1,6 @@
-//! Gate A (forward logits bit-identical to `Engine::step_logits`) and gate B (backward analytic
-//! gradient against a central difference of the KL loss) over a 2-layer `qwen2` `F16`/`F32` fixture.
+//! Gate B (backward analytic gradient against a central difference of the KL loss) over a 2-layer
+//! `qwen2` `F16`/`F32` fixture, with the logits and the forward tape read from the engine's
+//! `KernelMode::Exact` prefill.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -12,8 +13,10 @@
 )]
 
 use super::*;
-use crate::engine::{Engine, ONE};
+use crate::engine::{Engine, KernelMode, ONE};
 use crate::format::quant::{GGML_TYPE_F16, GGML_TYPE_F32};
+use crate::learn::fold::run::convert::student_gguf_bytes;
+use crate::learn::fold::stats::hocapture::engine_tape_mode;
 use crate::learn::grad::head::kl_row;
 
 /// Embedding width and query projection width.
@@ -246,72 +249,21 @@ fn open_bytes(tag: &str, bytes: &[u8]) -> (Engine, String) {
     (Engine::open(&path).expect("open fixture"), path)
 }
 
-/// Gate A: `forward`'s logits equal `Engine::step_logits` bit-for-bit at every position.
-///
-/// The engine's default carrier is the `f32` one (`APEIRON_F32_CARRIER != "0"`), whose attention
-/// and `SwiGLU` are native binary32; the port is a pure-Q32 composition, so the gate compares
-/// against the Q32 carrier. `carrier_from_env` caches the variable in a process-wide `OnceLock`
-/// that any earlier test may already have set to `f32`, so the comparison runs in a child process
-/// of this test binary with `APEIRON_F32_CARRIER=0` and only the child test selected.
-#[test]
-fn forward_logits_match_step_logits_bit_for_bit() {
-    let out = std::process::Command::new(std::env::current_exe().expect("test binary"))
-        .args([
-            "--exact",
-            "learn::grad::model::tests::gate_a_q32_child",
-            "--ignored",
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .env("APEIRON_F32_CARRIER", "0")
-        .output()
-        .expect("spawn gate A child");
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        out.status.success() && stdout.contains("1 passed"),
-        "gate A child failed:\n{stdout}\n{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+/// The engine's `KernelMode::Exact` logits and [`Tape`] for `w` over the fixture image at `path`:
+/// the weights re-encoded into the fixture's directory ([`student_gguf_bytes`], binary16 matrices,
+/// binary32 norms and biases), the engine opened over those bytes, and one exact prefill with the
+/// head. The engine's `Exact` prefill is the forward's replacement oracle.
+fn exact_forward(path: &str, cfg: &Config, w: &Weights) -> (Vec<i64>, Tape) {
+    let bytes = student_gguf_bytes(path, w).expect("student image");
+    let engine = Engine::from_bytes(path, bytes).expect("student engine");
+    engine_tape_mode(&engine, cfg, &TOKENS, KernelMode::Exact).expect("exact engine tape")
 }
 
-/// The gate A body; run only by [`forward_logits_match_step_logits_bit_for_bit`] in a child
-/// process whose carrier is Q32.
-#[test]
-#[ignore = "run in a child process with APEIRON_F32_CARRIER=0 by forward_logits_match_step_logits_bit_for_bit"]
-fn gate_a_q32_child() {
-    let (engine, path) = open_fixture("gateA");
-    let mut kv = engine.decode_state(TOKENS.len()).expect("kv");
-    assert_eq!(
-        format!("{:?}", kv.carrier()),
-        "Q32",
-        "the Q32 gate needs the Q32 KvState carrier (APEIRON_F32_CARRIER=0)"
-    );
-    let (w, cfg) = Weights::from_engine(&engine).expect("weights");
-    let (logits, tape) = forward(&w, &cfg, &TOKENS).expect("forward");
-    assert_eq!(logits.len(), TOKENS.len() * V);
-    assert_eq!(tape.layers.len(), L);
-    for (t, &tok) in TOKENS.iter().enumerate() {
-        let want = engine.step_logits(&mut kv, tok).expect("engine logits");
-        assert_eq!(want.len(), V);
-        let got = &logits[t * V..(t + 1) * V];
-        if got != want.as_slice() {
-            let (idx, g, e) = got
-                .iter()
-                .zip(&want)
-                .enumerate()
-                .find(|(_, (a, b))| a != b)
-                .map(|(i, (a, b))| (i, *a, *b))
-                .expect("a difference exists");
-            panic!("position {t}: logit[{idx}] forward {g} != engine {e}");
-        }
-    }
-    let _ = std::fs::remove_file(&path);
-}
-
-/// The KL objective and its logit gradient at the student's `forward`; the teacher logits are fixed.
-fn objective(w: &Weights, cfg: &Config, tokens: &[u32], teacher: &[i64]) -> (i64, Vec<i64>) {
-    let (logits, _) = forward(w, cfg, tokens).expect("forward");
-    let t = tokens.len();
+/// The KL objective and its logit gradient at the student's engine `Exact` logits; the teacher
+/// logits are fixed.
+fn objective(path: &str, cfg: &Config, w: &Weights, teacher: &[i64]) -> (i64, Vec<i64>) {
+    let (logits, _) = exact_forward(path, cfg, w);
+    let t = TOKENS.len();
     let v = cfg.vocab;
     let mut loss = 0i64;
     let mut dz = vec![0i64; t * v];
@@ -435,26 +387,27 @@ fn perturb_teacher(w: &mut Weights, salt: u64, amp: i64) {
 /// `token_embd`. `H` is `2^-12` of a Q32.32 unit; the tolerance is [`FD_TOL`] Q32.32 units.
 #[test]
 fn backward_matches_finite_difference() {
-    // FD step `2^20` Q32.32 units (`2^-12` of a unit). The forward rounds once per stage, so
-    // `L(w)` is a staircase whose step is a few Q32.32 ULPs; over `2H = 2^21` Q32.32 units the
-    // central difference averages the staircase to `O(noise·ONE/(2H))`, while the `O(H²)`
-    // curvature term stays well below it (the teacher's nudge is `2^26`, so `ΔL ≫` the step).
+    // FD step `2^20` Q32.32 units (`2^-12` of a unit). The engine's `Exact` forward rounds once
+    // per stage and each evaluation re-encodes `w` into the fixture's binary16 matrices, so `L(w)`
+    // is a staircase whose step is a few Q32.32 ULPs; over `2H = 2^21` Q32.32 units the central
+    // difference averages the staircase to `O(noise·ONE/(2H))`, while the `O(H²)` curvature term
+    // stays well below it (the teacher's nudge is `2^26`, so `ΔL ≫` the step).
     const H: i64 = 1 << 20;
     // Tolerance in Q32.32 gradient units, derived: a per-evaluation loss noise of `≤ 8` Q32.32
     // ULPs (one rounding per stage, `T = 4` positions) contributes `8·ONE/(2H) = 8·2^11 = 2^14`
     // after the `ONE/(2H)` rescale; the `O(H²)` truncation and the backward's own per-stage
-    // roundings are smaller at this fixture. The measured worst coordinate is `wv` at `7820`
-    // (`0.48·2^14`); the mutation control moves a gradient by `O(1)` relative, far above it.
+    // roundings are smaller at this fixture. The measured worst coordinate is `wv` at `7180`
+    // (`0.44·2^14`); the mutation control moves a gradient by `O(1)` relative, far above it.
     const FD_TOL: i64 = 1 << 14;
 
     let (engine, path) = open_fixture("gateB");
     let (w, cfg) = Weights::from_engine(&engine).expect("weights");
-    let (_, tape) = forward(&w, &cfg, &TOKENS).expect("forward");
+    let (_, tape) = exact_forward(&path, &cfg, &w);
 
     let mut w_teacher = w.clone();
     perturb_teacher(&mut w_teacher, 1, 1 << 26);
-    let (teacher, _) = forward(&w_teacher, &cfg, &TOKENS).expect("teacher");
-    let (base_loss, dz) = objective(&w, &cfg, &TOKENS, &teacher);
+    let (teacher, _) = exact_forward(&path, &cfg, &w_teacher);
+    let (base_loss, dz) = objective(&path, &cfg, &w, &teacher);
     assert_ne!(base_loss, 0, "the KL base loss is zero");
     let grads = backward(&w, &cfg, &tape, &dz).expect("backward");
 
@@ -474,10 +427,10 @@ fn backward_matches_finite_difference() {
         let orig = element(&w, c);
         let mut wp = w.clone();
         add_element(&mut wp, c, H);
-        let lp = objective(&wp, &cfg, &TOKENS, &teacher).0;
+        let lp = objective(&path, &cfg, &wp, &teacher).0;
         let mut wm = w.clone();
         add_element(&mut wm, c, -H);
-        let lm = objective(&wm, &cfg, &TOKENS, &teacher).0;
+        let lm = objective(&path, &cfg, &wm, &teacher).0;
         // `lp − lm` is Δ(L·2^32); `H` is the step in `w`; multiplying by `ONE/(2H)` gives
         // `ONE·∂L/∂W`, the convention the backward's gradients are returned in.
         let fd = (lp - lm) as f64 * (ONE as f64) / (2.0 * H as f64);

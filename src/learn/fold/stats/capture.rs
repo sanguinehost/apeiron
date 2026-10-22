@@ -5,7 +5,7 @@
 //! | source | fn | activations |
 //! |---|---|---|
 //! | the executing engine's prefill tap | [`Grams::accumulate_tap`] | the rows [`crate::engine::Engine::prefill_tap_cols`] records |
-//! | the Q32.32 [`Tape`] of [`crate::learn::grad::model::forward`] | [`Grams::accumulate`] | the exact `i128` reference forward |
+//! | a Q32.32 [`Tape`] (the engine's `KernelMode::Exact` prefill) | [`Grams::accumulate`] | the exact reference rows |
 //!
 //! Both accumulate, per trunk layer and per linear input, the unweighted scatter
 //! `H = Σ_t x_t x_tᵀ` over the tokens, `x_t` the linear's input row. The engine source is the
