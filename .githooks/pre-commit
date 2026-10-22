@@ -342,6 +342,31 @@ structure_tree() {
 }
 run_step structure "$step_budget" bash -c "$(declare -f structure_tree); structure_tree"
 
+# Step 9, the extraction crate builds (AGENTS.md §4 obligation 3). `proof/extract` includes real
+# sources by `#[path]`, and their `mod` children by ordinary resolution, so a `src/` edit can break
+# it while the main crate still builds (9ebdaa7c: train.rs imported a run/transfer.rs item the
+# extraction does not include). The trigger is a superset, every staged `src/**/*.rs` or
+# `proof/extract/` path, so no included child module is missed. It checks the staged tree,
+# exported to a private directory. This catches a Rust build break only; an Aeneas translation
+# refusal is caught by `proof/regen.sh`, not here. Controls:
+# /home/socol/oc-tmp/escalation/lead-1022/extract-hook-control.sh.
+# Row: APEIRON-QUALITY-118-W1-T01 (owner go, 2026-10-22).
+extraction_build() {
+  local dir rc
+  if [ -z "$(git diff --cached --name-only --diff-filter=ACMRD -- 'src/*.rs' 'src/**/*.rs' 'proof/extract/*')" ]; then
+    echo "pre-commit: extraction-build: SKIP (no staged src/*.rs or proof/extract/ path)"
+    return 0
+  fi
+  dir=$(mktemp -d) || return 1
+  git checkout-index -a --prefix="$dir/" &&
+    systemd-run --user --scope -q -p MemoryMax=4G -p MemorySwapMax=0 -- \
+      cargo check -q --locked --offline --lib --manifest-path "$dir/proof/extract/Cargo.toml"
+  rc=$?
+  rm -rf "$dir"
+  return $rc
+}
+run_step extraction-build "$step_budget" bash -c "$(declare -f extraction_build); extraction_build"
+
 if (( status != 0 )); then
   echo "pre-commit: REFUSED; the commit was not created" >&2
 else
