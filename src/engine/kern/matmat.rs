@@ -3,7 +3,8 @@
 //!
 //! For `Q8_0` and `Q5_0` each weight block is decoded once and dotted against all `k` activation
 //! blocks while its bytes are in registers, so the weight payload is read once per call instead of
-//! once per column. The additive decomposition is the one [`matvec_q8act`]'s fast row uses —
+//! once per column; for `Q4_K` and `Q6_K` the packed-lane kernels of `chart::kcols` do the same.
+//! The additive decomposition is the one [`matvec_q8act`]'s fast row uses —
 //! `Σ_b S_b·(d_b·Σ_l q_l·xq_{c,l})` in exact `i128` — so the integers are equal, the single
 //! [`round_shift_32`] epilogue is equal, and the `i64` range check is equal. The fast kernel runs
 //! only when [`matvec_q8act`] itself would take its fast row for every column (`Q8_0`/`Q5_0`, a
@@ -100,9 +101,10 @@ enum RowOutcome {
 /// &qs[c])` for every `c`, including the same `Err`.
 ///
 /// `Q8_0` and `Q5_0` with a whole-block width, `k ≤ 16`, exact activation magnitudes and a
-/// call-level overflow bound run the shared-decode kernel; every other input is the per-column
-/// [`matvec_q8act`]. Either way column `c` equals the per-column call bit for bit, so a caller may
-/// read the k columns as k independent projections.
+/// call-level overflow bound run the shared-decode kernel; `Q4_K` and `Q6_K` run the pooled
+/// multi-column kernel of `chart::kcols` under the same exactness conditions; every other input is
+/// the per-column [`matvec_q8act`]. Either way column `c` equals the per-column call bit for bit, so
+/// a caller may read the k columns as k independent projections.
 ///
 /// # Errors
 ///
@@ -122,6 +124,12 @@ enum RowOutcome {
               `i64::MIN`/`i64::MAX` range check; `TryFrom` emits an unmodeled external the pinned \
               fail-closed extraction audit rejects"
 )]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the family dispatch, the row loop and the per-column refusal assembly are one \
+              column-state machine: each live/overflow/fallback transition is one branch, and \
+              factoring a branch out would move the state it decides away from the loop"
+)]
 pub(crate) fn matmat_q8act(
     ggml_type: u32,
     raw: &[u8],
@@ -135,6 +143,23 @@ pub(crate) fn matmat_q8act(
         return Ok(cols);
     }
     let k = qs.len();
+    // `Q4_K`/`Q6_K`: the packed-lane kernels of `chart::kcols` read each weight row once per call
+    // and defer every refusal to the per-column path below, so `None` only costs this attempt.
+    #[cfg(target_arch = "x86_64")]
+    {
+        let kq = match ggml_type {
+            crate::format::quant::GGML_TYPE_Q4_K => {
+                crate::engine::chart::gemm_q4_k(raw, n_out, n_in, qs)
+            }
+            crate::format::quant::GGML_TYPE_Q6_K => {
+                crate::engine::chart::gemm_q6_k(raw, n_out, n_in, qs)
+            }
+            _ => None,
+        };
+        if let Some(cols) = kq {
+            return Ok(cols);
+        }
+    }
     let Some(family) = fast_family(ggml_type, n_in, qs) else {
         return per_column(ggml_type, raw, n_out, n_in, qs);
     };
@@ -1039,6 +1064,79 @@ mod tests {
         let huge = quant_act(&vec![127i64 << 56; 32])
             .expect("127·2^56 dequantizes on the power-of-two grid");
         check_columns(q8, &one, 1, 32, &[huge]);
+    }
+
+    /// `matmat_q8act` on `qs` equals `k` per-column [`matvec_q8act`] calls, or the lowest-indexed
+    /// column's refusal; a divergence names the type, the width, the column count and the column.
+    fn check_kquant_columns(
+        ggml_type: u32,
+        raw: &[u8],
+        n_out: usize,
+        n_in: usize,
+        k: usize,
+        qs: &[QuantAct],
+    ) {
+        assert_eq!(qs.len(), k, "fixture column count");
+        let expected: Vec<Result<Vec<i64>, MatvecError>> = qs
+            .iter()
+            .map(|q| matvec_q8act(ggml_type, raw, n_out, n_in, q))
+            .collect();
+        match matmat_q8act(ggml_type, raw, n_out, n_in, qs) {
+            Ok(cols) => {
+                assert_eq!(
+                    cols.len(),
+                    k,
+                    "type {ggml_type} n_in {n_in} k {k}: column count"
+                );
+                for (c, e) in expected.iter().enumerate() {
+                    assert_eq!(
+                        &cols[c],
+                        e.as_ref().expect("every column must be Ok"),
+                        "type {ggml_type} n_in {n_in} k {k} column {c} diverged"
+                    );
+                }
+            }
+            Err(e) => {
+                let first = expected.iter().find_map(|r| r.as_ref().err());
+                assert_eq!(
+                    Some(&e),
+                    first,
+                    "type {ggml_type} n_in {n_in} k {k} refusal must be the first column's"
+                );
+            }
+        }
+    }
+
+    /// `Q4_K`/`Q6_K` on the pooled multi-column kernel: `n_out = 7` rows, `n_in ∈ {256, 1024}` and
+    /// `k ∈ {1, 3, 33, 64}` (crossing the 32-column group), random codes and packed scales from a
+    /// fixed seed. `matmat_q8act` equals `k` per-column `matvec_q8act` calls word for word, including
+    /// the refusal class (a payload one byte short), and a 133-row payload crosses the pool's row
+    /// split.
+    #[test]
+    fn kquant_columns_match_per_column_matvec_q8act() {
+        const KS: [usize; 4] = [1, 3, 33, 64];
+        let n_out = 7usize;
+        let mut seed = 0x0ddc_0ffe_e123_4567u64;
+        for &ggml_type in &[GGML_TYPE_Q4_K, GGML_TYPE_Q6_K] {
+            for &n_in in &[256usize, 1024] {
+                seed = seed
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                let raw = random_payload(ggml_type, n_out, n_in, 0x3800, seed);
+                for &k in &KS {
+                    let qs = acts(n_in, k, seed ^ ((k as u64) << 19));
+                    check_kquant_columns(ggml_type, &raw, n_out, n_in, k, &qs);
+                }
+                // The refusal class travels: one byte short of the payload every column refuses on.
+                let qs = acts(n_in, 3, seed ^ 0xfeed);
+                check_kquant_columns(ggml_type, &raw[..raw.len() - 1], n_out, n_in, 3, &qs);
+            }
+            // 133 rows is two pool pieces at `row_chunk_budget`'s minimum chunk of 64 rows.
+            let (n_in, k) = (256usize, 3usize);
+            let raw = random_payload(ggml_type, 133, n_in, 0x3800, seed ^ 0x99);
+            let qs = acts(n_in, k, seed ^ 0xaa);
+            check_kquant_columns(ggml_type, &raw, 133, n_in, k, &qs);
+        }
     }
 
     /// The AVX2 block cores return the same exact `i32` dots as their portable twins on random

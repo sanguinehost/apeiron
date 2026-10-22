@@ -4,6 +4,7 @@
     clippy::cast_possible_wrap,
     clippy::cast_lossless,
     clippy::many_single_char_names,
+    clippy::too_many_lines,
     reason = "test-only fixture arithmetic on bounded small values; not extracted"
 )]
 
@@ -907,4 +908,590 @@ fn bench_pooled_shapes() {
             (n_out * row_bytes) as f64 / 1e6
         );
     }
+}
+
+/// `k` activation columns on distinct seeds, with each column's `Σ xq` per 32-lane group laid out
+/// column-major (`xs[c·groups + g]`), which is the layout both multi-column kernels read.
+fn kcols_columns(n_in: usize, k: usize, seed: u64) -> (Vec<QuantAct>, Vec<i32>, usize) {
+    let groups = n_in / ACT_QK;
+    let mut acts: Vec<QuantAct> = Vec::with_capacity(k);
+    let mut xs: Vec<i32> = Vec::with_capacity(k * groups);
+    let mut c = 0usize;
+    while c < k {
+        let column_seed = seed ^ (c as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        let q = quant_act(&random_x(n_in, column_seed)).expect("small activations dequantize");
+        xs.extend_from_slice(&block_xsums(&q.codes));
+        acts.push(q);
+        c += 1;
+    }
+    (acts, xs, groups)
+}
+
+/// `q4_k_row_kcols_avx2` column `c` is the single-column `q4_k_row_avx2` value for column `c`, word
+/// for word, on every `Q4_K` geometry the chart's K-quant tests use — including the partial trailing
+/// block at `n_in = 192` and the `ffn_up` width at `n_in = 1024` — and for `k` in `{1, 3, 8, 17}`;
+/// and both refuse a row whose block scales are `Inf`.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn q4_k_kcols_matches_single_column_calls() {
+    const GEOMS: [(usize, usize); 3] = [(2, 512), (1, 192), (1, 1024)];
+    const KS: [usize; 4] = [1, 3, 8, 17];
+    // `dmin = 0x3400` (0.25) keeps the affine `dmin·m` term non-zero, so a kernel that dropped it
+    // would diverge here rather than on a zero.
+    const D: u16 = 0x3c00;
+    const DMIN: u16 = 0x3400;
+    if !x86::avx2() {
+        return;
+    }
+    let mut seed = 0x0a4b_5eed_1234_5678u64;
+    for (rows, n_in) in GEOMS {
+        let pairs = n_in / 64;
+        let (qk, bb) = quant::block_geom(quant::GGML_TYPE_Q4_K).expect("Q4_K geometry");
+        let row_bytes = n_in.div_ceil(qk) * bb;
+        let raw = random_payload(quant::GGML_TYPE_Q4_K, rows, n_in, D, DMIN, seed);
+        let inf = random_payload(quant::GGML_TYPE_Q4_K, rows, n_in, 0x7c00, DMIN, seed);
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        for k in KS {
+            let (acts, xs, groups) = kcols_columns(n_in, k, seed ^ k as u64);
+            let mut r = 0usize;
+            while r < rows {
+                let row = &raw[r * row_bytes..(r + 1) * row_bytes];
+                let mut acc = vec![0i128; k];
+                // SAFETY: AVX2 was detected above; the row holds `pairs` pairs of this geometry and
+                // every column holds `groups` blocks of codes and scales.
+                let got = unsafe { q4_k_row_kcols_avx2(row, pairs, &acts, &xs, &mut acc) };
+                assert!(
+                    got.is_some(),
+                    "q4_k kcols refused rows {rows} n_in {n_in} row {r}"
+                );
+                let mut c = 0usize;
+                while c < k {
+                    let window = &xs[c * groups..(c + 1) * groups];
+                    // SAFETY: same geometry as the multi-column call.
+                    let one = unsafe {
+                        q4_k_row_avx2(row, pairs, &acts[c].codes, &acts[c].scales, window)
+                    };
+                    assert_eq!(
+                        Some(acc[c]),
+                        one,
+                        "q4_k kcols geometry (rows {rows}, n_in {n_in}, k {k}) row {r} column {c} \
+                         diverged from the single-column call"
+                    );
+                    c += 1;
+                }
+                r += 1;
+            }
+            // Extreme scale: a non-finite `d` is the single-column row's refusal, identical for
+            // every column and therefore for the multi-column kernel.
+            let mut acc = vec![0i128; k];
+            // SAFETY: same geometry as the finite payload.
+            let got =
+                unsafe { q4_k_row_kcols_avx2(&inf[..row_bytes], pairs, &acts, &xs, &mut acc) };
+            assert!(
+                got.is_none(),
+                "q4_k kcols must refuse a non-finite block scale (n_in {n_in}, k {k})"
+            );
+            // SAFETY: same geometry as the finite payload.
+            let one = unsafe {
+                q4_k_row_avx2(
+                    &inf[..row_bytes],
+                    pairs,
+                    &acts[0].codes,
+                    &acts[0].scales,
+                    &xs[..groups],
+                )
+            };
+            assert!(
+                one.is_none(),
+                "the single-column q4_k row must refuse the same payload"
+            );
+        }
+    }
+}
+
+/// `q6_k_row_kcols_avx2` column `c` is the single-column `q6_k_row_avx2` value for column `c`, word
+/// for word, on the chart's `Q6_K` geometries (two blocks and three blocks) and for `k` in
+/// `{1, 3, 8, 17}`; and both refuse a row whose block scale is `Inf`.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn q6_k_kcols_matches_single_column_calls() {
+    const GEOMS: [(usize, usize); 2] = [(2, 512), (1, 768)];
+    const KS: [usize; 4] = [1, 3, 8, 17];
+    const D: u16 = 0x3800;
+    if !x86::avx2() {
+        return;
+    }
+    let mut seed = 0x6b6b_1357_2468_ace0u64;
+    for (rows, n_in) in GEOMS {
+        let blocks = n_in / QK_K;
+        let (qk, bb) = quant::block_geom(quant::GGML_TYPE_Q6_K).expect("Q6_K geometry");
+        let row_bytes = n_in.div_ceil(qk) * bb;
+        let raw = random_payload(quant::GGML_TYPE_Q6_K, rows, n_in, D, D, seed);
+        let inf = random_payload(quant::GGML_TYPE_Q6_K, rows, n_in, 0x7c00, D, seed);
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        for k in KS {
+            let (acts, _xs, _groups) = kcols_columns(n_in, k, seed ^ k as u64);
+            let mut r = 0usize;
+            while r < rows {
+                let row = &raw[r * row_bytes..(r + 1) * row_bytes];
+                let mut acc = vec![0i128; k];
+                // SAFETY: AVX2 was detected above; the row holds `blocks` blocks of this geometry and
+                // every column holds `8·blocks` groups of codes and scales.
+                let got = unsafe { q6_k_row_kcols_avx2(row, blocks, &acts, &mut acc) };
+                assert!(
+                    got.is_some(),
+                    "q6_k kcols refused rows {rows} n_in {n_in} row {r}"
+                );
+                let mut c = 0usize;
+                while c < k {
+                    // SAFETY: same geometry as the multi-column call.
+                    let one =
+                        unsafe { q6_k_row_avx2(row, blocks, &acts[c].codes, &acts[c].scales) };
+                    assert_eq!(
+                        Some(acc[c]),
+                        one,
+                        "q6_k kcols geometry (rows {rows}, n_in {n_in}, k {k}) row {r} column {c} \
+                         diverged from the single-column call"
+                    );
+                    c += 1;
+                }
+                r += 1;
+            }
+            let mut acc = vec![0i128; k];
+            // SAFETY: same geometry as the finite payload.
+            let got = unsafe { q6_k_row_kcols_avx2(&inf[..row_bytes], blocks, &acts, &mut acc) };
+            assert!(
+                got.is_none(),
+                "q6_k kcols must refuse a non-finite block scale (n_in {n_in}, k {k})"
+            );
+            // SAFETY: same geometry as the finite payload.
+            let one = unsafe {
+                q6_k_row_avx2(&inf[..row_bytes], blocks, &acts[0].codes, &acts[0].scales)
+            };
+            assert!(
+                one.is_none(),
+                "the single-column q6_k row must refuse the same payload"
+            );
+        }
+    }
+}
+
+/// `k` activation columns whose per-32-block magnitudes span `2^0 … 2^29` across the row, from the
+/// same deterministic stream as [`kcols_columns`]: the wide-spread set of the `gemm_q*_k` equality
+/// tests.
+fn spread_columns(n_in: usize, k: usize, seed: u64) -> Vec<QuantAct> {
+    let groups = n_in / ACT_QK;
+    let mut acts: Vec<QuantAct> = Vec::with_capacity(k);
+    let mut c = 0usize;
+    while c < k {
+        let column_seed = seed ^ (c as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        let mut x = random_x(n_in, column_seed);
+        let mut b = 0usize;
+        while b < groups {
+            // Block `b` scaled by `2^(29·b/(groups − 1))`: 29 powers of two across the row, past the
+            // `28` of `spread_limit(32)` at `n_in = 1024`, so a shift-grid `i64` lane cannot carry it
+            // and the fold is the exact `i128` path.
+            let shift = if groups > 1 {
+                (b * 29) / (groups - 1)
+            } else {
+                0
+            };
+            let mut l = 0usize;
+            while l < ACT_QK {
+                x[b * ACT_QK + l] <<= shift;
+                l += 1;
+            }
+            b += 1;
+        }
+        acts.push(quant_act(&x).expect("power-of-two spans stay inside i64"));
+        c += 1;
+    }
+    acts
+}
+
+/// `gemm_q4_k` column `c` is `matvec_q8act(Q4_K, …)`'s value for column `c`, word for word, at
+/// `n_out = 7`, `n_in ∈ {256, 1024}` and `k ∈ {1, 3, 8, 9, 33}`, on random codes and scales and on
+/// [`spread_columns`]; a non-finite block scale, a column past the fast bound and a ragged width
+/// refuse with `None` (the contract path owns those values).
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn gemm_q4_k_equals_the_per_column_contract() {
+    const N_OUT: usize = 7;
+    const GEOMS: [usize; 2] = [256, 1024];
+    const KS: [usize; 5] = [1, 3, 8, 9, 33];
+    const D: u16 = 0x3c00;
+    const DMIN: u16 = 0x3400;
+    if !x86::avx2() {
+        return;
+    }
+    let _serial = LANE_PATH
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut seed = 0x5eed_0a4b_1234_5678u64;
+    for n_in in GEOMS {
+        let raw = random_payload(quant::GGML_TYPE_Q4_K, N_OUT, n_in, D, DMIN, seed);
+        let inf = random_payload(quant::GGML_TYPE_Q4_K, N_OUT, n_in, 0x7c00, DMIN, seed);
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        for k in KS {
+            for wide in [false, true] {
+                let acts = if wide {
+                    spread_columns(n_in, k, seed ^ k as u64)
+                } else {
+                    kcols_columns(n_in, k, seed ^ k as u64).0
+                };
+                super::kcols::reset_i128_groups();
+                let got = gemm_q4_k(&raw, N_OUT, n_in, &acts).unwrap_or_else(|| {
+                    panic!(
+                        "gemm_q4_k refused a contract-fast call (n_in {n_in}, k {k}, wide {wide})"
+                    )
+                });
+                assert_eq!(got.len(), k, "column count (n_in {n_in}, k {k})");
+                let mut c = 0usize;
+                while c < k {
+                    assert_eq!(
+                        got[c].len(),
+                        N_OUT,
+                        "rows of column {c} (n_in {n_in}, k {k})"
+                    );
+                    let want = matvec_q8act(quant::GGML_TYPE_Q4_K, &raw, N_OUT, n_in, &acts[c])
+                        .expect("the contract computes every random column");
+                    assert_eq!(
+                        got[c], want,
+                        "gemm_q4_k geometry (n_in {n_in}, k {k}, wide {wide}) column {c} diverged \
+                         from matvec_q8act"
+                    );
+                    c += 1;
+                }
+                let folds = super::kcols::I128_GROUPS.load(std::sync::atomic::Ordering::Relaxed);
+                assert_eq!(
+                    folds == 0,
+                    !wide,
+                    "gemm_q4_k n_in {n_in} k {k} wide {wide}: {folds} groups folded in i128"
+                );
+                if !wide {
+                    assert!(
+                        gemm_q4_k(&inf, N_OUT, n_in, &acts).is_none(),
+                        "gemm_q4_k must refuse a non-finite block scale (n_in {n_in}, k {k})"
+                    );
+                    let over = [QuantAct {
+                        scales: vec![i64::MAX / 2; n_in / ACT_QK],
+                        codes: vec![127; n_in],
+                    }];
+                    assert!(
+                        gemm_q4_k(&raw, N_OUT, n_in, &over).is_none(),
+                        "gemm_q4_k must refuse a column past the fast bound (n_in {n_in}, k {k})"
+                    );
+                    assert!(
+                        matvec_q8act(quant::GGML_TYPE_Q4_K, &raw, N_OUT, n_in, &over[0]).is_err(),
+                        "and the contract itself refuses that column"
+                    );
+                }
+            }
+        }
+        // A width that is not a multiple of 64 is not a `Q4_K` fast row: refused at admission.
+        let ragged = kcols_columns(n_in - ACT_QK, 1, seed).0;
+        assert!(
+            gemm_q4_k(&raw, N_OUT, n_in - ACT_QK, &ragged).is_none(),
+            "gemm_q4_k must refuse a width that is not a multiple of 64"
+        );
+    }
+}
+
+/// Serialises the tests that assert on [`super::kcols::I128_GROUPS`], a process-wide counter.
+static LANE_PATH: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// `k` activation columns whose 32-lane block scales span exactly `span` powers of two: the
+/// admissibility-edge set, whose per-column spread `e_max − e_min` is exactly `span`.
+fn spread_span_columns(n_in: usize, k: usize, seed: u64, span: u32) -> Vec<QuantAct> {
+    let groups = n_in / ACT_QK;
+    let den = (groups as u32).saturating_sub(1).max(1);
+    let mut acts: Vec<QuantAct> = Vec::with_capacity(k);
+    let mut c = 0usize;
+    while c < k {
+        let mut x = random_x(n_in, seed ^ (c as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let mut b = 0usize;
+        while b < groups {
+            let shift = b as u32 * span / den;
+            let mut l = 0usize;
+            while l < ACT_QK {
+                x[b * ACT_QK + l] <<= shift;
+                l += 1;
+            }
+            b += 1;
+        }
+        acts.push(quant_act(&x).expect("power-of-two spans stay inside i64"));
+        c += 1;
+    }
+    acts
+}
+
+/// The packed-lane kernel takes the `i64` lane at the exact admissibility edge (`kspread + spread ==
+/// limit`) and the exact `i128` fold one past it; both agree with the per-column contract.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn gemm_q4_k_switches_to_the_i128_fold_past_the_lane_bound() {
+    const N_OUT: usize = 4;
+    const N_IN: usize = 1024;
+    const K: usize = 3;
+    const D: u16 = 0x3c00;
+    const DMIN: u16 = 0x3400;
+    use std::sync::atomic::Ordering;
+    if !x86::avx2() {
+        return;
+    }
+    let _serial = LANE_PATH
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let raw = random_payload(quant::GGML_TYPE_Q4_K, N_OUT, N_IN, D, DMIN, 0x5eed_0bad);
+    let limit = super::kcols::lane_spread_limit(N_IN / ACT_QK);
+    assert_eq!(
+        limit, 23,
+        "34 + ⌈log₂ 32⌉ + spread ≤ 62 pins the limit at 23"
+    );
+    // `0x3c00` is `2^22` and `0x3400` is `2^20` in Q32.32, so the row's own spread is 2.
+    let base = limit - 2;
+    for (span, lane_wanted) in [(base, true), (base + 1, false)] {
+        let acts = spread_span_columns(N_IN, K, 0x9e37_1234, span);
+        super::kcols::reset_i128_groups();
+        let got = gemm_q4_k(&raw, N_OUT, N_IN, &acts).expect("the edge call is admitted");
+        let folds = super::kcols::I128_GROUPS.load(Ordering::Relaxed);
+        assert_eq!(
+            folds == 0,
+            lane_wanted,
+            "span {span} of limit {limit}: {folds} column groups took the i128 fold"
+        );
+        let want = matvec_q8act(quant::GGML_TYPE_Q4_K, &raw, N_OUT, N_IN, &acts[0])
+            .expect("the contract computes the edge column");
+        assert_eq!(got[0], want, "span {span} diverged from matvec_q8act");
+    }
+}
+
+/// As [`gemm_q4_k_equals_the_per_column_contract`] for `Q6_K`, with its 256-wide alignment.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn gemm_q6_k_equals_the_per_column_contract() {
+    const N_OUT: usize = 7;
+    const GEOMS: [usize; 2] = [256, 1024];
+    const KS: [usize; 5] = [1, 3, 8, 9, 33];
+    const D: u16 = 0x3800;
+    if !x86::avx2() {
+        return;
+    }
+    let _serial = LANE_PATH
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut seed = 0x0bad_c0de_2468_1357u64;
+    for n_in in GEOMS {
+        let raw = random_payload(quant::GGML_TYPE_Q6_K, N_OUT, n_in, D, D, seed);
+        let inf = random_payload(quant::GGML_TYPE_Q6_K, N_OUT, n_in, 0x7c00, D, seed);
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        for k in KS {
+            for wide in [false, true] {
+                let acts = if wide {
+                    spread_columns(n_in, k, seed ^ k as u64)
+                } else {
+                    kcols_columns(n_in, k, seed ^ k as u64).0
+                };
+                super::kcols::reset_i128_groups();
+                let got = gemm_q6_k(&raw, N_OUT, n_in, &acts).unwrap_or_else(|| {
+                    panic!(
+                        "gemm_q6_k refused a contract-fast call (n_in {n_in}, k {k}, wide {wide})"
+                    )
+                });
+                assert_eq!(got.len(), k, "column count (n_in {n_in}, k {k})");
+                let mut c = 0usize;
+                while c < k {
+                    assert_eq!(
+                        got[c].len(),
+                        N_OUT,
+                        "rows of column {c} (n_in {n_in}, k {k})"
+                    );
+                    let want = matvec_q8act(quant::GGML_TYPE_Q6_K, &raw, N_OUT, n_in, &acts[c])
+                        .expect("the contract computes every random column");
+                    assert_eq!(
+                        got[c], want,
+                        "gemm_q6_k geometry (n_in {n_in}, k {k}, wide {wide}) column {c} diverged \
+                         from matvec_q8act"
+                    );
+                    c += 1;
+                }
+                let folds = super::kcols::I128_GROUPS.load(std::sync::atomic::Ordering::Relaxed);
+                assert_eq!(
+                    folds == 0,
+                    !wide,
+                    "gemm_q6_k n_in {n_in} k {k} wide {wide}: {folds} groups folded in i128"
+                );
+                if !wide {
+                    assert!(
+                        gemm_q6_k(&inf, N_OUT, n_in, &acts).is_none(),
+                        "gemm_q6_k must refuse a non-finite block scale (n_in {n_in}, k {k})"
+                    );
+                    let over = [QuantAct {
+                        scales: vec![i64::MAX / 2; n_in / ACT_QK],
+                        codes: vec![127; n_in],
+                    }];
+                    assert!(
+                        gemm_q6_k(&raw, N_OUT, n_in, &over).is_none(),
+                        "gemm_q6_k must refuse a column past the fast bound (n_in {n_in}, k {k})"
+                    );
+                    assert!(
+                        matvec_q8act(quant::GGML_TYPE_Q6_K, &raw, N_OUT, n_in, &over[0]).is_err(),
+                        "and the contract itself refuses that column"
+                    );
+                }
+            }
+        }
+        let ragged = kcols_columns(n_in - ACT_QK, 1, seed).0;
+        assert!(
+            gemm_q6_k(&raw, N_OUT, n_in - ACT_QK, &ragged).is_none(),
+            "gemm_q6_k must refuse a width that is not a multiple of 256"
+        );
+    }
+}
+
+/// The call-level arms of [`bench_q4_k_kcols`] as ns per row-column over five calls each, sharing
+/// the pool, the row geometry and the columns; `gemm_q8_0` is the subsumed reference rate.
+#[cfg(target_arch = "x86_64")]
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "row-column counts fit f64 exactly"
+)]
+fn bench_call_arms(
+    raw: &[u8],
+    acts: &[QuantAct],
+    n_out: usize,
+    n_in: usize,
+    cells: f64,
+) -> (f64, f64, f64) {
+    const RUNS: usize = 5;
+    use std::time::Instant;
+    let raw8 = random_payload(quant::GGML_TYPE_Q8_0, n_out, n_in, 0x3c00, 0x3c00, 0xbeef);
+    let raw6 = random_payload(quant::GGML_TYPE_Q6_K, n_out, n_in, 0x3800, 0x3800, 0xbeef);
+    let mut gemm_secs = 0.0f64;
+    for _ in 0..RUNS {
+        let start = Instant::now();
+        let got = gemm_q4_k(raw, n_out, n_in, acts);
+        assert!(got.is_some(), "gemm_q4_k refused the microbench geometry");
+        std::hint::black_box(got);
+        gemm_secs += start.elapsed().as_secs_f64();
+    }
+    let mut q8_secs = 0.0f64;
+    for _ in 0..RUNS {
+        let start = Instant::now();
+        let got =
+            crate::engine::kern::gemm::gemm_q8_0(quant::GGML_TYPE_Q8_0, &raw8, n_out, n_in, acts);
+        assert!(got.is_some(), "gemm_q8_0 refused the microbench geometry");
+        std::hint::black_box(got);
+        q8_secs += start.elapsed().as_secs_f64();
+    }
+    let mut q6_secs = 0.0f64;
+    for _ in 0..RUNS {
+        let start = Instant::now();
+        let got = gemm_q6_k(&raw6, n_out, n_in, acts);
+        assert!(got.is_some(), "gemm_q6_k refused the microbench geometry");
+        std::hint::black_box(got);
+        q6_secs += start.elapsed().as_secs_f64();
+    }
+    (
+        gemm_secs / RUNS as f64 / cells * 1e9,
+        q6_secs / RUNS as f64 / cells * 1e9,
+        q8_secs / RUNS as f64 / cells * 1e9,
+    )
+}
+
+/// Microbench: one `ffn_up` row geometry of Qwen3.5-0.8B (`n_in` 1024), `k = 256` columns, mean over
+/// five runs per arm, reported as ns per row-column. Run with
+/// `cargo test --release --lib engine::chart::tests::bench_q4_k_kcols -- --ignored --nocapture`.
+#[cfg(target_arch = "x86_64")]
+#[test]
+#[ignore = "microbench: Q4_K n_in 1024 k 256, kcols against single-column ns per row-column"]
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "row-column counts fit f64 exactly"
+)]
+fn bench_q4_k_kcols() {
+    const N_OUT: usize = 1024;
+    const N_IN: usize = 1024;
+    const K: usize = 256;
+    const RUNS: usize = 5;
+    use std::time::Instant;
+    if !x86::avx2() {
+        return;
+    }
+    let pairs = N_IN / 64;
+    let (qk, bb) = quant::block_geom(quant::GGML_TYPE_Q4_K).expect("Q4_K geometry");
+    let row_bytes = N_IN.div_ceil(qk) * bb;
+    let raw = random_payload(quant::GGML_TYPE_Q4_K, N_OUT, N_IN, 0x3c00, 0x3400, 0xbeef);
+    let (acts, xs, groups) = kcols_columns(N_IN, K, 0x1234_5678);
+    let cells = (N_OUT * K) as f64;
+
+    let mut acc = vec![0i128; K];
+    // Warm both arms so each timed run reads a mapped, cache-cold-honest payload.
+    // SAFETY: AVX2 was detected above; the payload and columns hold this geometry.
+    let _ = unsafe { q4_k_row_kcols_avx2(&raw[..row_bytes], pairs, &acts, &xs, &mut acc) };
+    let _ = unsafe {
+        q4_k_row_avx2(
+            &raw[..row_bytes],
+            pairs,
+            &acts[0].codes,
+            &acts[0].scales,
+            &xs[..groups],
+        )
+    };
+
+    let mut kcols_secs = 0.0f64;
+    for _ in 0..RUNS {
+        let start = Instant::now();
+        let mut r = 0usize;
+        while r < N_OUT {
+            acc.fill(0);
+            let row = &raw[r * row_bytes..(r + 1) * row_bytes];
+            // SAFETY: every row is `pairs` pairs of this geometry.
+            let got = unsafe { q4_k_row_kcols_avx2(row, pairs, &acts, &xs, &mut acc) };
+            std::hint::black_box(got);
+            std::hint::black_box(&acc);
+            r += 1;
+        }
+        kcols_secs += start.elapsed().as_secs_f64();
+    }
+
+    let mut single_secs = 0.0f64;
+    for _ in 0..RUNS {
+        let start = Instant::now();
+        let mut sink = 0i128;
+        let mut c = 0usize;
+        while c < K {
+            let window = &xs[c * groups..(c + 1) * groups];
+            let mut r = 0usize;
+            while r < N_OUT {
+                let row = &raw[r * row_bytes..(r + 1) * row_bytes];
+                // SAFETY: every row is `pairs` pairs of this geometry.
+                let one =
+                    unsafe { q4_k_row_avx2(row, pairs, &acts[c].codes, &acts[c].scales, window) };
+                sink += one.unwrap_or(0);
+                r += 1;
+            }
+            c += 1;
+        }
+        std::hint::black_box(sink);
+        single_secs += start.elapsed().as_secs_f64();
+    }
+
+    let kcols_ns = kcols_secs / RUNS as f64 / cells * 1e9;
+    let single_ns = single_secs / RUNS as f64 / cells * 1e9;
+
+    let (gemm_ns, q6_ns, q8_ns) = bench_call_arms(&raw, &acts, N_OUT, N_IN, cells);
+    println!(
+        "q4_k n_in {N_IN} k {K} n_out {N_OUT}: kcols {kcols_ns:.2} ns/row-column, single-column \
+         {single_ns:.2} ns/row-column, ratio {:.2}x ({K} row reads per row in the single-column arm)",
+        single_ns / kcols_ns
+    );
+    println!(
+        "call n_in {N_IN} k {K} n_out {N_OUT}: gemm_q4_k {gemm_ns:.2} ns/row-column, gemm_q6_k \
+         {q6_ns:.2} ns/row-column, gemm_q8_0 {q8_ns:.2} ns/row-column (reference rate), \
+         gemm_q4_k/gemm_q8_0 {:.2}x, gemm_q6_k/gemm_q8_0 {:.2}x, single-column/gemm_q4_k {:.2}x",
+        gemm_ns / q8_ns,
+        q6_ns / q8_ns,
+        single_ns / gemm_ns
+    );
 }
