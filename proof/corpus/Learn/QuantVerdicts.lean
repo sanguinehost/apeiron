@@ -1426,6 +1426,74 @@ theorem nj_decision_still_dominates :
     (njNew896 - (nbNew896 - nbPair896)) * 7 < nbPair896 ∧
       njNew896 * 70 ≤ (njNew896 - (nbNew896 - nbPair896)) * 100 := by decide
 
+/-! ## 24 · Column restore and the masked metric
+
+The `ffn_down` keep/refit lanes under board `APEIRON-QUALITY-118-W1-T01`. -/
+namespace ColumnRestore
+open Matrix
+
+/-- `E` with the columns in `S` zeroed: the error after restoring the teacher's values on `S`. -/
+def zeroCols {o n : ℕ} (S : Finset (Fin n)) (E : Matrix (Fin o) (Fin n) ℝ) : Matrix (Fin o) (Fin n) ℝ :=
+  fun u i => if i ∈ S then 0 else E u i
+
+/-- `H` with the rows and columns of `S` zeroed and `ε` on `S`'s diagonal. -/
+def maskMetric {n : ℕ} (S : Finset (Fin n)) (ε : ℝ) (H : Matrix (Fin n) (Fin n) ℝ) : Matrix (Fin n) (Fin n) ℝ :=
+  fun i j => if i ∈ S ∨ j ∈ S then (if i = j then ε else 0) else H i j
+
+lemma trace_eq_gram {o n : ℕ} (A : Matrix (Fin o) (Fin n) ℝ) (M : Matrix (Fin n) (Fin n) ℝ) :
+    (A * M * Aᵀ).trace = ∑ i, ∑ j, M i j * (Aᵀ * A) j i := by
+  rw [Matrix.mul_assoc, Matrix.trace_mul_comm A (M * Aᵀ), Matrix.mul_assoc]; simp only [Matrix.trace, Matrix.diag_apply, Matrix.mul_apply]
+lemma gram_comm {o n : ℕ} (E : Matrix (Fin o) (Fin n) ℝ) (i j : Fin n) : (Eᵀ * E) i j = (Eᵀ * E) j i := by
+  simp only [Matrix.mul_apply, Matrix.transpose_apply]; exact Finset.sum_congr rfl fun u _ => by ring
+lemma gram_zeroCols {o n : ℕ} (S : Finset (Fin n)) (E : Matrix (Fin o) (Fin n) ℝ) (i j : Fin n) :
+    (((zeroCols S E)ᵀ) * zeroCols S E) i j = if i ∈ S ∨ j ∈ S then 0 else (Eᵀ * E) i j := by
+  simp only [Matrix.mul_apply, Matrix.transpose_apply, zeroCols]; by_cases hi : i ∈ S <;> by_cases hj : j ∈ S <;> simp [hi, hj]
+lemma pair_sum {n : ℕ} (S : Finset (Fin n)) (g : Fin n → Fin n → ℝ) (hg : ∀ i j, g i j = g j i) :
+    ∑ i, ∑ j, (if i ∈ S ∨ j ∈ S then g i j else 0) = 2 * ∑ i ∈ S, ∑ j, g i j - ∑ i ∈ S, ∑ j ∈ S, g i j := by
+  have hsplit : ∀ i, ∑ j, (if i ∈ S ∨ j ∈ S then g i j else 0) = (if i ∈ S then ∑ j, g i j else 0)
+      + (∑ j, if j ∈ S then g i j else 0) - (if i ∈ S then ∑ j, (if j ∈ S then g i j else 0) else 0) := by
+    intro i; by_cases hi : i ∈ S <;> simp [hi]
+  have hB : ∑ i, ∑ j, (if j ∈ S then g i j else 0) = ∑ i ∈ S, ∑ j, g i j := by
+    have h1 : ∀ j, ∑ i, (if j ∈ S then g i j else 0) = if j ∈ S then ∑ i, g j i else 0 := by
+      intro j; by_cases hj : j ∈ S <;> simp [hj, hg j]
+    rw [Finset.sum_comm]; exact (Finset.sum_congr rfl fun j _ => h1 j).trans (by simp)
+  refine (Finset.sum_congr rfl fun i _ => hsplit i).trans ?_
+  rw [Finset.sum_sub_distrib, Finset.sum_add_distrib, hB]; simp; ring
+
+/-- **Restoring `S` changes the energy by `2∑_{S×·} G H − ∑_{S×S} G H`**: the two-sided error-Gram sum
+over `S` minus the `S × S` block. Its sign decides whether a restore raises or lowers the energy. -/
+theorem restore_energy {o n : ℕ} (S : Finset (Fin n)) (E : Matrix (Fin o) (Fin n) ℝ) (H : Matrix (Fin n) (Fin n) ℝ) (hH : Hᵀ = H) :
+    (E * H * Eᵀ).trace - (zeroCols S E * H * (zeroCols S E)ᵀ).trace = 2 * ∑ i ∈ S, ∑ j, (Eᵀ * E) i j * H j i
+      - ∑ i ∈ S, ∑ j ∈ S, (Eᵀ * E) i j * H j i := by
+  have hsym : ∀ i j, H i j = H j i := fun i j => by simpa using congrFun (congrFun hH j) i
+  have hg : ∀ i j, (Eᵀ * E) i j * H j i = (Eᵀ * E) j i * H i j := fun i j => by rw [gram_comm E i j, hsym i j]
+  refine Eq.trans ?_ (pair_sum S (fun i j => (Eᵀ * E) i j * H j i) hg)
+  rw [trace_eq_gram, trace_eq_gram]; simp only [← Finset.sum_sub_distrib]
+  refine Finset.sum_congr rfl fun i _ => Finset.sum_congr rfl fun j _ => ?_
+  rw [gram_zeroCols, gram_comm E i j, hsym i j]; by_cases hi : i ∈ S <;> by_cases hj : j ∈ S <;> simp [hi, hj] <;> ring
+
+/-- **One restored column** `i`: the same identity at `S = {i}`, the `2cᵢ − GᵢᵢHᵢᵢ` increment. -/
+theorem restore_one {o n : ℕ} (E : Matrix (Fin o) (Fin n) ℝ) (H : Matrix (Fin n) (Fin n) ℝ) (hH : Hᵀ = H) (i : Fin n) :
+    (E * H * Eᵀ).trace - (zeroCols {i} E * H * (zeroCols {i} E)ᵀ).trace
+      = 2 * ∑ j, (Eᵀ * E) i j * H j i - (Eᵀ * E) i i * H i i := by
+  simpa [Finset.sum_singleton] using restore_energy {i} E H hH
+
+/-- **The masked metric is the restored energy plus the `ε` penalty on `S` alone**: a fit against it
+minimises the energy left after restoring `S`, not the unmasked error energy. -/
+theorem masked_energy {o n : ℕ} (S : Finset (Fin n)) (ε : ℝ) (H : Matrix (Fin n) (Fin n) ℝ) (E : Matrix (Fin o) (Fin n) ℝ) :
+    (E * maskMetric S ε H * Eᵀ).trace
+      = (zeroCols S E * H * (zeroCols S E)ᵀ).trace + ε * ∑ i ∈ S, ∑ u, E u i ^ 2 := by
+  have hε : ε * ∑ i ∈ S, ∑ u, E u i ^ 2 = ∑ i, ∑ j, (if i = j then (if i ∈ S then ε * (Eᵀ * E) i i else 0) else 0) := by
+    have h1 : ∀ i, (Eᵀ * E) i i = ∑ u, E u i ^ 2 := fun i => by
+      simp only [Matrix.mul_apply, Matrix.transpose_apply, pow_two]
+    simp only [Finset.sum_ite_eq, Finset.mem_univ, if_true, Finset.mul_sum, h1]; simp
+  rw [trace_eq_gram, trace_eq_gram, hε]; simp only [← Finset.sum_add_distrib]
+  refine Finset.sum_congr rfl fun i _ => Finset.sum_congr rfl fun j _ => ?_
+  simp only [maskMetric, gram_zeroCols]
+  by_cases hi : i ∈ S <;> by_cases hj : j ∈ S <;> by_cases hij : i = j <;> simp [hi, hij, hj]
+
+end ColumnRestore
+
 end QuantVerdicts
 
 end Learn
