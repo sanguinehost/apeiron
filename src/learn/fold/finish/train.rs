@@ -2,8 +2,9 @@
 //! norm/bias tunables, driven by the KL teacher objective.
 //!
 //! Port of the production training step of `spec/pv_finish.py` (tunables 1206-1223, `Adam` groups
-//! 1410-1496, schedule 1886-1889) over the plane of [`crate::learn::fold::finish::plane`] and the
-//! Q32.32 whole-model forward/backward of [`crate::learn::grad::model`].
+//! 1410-1496, schedule 1886-1889) over the plane of [`crate::learn::fold::finish::plane`]: mixed
+//! precision, with the Q32.32 master weights of [`crate::learn::grad::model`] differentiated by its
+//! backward over a tape taken from the engine's own forward.
 //!
 //! Each coded linear's stored weight is the sum of its planes' [`CodedPlane::weight`] plus an
 //! optional frozen dense `extra` (the corrector on `q`/`down`); the zero-bit tunables resolve as
@@ -12,6 +13,21 @@
 //!
 //! The objective is the batch mean KL of the teacher's next-token distribution against the
 //! student's, `Σ_rows KL(p_t ‖ p_s) / rows`, from [`kl_row`] on the student's logits.
+//!
+//! # Mixed precision
+//!
+//! [`assemble`] rebuilds the Q32.32 [`Weights`] from the latents on every call, and those words are
+//! the master weights [`backward`] differentiates. The forward and its tape come from the engine:
+//! [`student_gguf_bytes`] encodes the master weights into the teacher `GGUF`'s own directory,
+//! [`Engine::from_bytes`] parses those bytes, and [`engine_tape`] runs one tapped
+//! [`crate::engine::KernelMode::Q8Act`] prefill plus the engine's LM head. The differentiated
+//! forward is therefore the forward that ships (binary16 weights, 8-bit block activations) and the
+//! gradient is the straight-through map over its taped activations, landing on full-precision
+//! master weights. That forward is a step function of the latents — a latent that moves no encoded
+//! weight moves no quantised activation — so a central difference of it is not its gradient and no
+//! finite-difference identity is asserted here. Anchor for the scheme: Micikevicius et al., *Mixed
+//! Precision Training*, arXiv 1710.03740; a pointer, not evidence.
+//!
 //! [`Finisher::gradients`] runs the Q32.32 backward and maps `dL/dW` to the plane latents (the
 //! straight-through Jacobian, per batch element as `grad_q32 / rows`), to `d_ln1`/`d_ln2`/`d_fn`
 //! through `∂gamma/∂d = gamma`, and to `d_qb`/`d_kb`/`d_vb` through the frozen bias scale.
@@ -47,8 +63,8 @@
 //!   with a step floor.
 //! * `amp`, the V-step, the `ste` code latents, the `corr` group, `kan`, `block-s` AQLM warm-up
 //!   and the `regrid` refit are out of scope: the codes are frozen.
-//! * The forward and backward run in Q32.32 on the CPU, not `bfloat16` on CUDA, and
-//!   [`Finisher::gradients`] divides the summed logit gradient once by the row count.
+//! * The backward runs in Q32.32 on the CPU over the engine's tapped activations, not `bfloat16` on
+//!   CUDA, and [`Finisher::gradients`] divides the summed logit gradient once by the row count.
 //!
 //! Grade `tested` (`tests/learn_fold_train.rs`); nothing here is extracted or refined.
 
@@ -81,14 +97,17 @@
               combinator rewrites change the MIR the pinned translator accepts"
 )]
 
+use crate::engine::{Engine, EngineError};
+use crate::format::gguf::Gguf;
+use crate::learn::fold::finish::assemble::assemble;
 use crate::learn::fold::finish::plane::{
     div, div_ne, mul, CodedPlane, LatentGrad, PlaneError, ONE,
 };
 use crate::learn::fold::fit::steps::GROUP;
+use crate::learn::fold::run::transfer::{student_gguf_bytes, TransferError};
+use crate::learn::fold::stats::hocapture::{engine_tape, HocaptureError};
 use crate::learn::grad::head::{kl_row, HeadError};
-use crate::learn::grad::model::{
-    backward, forward, Config, Grads, LayerGrads, LayerWeights, ModelError, Weights,
-};
+use crate::learn::grad::model::{backward, Config, Grads, LayerGrads, ModelError, Tape, Weights};
 use crate::learn::solve::q32::{div_rne_pos, narrow, rshift_rne};
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_rsqrt::isqrt;
@@ -146,10 +165,14 @@ pub enum TrainError {
     Overflow,
     /// A coded plane refused.
     Plane(PlaneError),
-    /// The Q32.32 whole-model forward or backward refused.
+    /// The Q32.32 whole-model backward refused.
     Model(ModelError),
     /// The KL head refused.
     Head(HeadError),
+    /// The student `GGUF` image, or the teacher directory it is encoded into, refused.
+    Transfer(String),
+    /// The engine over the student image, its state or its tapped prefill refused.
+    Engine(String),
 }
 
 impl From<PlaneError> for TrainError {
@@ -170,6 +193,29 @@ impl From<HeadError> for TrainError {
     }
 }
 
+impl From<TransferError> for TrainError {
+    fn from(e: TransferError) -> Self {
+        TrainError::Transfer(e.to_string())
+    }
+}
+
+impl From<EngineError> for TrainError {
+    fn from(e: EngineError) -> Self {
+        TrainError::Engine(e.to_string())
+    }
+}
+
+impl From<HocaptureError> for TrainError {
+    fn from(e: HocaptureError) -> Self {
+        match e {
+            HocaptureError::Model(m) => TrainError::Model(m),
+            HocaptureError::Shape(s) => TrainError::Shape(s),
+            HocaptureError::Overflow => TrainError::Overflow,
+            HocaptureError::Engine(s) => TrainError::Engine(s),
+        }
+    }
+}
+
 /// The step's learning rate `lr·factor` as a Q32.32 word: the rate is carried at Q64.64, so the
 /// product is one rounded quotient by `2^64` onto the grid. `O(1)`.
 fn lr_word(base_q64: i64, factor: i64) -> Result<i64, TrainError> {
@@ -185,7 +231,7 @@ fn lr_word(base_q64: i64, factor: i64) -> Result<i64, TrainError> {
 ///
 /// # Errors
 /// [`TrainError::Shape`] past [`N_KINDS`]; [`TrainError::Model`] from the `q_out`/`kv_out` products.
-fn kind_dims(cfg: &Config, k: usize) -> Result<(usize, usize), TrainError> {
+pub(super) fn kind_dims(cfg: &Config, k: usize) -> Result<(usize, usize), TrainError> {
     let e = cfg.n_embd;
     let q_out = cfg.q_out()?;
     let kv_out = cfg.kv_out()?;
@@ -885,167 +931,6 @@ fn add_scaled(base: &[i64], off: &[i64], s: i64) -> Vec<i64> {
     out
 }
 
-/// The summed plane weight of one linear plus its optional frozen dense addend, in Q32.32;
-/// `quantized` selects the stored [`CodedPlane::weight`] or the differentiable
-/// [`CodedPlane::weight_unquantized`].
-///
-/// # Errors
-/// [`TrainError::Shape`] on a plane or `extra` width, [`TrainError::Plane`] from a plane,
-/// [`TrainError::Range`] on a plane refusal; `O(Σ_p o_p·n·log2(GROUP) + o_total·n)`, the plane
-/// tensors pooled.
-fn linear_weight(lin: &Linear, quantized: bool) -> Result<Vec<i64>, TrainError> {
-    let on = lin.o_total.checked_mul(lin.n).ok_or(TrainError::Overflow)?;
-    let mut w = vec![0_i64; on];
-    for p in &lin.planes {
-        if p.n != lin.n || p.o == 0 || !p.n.is_multiple_of(GROUP) {
-            let m = format!("plane {}x{} in linear {}x{}", p.o, p.n, lin.o_total, lin.n);
-            return Err(TrainError::Shape(m));
-        }
-        let pw = if quantized {
-            p.weight()
-        } else {
-            p.weight_unquantized()
-        };
-        if pw.len() != p.o * p.n {
-            return Err(TrainError::Range(format!(
-                "plane {}x{} weight refused",
-                p.o, p.n
-            )));
-        }
-        p.add_into(&mut w, &pw, lin.o_total)?;
-    }
-    if let Some(e) = &lin.extra {
-        if e.len() != on {
-            return Err(TrainError::Shape(format!(
-                "extra {} != {}x{}",
-                e.len(),
-                lin.o_total,
-                lin.n
-            )));
-        }
-        for (d, &v) in w.iter_mut().zip(e) {
-            *d = d.checked_add(v).ok_or(TrainError::Overflow)?;
-        }
-    }
-    Ok(w)
-}
-
-/// The `LayerWeights` of every kind of one layer; `O(Σ_k (o_k·n_k·log2(GROUP) + o_k·n_k))`, the
-/// kind loop serial over each weight's pooled plane tensors.
-fn assemble_layer(
-    cfg: &Config,
-    planes: &Planes,
-    tun: &LayerTunables,
-    l: usize,
-    quantized: bool,
-) -> Result<LayerWeights, TrainError> {
-    let mut weights: Vec<Vec<i64>> = Vec::with_capacity(N_KINDS);
-    for k in 0..N_KINDS {
-        let lin = planes.linear(l, k)?;
-        let (o, n) = kind_dims(cfg, k)?;
-        if lin.o_total != o || lin.n != n {
-            return Err(TrainError::Shape(format!(
-                "layer {l} kind {}: planes {}x{} != model {o}x{n}",
-                KIND_NAMES[k], lin.o_total, lin.n
-            )));
-        }
-        weights.push(linear_weight(lin, quantized)?);
-    }
-    let t = tun.tuned();
-    let [wq, wk, wv, wo, w_gate, w_up, w_down] = <[Vec<i64>; N_KINDS]>::try_from(weights)
-        .map_err(|_| TrainError::Shape(format!("layer {l} kinds absent")))?;
-    Ok(LayerWeights {
-        attn_norm: t.ln1,
-        wq,
-        bq: Some(t.qb),
-        wk,
-        bk: Some(t.kb),
-        wv,
-        bv: Some(t.vb),
-        wo,
-        ffn_norm: t.ln2,
-        w_gate,
-        w_up,
-        w_down,
-    })
-}
-
-/// Assemble the whole-model Q32.32 [`Weights`]: the stored forward weight of every coded linear
-/// plus the tuned norms and biases and the frozen embedding and head.
-///
-/// # Errors
-/// [`TrainError::Shape`] on a plane or tunable shape, [`TrainError::Plane`] from a plane,
-/// [`TrainError::Range`] outside the carrier; `O(n_layer·Σ_k o_k·n_k·log2(GROUP) + vocab·n_embd)`,
-/// the layer loop serial over the pooled plane tensors.
-pub fn assemble(
-    cfg: &Config,
-    planes: &Planes,
-    tun: &Tunables,
-    frozen: &Frozen,
-) -> Result<Weights, TrainError> {
-    assemble_with(cfg, planes, tun, frozen, true)
-}
-
-/// As [`assemble`], over the differentiable [`CodedPlane::weight_unquantized`] forward.
-///
-/// # Errors
-/// As [`assemble`].
-pub fn assemble_unquantized(
-    cfg: &Config,
-    planes: &Planes,
-    tun: &Tunables,
-    frozen: &Frozen,
-) -> Result<Weights, TrainError> {
-    assemble_with(cfg, planes, tun, frozen, false)
-}
-
-/// [`assemble`]'s shared body. `O(assemble)`.
-fn assemble_with(
-    cfg: &Config,
-    planes: &Planes,
-    tun: &Tunables,
-    frozen: &Frozen,
-    quantized: bool,
-) -> Result<Weights, TrainError> {
-    let e = cfg.n_embd;
-    if planes.layers.len() != cfg.n_layer || tun.layers.len() != cfg.n_layer {
-        return Err(TrainError::Shape(format!(
-            "planes {} / tunables {} != n_layer {}",
-            planes.layers.len(),
-            tun.layers.len(),
-            cfg.n_layer
-        )));
-    }
-    let emb = cfg.vocab.checked_mul(e).ok_or(TrainError::Overflow)?;
-    if frozen.token_embd.len() != emb || frozen.lm_head.len() != emb {
-        return Err(TrainError::Shape(format!(
-            "token_embd {} / lm_head {} != vocab·n_embd {emb}",
-            frozen.token_embd.len(),
-            frozen.lm_head.len()
-        )));
-    }
-    let output_norm = tun.output_norm();
-    if output_norm.len() != e {
-        return Err(TrainError::Range("output_norm refused".to_string()));
-    }
-    // The layer loop is structural: each layer's kinds and planes dispatch their own tensor work to
-    // the pool, and the pool is not re-entrant (a task that dispatches deadlocks the dispatcher).
-    let mut layers: Vec<LayerWeights> = Vec::with_capacity(cfg.n_layer);
-    for l in 0..cfg.n_layer {
-        let lt = tun
-            .layers
-            .get(l)
-            .ok_or_else(|| TrainError::Shape(format!("tunable layer {l} absent")))?;
-        layers.push(assemble_layer(cfg, planes, lt, l, quantized)?);
-    }
-    Ok(Weights {
-        layers,
-        output_norm,
-        token_embd: frozen.token_embd.clone(),
-        lm_head: frozen.lm_head.clone(),
-    })
-}
-
 /// The batch mean KL of the teacher's distribution against the student's Q32.32 logits, with the
 /// row-summed logit gradient `dL/dz` (`t · vocab`, Q32.32): `mean_kl` is the Q32.32 mean word, `dz`
 /// the sum over rows of `p_s − p_t`. Serial `O(t·vocab)`.
@@ -1128,7 +1013,8 @@ pub struct Gradients {
 }
 
 /// The P-step state: the coded planes, the zero-bit tunables, the frozen tensors, one Adam state
-/// per parameter and the step-counted learning-rate schedule.
+/// per parameter, the step-counted learning-rate schedule and the teacher `GGUF` the student image
+/// is encoded into.
 #[derive(Clone, Debug)]
 pub struct Finisher {
     /// The model geometry.
@@ -1141,6 +1027,9 @@ pub struct Finisher {
     pub frozen: Frozen,
     /// The learning rate's schedule, the Adam state per parameter and the step count.
     pub schedule: Schedule,
+    /// The teacher `GGUF` whose directory, types and names the student image re-encodes into; read
+    /// once by [`Finisher::new`] and once per forward by [`student_gguf_bytes`].
+    pub teacher_path: String,
     moments: Vec<Vec<Vec<PlaneMoments>>>,
     norm_moments: Vec<[Adam; 5]>,
     fn_moment: Adam,
@@ -1167,19 +1056,24 @@ impl PlaneMoments {
 }
 
 impl Finisher {
-    /// Build the P-step: validate the geometry against `cfg` and allocate the Adam state.
+    /// Build the P-step: validate the geometry against `cfg`, check the teacher image and allocate
+    /// the Adam state.
     ///
     /// # Errors
     /// [`TrainError::Shape`] on a disagreeing plane, tunable or frozen tensor;
-    /// [`TrainError::Model`] from [`Config::checked`]. `O(n_layer·Σ_k o_k·n_k/128)`, serial.
+    /// [`TrainError::Model`] from [`Config::checked`]; [`TrainError::Transfer`] when `teacher_path`
+    /// is not a readable `GGUF` directory. `O(n_layer·Σ_k o_k·n_k/128)` plus one
+    /// `O(teacher header)`, serial.
     pub fn new(
         cfg: Config,
         planes: Planes,
         tun: Tunables,
         frozen: Frozen,
         schedule: Schedule,
+        teacher_path: String,
     ) -> Result<Self, TrainError> {
         cfg.checked()?;
+        Gguf::open(&teacher_path).map_err(TransferError::from)?;
         let e = cfg.n_embd;
         let q_out = cfg.q_out()?;
         let kv_out = cfg.kv_out()?;
@@ -1289,6 +1183,7 @@ impl Finisher {
             tun,
             frozen,
             schedule,
+            teacher_path,
             moments,
             norm_moments,
             fn_moment,
@@ -1301,31 +1196,55 @@ impl Finisher {
         self.step
     }
 
-    /// The batch mean KL at the current latents over the stored forward, as a Q32.32 word.
+    /// The batch mean KL at the current latents over the engine's forward, as a Q32.32 word.
     ///
     /// # Errors
-    /// As [`assemble`], [`forward`] and [`kl_mean`]; cost as [`Finisher::gradients`] without the
-    /// backward.
+    /// As [`assemble`], `Finisher::engine_tape` and [`kl_mean`]; cost as [`Finisher::gradients`]
+    /// without the backward.
     pub fn loss(&self, tokens: &[u32], teacher: &[i64]) -> Result<i64, TrainError> {
         let w = assemble(&self.cfg, &self.planes, &self.tun, &self.frozen)?;
-        let (logits, _) = forward(&w, &self.cfg, tokens)?;
+        let (logits, _) = self.engine_tape(&w, tokens)?;
         Ok(kl_mean(&self.cfg, &logits, teacher)?.0)
+    }
+
+    /// The engine's forward and tape over the master weights `w`: the student `GGUF` image encoded
+    /// into [`Finisher::teacher_path`]'s directory, the engine over those bytes, and one tapped
+    /// [`crate::engine::KernelMode::Q8Act`] prefill with the LM head.
+    ///
+    /// # Errors
+    /// [`TrainError::Transfer`] from [`student_gguf_bytes`] (a teacher refusal, a tensor the student
+    /// does not carry, or a value outside binary16); [`TrainError::Engine`] from
+    /// [`Engine::from_bytes`] or the prefill; [`TrainError::Shape`]/[`TrainError::Model`] from
+    /// [`engine_tape`].
+    ///
+    /// # Complexity
+    /// Time `O(file bytes)` for the encode, `O(file bytes)` for the parse and
+    /// `O(t·(n_embd² + n_embd·n_ff) + n_head·t²·head_dim + t·vocab·n_embd)` for the prefill and
+    /// head; space `O(file bytes)` for the image the engine moves into itself plus `O(tape)`.
+    fn engine_tape(&self, w: &Weights, tokens: &[u32]) -> Result<(Vec<i64>, Tape), TrainError> {
+        let bytes = student_gguf_bytes(&self.teacher_path, w)?;
+        let engine = Engine::from_bytes(&self.teacher_path, bytes)?;
+        Ok(engine_tape(&engine, &self.cfg, tokens)?)
     }
 
     /// The gradients of the batch mean KL with respect to every trainable latent; nothing changes.
     ///
     /// # Errors
-    /// [`TrainError::Shape`] on a teacher/logits geometry mismatch; [`TrainError::Model`],
-    /// [`TrainError::Head`], [`TrainError::Plane`] from the forward, head and plane backward;
-    /// [`TrainError::Overflow`]/[`TrainError::Range`] on a checked accumulate or word.
+    /// [`TrainError::Shape`] on a teacher/logits geometry mismatch; [`TrainError::Transfer`] or
+    /// [`TrainError::Engine`] from the student image and the engine's forward;
+    /// [`TrainError::Model`], [`TrainError::Head`], [`TrainError::Plane`] from the backward, head
+    /// and plane backward; [`TrainError::Overflow`]/[`TrainError::Range`] on a checked accumulate or
+    /// word.
     ///
     /// # Complexity
-    /// Per layer one forward and backward `O(t·(n_embd² + n_embd·n_ff) + n_head·t²·head_dim)` plus
-    /// the head `O(t·vocab·n_embd)` and the latent map `O(Σ plane o·n·log2(GROUP))`; the tensor
-    /// passes are the plane's pooled ones, the layer loop serial.
+    /// Per layer one engine forward and one backward
+    /// `O(t·(n_embd² + n_embd·n_ff) + n_head·t²·head_dim)` plus the head `O(t·vocab·n_embd)`
+    /// and the latent map `O(Σ plane o·n·log2(GROUP))`, plus one `O(file bytes)` student encode and
+    /// one `O(file bytes)` parse; the tensor passes are the plane's pooled ones, the layer loop
+    /// serial.
     pub fn gradients(&self, tokens: &[u32], teacher: &[i64]) -> Result<Gradients, TrainError> {
         let w = assemble(&self.cfg, &self.planes, &self.tun, &self.frozen)?;
-        let (logits, tape) = forward(&w, &self.cfg, tokens)?;
+        let (logits, tape) = self.engine_tape(&w, tokens)?;
         let (mean_kl, dz) = kl_mean(&self.cfg, &logits, teacher)?;
         let grads: Grads = backward(&w, &self.cfg, &tape, &dz)?;
         let t = tokens.len();
