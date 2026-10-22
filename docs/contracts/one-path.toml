@@ -200,85 +200,91 @@ ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
 [[debt]]
 rule = "backward"
 item = "src/learn/grad/attn.rs:rope_bwd"
-consumers = 33
+consumers = 34
 ticket = "APEIRON-QUALITY-118-W1-T01"
 
 [[debt]]
 rule = "backward"
 item = "src/learn/grad/attn.rs:attn_bwd"
-consumers = 33
+consumers = 34
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/attn.rs:attn_fwd"
+consumers = 50
 ticket = "APEIRON-QUALITY-118-W1-T01"
 
 [[debt]]
 rule = "backward"
 item = "src/learn/grad/dense.rs:linear_bwd_input"
-consumers = 34
+consumers = 35
 ticket = "APEIRON-QUALITY-118-W1-T01"
 
 [[debt]]
 rule = "backward"
 item = "src/learn/grad/dense.rs:linear_bwd_weight"
-consumers = 34
+consumers = 35
 ticket = "APEIRON-QUALITY-118-W1-T01"
 
 [[debt]]
 rule = "backward"
 item = "src/learn/grad/dense.rs:rmsnorm_bwd"
-consumers = 35
+consumers = 36
 ticket = "APEIRON-QUALITY-118-W1-T01"
 
 [[debt]]
 rule = "backward"
 item = "src/learn/grad/dense.rs:swiglu_bwd"
-consumers = 34
-ticket = "APEIRON-QUALITY-118-W1-T01"
-
-[[debt]]
-rule = "backward"
-item = "src/learn/grad/head.rs:log_softmax_row"
-consumers = 902
-ticket = "APEIRON-QUALITY-118-W1-T01"
-
-[[debt]]
-rule = "backward"
-item = "src/learn/grad/head.rs:kl_row"
-consumers = 919
-ticket = "APEIRON-QUALITY-118-W1-T01"
-
-[[debt]]
-rule = "backward"
-item = "src/learn/grad/head.rs:tv_row"
-consumers = 911
-ticket = "APEIRON-QUALITY-118-W1-T01"
-
-[[debt]]
-rule = "backward"
-item = "src/learn/grad/model.rs:Config::q_out"
-consumers = 68
-ticket = "APEIRON-QUALITY-118-W1-T01"
-
-[[debt]]
-rule = "backward"
-item = "src/learn/grad/model.rs:Config::kv_out"
-consumers = 57
-ticket = "APEIRON-QUALITY-118-W1-T01"
-
-[[debt]]
-rule = "backward"
-item = "src/learn/grad/model.rs:Config::checked"
-consumers = 45
-ticket = "APEIRON-QUALITY-118-W1-T01"
-
-[[debt]]
-rule = "backward"
-item = "src/learn/grad/model.rs:forward"
 consumers = 35
 ticket = "APEIRON-QUALITY-118-W1-T01"
 
 [[debt]]
 rule = "backward"
+item = "src/learn/grad/head.rs:log_softmax_row"
+consumers = 919
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/head.rs:kl_row"
+consumers = 936
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/head.rs:tv_row"
+consumers = 928
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/model.rs:Config::q_out"
+consumers = 75
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/model.rs:Config::kv_out"
+consumers = 63
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/model.rs:Config::checked"
+consumers = 50
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
+item = "src/learn/grad/model.rs:forward"
+consumers = 33
+ticket = "APEIRON-QUALITY-118-W1-T01"
+
+[[debt]]
+rule = "backward"
 item = "src/learn/grad/model.rs:backward"
-consumers = 14
+consumers = 15
 ticket = "APEIRON-QUALITY-118-W1-T01"
 
 [[debt]]
