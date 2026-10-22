@@ -7,8 +7,8 @@
 //! attention → O projection → residual; then `ffn_norm` → `SwiGLU` → down → residual; then
 //! `output_norm` → head — is `Engine::compose_cols`'s (`src/engine/step/cols.rs`) and
 //! `Engine::step_logits`'s exact path. This module holds the backward over that tape, the checked
-//! Q32.32 stage helpers the extracted word bodies call ([`add_flat`], [`rmsnorm_rows`],
-//! [`rope_rows_fwd`], [`add_bias`], [`col_sum`], [`embedding_grad`]), and [`dense`]'s and
+//! Q32.32 stage helpers the extracted word bodies call ([`add_flat`], [`col_sum`],
+//! [`rmsnorm_bwd_rows`], [`rope_rows_bwd`], [`embedding_grad`]), and [`dense`]'s and
 //! [`attn`]'s per-op kernels.
 //!
 //! Every weight is an `i64` Q32.32 row-major buffer loaded from an [`Engine`] with the engine's own
@@ -415,32 +415,6 @@ pub(crate) fn col_sum(x: &[i64], t: usize, w: usize) -> Result<Vec<i64>, ModelEr
     Ok(out)
 }
 
-/// `RMSNorm` with gain over every row of a `t × w` buffer.
-///
-/// # Complexity
-/// `O(t·w)`; one [`dense::rmsnorm_fwd`] per row.
-#[allow(
-    dead_code,
-    reason = "the extracted word body `word_model_rmsnorm_rows` in `proof/extract/grad_solve_port.rs` is its only consumer; the in-crate consumer was the deleted `forward`"
-)]
-pub(crate) fn rmsnorm_rows(
-    x: &[i64],
-    gamma: &[i64],
-    t: usize,
-    w: usize,
-    eps: i64,
-) -> Result<Vec<i64>, ModelError> {
-    expect(t, w, x.len(), "rmsnorm_rows")?;
-    if x.is_empty() {
-        return Err(ModelError::Shape("rmsnorm_rows empty".to_string()));
-    }
-    let mut out = Vec::with_capacity(x.len());
-    for r in 0..t {
-        out.extend_from_slice(&dense::rmsnorm_fwd(&x[r * w..r * w + w], gamma, eps)?);
-    }
-    Ok(out)
-}
-
 /// `RMSNorm` backward over every row of a `t × w` buffer: `(dx, Σ_r dgamma_r)`.
 ///
 /// # Complexity
@@ -484,29 +458,6 @@ pub(crate) fn rmsnorm_bwd_rows(
     Ok((dx, dg))
 }
 
-/// `RoPE` forward on every `row`-wide row of a `t × row` buffer at the row's own position.
-///
-/// # Complexity
-/// `O(t·row)`; one [`attn::rope_fwd`] per token.
-#[allow(
-    dead_code,
-    reason = "the extracted word body `word_model_rope_rows_fwd` in `proof/extract/grad_solve_port.rs` is its only consumer; the in-crate consumer was the deleted `forward`"
-)]
-pub(crate) fn rope_rows_fwd(
-    x: &[i64],
-    t: usize,
-    row: usize,
-    rope: &RopeTable,
-) -> Result<Vec<i64>, ModelError> {
-    expect(t, row, x.len(), "rope_rows_fwd")?;
-    let mut out = Vec::with_capacity(x.len());
-    for r in 0..t {
-        let pos = u32::try_from(r).map_err(|_| ModelError::Overflow)?;
-        out.extend_from_slice(&attn::rope_fwd(&x[r * row..r * row + row], pos, rope)?);
-    }
-    Ok(out)
-}
-
 /// `RoPE` backward on every `row`-wide row of a `t × row` gradient buffer.
 ///
 /// # Complexity
@@ -524,47 +475,6 @@ pub(crate) fn rope_rows_bwd(
         out.extend_from_slice(&attn::rope_bwd(&dy[r * row..r * row + row], pos, rope)?);
     }
     Ok(out)
-}
-
-/// Add a `w`-wide bias vector to every row of a `t × w` buffer, checked.
-///
-/// # Complexity
-/// `O(t·w)`.
-#[allow(
-    dead_code,
-    reason = "the extracted word body `word_model_add_bias` in `proof/extract/grad_solve_port.rs` is its only consumer; the in-crate consumer was the deleted `forward`"
-)]
-pub(crate) fn add_bias(
-    x: &mut [i64],
-    bias: Option<&[i64]>,
-    t: usize,
-    w: usize,
-) -> Result<(), ModelError> {
-    let Some(b) = bias else {
-        return Ok(());
-    };
-    if b.len() != w {
-        return Err(ModelError::Shape("bias width".to_string()));
-    }
-    expect(t, w, x.len(), "add_bias")?;
-    let mut err: Option<ModelError> = None;
-    let mut r = 0usize;
-    while r < t && err.is_none() {
-        let mut c = 0usize;
-        while c < w && err.is_none() {
-            let i = r * w + c;
-            match x[i].checked_add(b[c]) {
-                Some(v) => x[i] = v,
-                None => err = Some(ModelError::Overflow),
-            }
-            c += 1;
-        }
-        r += 1;
-    }
-    if let Some(e) = err {
-        return Err(e);
-    }
-    Ok(())
 }
 
 /// Every stage input the backward reads for one layer, captured by the engine's exact prefill.
