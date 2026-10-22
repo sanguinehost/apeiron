@@ -1,5 +1,5 @@
-//! Gate for `apeiron::learn::fold::run::convert`: the binary16/binary32 payload edges, the forward
-//! round trip, the recorded word digests, and the typed refusals.
+//! Gate for `apeiron::learn::fold::run::convert`: the binary16/binary32 payload edges, the engine
+//! round trip through the student image, the recorded word digests, and the typed refusals.
 //!
 //! A tiny `Qwen2` is built by a fixed LCG (`hidden` 128, `n_head` 2, `head_dim` 64, `n_kv_head` 1,
 //! `inter` 128, `vocab` 32, `n_layer` 2) and run through both directions of the conversion. Every
@@ -16,12 +16,16 @@
               exactly `0.5` or not), not an approximate equality"
 )]
 
+use apeiron::engine::loader::Engine;
+use apeiron::engine::{KernelMode, ONE};
+use apeiron::format::quant;
 use apeiron::learn::fold::run::convert::{
-    decode_bf16, decode_f16, decode_f32, encode_f16, encode_f32, student_to_grad,
-    teacher_from_grad, ConvertError, Teacher,
+    decode_bf16, decode_f16, decode_f32, encode_f16, encode_f32, student_gguf_bytes,
+    student_to_grad, teacher_from_grad, ConvertError, Teacher,
 };
 use apeiron::learn::fold::run::transfer::{h0_from_chunks, TransferError};
-use apeiron::learn::grad::model::{self, Config, LayerWeights as GradLayer, Weights};
+use apeiron::learn::fold::stats::hocapture::engine_tape_mode;
+use apeiron::learn::grad::model::{Config, LayerWeights as GradLayer, Weights};
 use apeiron::learn::solve::q32::{to_grid, GRID_BOUND};
 
 const HID: usize = 128;
@@ -54,10 +58,6 @@ impl Lcg {
     fn word(&mut self) -> i64 {
         (self.next_u64() >> 33) as i64 % 2001 - 1000
     }
-
-    fn fill(&mut self, n: usize) -> Vec<i64> {
-        (0..n).map(|_| self.word()).collect()
-    }
 }
 
 fn cfg() -> Config {
@@ -77,19 +77,28 @@ fn cfg() -> Config {
 
 fn grad_layer(rng: &mut Lcg) -> GradLayer {
     GradLayer {
-        attn_norm: rng.fill(HID),
-        wq: rng.fill(Q_OUT * HID),
-        bq: Some(rng.fill(Q_OUT)),
-        wk: rng.fill(KV_OUT * HID),
-        bk: Some(rng.fill(KV_OUT)),
-        wv: rng.fill(KV_OUT * HID),
-        bv: Some(rng.fill(KV_OUT)),
-        wo: rng.fill(HID * Q_OUT),
-        ffn_norm: rng.fill(HID),
-        w_gate: rng.fill(INTER * HID),
-        w_up: rng.fill(INTER * HID),
-        w_down: rng.fill(HID * INTER),
+        attn_norm: weights_fill(rng, HID),
+        wq: weights_fill(rng, Q_OUT * HID),
+        bq: Some(weights_fill(rng, Q_OUT)),
+        wk: weights_fill(rng, KV_OUT * HID),
+        bk: Some(weights_fill(rng, KV_OUT)),
+        wv: weights_fill(rng, KV_OUT * HID),
+        bv: Some(weights_fill(rng, KV_OUT)),
+        wo: weights_fill(rng, HID * Q_OUT),
+        ffn_norm: weights_fill(rng, HID),
+        w_gate: weights_fill(rng, INTER * HID),
+        w_up: weights_fill(rng, INTER * HID),
+        w_down: weights_fill(rng, HID * INTER),
     }
+}
+
+/// `n` deterministic words in `{-2, …, 2}·2^-5`: exact in the `F16` payload (a 3-bit significand) and
+/// small enough that two exact layers over `HID = 128` stay inside the RMS-norm `2^20` window and
+/// `Q32.32`.
+fn weights_fill(rng: &mut Lcg, n: usize) -> Vec<i64> {
+    (0..n)
+        .map(|_| (rng.word().rem_euclid(5) - 2) * (ONE >> 5))
+        .collect()
 }
 
 fn build_weights(seed: u64) -> Weights {
@@ -97,10 +106,217 @@ fn build_weights(seed: u64) -> Weights {
     let layers = (0..NLAYER).map(|_| grad_layer(&mut rng)).collect();
     Weights {
         layers,
-        output_norm: rng.fill(HID),
-        token_embd: rng.fill(VOCAB * HID),
-        lm_head: rng.fill(VOCAB * HID),
+        output_norm: weights_fill(&mut rng, HID),
+        token_embd: weights_fill(&mut rng, VOCAB * HID),
+        lm_head: weights_fill(&mut rng, VOCAB * HID),
     }
+}
+
+fn put_u32(b: &mut Vec<u8>, v: u32) {
+    b.extend_from_slice(&v.to_le_bytes());
+}
+
+fn put_u64(b: &mut Vec<u8>, v: u64) {
+    b.extend_from_slice(&v.to_le_bytes());
+}
+
+fn put_str(b: &mut Vec<u8>, s: &str) {
+    put_u64(b, s.len() as u64);
+    b.extend_from_slice(s.as_bytes());
+}
+
+fn kv_u32(b: &mut Vec<u8>, k: &str, v: u32) {
+    put_str(b, k);
+    put_u32(b, 4);
+    put_u32(b, v);
+}
+
+fn kv_str(b: &mut Vec<u8>, k: &str, v: &str) {
+    put_str(b, k);
+    put_u32(b, 8);
+    put_str(b, v);
+}
+
+fn kv_f32(b: &mut Vec<u8>, k: &str, v: f32) {
+    put_str(b, k);
+    put_u32(b, 6);
+    b.extend_from_slice(&v.to_bits().to_le_bytes());
+}
+
+fn u(x: usize) -> u64 {
+    u64::try_from(x).expect("fixture dims fit u64")
+}
+
+/// `w` as one `qwen2` `GGUF` in `cfg()`'s geometry: every matrix and the embedding/head `F16`, every
+/// norm gain and bias `F32`, mirroring the engine's own fixture typing. Values are in
+/// `{-2, …, 2}·2^-5`, exact in both payloads.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one tensor per statement is the whole fixture directory; splitting it moves the same \
+              fifteen entries into a helper called once"
+)]
+fn gguf_bytes(w: &Weights) -> Vec<u8> {
+    let c = cfg();
+    let f16 = |v: &[i64]| encode_f16(v).expect("fixture f16");
+    let mut ts: Vec<(String, Vec<u64>, u32, Vec<u8>)> = Vec::new();
+    let mut tensor = |name: String, dims: Vec<u64>, ty: u32, data: Vec<u8>| {
+        ts.push((name, dims, ty, data));
+    };
+    for (l, lw) in w.layers.iter().enumerate() {
+        let p = |s: &str| format!("blk.{l}.{s}");
+        tensor(
+            p("attn_norm.weight"),
+            vec![u(HID)],
+            quant::GGML_TYPE_F32,
+            encode_f32(&lw.attn_norm),
+        );
+        tensor(
+            p("attn_q.weight"),
+            vec![u(HID), u(Q_OUT)],
+            quant::GGML_TYPE_F16,
+            f16(&lw.wq),
+        );
+        tensor(
+            p("attn_k.weight"),
+            vec![u(HID), u(KV_OUT)],
+            quant::GGML_TYPE_F16,
+            f16(&lw.wk),
+        );
+        tensor(
+            p("attn_v.weight"),
+            vec![u(HID), u(KV_OUT)],
+            quant::GGML_TYPE_F16,
+            f16(&lw.wv),
+        );
+        tensor(
+            p("attn_q.bias"),
+            vec![u(Q_OUT)],
+            quant::GGML_TYPE_F32,
+            encode_f32(lw.bq.as_ref().expect("fixture q bias")),
+        );
+        tensor(
+            p("attn_k.bias"),
+            vec![u(KV_OUT)],
+            quant::GGML_TYPE_F32,
+            encode_f32(lw.bk.as_ref().expect("fixture k bias")),
+        );
+        tensor(
+            p("attn_v.bias"),
+            vec![u(KV_OUT)],
+            quant::GGML_TYPE_F32,
+            encode_f32(lw.bv.as_ref().expect("fixture v bias")),
+        );
+        tensor(
+            p("attn_output.weight"),
+            vec![u(Q_OUT), u(HID)],
+            quant::GGML_TYPE_F16,
+            f16(&lw.wo),
+        );
+        tensor(
+            p("ffn_norm.weight"),
+            vec![u(HID)],
+            quant::GGML_TYPE_F32,
+            encode_f32(&lw.ffn_norm),
+        );
+        tensor(
+            p("ffn_gate.weight"),
+            vec![u(HID), u(INTER)],
+            quant::GGML_TYPE_F16,
+            f16(&lw.w_gate),
+        );
+        tensor(
+            p("ffn_up.weight"),
+            vec![u(HID), u(INTER)],
+            quant::GGML_TYPE_F16,
+            f16(&lw.w_up),
+        );
+        tensor(
+            p("ffn_down.weight"),
+            vec![u(INTER), u(HID)],
+            quant::GGML_TYPE_F16,
+            f16(&lw.w_down),
+        );
+    }
+    tensor(
+        "output_norm.weight".to_string(),
+        vec![u(HID)],
+        quant::GGML_TYPE_F32,
+        encode_f32(&w.output_norm),
+    );
+    tensor(
+        "token_embd.weight".to_string(),
+        vec![u(HID), u(VOCAB)],
+        quant::GGML_TYPE_F16,
+        f16(&w.token_embd),
+    );
+    tensor(
+        "output.weight".to_string(),
+        vec![u(HID), u(VOCAB)],
+        quant::GGML_TYPE_F16,
+        f16(&w.lm_head),
+    );
+    let mut b: Vec<u8> = Vec::new();
+    b.extend_from_slice(b"GGUF");
+    put_u32(&mut b, 3);
+    put_u64(&mut b, u64::try_from(ts.len()).expect("small"));
+    put_u64(&mut b, 8);
+    kv_str(&mut b, "general.architecture", "qwen2");
+    kv_u32(
+        &mut b,
+        "qwen2.block_count",
+        u32::try_from(c.n_layer).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.attention.head_count",
+        u32::try_from(NH).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.attention.head_count_kv",
+        u32::try_from(NKV).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.embedding_length",
+        u32::try_from(HID).expect("small"),
+    );
+    kv_u32(
+        &mut b,
+        "qwen2.feed_forward_length",
+        u32::try_from(INTER).expect("small"),
+    );
+    kv_f32(
+        &mut b,
+        "qwen2.attention.layer_norm_rms_epsilon",
+        (c.eps as f64 / 4_294_967_296.0) as f32,
+    );
+    kv_f32(&mut b, "qwen2.rope.freq_base", c.rope_theta as f32);
+    let mut off = 0u64;
+    for (name, dims, ty, payload) in &ts {
+        put_str(&mut b, name);
+        put_u32(&mut b, u32::try_from(dims.len()).expect("rank"));
+        for &d in dims {
+            put_u64(&mut b, d);
+        }
+        put_u32(&mut b, *ty);
+        put_u64(&mut b, off);
+        off += u64::try_from(payload.len()).expect("small");
+    }
+    let pad = (32 - b.len() % 32) % 32;
+    b.resize(b.len() + pad, 0);
+    for (_, _, _, payload) in &ts {
+        b.extend_from_slice(payload);
+    }
+    b
+}
+
+/// Write `w` as the teacher `GGUF` of one fixture and return its path.
+fn teacher_gguf(tag: &str, w: &Weights) -> String {
+    let path =
+        std::env::temp_dir().join(format!("apeiron_convert_{}_{tag}.gguf", std::process::id()));
+    std::fs::write(&path, gguf_bytes(w)).expect("write teacher fixture");
+    path.to_str().expect("utf8 temp path").to_string()
 }
 
 /// (a) Every `Q32.32` word survives `f64 → Q32.32` exactly, so the round trip reproduces `w`.
@@ -175,21 +391,41 @@ fn decode_words_equal_to_grid_of_the_decoded_value() {
     ));
 }
 
-/// (c) The engine forward on the round-tripped weights equals the forward on the original, exactly.
+/// (c) The engine's exact logits and final hidden state on the original `GGUF` image equal those on
+/// the student image `student_gguf_bytes` writes from the round-tripped words, bit for bit. The
+/// comparison is at the `F16` payload's resolution; the word-exact round trip is (a), so this test
+/// covers the encoder and the loader against the model they write and read.
 #[test]
 fn forward_agrees_after_round_trip() {
     let w = build_weights(0x1234_5678);
     let c = cfg();
     let teacher = teacher_from_grad(&w, &c).expect("teacher");
     let back = student_to_grad(&w, &teacher.layers, &teacher.fnorm).expect("grad");
+    let path = teacher_gguf("round_trip", &w);
+    let original = Engine::open(&path).expect("open original");
+    let bytes = student_gguf_bytes(&path, &back).expect("student bytes");
+    let round_tripped = Engine::from_bytes(&path, bytes).expect("load round-tripped");
     let tokens = [1u32, 2, 3, 7];
-    let (logits_a, tape_a) = model::forward(&w, &c, &tokens).expect("forward original");
-    let (logits_b, tape_b) = model::forward(&back, &c, &tokens).expect("forward round-tripped");
+    let (logits_a, tape_a) =
+        engine_tape_mode(&original, &c, &tokens, KernelMode::Exact).expect("exact original");
+    let (logits_b, tape_b) =
+        engine_tape_mode(&round_tripped, &c, &tokens, KernelMode::Exact).expect("exact round-trip");
+    // The fixture carries signal: a comparison over identically-zero logits could not see a weight
+    // change.
+    assert!(
+        logits_a.iter().any(|&v| v != 0),
+        "the fixture logits are identically zero"
+    );
+    assert!(
+        logits_a.windows(2).any(|w| w[0] != w[1]),
+        "the fixture logits carry no variation"
+    );
     assert_eq!(logits_a, logits_b, "logits must be bit-identical");
     assert_eq!(
         tape_a.final_hidden, tape_b.final_hidden,
         "the hidden states must be bit-identical"
     );
+    let _ = std::fs::remove_file(&path);
 }
 
 /// (d) A model with an absent attention bias is refused by name.
