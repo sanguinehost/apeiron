@@ -2835,6 +2835,9 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.QuantVerdicts.nj_pool_is_the_cause
 #audit Learn.QuantVerdicts.nj_cumulative_eight_x
 #audit Learn.QuantVerdicts.nj_decision_still_dominates
+#audit Learn.QuantVerdicts.ColumnRestore.restore_energy
+#audit Learn.QuantVerdicts.ColumnRestore.restore_one
+#audit Learn.QuantVerdicts.ColumnRestore.masked_energy
 #audit Learn.Admission.attrib_wall_is_the_record
 #audit Learn.Admission.now_projection
 #audit Learn.Admission.attrib_every_single_term_refused
