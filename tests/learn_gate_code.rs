@@ -13,7 +13,7 @@
 //! Stages, selected by `APEIRON_GATE_STAGE`:
 //! - `probe`: one 512-token tapped prefill and one production `fold_fit`, so the cost equation is
 //!   measured before a campaign is launched.
-//! - `fit`: calibration `H` from chunks `0..APEIRON_GATE_CALIB`, then the production fit of
+//! - `fit`: calibration `H` from chunks `0..CALIB`, then the production fit of
 //!   `ffn_gate` and `ffn_up` for `APEIRON_GATE_LAYERS`, cached as Q32.32 words.
 //! - `stats`: the per-layer table over the held-out chunks.
 //! - `kl`: held-out KL of one arm against the llama.cpp `--kl-divergence-base` file.
@@ -48,6 +48,7 @@ use apeiron::format::gguf::Gguf;
 use apeiron::format::quant;
 use apeiron::learn::fold::fit::fold_fit::{fold_fit, FoldFitConfig};
 use apeiron::learn::fold::run::convert::{encode_f16, encode_f32};
+use apeiron::learn::fold::stats::capture::{Grams, LayerGrams, Normalisation};
 use apeiron::learn::fold::stats::heldout::{held_out, held_out_kldbase_chunk};
 use apeiron::learn::fold::stats::kldbase::KldBase;
 use apeiron::learn::grad::load::layer_from_engine;
@@ -66,37 +67,25 @@ fn model_path() -> String {
 /// llama.cpp's `--kl-divergence-base` file for the binary32 teacher, 40 chunks of `n_ctx = 512`.
 const BASE: &str = "~/kld08/calib.c40.kld";
 
+/// Calibration chunks `0..CALIB`: 8 chunks of 512 tokens give 4096 rows, above the `n_ff = 3584`
+/// width of the down Gram; 2 chunks bound its rank by 1024 and `fold_fit` refuses it as not
+/// positive-definite. Every held-out read starts at chunk `CALIB` or later.
+/// Fixed with the production Grams under board .
+const CALIB: usize = 8;
+
 /// The base file path, overridable by `APEIRON_GATE_BASE` (the binary16 teacher's own base).
 fn base_path() -> String {
     std::env::var("APEIRON_GATE_BASE").unwrap_or_else(|_| String::from(BASE))
 }
 /// Where the fitted rows and the calibration Gram are cached as Q32.32 words.
-const CACHE: &str = "~/kld08/gatecode";
+const CACHE: &str = "~/kld08/gatecode-tok";
 
 /// Tap slot of the FFN-side `RMSNorm` output: the gate/up input (`STAGE_LN2_OUT`).
 const TAP_LN2: usize = 3;
 /// Tap slot of the gate pre-activation (`STAGE_GATE`).
 const TAP_GATE: usize = 8;
-/// `STAGE_UP`: the up pre-activation `u·x`, `n_ff` wide.
-const TAP_UP: usize = 9;
-
-/// The down input `h = silu(g·x)⊙(u·x)` per column, from the tapped gate and up pre-activations,
-/// as Q32.32 words in the feature-major `n_ff × t` layout. `O(t·n_ff)`.
-fn down_input(gate: &[Vec<i64>], up: &[Vec<i64>], f: usize) -> Vec<i64> {
-    let t = gate.len();
-    let mut out = vec![0i64; f * t];
-    for (c, (gc, uc)) in gate.iter().zip(up).enumerate() {
-        assert_eq!(gc.len(), f, "stage 8 width");
-        assert_eq!(uc.len(), f, "stage 9 width");
-        let g = unq(gc);
-        let u = unq(uc);
-        let h: Vec<f64> = g.iter().zip(&u).map(|(a, b)| silu(*a) * b).collect();
-        for (j, w) in qv(&h).into_iter().enumerate() {
-            out[j * t + c] = w;
-        }
-    }
-    out
-}
+/// Tap slot of the `SwiGLU` product `m = silu(g·x)⊙(u·x)`, the `ffn_down` input (`STAGE_M`).
+const TAP_M: usize = 4;
 
 /// The production call-site configuration (`fold_transfer.py:1733-1736`).
 fn production_cfg() -> FoldFitConfig {
@@ -218,32 +207,6 @@ fn tapped(engine: &Engine, tokens: &[u32]) -> Vec<Vec<Vec<Vec<i64>>>> {
     rows
 }
 
-/// Add `Σ_t x_t x_tᵀ` into `acc`, `n × n`, from `x` as `t × n` token-major words.
-///
-/// `O(t·n²/2)` multiply-adds, the upper triangle only; the token loop is outer so each `O(n)`
-/// row is read once per token into cache.
-fn gram_add(x: &[i64], t: usize, n: usize, acc: &mut [f64]) {
-    for ti in 0..t {
-        let row = unq(&x[ti * n..(ti + 1) * n]);
-        for i in 0..n {
-            let xi = row[i];
-            let base = i * n;
-            for j in i..n {
-                acc[base + j] += xi * row[j];
-            }
-        }
-    }
-}
-
-/// Mirror the upper triangle of an `n × n` Gram.
-fn mirror(acc: &mut [f64], n: usize) {
-    for i in 0..n {
-        for j in i + 1..n {
-            acc[j * n + i] = acc[i * n + j];
-        }
-    }
-}
-
 /// `vᵀ·H·v` for the symmetric `h`, `n × n`.
 fn quad(h: &[f64], v: &[f64], n: usize) -> f64 {
     let mut hv = vec![0.0f64; n];
@@ -327,17 +290,73 @@ fn layer_fit(h: &[f64], g: &[f64], gh: &[f64], u: &[f64], uh: &[f64], n: usize) 
     }
 }
 
-/// Flatten `[token][width]` tap columns to the feature-major `n × t` layout [`project`] reads.
-fn feature_major(cols: &[Vec<i64>], n: usize) -> Vec<i64> {
-    let t = cols.len();
-    let mut x = vec![0i64; n * t];
-    for (ti, col) in cols.iter().enumerate() {
-        assert_eq!(col.len(), n, "tap column width");
-        for (k, &w) in col.iter().enumerate() {
-            x[k * t + ti] = w;
+/// The production calibration Grams over chunks `0..calib`: `Grams::accumulate_tap` on each tapped
+/// chunk, then `Normalisation::Mean`. `gate_up` is the `ffn_gate`/`ffn_up` input Gram (stage 3) and
+/// `down` the `ffn_down` input Gram (stage 4, the engine's own `SwiGLU` product), both `Σ_t x_t x_tᵀ / T`
+/// over tokens, so this file restates no layout.
+///
+/// Layout control, per layer in `layers`: the diagonal of each Gram against `Σ_t x_t[k]² / T`
+/// summed straight from the tap columns, relative error below `1e-4`. A feature-major buffer read as
+/// token rows (the defect this replaces) misses it by `O(1)`.
+///
+/// `O(calib·n_layer·t·(n_embd² + q_out² + n_ff²)/2)` multiply-adds in the accumulator plus
+/// `O(calib·|layers|·t·(n_embd + n_ff))` for the control; space the accumulator's
+/// `O(n_layer·(n_embd² + q_out² + n_ff²))` words and one `f64` copy.
+fn calib_grams(
+    engine: &Engine,
+    cfg: &Config,
+    chunks: &[Vec<u32>],
+    calib: usize,
+    layers: &[usize],
+) -> Vec<LayerGrams> {
+    let (n, f) = (cfg.n_embd, cfg.n_ff);
+    let mut grams = Grams::new(cfg).expect("grams");
+    let mut diag: Vec<(Vec<f64>, Vec<f64>)> = vec![(vec![0.0; n], vec![0.0; f]); cfg.n_layer];
+    let mut seen = 0usize;
+    let t0 = Instant::now();
+    for (c, tokens) in chunks.iter().enumerate().take(calib) {
+        let rows = tapped(engine, tokens);
+        grams.accumulate_tap(&rows).expect("accumulate");
+        for &l in layers {
+            for col in &rows[l][TAP_LN2] {
+                for (k, v) in unq(col).iter().enumerate() {
+                    diag[l].0[k] += v * v;
+                }
+            }
+            for col in &rows[l][TAP_M] {
+                for (k, v) in unq(col).iter().enumerate() {
+                    diag[l].1[k] += v * v;
+                }
+            }
+        }
+        seen += tokens.len();
+        println!(
+            "GRAMS calib chunk {c} at {:.1} s",
+            t0.elapsed().as_secs_f64()
+        );
+    }
+    let done = grams.finish(Normalisation::Mean).expect("finish");
+    for &l in layers {
+        let checks = [
+            ("gate_up", &done[l].gate_up, &diag[l].0, n),
+            ("down", &done[l].down, &diag[l].1, f),
+        ];
+        for (name, g, d, w) in checks {
+            let (mut num, mut den) = (0.0f64, 0.0f64);
+            for k in 0..w {
+                let e = d[k] / seen as f64;
+                num += (g[k * w + k] - e).powi(2);
+                den += e * e;
+            }
+            let rel = (num / den).sqrt();
+            println!("GRAMS layer {l} {name} diag rel {rel:.3e}");
+            assert!(
+                rel < 1e-4,
+                "layer {l} {name}: Gram diagonal off the tap columns by {rel}"
+            );
         }
     }
-    x
+    done
 }
 
 /// The cost equation and the two fixtures: one 512-token tapped prefill, one production `fold_fit`.
@@ -373,16 +392,13 @@ fn gate_code_probe() {
         );
     }
     println!("PROBE tap {prefill:.2} s per {n_ctx}-token chunk");
-    let x = feature_major(&rows[0][TAP_LN2], cfg.n_embd);
     let n = cfg.n_embd;
-    let mut h = vec![0.0f64; n * n];
     let t = Instant::now();
-    gram_add(&x, n_ctx, n, &mut h);
+    let grams = calib_grams(&engine, &cfg, &chunks, 1, &[0]);
     let gram = t.elapsed().as_secs_f64();
-    mirror(&mut h, n);
-    println!("PROBE gram {gram:.2} s per layer-chunk");
+    println!("PROBE grams {gram:.2} s per chunk, all layers, tap included");
     let (g, u, mixer) = gate_up(&engine, &cfg, 0);
-    let hw = qv(&h);
+    let hw = qv(&grams[0].gate_up);
     let t = Instant::now();
     let fit = fold_fit(&g, &hw, cfg.n_ff, n, None, &production_cfg()).expect("fit");
     let fw = t.elapsed().as_secs_f64();
@@ -396,16 +412,13 @@ fn gate_code_probe() {
     let _ = u;
     let layers2 = 2.0 * f64::from(u32::try_from(cfg.n_layer).expect("24"));
     println!(
-        "PROBE equation: fit {:.0} s for {layers2} tensors; H {:.0} s over {} layers x calib chunks; \
-         stats {:.0} s per layer-chunk",
-        fw * layers2,
-        gram * f64::from(u32::try_from(cfg.n_layer).expect("24")),
-        cfg.n_layer,
-        prefill
+        "PROBE equation: fit {:.0} s for {layers2} tensors; H {gram:.0} s per calib chunk; \
+         stats {prefill:.0} s per layer-chunk",
+        fw * layers2
     );
 }
 
-/// Accumulate the calibration `H` over chunks `0..APEIRON_GATE_CALIB` and cache it with the fits.
+/// Accumulate the calibration `H` over chunks `0..CALIB` and cache it with the fits.
 #[test]
 #[ignore = "opens the 3.1 GB F32 teacher and runs production fold_fit per tensor; run explicitly"]
 fn gate_code_fit() {
@@ -413,25 +426,14 @@ fn gate_code_fit() {
     let cfg = Config::from_engine(&engine).expect("config");
     let (chunks, n_ctx) = base_tokens(&base_path());
     let layers = env_layers(cfg.n_layer);
-    let calib = env_usize("APEIRON_GATE_CALIB", 2);
+    let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
     let n = cfg.n_embd;
     std::fs::create_dir_all(CACHE).expect("cache dir");
-    let mut h = vec![vec![0.0f64; n * n]; cfg.n_layer];
     let t0 = Instant::now();
-    for (c, tokens) in chunks.iter().enumerate().take(calib) {
-        let rows = tapped(&engine, tokens);
-        for &l in &layers {
-            let x = feature_major(&rows[l][TAP_LN2], n);
-            gram_add(&x, n_ctx, n, &mut h[l]);
-        }
-        println!("FIT calib chunk {c} at {:.1} s", t0.elapsed().as_secs_f64());
-    }
+    let grams = calib_grams(&engine, &cfg, &chunks, calib, &layers);
     let tokens_seen = calib * n_ctx;
     for &l in &layers {
-        mirror(&mut h[l], n);
-        let scale = 1.0 / tokens_seen as f64;
-        let mean: Vec<f64> = h[l].iter().map(|v| v * scale).collect();
-        let hw = qv(&mean);
+        let hw = qv(&grams[l].gate_up);
         write_words(&format!("{CACHE}/h{l}.i64"), n, n, &hw).expect("cache H");
         let (g, u, mixer) = gate_up(&engine, &cfg, l);
         for (name, w) in [("gate", &g[..]), ("up", &u[..])] {
@@ -456,11 +458,10 @@ fn gate_code_fit() {
     );
 }
 
-/// The down calibration `H` (`h = silu(g·x)⊙(u·x)` from stages 8 and 9, `n_ff × n_ff`) over chunks `0..APEIRON_GATE_CALIB`, then
+/// The down calibration `H` (the production `Grams::down`, stage 4, `n_ff × n_ff`) over chunks `0..CALIB`, then
 /// the production fit of `ffn_down` for `APEIRON_GATE_LAYERS`, cached beside the gate/up fits.
 ///
-/// `O(calib·layers·t·n_ff²/2)` multiply-adds for `H` (one symmetric rank-`t` update per
-/// layer-chunk), then one `fold_fit` per layer; memory `layers·n_ff²` f64 for `H`.
+/// `H` costs what [`calib_grams`] states; then one `fold_fit` per layer.
 #[test]
 #[ignore = "opens the teacher and runs production fold_fit on ffn_down; run explicitly"]
 fn gate_code_fit_down() {
@@ -468,27 +469,14 @@ fn gate_code_fit_down() {
     let cfg = Config::from_engine(&engine).expect("config");
     let (chunks, n_ctx) = base_tokens(&base_path());
     let layers = env_layers(cfg.n_layer);
-    let calib = env_usize("APEIRON_GATE_CALIB", 2);
+    let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
     let (n, f) = (cfg.n_embd, cfg.n_ff);
     std::fs::create_dir_all(CACHE).expect("cache dir");
-    let mut h: Vec<Vec<f64>> = layers.iter().map(|_| vec![0.0f64; f * f]).collect();
     let t0 = Instant::now();
-    for (c, tokens) in chunks.iter().enumerate().take(calib) {
-        let rows = tapped(&engine, tokens);
-        for (i, &l) in layers.iter().enumerate() {
-            let x = down_input(&rows[l][TAP_GATE], &rows[l][TAP_UP], f);
-            gram_add(&x, n_ctx, f, &mut h[i]);
-        }
-        println!(
-            "FITD calib chunk {c} at {:.1} s",
-            t0.elapsed().as_secs_f64()
-        );
-    }
+    let grams = calib_grams(&engine, &cfg, &chunks, calib, &layers);
     let tokens_seen = calib * n_ctx;
-    for (i, &l) in layers.iter().enumerate() {
-        mirror(&mut h[i], f);
-        let scale = 1.0 / tokens_seen as f64;
-        let hw = qv(&h[i].iter().map(|v| v * scale).collect::<Vec<f64>>());
+    for &l in &layers {
+        let hw = qv(&grams[l].down);
         let (d, mixer) = ffn_down(&engine, &cfg, l);
         let t = Instant::now();
         let fit = fold_fit(&d, &hw, n, f, None, &production_cfg()).expect("fit");
@@ -517,7 +505,7 @@ fn gate_code_stats() {
     let cfg = Config::from_engine(&engine).expect("config");
     let (chunks, n_ctx) = base_tokens(&base_path());
     let layers = env_layers(cfg.n_layer);
-    let calib = env_usize("APEIRON_GATE_CALIB", 2);
+    let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
     let held = env_usize("APEIRON_GATE_HELD", 1);
     let (n, o) = (cfg.n_embd, cfg.n_ff);
     let t = held * n_ctx;
@@ -732,7 +720,12 @@ fn student_bytes(arm: &str, layers: &[usize]) -> Vec<u8> {
 #[ignore = "reads the ~5 GB base file and a 3.1 GB student image; run explicitly with --ignored"]
 fn gate_code_kl() {
     let arm = std::env::var("APEIRON_GATE_ARM").unwrap_or_else(|_| String::from("teacher"));
-    let skip = env_usize("APEIRON_GATE_SKIP", 4);
+    let skip = env_usize("APEIRON_GATE_SKIP", CALIB);
+    let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
+    assert!(
+        skip >= calib,
+        "held-out chunk {skip} lies inside calibration 0..{calib}"
+    );
     let count = env_usize("APEIRON_GATE_CHUNKS", 10);
     let layers = fitted_layers(if arm == "teacher" { "gate" } else { &arm });
     let t0 = Instant::now();
@@ -791,7 +784,7 @@ fn gate_code_control_self() {
     let data = std::fs::read(model_path()).expect("read teacher");
     let student = Engine::from_bytes("roundtrip", data).expect("student engine");
     let (chunks, _n_ctx) = base_tokens(&base_path());
-    let at = env_usize("APEIRON_GATE_CALIB", 2);
+    let at = env_usize("APEIRON_GATE_CALIB", CALIB);
     let len = env_usize("APEIRON_GATE_T", 128);
     let seq: &[u32] = chunks[at].get(..len).expect("column prefix");
     let h = held_out(&teacher, &student, &[seq]).expect("held out");
