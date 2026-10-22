@@ -2858,6 +2858,14 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.RateSpikes.kw1_one_bit_loses
 #audit Learn.RateSpikes.kw1_register_idle
 #audit Learn.RateSpikes.kw1_alphabet_on_slope
+-- First-order held-out quality model (board row ).
+#audit Learn.QualityModel.predicted_mono
+#audit Learn.QualityModel.hybrid_dominates
+#audit Learn.QualityModel.total_unity
+#audit Learn.QualityModel.gate_up_down_majority
+#audit Learn.QualityModel.attention_share
+#audit Learn.QualityModel.attention_zero_floor
+#audit Learn.QualityModel.walker_gain
 #audit Learn.RateSpikes.kw1_mix_nine
 #audit Learn.RateSpikes.mt1_radius_beats_beam1
 #audit Learn.RateSpikes.mt1_gap_under_beam
