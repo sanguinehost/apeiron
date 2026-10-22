@@ -506,130 +506,140 @@ end RateSpikes
 end Learn
 
 /-!
-# First-order held-out quality model on qwen2.5-0.5B layer 0 (`Learn.QualityModel`)
+# Layer-0 hybrid verdict on qwen2.5-0.5B (`Learn.HybridVerdict`)
 
-Receipt: `/home/socol/oc-tmp/gen-w1-t01/gen-n8.json` (GEN-W1-T01, `ncal` 8, arm `plain`, one row per
-linear of layer 0). Every constant is a `model` input copied from that file: `KL_out` is the held-out
-KL of the tensor quantised alone, in millionths of a nat.
+Receipt: `/home/socol/oc-tmp/escalation/lead-1022/HYB/receipt.md` (APEIRON-QUALITY-118-W1-T01, `ncal` 8,
+layer 0). Arms: `F` = `fold_fit` (sign plane plus the r/c/d pack), `E` = `gptq_e8` beam 4, `W` = the
+walker arm selected by calibration `J` on `q k v o`. Every constant is a `measured` input from that
+receipt: held-out `KL_out` in millionths of a nat, `J_in` in millionths unless stated, bits as counted.
 
-## The model
-
-`KL_total ≈ Σ_t κ_t · J_t`, with `J_t` the tensor's Hessian-weighted output error and `κ_t` a per-tensor
-constant (`KL_out / J_out` in the receipt, a 5× spread across tensors). A change that scales `J_t` by
-`r_t / 1000` moves the predicted KL by the factor `r_t / 1000` on that tensor's term. The model is
-derived to first order and is **not** validated for additivity across tensors (GEN-W1-T02 is the test);
-the theorems below are consequences of it, graded `model`.
-
-## What it says about the walker
-
-The walker's measured `J` ratios on layer 0 (`q 0.759`, `k 0.946`, `v 0.970`, `o 0.936`) apply to the
-four tensors that carry 29.2% of the summed held-out KL. Under the model the gate/up/down tensors carry
-the other 70.8%, and the walker leaves them unchanged, so its layer-0 gain is bounded by that 29.2% and
-is 1.9% at the measured ratios.
+Verdict: the hybrid (walker on `q k v o`, best of F/E/menu on `gate up down`) is refuted as an
+improvement. `F` alone is lower in held-out KL than the walker arm on every attention tensor and lower
+than the hybrid on the joint layer at fewer bits. The walker had been ranked only against `E`, which is
+not the measured best. The premise `KL_out ∝ J` per tensor (the earlier `Learn.QualityModel`) is
+refuted by two pairs below and removed.
 -/
 
 namespace Learn
 
-namespace QualityModel
+namespace HybridVerdict
 
-/-! ### Constants (`gen-n8.json`, millionths of a nat) -/
+/-! ### Per tensor, one linear replaced (held-out `KL_out`, millionths of a nat) -/
 
-/-- Held-out KL of `q` alone. -/
-def klQ : Nat := 8137
+/-- Held-out KL of `q` alone under `fold_fit` (F), millionths of a nat. -/
+def klF_q : Nat := 8137
+/-- Held-out KL of `q` alone under `gptq_e8` (E), millionths of a nat. -/
+def klE_q : Nat := 9062
+/-- Held-out KL of `q` alone under the walker arm (W), millionths of a nat. -/
+def klW_q : Nat := 9548
+/-- Held-out KL of `k` alone under `fold_fit` (F), millionths of a nat. -/
+def klF_k : Nat := 8635
+/-- Held-out KL of `k` alone under `gptq_e8` (E), millionths of a nat. -/
+def klE_k : Nat := 9587
+/-- Held-out KL of `k` alone under the walker arm (W), millionths of a nat. -/
+def klW_k : Nat := 9790
+/-- Held-out KL of `v` alone under `fold_fit` (F), millionths of a nat. -/
+def klF_v : Nat := 29956
+/-- Held-out KL of `v` alone under `gptq_e8` (E), millionths of a nat. -/
+def klE_v : Nat := 35102
+/-- Held-out KL of `v` alone under the walker arm (W), millionths of a nat. -/
+def klW_v : Nat := 35471
+/-- Held-out KL of `o` alone under `fold_fit` (F), millionths of a nat. -/
+def klF_o : Nat := 189236
+/-- Held-out KL of `o` alone under `gptq_e8` (E), millionths of a nat. -/
+def klE_o : Nat := 188630
+/-- Held-out KL of `o` alone under the walker arm (W), millionths of a nat. -/
+def klW_o : Nat := 189522
+/-- Held-out KL of `gate` alone under `fold_fit` (F), millionths of a nat. -/
+def klF_gate : Nat := 124482
+/-- Held-out KL of `gate` alone under `gptq_e8` (E), millionths of a nat. -/
+def klE_gate : Nat := 138000
+/-- Held-out KL of `up` alone under `fold_fit` (F), millionths of a nat. -/
+def klF_up : Nat := 241787
+/-- Held-out KL of `up` alone under `gptq_e8` (E), millionths of a nat. -/
+def klE_up : Nat := 235375
+/-- Held-out KL of `down` alone under `fold_fit` (F), millionths of a nat. -/
+def klF_down : Nat := 207099
+/-- Held-out KL of `down` alone under `gptq_e8` (E), millionths of a nat. -/
+def klE_down : Nat := 257301
+/-- Held-out KL of `down` alone under the walker arm (W), millionths of a nat. -/
+def klW_down : Nat := 275207
 
-/-- Held-out KL of `k` alone. -/
-def klK : Nat := 8635
+/-- `J_in` of `q` under `fold_fit` (F), millionths. -/
+def jF_q : Nat := 1891548
+/-- `J_in` of `q` under `gptq_e8` (E), millionths. -/
+def jE_q : Nat := 5694486
+/-- `J_in` of `q` under the walker arm (W), millionths. -/
+def jW_q : Nat := 4192838
 
-/-- Held-out KL of `v` alone. -/
-def klV : Nat := 29956
+/-- `J_in` of `down` under `gptq_e8` (E), ten-thousandths (the receipt's precision). -/
+def jE_down : Nat := 11781
+/-- `J_in` of `down` under the walker arm (W), ten-thousandths. -/
+def jW_down : Nat := 11782
 
-/-- Held-out KL of `o` alone. -/
-def klO : Nat := 189236
+/-! ### Joint layer, all seven linears replaced -/
 
-/-- Held-out KL of `gate` alone. -/
-def klGate : Nat := 124482
+/-- Joint-layer held-out KL, all seven linears under F, millionths of a nat. -/
+def jointF : Nat := 1080841
+/-- Joint-layer held-out KL of the hybrid, millionths of a nat. -/
+def jointHyb : Nat := 1081356
+/-- Joint-layer held-out KL, all seven linears under E, millionths of a nat. -/
+def jointE : Nat := 1236013
+/-- Joint-layer held-out KL when each tensor takes its lowest-`KL_in` arm, millionths of a nat. -/
+def jointMinKlin : Nat := 1387591
+/-- Joint-layer calibration `KL_in` of the hybrid, millionths of a nat. -/
+def klinHyb : Nat := 493901
+/-- Joint-layer calibration `KL_in` of the lowest-`KL_in` selection, millionths of a nat. -/
+def klinMinKlin : Nat := 360754
+/-- Joint-layer bits under F. -/
+def bitsF : Nat := 15590272
+/-- Joint-layer bits under the hybrid. -/
+def bitsHyb : Nat := 16413536
+/-- Joint-layer bits under E. -/
+def bitsE : Nat := 16773120
 
-/-- Held-out KL of `up` alone. -/
-def klUp : Nat := 241787
+/-! ### Verdicts -/
 
-/-- Held-out KL of `down` alone. -/
-def klDown : Nat := 207099
+/-- **`F` beats the walker arm on every attention tensor** in held-out KL. `∧` [and]; `<` [is
+smaller than]. -/
+theorem fit_beats_walker :
+    klF_q < klW_q ∧ klF_k < klW_k ∧ klF_v < klW_v ∧ klF_o < klW_o := by
+  exact ⟨by decide, by decide, by decide, by decide⟩
 
-/-- The model's per-tensor `J` scale factors, per mille, in the order `q k v o gate up down`. -/
-structure Ratios where
-  q : Nat
-  k : Nat
-  v : Nat
-  o : Nat
-  gate : Nat
-  up : Nat
-  down : Nat
-
-/-- Predicted summed held-out KL times 1000: `Σ_t KL_t · r_t`, `r_t` per mille. -/
-def predicted (r : Ratios) : Nat :=
-  klQ * r.q + klK * r.k + klV * r.v + klO * r.o + klGate * r.gate + klUp * r.up + klDown * r.down
-
-/-- The unchanged encoder: every ratio is 1000. -/
-def unity : Ratios := ⟨1000, 1000, 1000, 1000, 1000, 1000, 1000⟩
-
-/-- The walker at its measured layer-0 ratios on `q k v o`, unchanged on `gate up down`. -/
-def walker : Ratios := ⟨759, 946, 970, 936, 1000, 1000, 1000⟩
-
-/-- Pointwise order on ratios. -/
-def Ratios.le (a b : Ratios) : Prop :=
-  a.q ≤ b.q ∧ a.k ≤ b.k ∧ a.v ≤ b.v ∧ a.o ≤ b.o ∧ a.gate ≤ b.gate ∧ a.up ≤ b.up ∧ a.down ≤ b.down
-
-/-- Pointwise minimum: the hybrid that takes the better arm per tensor. -/
-def Ratios.min (a b : Ratios) : Ratios :=
-  ⟨Nat.min a.q b.q, Nat.min a.k b.k, Nat.min a.v b.v, Nat.min a.o b.o,
-    Nat.min a.gate b.gate, Nat.min a.up b.up, Nat.min a.down b.down⟩
-
-/-! ### Structure of the model -/
-
-/-- **Lower ratios never raise the prediction.** `≤` [is smaller than or equal to]; `∧` [and]. -/
-theorem predicted_mono {a b : Ratios} (h : a.le b) : predicted a ≤ predicted b := by
-  obtain ⟨h1, h2, h3, h4, h5, h6, h7⟩ := h
-  unfold predicted
-  exact Nat.add_le_add (Nat.add_le_add (Nat.add_le_add (Nat.add_le_add (Nat.add_le_add
-    (Nat.add_le_add (Nat.mul_le_mul_left _ h1) (Nat.mul_le_mul_left _ h2))
-    (Nat.mul_le_mul_left _ h3)) (Nat.mul_le_mul_left _ h4)) (Nat.mul_le_mul_left _ h5))
-    (Nat.mul_le_mul_left _ h6)) (Nat.mul_le_mul_left _ h7)
-
-/-- **The per-tensor hybrid is no worse than either arm** under the model.
-`∧` [both are true]; `≤` [is smaller than or equal to]. -/
-theorem hybrid_dominates (a b : Ratios) :
-    predicted (a.min b) ≤ predicted a ∧ predicted (a.min b) ≤ predicted b := by
-  refine ⟨predicted_mono ?_, predicted_mono ?_⟩
-  · exact ⟨Nat.min_le_left _ _, Nat.min_le_left _ _, Nat.min_le_left _ _, Nat.min_le_left _ _,
-      Nat.min_le_left _ _, Nat.min_le_left _ _, Nat.min_le_left _ _⟩
-  · exact ⟨Nat.min_le_right _ _, Nat.min_le_right _ _, Nat.min_le_right _ _, Nat.min_le_right _ _,
-      Nat.min_le_right _ _, Nat.min_le_right _ _, Nat.min_le_right _ _⟩
-
-/-! ### The receipt's numbers -/
-
-/-- The summed held-out KL, millionths of a nat, times 1000 under `unity`. -/
-theorem total_unity : predicted unity = 809332 * 1000 := by decide
-
-/-- **`gate`, `up`, `down` carry more than half of the summed KL** (573 368 of 809 332), so a method
-confined to `q k v o` cannot recover more than the other share. `<` [is smaller than]. -/
-theorem gate_up_down_majority : 809332 < 2 * (klGate + klUp + klDown) := by decide
-
-/-- **`q`, `k`, `v`, `o` carry 235 964 of 809 332** (29.2%). Even `J = 0` on all four leaves at least
-70.8% of the prediction. `∧` [both are true]. -/
-theorem attention_share : klQ + klK + klV + klO = 235964 ∧ klGate + klUp + klDown = 573368 := by
+/-- **The hybrid does not improve on `F` for the joint layer**: `F` is lower in held-out KL at fewer
+bits. `∧` [and]; `<` [is smaller than]. -/
+theorem fit_beats_hybrid_joint : jointF < jointHyb ∧ bitsF < bitsHyb := by
   exact ⟨by decide, by decide⟩
 
-/-- **Zeroing `J` on `q k v o` caps the model's gain at 29.2%**: the prediction stays above 70% of the
-unchanged value. `≤` [is smaller than or equal to]. -/
-theorem attention_zero_floor :
-    700 * predicted unity ≤ 1000 * predicted ⟨0, 0, 0, 0, 1000, 1000, 1000⟩ := by decide
+/-- **`F` beats `E` on the joint layer** in held-out KL at fewer bits, and on the summed per-tensor
+held-out KL. `E` is lower only on `o` and `up`. `∧` [and]; `<` [is smaller than]. -/
+theorem fit_beats_e :
+    jointF < jointE ∧ bitsF < bitsE ∧
+    klF_q + klF_k + klF_v + klF_o + klF_gate + klF_up + klF_down <
+      klE_q + klE_k + klE_v + klE_o + klE_gate + klE_up + klE_down ∧
+    klE_o < klF_o ∧ klE_up < klF_up := by
+  exact ⟨by decide, by decide, by decide, by decide, by decide⟩
 
-/-- **The walker's predicted layer-0 gain is 15 437 091 / 1000 millionths, under 2%** of the summed KL:
-`predicted walker` is within 2% of `predicted unity`. `∧` [both are true]; `<` [is smaller than]. -/
-theorem walker_gain : predicted unity - predicted walker = 15437091 ∧
-    98 * predicted unity < 100 * predicted walker := by
+/-- **`KL_out ∝ J` is refuted on `q`**: the walker arm has the lower `J_in` and the higher held-out
+KL against `E`, so no positive per-tensor constant maps `J` to held-out KL. `∧` [and]; `<` [is
+smaller than]. -/
+theorem proportional_refuted_q : jW_q < jE_q ∧ klE_q < klW_q := by
   exact ⟨by decide, by decide⟩
 
-end QualityModel
+/-- **`KL_out ∝ J` is refuted on `down`**: `J_in` differs by one part in 11 781 between `E` and the
+walker arm, while held-out KL differs by more than 6%. `∧` [and]; `≤` [is smaller than or equal
+to]; `<` [is smaller than]. -/
+theorem proportional_refuted_down :
+    jW_down ≤ jE_down + 1 ∧ 106 * klE_down < 100 * klW_down := by
+  exact ⟨by decide, by decide⟩
+
+/-- **Per-tensor calibration KL does not compose across the layer**: choosing each tensor by lowest
+`KL_in` lowers the joint `KL_in` and raises the joint held-out KL by more than 28%. `∧` [and];
+`<` [is smaller than]. -/
+theorem min_klin_refuted :
+    klinMinKlin < klinHyb ∧ 128 * jointHyb < 100 * jointMinKlin := by
+  exact ⟨by decide, by decide⟩
+
+end HybridVerdict
 
 end Learn
