@@ -119,6 +119,35 @@ fn q6_k_block_applies_signed_scale() {
 }
 
 #[test]
+fn bf16_row_agrees_with_the_fold_converter_on_every_pattern() {
+    use crate::learn::fold::run::convert::{decode_bf16, ConvertError};
+    let mut mismatched: Vec<u16> = Vec::new();
+    let mut h = 0u32;
+    while h < 0x1_0000 {
+        let bits = u16::try_from(h).expect("h < 2^16");
+        let raw = bits.to_le_bytes();
+        let mut out = Vec::new();
+        let got = dequant_row_fixed(quant::GGML_TYPE_BF16, &raw, 1, &mut out);
+        let want: Result<Vec<i64>, ConvertError> = decode_bf16(&raw);
+        let same = match (&got, &want) {
+            (Ok(()), Ok(w)) => out == *w,
+            (Err(_), Err(_)) => true,
+            _ => false,
+        };
+        if !same {
+            mismatched.push(bits);
+        }
+        h += 1;
+    }
+    assert!(
+        mismatched.is_empty(),
+        "{} bf16 patterns differ, first {:?}",
+        mismatched.len(),
+        &mismatched[..mismatched.len().min(8)]
+    );
+}
+
+#[test]
 fn unsupported_embedding_quant_refuses() {
     let mut out = Vec::new();
     let e = dequant_row_fixed(quant::GGML_TYPE_F32, &[], 1, &mut out)

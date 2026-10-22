@@ -11,9 +11,9 @@
 //! [`rmsnorm_bwd_rows`], [`rope_rows_bwd`], [`embedding_grad`]), and [`dense`]'s and
 //! [`attn`]'s per-op kernels.
 //!
-//! Every weight is an `i64` Q32.32 row-major buffer loaded from an [`Engine`] with the engine's own
-//! row dequantizer ([`dequant_row_fixed`]); the norm gains and attention biases are the engine's
-//! resolved [`DecodeVectors`](crate::engine::loader::DecodeVectors) entries.
+//! Every weight is an `i64` Q32.32 row-major buffer; the engine-reading load lives in [`super::load`],
+//! which holds the row dequantizer and the resolved decode-vector reads. This module is the
+//! extraction unit's subject and reads no `GGUF`.
 //!
 //! # Evidence grade
 //!
@@ -28,10 +28,14 @@
 //! The backward differentiates the Q32.32 forward the engine runs; the engine's `Exact` prefill is
 //! the oracle. `i128` accumulation and the per-op rounding are the per-op modules' contracts. Not
 //! covered here: a float carrier's attention, partial rotary (`rot_dims < head_dim`), MoE/routed
-//! experts, the affine mixer, the per-head QK `RMSNorm`, the attention output gate,
+//! experts, the affine mixer's backward, the per-head QK `RMSNorm`, the attention output gate,
 //! Hadamard-folded weights and the stochastic sampler. The residual and bias adds are checked `i64`
 //! adds; every overflow returns [`ModelError::Overflow`]. No float and no `unsafe` appear after the
 //! load boundary.
+//!
+//! The load path is wider than the backward: [`super::load::layer_from_engine`] names a layer's fitted
+//! linears by `GGUF` tensor suffix and shapes them from the engine's own configuration, so an affine
+//! layer's `attn_qkv`/`attn_gate`/`ssm_out` set is available to a writer that does not yet fit it.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -52,7 +56,7 @@
 use super::attn::{self, AttnError};
 use super::dense::{self, DenseError};
 use crate::engine::num::fp::F64;
-use crate::engine::{dequant_row_fixed, Engine, EngineError, RopeTable};
+use crate::engine::{EngineError, RopeTable};
 
 /// A refused whole-model forward or backward evaluation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,12 +75,6 @@ pub enum ModelError {
     Dense(DenseError),
     /// An attention forward/backward kernel refused.
     Attn(AttnError),
-}
-
-impl From<EngineError> for ModelError {
-    fn from(e: EngineError) -> Self {
-        ModelError::Engine(e)
-    }
 }
 
 impl From<DenseError> for ModelError {
@@ -205,146 +203,6 @@ pub struct Weights {
     pub token_embd: Vec<i64>,
     /// The head (`output.weight` when present, else tied `token_embd.weight`), `vocab × n_embd`.
     pub lm_head: Vec<i64>,
-}
-
-/// `round(v · 2^32)` for a finite non-negative `v`, the engine's `eps_fixed` body.
-///
-/// # Complexity
-/// `O(1)`.
-fn eps_q32(v: f64) -> Result<i64, ModelError> {
-    if !v.is_finite() || v < 0.0 {
-        return Err(ModelError::Config("rms_eps".to_string()));
-    }
-    let q = (v * 4_294_967_296.0).round();
-    if !(q.is_finite() && (0.0..9_223_372_036_854_775_808.0).contains(&q)) {
-        return Err(ModelError::Config("rms_eps".to_string()));
-    }
-    Ok(q as i64)
-}
-
-/// The `[n_in, n_out]` quantized tensor `name` dequantized to a row-major `n_out × n_in` Q32.32
-/// matrix, one engine row dequantizer call per output row.
-///
-/// # Complexity
-/// `O(n_out·n_in)` dequantized elements; one contiguous read of the checked tensor extent.
-fn load_matrix(
-    engine: &Engine,
-    name: &str,
-    n_out: usize,
-    n_in: usize,
-) -> Result<Vec<i64>, ModelError> {
-    let t = engine
-        .table()
-        .get(name)
-        .ok_or_else(|| ModelError::Missing(name.to_string()))?;
-    if t.dims.len() != 2 || t.dims[0] != n_in as u64 || t.dims[1] != n_out as u64 {
-        return Err(ModelError::Shape(format!(
-            "{name} dims {:?} != [{n_in}, {n_out}]",
-            t.dims
-        )));
-    }
-    let n_bytes = t
-        .n_bytes
-        .ok_or_else(|| ModelError::Shape(format!("{name} has no geometry")))?;
-    let row_bytes = n_bytes / (n_out as u64);
-    let raw = engine.payload(t.byte_range.start, n_bytes)?;
-    let row_bytes = usize::try_from(row_bytes).map_err(|_| ModelError::Overflow)?;
-    let mut out: Vec<i64> = Vec::with_capacity(n_out * n_in);
-    for o in 0..n_out {
-        let s = o * row_bytes;
-        let end = s + row_bytes;
-        if end > raw.len() {
-            return Err(ModelError::Shape(format!("{name} row {o} past payload")));
-        }
-        dequant_row_fixed(t.ggml_type, &raw[s..end], n_in, &mut out)?;
-    }
-    if out.len() != n_out * n_in {
-        return Err(ModelError::Shape(format!(
-            "{name} produced {} of {} weights",
-            out.len(),
-            n_out * n_in
-        )));
-    }
-    Ok(out)
-}
-
-impl Weights {
-    /// Load every weight and the resolved [`Config`] from a loaded [`Engine`].
-    ///
-    /// # Errors
-    ///
-    /// [`ModelError::Missing`] for an absent norm, bias, embedding or head tensor;
-    /// [`ModelError::Shape`] for a tensor whose stored dims disagree with the geometry or a
-    /// dequantization that does not fill its row; [`ModelError::Config`] for a negative or
-    /// out-of-range `rms_eps`; [`ModelError::Overflow`] on a length conversion; and
-    /// [`ModelError::Engine`] for the engine's payload-read refusals.
-    ///
-    /// # Complexity
-    /// `O(n_layer·(n_embd² + n_embd·n_ff) + vocab·n_embd)` dequantized weight elements.
-    pub fn from_engine(engine: &Engine) -> Result<(Weights, Config), ModelError> {
-        let ec = &engine.config;
-        let cfg = Config {
-            n_layer: ec.n_layer,
-            n_head: ec.n_head,
-            n_head_kv: ec.n_head_kv,
-            n_embd: ec.n_embd,
-            n_ff: ec.n_ff,
-            vocab: ec.vocab_size,
-            head_dim: ec.head_dim,
-            eps: eps_q32(ec.rms_eps.to_f64())?,
-            rope_theta: ec.rope_theta.to_f64(),
-        };
-        cfg.checked()?;
-        let e = cfg.n_embd;
-        let q_out = cfg.q_out()?;
-        let kv_out = cfg.kv_out()?;
-        let vectors = engine.decode_vectors();
-        let mut layers: Vec<LayerWeights> = Vec::with_capacity(cfg.n_layer);
-        for l in 0..cfg.n_layer {
-            let norms = vectors
-                .norms_of(l)
-                .ok_or_else(|| ModelError::Missing(format!("blk.{l} norms")))?;
-            let attn_norm = norms[0]
-                .clone()
-                .ok_or_else(|| ModelError::Missing(format!("blk.{l}.attn_norm.weight")))?;
-            let ffn_norm = norms[1]
-                .clone()
-                .ok_or_else(|| ModelError::Missing(format!("blk.{l}.ffn_norm.weight")))?;
-            let biases = vectors
-                .biases_of(l)
-                .ok_or_else(|| ModelError::Missing(format!("blk.{l} biases")))?;
-            layers.push(LayerWeights {
-                attn_norm,
-                wq: load_matrix(engine, &format!("blk.{l}.attn_q.weight"), q_out, e)?,
-                bq: biases[0].clone(),
-                wk: load_matrix(engine, &format!("blk.{l}.attn_k.weight"), kv_out, e)?,
-                bk: biases[1].clone(),
-                wv: load_matrix(engine, &format!("blk.{l}.attn_v.weight"), kv_out, e)?,
-                bv: biases[2].clone(),
-                wo: load_matrix(engine, &format!("blk.{l}.attn_output.weight"), e, q_out)?,
-                ffn_norm,
-                w_gate: load_matrix(engine, &format!("blk.{l}.ffn_gate.weight"), cfg.n_ff, e)?,
-                w_up: load_matrix(engine, &format!("blk.{l}.ffn_up.weight"), cfg.n_ff, e)?,
-                w_down: load_matrix(engine, &format!("blk.{l}.ffn_down.weight"), e, cfg.n_ff)?,
-            });
-        }
-        let output_norm = vectors
-            .output_norm
-            .clone()
-            .ok_or_else(|| ModelError::Missing("output_norm.weight".to_string()))?;
-        let token_embd = load_matrix(engine, "token_embd.weight", cfg.vocab, e)?;
-        let head_name = engine.lm_head().name.clone();
-        let lm_head = load_matrix(engine, &head_name, cfg.vocab, e)?;
-        Ok((
-            Weights {
-                layers,
-                output_norm,
-                token_embd,
-                lm_head,
-            },
-            cfg,
-        ))
-    }
 }
 
 /// `.len() == t · w` or [`ModelError::Shape`].

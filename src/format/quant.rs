@@ -9,7 +9,7 @@
 //! Refusal is explicit: every length is checked against the block geometry and every failure is a
 //! [`QuantError`]. There is no indexing before a bounds check and no panic on the data path.
 //!
-//! Implements the `F32`, `F16`, `Q8_0`, `Q5_0`, `Q2_K`, `Q3_K`, `Q4_K` and `Q6_K` formats, and the
+//! Implements the `F32`, `F16`, `BF16`, `Q8_0`, `Q5_0`, `Q2_K`, `Q3_K`, `Q4_K` and `Q6_K` formats, and the
 //! geometry and type ids of the six low-bit faces `Q1_0`, `Q2_0`, `PQ2_0`, `TQ2_0`, `TQ1_0` and
 //! `PTQ1_0` (whose fixed-point row dequantizers live in `crate::engine::num::dequant`). The codebook
 //! `IQ*` i-quants need their lookup grids and are not ported here.
@@ -21,6 +21,8 @@ pub const QK_K: usize = 256;
 pub const GGML_TYPE_F32: u32 = 0;
 /// ggml `F16`.
 pub const GGML_TYPE_F16: u32 = 1;
+/// ggml `BF16`: the high 16 bits of an IEEE binary32, one weight per element.
+pub const GGML_TYPE_BF16: u32 = 30;
 /// ggml `Q8_0`.
 pub const GGML_TYPE_Q8_0: u32 = 8;
 /// ggml `Q5_0`.
@@ -127,7 +129,7 @@ impl std::error::Error for QuantError {}
 pub fn block_geom(t: u32) -> Option<(usize, usize)> {
     Some(match t {
         GGML_TYPE_F32 => (1, 4),
-        GGML_TYPE_F16 => (1, 2),
+        GGML_TYPE_F16 | GGML_TYPE_BF16 => (1, 2),
         GGML_TYPE_Q5_0 => (Q5_0_QK, Q5_0_BLOCK_BYTES),
         GGML_TYPE_Q8_0 => (Q8_0_QK, Q8_0_BLOCK_BYTES),
         GGML_TYPE_Q2_K => (QK_K, Q2_K_BLOCK_BYTES),
@@ -149,6 +151,7 @@ pub fn ggml_type_name(t: u32) -> String {
     match t {
         GGML_TYPE_F32 => String::from("F32"),
         GGML_TYPE_F16 => String::from("F16"),
+        GGML_TYPE_BF16 => String::from("BF16"),
         GGML_TYPE_Q8_0 => String::from("Q8_0"),
         GGML_TYPE_Q5_0 => String::from("Q5_0"),
         GGML_TYPE_Q2_K => String::from("Q2_K"),
