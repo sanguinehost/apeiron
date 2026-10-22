@@ -709,6 +709,489 @@ fn ffn_spqr_fit() {
     );
 }
 
+/// The gated calibration of one layer: the FFN input rows and the squared gate switch.
+struct GatedCalib {
+    /// `T × n_embd`, token-major: the stage-3 (`RMSNorm`) rows as reals.
+    x: Vec<f64>,
+    /// `T × n_ff`, token-major: `silu(g_{t,u})²`.
+    s2: Vec<f64>,
+}
+
+/// The gated calibration over chunks `0..calib`, in `layers` order.
+///
+/// `ffn_up` row `u` enters the residual stream as `δy = D diag(s) e_u (e_u·x)`, so under the
+/// diagonal `DᵀD` approximation (`w_u = ‖D_{:,u}‖²`) its loss is
+/// `J_true(E) = (1/T) Σ_t Σ_u w_u s²_{t,u} (e_u·x_t)²`: every token counts through the gate's
+/// switch. Layout control: `TAP_GATE` against the teacher's `W_g x_0` (§`gated` control).
+///
+/// `O(calib·t·(n_embd + n_ff))` conversions; space `O(Σ_layers t·(n_embd + n_ff))` reals
+/// (seven layers, 4096 tokens: ≈1.1 GB).
+fn gated_calib(
+    engine: &Engine,
+    cfg: &Config,
+    chunks: &[Vec<u32>],
+    calib: usize,
+    layers: &[usize],
+) -> Vec<GatedCalib> {
+    let (n, f) = (cfg.n_embd, cfg.n_ff);
+    let mut out: Vec<GatedCalib> = layers
+        .iter()
+        .map(|_| GatedCalib {
+            x: Vec::new(),
+            s2: Vec::new(),
+        })
+        .collect();
+    let mut tap0: Vec<f64> = Vec::new();
+    let mut seen = 0usize;
+    let t0 = Instant::now();
+    for (c, tokens) in chunks.iter().enumerate().take(calib) {
+        let rows = tapped(engine, tokens);
+        let t = tokens.len();
+        for (li, &l) in layers.iter().enumerate() {
+            let g = &mut out[li];
+            g.x.resize((seen + t) * n, 0.0);
+            g.s2.resize((seen + t) * f, 0.0);
+            for (ti, col) in rows[l][TAP_LN2].iter().enumerate() {
+                for (k, &word) in col.iter().enumerate() {
+                    g.x[(seen + ti) * n + k] = from_grid(word);
+                }
+            }
+            for (ti, col) in rows[l][TAP_GATE].iter().enumerate() {
+                for (u, &word) in col.iter().enumerate() {
+                    let s = silu(from_grid(word));
+                    g.s2[(seen + ti) * f + u] = s * s;
+                }
+            }
+            if c == 0 && li == 0 {
+                tap0 = unq(&rows[l][TAP_GATE][0]);
+            }
+        }
+        seen += t;
+        println!(
+            "GATED calib chunk {c} at {:.1} s",
+            t0.elapsed().as_secs_f64()
+        );
+    }
+    // The tap-stage control: `TAP_GATE` is `W_g x` or the metric multiplies the wrong vector. The tap
+    // is the engine's own `Q8Act` product (`step/cols.rs`), so exact `W_g x` differs by that
+    // quantisation: identification is `rho` against a mismatched-token control.
+    let (gw, _uw, mixer) = gate_up(engine, cfg, layers[0]);
+    let gw = unq(&gw);
+    let gx = |xv: &[f64]| -> Vec<f64> {
+        (0..f)
+            .map(|u| {
+                gw[u * n..(u + 1) * n]
+                    .iter()
+                    .zip(xv)
+                    .map(|(a, b)| a * b)
+                    .sum()
+            })
+            .collect()
+    };
+    let solid = [gx(&out[0].x[..n]), gx(&out[0].x[n..2 * n])];
+    let rel = |v: &[f64], t: &[f64]| -> f64 {
+        let (mut num, mut den) = (0.0f64, 0.0f64);
+        for (p, q) in v.iter().zip(t) {
+            num += (p - q).powi(2);
+            den += q * q;
+        }
+        (num / den.max(f64::MIN_POSITIVE)).sqrt()
+    };
+    let (mut dot, mut na, mut nb) = (0.0f64, 0.0f64, 0.0f64);
+    for (p, q) in tap0.iter().zip(&solid[0]) {
+        dot += p * q;
+        na += p * p;
+        nb += q * q;
+    }
+    let rho = dot / (na.sqrt() * nb.sqrt()).max(f64::MIN_POSITIVE);
+    println!(
+        "GATED tap control layer {} {mixer} TAP_GATE against W_g x_0 rel {:.3e} rho {rho:.8} \
+         mismatched token rel {:.3e}",
+        layers[0],
+        rel(&tap0, &solid[0]),
+        rel(&tap0, &solid[1])
+    );
+    assert!(
+        rho > 0.99 && rel(&tap0, &solid[1]) > 0.5,
+        "TAP_GATE is not W_g x_0: rho {rho}; the gated metric would be wrong"
+    );
+    out
+}
+
+/// `w_u = Σ_k D_{k,u}²` for the `n_embd × n_ff` `ffn_down` word tensor `d`: the diagonal of `DᵀD`,
+/// the only part of `DᵀD` the row-wise metric keeps.
+///
+/// `O(n_embd·n_ff)` multiply-adds, one pass over `d`; space `O(n_ff)`.
+fn row_weights(d: &[i64], n_embd: usize, n_ff: usize) -> Vec<f64> {
+    let mut w = vec![0.0f64; n_ff];
+    for k in 0..n_embd {
+        for (u, &word) in d[k * n_ff..(k + 1) * n_ff].iter().enumerate() {
+            let v = from_grid(word);
+            w[u] += v * v;
+        }
+    }
+    w
+}
+
+/// `J_true(E) = (1/T) Σ_t Σ_u w_u s²_{t,u} (e_u·x_t)²` — the up error under the gated metric.
+///
+/// `x` is `T × n_embd` token-major, `s2` `T × n_ff` token-major, `e` the `o × n` word error.
+/// Rows are split over 16 scoped threads and each row sums its tokens in ascending order.
+///
+/// `O(T·o·n)` multiply-adds; space `O(n)` per thread for the converted row.
+fn j_true(x: &[f64], s2: &[f64], w: &[f64], e: &[i64], o: usize, n: usize) -> f64 {
+    let t = x.len() / n;
+    let band = o.div_ceil(16usize.min(o).max(1)).max(1);
+    let edges: Vec<(usize, usize)> = (0..o)
+        .step_by(band)
+        .map(|u| (u, (u + band).min(o)))
+        .collect();
+    let acc: f64 = std::thread::scope(|scope| {
+        let handles: Vec<_> = edges
+            .iter()
+            .map(|&(a, b)| {
+                scope.spawn(move || {
+                    let mut s = 0.0f64;
+                    for u in a..b {
+                        let eu = unq(&e[u * n..(u + 1) * n]);
+                        let wu = w[u];
+                        for ti in 0..t {
+                            let xt = &x[ti * n..(ti + 1) * n];
+                            let dot: f64 = eu.iter().zip(xt).map(|(p, q)| p * q).sum();
+                            s += wu * s2[ti * o + u] * dot * dot;
+                        }
+                    }
+                    s
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("j_true row band"))
+            .sum()
+    });
+    acc / t as f64
+}
+
+/// `Σ_t a_t x_t x_tᵀ / Σ_t a_t` for the `T × n` token-major `x`: the token-weighted input Gram.
+///
+/// Only the upper triangle is written, one band of output rows per scoped thread, so no two threads
+/// touch an entry; the lower triangle mirrors the upper afterwards.
+///
+/// `O(T·n²/2)` multiply-adds; space `O(n²)`. The token axis runs in blocks of 64 so the band's `x`
+/// rows stay in cache (token-inner over one `(i, j)` pair streams `x` at 8 KB stride: 10.2 s vs 0.5 s).
+fn token_gram(x: &[f64], a: &[f64], n: usize) -> Vec<f64> {
+    let t = x.len() / n;
+    let den: f64 = a.iter().sum();
+    let scale = if den.abs() > 0.0 { 1.0 / den } else { 0.0 };
+    let mut g = vec![0.0f64; n * n];
+    let band = n.div_ceil(16).max(1);
+    std::thread::scope(|scope| {
+        for (b, rows) in g.chunks_mut(band * n).enumerate() {
+            let i0 = b * band;
+            scope.spawn(move || {
+                let w = rows.len() / n;
+                for blk in (0..t).step_by(64) {
+                    let end = (blk + 64).min(t);
+                    for ti in blk..end {
+                        let xt = &x[ti * n..(ti + 1) * n];
+                        let at = a[ti];
+                        for i in 0..w {
+                            let gi = i0 + i;
+                            let xr = at * xt[gi];
+                            for (jj, slot) in rows[i * n + gi..(i + 1) * n].iter_mut().enumerate() {
+                                *slot += xr * xt[gi + jj];
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    });
+    for i in 0..n {
+        for j in 0..i {
+            g[i * n + j] = g[j * n + i];
+        }
+    }
+    for v in &mut g {
+        *v *= scale;
+    }
+    g
+}
+
+/// The row assignment of a `k`-means on the `T`-vector profiles `p` (`f × T`, row-major), centres
+/// seeded at rows `⌊j·f/k⌋`, ten Lloyd iterations, squared Euclidean, an empty cluster keeping its
+/// previous centre. `O(10·k·f·T)` multiply-adds; space `O(k·T + f)`.
+fn cluster_rows(p: &[f64], f: usize, t: usize, k: usize) -> Vec<usize> {
+    let mut centres = vec![0.0f64; k * t];
+    for j in 0..k {
+        let r = (j * f) / k;
+        centres[j * t..(j + 1) * t].copy_from_slice(&p[r * t..(r + 1) * t]);
+    }
+    let mut assign = vec![0usize; f];
+    for _ in 0..10 {
+        for u in 0..f {
+            let pu = &p[u * t..(u + 1) * t];
+            let (mut best, mut bd) = (0usize, f64::INFINITY);
+            for c in 0..k {
+                let mut d = 0.0f64;
+                for (a, b) in pu.iter().zip(&centres[c * t..(c + 1) * t]) {
+                    let e = a - b;
+                    d += e * e;
+                }
+                if d < bd {
+                    bd = d;
+                    best = c;
+                }
+            }
+            assign[u] = best;
+        }
+        let mut sum = vec![0.0f64; k * t];
+        let mut cnt = vec![0usize; k];
+        for u in 0..f {
+            let c = assign[u];
+            cnt[c] += 1;
+            for i in 0..t {
+                sum[c * t + i] += p[u * t + i];
+            }
+        }
+        for c in 0..k {
+            if cnt[c] > 0 {
+                let inv = 1.0 / cnt[c] as f64;
+                for i in 0..t {
+                    centres[c * t + i] = sum[c * t + i] * inv;
+                }
+            }
+        }
+    }
+    assign
+}
+
+/// **Measurement 7** (board ). The `ffn_up` refit against its own
+/// second-order metric instead of the shared input Gram.
+///
+/// `m = silu(g)⊙u`, `y = D m`, so an up error `E` gives `δy = D diag(s) E x`; keeping the diagonal
+/// of `DᵀD` (`w_u = ‖D_{:,u}‖²`) the loss is `J_true(E) = (1/T) Σ_t Σ_u w_u s²_{t,u}(e_u·x_t)²`,
+/// and row `u`'s metric is `H_u = w_u·(1/T)Σ_t s²_{t,u} x_t x_tᵀ`. `fold_fit` takes one shared `H`,
+/// so arm `a` pools the rows into `Ha = Σ_t (Σ_u w_u s²_{t,u}) x_t x_tᵀ / Σ_t a_t` (zero added bits)
+/// and arm `b` fits `K` clusters of rows, each on its own pooled Gram (`(K−1)·(11·n_embd + 64)`
+/// extra bits for the per-fit `ch`/`dh` scales).
+///
+/// `APEIRON_GATED_ARM` (`base` | `a` | `b`), `APEIRON_GATE_LAYERS`, `APEIRON_GATED_K` (default 8),
+/// `APEIRON_GATED_UNIT=1` (every `a_t = 1`, the plain-`H` control). `H` is the cached `h{l}.i64`;
+/// Writes `{CACHE}/l{l}.up-gated-a.i64` or `…-b{K}.i64`.
+///
+/// Cost: per layer one `token_gram` per fit (`O(T·n_embd²/2)`), `fold_fit` per fit
+/// (`O(o·n² + gptq + inner_iters·(o·n² + n³ + e8_icm))`), two `j_true` (`O(T·n_ff·n_embd)`) and two
+/// `energy` (`O(n_ff·n_embd²)`); arm `b` adds `K` Grams and `O(10·K·n_ff·T)` to cluster.
+#[test]
+#[ignore = "opens the teacher and runs production fold_fit on the gated metric; run explicitly"]
+fn up_gated_fit() {
+    let arm = std::env::var("APEIRON_GATED_ARM").unwrap_or_else(|_| String::from("base"));
+    assert!(
+        matches!(arm.as_str(), "base" | "a" | "b"),
+        "APEIRON_GATED_ARM {arm}"
+    );
+    let unit = std::env::var("APEIRON_GATED_UNIT").is_ok_and(|v| v == "1");
+    let k = env_usize("APEIRON_GATED_K", 8).max(1);
+    let engine = Engine::open(&model_path()).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let (chunks, n_ctx) = base_tokens(&base_path());
+    let layers = env_layers(cfg.n_layer);
+    let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
+    let (o, n) = (cfg.n_ff, cfg.n_embd);
+    let t_all = calib * n_ctx;
+    let t0 = Instant::now();
+    let cal = gated_calib(&engine, &cfg, &chunks, calib, &layers);
+    let gwall = t0.elapsed().as_secs_f64();
+    println!(
+        "GATED arm {arm} layers {layers:?} unit {unit} k {k} n_embd {n} n_ff {o} T {t_all} \
+         calib {gwall:.1} s (taps + conversion)"
+    );
+    let (mut sb, mut sa, mut spb, mut spa, mut sbits) = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0u64);
+    for (li, &l) in layers.iter().enumerate() {
+        assert_eq!(cal[li].x.len(), t_all * n, "layer {l}: x rows");
+        assert_eq!(cal[li].s2.len(), t_all * o, "layer {l}: s2 rows");
+        let (x, s2) = (cal[li].x.as_slice(), cal[li].s2.as_slice());
+        let (_gw, uw, mixer) = gate_up(&engine, &cfg, l);
+        let (dw, _mixer) = ffn_down(&engine, &cfg, l);
+        let wu = row_weights(&dw, n, o);
+        let (ho, hn, hw) = read_words(&format!("{CACHE}/h{l}.i64"));
+        assert_eq!((ho, hn, hw.len()), (n, n, n * n), "layer {l}: cached H");
+        let h = unq(&hw);
+        let (wo, wn, cached) = read_words(&format!("{CACHE}/l{l}.up.i64"));
+        assert_eq!(
+            (wo, wn, cached.len()),
+            (o, n, o * n),
+            "layer {l}: cached up"
+        );
+        let e0: Vec<i64> = cached.iter().zip(&uw).map(|(a, b)| a - b).collect();
+        let tj = Instant::now();
+        let before = j_true(x, s2, &wu, &e0, o, n);
+        let jwall = tj.elapsed().as_secs_f64();
+        let pb = energy(&h, &e0, o, n);
+        let mut after = before;
+        let mut pa = pb;
+        let (mut fitwall, mut gramwall, mut extra) = (0.0f64, 0.0f64, 0u64);
+        // `a_t = Σ_{u∈S} w_u s²_{t,u}` for the rows `S` of one fit.
+        let weights = |members: &[usize]| -> Vec<f64> {
+            if unit {
+                return vec![1.0f64; t_all];
+            }
+            let mut a = vec![0.0f64; t_all];
+            for ti in 0..t_all {
+                let row = &s2[ti * o..(ti + 1) * o];
+                let mut s = 0.0f64;
+                for &u in members {
+                    s += wu[u] * row[u];
+                }
+                a[ti] = s;
+            }
+            a
+        };
+        if arm == "base" {
+            let a = weights(&(0..o).collect::<Vec<usize>>());
+            let tg = Instant::now();
+            let ha = token_gram(x, &a, n);
+            gramwall = tg.elapsed().as_secs_f64();
+            let (mut num, mut den) = (0.0f64, 0.0f64);
+            for (p, q) in ha.iter().zip(&h) {
+                num += (p - q).powi(2);
+                den += q * q;
+            }
+            println!(
+                "GATED base layer {l:02} token_gram against cached H rel {:.3e}",
+                (num / den.max(f64::MIN_POSITIVE)).sqrt()
+            );
+        } else if arm == "a" {
+            let a = weights(&(0..o).collect::<Vec<usize>>());
+            let tg = Instant::now();
+            let ha = token_gram(x, &a, n);
+            gramwall = tg.elapsed().as_secs_f64();
+            let haq = qv(&ha);
+            if unit {
+                let mut differ = 0usize;
+                let mut first: Option<usize> = None;
+                for (i, (p, q)) in haq.iter().zip(&hw).enumerate() {
+                    if p != q {
+                        differ += 1;
+                        if first.is_none() {
+                            first = Some(i);
+                        }
+                    }
+                }
+                let (mut num, mut den) = (0.0f64, 0.0f64);
+                for (p, q) in ha.iter().zip(&h) {
+                    num += (p - q).powi(2);
+                    den += q * q;
+                }
+                println!(
+                    "GATED unit control layer {l:02} words differing {differ} of {} first {first:?} \
+                     rel {:.3e}",
+                    n * n,
+                    (num / den.max(f64::MIN_POSITIVE)).sqrt()
+                );
+            }
+            let tt = Instant::now();
+            match fold_fit(&uw, &haq, o, n, None, &production_cfg()) {
+                Ok(fit) => {
+                    fitwall = tt.elapsed().as_secs_f64();
+                    let path = format!("{CACHE}/l{l}.up-gated-a.i64");
+                    write_words(&path, o, n, &fit.wp).expect("write gated fit");
+                    let e1: Vec<i64> = fit.wp.iter().zip(&uw).map(|(a, b)| a - b).collect();
+                    after = j_true(x, s2, &wu, &e1, o, n);
+                    pa = energy(&h, &e1, o, n);
+                }
+                Err(err) => {
+                    println!("GATED layer {l:02} arm {arm} fit error {err:?}");
+                    continue;
+                }
+            }
+        } else {
+            let kk = k.min(o);
+            let mut prof = vec![0.0f64; o * t_all];
+            for u in 0..o {
+                let mut nn = 0.0f64;
+                for ti in 0..t_all {
+                    let v = s2[ti * o + u];
+                    nn += v * v;
+                }
+                let inv = if nn > 0.0 { 1.0 / nn.sqrt() } else { 0.0 };
+                for ti in 0..t_all {
+                    prof[u * t_all + ti] = s2[ti * o + u] * inv;
+                }
+            }
+            let tc = Instant::now();
+            let assign = cluster_rows(&prof, o, t_all, kk);
+            println!(
+                "GATED cluster layer {l:02} k {kk} {:.1} s",
+                tc.elapsed().as_secs_f64()
+            );
+            drop(prof);
+            let mut out = vec![0i64; o * n];
+            let (mut bits_sum, mut single) = (0u64, 0u64);
+            for c in 0..kk {
+                let members: Vec<usize> = (0..o).filter(|&u| assign[u] == c).collect();
+                if members.is_empty() {
+                    println!("GATED layer {l:02} cluster {c} empty");
+                    continue;
+                }
+                let a = weights(&members);
+                let tg = Instant::now();
+                let hc = token_gram(x, &a, n);
+                gramwall += tg.elapsed().as_secs_f64();
+                let mut wc = Vec::with_capacity(members.len() * n);
+                for &u in &members {
+                    wc.extend_from_slice(&uw[u * n..(u + 1) * n]);
+                }
+                let tt = Instant::now();
+                match fold_fit(&wc, &qv(&hc), members.len(), n, None, &production_cfg()) {
+                    Ok(fit) => {
+                        fitwall += tt.elapsed().as_secs_f64();
+                        bits_sum += fit.bits_c + fit.bits_d;
+                        if single == 0 {
+                            single = fit.bits_c + fit.bits_d;
+                        }
+                        for (r, &u) in members.iter().enumerate() {
+                            out[u * n..(u + 1) * n].copy_from_slice(&fit.wp[r * n..(r + 1) * n]);
+                        }
+                    }
+                    Err(err) => {
+                        println!("GATED layer {l:02} cluster {c} fit error {err:?}");
+                    }
+                }
+            }
+            extra = bits_sum.saturating_sub(single);
+            let path = format!("{CACHE}/l{l}.up-gated-b{kk}.i64");
+            write_words(&path, o, n, &out).expect("write gated cluster fit");
+            let e1: Vec<i64> = out.iter().zip(&uw).map(|(a, b)| a - b).collect();
+            after = j_true(x, s2, &wu, &e1, o, n);
+            pa = energy(&h, &e1, o, n);
+        }
+        let ratio = if before > 0.0 { after / before } else { 0.0 };
+        println!(
+            "GATED layer {l:02} arm {arm} jtrue before {before:.6e} after {after:.6e} ratio \
+             {ratio:.4} plain before {pb:.6e} after {pa:.6e} fit {fitwall:.1} s extra_bits {extra}"
+        );
+        println!(
+            "GATED step layer {l:02} {mixer} calib {gwall:.1} s jtrue {jwall:.1} s token_gram \
+             {gramwall:.1} s"
+        );
+        sb += before;
+        sa += after;
+        spb += pb;
+        spa += pa;
+        sbits += extra;
+    }
+    println!(
+        "GATED sum layers {} arm {arm} jtrue before {sb:.6e} after {sa:.6e} ratio {:.4} plain \
+         before {spb:.6e} after {spa:.6e} extra_bits {sbits} wall {:.1} s",
+        layers.len(),
+        sa / sb.max(f64::MIN_POSITIVE),
+        t0.elapsed().as_secs_f64()
+    );
+}
+
 /// The per-layer table: off/near/on, flip against `arccos(ρ_H)/π`, the `H` errors and the split.
 #[test]
 #[ignore = "opens the 3.1 GB F32 teacher and reads the cached fits; run explicitly with --ignored"]
