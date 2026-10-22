@@ -1,9 +1,9 @@
-//! Board APEIRON-QUALITY-118-W1-T01. Lane APEIRON-QUALITY-GATE-W1-T01.
+//! Board APEIRON-QUALITY-118-W1-T01. Lane APEIRON-QUALITY-GATE-W1-T01 (gate, up) and the `ffn_down` arm.
 //!
 //! The FFN gate as a hyperplane code on `Qwen3.5-0.8B`: under the production `fold_fit` arm,
 //! per layer, (1) the off/near/on split of `g·x`, (2) the sign-flip rate of `ĝ·x` against
 //! `arccos(ρ_H)/π` (Sheppard 1899; Charikar 2002), (3) the gate/up split of `E‖δh‖²`, and (4) the
-//! held-out KL with only `ffn_gate` or only `ffn_up` replaced.
+//! held-out KL with only `ffn_gate`, only `ffn_up` or only `ffn_down` replaced.
 //!
 //! Every statistic is a Q32.32 word computed from the engine's own tap stage 3 (`STAGE_LN2_OUT`,
 //! the gate/up input) and the teacher's own `ffn_gate`/`ffn_up` rows, so the flip is the weight's
@@ -77,6 +77,26 @@ const CACHE: &str = "/home/socol/oc-tmp/kld08/gatecode";
 const TAP_LN2: usize = 3;
 /// Tap slot of the gate pre-activation (`STAGE_GATE`).
 const TAP_GATE: usize = 8;
+/// `STAGE_UP`: the up pre-activation `u·x`, `n_ff` wide.
+const TAP_UP: usize = 9;
+
+/// The down input `h = silu(g·x)⊙(u·x)` per column, from the tapped gate and up pre-activations,
+/// as Q32.32 words in the feature-major `n_ff × t` layout. `O(t·n_ff)`.
+fn down_input(gate: &[Vec<i64>], up: &[Vec<i64>], f: usize) -> Vec<i64> {
+    let t = gate.len();
+    let mut out = vec![0i64; f * t];
+    for (c, (gc, uc)) in gate.iter().zip(up).enumerate() {
+        assert_eq!(gc.len(), f, "stage 8 width");
+        assert_eq!(uc.len(), f, "stage 9 width");
+        let g = unq(gc);
+        let u = unq(uc);
+        let h: Vec<f64> = g.iter().zip(&u).map(|(a, b)| silu(*a) * b).collect();
+        for (j, w) in qv(&h).into_iter().enumerate() {
+            out[j * t + c] = w;
+        }
+    }
+    out
+}
 
 /// The production call-site configuration (`fold_transfer.py:1733-1736`).
 fn production_cfg() -> FoldFitConfig {
@@ -259,6 +279,20 @@ fn gate_up(engine: &Engine, cfg: &Config, l: usize) -> (Vec<i64>, Vec<i64>, Stri
     (g.w, u.w, format!("{:?}", ll.mixer))
 }
 
+/// The teacher's `ffn_down` words (`n_embd × n_ff`) of one layer, with the layer's mixer name.
+fn ffn_down(engine: &Engine, cfg: &Config, l: usize) -> (Vec<i64>, String) {
+    let ll = layer_from_engine(engine, cfg, l).expect("layer linears");
+    let d = ll
+        .linears
+        .iter()
+        .find(|x| x.name == "ffn_down")
+        .unwrap_or_else(|| panic!("blk.{l}.ffn_down"))
+        .clone();
+    assert_eq!(d.rows, cfg.n_embd, "layer {l}: down rows");
+    assert_eq!(d.cols, cfg.n_ff, "layer {l}: down cols");
+    (d.w, format!("{:?}", ll.mixer))
+}
+
 /// The per-layer geometric piece of the metric.
 #[derive(Debug, Clone, Copy)]
 struct LayerFit {
@@ -417,6 +451,59 @@ fn gate_code_fit() {
     }
     println!(
         "FIT done {} layers, {tokens_seen} calibration tokens, {:.1} s",
+        layers.len(),
+        t0.elapsed().as_secs_f64()
+    );
+}
+
+/// The down calibration `H` (`h = silu(g·x)⊙(u·x)` from stages 8 and 9, `n_ff × n_ff`) over chunks `0..APEIRON_GATE_CALIB`, then
+/// the production fit of `ffn_down` for `APEIRON_GATE_LAYERS`, cached beside the gate/up fits.
+///
+/// `O(calib·layers·t·n_ff²/2)` multiply-adds for `H` (one symmetric rank-`t` update per
+/// layer-chunk), then one `fold_fit` per layer; memory `layers·n_ff²` f64 for `H`.
+#[test]
+#[ignore = "opens the teacher and runs production fold_fit on ffn_down; run explicitly"]
+fn gate_code_fit_down() {
+    let engine = Engine::open(&model_path()).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let (chunks, n_ctx) = base_tokens(&base_path());
+    let layers = env_layers(cfg.n_layer);
+    let calib = env_usize("APEIRON_GATE_CALIB", 2);
+    let (n, f) = (cfg.n_embd, cfg.n_ff);
+    std::fs::create_dir_all(CACHE).expect("cache dir");
+    let mut h: Vec<Vec<f64>> = layers.iter().map(|_| vec![0.0f64; f * f]).collect();
+    let t0 = Instant::now();
+    for (c, tokens) in chunks.iter().enumerate().take(calib) {
+        let rows = tapped(&engine, tokens);
+        for (i, &l) in layers.iter().enumerate() {
+            let x = down_input(&rows[l][TAP_GATE], &rows[l][TAP_UP], f);
+            gram_add(&x, n_ctx, f, &mut h[i]);
+        }
+        println!(
+            "FITD calib chunk {c} at {:.1} s",
+            t0.elapsed().as_secs_f64()
+        );
+    }
+    let tokens_seen = calib * n_ctx;
+    for (i, &l) in layers.iter().enumerate() {
+        mirror(&mut h[i], f);
+        let scale = 1.0 / tokens_seen as f64;
+        let hw = qv(&h[i].iter().map(|v| v * scale).collect::<Vec<f64>>());
+        let (d, mixer) = ffn_down(&engine, &cfg, l);
+        let t = Instant::now();
+        let fit = fold_fit(&d, &hw, n, f, None, &production_cfg()).expect("fit");
+        let wall = t.elapsed().as_secs_f64();
+        write_words(&format!("{CACHE}/l{l}.down.i64"), n, f, &fit.wp).expect("cache fit");
+        println!(
+            "FITD layer {l} {mixer} down {wall:.2} s bits r/c/d {}/{}/{} tag {}",
+            fit.bits_r,
+            fit.bits_c,
+            fit.bits_d,
+            fit.tag.as_str()
+        );
+    }
+    println!(
+        "FITD done {} layers, {tokens_seen} calibration tokens, {:.1} s",
         layers.len(),
         t0.elapsed().as_secs_f64()
     );
@@ -598,18 +685,18 @@ fn gate_code_stats() {
     );
 }
 
-/// The measured layers: every layer with a cached fit.
-fn fitted_layers() -> Vec<usize> {
+/// The measured layers: every layer with a cached `key` fit.
+fn fitted_layers(key: &str) -> Vec<usize> {
     let mut out = Vec::new();
     for l in 0..1024 {
-        if Path::new(&format!("{CACHE}/l{l}.gate.i64")).exists() {
+        if Path::new(&format!("{CACHE}/l{l}.{key}.i64")).exists() {
             out.push(l);
         }
     }
     out
 }
 
-/// The teacher image with only `ffn_gate` (arm `gate`) or only `ffn_up` (arm `up`) replaced by the
+/// The teacher image with only `ffn_gate`, `ffn_up` or `ffn_down` (arm of that name) replaced by the
 /// fitted words in every measured layer, every other byte the teacher's.
 ///
 /// `O(file bytes)` to read plus `O(layers·n_ff·n_embd)` written; the whole image is held once.
@@ -617,11 +704,12 @@ fn student_bytes(arm: &str, layers: &[usize]) -> Vec<u8> {
     let mut data = std::fs::read(model_path()).expect("read teacher");
     let gguf = Gguf::open(&model_path()).expect("teacher directory");
     for &l in layers {
-        let (name, key) = match arm {
-            "gate" => (format!("blk.{l}.ffn_gate.weight"), "gate"),
-            _ => (format!("blk.{l}.ffn_up.weight"), "up"),
-        };
-        let (_, _, words) = read_words(&format!("{CACHE}/l{l}.{key}.i64"));
+        assert!(
+            matches!(arm, "gate" | "up" | "down"),
+            "APEIRON_GATE_ARM {arm}"
+        );
+        let name = format!("blk.{l}.ffn_{arm}.weight");
+        let (_, _, words) = read_words(&format!("{CACHE}/l{l}.{arm}.i64"));
         let t = gguf
             .header
             .tensors
@@ -646,7 +734,7 @@ fn gate_code_kl() {
     let arm = std::env::var("APEIRON_GATE_ARM").unwrap_or_else(|_| String::from("teacher"));
     let skip = env_usize("APEIRON_GATE_SKIP", 4);
     let count = env_usize("APEIRON_GATE_CHUNKS", 10);
-    let layers = fitted_layers();
+    let layers = fitted_layers(if arm == "teacher" { "gate" } else { &arm });
     let t0 = Instant::now();
     let data = if arm == "teacher" {
         std::fs::read(model_path()).expect("read teacher")
