@@ -30,7 +30,8 @@ use crate::engine::loader::{opt_slice, DecodeVectors, PayloadRef};
 use crate::engine::mixer::{AffineLayer, AffineState};
 use crate::engine::trace::{self, Phase};
 use crate::engine::{
-    ffn_fixed, DecodeState, Engine, KernelMode, KvState, MatvecError, MixerKind, ProjWeights,
+    ffn_fixed, ffn_fixed_tapped, DecodeState, Engine, FfnStages, KernelMode, KvState, MatvecError,
+    MixerKind, ProjWeights,
 };
 use crate::format::quant;
 
@@ -276,8 +277,9 @@ impl Engine {
     /// (the [`tap`] module's constants). `record == false` runs the untapped path and returns no
     /// rows, so a caller can compare the two runs bit for bit.
     ///
-    /// The single-column FFN fuses its `SwiGLU` product inside `ffn_q8act_at`, so that stage is
-    /// empty when the block is one column; the pooled multi-column path fills every stage.
+    /// The single-column `Q8Act` FFN fuses its `SwiGLU` product inside `ffn_q8act_at`, so
+    /// [`STAGE_M`], [`STAGE_GATE`] and [`STAGE_UP`] are empty for a one-column `Q8Act` block; the
+    /// pooled `Q8Act` path and the `Exact` path fill every FFN stage.
     ///
     /// # Errors
     ///
@@ -935,8 +937,10 @@ impl Engine {
     /// `SwiGLU` epilogue consumes ([`STAGE_GATE`], [`STAGE_UP`]) and its product (the down
     /// projection's input, [`STAGE_M`]) before the down projection. The fused `Q8_0` branch stores
     /// the gate and up words from inside its epilogue; the separate gate/up/`SwiGLU` branch records
-    /// the two projection results it already holds. The single-column branch fuses the product
-    /// inside `ffn_q8act_at` and leaves [`STAGE_M`], [`STAGE_GATE`] and [`STAGE_UP`] empty.
+    /// the two projection results it already holds. The `Exact` schedule resolves no `LayerIndex`,
+    /// so the tapped branch runs [`ffn_fixed_tapped`] per column and records all three stages. The
+    /// single-column `Q8Act` branch fuses the product inside `ffn_q8act_at` and leaves
+    /// [`STAGE_M`], [`STAGE_GATE`] and [`STAGE_UP`] empty.
     #[allow(
         clippy::too_many_arguments,
         reason = "the layer index, layer, columns, schedule, kernel, scratch and tap are the input"
@@ -958,6 +962,27 @@ impl Engine {
             3 * trace::q8_bytes(n_ff, n_embd),
             3 * trace::macs(n_ff, n_embd, xs.len()),
         );
+        // The `Exact` schedule resolves no layer index, so the single-column entry below has no
+        // tap; run the tapped exact body per column here and record the gate, up and product.
+        if li.is_none() && mode == KernelMode::Exact && tap.is_some() {
+            let mut out: Vec<Vec<i64>> = Vec::with_capacity(xs.len());
+            let mut gate_rows: Vec<Vec<i64>> = Vec::with_capacity(xs.len());
+            let mut up_rows: Vec<Vec<i64>> = Vec::with_capacity(xs.len());
+            let mut h_rows: Vec<Vec<i64>> = Vec::with_capacity(xs.len());
+            for x in xs {
+                let (y, stages) = self.ffn_exact_tapped(layer, x, sched)?;
+                out.push(y);
+                gate_rows.push(stages.gate);
+                up_rows.push(stages.up);
+                h_rows.push(stages.h);
+            }
+            if let Some(t) = tap.as_mut() {
+                t.record(layer, STAGE_GATE, &gate_rows);
+                t.record(layer, STAGE_UP, &up_rows);
+                t.record(layer, STAGE_M, &h_rows);
+            }
+            return Ok(out);
+        }
         if xs.len() == 1 || li.is_none() {
             let mut out = Vec::with_capacity(xs.len());
             for x in xs {
@@ -1070,6 +1095,53 @@ impl Engine {
             crate::engine::mixer::carrier_from_env(),
             tape,
         )
+    }
+
+    /// The tapped `Exact` FFN of one column: [`Self::ffn_single_sched`]'s `Exact` arm with
+    /// [`ffn_fixed_tapped`], returning the column and the gate, up and `SwiGLU` rows the block
+    /// computed.
+    ///
+    /// The weight payloads resolve exactly as the untapped arm does (`tensor_payload` for parts 4,
+    /// 5 and 6 under `sched`), so the tapped and untapped runs are bit-identical; only the
+    /// vectors the block already computes are retained.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::ffn_single_sched`]: a missing or mis-shaped weight tensor, and every
+    /// [`crate::engine::FfnError`] refusal of the exact block.
+    ///
+    /// # Complexity
+    ///
+    /// The three payload resolutions plus [`ffn_fixed_tapped`]'s `O(n_ff·n_embd)` checked
+    /// multiply-adds and `O(n_ff)` retained rows.
+    fn ffn_exact_tapped(
+        &self,
+        layer: usize,
+        x: &[i64],
+        sched: Sched,
+    ) -> Result<(Vec<i64>, FfnStages), StepError> {
+        let (n_ff, n_embd) = (self.config.n_ff, self.config.n_embd);
+        let (_, gt, gat) = self.tensor_payload(super::part_key(layer, 4), n_ff, n_embd, sched)?;
+        let (_, ut, uat) = self.tensor_payload(super::part_key(layer, 5), n_ff, n_embd, sched)?;
+        let (_, dt, dat) = self.tensor_payload(super::part_key(layer, 6), n_embd, n_ff, sched)?;
+        let file = self.resident();
+        ffn_fixed_tapped(
+            ProjWeights {
+                ggml_type: gt,
+                raw: &file[gat.off..gat.off + gat.len],
+            },
+            ProjWeights {
+                ggml_type: ut,
+                raw: &file[uat.off..uat.off + uat.len],
+            },
+            ProjWeights {
+                ggml_type: dt,
+                raw: &file[dat.off..dat.off + dat.len],
+            },
+            n_ff,
+            x,
+        )
+        .map_err(StepError::Ffn)
     }
 
     /// The name-resolved FFN of one column (the exact path and the test oracle schedule).

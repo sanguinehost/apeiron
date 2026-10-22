@@ -22,7 +22,8 @@
 use apeiron::engine::loader::Engine;
 use apeiron::engine::{KernelMode, ONE};
 use apeiron::format::quant;
-use apeiron::learn::fold::run::transfer::{student_gguf_bytes, write_student_gguf};
+use apeiron::learn::fold::run::convert::student_gguf_bytes;
+use apeiron::learn::fold::run::transfer::write_student_gguf;
 use apeiron::learn::fold::stats::heldout::{
     held_out, held_out_kldbase_chunk, held_out_seq, score_base_row, BaseScore,
 };

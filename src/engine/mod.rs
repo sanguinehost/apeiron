@@ -216,7 +216,9 @@ pub use self::mixer::AffineState;
 pub use self::num::dequant::{dequant_row_fixed, f16_to_fixed};
 pub use self::num::f32_convert::{f32_to_fixed, F32Error};
 pub use self::num::value::fixed_vector_checksum;
-pub use self::ops::ffn::{ffn_fixed, silu_fixed, FfnError, ProjWeights};
+pub use self::ops::ffn::{
+    ffn_fixed, ffn_fixed_tapped, silu_fixed, FfnError, FfnStages, ProjWeights,
+};
 pub use self::ops::hadamard::{fwht_fixed, HadamardError};
 pub use self::ops::lm_head::LmHeadError;
 pub use self::ops::matvec::{matvec_fixed, row_dot_fixed, MatvecError};

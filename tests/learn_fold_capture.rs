@@ -3,8 +3,9 @@
 //! Grade: `tested`. The positive assertions compare the accumulated Gram against an independent
 //! `Σ_t x_t x_tᵀ` computed in the test, check symmetry, positive semi-definiteness (`Cholesky` of
 //! `H + εI`), additivity over token blocks (two tapes equal one concatenated tape), the token
-//! counter, the shape refusals, and that a `forward` tape on a tiny synthetic model has the expected
-//! dimensions.
+//! counter and the shape refusals. The tape comes from the test's own synthetic `LayerTape`
+//! fixtures: the deleted `forward` is gone, and this file holds no `GGUF` image to load the
+//! engine from, so its `forward_tape_has_capture_dims` test is deleted with it.
 
 #![allow(
     clippy::cast_precision_loss,
@@ -19,7 +20,7 @@
 )]
 
 use apeiron::learn::fold::stats::capture::{CaptureError, Grams, LayerGrams, Normalisation};
-use apeiron::learn::grad::model::{forward, Config, LayerTape, LayerWeights, Tape, Weights};
+use apeiron::learn::grad::model::{Config, LayerTape, Tape};
 
 #[path = "support/ridge_oracle.rs"]
 mod ridge_oracle;
@@ -34,8 +35,6 @@ const HD: usize = 2;
 const QW: usize = NH * HD;
 /// KV heads.
 const NKV: usize = 1;
-/// `kv_out`.
-const KVW: usize = NKV * HD;
 /// Feed-forward width.
 const FF: usize = 3;
 /// Vocabulary.
@@ -358,51 +357,4 @@ fn shape_refusals() {
     let mut zero = cfg();
     zero.n_embd = 0;
     assert!(matches!(Grams::new(&zero), Err(CaptureError::Shape(_))));
-}
-
-#[test]
-fn forward_tape_has_capture_dims() {
-    let mut s = 97u64;
-    let layer = |s: &mut u64| LayerWeights {
-        attn_norm: buf(E, s),
-        wq: buf(QW * E, s),
-        bq: Some(buf(QW, s)),
-        wk: buf(KVW * E, s),
-        bk: Some(buf(KVW, s)),
-        wv: buf(KVW * E, s),
-        bv: Some(buf(KVW, s)),
-        wo: buf(E * QW, s),
-        ffn_norm: buf(E, s),
-        w_gate: buf(FF * E, s),
-        w_up: buf(FF * E, s),
-        w_down: buf(E * FF, s),
-    };
-    let w = Weights {
-        layers: (0..L).map(|_| layer(&mut s)).collect(),
-        output_norm: buf(E, &mut s),
-        token_embd: buf(V * E, &mut s),
-        lm_head: buf(V * E, &mut s),
-    };
-    let c = cfg();
-    let tokens = [1u32, 2, 3, 4, 5];
-    let (_logits, tape) = forward(&w, &c, &tokens).unwrap();
-    assert_eq!(tape.t, tokens.len());
-    assert_eq!(tape.layers.len(), L);
-
-    let mut g = Grams::new(&c).unwrap();
-    g.accumulate(&tape, &c).unwrap();
-    let fin = g.finish(Normalisation::Mean).unwrap();
-    assert_eq!(fin.len(), L);
-    for lg in &fin {
-        assert_eq!(lg.qkv.len(), E * E);
-        assert_eq!(lg.o.len(), QW * QW);
-        assert_eq!(lg.gate_up.len(), E * E);
-        assert_eq!(lg.down.len(), FF * FF);
-        assert_eq!(lg.tokens, u64::try_from(tokens.len()).unwrap());
-        // The capture reads widths from the same geometry as the tape, so every matrix is full.
-        assert_eq!(
-            naive_gram(&tape.layers[0].ln1_out, tape.t, E).len(),
-            lg.qkv.len()
-        );
-    }
 }

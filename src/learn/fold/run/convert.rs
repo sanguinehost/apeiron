@@ -9,7 +9,8 @@
 //!
 //! The loader decodes an `f16`/`bf16`/`f32` payload to the same words once, round half-even
 //! ([`decode_f16`], [`decode_bf16`], [`decode_f32`]); the writer re-encodes words
-//! ([`encode_f16`], [`encode_f32`]). Those five functions are the one named decode/encode edge for
+//! ([`encode_f16`], [`encode_f32`]), and [`student_gguf_bytes`] writes a whole student image under
+//! the teacher's `GGUF` directory with them. Those five functions are the one named decode/encode edge for
 //! each payload type; no other body here reads or writes a binary16, binary32 or binary64 field.
 //!
 //! A binary32 payload is a sign, a biased exponent and a 23-bit significand, and its word is
@@ -22,8 +23,10 @@
 //!
 //! # Evidence grade
 //!
-//! `tested`: the gate's `cargo test` on the build path (`tests/learn_fold_run_convert.rs`). No Lean
-//! refinement links this file; it is not on the extracted fragment, so nothing here is `proved`.
+//! `tested`: the gate's `cargo test` on the build path (`tests/learn_fold_run_convert.rs`,
+//! `tests/learn_fold_heldout.rs`). The file is translated by the extraction unit
+//! (`proof/extract/ports/fold_finish_port.rs`), but no Lean refinement links it, so nothing here is
+//! `proved`.
 //!
 //! # Trust boundary
 //!
@@ -52,7 +55,10 @@ use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;
 use crate::engine::f16_to_fixed;
 use crate::engine::num::fp::F32;
+use crate::format::gguf::{Gguf, GgufError};
+use crate::format::quant;
 use crate::learn::fold::stats::parts::LayerCfg;
+use crate::learn::gguf::write_file;
 use crate::learn::grad::model::{Config, LayerWeights, Weights};
 use crate::learn::solve::q32::{from_grid, round_f16, rshift_rne, Fx};
 
@@ -72,6 +78,10 @@ pub enum ConvertError {
     Range(String),
     /// A payload element is `NaN` or infinite and cannot be quantized.
     NonFinite(String),
+    /// The teacher `GGUF` was refused.
+    Gguf(GgufError),
+    /// The teacher stores a tensor in a `ggml` type this writer does not re-encode.
+    Type(u32),
 }
 
 impl core::fmt::Display for ConvertError {
@@ -81,11 +91,19 @@ impl core::fmt::Display for ConvertError {
             Self::MissingBias(m) => write!(f, "missing bias: {m}"),
             Self::Range(m) => write!(f, "range: {m}"),
             Self::NonFinite(m) => write!(f, "non-finite: {m}"),
+            Self::Gguf(e) => write!(f, "teacher GGUF: {e}"),
+            Self::Type(t) => write!(f, "ggml type {t} has no re-encoder here"),
         }
     }
 }
 
 impl std::error::Error for ConvertError {}
+
+impl From<GgufError> for ConvertError {
+    fn from(e: GgufError) -> Self {
+        Self::Gguf(e)
+    }
+}
 
 /// The teacher the fold driver consumes: the per-layer weights in the driver's layout, the final
 /// `RMSNorm` gain and the token embedding — all `Q32.32` words — plus the geometry.
@@ -528,4 +546,111 @@ pub fn student_to_grad(
         token_embd: teacher.token_embd.clone(),
         lm_head: teacher.lm_head.clone(),
     })
+}
+
+/// The student values of the `GGUF` tensor `name`, or `None` when the teacher carries a tensor the
+/// [`Weights`] struct does not ([`student_gguf_bytes`] then copies its teacher payload).
+fn student_values<'a>(w: &'a Weights, name: &[u8]) -> Option<&'a [i64]> {
+    let s = core::str::from_utf8(name).ok()?;
+    match s {
+        "token_embd.weight" => Some(&w.token_embd),
+        "output_norm.weight" => Some(&w.output_norm),
+        "output.weight" => Some(&w.lm_head),
+        _ => {
+            let rest = s.strip_prefix("blk.")?;
+            let (num, suffix) = rest.split_once('.')?;
+            let l: usize = num.parse().ok()?;
+            let lw = w.layers.get(l)?;
+            match suffix {
+                "attn_norm.weight" => Some(&lw.attn_norm),
+                "attn_q.weight" => Some(&lw.wq),
+                "attn_q.bias" => lw.bq.as_deref(),
+                "attn_k.weight" => Some(&lw.wk),
+                "attn_k.bias" => lw.bk.as_deref(),
+                "attn_v.weight" => Some(&lw.wv),
+                "attn_v.bias" => lw.bv.as_deref(),
+                "attn_output.weight" => Some(&lw.wo),
+                "ffn_norm.weight" => Some(&lw.ffn_norm),
+                "ffn_gate.weight" => Some(&lw.w_gate),
+                "ffn_up.weight" => Some(&lw.w_up),
+                "ffn_down.weight" => Some(&lw.w_down),
+                _ => None,
+            }
+        }
+    }
+}
+
+/// Re-encode `v` into the teacher's `ggml` type.
+///
+/// # Errors
+/// [`ConvertError::Type`] for a type other than F16 or F32; [`ConvertError::Range`] when a word has
+/// no finite binary16 encoding.
+fn encode(ggml_type: u32, v: &[i64]) -> Result<Vec<u8>, ConvertError> {
+    match ggml_type {
+        quant::GGML_TYPE_F16 => encode_f16(v),
+        quant::GGML_TYPE_F32 => Ok(encode_f32(v)),
+        other => Err(ConvertError::Type(other)),
+    }
+}
+
+/// `student` as a complete `GGUF` image under the teacher's directory at `teacher_path`.
+///
+/// The teacher header is parsed by [`Gguf::open`]; every tensor keeps its name, dimensions, `ggml`
+/// type and offset, so the directory is unchanged. Each tensor the student carries is re-encoded
+/// from its `Q32.32` words ([`encode`]) — one pooled pass per tensor — and a tensor name the
+/// [`Weights`] struct does not carry copies the teacher payload byte-for-byte.
+///
+/// This is the one encoder: `run::transfer::write_student_gguf` writes these bytes to disk, and a
+/// caller that needs the model in memory (`finish::train`) hands them to the engine instead of a
+/// path.
+///
+/// # Complexity
+/// Time and space `O(file bytes)` = `O(2·W)` for an F16 teacher of `W` weights: one pooled encode
+/// pass per tensor plus one header pass; the whole image is held once.
+///
+/// # Errors
+/// [`ConvertError::Gguf`] on a teacher refusal; [`ConvertError::Type`] for a source type other
+/// than F16/F32 or a tensor with no geometry; [`ConvertError::Shape`] when a tensor's element
+/// count, payload size or offset disagrees with the student; [`ConvertError::Range`] for a value
+/// outside binary16's finite range.
+pub fn student_gguf_bytes(teacher_path: &str, student: &Weights) -> Result<Vec<u8>, ConvertError> {
+    let g = Gguf::open(teacher_path)?;
+    let data_len = g
+        .file_len
+        .checked_sub(g.header.data0)
+        .ok_or_else(|| ConvertError::Shape("teacher data section".to_string()))?;
+    let data_len = usize::try_from(data_len)
+        .map_err(|_| ConvertError::Shape("teacher data section".to_string()))?;
+    let mut data = vec![0u8; data_len];
+    for t in &g.header.tensors {
+        let n = t.n_bytes()?.ok_or(ConvertError::Type(t.ggml_type))?;
+        let n_el = t.n_elements()?;
+        let off = usize::try_from(t.offset)
+            .map_err(|_| ConvertError::Shape("tensor offset".to_string()))?;
+        let n = usize::try_from(n).map_err(|_| ConvertError::Shape("tensor size".to_string()))?;
+        let slot = data
+            .get_mut(off..off + n)
+            .ok_or_else(|| ConvertError::Shape("tensor past the data section".to_string()))?;
+        let name = String::from_utf8_lossy(&t.name).into_owned();
+        if let Some(v) = student_values(student, &t.name) {
+            if u64::try_from(v.len()).ok() != Some(n_el) {
+                return Err(ConvertError::Shape(format!(
+                    "{name}: {} weights != {n_el} directory elements",
+                    v.len()
+                )));
+            }
+            let bytes = encode(t.ggml_type, v)?;
+            if bytes.len() != slot.len() {
+                return Err(ConvertError::Shape(format!("{name}: encoded size")));
+            }
+            slot.copy_from_slice(&bytes);
+        } else {
+            let raw = g.tensor_bytes(t)?;
+            if raw.len() != slot.len() {
+                return Err(ConvertError::Shape(format!("{name}: teacher payload size")));
+            }
+            slot.copy_from_slice(&raw);
+        }
+    }
+    write_file(&g.header, &data).map_err(ConvertError::from)
 }

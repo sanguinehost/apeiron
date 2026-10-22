@@ -142,9 +142,9 @@ pub mod engine {
     /// re-export block, which this mirror reproduces because the mirrored submodules reach it by
     /// absolute `crate::engine::` paths rather than `super::`).
     pub use super::{
-        argmax_fixed, f16_to_fixed, f32_to_fixed, ffn_fixed, fwht_fixed, matvec_fixed,
-        row_dot_fixed, rms_norm_fixed, silu_fixed, top_p_fixed, FfnError, HadamardError,
-        NormError, ProjWeights,
+        argmax_fixed, f16_to_fixed, f32_to_fixed, ffn_fixed, ffn_fixed_tapped, fwht_fixed,
+        matvec_fixed, row_dot_fixed, rms_norm_fixed, silu_fixed, top_p_fixed, FfnError, FfnStages,
+        HadamardError, NormError, ProjWeights,
     };
     pub use super::loader::{AffineGeom, AffineVectors, Engine, MixerKind, TensorEntry};
     pub use super::step::{DecodeState, KernelMode, MtpState, SpecStats, StepError, StepResult};
@@ -1137,7 +1137,7 @@ pub mod fixed_ln;
 pub use attn::{AttnError, KvState};
 pub use dequant::f16_to_fixed;
 pub use f32_convert::{f32_to_fixed, F32Error};
-pub use ffn::{ffn_fixed, silu_fixed, FfnError, ProjWeights};
+pub use ffn::{ffn_fixed, ffn_fixed_tapped, silu_fixed, FfnError, FfnStages, ProjWeights};
 pub use hadamard::{fwht_fixed, HadamardError};
 pub use lm_head::LmHeadError;
 pub use loader::{AffineGeom, AffineVectors, Engine, MixerKind, TensorEntry};

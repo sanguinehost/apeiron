@@ -1,18 +1,20 @@
 //! Board APEIRON-QUALITY-118-W1-T01.
-//! The engine-sourced activation Gram against the exact reference forward.
+//! The engine's `Q8Act` activation Gram against its own `Exact` tape.
 //!
-//! One dense `qwen2` layer is written to a GGUF fixture, loaded by the engine, and its Q32.32
-//! weights are read back through [`Weights::from_engine`], so both sources carry the same words.
-//! The reference Grams are [`Grams::accumulate`] over the tape of
-//! [`apeiron::learn::grad::model::forward`] (exact `i128` products, each rounded once); the engine
-//! Grams are [`Grams::accumulate_tap`] over `Engine::prefill_tap_cols` (the limb adapter).
+//! One dense `qwen2` layer is written to a GGUF fixture and loaded by the engine. The reference
+//! Grams are [`Grams::accumulate`] over the tape of
+//! `hocapture::engine_tape_mode(.., KernelMode::Exact)`: Q32.32 words, `i128` products each
+//! rounded once. The compared Grams are [`Grams::accumulate_tap`] over `Engine::prefill_tap_cols`
+//! under [`KernelMode::Q8Act`], the production limbed path.
 //!
-//! The two sources are not asserted equal a priori: the test measures the per-entry relative
-//! difference of each of the four Grams and reports it. In [`KernelMode::Exact`] the engine's
-//! forward and the reference forward run the same Q32.32 arithmetic, so the difference is zero and
-//! the assertion is exact equality. In [`KernelMode::Q8Act`] the projections read an 8-bit
-//! quantised copy of each activation; the tap rows themselves are the unquantised words, so the
-//! Grams differ only through the hidden state the quantisation moves, bounded below.
+//! The two modes are not asserted equal a priori: the test measures the per-entry and
+//! matrix-scaled relative difference of each of the four Grams and reports it. Under
+//! [`KernelMode::Q8Act`] the projections read an 8-bit quantised copy of each activation, so the
+//! Grams differ through the hidden state the quantisation moves; `Q8_BOUND` states that
+//! difference. The same measurement carries the fold path's own residual, the limb adapter against
+//! the exact `i128` fold: `1.6e-6` of scale on `qkv`, whose input is the same word under both
+//! modes. The tap rows themselves are the words the projections read, so a mutated tap word is the
+//! control that the comparison can still fail.
 //!
 //! Grade: `tested`.
 
@@ -36,7 +38,8 @@ use apeiron::engine::loader::Engine;
 use apeiron::engine::{testdata, KernelMode};
 use apeiron::format::quant;
 use apeiron::learn::fold::stats::capture::{Grams, LayerGrams, Normalisation};
-use apeiron::learn::grad::model::{forward, Config, LayerTape, Tape, Weights};
+use apeiron::learn::fold::stats::hocapture;
+use apeiron::learn::grad::model::{Config, LayerTape, Tape, Weights};
 
 /// Residual width.
 const E: usize = 8;
@@ -65,8 +68,6 @@ const Q8_BOUND: f64 = 1.0 / 32.0;
 
 /// Stage slots of the tap, as [`Grams::accumulate_tap`] reads them.
 const STAGE_LN1_OUT: usize = 1;
-const STAGE_ATTN_OUT: usize = 2;
-const STAGE_LN2_OUT: usize = 3;
 
 fn put_u32(b: &mut Vec<u8>, v: u32) {
     b.extend_from_slice(&v.to_le_bytes());
@@ -277,10 +278,13 @@ fn open(tag: &str) -> (Engine, String) {
     (Engine::open(&path).expect("open fixture"), path)
 }
 
-/// The reference Grams of the fixture: the exact forward's tape folded by the exact accumulator.
+/// The reference Grams of the fixture: the engine's own `Exact` tape folded by the exact
+/// accumulator. The `cfg` comes from [`Weights::from_engine`], the same dimensions the engine
+/// holds.
 fn reference(engine: &Engine) -> (Config, Vec<LayerGrams>) {
-    let (w, cfg) = Weights::from_engine(engine).expect("weights");
-    let (_, tape) = forward(&w, &cfg, &TOKENS).expect("reference forward");
+    let (_, cfg) = Weights::from_engine(engine).expect("weights");
+    let (_, tape) =
+        hocapture::engine_tape_mode(engine, &cfg, &TOKENS, KernelMode::Exact).expect("exact tape");
     let mut grams = Grams::new(&cfg).expect("grams");
     grams.accumulate(&tape, &cfg).expect("reference accumulate");
     (cfg, grams.finish(Normalisation::Sum).expect("finish"))
@@ -364,53 +368,6 @@ fn engine_grams(
     grams.accumulate_tap(&rows).expect("tap accumulate");
     let fin = grams.finish(Normalisation::Sum).expect("finish");
     (fin, rows)
-}
-
-/// The exact reference and the engine's `Exact` tap carry the same stage activations to a measured
-/// per-entry difference: the two forwards round `RMSNorm`/attention in their own fixed point.
-///
-/// The `m` stage is not compared: the tap records it only on the pooled `Resident` `Q8Act` path
-/// (`src/engine/step/cols.rs:ffn_cols_tap`), and `Exact` takes the fused single-column FFN.
-#[test]
-fn engine_exact_tap_rows_match_the_reference_activations() {
-    let (engine, path) = open("exact");
-    let (w, cfg) = Weights::from_engine(&engine).expect("weights");
-    let (_, tape) = forward(&w, &cfg, &TOKENS).expect("reference forward");
-    let mut st = engine.state(TOKENS.len()).expect("state");
-    let (_, rows) = engine
-        .prefill_tap_cols(&mut st, &TOKENS, KernelMode::Exact, true)
-        .expect("tapped prefill");
-    let _ = std::fs::remove_file(&path);
-    let lt = &tape.layers[0];
-    let stage = |stage: usize, width: usize| -> Vec<i64> {
-        let mut out = Vec::with_capacity(TOKENS.len() * width);
-        for c in 0..TOKENS.len() {
-            assert_eq!(rows[0][stage][c].len(), width);
-            out.extend_from_slice(&rows[0][stage][c]);
-        }
-        out
-    };
-    let ln1 = stage(STAGE_LN1_OUT, E);
-    let attn = stage(STAGE_ATTN_OUT, Q);
-    let ln2 = stage(STAGE_LN2_OUT, E);
-    // Q32.32 words to real: `2⁻³²` cancels in a relative comparison, so compare the words.
-    let words = |a: &[i64], b: &[i64]| -> f64 {
-        let a: Vec<f64> = a.iter().map(|&v| v as f64).collect();
-        let b: Vec<f64> = b.iter().map(|&v| v as f64).collect();
-        max_rel(&a, &b)
-    };
-    let (d_ln1, d_attn, d_ln2) = (
-        words(&ln1, &lt.ln1_out),
-        words(&attn, &lt.attn_out),
-        words(&ln2, &lt.ln2_out),
-    );
-    println!("exact tap max rel err ln1_out/attn_out/ln2_out = [{d_ln1}, {d_attn}, {d_ln2}]");
-    for (name, v) in [("ln1_out", d_ln1), ("attn_out", d_attn), ("ln2_out", d_ln2)] {
-        assert!(
-            v <= 1e-5,
-            "{name} tap row differs from the reference by {v}"
-        );
-    }
 }
 
 /// The production `Q8Act` path: the Gram difference against the exact reference is measured and
@@ -545,33 +502,6 @@ fn gram_fold_old_vs_new_at_production_shape() {
     assert!(
         new_mean < old_mean,
         "the limb path must beat the scalar exact fold"
-    );
-}
-
-/// The reference forward's wall on the teacher at 64 tokens: the weight conversion plus one exact
-/// `i128` forward. The 512-token run did not complete inside a 330 s lane budget; this is the
-/// measured rate the 512 extrapolation cites. Skips when the fixture is absent.
-#[test]
-#[ignore = "measured report: reads models/gguf/qwen05b-f16.gguf; run with --ignored --nocapture"]
-fn reference_forward_qwen05b_64_wall() {
-    const T: usize = 64;
-    let Some(path) = testdata::model_path("models/gguf/qwen05b-f16.gguf") else {
-        println!("qwen05b-f16.gguf absent; skipped");
-        return;
-    };
-    let engine = Engine::open(&path).expect("open teacher");
-    let t0 = Instant::now();
-    let (w, cfg) = Weights::from_engine(&engine).expect("weights");
-    let t_weights = t0.elapsed().as_secs_f64();
-    let tokens: Vec<u32> = (0..T)
-        .map(|i| u32::try_from(i % cfg.vocab).expect("vocab"))
-        .collect();
-    let t1 = Instant::now();
-    let (_logits, tape) = forward(&w, &cfg, &tokens).expect("reference forward");
-    println!(
-        "qwen05b t={T}: weights {t_weights:.2}s, reference forward {:.2}s, tape layers {}",
-        t1.elapsed().as_secs_f64(),
-        tape.layers.len()
     );
 }
 
