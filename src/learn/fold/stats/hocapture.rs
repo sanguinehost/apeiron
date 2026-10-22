@@ -1,7 +1,8 @@
 //! Output-side output-gradient Gram (`HO`) capture: the per-linear scatter `Σ_t w_t g_t g_tᵀ` of the
 //! sampled-label loss, the Schäfer–Strimmer inputs `S4`/`Q`, and the mean-diagonal-1 finish.
 //!
-//! [`Hocapture::accumulate`] runs [`crate::learn::grad::model::forward`], draws `K` sampled targets
+//! [`Hocapture::accumulate`] runs the engine's tapped forward ([`engine_tape`]: one
+//! [`KernelMode::Q8Act`] prefill whose stage rows are the tape), draws `K` sampled targets
 //! per token from the teacher softmax, and for each draw runs [`backward_with_taps`] once: the whole
 //! backward of [`crate::learn::grad::model::backward`], returning the weight gradients *and* the
 //! gradient of the sampled-label loss with respect to every linear's **output** at every token.
@@ -45,6 +46,20 @@
 //! [`dense::rmsnorm_bwd`], [`attn::attn_bwd`], [`attn::rope_bwd`]) and returns both the taps and the
 //! same [`Grads`]. Nothing is duplicated below the kernel boundary. The gate asserts the returned
 //! [`Grads`] are bit-equal to `backward`'s, so the taps provably sit on the real chain.
+//!
+//! # The engine tape
+//!
+//! The forward is the engine's, not a second one: [`engine_tape`] runs
+//! [`crate::engine::Engine::prefill_tap_cols`] once in [`KernelMode::Q8Act`] and lays the recorded
+//! stage rows out as a [`Tape`]. `ln1_in`/`ln1_out`/`attn_out`/`h2`/`ln2_out`/`gate`/`up`/`m` are the
+//! stage slots, `q`/`k`/`v` the post-`RoPE` attention inputs, `final_hidden` the last layer's output
+//! residual, and `final_normed` the engine's output-normed columns, from which
+//! [`crate::engine::Engine::lm_head_fixed`] produces the logits. `p` is not taped:
+//! [`attn::attn_fwd`] recomputes it from the tapped `q`/`k`/`v`, the same function whose `p`
+//! [`attn::attn_bwd`] consumes, so the file carries no second softmax body. The engine path is
+//! quantised, so its rows are not the exact `i128` forward's: the engine tape is the production
+//! source, and [`crate::learn::grad::model::forward`] remains only as the exact reference the tests
+//! compare against.
 //!
 //! # Sampled targets: the sampler deviation
 //!
@@ -122,28 +137,57 @@
               with the tap widths and the layer loop passes them through"
 )]
 
+pub use super::ce::{cross_entropy_sum, logits_grad_ce, sample_targets, softmax_row};
+use super::ce::{fx_add, round_div, to64};
 use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
 use crate::engine::chart::task::ChunkTask;
-use crate::engine::{RopeTable, ONE};
+use crate::engine::{Engine, KernelMode, RopeTable};
 use crate::learn::grad::attn::{self, AttnError};
 use crate::learn::grad::dense::{self, DenseError};
-use crate::learn::grad::head;
-use crate::learn::grad::model::{Config, Grads, LayerGrads, ModelError, Tape, Weights};
-use crate::learn::solve::q32::{round_q32_even, rshift_rne, Fx};
-use crate::numeric::fixed_exp::fixed_exp;
+use crate::learn::grad::model::{Config, Grads, LayerGrads, LayerTape, ModelError, Tape, Weights};
+use crate::learn::solve::q32::{round_q32_even, Fx};
 
 /// The diagonal the reference adds after the mean-diagonal normalisation (`fold_transfer.py:1323`):
 /// `0.01` as a `Q32.32` word, `round(0.01·2³²) = 42_949_673`.
 pub const DEFAULT_EPS: i64 = 42_949_673;
 
 /// Lower edge of the `fixed_exp` window, `-16·ONE`: a shifted logit below it has `p = 0`.
-const FLUSH: i128 = -16 * (1_i128 << 32);
+pub(super) const FLUSH: i128 = -16 * (1_i128 << 32);
+
+/// Stage slot of the residual stream entering a layer in the engine's tap
+/// (`src/engine/step/tap.rs:STAGE_HIDDEN_IN`); the slots are private to the engine step module, so
+/// the twelve values are restated here as [`super::capture`] restates the four it reads.
+const TAP_HIDDEN_IN: usize = 0;
+/// Stage slot of the attention-side `RMSNorm` output (the Q/K/V projection input).
+const TAP_LN1_OUT: usize = 1;
+/// Stage slot of the output projection's input (the attention output).
+const TAP_ATTN_OUT: usize = 2;
+/// Stage slot of the FFN-side `RMSNorm` output (the gate/up input).
+const TAP_LN2_OUT: usize = 3;
+/// Stage slot of the `SwiGLU` product (the down projection's input).
+const TAP_M: usize = 4;
+/// Stage slot of the post-`RoPE` query.
+const TAP_Q: usize = 5;
+/// Stage slot of the post-`RoPE` key.
+const TAP_K: usize = 6;
+/// Stage slot of the value.
+const TAP_V: usize = 7;
+/// Stage slot of the gate pre-activation.
+const TAP_GATE: usize = 8;
+/// Stage slot of the up pre-activation.
+const TAP_UP: usize = 9;
+/// Stage slot of the residual after the attention add (the `ffn_norm` input).
+const TAP_H2: usize = 10;
+/// Stage slot of the layer's output residual (the `output_norm` input on the last layer).
+const TAP_OUT: usize = 11;
+/// Stage slots in one layer's tap (`STAGE_COUNT`).
+const TAP_STAGES: usize = 12;
 
 /// The kinds, in the reference's `KINDS` order (`fold_transfer.py:47-48`).
 pub const N_KINDS: usize = 7;
 
 /// The seed used when the caller passes `0`, which is not a fixed point of xorshift64\*.
-const SEED_BIAS: u64 = 0x9E37_79B9_7F4A_7C15;
+pub(super) const SEED_BIAS: u64 = 0x9E37_79B9_7F4A_7C15;
 
 /// One linear of the reference's `KINDS`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -274,6 +318,8 @@ pub enum HocaptureError {
     Overflow,
     /// The forward, the backward or a kernel refused.
     Model(ModelError),
+    /// The engine's tapped prefill or its LM head refused.
+    Engine(String),
 }
 
 impl From<ModelError> for HocaptureError {
@@ -298,12 +344,12 @@ impl From<AttnError> for HocaptureError {
 ///
 /// # Complexity
 /// `O(what)`.
-fn shape(what: &str) -> HocaptureError {
+pub(super) fn shape(what: &str) -> HocaptureError {
     HocaptureError::Shape(what.to_string())
 }
 
 /// `.len() == t · w` or [`HocaptureError::Shape`].
-fn expect(t: usize, w: usize, len: usize, what: &str) -> Result<usize, HocaptureError> {
+pub(super) fn expect(t: usize, w: usize, len: usize, what: &str) -> Result<usize, HocaptureError> {
     match t.checked_mul(w) {
         Some(n) if n == len => Ok(n),
         Some(n) => Err(shape(&format!("{what}: {len} != {t}·{w} = {n}"))),
@@ -604,314 +650,6 @@ fn embedding_grad(
     Ok(out)
 }
 
-/// `n / d` rounded to nearest, ties away from zero; `d > 0`. `q32` has no general divide-and-round,
-/// so this is the file's one such rule (it is `grad::head`'s private one).
-fn round_div(n: i128, d: i128) -> i128 {
-    let (q, r) = (n / d, n % d);
-    let mag = if r < 0 { 0 - r } else { r };
-    if 2 * mag >= d {
-        if n >= 0 {
-            q + 1
-        } else {
-            q - 1
-        }
-    } else {
-        q
-    }
-}
-
-/// `x` narrowed to `i64`, or [`HocaptureError::Overflow`].
-fn to64(x: i128) -> Result<i64, HocaptureError> {
-    i64::try_from(x).map_err(|_| HocaptureError::Overflow)
-}
-
-/// `a + b` in the [`Fx`] carrier: the operand with the larger exponent is kept, the other is
-/// right-shifted by the exponent gap (round to nearest, ties to even) and the significands are added
-/// in `i128`, renormalised once by [`Fx::from_i128`]. A gap of 63 bits or more drops the smaller
-/// term, whose magnitude is then under the larger significand's last place.
-///
-/// # Errors
-/// [`HocaptureError::Overflow`] when a checked exponent difference, shift or add leaves its range
-/// (unreachable for accumulators built from Q32.32 products; kept for totality).
-fn fx_add(a: &Fx, b: &Fx) -> Result<Fx, HocaptureError> {
-    if a.m == 0 || b.m == 0 {
-        return Ok(if a.m == 0 { b.clone() } else { a.clone() });
-    }
-    let (hi, lo) = if a.e >= b.e { (a, b) } else { (b, a) };
-    let gap = hi.e.checked_sub(lo.e).ok_or(HocaptureError::Overflow)?;
-    if gap > 62 {
-        return Ok(hi.clone());
-    }
-    let shift = u32::try_from(gap).map_err(|_| HocaptureError::Overflow)?;
-    let shifted = rshift_rne(i128::from(lo.m), shift).ok_or(HocaptureError::Overflow)?;
-    let sum = i128::from(hi.m)
-        .checked_add(shifted)
-        .ok_or(HocaptureError::Overflow)?;
-    Fx::from_i128(sum, hi.e).map_err(|_| HocaptureError::Overflow)
-}
-
-/// Softmax of one Q32.32 logit row, `pᵢ = round(eᵢ·ONE/S)`.
-///
-/// The rule is [`head`]'s private `softmax_row` (`src/learn/grad/head.rs:279-304`): shift by the row
-/// maximum, `eᵢ = fixed_exp(uᵢ)` with `uᵢ < −16·ONE` flushed to `0`, `S = Σeᵢ`, one rounding per
-/// `pᵢ`. It is mirrored here over the same public [`fixed_exp`] because `head`'s function is private
-/// and this task does not own `head.rs`; the gate pins the two through `kl_row`
-/// (`softmax_matches_head`).
-///
-/// # Errors
-/// [`HocaptureError::Shape`] for an empty row, or when [`fixed_exp`] refuses the shifted value
-/// (unreachable: every shifted value is `≤ 0`); [`HocaptureError::Overflow`] when a sum or a
-/// probability leaves `i64`.
-///
-/// # Complexity
-/// `O(v)`: `v` comparisons, `v` [`fixed_exp`] calls and `v` `i128` divisions; `O(v)` words out.
-pub fn softmax_row(z: &[i64]) -> Result<Vec<i64>, HocaptureError> {
-    let v = z.len();
-    if v == 0 {
-        return Err(shape("empty softmax row"));
-    }
-    let mut m = z[0];
-    for &zi in z {
-        if zi > m {
-            m = zi;
-        }
-    }
-    let mut e = vec![0i64; v];
-    let mut sum: i128 = 0;
-    // One flat pass: the fragment carries no `continue` and no `?` inside a loop body, so
-    // `softmax_term` holds the flush edge and the two refusals and each loop carries its exit.
-    let mut err: Option<HocaptureError> = None;
-    for i in 0..v {
-        if err.is_none() {
-            let u = i128::from(z[i]) - i128::from(m);
-            match softmax_term(u) {
-                Ok(ev) => {
-                    e[i] = ev;
-                    sum += i128::from(ev);
-                }
-                Err(e) => err = Some(e),
-            }
-        }
-    }
-    if let Some(e) = err {
-        return Err(e);
-    }
-    let mut p = vec![0i64; v];
-    let one = i128::from(ONE);
-    let mut err = None;
-    for i in 0..v {
-        if err.is_none() {
-            match to64(round_div(i128::from(e[i]) * one, sum)) {
-                Ok(pi) => p[i] = pi,
-                Err(e) => err = Some(e),
-            }
-        }
-    }
-    if let Some(e) = err {
-        return Err(e);
-    }
-    Ok(p)
-}
-
-/// `exp(z_i − m)` for one shifted Q32.32 logit, zero below the [`FLUSH`] edge. `O(1)`;
-/// [`HocaptureError::Overflow`] when the shifted word leaves `i64`, the shape refusal when
-/// [`fixed_exp`] refuses.
-fn softmax_term(u: i128) -> Result<i64, HocaptureError> {
-    if u < FLUSH {
-        return Ok(0);
-    }
-    let zi = to64(u)?;
-    fixed_exp(zi).map_err(|_| shape("fixed_exp refused"))
-}
-
-/// The chunked head's `Σ_t log p_t` read at the sampled targets, negated: the sampled-label
-/// cross-entropy the taps differentiate, in Q32.32.
-///
-/// This is `head::log_softmax_row` per row, summed in exact `i128` and rounded once, so the gate's
-/// central difference does not go through [`softmax_row`]'s own rounding.
-///
-/// # Errors
-/// [`HocaptureError::Shape`] when `logits.len() != t·vocab`, `targets.len() != t`, or a target is
-/// past the vocabulary; [`HocaptureError::Overflow`] on a checked sum or a narrowing.
-///
-/// # Complexity
-/// `O(t·vocab)`; one softmax per row.
-pub fn cross_entropy_sum(
-    logits: &[i64],
-    t: usize,
-    vocab: usize,
-    targets: &[u32],
-) -> Result<i64, HocaptureError> {
-    expect(t, vocab, logits.len(), "cross_entropy logits")?;
-    if targets.len() != t {
-        return Err(shape("cross_entropy targets"));
-    }
-    let mut acc: i128 = 0;
-    for r in 0..t {
-        let id = usize::try_from(targets[r]).map_err(|_| HocaptureError::Overflow)?;
-        if id >= vocab {
-            return Err(shape("cross_entropy target >= vocab"));
-        }
-        let lp = head::log_softmax_row(&logits[r * vocab..(r + 1) * vocab])
-            .map_err(|_| shape("log_softmax_row refused"))?;
-        acc -= i128::from(lp[id]);
-    }
-    to64(round_div(acc, 1))
-}
-
-/// `p_i − [i = s_r]` for row `r`.
-///
-/// # Errors
-/// `Shape` for a target past the vocabulary, `Overflow` from the narrowing.
-///
-/// # Complexity
-/// `O(vocab)`: one [`softmax_row`] and one write per entry.
-fn grad_row(
-    logits: &[i64],
-    targets: &[u32],
-    vocab: usize,
-    r: usize,
-) -> Result<Vec<i64>, HocaptureError> {
-    let target = *targets
-        .get(r)
-        .ok_or_else(|| shape("logits_grad_ce target"))?;
-    let id = usize::try_from(target).map_err(|_| HocaptureError::Overflow)?;
-    if id >= vocab {
-        return Err(shape("logits_grad_ce target >= vocab"));
-    }
-    let p = softmax_row(&logits[r * vocab..(r + 1) * vocab])?;
-    let mut out = p;
-    out[id] = out[id].checked_sub(ONE).ok_or(HocaptureError::Overflow)?;
-    Ok(out)
-}
-
-/// The logit gradient of the sampled-label loss `Σ_t CE(z_t, s_t)`: `out[t·vocab + i] = p_ti −
-/// [i = s_t]`, in Q32.32.
-///
-/// # Errors
-/// [`HocaptureError::Shape`] when `logits.len() != t·vocab`, `out.len() != t·vocab`, `targets.len()
-/// != t`, or a target is past the vocabulary.
-///
-/// # Complexity
-/// Time `O(t·vocab)`, once per draw (`K` per capture): a per-token vector loop, not a matrix
-/// pass, so it stays serial and the Gram below takes the file's pool budget.
-pub fn logits_grad_ce(
-    logits: &[i64],
-    targets: &[u32],
-    vocab: usize,
-    out: &mut [i64],
-) -> Result<(), HocaptureError> {
-    let t = targets.len();
-    expect(t, vocab, logits.len(), "logits_grad_ce logits")?;
-    expect(t, vocab, out.len(), "logits_grad_ce out")?;
-    if vocab == 0 || t == 0 {
-        return Err(shape("logits_grad_ce dimensions"));
-    }
-    for r in 0..t {
-        let row = grad_row(logits, targets, vocab, r)?;
-        out[r * vocab..(r + 1) * vocab].copy_from_slice(&row);
-    }
-    Ok(())
-}
-
-/// One xorshift64\* step, returning the uniform `u ∈ [0, ONE)` of its 53 high bits.
-///
-/// `u = (r mod 2⁵³)/2⁵³` in Q32.32 is `u·2³² = (r >> 32)` truncated; the +`2²⁰` before the shift
-/// rounds to nearest instead, and the clamp keeps the word strictly below `ONE` so the inverse-CDF
-/// walk can still pass a row whose probabilities sum to `ONE`.
-fn xorshift64s(state: &mut u64) -> i64 {
-    let mut s = if *state == 0 { SEED_BIAS } else { *state };
-    s ^= s >> 12;
-    s ^= s << 25;
-    s ^= s >> 27;
-    *state = s;
-    let r = s.wrapping_mul(0x2545_F491_4F6C_DD1D);
-    let word = ((r >> 11).wrapping_add(1 << 20)) >> 21;
-    let cap = (ONE as u64) - 1;
-    let w = if word > cap { cap } else { word };
-    w as i64
-}
-
-/// `K` sampled targets per token from the teacher softmax of `logits`, draw-major then token-major:
-/// `out[j·t + i]` is draw `j`'s target at token `i`.
-///
-/// The distribution is the reference's (`torch.multinomial(probs, 1)` per draw over the `N·T`
-/// rows, `fold_transfer.py:1260`); the stream is this file's inline xorshift64\* from `seed`. The
-/// inverse-CDF walk reads the same Q32.32 softmax row the loss gradient uses, in exact `i128`, and
-/// falls back to the last index with non-zero probability when the uniform lands past the row's
-/// rounding residue.
-///
-/// # Errors
-/// [`HocaptureError::Shape`] when `K == 0`, `vocab == 0`, `logits.len() != t·vocab`, or `t == 0`.
-///
-/// # Complexity
-/// Time `O(K·t·vocab)`: one [`softmax_row`] per token (a serial per-token loop) plus one
-/// inverse-CDF walk per draw; space `O(t·vocab)` softmax words plus `O(K·t)` output.
-pub fn sample_targets(
-    logits: &[i64],
-    t: usize,
-    vocab: usize,
-    k: usize,
-    seed: u64,
-) -> Result<Vec<u32>, HocaptureError> {
-    if k == 0 || vocab == 0 || t == 0 {
-        return Err(shape("sample_targets dimensions"));
-    }
-    expect(t, vocab, logits.len(), "sample_targets logits")?;
-    let mut rows = vec![0i64; t * vocab];
-    for r in 0..t {
-        let p = softmax_row(&logits[r * vocab..(r + 1) * vocab])?;
-        rows[r * vocab..(r + 1) * vocab].copy_from_slice(&p);
-    }
-    let mut state = if seed == 0 { SEED_BIAS } else { seed };
-    let mut out = vec![0u32; k * t];
-    // Flag form: the inverse-CDF walk is its own function (no `break` in a nested loop) and the
-    // narrowing refusal is carried out of the draw loop instead of returned inside it.
-    let mut failed = false;
-    for j in 0..k {
-        for r in 0..t {
-            if !failed {
-                let p = &rows[r * vocab..(r + 1) * vocab];
-                let draw = i128::from(xorshift64s(&mut state));
-                let pick = pick_from_row(p, draw);
-                match u32::try_from(pick) {
-                    Ok(v) => out[j * t + r] = v,
-                    Err(_) => failed = true,
-                }
-            }
-        }
-    }
-    if failed {
-        return Err(HocaptureError::Overflow);
-    }
-    Ok(out)
-}
-
-/// The inverse-CDF draw on one Q32.32 row: the first index whose cumulative probability passes
-/// `draw`, else the last index of positive probability. `O(v)` comparisons; space `O(1)`.
-fn pick_from_row(p: &[i64], draw: i128) -> usize {
-    let mut cum: i128 = 0;
-    let mut pick = p.len() - 1;
-    let mut found = false;
-    let mut i = 0;
-    while i < p.len() && !found {
-        cum += i128::from(p[i]);
-        if draw < cum {
-            pick = i;
-            found = true;
-        }
-        i += 1;
-    }
-    if !found {
-        for i in 0..p.len() {
-            if p[i] > 0 {
-                pick = i;
-            }
-        }
-    }
-    pick
-}
-
 /// One `(layer, kind)` raw accumulator: the scatter `Σ_t w_t g_t g_tᵀ` and the two Schäfer–Strimmer
 /// inputs of the same samples.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1146,6 +884,146 @@ pub fn accumulate_kind(
     Ok(())
 }
 
+/// Build the backward's [`Tape`] from the engine's own forward: one tapped [`KernelMode::Q8Act`]
+/// prefill, the tapped stage rows laid out row-major, `p` recomputed from the tapped `q`/`k`, and the
+/// logits from the engine's LM head.
+///
+/// [`crate::engine::Engine::prefill_tap_cols`] records `[layer][stage][column][width]`; each stage is
+/// stacked column-major into its `t × width` row-major buffer. The attention probabilities are not
+/// taped: [`attn::attn_fwd`] — the forward [`attn::attn_bwd`] is written against — recovers them from
+/// the tapped post-`RoPE` `q`, `k` and `v`, so no second softmax body exists. (The engine's own
+/// `KvState::attn_head` over those same rows reproduces the tapped `attn_out` word for word;
+/// `tests/engine_tap.rs:tapped_q_k_v_reproduce_attn_out`.) The logits are
+/// [`crate::engine::Engine::lm_head_fixed`] over the engine's output-normed final columns, one column
+/// at a time — the head call [`crate::learn::fold::stats::heldout::held_out_kldbase_chunk`] scores.
+///
+/// # Errors
+/// [`HocaptureError::Engine`] for the state, prefill or head refusal; [`HocaptureError::Shape`] for
+/// an empty token block, a layer/stage/column count that disagrees with `cfg`, or a final column not
+/// `n_embd` wide; [`HocaptureError::Overflow`] on a length product; [`HocaptureError::Model`] from
+/// [`attn::attn_fwd`].
+///
+/// # Complexity
+/// Per layer `O(t·(n_embd² + n_embd·n_ff) + n_head·t²·head_dim)`, the head `O(t·vocab·n_embd)`,
+/// `O(t·(n_embd + q_out + kv_out + n_ff))` words copied and `O(n_head·t²)` for `p`.
+pub fn engine_tape(
+    engine: &Engine,
+    cfg: &Config,
+    tokens: &[u32],
+) -> Result<(Vec<i64>, Tape), HocaptureError> {
+    cfg.checked()?;
+    let t = tokens.len();
+    if t == 0 {
+        return Err(shape("engine_tape empty tokens"));
+    }
+    let e = cfg.n_embd;
+    let q_out = cfg.q_out()?;
+    let kv_out = cfg.kv_out()?;
+    let n_ff = cfg.n_ff;
+    let mut st = engine
+        .state(t)
+        .map_err(|err| HocaptureError::Engine(format!("state: {err}")))?;
+    let (final_cols, rows) = engine
+        .prefill_tap_cols(&mut st, tokens, KernelMode::Q8Act, true)
+        .map_err(|err| HocaptureError::Engine(format!("prefill_tap_cols: {err}")))?;
+    if rows.len() != cfg.n_layer {
+        return Err(shape("engine_tape tap layers != cfg.n_layer"));
+    }
+    let mut layers: Vec<LayerTape> = Vec::with_capacity(cfg.n_layer);
+    let mut l = 0usize;
+    while l < cfg.n_layer {
+        let stages = &rows[l];
+        if stages.len() != TAP_STAGES {
+            return Err(shape("engine_tape stage count"));
+        }
+        let ln1_in = stage_rows(&stages[TAP_HIDDEN_IN], t, e, "hidden_in")?;
+        let ln1_out = stage_rows(&stages[TAP_LN1_OUT], t, e, "ln1_out")?;
+        let attn_out = stage_rows(&stages[TAP_ATTN_OUT], t, q_out, "attn_out")?;
+        let q = stage_rows(&stages[TAP_Q], t, q_out, "q")?;
+        let k = stage_rows(&stages[TAP_K], t, kv_out, "k")?;
+        let v = stage_rows(&stages[TAP_V], t, kv_out, "v")?;
+        let (_attn_out_of_qkv, p) =
+            attn::attn_fwd(&q, &k, &v, cfg.n_head, cfg.n_head_kv, cfg.head_dim)?;
+        let h2 = stage_rows(&stages[TAP_H2], t, e, "h2")?;
+        let ln2_out = stage_rows(&stages[TAP_LN2_OUT], t, e, "ln2_out")?;
+        let gate = stage_rows(&stages[TAP_GATE], t, n_ff, "gate")?;
+        let up = stage_rows(&stages[TAP_UP], t, n_ff, "up")?;
+        let m = stage_rows(&stages[TAP_M], t, n_ff, "m")?;
+        layers.push(LayerTape {
+            ln1_in,
+            ln1_out,
+            q,
+            k,
+            v,
+            p,
+            attn_out,
+            h2,
+            ln2_out,
+            gate,
+            up,
+            m,
+        });
+        l += 1;
+    }
+    let last = cfg.n_layer - 1;
+    let final_hidden = stage_rows(&rows[last][TAP_OUT], t, e, "layer out")?;
+    let final_normed = stage_rows(&final_cols, t, e, "final_normed")?;
+    let logit_words = t.checked_mul(cfg.vocab).ok_or(HocaptureError::Overflow)?;
+    let mut logits: Vec<i64> = Vec::with_capacity(logit_words);
+    let mut r = 0usize;
+    while r < t {
+        let (start, end) = (r * e, (r + 1) * e);
+        let z = engine
+            .lm_head_fixed(&final_normed[start..end])
+            .map_err(|err| HocaptureError::Engine(format!("lm_head: {err:?}")))?;
+        if z.len() != cfg.vocab {
+            return Err(shape("engine_tape head width != vocab"));
+        }
+        logits.extend_from_slice(&z);
+        r += 1;
+    }
+    Ok((
+        logits,
+        Tape {
+            t,
+            tokens: tokens.to_vec(),
+            layers,
+            final_hidden,
+            final_normed,
+        },
+    ))
+}
+
+/// Stack one tapped stage's `[column][width]` rows into a `t × width` row-major buffer.
+///
+/// # Errors
+/// [`HocaptureError::Shape`] when the column count is not `t` or a column is not `w` wide;
+/// [`HocaptureError::Overflow`] when `t·w` leaves `usize`.
+///
+/// # Complexity
+/// `O(t·w)` words copied; `O(t·w)` space.
+fn stage_rows(
+    cols: &[Vec<i64>],
+    t: usize,
+    w: usize,
+    what: &str,
+) -> Result<Vec<i64>, HocaptureError> {
+    if cols.len() != t {
+        return Err(shape(&format!("{what}: {} columns != {t}", cols.len())));
+    }
+    let n = t.checked_mul(w).ok_or(HocaptureError::Overflow)?;
+    let mut out: Vec<i64> = Vec::with_capacity(n);
+    let mut c = 0usize;
+    while c < cols.len() {
+        if cols[c].len() != w {
+            return Err(shape(&format!("{what}: column {c} not {w} wide")));
+        }
+        out.extend_from_slice(&cols[c]);
+        c += 1;
+    }
+    Ok(out)
+}
+
 /// The output-side (YAQA Sketch A) capture: one raw accumulator per `(layer, kind)`, plus the fixed
 /// draw count and seed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1200,48 +1078,53 @@ impl Hocapture {
         })
     }
 
-    /// Draws `K` targets per token from the model's own softmax at `tokens` (seed
-    /// [`Hocapture::seed`]) and folds them in.
+    /// Draws `K` targets per token from the teacher softmax at `tokens` (seed [`Hocapture::seed`])
+    /// and folds them in.
+    ///
+    /// The tape comes from the engine's own tapped forward ([`engine_tape`]); the backend is
+    /// `w`/`cfg`, which must carry the engine's weights and geometry.
     ///
     /// # Errors
-    /// As [`Hocapture::add_taps`], plus the forward's and the sampler's refusals.
+    /// As [`Hocapture::add_taps`], plus [`engine_tape`]'s and the sampler's refusals.
     ///
     /// # Complexity
-    /// One forward, `K` backward passes and `O(K·t·Σ_kind(w_kind + O_kind²))` accumulation terms.
+    /// One tapped prefill, `K` backward passes and `O(K·t·Σ_kind(w_kind + O_kind²))` accumulation
+    /// terms.
     pub fn accumulate(
         &mut self,
+        engine: &Engine,
         w: &Weights,
         cfg: &Config,
         tokens: &[u32],
     ) -> Result<(), HocaptureError> {
-        let (logits, tape) =
-            crate::learn::grad::model::forward(w, cfg, tokens).map_err(HocaptureError::Model)?;
+        let (logits, tape) = engine_tape(engine, cfg, tokens)?;
         let targets = sample_targets(&logits, tape.t, cfg.vocab, self.k, self.seed)?;
         self.add_taps(w, cfg, &logits, &tape, &targets)
     }
 
-    /// Runs the forward at `tokens` and folds in the caller's fixed `targets`, one target per token
-    /// per draw, draw-major: `targets[j·t + i]` is draw `j`'s target at token `i`.
+    /// Runs the engine's tapped forward at `tokens` and folds in the caller's fixed `targets`, one
+    /// target per token per draw, draw-major: `targets[j·t + i]` is draw `j`'s target at token `i`.
     ///
     /// # Errors
-    /// As [`Hocapture::add_taps`], plus the forward's refusals.
+    /// As [`Hocapture::add_taps`], plus [`engine_tape`]'s refusals.
     ///
     /// # Complexity
     /// As [`Hocapture::accumulate`].
     pub fn accumulate_with_targets(
         &mut self,
+        engine: &Engine,
         w: &Weights,
         cfg: &Config,
         tokens: &[u32],
         targets: &[u32],
     ) -> Result<(), HocaptureError> {
-        let (logits, tape) =
-            crate::learn::grad::model::forward(w, cfg, tokens).map_err(HocaptureError::Model)?;
+        let (logits, tape) = engine_tape(engine, cfg, tokens)?;
         self.add_taps(w, cfg, &logits, &tape, targets)
     }
 
     /// Folds `K` draws of fixed `targets` into the accumulator from an already-computed forward:
-    /// `logits` (`t × vocab`) and `tape` as [`crate::learn::grad::model::forward`] returned them.
+    /// `logits` (`t × vocab`) and `tape` as [`engine_tape`] or
+    /// [`crate::learn::grad::model::forward`] returned them.
     ///
     /// One [`logits_grad_ce`] and one [`backward_with_taps`] per draw; the taps are folded by
     /// [`accumulate_kind`] against the tape's own input rows, so the weighting is the linear's real

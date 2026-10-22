@@ -7,6 +7,8 @@ pub mod basis;
 pub mod budget;
 /// Per-layer activation Grams of the four linears, accumulated from the forward tape.
 pub mod capture;
+/// Softmax, sampled-label cross entropy and target draw of the held-out capture.
+pub mod ce;
 /// Held-out KL, TV, top-1 and NLL of a student against a teacher on the ported model.
 pub mod heldout;
 /// Output-side Hessian sketch `HO = Σ w_t g_t g_tᵀ` from sampled-label gradients on the ported backward pass.
