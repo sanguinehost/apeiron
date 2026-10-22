@@ -509,8 +509,18 @@ unextracted = 6
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
+path = "src/engine/num/dequant.rs"
+unextracted = 2
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/learn/grad/load.rs"
+unextracted = 8
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
 path = "src/learn/grad/model.rs"
-unextracted = 4
+unextracted = 1
 row = "EXTRACT-COVERAGE"
 
 [[debt]]

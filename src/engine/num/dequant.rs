@@ -88,8 +88,8 @@ fn push_prefix(out: &mut Vec<i64>, vals: &[i64; QK_K], take: usize) {
 /// accessors bounds-check every block, and a short payload refuses through [`EngineError::Quant`].
 /// Every supported product is exact integer arithmetic: the `f16` scale decodes exactly to Q32.32
 /// and the integer code multiplies it, with no intermediate shift and no rounding. Supported:
-/// `F16`, `Q8_0`, `Q5_0`, `Q4_K`, `Q6_K`, `Q2_K`, `Q3_K`, `Q1_0`, `Q2_0`, `PQ2_0`, `TQ2_0`,
-/// `TQ1_0`, `PTQ1_0`.
+/// `F16`, `BF16`, `Q8_0`, `Q5_0`, `Q4_K`, `Q6_K`, `Q2_K`, `Q3_K`, `Q1_0`, `Q2_0`, `PQ2_0`,
+/// `TQ2_0`, `TQ1_0`, `PTQ1_0`.
 ///
 /// # Errors
 ///
@@ -104,6 +104,7 @@ pub fn dequant_row_fixed(
 ) -> Result<(), EngineError> {
     match ggml_type {
         quant::GGML_TYPE_F16 => dequant_f16_row(raw, n_elems, out),
+        quant::GGML_TYPE_BF16 => dequant_bf16_row(raw, n_elems, out),
         quant::GGML_TYPE_Q8_0 => dequant_q8_0_row(raw, n_elems, out),
         quant::GGML_TYPE_Q5_0 => dequant_q5_0_row(raw, n_elems, out),
         quant::GGML_TYPE_Q4_K => dequant_q4_k_row(raw, n_elems, out),
@@ -221,6 +222,94 @@ fn dequant_f16_row(raw: &[u8], n_elems: usize, out: &mut Vec<i64>) -> Result<(),
         return Err(e);
     }
     Ok(())
+}
+
+/// `BF16` row: one Q32.32 value per element, from the 16-bit word that is the top half of a
+/// binary32. Round-to-nearest, ties to even, at `2^-32` ([`bf16_to_fixed`]).
+///
+/// The loop carries a `bool` failure flag and stops on the first refusal, so no `?` and no early
+/// `return` appears inside it; the refusals are the same operations in the same order.
+fn dequant_bf16_row(raw: &[u8], n_elems: usize, out: &mut Vec<i64>) -> Result<(), EngineError> {
+    let mut idx = 0usize;
+    let mut ok = true;
+    let mut err: Option<EngineError> = None;
+    while idx < n_elems && ok {
+        match read_u16(raw, 2 * idx) {
+            Ok(bits) => match bf16_to_fixed(bits) {
+                Ok(v) => out.push(v),
+                Err(e) => {
+                    err = Some(e);
+                    ok = false;
+                }
+            },
+            Err(e) => {
+                err = Some(e);
+                ok = false;
+            }
+        }
+        idx += 1;
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Decode a `bf16` bit pattern into Q32.32, round-to-nearest with a tie to the even word.
+///
+/// A `bf16` is the top 16 bits of a binary32: sign, an 8-bit biased exponent and a 7-bit
+/// significand, so the value is `±(128 + m)·2^(e-134)` and is an integer multiple of `2^-32` only
+/// when `e ≥ 102`. Above that the 8-bit significand scaled by `2^(e-102)` is exact; below it the
+/// word is shifted down with a round-to-nearest and a tie to the even word, which is the same
+/// rule as [`crate::learn::fold::run::convert::decode_bf16`]'s
+/// `f32_bits_to_q32`. A `bf16` subnormal (`e = 0`) is below the half quantum and decodes to zero.
+///
+/// [`crate::engine::f32_to_fixed`] applied to `bits << 16` computes the same value except at the
+/// 129 half-quantum ties, where its `F32::to_q32` adds the half quantum and truncates
+/// (a tie away from zero) instead of choosing the even word. Nothing else here reuses it: the
+/// weight row must land on the same word the fold converter produces, bit for bit.
+///
+/// # Errors
+///
+/// Returns [`EngineError::NonFiniteScale`] for an `Inf`/`NaN` exponent and
+/// [`EngineError::FixedOverflow`] for a magnitude at or past `2^31`, which leaves the `Q32.32`
+/// grid.
+///
+/// # Complexity
+/// `O(1)`: one exponent test, one shift and one rounding; no allocation.
+pub fn bf16_to_fixed(b: u16) -> Result<i64, EngineError> {
+    let sign = b >> 15;
+    let e = (b >> 7) & 0xff;
+    let m = b & 0x7f;
+    if e == 0xff {
+        return Err(EngineError::NonFiniteScale { bits: b });
+    }
+    // `e ≥ 158` is `|v| ≥ 2^31`: the word would not fit `i64`.
+    if e >= 158 {
+        return Err(EngineError::FixedOverflow);
+    }
+    // `|v|·2^32 = sig·2^k`, `sig = 128 + m < 256`, so `k ≥ -101` and `k ≤ 55` keep this exact.
+    let sig = i64::from(m) + 128;
+    let mag = if e >= 102 {
+        sig.checked_shl(u32::from(e) - 102)
+            .ok_or(EngineError::FixedOverflow)?
+    } else {
+        let sh = 102 - u32::from(e);
+        if sh >= 9 {
+            // `sig < 2^sh / 2`: strictly below the half quantum.
+            0
+        } else {
+            let q = sig >> sh;
+            let rest = sig & ((1i64 << sh) - 1);
+            let half = 1i64 << (sh - 1);
+            match rest.cmp(&half) {
+                core::cmp::Ordering::Greater => q + 1,
+                core::cmp::Ordering::Less => q,
+                core::cmp::Ordering::Equal => q + (q & 1),
+            }
+        }
+    };
+    Ok(if sign == 1 { -mag } else { mag })
 }
 
 /// `Q8_0` row: `w = d * q`, 32 signed codes per `f16` scale.
