@@ -16,7 +16,7 @@
 use core::ops::Range;
 use std::sync::Arc;
 
-use crate::format::gguf::{host_read_all, host_read_at, GVal, Gguf, GgufHeader};
+use crate::format::gguf::{host_read_all, host_read_at, parse_header, GVal, GgufHeader};
 use crate::format::quant;
 
 pub use super::error::EngineError;
@@ -920,28 +920,49 @@ impl Engine {
 
     /// Open a GGUF file, resolve the config and build the checked tensor table.
     ///
+    /// The file is read once and handed to [`Engine::from_bytes`], so the disk path and an
+    /// in-memory model share one loader. There is no second read: the header and the payload are
+    /// the same bytes, so a size that changed between them cannot be observed or served.
+    ///
     /// # Errors
     ///
-    /// Returns [`EngineError`] on an I/O failure, a GGUF parse refusal, a missing or malformed
-    /// config key, a refusal of the `prism.hadamard.*` fold contract ([`hadamard_meta`]), a
-    /// vocabulary cross-check failure, a missing `token_embd.weight`, or a tensor extent that
-    /// leaves the file.
+    /// Returns [`EngineError::Io`] on a read failure; every refusal of [`Engine::from_bytes`]
+    /// otherwise.
     pub fn open(path: &str) -> Result<Engine, EngineError> {
-        hold_heap();
-        let g = Gguf::open(path)?;
-        let config = resolve_config(&g.header)?;
-        let hadamard = hadamard_meta(&g.header)?;
-        let table = build_table(&g.header, g.file_len)?;
-        // Read the file once; every payload slice borrows from this. A file that changed size
-        // between the header parse and this read fails closed rather than serving stale extents.
         let data = host_read_all(path).map_err(EngineError::Io)?;
-        if data.len() as u64 != g.file_len {
-            return Err(EngineError::ConfigMismatch(format!(
-                "file length changed while opening: {} != {}",
-                data.len(),
-                g.file_len
-            )));
-        }
+        Engine::from_bytes(path, data)
+    }
+
+    /// Build an engine from an in-memory GGUF image, labelled `label`.
+    ///
+    /// `data` is the whole file, header and tensor payloads. The header is parsed from these bytes
+    /// ([`parse_header`]) with the byte count as the file length, so every directory extent is
+    /// checked against exactly the buffer that backs the payloads; the sizes cannot disagree and
+    /// there is no second read. The config, the `prism.hadamard.*` fold contract, the tensor table,
+    /// the decode vectors and the `PQ2_0` lookup tables are resolved exactly as [`Engine::open`]
+    /// resolves them, from this parse alone.
+    ///
+    /// `label` is stored in [`Engine::path`] verbatim; it is a diagnostic name, not a path that is
+    /// read, so an in-memory model names itself.
+    ///
+    /// # Complexity
+    ///
+    /// `O(file bytes)` for the header parse's directory sweep plus `O(W)` for the decode-vector and
+    /// `PQ2_0` table construction; the buffer moves into the engine and is not copied.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError`] on a GGUF parse refusal, a missing or malformed config key, a
+    /// refusal of the `prism.hadamard.*` fold contract ([`hadamard_meta`]), a vocabulary
+    /// cross-check failure, a missing `token_embd.weight`, or a tensor extent that leaves the
+    /// buffer.
+    pub fn from_bytes(label: &str, data: Vec<u8>) -> Result<Engine, EngineError> {
+        hold_heap();
+        let file_len = u64::try_from(data.len()).map_err(|_| EngineError::LengthOverflow)?;
+        let header = parse_header(&data, file_len)?;
+        let config = resolve_config(&header)?;
+        let hadamard = hadamard_meta(&header)?;
+        let table = build_table(&header, file_len)?;
         let entries = table.entries();
         let mut token_embd = 0usize;
         while token_embd < entries.len()
@@ -953,8 +974,8 @@ impl Engine {
             return Err(EngineError::MissingTensor(TensorKey::top(PART_TOKEN_EMBD)));
         }
         let mut engine = Engine {
-            path: path.to_string(),
-            file_len: g.file_len,
+            path: label.to_string(),
+            file_len,
             config,
             hadamard,
             data: data.into_boxed_slice(),
@@ -1009,9 +1030,12 @@ impl Engine {
             name: name.to_string(),
             reason: String::from("geometry"),
         })?;
-        let raw = self.read_range(t.byte_range.start, n_bytes)?;
+        // The resident bytes, not a second file read: an engine over in-memory bytes has no path
+        // to read. [`Engine::payload`] has `read_range`'s bounds and refusals, and the resident
+        // bytes are the file's bytes.
+        let raw = self.payload(t.byte_range.start, n_bytes)?;
         let mut out: Vec<i64> = Vec::with_capacity(len);
-        dequant_f32_row(&raw, len, &mut out)?;
+        dequant_f32_row(raw, len, &mut out)?;
         Ok(Some(out))
     }
 
@@ -1106,9 +1130,12 @@ impl Engine {
             name: name.to_string(),
             reason: String::from("geometry"),
         })?;
-        let raw = self.read_range(t.byte_range.start, n_bytes)?;
+        // The resident bytes, not a second file read: an engine over in-memory bytes has no path
+        // to read. [`Engine::payload`] has `read_range`'s bounds and refusals, and the resident
+        // bytes are the file's bytes.
+        let raw = self.payload(t.byte_range.start, n_bytes)?;
         let mut out: Vec<i64> = Vec::with_capacity(len);
-        dequant_f32_row(&raw, len, &mut out)?;
+        dequant_f32_row(raw, len, &mut out)?;
         Ok(Some(out))
     }
 
