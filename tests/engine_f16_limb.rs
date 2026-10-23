@@ -1,5 +1,5 @@
 //! The `F16` multi-column projection on the limb kernel, against the scalar oracle.
-//! Board: APEIRON-QUALITY-118-W1-T01 (F16 limb tile, lm_head_cols).
+//! Board: APEIRON-QUALITY-118-W1-T01 (F16 limb tile, `lm_head_cols`).
 //!
 //! The fixture is one dense `qwen2` layer whose matrices are `F16`. The multi-column
 //! [`Engine::prefill_tap_cols`] pass takes the limb route (`src/engine/step/cols.rs` ->

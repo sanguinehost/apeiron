@@ -1,0 +1,148 @@
+#version 450
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
+// The Gated DeltaNet mixer of one affine layer over whole chunks, after its input projections.
+// Consumer: `src/gpu/nn/train/mixer.rs`, which owns the contract; the reference is the CPU f32
+// carrier (`engine::mixer::delta_heads_f32`, `conv_silu_cols_f32`).
+//
+// One workgroup per (chunk, value head h), 512 lanes: lane 4·j + p owns row j of the head's
+// 128×128 state M, columns 32·p .. 32·p + 32, in registers. Per token t of the chunk, in order:
+//   conv:  c = silu(Σ_k w[ch·4 + k]·x[t − 3 + k][ch]) for the head's q, k and v channels (zero
+//          before the chunk start), lane < 384 owning one channel;
+//   norm:  q̂ = q / max(‖q‖, eps) / √128, k̂ = k / max(‖k‖, eps);
+//   gates: β = sigmoid(b_h), α = exp(ssm_a_h · softplus(a_h + dt_h));
+//   scan:  M ← α·M; d_j = (v_j − M_j·k̂)·β; M_j ← M_j + d_j·k̂; o_j = M_j·q̂;
+//   out:   y_j = o_j / √(mean_j o² + eps) · gain_j · silu(z_j).
+// Bindings: 1 qkv [T][C] (q at 0, k at KD, v at 2·KD), 2 zba [T][V + 2·NV] (z, b, a), 3 conv
+// weights [C][4], 4 params [ssm_a NV | dt NV | gain 128], 5 out [T][V].
+layout(local_size_x = 512) in;
+
+// META: [n_ctx, C, KD, V, NV, eps bits, NK]; query/key head `h mod NK` serves value head h.
+layout(std430, binding = 0) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 1) readonly buffer Qkv { float qkv[]; };
+layout(std430, binding = 2) readonly buffer Zba { float zba[]; };
+layout(std430, binding = 3) readonly buffer Conv { float cw[]; };
+layout(std430, binding = 4) readonly buffer Par { float par[]; };
+layout(std430, binding = 5) writeonly buffer Out { float y[]; };
+
+// q and k padded to 33 per 32-wide part so the four parts of a row fall in distinct banks.
+shared float sq[4 * 33];
+shared float sk[4 * 33];
+shared float sv[128];
+shared float red[64];
+shared float red2[64];
+
+void main() {
+    uint n_ctx = meta[0];
+    uint C = meta[1];
+    uint KD = meta[2];
+    uint V = meta[3];
+    uint NV = meta[4];
+    float eps = uintBitsToFloat(meta[5]);
+    uint NK = meta[6];
+    uint ZW = V + 2u * NV;
+    uint chunk = gl_WorkGroupID.x / NV;
+    uint h = gl_WorkGroupID.x % NV;
+    uint lid = gl_LocalInvocationID.x;
+    uint j = lid >> 2;
+    uint p = lid & 3u;
+    float m[32];
+    for (uint i = 0u; i < 32u; i++) {
+        m[i] = 0.0;
+    }
+    float ssm_a = par[h];
+    float dt = par[NV + h];
+    float gain = par[2u * NV + j];
+    // The channel this lane convolves, and its packed slot.
+    uint ch = 0u;
+    if (lid < 128u) {
+        ch = (h % NK) * 128u + lid;
+    } else if (lid < 256u) {
+        ch = KD + (h % NK) * 128u + (lid - 128u);
+    } else if (lid < 384u) {
+        ch = 2u * KD + h * 128u + (lid - 256u);
+    }
+    bool conv_lane = lid < 384u;
+    float w0 = 0.0, w1 = 0.0, w2 = 0.0, w3 = 0.0;
+    if (conv_lane) {
+        w0 = cw[ch * 4u];
+        w1 = cw[ch * 4u + 1u];
+        w2 = cw[ch * 4u + 2u];
+        w3 = cw[ch * 4u + 3u];
+    }
+    float x1 = 0.0, x2 = 0.0, x3 = 0.0;
+    uint sg = gl_SubgroupSize;
+    uint q_groups = 128u / sg;
+    uint n_groups = gl_NumSubgroups;
+    float qscale = inversesqrt(128.0);
+    uint base = chunk * n_ctx;
+    for (uint t = 0u; t < n_ctx; t++) {
+        uint row = base + t;
+        float c = 0.0;
+        if (conv_lane) {
+            float x0 = qkv[row * C + ch];
+            float s = w0 * x3 + w1 * x2 + w2 * x1 + w3 * x0;
+            x3 = x2;
+            x2 = x1;
+            x1 = x0;
+            c = s / (1.0 + exp(-s));
+            if (lid < 128u) {
+                sq[(lid >> 5) * 33u + (lid & 31u)] = c;
+            } else if (lid < 256u) {
+                uint e = lid - 128u;
+                sk[(e >> 5) * 33u + (e & 31u)] = c;
+            } else {
+                sv[lid - 256u] = c;
+            }
+        }
+        float ss = subgroupAdd(lid < 256u ? c * c : 0.0);
+        if (subgroupElect()) {
+            red[gl_SubgroupID] = ss;
+        }
+        barrier();
+        float nq = 0.0;
+        float nk = 0.0;
+        for (uint s = 0u; s < q_groups; s++) {
+            nq += red[s];
+            nk += red[q_groups + s];
+        }
+        float qs = qscale / max(sqrt(nq), eps);
+        float ks = 1.0 / max(sqrt(nk), eps);
+        float beta = 1.0 / (1.0 + exp(-zba[row * ZW + V + h]));
+        float ar = zba[row * ZW + V + NV + h] + dt;
+        float sp = ar > 20.0 ? ar : log(1.0 + exp(ar));
+        float alpha = exp(ssm_a * sp);
+        uint off = p * 33u;
+        float kd = 0.0;
+        for (uint i = 0u; i < 32u; i++) {
+            m[i] *= alpha;
+            kd += m[i] * sk[off + i];
+        }
+        kd += subgroupShuffleXor(kd, 1u);
+        kd += subgroupShuffleXor(kd, 2u);
+        float dd = (sv[j] - kd * ks) * beta * ks;
+        float od = 0.0;
+        for (uint i = 0u; i < 32u; i++) {
+            m[i] += dd * sk[off + i];
+            od += m[i] * sq[off + i];
+        }
+        od += subgroupShuffleXor(od, 1u);
+        od += subgroupShuffleXor(od, 2u);
+        od *= qs;
+        float g = subgroupAdd(p == 0u ? od * od : 0.0);
+        if (subgroupElect()) {
+            red2[gl_SubgroupID] = g;
+        }
+        barrier();
+        if (p == 0u) {
+            float ms = 0.0;
+            for (uint s = 0u; s < n_groups; s++) {
+                ms += red2[s];
+            }
+            float z = zba[row * ZW + h * 128u + j];
+            y[row * V + h * 128u + j] =
+                od * inversesqrt(ms / 128.0 + eps) * gain * (z / (1.0 + exp(-z)));
+        }
+    }
+}

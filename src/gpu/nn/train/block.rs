@@ -64,16 +64,84 @@ impl BlockShape {
 }
 
 /// A host-visible, host-coherent f32 buffer and its mapped pointer.
-struct HostBuffer {
-    buf: Handle,
-    ptr: *mut f32,
+pub(super) struct HostBuffer {
+    pub(super) buf: Handle,
+    pub(super) ptr: *mut f32,
+    pub(super) n: usize,
+}
+
+/// Copy `data` into the device buffer `dst` through `stage`, on the reusable command buffer `cb`.
+///
+/// # Safety
+///
+/// `dst` holds at least `data.len()` f32; `cb` is not pending.
+pub(super) unsafe fn upload(
+    g: &GpuCtx,
+    cb: CommandBuffer,
+    stage: &HostBuffer,
+    dst: Handle,
+    data: &[f32],
+) {
+    assert!(data.len() <= stage.n, "upload: {} words", data.len());
+    std::ptr::copy_nonoverlapping(data.as_ptr(), stage.ptr, data.len());
+    let vk = g.vk;
+    vk.reset_cb(cb);
+    vk.begin(cb);
+    let region = BufferCopy {
+        src_offset: 0,
+        dst_offset: 0,
+        size: (data.len() * 4) as u64,
+    };
+    (vk.copy_buffer)(cb, stage.buf, dst, 1, &region);
+    check((vk.end_cb)(cb), "vkEndCommandBuffer");
+    vk.submit_wait(cb);
+}
+
+/// Read `n` f32 of the device buffer `src` through `rb`, on the reusable command buffer `cb`.
+///
+/// # Safety
+///
+/// `src` holds at least `n` f32; `cb` is not pending.
+pub(super) unsafe fn download(
+    g: &GpuCtx,
+    cb: CommandBuffer,
+    rb: &HostBuffer,
+    src: Handle,
     n: usize,
+) -> Vec<f32> {
+    assert!(n <= rb.n, "download: {n} words");
+    let vk = g.vk;
+    vk.reset_cb(cb);
+    vk.begin(cb);
+    vk.barrier(
+        cb,
+        STAGE_COMPUTE,
+        STAGE_TRANSFER,
+        ACCESS_SHADER_WRITE,
+        ACCESS_TRANSFER_READ,
+    );
+    let region = BufferCopy {
+        src_offset: 0,
+        dst_offset: 0,
+        size: (n * 4) as u64,
+    };
+    (vk.copy_buffer)(cb, src, rb.buf, 1, &region);
+    vk.barrier(
+        cb,
+        STAGE_TRANSFER,
+        STAGE_HOST,
+        ACCESS_TRANSFER_WRITE,
+        ACCESS_HOST_READ,
+    );
+    check((vk.end_cb)(cb), "vkEndCommandBuffer");
+    vk.submit_wait(cb);
+    std::slice::from_raw_parts(rb.ptr, n).to_vec()
 }
 
 /// # Safety
 ///
 /// Vulkan handle creation; the buffer is owned by the returned value.
-unsafe fn host_buffer(g: &GpuCtx, n: usize, usage: u32) -> HostBuffer {
+pub(super) unsafe fn host_buffer(g: &GpuCtx, n: usize, usage: u32) -> HostBuffer {
     let (buf, mem) =
         g.vk.buffer(
             n.max(1) as u64 * 4,
@@ -450,24 +518,7 @@ impl BlockTune {
     ///
     /// `dst` holds at least `data.len()` f32.
     unsafe fn put(&self, g: &GpuCtx, dst: Handle, data: &[f32]) {
-        assert!(
-            data.len() <= self.stage.n,
-            "block put: {} words",
-            data.len()
-        );
-        std::ptr::copy_nonoverlapping(data.as_ptr(), self.stage.ptr, data.len());
-        let vk = g.vk;
-        let cb = self.xfer;
-        vk.reset_cb(cb);
-        vk.begin(cb);
-        let region = BufferCopy {
-            src_offset: 0,
-            dst_offset: 0,
-            size: (data.len() * 4) as u64,
-        };
-        (vk.copy_buffer)(cb, self.stage.buf, dst, 1, &region);
-        check((vk.end_cb)(cb), "vkEndCommandBuffer");
-        vk.submit_wait(cb);
+        upload(g, self.xfer, &self.stage, dst, data);
     }
 
     /// Read `n` f32 of the device buffer `src`.
@@ -476,34 +527,7 @@ impl BlockTune {
     ///
     /// `src` holds at least `n` f32.
     unsafe fn get(&self, g: &GpuCtx, src: Handle, n: usize) -> Vec<f32> {
-        assert!(n <= self.rb.n, "block get: {n} words");
-        let vk = g.vk;
-        let cb = self.xfer;
-        vk.reset_cb(cb);
-        vk.begin(cb);
-        vk.barrier(
-            cb,
-            STAGE_COMPUTE,
-            STAGE_TRANSFER,
-            ACCESS_SHADER_WRITE,
-            ACCESS_TRANSFER_READ,
-        );
-        let region = BufferCopy {
-            src_offset: 0,
-            dst_offset: 0,
-            size: (n * 4) as u64,
-        };
-        (vk.copy_buffer)(cb, src, self.rb.buf, 1, &region);
-        vk.barrier(
-            cb,
-            STAGE_TRANSFER,
-            STAGE_HOST,
-            ACCESS_TRANSFER_WRITE,
-            ACCESS_HOST_READ,
-        );
-        check((vk.end_cb)(cb), "vkEndCommandBuffer");
-        vk.submit_wait(cb);
-        std::slice::from_raw_parts(self.rb.ptr, n).to_vec()
+        download(g, self.xfer, &self.rb, src, n)
     }
 
     /// Load the four factors (`[o, gate, up, down]`) and the FFN norm gain, zero the Adam moments
@@ -840,6 +864,66 @@ mod tests {
             assert!(
                 last < 0.9 * l0,
                 "60 Adam steps did not lower the loss: {l0} -> {last}"
+            );
+        }
+    }
+
+    /// No update without loss: with the target set to the block's own output, the training step
+    /// computes loss exactly `0.0`, every latent and scale gradient exactly `0.0`, and Adam leaves
+    /// every parameter bit-identical. The backward is the adjoint of the forward seeded by the
+    /// computed residual `2/(t·d)·(y − yt)`; a loss term whose forward value is absorbed by
+    /// rounding while its gradient is nonzero (the `(C + u) − C` construction of
+    /// elonlit.com/scrivings/how-to-run-turing-complete-malware-in-pytorchs-backward-pass)
+    /// would show here as a nonzero gradient at zero loss.
+    #[test]
+    fn zero_residual_seeds_zero_gradient() {
+        let Ok(vk) = (unsafe { Vk::load() }) else {
+            println!("SKIP: no Vulkan device");
+            return;
+        };
+        let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
+        let s = BlockShape {
+            t: 24,
+            d: 32,
+            a: 48,
+            f: 64,
+            ranks: [8, 8, 8, 8],
+        };
+        let fs: Vec<HostFactor> = (0..4)
+            .map(|k| {
+                let (o, i) = s.dims(k);
+                factor(o, i, s.ranks[k], 10 * k as u64 + 1)
+            })
+            .collect();
+        let g2: Vec<f32> = unit(s.d, 90).iter().map(|v| 1.0 + 0.2 * v).collect();
+        let x = unit(s.t * s.d, 91);
+        let a = unit(s.t * s.a, 92);
+        unsafe {
+            let mut bt = BlockTune::new(&g, s, 1e-3, 1e-3);
+            bt.load(&g, &fs, &g2);
+            bt.batch(&g, &x, &a, &vec![0.0; s.t * s.d]);
+            assert!(bt.run(&g, false) > 0.0);
+            let y = bt.output(&g);
+            bt.batch(&g, &x, &a, &y);
+            let before = bt.factors(&g);
+            let loss = bt.run(&g, true);
+            assert_eq!(loss.to_bits(), 0f64.to_bits(), "loss {loss} at yt = y");
+            for (k, gk) in bt.grads(&g).iter().enumerate() {
+                for (j, gj) in gk.iter().enumerate() {
+                    let nz = gj.iter().filter(|v| v.to_bits() != 0).count();
+                    assert_eq!(nz, 0, "factor {k} param {j}: {nz} nonzero gradient words");
+                }
+            }
+            let bits = |f: &[HostFactor]| -> Vec<u32> {
+                f.iter()
+                    .flat_map(|h| [&h.u, &h.vt, &h.s_post, &h.s_pre])
+                    .flat_map(|v| v.iter().map(|w| w.to_bits()))
+                    .collect()
+            };
+            assert_eq!(
+                bits(&before),
+                bits(&bt.factors(&g)),
+                "a zero-loss step moved a parameter"
             );
         }
     }

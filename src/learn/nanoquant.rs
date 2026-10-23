@@ -166,7 +166,7 @@ pub struct NqFactor {
 /// Deterministic Gaussian source: splitmix64 words through Box–Muller.
 struct Rng(u64);
 
-/// The SplitMix64 increment `γ`: [`Rng::word`] adds it to the state once per word.
+/// The `SplitMix64` increment `γ`: [`Rng::word`] adds it to the state once per word.
 const GOLDEN: u64 = 0x9E37_79B9_7F4A_7C15;
 
 impl Rng {

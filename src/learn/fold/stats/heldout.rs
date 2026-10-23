@@ -703,7 +703,7 @@ pub fn held_out_kldbase_chunk(
                 .ok_or_else(|| HeldOutError::Shape(format!("base code {r}/{i} missing")))?;
             *slot = to_grid(value, GRID_BOUND).ok_or(HeldOutError::Overflow)?;
         }
-        let s = score_base_row(&z, &lp, target, chunk.argmax(r))?;
+        let s = score_base_row(z, &lp, target, chunk.argmax(r))?;
         kl = add(kl, i128::from(s.kl))?;
         nll_s = add(nll_s, i128::from(s.nll_student))?;
         nll_b = add(nll_b, i128::from(s.nll_base))?;

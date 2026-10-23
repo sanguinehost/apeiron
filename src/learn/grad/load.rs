@@ -297,13 +297,40 @@ fn eps_q32(v: f64) -> Result<i64, ModelError> {
 /// The `[n_in, n_out]` quantized tensor `name` dequantized to a row-major `n_out × n_in` Q32.32
 /// matrix, one engine row dequantizer call per output row.
 ///
+/// # Errors
+///
+/// [`ModelError::Missing`] for an absent tensor, [`ModelError::Shape`] for stored dims other than
+/// `[n_in, n_out]` or a payload short of a row, and [`ModelError::Engine`] for the engine's
+/// payload and dequantizer refusals.
+///
 /// # Complexity
 /// `O(n_out·n_in)` dequantized elements; one contiguous read of the checked tensor extent.
-fn load_matrix(
+pub fn load_matrix(
     engine: &Engine,
     name: &str,
     n_out: usize,
     n_in: usize,
+) -> Result<Vec<i64>, ModelError> {
+    let rows: Vec<usize> = (0..n_out).collect();
+    load_rows(engine, name, n_out, n_in, &rows)
+}
+
+/// Rows `rows` (in order, repeats allowed) of the `[n_in, n_out]` quantized tensor `name`,
+/// dequantized to a row-major `rows.len() × n_in` Q32.32 matrix; an embedding lookup when `name`
+/// is `token_embd.weight` and `rows` are token ids.
+///
+/// # Errors
+///
+/// As [`load_matrix`], plus [`ModelError::Shape`] for a row index `≥ n_out`.
+///
+/// # Complexity
+/// `O(rows.len()·n_in)` dequantized elements; the tensor extent is mapped, not copied.
+pub fn load_rows(
+    engine: &Engine,
+    name: &str,
+    n_out: usize,
+    n_in: usize,
+    rows: &[usize],
 ) -> Result<Vec<i64>, ModelError> {
     let t = engine
         .table()
@@ -321,20 +348,20 @@ fn load_matrix(
     let row_bytes = n_bytes / (n_out as u64);
     let raw = engine.payload(t.byte_range.start, n_bytes)?;
     let row_bytes = usize::try_from(row_bytes).map_err(|_| ModelError::Overflow)?;
-    let mut out: Vec<i64> = Vec::with_capacity(n_out * n_in);
-    for o in 0..n_out {
+    let mut out: Vec<i64> = Vec::with_capacity(rows.len() * n_in);
+    for &o in rows {
         let s = o * row_bytes;
         let end = s + row_bytes;
-        if end > raw.len() {
+        if o >= n_out || end > raw.len() {
             return Err(ModelError::Shape(format!("{name} row {o} past payload")));
         }
         dequant_row_fixed(t.ggml_type, &raw[s..end], n_in, &mut out)?;
     }
-    if out.len() != n_out * n_in {
+    if out.len() != rows.len() * n_in {
         return Err(ModelError::Shape(format!(
             "{name} produced {} of {} weights",
             out.len(),
-            n_out * n_in
+            rows.len() * n_in
         )));
     }
     Ok(out)
