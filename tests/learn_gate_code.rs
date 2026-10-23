@@ -610,7 +610,9 @@ fn teacher(
 /// every layer), `APEIRON_GATE_PASSES` (`P`, default 2: the cached fit plus `P − 1` residual passes).
 /// `H` is the calibration Gram of chunks `0..CALIB`: the cached `g{l}.c8x0.gate_up.i64` for gate/up, the
 /// [`calib_grams`] `down` or `o` Gram for down/o; no held-out chunk is read. `APEIRON_GATE_EXTRA`
-/// widens `H` by [`calib_set`] (every kind) and starts from `l{l}.{kind}-x{extra}.i64`.
+/// widens `H` by [`calib_set`] (every kind) and starts from `l{l}.{kind}-x{extra}.i64`; with
+/// `APEIRON_GATE_CALIB` set off `CALIB` it starts from `l{l}.{kind}-c{calib}x{extra}.i64`, the
+/// [`gate_code_fit_kind`] name (board row ).
 /// Writes `{CACHE}/l{l}.{base}-res{P}.i64`, the summed words, for [`gate_code_kl`]
 /// (`APEIRON_GATE_ARM=up-res2`); `P = 1` writes the cached fit back unchanged.
 ///
@@ -633,17 +635,20 @@ fn ffn_residual_fit() {
     );
     let passes = env_usize("APEIRON_GATE_PASSES", 2).max(1);
     let extra = env_usize("APEIRON_GATE_EXTRA", 0);
-    let base = if extra > 0 {
+    let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
+    let base = if calib != CALIB {
+        format!("{kind}-c{calib}x{extra}")
+    } else if extra > 0 {
         format!("{kind}-x{extra}")
     } else {
         kind.clone()
     };
     println!("RES layers {layers:?} kind {kind} base {base} passes {passes}");
     let t0 = Instant::now();
-    let grams = if matches!(kind.as_str(), "down" | "o") || extra > 0 {
+    let grams = if matches!(kind.as_str(), "down" | "o") || extra > 0 || calib != CALIB {
         let (chunks, _) = base_tokens(&base_path());
-        let set = calib_set(&chunks, CALIB, extra);
-        grams_cached(&engine, &cfg, &set, &layers, &format!("c{CALIB}x{extra}"))
+        let set = calib_set(&chunks, calib, extra);
+        grams_cached(&engine, &cfg, &set, &layers, &format!("c{calib}x{extra}"))
     } else {
         Vec::new()
     };

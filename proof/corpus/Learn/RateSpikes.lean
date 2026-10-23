@@ -658,6 +658,7 @@ end HybridVerdict
 | t14x `gate-x29+up-x29b+down-x29b+o-x29b`, chunks 8, 9 / 10 | `t19/kl-t14x.log` / `t19/kl-t14x-10.log` | `625c005f16678646` / `d2579c80ca3c9679` |
 | base4 on clean calibration `-c6x2` (chunks 0..5, 11, 12), chunks 8, 9 / 10 | `t20/kl-base4c-89.log` / `t20/kl-base4c-10.log` | `08c6a9c2c6697613` / `610cd84d1ee6d4bc` |
 | base4 on clean calibration `-c6x29` (chunks 0..5, 11..39), chunks 8, 9 / 10 | `t21/kl-base4c-89.log` / `t21/kl-base4c-10.log` | `89711ca7d733fdb7` / `ae7842495d4c39b3` |
+| t14 on clean calibration `gate-c6x29+up-c6x29r+down-c6x29r+o-c6x29b`, chunks 8, 9 / 10 | `t22/kl-89.log` / `t22/kl-10.log` | `67abd67cb728fed7` / `83de84f77006d8ca` |
 | held-out energy, `o` arms / `down-x29` | `t18/he-o.log` / `t18/he-down-x29.log` | `9f7f3648a3a0cbed` / `62aa64aa70a1363f` |
 | SpQR masked refit on `up`, `gate` | commit `7619e8e9` body | — |
 | gated second-order metric on `up` | commit `8c0d7812` body | — |
@@ -789,6 +790,10 @@ def klBase4Clean : List Nat := [555445, 557652, 601930]
 from the held-out article); chunks 8, 9, 10, millionths of a nat.
 `List` [a finite sequence of things, in order]. -/
 def klBase4C29 : List Nat := [530470, 507277, 591068]
+/-- Held-out KL of t14's layout on the clean base `-c6x29`: one residual pass on up l23, down l23, o l19,
+o l23 over `gate+up+down+o` fitted on chunks 0..5, 11..39; chunks 8, 9, 10, millionths of a nat.
+`List` [a finite sequence of things, in order]. -/
+def klT14C29 : List Nat := [440409, 409600, 528324]
 
 /-- The gate, three chunks summed (3 × 0.0913). -/
 def gateSum : Nat := 3 * 91300
@@ -862,6 +867,19 @@ theorem base4C29_beats_clean :
     klBase4C29.getD 1 0 < klBase4Clean.getD 1 0 ∧
     klBase4C29.getD 2 0 < klBase4Clean.getD 2 0 ∧
     100 * klBase4C29.sum < 95 * klBase4Clean.sum := by
+  decide
+
+/-- **t14's residual passes hold on the clean base**: the same 12,044,288 extra bits (3,824,768 up l23,
+3,832,448 down l23, 2,193,536 each o l19 and o l23) lower held-out KL on every chunk, 0.530470 → 0.440409,
+0.507277 → 0.409600, 0.591068 → 0.528324; summed 1.628815 → 1.378333, below 0.85×. Chunk 10, the one
+chunk the calibration overlap did not reach, sits below the overlapped t14's 0.587555 (board row
+). `∧` [both are true]; `<` [is smaller than]. -/
+theorem t14C29_beats_base4C29 :
+    klT14C29.getD 0 0 < klBase4C29.getD 0 0 ∧
+    klT14C29.getD 1 0 < klBase4C29.getD 1 0 ∧
+    klT14C29.getD 2 0 < klBase4C29.getD 2 0 ∧
+    100 * klT14C29.sum < 85 * klBase4C29.sum ∧
+    klT14C29.getD 2 0 < klT14.getD 2 0 := by
   decide
 
 /-- **Adding `o` is near-additive**: the four-tensor KL is within 1% of the sum of the four single-tensor
