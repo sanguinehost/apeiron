@@ -552,7 +552,11 @@ mod admm;
 /// The resident `rank1` on an `admm` frame: power steps, norms and the sign product.
 mod rank1;
 
+/// The ADMM iterate resident between outer iterations.
+mod resident;
+
 pub(crate) use admm::Side;
+pub(crate) use resident::commit;
 
 #[cfg(test)]
 mod tests;

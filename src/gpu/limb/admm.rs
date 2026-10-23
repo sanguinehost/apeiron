@@ -14,6 +14,12 @@
 //! `hw` and `R`'s plane; the host inverts `hw`; `cb2` uploads `H⁻¹` and runs `Rᵀ·H⁻¹` and the read
 //! map. The device mutex is held for each submit only, so the inverse's own products reach it.
 //!
+//! **Resident form.** Between outer iterations the iterate `[Z_x, Z, U, X]` stays in the frame
+//! (`resident.rs`): `cb1` uploads only `[rho, reg]`, `cb2` reads nothing back, `rank1` forms its
+//! target `X + U` on the device, and `resident::commit` runs the dual `U + (X − Z)` and copies each
+//! side's new `Z` into its own iterate and its peer's `Z_x`. A refusal reads `Z` and `U` back and
+//! the host loop resumes at that iteration with the same starts.
+//!
 //! **Buffers.** No device buffer is ever freed, so frames are kept in [`FRAMES`] and checked out
 //! by a [`Side`] for one factorisation; two concurrent factorisations of one shape hold two frames.
 
@@ -270,16 +276,24 @@ impl Map {
 /// target's words at 0 for `cbw`); `back` the flag block, `hw` and `Fᵀ`.
 pub(crate) struct Frame {
     pub(super) k: usize,
-    n: usize,
+    pub(super) n: usize,
     pub(super) r: usize,
+    pub(super) limbs: u32,
     /// The resident `rank1` over `k × r`, built on its first call.
     pub(super) r1: Option<Box<super::rank1::Rank1>>,
     stage: *mut u8,
     back: *const u8,
     /// Upload of the target's words and its plane build.
     cbw: CommandBuffer,
-    cb1: CommandBuffer,
-    cb2: CommandBuffer,
+    /// `cb1` uploading `Z_x`, `Z`, `U` and `cb2` reading `Fᵀ` back at index 0; at index 1 their
+    /// resident forms, which leave the iterate on the device.
+    cb1: [CommandBuffer; 2],
+    cb2: [CommandBuffer; 2],
+    /// The iterate `[Z_x, Z, U, X]` (`X` is `Fᵀ`); `cbl` uploads the first three from the staging
+    /// offsets, `cbr[i]` copies `[X, Z, U][i]` to the readback at `Fᵀ`'s offset.
+    pub(super) iterate: [Handle; 4],
+    cbl: CommandBuffer,
+    cbr: [CommandBuffer; 3],
 }
 
 // SAFETY: a frame is reached by one `Side` at a time (checked out of `FRAMES` under its mutex), and
@@ -299,7 +313,7 @@ impl Frame {
     }
 
     /// The flag words of the last submits.
-    unsafe fn flags(&self) -> &[u32] {
+    pub(super) unsafe fn flags(&self) -> &[u32] {
         std::slice::from_raw_parts(self.back.cast::<u32>(), FLAG_BYTES / 4)
     }
 
@@ -413,12 +427,16 @@ impl Frame {
             k,
             n,
             r,
+            limbs,
             r1: None,
             stage: std::ptr::null_mut(),
             back: std::ptr::null(),
             cbw: std::ptr::null_mut(),
-            cb1: std::ptr::null_mut(),
-            cb2: std::ptr::null_mut(),
+            cb1: [std::ptr::null_mut(); 2],
+            cb2: [std::ptr::null_mut(); 2],
+            iterate: [zx, z, du, out],
+            cbl: std::ptr::null_mut(),
+            cbr: [std::ptr::null_mut(); 3],
         };
         let off = me.off();
         let stage_bytes = off[4].max(8 * k * n).max(up_bytes);
@@ -476,59 +494,85 @@ impl Frame {
         check((vk.end_cb)(cb), "vkEndCommandBuffer");
 
         // cb1: inputs, Z_xᵀ and its plane, the Gram, d, stab, hw, W·Z_x, R and its plane.
-        me.cb1 = vk.command_buffer();
-        let cb = me.cb1;
-        vk.begin(cb);
-        copy(vk, cb, stage, 0, prm, 0, 16);
-        copy(vk, cb, stage, off[0], zx, 0, 8 * n * r);
-        copy(vk, cb, stage, off[1], z, 0, 8 * k * r);
-        copy(vk, cb, stage, off[2], du, 0, 8 * k * r);
-        (vk.fill_buffer)(cb, mflag, 0, 4, 0);
-        full(vk, cb);
-        maps[0].record(vk, cb);
-        full(vk, cb);
-        zt_plane.record(vk, cb);
-        full(vk, cb);
-        gram.record(vk, cb);
-        for m in &maps[1..4] {
+        let rec1 = |resident: bool| {
+            let cb = vk.command_buffer();
+            vk.begin(cb);
+            copy(vk, cb, stage, 0, prm, 0, 16);
+            if !resident {
+                copy(vk, cb, stage, off[0], zx, 0, 8 * n * r);
+                copy(vk, cb, stage, off[1], z, 0, 8 * k * r);
+                copy(vk, cb, stage, off[2], du, 0, 8 * k * r);
+            }
+            (vk.fill_buffer)(cb, mflag, 0, 4, 0);
             full(vk, cb);
-            m.record(vk, cb);
-        }
-        full(vk, cb);
-        wz.record(vk, cb);
-        full(vk, cb);
-        maps[4].record(vk, cb);
-        full(vk, cb);
-        rt_plane.record(vk, cb);
-        full(vk, cb);
-        copy(vk, cb, hw, 0, back, o_hw, 8 * r * r);
-        flag(cb, zt[3], ZT_PLANE, 1);
-        flag(cb, rt[3], RT_PLANE, 1);
-        flag(cb, gram.out, GRAM, 2);
-        flag(cb, wz.out, WZ, 2);
-        flag(cb, mflag, MAP1, 1);
-        to_host(vk, cb);
-        check((vk.end_cb)(cb), "vkEndCommandBuffer");
-
+            maps[0].record(vk, cb);
+            full(vk, cb);
+            zt_plane.record(vk, cb);
+            full(vk, cb);
+            gram.record(vk, cb);
+            for m in &maps[1..4] {
+                full(vk, cb);
+                m.record(vk, cb);
+            }
+            full(vk, cb);
+            wz.record(vk, cb);
+            full(vk, cb);
+            maps[4].record(vk, cb);
+            full(vk, cb);
+            rt_plane.record(vk, cb);
+            full(vk, cb);
+            copy(vk, cb, hw, 0, back, o_hw, 8 * r * r);
+            flag(cb, zt[3], ZT_PLANE, 1);
+            flag(cb, rt[3], RT_PLANE, 1);
+            flag(cb, gram.out, GRAM, 2);
+            flag(cb, wz.out, WZ, 2);
+            flag(cb, mflag, MAP1, 1);
+            to_host(vk, cb);
+            check((vk.end_cb)(cb), "vkEndCommandBuffer");
+            cb
+        };
         // cb2: H⁻¹ and its plane, Rᵀ·H⁻¹, the read map.
-        me.cb2 = vk.command_buffer();
-        let cb = me.cb2;
-        vk.begin(cb);
-        copy(vk, cb, stage, off[3], hi[0], 0, 8 * r * r);
-        (vk.fill_buffer)(cb, mflag, 0, 4, 0);
-        full(vk, cb);
-        hi_plane.record(vk, cb);
-        full(vk, cb);
-        f.record(vk, cb);
-        full(vk, cb);
-        maps[5].record(vk, cb);
-        full(vk, cb);
-        copy(vk, cb, out, 0, back, o_out, 8 * k * r);
-        flag(cb, hi[3], HI_PLANE, 1);
-        flag(cb, f.out, F, 2);
-        flag(cb, mflag, MAP2, 1);
-        to_host(vk, cb);
-        check((vk.end_cb)(cb), "vkEndCommandBuffer");
+        let rec2 = |resident: bool| {
+            let cb = vk.command_buffer();
+            vk.begin(cb);
+            copy(vk, cb, stage, off[3], hi[0], 0, 8 * r * r);
+            (vk.fill_buffer)(cb, mflag, 0, 4, 0);
+            full(vk, cb);
+            hi_plane.record(vk, cb);
+            full(vk, cb);
+            f.record(vk, cb);
+            full(vk, cb);
+            maps[5].record(vk, cb);
+            full(vk, cb);
+            if !resident {
+                copy(vk, cb, out, 0, back, o_out, 8 * k * r);
+            }
+            flag(cb, hi[3], HI_PLANE, 1);
+            flag(cb, f.out, F, 2);
+            flag(cb, mflag, MAP2, 1);
+            to_host(vk, cb);
+            check((vk.end_cb)(cb), "vkEndCommandBuffer");
+            cb
+        };
+        me.cb1 = [rec1(false), rec1(true)];
+        me.cb2 = [rec2(false), rec2(true)];
+        // cbl: the iterate's upload; cbr: one iterate buffer to the readback.
+        me.cbl = vk.command_buffer();
+        vk.begin(me.cbl);
+        for (b, at, len) in [(zx, off[0], n), (z, off[1], k), (du, off[2], k)] {
+            copy(vk, me.cbl, stage, at, b, 0, 8 * len * r);
+        }
+        full(vk, me.cbl);
+        check((vk.end_cb)(me.cbl), "vkEndCommandBuffer");
+        me.cbr = [out, z, du].map(|b| {
+            let cb = vk.command_buffer();
+            vk.begin(cb);
+            full(vk, cb);
+            copy(vk, cb, b, 0, back, o_out, 8 * k * r);
+            to_host(vk, cb);
+            check((vk.end_cb)(cb), "vkEndCommandBuffer");
+            cb
+        });
         Some(me)
     }
 }
@@ -619,28 +663,64 @@ impl Side {
         if zx.len() != n * r || z.len() != k * r || du.len() != k * r {
             return None;
         }
-        let dev = device()?;
         let off = f.off();
+        // SAFETY: the frame is ours alone; the staging and readback are mapped at the offsets the
+        // command buffers were recorded with.
+        unsafe {
+            for (v, at) in [(zx, off[0]), (z, off[1]), (du, off[2])] {
+                std::ptr::copy_nonoverlapping(
+                    v.as_ptr().cast::<u8>(),
+                    f.stage.add(at),
+                    8 * v.len(),
+                );
+            }
+        }
+        match f.x_submit(0, rho, reg, inv)? {
+            Ok(()) => {}
+            Err(e) => return Some(Err(e)),
+        }
+        // SAFETY: `cb2` copied `Fᵀ` to the readback at this offset and its submit completed.
+        let out = unsafe {
+            std::slice::from_raw_parts(f.back.add(FLAG_BYTES + 8 * r * r).cast::<f64>(), k * r)
+        };
+        Some(Ok(out.to_vec()))
+    }
+}
+
+impl Frame {
+    /// `cb1[v]`, the host inverse `inv` of `hw`, `cb2[v]` (`v = 1` the resident forms) with
+    /// `[rho, reg]` staged; `None` on a device flag, `Some(Err)` when `inv` refuses.
+    ///
+    /// # Complexity
+    ///
+    /// Two submits plus `inv`; device work as [`Side::x_update`].
+    pub(super) fn x_submit<E>(
+        &self,
+        v: usize,
+        rho: f64,
+        reg: f64,
+        inv: impl FnOnce(&[i64], usize) -> Result<Vec<i64>, E>,
+    ) -> Option<Result<(), E>> {
+        let r = self.r;
+        let dev = device()?;
+        let off = self.off();
         // SAFETY: the frame is ours alone; the staging and readback are mapped at the offsets the
         // command buffers were recorded with, and each submit holds the device mutex.
         unsafe {
-            let st = f.stage;
+            let st = self.stage;
             std::ptr::copy_nonoverlapping([rho, reg].as_ptr().cast::<u8>(), st, 16);
-            for (v, at) in [(zx, off[0]), (z, off[1]), (du, off[2])] {
-                std::ptr::copy_nonoverlapping(v.as_ptr().cast::<u8>(), st.add(at), 8 * v.len());
-            }
             dev.lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .vk
-                .submit_wait(f.cb1);
-            let fl = f.flags();
+                .submit_wait(self.cb1[v]);
+            let fl = self.flags();
             if [ZT_PLANE, RT_PLANE, GRAM, GRAM + 1, WZ, WZ + 1, MAP1]
                 .iter()
                 .any(|&s| fl[s] != 0)
             {
                 return None;
             }
-            let hw = std::slice::from_raw_parts(f.back.add(FLAG_BYTES).cast::<i64>(), r * r);
+            let hw = std::slice::from_raw_parts(self.back.add(FLAG_BYTES).cast::<i64>(), r * r);
             let hi = match inv(hw, r) {
                 Ok(h) => h,
                 Err(e) => return Some(Err(e)),
@@ -652,14 +732,64 @@ impl Side {
             dev.lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .vk
-                .submit_wait(f.cb2);
-            let fl = f.flags();
+                .submit_wait(self.cb2[v]);
+            let fl = self.flags();
             if [HI_PLANE, F, F + 1, MAP2].iter().any(|&s| fl[s] != 0) {
                 return None;
             }
-            let out =
-                std::slice::from_raw_parts(f.back.add(FLAG_BYTES + 8 * r * r).cast::<f64>(), k * r);
-            Some(Ok(out.to_vec()))
+        }
+        Some(Ok(()))
+    }
+
+    /// Uploads the iterate `Z_x`, `Z`, `U` (`n × r`, `k × r`, `k × r`); `None` on a length mismatch
+    /// or no device.
+    ///
+    /// # Complexity
+    ///
+    /// `O((n + 2k)·r)` words staged; one submit.
+    pub(super) fn load(&self, zx: &[f64], z: &[f64], du: &[f64]) -> Option<()> {
+        let (k, n, r) = (self.k, self.n, self.r);
+        if zx.len() != n * r || z.len() != k * r || du.len() != k * r {
+            return None;
+        }
+        let dev = device()?;
+        let off = self.off();
+        // SAFETY: the frame is ours alone; `cbl` reads the staging at these offsets.
+        unsafe {
+            for (v, at) in [(zx, off[0]), (z, off[1]), (du, off[2])] {
+                std::ptr::copy_nonoverlapping(
+                    v.as_ptr().cast::<u8>(),
+                    self.stage.add(at),
+                    8 * v.len(),
+                );
+            }
+            dev.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .vk
+                .submit_wait(self.cbl);
+        }
+        Some(())
+    }
+
+    /// `[X, Z, U][i]` of the device iterate, `k × r`.
+    ///
+    /// # Complexity
+    ///
+    /// One submit; `O(k·r)` words read.
+    pub(super) fn read(&self, i: usize) -> Option<Vec<f64>> {
+        let (k, r) = (self.k, self.r);
+        let dev = device()?;
+        // SAFETY: the frame is ours alone; `cbr[i]` writes the readback at `Fᵀ`'s offset.
+        unsafe {
+            dev.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .vk
+                .submit_wait(self.cbr[i]);
+            let out = std::slice::from_raw_parts(
+                self.back.add(FLAG_BYTES + 8 * r * r).cast::<f64>(),
+                k * r,
+            );
+            Some(out.to_vec())
         }
     }
 }

@@ -69,8 +69,15 @@ pub(crate) struct Rank1 {
     abs: Map,
     /// The sign product of `(raw_u, unit_v)` (`start_rows = false`) and `(unit_u, raw_v)`.
     sign: [Map; 2],
-    /// Recorded command buffers by `(iters, start_rows)`, with their flag word count.
-    cbs: Vec<(usize, bool, CommandBuffer, usize)>,
+    /// The owning frame's iterate `[Z_x, Z, U, X]` (`admm::Frame::iterate`), the map `X + U → m`
+    /// (mode 6) and the dual `U + (X − out) → U` (mode 7).
+    it: [Handle; 4],
+    tmap: Map,
+    dual: Map,
+    /// Recorded command buffers by `(iters, start_rows, resident)`, with their flag word count.
+    cbs: Vec<(usize, bool, bool, CommandBuffer, usize)>,
+    /// The commit (dual, `out → Z`, `out → ` the peer's `Z_x`) by the peer's `Z_x`.
+    commits: Vec<(Handle, CommandBuffer)>,
 }
 
 /// A recording command buffer and the next free readback flag word.
@@ -118,7 +125,13 @@ impl Rank1 {
         clippy::too_many_lines,
         reason = "one frame's buffer graph, built in order"
     )]
-    unsafe fn build(vk: &Vk, rows: usize, cols: usize, limbs: u32) -> Option<Self> {
+    unsafe fn build(
+        vk: &Vk,
+        rows: usize,
+        cols: usize,
+        limbs: u32,
+        it: [Handle; 4],
+    ) -> Option<Self> {
         let (rp, cp) = (rows.div_ceil(TILE) * TILE, cols.div_ceil(TILE) * TILE);
         let (br, bc) = (rows.div_ceil(32), cols.div_ceil(32));
         let lb = limbs as usize * 32;
@@ -239,6 +252,9 @@ impl Rank1 {
                 &mut ups,
             )?,
         ];
+        let [_, _, du, x] = it;
+        let tmap = map(6, rows * cols, [x, du, nil, nil, m, nil, nil], &mut ups)?;
+        let dual = map(7, rows * cols, [x, du, out, nil, du, nil, nil], &mut ups)?;
         let builds = [
             PlaneBuild::new(vk, pa, rows, cols, limbs),
             PlaneBuild::new(vk, pt, cols, rows, limbs),
@@ -298,7 +314,11 @@ impl Rank1 {
             vec,
             abs,
             sign,
+            it,
+            tmap,
+            dual,
             cbs: Vec::new(),
+            commits: Vec::new(),
         })
     }
 
@@ -323,6 +343,8 @@ impl Rank1 {
     }
 
     /// Records the whole `rank1` for `(iters, start_rows)`; returns the buffer and its flag words.
+    /// The resident form takes `m = X + U` from the frame's iterate and leaves `out` on the device;
+    /// the other uploads `m` and reads `out` back.
     ///
     /// # Safety
     ///
@@ -331,7 +353,13 @@ impl Rank1 {
     /// # Complexity
     ///
     /// `O(iters)` recorded dispatches.
-    unsafe fn record(&self, vk: &Vk, iters: usize, start_rows: bool) -> (CommandBuffer, usize) {
+    unsafe fn record(
+        &self,
+        vk: &Vk,
+        iters: usize,
+        start_rows: bool,
+        resident: bool,
+    ) -> (CommandBuffer, usize) {
         let (rows, cols) = (self.rows, self.cols);
         let (s, t) = if start_rows { (U, V) } else { (V, U) };
         let cb = vk.command_buffer();
@@ -342,7 +370,12 @@ impl Rank1 {
             back: self.back_h,
             slot: 0,
         };
-        copy(vk, cb, self.stage_h, 0, self.m, 0, 8 * rows * cols);
+        if resident {
+            full(vk, cb);
+            self.tmap.record(vk, cb);
+        } else {
+            copy(vk, cb, self.stage_h, 0, self.m, 0, 8 * rows * cols);
+        }
         let off = 8 * rows * cols;
         let ls = [rows, cols][s];
         copy(vk, cb, self.stage_h, off, self.vec[s].raw, 0, 8 * ls);
@@ -365,19 +398,49 @@ impl Rank1 {
         }
         self.mul(&mut r, t);
         r.step(|vk, cb| self.sign[usize::from(start_rows)].record(vk, cb));
-        copy(
-            vk,
-            cb,
-            self.out,
-            0,
-            self.back_h,
-            FLAG_BYTES,
-            8 * rows * cols,
-        );
+        if !resident {
+            copy(
+                vk,
+                cb,
+                self.out,
+                0,
+                self.back_h,
+                FLAG_BYTES,
+                8 * rows * cols,
+            );
+        }
         r.flag(self.mflag, 1);
         to_host(vk, cb);
         check((vk.end_cb)(cb), "vkEndCommandBuffer");
         (cb, r.slot)
+    }
+}
+
+impl Rank1 {
+    /// The commit into the peer whose `Z_x` is `peer`: `U += X − out`, `out → Z`, `out → peer`.
+    ///
+    /// # Safety
+    ///
+    /// The device mutex is held; `peer` holds `rows × cols` binary64 words.
+    ///
+    /// # Complexity
+    ///
+    /// One recording on the first call per peer; `rows·cols` map invocations and two copies.
+    pub(super) unsafe fn commit(&mut self, vk: &Vk, peer: Handle) -> CommandBuffer {
+        if let Some(c) = self.commits.iter().find(|c| c.0 == peer) {
+            return c.1;
+        }
+        let bytes = 8 * self.rows * self.cols;
+        let cb = vk.command_buffer();
+        vk.begin(cb);
+        full(vk, cb);
+        self.dual.record(vk, cb);
+        copy(vk, cb, self.out, 0, self.it[1], 0, bytes);
+        copy(vk, cb, self.out, 0, peer, 0, bytes);
+        full(vk, cb);
+        check((vk.end_cb)(cb), "vkEndCommandBuffer");
+        self.commits.push((peer, cb));
+        cb
     }
 }
 
@@ -397,47 +460,79 @@ impl Side {
         start_rows: bool,
         start: &[f64],
     ) -> Option<Vec<f64>> {
-        let limbs = u32::try_from(self.key[3]).ok()?;
         let f = self.frame.as_deref_mut()?;
         let (rows, cols) = (f.k, f.r);
         let ls = if start_rows { rows } else { cols };
         if m.len() != rows * cols || start.len() != ls || rows > MAX_INNER || iters > MAX_ITERS {
             return None;
         }
-        let dev = device()?;
-        let guard = dev.lock().unwrap_or_else(PoisonError::into_inner);
-        let vk = &guard.vk;
-        // SAFETY: the device mutex is held for the build, the record and the submit; the frame is
-        // ours alone; the staging and readback are mapped at the offsets the command buffer reads.
+        // SAFETY: the lengths are checked above.
         unsafe {
-            if f.r1.is_none() {
-                f.r1 = Some(Box::new(Rank1::build(vk, rows, cols, limbs)?));
-            }
-            let r1 = f.r1.as_deref_mut()?;
-            let pos = r1
-                .cbs
-                .iter()
-                .position(|c| c.0 == iters && c.1 == start_rows);
-            let (cb, words) = match pos {
-                Some(i) => (r1.cbs[i].2, r1.cbs[i].3),
-                None => {
-                    let (cb, words) = r1.record(vk, iters, start_rows);
-                    r1.cbs.push((iters, start_rows, cb, words));
-                    (cb, words)
-                }
-            };
-            let st = r1.stage;
-            std::ptr::copy_nonoverlapping(m.as_ptr().cast::<u8>(), st, 8 * m.len());
-            std::ptr::copy_nonoverlapping(start.as_ptr().cast::<u8>(), st.add(8 * m.len()), 8 * ls);
-            vk.submit_wait(cb);
-            drop(guard);
-            let fl = std::slice::from_raw_parts(r1.back.cast::<u32>(), words);
-            if fl.iter().any(|&w| w != 0) {
-                return None;
-            }
+            let r1 = f.rank1_submit(iters, start_rows, Some(m), start)?;
             let out =
                 std::slice::from_raw_parts(r1.back.add(FLAG_BYTES).cast::<f64>(), rows * cols);
             Some(out.to_vec())
         }
+    }
+}
+
+impl super::admm::Frame {
+    /// Submits `rank1` from `start` over `m` (uploaded), or over the iterate's `X + U` when `m` is
+    /// `None` (the resident form, `out` left on the device), building the frame's [`Rank1`] on
+    /// first use; the device mutex is held for the build, the record and the submit. `None` on no
+    /// device, a build failure or a device flag.
+    ///
+    /// # Safety
+    ///
+    /// `m` (when given) is `k·r` words and `start` is `k` long when `start_rows`, else `r`;
+    /// `iters ≤ MAX_ITERS`.
+    ///
+    /// # Complexity
+    ///
+    /// One submit; a recording on the first call per `(iters, start_rows, resident)`.
+    pub(super) unsafe fn rank1_submit(
+        &mut self,
+        iters: usize,
+        start_rows: bool,
+        m: Option<&[f64]>,
+        start: &[f64],
+    ) -> Option<&Rank1> {
+        let (rows, cols, it) = (self.k, self.r, self.iterate);
+        let dev = device()?;
+        let guard = dev.lock().unwrap_or_else(PoisonError::into_inner);
+        let vk = &guard.vk;
+        // The frame is ours alone; the staging and readback are mapped at the offsets the command
+        // buffer reads.
+        if self.r1.is_none() {
+            let limbs = self.limbs;
+            self.r1 = Some(Box::new(Rank1::build(vk, rows, cols, limbs, it)?));
+        }
+        let r1 = self.r1.as_deref_mut()?;
+        let resident = m.is_none();
+        let pos = r1
+            .cbs
+            .iter()
+            .position(|c| c.0 == iters && c.1 == start_rows && c.2 == resident);
+        let (cb, words) = match pos {
+            Some(i) => (r1.cbs[i].3, r1.cbs[i].4),
+            None => {
+                let (cb, words) = r1.record(vk, iters, start_rows, resident);
+                r1.cbs.push((iters, start_rows, resident, cb, words));
+                (cb, words)
+            }
+        };
+        let st = r1.stage;
+        if let Some(m) = m {
+            std::ptr::copy_nonoverlapping(m.as_ptr().cast::<u8>(), st, 8 * m.len());
+        }
+        let at = 8 * rows * cols;
+        std::ptr::copy_nonoverlapping(start.as_ptr().cast::<u8>(), st.add(at), 8 * start.len());
+        vk.submit_wait(cb);
+        drop(guard);
+        let fl = std::slice::from_raw_parts(r1.back.cast::<u32>(), words);
+        if fl.iter().any(|&w| w != 0) {
+            return None;
+        }
+        Some(r1)
     }
 }

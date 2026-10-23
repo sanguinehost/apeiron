@@ -317,6 +317,20 @@ first) differs in 28 079 495 of 31 887 392 bytes. The host stages and reads back
 iterate per iteration and holds the two contending inverses; the next costs are those, and the
 inverses' contention.
 
+T9 keeps the iterate `[Z_x, Z, U, X]` on the device between outer iterations (P115,
+`src/gpu/limb/resident.rs`). `cb1` uploads only `[rho, reg]`; `cb2` and `rank1` read nothing back;
+`rank1` forms its target `X + U` on the device (`rank1_map.comp` mode 6); one commit buffer per side
+runs the dual `U + (X − Z)` (mode 7) and copies the new `Z` into the side's own iterate and the peer's
+`Z_x`. A refusal reads `Z` and `U` back and resumes the host loop at that iteration with the same
+starts; `APEIRON_ADMM_RESIDENT=0` keeps the host-staged path. Removed from `A`'s chain per iteration:
+9.86 ms of device transfer, 6.23 ms of host staging and readback, and `A`'s 4.11 ms share of `T` and
+the duals, 20.21 ms (`Perf.LimbDevice.residentIterate_fit`, grade `model`). ADMM falls from 5.37 to
+3.43 s per 100 iterations against the interleaved host-staged arm (0.639×), 53.7 → 34.3 ms per
+iteration; the saved factor is byte-identical. Controls: the dual's sign flipped (`U − (X − Z)`)
+makes the fit refuse (`factorize: Kernel`); `U` dropped from the target (mode 6 `T = X`) differs in
+28 752 128 of 31 887 392 factor bytes (relH 4137.7). What remains per iteration is the two `x`-updates' host inverses
+(about 15 ms each under contention), the `H⁻¹` uploads and the `rank1` power steps.
+
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 

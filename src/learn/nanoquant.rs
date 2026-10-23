@@ -448,125 +448,21 @@ pub(crate) fn x_update(
     Ok(out)
 }
 
-/// One side's resident frame (`crate::gpu::limb::Side`); uninhabited without the `gpu` feature.
-#[cfg(feature = "gpu")]
-type Side = crate::gpu::limb::Side;
-#[cfg(not(feature = "gpu"))]
-type Side = std::convert::Infallible;
-
-/// The resident frame of the `k × n` target words `w` at rank `r` when the device takes the
-/// side's products; `None` runs every step on the CPU.
-///
-/// # Complexity
-///
-/// As `crate::gpu::limb::Side::new`: `O(k·n)` bytes staged once per factorisation.
-#[cfg_attr(not(feature = "gpu"), allow(clippy::unnecessary_wraps))]
-fn resident(w: &[i64], k: usize, n: usize, r: usize) -> Option<Side> {
-    #[cfg(feature = "gpu")]
-    if crate::gpu::limb::takes(k, r, n) {
-        return Side::new(w, k, n, r, LIMBS);
+/// The factor of `Wᵀ` (`inn × out`) read as the factor of `W`: `(U·diag·V)ᵀ = Vᵀ·diag·Uᵀ`, the
+/// scales swapped. `O(rank·(out + inn))` copies.
+fn transposed(f: NqFactor, out: usize, inn: usize) -> NqFactor {
+    NqFactor {
+        out,
+        inn,
+        rank: f.rank,
+        u: transpose(&f.v, f.rank, out),
+        v: transpose(&f.u, inn, f.rank),
+        s_pre: f.s_post,
+        s_post: f.s_pre,
+        admm_loss: f.admm_loss,
+        u_latent: transpose(&f.v_latent, f.rank, out),
+        v_latent: transpose(&f.u_latent, inn, f.rank),
     }
-    let _ = (w, k, n, r);
-    None
-}
-
-/// [`x_update`] on the side's resident frame when it holds one and the device completes the step,
-/// the CPU otherwise; the two are equal in every bit (`gpu::limb::admm`).
-///
-/// # Complexity
-///
-/// As [`x_update`].
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the ADMM step's operands are distinct matrices"
-)]
-fn x_step(
-    side: &mut Option<Side>,
-    zx: &[f64],
-    n: usize,
-    r: usize,
-    wp: &crate::engine::kern::limb::Prepared,
-    k: usize,
-    z: &[f64],
-    du: &[f64],
-    rho: f64,
-    reg: f64,
-) -> Result<Vec<f64>, NqError> {
-    #[cfg(feature = "gpu")]
-    if let Some(done) = side
-        .as_mut()
-        .and_then(|s| s.x_update(zx, z, du, rho, reg, spd_inverse))
-    {
-        return done;
-    }
-    #[cfg(not(feature = "gpu"))]
-    let _ = side;
-    x_update(zx, n, r, wp, k, z, du, rho, reg)
-}
-
-/// `len` Gaussian draws from `rng`, a [`rank1`] start. `O(len)` draws.
-fn draw(rng: &mut Rng, len: usize) -> Vec<f64> {
-    (0..len).map(|_| rng.normal()).collect()
-}
-
-/// [`rank1`] from `start`, on the side's resident frame when it holds one and the device completes
-/// it, the CPU otherwise; the two are equal in every bit (`gpu::limb::rank1`). [`rank1`]'s cost.
-fn rank1_step(
-    side: &mut Option<Side>,
-    m: &[f64],
-    (rows, cols): (usize, usize),
-    iters: usize,
-    start_rows: bool,
-    start: Vec<f64>,
-) -> Result<Vec<f64>, NqError> {
-    #[cfg(feature = "gpu")]
-    if let Some(out) = side
-        .as_mut()
-        .and_then(|s| s.rank1(m, iters, start_rows, &start))
-    {
-        return Ok(out);
-    }
-    #[cfg(not(feature = "gpu"))]
-    let _ = side;
-    rank1(m, rows, cols, iters, start_rows, start)
-}
-
-/// One side's ADMM step on a `k × r` iterate: `X` by [`x_step`], `Z = rank1(X + U)` from `start`
-/// by [`rank1_step`], and `U += X − Z` in place once both complete. Returns `X` and the `rank1`
-/// result, so the caller orders the two sides' refusals as the serial loop does.
-/// The frame `(zx, n, r, wp, k)` is [`x_update`]'s.
-///
-/// # Complexity
-///
-/// [`x_step`] plus [`rank1_step`] plus `2·k·r` adds.
-#[allow(
-    clippy::type_complexity,
-    reason = "the two stages' results stay separate"
-)]
-fn side_step(
-    side: &mut Option<Side>,
-    (zx, n, r, wp, k): (
-        &[f64],
-        usize,
-        usize,
-        &crate::engine::kern::limb::Prepared,
-        usize,
-    ),
-    z: &[f64],
-    du: &mut [f64],
-    (rho, reg, inner): (f64, f64, usize),
-    start_rows: bool,
-    start: Vec<f64>,
-) -> Result<(Vec<f64>, Result<Vec<f64>, NqError>), NqError> {
-    let x = x_step(side, zx, n, r, wp, k, z, du, rho, reg)?;
-    let t: Vec<f64> = x.iter().zip(du.iter()).map(|(x, u)| x + u).collect();
-    let zn = rank1_step(side, &t, (k, r), inner, start_rows, start);
-    if let Ok(zn) = &zn {
-        for (u, (l, z)) in du.iter_mut().zip(x.iter().zip(zn)) {
-            *u += l - z;
-        }
-    }
-    Ok((x, zn))
 }
 
 /// `factorize_admm_nanoquant` on `w` (`out × inn`, Q32.32 row-major) under the input and output
@@ -600,20 +496,8 @@ pub fn factorize(
         return Err(NqError::Shape);
     }
     if out < inn {
-        let wt = transpose(w, out, inn);
-        let f = factorize(&wt, inn, out, o_norm, i_norm, cfg)?;
-        return Ok(NqFactor {
-            out,
-            inn,
-            rank: f.rank,
-            u: transpose(&f.v, f.rank, out),
-            v: transpose(&f.u, inn, f.rank),
-            s_pre: f.s_post,
-            s_post: f.s_pre,
-            admm_loss: f.admm_loss,
-            u_latent: transpose(&f.v_latent, f.rank, out),
-            v_latent: transpose(&f.u_latent, inn, f.rank),
-        });
+        let f = factorize(&transpose(w, out, inn), inn, out, o_norm, i_norm, cfg)?;
+        return Ok(transposed(f, out, inn));
     }
     let (o, n, r) = (out, inn, cfg.rank);
     let ni: Vec<f64> = i_norm.iter().map(|x| x.sqrt().max(EPS)).collect();
@@ -625,8 +509,7 @@ pub fn factorize(
         }
     }
     let (wg, wtg) = (grid(&wn)?, grid(&transpose(&wn, o, n))?);
-    let wp = prepare(&wg, o, n, LIMBS)?;
-    let wtp = prepare(&wtg, n, o, LIMBS)?;
+    let (wp, wtp) = (prepare(&wg, o, n, LIMBS)?, prepare(&wtg, n, o, LIMBS)?);
     let (mut a_side, mut b_side) = (resident(&wg, o, n, r), resident(&wtg, n, o, r));
     let mut rng = Rng(cfg.seed);
     // A is `o × r`; B is held as Bᵀ, `n × r`.
@@ -659,12 +542,25 @@ pub fn factorize(
     let mut b_u: Vec<f64> = b_ls.iter().zip(&b_z).map(|(x, z)| x - z).collect();
     // Device waits separate the host inverse's dispatches by more than the pool's park delay.
     let _hot = crate::engine::chart::pool::hot();
-    for t in 0..cfg.outer_iters {
+    let (t0, mut pending) = device_iters(
+        [&mut a_side, &mut b_side],
+        [
+            [&mut a_ls, &mut b_ls],
+            [&mut a_z, &mut b_z],
+            [&mut a_u, &mut b_u],
+        ],
+        &mut rng,
+        cfg,
+        [r, n],
+    );
+    for t in t0..cfg.outer_iters {
         // Each side's step reads only the previous `Z`s and its own `U`, so the two run on two
         // threads: one side's `rank1` and host inverse proceed while the other waits on the
         // device. The starts are drawn in the serial order (`A` then `B`), so each result is the
         // serial one; refusals resolve in the serial order `X_A`, `X_B`, `Z_A`, `Z_B`.
-        let (sa, sb) = (draw(&mut rng, r), draw(&mut rng, n));
+        let (sa, sb) = pending
+            .take()
+            .unwrap_or_else(|| (draw(&mut rng, r), draw(&mut rng, n)));
         let rho = cfg.schedule.rho(t as f64 / cfg.outer_iters as f64);
         let p = (rho, cfg.reg, cfg.inner_iters);
         let (ra, rb) = std::thread::scope(|s| {
@@ -1492,6 +1388,10 @@ impl NqFactor {
         grid(&w)
     }
 }
+
+#[path = "nanoquant/step.rs"]
+mod step;
+use step::{device_iters, draw, rank1_step, resident, side_step};
 
 #[cfg(test)]
 #[path = "nanoquant/tests.rs"]

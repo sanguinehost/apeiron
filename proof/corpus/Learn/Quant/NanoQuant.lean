@@ -613,6 +613,28 @@ theorem threaded_side_step :
     (∀ a ∈ sideOnAdmm, ∀ b ∈ sideOffAdmm, a < b) := by
   decide
 
+/-- ADMM wall for 100 iterations, tenths of a second, with `[Z_x, Z, U, X]` resident on the device
+between outer iterations (`t9-ctl.txt`, arm 1).
+`List` [a finite sequence of things, in order]. -/
+def residentOnAdmm : List Nat := [35, 34, 34]
+/-- The same with `APEIRON_ADMM_RESIDENT=0`, interleaved with `residentOnAdmm` (arm 0).
+`List` [a finite sequence of things, in order]. -/
+def residentOffAdmm : List Nat := [54, 54, 53]
+/-- Bytes differing between the saved factor of the last arm-1 run and that of the last arm-0 run
+(`cmp`; both sha256 `ce1a2b76…`). -/
+def residentFactorDiff : Nat := 0
+/-- Bytes differing from the resident factor with `U` dropped from `rank1`'s target
+(`rank1_map.comp` mode 6 `T = X`, `t9-mut6.log`): relH 4137.7. -/
+def residentMutDiff : Nat := 28752128
+
+/-- **The resident iterate yields the host-staged factor byte for byte and every run is faster than
+every host-staged run**; the dropped-`U` control is seen.
+`∀` [for every]; `∈` [is one of the things in]; `∧` [both are true]; `<` [is smaller than]. -/
+theorem resident_iterate :
+    residentFactorDiff = 0 ∧ 0 < residentMutDiff ∧
+    (∀ a ∈ residentOnAdmm, ∀ b ∈ residentOffAdmm, a < b) := by
+  decide
+
 end NanoQuant
 
 end Learn
