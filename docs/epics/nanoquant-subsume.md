@@ -272,8 +272,10 @@ unfused form gives 120 741 differing results.
 | T5 resident `rank1` (power steps, `fro2`, sign product) | `src/gpu/admm.rs`, `src/learn/nanoquant.rs` | `rank1` bit-identical | sign product negated → red |
 | T6 resident inverse (Schur levels on device; base-32 `inv_factor_upper` stays i128 on the host) | `src/gpu/admm.rs`, `src/learn/solve/inv.rs` | `spd_inverse` bit-identical | Schur symmetrisation dropped → red |
 
-T1, T2 and T3 pass their gates and controls; receipts are P107, P108 and P109 in
-`docs/evidence/perf-predictions.md`. The T2 range fixture uses 56-bit words, because 51-bit words reach
+T1, T2, T3 and T4 pass their gates and controls; receipts are P107, P108, P109 and P110 in
+`docs/evidence/perf-predictions.md`. The T4 frame is `src/gpu/limb/admm.rs`, not `src/gpu/admm.rs`:
+the limb device code moved to `src/gpu/limb/` under the 1500-line cap, and T5 and T6 extend that file.
+T4 moves ADMM from 11.90 to 9.57 s per 100 iterations (0.804×) with every fit number unchanged. The T2 range fixture uses 56-bit words, because 51-bit words reach
 only `T = 90`. The fit shapes place every pair group at `Tmin ≥ 32`, so the T3 rounding branch is
 reached only by the synthetic planes; its control is seen there.
 

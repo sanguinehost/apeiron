@@ -473,6 +473,22 @@ theorem limb_device_finish :
     0 < finishMutDiff := by
   decide
 
+/-- Differing words of the resident `x_update` (`gpu::limb::admm::Side`) against the CPU `x_update`,
+two rounds on one frame at each of (200, 96, 64), (130, 70, 40), (3584, 1024, 768) and
+(1024, 3584, 768) (`admm.log`).
+`List` [a finite sequence of things, in order]. -/
+def admmDiff : List Nat := [0, 0, 0, 0, 0, 0, 0, 0]
+/-- Differing words at (200, 96, 64) round 0 with `+ d[r]` (the stabiliser) dropped from mode 3 of
+`admm_map.comp` in a throwaway copy (`mut-admm.log`): every word of the 200 × 64 output. -/
+def admmMutDiff : Nat := 12800
+
+/-- The resident `x_update` equals the CPU's at every tested shape and round, and the dropped-stabiliser
+control is seen.
+`∧` [both are true]; `<` [is smaller than]. -/
+theorem limb_device_x_update :
+    admmDiff.all (· = 0) = true ∧ 0 < admmMutDiff := by
+  decide
+
 end NanoQuant
 
 end Learn

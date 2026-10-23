@@ -103,4 +103,15 @@ def finishBytes (plane groups : Nat) : Nat := plane * (8 * groups + 8)
 theorem finishBytes_fit : finishBytes (1024 * 768) 2 = 18_874_368 := by
   decide
 
+/-- Host↔device bytes of one resident `x_update` on a `k × n` target at rank `r`: up `[rho, reg]`
+    (16), `Z_x`, `Z`, `U` and `H⁻¹` in binary64; down the 64-byte flag block, `hw` and `Fᵀ`. Every
+    product, plane and map stays on the device. Grade `model`. -/
+def admmXBytes (k n r : Nat) : Nat :=
+  16 + 8 * (n * r + 2 * k * r + r * r) + 64 + 8 * (r * r + k * r)
+
+/-- Side A of the blk.23 `ffn_down` fit (`k = 3584`, `n = 1024`, `r = 768`) moves 81 789 008 bytes per
+    step: 3.3 ms at 25 GB/s over PCIe. -/
+theorem admmXBytes_fit : admmXBytes 3584 1024 768 = 81_789_008 := by
+  decide
+
 end Perf.LimbDevice

@@ -79,7 +79,7 @@ fn pool_chunk(len: usize) -> usize {
 const ACT_QK: usize = Q8_0_QK;
 
 /// The widest contraction `gemm_q8_0` takes: its `MAX_BLOCKS` (512) blocks of 32.
-const MAX_INNER: usize = 512 * Q8_0_QK;
+pub(crate) const MAX_INNER: usize = 512 * Q8_0_QK;
 
 /// The most limbs one block may be split into; the digit shift `e + 7(limbs − 1)` must stay
 /// inside the `i128` digit accumulator.
@@ -354,6 +354,21 @@ pub(crate) fn device_group_word(v: i64, tmin: u32) -> Option<i64> {
         crate::engine::num::value::round_shift_32(i128::from(v) << tmin)
     };
     i64::try_from(r).ok()
+}
+
+/// The kept pairs and the pair-group width of a product of inner length `n` at `limbs`, as
+/// [`device_operands`] sets them; they depend on the shape only, never on the operands.
+///
+/// # Complexity
+///
+/// `O(limbs²)`.
+#[cfg(feature = "gpu")]
+pub(crate) fn device_pairs(n: usize, limbs: u32) -> (Vec<Pair>, usize) {
+    let pairs = kept_pairs(limbs);
+    let group = (MAX_INNER / (n.div_ceil(ACT_QK) * ACT_QK))
+        .max(1)
+        .min(pairs.len());
+    (pairs, group)
 }
 
 /// A built limb plane whose rows are reused across several products.

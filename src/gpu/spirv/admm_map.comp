@@ -1,0 +1,113 @@
+#version 450
+// The binary64 maps of `learn::nanoquant::x_update` on the device, between the limb products of
+// `gpu::limb::admm`. Consumer: `src/gpu/limb/admm.rs`, which owns the contract this file computes.
+//
+// Every map is the CPU expression evaluated in the same order with no contraction (`precise`), so
+// each value is the CPU's bit for bit. `to_grid` is `round(x·2^32)` half away from zero, refused
+// (FLAG) when x is not finite or |x| ≥ 2^31; `from_grid(v)` is `double(v) / 2^32`.
+//   mode 0  zt[i·n + j]  = to_grid(zx[j·r + i])                                  (r × n)
+//   mode 1  d[i]         = max(sqrt(from_grid(G[i·rp + i])), EPS)                (r)
+//   mode 2  d[r]         = max(rho·|Σ_i hn(i, i) / r| + reg, EPS), one invocation (stab)
+//   mode 3  hw[i·r + j]  = to_grid(i = j ? hn(i, i) + stab : 0.5·(hn(i, j) + hn(j, i)))
+//   mode 4  rt[i·r + j]  = to_grid(from_grid(WZ[i·rp + j]) / d[j] + rho·(z[c] − du[c]))  (k × r)
+//   mode 5  out[i·r + j] = from_grid(F[i·rp + j])                                (k × r)
+// hn(i, j) = from_grid(G[i·rp + j]) / (d[i]·d[j]). `max(x, EPS)` is Rust's `f64::max`: EPS when x
+// is NaN or below it.
+#extension GL_ARB_gpu_shader_int64 : require
+
+layout(local_size_x = 256) in;
+
+// META: [mode, r, cols, rp, total]: cols is n for mode 0, 1 for modes 1 and 2, r otherwise; total
+// the invocations.
+layout(std430, binding = 0) readonly buffer M { uint meta[]; };
+// PARAMS: [rho, reg].
+layout(std430, binding = 1) readonly buffer P { double prm[]; };
+// IN: zx (mode 0) or z (mode 4).
+layout(std430, binding = 2) readonly buffer I { double fin[]; };
+// DU: du (mode 4).
+layout(std430, binding = 3) readonly buffer U { double du[]; };
+// PROD: the finished limb product, row stride rp: G (modes 1–3), WZ (mode 4), F (mode 5).
+layout(std430, binding = 4) readonly buffer X { int64_t prod[]; };
+// D: d[0..r) and stab at d[r].
+layout(std430, binding = 5) buffer D { double d[]; };
+// W: the grid output, zt (mode 0), hw (mode 3) or rt (mode 4).
+layout(std430, binding = 6) writeonly buffer W { int64_t wout[]; };
+// OUT: the binary64 output (mode 5).
+layout(std430, binding = 7) writeonly buffer O { double fout[]; };
+// FLAG: nonzero when a value leaves the grid.
+layout(std430, binding = 8) buffer F { uint flag; };
+
+const double EPS = 1e-12;
+const double SCALE = 4294967296.0;
+const double BOUND = 2147483648.0;
+
+double from_grid(int64_t v) {
+    precise double q = double(v) / SCALE;
+    return q;
+}
+
+// `to_grid(x, 2^31)`; sets FLAG and writes 0 when it refuses.
+int64_t to_grid(double x) {
+    if (!(abs(x) < BOUND)) {
+        atomicOr(flag, 1u);
+        return int64_t(0);
+    }
+    precise double sc = x * SCALE;
+    const double t = trunc(sc);
+    precise double fr = abs(sc - t);
+    const double r = fr >= 0.5 ? t + sign(sc) : t;
+    return int64_t(r);
+}
+
+double hn(uint i, uint j, uint rp) {
+    precise double dd = d[i] * d[j];
+    precise double h = from_grid(prod[i * rp + j]) / dd;
+    return h;
+}
+
+void main() {
+    const uint mode = meta[0];
+    const uint r = meta[1];
+    const uint cols = meta[2];
+    const uint rp = meta[3];
+    const uint total = meta[4];
+    const uint id = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * 256u
+        + gl_LocalInvocationIndex;
+    if (id >= total) {
+        return;
+    }
+    const uint i = id / cols;
+    const uint j = id - i * cols;
+    if (mode == 0u) {
+        wout[id] = to_grid(fin[j * r + i]);
+    } else if (mode == 1u) {
+        precise double s = sqrt(from_grid(prod[id * rp + id]));
+        d[id] = s > EPS ? s : EPS;
+    } else if (mode == 2u) {
+        // Rust's `Sum` folds from −0.0; the sign of an all-zero sum is removed by `abs` below.
+        precise double sum = 0.0;
+        for (uint q = 0u; q < r; ++q) {
+            sum = sum + hn(q, q, rp);
+        }
+        precise double mean = sum / double(r);
+        precise double s = prm[0] * abs(mean) + prm[1];
+        d[r] = s > EPS ? s : EPS;
+    } else if (mode == 3u) {
+        double v;
+        if (i == j) {
+            precise double a = hn(i, i, rp) + d[r];
+            v = a;
+        } else {
+            precise double a = 0.5 * (hn(i, j, rp) + hn(j, i, rp));
+            v = a;
+        }
+        wout[id] = to_grid(v);
+    } else if (mode == 4u) {
+        precise double q = from_grid(prod[i * rp + j]) / d[j];
+        precise double t = prm[0] * (fin[id] - du[id]);
+        precise double v = q + t;
+        wout[id] = to_grid(v);
+    } else {
+        fout[id] = from_grid(prod[i * rp + j]);
+    }
+}

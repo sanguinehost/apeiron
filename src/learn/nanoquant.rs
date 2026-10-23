@@ -38,7 +38,7 @@ use crate::learn::solve::inv::inv_factor_upper;
 use crate::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
 /// Limb count of every kernel call here: 3, the fp32-reference precision (AGENTS.md §0 K3).
-const LIMBS: u32 = 3;
+pub(crate) const LIMBS: u32 = 3;
 
 /// The reference's `eps` clamp on norms (`admm_nq.py`, `eps=1e-12`).
 const EPS: f64 = 1e-12;
@@ -342,7 +342,7 @@ fn block(m: &[i64], cols: usize, r0: usize, r1: usize, c0: usize, c1: usize) -> 
 /// `p = q = n/2`, so `T(n) = n³/2 + 2·T(n/2)` closes at `2n³/3` kernel multiply-adds, plus `n/INV_BASE`
 /// bases of `INV_BASE³/2` checked `i128` multiply-adds and an `INV_BASE³/2` kernel Gram each.
 /// `O(n²)` words live per level.
-fn spd_inverse(h: &[i64], n: usize) -> Result<Vec<i64>, NqError> {
+pub(crate) fn spd_inverse(h: &[i64], n: usize) -> Result<Vec<i64>, NqError> {
     spd_inverse_at(h, n, INV_BASE)
 }
 
@@ -399,7 +399,7 @@ fn spd_inverse_at(h: &[i64], n: usize, base: usize) -> Result<Vec<i64>, NqError>
     clippy::too_many_arguments,
     reason = "the ADMM step's operands are distinct matrices"
 )]
-fn x_update(
+pub(crate) fn x_update(
     zx: &[f64],
     n: usize,
     r: usize,
@@ -441,6 +441,62 @@ fn x_update(
     let mut out = vec![0.0f64; f.len()];
     par_fill(&mut out, &|c, o| *o = from_grid(f[c]));
     Ok(out)
+}
+
+/// One side's resident frame (`crate::gpu::limb::Side`); uninhabited without the `gpu` feature.
+#[cfg(feature = "gpu")]
+type Side = crate::gpu::limb::Side;
+#[cfg(not(feature = "gpu"))]
+type Side = std::convert::Infallible;
+
+/// The resident frame of the `k × n` target words `w` at rank `r` when the device takes the
+/// side's products; `None` runs every step on the CPU.
+///
+/// # Complexity
+///
+/// As `crate::gpu::limb::Side::new`: `O(k·n)` bytes staged once per factorisation.
+#[cfg_attr(not(feature = "gpu"), allow(clippy::unnecessary_wraps))]
+fn resident(w: &[i64], k: usize, n: usize, r: usize) -> Option<Side> {
+    #[cfg(feature = "gpu")]
+    if crate::gpu::limb::takes(k, r, n) {
+        return Side::new(w, k, n, r, LIMBS);
+    }
+    let _ = (w, k, n, r);
+    None
+}
+
+/// [`x_update`] on the side's resident frame when it holds one and the device completes the step,
+/// the CPU otherwise; the two are equal in every bit (`gpu::limb::admm`).
+///
+/// # Complexity
+///
+/// As [`x_update`].
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the ADMM step's operands are distinct matrices"
+)]
+fn x_step(
+    side: &mut Option<Side>,
+    zx: &[f64],
+    n: usize,
+    r: usize,
+    wp: &crate::engine::kern::limb::Prepared,
+    k: usize,
+    z: &[f64],
+    du: &[f64],
+    rho: f64,
+    reg: f64,
+) -> Result<Vec<f64>, NqError> {
+    #[cfg(feature = "gpu")]
+    if let Some(done) = side
+        .as_mut()
+        .and_then(|s| s.x_update(zx, z, du, rho, reg, spd_inverse))
+    {
+        return done;
+    }
+    #[cfg(not(feature = "gpu"))]
+    let _ = side;
+    x_update(zx, n, r, wp, k, z, du, rho, reg)
 }
 
 /// `factorize_admm_nanoquant` on `w` (`out × inn`, Q32.32 row-major) under the input and output
@@ -498,8 +554,10 @@ pub fn factorize(
             wn[i * n + j] = from_grid(w[i * n + j]) * ni[j] * no[i];
         }
     }
-    let wp = prepare(&grid(&wn)?, o, n, LIMBS)?;
-    let wtp = prepare(&grid(&transpose(&wn, o, n))?, n, o, LIMBS)?;
+    let (wg, wtg) = (grid(&wn)?, grid(&transpose(&wn, o, n))?);
+    let wp = prepare(&wg, o, n, LIMBS)?;
+    let wtp = prepare(&wtg, n, o, LIMBS)?;
+    let (mut a_side, mut b_side) = (resident(&wg, o, n, r), resident(&wtg, n, o, r));
     let mut rng = Rng(cfg.seed);
     // A is `o × r`; B is held as Bᵀ, `n × r`.
     let mut a_ls: Vec<f64> = (0..o * r).map(|_| rng.normal()).collect();
@@ -518,8 +576,8 @@ pub fn factorize(
     for t in 0..cfg.outer_iters {
         let x = t as f64 / cfg.outer_iters as f64;
         let rho = cfg.schedule.rho(x);
-        a_ls = x_update(&b_z, n, r, &wp, o, &a_z, &a_u, rho, cfg.reg)?;
-        b_ls = x_update(&a_z, o, r, &wtp, n, &b_z, &b_u, rho, cfg.reg)?;
+        a_ls = x_step(&mut a_side, &b_z, n, r, &wp, o, &a_z, &a_u, rho, cfg.reg)?;
+        b_ls = x_step(&mut b_side, &a_z, o, r, &wtp, n, &b_z, &b_u, rho, cfg.reg)?;
         let ta: Vec<f64> = a_ls.iter().zip(&a_u).map(|(x, u)| x + u).collect();
         let tb: Vec<f64> = b_ls.iter().zip(&b_u).map(|(x, u)| x + u).collect();
         a_z = rank1(&ta, o, r, cfg.inner_iters, false, &mut rng)?;
