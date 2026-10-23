@@ -662,6 +662,7 @@ end HybridVerdict
 | zero-bit `fold_fit` search sweep, `o` l23 on `-c6x29` | `t23/he.log` | `22beabf7320b71c6` |
 | icm ridge and damp extension, `o` l23 on `-c6x29` | `t24/he.log` | `80aaca7379383761` |
 | forced `gptq_e8` candidate (`inner_iters = 0`), `o` l23 on `-c6x29` | `t25/he.log` | `b2635f4f97d89c83` |
+| icm ridge below 0.05 and damp at icm ridge 0.05, `o` l23 on `-c6x29` | `t26/he.log` | `21ac8c5444485ba7` |
 | held-out energy, `o` arms / `down-x29` | `t18/he-o.log` / `t18/he-down-x29.log` | `9f7f3648a3a0cbed` / `62aa64aa70a1363f` |
 | SpQR masked refit on `up`, `gate` | commit `7619e8e9` body | — |
 | gated second-order metric on `up` | commit `8c0d7812` body | — |
@@ -1022,6 +1023,31 @@ theorem oFitCfg_selection_inverted :
     heOGptq.all (fun x => x == heOFitCfg.getD 5 0) = true ∧
     heOGptq.getD 0 0 < heOFitCfg.getD 0 0 ∧
     ceOFitCfg.getD 1 0 < ceOFitCfg.getD 0 0 := by
+  decide
+
+/-- Held-out energy of `o` l23 on `-c6x29` (`1e-8`), third sweep, by arm: icm ridge 0.02, 0.01, 0.005, 0.001;
+icm ridge 0.05 with damp 0.003, with damp 0.03 (production damp is 0.01).
+`List` [a finite sequence of things, in order]. -/
+def heOFitCfg3 : List Nat := [89248680, 89393550, 89015550, 89443280, 96016700, 91428790]
+
+/-- **The icm ridge reaches a floor at 0.02 and below**: icm ridge 0.02, 0.01, 0.005 and 0.001 are each below icm
+ridge 0.05 and below 0.84× production, and lie within 1% of each other; icm ridge 0.005 is the lowest (0.8287×
+production) (board row APEIRON-QUALITY-118-W1-T01). `List` [a finite sequence of things, in order];
+`∧` [both are true]; `<` [is smaller than]; `≤` [is smaller than or equal to]. -/
+theorem oFitCfg_icm_floor :
+    [0, 1, 2, 3].all (fun i => decide (heOFitCfg3.getD i 0 < heOFitCfg2.getD 0 0 ∧
+      100 * heOFitCfg3.getD i 0 < 84 * heOFitCfg.getD 0 0 ∧
+      100 * heOFitCfg3.getD i 0 ≤ 101 * heOFitCfg3.getD 2 0 ∧
+      heOFitCfg3.getD 2 0 ≤ heOFitCfg3.getD i 0)) = true := by
+  decide
+
+/-- **Damp moves the refit branch the same way it moves production, and less than the icm ridge does**: at icm
+ridge 0.05, damp 0.003 raises held-out energy and damp 0.03 lowers it, but damp 0.03 stays above the icm-ridge
+floor. `∧` [both are true]; `<` [is smaller than]. -/
+theorem oFitCfg_damp_refit :
+    heOFitCfg2.getD 0 0 < heOFitCfg3.getD 4 0 ∧
+    heOFitCfg3.getD 5 0 < heOFitCfg2.getD 0 0 ∧
+    heOFitCfg3.getD 3 0 < heOFitCfg3.getD 5 0 := by
   decide
 
 end GateCode
