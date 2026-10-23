@@ -297,6 +297,15 @@ dropped) turns red. ADMM falls from 6.73 to 6.43 s per 100 iterations (0.955×) 
 unchanged. The next host cost is the inverse's small products: about 3.7 ms at half order 24–96, overhead-bound in
 the limb kernel's plane builds and pool dispatch.
 
+T7 overlaps the two `x`-updates (P113). Both read only the previous `Z` and `U`, so `factorize` runs them
+on two threads; one side's 10.21 ms host inverse proceeds while the other holds the device mutex. Measured
+split per iteration at `629767bc`: `x_A` 22.20, `x_B` 18.41, `rank1` A 10.09, B 4.26, `t` 2.84, duals
+2.45 ms. The pair holds 20.42 ms of host inverse and 20.19 ms of device work, so overlap hides at most
+20.19 ms (`Perf.LimbDevice.xPairOverlap_fit`). ADMM falls from 6.40 to 5.63 s per 100 iterations (0.880×),
+7.67 ms per iteration; the saved factor is byte-identical, and the control (`B` reading `X_A` in place of
+`Z_A`) differs in 28 179 933 of 31 887 392 bytes. The pair now takes 12.52 ms more than its 20.42 ms
+host total (grade `model`).
+
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 

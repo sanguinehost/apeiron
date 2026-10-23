@@ -569,6 +569,28 @@ theorem pooled_inverse_fit :
     (∀ a ∈ invOnAdmm, ∀ b ∈ invOffAdmm, a < b) := by
   decide
 
+/-- ADMM wall for 100 iterations, tenths of a second, the two `x`-updates on two threads
+(`t7-ab.txt`, arm 1).
+`List` [a finite sequence of things, in order]. -/
+def threadOnAdmm : List Nat := [56, 56, 57]
+/-- The same at `629767bc`, interleaved with `threadOnAdmm` (arm 0).
+`List` [a finite sequence of things, in order]. -/
+def threadOffAdmm : List Nat := [64, 64, 64]
+/-- Bytes differing between the saved factor of the last arm-1 run and that of the last arm-0 run
+(`cmp`; both sha256 `ce1a2b76…`). -/
+def threadFactorDiff : Nat := 0
+/-- Bytes differing from the arm-0 factor with `B`'s thread reading the previous `X_A` in place of
+`Z_A` (`t7-control.log`): 28 179 933 of 31 887 392, relH 0.03383. -/
+def threadMutDiff : Nat := 28179933
+
+/-- **The threaded `x` pair yields the serial factor byte for byte and every run is faster than
+every `629767bc` run**; the wrong-input control is seen.
+`∀` [for every]; `∈` [is one of the things in]; `∧` [both are true]; `<` [is smaller than]. -/
+theorem threaded_x_pair :
+    threadFactorDiff = 0 ∧ 0 < threadMutDiff ∧
+    (∀ a ∈ threadOnAdmm, ∀ b ∈ threadOffAdmm, a < b) := by
+  decide
+
 end NanoQuant
 
 end Learn

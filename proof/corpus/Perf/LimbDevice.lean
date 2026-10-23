@@ -153,4 +153,31 @@ theorem schurDevice_fit :
     100 * (200 * (102_100 - schurDevice)) < 6 * 68_000_000 := by
   decide
 
+/-! ## The two `x`-updates on two threads (P113)
+
+`learn::nanoquant::factorize` computes `A`'s and `B`'s `x`-update from the previous `Z` and `U` only,
+so the two run on two threads. Measured split per iteration at `629767bc` (`w6-split.txt`): `x_A`
+22.20 ms, `x_B` 18.41 ms, each holding one 10.21 ms host `spd_inverse`; the rest is device work,
+staging and readback under the device mutex. Overlap hides at most the smaller of the host and device
+totals, and the pair cannot finish before the larger. Units: tenths of a microsecond. -/
+
+/-- The serial `x` pair per iteration: 22.20 + 18.41 ms. Grade `measured`. -/
+def xPairSerial : Nat := 222_000 + 184_100
+
+/-- The pair's host inverses: two at 10.21 ms. Grade `measured`. -/
+def xPairHost : Nat := 2 * 102_100
+
+/-- The pair's device, staging and readback time: the serial pair less its inverses. -/
+def xPairDevice : Nat := xPairSerial - xPairHost
+
+/-- Measured saving per iteration: ADMM 6.40 → 5.63 s (means of 3 interleaved runs) over 100. -/
+def xPairSaved : Nat := 76_700
+
+/-- The saving is under its bound, the smaller of 20.42 ms host and 20.19 ms device, and 12.52 ms of
+    the pair stays above the larger, the pair's floor under any overlap of these two stages. -/
+theorem xPairOverlap_fit :
+    xPairSerial = 406_100 ∧ xPairDevice = 201_900 ∧ xPairSaved ≤ min xPairHost xPairDevice ∧
+    xPairSerial - xPairSaved - max xPairHost xPairDevice = 125_200 := by
+  decide
+
 end Perf.LimbDevice
