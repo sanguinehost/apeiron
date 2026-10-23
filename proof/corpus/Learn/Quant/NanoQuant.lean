@@ -285,6 +285,26 @@ theorem tune_colsum_l23_down :
     100 * colsumTraceAfter[2]! ≤ 101 * colsumTraceBefore[2]! := by
   decide
 
+/-- Sketched tune wall after the column-sum gradient, then with `A·Qᵀ` taken against `Q` as a prepared kernel
+operand (one plane per tune, not per step) and `∂V` and `∂s_pre` read from it in one fused pass blocked by
+eight rows (`colgrads-clean.log`); hundredths of a second, seeds 0–2.
+`List` [a finite sequence of things, in order]. -/
+def colgradsWallAfter : List Nat := [479, 480, 477]
+/-- Final `relH` (`10⁻⁵`), best `relH` (`10⁻⁵`) and sign flips after; every seed printed the same triple
+(`colgrads-clean.log`). `List` [a finite sequence of things, in order]. Board: . -/
+def colgradsTraceAfter : List Nat := [3320, 1722, 50103]
+
+/-- **The prepared-`Q` product and the fused gradient pass are faster on every seed with the same trace**: every
+run after is under every run before, the mean wall falls 1.10× (5.25 → 4.79 s) and the final `relH`, best
+`relH` and sign flips are equal. `∀` [for every]; `∈` [is one of the things in]; `∧` [both are true]; `<` [is
+smaller than]. -/
+theorem tune_colgrads_l23_down :
+    (∀ a ∈ colgradsWallAfter, ∀ b ∈ colsumWallAfter, a < b) ∧
+    109 * colgradsWallAfter.sum < 100 * colsumWallAfter.sum ∧
+    100 * colsumWallAfter.sum < 110 * colgradsWallAfter.sum ∧
+    colgradsTraceAfter = colsumTraceAfter := by
+  decide
+
 end NanoQuant
 
 end Learn
