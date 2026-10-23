@@ -260,4 +260,32 @@ theorem digitsPad_fit :
     padAdmmSaved - 2 * padInvSaved = 2_400 := by
   decide
 
+/-! ## The device inverse above order 96 (P117)
+
+`gpu::limb::inverse` runs every `spd_inverse` recursion node of order above 96 on the device (block
+extracts, `S`, assembly, four limb products); nodes of order 96 are read back and inverted on the
+host. Units: tenths of a microsecond per ADMM iteration. -/
+
+/-- ADMM wall per iteration by cutoff on the blk.23 `down` fit, means of 3 interleaved runs
+(`t11-devinv-cut.log`): host only 3.3 s, cut 192 2.6 s, 96 2.4 s, 48 2.47 s, 32 2.9 s per 100
+iterations. Grade `measured`; the wall prints at 0.1 s. -/
+def devInvHost : Nat := 330_000
+def devInvCut192 : Nat := 260_000
+def devInvCut96 : Nat := 240_000
+def devInvCut48 : Nat := 246_667
+def devInvCut32 : Nat := 290_000
+
+/-- In-fit host inverse of side `A` before the change, 17.46 ms (`t10-prof.log`). Grade
+`measured`. -/
+def devInvHostA : Nat := 174_600
+
+/-- Cut 96 is the least of the five; it saves 9.0 ms per iteration, under side `A`'s 17.46 ms host
+inverse, and 8.46 ms of that inverse's time is not removed from `A`'s chain (grade `model`: the
+per-phase split is not re-profiled). -/
+theorem deviceInverse_fit :
+    devInvCut96 ≤ devInvCut48 ∧ devInvCut96 ≤ devInvCut192 ∧ devInvCut96 ≤ devInvCut32 ∧
+    devInvHost - devInvCut96 = 90_000 ∧ devInvHost - devInvCut96 ≤ devInvHostA ∧
+    devInvHostA - (devInvHost - devInvCut96) = 84_600 := by
+  decide
+
 end Perf.LimbDevice

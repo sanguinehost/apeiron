@@ -1,7 +1,9 @@
 //! The ADMM outer step of `factorize`: each side's step on its resident frame or the CPU, and the
 //! outer iterations on the device-resident iterate (`crate::gpu::limb::commit`).
 
-use super::{rank1, spd_inverse, x_update, NqConfig, NqError, Rng, LIMBS};
+use super::{rank1, x_update, NqConfig, NqError, Rng};
+#[cfg(feature = "gpu")]
+use super::{spd_inverse, LIMBS};
 
 /// One side's resident frame (`crate::gpu::limb::Side`); uninhabited without the `gpu` feature.
 #[cfg(feature = "gpu")]
@@ -9,17 +11,32 @@ type Side = crate::gpu::limb::Side;
 #[cfg(not(feature = "gpu"))]
 type Side = std::convert::Infallible;
 
+/// The order above which the side inverts `hw` on the device (`crate::gpu::limb::Side::new`); at
+/// least `INV_BASE`, so every device node is one the host recursion splits. Measured on the blk.23
+/// `ffn_down` fit (RTX 5080, 100 iterations, 3 interleaved runs each): host 3.3 s, cut 192 2.6 s,
+/// 96 2.4 s, 48 2.4–2.5 s, 32 2.9 s.
+#[cfg(feature = "gpu")]
+const DEV_INV_CUT: usize = 96;
+#[cfg(feature = "gpu")]
+const _: () = assert!(DEV_INV_CUT >= super::INV_BASE);
+
 /// The resident frame of the `k × n` target words `w` at rank `r` when the device takes the
 /// side's products; `None` runs every step on the CPU.
 ///
 /// # Complexity
 ///
 /// As `crate::gpu::limb::Side::new`: `O(k·n)` bytes staged once per factorisation.
-#[cfg_attr(not(feature = "gpu"), allow(clippy::unnecessary_wraps))]
+#[cfg_attr(
+    not(feature = "gpu"),
+    allow(
+        clippy::unnecessary_wraps,
+        reason = "the device frame is uninhabited without the gpu feature"
+    )
+)]
 pub(super) fn resident(w: &[i64], k: usize, n: usize, r: usize) -> Option<Side> {
     #[cfg(feature = "gpu")]
     if crate::gpu::limb::takes(k, r, n) {
-        return Side::new(w, k, n, r, LIMBS);
+        return Side::new(w, k, n, r, LIMBS, DEV_INV_CUT);
     }
     let _ = (w, k, n, r);
     None

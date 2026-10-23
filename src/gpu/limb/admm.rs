@@ -13,6 +13,8 @@
 //! command buffers around the host inverse: `cb1` uploads `Z_x`, `Z`, `U` and runs every stage up to
 //! `hw` and `R`'s plane; the host inverts `hw`; `cb2` uploads `H⁻¹` and runs `Rᵀ·H⁻¹` and the read
 //! map. The device mutex is held for each submit only, so the inverse's own products reach it.
+//! At a nonzero cutoff the inverse runs on the device above that order (`inverse.rs`) and `cb2[2 + v]`
+//! skips the upload of `H⁻¹`.
 //!
 //! **Resident form.** Between outer iterations the iterate `[Z_x, Z, U, X]` stays in the frame
 //! (`resident.rs`): `cb1` uploads only `[rho, reg]`, `cb2` reads nothing back, `rank1` forms its
@@ -251,10 +253,36 @@ impl Map {
         bufs: [Handle; 8],
         ups: &mut Vec<(Handle, Vec<u8>)>,
     ) -> Option<Self> {
-        let meta = dev_buf(vk, 20)?;
-        ups.push((meta, bytes(&[mode, r, cols, rp, total].map(|w| w as u32))));
-        let mut set = vec![meta];
-        set.extend_from_slice(&bufs);
+        let meta = [mode, r, cols, rp, total].map(|w| w as u32);
+        Self::with(vk, spv, &meta, total, &bufs, ups)
+    }
+
+    /// The map of `spv` over `total` invocations with the meta words `meta` at binding 0 and `bufs`
+    /// from binding 1.
+    ///
+    /// # Safety
+    ///
+    /// As [`Map::new`].
+    ///
+    /// # Complexity
+    ///
+    /// One pipeline build.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "total indexes u32 invocations"
+    )]
+    pub(super) unsafe fn with(
+        vk: &Vk,
+        spv: &[u8],
+        meta: &[u32],
+        total: usize,
+        bufs: &[Handle],
+        ups: &mut Vec<(Handle, Vec<u8>)>,
+    ) -> Option<Self> {
+        let mb = dev_buf(vk, 4 * meta.len())?;
+        ups.push((mb, bytes(meta)));
+        let mut set = vec![mb];
+        set.extend_from_slice(bufs);
         let (layout, dset) = vk.ssbo_set(&set);
         let wg = total.div_ceil(LOCAL);
         let gx = wg.clamp(1, MAX_GROUPS_X);
@@ -281,14 +309,17 @@ pub(crate) struct Frame {
     pub(super) limbs: u32,
     /// The resident `rank1` over `k × r`, built on its first call.
     pub(super) r1: Option<Box<super::rank1::Rank1>>,
+    /// The device inverse of `hw` into `H⁻¹` above its cutoff order, when one was asked for.
+    inv: Option<Box<super::inverse::Inverse>>,
     stage: *mut u8,
     back: *const u8,
     /// Upload of the target's words and its plane build.
     cbw: CommandBuffer,
     /// `cb1` uploading `Z_x`, `Z`, `U` and `cb2` reading `Fᵀ` back at index 0; at index 1 their
-    /// resident forms, which leave the iterate on the device.
+    /// resident forms, which leave the iterate on the device. `cb2[2 + v]` omits the upload of
+    /// `H⁻¹`, which the device inverse wrote.
     cb1: [CommandBuffer; 2],
-    cb2: [CommandBuffer; 2],
+    cb2: [CommandBuffer; 4],
     /// The iterate `[Z_x, Z, U, X]` (`X` is `Fᵀ`); `cbl` uploads the first three from the staging
     /// offsets, `cbr[i]` copies `[X, Z, U][i]` to the readback at `Fᵀ`'s offset.
     pub(super) iterate: [Handle; 4],
@@ -331,7 +362,7 @@ impl Frame {
         clippy::too_many_lines,
         reason = "one frame's buffer graph, recorded in order"
     )]
-    unsafe fn build(vk: &Vk, k: usize, n: usize, r: usize, limbs: u32) -> Option<Self> {
+    unsafe fn build(vk: &Vk, k: usize, n: usize, r: usize, limbs: u32, cut: usize) -> Option<Self> {
         let (kp, rp) = (k.div_ceil(TILE) * TILE, r.div_ceil(TILE) * TILE);
         let (bn, br) = (n.div_ceil(32), r.div_ceil(32));
         let lb = limbs as usize * 32;
@@ -429,11 +460,12 @@ impl Frame {
             r,
             limbs,
             r1: None,
+            inv: None,
             stage: std::ptr::null_mut(),
             back: std::ptr::null(),
             cbw: std::ptr::null_mut(),
             cb1: [std::ptr::null_mut(); 2],
-            cb2: [std::ptr::null_mut(); 2],
+            cb2: [std::ptr::null_mut(); 4],
             iterate: [zx, z, du, out],
             cbl: std::ptr::null_mut(),
             cbr: [std::ptr::null_mut(); 3],
@@ -532,10 +564,12 @@ impl Frame {
             cb
         };
         // cb2: H⁻¹ and its plane, Rᵀ·H⁻¹, the read map.
-        let rec2 = |resident: bool| {
+        let rec2 = |resident: bool, dev: bool| {
             let cb = vk.command_buffer();
             vk.begin(cb);
-            copy(vk, cb, stage, off[3], hi[0], 0, 8 * r * r);
+            if !dev {
+                copy(vk, cb, stage, off[3], hi[0], 0, 8 * r * r);
+            }
             (vk.fill_buffer)(cb, mflag, 0, 4, 0);
             full(vk, cb);
             hi_plane.record(vk, cb);
@@ -555,7 +589,15 @@ impl Frame {
             cb
         };
         me.cb1 = [rec1(false), rec1(true)];
-        me.cb2 = [rec2(false), rec2(true)];
+        me.cb2 = [
+            rec2(false, false),
+            rec2(true, false),
+            rec2(false, true),
+            rec2(true, true),
+        ];
+        if cut > 0 {
+            me.inv = super::inverse::Inverse::build(vk, r, cut, limbs, hw, hi[0]).map(Box::new);
+        }
         // cbl: the iterate's upload; cbr: one iterate buffer to the readback.
         me.cbl = vk.command_buffer();
         vk.begin(me.cbl);
@@ -577,13 +619,13 @@ impl Frame {
     }
 }
 
-/// Frames not checked out, by `[k, n, r, limbs]`.
-static FRAMES: Mutex<Vec<([usize; 4], Box<Frame>)>> = Mutex::new(Vec::new());
+/// Frames not checked out, by `[k, n, r, limbs, cut]`.
+static FRAMES: Mutex<Vec<([usize; 5], Box<Frame>)>> = Mutex::new(Vec::new());
 
 /// One side of a factorisation (`A` over `W`, or `B` over `Wᵀ`) holding its frame, with the
 /// target's plane built; the frame returns to [`FRAMES`] on drop.
 pub(crate) struct Side {
-    pub(super) key: [usize; 4],
+    pub(super) key: [usize; 5],
     pub(super) frame: Option<Box<Frame>>,
 }
 
@@ -591,19 +633,27 @@ impl Side {
     /// The frame of the `k × n` target words `w` at rank `r`, with `w`'s plane built on the device;
     /// `None` when no device with binary64 loads, `APEIRON_ADMM_DEVICE=0`, a dimension is zero or
     /// past `MAX_INNER`, `w` is not `k·n` words, or the plane build flags (the CPU refuses or runs
-    /// the step).
+    /// the step). At `cut > 0` the frame inverts `hw` on the device above order `cut`
+    /// ([`super::inverse`]), the host `inv` on each leaf.
     ///
     /// # Complexity
     ///
     /// `O(k·n)` bytes staged and one submit; a frame build on the first call per shape.
-    pub(crate) fn new(w: &[i64], k: usize, n: usize, r: usize, limbs: u32) -> Option<Self> {
+    pub(crate) fn new(
+        w: &[i64],
+        k: usize,
+        n: usize,
+        r: usize,
+        limbs: u32,
+        cut: usize,
+    ) -> Option<Self> {
         if std::env::var("APEIRON_ADMM_DEVICE").is_ok_and(|v| v.trim() == "0") {
             return None;
         }
         if k == 0 || n == 0 || r == 0 || n > MAX_INNER || r > MAX_INNER || w.len() != k * n {
             return None;
         }
-        let key = [k, n, r, limbs as usize];
+        let key = [k, n, r, limbs as usize, cut];
         let dev = device()?;
         let cached = {
             let mut fr = FRAMES.lock().unwrap_or_else(PoisonError::into_inner);
@@ -619,7 +669,7 @@ impl Side {
         // SAFETY: the device mutex is held; the frame was built on this device and is ours alone.
         let frame = match cached {
             Some(f) => f,
-            None => Box::new(unsafe { Frame::build(vk, k, n, r, limbs) }?),
+            None => Box::new(unsafe { Frame::build(vk, k, n, r, limbs, cut) }?),
         };
         unsafe {
             std::ptr::copy_nonoverlapping(w.as_ptr().cast::<u8>(), frame.stage, 8 * w.len());
@@ -656,7 +706,7 @@ impl Side {
         du: &[f64],
         rho: f64,
         reg: f64,
-        inv: impl FnOnce(&[i64], usize) -> Result<Vec<i64>, E>,
+        inv: impl Fn(&[i64], usize) -> Result<Vec<i64>, E>,
     ) -> Option<Result<Vec<f64>, E>> {
         let f = self.frame.as_deref()?;
         let (k, n, r) = (f.k, f.n, f.r);
@@ -699,7 +749,7 @@ impl Frame {
         v: usize,
         rho: f64,
         reg: f64,
-        inv: impl FnOnce(&[i64], usize) -> Result<Vec<i64>, E>,
+        inv: impl Fn(&[i64], usize) -> Result<Vec<i64>, E>,
     ) -> Option<Result<(), E>> {
         let r = self.r;
         let dev = device()?;
@@ -720,19 +770,26 @@ impl Frame {
             {
                 return None;
             }
-            let hw = std::slice::from_raw_parts(self.back.add(FLAG_BYTES).cast::<i64>(), r * r);
-            let hi = match inv(hw, r) {
-                Ok(h) => h,
-                Err(e) => return Some(Err(e)),
-            };
-            if hi.len() != r * r {
-                return None;
+            let on_dev = self.inv.as_deref().is_some_and(|d| d.run(&inv).is_some());
+            if !on_dev {
+                let hw = std::slice::from_raw_parts(self.back.add(FLAG_BYTES).cast::<i64>(), r * r);
+                let hi = match inv(hw, r) {
+                    Ok(h) => h,
+                    Err(e) => return Some(Err(e)),
+                };
+                if hi.len() != r * r {
+                    return None;
+                }
+                std::ptr::copy_nonoverlapping(
+                    hi.as_ptr().cast::<u8>(),
+                    st.add(off[3]),
+                    8 * hi.len(),
+                );
             }
-            std::ptr::copy_nonoverlapping(hi.as_ptr().cast::<u8>(), st.add(off[3]), 8 * hi.len());
             dev.lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .vk
-                .submit_wait(self.cb2[v]);
+                .submit_wait(self.cb2[v + 2 * usize::from(on_dev)]);
             let fl = self.flags();
             if [HI_PLANE, F, F + 1, MAP2].iter().any(|&s| fl[s] != 0) {
                 return None;

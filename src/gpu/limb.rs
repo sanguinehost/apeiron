@@ -555,6 +555,9 @@ mod rank1;
 /// The ADMM iterate resident between outer iterations.
 mod resident;
 
+/// `spd_inverse` on the device above a cutoff order, host leaves below it.
+mod inverse;
+
 pub(crate) use admm::Side;
 pub(crate) use resident::commit;
 
