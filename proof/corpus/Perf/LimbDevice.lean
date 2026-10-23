@@ -378,4 +378,33 @@ theorem rngPool_fit :
     (drawSerial - drawPool) * 1000 / drawSerial = 32 := by
   decide
 
+/-! ## Segment-outer limb product (P122)
+
+`src/gpu/spirv/limb_gemm.comp` runs each segment over its blocks innermost: the int32 fragment
+accumulates across blocks of one shift and enters the 64-bit accumulator only when the shift
+changes or the segment ends (a segment block adds at most 2^20; at most 512 blocks stay under
+2^29). The product words are unchanged. Units: tenths of a microsecond per product (microbench,
+20 reps × 5 runs) and microseconds of fit wall (100 iterations). -/
+
+/-- Product time, `A` frame `wz` 3584×768×1024 and `B` frame `gram` 768×768×3584, block-outer
+against segment-outer (`device_product_rate`, throwaway). Grade `measured`. -/
+def wzBlockOuter : Nat := 5011
+def wzSegOuter : Nat := 3939
+def gramBlockOuter : Nat := 5070
+def gramSegOuter : Nat := 3364
+
+/-- Fit wall on the blk.23 `down` fit, means of 8 interleaved pairs (`t17-ab2.log`,
+`t17-ab3.log`): block-outer 1.550–1.602 s, segment-outer 1.480–1.719 s; 7 of 8 pairs faster.
+Grade `measured`. -/
+def segOff : Nat := 1_575_750
+def segOn : Nat := 1_532_000
+
+/-- The segment-outer product saves 21% on `wz` and 33% on `gram`, and 43.75 ms (2.7%) of fit
+wall. -/
+theorem segRun_fit :
+    wzSegOuter < wzBlockOuter ∧ (wzBlockOuter - wzSegOuter) * 100 / wzBlockOuter = 21 ∧
+    gramSegOuter < gramBlockOuter ∧ (gramBlockOuter - gramSegOuter) * 100 / gramBlockOuter = 33 ∧
+    segOn < segOff ∧ segOff - segOn = 43_750 ∧ (segOff - segOn) * 1000 / segOff = 27 := by
+  decide
+
 end Perf.LimbDevice

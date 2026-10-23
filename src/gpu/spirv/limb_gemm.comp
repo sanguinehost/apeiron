@@ -66,18 +66,38 @@ void main() {
         hi[f] = FRAG(0);
     }
 
-    for (uint blk = blk0; blk < blk1; ++blk) {
-        for (uint k = seg0; k < seg1; ++k) {
-            const uint sh = meta[offH + k * blocks + blk];
-            if (sh == DEAD) {
+    // Segment outer, block inner: a segment's int32 dot runs on across blocks of one shift and
+    // enters the 64-bit accumulator only when the shift changes or the segment ends. A segment
+    // block adds at most 2^20, and at most 512 blocks (MAX_INNER / 32) stay under 2^29.
+    for (uint k = seg0; k < seg1; ++k) {
+        const uint p0 = meta[offS + 2u * k];
+        const uint pc = meta[offS + 2u * k + 1u];
+        FRAG d[4];
+        [[unroll]] for (uint f = 0u; f < 4u; ++f) {
+            d[f] = FRAG(0);
+        }
+        uint cur = DEAD;
+        for (uint blk = blk0; blk <= blk1; ++blk) {
+            const uint sh = blk < blk1 ? meta[offH + k * blocks + blk] : DEAD;
+            if (blk < blk1 && sh == DEAD) {
                 continue;
             }
-            const uint p0 = meta[offS + 2u * k];
-            const uint pc = meta[offS + 2u * k + 1u];
-            FRAG d[4];
-            [[unroll]] for (uint f = 0u; f < 4u; ++f) {
-                d[f] = FRAG(0);
+            if (sh != cur && cur != DEAD) {
+                [[unroll]] for (uint f = 0u; f < 4u; ++f) {
+                    for (uint e = 0u; e < d[f].length(); ++e) {
+                        int64_t v = packInt2x32(ivec2(lo[f][e], hi[f][e]));
+                        v += int64_t(d[f][e]) << cur;
+                        const ivec2 w = unpackInt2x32(v);
+                        lo[f][e] = w.x;
+                        hi[f][e] = w.y;
+                    }
+                    d[f] = FRAG(0);
+                }
             }
+            if (blk == blk1) {
+                break;
+            }
+            cur = sh;
             for (uint q = 0u; q < pc; ++q) {
                 const uint s = meta[offP + 2u * (p0 + q)];
                 const uint t = meta[offP + 2u * (p0 + q) + 1u];
@@ -93,15 +113,6 @@ void main() {
                     [[unroll]] for (uint j = 0u; j < 2u; ++j) {
                         d[i * 2u + j] = coopMatMulAdd(am[i], bm[j], d[i * 2u + j]);
                     }
-                }
-            }
-            [[unroll]] for (uint f = 0u; f < 4u; ++f) {
-                for (uint e = 0u; e < d[f].length(); ++e) {
-                    int64_t v = packInt2x32(ivec2(lo[f][e], hi[f][e]));
-                    v += int64_t(d[f][e]) << sh;
-                    const ivec2 w = unpackInt2x32(v);
-                    lo[f][e] = w.x;
-                    hi[f][e] = w.y;
                 }
             }
         }
