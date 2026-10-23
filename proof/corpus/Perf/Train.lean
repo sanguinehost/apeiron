@@ -402,4 +402,30 @@ theorem tiledGemm_fit :
     4 * gemmNewTenMicros.2.2 ≤ gemmOldTenMicros.2.2 := by
   decide
 
+/-! ## Gated DeltaNet backward (P126)
+
+`src/gpu/nn/train/mixer.rs` `DeltaBwd`: mode 0 recomputes the forward and stores every pre-update
+state `M_{t-1}` (`T · NV · 128²` f32), mode 1 reads it back in the reverse scan. Units: microseconds
+of device time at `T = 2048`, `NV = 16`, means of 5 runs on the live tree. -/
+
+/-- Device time of the forward `delta_scan`. Grade `measured`. -/
+def deltaFwdMicros : Nat := 1406
+
+/-- Device time of the three backward modes. Grade `measured`. -/
+def deltaBwdMicros : Nat := 15271
+
+/-- Bytes of the state store, written once in mode 0 and read once in mode 1. -/
+def deltaBwdStoreBytes : Nat := 2 * (2048 * 16 * 128 * 128 * 4)
+
+/-- The registered 3× wall bound is refuted, and it lay below the design's own traffic floor:
+the state store alone takes `4.29 GB / 960 GB/s` = 4473 µs, above `3 · 1406`. The backward
+measures 10× the forward and 3× that floor. Correctness clauses are `tested` (P126). -/
+theorem deltaBwd_fit :
+    3 * deltaFwdMicros < deltaBwdMicros ∧
+    deltaBwdStoreBytes / 960_000 = 4473 ∧
+    3 * deltaFwdMicros < deltaBwdStoreBytes / 960_000 ∧
+    10 * deltaFwdMicros ≤ deltaBwdMicros ∧ deltaBwdMicros < 11 * deltaFwdMicros ∧
+    3 * (deltaBwdStoreBytes / 960_000) ≤ deltaBwdMicros := by
+  decide
+
 end Perf.Train
