@@ -58,6 +58,7 @@
 //! same chunks for every job whose tasks are independent, which is how the projections use it.
 
 mod chunks;
+mod place;
 #[allow(
     unused_imports,
     reason = "re-exports for the FORM-PARALLEL L1-L4 call sites"
@@ -66,6 +67,7 @@ pub(crate) use chunks::{
     for_chunks, for_chunks2, for_chunks3, for_chunks4, for_pbands, for_vec_chunks, set_written_len,
     set_written_lens, PBand,
 };
+pub(crate) use place::pin_beside_worker;
 
 use super::task::{ChunkTask, IndexTask};
 use std::cell::UnsafeCell;

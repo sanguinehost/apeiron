@@ -1521,6 +1521,7 @@ import Gpu.Handoff
 #audit Perf.LimbDevice.deviceInverse_fit
 #audit Perf.LimbDevice.splitK_fit
 #audit Perf.LimbDevice.inlineLeaf_fit
+#audit Perf.LimbDevice.sideBPin_fit
 #audit Perf.Train.measuredPostFixBelowTarget
 #audit Perf.Handoff.align256_eq
 #audit Perf.Handoff.writeChunk_le_cap
