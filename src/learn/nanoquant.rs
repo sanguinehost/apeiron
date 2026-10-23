@@ -150,6 +150,12 @@ pub struct NqFactor {
     /// The ADMM's own normalised loss `‖W_n − (A_z/m)·B_z‖²/‖W_n‖²` at exit (`admm_nq.py`'s
     /// printed `Loss`, `m` the row norms of `B_z`).
     pub admm_loss: f64,
+    /// `U`'s latent, row-major `out × r`: `(A_ls + A_u)/norm_o·bf` (`admm_nq.py:215-232`);
+    /// its sign is `u` wherever the rank-one magnitude is nonzero. The reference's `tune_fact`
+    /// trains it through the sign.
+    pub u_latent: Vec<f64>,
+    /// `V`'s latent, row-major `r × in`: `(B_ls + B_u)/norm_i/bf`, the same way.
+    pub v_latent: Vec<f64>,
 }
 
 /// Deterministic Gaussian source: splitmix64 words through Box–Muller.
@@ -368,6 +374,8 @@ pub fn factorize(
             s_pre: f.s_post,
             s_post: f.s_pre,
             admm_loss: f.admm_loss,
+            u_latent: transpose(&f.v_latent, f.rank, out),
+            v_latent: transpose(&f.u_latent, inn, f.rank),
         });
     }
     let (o, n, r) = (out, inn, cfg.rank);
@@ -413,7 +421,9 @@ pub fn factorize(
         }
     }
     let admm_loss = admm_loss(&wn, &a_z, &b_z, o, n, r)?;
-    export(&a_z, &b_z, &ni, &no, o, n, r, admm_loss)
+    let a_lat: Vec<f64> = a_ls.iter().zip(&a_u).map(|(x, u)| x + u).collect();
+    let b_lat: Vec<f64> = b_ls.iter().zip(&b_u).map(|(x, u)| x + u).collect();
+    export(&[&a_z, &b_z, &a_lat, &b_lat], &ni, &no, o, n, r, admm_loss)
 }
 
 /// `‖W_n − (A_z/m)·B_z‖²/‖W_n‖²`, `m_k = ‖B_z row k‖` (the reference's printed loss).
@@ -445,14 +455,11 @@ fn admm_loss(
 
 /// The reference's final export: divide out the statistics, balance `A` and `B` to equal
 /// Frobenius norm, scale `A`'s columns by `1/‖A_z col‖`, take `s_pre`/`s_post` as the mean
-/// magnitudes and `U`/`V` as the signs (zero to `+1`). `O(r·(o + n))` plus two `rowdot_q32`.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the ADMM step's operands are distinct matrices"
-)]
+/// magnitudes and `U`/`V` as the signs (zero to `+1`). The latents `A_ls + A_u`, `B_ls + B_u`
+/// take the same statistics and balance, without the column scale. `z = [A_z, B_zᵀ, A_lat,
+/// B_latᵀ]`. `O(r·(o + n))` plus two `rowdot_q32`.
 fn export(
-    a_z: &[f64],
-    b_z: &[f64],
+    z: &[&[f64]; 4],
     ni: &[f64],
     no: &[f64],
     o: usize,
@@ -460,6 +467,7 @@ fn export(
     r: usize,
     admm_loss: f64,
 ) -> Result<NqFactor, NqError> {
+    let [a_z, b_z, a_lat, b_lat] = *z;
     let mut a: Vec<f64> = a_z.to_vec();
     for i in 0..o {
         for k in 0..r {
@@ -485,6 +493,18 @@ fn export(
     for x in &mut b {
         *x /= bf;
     }
+    let mut ul = a_lat.to_vec();
+    for i in 0..o {
+        for k in 0..r {
+            ul[i * r + k] *= bf / no[i];
+        }
+    }
+    let mut vl = b_lat.to_vec();
+    for j in 0..n {
+        for k in 0..r {
+            vl[j * r + k] /= ni[j] * bf;
+        }
+    }
     let sign = |x: f64| -> i8 {
         if x < 0.0 {
             -1
@@ -507,6 +527,260 @@ fn export(
         s_pre,
         s_post,
         admm_loss,
+        u_latent: ul,
+        v_latent: transpose(&vl, n, r),
+    })
+}
+
+/// Settings of [`tune`]: the reference `tune_fact` optimiser (`compress_block.py:160-201`,
+/// `main.py:90-94`): `optimi.AdamW` with `β = (0.9, 0.99)`, `ε = 1e-6`, weight decay 0, cosine
+/// annealing over `steps` to `1e-4·lr_scale`.
+#[derive(Debug, Clone, Copy)]
+pub struct TuneConfig {
+    /// Optimiser steps (reference: 128 samples × 8 epochs at batch 1 = 1024).
+    pub steps: usize,
+    /// Learning rate of the latents (reference `fact_binary_lr` `1e-5`).
+    pub lr_binary: f64,
+    /// Learning rate of `s_pre`, `s_post` (reference `fact_scale_lr` `1e-5`).
+    pub lr_scale: f64,
+    /// Multiplier of the per-token Gram: the reference loss sums one 2048-token sample, so `2048`
+    /// puts the gradient on the reference's scale against `ε`.
+    pub h_scale: f64,
+}
+
+impl TuneConfig {
+    /// The reference settings at `steps` steps.
+    #[must_use]
+    pub fn reference(steps: usize) -> Self {
+        Self {
+            steps,
+            lr_binary: 1e-5,
+            lr_scale: 1e-5,
+            h_scale: 2048.0,
+        }
+    }
+}
+
+/// The record of one [`tune`].
+#[derive(Debug, Clone)]
+pub struct TuneTrace {
+    /// `tr(EHEᵀ)/tr(WHWᵀ)` of the deployed factor before the first step and after the last.
+    pub rel_before: f64,
+    /// As `rel_before`, after the last step's signs and scales.
+    pub rel_after: f64,
+    /// The lowest `rel` seen at any step, and its step.
+    pub rel_best: (f64, usize),
+    /// Entries of `U` and `V` whose sign changed.
+    pub flips: usize,
+}
+
+/// One `optimi` Adam step on `p` with gradient `g` (moments `m`, `v`, 1-based step `t`):
+/// `β̂ = (βᵗ − β)/(βᵗ − 1)`, `m ← lerp(m, g, 1 − β̂₁)`, `v ← β̂₂v + (1 − β̂₂)g²`,
+/// `p ← p − lr·m/(√v + ε)`. `O(len)`.
+fn adam(p: &mut [f64], g: &[f64], m: &mut [f64], v: &mut [f64], t: usize, lr: f64) {
+    const B1: f64 = 0.9;
+    const B2: f64 = 0.99;
+    const E: f64 = 1e-6;
+    let debias = |b: f64| (b.powf(t as f64) - b) / (b.powf(t as f64) - 1.0);
+    let (b1, b2) = (debias(B1), debias(B2));
+    for i in 0..p.len() {
+        m[i] = b1 * m[i] + (1.0 - b1) * g[i];
+        v[i] = b2 * v[i] + (1.0 - b2) * g[i] * g[i];
+        p[i] -= lr * m[i] / (v[i].sqrt() + E);
+    }
+}
+
+/// `±1` words of the signs of `x` (zero to `+1`).
+fn sign_words(x: &[f64]) -> Vec<i64> {
+    x.iter()
+        .map(|&e| if e < 0.0 { -(1i64 << 32) } else { 1i64 << 32 })
+        .collect()
+}
+
+/// The four gradients of [`tune`]'s loss from `(EH)ᵀ = pt` (`n × o`), `M` and the signs:
+/// `[∂U (o × r), ∂Vᵀ (n × r), ∂s_post, ∂s_pre]`. Two `o·n·r` kernel products and two
+/// `rowdot_q32`s of `o·n`, plus `O(o·n)` element maps and transposes.
+fn grads(
+    pt: &[f64],
+    m: &[f64],
+    us: &[i64],
+    vst: &[i64],
+    sp: &[f64],
+    sq: &[f64],
+    (o, n, r): (usize, usize, usize),
+) -> Result<[Vec<f64>; 4], NqError> {
+    // `Gᵀ = 2·H·Eᵀ` (`n × o`) and `G`.
+    let gt: Vec<f64> = pt.iter().map(|x| 2.0 * x).collect();
+    let mut gsq = transpose(&gt, n, o);
+    for i in 0..o {
+        for j in 0..n {
+            gsq[i * n + j] *= sq[j];
+        }
+    }
+    let mut gsp = gt.clone();
+    for j in 0..n {
+        for i in 0..o {
+            gsp[j * o + i] *= sp[i];
+        }
+    }
+    // ∂U = diag(sp)·(G·diag(sq))·Vᵀ: `a·bᵀ` with `b = V` (`r × n`).
+    let vs = transpose(vst, n, r);
+    let mut ga: Vec<f64> = gemm_q32(&grid(&gsq)?, o, &vs, r, n, LIMBS)?
+        .iter()
+        .map(|&x| from_grid(x))
+        .collect();
+    for i in 0..o {
+        for k in 0..r {
+            ga[i * r + k] *= sp[i];
+        }
+    }
+    // ∂Vᵀ = diag(sq)·(Gᵀ·diag(sp))·U: `a·bᵀ` with `b = Uᵀ` (`r × o`).
+    let ust = transpose(us, o, r);
+    let mut gb: Vec<f64> = gemm_q32(&grid(&gsp)?, n, &ust, r, o, LIMBS)?
+        .iter()
+        .map(|&x| from_grid(x))
+        .collect();
+    for j in 0..n {
+        for k in 0..r {
+            gb[j * r + k] *= sq[j];
+        }
+    }
+    // ∂sp = rows of `G·diag(sq)` dotted with `M`; ∂sq = rows of `Gᵀ·diag(sp)` with `Mᵀ`.
+    let grad_post: Vec<f64> = rowdot_q32(&grid(&gsq)?, &grid(m)?, o, n, LIMBS)?
+        .iter()
+        .map(|&x| from_grid(x))
+        .collect();
+    let grad_pre: Vec<f64> = rowdot_q32(&grid(&gsp)?, &grid(&transpose(m, o, n))?, n, o, LIMBS)?
+        .iter()
+        .map(|&x| from_grid(x))
+        .collect();
+    Ok([ga, gb, grad_post, grad_pre])
+}
+
+/// The layer-scope analogue of the reference's `tune_fact`: Adam on the latents (through the
+/// straight-through sign, `binary_ste`) and the two scales against
+/// `L = tr((Ŵ − W)·H·(Ŵ − W)ᵀ)`, the squared output error of the layer over the calibration
+/// tokens whose Gram is `h` (`in × in`, Q32.32, per token), then the signs of the latents.
+///
+/// With `G = 2(Ŵ − W)H`, `M = U·V`: `∂L/∂U = diag(s_post)·G·diag(s_pre)·Vᵀ`,
+/// `∂L/∂V = Uᵀ·diag(s_post)·G·diag(s_pre)`, `∂L/∂s_post[i] = Σ_j G_ij·M_ij·s_pre[j]`,
+/// `∂L/∂s_pre[j] = Σ_i G_ij·M_ij·s_post[i]`.
+///
+/// # Errors
+///
+/// [`NqError::Shape`] on a mismatched `w`, `h` or latent; [`NqError::Range`] and
+/// [`NqError::Kernel`] as the products refuse.
+///
+/// # Complexity
+///
+/// Per step `o·n² + 3·o·n·r` multiply-adds on the kernel (`EH`, `UV` and the two latent
+/// gradients) plus `O(o·n)` element maps and two `rowdot_q32`s; one more `EH` before the first
+/// step, one after the last, and one `WH`. Space `O(o·n + n²)` words.
+pub fn tune(
+    f: &mut NqFactor,
+    w: &[i64],
+    h: &[i64],
+    cfg: &TuneConfig,
+) -> Result<TuneTrace, NqError> {
+    let (o, n, r) = (f.out, f.inn, f.rank);
+    if w.len() != o * n
+        || h.len() != n * n
+        || f.u_latent.len() != o * r
+        || f.v_latent.len() != r * n
+    {
+        return Err(NqError::Shape);
+    }
+    let hs: Vec<f64> = h.iter().map(|&x| from_grid(x) * cfg.h_scale).collect();
+    let hp = prepare(&grid(&hs)?, n, n, LIMBS)?;
+    let wf: Vec<f64> = w.iter().map(|&x| from_grid(x)).collect();
+    // `tr(XHXᵀ)` and `(XH)ᵀ` for an `o × n` matrix `X`: `H·Xᵀ` on the prepared plane, then the
+    // trace as row dots of `Xᵀ` against it.
+    let energy = |x: &[f64]| -> Result<(f64, Vec<f64>), NqError> {
+        let pt = hp.gemm(&grid(x)?, o)?;
+        let d = rowdot_q32(&grid(&transpose(x, o, n))?, &pt, n, o, LIMBS)?;
+        Ok((
+            d.iter().map(|&e| from_grid(e)).sum(),
+            pt.iter().map(|&e| from_grid(e)).collect(),
+        ))
+    };
+    let base = energy(&wf)?.0.max(EPS);
+    let mut ul = f.u_latent.clone();
+    let mut vlt = transpose(&f.v_latent, r, n);
+    let (mut sp, mut sq) = (f.s_post.clone(), f.s_pre.clone());
+    let (u0, v0) = (sign_words(&ul), sign_words(&vlt));
+    let mut mom = [
+        vec![0.0; o * r],
+        vec![0.0; o * r],
+        vec![0.0; n * r],
+        vec![0.0; n * r],
+        vec![0.0; o],
+        vec![0.0; o],
+        vec![0.0; n],
+        vec![0.0; n],
+    ];
+    // `Ŵ = diag(sp)·M·diag(sq)`, `M = sign(ul)·sign(vlt)ᵀ` exact on the kernel.
+    let forward = |ul: &[f64], vlt: &[f64], sp: &[f64], sq: &[f64]| {
+        let (us, vst) = (sign_words(ul), sign_words(vlt));
+        let m: Vec<f64> = gemm_q32(&us, o, &vst, n, r, LIMBS)?
+            .iter()
+            .map(|&e| from_grid(e))
+            .collect();
+        let mut e = vec![0.0f64; o * n];
+        for i in 0..o {
+            for j in 0..n {
+                e[i * n + j] = sp[i] * m[i * n + j] * sq[j] - wf[i * n + j];
+            }
+        }
+        Ok::<_, NqError>((us, vst, m, e))
+    };
+    let (_, _, _, e0) = forward(&ul, &vlt, &sp, &sq)?;
+    let rel_before = energy(&e0)?.0 / base;
+    let mut rel_best = (rel_before, 0);
+    let eta_min = 1e-4 * cfg.lr_scale;
+    for t in 0..cfg.steps {
+        let (us, vst, m, e) = forward(&ul, &vlt, &sp, &sq)?;
+        let (en, pt) = energy(&e)?;
+        if en / base < rel_best.0 {
+            rel_best = (en / base, t);
+        }
+        let [ga, gb, grad_post, grad_pre] = grads(&pt, &m, &us, &vst, &sp, &sq, (o, n, r))?;
+        let cos = f64::midpoint(
+            1.0,
+            (std::f64::consts::PI * t as f64 / cfg.steps as f64).cos(),
+        );
+        let lr_b = eta_min + (cfg.lr_binary - eta_min) * cos;
+        let lr_s = eta_min + (cfg.lr_scale - eta_min) * cos;
+        let [m0, v0m, m1, v1m, m2, v2m, m3, v3m] = &mut mom;
+        adam(&mut ul, &ga, m0, v0m, t + 1, lr_b);
+        adam(&mut vlt, &gb, m1, v1m, t + 1, lr_b);
+        adam(&mut sp, &grad_post, m2, v2m, t + 1, lr_s);
+        adam(&mut sq, &grad_pre, m3, v3m, t + 1, lr_s);
+    }
+    let (us, vst, _, e) = forward(&ul, &vlt, &sp, &sq)?;
+    let rel_after = energy(&e)?.0 / base;
+    if rel_after < rel_best.0 {
+        rel_best = (rel_after, cfg.steps);
+    }
+    let flips = us.iter().zip(&u0).filter(|(a, b)| a != b).count()
+        + vst.iter().zip(&v0).filter(|(a, b)| a != b).count();
+    let sgn = |x: i64| -> i8 {
+        if x < 0 {
+            -1
+        } else {
+            1
+        }
+    };
+    f.u = us.iter().map(|&x| sgn(x)).collect();
+    f.v = transpose(&vst.iter().map(|&x| sgn(x)).collect::<Vec<i8>>(), n, r);
+    f.u_latent = ul;
+    f.v_latent = transpose(&vlt, n, r);
+    f.s_post = sp;
+    f.s_pre = sq;
+    Ok(TuneTrace {
+        rel_before,
+        rel_after,
+        rel_best,
+        flips,
     })
 }
 

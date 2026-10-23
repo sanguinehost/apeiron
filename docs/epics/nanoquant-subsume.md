@@ -5,7 +5,7 @@
 - Owner: lead. Board: `APEIRON-QUALITY-118-W1-T01`.
 - Source revision: `SamsungLabs/NanoQuant` @ `a9e0a43` (Apache-2.0), checked out at `../NanoQuant`;
   paper arXiv 2602.06694.
-- Status: W1 (ADMM port) tested; W2–W5 open.
+- Status: W1 (ADMM port) and W2 (layer-scope STE tune) tested and measured; W3–W5 open.
 
 | reference file | sha256 |
 |---|---|
@@ -76,6 +76,7 @@ Aeneas extraction of the same two functions; the factored forward `diag(s_post)�
 |---|---|---|
 | `rank_for_bits` | `stored_bits(r) ≤ budget`, `r` maximal multiple of 32 | tested (`rank_fits_budget_and_is_maximal`) |
 | `factorize` | signs ±1; `weight()` = dense `diag(s_post)UVdiag(s_pre)`; loss falls with iterations | tested (`export_matches_its_dense_form_and_loss_falls`, `wide_matrix_runs_on_the_transpose`) |
+| `tune` | latents carry the exported signs (≥ 99%); `tr(EHEᵀ)` falls; signs stay ±1 | tested (`latents_carry_the_signs_and_tune_lowers_the_h_energy`) |
 
 ### Failure semantics
 
@@ -95,11 +96,12 @@ Layer-scope relH `tr(EHEᵀ)/tr(WHWᵀ)` on the cached calibration Gram, then he
 | `o_norm` | `importance.py` output importance | 1 (W5) |
 | precision | fp32 / TF32 on CUDA (`admm_nq.py:9`) | Q32.32 on the 3-limb integer kernel |
 | RNG | torch `randn` | crate RNG; not bit-reproducible |
-| tune | block-scope `tune_fact`, then global KD | not yet ported (W2, W3) |
+| tune | block-scope `tune_fact` on the block output, 128 samples × 8 epochs | layer scope: analytic `L = tr(EHEᵀ)` on the cached Gram, `h_scale = 2048`; same optimiser, rates, schedule and step count |
+| KD | global KD after the blocks | not ported |
 
 ## Plan — NanoQuant subsumption
 
-### Measured (l23 `down`, Qwen2.5-0.5B, layer scope, grade measured)
+### Measured (l23 `down`, Qwen3.5-0.8B, layer scope, grade measured)
 
 Command: `APEIRON_NQ_KIND=down APEIRON_NQ_LAYERS=23 … cargo test --release --all-features --locked
 --test learn_nanoquant nq_fit -- --ignored --nocapture`; machine i9-14900KF, 32 threads.
@@ -112,13 +114,23 @@ Command: `APEIRON_NQ_KIND=down APEIRON_NQ_LAYERS=23 … cargo test --release --a
 | NQ ADMM, cubic, 400 it | 1.1451 | 0.02493 | 165 |
 | NQ ADMM, cubic, 400 it | 0.9844 | 0.03010 | 199 |
 | NQ ADMM, cubic, 150 it | 0.9844 | 0.0322 | 213 |
+| NQ ADMM 400 it + layer tune, 1024 steps (W2) | 1.1451 | 0.01727 | 114 |
 
 ADMM alone is NanoQuant's initialisation; the paper's quality comes after `tune_fact` and KD. The
-ADMM-only arm is 1.26× c6x29 and 2.01× c6x29-sel in relH.
+ADMM-only arm is 1.26× c6x29 and 2.01× c6x29-sel in relH. The W2 tune (reference rates `1e-5`,
+cosine, 1024 steps; 66 665 of 4 128 768 signs flipped; best at the last step, so still falling)
+is 0.886× c6x29 and 1.42× c6x29-sel. Logs: `/home/socol/oc-tmp/escalation/lead-1023/nq/w2a-micro.log`,
+`w2b-1024.log`; board `APEIRON-QUALITY-118-W1-T01`.
+
+Small-matrix control (96×64, `r = 32`, 60 steps): scales alone converge to 0.987× the ADMM energy;
+latent rates `1e-3` / `1e-2` flip 135 / 507 signs and raise it to 1.02× / 1.56×. The STE step is a
+linearisation at the continuous latent, so a rate large against the latent magnitude (`|ul| ≈ 0.05`)
+flips signs the discrete loss does not reward.
 
 ### Cost equation (measured)
 
-0.34 s per ADMM iteration at 1024×3584, r = 768; 0.42 s at r = 896. 400 iterations = 137–170 s per
+0.34 s per ADMM iteration at 1024×3584, r = 768; 0.43 s at r = 896 (171.1 s for 400). Tune: 0.39 s per
+step at r = 896 (403.9 s for 1024), against the projected `o·n² + 3·o·n·r` = 23.1 GMAC. 400 iterations = 137–170 s per
 tensor; 28 tensors ≈ 4000 s, one kind (7 tensors) ≈ 1000–1200 s: both above the 600 s ceiling. Levers:
 iterations (150 it costs +7% relH), 2 limbs (K3: needs a measured metric), the GPU path.
 
@@ -132,12 +144,16 @@ iterations (150 it costs +7% relH), 2 limbs (K3: needs a measured metric), the G
 | W4 | Lean/Aeneas: budget, factored forward, SVID identity, ridge minimiser | `proof/corpus/Learn/NanoQuant.lean`, `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build` |
 | W5 | `o_norm` importance, block-scope tune | `src/learn/nanoquant.rs` | relH, then KL |
 
-W2 step cost: `o·n² + 2·r·o·n` MACs ≈ 13 + 5.6 GMAC at `down`; microbench one step before a campaign.
+W2 step cost: `o·n² + 3·r·o·n` MACs ≈ 13.2 + 9.9 GMAC at `down`, 0.39 s measured.
 
-### Negative control (W1)
+### Negative controls
 
 Dropping `s_pre` in `NqFactor::weight` in a throwaway copy turns
 `export_matches_its_dense_form_and_loss_falls` red; the restored tree passes.
+
+W2: negating `∂s_post` before its Adam step in a throwaway copy turns
+`latents_carry_the_signs_and_tune_lowers_the_h_energy` red at its descent assertion; the live tree
+passes.
 
 ### Stop and rollback conditions
 
