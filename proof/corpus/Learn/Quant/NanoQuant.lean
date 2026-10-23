@@ -305,6 +305,33 @@ theorem tune_colgrads_l23_down :
     colgradsTraceAfter = colsumTraceAfter := by
   decide
 
+/-- ADMM at the reference's 400 outer iterations, blk.23 `ffn_down`, r = 768, seeds 2 and 0 (`i400.log`):
+`admm_loss` (`10⁻⁵`). The 20-iteration losses are `admm_base_and_limbs`'s seeds 0–2 (`b32c.log`).
+`List` [a finite sequence of things, in order]. -/
+def iters400Loss : List Nat := [10344, 10341]
+/-- `admm_loss` (`10⁻⁵`) at 20 iterations, seeds 0–2 (`b32c.log`).
+`List` [a finite sequence of things, in order]. -/
+def iters20Loss : List Nat := [16482, 16522, 16484]
+/-- Final `relH` (`10⁻⁵`) after the 128-step sketched tune from the 400-iteration factor, seeds 2 and 0
+(`i400.log`). `List` [a finite sequence of things, in order]. -/
+def iters400Final : List Nat := [2478, 2471]
+/-- ADMM fit wall per tensor, tenths of a second: 400 iterations (`i400.log`, both seeds), then 20
+(`b32c.log`, seeds 0–2). `List` [a finite sequence of things, in order]. Board: APEIRON-QUALITY-118-W1-T01. -/
+def iters400Wall : List Nat := [613, 613]
+/-- Same, 20 iterations. `List` [a finite sequence of things, in order]. -/
+def iters20Wall : List Nat := [33, 33, 32]
+
+/-- **400 ADMM iterations beat 20 on quality and cost 18× the fit wall**: every 400-iteration `admm_loss` is
+under 0.63× every 20-iteration one, every final `relH` after the same tune is under 0.75× the 20-iteration
+trace (`colgradsTraceAfter`, 0.03320), and every 400-iteration fit is over 18× every 20-iteration fit, so
+the ADMM is the dominant per-tensor term. `∀` [for every]; `∈` [is one of the things in]; `∧` [both are
+true]; `<` [is smaller than]. -/
+theorem admm_iters_l23_down :
+    (∀ a ∈ iters400Loss, ∀ b ∈ iters20Loss, 100 * a < 63 * b) ∧
+    (∀ a ∈ iters400Final, 100 * a < 75 * colgradsTraceAfter[0]!) ∧
+    (∀ a ∈ iters400Wall, ∀ b ∈ iters20Wall, 18 * b < a) := by
+  decide
+
 end NanoQuant
 
 end Learn

@@ -171,7 +171,10 @@ ADMM, blk.23 `ffn_down` 1024×3584, r = 768, 3 limbs, 20 iterations, seeds 0–2
 limb-MAC/s). `H⁻¹` is [`spd_inverse`]: block Schur-complement recursion, `2n³/3` in kernel products, base
 order 32 (order 768: 12.2 ms against 17.4 at 192; residual at order 300 7.7e-6 against 3.4e-5 unrecursed).
 2 limbs: fit 2.7–2.8 s, `admm_loss` 0.168 (+1.9%, seeds 0–4), so 3 limbs stay (§0 K3). 400 iterations
-project to ≈ 65 s per tensor (not run). Tune: 0.39 s per step at r = 896 (403.9 s for 1024); sketched,
+(the reference's `outer_iters`), seeds 2 and 0: fit 61.3 s per tensor, `admm_loss` 0.10344 / 0.10341
+against 0.16484 at 20; after the same 128-step tune (s = 256) relH 0.02478 / 0.02471 against 0.03321
+(−25%), best 0.01377 / 0.01370 against 0.01721, 16 358 / 15 569 flips against 50 042; `i400.log`; verdict
+`Learn.NanoQuant.admm_iters_l23_down`. 400 iterations stay. Tune: 0.39 s per step at r = 896 (403.9 s for 1024); sketched,
 110 s for 1024 at 1024×3584. Sketched at r = 768, s = 256, 128 steps from the `b32` factor (sketch
 included): 10.0/9.9/9.8 s → 7.1/7.1/7.1 s (1.39×) with packed Adam moments, parallel sign and real maps,
 and transposes on words instead of reals; the trace is bit-identical (relH 0.04919 → 0.03321, best
@@ -187,7 +190,8 @@ rows ([`col_grads`], 4.5 → 2.97 ms): 5.25/5.23/5.27 s → 4.79/4.80/4.77 s (1.
 `colgrads-clean.log`, laps `aqswap.log`, `colgrads.log`, `colblock.log`; control: the sign negated in
 `col_grads` turns `full_width_sketch_tune_matches_the_full_tune` red (`mut-colgrads.log`); verdict
 `Learn.NanoQuant.tune_colgrads_l23_down`. Remaining per step (≈ 37 ms): `P` 8.2, `A·Qᵀ` 7.1, `col_grads` 3.0,
-`∂U` 2.4, `A` 2.45, Adam 2.4, `sign(V)·diag(sq)` 2.15, `U·P` 1.8. The tune is the dominant term. Logs `/home/socol/oc-tmp/escalation/lead-1023/nq/`
+`∂U` 2.4, `A` 2.45, Adam 2.4, `sign(V)·diag(sq)` 2.15, `U·P` 1.8. Per tensor at 400 iterations the ADMM
+(61.3 s) is the dominant term; 128 tune steps are 4.8 s. Logs `/home/socol/oc-tmp/escalation/lead-1023/nq/`
 `b32c.log`, `seed-mixed.log`, `invsmall.log`, `invres.log`, control `invmut.log`; board `APEIRON-QUALITY-118-W1-T01`.
 
 ### Same-model comparison (Qwen3-0.6B-Base, wikitext2 test, 146 × 2048 tokens, grade measured)
@@ -210,8 +214,9 @@ the reference's whole-model rate is ≈ 5.05 b/w, while at 27B the embedding sha
 
 Reference wall: 113.6 s per block (116, 138, 100, 100 s on one RTX 5080, including the per-block ppl
 eval); 28 blocks = 53 min plus model KD, above the 600 s ceiling. ADMM is 0.56 s per tensor on the GPU;
-the tune epochs dominate. Our CPU path at 1024×3584 projects to ≈ 65 s ADMM (400 iterations) plus 110 s
-sketched tune (1024 steps) per tensor (above): the dominant term is our tune per-step cost, not the algorithm.
+the tune epochs dominate. Our CPU path at 1024×3584 measures 61.3 s ADMM (400 iterations) plus 4.8 s per
+128 sketched tune steps (≈ 38 s for 1024) per tensor (above): the dominant term is our ADMM per-iteration
+cost (≈ 153 ms, 110× the reference's GPU iteration), not the algorithm.
 
 ### Wave map
 
