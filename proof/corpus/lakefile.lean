@@ -129,6 +129,9 @@ lean_lib ApeironWordBridge where
     -- Rate-spike verdicts (`Learn/RateSpikes.lean`): the M1 plane walk's GO/PROMISING/footprint
     -- clauses against its receipt (board row ).
     `Learn.RateSpikes,
+    -- NanoQuant port verdicts (`Learn/Quant/NanoQuant.lean`): budget, relH, KL and tune cost at l23 `down`
+    -- (board row ).
+    `Learn.Quant.NanoQuant,
     -- The `basis.log2`/`fixed_ln` real-value spec (`Learn/Log2.lean`): the certified `LN2_Q32` and
     -- `SQRT2_Q62` constant errors, the `ln_atanh_poly` coefficient rounding and truncation
     -- remainder, the normalization identity and the `|s| ≤ 1/3` range. The composition is named
