@@ -936,3 +936,110 @@ fn admm_rank1_matches_cpu() {
         }
     }
 }
+
+/// Unit costs of a resident Schur inverse on the device (microbench; prints, asserts nothing): the
+/// wall of one empty submit, and of one plane-build pair plus one limb product per half-order `s`
+/// of the order-768 recursion, recorded `reps` times in one command buffer.
+#[test]
+#[ignore = "microbench"]
+fn device_unit_costs() {
+    use admm::{dev_buf, full, Product};
+    let vk = match unsafe { Vk::load() } {
+        Ok(vk) => vk,
+        Err(e) => {
+            println!("SKIP: No Vulkan device present: {e}");
+            return;
+        }
+    };
+    if !vk.has_coopmat {
+        println!("SKIP: no cooperative matrices");
+        return;
+    }
+    let limbs = 3u32;
+    unsafe {
+        let cb = vk.command_buffer();
+        vk.begin(cb);
+        check((vk.end_cb)(cb), "vkEndCommandBuffer");
+        vk.submit_wait(cb);
+        let t = Instant::now();
+        for _ in 0..200 {
+            vk.submit_wait(cb);
+        }
+        println!(
+            "UNIT empty submit_wait {:.1} us",
+            t.elapsed().as_secs_f64() * 1e6 / 200.0
+        );
+        for &s in &[24usize, 48, 96, 192, 384] {
+            let reps = 20usize;
+            let sp = s.div_ceil(TILE) * TILE;
+            let blocks = s.div_ceil(32);
+            let lb = limbs as usize * 32;
+            let host = MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT;
+            let x = words(s * s, 0x1234 + s as u64, 33);
+            let (bx, mx) = vk
+                .buffer(
+                    8 * x.len() as u64,
+                    BUFFER_USAGE_STORAGE | BUFFER_USAGE_TRANSFER_DST,
+                    host,
+                )
+                .expect("x");
+            std::ptr::copy_nonoverlapping(x.as_ptr(), vk.map(mx).cast(), x.len());
+            let pl = [
+                bx,
+                dev_buf(&vk, 4 * blocks).expect("e"),
+                dev_buf(&vk, sp * blocks * lb).expect("dig"),
+                dev_buf(&vk, 4).expect("flag"),
+            ];
+            let pb = plane::PlaneBuild::new(&vk, pl, s, s, limbs);
+            let o = dev_buf(&vk, Product::o_bytes(s, s, s, limbs)).expect("o");
+            let xo = dev_buf(&vk, 8 * sp * sp).expect("x out");
+            let mut ups = Vec::new();
+            let pr = Product::new(
+                &vk,
+                [pl[2], pl[1]],
+                [pl[2], pl[1]],
+                (s, s, s, limbs),
+                o,
+                xo,
+                &mut ups,
+            )
+            .expect("product");
+            let total: usize = ups.iter().map(|u: &(Handle, Vec<u8>)| u.1.len()).sum();
+            let (st, sm) = vk
+                .buffer(total.max(16) as u64, BUFFER_USAGE_TRANSFER_SRC, host)
+                .expect("stage");
+            let sp_ptr = vk.map(sm).cast::<u8>();
+            let cb = vk.command_buffer();
+            vk.begin(cb);
+            (vk.fill_buffer)(cb, pl[2], 0, WHOLE_SIZE, 0);
+            let mut at = 0usize;
+            for (dst, b) in &ups {
+                std::ptr::copy_nonoverlapping(b.as_ptr(), sp_ptr.add(at), b.len());
+                admm::copy(&vk, cb, st, at, *dst, 0, b.len());
+                at += b.len();
+            }
+            check((vk.end_cb)(cb), "vkEndCommandBuffer");
+            vk.submit_wait(cb);
+            let cb = vk.command_buffer();
+            vk.begin(cb);
+            for _ in 0..reps {
+                pb.record(&vk, cb);
+                full(&vk, cb);
+                pb.record(&vk, cb);
+                full(&vk, cb);
+                pr.record(&vk, cb);
+                full(&vk, cb);
+            }
+            check((vk.end_cb)(cb), "vkEndCommandBuffer");
+            vk.submit_wait(cb);
+            let mut us = Vec::new();
+            for _ in 0..5 {
+                let t = Instant::now();
+                vk.submit_wait(cb);
+                us.push(t.elapsed().as_secs_f64() * 1e6 / reps as f64);
+            }
+            let mean = us.iter().sum::<f64>() / us.len() as f64;
+            println!("UNIT s {s} two planes + product {mean:.1} us per rep (reps {reps}, 5 runs)");
+        }
+    }
+}
