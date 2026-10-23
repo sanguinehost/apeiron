@@ -784,6 +784,357 @@ pub fn tune(
     })
 }
 
+/// A rank-`s` sketch of the calibration Gram: `Q` (`n × s`, orthonormal columns) spanning `H`'s
+/// dominant subspace and `H_s = QᵀHQ` (`s × s`), so `QH_sQᵀ = PHP` with `P = QQᵀ`.
+#[derive(Debug, Clone)]
+pub struct HSketch {
+    /// The sketch width `s`.
+    pub s: usize,
+    /// `Q`, row-major `n × s`.
+    pub q: Vec<f64>,
+    /// `H_s = QᵀHQ`, row-major `s × s`.
+    pub hs: Vec<f64>,
+}
+
+/// The columns of `y` (`n × s`) orthonormalised by Cholesky QR: unit columns, `G = YᵀY` by
+/// `syrk_q32`, `G⁻¹ = UᵀU` by [`inv_factor_upper`], `Q = Y·Uᵀ` (`QᵀQ = U·G·Uᵀ = I`). Three passes,
+/// the first on `G + 2⁻¹²·I` (shifted `CholeskyQR3`, Fukaya et al. 2020): the 3-limb `H·Q`
+/// carries its tail columns to about `10⁻⁴` relative, and at `s = 512` that leaves `G` singular
+/// unshifted. `O(3·(n·s² + s³))` multiply-adds.
+fn orth(y: &[f64], n: usize, s: usize) -> Result<Vec<f64>, NqError> {
+    let mut q = y.to_vec();
+    for pass in 0..3 {
+        let mut yt = transpose(&q, n, s);
+        let norms = rowdot_q32(&grid(&yt)?, &grid(&yt)?, s, n, LIMBS)?;
+        for k in 0..s {
+            let d = from_grid(norms[k]).sqrt().max(EPS);
+            for e in &mut yt[k * n..(k + 1) * n] {
+                *e /= d;
+            }
+        }
+        let mut g = syrk_q32(&grid(&yt)?, s, n, LIMBS)?;
+        if pass == 0 {
+            for k in 0..s {
+                g[k * s + k] += 1 << 20;
+            }
+        }
+        let ui = inv_factor_upper(&g, s)?;
+        q = gemm_q32(&grid(&transpose(&yt, s, n))?, n, &ui, s, s, LIMBS)?
+            .iter()
+            .map(|&w| from_grid(w))
+            .collect();
+    }
+    Ok(q)
+}
+
+/// [`HSketch`] of `h` (`n × n`, Q32.32) by subspace iteration: a Gaussian `n × s` start, then
+/// `passes` steps `Q ← orth(H·Q)` on one prepared plane of `H`, then `H_s = Qᵀ(HQ)`.
+///
+/// # Errors
+///
+/// [`NqError::Shape`] if `h.len() != n·n` or `s` is zero or above `n`; [`NqError::Range`],
+/// [`NqError::Kernel`] and [`NqError::Solve`] as the products and the factor refuse.
+///
+/// # Complexity
+///
+/// `(passes + 1)·n²·s` kernel multiply-adds for the `H·Q` products, `(passes + 1)·3·(n·s² + s³)`
+/// for [`orth`], `n·s²` for `H_s`. Space `O(n² + n·s)` words (the prepared plane of `H`).
+pub fn h_sketch(
+    h: &[i64],
+    n: usize,
+    s: usize,
+    passes: usize,
+    seed: u64,
+) -> Result<HSketch, NqError> {
+    if h.len() != n * n || s == 0 || s > n {
+        return Err(NqError::Shape);
+    }
+    let hp = prepare(h, n, n, LIMBS)?;
+    let mut rng = Rng(seed);
+    let omega: Vec<f64> = (0..n * s).map(|_| rng.normal()).collect();
+    let mut q = orth(&omega, n, s)?;
+    // `hp.gemm(Qᵀ, s) = H·Q` (`n × s`).
+    let hq = |q: &[f64]| -> Result<Vec<f64>, NqError> {
+        Ok(hp
+            .gemm(&grid(&transpose(q, n, s))?, s)?
+            .iter()
+            .map(|&w| from_grid(w))
+            .collect())
+    };
+    for _ in 0..passes {
+        q = orth(&hq(&q)?, n, s)?;
+    }
+    let y = hq(&q)?;
+    let hs = gemm_q32(
+        &grid(&transpose(&q, n, s))?,
+        s,
+        &grid(&transpose(&y, n, s))?,
+        s,
+        n,
+        LIMBS,
+    )?
+    .iter()
+    .map(|&w| from_grid(w))
+    .collect();
+    Ok(HSketch { s, q, hs })
+}
+
+impl HSketch {
+    /// `tr(X·QH_sQᵀ·Xᵀ)` of a row-major `o × n` matrix `x`: `XQ` (`o·n·s`), `(XQ)·H_s` (`o·s²`) and
+    /// the row dots.
+    ///
+    /// # Errors
+    ///
+    /// [`NqError::Shape`] on a mismatched `x`; [`NqError::Range`] and [`NqError::Kernel`] as the
+    /// products refuse.
+    pub fn energy(&self, x: &[f64], o: usize) -> Result<f64, NqError> {
+        let s = self.s;
+        let n = self.q.len() / s;
+        if x.len() != o * n {
+            return Err(NqError::Shape);
+        }
+        let xq = gemm_q32(&grid(x)?, o, &grid(&transpose(&self.q, n, s))?, s, n, LIMBS)?;
+        let xqh = gemm_q32(&xq, o, &grid(&self.hs)?, s, s, LIMBS)?;
+        let d = rowdot_q32(&xq, &xqh, o, s, LIMBS)?;
+        Ok(d.iter().map(|&e| from_grid(e)).sum())
+    }
+}
+
+/// Words of `x` (row-major `rows × cols`) with column `j` scaled by `c[j]`. `O(rows·cols)`.
+fn scale_cols(x: &[f64], rows: usize, cols: usize, c: &[f64]) -> Result<Vec<i64>, NqError> {
+    let mut y = x.to_vec();
+    for i in 0..rows {
+        for j in 0..cols {
+            y[i * cols + j] *= c[j];
+        }
+    }
+    grid(&y)
+}
+
+/// Words of `x` (row-major `rows × cols`) with row `i` scaled by `c[i]`. `O(rows·cols)`.
+fn scale_rows(x: &[f64], rows: usize, cols: usize, c: &[f64]) -> Result<Vec<i64>, NqError> {
+    let mut y = x.to_vec();
+    for i in 0..rows {
+        for e in &mut y[i * cols..(i + 1) * cols] {
+            *e *= c[i];
+        }
+    }
+    grid(&y)
+}
+
+/// Kernel words to reals.
+fn reals(x: &[i64]) -> Vec<f64> {
+    x.iter().map(|&w| from_grid(w)).collect()
+}
+
+/// The fixed `s`-frame of [`tune_sketch`]: `Qᵀ`, `Q`, `C = h_scale·H_s` as kernel words and `W·Q`.
+struct SkFrame {
+    dims: (usize, usize, usize, usize),
+    qt: Vec<i64>,
+    qw: Vec<i64>,
+    c: Vec<i64>,
+    wq: Vec<f64>,
+}
+
+/// One forward of [`tune_sketch`]: the signs, `P`, `U·P`, `E_Q·C` and the sketched loss `L_s`.
+struct SkStep {
+    us: Vec<i64>,
+    vsf: Vec<f64>,
+    p: Vec<i64>,
+    up: Vec<f64>,
+    eqc: Vec<i64>,
+    ls: f64,
+}
+
+impl SkFrame {
+    /// `P = V·diag(sq)·Q` (`r × s`), `UP = U·P` (`o × s`), `E_Q = diag(sp)·UP − W·Q`,
+    /// `E_Q·C` and `L_s = tr(E_Q·C·E_Qᵀ)`. `r·s·(n + o) + o·s²` kernel multiply-adds.
+    fn step(&self, ul: &[f64], vl: &[f64], sp: &[f64], sq: &[f64]) -> Result<SkStep, NqError> {
+        let (o, n, r, s) = self.dims;
+        let (us, vs) = (sign_words(ul), sign_words(vl));
+        let vsf = reals(&vs);
+        let p = gemm_q32(&scale_cols(&vsf, r, n, sq)?, r, &self.qt, s, n, LIMBS)?;
+        let up = reals(&gemm_q32(
+            &us,
+            o,
+            &grid(&transpose(&reals(&p), r, s))?,
+            s,
+            r,
+            LIMBS,
+        )?);
+        let mut eq = vec![0.0f64; o * s];
+        for i in 0..o {
+            for k in 0..s {
+                eq[i * s + k] = sp[i] * up[i * s + k] - self.wq[i * s + k];
+            }
+        }
+        let eqw = grid(&eq)?;
+        let eqc = gemm_q32(&eqw, o, &self.c, s, s, LIMBS)?;
+        let ls = reals(&rowdot_q32(&eqw, &eqc, o, s, LIMBS)?).iter().sum();
+        Ok(SkStep {
+            us,
+            vsf,
+            p,
+            up,
+            eqc,
+            ls,
+        })
+    }
+
+    /// `[∂U, ∂V, ∂s_post, ∂s_pre]` at `st` (formulas at [`tune_sketch`]).
+    /// `r·s·(2·o + 2·n)` kernel multiply-adds plus `O(s·(o + n))` row dots.
+    fn grads(&self, st: &SkStep, sp: &[f64], sq: &[f64]) -> Result<[Vec<f64>; 4], NqError> {
+        let (o, n, r, s) = self.dims;
+        let g: Vec<f64> = reals(&st.eqc).iter().map(|x| 2.0 * x).collect();
+        let gsp = scale_rows(&g, o, s, sp)?;
+        let ga = reals(&gemm_q32(&gsp, o, &st.p, r, s, LIMBS)?);
+        let a = gemm_q32(
+            &grid(&transpose(&reals(&st.us), o, r))?,
+            r,
+            &grid(&transpose(&reals(&gsp), o, s))?,
+            s,
+            o,
+            LIMBS,
+        )?;
+        let at = grid(&transpose(&reals(&a), r, s))?;
+        // `∂V = A·Qᵀ·diag(sq)` (`r × n`), `VᵀA` (`n × s`).
+        let gb = reals(&scale_cols(
+            &reals(&gemm_q32(&a, r, &self.qw, n, s, LIMBS)?),
+            r,
+            n,
+            sq,
+        )?);
+        let vta = gemm_q32(&grid(&transpose(&st.vsf, r, n))?, n, &at, s, r, LIMBS)?;
+        let grad_post = reals(&rowdot_q32(&grid(&g)?, &grid(&st.up)?, o, s, LIMBS)?);
+        let grad_pre = reals(&rowdot_q32(&self.qw, &vta, n, s, LIMBS)?);
+        Ok([ga, gb, grad_post, grad_pre])
+    }
+}
+
+/// [`tune`] on the sketched loss `L_s = tr(E·QH_sQᵀ·Eᵀ)` (`sk` from [`h_sketch`]): the same
+/// optimiser, rates, schedule and STE, with every product taken in the `s`-dimensional frame.
+/// With `P = V·diag(s_pre)·Q` (`r × s`), `E_Q = diag(s_post)·U·P − W·Q`, `G = 2·E_Q·C`
+/// (`C = h_scale·H_s`): `∂U = diag(s_post)·G·Pᵀ`, `A = Uᵀ·diag(s_post)·G`,
+/// `∂Vᵀ = diag(s_pre)·Q·Aᵀ`, `∂s_post[i] = ⟨G_i, (U·P)_i⟩`, `∂s_pre[j] = ⟨Q_j, (Vᵀ·A)_j⟩`.
+/// `rel_before`/`rel_after` are the full `tr(EHEᵀ)/tr(WHWᵀ)` under `h`; `rel_best` tracks the
+/// sketched ratio `L_s/tr(W·QH_sQᵀ·Wᵀ)`.
+///
+/// # Errors
+///
+/// As [`tune`]; [`NqError::Shape`] also when `sk` is not `n × s`.
+///
+/// # Complexity
+///
+/// Per step `r·s·(3·o + 3·n) + o·s²` kernel multiply-adds (`P`, `U·P`, `∂U`, `A`, `∂Vᵀ`, `Vᵀ·A`
+/// and `G`) plus `O(r·(o + n))` element maps; against [`tune`]'s `o·n² + 3·o·n·r`. One `W·Q` and
+/// the two full energies (`2·o·n² + o·n·r`) outside the loop. Space `O(r·(o + n) + n·s + n²)`.
+pub fn tune_sketch(
+    f: &mut NqFactor,
+    w: &[i64],
+    h: &[i64],
+    sk: &HSketch,
+    cfg: &TuneConfig,
+) -> Result<TuneTrace, NqError> {
+    let (o, n, r, s) = (f.out, f.inn, f.rank, sk.s);
+    if w.len() != o * n
+        || h.len() != n * n
+        || sk.q.len() != n * s
+        || sk.hs.len() != s * s
+        || f.u_latent.len() != o * r
+        || f.v_latent.len() != r * n
+    {
+        return Err(NqError::Shape);
+    }
+    let qt = grid(&transpose(&sk.q, n, s))?;
+    let qw = grid(&sk.q)?;
+    let c = grid(&sk.hs.iter().map(|x| x * cfg.h_scale).collect::<Vec<f64>>())?;
+    let wq = reals(&gemm_q32(w, o, &qt, s, n, LIMBS)?);
+    let wqc = gemm_q32(&grid(&wq)?, o, &c, s, s, LIMBS)?;
+    let base_s: f64 = reals(&rowdot_q32(&grid(&wq)?, &wqc, o, s, LIMBS)?)
+        .iter()
+        .sum::<f64>()
+        .max(EPS);
+    let fr = SkFrame {
+        dims: (o, n, r, s),
+        qt,
+        qw,
+        c,
+        wq,
+    };
+    let hp = prepare(h, n, n, LIMBS)?;
+    let full = |x: &[i64]| -> Result<f64, NqError> {
+        let pt = hp.gemm(x, o)?;
+        let xt = grid(&transpose(&reals(x), o, n))?;
+        Ok(reals(&rowdot_q32(&xt, &pt, n, o, LIMBS)?).iter().sum())
+    };
+    let base = full(w)?.max(EPS);
+    let rel_full = |f: &NqFactor| -> Result<f64, NqError> {
+        let e: Vec<i64> = f.weight()?.iter().zip(w).map(|(&a, &b)| a - b).collect();
+        Ok(full(&e)? / base)
+    };
+    let rel_before = rel_full(f)?;
+    let mut ul = f.u_latent.clone();
+    let mut vl = f.v_latent.clone();
+    let (mut sp, mut sq) = (f.s_post.clone(), f.s_pre.clone());
+    let (u0, v0) = (sign_words(&ul), sign_words(&vl));
+    let mut mom = [
+        vec![0.0; o * r],
+        vec![0.0; o * r],
+        vec![0.0; r * n],
+        vec![0.0; r * n],
+        vec![0.0; o],
+        vec![0.0; o],
+        vec![0.0; n],
+        vec![0.0; n],
+    ];
+    let mut rel_best = (f64::INFINITY, 0);
+    let eta_min = 1e-4 * cfg.lr_scale;
+    for t in 0..=cfg.steps {
+        let st = fr.step(&ul, &vl, &sp, &sq)?;
+        if st.ls / base_s < rel_best.0 {
+            rel_best = (st.ls / base_s, t);
+        }
+        if t == cfg.steps {
+            break;
+        }
+        let [ga, gb, grad_post, grad_pre] = fr.grads(&st, &sp, &sq)?;
+        let cos = f64::midpoint(
+            1.0,
+            (std::f64::consts::PI * t as f64 / cfg.steps as f64).cos(),
+        );
+        let lr_b = eta_min + (cfg.lr_binary - eta_min) * cos;
+        let lr_s = eta_min + (cfg.lr_scale - eta_min) * cos;
+        let [m0, v0m, m1, v1m, m2, v2m, m3, v3m] = &mut mom;
+        adam(&mut ul, &ga, m0, v0m, t + 1, lr_b);
+        adam(&mut vl, &gb, m1, v1m, t + 1, lr_b);
+        adam(&mut sp, &grad_post, m2, v2m, t + 1, lr_s);
+        adam(&mut sq, &grad_pre, m3, v3m, t + 1, lr_s);
+    }
+    let (us, vs) = (sign_words(&ul), sign_words(&vl));
+    let flips = us.iter().zip(&u0).filter(|(a, b)| a != b).count()
+        + vs.iter().zip(&v0).filter(|(a, b)| a != b).count();
+    let sgn = |x: i64| -> i8 {
+        if x < 0 {
+            -1
+        } else {
+            1
+        }
+    };
+    f.u = us.iter().map(|&x| sgn(x)).collect();
+    f.v = vs.iter().map(|&x| sgn(x)).collect();
+    f.u_latent = ul;
+    f.v_latent = vl;
+    f.s_post = sp;
+    f.s_pre = sq;
+    let rel_after = rel_full(f)?;
+    Ok(TuneTrace {
+        rel_before,
+        rel_after,
+        rel_best,
+        flips,
+    })
+}
+
 impl NqFactor {
     /// The dense `Ŵ` (`out × in`, Q32.32): `U·V` on the kernel (exact: `±1` words), then the two
     /// diagonal scales. `O(out·in·r)` kernel products plus `O(out·in)`.
