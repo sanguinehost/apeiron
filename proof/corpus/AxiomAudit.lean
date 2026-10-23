@@ -1514,6 +1514,7 @@ import Gpu.Handoff
 #audit Perf.LimbDevice.placeBytes_fit
 #audit Perf.LimbDevice.finishBytes_fit
 #audit Perf.LimbDevice.schurDevice_fit
+#audit Perf.LimbDevice.xPairOverlap_fit
 #audit Perf.Train.measuredPostFixBelowTarget
 #audit Perf.Handoff.align256_eq
 #audit Perf.Handoff.writeChunk_le_cap
@@ -2917,6 +2918,7 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.NanoQuant.limb_device_rank1_fit
 #audit Learn.NanoQuant.pooled_inverse
 #audit Learn.NanoQuant.pooled_inverse_fit
+#audit Learn.NanoQuant.threaded_x_pair
 #audit Learn.GateCode.plane_bits
 #audit Learn.GateCode.base_headroom
 #audit Learn.GateCode.t14_fits

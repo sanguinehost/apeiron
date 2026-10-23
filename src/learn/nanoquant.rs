@@ -608,8 +608,16 @@ pub fn factorize(
     for t in 0..cfg.outer_iters {
         let x = t as f64 / cfg.outer_iters as f64;
         let rho = cfg.schedule.rho(x);
-        a_ls = x_step(&mut a_side, &b_z, n, r, &wp, o, &a_z, &a_u, rho, cfg.reg)?;
-        b_ls = x_step(&mut b_side, &a_z, o, r, &wtp, n, &b_z, &b_u, rho, cfg.reg)?;
+        // The two updates read only the previous `Z` and `U`, so they run on two threads: one side's
+        // host inverse proceeds while the other waits on the device. Each result is the serial
+        // one; `A`'s refusal still wins.
+        let (ra, rb) = std::thread::scope(|s| {
+            let hb = s.spawn(|| x_step(&mut b_side, &a_z, o, r, &wtp, n, &b_z, &b_u, rho, cfg.reg));
+            let ra = x_step(&mut a_side, &b_z, n, r, &wp, o, &a_z, &a_u, rho, cfg.reg);
+            (ra, hb.join())
+        });
+        a_ls = ra?;
+        b_ls = rb.unwrap_or_else(|p| std::panic::resume_unwind(p))?;
         let ta: Vec<f64> = a_ls.iter().zip(&a_u).map(|(x, u)| x + u).collect();
         let tb: Vec<f64> = b_ls.iter().zip(&b_u).map(|(x, u)| x + u).collect();
         a_z = rank1_step(&mut a_side, &ta, (o, r), cfg.inner_iters, false, &mut rng)?;
