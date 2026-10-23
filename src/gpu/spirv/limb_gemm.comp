@@ -1,0 +1,112 @@
+#version 450
+// The exact limb product of `engine::kern::limb::gemm_q32` on signed-int8 M16N16K32 cooperative
+// matrices. Consumer: `src/gpu/limb.rs`, which owns the contract this file computes.
+//
+// Every operand row is the limb plane `[block][limb][32 lanes]` of signed digits, |d| <= 64. For one
+// pair group g (z), one segment k (the group's pairs of one level s + t) and one block, every pair
+// of the segment has the same exponent T, so the segment's 32-lane dots sum in one int32 fragment
+// (|.| <= 8 * 32 * 64 * 64 = 2^20) and enter the group's 64-bit accumulator as dot << (T - Tmin_g).
+// The host proves the accumulator cannot leave int64 (it falls back to the CPU product otherwise),
+// rounds once by 2^Tmin_g and sums the groups. The 64-bit value is two int32 accumulator
+// fragments, lo and hi, which share one element layout.
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_KHR_shader_subgroup_basic : require
+
+layout(local_size_x = 128) in;
+
+// A and B: rows padded to a multiple of 64, each row `blocks * limbs * 32` bytes.
+layout(std430, binding = 0) readonly buffer A { uvec4 a[]; };
+layout(std430, binding = 1) readonly buffer B { uvec4 b[]; };
+// O: per group, the lo plane then the hi plane, each Mp x Pp row-major int32.
+layout(std430, binding = 2) writeonly buffer O { int o[]; };
+// META: [blocks, limbs, Mp, Pp, off_groups, off_segs, off_pairs, off_shift], then
+// groups (seg begin, seg end), segs (pair begin, pair count), pairs (s, t), and
+// shift[seg * blocks + block] = T - Tmin_g, or DEAD for a block pair below the placement floor.
+layout(std430, binding = 3) readonly buffer M { uint meta[]; };
+
+const uint DEAD = 0xFFFFFFFFu;
+
+#define FRAG coopmat<int32_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+
+void main() {
+    const uint blocks = meta[0];
+    const uint limbs = meta[1];
+    const uint Mp = meta[2];
+    const uint Pp = meta[3];
+    const uint offG = meta[4];
+    const uint offS = meta[5];
+    const uint offP = meta[6];
+    const uint offH = meta[7];
+    const uint g = gl_WorkGroupID.z;
+    const uint seg0 = meta[offG + 2u * g];
+    const uint seg1 = meta[offG + 2u * g + 1u];
+    const uint sg = gl_SubgroupID;
+    const uint row0 = gl_WorkGroupID.x * 64u + (sg >> 1u) * 32u;
+    const uint col0 = gl_WorkGroupID.y * 64u + (sg & 1u) * 32u;
+    // Row stride in uvec4 (16 bytes): one limb block is 32 bytes, two uvec4.
+    const uint rs = blocks * limbs * 2u;
+
+    FRAG lo[4];
+    FRAG hi[4];
+    [[unroll]] for (uint f = 0u; f < 4u; ++f) {
+        lo[f] = FRAG(0);
+        hi[f] = FRAG(0);
+    }
+
+    for (uint blk = 0u; blk < blocks; ++blk) {
+        for (uint k = seg0; k < seg1; ++k) {
+            const uint sh = meta[offH + k * blocks + blk];
+            if (sh == DEAD) {
+                continue;
+            }
+            const uint p0 = meta[offS + 2u * k];
+            const uint pc = meta[offS + 2u * k + 1u];
+            FRAG d[4];
+            [[unroll]] for (uint f = 0u; f < 4u; ++f) {
+                d[f] = FRAG(0);
+            }
+            for (uint q = 0u; q < pc; ++q) {
+                const uint s = meta[offP + 2u * (p0 + q)];
+                const uint t = meta[offP + 2u * (p0 + q) + 1u];
+                coopmat<int8_t, gl_ScopeSubgroup, 16, 32, gl_MatrixUseA> am[2];
+                coopmat<int8_t, gl_ScopeSubgroup, 32, 16, gl_MatrixUseB> bm[2];
+                [[unroll]] for (uint i = 0u; i < 2u; ++i) {
+                    coopMatLoad(am[i], a, (row0 + 16u * i) * rs + (blk * limbs + s) * 2u, rs,
+                                gl_CooperativeMatrixLayoutRowMajor);
+                    coopMatLoad(bm[i], b, (col0 + 16u * i) * rs + (blk * limbs + t) * 2u, rs,
+                                gl_CooperativeMatrixLayoutColumnMajor);
+                }
+                [[unroll]] for (uint i = 0u; i < 2u; ++i) {
+                    [[unroll]] for (uint j = 0u; j < 2u; ++j) {
+                        d[i * 2u + j] = coopMatMulAdd(am[i], bm[j], d[i * 2u + j]);
+                    }
+                }
+            }
+            [[unroll]] for (uint f = 0u; f < 4u; ++f) {
+                for (uint e = 0u; e < d[f].length(); ++e) {
+                    int64_t v = packInt2x32(ivec2(lo[f][e], hi[f][e]));
+                    v += int64_t(d[f][e]) << sh;
+                    const ivec2 w = unpackInt2x32(v);
+                    lo[f][e] = w.x;
+                    hi[f][e] = w.y;
+                }
+            }
+        }
+    }
+
+    const uint plane = Mp * Pp;
+    [[unroll]] for (uint i = 0u; i < 2u; ++i) {
+        [[unroll]] for (uint j = 0u; j < 2u; ++j) {
+            const uint at = (row0 + 16u * i) * Pp + col0 + 16u * j;
+            coopMatStore(lo[i * 2u + j], o, (2u * g) * plane + at, Pp,
+                         gl_CooperativeMatrixLayoutRowMajor);
+            coopMatStore(hi[i * 2u + j], o, (2u * g + 1u) * plane + at, Pp,
+                         gl_CooperativeMatrixLayoutRowMajor);
+        }
+    }
+}

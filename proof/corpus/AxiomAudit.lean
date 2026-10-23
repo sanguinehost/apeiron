@@ -115,6 +115,7 @@ import Perf.QuantumRotation
 import Perf.SpecDraftKL
 import Perf.Handoff
 import Perf.Train
+import Perf.LimbDevice
 import Numeric.Quantum.Ledger.FaceShift
 import Numeric.Quantum.Ledger.AmplitudeKL
 import Numeric.Quantum.Ledger.DesignLadder
@@ -1505,6 +1506,10 @@ import Gpu.Handoff
 #audit Perf.Train.layerStepDispatches_eq
 #audit Perf.Train.cacheSavesNineBuilds
 #audit Perf.Train.cacheSavesNineBuildsAtMeasured
+#audit Perf.LimbDevice.routed_lt_cpu_iff
+#audit Perf.LimbDevice.routes_at_min_inner
+#audit Perf.LimbDevice.cpu_at_half_min_inner
+#audit Perf.LimbDevice.break_even_n
 #audit Perf.Train.measuredPostFixBelowTarget
 #audit Perf.Handoff.align256_eq
 #audit Perf.Handoff.writeChunk_le_cap
@@ -2898,6 +2903,8 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.NanoQuant.tune_colgrads_l23_down
 #audit Learn.NanoQuant.admm_iters_l23_down
 #audit Learn.NanoQuant.admm_budget_l23_down
+#audit Learn.NanoQuant.limb_device_route
+#audit Learn.NanoQuant.limb_device_fit_l23_down
 #audit Learn.GateCode.plane_bits
 #audit Learn.GateCode.base_headroom
 #audit Learn.GateCode.t14_fits
