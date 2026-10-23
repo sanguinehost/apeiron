@@ -782,3 +782,84 @@ void main() {
         );
     }
 }
+
+/// The committed ADMM map SPIR-V is what `glslc` makes of the committed GLSL.
+#[test]
+fn admm_map_spirv_is_the_glsl() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/spirv");
+    let out = std::env::temp_dir().join(format!("admm_map_{}.spv", std::process::id()));
+    let st = std::process::Command::new("glslc")
+        .args(GLSLC_ARGS)
+        .arg(dir.join("admm_map.comp"))
+        .arg("-o")
+        .arg(&out)
+        .status()
+        .expect("glslc must be on PATH: the committed SPIR-V is checked against it");
+    assert!(st.success(), "glslc failed: {st}");
+    let fresh = std::fs::read(&out).expect("glslc output");
+    let _ = std::fs::remove_file(&out);
+    assert!(
+        fresh == admm::ADMM_MAP_SPV,
+        "admm_map.spv is stale: re-run glslc"
+    );
+}
+
+/// A fixed-seed LCG value in `[-1, 1)`.
+fn unit(len: usize, seed: u64) -> Vec<f64> {
+    words(len, seed, 30)
+        .into_iter()
+        .map(|w| w as f64 / f64::from(1u32 << 30))
+        .collect()
+}
+
+/// The resident `x_update` equals `learn::nanoquant::x_update` in every bit at two odd shapes and
+/// both sides of the blk.23 `ffn_down` frame, twice on one frame; with both walls.
+#[test]
+fn admm_x_update_matches_cpu() {
+    use crate::learn::nanoquant::{spd_inverse, x_update, LIMBS};
+    if device().is_none() {
+        println!("SKIP: No Vulkan device with cooperative matrices");
+        return;
+    }
+    // (k, n, r): two odd shapes, side A (W, o 3584 × n 1024) and side B (Wᵀ) at rank 768.
+    for &(k, n, r) in &[
+        (200, 96, 64),
+        (130, 70, 40),
+        (3584, 1024, 768),
+        (1024, 3584, 768),
+    ] {
+        // W_n on the grid at |w| < 2^-3, as the normalised target.
+        let w = words(k * n, 0x5eed ^ (k * n) as u64, 29);
+        let wp = crate::engine::kern::limb::prepare(&w, k, n, LIMBS).expect("plane");
+        let Some(mut side) = Side::new(&w, k, n, r, LIMBS) else {
+            println!("SKIP: no binary64 device frame");
+            return;
+        };
+        for round in 0..2u64 {
+            let zx = unit(n * r, 11 + round);
+            let z = unit(k * r, 23 + round);
+            let du = unit(k * r, 37 + round);
+            let (rho, reg) = (0.3 + 0.1 * round as f64, 3e-2);
+            let t = Instant::now();
+            let cpu = x_update(&zx, n, r, &wp, k, &z, &du, rho, reg).expect("cpu x_update");
+            let cpu_s = t.elapsed().as_secs_f64();
+            let t = Instant::now();
+            let dev = side
+                .x_update(&zx, &z, &du, rho, reg, spd_inverse)
+                .expect("device stages flagged")
+                .expect("host inverse");
+            let dev_s = t.elapsed().as_secs_f64();
+            let diff = cpu
+                .iter()
+                .zip(&dev)
+                .filter(|(a, b)| a.to_bits() != b.to_bits())
+                .count();
+            println!(
+                "x_update k {k} n {n} r {r} round {round}: cpu {:.2} ms, device {:.2} ms, {diff} words differ",
+                cpu_s * 1e3,
+                dev_s * 1e3
+            );
+            assert_eq!(diff, 0, "x_update k {k} n {n} r {r} round {round}");
+        }
+    }
+}

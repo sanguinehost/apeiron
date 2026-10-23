@@ -538,36 +538,18 @@ unsafe fn record(vk: &Vk, s: &Bound, key: [usize; 7]) -> CommandBuffer {
 
 /// The device plane build, the first stage of the device-resident ADMM iteration
 ///.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the resident x_update, W6 T4 in the nanoquant-subsume note"
-    )
-)]
 mod plane;
 
-/// The device placement, the second stage of the device-resident ADMM iteration
-///.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the resident x_update, W6 T4 in the nanoquant-subsume note"
-    )
-)]
+/// The device placement, the second stage of the device-resident ADMM iteration.
 mod place;
 
-/// The device finish, the third stage of the device-resident ADMM iteration
-///.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the resident x_update, W6 T4 in the nanoquant-subsume note"
-    )
-)]
+/// The device finish, the third stage of the device-resident ADMM iteration.
 mod finish;
+
+/// The resident `x_update`: the three stages and the binary64 maps between them.
+mod admm;
+
+pub(crate) use admm::Side;
 
 #[cfg(test)]
 mod tests;
