@@ -334,4 +334,28 @@ theorem cacheSavesNineBuildsAtMeasured (d q : Nat) :
 theorem measuredPostFixBelowTarget : measuredPostFixHostMicros < postFixTargetMicros := by
   decide
 
+/-! ## Block reconstruction tune (P123)
+
+`src/gpu/nn/train/block.rs` `BlockTune` tunes the four sign factors of one layer (`o`, `gate`, `up`,
+`down`, 1.1456 b/w) against the teacher's block output on the student's own input stream:
+`y = h + (silu(n·Wgᵀ) ⊙ n·Wuᵀ)·Wdᵀ`, `h = x + a·Woᵀ`, straight-through sign, Adam, 8 epochs over
+35 × 512 calibration tokens, layer by layer. Units: millionths of nats (held-out KL, chunks 8–9) and
+seconds of wall. -/
+
+/-- Held-out KL against f16 (`kl-bt24-89.log`): ADMM factors alone, block-tuned, and Q4_K_M.
+Grade `measured`. -/
+def klAdmm : Nat := 4_083_521
+def klBlockTuned : Nat := 1_264_101
+def klQ4KM : Nat := 49_140
+
+/-- Whole-trunk tune wall, 24 layers (`bt-tune-all.log`). Grade `measured`. -/
+def tuneWallSecs : Nat := 236
+
+/-- The block tune cuts KL 3.23×; it remains 25.7× above Q4_K_M; the 24-layer tune fits the 600 s
+ceiling. -/
+theorem blockTune_fit :
+    klBlockTuned < klAdmm ∧ klAdmm * 100 / klBlockTuned = 323 ∧
+    klQ4KM < klBlockTuned ∧ klBlockTuned * 10 / klQ4KM = 257 ∧ tuneWallSecs < 600 := by
+  decide
+
 end Perf.Train
