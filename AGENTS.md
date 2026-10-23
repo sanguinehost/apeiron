@@ -1,8 +1,44 @@
 # apeiron: working agreement
 
-`R[x]/(x^2 - sigma)`, its `Cell<i64>` word kernel, and the growable flat/spill table that consumes it. One
-Rust crate, one Lean extraction package, one Lean refinement bridge. This file governs the work; the
-source and the gates are the record.
+`R[x]/(x^2 - sigma)` and what executes on it:
+- the `Cell<i64>` word kernel;
+- the growable flat/spill table;
+- the CPU and SPIR-V model engine;
+- the quantisation that fits a model into the weight budget.
+
+One Rust crate, one Lean extraction package, one Lean refinement bridge. This file governs the work;
+the source and the gates are the record.
+
+## Goal, gap and method
+
+Read this first. The owner layer ([`../AGENTS.md`](../AGENTS.md) §The goal, §The method) states both
+in full; this section is how they bind here.
+
+- **Goal.** A model on a phone-class device, offline, that helps people in a warzone survive.
+  - Quality "WITHIN 10% OF 4-BIT" (Q4_K_M).
+  - ≤ 4 GB of resident weights: a 27B-class model at ≈ 1.18 b/w, KV cache excluded.
+  - SPIR-V/Vulkan on this PC first, mobile after.
+- **Where the gap is.** Owner, 2026-10-24: the method below "has already successfully led to us
+  achieving SOTA performance on this hardware across everything EXCEPT quantisation". Quantisation
+  is the last major gap.
+  - The quality gate and its proxy model: [`docs/plan.md`](docs/plan.md) § F4 · quality
+    (`QUALITY-118`, board row `APEIRON-QUALITY-118-W1-T01`).
+  - Current numbers live only in
+    [`docs/evidence/perf-predictions.md` § Current](docs/evidence/perf-predictions.md#current).
+- **TARGET / NOW / GAP / EXPECTED.** Every report and every lane brief opens with these four lines
+  against the goal (owner layer §The goal). A quality figure is stated against Q4_K_M from the same
+  run, never on its own.
+- **The method** (owner layer §The method) has five steps:
+  1. find the empirical best;
+  2. reproduce it whole on this box and read its compiled output;
+  3. take into Rust, inside the Aeneas/Charon fragment, what it measurably does better;
+  4. formalise why it works in the R[x]/(x² − σ) basis;
+  5. iterate from there with a cost model that predicts.
+
+  The hash table is the worked example (§3a).
+- **Quantisation follows the same steps.** Step 2 is the SOTA's own pipeline, run as shipped on our
+  proxy model, with its number recorded beside ours in the same run. Our port changes nothing until
+  that comparison exists. A lane whose base the measured winner does not pay for is a tax (§3a).
 
 Apeiron owns the canonical definitions, the reusable Rust primitives and their refinements. The
 programme thesis, ownership, outcomes, primitive correspondence, migration and execution order are
@@ -325,6 +361,60 @@ Order dispatch by contribution to the goal and by difficulty, never by dispatcha
 
 Owner direction.
 
+## 3b · Intent dogfood
+
+The `intent` MCP server is the harness for this repository, and the route for every bounded worker.
+- Owner, 2026-10-24: "We don't use agy we use deepseek w/ intent MCP dogfooding it."
+- DeepSeek Flash through this MCP is the default worker (§9.1).
+- The `opencode run` CLI (§11) is the fallback only when the MCP is down. Record that outage as the
+  lane's `WRONG:` line.
+
+Read `../intent/AGENTS.md` §1a for the tool map, the modes and the RRSI candidate fields. The
+brief, the gate, the control and the receipt in this file still decide acceptance; a session record
+is evidence, not a gate.
+
+- Start a nontrivial task in `session_chat` with `work` set to this checkout and a `title`. A
+  ticket is not required to start or continue a session; it is required for fleet dispatch,
+  commit, push or merge.
+- Use `session_open` + `session_send` for a multi-turn lane and `background: true` for a long run.
+  Completion is a native `<subagent ...>` notice; do not poll a log. `session_status` and
+  `session_events` read the record.
+- `plan` is read-only inspection; `guarded` is only for a caller that will answer a `pending_call`;
+  `intent_launch` is for an approved fleet task only. The default model is
+  `deepseek/deepseek-flash`; record the model actually served and the session id.
+- Keep `sessions/` out of tracked content. Copy the session id and receipt into the lane's
+  evidence record; the gate and its control remain the closure.
+
+**Return this block with every nontrivial task.**
+
+```text
+DOGFOOD <task> <session> <model> <mode> <base>
+RIGHT: <mechanism that worked; command or file:line>
+WRONG: <exact failure; call, error, path:line>
+RRSI: <one candidate title>
+  COMPONENT: prompt | config | policy | skill | tool | crate | doc
+  EDIT: <one bounded change; files>
+  SYMPTOM: <what the harness does now>
+  FALSIFIER: <test or mutation that fails now and passes after>
+  METRIC: <S and C; baseline command; k paired samples>
+  NOISE: <delta, or why it is not measurable>
+  COST: <token/cash/wall bound; provider cost>
+  GUARD: <what must not regress>
+  PRUNE: <when to abandon>
+  DISPOSITION: accepted | rejected | inconclusive | out-of-scope <receipt>
+```
+
+**What this repo feeds RRSI.** Apeiron is the proof and build stress case. Feed the Intent-side
+friction, never the theorem content.
+
+- Works: one task, one gate and one baseline/red/restore control; worktree and base identity;
+  exact command output in the return.
+- Fails: the Rust gate driver is missing, the §7 metadata gate is missing, and a proof loop can
+  consume the whole lane.
+- Feed: long Lean/Aeneas output and its truncation, lane dispatch and base verification,
+  background observation of builds, and the exact-command receipt. These are candidates against
+  Intent's context, tool and record surfaces. The theorem or proof obligation stays in Apeiron.
+
 ## 4 · Definition of done
 
 A task closes on its focused gate and control, completed within its §10 wall-clock budget; a
@@ -564,12 +654,16 @@ descriptive only.
 
 ### 9.1 Default worker and trigger-selected escalation
 
-`deepseek-flash` (`deepseek/deepseek-flash`, the DeepSeek API through OpenCode — never the
-OpenRouter route) executes every dispatch-ready task by default. The second worker lane is `agy`
-(the Antigravity CLI, Gemini 3.8 Flash): comparable quality with less usage headroom. Use both
-heavily; the lead designs, dispatches and verifies, and does not do bounded work itself (owner,
-2026-10-06). The Space Bunny free window closed 2026-10-05; that route is retired. Escalation is
-selected by the artifact at risk, not by a subjective difficulty estimate. A mandatory trigger, not familiarity or a first failed hypothesis, selects the model.
+DeepSeek Flash (`deepseek/deepseek-flash`, the DeepSeek API, never the OpenRouter route) executes
+every dispatch-ready task by default, through the intent MCP (§3b). Owner, 2026-10-24: "We don't
+use agy we use deepseek w/ intent MCP dogfooding it."
+- The lead designs, dispatches and verifies. It does not do bounded work itself (owner,
+  2026-10-06).
+- A Haiku 5.5 subagent is the second worker, inside the owner-layer day budget.
+- Antigravity (`agy`) and Space Bunny are not worker routes.
+
+Escalation is selected by the artifact at risk, not by a subjective difficulty estimate. A mandatory
+trigger, not familiarity or a first failed hypothesis, selects the model.
 Mandatory escalation triggers override every worker lane. An unresolved proof or architecture
 obligation goes to a fresh session on a different worker model; the Lean kernel and the mutation
 control arbitrate, and contract or claim-grade questions go to the lead. A contract, grade or
@@ -582,9 +676,8 @@ disk are historical records.
 
 | role | assignment | mandatory trigger | required return |
 |---|---|---|---|
-| Haiku 5.5 subagent (Claude Code `model: haiku`, context under 100k) | **default bounded worker for every dispatch-ready task** (owner, 2026-10-11) | task is ≤3 files, one task-specific gate, no escalation trigger holds | edited artifact, exact gate output, measurement, decision, ≤ 40 lines |
-| DeepSeek Flash (`deepseek-flash`, `deepseek/deepseek-flash`, the DeepSeek API — never the OpenRouter route) | second bounded worker, when its route is live | as Haiku 5.5 | edited artifact, exact gate output, measurement, decision |
-| `agy` (Antigravity CLI, Gemini 3.8 Flash) | third bounded worker, when its route is live | as Haiku 5.5; also bulk reads that return a digest | edited artifact, exact gate output, measurement, decision |
+| DeepSeek Flash through the intent MCP (`session_chat`, or `session_open` + `session_send` with `background: true`) | **default bounded worker for every dispatch-ready task** (owner, 2026-10-24) | task is ≤3 files, one task-specific gate, no escalation trigger holds | edited artifact, exact gate output, measurement, decision, the §3b `DOGFOOD` block |
+| Haiku 5.5 subagent (Claude Code `model: haiku`, context under 100k) | second bounded worker, inside the owner-layer day budget | as DeepSeek Flash | edited artifact, exact gate output, measurement, decision, ≤ 40 lines |
 | independent verifier (fresh session on a different model from the writer, with user approval) | verification, proof and architecture escalation | passing requires changing a contract premise, a Lean theorem or its attribution, a claim grade, a canonical-corpus theorem, or a control still passes under its stated mutation; or the change exceeds 3 files or one gate, overlaps another task's paths, modifies a repository or governing-document boundary, or governing documents conflict | proof or gate verdict with named premises; architecture boundary, task decomposition, integration order, residual risk |
 | lead | closure authority | escalation verdict received or wave barrier reached | merge, rejection, or the next dispatch-ready wave |
 
@@ -604,7 +697,7 @@ disk are historical records.
 - The independent verifier returns a bounded decision or artifact. Execution returns to the default
   worker when that result restores a ≤3-file, one-gate task, unless a speed-lane condition holds;
   escalation does not transfer ordinary work.
-- Standing user authorization covers Haiku 5.5 subagent, `deepseek-flash` and `agy` worker invocations and
+- Standing user authorization covers DeepSeek Flash and Haiku 5.5 worker invocations and
   fresh-session verification that meet a trigger. Spend no other paid lane without the owner. Only the lead closes a wave, merges, commits or
   pushes unless the user delegates that authority. A missing required verdict keeps the task open.
 
@@ -612,19 +705,22 @@ disk are historical records.
 
 The rules are in the owner layer, [`../AGENTS.md`](../AGENTS.md) §Capacity, "Rules: the weekly cap lasts
 5–7 days" (owner, 2026-10-06). They bind this repository; this file holds no copy of the figures.
-`python3 ~/Workspace/lrw.com/drafts/agent-cost/tools/rules.py` prints them. In short: one day budget shared
-by every lead on the machine; auto-compact at 200k on every Claude model, by the session's own model; a lead
-plus up to four Haiku 5.5 subagents and at most one Sonnet subagent by default, with the 1 Opus + 2 Sonnet
-burst as a few hours a day; nights run a lone lead with the work on Haiku 5.5, then agy (Gemini 3.8 Flash
-high), then DeepSeek; no timer polling; delegation by
-size, and every dispatch logs its estimate and actual.
+`python3 ~/Workspace/lrw.com/drafts/agent-cost/tools/rules.py` prints them. In short:
+- one day budget, shared by every lead on the machine;
+- auto-compact at 200k on every Claude model, by the session's own model;
+- bounded work on DeepSeek Flash through the intent MCP, at most one Sonnet reviewer;
+- the 1 Opus + 2 Sonnet burst only as a few hours a day;
+- nights run a lone lead whose work runs on DeepSeek lanes;
+- no timer polling, delegation by size, and every dispatch logs its estimate and actual.
 
-- **Claude concurrency:** a lead plus up to four Haiku 5.5 subagents and at most one Sonnet subagent by
-  default; the burst (one Opus and two Sonnet beside the lead) is a per-day allowance of a few hours under
-  the owner-layer day budget, not a standing shape. Everything bounded goes to Haiku 5.5 (each lane under
-  100k context, where its price is Sonnet ÷ 20), then agy and DeepSeek Flash. A Sonnet lane reviews and
-  verifies Haiku's work; an Opus lane is reserved for work whose artifact is at risk: unsafe Rust, proofs
-  past a worker's cycle cap, contract or architecture decisions.
+- **Claude concurrency.** A lead with at most one Sonnet subagent by default.
+  - The burst (one Opus and two Sonnet beside the lead) is a per-day allowance of a few hours under
+    the owner-layer day budget, not a standing shape.
+  - Bounded work goes to DeepSeek Flash through the intent MCP, then to Haiku 5.5 (each lane under
+    100k context, where its price is Sonnet ÷ 20).
+  - A Sonnet lane reviews and verifies a worker's output.
+  - An Opus lane is reserved for work whose artifact is at risk: unsafe Rust, proofs past a worker's
+    cycle cap, contract or architecture decisions.
 - **Claude lanes keep context lean:** they pipe output through `tail`/`rg`, never `cat` a log, and spawn no
   subagents.
 - **Every dispatch carries an estimate**, wall-clock minutes and, for Claude lanes, tokens, recorded in
@@ -695,8 +791,8 @@ discipline without claiming those mechanisms exist.
 - Do not commit, push, post externally, or modify another active workstream unless the user asks.
 - End every slice with: changed files, acceptance results (command and exit status), what is proved
   versus tested versus open, and the next bounded task.
-- The owner-layer authority for this workspace is [`../AGENTS.md`](../AGENTS.md) §Authority, hold,
-  momentum. A `HOLD` marker (repo root or `~/Workspace/HOLD`) stops new work; run the preflight
+- The owner-layer authority for this workspace is [`../AGENTS.md`](../AGENTS.md) §Ask, act or
+  stop. A `HOLD` marker (repo root or `~/Workspace/HOLD`) stops new work; run the preflight
   `gate hold` (built from [`tools/gate`](tools/gate)) before any write or dispatch, and treat a
   marker as releasable only by the owner.
 
@@ -810,6 +906,11 @@ evidence within budget on named source/tool identities, and retains exclusions a
 | tmpfs exhaustion stalled a Lean lane: the 32G `/tmp` tmpfs fell to ~285M free mid-slice (29G used, led by finished 18G copy trees `spike-locate` and `verify-w5t15` plus stale wave/control copies) | `/tmp/opencode` `du` output; `APEIRON-INT-TRANSCENDENTAL-W1-T2C` report; `df -h /tmp` | Disposable copies live outside the tmpfs: scratch and control copies under `/home/socol/oc-tmp`, only named receipts and logs under `/tmp/opencode`; prune a finished slice's copy at its receipt, preserving cited small files | Lead cleanup reclaimed ~26G while keeping every `*.log`; the stalled worker switched `TMPDIR=/home/socol/oc-tmp` | A tmpfs-headroom check before dispatch and a per-slice prune step in the integration checklist |
 | Cross-worktree target sharing poisoned timed builds: live-tree runs of `spill_read_probe` measured the ported scratch code at 2.02–2.04 ns/key and "passed" while the same sources measure 9.26–9.48 ns/key after a forced rebuild; the porting task's `CARGO_TARGET_DIR` pointed at the live tree, so `target/` held a sibling worktree's objects, and its cached warnings named `src/map/table.rs:84` against the live line 97; an early read-stats direction claim came from the same contaminated set | `/tmp/opencode/w4a-fix-run.log`, `/tmp/opencode/w4a-clean-uninstr2.log`, `/tmp/opencode/w4a-clean-instr2.log`; apeiron `715592c` | A timed or acceptance run binds to a source identity: force a rebuild (`touch src/lib.rs`) or use a private target directory, and check cached warnings' line numbers against the tree before quoting a figure | The harness header records the rule and the clean builds; the baseline was re-run after a forced rebuild | An enforcement that refuses a timing claim whose target was shared with another worktree |
 | The quantisation programme ran in Python: the one-bit transfer, finishing, Fisher and speculative-acceptance results were computed by torch scripts under `tools/onebit/`, so none of them is on the crate's build path or reachable by extraction, and Lean theorems were written over their receipts as if they bound the implementation | apeiron `776d7a63`, `684a1dd1`; `tools/onebit/pv_finish.py` | §4 obligation 1, executing language: model computation is Rust or SPIR-V on the build path; Python receipts are historical observations of the script | `.githooks/pre-commit` step 0 refuses an added `.py` and any staged Python importing a numeric or model library | The Rust port of the one-bit transfer and finishing under `src/learn/`, re-measured on the crate; until then every `tools/onebit/` figure is graded as an observation of the script |
+| The quantisation port was written from the NanoQuant paper and changed stage by stage before NanoQuant's own pipeline had finished on any model here. The reference stopped after 3 of 28 blocks. The port deviates in the tune scope, the shrinkage, the preconditioning, the Q/K/V coverage and the global KD. So no same-run number says whether the port's held-out KL is a faithful, worse or better reproduction | `docs/epics/nanoquant-subsume.md:91-101` (deviations), `:219-231` (reference to block 3, 113.6 s per block); `/home/socol/oc-tmp/nq-ref/run3.log` (exit 124) | Method step 2 (§ Goal, gap and method): the empirical best runs whole, as shipped, on the proxy model, and its number sits beside ours in the same run before the port changes anything. The port then takes only what a same-run measurement shows the reference does better | This rule; review only | The `Subsumes:` commit trailer (§3a `subsume` field, MISSING); the full reference run, which projects above the 600 s ceiling and so needs the owner's go (§10 projected wall) |
+| A night of lanes moved the quantiser's fit time and not the quality gap. Seventeen commits took ADMM from 15.43 s to 1.608 s with the factors unchanged, so held-out KL moved by zero by construction, while quality was the open goal | `git log --format='%h %s' 626d7602^..29c1cdab`; owner, 2026-10-24: "So in other words you did none of the work I asked for on actual quality?" | Every lane brief and report opens TARGET / NOW / GAP / EXPECTED (§ Goal, gap and method). A lane whose output is byte-identical states an expected gap reduction of zero, and it runs only when the gap's own loop time is the named blocker | The opening lines are owner direction; no mechanical enforcer | A `Gap:` commit trailer naming the red goal's ticket and the expected reduction, refused by `.githooks/commit-msg` when absent |
+| Worker routing had four sources that disagreed. The antigravity plugin's SessionStart notice, the owner layer's §Capacity rules and §9.1 here sent bounded work to agy or a Haiku subagent. §3b sent it to DeepSeek through the intent MCP, the route the owner uses | `/home/socol/oc-tmp/escalation/lead-1024/owner-AGENTS.before.md` §Capacity; `git show 50c348ce:AGENTS.md` §9.1; owner, 2026-10-24: "We don't use agy we use deepseek w/ intent MCP dogfooding it. That itself is an example of this shit sucking" | One routing statement: owner layer §Capacity, restated in §3b and §9.1 here. A plugin notice routes nothing | `rg -n 'agy' ../*/AGENTS.md` returns no routing row | The plugin notice stays on until the owner turns off its `coding_policy`; no gate compares the routing statements across files |
+| Rules were saved in one Claude session's auto-memory (`~/.claude/projects/*/memory/`). DeepSeek, Gemini and Codex workers never read it, nor do sessions in other repositories; song alone held 175 memory files | `ls ~/.claude/projects/*/memory/`; owner, 2026-10-24, on the goal saved as a memory: "virtually useless" | A rule lives in an `AGENTS.md`, the one file every agent is delivered (§1). Memory holds facts about the owner and pointers to references (owner layer §Owner) | None mechanical | A check that refuses a rule written into a memory file |
+| Quality predictions were refuted at the overall rate, 43% against 42%, and 39% of all predictions were withdrawn untested. A refutation was recorded as a verdict and refitted nothing, and each change was judged by a whole-trunk run (236 s at `50c348ce`), not by a check of ≤ 30 s | derivation gate `status` (556 rows, 2026-10-24); `/home/socol/oc-tmp/escalation/lead-1024/root-cause.md` RC4, RC5 | A refuted prediction refits the model that made it, in the same commit. A quantisation change is screened by a per-tensor predictor of system KL before a trunk run | Prediction ledger with verdicts | The per-tensor system-KL predictor, fitted from the measured runs, with its hit rate on the ledger |
 
 ## 11 · Tool recipes and standing owner rules
 
@@ -824,13 +925,15 @@ Carried over from the retired auto-memory; each row is a command or rule that wa
 | Aeneas loop shapes | Pinned `nightly-2026.09.09-505b6ca` rejects a scan nested in an outer loop that mutates a Vec the scan reads, and a single-loop scan that carries an index and re-reads `slice[index]`. It accepts the running max carried beside the index, one loop per function, flag loops (`ok: bool` plus `Option<Error>`), no `?` or early return in a loop, `0.checked_sub(v)` for negation, no `wrapping_*`. Any edit to an extracted file needs `proof/regen.sh` then the corpus build. |
 | Lean lane recipe | Worktree, `ln -s <live>/target/aeneas-model <wt>/target/aeneas-model`, `cp -a --reflink=always` of `proof/.lake`, `proof/corpus/.lake`, `proof/canonical/.lake`; Mathlib from `~/.cache/mathlib` (`lake exe cache get`). `flock <worktree>/.lane.lock`; scale `LEAN_NUM_THREADS` to 32 threads and 62 GB. Never the live tree; purge the copies at return. |
 | worktree purge | At each round remove task worktrees, branches and their `target/` and `.lake` copies (`git worktree remove`, `git branch -D`); the last purge freed ~600 GB. |
-| commit | `set -a; . ./.env; set +a` before `git commit` (the `commit-msg` hook reads it); the message ends `Board: <row id>`; no attribution lines; plain `rustfmt` on a sibling file only for whitespace trips. Gated own-stream work commits at once; a push or anything public is confirmed first. |
+| commit | `set -a; . ./.env; set +a` before `git commit` (the `commit-msg` hook reads it). The live index is shared with parallel sessions: commit only your own paths, `git commit -F <msg> -- <path>...`, after reading `git diff --cached --stat` against the expected list (`443b2ebd` swept in another session's seven staged deletions); never `reset` to undo a sweep, report it. The message ends `Board: <row id>`, and the row id also appears in an added line of the staged change (a plan row or receipt naming it), or the message declares `board: none -- housekeeping`. The pre-commit `cargo fmt` check covers the whole tree. No attribution lines. Gated own-stream work commits at once. |
+| push | `git push origin main:internal-main`, confirmed with the owner first. GitHub `main` is the curated public cut: never push or force-push it. |
 
 ### Workers
 
 | route | invocation |
 |---|---|
-| DeepSeek Flash (primary bounded worker) | `cd /home/socol/Workspace/apeiron && opencode run --agent deepseek-flash -m deepseek/deepseek-flash --auto --standalone --title <id> "$(cat <prompt>)" > <out> 2>&1` in the background. The `-m` pin is required (without it: "OpenCode Go subscription required"). Rules block: `/home/socol/oc-tmp/ds-dispatch/common.md`. Resume after `Transport: ECONNRESET`: `opencode session list`, find `<title>`, then `opencode run --standalone -s <ses_id> --agent deepseek-flash -m deepseek/deepseek-flash --auto "cut by a network error; continue from disk"`. |
+| DeepSeek Flash through the intent MCP (default bounded worker, §3b) | `session_chat` with `work` set to the lane's worktree, a `title` and the brief as `text`; or `session_open` + `session_send` with `background: true` for a multi-turn lane. Completion arrives as a `<subagent …>` notice; `session_events` reads the record and `session_status` the model served and the spend. Copy the session id and the served model into the lane's receipt. |
+| DeepSeek Flash CLI (fallback while the intent MCP is down; record the outage as `WRONG:`) | `cd /home/socol/Workspace/apeiron && opencode run --agent deepseek-flash -m deepseek/deepseek-flash --auto --standalone --title <id> "$(cat <prompt>)" > <out> 2>&1` in the background. The `-m` pin is required (without it: "OpenCode Go subscription required"). Rules block: `/home/socol/oc-tmp/ds-dispatch/common.md`. Resume after `Transport: ECONNRESET`: `opencode session list`, find `<title>`, then `opencode run --standalone -s <ses_id> --agent deepseek-flash -m deepseek/deepseek-flash --auto "cut by a network error; continue from disk"`. |
 | `Failed to execute statement` | SQLite `LockTimeoutError`, not a worker cap. Relaunch the worker; stagger launches; `sqlite3 opencode.db 'PRAGMA busy_timeout=10000; PRAGMA wal_checkpoint(TRUNCATE);'`. |
 | Argon (escalation) | `opencode run --agent argon -m "google-vertex/gemini-4-argon#high" --auto --standalone --title <t> "$(cat BRIEF.md)" > argon.out 2>&1; echo $? > argon.exit` in the background. Its output is untrusted (it has invented figures): verify against sources. |
 | lead model | The lead may run on Sonnet 5.5 when the weekly Claude window is nearly spent: DeepSeek Flash first, Argon for hard items, an Opus subagent only as the last resort. This overrides the §9.1 Opus verdict route while it is in force. |
@@ -838,6 +941,9 @@ Carried over from the retired auto-memory; each row is a command or rule that wa
 
 ### Measurement and claims
 
+- **The goal every quantisation number is measured against** is the one in § Goal, gap and method
+  ([`../AGENTS.md`](../AGENTS.md) §The goal). KL and perplexity are proxies and are labelled as
+  proxies; every report opens with TARGET / NOW / GAP / EXPECTED against that goal.
 - **The bar for quantisation and transfer.** Owner, 2026-10-18, verbatim: "we will beat every quantisation and training algorithm on earth", clarified: "speed AND quality". A transfer slower than the frozen Python reference (qwen2.5-0.5B, 24 layers, 93.9 s fp32 on one RTX 5080) is a defect in the route, never a schedule.
 - **Owner-attributed text.** A rule recorded under the owner's name quotes his words verbatim; a paraphrase is shown to him before it is saved.
 - **Acceptance bar.** At least 2.0× llama.cpp on prefill (pp) **and** decode (tg), same model, CPU then SPIR-V. An internal f32/Q32 ratio is not the bar. Prefill wins come first; decode-only wins are queued.
@@ -853,7 +959,7 @@ Carried over from the retired auto-memory; each row is a command or rule that wa
 - **Findable evidence.** No orphan markdown: a finding goes into the indexed epic or evidence document, readable cold.
 - **Retrieve, do not disclaim.** For a paper: `curl` the arXiv PDF, `pdftotext` into `/home/socol/oc-tmp/papers/<topic>/`, quote it in the same turn. Never "I have not read it".
 - **Read the proof first.** Open the Lean (`Nous/Model`, canonical `Trichotomy`, `Apeiron.Decider`) before describing a mechanism or saying σ adds nothing; spec first, code second.
-- **Know the corpus.** KV and inference are solved in the corpus; the 4 GB figure is the weight budget; no incremental tuning against a 65× gap.
+- **Know the corpus.** KV and inference are solved in the corpus; the 4 GB figure is the weight budget, KV excluded; no incremental tuning while the gap to Q4_K_M is a multiple rather than a percentage.
 - **Standing go.** Under a standing loop go, a report is a checkpoint: post it (commit, board) and start the next action in the same turn. Stop only on a `HOLD`, an owner decision on scope or contract, or the budget ceiling.
 - **Conversion.** Existing models convert to ~4-bit/trit planes; 4 → 2 bit is the open rung. Never propose training from scratch; never cite BitNet; one committed plan for converting Qwen 27B, with a switch rule.
 
