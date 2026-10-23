@@ -944,13 +944,32 @@ Carried over from the retired auto-memory; each row is a command or rule that wa
 - **The goal every quantisation number is measured against** is the one in § Goal, gap and method
   ([`../AGENTS.md`](../AGENTS.md) §The goal). KL and perplexity are proxies and are labelled as
   proxies; every report opens with TARGET / NOW / GAP / EXPECTED against that goal.
+- **Every quantisation row** carries:
+  - b/w, and whether it fits the cap;
+  - held-out KL;
+  - × Q4_K_M from the same run;
+  - the whole-model KL if the arm is adopted, labelled `model` when projected.
+
+  A bare ratio to our own baseline is not a status (owner, 2026-10-23).
+- **Held-out KL decides.** Generalisation is decided by held-out KL; in/out ratios (KL_out/KL_in,
+  O_t, Q_t) are attribution under it. Owner, 2026-10-22: "the real judge is the held-out KL for
+  generalisation". GEN-T01's ratio fell 15.5 → 4.64 only because calibration KL rose; held-out KL
+  stayed flat.
+- **Compare against the measured best.** The comparison row is the measured best by receipt, often
+  our own fit, never an assumed best method. On 2026-10-22 our `fold_fit` beat the walker and
+  `gptq_e8` on all seven layer-0 tensors at 7–8% fewer bits: the hybrid premise rested on an
+  inefficient algorithm.
+- **Proxy model.** A proxy is the newest small model in the target's own architecture class. Read
+  the target's `config.json` before writing any plan text, floor or KV figure. The proxy for
+  `APEIRON-QUALITY-118-W1-T01` is Qwen3.5-0.8B (18 Gated DeltaNet + 6 gated attention layers) for
+  the 27B target.
 - **The bar for quantisation and transfer.** Owner, 2026-10-18, verbatim: "we will beat every quantisation and training algorithm on earth", clarified: "speed AND quality". A transfer slower than the frozen Python reference (qwen2.5-0.5B, 24 layers, 93.9 s fp32 on one RTX 5080) is a defect in the route, never a schedule.
 - **Owner-attributed text.** A rule recorded under the owner's name quotes his words verbatim; a paraphrase is shown to him before it is saved.
 - **Acceptance bar.** At least 2.0× llama.cpp on prefill (pp) **and** decode (tg), same model, CPU then SPIR-V. An internal f32/Q32 ratio is not the bar. Prefill wins come first; decode-only wins are queued.
 - **Like for like.** No llama.cpp ratio unless device, model, quant and depth match and a quality gate ran in the same run.
 - **Lead with the receipt.** Open with measured pp/tg ratios; label anything derived, model or microbench; never "we are faster" without the number. Receipts live in `docs/evidence/bench/`.
 - **Instrument.** `target/release/examples/engine_profile` on a quiet host, `llama-bench` best threads (8, 16, 24, 32), interleaved A/B arms (`--arm name:ENV=VAL`), tracer plus `perf`. A G1 benchmark never runs beside Lean or agent lanes.
-- **One path.** Optimise and measure only the engine path that carries the 2× target (CPU and GPU, one pool); quality is measured on that path; net lines of code go down.
+- **One path.** Optimise and measure only the engine path that carries the 2× target (CPU and GPU, one pool); quality is measured on that path; net lines of code go down. When something is slow because it runs a second implementation, route its consumers onto the engine and delete the second path. Never speed up the second path. Example: `learn::grad::model::forward`, a scalar `i128` loop at ~1 tok/s against the engine's 113k tok/s. Owner, 2026-10-22: "There is only one path".
 - **Structure over tuning.** A speed change is licensed by a named, read, proved identity (carrier, schedule, bytes read, work per weight pass); micro-tuning is cleanup after it. The f32 carrier under `Nous.Seq.DeltaCarrier.delta_carrier_error_uniform` moved prefill 0.64 → 1.18× in one wave; 29 micro-rounds moved it 0.45 → 0.64×.
 - **Port measured kernels first.** Start perf work from the measured fold kernels (`fold/bedrock/src/serve/model/rowdot.rs`, `q1.rs`, `fold/modelfold/src/simt/dp4a.rs`), not from scalar tuning. Attribute each speedup to an action and to the Aeneas/Lean structure that did or did not help.
 - **Rate check before addressing.** Tables, lattices and codebooks pay only through collisions; contextual activations are unique (§10 addressing row).
@@ -959,8 +978,9 @@ Carried over from the retired auto-memory; each row is a command or rule that wa
 - **Findable evidence.** No orphan markdown: a finding goes into the indexed epic or evidence document, readable cold.
 - **Retrieve, do not disclaim.** For a paper: `curl` the arXiv PDF, `pdftotext` into `/home/socol/oc-tmp/papers/<topic>/`, quote it in the same turn. Never "I have not read it".
 - **Read the proof first.** Open the Lean (`Nous/Model`, canonical `Trichotomy`, `Apeiron.Decider`) before describing a mechanism or saying σ adds nothing; spec first, code second.
-- **Know the corpus.** KV and inference are solved in the corpus; the 4 GB figure is the weight budget, KV excluded; no incremental tuning while the gap to Q4_K_M is a multiple rather than a percentage.
-- **Standing go.** Under a standing loop go, a report is a checkpoint: post it (commit, board) and start the next action in the same turn. Stop only on a `HOLD`, an owner decision on scope or contract, or the budget ceiling.
+- **Know the corpus.** KV and inference are solved in the corpus. No incremental tuning while the gap to Q4_K_M is a multiple rather than a percentage.
+- **The weight budget.** The 4 GB figure bounds resident weights only, KV excluded. The budget equation is `N·r/8 ≤ 4 GB` (N = 27e9 gives r ≤ 1.185 b/w). Never write `weights + KV ≤ 4 GB`. Streaming weights from host RAM or disk is ruled out.
+- **Standing go.** Under a standing loop go, a report is a checkpoint: post it (commit, board) and start the next action in the same turn. The next action is the highest-ranked item against the red goal (§3a), not the next bounded one. Stop only on a `HOLD`, an owner decision on scope or contract, or the budget ceiling.
 - **Conversion.** Existing models convert to ~4-bit/trit planes; 4 → 2 bit is the open rung. Never propose training from scratch; never cite BitNet; one committed plan for converting Qwen 27B, with a switch rule.
 
 ### Vocabulary and repositories
