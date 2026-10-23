@@ -686,25 +686,36 @@ pub struct TuneTrace {
 
 /// One `optimi` Adam step on `p` with gradient `g` (moments `m`, `v`, 1-based step `t`):
 /// `β̂ = (βᵗ − β)/(βᵗ − 1)`, `m ← lerp(m, g, 1 − β̂₁)`, `v ← β̂₂v + (1 − β̂₂)g²`,
-/// `p ← p − lr·m/(√v + ε)`. `O(len)`.
-fn adam(p: &mut [f64], g: &[f64], m: &mut [f64], v: &mut [f64], t: usize, lr: f64) {
+/// `p ← p − lr·m/(√v + ε)`, `mv[i] = [m, v]`. Two [`par_fill`] passes, each entry alone, so the
+/// result is the sequential one. `O(len)`.
+fn adam(p: &mut [f64], g: &[f64], mv: &mut [[f64; 2]], t: usize, lr: f64) {
     const B1: f64 = 0.9;
     const B2: f64 = 0.99;
     const E: f64 = 1e-6;
     let debias = |b: f64| (b.powf(t as f64) - b) / (b.powf(t as f64) - 1.0);
     let (b1, b2) = (debias(B1), debias(B2));
-    for i in 0..p.len() {
-        m[i] = b1 * m[i] + (1.0 - b1) * g[i];
-        v[i] = b2 * v[i] + (1.0 - b2) * g[i] * g[i];
-        p[i] -= lr * m[i] / (v[i].sqrt() + E);
+    par_fill(mv, &|i, e| {
+        e[0] = b1 * e[0] + (1.0 - b1) * g[i];
+        e[1] = b2 * e[1] + (1.0 - b2) * g[i] * g[i];
+    });
+    let mv = &*mv;
+    par_fill(p, &|i, x| *x -= lr * mv[i][0] / (mv[i][1].sqrt() + E));
+}
+
+/// The `±1` word of the sign of `e` (zero to `+1`).
+fn sign_word(e: f64) -> i64 {
+    if e < 0.0 {
+        -(1i64 << 32)
+    } else {
+        1i64 << 32
     }
 }
 
 /// `±1` words of the signs of `x` (zero to `+1`).
 fn sign_words(x: &[f64]) -> Vec<i64> {
-    x.iter()
-        .map(|&e| if e < 0.0 { -(1i64 << 32) } else { 1i64 << 32 })
-        .collect()
+    let mut out = vec![0i64; x.len()];
+    par_fill(&mut out, &|c, o| *o = sign_word(x[c]));
+    out
 }
 
 /// The four gradients of [`tune`]'s loss from `(EH)ᵀ = pt` (`n × o`), `M` and the signs:
@@ -819,14 +830,10 @@ pub fn tune(
     let (mut sp, mut sq) = (f.s_post.clone(), f.s_pre.clone());
     let (u0, v0) = (sign_words(&ul), sign_words(&vlt));
     let mut mom = [
-        vec![0.0; o * r],
-        vec![0.0; o * r],
-        vec![0.0; n * r],
-        vec![0.0; n * r],
-        vec![0.0; o],
-        vec![0.0; o],
-        vec![0.0; n],
-        vec![0.0; n],
+        vec![[0.0; 2]; o * r],
+        vec![[0.0; 2]; n * r],
+        vec![[0.0; 2]; o],
+        vec![[0.0; 2]; n],
     ];
     // `Ŵ = diag(sp)·M·diag(sq)`, `M = sign(ul)·sign(vlt)ᵀ` exact on the kernel.
     let forward = |ul: &[f64], vlt: &[f64], sp: &[f64], sq: &[f64]| {
@@ -860,11 +867,11 @@ pub fn tune(
         );
         let lr_b = eta_min + (cfg.lr_binary - eta_min) * cos;
         let lr_s = eta_min + (cfg.lr_scale - eta_min) * cos;
-        let [m0, v0m, m1, v1m, m2, v2m, m3, v3m] = &mut mom;
-        adam(&mut ul, &ga, m0, v0m, t + 1, lr_b);
-        adam(&mut vlt, &gb, m1, v1m, t + 1, lr_b);
-        adam(&mut sp, &grad_post, m2, v2m, t + 1, lr_s);
-        adam(&mut sq, &grad_pre, m3, v3m, t + 1, lr_s);
+        let [m0, m1, m2, m3] = &mut mom;
+        adam(&mut ul, &ga, m0, t + 1, lr_b);
+        adam(&mut vlt, &gb, m1, t + 1, lr_b);
+        adam(&mut sp, &grad_post, m2, t + 1, lr_s);
+        adam(&mut sq, &grad_pre, m3, t + 1, lr_s);
     }
     let (us, vst, _, e) = forward(&ul, &vlt, &sp, &sq)?;
     let rel_after = energy(&e)?.0 / base;
@@ -1010,31 +1017,27 @@ impl HSketch {
     }
 }
 
-/// Words of `x` (row-major `rows × cols`) with column `j` scaled by `c[j]`. `O(rows·cols)`.
-fn scale_cols(x: &[f64], rows: usize, cols: usize, c: &[f64]) -> Result<Vec<i64>, NqError> {
-    let mut y = x.to_vec();
-    for i in 0..rows {
-        for j in 0..cols {
-            y[i * cols + j] *= c[j];
-        }
-    }
-    grid(&y)
-}
-
-/// Words of `x` (row-major `rows × cols`) with row `i` scaled by `c[i]`. `O(rows·cols)`.
-fn scale_rows(x: &[f64], rows: usize, cols: usize, c: &[f64]) -> Result<Vec<i64>, NqError> {
-    let mut y = x.to_vec();
-    for i in 0..rows {
-        for e in &mut y[i * cols..(i + 1) * cols] {
-            *e *= c[i];
-        }
-    }
-    grid(&y)
-}
-
-/// Kernel words to reals.
+/// Kernel words to reals, through [`par_fill`]. `O(len)`.
 fn reals(x: &[i64]) -> Vec<f64> {
-    x.iter().map(|&w| from_grid(w)).collect()
+    let mut out = vec![0.0f64; x.len()];
+    par_fill(&mut out, &|c, o| *o = from_grid(x[c]));
+    out
+}
+
+/// `from_grid(to_grid(f(c)))` for `c < len`: [`grid_map`] read back as reals in one pass;
+/// [`NqError::Range`] if any entry leaves the grid. `O(len)` calls of `f`.
+fn grid_round(len: usize, f: &(impl Fn(usize) -> f64 + Sync)) -> Result<Vec<f64>, NqError> {
+    let bad = AtomicBool::new(false);
+    let mut out = vec![0.0f64; len];
+    par_fill(&mut out, &|c, o| match to_grid(f(c), GRID_BOUND) {
+        Some(w) => *o = from_grid(w),
+        None => bad.store(true, Ordering::Relaxed),
+    });
+    if bad.into_inner() {
+        Err(NqError::Range)
+    } else {
+        Ok(out)
+    }
 }
 
 /// The fixed `s`-frame of [`tune_sketch`]: `Qᵀ`, `Q`, `C = h_scale·H_s` as kernel words and `W·Q`.
@@ -1046,76 +1049,72 @@ struct SkFrame {
     wq: Vec<f64>,
 }
 
-/// One forward of [`tune_sketch`]: the signs, `P`, `U·P`, `E_Q·C` and the sketched loss `L_s`.
+/// One forward of [`tune_sketch`]: the sign words of `U` and of `Vᵀ`, `P`, `U·P`, `E_Q·C` and the
+/// sketched loss `L_s`.
 struct SkStep {
     us: Vec<i64>,
-    vsf: Vec<f64>,
+    vst: Vec<i64>,
     p: Vec<i64>,
-    up: Vec<f64>,
+    upw: Vec<i64>,
     eqc: Vec<i64>,
     ls: f64,
 }
 
 impl SkFrame {
     /// `P = V·diag(sq)·Q` (`r × s`), `UP = U·P` (`o × s`), `E_Q = diag(sp)·UP − W·Q`,
-    /// `E_Q·C` and `L_s = tr(E_Q·C·E_Qᵀ)`. `r·s·(n + o) + o·s²` kernel multiply-adds.
+    /// `E_Q·C` and `L_s = tr(E_Q·C·E_Qᵀ)`. `r·s·(n + o) + o·s²` kernel multiply-adds plus
+    /// `O(r·n + o·r + o·s)` element maps. Words move between products without a round trip through
+    /// reals (`from_grid` then `to_grid` returns the word), so every product sees the operands
+    /// the round trip gave.
     fn step(&self, ul: &[f64], vl: &[f64], sp: &[f64], sq: &[f64]) -> Result<SkStep, NqError> {
         let (o, n, r, s) = self.dims;
-        let (us, vs) = (sign_words(ul), sign_words(vl));
-        let vsf = reals(&vs);
-        let p = gemm_q32(&scale_cols(&vsf, r, n, sq)?, r, &self.qt, s, n, LIMBS)?;
-        let up = reals(&gemm_q32(
-            &us,
-            o,
-            &grid(&transpose(&reals(&p), r, s))?,
-            s,
-            r,
-            LIMBS,
-        )?);
-        let mut eq = vec![0.0f64; o * s];
-        for i in 0..o {
-            for k in 0..s {
-                eq[i * s + k] = sp[i] * up[i * s + k] - self.wq[i * s + k];
+        let us = sign_words(ul);
+        // `sign(V)·diag(sq)`: `±sq[j]`, the words `scale_cols` gives on `±1.0`.
+        let vsq = grid_map(r * n, &|c| {
+            if vl[c] < 0.0 {
+                -sq[c % n]
+            } else {
+                sq[c % n]
             }
-        }
-        let eqw = grid(&eq)?;
+        })?;
+        let mut vst = vec![0i64; n * r];
+        par_fill(&mut vst, &|c, w| *w = sign_word(vl[(c % r) * n + c / r]));
+        let p = gemm_q32(&vsq, r, &self.qt, s, n, LIMBS)?;
+        let upw = gemm_q32(&us, o, &transpose(&p, r, s), s, r, LIMBS)?;
+        let eqw = grid_map(o * s, &|c| sp[c / s] * from_grid(upw[c]) - self.wq[c])?;
         let eqc = gemm_q32(&eqw, o, &self.c, s, s, LIMBS)?;
         let ls = reals(&rowdot_q32(&eqw, &eqc, o, s, LIMBS)?).iter().sum();
         Ok(SkStep {
             us,
-            vsf,
+            vst,
             p,
-            up,
+            upw,
             eqc,
             ls,
         })
     }
 
     /// `[∂U, ∂V, ∂s_post, ∂s_pre]` at `st` (formulas at [`tune_sketch`]).
-    /// `r·s·(2·o + 2·n)` kernel multiply-adds plus `O(s·(o + n))` row dots.
+    /// `r·s·(2·o + 2·n)` kernel multiply-adds plus `O(s·(o + n))` row dots and `O(r·n)` element maps.
     fn grads(&self, st: &SkStep, sp: &[f64], sq: &[f64]) -> Result<[Vec<f64>; 4], NqError> {
         let (o, n, r, s) = self.dims;
-        let g: Vec<f64> = reals(&st.eqc).iter().map(|x| 2.0 * x).collect();
-        let gsp = scale_rows(&g, o, s, sp)?;
+        // `G = 2·E_Q·C` and `diag(s_post)·G`.
+        let gw = grid_map(o * s, &|c| 2.0 * from_grid(st.eqc[c]))?;
+        let gsp = grid_map(o * s, &|c| 2.0 * from_grid(st.eqc[c]) * sp[c / s])?;
         let ga = reals(&gemm_q32(&gsp, o, &st.p, r, s, LIMBS)?);
         let a = gemm_q32(
-            &grid(&transpose(&reals(&st.us), o, r))?,
+            &transpose(&st.us, o, r),
             r,
-            &grid(&transpose(&reals(&gsp), o, s))?,
+            &transpose(&gsp, o, s),
             s,
             o,
             LIMBS,
         )?;
-        let at = grid(&transpose(&reals(&a), r, s))?;
         // `∂V = A·Qᵀ·diag(sq)` (`r × n`), `VᵀA` (`n × s`).
-        let gb = reals(&scale_cols(
-            &reals(&gemm_q32(&a, r, &self.qw, n, s, LIMBS)?),
-            r,
-            n,
-            sq,
-        )?);
-        let vta = gemm_q32(&grid(&transpose(&st.vsf, r, n))?, n, &at, s, r, LIMBS)?;
-        let grad_post = reals(&rowdot_q32(&grid(&g)?, &grid(&st.up)?, o, s, LIMBS)?);
+        let aq = gemm_q32(&a, r, &self.qw, n, s, LIMBS)?;
+        let gb = grid_round(r * n, &|c| from_grid(aq[c]) * sq[c % n])?;
+        let vta = gemm_q32(&st.vst, n, &transpose(&a, r, s), s, r, LIMBS)?;
+        let grad_post = reals(&rowdot_q32(&gw, &st.upw, o, s, LIMBS)?);
         let grad_pre = reals(&rowdot_q32(&self.qw, &vta, n, s, LIMBS)?);
         Ok([ga, gb, grad_post, grad_pre])
     }
@@ -1188,14 +1187,10 @@ pub fn tune_sketch(
     let (mut sp, mut sq) = (f.s_post.clone(), f.s_pre.clone());
     let (u0, v0) = (sign_words(&ul), sign_words(&vl));
     let mut mom = [
-        vec![0.0; o * r],
-        vec![0.0; o * r],
-        vec![0.0; r * n],
-        vec![0.0; r * n],
-        vec![0.0; o],
-        vec![0.0; o],
-        vec![0.0; n],
-        vec![0.0; n],
+        vec![[0.0; 2]; o * r],
+        vec![[0.0; 2]; r * n],
+        vec![[0.0; 2]; o],
+        vec![[0.0; 2]; n],
     ];
     let mut rel_best = (f64::INFINITY, 0);
     let eta_min = 1e-4 * cfg.lr_scale;
@@ -1214,11 +1209,11 @@ pub fn tune_sketch(
         );
         let lr_b = eta_min + (cfg.lr_binary - eta_min) * cos;
         let lr_s = eta_min + (cfg.lr_scale - eta_min) * cos;
-        let [m0, v0m, m1, v1m, m2, v2m, m3, v3m] = &mut mom;
-        adam(&mut ul, &ga, m0, v0m, t + 1, lr_b);
-        adam(&mut vl, &gb, m1, v1m, t + 1, lr_b);
-        adam(&mut sp, &grad_post, m2, v2m, t + 1, lr_s);
-        adam(&mut sq, &grad_pre, m3, v3m, t + 1, lr_s);
+        let [m0, m1, m2, m3] = &mut mom;
+        adam(&mut ul, &ga, m0, t + 1, lr_b);
+        adam(&mut vl, &gb, m1, t + 1, lr_b);
+        adam(&mut sp, &grad_post, m2, t + 1, lr_s);
+        adam(&mut sq, &grad_pre, m3, t + 1, lr_s);
     }
     let (us, vs) = (sign_words(&ul), sign_words(&vl));
     let flips = us.iter().zip(&u0).filter(|(a, b)| a != b).count()

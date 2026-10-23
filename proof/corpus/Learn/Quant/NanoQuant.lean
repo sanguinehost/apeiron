@@ -236,6 +236,28 @@ theorem admm_base_and_limbs :
     100 * 3 * loss2.sum < 102 * 5 * loss3.sum := by
   decide
 
+/-- Sketched tune wall, blk.23 `down`, `r = 768`, `s = 256`, 128 steps from the base-32 factor, sketch
+included, seeds 0–2, tenths of a second, before the rewrite (`tsb.log`). `List` [a finite sequence of things, in order]. -/
+def tuneWallBefore : List Nat := [100, 99, 98]
+/-- Same, after packed Adam moments, parallel sign and real maps and word transposes (`tsw.log`). `List` [a finite sequence of things, in order]. -/
+def tuneWallAfter : List Nat := [71, 71, 71]
+/-- Final `relH` (`10⁻⁵`), best `relH` (`10⁻⁵`) and sign flips of the run before the rewrite; every seed
+printed the same triple. `List` [a finite sequence of things, in order]. -/
+def traceBefore : List Nat := [3321, 1721, 50042]
+/-- Same, after the rewrite. `List` [a finite sequence of things, in order]. Board: . -/
+def traceAfter : List Nat := [3321, 1721, 50042]
+
+/-- **The rewrite is faster on every seed and leaves the trace unchanged**: every rewritten run is under
+every original run, the mean wall falls 1.39× (9.90 → 7.10 s), and final `relH`, best `relH` and flips
+match digit for digit. `∀` [for every]; `∈` [is one of the things in]; `∧` [both are true]; `<` [is smaller
+than]; `=` [is the same as]. -/
+theorem tune_rewrite_l23_down :
+    (∀ a ∈ tuneWallAfter, ∀ b ∈ tuneWallBefore, a < b) ∧
+    138 * tuneWallAfter.sum < 100 * tuneWallBefore.sum ∧
+    100 * tuneWallBefore.sum < 140 * tuneWallAfter.sum ∧
+    traceAfter = traceBefore := by
+  decide
+
 end NanoQuant
 
 end Learn
