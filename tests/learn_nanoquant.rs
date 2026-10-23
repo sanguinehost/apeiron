@@ -21,7 +21,7 @@ use apeiron::engine::loader::Engine;
 use apeiron::learn::grad::load::layer_from_engine;
 use apeiron::learn::grad::model::Config;
 use apeiron::learn::nanoquant::{
-    factorize, rank_for_bits, stored_bits, NqConfig, NqFactor, Schedule,
+    factorize, rank_for_bits, stored_bits, tune, NqConfig, NqFactor, Schedule, TuneConfig,
 };
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
@@ -142,11 +142,117 @@ fn wide_matrix_runs_on_the_transpose() {
     assert_eq!(f.weight().expect("weight").len(), o * n);
 }
 
+/// `H = XᵀX/t` of `t` Gaussian rows with a few loud columns, as Q32.32 words.
+fn gram(n: usize, t: usize, seed: u64) -> Vec<i64> {
+    let mut x = gauss(t * n, seed, 1.0);
+    for row in x.chunks_mut(n) {
+        for j in (0..n).step_by(9) {
+            row[j] *= 6.0;
+        }
+    }
+    let mut h = vec![0.0; n * n];
+    for row in x.chunks(n) {
+        for i in 0..n {
+            for j in 0..n {
+                h[i * n + j] += row[i] * row[j] / t as f64;
+            }
+        }
+    }
+    words(&h)
+}
+
+#[test]
+fn latents_carry_the_signs_and_tune_lowers_the_h_energy() {
+    let (o, n, r) = (96, 64, 32);
+    let w = words(&gauss(o * n, 4, 0.05));
+    let h = gram(n, 256, 5);
+    let i_norm: Vec<f64> = (0..n).map(|i| from_grid(h[i * n + i])).collect();
+    let cfg = NqConfig {
+        outer_iters: 40,
+        ..NqConfig::reference(r)
+    };
+    let mut f = factorize(&w, o, n, &i_norm, &vec![1.0; o], &cfg).expect("factorize");
+    let agree =
+        f.u.iter()
+            .zip(&f.u_latent)
+            .chain(f.v.iter().zip(&f.v_latent))
+            .filter(|(&s, &l)| (l < 0.0) == (s < 0))
+            .count();
+    assert!(agree * 100 >= 99 * (o * r + r * n), "agree {agree}");
+    let before = f.weight().expect("weight");
+    // The latents at the reference rate, the scales faster: on this matrix the scales alone
+    // converge to 0.987x of the ADMM energy; latent steps of 1e-3 flip 135 signs and raise it.
+    let tc = TuneConfig {
+        lr_scale: 1e-3,
+        ..TuneConfig::reference(60)
+    };
+    let tr = tune(&mut f, &w, &h, &tc).expect("tune");
+    assert!(
+        tr.rel_after < 0.99 * tr.rel_before,
+        "{} !< 0.99 x {}",
+        tr.rel_after,
+        tr.rel_before
+    );
+    assert!(f.u.iter().chain(&f.v).all(|&s| s == 1 || s == -1));
+    assert_ne!(before, f.weight().expect("weight"));
+}
+
 fn env_usize(k: &str, d: usize) -> usize {
     std::env::var(k)
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(d)
+}
+
+fn env_f64(k: &str, d: f64) -> f64 {
+    std::env::var(k)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(d)
+}
+
+/// `out, inn, rank` (u64), `admm_loss`, `s_post`, `s_pre`, `u_latent`, `v_latent` (f64), `u`, `v`
+/// (i8), little-endian.
+fn save_factor(path: &str, f: &NqFactor) {
+    let mut b = Vec::new();
+    for x in [f.out, f.inn, f.rank] {
+        b.extend_from_slice(&(x as u64).to_le_bytes());
+    }
+    b.extend_from_slice(&f.admm_loss.to_le_bytes());
+    for v in [&f.s_post, &f.s_pre, &f.u_latent, &f.v_latent] {
+        for x in v {
+            b.extend_from_slice(&x.to_le_bytes());
+        }
+    }
+    b.extend(f.u.iter().chain(&f.v).map(|&s| s.cast_unsigned()));
+    std::fs::write(path, b).unwrap_or_else(|e| panic!("{path}: {e}"));
+}
+
+fn load_factor(path: &str) -> NqFactor {
+    let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let word = |i: usize| u64::from_le_bytes(b[8 * i..8 * i + 8].try_into().expect("word"));
+    let (o, n, r) = (word(0) as usize, word(1) as usize, word(2) as usize);
+    let mut at = 4;
+    let mut take = |len: usize| -> Vec<f64> {
+        let v = (at..at + len).map(|i| f64::from_bits(word(i))).collect();
+        at += len;
+        v
+    };
+    let (s_post, s_pre, u_latent, v_latent) = (take(o), take(n), take(o * r), take(r * n));
+    let signs = &b[8 * (4 + o + n + o * r + r * n)..];
+    assert_eq!(signs.len(), o * r + r * n, "{path}: sign bytes");
+    NqFactor {
+        out: o,
+        inn: n,
+        rank: r,
+        u: signs[..o * r].iter().map(|&s| s.cast_signed()).collect(),
+        v: signs[o * r..].iter().map(|&s| s.cast_signed()).collect(),
+        s_pre,
+        s_post,
+        admm_loss: f64::from_bits(word(3)),
+        u_latent,
+        v_latent,
+    }
 }
 
 fn read_words(path: &str) -> (usize, usize, Vec<i64>) {
@@ -198,10 +304,39 @@ fn energy(h: &[f64], e: &[f64], o: usize, n: usize) -> f64 {
     })
 }
 
+/// ` | {cmp} relH … nq/{cmp} x…` for each cached `{prefix}-{cmp}.i64` of `APEIRON_NQ_CMP`
+/// (default `q4km`).
+fn cmp_line(
+    prefix: &str,
+    h: &[f64],
+    w: &[f64],
+    (o, n): (usize, usize),
+    base: f64,
+    rel: f64,
+) -> String {
+    let mut line = String::new();
+    for cmp in std::env::var("APEIRON_NQ_CMP")
+        .unwrap_or_else(|_| String::from("q4km"))
+        .split(',')
+    {
+        let p = format!("{prefix}-{cmp}.i64");
+        if !std::path::Path::new(&p).exists() {
+            continue;
+        }
+        let (_, _, qw) = read_words(&p);
+        let e: Vec<f64> = qw.iter().zip(w).map(|(&q, x)| from_grid(q) - x).collect();
+        let rc = energy(h, &e, o, n) / base;
+        let _ = write!(line, " | {cmp} relH {rc:.6} nq/{cmp} x{:.2}", rel / rc);
+    }
+    line
+}
+
 /// Fit stage. `APEIRON_NQ_KIND` (comma list of `gate`, `up`, `down`, `o`), `APEIRON_NQ_LAYERS`
 /// (default `0,3,7,11,15,19,23`, the cached Gram layers), `APEIRON_NQ_ITERS` (400),
-/// `APEIRON_NQ_BITS_PPM` (1000000), `APEIRON_NQ_SCHEDULE` (`linear`, or `cubic`), `APEIRON_NQ_TAG`. `i_norm = diag(H)` of the cached
-/// `g{l}.c6x29.*` Gram (the reference's unclipped `dbf` statistic up to a constant, to which the
+/// `APEIRON_NQ_BITS_PPM` (1000000), `APEIRON_NQ_SCHEDULE` (`linear`, or `cubic`), `APEIRON_NQ_TAG`.
+/// The factor is saved to `l{l}.{kind}-nq{tag}.nqf`; `APEIRON_NQ_FROM=<tag>` loads that factor in
+/// place of the ADMM. `APEIRON_NQ_TUNE_STEPS` (0) runs [`tune`] at `APEIRON_NQ_TUNE_LR` and
+/// `APEIRON_NQ_TUNE_LR_SCALE` (both `1e-5`). `i_norm = diag(H)` of the cached `g{l}.c6x29.*` Gram (the reference's unclipped `dbf` statistic up to a constant, to which the
 /// ADMM is equivariant); `o_norm = 1`. Prints the ADMM loss and the relative `H`-energy
 /// `tr(EHEᵀ)/tr(WHWᵀ)` of the fit and of the cached same-scope `Q4_K_M` part.
 #[test]
@@ -218,6 +353,17 @@ fn nq_fit() {
     let iters = env_usize("APEIRON_NQ_ITERS", 400);
     let ppm = env_usize("APEIRON_NQ_BITS_PPM", 1_000_000) as u64;
     let tag = std::env::var("APEIRON_NQ_TAG").unwrap_or_default();
+    let from = std::env::var("APEIRON_NQ_FROM").ok();
+    let schedule = match std::env::var("APEIRON_NQ_SCHEDULE").as_deref() {
+        Ok("cubic") => Schedule::Cubic,
+        Ok("linear") | Err(_) => Schedule::Linear,
+        Ok(s) => panic!("schedule {s}"),
+    };
+    let tc = TuneConfig {
+        lr_binary: env_f64("APEIRON_NQ_TUNE_LR", 1e-5),
+        lr_scale: env_f64("APEIRON_NQ_TUNE_LR_SCALE", 1e-5),
+        ..TuneConfig::reference(env_usize("APEIRON_NQ_TUNE_STEPS", 0))
+    };
     for &l in &layers {
         let ll = layer_from_engine(&engine, &cfg, l).expect("layer linears");
         for kind in kinds.split(',') {
@@ -241,11 +387,35 @@ fn nq_fit() {
             let r = rank_for_bits(o, n, ppm, 32);
             let c = NqConfig {
                 outer_iters: iters,
+                schedule,
                 ..NqConfig::reference(r)
             };
             let t = Instant::now();
-            let f = factorize(&lin.w, o, n, &i_norm, &vec![1.0; o], &c).expect("factorize");
+            let mut f = match &from {
+                Some(ft) => load_factor(&format!("{CACHE}/l{l}.{kind}-nq{ft}.nqf")),
+                None => factorize(&lin.w, o, n, &i_norm, &vec![1.0; o], &c).expect("factorize"),
+            };
             let fit_s = t.elapsed().as_secs_f64();
+            let mut tune_line = String::new();
+            if tc.steps > 0 {
+                let t = Instant::now();
+                let tr = tune(&mut f, &lin.w, &hw, &tc).expect("tune");
+                let _ = write!(
+                    tune_line,
+                    " tune {} steps lr {:e}/{:e} {:.1} s relH {:.5}->{:.5} best {:.5}@{} flips {}",
+                    tc.steps,
+                    tc.lr_binary,
+                    tc.lr_scale,
+                    t.elapsed().as_secs_f64(),
+                    tr.rel_before,
+                    tr.rel_after,
+                    tr.rel_best.0,
+                    tr.rel_best.1,
+                    tr.flips
+                );
+            }
+            save_factor(&format!("{CACHE}/l{l}.{kind}-nq{tag}.nqf"), &f);
+            let r = f.rank;
             let wq = f.weight().expect("weight");
             let path = format!("{CACHE}/l{l}.{kind}-nq{tag}.i64");
             write_words(&path, o, n, &wq);
@@ -254,23 +424,11 @@ fn nq_fit() {
             let e: Vec<f64> = wq.iter().zip(&w).map(|(&q, x)| from_grid(q) - x).collect();
             let rel = energy(&h, &e, o, n) / base;
             let mut line = format!(
-                "NQ layer {l:02} {kind} {o}x{n} r {r} b/w {:.4} iters {iters} {fit_s:.1} s admm_loss {:.5} relH {rel:.5}",
+                "NQ layer {l:02} {kind} {o}x{n} r {r} b/w {:.4} iters {iters} {fit_s:.1} s admm_loss {:.5}{tune_line} relH {rel:.5}",
                 stored_bits(o, n, r) as f64 / (o * n) as f64,
                 f.admm_loss
             );
-            for cmp in std::env::var("APEIRON_NQ_CMP")
-                .unwrap_or_else(|_| String::from("q4km"))
-                .split(',')
-            {
-                let p = format!("{CACHE}/l{l}.{kind}-{cmp}.i64");
-                if !std::path::Path::new(&p).exists() {
-                    continue;
-                }
-                let (_, _, qw) = read_words(&p);
-                let e: Vec<f64> = qw.iter().zip(&w).map(|(&q, x)| from_grid(q) - x).collect();
-                let rc = energy(&h, &e, o, n) / base;
-                let _ = write!(line, " | {cmp} relH {rc:.6} nq/{cmp} x{:.2}", rel / rc);
-            }
+            line += &cmp_line(&format!("{CACHE}/l{l}.{kind}"), &h, &w, (o, n), base, rel);
             println!("{line}");
         }
     }
