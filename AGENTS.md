@@ -15,7 +15,11 @@ Read this first. The owner layer ([`../AGENTS.md`](../AGENTS.md) §The goal, §T
 in full; this section is how they bind here.
 
 - **Goal.** A model on a phone-class device, offline, that helps people in a warzone survive.
-  - Quality "WITHIN 10% OF 4-BIT" (Q4_K_M).
+  - Quality "WITHIN 10% OF 4-BIT" (Q4_K_M), measured in "PPX and task accuracy" (owner,
+    2026-10-24): perplexity ≤ 1.10 × Q4_K_M's and zero-shot task accuracy ≥ 0.90 × Q4_K_M's, both
+    from the same run and harness (lead reading, reversible). The task suite is NanoQuant's
+    (lm-eval 0-shot: boolq, piqa, hellaswag, winogrande, arc_easy, arc_challenge). KL to the FP16
+    teacher is the fast screen, not the gate.
   - ≤ 4 GB of resident weights: a 27B-class model at ≈ 1.18 b/w, KV cache excluded.
   - SPIR-V/Vulkan on this PC first, mobile after.
 - **Where the gap is.** Owner, 2026-10-24: the method below "has already successfully led to us
