@@ -172,7 +172,10 @@ limb-MAC/s). `H⁻¹` is [`spd_inverse`]: block Schur-complement recursion, `2n�
 order 32 (order 768: 12.2 ms against 17.4 at 192; residual at order 300 7.7e-6 against 3.4e-5 unrecursed).
 2 limbs: fit 2.7–2.8 s, `admm_loss` 0.168 (+1.9%, seeds 0–4), so 3 limbs stay (§0 K3). 400 iterations
 project to ≈ 65 s per tensor (not run). Tune: 0.39 s per step at r = 896 (403.9 s for 1024); sketched,
-110 s for 1024 at 1024×3584. The tune is the dominant term. Logs `/home/socol/oc-tmp/escalation/lead-1023/nq/`
+110 s for 1024 at 1024×3584. Sketched at r = 768, s = 256, 128 steps from the `b32` factor (sketch
+included): 10.0/9.9/9.8 s → 7.1/7.1/7.1 s (1.39×) with packed Adam moments, parallel sign and real maps,
+and transposes on words instead of reals; the trace is bit-identical (relH 0.04919 → 0.03321, best
+0.01721 at step 128, 50 042 flips; `tsb.log`, `tsw.log`). The tune is the dominant term. Logs `/home/socol/oc-tmp/escalation/lead-1023/nq/`
 `b32c.log`, `seed-mixed.log`, `invsmall.log`, `invres.log`, control `invmut.log`; board `APEIRON-QUALITY-118-W1-T01`.
 
 ### Same-model comparison (Qwen3-0.6B-Base, wikitext2 test, 146 × 2048 tokens, grade measured)

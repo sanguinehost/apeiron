@@ -472,22 +472,24 @@ fn nq_fit() {
                 let fit_s = t.elapsed().as_secs_f64();
                 let mut tune_line = String::new();
                 if tc.steps > 0 {
+                    let mut sk_s = 0.0;
                     let t = Instant::now();
                     let tr = match env_usize("APEIRON_NQ_TUNE_SKETCH", 0) {
                         0 => tune(&mut f, &lin.w, &hw, &tc).expect("tune"),
                         s => {
                             let sk = h_sketch(&hw, n, s, env_usize("APEIRON_NQ_PASSES", 3), 0)
                                 .expect("sketch");
+                            sk_s = t.elapsed().as_secs_f64();
                             tune_sketch(&mut f, &lin.w, &hw, &sk, &tc).expect("tune_sketch")
                         }
                     };
                     let _ = write!(
                     tune_line,
-                    " tune {} steps lr {:e}/{:e} {:.1} s relH {:.5}->{:.5} best {:.5}@{} flips {}",
+                    " sketch {sk_s:.2} s tune {} steps lr {:e}/{:e} {:.2} s relH {:.5}->{:.5} best {:.5}@{} flips {}",
                     tc.steps,
                     tc.lr_binary,
                     tc.lr_scale,
-                    t.elapsed().as_secs_f64(),
+                    t.elapsed().as_secs_f64() - sk_s,
                     tr.rel_before,
                     tr.rel_after,
                     tr.rel_best.0,
