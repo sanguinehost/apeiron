@@ -10,10 +10,11 @@
 //! `ρ = t/T`, `main.py:81`; `cubic`, `ρ = (t/T)³`, is the function signature's default).
 //!
 //! Every matrix product runs on the kernel through [`crate::engine::kern::limb`] (AGENTS.md §0 K2):
-//! the Grams by `syrk_q32`, the right-hand sides and the solves by `gemm_q32`, the power iteration
-//! by prepared one-column products and the norms by `rowdot_q32`. The `r × r` ridge system is
-//! solved as `F = H⁻¹R` with `H⁻¹ = UᵀU` from [`crate::learn::solve::inv::inv_factor_upper`], so
-//! the `O(r²·k)` substitution is two kernel products instead of a scalar triangular solve.
+//! the Grams and the right-hand sides by prepared products, the solves by `gemm_q32`, the power
+//! iteration by prepared one-column products and the norms by `rowdot_q32`. The `r × r` ridge
+//! system is solved as `F = H⁻¹R` with `H⁻¹` from the block Schur-complement recursion
+//! [`spd_inverse`], so the `O(r²·k)` substitution is one kernel product instead of a scalar
+//! triangular solve.
 //!
 //! Deviations from the reference, each a stated input, not a silent change: the Gaussian draws
 //! come from [`Rng`] (splitmix64 and Box–Muller), not `torch.randn`; the `B` power iteration runs
@@ -27,6 +28,9 @@
               dimensions and 53-bit draws far below 2^52; every loop is one row-major index map"
 )]
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use crate::engine::chart::pool::{width_global, Pool};
 use crate::engine::kern::limb::{gemm_q32, prepare, rowdot_q32, syrk_q32, LimbError};
 use crate::learn::solve::chol::SolveError;
 use crate::learn::solve::inv::inv_factor_upper;
@@ -177,21 +181,53 @@ impl Rng {
     }
 }
 
-/// Every entry of `x` on the Q32.32 grid.
+/// Below this many entries an elementwise pass runs on the caller: a pool dispatch costs more than
+/// the pass.
+const PAR_MIN: usize = 1 << 14;
+
+/// `f(c, &mut out[c])` for every `c`, one contiguous chunk per pool worker (under [`PAR_MIN`]
+/// entries on the caller). Each entry is computed alone, so the result is the sequential one.
+/// `O(len)` calls of `f`.
+fn par_fill<T: Send>(out: &mut [T], f: &(impl Fn(usize, &mut T) + Sync)) {
+    if out.len() < PAR_MIN {
+        for (c, o) in out.iter_mut().enumerate() {
+            f(c, o);
+        }
+        return;
+    }
+    let chunk = out.len().div_ceil(width_global());
+    Pool::global().chunks_mut(out, chunk, &|_, start, piece: &mut [T]| {
+        for (k, o) in piece.iter_mut().enumerate() {
+            f(start + k, o);
+        }
+    });
+}
+
+/// `to_grid(f(c))` for `c < len`, through [`par_fill`]; [`NqError::Range`] if any entry leaves the
+/// grid. `O(len)` calls of `f`.
+fn grid_map(len: usize, f: &(impl Fn(usize) -> f64 + Sync)) -> Result<Vec<i64>, NqError> {
+    let bad = AtomicBool::new(false);
+    let mut out = vec![0i64; len];
+    par_fill(&mut out, &|c, o| match to_grid(f(c), GRID_BOUND) {
+        Some(w) => *o = w,
+        None => bad.store(true, Ordering::Relaxed),
+    });
+    if bad.into_inner() {
+        Err(NqError::Range)
+    } else {
+        Ok(out)
+    }
+}
+
+/// Every entry of `x` on the Q32.32 grid. `O(len)`.
 fn grid(x: &[f64]) -> Result<Vec<i64>, NqError> {
-    x.iter()
-        .map(|&v| to_grid(v, GRID_BOUND).ok_or(NqError::Range))
-        .collect()
+    grid_map(x.len(), &|c| x[c])
 }
 
 /// Row-major `rows × cols` transposed to `cols × rows`. `O(rows·cols)` moves.
-fn transpose<T: Copy + Default>(m: &[T], rows: usize, cols: usize) -> Vec<T> {
+fn transpose<T: Copy + Default + Send + Sync>(m: &[T], rows: usize, cols: usize) -> Vec<T> {
     let mut t = vec![T::default(); m.len()];
-    for i in 0..rows {
-        for j in 0..cols {
-            t[j * rows + i] = m[i * cols + j];
-        }
-    }
+    par_fill(&mut t, &|c, o| *o = m[(c % rows) * cols + c / rows]);
     t
 }
 
@@ -267,14 +303,97 @@ fn rank1(
     Ok(out)
 }
 
+/// Order at or below which [`spd_inverse`] stops recursing and takes `UᵀU` from the exact inverse
+/// factor. Measured at order 768 (`spd_inverse_base_wall`): 12.2 ms at 32 against 17.0 ms at 192;
+/// residual at order 300 (`spd_inverse_inverts`) 7.7e-6 against 3.4e-5 without recursion.
+const INV_BASE: usize = 32;
+
+/// The `[r0, r1) × [c0, c1)` block of a row-major matrix with `cols` columns.
+///
+/// `O((r1 − r0)·(c1 − c0))` word copies and words.
+fn block(m: &[i64], cols: usize, r0: usize, r1: usize, c0: usize, c1: usize) -> Vec<i64> {
+    let mut out = Vec::with_capacity((r1 - r0) * (c1 - c0));
+    for i in r0..r1 {
+        out.extend_from_slice(&m[i * cols + c0..i * cols + c1]);
+    }
+    out
+}
+
+/// `H⁻¹` of an SPD `h` (row-major `n × n`, Q32.32), symmetric, by the block Schur-complement
+/// recursion on `H = [A B; Bᵀ C]` (`A` of order `p = ⌊n/2⌋`, `C` of order `q = n − p`):
+///
+/// ```text
+/// X = A⁻¹B,  S = C − BᵀX,  Y = X·S⁻¹,  H⁻¹ = [A⁻¹ + Y·Xᵀ, −Y; −Yᵀ, S⁻¹],
+/// ```
+///
+/// the four products on the kernel at [`LIMBS`] (the fp32-reference precision of the products
+/// that consume `H⁻¹`), `A⁻¹` and `S⁻¹` by recursion; at order `≤ INV_BASE` the base is `UᵀU` with
+/// `U` from [`inv_factor_upper`]. `S` is SPD whenever `H` is (Schur complement of an SPD matrix).
+///
+/// # Errors
+///
+/// [`NqError::Solve`] as [`inv_factor_upper`] refuses a base block (a computed `S` that is not SPD
+/// lands here); [`NqError::Kernel`] as a product refuses; [`NqError::Range`] if a sum leaves `i64`.
+///
+/// # Complexity
+///
+/// Four products of half order per level, `p·p·q + q·q·p + p·q·q + p·p·q = n³/2` multiply-adds at
+/// `p = q = n/2`, so `T(n) = n³/2 + 2·T(n/2)` closes at `2n³/3` kernel multiply-adds, plus `n/INV_BASE`
+/// bases of `INV_BASE³/2` checked `i128` multiply-adds and an `INV_BASE³/2` kernel Gram each.
+/// `O(n²)` words live per level.
+fn spd_inverse(h: &[i64], n: usize) -> Result<Vec<i64>, NqError> {
+    spd_inverse_at(h, n, INV_BASE)
+}
+
+/// [`spd_inverse`] with the recursion base order `base` as an argument.
+fn spd_inverse_at(h: &[i64], n: usize, base: usize) -> Result<Vec<i64>, NqError> {
+    if n <= base {
+        let u = inv_factor_upper(h, n)?;
+        return Ok(syrk_q32(&transpose(&u, n, n), n, n, LIMBS)?);
+    }
+    let (p, q) = (n / 2, n - n / 2);
+    let ai = spd_inverse_at(&block(h, n, 0, p, 0, p), p, base)?;
+    let bt = block(&transpose(h, n, n), n, p, n, 0, p);
+    let x = gemm_q32(&ai, p, &bt, q, p, LIMBS)?;
+    let btx = gemm_q32(&bt, q, &transpose(&x, p, q), q, p, LIMBS)?;
+    let c = block(h, n, p, n, p, n);
+    let mut s = vec![0i64; q * q];
+    for i in 0..q {
+        for j in 0..q {
+            // `(BᵀX)ᵢⱼ` and `(BᵀX)ⱼᵢ` agree in exact arithmetic; the mean keeps `S` symmetric.
+            let m = (btx[i * q + j] >> 1) + (btx[j * q + i] >> 1);
+            s[i * q + j] = c[i * q + j].checked_sub(m).ok_or(NqError::Range)?;
+        }
+    }
+    let si = spd_inverse_at(&s, q, base)?;
+    let y = gemm_q32(&x, p, &si, q, q, LIMBS)?;
+    let yx = gemm_q32(&y, p, &x, p, q, LIMBS)?;
+    let mut out = vec![0i64; n * n];
+    for i in 0..p {
+        for j in 0..p {
+            let m = (yx[i * p + j] >> 1) + (yx[j * p + i] >> 1);
+            out[i * n + j] = ai[i * p + j].checked_add(m).ok_or(NqError::Range)?;
+        }
+        for j in 0..q {
+            let v = 0i64.checked_sub(y[i * q + j]).ok_or(NqError::Range)?;
+            out[i * n + p + j] = v;
+            out[(p + j) * n + i] = v;
+        }
+    }
+    for i in 0..q {
+        out[(p + i) * n + p..(p + i) * n + n].copy_from_slice(&si[i * q..i * q + q]);
+    }
+    Ok(out)
+}
+
 /// One ridge `X`-update in the transposed frame: returns `Fᵀ` (`k × r`) with
 /// `F = (XᵀX + (ρ·mean diag + reg)·I)⁻¹ (XᵀY + ρ(Z − U))`, `X = Z_x/‖·‖` column-normalised.
 ///
 /// `zx` is the `n × r` normalising factor (`Bᵀ_z` or `A_z`), `wp` the prepared `k × n` target
 /// (`W_n` for `A`, `W_nᵀ` for `B`), `z`/`du` the `k × r` consensus and dual.
 ///
-/// `O(r²·n/2 + r·n·k + r³/2 + 2·r²·k)` multiply-adds: the Gram, the right-hand side, the inverse
-/// factor and the two products `(RᵀUᵀ)·U`; all but the inverse factor on the kernel.
+/// `O(r²·n + r·n·k + 2r³/3 + r²·k)` multiply-adds: the full-square Gram, the right-hand side, the
+/// inverse ([`spd_inverse`]) and `Rᵀ·H⁻¹`, all on the kernel but the inverse's order-32 bases.
 #[allow(
     clippy::too_many_arguments,
     reason = "the ADMM step's operands are distinct matrices"
@@ -290,46 +409,37 @@ fn x_update(
     rho: f64,
     reg: f64,
 ) -> Result<Vec<f64>, NqError> {
-    let zt = grid(&transpose(zx, n, r))?;
-    let g = syrk_q32(&zt, r, n, LIMBS)?;
+    // `Z_xᵀ` on the grid in one pass: entry `(i, j)` of the `r × n` result is `zx[j·r + i]`.
+    let zt = grid_map(r * n, &|c| zx[(c % n) * r + c / n])?;
+    // The full square in one product: `syrk_q32` tiles `SYRK_COLS = 16` columns per kernel call.
+    let g = prepare(&zt, r, n, LIMBS)?.gemm(&zt, r)?;
     let d: Vec<f64> = (0..r)
         .map(|i| from_grid(g[i * r + i]).sqrt().max(EPS))
         .collect();
-    let mut h = vec![0.0f64; r * r];
-    for i in 0..r {
-        for j in 0..r {
-            h[i * r + j] = from_grid(g[i * r + j]) / (d[i] * d[j]);
-        }
-    }
-    // Symmetrise exactly as the reference, then the stabiliser.
-    for i in 0..r {
-        for j in (i + 1)..r {
-            let s = 0.5 * (h[i * r + j] + h[j * r + i]);
-            h[i * r + j] = s;
-            h[j * r + i] = s;
-        }
-    }
-    let mean_diag = (0..r).map(|i| h[i * r + i]).sum::<f64>() / r as f64;
+    let hn = |i: usize, j: usize| from_grid(g[i * r + j]) / (d[i] * d[j]);
+    let mean_diag = (0..r).map(|i| hn(i, i)).sum::<f64>() / r as f64;
     let stab = (rho * mean_diag.abs() + reg).max(EPS);
-    for i in 0..r {
-        h[i * r + i] += stab;
-    }
-    let ui = inv_factor_upper(&grid(&h)?, r)?;
+    // The reference's symmetrisation `(H + Hᵀ)/2` off the diagonal (IEEE addition commutes, so
+    // both triangles take the same word), then the stabiliser on the diagonal.
+    let hw = grid_map(r * r, &|c| {
+        let (i, j) = (c / r, c % r);
+        if i == j {
+            hn(i, i) + stab
+        } else {
+            0.5 * (hn(i, j) + hn(j, i))
+        }
+    })?;
+    let hi = spd_inverse(&hw, r)?;
     // Rᵀ = Y_x·Z_x·D⁻¹ + ρ(Z − U), `k × r`.
     let wz = wp.gemm(&zt, r)?;
-    let mut rt = vec![0.0f64; k * r];
-    for i in 0..k {
-        for j in 0..r {
-            let c = i * r + j;
-            rt[c] = from_grid(wz[c]) / d[j] + rho * (z[c] - du[c]);
-        }
-    }
-    // Fᵀ = Rᵀ·H⁻¹ = (Rᵀ·Uᵀ)·U: `gemm_q32(a, b) = a·bᵀ`, so the first takes `U`'s rows and the
-    // second `Uᵀ`'s rows.
-    let rtu = gemm_q32(&grid(&rt)?, k, &ui, r, r, LIMBS)?;
-    let uit = transpose(&ui, r, r);
-    let f = gemm_q32(&rtu, k, &uit, r, r, LIMBS)?;
-    Ok(f.iter().map(|&w| from_grid(w)).collect())
+    let rt = grid_map(k * r, &|c| {
+        from_grid(wz[c]) / d[c % r] + rho * (z[c] - du[c])
+    })?;
+    // Fᵀ = Rᵀ·H⁻¹: `gemm_q32(a, b) = a·bᵀ`, and `H⁻¹` is symmetric, so its rows serve.
+    let f = gemm_q32(&rt, k, &hi, r, r, LIMBS)?;
+    let mut out = vec![0.0f64; f.len()];
+    par_fill(&mut out, &|c, o| *o = from_grid(f[c]));
+    Ok(out)
 }
 
 /// `factorize_admm_nanoquant` on `w` (`out × inn`, Q32.32 row-major) under the input and output
@@ -345,8 +455,8 @@ fn x_update(
 ///
 /// # Complexity
 ///
-/// Per outer iteration (frame `o ≥ n`, rank `r`): two [`x_update`]s, `O(r²(o + n)/2 + 2·r·o·n +
-/// r³ + 2·r²(o + n))` multiply-adds, and two [`rank1`]s, `O(inner·r·(o + n))`. Total
+/// Per outer iteration (frame `o ≥ n`, rank `r`): two [`x_update`]s, `O(r²(o + n) + 2·r·o·n +
+/// 4r³/3 + r²(o + n))` multiply-adds, and two [`rank1`]s, `O(inner·r·(o + n))`. Total
 /// `T` times that; space `O(o·n + r·(o + n) + r²)` words.
 pub fn factorize(
     w: &[i64],
@@ -1155,5 +1265,83 @@ impl NqFactor {
             }
         }
         grid(&w)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `H·spd_inverse(H) = I` within `1e-5` (`f64` oracle) on a well-conditioned `H = AAᵀ + I` of
+    /// order 300, and no worse than the unrecursed base `UᵀU` on the same `H`.
+    #[test]
+    fn spd_inverse_inverts() {
+        let n = 300usize;
+        let mut rng = Rng(7);
+        let scale = 1.0 / (n as f64).sqrt();
+        let a = grid(&(0..n * n).map(|_| rng.normal() * scale).collect::<Vec<_>>()).unwrap();
+        let aat = gemm_q32(&a, n, &a, n, n, LIMBS).unwrap();
+        let h = grid_map(n * n, &|c| {
+            from_grid(aat[c]) + if c / n == c % n { 1.0 } else { 0.0 }
+        })
+        .unwrap();
+        // The oracle residual in `f64` (test-only scalar product, not on the build path).
+        let hf: Vec<f64> = h.iter().map(|&w| from_grid(w)).collect();
+        let mut res = Vec::new();
+        for base in [n, INV_BASE] {
+            let x = spd_inverse_at(&h, n, base).unwrap();
+            let mut worst = 0.0f64;
+            for i in 0..n {
+                for j in 0..n {
+                    let d: f64 = (0..n)
+                        .map(|t| hf[i * n + t] * from_grid(x[t * n + j]))
+                        .sum();
+                    worst = worst.max((d - if i == j { 1.0 } else { 0.0 }).abs());
+                }
+            }
+            println!("INV residual base {base} n {n} max |H·X − I| = {worst:e}");
+            res.push(worst);
+        }
+        assert!(
+            res[1] < 1e-5 && res[1] <= res[0],
+            "max |H·X − I|: recursion {:e}, none {:e}",
+            res[1],
+            res[0]
+        );
+    }
+
+    /// Wall of [`spd_inverse_at`] at the production order `r = 768` per base order (microbench;
+    /// prints, asserts nothing). `APEIRON_NQ_INV_BASES` is a comma list, default `16,32,48,96,192`.
+    #[test]
+    #[ignore = "microbench"]
+    fn spd_inverse_base_wall() {
+        let n = 768usize;
+        let mut rng = Rng(11);
+        let scale = 1.0 / (n as f64).sqrt();
+        let a = grid(&(0..n * n).map(|_| rng.normal() * scale).collect::<Vec<_>>()).unwrap();
+        let aat = gemm_q32(&a, n, &a, n, n, LIMBS).unwrap();
+        let h = grid_map(n * n, &|c| {
+            from_grid(aat[c]) + if c / n == c % n { 1.0 } else { 0.0 }
+        })
+        .unwrap();
+        let bases: Vec<usize> = std::env::var("APEIRON_NQ_INV_BASES")
+            .unwrap_or_else(|_| String::from("16,32,48,96,192"))
+            .split(',')
+            .map(|s| s.parse().expect("base"))
+            .collect();
+        for &base in &bases {
+            let mut ms = Vec::new();
+            for _ in 0..5 {
+                let t = std::time::Instant::now();
+                let x = spd_inverse_at(&h, n, base).unwrap();
+                ms.push(t.elapsed().as_secs_f64() * 1e3);
+                std::hint::black_box(x);
+            }
+            let mean = ms.iter().sum::<f64>() / ms.len() as f64;
+            let (lo, hi) = ms
+                .iter()
+                .fold((f64::MAX, 0.0f64), |(l, h), &m| (l.min(m), h.max(m)));
+            println!("INV base {base} n {n} mean {mean:.2} ms min {lo:.2} max {hi:.2} runs 5");
+        }
     }
 }

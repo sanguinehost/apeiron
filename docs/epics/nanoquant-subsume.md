@@ -165,10 +165,15 @@ flips signs the discrete loss does not reward.
 
 ### Cost equation (measured)
 
-0.34 s per ADMM iteration at 1024×3584, r = 768; 0.43 s at r = 896 (171.1 s for 400). Tune: 0.39 s per
-step at r = 896 (403.9 s for 1024), against the projected `o·n² + 3·o·n·r` = 23.1 GMAC. 400 iterations = 137–170 s per
-tensor; 28 tensors ≈ 4000 s, one kind (7 tensors) ≈ 1000–1200 s: both above the 600 s ceiling. Levers:
-iterations (150 it costs +7% relH), 2 limbs (K3: needs a measured metric), the GPU path.
+ADMM, blk.23 `ffn_down` 1024×3584, r = 768, 3 limbs, 20 iterations, seeds 0–2: 3.3, 3.3, 3.2 s per fit
+(was 0.34 s per iteration), `admm_loss` 0.16482, 0.16522, 0.16484. Per iteration ≈ 165 ms: `W·Z` 41.5, Gram
+25.4, right-hand side 19, `H⁻¹` 34 → 29, `rank1` 29.5 ms; the first three run at the kernel rate (≈ 815 G
+limb-MAC/s). `H⁻¹` is [`spd_inverse`]: block Schur-complement recursion, `2n³/3` in kernel products, base
+order 32 (order 768: 12.2 ms against 17.4 at 192; residual at order 300 7.7e-6 against 3.4e-5 unrecursed).
+2 limbs: fit 2.7–2.8 s, `admm_loss` 0.168 (+1.9%, seeds 0–4), so 3 limbs stay (§0 K3). 400 iterations
+project to ≈ 65 s per tensor (not run). Tune: 0.39 s per step at r = 896 (403.9 s for 1024); sketched,
+110 s for 1024 at 1024×3584. The tune is the dominant term. Logs `/home/socol/oc-tmp/escalation/lead-1023/nq/`
+`b32c.log`, `seed-mixed.log`, `invsmall.log`, `invres.log`, control `invmut.log`; board `APEIRON-QUALITY-118-W1-T01`.
 
 ### Same-model comparison (Qwen3-0.6B-Base, wikitext2 test, 146 × 2048 tokens, grade measured)
 
@@ -190,8 +195,8 @@ the reference's whole-model rate is ≈ 5.05 b/w, while at 27B the embedding sha
 
 Reference wall: 113.6 s per block (116, 138, 100, 100 s on one RTX 5080, including the per-block ppl
 eval); 28 blocks = 53 min plus model KD, above the 600 s ceiling. ADMM is 0.56 s per tensor on the GPU;
-the tune epochs dominate. Our CPU ADMM is 137–170 s per tensor (above), so our 196-tensor whole-model arm
-projects to ≈ 5–6 h: the dominant term is our ADMM and tune per-step cost, not the algorithm.
+the tune epochs dominate. Our CPU path at 1024×3584 projects to ≈ 65 s ADMM (400 iterations) plus 110 s
+sketched tune (1024 steps) per tensor (above): the dominant term is our tune per-step cost, not the algorithm.
 
 ### Wave map
 
