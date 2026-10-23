@@ -2896,6 +2896,7 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.NanoQuant.tune_rewrite_l23_down
 #audit Learn.NanoQuant.tune_colsum_l23_down
 #audit Learn.NanoQuant.tune_colgrads_l23_down
+#audit Learn.NanoQuant.admm_iters_l23_down
 #audit Learn.GateCode.plane_bits
 #audit Learn.GateCode.base_headroom
 #audit Learn.GateCode.t14_fits
