@@ -57,4 +57,20 @@ theorem break_even_n :
     (rateC - rateB) * (1024 * 768 * 143) < fixedF ∧ fixedF < (rateC - rateB) * (1024 * 768 * 144) := by
   decide
 
+/-! ## The device plane build (P107)
+
+`src/gpu/spirv/limb_plane.comp` builds a `rows × n` limb plane in two passes over the words: pass 0
+reads every word for the block exponents, pass 1 reads it again and writes `limbs` digit bytes per
+lane of every 32-lane block. Its byte traffic is the words read twice plus the digits written; the
+exponent atomics (`rows·⌈n/32⌉` words) are excluded. -/
+
+/-- Bytes moved by the device plane build: `2·8·rows·n` word reads, `rows·⌈n/32⌉·limbs·32` digit
+    writes. Grade `model`. -/
+def planeBytes (rows n limbs : Nat) : Nat := 2 * 8 * rows * n + rows * ((n + 31) / 32) * limbs * 32
+
+/-- At the fit frame (`W_n`, 3584 × 1024, 3 limbs) the build moves 69 730 304 bytes, of which
+    11 010 048 are the digit bytes `plane_build_matches_cpu` compares: 72.6 µs at 960 GB/s. -/
+theorem planeBytes_fit : planeBytes 3584 1024 3 = 69_730_304 ∧ 3584 * 32 * 3 * 32 = 11_010_048 := by
+  decide
+
 end Perf.LimbDevice

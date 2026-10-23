@@ -296,6 +296,18 @@ pub(crate) fn with_device_operands<R>(
     Ok((cpu, r))
 }
 
+/// The block exponents and digits of [`Plane::build`]: the reference of the device plane build.
+#[cfg(all(test, feature = "gpu"))]
+pub(crate) fn plane_parts(
+    data: &[i64],
+    rows: usize,
+    n: usize,
+    limbs: u32,
+) -> Result<(Vec<u32>, Vec<i8>), LimbError> {
+    let p = Plane::build(data, rows, n, limbs)?;
+    Ok((p.e, p.dig))
+}
+
 /// One pair group's word from its accumulator `v = Σ D·2^{T − tmin}`: `round_shift_32(v·2^tmin)`
 /// as [`gemm_q32`]'s kernel call rounds it, `None` when the word leaves `i64` (its `Range`).
 ///

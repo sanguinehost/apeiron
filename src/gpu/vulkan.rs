@@ -518,6 +518,7 @@ type GetQueueFamilyProps =
     unsafe extern "C" fn(PhysicalDevice, *mut u32, *mut QueueFamilyProperties);
 type GetMemoryProps = unsafe extern "C" fn(PhysicalDevice, *mut PhysicalDeviceMemoryProperties);
 type GetDeviceProps = unsafe extern "C" fn(PhysicalDevice, *mut u8);
+type GetDeviceFeatures = unsafe extern "C" fn(PhysicalDevice, *mut PhysicalDeviceFeatures);
 type CreateDevice = unsafe extern "C" fn(
     PhysicalDevice,
     *const DeviceCreateInfo,
@@ -709,6 +710,7 @@ impl Default for PhysicalDeviceFeatures {
         PhysicalDeviceFeatures { bits: [0; 55] }
     }
 }
+const FEATURE_SHADER_FLOAT64: usize = 39;
 const FEATURE_SHADER_INT64: usize = 40;
 const FEATURE_ROBUST_BUFFER_ACCESS: usize = 0;
 /// `VkPhysicalDeviceFeatures2`, so the core feature list travels in the same `pNext` chain as the
@@ -1088,6 +1090,8 @@ pub struct Vk {
     /// `VK_KHR_cooperative_matrix` present and int8 16x16x32 shape supported, unless disabled via
     /// `APEIRON_COOPMAT=0`.
     pub has_coopmat: bool,
+    /// `shaderFloat64` supported and enabled (only on the `has_bda` feature chain).
+    pub has_f64: bool,
 }
 
 impl Vk {
@@ -1157,6 +1161,12 @@ impl Vk {
             instance,
             "vkGetPhysicalDeviceProperties",
             GetDeviceProps
+        );
+        let dev_feats_f = vk_fn!(
+            gipa,
+            instance,
+            "vkGetPhysicalDeviceFeatures",
+            GetDeviceFeatures
         );
         let create_device = vk_fn!(gipa, instance, "vkCreateDevice", CreateDevice);
 
@@ -1498,9 +1508,17 @@ impl Vk {
         } else {
             chain
         };
+        let mut supported = PhysicalDeviceFeatures::default();
+        dev_feats_f(pd, &mut supported);
+        // `shaderFloat64` gates SPIR-V's `Float64` capability: the device-resident limb route's
+        // elementwise maps run in binary64.
+        let has_f64 = has_bda && supported.bits[FEATURE_SHADER_FLOAT64] != 0;
         let mut core = PhysicalDeviceFeatures::default();
         if has_bda {
             core.bits[FEATURE_SHADER_INT64] = 1;
+        }
+        if has_f64 {
+            core.bits[FEATURE_SHADER_FLOAT64] = 1;
         }
         // stated rather than assumed: the range check the SASS shows is NOT this, and it must not
         // become this by accident — the mandala mask is the only bound the kernels rely on.
@@ -1730,6 +1748,7 @@ impl Vk {
                 )
             }),
             has_coopmat,
+            has_f64,
         })
     }
 
