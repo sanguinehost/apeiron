@@ -1,0 +1,163 @@
+#version 450
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+// The gated softmax attention mixer of one layer over whole chunks, after its input projections.
+// Consumer: `src/gpu/nn/train/mixer.rs`, which owns the contract; the reference is the CPU path
+// (`engine::step::cols::softmax_cols_tap`).
+//
+//   mode 0 (prep), one workgroup per (row, slot), slot < NH a query head, else a key head:
+//          split the query row into q and gate (q at h·2·HD, gate at h·2·HD + HD), RMS-normalise
+//          the head with its gain (q gains at 0, k gains at HD), then rotate the first ROT dims at
+//          position row mod n_ctx in NEOX pairs (x_j, x_{j + ROT/2}) by angle pos·θ^(−2j/ROT).
+//   mode 1 (attend), one workgroup per (chunk, head, query i): causal scores over keys s ≤ i of
+//          the chunk scaled by 1/√HD, softmax, the value mix, times sigmoid(gate).
+// Bindings: 1 qf [T][NH·2·HD], 2 kf [T][NKV·HD], 3 gains [2·HD], 4 q [T][NH·HD],
+// 5 gate [T][NH·HD], 6 k [T][NKV·HD], 7 v [T][NKV·HD], 8 out [T][NH·HD].
+layout(local_size_x = 256) in;
+
+// META: [mode, n_ctx, NH, NKV, HD, ROT, theta bits, eps bits, workgroups]; the grid is folded
+// into x < 65535 and y.
+layout(std430, binding = 0) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 1) readonly buffer Qf { float qf[]; };
+layout(std430, binding = 2) readonly buffer Kf { float kf[]; };
+layout(std430, binding = 3) readonly buffer Gains { float gains[]; };
+layout(std430, binding = 4) buffer Q { float q[]; };
+layout(std430, binding = 5) buffer Gate { float gate[]; };
+layout(std430, binding = 6) buffer K { float k[]; };
+layout(std430, binding = 7) readonly buffer Vv { float v[]; };
+layout(std430, binding = 8) writeonly buffer Out { float o[]; };
+
+shared float xs[256];
+shared float sc[1024];
+shared float red[64];
+
+void main() {
+    uint mode = meta[0];
+    uint n_ctx = meta[1];
+    uint NH = meta[2];
+    uint NKV = meta[3];
+    uint HD = meta[4];
+    uint ROT = meta[5];
+    float theta = uintBitsToFloat(meta[6]);
+    float eps = uintBitsToFloat(meta[7]);
+    uint lid = gl_LocalInvocationID.x;
+    uint wg = gl_WorkGroupID.y * 65535u + gl_WorkGroupID.x;
+    if (wg >= meta[8]) {
+        return;
+    }
+    if (mode == 0u) {
+        uint slots = NH + NKV;
+        uint row = wg / slots;
+        uint slot = wg % slots;
+        bool is_q = slot < NH;
+        float x = 0.0;
+        if (lid < HD) {
+            if (is_q) {
+                uint b = row * NH * 2u * HD + slot * 2u * HD;
+                x = qf[b + lid];
+                gate[(row * NH + slot) * HD + lid] = qf[b + HD + lid];
+            } else {
+                x = kf[(row * NKV + slot - NH) * HD + lid];
+            }
+        }
+        float ss = subgroupAdd(x * x);
+        if (subgroupElect()) {
+            red[gl_SubgroupID] = ss;
+        }
+        barrier();
+        float tot = 0.0;
+        for (uint s = 0u; s < gl_NumSubgroups; s++) {
+            tot += red[s];
+        }
+        if (lid < HD) {
+            x *= inversesqrt(tot / float(HD) + eps) * gains[(is_q ? 0u : HD) + lid];
+            xs[lid] = x;
+        }
+        barrier();
+        if (lid >= HD) {
+            return;
+        }
+        float r = x;
+        uint half_rot = ROT / 2u;
+        if (lid < ROT) {
+            uint jj = lid % half_rot;
+            float pos = float(row % n_ctx);
+            float ang = pos * pow(theta, -2.0 * float(jj) / float(ROT));
+            float cs = cos(ang);
+            float sn = sin(ang);
+            if (lid < half_rot) {
+                r = xs[lid] * cs - xs[lid + half_rot] * sn;
+            } else {
+                r = xs[lid] * cs + xs[lid - half_rot] * sn;
+            }
+        }
+        if (is_q) {
+            q[(row * NH + slot) * HD + lid] = r;
+        } else {
+            k[(row * NKV + slot - NH) * HD + lid] = r;
+        }
+        return;
+    }
+    // mode 1: attend.
+    uint i = wg % n_ctx;
+    uint hc = wg / n_ctx;
+    uint h = hc % NH;
+    uint chunk = hc / NH;
+    uint g = h / (NH / NKV);
+    uint base = chunk * n_ctx;
+    uint row = base + i;
+    if (lid < HD) {
+        xs[lid] = q[(row * NH + h) * HD + lid];
+    }
+    barrier();
+    float scale = inversesqrt(float(HD));
+    uint sg = gl_SubgroupSize;
+    uint lane = gl_SubgroupInvocationID;
+    uint grp = gl_SubgroupID;
+    uint ng = gl_NumSubgroups;
+    float mx = -3.0e38;
+    for (uint s = grp; s <= i; s += ng) {
+        uint kb = ((base + s) * NKV + g) * HD;
+        float part = 0.0;
+        for (uint e = lane; e < HD; e += sg) {
+            part += xs[e] * k[kb + e];
+        }
+        float dot = subgroupAdd(part) * scale;
+        if (subgroupElect()) {
+            sc[s] = dot;
+        }
+        mx = max(mx, dot);
+    }
+    if (subgroupElect()) {
+        red[grp] = mx;
+    }
+    barrier();
+    float gmx = -3.0e38;
+    for (uint s = 0u; s < ng; s++) {
+        gmx = max(gmx, red[s]);
+    }
+    float sum = 0.0;
+    for (uint s = lid; s <= i; s += 256u) {
+        float e = exp(sc[s] - gmx);
+        sc[s] = e;
+        sum += e;
+    }
+    float ssum = subgroupAdd(sum);
+    barrier();
+    if (subgroupElect()) {
+        red[grp] = ssum;
+    }
+    barrier();
+    float tot = 0.0;
+    for (uint s = 0u; s < ng; s++) {
+        tot += red[s];
+    }
+    if (lid < HD) {
+        float acc = 0.0;
+        for (uint s = 0u; s <= i; s++) {
+            acc += sc[s] * v[((base + s) * NKV + g) * HD + lid];
+        }
+        float gt = gate[(row * NH + h) * HD + lid];
+        o[(row * NH + h) * HD + lid] = acc / tot * (1.0 / (1.0 + exp(-gt)));
+    }
+}

@@ -4,18 +4,22 @@
 //! the teacher's block output, then the student stream advances through the fitted block
 //! (`SamsungLabs/NanoQuant` @ `a9e0a43`, `tune_fact`). Board .
 //!
-//! Two phases, each one invocation under the 580 s round bound, resumable through files under
-//! `{CACHE}/bt/`:
-//! - `APEIRON_BT_PHASE=teacher`: one tapped prefill per calibration chunk (`c6x29`: chunks `0..6`
-//!   and `11..40`); writes every layer's teacher block output `t-l{l}.f32` and the trunk input
-//!   `x-{tag}-l0.f32`.
-//! - `APEIRON_BT_PHASE=tune`: for each layer in `APEIRON_BT_LAYERS` (`a..b`), the o-projection input
-//!   on the student stream by `Engine::layer_tap_cols`, the device fit from the `nq{from}` factors,
-//!   the export to `l{l}.{kind}-{tag}.{i64,nqf}`, and the next layer's student input
-//!   `x-{tag}-l{l+1}.f32`.
+//! Phase `stream` (`block_tune`) runs both streams on the device (`gpu::nn::train::mixer`): the
+//! teacher stream through the dense layer, the student stream through the dense mixer and the
+//! fitted block. Layers `APEIRON_BT_LAYERS` (`a..b`) per invocation under the 580 s round bound;
+//! the two streams at layer `b` are written to `{CACHE}/bt/s-{tag}-l{b}.{xt,xs}.f32` and the next
+//! round resumes from them. Factors go to `l{l}.{kind}-{tag}.{i64,nqf}`.
 //!
-//! The judge is `learn_gate_code gate_code_kl` with `APEIRON_GATE_ARM=gate-{tag}+up-{tag}+...`.
+//! The judge is `learn_gate_code gate_code_kl` with `APEIRON_GATE_ARM=gate-{tag}+up-{tag}+...`;
+//! it scores the base file's chunks `8..10`, inside the held-out chunks `6..11` here.
 #![cfg(feature = "gpu")]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names,
+    reason = "test geometry: single letters are the tape's symbols (`x`, `h`, `n`, `y`, `a`, `g`); \
+              f64 statistics narrow to the device's f32 and token counts widen to f64 for means"
+)]
 
 use std::io::{Read as _, Write as _};
 use std::path::Path;
@@ -23,18 +27,26 @@ use std::time::Instant;
 
 use apeiron::engine::loader::Engine;
 use apeiron::engine::KernelMode;
+use apeiron::format::bpe::Bpe;
 use apeiron::gpu::decode::GpuCtx;
 use apeiron::gpu::nn::train::block::{BlockShape, BlockTune, HostFactor};
+use apeiron::gpu::nn::train::mixer::{LayerFwd, LayerHost, Mixer};
 use apeiron::gpu::vulkan::Vk;
 use apeiron::learn::fold::stats::kldbase::KldBase;
-use apeiron::learn::grad::load::layer_from_engine;
+use apeiron::learn::grad::load::load_rows;
 use apeiron::learn::grad::model::Config;
 use apeiron::learn::nanoquant::{stored_bits, NqFactor};
 
 const MODEL: &str = "~/kld08/qwen08b-f16.gguf";
 const BASE: &str = "~/kld08/calib.c40.kld";
 const CACHE: &str = "~/kld08/gatecode-tok";
-/// Tap slots (`engine::step::tap`): residual in, o-projection input, FFN norm input and output,
+const TOKENIZER: &str = "~/kld08/hf/tokenizer.json";
+/// The text behind `BASE` (C4 train, llama.cpp `perplexity`, 40 chunks).
+const CALIB_TXT: &str = "~/kld/calib.txt";
+/// C4 validation shard 0 (`allenai/c4` `en/c4-validation.00000-of-00008`), disjoint from `BASE`.
+const C4: &str = "~/corpus/c4val/val0.txt";
+const N_CTX: usize = 512;
+/// Tap slots (`engine::step::tap`): residual in, o-projection input, FFN norm output and input,
 /// layer output.
 const HIDDEN_IN: usize = 0;
 const ATTN_OUT: usize = 2;
@@ -55,21 +67,83 @@ fn bt_dir() -> String {
     d
 }
 
-/// The `c6x29` calibration chunks: `0..6` and `11..40`.
-fn calib_chunks() -> Vec<Vec<u32>> {
+/// The base file's 40 token chunks.
+fn base_chunks() -> Vec<Vec<u32>> {
     let mut base = KldBase::open(Path::new(BASE)).expect("open base file");
-    let all: Vec<Vec<u32>> = (0..base.n_chunk())
+    (0..base.n_chunk())
         .map(|_| base.next_chunk().expect("chunk").tokens)
-        .collect();
-    all[..6].iter().chain(&all[11..40]).cloned().collect()
+        .collect()
+}
+
+/// Training and held-out chunks. Held out: the base file's chunks `6..11`. Training
+/// (`APEIRON_BT_DATA`): `calib`, the base file's chunks `0..6` and `11..40`; or `c4`, the first
+/// `APEIRON_BT_N` chunks of [`C4`].
+fn stream_chunks() -> (Vec<Vec<u32>>, Vec<Vec<u32>>) {
+    let base = base_chunks();
+    let held = base[6..11].to_vec();
+    let train = match env("APEIRON_BT_DATA", "c4").as_str() {
+        "calib" => base[..6].iter().chain(&base[11..]).cloned().collect(),
+        "c4" => {
+            let n: usize = env("APEIRON_BT_N", "256").parse().expect("n");
+            let c = text_chunks(C4, ((n + 1) * N_CTX * 6).max(8_000_000));
+            assert!(c.len() >= n, "{} C4 chunks < {n}", c.len());
+            c[..n].to_vec()
+        }
+        s => panic!("APEIRON_BT_DATA {s}: calib | c4"),
+    };
+    (train, held)
+}
+
+/// The `N_CTX`-token chunks of the first `max_bytes` of `path`, cut at a line end; the token
+/// stream is cached as little-endian `u32` under `bt/`.
+fn text_chunks(path: &str, max_bytes: usize) -> Vec<Vec<u32>> {
+    let stem = Path::new(path).file_stem().expect("stem").to_string_lossy();
+    let cache = format!("{}/tok-{stem}-{max_bytes}.u32", bt_dir());
+    let toks: Vec<u32> = if Path::new(&cache).exists() {
+        std::fs::read(&cache)
+            .expect("token cache")
+            .chunks_exact(4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .collect()
+    } else {
+        let raw = std::fs::read(path).expect("text");
+        let cut = &raw[..max_bytes.min(raw.len())];
+        let end = cut
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(cut.len(), |i| i + 1);
+        let text = std::str::from_utf8(&cut[..end]).expect("utf-8 text");
+        let t0 = Instant::now();
+        let t = Bpe::from_tokenizer_json(TOKENIZER)
+            .expect("tokenizer")
+            .encode(text)
+            .expect("encode");
+        println!(
+            "BT tokenized {end} bytes -> {} tokens {:.1} s",
+            t.len(),
+            t0.elapsed().as_secs_f64()
+        );
+        let bytes: Vec<u8> = t.iter().flat_map(|v| v.to_le_bytes()).collect();
+        std::fs::write(&cache, bytes).expect("write token cache");
+        t
+    };
+    toks.chunks_exact(N_CTX).map(<[u32]>::to_vec).collect()
+}
+
+/// The trunk input of `chunks`: their `token_embd` rows, chunk-major `T × d`.
+fn embed(engine: &Engine, cfg: &Config, chunks: &[Vec<u32>]) -> Vec<f32> {
+    let mut x = Vec::with_capacity(chunks.len() * N_CTX * cfg.n_embd);
+    for c in chunks {
+        let ids: Vec<usize> = c.iter().map(|&t| t as usize).collect();
+        let rows = load_rows(engine, "token_embd.weight", cfg.vocab, cfg.n_embd, &ids)
+            .expect("embedding rows");
+        x.extend(rows.into_iter().map(q32_f32));
+    }
+    x
 }
 
 fn q32_f32(v: i64) -> f32 {
     (v as f64 / 4_294_967_296.0) as f32
-}
-
-fn f32_q32(v: f32) -> i64 {
-    (f64::from(v) * 4_294_967_296.0).round() as i64
 }
 
 fn write_f32(path: &str, v: &[f32]) {
@@ -203,68 +277,6 @@ fn from_host(h: &HostFactor, admm_loss: f64) -> NqFactor {
     }
 }
 
-/// Phase `teacher`: one tapped prefill per calibration chunk; every layer's block output and the
-/// trunk input as f32, chunk-major. Also the FFN norm convention: `LN2_OUT` against
-/// `rmsnorm(H2)·g2` on the device's formula, relative error printed per layer.
-fn teacher(engine: &Engine, cfg: &Config, tag: &str) {
-    let dir = bt_dir();
-    let chunks = calib_chunks();
-    let (d, nl) = (cfg.n_embd, cfg.n_layer);
-    let mut outs: Vec<Vec<f32>> = vec![Vec::new(); nl];
-    let mut x0 = Vec::new();
-    let mut norm_err = vec![0f64; nl];
-    let t0 = Instant::now();
-    for (ci, toks) in chunks.iter().enumerate() {
-        let mut st = engine.state(toks.len()).expect("state");
-        let (_o, rows) = engine
-            .prefill_tap_cols(&mut st, toks, KernelMode::Q8Act, true)
-            .expect("tapped prefill");
-        for (l, lr) in rows.iter().enumerate() {
-            for col in &lr[OUT] {
-                assert_eq!(col.len(), d);
-                outs[l].extend(col.iter().map(|&v| q32_f32(v)));
-            }
-            if ci == 0 {
-                let g2 = layer_from_engine(engine, cfg, l).expect("layer").ffn_norm;
-                let mut num = 0f64;
-                let mut den = 0f64;
-                for (h, n) in lr[H2].iter().zip(&lr[LN2_OUT]).take(64) {
-                    let hf: Vec<f64> = h.iter().map(|&v| v as f64 / 4_294_967_296.0).collect();
-                    let ms = hf.iter().map(|v| v * v).sum::<f64>() / d as f64;
-                    let inv = 1.0 / (ms + 1e-6).sqrt();
-                    for c in 0..d {
-                        let want = n[c] as f64 / 4_294_967_296.0;
-                        let got = hf[c] * inv * (g2[c] as f64 / 4_294_967_296.0);
-                        num += (got - want).powi(2);
-                        den += want * want;
-                    }
-                }
-                norm_err[l] = (num / den).sqrt();
-            }
-        }
-        for col in &rows[0][HIDDEN_IN] {
-            x0.extend(col.iter().map(|&v| q32_f32(v)));
-        }
-        println!("BT teacher chunk {ci} {:.1} s", t0.elapsed().as_secs_f64());
-    }
-    println!(
-        "BT ffn-norm relative error per layer {:?}",
-        norm_err
-            .iter()
-            .map(|e| format!("{e:.2e}"))
-            .collect::<Vec<_>>()
-    );
-    for (l, o) in outs.iter().enumerate() {
-        write_f32(&format!("{dir}/t-l{l}.f32"), o);
-    }
-    write_f32(&format!("{dir}/x-{tag}-l0.f32"), &x0);
-    println!(
-        "BT teacher done {} chunks {:.1} s",
-        chunks.len(),
-        t0.elapsed().as_secs_f64()
-    );
-}
-
 /// Gather the columns of chunks `ids` (each `n_ctx` columns of width `w`) into one step buffer.
 fn gather(src: &[f32], ids: &[usize], n_ctx: usize, w: usize) -> Vec<f32> {
     let mut out = Vec::with_capacity(ids.len() * n_ctx * w);
@@ -274,7 +286,7 @@ fn gather(src: &[f32], ids: &[usize], n_ctx: usize, w: usize) -> Vec<f32> {
     out
 }
 
-/// A SplitMix64 permutation of `0..n` for epoch `e`.
+/// A `SplitMix64` permutation of `0..n` for epoch `e`.
 fn perm(n: usize, e: u64) -> Vec<usize> {
     let mut p: Vec<usize> = (0..n).collect();
     let mut s = 0x5EED_0000 + e;
@@ -301,51 +313,80 @@ fn batches(order: &[usize]) -> Vec<Vec<usize>> {
         .collect()
 }
 
+/// Write the `n_ctx`-column chunks of `src` (width `w`) back to chunks `ids` of `dst`.
+fn scatter(dst: &mut [f32], src: &[f32], ids: &[usize], n_ctx: usize, w: usize) {
+    for (k, &c) in ids.iter().enumerate() {
+        dst[c * n_ctx * w..(c + 1) * n_ctx * w]
+            .copy_from_slice(&src[k * n_ctx * w..(k + 1) * n_ctx * w]);
+    }
+}
+
+/// Phase `stream`: layers `a..b` of both streams on the device, the block fit per layer.
+///
+/// Per layer, over `n` chunks: two layer forwards per chunk (`O(n·T·d·(C + a + 3f))` flops),
+/// `epochs·n` fit steps, one output pass; host memory `n·T·(3d + a)` words.
 #[allow(clippy::too_many_lines, reason = "one driver")]
-fn tune(engine: &Engine, cfg: &Config, tag: &str) {
+fn stream(engine: &Engine, cfg: &Config, tag: &str) {
     let dir = bt_dir();
     let from = env("APEIRON_BT_FROM", "w24");
     let epochs: u64 = env("APEIRON_BT_EPOCHS", "8").parse().expect("epochs");
-    let lr: f64 = env("APEIRON_BT_LR", "1e-5").parse().expect("lr");
-    let lr_s: f64 = env("APEIRON_BT_LR_SCALE", "1e-5")
+    let lr: f64 = env("APEIRON_BT_LR", "3e-4").parse().expect("lr");
+    let lr_s: f64 = env("APEIRON_BT_LR_SCALE", "1e-3")
         .parse()
         .expect("lr scale");
     let range = env("APEIRON_BT_LAYERS", &format!("0..{}", cfg.n_layer));
     let (a, b) = range.split_once("..").expect("a..b");
     let (la, lb): (usize, usize) = (a.parse().expect("a"), b.parse().expect("b"));
     let (d, f) = (cfg.n_embd, cfg.n_ff);
-    let n_chunks = calib_chunks().len();
-    let n_ctx = 512usize;
+    let t0 = Instant::now();
+    let (train_toks, held_toks) = stream_chunks();
+    let n_train = train_toks.len();
+    let n_all = n_train + held_toks.len();
+    let held: Vec<usize> = (n_train..n_all).collect();
+    let natural: Vec<usize> = (0..n_all).collect();
+    let state = |l: usize, s: &str| format!("{dir}/s-{tag}-l{l}.{s}.f32");
+    let (mut xt, mut xs) = if la == 0 {
+        let all: Vec<Vec<u32>> = train_toks.into_iter().chain(held_toks).collect();
+        let x0 = embed(engine, cfg, &all);
+        (x0.clone(), x0)
+    } else {
+        (read_f32(&state(la, "xt")), read_f32(&state(la, "xs")))
+    };
+    assert_eq!(xt.len(), n_all * N_CTX * d, "teacher stream l{la}");
+    assert_eq!(xs.len(), n_all * N_CTX * d, "student stream l{la}");
+    println!(
+        "BT stream {n_train} train + {} held chunks, input {:.1} s",
+        n_all - n_train,
+        t0.elapsed().as_secs_f64()
+    );
     let vk = unsafe { Vk::load() }.expect("vulkan");
     let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
+    let mut fwds: [Option<LayerFwd>; 2] = [None, None];
     let mut bt: Option<(BlockShape, BlockTune)> = None;
     for l in la..lb {
         let t_layer = Instant::now();
-        let x = read_f32(&format!("{dir}/x-{tag}-l{l}.f32"));
-        let yt = read_f32(&format!("{dir}/t-l{l}.f32"));
-        assert_eq!(x.len(), n_chunks * n_ctx * d, "x l{l}");
-        // The o-projection input on the student stream.
-        let mut at = Vec::new();
-        let mut aw = 0;
-        for c in 0..n_chunks {
-            let cols: Vec<Vec<i64>> = x[c * n_ctx * d..(c + 1) * n_ctx * d]
-                .chunks_exact(d)
-                .map(|r| r.iter().map(|&v| f32_q32(v)).collect())
-                .collect();
-            let mut st = engine.state(n_ctx).expect("state");
-            let rows = engine.layer_tap_cols(&mut st, l, &cols).expect("layer tap");
-            for col in &rows[ATTN_OUT] {
-                aw = col.len();
-                at.extend(col.iter().map(|&v| q32_f32(v)));
-            }
+        let host = LayerHost::from_engine(engine, cfg, l).expect("layer host");
+        let kind = usize::from(matches!(host.mixer, Mixer::Softmax { .. }));
+        let fwd =
+            fwds[kind].get_or_insert_with(|| unsafe { LayerFwd::new(&g, &host, N_CTX, PER_STEP) });
+        unsafe { fwd.load(&g, &host) };
+        let aw = host.a;
+        // The teacher's layer output and the student's mixer output, both through the dense layer.
+        let mut yt = vec![0f32; xt.len()];
+        let mut at = vec![0f32; n_all * N_CTX * aw];
+        for ids in batches(&natural) {
+            let (_, y) = unsafe { fwd.run(&g, &gather(&xt, &ids, N_CTX, d)) };
+            scatter(&mut yt, &y, &ids, N_CTX, d);
+            let (ao, _) = unsafe { fwd.run(&g, &gather(&xs, &ids, N_CTX, d)) };
+            scatter(&mut at, &ao, &ids, N_CTX, aw);
         }
-        let t_tap = t_layer.elapsed().as_secs_f64();
+        let t_fwd = t_layer.elapsed().as_secs_f64();
         let src: Vec<NqFactor> = KINDS
             .iter()
             .map(|k| load_factor(&format!("{CACHE}/l{l}.{k}-nq{from}.nqf")))
             .collect();
         let mut flips = 0;
-        let host: Vec<HostFactor> = src
+        let factors: Vec<HostFactor> = src
             .iter()
             .map(|nf| {
                 let (h, fl) = to_host(nf);
@@ -354,7 +395,7 @@ fn tune(engine: &Engine, cfg: &Config, tag: &str) {
             })
             .collect();
         let shape = BlockShape {
-            t: PER_STEP * n_ctx,
+            t: PER_STEP * N_CTX,
             d,
             a: aw,
             f,
@@ -364,129 +405,62 @@ fn tune(engine: &Engine, cfg: &Config, tag: &str) {
             bt = Some((shape, unsafe { BlockTune::new(&g, shape, lr, lr_s) }));
         }
         let (_, tuner) = bt.as_mut().expect("tuner");
-        let g2: Vec<f32> = layer_from_engine(engine, cfg, l)
-            .expect("layer")
-            .ffn_norm
-            .iter()
-            .map(|&v| q32_f32(v))
-            .collect();
-        let natural: Vec<usize> = (0..n_chunks).collect();
-        let eval = |tuner: &mut BlockTune| -> f64 {
-            let mut s = 0.0;
-            for ids in batches(&natural) {
+        let eval = |tuner: &mut BlockTune, set: &[usize]| -> f64 {
+            let (mut s, mut den) = (0.0, 0.0);
+            for ids in batches(set) {
+                let y = gather(&yt, &ids, N_CTX, d);
+                den += y.iter().map(|&v| f64::from(v).powi(2)).sum::<f64>();
                 unsafe {
                     tuner.batch(
                         &g,
-                        &gather(&x, &ids, n_ctx, d),
-                        &gather(&at, &ids, n_ctx, aw),
-                        &gather(&yt, &ids, n_ctx, d),
+                        &gather(&xs, &ids, N_CTX, d),
+                        &gather(&at, &ids, N_CTX, aw),
+                        &y,
                     );
                     s += tuner.run(&g, false);
                 }
             }
-            s
+            s / den
         };
-        unsafe { tuner.load(&g, &host, &g2) };
-        if std::env::var("APEIRON_BT_CHECK").is_ok() {
-            let ids = [0, 1, 2, 3];
-            let (xs, as_, ys) = (
-                gather(&x, &ids, n_ctx, d),
-                gather(&at, &ids, n_ctx, aw),
-                gather(&yt, &ids, n_ctx, d),
-            );
-            let dev = unsafe {
-                tuner.batch(&g, &xs, &as_, &ys);
-                tuner.run(&g, false);
-                tuner.output(&g)
-            };
-            let cols = 16;
-            let lw = layer_from_engine(engine, cfg, l).expect("layer");
-            let by = |names: &[&str]| -> &[i64] {
-                &lw.linears
-                    .iter()
-                    .find(|x| names.contains(&x.name))
-                    .expect("linear")
-                    .w
-            };
-            let dense = host_block(
-                &xs,
-                &as_,
-                [
-                    by(&["attn_output", "ssm_out"]),
-                    by(&["ffn_gate"]),
-                    by(&["ffn_up"]),
-                    by(&["ffn_down"]),
-                ],
-                &g2,
-                d,
-                aw,
-                f,
-                cols,
-            );
-            let ws: Vec<Vec<i64>> = src.iter().map(|s| s.weight().expect("weight")).collect();
-            let nq = host_block(
-                &xs,
-                &as_,
-                [&ws[0], &ws[1], &ws[2], &ws[3]],
-                &g2,
-                d,
-                aw,
-                f,
-                cols,
-            );
-            let devf: Vec<f64> = dev[..cols * d].iter().map(|&v| f64::from(v)).collect();
-            let nqf: Vec<f32> = nq.iter().map(|&v| v as f32).collect();
-            println!(
-                "BT check l{l}: host-dense vs teacher {:.3e}; host-nq vs teacher {:.5}; device vs host-nq {:.3e}; device vs teacher {:.5}",
-                rel(&dense, &ys[..cols * d]),
-                rel(&nq, &ys[..cols * d]),
-                rel(&devf, &nqf),
-                rel(&devf, &ys[..cols * d])
-            );
-            continue;
-        }
-        let loss0 = eval(tuner);
+        unsafe { tuner.load(&g, &factors, &host.ffn_norm) };
+        let held0 = eval(tuner, &held);
         let t_fit = Instant::now();
         let mut ep_loss = Vec::new();
         for e in 0..epochs {
-            let mut s = 0.0;
-            for ids in batches(&perm(n_chunks, e)) {
+            let (mut s, mut den) = (0.0, 0.0);
+            for ids in batches(&perm(n_train, e)) {
+                let y = gather(&yt, &ids, N_CTX, d);
+                den += y.iter().map(|&v| f64::from(v).powi(2)).sum::<f64>();
                 unsafe {
                     tuner.batch(
                         &g,
-                        &gather(&x, &ids, n_ctx, d),
-                        &gather(&at, &ids, n_ctx, aw),
-                        &gather(&yt, &ids, n_ctx, d),
+                        &gather(&xs, &ids, N_CTX, d),
+                        &gather(&at, &ids, N_CTX, aw),
+                        &y,
                     );
                     s += tuner.run(&g, true);
                 }
             }
-            ep_loss.push(s);
+            ep_loss.push(s / den);
         }
         let fit_s = t_fit.elapsed().as_secs_f64();
-        let loss1 = eval(tuner);
-        // Next layer's student input: the fitted block's output, chunk by chunk.
-        let mut next = vec![0f32; x.len()];
+        let held1 = eval(tuner, &held);
+        // The student stream advances through the fitted block.
+        let mut next = vec![0f32; xs.len()];
         for ids in batches(&natural) {
             unsafe {
                 tuner.batch(
                     &g,
-                    &gather(&x, &ids, n_ctx, d),
-                    &gather(&at, &ids, n_ctx, aw),
-                    &gather(&yt, &ids, n_ctx, d),
+                    &gather(&xs, &ids, N_CTX, d),
+                    &gather(&at, &ids, N_CTX, aw),
+                    &gather(&yt, &ids, N_CTX, d),
                 );
                 tuner.run(&g, false);
-                let y = tuner.output(&g);
-                for (k, &c) in ids.iter().enumerate() {
-                    next[c * n_ctx * d..(c + 1) * n_ctx * d]
-                        .copy_from_slice(&y[k * n_ctx * d..(k + 1) * n_ctx * d]);
-                }
+                scatter(&mut next, &tuner.output(&g), &ids, N_CTX, d);
             }
         }
-        write_f32(&format!("{dir}/x-{tag}-l{}.f32", l + 1), &next);
         let fitted = unsafe { tuner.factors(&g) };
-        let mut bits = 0u64;
-        let mut wts = 0usize;
+        let (mut bits, mut wts) = (0u64, 0usize);
         for ((kind, h), s) in KINDS.iter().zip(&fitted).zip(&src) {
             let nf = from_host(h, s.admm_loss);
             let w = nf.weight().expect("weight");
@@ -500,41 +474,63 @@ fn tune(engine: &Engine, cfg: &Config, tag: &str) {
             bits += stored_bits(nf.out, nf.inn, nf.rank);
             wts += nf.out * nf.inn;
         }
-        let den: f64 = yt.iter().map(|&v| f64::from(v).powi(2)).sum();
-        let eps: Vec<String> = ep_loss.iter().map(|v| format!("{:.4}", v / den)).collect();
+        xt = yt;
+        xs = next;
+        let eps: Vec<String> = ep_loss.iter().map(|v| format!("{v:.4}")).collect();
         println!(
-            "BT layer {l:02} b/w {:.4} flips {flips} rel0 {:.5} rel1 {:.5} x{:.2} epochs [{}] tap {t_tap:.1} s fit {fit_s:.1} s total {:.1} s",
+            "BT layer {l:02} b/w {:.4} flips {flips} held0 {held0:.5} held1 {held1:.5} x{:.2} epochs [{}] fwd {t_fwd:.1} s fit {fit_s:.1} s total {:.1} s",
             bits as f64 / wts as f64,
-            loss0 / den,
-            loss1 / den,
-            loss0 / loss1,
+            held0 / held1,
             eps.join(" "),
             t_layer.elapsed().as_secs_f64()
         );
     }
+    write_f32(&state(lb, "xt"), &xt);
+    write_f32(&state(lb, "xs"), &xs);
+    println!("BT round l{la}..l{lb} {:.1} s", t0.elapsed().as_secs_f64());
 }
 
-/// The phase named by `APEIRON_BT_PHASE` (`teacher` or `tune`), tag `APEIRON_BT_TAG` (`bt24`).
+/// The device stream fit (`stream`), tag `APEIRON_BT_TAG` (`bt24`).
 #[test]
 #[ignore = "measurement: the whole-trunk device block fit; reads the teacher model"]
 fn block_tune() {
     let tag = env("APEIRON_BT_TAG", "bt24");
     let engine = Engine::open(MODEL).expect("open teacher");
     let cfg = Config::from_engine(&engine).expect("config");
-    match env("APEIRON_BT_PHASE", "tune").as_str() {
-        "teacher" => teacher(&engine, &cfg, &tag),
-        "tune" => tune(&engine, &cfg, &tag),
-        p => panic!("APEIRON_BT_PHASE {p}: teacher | tune"),
+    stream(&engine, &cfg, &tag);
+}
+
+/// The crate's BPE on the base file's text reproduces the base file's token chunks (llama.cpp's
+/// tokenizer), so C4 chunks tokenized here are the judge's token distribution.
+#[test]
+#[ignore = "reads the tokenizer and the base file"]
+fn bpe_matches_base() {
+    let text = std::fs::read_to_string(CALIB_TXT).expect("calib text");
+    let toks = Bpe::from_tokenizer_json(TOKENIZER)
+        .expect("tokenizer")
+        .encode(&text)
+        .expect("encode");
+    let base = base_chunks();
+    let (mut same, mut first_diff) = (0usize, None);
+    for (i, &t) in base.iter().flatten().enumerate() {
+        if toks.get(i) == Some(&t) {
+            same += 1;
+        } else if first_diff.is_none() {
+            first_diff = Some(i);
+        }
     }
+    let n = base.len() * N_CTX;
+    println!("BPE {same}/{n} tokens equal; first difference at {first_diff:?}");
+    assert_eq!(same, n, "first difference at {first_diff:?}");
 }
 
 /// `Engine::layer_tap_cols` fed the teacher's recorded layer input reproduces the tapped prefill's
-/// rows for that layer bit for bit, on a DeltaNet layer and a softmax layer.
+/// rows for that layer bit for bit, on a `DeltaNet` layer and a softmax layer.
 #[test]
 #[ignore = "reads the teacher model"]
 fn layer_tap_matches_prefill() {
     let engine = Engine::open(MODEL).expect("open teacher");
-    let toks: Vec<u32> = calib_chunks()[0][..64].to_vec();
+    let toks: Vec<u32> = base_chunks()[0][..64].to_vec();
     let mut st = engine.state(toks.len()).expect("state");
     let (_o, rows) = engine
         .prefill_tap_cols(&mut st, &toks, KernelMode::Q8Act, true)
@@ -550,59 +546,56 @@ fn layer_tap_matches_prefill() {
     }
 }
 
-/// The block forward in f64 on dense Q32 row-major `out × in` weights, for `cols` columns:
-/// `h = x + a·Woᵀ`, `n = rmsnorm(h)·g2`, `y = h + (silu(n·Wgᵀ) ⊙ n·Wuᵀ)·Wdᵀ`.
-#[allow(clippy::too_many_arguments, reason = "the block's operands")]
-fn host_block(
-    x: &[f32],
-    a: &[f32],
-    w: [&[i64]; 4],
-    g2: &[f32],
-    d: usize,
-    aw: usize,
-    f: usize,
-    cols: usize,
-) -> Vec<f64> {
-    let q = |v: i64| v as f64 / 4_294_967_296.0;
-    let mv = |m: &[i64], rows: usize, inn: usize, v: &[f64]| -> Vec<f64> {
-        (0..rows)
-            .map(|r| {
-                m[r * inn..(r + 1) * inn]
-                    .iter()
-                    .zip(v)
-                    .map(|(&w, &x)| q(w) * x)
-                    .sum()
-            })
-            .collect()
+/// The device layer forward (`gpu::nn::train::mixer`) reproduces the CPU tap's mixer output and
+/// layer output on a `DeltaNet` layer and a softmax layer, to the `Q8Act` schedule's relative
+/// error; prints both walls.
+#[test]
+#[ignore = "reads the teacher model; needs a Vulkan device"]
+fn layer_fwd_matches_cpu() {
+    let engine = Engine::open(MODEL).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let toks: Vec<u32> = base_chunks()[0].clone();
+    let n_ctx = toks.len();
+    let mut st = engine.state(n_ctx).expect("state");
+    let (_o, rows) = engine
+        .prefill_tap_cols(&mut st, &toks, KernelMode::Q8Act, true)
+        .expect("tapped prefill");
+    let vk = unsafe { Vk::load() }.expect("vulkan");
+    let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
+    let flat = |r: &[Vec<i64>]| -> Vec<f32> { r.iter().flatten().map(|&v| q32_f32(v)).collect() };
+    let rel32 = |got: &[f32], want: &[f32]| -> f64 {
+        let (mut num, mut den) = (0.0f64, 0.0f64);
+        for (&a, &b) in got.iter().zip(want) {
+            num += f64::from(a - b).powi(2);
+            den += f64::from(b).powi(2);
+        }
+        (num / den).sqrt()
     };
-    let mut y = Vec::with_capacity(cols * d);
-    for c in 0..cols {
-        let xa: Vec<f64> = a[c * aw..(c + 1) * aw]
-            .iter()
-            .map(|&v| f64::from(v))
-            .collect();
-        let o = mv(w[0], d, aw, &xa);
-        let h: Vec<f64> = (0..d).map(|i| f64::from(x[c * d + i]) + o[i]).collect();
-        let inv = 1.0 / (h.iter().map(|v| v * v).sum::<f64>() / d as f64 + 1e-6).sqrt();
-        let n: Vec<f64> = (0..d).map(|i| h[i] * inv * f64::from(g2[i])).collect();
-        let gt = mv(w[1], f, d, &n);
-        let up = mv(w[2], f, d, &n);
-        let s: Vec<f64> = gt
-            .iter()
-            .zip(&up)
-            .map(|(&g, &u)| g / (1.0 + (-g).exp()) * u)
-            .collect();
-        let dn = mv(w[3], d, f, &s);
-        y.extend((0..d).map(|i| h[i] + dn[i]));
+    for l in [0, 3] {
+        let host = LayerHost::from_engine(&engine, &cfg, l).expect("layer host");
+        let fwd = unsafe { LayerFwd::new(&g, &host, n_ctx, 1) };
+        let x = flat(&rows[l][HIDDEN_IN]);
+        let t0 = Instant::now();
+        let (ao, y) = unsafe { fwd.run(&g, &x) };
+        let first = t0.elapsed().as_secs_f64();
+        let t1 = Instant::now();
+        for _ in 0..5 {
+            let _ = unsafe { fwd.run(&g, &x) };
+        }
+        let gpu = t1.elapsed().as_secs_f64() / 5.0;
+        let mut st = engine.state(n_ctx).expect("state");
+        let t2 = Instant::now();
+        let _ = engine
+            .layer_tap_cols(&mut st, l, &rows[l][HIDDEN_IN])
+            .expect("layer tap");
+        let cpu = t2.elapsed().as_secs_f64();
+        let (ea, ey) = (
+            rel32(&ao, &flat(&rows[l][ATTN_OUT])),
+            rel32(&y, &flat(&rows[l][OUT])),
+        );
+        println!(
+            "LF l{l} rel attn_out {ea:.3e} out {ey:.3e}; gpu {gpu:.4} s (first {first:.4}); cpu {cpu:.3} s; {n_ctx} cols"
+        );
+        assert!(ea < 3e-2 && ey < 3e-2, "layer {l}: {ea:.3e} {ey:.3e}");
     }
-    y
-}
-
-fn rel(got: &[f64], want: &[f32]) -> f64 {
-    let (mut n, mut dd) = (0.0, 0.0);
-    for (g, &w) in got.iter().zip(want) {
-        n += (g - f64::from(w)).powi(2);
-        dd += f64::from(w).powi(2);
-    }
-    n / dd
 }

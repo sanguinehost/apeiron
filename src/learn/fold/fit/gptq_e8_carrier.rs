@@ -1376,11 +1376,11 @@ mod tests {
         h
     }
 
-    /// R0 attribution: the per-stage wall-clock of `gptq_e8` at `down`
-    /// (`o = 896`, `n = 4864`, `beam = 4`, `wscale`, `act_order`), in the order `gptq_e8` makes the
-    /// calls. Its private pick, scatter and unpermutation land in the residual column. `n = 1`.
+    /// R0: per-stage wall of `gptq_e8` at `down` (`o = 896`, `n = 4864`,
+    /// `beam = 4`, `wscale`, `act_order`, `n = 1`) in call order; private steps land in residual.
     #[test]
     #[ignore = "measurement: --release --ignored --nocapture"]
+    #[allow(clippy::too_many_lines, reason = "one timed call sequence, in order")]
     fn stage_profile_down() {
         let (o, n, beam) = (896usize, 4864usize, 4usize);
         let ng = n.div_ceil(GROUP);

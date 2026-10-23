@@ -64,6 +64,10 @@ mod tests {
 
     /// The i9-14900KF layout: performance CPUs `0, 2, …, 14` with siblings `2k-2k+1`; efficiency
     /// CPUs single-threaded.
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "the shape of the topology callback"
+    )]
     fn host(c: usize) -> Option<String> {
         Some(if c < 16 {
             format!("{}-{}", c & !1, c | 1)

@@ -43,6 +43,7 @@ use crate::gpu::vulkan::*;
 use crate::numeric::fixed_trig::{fixed_sin_cos, turn_to_radians};
 
 pub mod block;
+pub mod mixer;
 
 /// A layer shape. Hidden width `i`, FFN width `h`, vocabulary width `v`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -358,4 +358,25 @@ theorem blockTune_fit :
     klQ4KM < klBlockTuned ∧ klBlockTuned * 10 / klQ4KM = 257 ∧ tuneWallSecs < 600 := by
   decide
 
+/-! ## Device student stream (P124)
+
+`src/gpu/nn/train/mixer.rs` `LayerFwd` runs the layer forward on the device, so the calibration set
+grows to 256 C4 chunks at 4 epochs. Units as in P123. -/
+
+/-- Held-out KL against f16 with the device stream and 256 C4 chunks (`kl-c4n256.log`).
+Grade `measured`. -/
+def klDeviceStream : Nat := 1_185_169
+
+/-- The two resumable rounds, layers 0–11 and 12–23, in whole seconds (`c4n256-a.log`,
+`c4n256-b.log`). Grade `measured`. -/
+def deviceRoundSecs : Nat × Nat := (382, 388)
+
+/-- The device stream cuts KL 1.066× below P123 and remains 24.1× above Q4_K_M. Each round fits
+the 580 s round bound; the 769 s total is above the 600 s ceiling, an open defect of the run. -/
+theorem blockTuneDevice_fit :
+    klDeviceStream < klBlockTuned ∧ klBlockTuned * 1000 / klDeviceStream = 1066 ∧
+    klDeviceStream * 10 / klQ4KM = 241 ∧ deviceRoundSecs.1 < 580 ∧ deviceRoundSecs.2 < 580 ∧
+    600 < deviceRoundSecs.1 + deviceRoundSecs.2 := by
+  decide
+
 end Perf.Train

@@ -635,6 +635,35 @@ theorem resident_iterate :
     (∀ a ∈ residentOnAdmm, ∀ b ∈ residentOffAdmm, a < b) := by
   decide
 
+/-! ## Phantom gradient: no update without a residual
+
+`elonlit.com/scrivings/how-to-run-turing-complete-malware-in-pytorchs-backward-pass` (local copy
+`~/papers/phantom-grad/article.html`, sha256 `036e6f0927c415b9…`): with
+`h u = (2³⁰ + u) − 2³⁰`, the term `Σ (v − h v)·h θ` evaluates to `0.0` in binary32 while autograd's
+symbolic derivative applies `v(θ)` as the gradient, so `optimizer.step()` runs an arbitrary
+`θ ↦ F θ` at zero loss. The block tune has no autograd and no pluggable loss term: its backward is
+the fixed chain in `BlockTune::new` (`src/gpu/nn/train/block.rs`), seeded by `mse_grad`. The GPU
+path is `tested` (`block_tune_matches_host`, `zero_residual_seeds_zero_gradient`); the statements
+below are `model` grade over the algebra of that chain. SPIR-V codegen and the driver are outside. -/
+
+/-- **No gradient without a residual.** Each backward kernel is linear in its cotangent at the
+forward's computed activations, so the chain is one linear map `B` of the seed `c·(y − yt)`; at
+`y = yt` every gradient is zero. `→ₗ` [a linear map]; `•` [scalar multiple]. -/
+theorem backward_zero_of_residual_zero {R M G : Type*} [CommRing R] [AddCommGroup M] [Module R M]
+    [AddCommGroup G] [Module R G] (B : M →ₗ[R] G) (c : R) {y yt : M} (h : y = yt) :
+    B (c • (y - yt)) = 0 := by
+  subst h
+  simp
+
+/-- **Adam from zero moments at a zero gradient leaves the parameter where it is**, for every
+rate, decay, bias correction and `ε`.
+`ℝ` [the real numbers: every number on the number line];
+`Real.sqrt` [the number that squares to give this]. -/
+theorem adam_step_zero (β₁ β₂ lr ε b₁ b₂ θ : ℝ) :
+    θ - lr * ((β₁ * 0 + (1 - β₁) * 0) / b₁) /
+      (Real.sqrt ((β₂ * 0 + (1 - β₂) * 0 ^ 2) / b₂) + ε) = θ := by
+  simp
+
 end NanoQuant
 
 end Learn
