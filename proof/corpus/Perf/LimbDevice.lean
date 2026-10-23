@@ -73,4 +73,19 @@ def planeBytes (rows n limbs : Nat) : Nat := 2 * 8 * rows * n + rows * ((n + 31)
 theorem planeBytes_fit : planeBytes 3584 1024 3 = 69_730_304 ∧ 3584 * 32 * 3 * 32 = 11_010_048 := by
   decide
 
+/-! ## The device placement (P108)
+
+`src/gpu/spirv/limb_place.comp` computes the shift table from the block exponents in two passes over
+the `segments·blocks` entries: each pass reads `e_a[b]` and `e_b[b]` (8 bytes), the second writes one
+shift word (4 bytes). It replaces the readback of the exponents, the host placement and the upload of
+the meta table. -/
+
+/-- Bytes moved by the device placement over `segs·blocks` entries. Grade `model`. -/
+def placeBytes (segs blocks : Nat) : Nat := segs * blocks * (2 * 8 + 4)
+
+/-- At the fit frame (`n = 3584`, 112 blocks, 4 segments in two groups) the placement moves 8 960
+    bytes: 9.3 ns at 960 GB/s, so its wall is the dispatch, not the traffic. -/
+theorem placeBytes_fit : placeBytes 4 112 = 8_960 := by
+  decide
+
 end Perf.LimbDevice
