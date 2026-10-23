@@ -907,7 +907,6 @@ impl DigitsTask<'_> {
     ) {
         let per_row = blocks * lane_words;
         let row0 = start / per_row;
-        let mut tmp = [0i8; MAX_LIMBS as usize];
         let row_count = piece.len() / per_row;
         let mut k = 0usize;
         while k < row_count {
@@ -927,17 +926,15 @@ impl DigitsTask<'_> {
                         &mut out[at..at + lane_words],
                     );
                 } else {
+                    // The tail block zero-padded to a full block: a zero word has zero digits,
+                    // so the digits are those of the per-lane split, at one vector call.
+                    let mut pad = [0i64; ACT_QK];
                     let mut lane = 0usize;
-                    while lane < ACT_QK {
-                        let x = if lo + lane < hi { data[lo + lane] } else { 0 };
-                        split_digits(x, e[b], limbs, &mut tmp);
-                        let mut s = 0usize;
-                        while s < limbs as usize {
-                            out[at + s * ACT_QK + lane] = tmp[s];
-                            s += 1;
-                        }
+                    while lane < hi - lo {
+                        pad[lane] = data[lo + lane];
                         lane += 1;
                     }
+                    split_block(&pad, e[b], limbs, &mut out[at..at + lane_words]);
                 }
                 b += 1;
             }
