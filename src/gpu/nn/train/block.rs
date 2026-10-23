@@ -232,13 +232,26 @@ pub struct BlockTune {
     stage: HostBuffer,
     bias_stage: HostBuffer,
     bias_buf: Handle,
-    /// Materialise `W` from the latents: per factor the two signs, `M`, then the scales.
-    materialise: Vec<Step>,
+    /// Materialise `W` from the latents, per factor: the two signs, `M`, then the scales.
+    materialise: Vec<Vec<Step>>,
     forward: Vec<Step>,
+    /// The dense adjoints: every slot's `dW` and the residual adjoints down to `a`.
     backward: Vec<Step>,
-    adam: Vec<Step>,
+    /// The factor adjoint of slot `k`: `dM`, the two scale gradients, `dU`, `dV`.
+    factor_bwd: Vec<Vec<Step>>,
+    /// Adam over a factor's latents and scales, per factor.
+    adam_fact: Vec<Vec<Step>>,
+    /// One Adam step per slot over its dense `W` and `dW`.
+    adam_dense: Vec<Step>,
     /// Adam moments, zeroed by [`BlockTune::load`]; `[factor][param][m, v]`.
     moments: Vec<[[Handle; 2]; 4]>,
+    /// Each slot's dense moments `[m, v]` over `out × inn`, zeroed by [`BlockTune::load_dense`].
+    dense_moments: Vec<[Handle; 2]>,
+    /// The block's state per slot `[o, gate, up, down]`: `true` where `W` is held as a factor,
+    /// `false` where it is a dense `W` in its `w` buffer.
+    factor: [bool; 4],
+    /// The stage's trained set: `true` trains the dense slots, `false` the factor slots.
+    train_dense: bool,
     step_no: u32,
     /// The recorded tapes: a training step (bias copy, materialise, forward, backward, Adam,
     /// loss readback) and an evaluation pass (materialise, forward, loss readback).
@@ -250,7 +263,8 @@ pub struct BlockTune {
 
 impl BlockTune {
     /// Allocate every buffer and build every pipeline for `shape`, with Adam learning rates `lr`
-    /// for the latents and `lr_scale` for the two scale vectors (real units).
+    /// for the latents, `lr_scale` for the two scale vectors and `lr_dense` for a dense slot's
+    /// `W` (real units).
     ///
     /// # Safety
     ///
@@ -266,7 +280,13 @@ impl BlockTune {
         reason = "one tape; the dimensions index u32 dispatch shapes"
     )]
     #[must_use]
-    pub unsafe fn new(g: &GpuCtx, shape: BlockShape, lr: f64, lr_scale: f64) -> Self {
+    pub unsafe fn new(
+        g: &GpuCtx,
+        shape: BlockShape,
+        lr: f64,
+        lr_scale: f64,
+        lr_dense: f64,
+    ) -> Self {
         let BlockShape { t, d, a, f, ranks } = shape;
         let dev = |n: usize| g.dev(n * 4);
         let mut factors = Vec::with_capacity(4);
@@ -298,36 +318,36 @@ impl BlockTune {
         let wt = |k: usize| factors[k].w;
         let dwt = |k: usize| factors[k].dw;
 
-        let mut materialise = Vec::new();
+        let mut materialise = Vec::with_capacity(4);
         for fa in &factors {
             let (out, inn, r) = (fa.out, fa.inn, fa.rank);
-            materialise.push(map(
-                g,
-                0,
-                [0, 0, out * r],
-                0.0,
-                [fa.p[0], fa.us, fa.us, fa.us],
-                "sign_u",
-            ));
-            materialise.push(map(
-                g,
-                0,
-                [0, 0, inn * r],
-                0.0,
-                [fa.p[1], fa.vts, fa.vts, fa.vts],
-                "sign_v",
-            ));
-            materialise.push(linear_fwd_dispatch(
-                g, fa.us, fa.vts, fa.m, out as u32, r as u32, inn as u32,
-            ));
-            materialise.push(map(
-                g,
-                1,
-                [out, inn, out * inn],
-                0.0,
-                [fa.m, fa.w, fa.p[2], fa.p[3]],
-                "scale_w",
-            ));
+            materialise.push(vec![
+                map(
+                    g,
+                    0,
+                    [0, 0, out * r],
+                    0.0,
+                    [fa.p[0], fa.us, fa.us, fa.us],
+                    "sign_u",
+                ),
+                map(
+                    g,
+                    0,
+                    [0, 0, inn * r],
+                    0.0,
+                    [fa.p[1], fa.vts, fa.vts, fa.vts],
+                    "sign_v",
+                ),
+                linear_fwd_dispatch(g, fa.us, fa.vts, fa.m, out as u32, r as u32, inn as u32),
+                map(
+                    g,
+                    1,
+                    [out, inn, out * inn],
+                    0.0,
+                    [fa.m, fa.w, fa.p[2], fa.p[3]],
+                    "scale_w",
+                ),
+            ]);
         }
 
         let add = |dst: Handle, src: Handle, n: usize| {
@@ -355,7 +375,7 @@ impl BlockTune {
             map(g, 4, [0, 0, t * d], mse, [y, yt, dy, dy], "mse_grad"),
         ];
 
-        let mut backward = vec![
+        let backward = vec![
             linear_bwd_weight_dispatch(g, dy, mm, dwt(3), to, td, tg),
             linear_bwd_input_dispatch(g, dy, wt(3), dmm, to, td, tg),
             swiglu_bwd_dispatch(g, gt, up, dmm, dgt, dup, (t * f) as u32),
@@ -368,49 +388,55 @@ impl BlockTune {
             add(dh, dy, t * d),
             linear_bwd_weight_dispatch(g, dh, at, dwt(0), to, tu, tg),
         ];
+        let mut factor_bwd = Vec::with_capacity(4);
         for fa in &factors {
             let (out, inn, r) = (fa.out, fa.inn, fa.rank);
-            backward.push(map(
-                g,
-                1,
-                [out, inn, out * inn],
-                0.0,
-                [fa.dw, fa.dm, fa.p[2], fa.p[3]],
-                "scale_dm",
-            ));
-            backward.push(map(
-                g,
-                2,
-                [out, inn, out * inn],
-                0.0,
-                [fa.dw, fa.m, fa.grad[2], fa.p[3]],
-                "ds_post",
-            ));
-            backward.push(map(
-                g,
-                3,
-                [out, inn, inn],
-                0.0,
-                [fa.dw, fa.m, fa.p[2], fa.grad[3]],
-                "ds_pre",
-            ));
-            backward.push(linear_bwd_input_dispatch(
-                g, fa.dm, fa.vts, fa.grad[0], out as u32, r as u32, inn as u32,
-            ));
-            backward.push(linear_bwd_weight_dispatch(
-                g, fa.dm, fa.us, fa.grad[1], out as u32, r as u32, inn as u32,
-            ));
+            factor_bwd.push(vec![
+                map(
+                    g,
+                    1,
+                    [out, inn, out * inn],
+                    0.0,
+                    [fa.dw, fa.dm, fa.p[2], fa.p[3]],
+                    "scale_dm",
+                ),
+                map(
+                    g,
+                    2,
+                    [out, inn, out * inn],
+                    0.0,
+                    [fa.dw, fa.m, fa.grad[2], fa.p[3]],
+                    "ds_post",
+                ),
+                map(
+                    g,
+                    3,
+                    [out, inn, inn],
+                    0.0,
+                    [fa.dw, fa.m, fa.p[2], fa.grad[3]],
+                    "ds_pre",
+                ),
+                linear_bwd_input_dispatch(
+                    g, fa.dm, fa.vts, fa.grad[0], out as u32, r as u32, inn as u32,
+                ),
+                linear_bwd_weight_dispatch(
+                    g, fa.dm, fa.us, fa.grad[1], out as u32, r as u32, inn as u32,
+                ),
+            ]);
         }
 
         let bias_stage = host_buffer(g, 2, BUFFER_USAGE_TRANSFER_SRC);
         let bias_buf = dev(2);
         let q32 = |v: f64| (v * 4_294_967_296.0).round() as i64;
-        let mut adam = Vec::new();
+        let mut adam_fact = Vec::with_capacity(4);
+        let mut adam_dense = Vec::with_capacity(4);
+        let mut dense_moments = Vec::with_capacity(4);
         for (fa, mo) in factors.iter().zip(&moments) {
+            let mut steps = Vec::with_capacity(4);
             for j in 0..4 {
                 let n = [fa.out * fa.rank, fa.inn * fa.rank, fa.out, fa.inn][j];
                 let rate = if j < 2 { lr } else { lr_scale };
-                adam.push(adam_update_dispatch_reused(
+                steps.push(adam_update_dispatch_reused(
                     g,
                     fa.p[j],
                     fa.grad[j],
@@ -421,6 +447,20 @@ impl BlockTune {
                     q32(rate),
                 ));
             }
+            adam_fact.push(steps);
+            let n = fa.out * fa.inn;
+            let dmo = [dev(n), dev(n)];
+            adam_dense.push(adam_update_dispatch_reused(
+                g,
+                fa.w,
+                fa.dw,
+                dmo[0],
+                dmo[1],
+                bias_buf,
+                n as u32,
+                q32(lr_dense),
+            ));
+            dense_moments.push(dmo);
         }
         let big = factors
             .iter()
@@ -445,11 +485,16 @@ impl BlockTune {
             materialise,
             forward,
             backward,
-            adam,
+            factor_bwd,
+            adam_fact,
+            adam_dense,
             moments,
+            dense_moments,
+            factor: [true; 4],
+            train_dense: false,
             step_no: 0,
-            cb_train: g.vk.command_buffer(),
-            cb_eval: g.vk.command_buffer(),
+            cb_train: g.vk.reusable_command_buffer(),
+            cb_eval: g.vk.reusable_command_buffer(),
             xfer: g.vk.reusable_command_buffer(),
         };
         s.record(g, true);
@@ -457,14 +502,17 @@ impl BlockTune {
         s
     }
 
-    /// Record the training or the evaluation tape once; [`BlockTune::run`] resubmits it.
+    /// Record the training or the evaluation tape for the current stage; [`BlockTune::run`]
+    /// resubmits it. Both buffers are reset before the re-record.
     ///
     /// # Safety
     ///
-    /// Called once per tape from [`BlockTune::new`].
+    /// Called from [`BlockTune::new`], [`BlockTune::load`] and [`BlockTune::set_stage`]; no tape is
+    /// pending on the device.
     unsafe fn record(&self, g: &GpuCtx, train: bool) {
         let vk = g.vk;
         let cb = if train { self.cb_train } else { self.cb_eval };
+        vk.reset_cb(cb);
         vk.begin(cb);
         if train {
             let region = BufferCopy {
@@ -481,12 +529,38 @@ impl BlockTune {
                 ACCESS_SHADER_READ,
             );
         }
-        for s in self.materialise.iter().chain(&self.forward) {
+        for (k, steps) in self.materialise.iter().enumerate() {
+            if self.factor[k] {
+                for s in steps {
+                    rec_step(vk, cb, s);
+                }
+            }
+        }
+        for s in &self.forward {
             rec_step(vk, cb, s);
         }
         if train {
-            for s in self.backward.iter().chain(&self.adam) {
+            for s in &self.backward {
                 rec_step(vk, cb, s);
+            }
+            if self.train_dense {
+                for (k, s) in self.adam_dense.iter().enumerate() {
+                    if !self.factor[k] {
+                        rec_step(vk, cb, s);
+                    }
+                }
+            } else {
+                for (k, steps) in self.factor_bwd.iter().enumerate() {
+                    if !self.factor[k] {
+                        continue;
+                    }
+                    for s in steps {
+                        rec_step(vk, cb, s);
+                    }
+                    for s in &self.adam_fact[k] {
+                        rec_step(vk, cb, s);
+                    }
+                }
             }
         }
         vk.barrier(
@@ -530,39 +604,90 @@ impl BlockTune {
         download(g, self.xfer, &self.rb, src, n)
     }
 
-    /// Load the four factors (`[o, gate, up, down]`) and the FFN norm gain, zero the Adam moments
-    /// and restart the step count.
+    /// Load the four factors (`[o, gate, up, down]`) and the FFN norm gain, zero every moment,
+    /// restart the step count and set the stage to all four factors.
     ///
     /// # Safety
     ///
-    /// The factors match the shape's dimensions and ranks (asserted).
+    /// The factors match the shape's dimensions and ranks (asserted); no tape is pending.
     ///
     /// # Complexity
     ///
     /// `O(Σ (out + inn)·rank)` words copied.
     pub unsafe fn load(&mut self, g: &GpuCtx, factors: &[HostFactor], g2: &[f32]) {
         assert_eq!(factors.len(), 4, "block load: four factors");
-        for (fa, hf) in self.factors.iter().zip(factors) {
-            assert_eq!(
-                (fa.out, fa.inn, fa.rank),
-                (hf.out, hf.inn, hf.rank),
-                "block load: shape"
-            );
-            self.put(g, fa.p[0], &hf.u);
-            self.put(g, fa.p[1], &hf.vt);
-            self.put(g, fa.p[2], &hf.s_post);
-            self.put(g, fa.p[3], &hf.s_pre);
-        }
-        for (fa, mo) in self.factors.iter().zip(&self.moments) {
-            for (j, pair) in mo.iter().enumerate() {
-                let n = [fa.out * fa.rank, fa.inn * fa.rank, fa.out, fa.inn][j];
-                let zero = vec![0f32; n];
-                self.put(g, pair[0], &zero);
-                self.put(g, pair[1], &zero);
-            }
+        for (k, hf) in factors.iter().enumerate() {
+            self.load_factor(g, k, hf);
         }
         self.put(g, self.g2, g2);
         self.step_no = 0;
+        self.set_stage(g, [true; 4], false);
+    }
+
+    /// Put slot `k`'s factor and zero its four moment pairs. Leaves the stage as it is.
+    ///
+    /// # Safety
+    ///
+    /// `hf` matches slot `k`'s dimensions and rank (asserted); no tape is pending.
+    ///
+    /// # Complexity
+    ///
+    /// `O((out + inn)·rank + out + inn)` words copied.
+    pub unsafe fn load_factor(&mut self, g: &GpuCtx, k: usize, hf: &HostFactor) {
+        let fa = &self.factors[k];
+        assert_eq!(
+            (fa.out, fa.inn, fa.rank),
+            (hf.out, hf.inn, hf.rank),
+            "block load_factor {k}: shape"
+        );
+        self.put(g, fa.p[0], &hf.u);
+        self.put(g, fa.p[1], &hf.vt);
+        self.put(g, fa.p[2], &hf.s_post);
+        self.put(g, fa.p[3], &hf.s_pre);
+        for (j, pair) in self.moments[k].iter().enumerate() {
+            let n = [fa.out * fa.rank, fa.inn * fa.rank, fa.out, fa.inn][j];
+            let zero = vec![0f32; n];
+            self.put(g, pair[0], &zero);
+            self.put(g, pair[1], &zero);
+        }
+    }
+
+    /// Put slot `k`'s dense `W` (`out × inn`, row-major) into its `w` buffer and zero that slot's
+    /// dense moments. Leaves the stage as it is.
+    ///
+    /// # Safety
+    ///
+    /// `w` has slot `k`'s `out·inn` words (asserted); no tape is pending.
+    ///
+    /// # Complexity
+    ///
+    /// `O(out·inn)` words copied, three times.
+    pub unsafe fn load_dense(&mut self, g: &GpuCtx, k: usize, w: &[f32]) {
+        let fa = &self.factors[k];
+        assert_eq!(w.len(), fa.out * fa.inn, "block load_dense {k}: shape");
+        self.put(g, fa.w, w);
+        let zero = vec![0f32; fa.out * fa.inn];
+        self.put(g, self.dense_moments[k][0], &zero);
+        self.put(g, self.dense_moments[k][1], &zero);
+    }
+
+    /// Set the stage: `factor[k]` places slot `k`'s `W` in its latents (`true`) or in its `w`
+    /// buffer (`false`), and `train_dense` selects the trained set — the dense slots' `W` or the
+    /// factor slots' latents and scales. Re-records both tapes for that selection and touches no
+    /// parameter.
+    ///
+    /// # Safety
+    ///
+    /// No tape is pending on the device (the last [`BlockTune::run`] returned).
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; the re-recorded tapes carry `O(1)` dispatches.
+    pub unsafe fn set_stage(&mut self, g: &GpuCtx, factor: [bool; 4], train_dense: bool) {
+        self.factor = factor;
+        self.train_dense = train_dense;
+        self.record(g, true);
+        self.record(g, false);
     }
 
     /// Set the step's columns: `x` and `yt` are `t × d`, `a` is `t × a`, row-major.
@@ -662,6 +787,12 @@ impl BlockTune {
             })
             .collect()
     }
+
+    /// The dense `W` gradient of slot `k` from the last training step, `out × inn`.
+    unsafe fn dense_grad(&self, g: &GpuCtx, k: usize) -> Vec<f32> {
+        let fa = &self.factors[k];
+        self.get(g, fa.dw, fa.out * fa.inn)
+    }
 }
 
 #[cfg(test)]
@@ -742,17 +873,16 @@ mod tests {
         y
     }
 
-    /// The host block loss `Σ (y − y_t)²` in f64.
-    fn host_loss(
+    /// The host block loss `Σ (y − y_t)²` in f64 with every slot's dense `W` given explicitly.
+    fn host_loss_w(
         s: BlockShape,
-        fs: &[HostFactor],
+        w: &[Vec<f64>],
         g2: &[f32],
         x: &[f32],
         a: &[f32],
         yt: &[f32],
     ) -> f64 {
         let BlockShape { t, d, a: aw, f, .. } = s;
-        let w: Vec<Vec<f64>> = fs.iter().map(dense).collect();
         let up = |v: &[f32]| v.iter().map(|&q| f64::from(q)).collect::<Vec<f64>>();
         let (x, a) = (up(x), up(a));
         let mut h = lin(&a, &w[0], t, aw, d);
@@ -785,6 +915,19 @@ mod tests {
             .sum()
     }
 
+    /// The host block loss `Σ (y − y_t)²` in f64, the factors materialised.
+    fn host_loss(
+        s: BlockShape,
+        fs: &[HostFactor],
+        g2: &[f32],
+        x: &[f32],
+        a: &[f32],
+        yt: &[f32],
+    ) -> f64 {
+        let w: Vec<Vec<f64>> = fs.iter().map(dense).collect();
+        host_loss_w(s, &w, g2, x, a, yt)
+    }
+
     /// The device loss equals the f64 host loss; the scale gradients equal the central
     /// differences of the host loss (the scales enter without the straight-through sign); and a
     /// short Adam run lowers the loss.
@@ -813,7 +956,7 @@ mod tests {
         let a = unit(s.t * s.a, 92);
         let yt: Vec<f32> = unit(s.t * s.d, 93).iter().map(|v| 0.5 * v).collect();
         unsafe {
-            let mut bt = BlockTune::new(&g, s, 1e-3, 1e-3);
+            let mut bt = BlockTune::new(&g, s, 1e-3, 1e-3, 1e-3);
             bt.load(&g, &fs, &g2);
             bt.batch(&g, &x, &a, &yt);
             let dev = bt.run(&g, false);
@@ -899,7 +1042,7 @@ mod tests {
         let x = unit(s.t * s.d, 91);
         let a = unit(s.t * s.a, 92);
         unsafe {
-            let mut bt = BlockTune::new(&g, s, 1e-3, 1e-3);
+            let mut bt = BlockTune::new(&g, s, 1e-3, 1e-3, 1e-3);
             bt.load(&g, &fs, &g2);
             bt.batch(&g, &x, &a, &vec![0.0; s.t * s.d]);
             assert!(bt.run(&g, false) > 0.0);
@@ -924,6 +1067,124 @@ mod tests {
                 bits(&before),
                 bits(&bt.factors(&g)),
                 "a zero-loss step moved a parameter"
+            );
+        }
+    }
+
+    /// A dense slot trains through its own `dW` and moment pair: in the mixed state (slot 0 a
+    /// factor, `gate`/`up`/`down` dense) one dense-stage step's `dW` of every dense slot equals the
+    /// f64 host central difference of the block loss, every dense `W` moves and the factor slot's
+    /// latents and scales stay bit-identical; then the factor stage moves the factor slot and
+    /// leaves every dense `W` bit-identical.
+    #[test]
+    #[allow(clippy::too_many_lines, reason = "one tape comparison")]
+    fn block_dense_matches_host() {
+        let Ok(vk) = (unsafe { Vk::load() }) else {
+            println!("SKIP: no Vulkan device");
+            return;
+        };
+        let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
+        let s = BlockShape {
+            t: 24,
+            d: 32,
+            a: 48,
+            f: 64,
+            ranks: [8, 8, 8, 8],
+        };
+        let fs: Vec<HostFactor> = (0..4)
+            .map(|k| {
+                let (o, i) = s.dims(k);
+                factor(o, i, s.ranks[k], 10 * k as u64 + 1)
+            })
+            .collect();
+        let g2: Vec<f32> = unit(s.d, 90).iter().map(|v| 1.0 + 0.2 * v).collect();
+        let x = unit(s.t * s.d, 91);
+        let a = unit(s.t * s.a, 92);
+        let yt: Vec<f32> = unit(s.t * s.d, 93).iter().map(|v| 0.5 * v).collect();
+        let dense_w: Vec<Vec<f32>> = (0..4)
+            .map(|k| {
+                let (o, i) = s.dims(k);
+                unit(o * i, 10 * k as u64 + 5)
+                    .iter()
+                    .map(|&v| 0.3 * v)
+                    .collect()
+            })
+            .collect();
+        let words = |v: &[f32]| -> Vec<u32> { v.iter().map(|&q| q.to_bits()).collect() };
+        unsafe {
+            let mut bt = BlockTune::new(&g, s, 1e-3, 1e-3, 1e-3);
+            bt.load(&g, &fs, &g2);
+            for k in [1, 2, 3] {
+                bt.load_dense(&g, k, &dense_w[k]);
+            }
+            bt.set_stage(&g, [true, false, false, false], true);
+            bt.batch(&g, &x, &a, &yt);
+            let _ = bt.run(&g, false);
+            let before: Vec<Vec<f32>> = (0..4).map(|k| bt.weight(&g, k)).collect();
+            let f_before = bt.factors(&g);
+            bt.batch(&g, &x, &a, &yt);
+            let _ = bt.run(&g, true);
+            let after: Vec<Vec<f32>> = (0..4).map(|k| bt.weight(&g, k)).collect();
+            for k in [1, 2, 3] {
+                assert!(
+                    words(&before[k]) != words(&after[k]),
+                    "dense slot {k}: the dense stage left W unchanged"
+                );
+            }
+            let f_bits = |f: &[HostFactor]| -> Vec<u32> {
+                f.iter()
+                    .flat_map(|h| [&h.u, &h.vt, &h.s_post, &h.s_pre])
+                    .flat_map(|v| v.iter().map(|w| w.to_bits()))
+                    .collect()
+            };
+            assert_eq!(
+                f_bits(&f_before),
+                f_bits(&bt.factors(&g)),
+                "the dense stage moved the factor slot"
+            );
+            let w64: Vec<Vec<f64>> = before
+                .iter()
+                .map(|w| w.iter().map(|&v| f64::from(v)).collect())
+                .collect();
+            let td = (s.t * s.d) as f64;
+            let mut worst = 0f64;
+            for k in [1, 2, 3] {
+                let (o, i) = s.dims(k);
+                let dw = bt.dense_grad(&g, k);
+                for r in [0, o / 2, o - 1] {
+                    for c in [0, i / 2, i - 1] {
+                        let eps = 1e-3;
+                        let mut p = w64.clone();
+                        p[k][r * i + c] += eps;
+                        let mut q = w64.clone();
+                        q[k][r * i + c] -= eps;
+                        let fd = (host_loss_w(s, &p, &g2, &x, &a, &yt)
+                            - host_loss_w(s, &q, &g2, &x, &a, &yt))
+                            / (2.0 * eps)
+                            / td;
+                        let got = f64::from(dw[r * i + c]);
+                        let err = (got - fd).abs() / fd.abs().max(1e-4);
+                        worst = worst.max(err);
+                        assert!(err < 0.02, "dense slot {k} [{r},{c}]: device {got} fd {fd}");
+                    }
+                }
+            }
+            println!("dense dW worst relative error {worst:.2e}");
+            let frozen: Vec<Vec<f32>> = (0..4).map(|k| bt.weight(&g, k)).collect();
+            let f_mid = bt.factors(&g);
+            bt.set_stage(&g, [true, false, false, false], false);
+            let _ = bt.run(&g, true);
+            let kept: Vec<Vec<f32>> = (0..4).map(|k| bt.weight(&g, k)).collect();
+            for k in [1, 2, 3] {
+                assert_eq!(
+                    words(&frozen[k]),
+                    words(&kept[k]),
+                    "dense slot {k}: the factor stage moved W"
+                );
+            }
+            assert!(
+                f_bits(&f_mid) != f_bits(&bt.factors(&g)),
+                "the factor stage did not move the factor slot"
             );
         }
     }
