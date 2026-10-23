@@ -240,4 +240,24 @@ theorem residentIterate_fit :
     residentDevA + residentHostA + residentTDualA - residentSaved = 8_054 := by
   decide
 
+/-! ## The padded tail block (P116)
+
+`DigitsTask::body` splits a tail block (`hi − lo < 32` words) zero-padded to a full block in one
+`split_block` call instead of lane by lane. Units: tenths of a microsecond. -/
+
+/-- Order-768 `spd_inverse` saving: 10.06 → 9.33 ms (means of 3 interleaved pairs,
+`digits-pad.log`). Grade `measured`. -/
+def padInvSaved : Nat := 100_600 - 93_300
+
+/-- ADMM saving per iteration: 3.50 → 3.33 s (means of 3 interleaved pairs, `t10pad-ab.log`) over
+100. Grade `measured`; the wall prints at 0.1 s, so ±0.33 ms per iteration. -/
+def padAdmmSaved : Nat := 17_000
+
+/-- Two inverses per iteration account for 1.46 ms of the 1.70 ms saved; 0.24 ms, inside the
+wall's print resolution, falls to the other padded planes. -/
+theorem digitsPad_fit :
+    2 * padInvSaved = 14_600 ∧ 2 * padInvSaved ≤ padAdmmSaved ∧
+    padAdmmSaved - 2 * padInvSaved = 2_400 := by
+  decide
+
 end Perf.LimbDevice

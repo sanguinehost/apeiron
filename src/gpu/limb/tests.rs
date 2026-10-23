@@ -977,15 +977,14 @@ fn device_unit_costs() {
             let host = MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT;
             let x = words(s * s, 0x1234 + s as u64, 33);
             let (bx, mx) = vk
-                .buffer(
-                    8 * x.len() as u64,
-                    BUFFER_USAGE_STORAGE | BUFFER_USAGE_TRANSFER_DST,
-                    host,
-                )
+                .buffer(8 * x.len() as u64, BUFFER_USAGE_TRANSFER_SRC, host)
                 .expect("x");
             std::ptr::copy_nonoverlapping(x.as_ptr(), vk.map(mx).cast(), x.len());
+            // The words device-local, as the resident inverse holds them; a host-visible buffer
+            // read by both plane builds every rep would time PCIe, not the device.
+            let dx = dev_buf(&vk, 8 * x.len()).expect("x dev");
             let pl = [
-                bx,
+                dx,
                 dev_buf(&vk, 4 * blocks).expect("e"),
                 dev_buf(&vk, sp * blocks * lb).expect("dig"),
                 dev_buf(&vk, 4).expect("flag"),
@@ -1012,6 +1011,7 @@ fn device_unit_costs() {
             let cb = vk.command_buffer();
             vk.begin(cb);
             (vk.fill_buffer)(cb, pl[2], 0, WHOLE_SIZE, 0);
+            admm::copy(&vk, cb, bx, 0, dx, 0, 8 * x.len());
             let mut at = 0usize;
             for (dst, b) in &ups {
                 std::ptr::copy_nonoverlapping(b.as_ptr(), sp_ptr.add(at), b.len());
@@ -1020,26 +1020,36 @@ fn device_unit_costs() {
             }
             check((vk.end_cb)(cb), "vkEndCommandBuffer");
             vk.submit_wait(cb);
-            let cb = vk.command_buffer();
-            vk.begin(cb);
-            for _ in 0..reps {
-                pb.record(&vk, cb);
-                full(&vk, cb);
-                pb.record(&vk, cb);
-                full(&vk, cb);
-                pr.record(&vk, cb);
-                full(&vk, cb);
-            }
-            check((vk.end_cb)(cb), "vkEndCommandBuffer");
-            vk.submit_wait(cb);
-            let mut us = Vec::new();
-            for _ in 0..5 {
-                let t = Instant::now();
+            for (tag, planes, product) in [
+                ("two planes + product", true, true),
+                ("two planes", true, false),
+                ("product", false, true),
+            ] {
+                let cb = vk.command_buffer();
+                vk.begin(cb);
+                for _ in 0..reps {
+                    if planes {
+                        pb.record(&vk, cb);
+                        full(&vk, cb);
+                        pb.record(&vk, cb);
+                        full(&vk, cb);
+                    }
+                    if product {
+                        pr.record(&vk, cb);
+                        full(&vk, cb);
+                    }
+                }
+                check((vk.end_cb)(cb), "vkEndCommandBuffer");
                 vk.submit_wait(cb);
-                us.push(t.elapsed().as_secs_f64() * 1e6 / reps as f64);
+                let mut us = Vec::new();
+                for _ in 0..5 {
+                    let t = Instant::now();
+                    vk.submit_wait(cb);
+                    us.push(t.elapsed().as_secs_f64() * 1e6 / reps as f64);
+                }
+                let mean = us.iter().sum::<f64>() / us.len() as f64;
+                println!("UNIT s {s} {tag} {mean:.1} us per rep (reps {reps}, 5 runs)");
             }
-            let mean = us.iter().sum::<f64>() / us.len() as f64;
-            println!("UNIT s {s} two planes + product {mean:.1} us per rep (reps {reps}, 5 runs)");
         }
     }
 }

@@ -1517,6 +1517,7 @@ import Gpu.Handoff
 #audit Perf.LimbDevice.xPairOverlap_fit
 #audit Perf.LimbDevice.sideStep_fit
 #audit Perf.LimbDevice.residentIterate_fit
+#audit Perf.LimbDevice.digitsPad_fit
 #audit Perf.Train.measuredPostFixBelowTarget
 #audit Perf.Handoff.align256_eq
 #audit Perf.Handoff.writeChunk_le_cap
