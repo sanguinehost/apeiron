@@ -287,6 +287,16 @@ and the host inverse ran cold (65.0 against 24.0 ms per iteration). `pool::Hot`,
 over the ADMM loop, keeps them spinning; T4's 9.57 s also carried that cold start. The host inverse
 (T6) is the largest remaining host stage. Board row `APEIRON-QUALITY-118-W1-T01`.
 
+T6 is re-scoped by its cost equation (P112). Measured on the RTX 5080 (`device_unit_costs`), an empty
+`submit_wait` costs 19.9 µs and two plane builds plus one product cost 457.4, 86.9, 37.5, 30.7 and 29.2 µs
+at half order 384, 192, 96, 48 and 24. The order-768 inverse has 124 products over 31 internal nodes,
+so the device-resident inverse projects 8.33 ms (`Perf.LimbDevice.schurDevice_fit`) against 10.21 ms for
+the host inverse with its block copies and assembly pooled: 0.38 s per 100 iterations, so the device levels
+are not built. The host change is bit-identical to the serial body, and its control (symmetrisation of `S`
+dropped) turns red. ADMM falls from 6.73 to 6.43 s per 100 iterations (0.955×) with every fit number
+unchanged. The next host cost is the inverse's small products: about 3.7 ms at half order 24–96, overhead-bound in
+the limb kernel's plane builds and pool dispatch.
+
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 

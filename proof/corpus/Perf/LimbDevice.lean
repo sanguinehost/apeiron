@@ -130,4 +130,27 @@ theorem rank1Bytes_fit :
     rank1Bytes 3584 768 768 = 44_047_360 ∧ rank1Bytes 1024 768 1024 = 12_592_128 := by
   decide
 
+/-! ## The Schur inverse on the device, priced and not built (P112)
+
+`learn::nanoquant::spd_inverse` at order 768 recurses to 32 bases of order 24 through 31 internal
+nodes, each with four kernel products of half order `s`. Measured on the RTX 5080
+(`gpu::limb::tests::device_unit_costs`): an empty `submit_wait` 19.9 µs; two plane builds plus one
+product at `s` = 384, 192, 96, 48, 24: 457.4, 86.9, 37.5, 30.7, 29.2 µs. A device-resident inverse
+pays every product there, three round trips per internal node (child inverse in, products out, the
+base on the host) and about 0.5 ms of elementwise maps. Units: tenths of a microsecond. -/
+
+/-- Products of one device-resident order-768 inverse: four per node, 1, 2, 4, 8 and 16 nodes at
+    `s` = 384, 192, 96, 48, 24. Grade `model`. -/
+def schurDeviceProducts : Nat := 4 * (4574 + 2 * 869 + 4 * 375 + 8 * 307 + 16 * 292)
+
+/-- Projected wall: products, 31 · 3 round trips at 19.9 µs, 0.5 ms of maps. Grade `model`. -/
+def schurDevice : Nat := schurDeviceProducts + 31 * 3 * 199 + 5000
+
+/-- The projection is 8.33 ms against 10.21 ms measured for the pooled CPU inverse: 1.88 ms per call,
+    and over the fit's 200 calls per 100 iterations 0.38 s, under 6% of its 6.8 s ADMM wall. -/
+theorem schurDevice_fit :
+    schurDeviceProducts = 59_760 ∧ schurDevice = 83_267 ∧ schurDevice < 102_100 ∧
+    100 * (200 * (102_100 - schurDevice)) < 6 * 68_000_000 := by
+  decide
+
 end Perf.LimbDevice

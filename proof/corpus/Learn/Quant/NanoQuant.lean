@@ -530,6 +530,45 @@ theorem limb_device_rank1_fit :
     (∀ a ∈ rank1OnAdmm, ∀ b ∈ rank1OffAdmm, 100 * a < 61 * b) := by
   decide
 
+/-- Differing words of the pooled `spd_inverse_at` against its serial body at `7570d839`
+(`spd_inverse_ref`), at (768, 32), (301, 32), (768, 48) and (200, 32) with `H` made asymmetric
+(`spd_inverse_matches_serial`).
+`List` [a finite sequence of things, in order]. -/
+def invDiff : List Nat := [0, 0, 0, 0]
+/-- Differing words at (768, 32) with the symmetrisation of `S` dropped (`btx[c]` alone) in a
+throwaway copy (`t6-control.log`): 588 991 of 589 824. -/
+def invMutDiff : Nat := 588991
+
+/-- The pooled inverse equals the serial one at every tested order, base and asymmetric `H`, and the
+dropped-symmetrisation control is seen.
+`∧` [both are true]; `<` [is smaller than]. -/
+theorem pooled_inverse :
+    invDiff.all (· = 0) = true ∧ 0 < invMutDiff := by
+  decide
+
+/-- ADMM wall for 100 iterations, tenths of a second, pooled inverse (`t6-ab.txt`, arm 1).
+`List` [a finite sequence of things, in order]. -/
+def invOnAdmm : List Nat := [65, 64, 64]
+/-- The same at `7570d839`, interleaved with `invOnAdmm` (arm 0).
+`List` [a finite sequence of things, in order]. -/
+def invOffAdmm : List Nat := [67, 67, 68]
+/-- Final `admm_loss` (×10⁵) of the six runs.
+`List` [a finite sequence of things, in order]. -/
+def invFitLoss : List Nat := [11172, 11172, 11172, 11172, 11172, 11172]
+/-- Final `relH` (×10⁵) of the six runs.
+`List` [a finite sequence of things, in order]. -/
+def invFitFinal : List Nat := [3224, 3224, 3224, 3224, 3224, 3224]
+
+/-- **The pooled inverse leaves the fit unchanged and every run is faster than every `7570d839`
+run**: the loss and the final `relH` are one value across all six runs, and each arm-1 run is under
+every arm-0 run.
+`∀` [for every]; `∈` [is one of the things in]; `∧` [both are true]; `<` [is smaller than]. -/
+theorem pooled_inverse_fit :
+    invFitLoss.all (· = invFitLoss[0]!) = true ∧
+    invFitFinal.all (· = invFitFinal[0]!) = true ∧
+    (∀ a ∈ invOnAdmm, ∀ b ∈ invOffAdmm, a < b) := by
+  decide
+
 end NanoQuant
 
 end Learn

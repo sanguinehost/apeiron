@@ -310,17 +310,6 @@ pub(crate) fn rank1(
 /// residual at order 300 (`spd_inverse_inverts`) 7.7e-6 against 3.4e-5 without recursion.
 const INV_BASE: usize = 32;
 
-/// The `[r0, r1) × [c0, c1)` block of a row-major matrix with `cols` columns.
-///
-/// `O((r1 − r0)·(c1 − c0))` word copies and words.
-fn block(m: &[i64], cols: usize, r0: usize, r1: usize, c0: usize, c1: usize) -> Vec<i64> {
-    let mut out = Vec::with_capacity((r1 - r0) * (c1 - c0));
-    for i in r0..r1 {
-        out.extend_from_slice(&m[i * cols + c0..i * cols + c1]);
-    }
-    out
-}
-
 /// `H⁻¹` of an SPD `h` (row-major `n × n`, Q32.32), symmetric, by the block Schur-complement
 /// recursion on `H = [A B; Bᵀ C]` (`A` of order `p = ⌊n/2⌋`, `C` of order `q = n − p`):
 ///
@@ -342,7 +331,8 @@ fn block(m: &[i64], cols: usize, r0: usize, r1: usize, c0: usize, c1: usize) -> 
 /// Four products of half order per level, `p·p·q + q·q·p + p·q·q + p·p·q = n³/2` multiply-adds at
 /// `p = q = n/2`, so `T(n) = n³/2 + 2·T(n/2)` closes at `2n³/3` kernel multiply-adds, plus `n/INV_BASE`
 /// bases of `INV_BASE³/2` checked `i128` multiply-adds and an `INV_BASE³/2` kernel Gram each.
-/// `O(n²)` words live per level.
+/// `O(n²)` words live per level; the block reads, `S` and the assembly write `p² + q·p + q² + n²`
+/// words per level through [`par_fill`], each entry alone, so the pooled result is the serial one.
 pub(crate) fn spd_inverse(h: &[i64], n: usize) -> Result<Vec<i64>, NqError> {
     spd_inverse_at(h, n, INV_BASE)
 }
@@ -354,36 +344,50 @@ fn spd_inverse_at(h: &[i64], n: usize, base: usize) -> Result<Vec<i64>, NqError>
         return Ok(syrk_q32(&transpose(&u, n, n), n, n, LIMBS)?);
     }
     let (p, q) = (n / 2, n - n / 2);
-    let ai = spd_inverse_at(&block(h, n, 0, p, 0, p), p, base)?;
-    let bt = block(&transpose(h, n, n), n, p, n, 0, p);
+    let mut a = vec![0i64; p * p];
+    par_fill(&mut a, &|c, o| *o = h[(c / p) * n + c % p]);
+    let ai = spd_inverse_at(&a, p, base)?;
+    // `Bᵀ` (`q × p`) read out of `h` directly: entry `(i, j)` is `h[j, p + i]`.
+    let mut bt = vec![0i64; q * p];
+    par_fill(&mut bt, &|c, o| *o = h[(c % p) * n + p + c / p]);
     let x = gemm_q32(&ai, p, &bt, q, p, LIMBS)?;
     let btx = gemm_q32(&bt, q, &transpose(&x, p, q), q, p, LIMBS)?;
-    let c = block(h, n, p, n, p, n);
+    let bad = AtomicBool::new(false);
     let mut s = vec![0i64; q * q];
-    for i in 0..q {
-        for j in 0..q {
-            // `(BᵀX)ᵢⱼ` and `(BᵀX)ⱼᵢ` agree in exact arithmetic; the mean keeps `S` symmetric.
-            let m = (btx[i * q + j] >> 1) + (btx[j * q + i] >> 1);
-            s[i * q + j] = c[i * q + j].checked_sub(m).ok_or(NqError::Range)?;
+    par_fill(&mut s, &|c, o| {
+        let (i, j) = (c / q, c % q);
+        // `(BᵀX)ᵢⱼ` and `(BᵀX)ⱼᵢ` agree in exact arithmetic; the mean keeps `S` symmetric.
+        let m = (btx[c] >> 1) + (btx[j * q + i] >> 1);
+        match h[(p + i) * n + p + j].checked_sub(m) {
+            Some(v) => *o = v,
+            None => bad.store(true, Ordering::Relaxed),
         }
+    });
+    if bad.load(Ordering::Relaxed) {
+        return Err(NqError::Range);
     }
     let si = spd_inverse_at(&s, q, base)?;
     let y = gemm_q32(&x, p, &si, q, q, LIMBS)?;
     let yx = gemm_q32(&y, p, &x, p, q, LIMBS)?;
     let mut out = vec![0i64; n * n];
-    for i in 0..p {
-        for j in 0..p {
-            let m = (yx[i * p + j] >> 1) + (yx[j * p + i] >> 1);
-            out[i * n + j] = ai[i * p + j].checked_add(m).ok_or(NqError::Range)?;
+    par_fill(&mut out, &|c, o| {
+        let (i, j) = (c / n, c % n);
+        let v = match (i < p, j < p) {
+            (true, true) => {
+                let m = (yx[i * p + j] >> 1) + (yx[j * p + i] >> 1);
+                ai[i * p + j].checked_add(m)
+            }
+            (true, false) => 0i64.checked_sub(y[i * q + j - p]),
+            (false, true) => 0i64.checked_sub(y[j * q + i - p]),
+            (false, false) => Some(si[(i - p) * q + j - p]),
+        };
+        match v {
+            Some(v) => *o = v,
+            None => bad.store(true, Ordering::Relaxed),
         }
-        for j in 0..q {
-            let v = 0i64.checked_sub(y[i * q + j]).ok_or(NqError::Range)?;
-            out[i * n + p + j] = v;
-            out[(p + j) * n + i] = v;
-        }
-    }
-    for i in 0..q {
-        out[(p + i) * n + p..(p + i) * n + n].copy_from_slice(&si[i * q..i * q + q]);
+    });
+    if bad.into_inner() {
+        return Err(NqError::Range);
     }
     Ok(out)
 }
@@ -1416,79 +1420,5 @@ impl NqFactor {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// `H·spd_inverse(H) = I` within `1e-5` (`f64` oracle) on a well-conditioned `H = AAᵀ + I` of
-    /// order 300, and no worse than the unrecursed base `UᵀU` on the same `H`.
-    #[test]
-    fn spd_inverse_inverts() {
-        let n = 300usize;
-        let mut rng = Rng(7);
-        let scale = 1.0 / (n as f64).sqrt();
-        let a = grid(&(0..n * n).map(|_| rng.normal() * scale).collect::<Vec<_>>()).unwrap();
-        let aat = gemm_q32(&a, n, &a, n, n, LIMBS).unwrap();
-        let h = grid_map(n * n, &|c| {
-            from_grid(aat[c]) + if c / n == c % n { 1.0 } else { 0.0 }
-        })
-        .unwrap();
-        // The oracle residual in `f64` (test-only scalar product, not on the build path).
-        let hf: Vec<f64> = h.iter().map(|&w| from_grid(w)).collect();
-        let mut res = Vec::new();
-        for base in [n, INV_BASE] {
-            let x = spd_inverse_at(&h, n, base).unwrap();
-            let mut worst = 0.0f64;
-            for i in 0..n {
-                for j in 0..n {
-                    let d: f64 = (0..n)
-                        .map(|t| hf[i * n + t] * from_grid(x[t * n + j]))
-                        .sum();
-                    worst = worst.max((d - if i == j { 1.0 } else { 0.0 }).abs());
-                }
-            }
-            println!("INV residual base {base} n {n} max |H·X − I| = {worst:e}");
-            res.push(worst);
-        }
-        assert!(
-            res[1] < 1e-5 && res[1] <= res[0],
-            "max |H·X − I|: recursion {:e}, none {:e}",
-            res[1],
-            res[0]
-        );
-    }
-
-    /// Wall of [`spd_inverse_at`] at the production order `r = 768` per base order (microbench;
-    /// prints, asserts nothing). `APEIRON_NQ_INV_BASES` is a comma list, default `16,32,48,96,192`.
-    #[test]
-    #[ignore = "microbench"]
-    fn spd_inverse_base_wall() {
-        let n = 768usize;
-        let mut rng = Rng(11);
-        let scale = 1.0 / (n as f64).sqrt();
-        let a = grid(&(0..n * n).map(|_| rng.normal() * scale).collect::<Vec<_>>()).unwrap();
-        let aat = gemm_q32(&a, n, &a, n, n, LIMBS).unwrap();
-        let h = grid_map(n * n, &|c| {
-            from_grid(aat[c]) + if c / n == c % n { 1.0 } else { 0.0 }
-        })
-        .unwrap();
-        let bases: Vec<usize> = std::env::var("APEIRON_NQ_INV_BASES")
-            .unwrap_or_else(|_| String::from("16,32,48,96,192"))
-            .split(',')
-            .map(|s| s.parse().expect("base"))
-            .collect();
-        for &base in &bases {
-            let mut ms = Vec::new();
-            for _ in 0..5 {
-                let t = std::time::Instant::now();
-                let x = spd_inverse_at(&h, n, base).unwrap();
-                ms.push(t.elapsed().as_secs_f64() * 1e3);
-                std::hint::black_box(x);
-            }
-            let mean = ms.iter().sum::<f64>() / ms.len() as f64;
-            let (lo, hi) = ms
-                .iter()
-                .fold((f64::MAX, 0.0f64), |(l, h), &m| (l.min(m), h.max(m)));
-            println!("INV base {base} n {n} mean {mean:.2} ms min {lo:.2} max {hi:.2} runs 5");
-        }
-    }
-}
+#[path = "nanoquant/tests.rs"]
+mod tests;
