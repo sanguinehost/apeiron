@@ -2915,3 +2915,9 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.GateCode.oFitCfg_selection_inverted
 #audit Learn.GateCode.oFitCfg_icm_floor
 #audit Learn.GateCode.oFitCfg_damp_refit
+#audit Learn.GateCode.sel_o_wins
+#audit Learn.GateCode.sel_up_loses
+#audit Learn.GateCode.sel_gate_loses
+#audit Learn.GateCode.sel_down_split
+#audit Learn.GateCode.trunc_l19_down
+#audit Learn.GateCode.allSel_distance

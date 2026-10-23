@@ -663,6 +663,10 @@ end HybridVerdict
 | icm ridge and damp extension, `o` l23 on `-c6x29` | `t24/he.log` | `80aaca7379383761` |
 | forced `gptq_e8` candidate (`inner_iters = 0`), `o` l23 on `-c6x29` | `t25/he.log` | `b2635f4f97d89c83` |
 | icm ridge below 0.05 and damp at icm ridge 0.05, `o` l23 on `-c6x29` | `t26/he.log` | `21ac8c5444485ba7` |
+| `-sel` held-out energy, `o` / `up` / `gate` | `t27/he-o.log` / `t27/he-up.log` / `t27/he-gate.log` | `0d131d00e10897a3` / `c179a7d2f73caa33` / `7ef6499e35b5ba52` |
+| `-sel` held-out energy, `down` (L19 whole) / truncation control | `t29/he-down.log` / `t29/ctl-trunc.log` | `6030c953e32f4c87` / `9cc262d2abf83760` |
+| all-selection arm, chunks 8, 9 / 10 | `t27/kl-89.log` / `t27/kl-10.log` | `8ac69f760a67815e` / `722bafd1ff74623e` |
+| Q4_K_M, llama.cpp `llama-perplexity --kl-divergence` | `/home/socol/oc-tmp/kld08/q4km-kl.log` | `31d375be917ca9ab` |
 | held-out energy, `o` arms / `down-x29` | `t18/he-o.log` / `t18/he-down-x29.log` | `9f7f3648a3a0cbed` / `62aa64aa70a1363f` |
 | SpQR masked refit on `up`, `gate` | commit `7619e8e9` body | — |
 | gated second-order metric on `up` | commit `8c0d7812` body | — |
@@ -1048,6 +1052,92 @@ theorem oFitCfg_damp_refit :
     heOFitCfg2.getD 0 0 < heOFitCfg3.getD 4 0 ∧
     heOFitCfg3.getD 5 0 < heOFitCfg2.getD 0 0 ∧
     heOFitCfg3.getD 3 0 < heOFitCfg3.getD 5 0 := by
+  decide
+
+/-! ### Candidate selection `-sel` (gptq, icm ridge 5000, icm ridge 200000) by held-out energy, per kind
+
+`APEIRON_FIT_SELECT=gptq,5000,200000` fits each tensor three ways on `-c6x29` and keeps the lowest calibration
+energy; every candidate packs the production bits, so the selection costs zero bits (`x29_same_bits`). Held-out
+energy over chunks 8..10 per layer 0, 3, 7, 11, 15, 19, 23; `o` and `down` in `1e-8`, `up` and `gate` in `1e-5`. -/
+
+/-- Held-out energy of production `o` (`-c6x29`) per layer, `1e-8`. `List` [a finite sequence of things, in order]. -/
+def heOProd : List Nat := [14894290, 7798809, 8877500, 6729773, 14192330, 37350700, 107422300]
+/-- Held-out energy of `o-c6x29-sel` per layer, `1e-8`. `List` [a finite sequence of things, in order]. -/
+def heOSel : List Nat := [12276290, 7310459, 8186858, 6462681, 12930690, 34549700, 89015550]
+/-- Held-out energy of production `up` per layer, `1e-5`. `List` [a finite sequence of things, in order]. -/
+def heUpProd : List Nat := [3055505, 4610411, 3915573, 3506515, 5426855, 7231405, 7840715]
+/-- Held-out energy of `up-c6x29-sel` per layer, `1e-5`. `List` [a finite sequence of things, in order]. -/
+def heUpSel : List Nat := [3086683, 4692450, 3915573, 3593450, 5509601, 7394103, 8037990]
+/-- Held-out energy of production `gate` per layer, `1e-5`. `List` [a finite sequence of things, in order]. -/
+def heGateProd : List Nat := [6249735, 19860480, 8924648, 6329093, 14858130, 25356330, 23207090]
+/-- Held-out energy of `gate-c6x29-sel` per layer, `1e-5`. `List` [a finite sequence of things, in order]. -/
+def heGateSel : List Nat := [6328120, 20152270, 9127594, 6453784, 15079190, 25921320, 23746240]
+/-- Held-out energy of production `down` per layer (L19 refitted whole), `1e-8`. `List` [a finite sequence of things, in order]. -/
+def heDownProd : List Nat := [6888446, 16842190, 12578720, 9141370, 45898660, 63144160, 142410300]
+/-- Held-out energy of `down-c6x29-sel` per layer, `1e-8`. `List` [a finite sequence of things, in order]. -/
+def heDownSel : List Nat := [7346470, 17939490, 13259440, 9546073, 46662890, 62542850, 114291200]
+
+/-- **Selection generalises on `o`**: `-sel` is below production on 7/7 layers and below 0.8656× summed
+(L23 1.074223 → 0.890156) (board row APEIRON-QUALITY-118-W1-T01). `∧` [both are true]; `<` [is smaller than]. -/
+theorem sel_o_wins :
+    (heOSel.zip heOProd).all (fun p => decide (p.1 < p.2)) = true ∧
+    10000 * heOSel.sum < 8656 * heOProd.sum := by
+  decide
+
+/-- **Selection overfits on `up`**: `-sel` is at or above production on 7/7 layers (equal at L7, the same
+fit) and above 1.018× summed. `∧` [both are true]; `<` [is smaller than]; `≤` [is smaller than or equal to]. -/
+theorem sel_up_loses :
+    (heUpProd.zip heUpSel).all (fun p => decide (p.1 ≤ p.2)) = true ∧
+    1018 * heUpProd.sum < 1000 * heUpSel.sum := by
+  decide
+
+/-- **Selection overfits on `gate`**: `-sel` is above production on 7/7 layers and above 1.019× summed.
+`∧` [both are true]; `<` [is smaller than]. -/
+theorem sel_gate_loses :
+    (heGateProd.zip heGateSel).all (fun p => decide (p.1 < p.2)) = true ∧
+    1019 * heGateProd.sum < 1000 * heGateSel.sum := by
+  decide
+
+/-- **On `down` selection splits by depth**: `-sel` loses on L0–L15 and wins on L19 and L23 (L23 1.424103 →
+1.142912), below 0.9148× summed; the next arm takes `down` per layer. `∧` [both are true]; `<` [is smaller than]. -/
+theorem sel_down_split :
+    ((heDownProd.zip heDownSel).take 5).all (fun p => decide (p.1 < p.2)) = true ∧
+    ((heDownSel.zip heDownProd).drop 5).all (fun p => decide (p.1 < p.2)) = true ∧
+    10000 * heDownSel.sum < 9148 * heDownProd.sum := by
+  decide
+
+/-! ### The truncated L19 `down` payload and the 4-bit reference
+
+A fit round killed at its 580 s bound left `l19.down-c6x29.i64` at 2 231 224 bytes; later rounds skipped it
+because it existed, and `replace_kind` overwrote only the words present. `read_words` now refuses a payload that
+is not `o·n` words and `write_words` writes through a rename (`tests/learn_gate_code.rs`; control
+`t29/ctl-trunc.log`, exit 101 by name). `klT14C29` and `klBase4C29` above ran with that payload. -/
+
+/-- Words of one `down` tensor (1024 × 3584). -/
+def downWords : Nat := 1024 * 3584
+
+/-- Words the truncated payload held: (2 231 224 − 16) / 8. -/
+def truncWords : Nat := (2231224 - 16) / 8
+
+/-- **92.4% of L19 `down` was the teacher** in `klT14C29` and `klBase4C29`: the payload held 278 901 of 3 670 016
+words, under 7.7%. `∧` [both are true]; `<` [is smaller than]. -/
+theorem trunc_l19_down : truncWords = 278901 ∧ downWords = 3670016 ∧ 1000 * truncWords < 77 * downWords := by
+  decide
+
+/-- Held-out KL of Q4_K_M (5.50 b/w, llama.cpp) per chunk 8, 9, 10, millionths of a nat, recovered from the
+running means as `k·m_k − (k−1)·m_{k−1}` (rows 9, 10, 11 of `kld08/q4km-kl.log`; resolution ±100 from the
+5-digit means). `List` [a finite sequence of things, in order]. -/
+def klQ4KM : List Nat := [50510, 52050, 74450]
+
+/-- Held-out KL of the all-selection arm `gate-sel+up-selr+down-selr+o-selb` (L19 `down` whole), chunks 8, 9,
+10, millionths of a nat (`t27/kl-89.log`, `t27/kl-10.log`). `List` [a finite sequence of things, in order]. -/
+def klAllSel : List Nat := [410459, 424695, 512600]
+
+/-- **The all-selection arm is 7.6× Q4_K_M and 4.9× the gate**: summed 1.347754 against 0.177010 and 0.2739.
+`∧` [both are true]; `<` [is smaller than]. -/
+theorem allSel_distance :
+    76 * klQ4KM.sum < 10 * klAllSel.sum ∧ 10 * klAllSel.sum < 77 * klQ4KM.sum ∧
+    49 * gateSum < 10 * klAllSel.sum ∧ 10 * klAllSel.sum < 50 * gateSum := by
   decide
 
 end GateCode

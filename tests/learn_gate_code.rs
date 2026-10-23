@@ -38,7 +38,6 @@
               and every loop is one linear composition of the stage it measures"
 )]
 
-use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
 
@@ -47,7 +46,7 @@ use apeiron::engine::KernelMode;
 use apeiron::format::gguf::Gguf;
 use apeiron::format::quant;
 use apeiron::learn::fold::fit::eigh::eigh;
-use apeiron::learn::fold::fit::fold_fit::{fold_fit, FoldFitConfig};
+use apeiron::learn::fold::fit::fold_fit::{fold_fit, FoldFit, FoldFitConfig};
 use apeiron::learn::fold::run::convert::{encode_f16, encode_f32};
 use apeiron::learn::fold::stats::basis::solve_water_fill;
 use apeiron::learn::fold::stats::capture::{Grams, LayerGrams, Normalisation};
@@ -94,9 +93,7 @@ const TAP_M: usize = 4;
 /// `APEIRON_FIT_SWEEPS`, `APEIRON_FIT_INNER`, and `APEIRON_FIT_RIDGE_PPM`, `APEIRON_FIT_DAMP_PPM`,
 /// `APEIRON_FIT_ICM_PPM` in millionths (defaults 1000, 10000, 200000).
 fn production_cfg() -> FoldFitConfig {
-    let q = |key: &str, ppm: usize| {
-        ((((env_usize(key, ppm) as u128) << 32) + 500_000) / 1_000_000) as i64
-    };
+    let q = |key: &str, ppm: usize| ppm_word(env_usize(key, ppm));
     FoldFitConfig {
         iters: 1,
         ridge: q("APEIRON_FIT_RIDGE_PPM", 1_000),
@@ -105,6 +102,55 @@ fn production_cfg() -> FoldFitConfig {
         e8_beam: env_usize("APEIRON_FIT_BEAM", 4),
         icm_ridge: q("APEIRON_FIT_ICM_PPM", 200_000),
         sweeps: env_usize("APEIRON_FIT_SWEEPS", 2),
+    }
+}
+
+/// `ppm` millionths as a Q32.32 word, rounded to nearest.
+fn ppm_word(ppm: usize) -> i64 {
+    ((((ppm as u128) << 32) + 500_000) / 1_000_000) as i64
+}
+
+/// Post-pack fit selection (board row APEIRON-QUALITY-118-W1-T01): one `fold_fit` per `APEIRON_FIT_SELECT`
+/// entry (`gptq` sets `inner_iters = 0`; a number sets the icm ridge in millionths), keeping the least
+/// calibration [`energy`] of packed `Wp − W`; `fold_fit` selects on `J` before the pack. Unset: production.
+/// Cost: per entry one `fold_fit` and one [`energy`] (`O(o·n²)`); space one extra fit.
+fn fit_select(w: &[i64], h: &[f64], o: usize, n: usize) -> (FoldFit, String) {
+    let hq = qv(h);
+    let set = std::env::var("APEIRON_FIT_SELECT").unwrap_or_default();
+    if set.is_empty() {
+        let fit = fold_fit(w, &hq, o, n, None, &production_cfg()).expect("fit");
+        return (fit, String::from("production"));
+    }
+    let mut best: Option<(f64, FoldFit, String)> = None;
+    for arm in set.split(',') {
+        let mut c = production_cfg();
+        if arm == "gptq" {
+            c.inner_iters = 0;
+        } else {
+            c.icm_ridge = ppm_word(arm.parse().expect("APEIRON_FIT_SELECT entry"));
+        }
+        let fit = fold_fit(w, &hq, o, n, None, &c).expect("fit");
+        let e: Vec<i64> = fit.wp.iter().zip(w).map(|(a, b)| a - b).collect();
+        let en = energy(h, &e, o, n);
+        println!(
+            "SELECT {arm} tag {} calib energy {en:.6e}",
+            fit.tag.as_str()
+        );
+        if best.as_ref().is_none_or(|b| en < b.0) {
+            best = Some((en, fit, arm.to_string()));
+        }
+    }
+    let (_, fit, arm) = best.expect("APEIRON_FIT_SELECT has an entry");
+    (fit, arm)
+}
+
+/// The cached fit name of `kind` on calibration `calib`/`extra`, `APEIRON_GATE_TAG` appended.
+fn fit_name(kind: &str, calib: usize, extra: usize) -> String {
+    let tag = std::env::var("APEIRON_GATE_TAG").unwrap_or_default();
+    match (calib != CALIB, extra > 0) {
+        (true, _) => format!("{kind}-c{calib}x{extra}{tag}"),
+        (false, true) => format!("{kind}-x{extra}{tag}"),
+        _ => format!("{kind}{tag}"),
     }
 }
 
@@ -136,15 +182,14 @@ fn qv(x: &[f64]) -> Vec<i64> {
         .collect()
 }
 
-/// Write `words` as a little-endian `i64` payload with an `(o, n)` header.
+/// Write `words` as a little-endian `i64` payload with an `(o, n)` header, through a
+/// temporary file and a rename: a run killed mid-write leaves no short payload behind.
 fn write_words(path: &str, o: usize, n: usize, words: &[i64]) -> std::io::Result<()> {
-    let mut f = std::fs::File::create(path)?;
-    f.write_all(&(o as u64).to_le_bytes())?;
-    f.write_all(&(n as u64).to_le_bytes())?;
-    for w in words {
-        f.write_all(&w.to_le_bytes())?;
-    }
-    Ok(())
+    let tmp = format!("{path}.tmp");
+    let mut b = [(o as u64).to_le_bytes(), (n as u64).to_le_bytes()].concat();
+    b.extend(words.iter().flat_map(|w| w.to_le_bytes()));
+    std::fs::write(&tmp, b)?;
+    std::fs::rename(&tmp, path)
 }
 
 /// Read a [`write_words`] payload back as `(o, n, words)`.
@@ -155,7 +200,8 @@ fn read_words(path: &str) -> (usize, usize, Vec<i64>) {
     let words = b[16..]
         .chunks_exact(8)
         .map(|c| i64::from_le_bytes(c.try_into().expect("8")))
-        .collect();
+        .collect::<Vec<i64>>();
+    assert_eq!(words.len(), o * n, "{path}: payload is not o*n words");
     (o, n, words)
 }
 
@@ -321,12 +367,9 @@ fn calib_set(chunks: &[Vec<u32>], calib: usize, extra: usize) -> Vec<Vec<u32>> {
 /// The production calibration Grams over chunks `0..calib`: `Grams::accumulate_tap` on each tapped
 /// chunk, then `Normalisation::Mean`. `gate_up` is the `ffn_gate`/`ffn_up` input Gram (stage 3) and
 /// `down` the `ffn_down` input Gram (stage 4, the engine's own `SwiGLU` product), both `Σ_t x_t x_tᵀ / T`
-/// over tokens, so this file restates no layout.
-///
-/// Layout control, per layer in `layers`: the diagonal of each Gram against `Σ_t x_t[k]² / T`
+/// over tokens, so this file restates no layout. Layout control, per layer in `layers`: the diagonal of each Gram against `Σ_t x_t[k]² / T`
 /// summed straight from the tap columns, relative error below `1e-4`. A feature-major buffer read as
-/// token rows (the defect this replaces) misses it by `O(1)`.
-///
+/// token rows (the defect this replaces) misses it by `O(1)`. Cost:
 /// `O(calib·n_layer·t·(n_embd² + q_out² + n_ff²)/2)` multiply-adds in the accumulator plus
 /// `O(calib·|layers|·t·(n_embd + n_ff))` for the control; space the accumulator's
 /// `O(n_layer·(n_embd² + q_out² + n_ff²))` words and one `f64` copy.
@@ -495,14 +538,12 @@ fn gate_code_probe() {
     );
 }
 
-/// The production fit of each kind in `APEIRON_GATE_KIND` (comma list of `down`, `o`, `gate`, `up`;
-/// default `down`) for `APEIRON_GATE_LAYERS`, under one calibration `H` over [`calib_set`]
-/// (`APEIRON_GATE_CALIB`, `APEIRON_GATE_EXTRA`). Writes `l{l}.{kind}.i64`, `l{l}.{kind}-x{extra}.i64`
-/// with extra chunks, or `l{l}.{kind}-c{calib}x{extra}.i64` with `calib != CALIB`; an existing file is
-/// kept and skipped, so a cut run resumes. `APEIRON_GATE_TAG` is appended to the name (a config sweep). `APEIRON_GATE_CALIB=6` drops chunks 6 and 7, the start of
-/// the article that held-out chunks 8, 9 and 10 continue.
-///
-/// `H` costs what [`calib_grams`] states; then one `fold_fit` per layer and kind.
+/// The [`fit_select`] fit of each kind in `APEIRON_GATE_KIND` (comma list of `down`, `o`, `gate`,
+/// `up`; default `down`) for `APEIRON_GATE_LAYERS`, under one calibration `H` over [`calib_set`]
+/// (`APEIRON_GATE_CALIB`, `APEIRON_GATE_EXTRA`), written as `l{l}.{name}.i64` by [`fit_name`]; an
+/// existing file is skipped, so a cut run resumes. `APEIRON_GATE_CALIB=6` drops chunks 6 and 7, the start of the
+/// article that held-out chunks 8, 9 and 10 continue. Cost: [`calib_grams`], then [`fit_select`] per
+/// layer and kind.
 #[test]
 #[ignore = "opens the teacher and runs production fold_fit per tensor; run explicitly"]
 fn gate_code_fit_kind() {
@@ -513,21 +554,13 @@ fn gate_code_fit_kind() {
     let kinds = std::env::var("APEIRON_GATE_KIND").unwrap_or_else(|_| String::from("down"));
     let extra = env_usize("APEIRON_GATE_EXTRA", 0);
     let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
-    let tag = std::env::var("APEIRON_GATE_TAG").unwrap_or_default();
     let set = calib_set(&chunks, calib, extra);
     std::fs::create_dir_all(CACHE).expect("cache dir");
     let t0 = Instant::now();
     let grams = grams_cached(&engine, &cfg, &set, &layers, &format!("c{calib}x{extra}"));
     for &l in &layers {
         for kind in kinds.split(',') {
-            let name = if calib != CALIB {
-                format!("{kind}-c{calib}x{extra}")
-            } else if extra > 0 {
-                format!("{kind}-x{extra}")
-            } else {
-                kind.to_string()
-            };
-            let name = format!("{name}{tag}");
+            let name = fit_name(kind, calib, extra);
             let path = format!("{CACHE}/l{l}.{name}.i64");
             if std::path::Path::new(&path).exists() {
                 println!("FITK layer {l:02} {name} exists, skipped");
@@ -535,10 +568,10 @@ fn gate_code_fit_kind() {
             }
             let (w, o, n, h) = teacher(&engine, &cfg, &grams, kind, l);
             let t = Instant::now();
-            let fit = fold_fit(&w, &qv(&h), o, n, None, &production_cfg()).expect("fit");
+            let (fit, arm) = fit_select(&w, &h, o, n);
             write_words(&path, o, n, &fit.wp).expect("cache fit");
             println!(
-                "FITK layer {l:02} {name} {o}x{n} {:.2} s bits r/c/d {}/{}/{} tag {}",
+                "FITK layer {l:02} {name} {o}x{n} {:.2} s bits r/c/d {}/{}/{} tag {} arm {arm}",
                 t.elapsed().as_secs_f64(),
                 fit.bits_r,
                 fit.bits_c,
@@ -620,16 +653,13 @@ fn teacher(
 /// [`calib_grams`] `down` or `o` Gram for down/o; no held-out chunk is read. `APEIRON_GATE_EXTRA`
 /// widens `H` by [`calib_set`] (every kind) and starts from `l{l}.{kind}-x{extra}.i64`; with
 /// `APEIRON_GATE_CALIB` set off `CALIB` it starts from `l{l}.{kind}-c{calib}x{extra}.i64`, the
-/// [`gate_code_fit_kind`] name (board row APEIRON-QUALITY-118-W1-T01).
+/// [`fit_name`] (board row APEIRON-QUALITY-118-W1-T01); each pass fits through [`fit_select`].
 /// Writes `{CACHE}/l{l}.{base}-res{P}.i64`, the summed words, for [`gate_code_kl`]
 /// (`APEIRON_GATE_ARM=up-res2`); `P = 1` writes the cached fit back unchanged.
 ///
 /// Cost: `(P−1)` `fold_fit` per layer (~33 s each for gate/up, ~52–75 s down, measured) plus `2(P−1)`
 /// [`energy`] at `O(o·n²)`, and for down/o one [`calib_grams`] (~70 s); space `O(n² + o·n)` per layer
-/// for the Gram, the words and the residual.
-///
-/// **Measurement 11** (board `APEIRON-QUALITY-118-W1-T01`): the output projection `o` and the
-/// residual pass on `down` and `o`.
+/// for the Gram, the words and the residual. **Measurement 11** adds `o` and the `down`/`o` passes.
 #[test]
 #[ignore = "opens the teacher and runs production fold_fit on the residual; run explicitly"]
 fn ffn_residual_fit() {
@@ -644,13 +674,7 @@ fn ffn_residual_fit() {
     let passes = env_usize("APEIRON_GATE_PASSES", 2).max(1);
     let extra = env_usize("APEIRON_GATE_EXTRA", 0);
     let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
-    let base = if calib != CALIB {
-        format!("{kind}-c{calib}x{extra}")
-    } else if extra > 0 {
-        format!("{kind}-x{extra}")
-    } else {
-        kind.clone()
-    };
+    let base = fit_name(&kind, calib, extra);
     println!("RES layers {layers:?} kind {kind} base {base} passes {passes}");
     let t0 = Instant::now();
     let grams = if matches!(kind.as_str(), "down" | "o") || extra > 0 || calib != CALIB {
@@ -665,20 +689,13 @@ fn ffn_residual_fit() {
         let (wo, wn, cached) = read_words(&format!("{CACHE}/l{l}.{base}.i64"));
         assert_eq!((wo, wn, cached.len()), (o, n, o * n), "layer {l}: {base}");
         let mut what = cached;
-        let mut failed = false;
         for p in 1..passes {
             let e: Vec<i64> = what.iter().zip(&w).map(|(a, b)| a - b).collect();
             let before = energy(&h, &e, o, n);
             let r: Vec<i64> = w.iter().zip(&what).map(|(a, b)| a - b).collect();
             let t = Instant::now();
-            let fit = match fold_fit(&r, &qv(&h), o, n, None, &production_cfg()) {
-                Ok(fit) => fit,
-                Err(err) => {
-                    println!("RES layer {l:02} kind {kind} pass {p} fit error {err:?}");
-                    failed = true;
-                    break;
-                }
-            };
+            let (fit, arm) = fit_select(&r, &h, o, n);
+            println!("RES layer {l:02} kind {kind} pass {p} arm {arm}");
             let wall = t.elapsed().as_secs_f64();
             for (dst, add) in what.iter_mut().zip(&fit.wp) {
                 *dst += add;
@@ -696,9 +713,6 @@ fn ffn_residual_fit() {
                 fit.bits_d,
                 bits as f64 / (o * n) as f64
             );
-        }
-        if failed {
-            continue;
         }
         let path = format!("{CACHE}/l{l}.{base}-res{passes}.i64");
         write_words(&path, o, n, &what).expect("write residual fit");
