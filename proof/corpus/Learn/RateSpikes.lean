@@ -655,6 +655,7 @@ end HybridVerdict
 | `down-x29` (37 calibration chunks) | `t18/kl-down-x29.log` | `17354a48ff9aac6c` |
 | `gate+up+down` / `gate+up+down+o` | `t09/plain.log` / `t14/kl-base4.log` | `29860e29444960d7` / `481fce0016312d53` |
 | t14 `gate+up-res2all+down-res2all+o-b` / t17 `…+o-c` | `t14/kl-budget.log` / `t17/kl-oc.log` | `14f23063c195addd` / `13108916a4afd4f6` |
+| t14x `gate-x29+up-x29b+down-x29b+o-x29b`, chunks 8, 9 / 10 | `t19/kl-t14x.log` / `t19/kl-t14x-10.log` | `625c005f16678646` / `d2579c80ca3c9679` |
 | held-out energy, `o` arms / `down-x29` | `t18/he-o.log` / `t18/he-down-x29.log` | `9f7f3648a3a0cbed` / `62aa64aa70a1363f` |
 | SpQR masked refit on `up`, `gate` | commit `7619e8e9` body | — |
 | gated second-order metric on `up` | commit `8c0d7812` body | — |
@@ -775,6 +776,9 @@ def klBase4 : List Nat := [371324, 399189, 664152]
 def klT14 : List Nat := [289309, 330574, 587555]
 /-- Held-out KL of t17 `gate+up-res2all+down-res2all+o-c`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
 def klT17 : List Nat := [292347, 330443, 596437]
+/-- Held-out KL of t14x, t14's arms each refitted on 37 calibration chunks (`-x29`), chunks 8, 9, 10,
+millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klT14x : List Nat := [330531, 391982, 539456]
 
 /-- The gate, three chunks summed (3 × 0.0913). -/
 def gateSum : Nat := 3 * 91300
@@ -815,6 +819,16 @@ theorem t14_beats_base4 : klT14.sum < klBase4.sum := by decide
 
 /-- The `o-c` allocation (t17) loses to t14's `o-b`. `<` [is smaller than]. -/
 theorem t17_loses_to_t14 : klT14.sum < klT17.sum := by decide
+
+/-- **t14x loses to t14** at equal bits (`x29_same_bits`): 1.207438 → 1.261969 summed. It wins chunk 10
+(0.587555 → 0.539456) and loses chunks 8 and 9. Held-out chunks 8, 9 and the start of 10 continue the
+article that calibration chunks 6 and 7 begin, so the 8-chunk fit has seen their text and the 37-chunk
+fit dilutes it (board row APEIRON-QUALITY-118-W1-T01). `∧` [both are true]; `<` [is smaller than]. -/
+theorem t14x_loses_to_t14 :
+    klT14.sum < klT14x.sum ∧
+    klT14x.getD 2 0 < klT14.getD 2 0 ∧
+    klT14.getD 0 0 < klT14x.getD 0 0 ∧ klT14.getD 1 0 < klT14x.getD 1 0 := by
+  decide
 
 /-- **Adding `o` is near-additive**: the four-tensor KL is within 1% of the sum of the four single-tensor
 KLs; three FFN tensors together are sub-additive (below the sum of their singles). `∧` [both are true]; `<` [is smaller than]; `≤` [is smaller than or equal to]. -/
