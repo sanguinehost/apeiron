@@ -250,7 +250,7 @@ fn place_matches_host_meta() {
                 exp,
             })
         });
-        let head = meta_head(&pairs, group, blocks, limbs, m, p);
+        let head = meta_head(&pairs, group, blocks, limbs, m, p, 1);
         let (groups, segs) = segments(&pairs, group);
         let (ngroups, nsegs) = (groups.len(), segs.len());
         let meta_words = head.len() + nsegs * blocks;
@@ -507,7 +507,7 @@ fn finish_matches_gemm_and_host() {
                 }
             }
         }
-        let mut meta = vec![0u32, 0, 64, 64, 8, 8 + 2 * g as u32, 0, 0];
+        let mut meta = vec![0u32, 0, 64, 64, 9, 9 + 2 * g as u32, 0, 0, 1];
         meta.extend(std::iter::repeat_n(0, 2 * g));
         let task = FinishTask {
             back: &back,

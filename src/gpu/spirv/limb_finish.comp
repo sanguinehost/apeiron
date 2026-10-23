@@ -1,6 +1,7 @@
 #version 450
 // The finish of `gpu::limb::LimbGemm::run` on the device: the lo/hi i32 planes `limb_gemm.comp`
-// leaves in O, one pair per pair group g, rounded by Tmin_g and summed to one i64 per output entry.
+// leaves in O, one pair per pair group g and split c (plane z = g·splits + c), the splits of g summed
+// in 64 bits, rounded by Tmin_g and summed to one i64 per output entry.
 // Consumer: `src/gpu/limb.rs`, which owns the contract this file computes.
 //
 // Entry `at` of group g is v = (hi << 32) | lo. Its word is `engine::kern::limb::device_group_word`:
@@ -13,7 +14,7 @@
 layout(local_size_x = 256) in;
 
 layout(std430, binding = 0) readonly buffer O { int o[]; };
-// META: the `limb_place.comp` header; this kernel reads mp, pp, off_groups and off_segs.
+// META: the `limb_place.comp` header; this kernel reads mp, pp, off_groups, off_segs and splits.
 layout(std430, binding = 1) readonly buffer M { uint meta[]; };
 // P: `limb_place.comp`'s output [RANGE, FALLBACK, Tmin per group].
 layout(std430, binding = 2) buffer P { uint range; uint fallback; uint tmin[]; };
@@ -27,12 +28,15 @@ void main() {
         return;
     }
     const uint groups = (meta[5] - meta[4]) / 2u;
+    const uint splits = meta[8];
     uint64_t alo = 0ul;
     int64_t ahi = 0l;
     bool bad = false;
     for (uint g = 0u; g < groups; ++g) {
-        const int64_t v = (int64_t(o[(2u * g + 1u) * plane + at]) << 32)
-            | int64_t(uint(o[2u * g * plane + at]));
+        int64_t v = 0l;
+        for (uint z = g * splits; z < (g + 1u) * splits; ++z) {
+            v += (int64_t(o[(2u * z + 1u) * plane + at]) << 32) | int64_t(uint(o[2u * z * plane + at]));
+        }
         const uint t = tmin[g];
         int64_t w;
         if (t >= 32u) {

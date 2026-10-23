@@ -22,9 +22,12 @@ layout(local_size_x = 128) in;
 // A and B: rows padded to a multiple of 64, each row `blocks * limbs * 32` bytes.
 layout(std430, binding = 0) readonly buffer A { uvec4 a[]; };
 layout(std430, binding = 1) readonly buffer B { uvec4 b[]; };
-// O: per group, the lo plane then the hi plane, each Mp x Pp row-major int32.
+// O: per group and split (z = g * splits + c), the lo plane then the hi plane, each Mp x Pp
+// row-major int32. Split c sums the blocks [c * chunk, (c + 1) * chunk); the splits of one group
+// are summed in 64 bits before the finish rounds them, and 64-bit addition is associative modulo
+// 2^64, so every split count leaves the same word.
 layout(std430, binding = 2) writeonly buffer O { int o[]; };
-// META: [blocks, limbs, Mp, Pp, off_groups, off_segs, off_pairs, off_shift], then
+// META: [blocks, limbs, Mp, Pp, off_groups, off_segs, off_pairs, off_shift, splits], then
 // groups (seg begin, seg end), segs (pair begin, pair count), pairs (s, t), and
 // shift[seg * blocks + block] = T - Tmin_g, or DEAD for a block pair below the placement floor.
 layout(std430, binding = 3) readonly buffer M { uint meta[]; };
@@ -42,7 +45,12 @@ void main() {
     const uint offS = meta[5];
     const uint offP = meta[6];
     const uint offH = meta[7];
-    const uint g = gl_WorkGroupID.z;
+    const uint splits = meta[8];
+    const uint z = gl_WorkGroupID.z;
+    const uint g = z / splits;
+    const uint chunk = (blocks + splits - 1u) / splits;
+    const uint blk0 = (z % splits) * chunk;
+    const uint blk1 = min(blocks, blk0 + chunk);
     const uint seg0 = meta[offG + 2u * g];
     const uint seg1 = meta[offG + 2u * g + 1u];
     const uint sg = gl_SubgroupID;
@@ -58,7 +66,7 @@ void main() {
         hi[f] = FRAG(0);
     }
 
-    for (uint blk = 0u; blk < blocks; ++blk) {
+    for (uint blk = blk0; blk < blk1; ++blk) {
         for (uint k = seg0; k < seg1; ++k) {
             const uint sh = meta[offH + k * blocks + blk];
             if (sh == DEAD) {
@@ -103,9 +111,9 @@ void main() {
     [[unroll]] for (uint i = 0u; i < 2u; ++i) {
         [[unroll]] for (uint j = 0u; j < 2u; ++j) {
             const uint at = (row0 + 16u * i) * Pp + col0 + 16u * j;
-            coopMatStore(lo[i * 2u + j], o, (2u * g) * plane + at, Pp,
+            coopMatStore(lo[i * 2u + j], o, (2u * z) * plane + at, Pp,
                          gl_CooperativeMatrixLayoutRowMajor);
-            coopMatStore(hi[i * 2u + j], o, (2u * g + 1u) * plane + at, Pp,
+            coopMatStore(hi[i * 2u + j], o, (2u * z + 1u) * plane + at, Pp,
                          gl_CooperativeMatrixLayoutRowMajor);
         }
     }

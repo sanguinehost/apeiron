@@ -288,4 +288,27 @@ theorem deviceInverse_fit :
     devInvHostA - (devInvHost - devInvCut96) = 84_600 := by
   decide
 
+/-! ## Split block loop for thin limb products (P118)
+
+`limb_gemm.comp` splits each tile's block loop across `Product::splits` workgroups; the finish sums a
+group's splits in 64 bits before rounding. Units: tenths of a microsecond per ADMM iteration. -/
+
+/-- ADMM wall per iteration on the blk.23 `down` fit, means of 3 interleaved runs (`t13-ab.log`):
+one workgroup per tile 2.5 / 2.4 / 2.4 s, `SPLIT_WG` 192 and 768 1.9 s ×3 per 100 iterations.
+Grade `measured`; the wall prints at 0.1 s. -/
+def splitOne : Nat := 243_333
+def split192 : Nat := 190_000
+def split768 : Nat := 190_000
+
+/-- `rank1`'s self-dot and matvec on side `A` before the change, 1.96 + 2.11 ms per iteration
+(`w6-t12` timestamps). Grade `measured`. -/
+def splitThinA : Nat := 40_700
+
+/-- The split saves 5.33 ms per iteration, more than side `A`'s 4.07 ms of thin products: `B`'s
+thin products and the inverse's small products split as well (grade `model`: not re-profiled). -/
+theorem splitK_fit :
+    split192 < splitOne ∧ split192 = split768 ∧ splitOne - split192 = 53_333 ∧
+    splitThinA < splitOne - split192 := by
+  decide
+
 end Perf.LimbDevice
