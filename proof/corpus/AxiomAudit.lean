@@ -2906,3 +2906,6 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.GateCode.calib_overlap_lowers_heldout
 #audit Learn.GateCode.base4C29_beats_clean
 #audit Learn.GateCode.t14C29_beats_base4C29
+#audit Learn.GateCode.oFitCfg_icm_wins
+#audit Learn.GateCode.oFitCfg_width_flat
+#audit Learn.GateCode.oFitCfg_regularisation

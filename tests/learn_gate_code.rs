@@ -89,16 +89,22 @@ const TAP_GATE: usize = 8;
 /// Tap slot of the `SwiGLU` product `m = silu(g·x)⊙(u·x)`, the `ffn_down` input (`STAGE_M`).
 const TAP_M: usize = 4;
 
-/// The production call-site configuration (`fold_transfer.py:1733-1736`).
+/// The production call-site configuration (`fold_transfer.py:1733-1736`). The search knobs cost no
+/// bits and are overridable for a sweep (board row ): `APEIRON_FIT_BEAM`,
+/// `APEIRON_FIT_SWEEPS`, `APEIRON_FIT_INNER`, and `APEIRON_FIT_RIDGE_PPM`, `APEIRON_FIT_DAMP_PPM`,
+/// `APEIRON_FIT_ICM_PPM` in millionths (defaults 1000, 10000, 200000).
 fn production_cfg() -> FoldFitConfig {
+    let q = |key: &str, ppm: usize| {
+        ((((env_usize(key, ppm) as u128) << 32) + 500_000) / 1_000_000) as i64
+    };
     FoldFitConfig {
         iters: 1,
-        ridge: 4_294_967,
-        damp: 42_949_673,
-        inner_iters: 3,
-        e8_beam: 4,
-        icm_ridge: 858_993_459,
-        sweeps: 2,
+        ridge: q("APEIRON_FIT_RIDGE_PPM", 1_000),
+        damp: q("APEIRON_FIT_DAMP_PPM", 10_000),
+        inner_iters: env_usize("APEIRON_FIT_INNER", 3),
+        e8_beam: env_usize("APEIRON_FIT_BEAM", 4),
+        icm_ridge: q("APEIRON_FIT_ICM_PPM", 200_000),
+        sweeps: env_usize("APEIRON_FIT_SWEEPS", 2),
     }
 }
 
@@ -493,7 +499,7 @@ fn gate_code_probe() {
 /// default `down`) for `APEIRON_GATE_LAYERS`, under one calibration `H` over [`calib_set`]
 /// (`APEIRON_GATE_CALIB`, `APEIRON_GATE_EXTRA`). Writes `l{l}.{kind}.i64`, `l{l}.{kind}-x{extra}.i64`
 /// with extra chunks, or `l{l}.{kind}-c{calib}x{extra}.i64` with `calib != CALIB`; an existing file is
-/// kept and skipped, so a cut run resumes. `APEIRON_GATE_CALIB=6` drops chunks 6 and 7, the start of
+/// kept and skipped, so a cut run resumes. `APEIRON_GATE_TAG` is appended to the name (a config sweep). `APEIRON_GATE_CALIB=6` drops chunks 6 and 7, the start of
 /// the article that held-out chunks 8, 9 and 10 continue.
 ///
 /// `H` costs what [`calib_grams`] states; then one `fold_fit` per layer and kind.
@@ -507,6 +513,7 @@ fn gate_code_fit_kind() {
     let kinds = std::env::var("APEIRON_GATE_KIND").unwrap_or_else(|_| String::from("down"));
     let extra = env_usize("APEIRON_GATE_EXTRA", 0);
     let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
+    let tag = std::env::var("APEIRON_GATE_TAG").unwrap_or_default();
     let set = calib_set(&chunks, calib, extra);
     std::fs::create_dir_all(CACHE).expect("cache dir");
     let t0 = Instant::now();
@@ -520,6 +527,7 @@ fn gate_code_fit_kind() {
             } else {
                 kind.to_string()
             };
+            let name = format!("{name}{tag}");
             let path = format!("{CACHE}/l{l}.{name}.i64");
             if std::path::Path::new(&path).exists() {
                 println!("FITK layer {l:02} {name} exists, skipped");
