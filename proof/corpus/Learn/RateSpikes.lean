@@ -661,6 +661,7 @@ end HybridVerdict
 | t14 on clean calibration `gate-c6x29+up-c6x29r+down-c6x29r+o-c6x29b`, chunks 8, 9 / 10 | `t22/kl-89.log` / `t22/kl-10.log` | `67abd67cb728fed7` / `83de84f77006d8ca` |
 | zero-bit `fold_fit` search sweep, `o` l23 on `-c6x29` | `t23/he.log` | `22beabf7320b71c6` |
 | icm ridge and damp extension, `o` l23 on `-c6x29` | `t24/he.log` | `80aaca7379383761` |
+| forced `gptq_e8` candidate (`inner_iters = 0`), `o` l23 on `-c6x29` | `t25/he.log` | `b2635f4f97d89c83` |
 | held-out energy, `o` arms / `down-x29` | `t18/he-o.log` / `t18/he-down-x29.log` | `9f7f3648a3a0cbed` / `62aa64aa70a1363f` |
 | SpQR masked refit on `up`, `gate` | commit `7619e8e9` body | — |
 | gated second-order metric on `up` | commit `8c0d7812` body | — |
@@ -1004,6 +1005,23 @@ and with damp 0.3 it is above production. `∧` [both are true]; `<` [is smaller
 theorem oFitCfg_damp_no_stack :
     heOFitCfg.getD 5 0 < heOFitCfg2.getD 5 0 ∧
     heOFitCfg.getD 0 0 < heOFitCfg2.getD 6 0 := by
+  decide
+
+/-- Held-out energy of `o` l23 on `-c6x29` (`1e-8`) with the `gptq_e8` candidate forced (`inner_iters = 0`, so
+the refit candidate ties it and the first wins), by icm ridge 0.2, 0.4, 1; and `inner_iters = 1` at icm ridge
+0.4. `List` [a finite sequence of things, in order]. -/
+def heOGptq : List Nat := [96519970, 96519970, 96519970, 96519970]
+
+/-- **The selection picks the worse candidate at production**: with the `gptq_e8` candidate forced, held-out
+energy is the same at icm ridge 0.2, 0.4 and 1 (the pack's ICM step leaves it unchanged), and production
+(icm ridge 0.2, `refit0` selected by pre-pack `J`) is above it on held-out and on calibration energy. The
+selection compares `J` before the pack quantises `c` to 6 bits and `d` to 5; the `gptq_e8` candidate has
+`c = d = 1` and loses nothing there (board row ). `List` [a finite sequence of
+things, in order]; `∧` [both are true]; `<` [is smaller than]. -/
+theorem oFitCfg_selection_inverted :
+    heOGptq.all (fun x => x == heOFitCfg.getD 5 0) = true ∧
+    heOGptq.getD 0 0 < heOFitCfg.getD 0 0 ∧
+    ceOFitCfg.getD 1 0 < ceOFitCfg.getD 0 0 := by
   decide
 
 end GateCode
