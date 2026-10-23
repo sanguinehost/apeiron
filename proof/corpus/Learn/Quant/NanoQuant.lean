@@ -411,6 +411,28 @@ theorem limb_device_fit_l23_down :
     (∀ a ∈ deviceOnTune, ∀ b ∈ deviceOffTune, a < b) := by
   decide
 
+/-- Differing digit bytes, device plane build against `Plane::build`, limbs 3, at 3584×1024, 768×1024,
+1024×3584, 100×70, 37×33 and 64×96 (61-bit words) (`plane.log`).
+`List` [a finite sequence of things, in order]. -/
+def planeDiff : List Nat := [0, 0, 0, 0, 0, 0]
+/-- Differing digit bytes at 3584×1024 with the first digit's rounding offset dropped from
+`limb_plane.comp` in a throwaway copy (`mut-plane.log`), of 11 010 048. -/
+def planeMutDiff : Nat := 3670576
+/-- Differing binary64 results of 2²⁰ inputs on the device against the CPU for divide, `sqrt`,
+multiply, unfused multiply-add, the grid round and `i64 → f64` (`plane.log`).
+`List` [a finite sequence of things, in order]. -/
+def f64MapDiff : List Nat := [0, 0, 0, 0, 0, 0]
+/-- Differing results with `fma(a, b, c)` in place of the unfused multiply-add. -/
+def f64FmaDiff : Nat := 120741
+
+/-- The device plane build and the device binary64 maps are bit-identical to the CPU at every tested
+shape and operation, and each control (rounding offset dropped; fused multiply-add) is seen.
+`∧` [both are true]; `<` [is smaller than]. -/
+theorem limb_device_plane_and_f64 :
+    planeDiff.all (· = 0) = true ∧ 0 < planeMutDiff ∧
+    f64MapDiff.all (· = 0) = true ∧ 0 < f64FmaDiff := by
+  decide
+
 end NanoQuant
 
 end Learn

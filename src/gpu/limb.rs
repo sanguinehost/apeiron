@@ -491,6 +491,139 @@ unsafe fn record(vk: &Vk, s: &Bound, key: [usize; 7]) -> CommandBuffer {
     cb
 }
 
+/// The device plane build, the first stage of the device-resident ADMM iteration
+/// (`docs/epics/nanoquant-subsume.md`, W6).
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the resident x_update, W6 T4 in docs/epics/nanoquant-subsume.md"
+    )
+)]
+mod plane {
+    use crate::gpu::vulkan::*;
+
+    /// The compiled plane build.
+    pub(super) static LIMB_PLANE_SPV: &[u8] = include_bytes!("spirv/limb_plane.spv");
+
+    /// Workgroup width of `limb_plane.comp`.
+    const PLANE_WG: usize = 256;
+    /// The largest workgroup count of one dispatch dimension.
+    const MAX_GROUPS_X: usize = 65_535;
+
+    /// The plane build of [`crate::engine::kern::limb`] on the device over fixed buffers: `x` holds the
+    /// `rows × n` words, `e` receives the `⌈n/32⌉` block exponents, `dig` the
+    /// `[row][block][limb][32]` digits and `flag` a nonzero word when a block exponent passes 62 (the
+    /// caller then builds on the CPU). Bit-identical to `Plane::build` when the flag is clear.
+    pub(crate) struct PlaneBuild {
+        pipe: [Handle; 2],
+        layout: [Handle; 2],
+        dset: [Handle; 2],
+        e: Handle,
+        flag: Handle,
+        blocks: usize,
+        groups: (u32, u32),
+    }
+
+    impl PlaneBuild {
+        /// The two passes' pipelines and descriptor sets over the given buffers.
+        ///
+        /// # Safety
+        ///
+        /// `vk` is live; `x` holds `rows·n` `i64`, `e` `⌈n/32⌉` `u32`, `dig` `rows·⌈n/32⌉·limbs·32`
+        /// bytes, `flag` one `u32`; `e` and `flag` admit transfer writes.
+        ///
+        /// # Complexity
+        ///
+        /// Two pipeline builds and two 20-byte meta buffers.
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "rows, n, blocks and limbs are below 2^32: n ≤ MAX_INNER and the caller's rows \
+                      index a u32 plane"
+        )]
+        pub(crate) unsafe fn new(
+            vk: &Vk,
+            [x, e, dig, flag]: [Handle; 4],
+            rows: usize,
+            n: usize,
+            limbs: u32,
+        ) -> Self {
+            let blocks = n.div_ceil(32);
+            let host = MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT;
+            let mut pipe = [0 as Handle; 2];
+            let mut layout = [0 as Handle; 2];
+            let mut dset = [0 as Handle; 2];
+            for pass in 0..2u32 {
+                let (meta, mem) = vk
+                    .buffer(20, BUFFER_USAGE_STORAGE, host)
+                    .expect("plane meta buffer");
+                let words = [rows as u32, n as u32, blocks as u32, limbs, pass];
+                std::ptr::copy_nonoverlapping(words.as_ptr(), vk.map(mem).cast(), 5);
+                let (l, d) = vk.ssbo_set(&[x, e, dig, flag, meta]);
+                pipe[pass as usize] = vk.pipeline(LIMB_PLANE_SPV, l);
+                layout[pass as usize] = l;
+                dset[pass as usize] = d;
+            }
+            let wg = (rows * blocks * 32).div_ceil(PLANE_WG);
+            let gx = wg.clamp(1, MAX_GROUPS_X);
+            Self {
+                pipe,
+                layout,
+                dset,
+                e,
+                flag,
+                blocks,
+                groups: (gx as u32, wg.div_ceil(gx) as u32),
+            }
+        }
+
+        /// Records the build into `cb`: `e ← 1`, `flag ← 0`, the exponent pass, then the digit pass.
+        /// The caller orders its own reads of `e`, `dig` and `flag` after it.
+        ///
+        /// # Safety
+        ///
+        /// `cb` is recording on the device `self` was built on.
+        ///
+        /// # Complexity
+        ///
+        /// Two dispatches of `rows·⌈n/32⌉·32` invocations; `O(limbs)` digit steps each.
+        pub(crate) unsafe fn record(&self, vk: &Vk, cb: CommandBuffer) {
+            (vk.fill_buffer)(cb, self.e, 0, 4 * self.blocks as u64, 1);
+            (vk.fill_buffer)(cb, self.flag, 0, 4, 0);
+            vk.barrier(
+                cb,
+                STAGE_TRANSFER,
+                STAGE_COMPUTE,
+                ACCESS_TRANSFER_WRITE,
+                ACCESS_SHADER_READ | ACCESS_SHADER_WRITE,
+            );
+            for pass in 0..2 {
+                if pass == 1 {
+                    vk.barrier(
+                        cb,
+                        STAGE_COMPUTE,
+                        STAGE_COMPUTE,
+                        ACCESS_SHADER_WRITE,
+                        ACCESS_SHADER_READ,
+                    );
+                }
+                (vk.bind_pipe)(cb, PIPELINE_BIND_POINT_COMPUTE, self.pipe[pass]);
+                (vk.bind_sets)(
+                    cb,
+                    PIPELINE_BIND_POINT_COMPUTE,
+                    self.layout[pass],
+                    0,
+                    1,
+                    &self.dset[pass],
+                    0,
+                    std::ptr::null(),
+                );
+                (vk.dispatch)(cb, self.groups.0, self.groups.1, 1);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,6 +664,110 @@ mod tests {
             fresh == LIMB_GEMM_SPV,
             "limb_gemm.spv is stale: re-run glslc"
         );
+    }
+
+    /// The committed plane SPIR-V is what `glslc` makes of the committed GLSL.
+    #[test]
+    fn plane_spirv_is_the_glsl() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/spirv");
+        let out = std::env::temp_dir().join(format!("limb_plane_{}.spv", std::process::id()));
+        let st = std::process::Command::new("glslc")
+            .args(GLSLC_ARGS)
+            .arg(dir.join("limb_plane.comp"))
+            .arg("-o")
+            .arg(&out)
+            .status()
+            .expect("glslc must be on PATH: the committed SPIR-V is checked against it");
+        assert!(st.success(), "glslc failed: {st}");
+        let fresh = std::fs::read(&out).expect("glslc output");
+        let _ = std::fs::remove_file(&out);
+        assert!(
+            fresh == plane::LIMB_PLANE_SPV,
+            "limb_plane.spv is stale: re-run glslc"
+        );
+    }
+
+    /// The device plane build equals `Plane::build` (exponents and every digit byte) at the fit's
+    /// operand shapes and an odd one, and flags a block exponent past 62; with the CPU wall.
+    #[test]
+    fn plane_build_matches_cpu() {
+        let vk = match unsafe { Vk::load() } {
+            Ok(vk) => vk,
+            Err(e) => {
+                println!("SKIP: No Vulkan device present: {e}");
+                return;
+            }
+        };
+        // (rows, n, bits, flag expected): W of blk.23 ffn_down (o 3584, n 1024), Z_xᵀ (r 768 rows
+        // over n 1024) and its transpose over o, a tail block, and words past 2^61.
+        for &(rows, n, bits, flagged) in &[
+            (3584usize, 1024usize, 34u32, false),
+            (768, 1024, 33, false),
+            (1024, 3584, 33, false),
+            (100, 70, 40, false),
+            (37, 33, 5, false),
+            (64, 96, 61, false),
+            (64, 96, 62, true),
+        ] {
+            let limbs = 3u32;
+            // `words` draws at most 52 bits; wider words are those shifted up.
+            let x: Vec<i64> = words(
+                rows * n,
+                0x51ed + rows as u64 + u64::from(bits),
+                bits.min(50),
+            )
+            .into_iter()
+            .map(|w| w << bits.saturating_sub(50))
+            .collect();
+            let t0 = Instant::now();
+            let (e_cpu, dig_cpu) =
+                crate::engine::kern::limb::plane_parts(&x, rows, n, limbs).expect("cpu plane");
+            let cpu_ms = t0.elapsed().as_secs_f64() * 1e3;
+            let blocks = n.div_ceil(32);
+            let dig_bytes = rows * blocks * limbs as usize * 32;
+            let (e_dev, dig_dev, flag, dev_ms) = unsafe {
+                let host = MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT;
+                let usage = BUFFER_USAGE_STORAGE | BUFFER_USAGE_TRANSFER_DST;
+                let (bx, mx) = vk.buffer(8 * x.len() as u64, usage, host).expect("x");
+                let (be, me) = vk.buffer(4 * blocks as u64, usage, host).expect("e");
+                let (bd, md) = vk.buffer(dig_bytes as u64, usage, host).expect("dig");
+                let (bf, mf) = vk.buffer(4, usage, host).expect("flag");
+                std::ptr::copy_nonoverlapping(x.as_ptr(), vk.map(mx).cast(), x.len());
+                let pb = plane::PlaneBuild::new(&vk, [bx, be, bd, bf], rows, n, limbs);
+                let cb = vk.command_buffer();
+                vk.begin(cb);
+                pb.record(&vk, cb);
+                vk.barrier(
+                    cb,
+                    STAGE_COMPUTE,
+                    STAGE_HOST,
+                    ACCESS_SHADER_WRITE,
+                    ACCESS_HOST_READ,
+                );
+                check((vk.end_cb)(cb), "vkEndCommandBuffer");
+                let t1 = Instant::now();
+                vk.submit_wait(cb);
+                let dev_ms = t1.elapsed().as_secs_f64() * 1e3;
+                (
+                    std::slice::from_raw_parts(vk.map(me).cast::<u32>(), blocks).to_vec(),
+                    std::slice::from_raw_parts(vk.map(md).cast::<i8>(), dig_bytes).to_vec(),
+                    *vk.map(mf).cast::<u32>(),
+                    dev_ms,
+                )
+            };
+            assert_eq!(flag != 0, flagged, "range flag at {rows}x{n} bits {bits}");
+            if flagged {
+                continue;
+            }
+            assert_eq!(e_dev, e_cpu, "block exponents differ at {rows}x{n}");
+            let diff = dig_dev.iter().zip(&dig_cpu).filter(|(a, b)| a != b).count();
+            println!(
+                "limb_plane {rows}x{n} bits {bits}: cpu {cpu_ms:.2} ms, device {dev_ms:.2} ms \
+                 (submit incl.), differing digits {diff} of {dig_bytes}"
+            );
+            assert_eq!(dig_cpu.len(), dig_bytes);
+            assert_eq!(diff, 0, "digits differ at {rows}x{n}");
+        }
     }
 
     /// Bit identity with the CPU product at the fit's shapes and an odd one, directly and through
@@ -602,6 +839,172 @@ mod tests {
                 routed_ms[2],
                 takes(m, p, n),
                 cpu.len()
+            );
+        }
+    }
+
+    /// Binary64 `/`, `sqrt`, unfused `a·b + c`, round-half-away of
+    /// `a·2³²` and `i64 → f64` on the device against the CPU, bit for bit.
+    #[test]
+    fn f64_maps_match_cpu() {
+        let vk = match unsafe { Vk::load() } {
+            Ok(vk) => vk,
+            Err(e) => {
+                println!("SKIP: No Vulkan device present: {e}");
+                return;
+            }
+        };
+        if !vk.has_f64 {
+            println!("SKIP: no shaderFloat64");
+            return;
+        }
+        let src = r#"#version 450
+#extension GL_ARB_gpu_shader_int64 : require
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer I { double x[]; };
+layout(std430, binding = 1) writeonly buffer O { uint64_t y[]; };
+layout(std430, binding = 2) readonly buffer M { uint n; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= n) return;
+    double a = x[3 * i], b = x[3 * i + 1], c = x[3 * i + 2];
+    precise double q = a / b;
+    precise double s = sqrt(abs(a));
+    precise double p = a * b;
+    precise double m = p + c;
+    precise double sc = a * 4294967296.0;
+    double t = trunc(sc);
+    precise double fr = abs(sc - t);
+    double r = fr >= 0.5 ? t + sign(sc) : t;
+    int64_t ri = int64_t(r);
+    double back = double(int64_t(doubleBitsToUint64(c) >> 1) - int64_t(0x2000000000000000ul));
+    y[6 * i] = doubleBitsToUint64(q);
+    y[6 * i + 1] = doubleBitsToUint64(s);
+    y[6 * i + 2] = doubleBitsToUint64(p);
+    y[6 * i + 3] = doubleBitsToUint64(m);
+    y[6 * i + 4] = uint64_t(ri);
+    y[6 * i + 5] = doubleBitsToUint64(back);
+}
+"#;
+        let dir = std::env::temp_dir();
+        let comp = dir.join(format!("f64probe_{}.comp", std::process::id()));
+        let spv = dir.join(format!("f64probe_{}.spv", std::process::id()));
+        std::fs::write(&comp, src).expect("write probe");
+        let st = std::process::Command::new("glslc")
+            .args(GLSLC_ARGS)
+            .arg(&comp)
+            .arg("-o")
+            .arg(&spv)
+            .status()
+            .expect("glslc");
+        assert!(st.success(), "glslc failed");
+        let code = std::fs::read(&spv).expect("spv");
+        let n = 1usize << 20;
+        let mut st = 0x2545f4914f6cdd1du64;
+        let mut next = || {
+            st ^= st << 13;
+            st ^= st >> 7;
+            st ^= st << 17;
+            st
+        };
+        let mut val = |k: u64| -> f64 {
+            let r = next();
+            let mag = ((r >> 11) as f64 / (1u64 << 53) as f64) * 2f64.powi(((r & 63) as i32) - 32);
+            let v = if k % 7 == 0 {
+                // a·2³² on a half: k + 0.5 over 2³².
+                ((r >> 34) as f64 + 0.5) / 4294967296.0
+            } else {
+                mag
+            };
+            if r & 64 != 0 {
+                -v
+            } else {
+                v
+            }
+        };
+        let mut x = vec![0f64; 3 * n];
+        for (k, e) in x.iter_mut().enumerate() {
+            *e = val(k as u64);
+            if k % 3 == 1 && *e == 0.0 {
+                *e = 1.0;
+            }
+        }
+        let want: Vec<u64> = (0..n)
+            .flat_map(|i| {
+                let (a, b, c) = (x[3 * i], x[3 * i + 1], x[3 * i + 2]);
+                let sc = a * 4294967296.0;
+                let back = ((c.to_bits() >> 1) as i64 - 0x2000000000000000i64) as f64;
+                [
+                    (a / b).to_bits(),
+                    a.abs().sqrt().to_bits(),
+                    (a * b).to_bits(),
+                    (a * b + c).to_bits(),
+                    sc.round() as i64 as u64,
+                    back.to_bits(),
+                ]
+            })
+            .collect();
+        let got = unsafe {
+            let host = MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT;
+            let (bi, mi) = vk
+                .buffer((24 * n) as u64, BUFFER_USAGE_STORAGE, host)
+                .expect("in");
+            let (bo, mo) = vk
+                .buffer((48 * n) as u64, BUFFER_USAGE_STORAGE, host)
+                .expect("out");
+            let (bm, mm) = vk.buffer(16, BUFFER_USAGE_STORAGE, host).expect("meta");
+            std::ptr::copy_nonoverlapping(x.as_ptr().cast::<u8>(), vk.map(mi).cast(), 24 * n);
+            *vk.map(mm).cast::<u32>() = n as u32;
+            let (layout, dset) = vk.ssbo_set(&[bi, bo, bm]);
+            let pipe = vk.pipeline(&code, layout);
+            let cb = vk.command_buffer();
+            vk.begin(cb);
+            (vk.bind_pipe)(cb, PIPELINE_BIND_POINT_COMPUTE, pipe);
+            (vk.bind_sets)(
+                cb,
+                PIPELINE_BIND_POINT_COMPUTE,
+                layout,
+                0,
+                1,
+                &dset,
+                0,
+                std::ptr::null(),
+            );
+            (vk.dispatch)(cb, (n / 64) as u32, 1, 1);
+            vk.barrier(
+                cb,
+                STAGE_COMPUTE,
+                STAGE_HOST,
+                ACCESS_SHADER_WRITE,
+                ACCESS_HOST_READ,
+            );
+            check((vk.end_cb)(cb), "vkEndCommandBuffer");
+            vk.submit_wait(cb);
+            std::slice::from_raw_parts(vk.map(mo).cast::<u64>(), 6 * n).to_vec()
+        };
+        let _ = std::fs::remove_file(&comp);
+        let _ = std::fs::remove_file(&spv);
+        for (op, name) in ["div", "sqrt", "mul", "mul+add", "round", "i64->f64"]
+            .iter()
+            .enumerate()
+        {
+            let bad: Vec<usize> = (0..n)
+                .filter(|&i| got[6 * i + op] != want[6 * i + op])
+                .collect();
+            println!("f64 {name}: {} of {n} differ", bad.len());
+            for &i in bad.iter().take(3) {
+                println!(
+                    "  a {:e} b {:e} c {:e}: device {:#x} cpu {:#x}",
+                    x[3 * i],
+                    x[3 * i + 1],
+                    x[3 * i + 2],
+                    got[6 * i + op],
+                    want[6 * i + op]
+                );
+            }
+            assert!(
+                bad.is_empty(),
+                "device binary64 {name} differs from the CPU"
             );
         }
     }

@@ -1,0 +1,81 @@
+#version 450
+// The limb plane of `engine::kern::limb::Plane::build` on the device: the block exponents `e[b]`
+// and the `[row][block][limb][32 lanes]` signed digits that `limb_gemm.comp` reads. Consumer:
+// `src/gpu/limb.rs`, which owns the contract this file computes.
+//
+// One invocation per (row, block, lane); a block's 32 lanes are one clustered reduction.
+// Pass 0: e(row, block) = block_exp(max |x|) = bitlen + 1 (1 for an all-zero block), folded over
+// rows by atomicMax into E, which the host fills with 1. A block exponent above 62 sets FLAG: the
+// i64 first-digit step below needs |x| + 2^(e-8) < 2^63, and the host then builds on the CPU.
+// Pass 1: the digits of `split_digits` at e = E[b], packed four lanes per uint by a clustered OR.
+// Lanes past n carry x = 0, as the CPU's tail block does.
+#extension GL_ARB_gpu_shader_int64 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_clustered : require
+
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer X { int64_t x[]; };
+layout(std430, binding = 1) buffer E { uint e[]; };
+layout(std430, binding = 2) writeonly buffer D { uint dig[]; };
+layout(std430, binding = 3) buffer F { uint flag; };
+// META: [rows, n, blocks, limbs, pass].
+layout(std430, binding = 4) readonly buffer M { uint meta[]; };
+
+void main() {
+    const uint rows = meta[0];
+    const uint n = meta[1];
+    const uint blocks = meta[2];
+    const uint limbs = meta[3];
+    const uint pass = meta[4];
+    const uint id = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * 256u
+        + gl_LocalInvocationIndex;
+    const uint lane = id & 31u;
+    const uint rb = id >> 5u;
+    // Whole clusters leave together, so the clustered operations see full 32-lane blocks.
+    if (rb >= rows * blocks) {
+        return;
+    }
+    const uint row = rb / blocks;
+    const uint blk = rb - row * blocks;
+    const uint col = blk * 32u + lane;
+    const int64_t v = col < n ? x[row * n + col] : int64_t(0);
+
+    if (pass == 0u) {
+        const uint64_t a = v < 0 ? uint64_t(0) - uint64_t(v) : uint64_t(v);
+        const uint hi = uint(a >> 32u);
+        const uint lo = uint(a);
+        const uint len = hi != 0u ? uint(findMSB(hi)) + 33u : (lo != 0u ? uint(findMSB(lo)) + 1u : 0u);
+        const uint be = subgroupClusteredMax(a == 0ul ? 1u : len + 1u, 32u);
+        if (lane == 0u) {
+            atomicMax(e[blk], be);
+            if (be > 62u) {
+                atomicOr(flag, 1u);
+            }
+        }
+        return;
+    }
+
+    const int eb = int(e[blk]);
+    int64_t u = v;
+    for (uint s = 0u; s < limbs; ++s) {
+        const int k = eb - 7 * int(s + 1u);
+        int64_t d;
+        if (s == 0u) {
+            // round(u / 2^(e-7)) half up: (u·2^7 + 2^(e-1)) >> e, divided through by 2^7 when
+            // e >= 8 so that it stays inside i64.
+            d = eb >= 8 ? (u + (int64_t(1) << (eb - 8))) >> (eb - 7)
+                        : ((u << 7) + (int64_t(1) << (eb - 1))) >> eb;
+        } else if (k >= 1) {
+            d = (u + (int64_t(1) << (k - 1))) >> k;
+        } else {
+            d = u << (-k);
+        }
+        u = k >= 1 ? u - (d << k) : int64_t(0);
+        const uint byte = (uint(int(d)) & 0xFFu) << (8u * (lane & 3u));
+        const uint word = subgroupClusteredOr(byte, 4u);
+        if ((lane & 3u) == 0u) {
+            dig[((rb * limbs + s) * 32u + lane) >> 2u] = word;
+        }
+    }
+}

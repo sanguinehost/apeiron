@@ -246,6 +246,35 @@ iteration), not the algorithm.
 
 W2 step cost: `o·n² + 3·r·o·n` MACs ≈ 13.2 + 9.9 GMAC at `down`, 0.39 s measured.
 
+### W6: device-resident ADMM iteration
+
+Intent: the iteration's operands stay on the device between products. Per iteration at blk.23 `down`
+(o = 3584, n = 1024, r = 768) the limb products are ≈ 11.6 G MAC × 6 kept pairs ≈ 70 G int8 MAC, ≈ 1.4 ms
+at 50 effective int8 TOPS. Measured with the device on (110 ms per iteration): `rank1` 27.3 (prepare 11.3,
+power 12.2, sign 3.8), inverse 25.1, `wz` 23.9, Gram 14.7, `f` 10.8, `zt` 4.1, `rt` 2.9, `hw` 1.2 ms. The
+host plane build, upload and readback carry most of that. Target: ≤ 10 ms per iteration.
+
+Spec: every task is bit-identical to the CPU `factorize`, which stays the oracle. A device range flag
+(block exponent e > 62 in the plane build, or a pair-group bound ≥ 2⁶³) reruns that iteration on the CPU.
+The elementwise f64 maps (`from_grid`, `to_grid`, the `d_i` divide, `sqrt`, `rho·(z − du)`) run in binary64
+on the device, written `precise` with unfused multiply and add, and rounded half away from zero with
+`trunc` (GLSL `round` is not used). Receipt: `gpu::limb::tests::f64_maps_match_cpu`, 2²⁰ inputs at
+magnitudes 2⁻³²..2³¹ with every 7th on a half grid point, 0 differing results for divide, `sqrt`, multiply,
+unfused multiply-add, the grid round and i64→f64. Control: `fma(a, b, c)` in place of the `precise`
+unfused form gives 120 741 differing results.
+
+| task | files | gate | control |
+|---|---|---|---|
+| T1 plane build on device: absmax → `block_exp` → `atomicMax(e[b])`, then the digits by `split_digits` | `src/gpu/spirv/limb_plane.comp`, `src/gpu/limb.rs` | digits and `e` equal `Plane::build` at the fit shapes | first-digit rounding bias dropped → red |
+| T2 placement on device: `T`, `tmin`, shifts and the bound check from `e_a`, `e_b` | `src/gpu/spirv/limb_place.comp`, `src/gpu/limb.rs` | meta equal to the host `LimbGemm::run` meta | `MIN_PAIR_EXP` off by one → red |
+| T3 finish on device: `round_shift_32` per group to an i64 plane, with a range flag | `src/gpu/spirv/limb_finish.comp`, `src/gpu/limb.rs` | i64 plane equal to `gemm_q32` | the rounding constant dropped → red |
+| T4 resident `x_update` (inverse on the host) | `src/gpu/admm.rs`, `src/learn/nanoquant.rs` | `x_update` output bit-identical | `stab` term dropped → red |
+| T5 resident `rank1` (power steps, `fro2`, sign product) | `src/gpu/admm.rs`, `src/learn/nanoquant.rs` | `rank1` bit-identical | sign product negated → red |
+| T6 resident inverse (Schur levels on device; base-32 `inv_factor_upper` stays i128 on the host) | `src/gpu/admm.rs`, `src/learn/solve/inv.rs` | `spd_inverse` bit-identical | Schur symmetrisation dropped → red |
+
+Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
+(baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
+
 ### Negative controls
 
 Dropping `s_pre` in `NqFactor::weight` in a throwaway copy turns
