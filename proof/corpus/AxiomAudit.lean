@@ -2903,3 +2903,4 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.GateCode.downX29_loses_l23
 #audit Learn.GateCode.oCols_invert_7of7
 #audit Learn.GateCode.t14x_loses_to_t14
+#audit Learn.GateCode.calib_overlap_lowers_heldout

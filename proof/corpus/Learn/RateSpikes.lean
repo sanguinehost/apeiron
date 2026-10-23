@@ -656,6 +656,7 @@ end HybridVerdict
 | `gate+up+down` / `gate+up+down+o` | `t09/plain.log` / `t14/kl-base4.log` | `29860e29444960d7` / `481fce0016312d53` |
 | t14 `gate+up-res2all+down-res2all+o-b` / t17 `…+o-c` | `t14/kl-budget.log` / `t17/kl-oc.log` | `14f23063c195addd` / `13108916a4afd4f6` |
 | t14x `gate-x29+up-x29b+down-x29b+o-x29b`, chunks 8, 9 / 10 | `t19/kl-t14x.log` / `t19/kl-t14x-10.log` | `625c005f16678646` / `d2579c80ca3c9679` |
+| base4 on clean calibration `-c6x2` (chunks 0..5, 11, 12), chunks 8, 9 / 10 | `t20/kl-base4c-89.log` / `t20/kl-base4c-10.log` | `08c6a9c2c6697613` / `610cd84d1ee6d4bc` |
 | held-out energy, `o` arms / `down-x29` | `t18/he-o.log` / `t18/he-down-x29.log` | `9f7f3648a3a0cbed` / `62aa64aa70a1363f` |
 | SpQR masked refit on `up`, `gate` | commit `7619e8e9` body | — |
 | gated second-order metric on `up` | commit `8c0d7812` body | — |
@@ -779,6 +780,10 @@ def klT17 : List Nat := [292347, 330443, 596437]
 /-- Held-out KL of t14x, t14's arms each refitted on 37 calibration chunks (`-x29`), chunks 8, 9, 10,
 millionths of a nat. `List` [a finite sequence of things, in order]. -/
 def klT14x : List Nat := [330531, 391982, 539456]
+/-- Held-out KL of `gate+up+down+o` fitted on calibration chunks 0..5, 11, 12 (`-c6x2`), which leave out
+the article held-out chunks 8, 9 and 10 continue; chunks 8, 9, 10, millionths of a nat.
+`List` [a finite sequence of things, in order]. -/
+def klBase4Clean : List Nat := [555445, 557652, 601930]
 
 /-- The gate, three chunks summed (3 × 0.0913). -/
 def gateSum : Nat := 3 * 91300
@@ -828,6 +833,19 @@ theorem t14x_loses_to_t14 :
     klT14.sum < klT14x.sum ∧
     klT14x.getD 2 0 < klT14.getD 2 0 ∧
     klT14.getD 0 0 < klT14x.getD 0 0 ∧ klT14.getD 1 0 < klT14x.getD 1 0 := by
+  decide
+
+/-- **The calibration overlap lowered held-out KL on chunks 8 and 9.** Calibration chunks 6, 7 and held-out
+chunks 8, 9 and the start of 10 are one article. Refitting base4 on chunks 0..5, 11, 12 (same bits, same
+count) raises chunks 8 and 9 by more than 1.39× (0.371324 → 0.555445, 0.399189 → 0.557652) and lowers
+chunk 10 (0.664152 → 0.601930): the c8 gain sits on the text it saw. Every chunk-8/9 figure above from a
+c8 fit carries this overlap (board row APEIRON-QUALITY-118-W1-T01). `∧` [both are true];
+`<` [is smaller than]. -/
+theorem calib_overlap_lowers_heldout :
+    139 * klBase4.getD 0 0 < 100 * klBase4Clean.getD 0 0 ∧
+    139 * klBase4.getD 1 0 < 100 * klBase4Clean.getD 1 0 ∧
+    klBase4Clean.getD 2 0 < klBase4.getD 2 0 ∧
+    klBase4.sum < klBase4Clean.sum := by
   decide
 
 /-- **Adding `o` is near-additive**: the four-tensor KL is within 1% of the sum of the four single-tensor
