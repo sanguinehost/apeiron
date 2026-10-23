@@ -124,6 +124,35 @@ fn spd_inverse_matches_serial() {
     }
 }
 
+/// [`spd_inverse`] under [`crate::engine::chart::pool::inline`] (every dispatch run on the calling
+/// thread, the device inverse's host leaf) equals the pooled result word for word at the leaf order
+/// 96 and at 301, and the guard restores pooled dispatch when dropped.
+#[test]
+fn spd_inverse_inline_matches_pooled() {
+    for n in [96usize, 301] {
+        let mut rng = Rng(29 + n as u64);
+        let scale = 1.0 / (n as f64).sqrt();
+        let a = grid(&(0..n * n).map(|_| rng.normal() * scale).collect::<Vec<_>>()).unwrap();
+        let aat = gemm_q32(&a, n, &a, n, n, LIMBS).unwrap();
+        let h = grid_map(n * n, &|c| {
+            from_grid(aat[c]) + if c / n == c % n { 1.0 } else { 0.0 }
+        })
+        .unwrap();
+        let pooled = spd_inverse(&h, n).unwrap();
+        let inline = {
+            let _inline = crate::engine::chart::pool::inline();
+            spd_inverse(&h, n).unwrap()
+        };
+        let diff = pooled.iter().zip(&inline).filter(|(x, y)| x != y).count();
+        assert_eq!(diff, 0, "inline spd_inverse differs at n {n}: {diff} words");
+        assert_eq!(
+            spd_inverse(&h, n).unwrap(),
+            pooled,
+            "pooled after the guard at n {n}"
+        );
+    }
+}
+
 /// Split of [`spd_inverse`] at order 768 into its kernel products and its bases (microbench;
 /// prints, asserts nothing): every level's four products at its shapes and the 32 bases of
 /// order 24, each timed over 5 runs.

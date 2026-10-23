@@ -380,7 +380,10 @@ impl Inverse {
                         self.back.add(self.leaf_at).cast::<i64>(),
                         n * n,
                     );
-                    let out = inv(h, n).ok()?;
+                    let out = {
+                        let _inline = crate::engine::chart::pool::inline();
+                        inv(h, n).ok()?
+                    };
                     if out.len() != n * n {
                         return None;
                     }
