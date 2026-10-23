@@ -541,9 +541,9 @@ fn gate_code_probe() {
 /// The [`fit_select`] fit of each kind in `APEIRON_GATE_KIND` (comma list of `down`, `o`, `gate`,
 /// `up`; default `down`) for `APEIRON_GATE_LAYERS`, under one calibration `H` over [`calib_set`]
 /// (`APEIRON_GATE_CALIB`, `APEIRON_GATE_EXTRA`), written as `l{l}.{name}.i64` by [`fit_name`]; an
-/// existing file is skipped, so a cut run resumes. `APEIRON_GATE_CALIB=6` drops chunks 6 and 7, the start of the
-/// article that held-out chunks 8, 9 and 10 continue. Cost: [`calib_grams`], then [`fit_select`] per
-/// layer and kind.
+/// existing file is skipped. `APEIRON_GATE_CALIB=6` drops chunks 6–7, the start of held-out 8–10's
+/// article. `APEIRON_GATE_COPY=1` writes the `APEIRON_GATE_MODEL` tensor itself, no fit (with
+/// `APEIRON_GATE_TAG=-q4km`: same-scope `Q4_K_M` arm). Cost: [`calib_grams`], [`fit_select`].
 #[test]
 #[ignore = "opens the teacher and runs production fold_fit per tensor; run explicitly"]
 fn gate_code_fit_kind() {
@@ -567,6 +567,10 @@ fn gate_code_fit_kind() {
                 continue;
             }
             let (w, o, n, h) = teacher(&engine, &cfg, &grams, kind, l);
+            if std::env::var("APEIRON_GATE_COPY").is_ok() {
+                write_words(&path, o, n, &w).expect("copy teacher");
+                continue;
+            }
             let t = Instant::now();
             let (fit, arm) = fit_select(&w, &h, o, n);
             write_words(&path, o, n, &fit.wp).expect("cache fit");
@@ -1334,10 +1338,6 @@ fn fitted_layers(key: &str) -> Vec<usize> {
 /// The arm is one or more parts joined by `+` (`gate+up-rows-sal+down-spqr9-salience`); each part's
 /// tensor kind is its prefix before the first `-`, and it replaces that kind in every layer holding
 /// `{CACHE}/l{l}.{part}.i64`. Returns the image and the number of tensors replaced.
-///
-/// **Measurement 10** (board `APEIRON-QUALITY-118-W1-T01`). Held-out KL, chunks 8/9/10 mean, all
-/// three kinds in the seven fitted layers: `gate+up+down` 0.354304; `gate+up-rows-sal+down-spqr9-
-/// salience` 0.334319. Up alone is 0.128001 and down alone 0.1465.
 ///
 /// `O(file bytes)` to read plus `O(tensors·n_ff·n_embd)` written; the whole image is held once.
 fn student_bytes(arm: &str) -> (Vec<u8>, usize) {
