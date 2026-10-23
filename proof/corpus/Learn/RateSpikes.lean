@@ -657,6 +657,7 @@ end HybridVerdict
 | t14 `gate+up-res2all+down-res2all+o-b` / t17 `…+o-c` | `t14/kl-budget.log` / `t17/kl-oc.log` | `14f23063c195addd` / `13108916a4afd4f6` |
 | t14x `gate-x29+up-x29b+down-x29b+o-x29b`, chunks 8, 9 / 10 | `t19/kl-t14x.log` / `t19/kl-t14x-10.log` | `625c005f16678646` / `d2579c80ca3c9679` |
 | base4 on clean calibration `-c6x2` (chunks 0..5, 11, 12), chunks 8, 9 / 10 | `t20/kl-base4c-89.log` / `t20/kl-base4c-10.log` | `08c6a9c2c6697613` / `610cd84d1ee6d4bc` |
+| base4 on clean calibration `-c6x29` (chunks 0..5, 11..39), chunks 8, 9 / 10 | `t21/kl-base4c-89.log` / `t21/kl-base4c-10.log` | `89711ca7d733fdb7` / `ae7842495d4c39b3` |
 | held-out energy, `o` arms / `down-x29` | `t18/he-o.log` / `t18/he-down-x29.log` | `9f7f3648a3a0cbed` / `62aa64aa70a1363f` |
 | SpQR masked refit on `up`, `gate` | commit `7619e8e9` body | — |
 | gated second-order metric on `up` | commit `8c0d7812` body | — |
@@ -784,6 +785,10 @@ def klT14x : List Nat := [330531, 391982, 539456]
 the article held-out chunks 8, 9 and 10 continue; chunks 8, 9, 10, millionths of a nat.
 `List` [a finite sequence of things, in order]. -/
 def klBase4Clean : List Nat := [555445, 557652, 601930]
+/-- Held-out KL of `gate+up+down+o` fitted on calibration chunks 0..5, 11..39 (`-c6x29`, 35 chunks, none
+from the held-out article); chunks 8, 9, 10, millionths of a nat.
+`List` [a finite sequence of things, in order]. -/
+def klBase4C29 : List Nat := [530470, 507277, 591068]
 
 /-- The gate, three chunks summed (3 × 0.0913). -/
 def gateSum : Nat := 3 * 91300
@@ -846,6 +851,17 @@ theorem calib_overlap_lowers_heldout :
     139 * klBase4.getD 1 0 < 100 * klBase4Clean.getD 1 0 ∧
     klBase4Clean.getD 2 0 < klBase4.getD 2 0 ∧
     klBase4.sum < klBase4Clean.sum := by
+  decide
+
+/-- **35 clean calibration chunks beat 8 on every held-out chunk** at the same bits (`x29_same_bits`):
+0.555445 → 0.530470, 0.557652 → 0.507277, 0.601930 → 0.591068; summed 1.715027 → 1.628815, below 0.95×
+(board row APEIRON-QUALITY-118-W1-T01). `∧` [both are true];
+`<` [is smaller than]. -/
+theorem base4C29_beats_clean :
+    klBase4C29.getD 0 0 < klBase4Clean.getD 0 0 ∧
+    klBase4C29.getD 1 0 < klBase4Clean.getD 1 0 ∧
+    klBase4C29.getD 2 0 < klBase4Clean.getD 2 0 ∧
+    100 * klBase4C29.sum < 95 * klBase4Clean.sum := by
   decide
 
 /-- **Adding `o` is near-additive**: the four-tensor KL is within 1% of the sum of the four single-tensor
