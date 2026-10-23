@@ -43,7 +43,7 @@ impl Side {
     pub(crate) fn step<E>(
         &mut self,
         (rho, reg): (f64, f64),
-        inv: impl FnOnce(&[i64], usize) -> Result<Vec<i64>, E>,
+        inv: impl Fn(&[i64], usize) -> Result<Vec<i64>, E>,
         iters: usize,
         start_rows: bool,
         start: &[f64],

@@ -331,6 +331,23 @@ makes the fit refuse (`factorize: Kernel`); `U` dropped from the target (mode 6 
 28 752 128 of 31 887 392 factor bytes (relH 4137.7). What remains per iteration is the two `x`-updates' host inverses
 (about 15 ms each under contention), the `H⁻¹` uploads and the `rank1` power steps.
 
+T10 splits the digit tail block zero-padded to a full block (P116, `DigitsTask::body`); the
+order-768 inverse falls from 10.06 to 9.33 ms and ADMM from 3.50 to 3.33 s, factor byte-identical
+(`Perf.LimbDevice.digitsPad_fit`).
+
+T11 moves `spd_inverse` onto the device above order 96 (P117, `src/gpu/limb/inverse.rs`,
+`inv_map.comp`). Each node of order above the cut runs its block extracts, `S = C − BᵀX`, the
+assembly and four limb products on the device; nodes of order 96 are read back, inverted by the host,
+and staged into the parent, one submit per leaf. A flag or a leaf refusal returns to the host
+`spd_inverse` on the same `H`, so the result is the host one or its refusal; `cb2[2 + v]` omits the
+`H⁻¹` upload when the device produced it. ADMM per 100 iterations by cut (3 interleaved runs): host
+3.3, 192 2.6, 96 2.4, 48 2.47, 32 2.9 s; 96 is the default (`DEV_INV_CUT`). The saved factor is
+byte-identical in all 18 runs. Controls: the `S` base offset set to 0 makes the device refuse and the
+host fall back; `Y` read from `X` in the assembly differs in 6400 words. 9.0 ms per iteration saved
+leaves 8.46 ms of `A`'s former 17.46 ms inverse on its chain (`Perf.LimbDevice.deviceInverse_fit`,
+grade `model`). What remains: the leaf round trips, the `hw` copy to the host on every step (needed
+only on refusal), `B`'s `cb1`/`cb2` (9.2 ms) and the `rank1` power steps (`A` 4.7, `B` 2.8 ms).
+
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 

@@ -1,0 +1,83 @@
+#version 450
+// The word maps of `learn::nanoquant::spd_inverse` on the device, between the limb products of
+// `gpu::limb::inverse`. Consumer: `src/gpu/limb/inverse.rs`, which owns the contract this file
+// computes.
+//
+// Every map is the CPU expression on `i64` words; a checked `i64` sum or difference that wraps sets
+// FLAG and writes 0 (the CPU refuses with `Range`). `>>` is the arithmetic shift of Rust's `i64`.
+//   mode 0  dst[i·cols + j] = s0[b + (c ? j·a + i : i·a + j)]           (extract; a stride, b base)
+//   mode 1  dst[i·q + j]    = s0[(p + i)·n + p + j] − ((s1[i·qp + j] >> 1) + (s1[j·qp + i] >> 1))
+//           (S = C − BᵀX; q = cols, n = a, p = b, qp = c)
+//   mode 2  dst[i·n + j]    = s0[i·p + j] + ((s1[i·pp + j] >> 1) + (s1[j·pp + i] >> 1))  i, j < p
+//                           = −s2[i·qp + j − p]                                           i < p ≤ j
+//                           = −s2[j·qp + i − p]                                           j < p ≤ i
+//                           = s3[(i − p)·q + j − p]                                       p ≤ i, j
+//           (the assembly of H⁻¹; n = cols, p = a, q = b, pp = c, qp = d)
+#extension GL_ARB_gpu_shader_int64 : require
+
+layout(local_size_x = 256) in;
+
+// META: [mode, total, cols, a, b, c, d].
+layout(std430, binding = 0) readonly buffer M { uint meta[]; };
+layout(std430, binding = 1) readonly buffer S0 { int64_t s0[]; };
+layout(std430, binding = 2) readonly buffer S1 { int64_t s1[]; };
+layout(std430, binding = 3) readonly buffer S2 { int64_t s2[]; };
+layout(std430, binding = 4) readonly buffer S3 { int64_t s3[]; };
+layout(std430, binding = 5) writeonly buffer D { int64_t dst[]; };
+// FLAG: nonzero when a checked sum or difference leaves `i64`.
+layout(std430, binding = 6) buffer F { uint flag; };
+
+// `x − y`, FLAG on a wrap.
+int64_t sub(int64_t x, int64_t y) {
+    const int64_t r = x - y;
+    if (((x ^ y) & (x ^ r)) < int64_t(0)) {
+        atomicOr(flag, 1u);
+        return int64_t(0);
+    }
+    return r;
+}
+
+// `x + y`, FLAG on a wrap.
+int64_t add(int64_t x, int64_t y) {
+    const int64_t r = x + y;
+    if (((x ^ r) & (y ^ r)) < int64_t(0)) {
+        atomicOr(flag, 1u);
+        return int64_t(0);
+    }
+    return r;
+}
+
+void main() {
+    const uint mode = meta[0];
+    const uint total = meta[1];
+    const uint cols = meta[2];
+    const uint a = meta[3];
+    const uint b = meta[4];
+    const uint c = meta[5];
+    const uint d = meta[6];
+    const uint id = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * 256u
+        + gl_LocalInvocationIndex;
+    if (id >= total) {
+        return;
+    }
+    const uint i = id / cols;
+    const uint j = id - i * cols;
+    if (mode == 0u) {
+        dst[id] = s0[b + (c != 0u ? j * a + i : i * a + j)];
+    } else if (mode == 1u) {
+        const int64_t m = (s1[i * c + j] >> 1) + (s1[j * c + i] >> 1);
+        dst[id] = sub(s0[(b + i) * a + b + j], m);
+    } else {
+        const uint p = a;
+        if (i < p && j < p) {
+            const int64_t m = (s1[i * c + j] >> 1) + (s1[j * c + i] >> 1);
+            dst[id] = add(s0[i * p + j], m);
+        } else if (i < p) {
+            dst[id] = sub(int64_t(0), s2[i * d + j - p]);
+        } else if (j < p) {
+            dst[id] = sub(int64_t(0), s2[j * d + i - p]);
+        } else {
+            dst[id] = s3[(i - p) * b + j - p];
+        }
+    }
+}

@@ -813,7 +813,8 @@ fn unit(len: usize, seed: u64) -> Vec<f64> {
 }
 
 /// The resident `x_update` equals `learn::nanoquant::x_update` in every bit at two odd shapes and
-/// both sides of the blk.23 `ffn_down` frame, twice on one frame; with both walls.
+/// both sides of the blk.23 `ffn_down` frame, twice on one frame; with both walls. A nonzero cutoff
+/// runs the device inverse above it (odd splits at rank 75) and the host sees only leaves.
 #[test]
 fn admm_x_update_matches_cpu() {
     use crate::learn::nanoquant::{spd_inverse, x_update, LIMBS};
@@ -821,19 +822,29 @@ fn admm_x_update_matches_cpu() {
         println!("SKIP: No Vulkan device with cooperative matrices");
         return;
     }
-    // (k, n, r): two odd shapes, side A (W, o 3584 × n 1024) and side B (Wᵀ) at rank 768.
-    for &(k, n, r) in &[
-        (200, 96, 64),
-        (130, 70, 40),
-        (3584, 1024, 768),
-        (1024, 3584, 768),
+    // (k, n, r, cut): two odd shapes, side A (W, o 3584 × n 1024) and side B (Wᵀ) at rank 768.
+    for &(k, n, r, cut) in &[
+        (200, 96, 64, 0),
+        (130, 70, 40, 0),
+        (3584, 1024, 768, 0),
+        (1024, 3584, 768, 0),
+        (200, 96, 64, 32),
+        (130, 70, 75, 32),
+        (3584, 1024, 768, 96),
+        (1024, 3584, 768, 192),
     ] {
         // W_n on the grid at |w| < 2^-3, as the normalised target.
         let w = words(k * n, 0x5eed ^ (k * n) as u64, 29);
         let wp = crate::engine::kern::limb::prepare(&w, k, n, LIMBS).expect("plane");
-        let Some(mut side) = Side::new(&w, k, n, r, LIMBS) else {
+        let Some(mut side) = Side::new(&w, k, n, r, LIMBS, cut) else {
             println!("SKIP: no binary64 device frame");
             return;
+        };
+        // The largest order the host inverts: `r` on the host route, a leaf on the device route.
+        let top = std::cell::Cell::new(0usize);
+        let inv = |h: &[i64], o: usize| {
+            top.set(top.get().max(o));
+            spd_inverse(h, o)
         };
         for round in 0..2u64 {
             let zx = unit(n * r, 11 + round);
@@ -845,7 +856,7 @@ fn admm_x_update_matches_cpu() {
             let cpu_s = t.elapsed().as_secs_f64();
             let t = Instant::now();
             let dev = side
-                .x_update(&zx, &z, &du, rho, reg, spd_inverse)
+                .x_update(&zx, &z, &du, rho, reg, inv)
                 .expect("device stages flagged")
                 .expect("host inverse");
             let dev_s = t.elapsed().as_secs_f64();
@@ -855,13 +866,45 @@ fn admm_x_update_matches_cpu() {
                 .filter(|(a, b)| a.to_bits() != b.to_bits())
                 .count();
             println!(
-                "x_update k {k} n {n} r {r} round {round}: cpu {:.2} ms, device {:.2} ms, {diff} words differ",
+                "x_update k {k} n {n} r {r} cut {cut} round {round}: cpu {:.2} ms, device {:.2} ms, host order {}, {diff} words differ",
                 cpu_s * 1e3,
-                dev_s * 1e3
+                dev_s * 1e3,
+                top.get()
             );
-            assert_eq!(diff, 0, "x_update k {k} n {n} r {r} round {round}");
+            assert_eq!(
+                diff, 0,
+                "x_update k {k} n {n} r {r} cut {cut} round {round}"
+            );
+            let want = if cut == 0 { r } else { cut };
+            assert!(
+                top.get() <= want,
+                "host inverted order {} past {want}",
+                top.get()
+            );
+            top.set(0);
         }
     }
+}
+
+/// The committed inverse map SPIR-V is what `glslc` makes of the committed GLSL.
+#[test]
+fn inv_map_spirv_is_the_glsl() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/spirv");
+    let out = std::env::temp_dir().join(format!("inv_map_{}.spv", std::process::id()));
+    let st = std::process::Command::new("glslc")
+        .args(GLSLC_ARGS)
+        .arg(dir.join("inv_map.comp"))
+        .arg("-o")
+        .arg(&out)
+        .status()
+        .expect("glslc must be on PATH: the committed SPIR-V is checked against it");
+    assert!(st.success(), "glslc failed: {st}");
+    let fresh = std::fs::read(&out).expect("glslc output");
+    let _ = std::fs::remove_file(&out);
+    assert!(
+        fresh == inverse::INV_MAP_SPV,
+        "inv_map.spv is stale: re-run glslc"
+    );
 }
 
 /// The committed rank1 map SPIR-V is what `glslc` makes of the committed GLSL.
@@ -903,7 +946,7 @@ fn admm_rank1_matches_cpu() {
         (1024, 3584, 768, true),
     ] {
         let w = words(k * n, 0x5eed ^ (k * n) as u64, 29);
-        let Some(mut side) = Side::new(&w, k, n, r, LIMBS) else {
+        let Some(mut side) = Side::new(&w, k, n, r, LIMBS, 0) else {
             println!("SKIP: no binary64 device frame");
             return;
         };
