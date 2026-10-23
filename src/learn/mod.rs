@@ -20,6 +20,10 @@ pub mod onebit_bits;
 /// `Numeric.SigmaDelta`.
 pub mod sigma_delta;
 
+/// The NanoQuant binary low-rank factorisation (`SamsungLabs/NanoQuant` @ `a9e0a43`): ADMM to
+/// `diag(s_post)·U·V·diag(s_pre)` with sign factors.
+pub mod nanoquant;
+
 /// Exact-integer Gram fold: `g += XᵀX` over a batch of `i8` rows, checked `i64`.
 pub mod gram;
 
