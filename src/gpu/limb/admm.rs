@@ -136,6 +136,9 @@ pub(super) fn bytes(v: &[u32]) -> Vec<u8> {
     v.iter().flat_map(|w| w.to_ne_bytes()).collect()
 }
 
+/// The workgroup count [`Product::splits`] reaches for: about two per SM of the RTX 5080.
+const SPLIT_WG: usize = 192;
+
 /// One limb product `a·bᵀ` over fixed planes: the placement into `out = [range, fallback, Tmin_g…]`,
 /// `limb_gemm.comp` into the shared `o`, and the finish into `x` (row stride `pp`).
 pub(super) struct Product {
@@ -149,15 +152,28 @@ pub(super) struct Product {
 }
 
 impl Product {
+    /// The workgroups that share each tile's block loop of an `m × p` product over `inner`: enough
+    /// that the dispatch reaches [`SPLIT_WG`] workgroups, at most one per block. A thin product (a
+    /// matvec, a dot) is otherwise a few workgroups each walking every block.
+    ///
+    /// # Complexity
+    ///
+    /// `O(limbs²)`.
+    fn splits(m: usize, p: usize, inner: usize, limbs: u32) -> usize {
+        let (pairs, group) = device_pairs(inner, limbs);
+        let tiles = pairs.len().div_ceil(group) * m.div_ceil(TILE) * p.div_ceil(TILE);
+        SPLIT_WG.div_ceil(tiles).clamp(1, inner.div_ceil(32))
+    }
+
     /// Bytes of `o` an `m × p` product over inner length `inner` writes: two `i32` planes per pair
-    /// group.
+    /// group and split.
     ///
     /// # Complexity
     ///
     /// `O(limbs²)`.
     pub(super) fn o_bytes(m: usize, p: usize, inner: usize, limbs: u32) -> usize {
         let (pairs, group) = device_pairs(inner, limbs);
-        let ngroups = pairs.len().div_ceil(group);
+        let ngroups = pairs.len().div_ceil(group) * Self::splits(m, p, inner, limbs);
         2 * ngroups * m.div_ceil(TILE) * TILE * p.div_ceil(TILE) * TILE * 4
     }
 
@@ -188,7 +204,8 @@ impl Product {
     ) -> Option<Self> {
         let (pairs, group) = device_pairs(inner, limbs);
         let blocks = inner.div_ceil(32);
-        let head = meta_head(&pairs, group, blocks, limbs, m, p);
+        let splits = Self::splits(m, p, inner, limbs);
+        let head = meta_head(&pairs, group, blocks, limbs, m, p, splits);
         let (groups, segs) = segments(&pairs, group);
         let meta = dev_buf(vk, 4 * (head.len() + segs.len() * blocks))?;
         let out = dev_buf(vk, 4 * (2 + groups.len()))?;
@@ -202,7 +219,11 @@ impl Product {
             pipe,
             layout,
             dset,
-            groups: [(mp / TILE) as u32, (pp / TILE) as u32, groups.len() as u32],
+            groups: [
+                (mp / TILE) as u32,
+                (pp / TILE) as u32,
+                (groups.len() * splits) as u32,
+            ],
             finish: Finish::new(vk, [o, meta, out, x], mp * pp),
             out,
         })

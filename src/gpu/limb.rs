@@ -42,7 +42,7 @@ const DOT_BITS: u32 = 17;
 /// The shift-table entry of a dead block pair.
 const DEAD: u32 = u32::MAX;
 /// Header words of the meta buffer.
-const HEADER: usize = 8;
+const HEADER: usize = 9;
 
 /// The buffers one capacity owns, the descriptor set binding them and the pipeline over it.
 struct Bound {
@@ -386,8 +386,9 @@ fn segments(pairs: &[(u32, u32)], group: usize) -> (Vec<(usize, usize)>, Vec<(us
 }
 
 /// The meta buffer `limb_gemm.comp` and `limb_place.comp` read, without its shift table:
-/// `[blocks, limbs, mp, pp, off_groups, off_segs, off_pairs, off_shift]`, the groups, the segments
-/// and the pairs. Every word depends on the shape and the pairs only, never on the operands.
+/// `[blocks, limbs, mp, pp, off_groups, off_segs, off_pairs, off_shift, splits]`, the groups, the
+/// segments and the pairs. `splits` workgroups share each tile's block loop (`limb_gemm.comp`).
+/// Every word depends on the shape and the pairs only, never on the operands.
 ///
 /// # Complexity
 ///
@@ -403,6 +404,7 @@ fn meta_head(
     limbs: u32,
     m: usize,
     p: usize,
+    splits: usize,
 ) -> Vec<u32> {
     let (groups, segs) = segments(pairs, group);
     let off_groups = HEADER;
@@ -418,6 +420,7 @@ fn meta_head(
         off_segs as u32,
         off_pairs as u32,
         off_shift as u32,
+        splits as u32,
     ];
     meta.extend(groups.iter().flat_map(|&(x, y)| [x as u32, y as u32]));
     meta.extend(segs.iter().flat_map(|&(x, y)| [x as u32, y as u32]));
@@ -469,7 +472,7 @@ fn host_meta(ops: &DeviceOperands<'_>) -> Option<(Vec<u32>, Vec<u32>)> {
         }
         tmin[g] = lo as u32;
     }
-    let mut meta = meta_head(&ops.pairs, ops.group, blocks, ops.limbs, ops.m, ops.p);
+    let mut meta = meta_head(&ops.pairs, ops.group, blocks, ops.limbs, ops.m, ops.p, 1);
     meta.extend_from_slice(&shift);
     Some((meta, tmin))
 }

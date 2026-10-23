@@ -348,6 +348,21 @@ leaves 8.46 ms of `A`'s former 17.46 ms inverse on its chain (`Perf.LimbDevice.d
 grade `model`). What remains: the leaf round trips, the `hw` copy to the host on every step (needed
 only on refusal), `B`'s `cb1`/`cb2` (9.2 ms) and the `rank1` power steps (`A` 4.7, `B` 2.8 ms).
 
+A second queue per side (T12, throwaway, not installed) is refuted: ADMM 2.4 / 2.5 s against one queue,
+factor unchanged. Run one side after the other, each side's fence wait is its own device time, `A`
+8.25 and `B` 6.35 ms per iteration, 14.6 ms in all: the device runs the two sides' work one after the
+other in either case. Timestamps inside `rank1` put `A`'s device time there at 7.3 ms per
+iteration, of which the 1×1 self-dot (`u.norm2`, 1.96 ms) and the matvec (`m.prod`, 2.11 ms) are
+latency-bound: one workgroup per 64×64 tile walks all 112 blocks.
+
+T13 splits each tile's block loop of `limb_gemm.comp` across `splits` workgroups (P118,
+`Product::splits`, `SPLIT_WG` = 192): split `c` writes its own lo/hi planes and `limb_finish.comp`
+sums a group's splits in 64 bits before it rounds by `Tmin_g`. Addition modulo 2⁶⁴ is associative,
+so the group word is the one-workgroup word for every split count. ADMM falls from 2.43 to 1.9 s per 100
+iterations (3 interleaved runs; `SPLIT_WG` 768 also 1.9 s), factor byte-identical in all 9.
+Control: the finish reads only the first split, and `admm_rank1_matches_cpu` and
+`admm_x_update_matches_cpu` go red (`Perf.LimbDevice.splitK_fit`).
+
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 
