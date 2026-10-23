@@ -363,6 +363,16 @@ iterations (3 interleaved runs; `SPLIT_WG` 768 also 1.9 s), factor byte-identica
 Control: the finish reads only the first split, and `admm_rank1_matches_cpu` and
 `admm_x_update_matches_cpu` go red (`Perf.LimbDevice.splitK_fit`).
 
+T14 runs the order-96 host leaves of the device inverse inline on their side thread
+(`pool::inline`, P119): no dispatch lock, no pin, no worker. A pooled leaf took 0.37–0.39 ms
+against 0.327 ms on one thread, and the two sides' leaves queued on the pool's one dispatch lock.
+ADMM falls from 1.855 to 1.784 s per 100 iterations (3 interleaved runs), factor byte-identical in
+all 6. With inline leaves side `A` still spends 4.29 ms per iteration in its eight leaves against
+2.62 ms single-thread (`p15.log`). `spd_inverse_inline_matches_pooled` holds 0 differing words at
+orders 96 and 301; control: the inline loop one task short, and the inline inverse refuses, test red
+(`Perf.LimbDevice.inlineLeaf_fit`). Side `B`'s thread inherits `A`'s CPU 0 pin, so both sides' leaves
+share one core; `B` on CPU 3 gives loop 11.50 against 12.92 ms (`p16.log`, single runs).
+
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 

@@ -513,6 +513,10 @@ impl Pool {
         if n == 0 {
             return;
         }
+        if INLINE.with(std::cell::Cell::get) {
+            (0..n).for_each(f);
+            return;
+        }
         let _serial = self
             .dispatch
             .lock()
@@ -811,6 +815,27 @@ fn pin_current_thread(_cpu: usize) {}
 thread_local! {
     /// Whether this dispatching thread has been pinned to the first performance core.
     static CALLER_PINNED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Whether this thread's dispatches run inline ([`inline`]).
+    static INLINE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs every pool dispatch of the current thread on that thread, in task order, while it lives:
+/// no dispatch lock, no pin, no worker; a task's panic propagates at once. Tasks write disjoint
+/// outputs, so the result is the pooled one. For a caller whose products are too small to pay a
+/// dispatch and which runs beside another dispatcher: the order-96 host leaves of the device
+/// inverse, one per ADMM side thread, took the `learn::nanoquant` fit (blk.23 `ffn_down`, r 768,
+/// 100 iterations) from 1.855 to 1.784 s, means of 3 interleaved runs.
+pub(crate) struct Inline(bool);
+
+/// An [`Inline`] guard on the current thread; dropping it restores the previous mode.
+pub(crate) fn inline() -> Inline {
+    Inline(INLINE.with(|c| c.replace(true)))
+}
+
+impl Drop for Inline {
+    fn drop(&mut self) {
+        INLINE.with(|c| c.set(self.0));
+    }
 }
 
 /// Worker loop: spin on this worker's slot, serve a new epoch, park after `SPIN_BEFORE_PARK`.

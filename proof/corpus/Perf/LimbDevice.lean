@@ -311,4 +311,30 @@ theorem splitK_fit :
     splitThinA < splitOne - split192 := by
   decide
 
+/-! ## Inline host leaf (P119)
+
+`pool::inline` runs each order-96 host leaf of the device inverse on its ADMM side thread, with no
+dispatch lock, pin or worker. Units: tenths of a microsecond per ADMM iteration. -/
+
+/-- ADMM wall per iteration on the blk.23 `down` fit, means of 3 interleaved runs (`t14-ab.log`):
+pooled leaves 1.864 / 1.855 / 1.847 s, inline 1.776 / 1.788 / 1.789 s per 100 iterations.
+Grade `measured`. -/
+def inlineOff : Nat := 185_533
+def inlineOn : Nat := 178_433
+
+/-- Eight order-96 leaves at the single-thread microbench cost, 0.327 ms each (`leaf96_wall`,
+`APEIRON_ECORES=0 APEIRON_THREADS=1`). Grade `measured`. -/
+def leafEightSingle : Nat := 26_160
+
+/-- Side `A`'s host-leaf time with inline leaves, 4.29 ms per iteration (`p15.log`). Grade
+`measured`. -/
+def leafHostInlineA : Nat := 42_900
+
+/-- Inline leaves save 0.71 ms per iteration; side `A`'s leaves still take 1.64 ms more than eight
+single-thread leaves (grade `model`: the two sides' leaves share one core). -/
+theorem inlineLeaf_fit :
+    inlineOn < inlineOff ∧ inlineOff - inlineOn = 7_100 ∧
+    leafEightSingle < leafHostInlineA ∧ leafHostInlineA - leafEightSingle = 16_740 := by
+  decide
+
 end Perf.LimbDevice
