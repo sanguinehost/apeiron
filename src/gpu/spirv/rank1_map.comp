@@ -10,6 +10,9 @@
 //   mode 3  fo[i]       = m[i] / fa[0];  wa[i] = to_grid(fo[i])                (len; unit)
 //   mode 4  fo[i]       = from_grid(prod[i·stride]);  wa[i] = to_grid(fo[i])   (len; a matvec)
 //   mode 5  fo[i·C + j] = (s·fa[i])·fb[j], s = −1 if m[i·C + j] < 0 else 1    (R × C; the result)
+//   mode 6  fo[i]       = m[i] + fa[i]                       (R × C; `X + U`, the `rank1` operand)
+//   mode 7  fo[i]       = fa[i] + (m[i] − fb[i])             (R × C; the dual `U += X − Z`)
+// Mode 7 binds `U` as both `fa` and `fo`; each invocation reads its own word before writing it.
 // The norm is `fro2(x)` of one row: Rust's `Sum` of one term from −0.0 is that term, and
 // `from_grid` never yields −0.0. `max(x, EPS)` is Rust's `f64::max`: EPS when x is NaN or below it.
 #extension GL_ARB_gpu_shader_int64 : require
@@ -18,11 +21,11 @@ layout(local_size_x = 256) in;
 
 // META: [mode, R, C, stride, total]; total the invocations.
 layout(std430, binding = 0) readonly buffer M { uint meta[]; };
-// IN: m (modes 0, 5), the vector (modes 1, 3).
+// IN: m (modes 0, 5), the vector (modes 1, 3), X (modes 6, 7).
 layout(std430, binding = 1) readonly buffer I { double fin[]; };
-// A: the norm (mode 3), the row vector (mode 5).
+// A: the norm (mode 3), the row vector (mode 5), U (modes 6, 7).
 layout(std430, binding = 2) readonly buffer A { double fa[]; };
-// B: the column vector (mode 5).
+// B: the column vector (mode 5), Z (mode 7).
 layout(std430, binding = 3) readonly buffer B { double fb[]; };
 // PROD: a finished limb product, row stride `stride`.
 layout(std430, binding = 4) readonly buffer X { int64_t prod[]; };
@@ -86,6 +89,13 @@ void main() {
         const double q = from_grid(prod[id * stride]);
         fo[id] = q;
         wa[id] = to_grid(q);
+    } else if (mode == 6u) {
+        precise double t = fin[id] + fa[id];
+        fo[id] = t;
+    } else if (mode == 7u) {
+        precise double l = fin[id] - fb[id];
+        precise double u = fa[id] + l;
+        fo[id] = u;
     } else {
         const uint i = id / cols;
         const uint j = id - i * cols;

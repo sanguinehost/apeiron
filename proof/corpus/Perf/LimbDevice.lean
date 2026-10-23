@@ -207,4 +207,37 @@ theorem sideStep_fit :
     sideRank1B + sideHostB - sideSaved = 7_855 := by
   decide
 
+/-! ## The iterate resident between outer iterations (P115)
+
+At `7ddb8eaa` every step staged `Z_x`, `Z`, `U` and `rank1`'s target to the device and read `Fᵀ` and
+`rank1`'s output back, and the host formed `T = X + U` and the dual. With `[Z_x, Z, U, X]` resident,
+`cb1` uploads only `[rho, reg]`, `cb2` and `rank1` read nothing back, `rank1`'s target is formed on the
+device (`rank1_map.comp` mode 6) and the dual and the `Z` exchange run in one commit buffer (mode 7
+and two copies). Moved off `A`'s chain per iteration, read from the device timestamps at `7ddb8eaa`
+(`w6-gpuprof.txt`) and the host split at `4be01388` (`w6-r1split.txt`). Units: tenths of a
+microsecond. -/
+
+/-- `A`'s device transfers removed: `cb1` upload 4.534, `cb2` readback 1.838, `rank1` upload 1.791
+and readback 1.698 ms. Grade `measured`. -/
+def residentDevA : Nat := 45_340 + 18_380 + 17_910 + 16_980
+
+/-- `A`'s host staging and readback removed: `x` stage 3.31 and back 0.98, `rank1` stage 0.92 and
+back 1.02 ms. Grade `measured`. -/
+def residentHostA : Nat := 33_100 + 9_800 + 9_200 + 10_200
+
+/-- `A`'s share of `T` and the duals, (2.84 + 2.45) ms · 3584/4608. Grade `model`. -/
+def residentTDualA : Nat := (28_400 + 24_500) * 3584 / 4608
+
+/-- Measured saving per iteration: ADMM 5.37 → 3.43 s (means of 3 interleaved runs, arm 0
+`APEIRON_ADMM_RESIDENT=0`) over 100. -/
+def residentSaved : Nat := 194_000
+
+/-- The saving is under the 20.21 ms of work moved off `A`'s chain, and falls 0.81 ms short of it;
+34.3 ms per iteration remains. -/
+theorem residentIterate_fit :
+    residentDevA + residentHostA + residentTDualA = 202_054 ∧
+    residentSaved ≤ residentDevA + residentHostA + residentTDualA ∧
+    residentDevA + residentHostA + residentTDualA - residentSaved = 8_054 := by
+  decide
+
 end Perf.LimbDevice
