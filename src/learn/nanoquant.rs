@@ -1040,6 +1040,44 @@ fn grid_round(len: usize, f: &(impl Fn(usize) -> f64 + Sync)) -> Result<Vec<f64>
     }
 }
 
+/// `y[j] = Σ_i sign(v[i·n + j])·x[i·n + j]` over the `r × n` words `x`, read as reals: a signed
+/// column sum, exact in `i128` (no product, no rounding), so the result is independent of the
+/// split. [`NqError::Range`] if a sum leaves `i64`. One contiguous column band per pool worker,
+/// each reading its band of every row. `O(r·n)` additions, `O(n)` space.
+fn signed_col_sums(v: &[f64], x: &[i64], r: usize, n: usize) -> Result<Vec<f64>, NqError> {
+    let bad = AtomicBool::new(false);
+    let mut out = vec![0i64; n];
+    let col_band = |start: usize, piece: &mut [i64]| {
+        let mut acc = vec![0i128; piece.len()];
+        for i in 0..r {
+            let row = i * n + start;
+            for (k, a) in acc.iter_mut().enumerate() {
+                let w = i128::from(x[row + k]);
+                *a += if v[row + k] < 0.0 { -w } else { w };
+            }
+        }
+        for (o, a) in piece.iter_mut().zip(acc) {
+            match i64::try_from(a) {
+                Ok(w) => *o = w,
+                Err(_) => bad.store(true, Ordering::Relaxed),
+            }
+        }
+    };
+    if r * n < PAR_MIN {
+        col_band(0, &mut out);
+    } else {
+        let chunk = n.div_ceil(width_global());
+        Pool::global().chunks_mut(&mut out, chunk, &|_, start, piece: &mut [i64]| {
+            col_band(start, piece);
+        });
+    }
+    if bad.into_inner() {
+        Err(NqError::Range)
+    } else {
+        Ok(reals(&out))
+    }
+}
+
 /// The fixed `s`-frame of [`tune_sketch`]: `Qᵀ`, `Q`, `C = h_scale·H_s` as kernel words and `W·Q`.
 struct SkFrame {
     dims: (usize, usize, usize, usize),
@@ -1049,11 +1087,10 @@ struct SkFrame {
     wq: Vec<f64>,
 }
 
-/// One forward of [`tune_sketch`]: the sign words of `U` and of `Vᵀ`, `P`, `U·P`, `E_Q·C` and the
+/// One forward of [`tune_sketch`]: the sign words of `U`, `P`, `U·P`, `E_Q·C` and the
 /// sketched loss `L_s`.
 struct SkStep {
     us: Vec<i64>,
-    vst: Vec<i64>,
     p: Vec<i64>,
     upw: Vec<i64>,
     eqc: Vec<i64>,
@@ -1077,8 +1114,6 @@ impl SkFrame {
                 sq[c % n]
             }
         })?;
-        let mut vst = vec![0i64; n * r];
-        par_fill(&mut vst, &|c, w| *w = sign_word(vl[(c % r) * n + c / r]));
         let p = gemm_q32(&vsq, r, &self.qt, s, n, LIMBS)?;
         let upw = gemm_q32(&us, o, &transpose(&p, r, s), s, r, LIMBS)?;
         let eqw = grid_map(o * s, &|c| sp[c / s] * from_grid(upw[c]) - self.wq[c])?;
@@ -1086,7 +1121,6 @@ impl SkFrame {
         let ls = reals(&rowdot_q32(&eqw, &eqc, o, s, LIMBS)?).iter().sum();
         Ok(SkStep {
             us,
-            vst,
             p,
             upw,
             eqc,
@@ -1095,8 +1129,15 @@ impl SkFrame {
     }
 
     /// `[∂U, ∂V, ∂s_post, ∂s_pre]` at `st` (formulas at [`tune_sketch`]).
-    /// `r·s·(2·o + 2·n)` kernel multiply-adds plus `O(s·(o + n))` row dots and `O(r·n)` element maps.
-    fn grads(&self, st: &SkStep, sp: &[f64], sq: &[f64]) -> Result<[Vec<f64>; 4], NqError> {
+    /// `r·s·(2·o + n)` kernel multiply-adds plus `O(o·s)` row dots, `O(r·n)` element maps and one
+    /// `O(r·n)` signed column sum.
+    fn grads(
+        &self,
+        st: &SkStep,
+        vl: &[f64],
+        sp: &[f64],
+        sq: &[f64],
+    ) -> Result<[Vec<f64>; 4], NqError> {
         let (o, n, r, s) = self.dims;
         // `G = 2·E_Q·C` and `diag(s_post)·G`.
         let gw = grid_map(o * s, &|c| 2.0 * from_grid(st.eqc[c]))?;
@@ -1110,12 +1151,12 @@ impl SkFrame {
             o,
             LIMBS,
         )?;
-        // `∂V = A·Qᵀ·diag(sq)` (`r × n`), `VᵀA` (`n × s`).
+        // `∂V = A·Qᵀ·diag(sq)` (`r × n`); `∂s_pre[j] = ⟨Q_j, (VᵀA)_j⟩ = Σ_i sign(V_ij)·(A·Qᵀ)_ij`,
+        // exact on the words of `A·Qᵀ`, so `VᵀA` is never formed.
         let aq = gemm_q32(&a, r, &self.qw, n, s, LIMBS)?;
         let gb = grid_round(r * n, &|c| from_grid(aq[c]) * sq[c % n])?;
-        let vta = gemm_q32(&st.vst, n, &transpose(&a, r, s), s, r, LIMBS)?;
+        let grad_pre = signed_col_sums(vl, &aq, r, n)?;
         let grad_post = reals(&rowdot_q32(&gw, &st.upw, o, s, LIMBS)?);
-        let grad_pre = reals(&rowdot_q32(&self.qw, &vta, n, s, LIMBS)?);
         Ok([ga, gb, grad_post, grad_pre])
     }
 }
@@ -1124,7 +1165,8 @@ impl SkFrame {
 /// optimiser, rates, schedule and STE, with every product taken in the `s`-dimensional frame.
 /// With `P = V·diag(s_pre)·Q` (`r × s`), `E_Q = diag(s_post)·U·P − W·Q`, `G = 2·E_Q·C`
 /// (`C = h_scale·H_s`): `∂U = diag(s_post)·G·Pᵀ`, `A = Uᵀ·diag(s_post)·G`,
-/// `∂Vᵀ = diag(s_pre)·Q·Aᵀ`, `∂s_post[i] = ⟨G_i, (U·P)_i⟩`, `∂s_pre[j] = ⟨Q_j, (Vᵀ·A)_j⟩`.
+/// `∂Vᵀ = diag(s_pre)·Q·Aᵀ`, `∂s_post[i] = ⟨G_i, (U·P)_i⟩`,
+/// `∂s_pre[j] = ⟨Q_j, (Vᵀ·A)_j⟩ = Σ_i V_ij·(A·Qᵀ)_ij`.
 /// `rel_before`/`rel_after` are the full `tr(EHEᵀ)/tr(WHWᵀ)` under `h`; `rel_best` tracks the
 /// sketched ratio `L_s/tr(W·QH_sQᵀ·Wᵀ)`.
 ///
@@ -1134,8 +1176,8 @@ impl SkFrame {
 ///
 /// # Complexity
 ///
-/// Per step `r·s·(3·o + 3·n) + o·s²` kernel multiply-adds (`P`, `U·P`, `∂U`, `A`, `∂Vᵀ`, `Vᵀ·A`
-/// and `G`) plus `O(r·(o + n))` element maps; against [`tune`]'s `o·n² + 3·o·n·r`. One `W·Q` and
+/// Per step `r·s·(3·o + 2·n) + o·s²` kernel multiply-adds (`P`, `U·P`, `∂U`, `A`, `∂Vᵀ` and `G`)
+/// plus `O(r·(o + n))` element maps; against [`tune`]'s `o·n² + 3·o·n·r`. One `W·Q` and
 /// the two full energies (`2·o·n² + o·n·r`) outside the loop. Space `O(r·(o + n) + n·s + n²)`.
 pub fn tune_sketch(
     f: &mut NqFactor,
@@ -1202,7 +1244,7 @@ pub fn tune_sketch(
         if t == cfg.steps {
             break;
         }
-        let [ga, gb, grad_post, grad_pre] = fr.grads(&st, &sp, &sq)?;
+        let [ga, gb, grad_post, grad_pre] = fr.grads(&st, &vl, &sp, &sq)?;
         let cos = f64::midpoint(
             1.0,
             (std::f64::consts::PI * t as f64 / cfg.steps as f64).cos(),

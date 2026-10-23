@@ -258,6 +258,33 @@ theorem tune_rewrite_l23_down :
     traceAfter = traceBefore := by
   decide
 
+/-- Sketched tune wall, blk.23 `down`, `r = 768`, `s = 256`, 128 steps from the base-32 factor, seeds 0–2,
+hundredths of a second, before the column-sum gradient (`tss.log`).
+`List` [a finite sequence of things, in order]. -/
+def colsumWallBefore : List Nat := [671, 660, 657]
+/-- Same, with `∂s_pre[j] = Σ_i sign(V_ij)·(A·Qᵀ)_ij` as one exact signed column sum over the `A·Qᵀ` words in
+place of the `sign(V)ᵀ` transpose and the `VᵀA·Q` row dots (`colsum-clean.log`).
+`List` [a finite sequence of things, in order]. -/
+def colsumWallAfter : List Nat := [525, 523, 527]
+/-- Final `relH` (`10⁻⁵`), best `relH` (`10⁻⁵`) and sign flips before the column sum; every seed printed the
+same triple (`tss.log`). `List` [a finite sequence of things, in order]. -/
+def colsumTraceBefore : List Nat := [3321, 1721, 50042]
+/-- Same, after. `List` [a finite sequence of things, in order]. Board: APEIRON-QUALITY-118-W1-T01. -/
+def colsumTraceAfter : List Nat := [3320, 1722, 50103]
+
+/-- **The column-sum gradient is faster on every seed at the same quality**: every run after is under every
+run before, the mean wall falls 1.26× (6.63 → 5.25 s), final `relH` does not rise, best `relH` moves under
+0.1% and sign flips under 1%. `∀` [for every]; `∈` [is one of the things in]; `∧` [both are true]; `<` [is
+smaller than]; `≤` [is at most]. -/
+theorem tune_colsum_l23_down :
+    (∀ a ∈ colsumWallAfter, ∀ b ∈ colsumWallBefore, a < b) ∧
+    125 * colsumWallAfter.sum < 100 * colsumWallBefore.sum ∧
+    100 * colsumWallBefore.sum < 127 * colsumWallAfter.sum ∧
+    colsumTraceAfter[0]! ≤ colsumTraceBefore[0]! ∧
+    1000 * colsumTraceAfter[1]! ≤ 1001 * colsumTraceBefore[1]! ∧
+    100 * colsumTraceAfter[2]! ≤ 101 * colsumTraceBefore[2]! := by
+  decide
+
 end NanoQuant
 
 end Learn
