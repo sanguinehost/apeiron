@@ -491,8 +491,10 @@ fn gate_code_probe() {
 
 /// The production fit of each kind in `APEIRON_GATE_KIND` (comma list of `down`, `o`, `gate`, `up`;
 /// default `down`) for `APEIRON_GATE_LAYERS`, under one calibration `H` over [`calib_set`]
-/// (`APEIRON_GATE_CALIB`, `APEIRON_GATE_EXTRA`). Writes `l{l}.{kind}.i64`, or `l{l}.{kind}-x{extra}.i64`
-/// with extra chunks; an existing file is kept and skipped, so a cut run resumes.
+/// (`APEIRON_GATE_CALIB`, `APEIRON_GATE_EXTRA`). Writes `l{l}.{kind}.i64`, `l{l}.{kind}-x{extra}.i64`
+/// with extra chunks, or `l{l}.{kind}-c{calib}x{extra}.i64` with `calib != CALIB`; an existing file is
+/// kept and skipped, so a cut run resumes. `APEIRON_GATE_CALIB=6` drops chunks 6 and 7, the start of
+/// the article that held-out chunks 8, 9 and 10 continue.
 ///
 /// `H` costs what [`calib_grams`] states; then one `fold_fit` per layer and kind.
 #[test]
@@ -511,7 +513,9 @@ fn gate_code_fit_kind() {
     let grams = grams_cached(&engine, &cfg, &set, &layers, &format!("c{calib}x{extra}"));
     for &l in &layers {
         for kind in kinds.split(',') {
-            let name = if extra > 0 {
+            let name = if calib != CALIB {
+                format!("{kind}-c{calib}x{extra}")
+            } else if extra > 0 {
                 format!("{kind}-x{extra}")
             } else {
                 kind.to_string()
