@@ -176,13 +176,18 @@ project to ≈ 65 s per tensor (not run). Tune: 0.39 s per step at r = 896 (403.
 included): 10.0/9.9/9.8 s → 7.1/7.1/7.1 s (1.39×) with packed Adam moments, parallel sign and real maps,
 and transposes on words instead of reals; the trace is bit-identical (relH 0.04919 → 0.03321, best
 0.01721 at step 128, 50 042 flips; `tsb.log`, `tsw.log`). `∂s_pre[j] = ⟨Q_j, (VᵀA)_j⟩ = Σ_i sign(V_ij)·(A·Qᵀ)_ij`
-is one exact `i128` signed column sum over the `A·Qᵀ` words ([`signed_col_sums`]); it replaces the `sign(V)ᵀ`
+is one exact `i128` signed column sum over the `A·Qᵀ` words; it replaces the `sign(V)ᵀ`
 transpose (1.60 ms per step) and the `VᵀA·Q` product (6.45 ms) and cuts the row dots 5.46 → 1.31 ms:
 6.71/6.60/6.57 s → 5.25/5.23/5.27 s (1.26×), relH 0.04919 → 0.03321, final 0.03320, best 0.01722, 50 103
 flips (+0.12%); `tss.log`, `colsum-clean.log`, per-phase laps `phase.log`, `colsum.log`; control: the sign
 negated in the column sum turns `full_width_sketch_tune_matches_the_full_tune` red (`mut-colsum.log`);
-verdict `Learn.NanoQuant.tune_colsum_l23_down`. Remaining per step (≈ 41 ms): `A·Qᵀ` 10.7, `P` 8.4, the
-`r × n` element maps ≈ 9, Adam 2.5 ms. The tune is the dominant term. Logs `/home/socol/oc-tmp/escalation/lead-1023/nq/`
+verdict `Learn.NanoQuant.tune_colsum_l23_down`. `A·Qᵀ` against `Q` as a prepared kernel operand (one plane
+per tune; the kernel returns `(A·Qᵀ)ᵀ`, 10.7 → 7.1 ms) and `∂V` with the column sum in one pass blocked by eight
+rows ([`col_grads`], 4.5 → 2.97 ms): 5.25/5.23/5.27 s → 4.79/4.80/4.77 s (1.10×), trace identical;
+`colgrads-clean.log`, laps `aqswap.log`, `colgrads.log`, `colblock.log`; control: the sign negated in
+`col_grads` turns `full_width_sketch_tune_matches_the_full_tune` red (`mut-colgrads.log`); verdict
+`Learn.NanoQuant.tune_colgrads_l23_down`. Remaining per step (≈ 37 ms): `P` 8.2, `A·Qᵀ` 7.1, `col_grads` 3.0,
+`∂U` 2.4, `A` 2.45, Adam 2.4, `sign(V)·diag(sq)` 2.15, `U·P` 1.8. The tune is the dominant term. Logs `/home/socol/oc-tmp/escalation/lead-1023/nq/`
 `b32c.log`, `seed-mixed.log`, `invsmall.log`, `invres.log`, control `invmut.log`; board `APEIRON-QUALITY-118-W1-T01`.
 
 ### Same-model comparison (Qwen3-0.6B-Base, wikitext2 test, 146 × 2048 tokens, grade measured)

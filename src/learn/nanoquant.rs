@@ -29,6 +29,7 @@
 )]
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, PoisonError};
 
 use crate::engine::chart::pool::{width_global, Pool};
 use crate::engine::kern::limb::{gemm_q32, prepare, rowdot_q32, syrk_q32, LimbError};
@@ -1024,65 +1025,87 @@ fn reals(x: &[i64]) -> Vec<f64> {
     out
 }
 
-/// `from_grid(to_grid(f(c)))` for `c < len`: [`grid_map`] read back as reals in one pass;
-/// [`NqError::Range`] if any entry leaves the grid. `O(len)` calls of `f`.
-fn grid_round(len: usize, f: &(impl Fn(usize) -> f64 + Sync)) -> Result<Vec<f64>, NqError> {
-    let bad = AtomicBool::new(false);
-    let mut out = vec![0.0f64; len];
-    par_fill(&mut out, &|c, o| match to_grid(f(c), GRID_BOUND) {
-        Some(w) => *o = from_grid(w),
-        None => bad.store(true, Ordering::Relaxed),
-    });
-    if bad.into_inner() {
-        Err(NqError::Range)
-    } else {
-        Ok(out)
-    }
-}
+/// Rows of [`col_grads`] per read of `xt`: eight words, one 64-byte cache line.
+const COL_BLOCK: usize = 8;
 
-/// `y[j] = Σ_i sign(v[i·n + j])·x[i·n + j]` over the `r × n` words `x`, read as reals: a signed
-/// column sum, exact in `i128` (no product, no rounding), so the result is independent of the
-/// split. [`NqError::Range`] if a sum leaves `i64`. One contiguous column band per pool worker,
-/// each reading its band of every row. `O(r·n)` additions, `O(n)` space.
-fn signed_col_sums(v: &[f64], x: &[i64], r: usize, n: usize) -> Result<Vec<f64>, NqError> {
+/// From the `n × r` words `xt = Xᵀ`: the `r × n` reals `g[i·n + j] = from_grid(to_grid(X_ij·sq[j]))`
+/// and the signed column sums `y[j] = Σ_i sign(v[i·n + j])·X_ij`, exact in `i128` (no product, no
+/// rounding), so `y` is independent of the split. One row band of `g` per pool task, reading the
+/// band's columns of `xt` at stride `r`; each band adds its exact partial sums into `y` under one
+/// lock. [`NqError::Range`] if an entry leaves the grid or a sum leaves `i64`. `O(r·n)` reads,
+/// multiplies and additions; `O(r·n)` space for `g` and `O(n)` per band.
+fn col_grads(
+    v: &[f64],
+    xt: &[i64],
+    sq: &[f64],
+    r: usize,
+    n: usize,
+) -> Result<(Vec<f64>, Vec<f64>), NqError> {
     let bad = AtomicBool::new(false);
-    let mut out = vec![0i64; n];
-    let col_band = |start: usize, piece: &mut [i64]| {
-        let mut acc = vec![0i128; piece.len()];
-        for i in 0..r {
-            let row = i * n + start;
-            for (k, a) in acc.iter_mut().enumerate() {
-                let w = i128::from(x[row + k]);
-                *a += if v[row + k] < 0.0 { -w } else { w };
+    let sums = Mutex::new(vec![0i128; n]);
+    let mut g = vec![0.0f64; r * n];
+    let row_band = |start: usize, piece: &mut [f64]| {
+        let i0 = start / n;
+        let rows = piece.len() / n;
+        let mut acc = vec![0i128; n];
+        // Rows in blocks of `COL_BLOCK`: one read of `xt[j·r + i..][..COL_BLOCK]` (one cache line)
+        // serves the block's `COL_BLOCK` outputs in column `j`.
+        let mut b0 = 0usize;
+        while b0 < rows {
+            let bl = COL_BLOCK.min(rows - b0);
+            let i = i0 + b0;
+            for j in 0..n {
+                let line = &xt[j * r + i..j * r + i + bl];
+                let mut a = 0i128;
+                for (d, &w) in line.iter().enumerate() {
+                    let c = (b0 + d) * n + j;
+                    match to_grid(from_grid(w) * sq[j], GRID_BOUND) {
+                        Some(q) => piece[c] = from_grid(q),
+                        None => bad.store(true, Ordering::Relaxed),
+                    }
+                    let w = i128::from(w);
+                    a += if v[start + c] < 0.0 { -w } else { w };
+                }
+                acc[j] += a;
             }
+            b0 += bl;
         }
-        for (o, a) in piece.iter_mut().zip(acc) {
-            match i64::try_from(a) {
-                Ok(w) => *o = w,
-                Err(_) => bad.store(true, Ordering::Relaxed),
-            }
+        let mut total = sums.lock().unwrap_or_else(PoisonError::into_inner);
+        for (t, a) in total.iter_mut().zip(acc) {
+            *t += a;
         }
     };
     if r * n < PAR_MIN {
-        col_band(0, &mut out);
+        row_band(0, &mut g);
     } else {
-        let chunk = n.div_ceil(width_global());
-        Pool::global().chunks_mut(&mut out, chunk, &|_, start, piece: &mut [i64]| {
-            col_band(start, piece);
+        let chunk = r.div_ceil(width_global()).next_multiple_of(COL_BLOCK) * n;
+        Pool::global().chunks_mut(&mut g, chunk, &|_, start, piece: &mut [f64]| {
+            row_band(start, piece);
         });
+    }
+    let mut y = vec![0.0f64; n];
+    for (o, s) in y
+        .iter_mut()
+        .zip(sums.into_inner().unwrap_or_else(PoisonError::into_inner))
+    {
+        match i64::try_from(s) {
+            Ok(w) => *o = from_grid(w),
+            Err(_) => bad.store(true, Ordering::Relaxed),
+        }
     }
     if bad.into_inner() {
         Err(NqError::Range)
     } else {
-        Ok(reals(&out))
+        Ok((g, y))
     }
 }
 
-/// The fixed `s`-frame of [`tune_sketch`]: `Qᵀ`, `Q`, `C = h_scale·H_s` as kernel words and `W·Q`.
+/// The fixed `s`-frame of [`tune_sketch`]: `Qᵀ` as kernel words, `Q` as a prepared kernel operand,
+/// `C = h_scale·H_s` as kernel words and `W·Q`.
 struct SkFrame {
     dims: (usize, usize, usize, usize),
     qt: Vec<i64>,
-    qw: Vec<i64>,
+    qw: crate::engine::kern::limb::Prepared,
     c: Vec<i64>,
     wq: Vec<f64>,
 }
@@ -1129,8 +1152,8 @@ impl SkFrame {
     }
 
     /// `[∂U, ∂V, ∂s_post, ∂s_pre]` at `st` (formulas at [`tune_sketch`]).
-    /// `r·s·(2·o + n)` kernel multiply-adds plus `O(o·s)` row dots, `O(r·n)` element maps and one
-    /// `O(r·n)` signed column sum.
+    /// `r·s·(2·o + n)` kernel multiply-adds plus `O(o·s)` row dots and one fused `O(r·n)` pass
+    /// ([`col_grads`]) for `∂V` and `∂s_pre`.
     fn grads(
         &self,
         st: &SkStep,
@@ -1152,10 +1175,10 @@ impl SkFrame {
             LIMBS,
         )?;
         // `∂V = A·Qᵀ·diag(sq)` (`r × n`); `∂s_pre[j] = ⟨Q_j, (VᵀA)_j⟩ = Σ_i sign(V_ij)·(A·Qᵀ)_ij`,
-        // exact on the words of `A·Qᵀ`, so `VᵀA` is never formed.
-        let aq = gemm_q32(&a, r, &self.qw, n, s, LIMBS)?;
-        let gb = grid_round(r * n, &|c| from_grid(aq[c]) * sq[c % n])?;
-        let grad_pre = signed_col_sums(vl, &aq, r, n)?;
+        // exact on the words of `A·Qᵀ`, so `VᵀA` is never formed. The kernel takes `Q` as its
+        // prepared operand and returns `(A·Qᵀ)ᵀ` (`n × r`); `col_grads` reads it transposed.
+        let aqt = self.qw.gemm(&a, r)?;
+        let (gb, grad_pre) = col_grads(vl, &aqt, sq, r, n)?;
         let grad_post = reals(&rowdot_q32(&gw, &st.upw, o, s, LIMBS)?);
         Ok([ga, gb, grad_post, grad_pre])
     }
@@ -1177,8 +1200,9 @@ impl SkFrame {
 /// # Complexity
 ///
 /// Per step `r·s·(3·o + 2·n) + o·s²` kernel multiply-adds (`P`, `U·P`, `∂U`, `A`, `∂Vᵀ` and `G`)
-/// plus `O(r·(o + n))` element maps; against [`tune`]'s `o·n² + 3·o·n·r`. One `W·Q` and
-/// the two full energies (`2·o·n² + o·n·r`) outside the loop. Space `O(r·(o + n) + n·s + n²)`.
+/// plus `O(r·(o + n))` element maps; against [`tune`]'s `o·n² + 3·o·n·r`. One `W·Q`, one
+/// prepared `Q` (`O(n·s)`) and the two full energies (`2·o·n² + o·n·r`) outside the loop.
+/// Space `O(r·(o + n) + n·s + n²)`.
 pub fn tune_sketch(
     f: &mut NqFactor,
     w: &[i64],
@@ -1197,7 +1221,7 @@ pub fn tune_sketch(
         return Err(NqError::Shape);
     }
     let qt = grid(&transpose(&sk.q, n, s))?;
-    let qw = grid(&sk.q)?;
+    let qw = prepare(&grid(&sk.q)?, n, s, LIMBS)?;
     let c = grid(&sk.hs.iter().map(|x| x * cfg.h_scale).collect::<Vec<f64>>())?;
     let wq = reals(&gemm_q32(w, o, &qt, s, n, LIMBS)?);
     let wqc = gemm_q32(&grid(&wq)?, o, &c, s, s, LIMBS)?;
