@@ -382,6 +382,13 @@ with the pool's spin off (`Hot` dropped) CPU 2 gives 15.20 ms. `beside_worker_ta
 checks the sibling choice on the host's layout; control: the worker index 1 → 0 chooses CPU 1, test
 red (`Perf.LimbDevice.sideBPin_fit`).
 
+T16 draws the initial `A` and `Bᵀ` normals on the pool (`Rng::normals`, P121). SplitMix64's state
+after `w` words is `s₀ + w·γ`, so draw `i` is computed alone from `s₀ + 2i·γ`; `Bᵀ` is filled in its
+transposed slot order, which removes the `transpose`. The fit falls from 1.614 to 1.561 s (3
+interleaved runs per arm), factor byte-identical in all 6. `normals_match_sequential` holds every bit
+of both slot orders and the state after; control: the state advanced by `len` words instead of
+`2·len`, test red (`Perf.LimbDevice.rngPool_fit`).
+
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 

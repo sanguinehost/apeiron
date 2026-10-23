@@ -166,9 +166,12 @@ pub struct NqFactor {
 /// Deterministic Gaussian source: splitmix64 words through Box–Muller.
 struct Rng(u64);
 
+/// The SplitMix64 increment `γ`: [`Rng::word`] adds it to the state once per word.
+const GOLDEN: u64 = 0x9E37_79B9_7F4A_7C15;
+
 impl Rng {
     fn word(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        self.0 = self.0.wrapping_add(GOLDEN);
         let mut z = self.0;
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
@@ -179,6 +182,23 @@ impl Rng {
         let u1 = ((self.word() >> 11) as f64 + 1.0) / 9_007_199_254_740_993.0;
         let u2 = (self.word() >> 11) as f64 / 9_007_199_254_740_992.0;
         (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
+    }
+
+    /// The next `len` draws of [`Rng::normal`], `out[c]` holding draw `slot(c)`, with the state
+    /// advanced past all of them. The state after `w` words is `s₀ + w·γ`, so draw `i` (words
+    /// `2i`, `2i + 1`) is computed alone from `s₀ + 2i·γ` on the pool; each entry is the sequential
+    /// one in every bit. `slot` is a bijection on `0..len`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(len)` normals (one `ln`, `sqrt`, `cos` each) over the pool's width.
+    fn normals(&mut self, len: usize, slot: impl Fn(usize) -> usize + Sync) -> Vec<f64> {
+        let s0 = self.0;
+        let at = |i: usize| Rng(s0.wrapping_add((2 * i as u64).wrapping_mul(GOLDEN))).normal();
+        let mut out = vec![0.0f64; len];
+        par_fill(&mut out, &|c, o| *o = at(slot(c)));
+        self.0 = s0.wrapping_add((2 * len as u64).wrapping_mul(GOLDEN));
+        out
     }
 }
 
@@ -513,9 +533,9 @@ pub fn factorize(
     let (mut a_side, mut b_side) = (resident(&wg, o, n, r), resident(&wtg, n, o, r));
     let mut rng = Rng(cfg.seed);
     // A is `o × r`; B is held as Bᵀ, `n × r`.
-    let mut a_ls: Vec<f64> = (0..o * r).map(|_| rng.normal()).collect();
-    let b_ls_r: Vec<f64> = (0..r * n).map(|_| rng.normal()).collect();
-    let mut b_ls = transpose(&b_ls_r, r, n);
+    let mut a_ls = rng.normals(o * r, |c| c);
+    // `B` is drawn row-major `r × n` and held transposed: slot `c = j·r + k` takes draw `k·n + j`.
+    let mut b_ls = rng.normals(r * n, |c| (c % r) * n + c / r);
     let (mut a_z, mut b_z) = if cfg.outer_iters > 0 {
         (
             rank1_step(

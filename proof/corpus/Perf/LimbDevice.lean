@@ -361,4 +361,21 @@ theorem sideBPin_fit :
     leafHostBeside < leafHostShared ∧ leafHostShared - leafHostBeside = 10_300 := by
   decide
 
+/-! ## Initial draw on the pool (P121)
+
+`Rng::normals` draws the initial `A` and `Bᵀ` normals on the pool: draw `i` starts from the
+SplitMix64 state `s₀ + 2i·γ`, so every entry equals the sequential draw in every bit. Units:
+microseconds of fit wall (100 iterations); the draw runs once per fit, outside the loop. -/
+
+/-- Fit wall on the blk.23 `down` fit, means of 3 interleaved runs (`t16-ab.log`): serial
+1.609 / 1.617 / 1.615 s, pool 1.560 / 1.552 / 1.571 s. Grade `measured`. -/
+def drawSerial : Nat := 1_613_667
+def drawPool : Nat := 1_561_000
+
+/-- The pool draw saves 52.7 ms of fit wall, 3.3% of it. -/
+theorem rngPool_fit :
+    drawPool < drawSerial ∧ drawSerial - drawPool = 52_667 ∧
+    (drawSerial - drawPool) * 1000 / drawSerial = 32 := by
+  decide
+
 end Perf.LimbDevice

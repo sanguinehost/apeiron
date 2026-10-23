@@ -38,6 +38,27 @@ fn spd_inverse_inverts() {
     );
 }
 
+/// [`Rng::normals`] equals sequential [`Rng::normal`] calls in every bit, in draw order and in the
+/// transposed slot order `factorize` draws `Bᵀ` with, past the pool's serial cut, and leaves the
+/// state where the sequential calls leave it.
+#[test]
+fn normals_match_sequential() {
+    let (r, n) = (96usize, 300usize);
+    let mut seq = Rng(5);
+    let want: Vec<f64> = (0..2 * r * n).map(|_| seq.normal()).collect();
+    let mut par = Rng(5);
+    let a = par.normals(r * n, |c| c);
+    let b = par.normals(r * n, |c| (c % r) * n + c / r);
+    let bits = |v: &[f64]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+    assert_eq!(bits(&a), bits(&want[..r * n]), "draw order");
+    assert_eq!(
+        bits(&b),
+        bits(&transpose(&want[r * n..], r, n)),
+        "transposed slots"
+    );
+    assert_eq!(par.0, seq.0, "state after");
+}
+
 /// The `[r0, r1) × [c0, c1)` block of a row-major matrix with `cols` columns.
 fn block(m: &[i64], cols: usize, r0: usize, r1: usize, c0: usize, c1: usize) -> Vec<i64> {
     let mut out = Vec::with_capacity((r1 - r0) * (c1 - c0));
