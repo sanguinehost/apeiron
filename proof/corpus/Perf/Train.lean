@@ -379,4 +379,27 @@ theorem blockTuneDevice_fit :
     600 < deviceRoundSecs.1 + deviceRoundSecs.2 := by
   decide
 
+/-! ## Register-tiled tape GEMM (P125)
+
+`src/gpu/nn/fwd/lin.rs` `tiled_gemm` serves the linear forward and both adjoints: a 128 × 128 output
+tile per workgroup, a 16-wide reduction slice, 8 × 8 register accumulators per lane. Units: tens of
+microseconds of device time at `(n, i, o) = (2048, 1024, 3584)`, means of 5 interleaved old/new
+pairs, in the order forward, input adjoint, weight adjoint. -/
+
+/-- Device time of the one-output-per-lane 16 × 16 body (P89/P92). Grade `measured`. -/
+def gemmOldTenMicros : Nat × Nat × Nat := (384, 321, 362)
+
+/-- Device time of the register-tiled body. Grade `measured`. -/
+def gemmNewTenMicros : Nat × Nat × Nat := (66, 69, 64)
+
+/-- Shared loads per FMA fall by `2·BM·BN / (16·(BM + BN))` = 8 at `BM = BN = 128`. -/
+theorem tiledGemm_sharedCut : 2 * 128 * 128 / (16 * (128 + 128)) = 8 := by decide
+
+/-- Every op is at least 4× faster at the production shape: the registered prediction. -/
+theorem tiledGemm_fit :
+    4 * gemmNewTenMicros.1 ≤ gemmOldTenMicros.1 ∧
+    4 * gemmNewTenMicros.2.1 ≤ gemmOldTenMicros.2.1 ∧
+    4 * gemmNewTenMicros.2.2 ≤ gemmOldTenMicros.2.2 := by
+  decide
+
 end Perf.Train
