@@ -1,0 +1,60 @@
+#version 450
+// The finish of `gpu::limb::LimbGemm::run` on the device: the lo/hi i32 planes `limb_gemm.comp`
+// leaves in O, one pair per pair group g, rounded by Tmin_g and summed to one i64 per output entry.
+// Consumer: `src/gpu/limb.rs`, which owns the contract this file computes.
+//
+// Entry `at` of group g is v = (hi << 32) | lo. Its word is `engine::kern::limb::device_group_word`:
+//   Tmin_g ≥ 32: v·2^(Tmin_g − 32), exact;
+//   Tmin_g < 32: (v·2^Tmin_g + 2^31) >> 32 (`round_shift_32`), v·2^Tmin_g < 2^94 carried in two words.
+// The words are summed in 128 bits (two words with a carry), as the host sums them in i128. RANGE is
+// set when a word or the sum leaves i64.
+#extension GL_ARB_gpu_shader_int64 : require
+
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer O { int o[]; };
+// META: the `limb_place.comp` header; this kernel reads mp, pp, off_groups and off_segs.
+layout(std430, binding = 1) readonly buffer M { uint meta[]; };
+// P: `limb_place.comp`'s output [RANGE, FALLBACK, Tmin per group].
+layout(std430, binding = 2) buffer P { uint range; uint fallback; uint tmin[]; };
+// X: the mp × pp product, row stride pp.
+layout(std430, binding = 3) writeonly buffer X { int64_t x[]; };
+
+void main() {
+    const uint plane = meta[2] * meta[3];
+    const uint at = gl_GlobalInvocationID.y * gl_NumWorkGroups.x * 256u + gl_GlobalInvocationID.x;
+    if (at >= plane) {
+        return;
+    }
+    const uint groups = (meta[5] - meta[4]) / 2u;
+    uint64_t alo = 0ul;
+    int64_t ahi = 0l;
+    bool bad = false;
+    for (uint g = 0u; g < groups; ++g) {
+        const int64_t v = (int64_t(o[(2u * g + 1u) * plane + at]) << 32)
+            | int64_t(uint(o[2u * g * plane + at]));
+        const uint t = tmin[g];
+        int64_t w;
+        if (t >= 32u) {
+            const uint s = t - 32u;
+            w = v << s;
+            bad = bad || (w >> s) != v;
+        } else {
+            const int64_t xhi = t == 0u ? (v >> 63) : (v >> (64u - t));
+            const uint64_t xlo = uint64_t(v) << t;
+            const uint64_t ylo = xlo + (uint64_t(1) << 31);
+            const int64_t yhi = xhi + (ylo < xlo ? 1l : 0l);
+            w = int64_t((ylo >> 32) | (uint64_t(yhi) << 32));
+            bad = bad || (yhi >> 32) != (w >> 63);
+        }
+        const uint64_t nlo = alo + uint64_t(w);
+        ahi += (w >> 63) + (nlo < alo ? 1l : 0l);
+        alo = nlo;
+    }
+    const int64_t r = int64_t(alo);
+    bad = bad || ahi != (r >> 63);
+    x[at] = r;
+    if (bad) {
+        atomicOr(range, 1u);
+    }
+}
