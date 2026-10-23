@@ -34,6 +34,8 @@ lean_lib ApeironWordBridge where
     -- stay blocked (no `Table::descend` body exists in the extraction).
     `Security.HashDos,
     `Security.HashDosCapped,
+    -- Phantom-gradient model (Litman's backward-pass exploit): rounded vs exact tape gradients.
+    `Security.PhantomGradient,
     `Growable.Geometry, `Growable.Identity, `Growable.Scan,
     `Growable.ReadLoop, `Growable.LocateLoop, `Growable.ReadState, `Kepler.Certificate,
     `Growable.Search, `Growable.Read, `Growable.ReadComposition, `Growable.RelocationWF, `Growable.Classifier,

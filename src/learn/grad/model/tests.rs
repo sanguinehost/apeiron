@@ -446,3 +446,58 @@ fn backward_matches_finite_difference() {
     }
     let _ = std::fs::remove_file(&path);
 }
+
+/// Every gradient word, in a fixed order.
+fn grad_words(g: &Grads) -> impl Iterator<Item = i64> + '_ {
+    g.layers
+        .iter()
+        .flat_map(|l| {
+            [
+                &l.attn_norm,
+                &l.wq,
+                &l.bq,
+                &l.wk,
+                &l.bk,
+                &l.wv,
+                &l.bv,
+                &l.wo,
+                &l.ffn_norm,
+                &l.w_gate,
+                &l.w_up,
+                &l.w_down,
+            ]
+        })
+        .chain([&g.output_norm, &g.token_embd, &g.lm_head])
+        .flat_map(|v| v.iter().copied())
+}
+
+/// Phantom-gradient guard (`proof/corpus/Security/PhantomGradient.lean`): a loss that executes to
+/// zero seeds no gradient. The only seed is `kl_row`'s `q − p` over the executed logits, and every
+/// adjoint maps a zero upstream gradient to zero, so a teacher equal to the student gives loss `0`,
+/// seed `0` and every gradient word `0`. A nonzero teacher gap is the positive control: the same
+/// backward then writes a nonzero word.
+#[test]
+fn zero_discrepancy_gives_zero_gradient() {
+    let (engine, path) = open_fixture("phantom");
+    let (w, cfg) = Weights::from_engine(&engine).expect("weights");
+    let (logits, tape) = exact_forward(&path, &cfg, &w);
+
+    let (loss, dz) = objective(&path, &cfg, &w, &logits);
+    assert_eq!(loss, 0, "executed KL against itself");
+    assert!(dz.iter().all(|&d| d == 0), "seed from a zero loss");
+    let grads = backward(&w, &cfg, &tape, &dz).expect("backward");
+    let nonzero = grad_words(&grads).filter(|&g| g != 0).count();
+    assert_eq!(nonzero, 0, "{nonzero} gradient words from a zero seed");
+
+    let mut w_teacher = w.clone();
+    perturb_teacher(&mut w_teacher, 1, 1 << 26);
+    let (teacher, _) = exact_forward(&path, &cfg, &w_teacher);
+    let (loss, dz) = objective(&path, &cfg, &w, &teacher);
+    assert_ne!(loss, 0, "positive control: the teacher gap is zero");
+    let grads = backward(&w, &cfg, &tape, &dz).expect("backward");
+    assert!(
+        grad_words(&grads).any(|g| g != 0),
+        "positive control: no gradient from a nonzero seed"
+    );
+    let _ = std::fs::remove_file(&path);
+}
