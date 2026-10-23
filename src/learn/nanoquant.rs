@@ -504,19 +504,21 @@ fn x_step(
     x_update(zx, n, r, wp, k, z, du, rho, reg)
 }
 
-/// [`rank1`] from a Gaussian start drawn from `rng`, on the side's resident frame when it holds one
-/// and the device completes it, the CPU otherwise; the two are equal in every bit
-/// (`gpu::limb::rank1`). `O(rows + cols)` draws plus [`rank1`].
+/// `len` Gaussian draws from `rng`, a [`rank1`] start. `O(len)` draws.
+fn draw(rng: &mut Rng, len: usize) -> Vec<f64> {
+    (0..len).map(|_| rng.normal()).collect()
+}
+
+/// [`rank1`] from `start`, on the side's resident frame when it holds one and the device completes
+/// it, the CPU otherwise; the two are equal in every bit (`gpu::limb::rank1`). [`rank1`]'s cost.
 fn rank1_step(
     side: &mut Option<Side>,
     m: &[f64],
     (rows, cols): (usize, usize),
     iters: usize,
     start_rows: bool,
-    rng: &mut Rng,
+    start: Vec<f64>,
 ) -> Result<Vec<f64>, NqError> {
-    let ls = if start_rows { rows } else { cols };
-    let start: Vec<f64> = (0..ls).map(|_| rng.normal()).collect();
     #[cfg(feature = "gpu")]
     if let Some(out) = side
         .as_mut()
@@ -527,6 +529,44 @@ fn rank1_step(
     #[cfg(not(feature = "gpu"))]
     let _ = side;
     rank1(m, rows, cols, iters, start_rows, start)
+}
+
+/// One side's ADMM step on a `k × r` iterate: `X` by [`x_step`], `Z = rank1(X + U)` from `start`
+/// by [`rank1_step`], and `U += X − Z` in place once both complete. Returns `X` and the `rank1`
+/// result, so the caller orders the two sides' refusals as the serial loop does.
+/// The frame `(zx, n, r, wp, k)` is [`x_update`]'s.
+///
+/// # Complexity
+///
+/// [`x_step`] plus [`rank1_step`] plus `2·k·r` adds.
+#[allow(
+    clippy::type_complexity,
+    reason = "the two stages' results stay separate"
+)]
+fn side_step(
+    side: &mut Option<Side>,
+    (zx, n, r, wp, k): (
+        &[f64],
+        usize,
+        usize,
+        &crate::engine::kern::limb::Prepared,
+        usize,
+    ),
+    z: &[f64],
+    du: &mut [f64],
+    (rho, reg, inner): (f64, f64, usize),
+    start_rows: bool,
+    start: Vec<f64>,
+) -> Result<(Vec<f64>, Result<Vec<f64>, NqError>), NqError> {
+    let x = x_step(side, zx, n, r, wp, k, z, du, rho, reg)?;
+    let t: Vec<f64> = x.iter().zip(du.iter()).map(|(x, u)| x + u).collect();
+    let zn = rank1_step(side, &t, (k, r), inner, start_rows, start);
+    if let Ok(zn) = &zn {
+        for (u, (l, z)) in du.iter_mut().zip(x.iter().zip(zn)) {
+            *u += l - z;
+        }
+    }
+    Ok((x, zn))
 }
 
 /// `factorize_admm_nanoquant` on `w` (`out × inn`, Q32.32 row-major) under the input and output
@@ -595,8 +635,22 @@ pub fn factorize(
     let mut b_ls = transpose(&b_ls_r, r, n);
     let (mut a_z, mut b_z) = if cfg.outer_iters > 0 {
         (
-            rank1_step(&mut a_side, &a_ls, (o, r), cfg.inner_iters, false, &mut rng)?,
-            rank1_step(&mut b_side, &b_ls, (n, r), cfg.inner_iters, true, &mut rng)?,
+            rank1_step(
+                &mut a_side,
+                &a_ls,
+                (o, r),
+                cfg.inner_iters,
+                false,
+                draw(&mut rng, r),
+            )?,
+            rank1_step(
+                &mut b_side,
+                &b_ls,
+                (n, r),
+                cfg.inner_iters,
+                true,
+                draw(&mut rng, n),
+            )?,
         )
     } else {
         (a_ls.clone(), b_ls.clone())
@@ -606,28 +660,40 @@ pub fn factorize(
     // Device waits separate the host inverse's dispatches by more than the pool's park delay.
     let _hot = crate::engine::chart::pool::hot();
     for t in 0..cfg.outer_iters {
-        let x = t as f64 / cfg.outer_iters as f64;
-        let rho = cfg.schedule.rho(x);
-        // The two updates read only the previous `Z` and `U`, so they run on two threads: one side's
-        // host inverse proceeds while the other waits on the device. Each result is the serial
-        // one; `A`'s refusal still wins.
+        // Each side's step reads only the previous `Z`s and its own `U`, so the two run on two
+        // threads: one side's `rank1` and host inverse proceed while the other waits on the
+        // device. The starts are drawn in the serial order (`A` then `B`), so each result is the
+        // serial one; refusals resolve in the serial order `X_A`, `X_B`, `Z_A`, `Z_B`.
+        let (sa, sb) = (draw(&mut rng, r), draw(&mut rng, n));
+        let rho = cfg.schedule.rho(t as f64 / cfg.outer_iters as f64);
+        let p = (rho, cfg.reg, cfg.inner_iters);
         let (ra, rb) = std::thread::scope(|s| {
-            let hb = s.spawn(|| x_step(&mut b_side, &a_z, o, r, &wtp, n, &b_z, &b_u, rho, cfg.reg));
-            let ra = x_step(&mut a_side, &b_z, n, r, &wp, o, &a_z, &a_u, rho, cfg.reg);
+            let hb = s.spawn(|| {
+                side_step(
+                    &mut b_side,
+                    (&a_z, o, r, &wtp, n),
+                    &b_z,
+                    &mut b_u,
+                    p,
+                    true,
+                    sb,
+                )
+            });
+            let ra = side_step(
+                &mut a_side,
+                (&b_z, n, r, &wp, o),
+                &a_z,
+                &mut a_u,
+                p,
+                false,
+                sa,
+            );
             (ra, hb.join())
         });
-        a_ls = ra?;
-        b_ls = rb.unwrap_or_else(|p| std::panic::resume_unwind(p))?;
-        let ta: Vec<f64> = a_ls.iter().zip(&a_u).map(|(x, u)| x + u).collect();
-        let tb: Vec<f64> = b_ls.iter().zip(&b_u).map(|(x, u)| x + u).collect();
-        a_z = rank1_step(&mut a_side, &ta, (o, r), cfg.inner_iters, false, &mut rng)?;
-        b_z = rank1_step(&mut b_side, &tb, (n, r), cfg.inner_iters, true, &mut rng)?;
-        for (u, (l, z)) in a_u.iter_mut().zip(a_ls.iter().zip(&a_z)) {
-            *u += l - z;
-        }
-        for (u, (l, z)) in b_u.iter_mut().zip(b_ls.iter().zip(&b_z)) {
-            *u += l - z;
-        }
+        let (xa, za) = ra?;
+        let (xb, zb) = rb.unwrap_or_else(|p| std::panic::resume_unwind(p))?;
+        (a_ls, b_ls) = (xa, xb);
+        (a_z, b_z) = (za?, zb?);
     }
     let admm_loss = admm_loss(&wn, &a_z, &b_z, o, n, r)?;
     let a_lat: Vec<f64> = a_ls.iter().zip(&a_u).map(|(x, u)| x + u).collect();

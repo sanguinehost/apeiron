@@ -180,4 +180,31 @@ theorem xPairOverlap_fit :
     xPairSerial - xPairSaved - max xPairHost xPairDevice = 125_200 := by
   decide
 
+/-! ## Each side's whole step on its own thread (P114)
+
+At `4be01388` the two `rank1`s, `T = X + U` and the duals ran after the `x` pair joined. Each side's
+`rank1`, `T` and dual read only its own `X` and `U`, so `factorize` runs the whole side step on the
+side's thread, with both `rank1` starts drawn first in the serial order. Measured split per call at
+`4be01388` (`w6-r1split.txt`): `x_A` 31.76 ms and `x_B` 26.54 ms (their inverses contend: 14.72 and
+15.22 ms against 10.21 alone), `rank1` A 9.99 ms, `rank1` B 4.28 ms. `T` 2.84 ms and the duals
+2.45 ms split by element count, `B`'s share `n/(o + n)` = 1024/4608. With `A`'s chain the longer one, the
+iteration saves at most the work moved off it, `B`'s `rank1`, `T` and dual. Units: tenths of a
+microsecond. -/
+
+/-- `B`'s `rank1` per call: 0.30 staging + 3.59 device + 0.39 readback ms. Grade `measured`. -/
+def sideRank1B : Nat := 3_000 + 35_900 + 3_900
+
+/-- `B`'s share of `T` and the duals, (2.84 + 2.45) ms · 1024/4608. Grade `model`. -/
+def sideHostB : Nat := (28_400 + 24_500) * 1024 / 4608
+
+/-- Measured saving per iteration: ADMM 5.67 → 5.20 s (means of 3 interleaved runs) over 100. -/
+def sideSaved : Nat := 46_700
+
+/-- The saving is under the 5.46 ms of work moved off `A`'s chain; the 0.79 ms it falls short is the
+two chains' contention for the device and the pool. -/
+theorem sideStep_fit :
+    sideRank1B + sideHostB = 54_555 ∧ sideSaved ≤ sideRank1B + sideHostB ∧
+    sideRank1B + sideHostB - sideSaved = 7_855 := by
+  decide
+
 end Perf.LimbDevice

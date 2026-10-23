@@ -306,6 +306,17 @@ split per iteration at `629767bc`: `x_A` 22.20, `x_B` 18.41, `rank1` A 10.09, B 
 `Z_A`) differs in 28 179 933 of 31 887 392 bytes. The pair now takes 12.52 ms more than its 20.42 ms
 host total (grade `model`).
 
+T8 runs each side's whole step on its own thread (P114): `X`, `T = X + U`, `rank1` and the dual read
+only that side's `X` and `U` and the previous `Z`s, and both `rank1` starts are drawn first in the
+serial order. Split per call at `4be01388`: `x_A` 31.76 and `x_B` 26.54 ms (their two inverses contend
+in the pool, 14.72 and 15.22 ms against 10.21 alone), `rank1` A 9.99 ms (8.05 on the device), B
+4.28 ms. `A`'s chain stays the longer one, so the iteration saves at most `B`'s moved work, 5.46 ms
+(`Perf.LimbDevice.sideStep_fit`, grade `model`). ADMM falls from 5.67 to 5.20 s per 100 iterations
+(0.917×), 4.67 ms per iteration; the saved factor is byte-identical, and the control (starts drawn `B`
+first) differs in 28 079 495 of 31 887 392 bytes. The host stages and reads back about 9.8 ms of
+iterate per iteration and holds the two contending inverses; the next costs are those, and the
+inverses' contention.
+
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 
