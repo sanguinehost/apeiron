@@ -174,7 +174,7 @@ order 32 (order 768: 12.2 ms against 17.4 at 192; residual at order 300 7.7e-6 a
 (the reference's `outer_iters`), seeds 2 and 0: fit 61.3 s per tensor, `admm_loss` 0.10344 / 0.10341
 against 0.16484 at 20; after the same 128-step tune (s = 256) relH 0.02478 / 0.02471 against 0.03321
 (−25%), best 0.01377 / 0.01370 against 0.01721, 16 358 / 15 569 flips against 50 042; `i400.log`; verdict
-`Learn.NanoQuant.admm_iters_l23_down`. 400 iterations stay. Tune: 0.39 s per step at r = 896 (403.9 s for 1024); sketched,
+`Learn.NanoQuant.admm_iters_l23_down`. Iteration curve, seed 0, same 128-step tune: 50 / 100 / 200 / 400 iterations give relH 0.02787 / 0.02622 / 0.02521 / 0.02471 at fit 7.9 / 15.5 / 30.9 / 61.3 s (`icurve.log`). 1024 further tune steps (34.4 s) from the 100-iteration factor reach 0.02157 (× Q4_K_M 142.9) at 49.9 s total; from the 400-iteration factor 0.02039 (× 135.1) at 95.4 s (`budget.log`). Past 100 iterations a second of tune cuts relH 4.1× more than a second of ADMM; verdict `Learn.NanoQuant.admm_budget_l23_down`, control `mut-budget.log`. The fit runs 100 iterations and spends the wall on tune steps. Tune: 0.39 s per step at r = 896 (403.9 s for 1024); sketched,
 110 s for 1024 at 1024×3584. Sketched at r = 768, s = 256, 128 steps from the `b32` factor (sketch
 included): 10.0/9.9/9.8 s → 7.1/7.1/7.1 s (1.39×) with packed Adam moments, parallel sign and real maps,
 and transposes on words instead of reals; the trace is bit-identical (relH 0.04919 → 0.03321, best
@@ -191,7 +191,7 @@ rows ([`col_grads`], 4.5 → 2.97 ms): 5.25/5.23/5.27 s → 4.79/4.80/4.77 s (1.
 `col_grads` turns `full_width_sketch_tune_matches_the_full_tune` red (`mut-colgrads.log`); verdict
 `Learn.NanoQuant.tune_colgrads_l23_down`. Remaining per step (≈ 37 ms): `P` 8.2, `A·Qᵀ` 7.1, `col_grads` 3.0,
 `∂U` 2.4, `A` 2.45, Adam 2.4, `sign(V)·diag(sq)` 2.15, `U·P` 1.8. Per tensor at 400 iterations the ADMM
-(61.3 s) is the dominant term; 128 tune steps are 4.8 s. Logs `/home/socol/oc-tmp/escalation/lead-1023/nq/`
+(61.3 s) is the dominant term; 128 tune steps are 4.8 s; at 100 iterations ADMM is 15.5 s against 34.4 s for 1024 steps. Logs `/home/socol/oc-tmp/escalation/lead-1023/nq/`
 `b32c.log`, `seed-mixed.log`, `invsmall.log`, `invres.log`, control `invmut.log`; board `APEIRON-QUALITY-118-W1-T01`.
 
 ### Same-model comparison (Qwen3-0.6B-Base, wikitext2 test, 146 × 2048 tokens, grade measured)

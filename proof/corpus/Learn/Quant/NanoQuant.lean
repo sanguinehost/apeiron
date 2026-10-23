@@ -332,6 +332,33 @@ theorem admm_iters_l23_down :
     (∀ a ∈ iters400Wall, ∀ b ∈ iters20Wall, 18 * b < a) := by
   decide
 
+/-- Final `relH` (`10⁻⁵`) after the 128-step sketched tune (s = 256), seed 0, blk.23 `ffn_down`, r = 768,
+at 50, 100, 200 and 400 ADMM iterations (`icurve.log`, `i400.log`).
+`List` [a finite sequence of things, in order]. -/
+def iterCurveFinal : List Nat := [2787, 2622, 2521, 2471]
+/-- ADMM fit wall, tenths of a second, at the same 50, 100, 200, 400 iterations.
+`List` [a finite sequence of things, in order]. -/
+def iterCurveWall : List Nat := [79, 155, 309, 613]
+/-- Final `relH` (`10⁻⁵`) after 1024 further sketched tune steps from the 100- and the 400-iteration
+factors (`budget.log`). `List` [a finite sequence of things, in order]. -/
+def budgetFinal : List Nat := [2157, 2039]
+/-- Tune wall for those 1024 steps, tenths of a second (`budget.log`).
+`List` [a finite sequence of things, in order]. Board: APEIRON-QUALITY-118-W1-T01. -/
+def budgetTuneWall : List Nat := [344, 341]
+
+/-- **Past 100 ADMM iterations, tune steps buy `relH` over 4× faster per second than iterations**: the
+final `relH` falls at every step of the 50/100/200/400 curve; 1024 tune steps from the 100-iteration
+factor cut `relH` 0.02622 → 0.02157 in 34.4 s, while iterations 100 → 400 cut it 0.02622 → 0.02471 in
+45.8 s, and the rate ratio `(465/344)/(151/458)` exceeds 4; after the same 1024 steps the 400-iteration
+factor ends only 0.00118 lower, under the 0.00151 that the extra iterations bought before the tune.
+`∀` [for every]; `∧` [both are true]; `<` [is smaller than]. -/
+theorem admm_budget_l23_down :
+    (iterCurveFinal.zip iterCurveFinal.tail).all (fun p => p.2 < p.1) = true ∧
+    4 * (iterCurveFinal[1]! - iterCurveFinal[3]!) * budgetTuneWall[0]! <
+      (iterCurveFinal[1]! - budgetFinal[0]!) * (iterCurveWall[3]! - iterCurveWall[1]!) ∧
+    budgetFinal[0]! - budgetFinal[1]! < iterCurveFinal[1]! - iterCurveFinal[3]! := by
+  decide
+
 end NanoQuant
 
 end Learn
