@@ -399,6 +399,13 @@ from 44–67). The fit falls from 1.576 to 1.532 s (8 interleaved pairs, 7 faste
 +138 ms outlier), factor byte-identical in all 16. Control: the final flush dropped (`blk < blk1`),
 four device tests red (`Perf.LimbDevice.segRun_fit`).
 
+T18 (resident ADMM tail) is a loss and is not installed: on 1.70–1.74 s against off 1.49–1.51 s, five
+interleaved pairs, factor sha `ce1a2b76f09c622b` in all ten (`/home/socol/oc-tmp/escalation/lead-1023/nq/t18-ab.log`).
+Attribution (`attr18.log`): the loop is 1.09 s of a 1.49 s fit; its products run at 58–86 int8 TOPS.
+
+The held-out instrument (`src/learn/fold/stats/heldout.rs`) scores a chunk's student columns with one
+`lm_head_cols` call (APEIRON-QUALITY-118-W1-T01); `learn_fold_heldout` 11 passed, 3 ignored.
+
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 

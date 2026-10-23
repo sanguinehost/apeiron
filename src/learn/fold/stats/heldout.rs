@@ -617,8 +617,8 @@ fn base_term(u: i128) -> Result<i64, HeldOutError> {
 /// Score one chunk of a llama.cpp `--kl-divergence-base` file against the student engine.
 ///
 /// The chunk's tokens are prefilled on the engine's [`KernelMode::Q8Act`] path; each scored position
-/// — `n_ctx/2 .. n_ctx − 2`, the rows llama.cpp writes — takes its logits from
-/// [`Engine::lm_head_fixed`] and is scored by [`score_base_row`] against the stored row at the same
+/// — `n_ctx/2 .. n_ctx − 2`, the rows llama.cpp writes — takes its logits from one
+/// [`Engine::lm_head_cols`] call over all scored states under [`KernelMode::Q8Act`] and is scored by [`score_base_row`] against the stored row at the same
 /// index, whose target token is the chunk token one position later. The base `log p` values are
 /// decoded to one Q32.32 word each here, the input boundary.
 ///
@@ -630,8 +630,9 @@ fn base_term(u: i128) -> Result<i64, HeldOutError> {
 ///
 /// # Complexity
 /// Time `O(cost(prefill) + rows·(cost(head) + n_vocab))`: one `Q8Act` prefill of `n_ctx` columns,
-/// then `rows` heads of `O(vocab·n_embd)` multiply-adds and one `O(n_vocab)` scoring pass per row.
-/// Space `O(n_ctx·n_embd)` for the states and KV cache, `O(vocab)` per head row, `O(1)` more.
+/// then one multi-column head of `O(rows·vocab·n_embd)` multiply-adds that reads the head payload
+/// once, and one `O(n_vocab)` scoring pass per row. Space `O(n_ctx·n_embd)` for the states and KV
+/// cache, `O(rows·vocab)` logit words.
 pub fn held_out_kldbase_chunk(
     student: &Engine,
     chunk: &KldChunk,
@@ -677,13 +678,13 @@ pub fn held_out_kldbase_chunk(
     }
     let (mut kl, mut nll_s, mut nll_b, mut top1) = (0i128, 0i128, 0i128, 0u64);
     let mut lp = vec![0i64; v];
-    for r in 0..rows {
-        let x = states
-            .get(first + r)
-            .ok_or_else(|| HeldOutError::Shape(format!("state {r} past prefill")))?;
-        let z = student
-            .lm_head_fixed(x)
-            .map_err(|e| HeldOutError::Engine(format!("head: {e:?}")))?;
+    let scored = states
+        .get(first..first + rows)
+        .ok_or_else(|| HeldOutError::Shape(format!("{rows} scored states past prefill")))?;
+    let heads = student
+        .lm_head_cols(scored, KernelMode::Q8Act)
+        .map_err(|e| HeldOutError::Engine(format!("head: {e:?}")))?;
+    for (r, z) in heads.iter().enumerate() {
         if z.len() != v {
             return Err(HeldOutError::Shape(format!(
                 "logits {} != vocab {v}",
