@@ -1,0 +1,294 @@
+#version 450
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+// The backward of `attn_map.comp`, the gated softmax attention mixer of one layer over whole
+// chunks, in FlashAttention-2 form (Dao, arXiv 2307.08691, Algorithm 2): the softmax probabilities
+// are recomputed from the stored log-sum-exp, so no `[head][query][key]` score or probability array
+// is materialised. Consumer: `src/gpu/nn/train/attn_bwd.rs`, which owns the contract; the reference
+// is its f64 forward and adjoint under `#[cfg(test)]`.
+//
+//   mode 0 (dq), one workgroup per (chunk, head, query i): recompute the causal scores s_ij and the
+//          softmax of the row (as `attn_map` mode 1), store lse_i = max + ln Σ, the value mix A_i
+//          and D_i = dA_i·A_i, write the gate half of dqf (= dgate), then the score gradient
+//          dS_ij = P_ij·(dP_ij − D_i) and dq_rot_i = scale·Σ_{j≤i} dS_ij·k_j.
+//   mode 1 (dk/dv), one workgroup per (chunk, kv head g, key j): recompute s_ij and dP_ij, then
+//          dk_rot_j = scale·Σ_{h∈g} Σ_{i≥j} dS_ij·q_i and dv_j = Σ_{h∈g} Σ_{i≥j} P_ij·dA_i, summing
+//          the query heads ascending then i ascending, one fixed order per output.
+//   mode 2 (prep adjoint), one workgroup per (row, slot): the rope transpose
+//          (dy_lo = d_lo·cos + d_hi·sin, dy_hi = d_hi·cos − d_lo·sin) then the RMS-normalisation
+//          backward with its gain, dx_e = r·(g_e·dy_e − x̂_e·(1/HD)·Σ_f g_f·dy_f·x̂_f), into the q
+//          half of dqf or into dkf. The norm gains are frozen: no gain gradient.
+// Bindings: 1 qf [T][NH·2·HD], 2 kf [T][NKV·HD], 3 gains [2·HD], 4 q [T][NH·HD],
+// 5 gate [T][NH·HD], 6 k [T][NKV·HD], 7 v [T][NKV·HD], 8 dy [T][NH·HD], 9 lse [T·NH],
+// 10 dsum [T·NH], 11 da [T][NH·HD], 12 dq_rot [T][NH·HD], 13 dk_rot [T][NKV·HD],
+// 14 dqf [T][NH·2·HD], 15 dkf [T][NKV·HD], 16 dv [T][NKV·HD].
+layout(local_size_x = 256) in;
+
+// META: [mode, n_ctx, NH, NKV, HD, ROT, theta bits, eps bits, workgroups]; the grid is folded
+// into x < 65535 and y.
+layout(std430, binding = 0) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 1) readonly buffer Qf { float qf[]; };
+layout(std430, binding = 2) readonly buffer Kf { float kf[]; };
+layout(std430, binding = 3) readonly buffer Gains { float gains[]; };
+layout(std430, binding = 4) readonly buffer Q { float q[]; };
+layout(std430, binding = 5) readonly buffer Gate { float gate[]; };
+layout(std430, binding = 6) readonly buffer K { float k[]; };
+layout(std430, binding = 7) readonly buffer Vv { float v[]; };
+layout(std430, binding = 8) readonly buffer Dy { float dy[]; };
+layout(std430, binding = 9) buffer Lse { float lse[]; };
+layout(std430, binding = 10) buffer Dsum { float dsum[]; };
+layout(std430, binding = 11) buffer Da { float da[]; };
+layout(std430, binding = 12) buffer Dqrot { float dq_rot[]; };
+layout(std430, binding = 13) buffer Dkrot { float dk_rot[]; };
+layout(std430, binding = 14) buffer Dqf { float dqf[]; };
+layout(std430, binding = 15) buffer Dkf { float dkf[]; };
+layout(std430, binding = 16) buffer Dvv { float dv[]; };
+
+shared float xh[256];
+shared float dh[256];
+shared float ah[256];
+shared float sc[1024];
+shared float sp[1024];
+shared float red[64];
+shared float red2[64];
+
+void main() {
+    uint mode = meta[0];
+    uint n_ctx = meta[1];
+    uint NH = meta[2];
+    uint NKV = meta[3];
+    uint HD = meta[4];
+    uint ROT = meta[5];
+    float theta = uintBitsToFloat(meta[6]);
+    float eps = uintBitsToFloat(meta[7]);
+    uint lid = gl_LocalInvocationID.x;
+    uint wg = gl_WorkGroupID.y * 65535u + gl_WorkGroupID.x;
+    if (wg >= meta[8]) {
+        return;
+    }
+    uint sg = gl_SubgroupSize;
+    uint lane = gl_SubgroupInvocationID;
+    uint grp = gl_SubgroupID;
+    uint ng = gl_NumSubgroups;
+    float fscale = inversesqrt(float(HD));
+    uint half_rot = ROT / 2u;
+    if (mode == 0u) {
+        // One (chunk, head, query i): lse, dA, D, the gate half of dqf, then dS and dq_rot.
+        uint i = wg % n_ctx;
+        uint hc = wg / n_ctx;
+        uint h = hc % NH;
+        uint chunk = hc / NH;
+        uint g = h / (NH / NKV);
+        uint base = chunk * n_ctx;
+        uint row = base + i;
+        if (lid < HD) {
+            xh[lid] = q[(row * NH + h) * HD + lid];
+        }
+        barrier();
+        float mx = -3.0e38;
+        for (uint s = grp; s <= i; s += ng) {
+            uint kb = ((base + s) * NKV + g) * HD;
+            float part = 0.0;
+            for (uint e = lane; e < HD; e += sg) {
+                part += xh[e] * k[kb + e];
+            }
+            float dot = subgroupAdd(part) * fscale;
+            if (subgroupElect()) {
+                sc[s] = dot;
+            }
+            mx = max(mx, dot);
+        }
+        if (subgroupElect()) {
+            red[grp] = mx;
+        }
+        barrier();
+        float gmx = -3.0e38;
+        for (uint s = 0u; s < ng; s++) {
+            gmx = max(gmx, red[s]);
+        }
+        barrier();
+        float sum = 0.0;
+        for (uint s = lid; s <= i; s += 256u) {
+            float e = exp(sc[s] - gmx);
+            sc[s] = e;
+            sum += e;
+        }
+        float ssum = subgroupAdd(sum);
+        if (subgroupElect()) {
+            red[grp] = ssum;
+        }
+        barrier();
+        float tot = 0.0;
+        for (uint s = 0u; s < ng; s++) {
+            tot += red[s];
+        }
+        if (grp == 0u && lane == 0u) {
+            lse[row * NH + h] = gmx + log(tot);
+        }
+        float dpart = 0.0;
+        if (lid < HD) {
+            uint o = (row * NH + h) * HD + lid;
+            float gt = 1.0 / (1.0 + exp(-gate[o]));
+            float d = dy[o] * gt;
+            da[o] = d;
+            dh[lid] = d;
+            float acc = 0.0;
+            for (uint s = 0u; s <= i; s++) {
+                acc += sc[s] * v[((base + s) * NKV + g) * HD + lid];
+            }
+            ah[lid] = acc / tot;
+            dpart = d * ah[lid];
+            dqf[row * NH * 2u * HD + h * 2u * HD + HD + lid] = dy[o] * ah[lid] * gt * (1.0 - gt);
+        }
+        barrier();
+        float dloc = subgroupAdd(dpart);
+        if (subgroupElect()) {
+            red2[grp] = dloc;
+        }
+        barrier();
+        float dval = 0.0;
+        for (uint s = 0u; s < ng; s++) {
+            dval += red2[s];
+        }
+        if (grp == 0u && lane == 0u) {
+            dsum[row * NH + h] = dval;
+        }
+        // dP_ij = dA_i·v_j, one scalar per key of the row.
+        for (uint s = grp; s <= i; s += ng) {
+            uint kb = ((base + s) * NKV + g) * HD;
+            float part = 0.0;
+            for (uint e = lane; e < HD; e += sg) {
+                part += dh[e] * v[kb + e];
+            }
+            float dp = subgroupAdd(part);
+            if (subgroupElect()) {
+                sp[s] = dp;
+            }
+        }
+        barrier();
+        for (uint s = lid; s <= i; s += 256u) {
+            sc[s] = sc[s] / tot * (sp[s] - dval);
+        }
+        barrier();
+        if (lid < HD) {
+            float acc = 0.0;
+            for (uint s = 0u; s <= i; s++) {
+                acc += sc[s] * k[((base + s) * NKV + g) * HD + lid];
+            }
+            dq_rot[(row * NH + h) * HD + lid] = acc * fscale;
+        }
+        return;
+    }
+    if (mode == 1u) {
+        // One (chunk, kv head g, key j): dk_rot_j and dv_j over the query heads of g, h then i
+        // ascending.
+        uint j = wg % n_ctx;
+        uint gc = wg / n_ctx;
+        uint gg = gc % NKV;
+        uint chunk = gc / NKV;
+        uint base = chunk * n_ctx;
+        uint jrow = base + j;
+        uint jb = (jrow * NKV + gg) * HD;
+        uint rep = NH / NKV;
+        float kacc = 0.0;
+        float vacc = 0.0;
+        for (uint hh = 0u; hh < rep; hh++) {
+            uint h = gg * rep + hh;
+            for (uint i = j; i < n_ctx; i++) {
+                uint row = base + i;
+                uint qb = (row * NH + h) * HD;
+                // Every subgroup spans the whole head width, so its own sum is the complete dot
+                // and no cross-subgroup exchange (or barrier) is needed.
+                float ps = 0.0;
+                float pd = 0.0;
+                for (uint e = lane; e < HD; e += sg) {
+                    ps += q[qb + e] * k[jb + e];
+                    pd += da[qb + e] * v[jb + e];
+                }
+                float sd = subgroupAdd(ps) * fscale;
+                float dd = subgroupAdd(pd);
+                float p_ij = exp(sd - lse[row * NH + h]);
+                float ds_ij = p_ij * (dd - dsum[row * NH + h]);
+                if (lid < HD) {
+                    kacc += ds_ij * q[qb + lid];
+                    vacc += p_ij * da[qb + lid];
+                }
+            }
+        }
+        if (lid < HD) {
+            dk_rot[(jrow * NKV + gg) * HD + lid] = kacc * fscale;
+            dv[(jrow * NKV + gg) * HD + lid] = vacc;
+        }
+        return;
+    }
+    // mode 2: the prep adjoint of one (row, slot).
+    uint slots = NH + NKV;
+    uint row = wg / slots;
+    uint slot = wg % slots;
+    bool is_q = slot < NH;
+    uint goff = is_q ? 0u : HD;
+    float x = 0.0;
+    float dx = 0.0;
+    if (lid < HD) {
+        if (is_q) {
+            x = qf[row * NH * 2u * HD + slot * 2u * HD + lid];
+            dx = dq_rot[(row * NH + slot) * HD + lid];
+        } else {
+            x = kf[(row * NKV + slot - NH) * HD + lid];
+            dx = dk_rot[(row * NKV + slot - NH) * HD + lid];
+        }
+        dh[lid] = dx;
+    }
+    float ss = subgroupAdd(x * x);
+    if (subgroupElect()) {
+        red[grp] = ss;
+    }
+    barrier();
+    float tot = 0.0;
+    for (uint s = 0u; s < ng; s++) {
+        tot += red[s];
+    }
+    barrier();
+    float r = inversesqrt(tot / float(HD) + eps);
+    float dyv = 0.0;
+    if (lid < HD) {
+        ah[lid] = x * r;
+        // The rope transpose: the pre-rotation gradient of dims < ROT.
+        float dy_e = dh[lid];
+        if (lid < ROT) {
+            uint jj = lid % half_rot;
+            float pos = float(row % n_ctx);
+            float ang = pos * pow(theta, -2.0 * float(jj) / float(ROT));
+            float cs = cos(ang);
+            float sn = sin(ang);
+            if (lid < half_rot) {
+                dy_e = dh[lid] * cs + dh[lid + half_rot] * sn;
+            } else {
+                dy_e = dh[lid] * cs - dh[lid - half_rot] * sn;
+            }
+        }
+        dyv = dy_e * gains[goff + lid];
+        xh[lid] = dyv;
+    }
+    float part = 0.0;
+    if (lid < HD) {
+        part = xh[lid] * ah[lid];
+    }
+    float ploc = subgroupAdd(part);
+    if (subgroupElect()) {
+        red[grp] = ploc;
+    }
+    barrier();
+    float pd = 0.0;
+    for (uint s = 0u; s < ng; s++) {
+        pd += red[s];
+    }
+    if (lid < HD) {
+        float g = r * (dyv - ah[lid] * pd / float(HD));
+        if (is_q) {
+            dqf[row * NH * 2u * HD + slot * 2u * HD + lid] = g;
+        } else {
+            dkf[(row * NKV + slot - NH) * HD + lid] = g;
+        }
+    }
+}
