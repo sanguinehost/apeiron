@@ -1,0 +1,445 @@
+#version 450
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
+// The backward of the gated DeltaNet mixer of one affine layer over whole chunks; the twin of
+// `delta_scan.comp`. Consumer: `src/gpu/nn/train/mixer.rs`, which owns the contract and the f64
+// reference the device is checked against (`delta_bwd`).
+//
+// One workgroup per (chunk of `n_ctx` tokens, value head h), 512 lanes: lane 4·j + p owns row j of
+// the head's 128×128 state M, columns 32·p .. 32·p + 32. Head `h mod NK` serves value head h; the
+// state is zero at the chunk start, so the chunks are independent.
+//
+//   mode 0 (recompute): the forward of `delta_scan.comp` plus two stores — M_{t−1} for every token
+//          (the reverse pass's input) and the per-token vectors q̂, k̂, v, β, α, qs, ks.
+//          Binding 6 is the M store [T][NV][128·128], binding 7 the vector store [T][NV][388].
+//   mode 1 (reverse): the carry G = ∂L/∂M_t in registers, one token at a time. With M_til = α·M_{t−1},
+//          M_t = M_til + d·k̂ᵀ, u = o/r, r = √(mean(o²) + eps), y = u·gain·silu(z):
+//            do_n = dy·gain·silu(z);  do = (do_n − u·mean(u·do_n))/r;  dz = dy·u·gain·silu'(z);
+//            G += do·q̂ᵀ;  dq̂ = M_tᵀ·do;  dd = G·k̂;  dv = β·dd;  dβ = dd·(v − M_til·k̂);
+//            dk̂ = Gᵀ·d − β·M_tilᵀ·dd;  dM_til = G − β·dd·k̂ᵀ;  dα = ⟨dM_til, M_{t−1}⟩;  G ← α·dM_til.
+//          The norm inverses are dq_l = qs·(dq̂_l − 128·q̂_l·S_q) for q̂ = q/(max(‖q‖,eps)·√128) and
+//          dk_l = ks·(dk̂_l − k̂_l·S_k) for k̂ = k/max(‖k‖,eps), S_x = Σ x̂·dx̂ (a radial gradient gives
+//          zero). The conv inverse is a 3-deep tap sum read from the pre-conv input, ds = dc·silu'(s),
+//          dw_k += ds·x[t−3+k][ch] and dx[t−3+k][ch] += ds·w_k; the gate chain is
+//          db = dβ·β(1−β), dssm_a = dα·α·softplus(a+dt), d(a+dt) = dα·α·ssm_a·σ(a+dt).
+//   mode 2 (reduce): the parameter partials over every workgroup into dpar = [dssm_a | dt | gain] and
+//          dconv = [C][4]. One workgroup; `dqkv`'s q/k/v channels are assigned by mode 1.
+// Bindings: 1 qkv [T][C] pre-conv, 2 zba [T][V+2NV], 3 conv [C][4], 4 par [ssm_a NV | dt NV | gain
+// 128], 5 dy [T][V], 6 mst, 7 vec, 8 dqkv [T][C], 9 dzba [T][V+2NV], 10 p1 [wg][2], 11 p2 [wg][C·4],
+// 12 p3 [wg][128], 13 dpar [2NV | 128], 14 dconv [C][4].
+layout(local_size_x = 512) in;
+
+// META: [mode, n_ctx, C, KD, V, NV, eps bits, NK, workgroups]
+layout(std430, binding = 0) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 1) readonly buffer Qkv { float qkv[]; };
+layout(std430, binding = 2) readonly buffer Zba { float zba[]; };
+layout(std430, binding = 3) readonly buffer Conv { float cw[]; };
+layout(std430, binding = 4) readonly buffer Par { float par[]; };
+layout(std430, binding = 5) readonly buffer Dy { float dyv[]; };
+layout(std430, binding = 6) buffer Mst { float mst[]; };
+layout(std430, binding = 7) buffer Vec { float vsc[]; };
+layout(std430, binding = 8) buffer Dqkv { float dqkv[]; };
+layout(std430, binding = 9) buffer Dzba { float dzba[]; };
+layout(std430, binding = 10) buffer P1 { float p1[]; };
+layout(std430, binding = 11) buffer P2 { float p2[]; };
+layout(std430, binding = 12) buffer P3 { float p3[]; };
+layout(std430, binding = 13) buffer Dpar { float dpar[]; };
+layout(std430, binding = 14) buffer Dconv { float dconv[]; };
+
+const uint VSTRIDE = 388u;
+
+// q̂ and k̂ padded to 33 per 32-wide part so the four parts of a row fall in distinct banks.
+shared float sq[4u * 33u];
+shared float sk[4u * 33u];
+shared float sv[128];
+// 16 subgroups × 128 columns: the staged row sums of a 128×128ᵀ product.
+shared float sred[16u * 128u];
+shared float sscal[64];
+// The k̂ gradient at column c and the row scalar dd, routed to the lane that owns the channel.
+shared float skv[128];
+shared float smisc[128];
+
+float silu(float x) { return x / (1.0 + exp(-x)); }
+
+float sigm(float x) { return 1.0 / (1.0 + exp(-x)); }
+
+// Stage a sum over every lane; `blk_read` finishes it after `barrier()`.
+void blk_stage(float x) {
+    float s = subgroupAdd(x);
+    if (subgroupElect()) {
+        sscal[gl_SubgroupID] = s;
+    }
+}
+
+float blk_read(uint ngrp) {
+    float s = 0.0;
+    for (uint g = 0u; g < ngrp; g++) {
+        s += sscal[g];
+    }
+    return s;
+}
+
+float col_sum(uint c, uint ngrp) {
+    float s = 0.0;
+    for (uint g = 0u; g < ngrp; g++) {
+        s += sred[g * 128u + c];
+    }
+    return s;
+}
+
+void main() {
+    uint mode = meta[0];
+    uint n_ctx = meta[1];
+    uint C = meta[2];
+    uint KD = meta[3];
+    uint V = meta[4];
+    uint NV = meta[5];
+    float eps = uintBitsToFloat(meta[6]);
+    uint NK = meta[7];
+    uint wg = gl_WorkGroupID.x;
+    uint chunk = wg / NV;
+    uint h = wg % NV;
+    uint lid = gl_LocalInvocationID.x;
+    uint sg = gl_SubgroupSize;
+    uint ngrp = gl_NumSubgroups;
+    uint q_groups = 128u / sg;
+    uint j = lid >> 2;
+    uint p = lid & 3u;
+    uint off = p * 33u;
+    uint zw = V + 2u * NV;
+    uint g = h % NK;
+    float ssm_a = par[h];
+    float dt = par[NV + h];
+    // The channel this lane owns in the pre-conv input: q, k, then v.
+    uint ch = 0u;
+    if (lid < 128u) {
+        ch = g * 128u + lid;
+    } else if (lid < 256u) {
+        ch = KD + g * 128u + (lid - 128u);
+    } else if (lid < 384u) {
+        ch = 2u * KD + h * 128u + (lid - 256u);
+    }
+    bool conv_lane = lid < 384u;
+    float w0 = 0.0, w1 = 0.0, w2 = 0.0, w3 = 0.0;
+    if (conv_lane) {
+        w0 = cw[ch * 4u];
+        w1 = cw[ch * 4u + 1u];
+        w2 = cw[ch * 4u + 2u];
+        w3 = cw[ch * 4u + 3u];
+    }
+
+    // ---- mode 0: the forward recompute and the two stores -------------------------------------
+    if (mode == 0u) {
+        float m[32];
+        for (uint i = 0u; i < 32u; i++) {
+            m[i] = 0.0;
+        }
+        float x1 = 0.0, x2 = 0.0, x3 = 0.0;
+        for (uint t = 0u; t < n_ctx; t++) {
+            uint row = chunk * n_ctx + t;
+            float c = 0.0;
+            if (conv_lane) {
+                float x0 = qkv[row * C + ch];
+                float s = w0 * x3 + w1 * x2 + w2 * x1 + w3 * x0;
+                x3 = x2;
+                x2 = x1;
+                x1 = x0;
+                c = silu(s);
+                if (lid < 128u) {
+                    sq[(lid >> 5) * 33u + (lid & 31u)] = c;
+                } else if (lid < 256u) {
+                    uint e = lid - 128u;
+                    sk[(e >> 5) * 33u + (e & 31u)] = c;
+                } else {
+                    sv[lid - 256u] = c;
+                }
+            }
+            float ss = subgroupAdd(lid < 256u ? c * c : 0.0);
+            if (subgroupElect()) {
+                sscal[gl_SubgroupID] = ss;
+            }
+            barrier();
+            float nq = 0.0;
+            float nk = 0.0;
+            for (uint s2 = 0u; s2 < q_groups; s2++) {
+                nq += sscal[s2];
+                nk += sscal[q_groups + s2];
+            }
+            barrier();
+            float qs = inversesqrt(128.0) / max(sqrt(nq), eps);
+            float ks = 1.0 / max(sqrt(nk), eps);
+            float beta = sigm(zba[row * zw + V + h]);
+            float ar = zba[row * zw + V + NV + h] + dt;
+            float sp = ar > 20.0 ? ar : log(1.0 + exp(ar));
+            float alpha = exp(ssm_a * sp);
+            uint mb = (row * NV + h) * 16384u + j * 128u + p * 32u;
+            for (uint i = 0u; i < 32u; i++) {
+                mst[mb + i] = m[i];
+            }
+            float kd = 0.0;
+            for (uint i = 0u; i < 32u; i++) {
+                m[i] *= alpha;
+                kd += m[i] * sk[off + i];
+            }
+            kd += subgroupShuffleXor(kd, 1u);
+            kd += subgroupShuffleXor(kd, 2u);
+            float dd = (sv[j] - kd * ks) * beta * ks;
+            for (uint i = 0u; i < 32u; i++) {
+                m[i] += dd * sk[off + i];
+            }
+            uint vb = (row * NV + h) * VSTRIDE;
+            if (lid < 128u) {
+                vsc[vb + lid] = sq[(lid >> 5) * 33u + (lid & 31u)] * qs;
+            } else if (lid < 256u) {
+                uint e = lid - 128u;
+                vsc[vb + 128u + e] = sk[(e >> 5) * 33u + (e & 31u)] * ks;
+            } else if (lid < 384u) {
+                vsc[vb + 256u + (lid - 256u)] = sv[lid - 256u];
+            }
+            if (lid == 0u) {
+                vsc[vb + 384u] = beta;
+                vsc[vb + 385u] = alpha;
+                vsc[vb + 386u] = qs;
+                vsc[vb + 387u] = ks;
+            }
+        }
+        return;
+    }
+
+    // ---- mode 2: the parameter partials over every workgroup ----------------------------------
+    if (mode == 2u) {
+        if (wg != 0u) {
+            return;
+        }
+        uint nwg = meta[8];
+        if (lid >= NV && lid < NV + 128u) {
+            uint jj = lid - NV;
+            float a = 0.0;
+            for (uint w = 0u; w < nwg; w++) {
+                a += p3[w * 128u + jj];
+            }
+            dpar[2u * NV + jj] = a;
+        } else if (lid < NV) {
+            // The weight `h` sums the workgroups of head `h`, one per sequence.
+            float a = 0.0;
+            float b = 0.0;
+            for (uint w = lid; w < nwg; w += NV) {
+                a += p1[w * 2u];
+                b += p1[w * 2u + 1u];
+            }
+            dpar[lid] = a;
+            dpar[NV + lid] = b;
+        }
+        for (uint e = lid; e < C * 4u; e += 512u) {
+            float a = 0.0;
+            for (uint w = 0u; w < nwg; w++) {
+                a += p2[w * C * 4u + e];
+            }
+            dconv[e] = a;
+        }
+        return;
+    }
+
+    // ---- mode 1: the reverse pass --------------------------------------------------------------
+    float dw0 = 0.0, dw1 = 0.0, dw2 = 0.0, dw3 = 0.0;
+    float dssm = 0.0;
+    float ddtime = 0.0;
+    float dgain = 0.0;
+    float G[32];
+    float mt[32];
+    for (uint i = 0u; i < 32u; i++) {
+        G[i] = 0.0;
+        mt[i] = 0.0;
+    }
+    for (int ti = int(n_ctx) - 1; ti >= 0; ti--) {
+        uint t = uint(ti);
+        uint row = chunk * n_ctx + t;
+        uint vb = (row * NV + h) * VSTRIDE;
+        if (lid < 128u) {
+            sq[(lid >> 5) * 33u + (lid & 31u)] = vsc[vb + lid];
+        } else if (lid < 256u) {
+            uint e = lid - 128u;
+            sk[(e >> 5) * 33u + (e & 31u)] = vsc[vb + 128u + e];
+        } else if (lid < 384u) {
+            sv[lid - 256u] = vsc[vb + 256u + (lid - 256u)];
+        }
+        float beta = vsc[vb + 384u];
+        float alpha = vsc[vb + 385u];
+        float qs = vsc[vb + 386u];
+        float ks = vsc[vb + 387u];
+        uint mb = (row * NV + h) * 16384u + j * 128u + p * 32u;
+        for (uint i = 0u; i < 32u; i++) {
+            mt[i] = mst[mb + i];
+        }
+        barrier();
+        float vj = sv[j];
+        // M_til = α·M_{t−1}: the scan's row dot, the delta, then M_t's row dot.
+        float kd = 0.0;
+        for (uint i = 0u; i < 32u; i++) {
+            kd += (alpha * mt[i]) * sk[off + i];
+        }
+        kd += subgroupShuffleXor(kd, 1u);
+        kd += subgroupShuffleXor(kd, 2u);
+        float del = (vj - kd) * beta;
+        float od = 0.0;
+        for (uint i = 0u; i < 32u; i++) {
+            od += (alpha * mt[i] + del * sk[off + i]) * sq[off + i];
+        }
+        od += subgroupShuffleXor(od, 1u);
+        od += subgroupShuffleXor(od, 2u);
+        blk_stage(p == 0u ? od * od : 0.0);
+        barrier();
+        float msq = blk_read(ngrp);
+        barrier();
+        float r = sqrt(msq * (1.0 / 128.0) + eps);
+        float zn = zba[row * zw + h * 128u + j];
+        float szz = silu(zn);
+        float sgz = sigm(zn);
+        float dyj = dyv[row * V + h * 128u + j];
+        float gn = par[2u * NV + j];
+        float u = od / r;
+        float don = dyj * gn * szz;
+        dgain += dyj * u * szz;
+        if (p == 0u) {
+            dzba[row * zw + h * 128u + j] = dyj * u * gn * sgz * (1.0 + zn * (1.0 - sgz));
+        }
+        blk_stage(p == 0u ? u * don : 0.0);
+        barrier();
+        float m1 = blk_read(ngrp) * (1.0 / 128.0);
+        barrier();
+        float doj = (don - u * m1) / r;
+        for (uint i = 0u; i < 32u; i++) {
+            G[i] += doj * sq[off + i];
+        }
+        float dd = 0.0;
+        for (uint i = 0u; i < 32u; i++) {
+            dd += G[i] * sk[off + i];
+        }
+        dd += subgroupShuffleXor(dd, 1u);
+        dd += subgroupShuffleXor(dd, 2u);
+        if (p == 0u) {
+            smisc[j] = dd;
+        }
+        blk_stage(p == 0u ? (vj - kd) * dd : 0.0);
+        barrier();
+        float dbeta = blk_read(ngrp);
+        barrier();
+        if (lid == 0u) {
+            dzba[row * zw + V + h] = dbeta * beta * (1.0 - beta);
+        }
+        // dq̂ = M_tᵀ·do, reduced over the rows; lane c < 128 keeps column c.
+        for (uint i = 0u; i < 32u; i++) {
+            float v = (alpha * mt[i] + del * sk[off + i]) * doj;
+            for (uint s = 4u; s < sg; s <<= 1u) {
+                v += subgroupShuffleXor(v, s);
+            }
+            if ((lid % sg) < 4u) {
+                sred[(lid / sg) * 128u + p * 32u + i] = v;
+            }
+        }
+        barrier();
+        uint lc = lid & 127u;
+        float dqh = 0.0;
+        if (lid < 128u) {
+            dqh = col_sum(lid, ngrp);
+        }
+        barrier();
+        float qhl = sq[(lc >> 5) * 33u + (lc & 31u)];
+        blk_stage(lid < 128u ? qhl * dqh : 0.0);
+        barrier();
+        float sqd = blk_read(ngrp);
+        barrier();
+        float dch = 0.0;
+        if (lid < 128u) {
+            dch = qs * (dqh - 128.0 * qhl * sqd);
+        }
+        // dk̂ = Gᵀ·d − β·M_tilᵀ·dd, reduced over the rows.
+        for (uint i = 0u; i < 32u; i++) {
+            float v = G[i] * del - beta * alpha * mt[i] * dd;
+            for (uint s = 4u; s < sg; s <<= 1u) {
+                v += subgroupShuffleXor(v, s);
+            }
+            if ((lid % sg) < 4u) {
+                sred[(lid / sg) * 128u + p * 32u + i] = v;
+            }
+        }
+        barrier();
+        float dkv = 0.0;
+        if (lid < 128u) {
+            dkv = col_sum(lid, ngrp);
+            skv[lid] = dkv;
+        }
+        barrier();
+        float khl = sk[(lc >> 5) * 33u + (lc & 31u)];
+        blk_stage(lid < 128u ? khl * dkv : 0.0);
+        barrier();
+        float skd = blk_read(ngrp);
+        barrier();
+        if (lid >= 128u && lid < 256u) {
+            uint e = lid - 128u;
+            float khe = sk[(e >> 5) * 33u + (e & 31u)];
+            dch = ks * (skv[e] - khe * skd);
+        } else if (lid >= 256u && lid < 384u) {
+            dch = beta * smisc[lid - 256u];
+        }
+        // dM_til = G − β·dd·k̂ᵀ, dα = ⟨dM_til, M_{t−1}⟩, G ← α·dM_til.
+        float dacc = 0.0;
+        for (uint i = 0u; i < 32u; i++) {
+            float dmt = G[i] - beta * dd * sk[off + i];
+            dacc += dmt * mt[i];
+            G[i] = alpha * dmt;
+        }
+        blk_stage(dacc);
+        barrier();
+        float dalpha = blk_read(ngrp);
+        barrier();
+        float ar = zba[row * zw + V + NV + h] + dt;
+        float sp = ar > 20.0 ? ar : log(1.0 + exp(ar));
+        float dsp = dalpha * alpha * ssm_a;
+        dssm += dalpha * alpha * sp;
+        float dsum = dsp * (ar > 20.0 ? 1.0 : sigm(ar));
+        ddtime += dsum;
+        if (lid == 0u) {
+            dzba[row * zw + V + NV + h] = dsum;
+        }
+        // The conv inverse: s = Σ_k w[k]·x[t−3+k], ds = dc·silu'(s).
+        if (conv_lane) {
+            float xm0 = qkv[row * C + ch];
+            float xm1 = t >= 1u ? qkv[(row - 1u) * C + ch] : 0.0;
+            float xm2 = t >= 2u ? qkv[(row - 2u) * C + ch] : 0.0;
+            float xm3 = t >= 3u ? qkv[(row - 3u) * C + ch] : 0.0;
+            float sc = w0 * xm3 + w1 * xm2 + w2 * xm1 + w3 * xm0;
+            float sgs = sigm(sc);
+            float ds = dch * sgs * (1.0 + sc * (1.0 - sgs));
+            dw0 += ds * xm3;
+            dw1 += ds * xm2;
+            dw2 += ds * xm1;
+            dw3 += ds * xm0;
+            if (t >= 3u) {
+                dqkv[(row - 3u) * C + ch] += ds * w0;
+            }
+            if (t >= 2u) {
+                dqkv[(row - 2u) * C + ch] += ds * w1;
+            }
+            if (t >= 1u) {
+                dqkv[(row - 1u) * C + ch] += ds * w2;
+            }
+            dqkv[row * C + ch] += ds * w3;
+        }
+        barrier();
+    }
+    if (conv_lane) {
+        p2[wg * C * 4u + ch * 4u] = dw0;
+        p2[wg * C * 4u + ch * 4u + 1u] = dw1;
+        p2[wg * C * 4u + ch * 4u + 2u] = dw2;
+        p2[wg * C * 4u + ch * 4u + 3u] = dw3;
+    }
+    if (p == 0u) {
+        p3[wg * 128u + j] = dgain;
+    }
+    if (lid == 0u) {
+        p1[wg * 2u] = dssm;
+        p1[wg * 2u + 1u] = ddtime;
+    }
+}
