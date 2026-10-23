@@ -38,6 +38,9 @@ use crate::format::quant;
 #[path = "tap.rs"]
 pub(super) mod tap;
 
+#[path = "layer.rs"]
+mod layer;
+
 use tap::{
     Tap, STAGE_ATTN_OUT, STAGE_GATE, STAGE_H2, STAGE_HIDDEN_IN, STAGE_LN1_OUT, STAGE_LN2_OUT,
     STAGE_M, STAGE_OUT, STAGE_UP,

@@ -1,0 +1,80 @@
+#version 450
+// The elementwise and reduction maps of the device block fit, between the linear products of
+// `gpu::nn::train::block`. Consumer: `src/gpu/nn/train/block.rs`, which owns the contract.
+//
+// A factor weight is W[r·cols + c] = s_post[r]·M[r·cols + c]·s_pre[c], M = sign(U)·sign(V)ᵀ.
+//   mode 0  B[i] = A[i] < 0 ? −1 : +1                          (sign; 0 maps to +1)   total = n
+//   mode 1  B[r·cols + c] = A[r·cols + c]·C[r]·D[c]            (W from M; dM from dW)  total = rows·cols
+//   mode 2  C[r] = Σ_c A[r·cols + c]·B[r·cols + c]·D[c]         (ds_post), one workgroup per row
+//   mode 3  D[c] = Σ_r A[r·cols + c]·B[r·cols + c]·C[r]         (ds_pre), one invocation per column
+//   mode 4  C[i] = (A[i] − B[i])·scale                         (MSE gradient)          total = n
+//   mode 5  C[r] = Σ_c (A[r·cols + c] − B[r·cols + c])²         (loss rows), one workgroup per row
+layout(local_size_x = 256) in;
+
+// META: [mode, rows, cols, total, gx, scale bits].
+layout(std430, binding = 0) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 1) buffer A { float a[]; };
+layout(std430, binding = 2) buffer B { float b[]; };
+layout(std430, binding = 3) buffer C { float c[]; };
+layout(std430, binding = 4) buffer D { float d[]; };
+
+shared float part[256];
+
+void main() {
+    uint mode = meta[0];
+    uint rows = meta[1];
+    uint cols = meta[2];
+    uint total = meta[3];
+    uint gx = meta[4];
+    float scale = uintBitsToFloat(meta[5]);
+    uint lid = gl_LocalInvocationID.x;
+    uint wg = gl_WorkGroupID.y * gx + gl_WorkGroupID.x;
+    uint i = wg * 256u + lid;
+    if (mode == 2u || mode == 5u) {
+        uint r = wg;
+        if (r >= rows) {
+            return;
+        }
+        float s = 0.0;
+        for (uint k = lid; k < cols; k += 256u) {
+            uint ix = r * cols + k;
+            if (mode == 2u) {
+                s += a[ix] * b[ix] * d[k];
+            } else {
+                float e = a[ix] - b[ix];
+                s += e * e;
+            }
+        }
+        part[lid] = s;
+        barrier();
+        for (uint h = 128u; h > 0u; h >>= 1) {
+            if (lid < h) {
+                part[lid] += part[lid + h];
+            }
+            barrier();
+        }
+        if (lid == 0u) {
+            c[r] = part[0];
+        }
+        return;
+    }
+    if (i >= total) {
+        return;
+    }
+    if (mode == 0u) {
+        b[i] = a[i] < 0.0 ? -1.0 : 1.0;
+    } else if (mode == 1u) {
+        uint r = i / cols;
+        uint k = i - r * cols;
+        b[i] = a[i] * c[r] * d[k];
+    } else if (mode == 3u) {
+        float s = 0.0;
+        for (uint r = 0u; r < rows; r++) {
+            uint ix = r * cols + i;
+            s += a[ix] * b[ix] * c[r];
+        }
+        d[i] = s;
+    } else if (mode == 4u) {
+        c[i] = (a[i] - b[i]) * scale;
+    }
+}
