@@ -660,6 +660,7 @@ end HybridVerdict
 | base4 on clean calibration `-c6x29` (chunks 0..5, 11..39), chunks 8, 9 / 10 | `t21/kl-base4c-89.log` / `t21/kl-base4c-10.log` | `89711ca7d733fdb7` / `ae7842495d4c39b3` |
 | t14 on clean calibration `gate-c6x29+up-c6x29r+down-c6x29r+o-c6x29b`, chunks 8, 9 / 10 | `t22/kl-89.log` / `t22/kl-10.log` | `67abd67cb728fed7` / `83de84f77006d8ca` |
 | zero-bit `fold_fit` search sweep, `o` l23 on `-c6x29` | `t23/he.log` | `22beabf7320b71c6` |
+| icm ridge and damp extension, `o` l23 on `-c6x29` | `t24/he.log` | `80aaca7379383761` |
 | held-out energy, `o` arms / `down-x29` | `t18/he-o.log` / `t18/he-down-x29.log` | `9f7f3648a3a0cbed` / `62aa64aa70a1363f` |
 | SpQR masked refit on `up`, `gate` | commit `7619e8e9` body | — |
 | gated second-order metric on `up` | commit `8c0d7812` body | — |
@@ -975,6 +976,34 @@ theorem oFitCfg_regularisation :
     heOFitCfg.getD 0 0 < heOFitCfg.getD 6 0 ∧
     heOFitCfg.getD 0 0 < heOFitCfg.getD 8 0 ∧
     100 * heOFitCfg.getD 9 0 < 98 * heOFitCfg.getD 0 0 := by
+  decide
+
+/-- Held-out energy of `o` l23 on `-c6x29` (`1e-8`), second sweep, by arm: icm ridge 0.05, 0.3, 0.6, 1, 2;
+icm ridge 0.4 with damp 0.1, with damp 0.3. `List` [a finite sequence of things, in order]. -/
+def heOFitCfg2 : List Nat := [92169620, 96519970, 96519970, 96519970, 96519970, 103181300, 117966700]
+
+/-- **Above icm ridge 0.3 the fit is the `gptq_e8` candidate and the ridge drops out**: icm ridge 0.3, 0.6, 1
+and 2 return held-out energy equal to icm ridge 0.4's, digit for digit (every such fit is tagged `gptq`).
+`List` [a finite sequence of things, in order]. -/
+theorem oFitCfg_icm_plateau :
+    [1, 2, 3, 4].all (fun i => heOFitCfg2.getD i 0 == heOFitCfg.getD 5 0) = true := by
+  decide
+
+/-- **Below it the refit wins and a smaller icm ridge is better**: on the `refit0` branch held-out energy
+falls as the ridge falls, 0.2 → 0.1 → 0.05, and icm ridge 0.05 lands below 0.86× production and below the
+`gptq` plateau (board row APEIRON-QUALITY-118-W1-T01). `∧` [both are true]; `<` [is smaller than]. -/
+theorem oFitCfg_icm_low_wins :
+    heOFitCfg2.getD 0 0 < heOFitCfg.getD 4 0 ∧
+    heOFitCfg.getD 4 0 < heOFitCfg.getD 0 0 ∧
+    100 * heOFitCfg2.getD 0 0 < 86 * heOFitCfg.getD 0 0 ∧
+    heOFitCfg2.getD 0 0 < heOFitCfg.getD 5 0 := by
+  decide
+
+/-- **Damp does not stack on the `gptq` plateau**: icm ridge 0.4 with damp 0.1 is above icm ridge 0.4 alone,
+and with damp 0.3 it is above production. `∧` [both are true]; `<` [is smaller than]. -/
+theorem oFitCfg_damp_no_stack :
+    heOFitCfg.getD 5 0 < heOFitCfg2.getD 5 0 ∧
+    heOFitCfg.getD 0 0 < heOFitCfg2.getD 6 0 := by
   decide
 
 end GateCode
