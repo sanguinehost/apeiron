@@ -168,7 +168,7 @@ pub(crate) fn gemm_q32(
     }
     let pa = Plane::build(a, m, n, limbs)?;
     let pb = Plane::build(b, p, n, limbs)?;
-    pa.product_rows(&pb, 0, m, 0, p, n)
+    product(&pa, &pb)
 }
 
 /// The upper triangle of `A·Aᵀ`, mirrored: `C[i·m + j] = Σ_l a[i·n + l]·a[j·n + l]`, `C` is `m×m`.
@@ -193,6 +193,125 @@ pub(crate) fn gemm_q32(
 /// product — and spatial `O(m·n·limbs)` for the one limb plane plus `O(m·COLS)` accumulators.
 pub(crate) fn syrk_q32(a: &[i64], m: usize, n: usize, limbs: u32) -> Result<Vec<i64>, LimbError> {
     prepare(a, m, n, limbs)?.syrk()
+}
+
+/// [`gemm_q32`]'s operands as a device kernel reads them: the two limb planes, the kept pairs, the
+/// pair-group width and the product exponent of every `(pair, block)`.
+///
+/// [`gemm_q32`]'s value per pair group is `round_shift_32(Σ_{(pair, block) live} D·2^T)`, `D` the
+/// 32-lane digit dot of the pair's two limbs and `T = dw + sigma` the placement exponent; a dead
+/// block pair contributes 0. `T` depends on the block and on `s + t` only, never on the row.
+#[cfg(feature = "gpu")]
+pub(crate) struct DeviceOperands<'a> {
+    /// `[row][block][limb][lane]` digits of the first operand.
+    pub(crate) a_dig: &'a [i8],
+    /// `[row][block][limb][lane]` digits of the second operand.
+    pub(crate) b_dig: &'a [i8],
+    /// Rows of the first operand.
+    pub(crate) m: usize,
+    /// Rows of the second operand.
+    pub(crate) p: usize,
+    /// Blocks per row, `⌈n/32⌉`.
+    pub(crate) blocks: usize,
+    /// Limbs per block.
+    pub(crate) limbs: u32,
+    /// The kept pairs `(s, t)` in [`kept_pairs`] order.
+    pub(crate) pairs: Vec<(u32, u32)>,
+    /// Pairs per kernel call; the calls are consecutive runs of `pairs`.
+    pub(crate) group: usize,
+    /// `[pair][block]`: `Some(T)` for a live block pair, `None` below the placement floor.
+    pub(crate) exp: Vec<Option<i32>>,
+}
+
+/// The placement [`Plane::product_rows`] computes for the whole of `pa · pbᵀ`, with its refusals.
+///
+/// # Errors
+///
+/// `Shape` on mismatched planes, `Range` on a block pair past the placement.
+///
+/// # Complexity
+///
+/// `O(P·⌈n/32⌉)` placements; the planes are borrowed.
+#[cfg(feature = "gpu")]
+fn device_operands<'a>(pa: &'a Plane, pb: &'a Plane) -> Result<DeviceOperands<'a>, LimbError> {
+    if pa.n != pb.n || pa.limbs != pb.limbs {
+        return Err(LimbError::Shape);
+    }
+    let pairs = kept_pairs(pa.limbs);
+    let place = Layout::placement(pa, pb, &pairs)?;
+    let group = (MAX_INNER / pa.padded).max(1).min(pairs.len());
+    let exp = place
+        .iter()
+        .map(|pl| pl.live.then_some(pl.dw + pl.sigma))
+        .collect();
+    Ok(DeviceOperands {
+        a_dig: &pa.dig,
+        b_dig: &pb.dig,
+        m: pa.rows,
+        p: pb.rows,
+        blocks: pa.blocks,
+        limbs: pa.limbs,
+        pairs,
+        group,
+        exp,
+    })
+}
+
+/// The full product `pa · pbᵀ`: on the device ([`crate::gpu::limb::product`]) when it takes the
+/// call, else the CPU kernel. Both are bit-identical to [`Plane::product_rows`].
+///
+/// # Errors
+///
+/// As [`gemm_q32`].
+///
+/// # Complexity
+///
+/// As [`Plane::product_rows`] over all rows.
+fn product(pa: &Plane, pb: &Plane) -> Result<Vec<i64>, LimbError> {
+    #[cfg(feature = "gpu")]
+    if crate::gpu::limb::takes(pa.rows, pb.rows, pa.n) {
+        if let Some(c) = crate::gpu::limb::product(&device_operands(pa, pb)?)? {
+            return Ok(c);
+        }
+    }
+    pa.product_rows(pb, 0, pa.rows, 0, pb.rows, pa.n)
+}
+
+/// [`gemm_q32`] on the CPU kernel only, and its operands as the device reads them: the reference
+/// and the input of the device test.
+#[cfg(all(test, feature = "gpu"))]
+pub(crate) fn with_device_operands<R>(
+    a: &[i64],
+    m: usize,
+    b: &[i64],
+    p: usize,
+    n: usize,
+    limbs: u32,
+    f: impl FnOnce(&DeviceOperands<'_>) -> R,
+) -> Result<(Vec<i64>, R), LimbError> {
+    let pa = Plane::build(a, m, n, limbs)?;
+    let pb = Plane::build(b, p, n, limbs)?;
+    let cpu = pa.product_rows(&pb, 0, m, 0, p, n)?;
+    let r = f(&device_operands(&pa, &pb)?);
+    Ok((cpu, r))
+}
+
+/// One pair group's word from its accumulator `v = Σ D·2^{T − tmin}`: `round_shift_32(v·2^tmin)`
+/// as [`gemm_q32`]'s kernel call rounds it, `None` when the word leaves `i64` (its `Range`).
+///
+/// # Complexity
+///
+/// `O(1)`.
+#[cfg(feature = "gpu")]
+pub(crate) fn device_group_word(v: i64, tmin: u32) -> Option<i64> {
+    // tmin ≤ MAX_PAIR_EXP = 91: below 32 the shift is < 2^94 in i128; at or above it the product is
+    // a multiple of 2^32, the rounding is exact and the shift by tmin − 32 ≤ 59 is < 2^122.
+    let r = if tmin >= 32 {
+        i128::from(v) << (tmin - 32)
+    } else {
+        crate::engine::num::value::round_shift_32(i128::from(v) << tmin)
+    };
+    i64::try_from(r).ok()
 }
 
 /// A built limb plane whose rows are reused across several products.
@@ -241,7 +360,7 @@ impl Prepared {
             return Err(LimbError::Shape);
         }
         let pb = Plane::build(b, p, n, self.plane.limbs)?;
-        self.plane.product_rows(&pb, 0, self.plane.rows, 0, p, n)
+        product(&self.plane, &pb)
     }
 
     /// `a·aᵀ` on the prepared plane: [`syrk_q32`]'s body after its plane build.
@@ -257,6 +376,13 @@ impl Prepared {
         let plane = &self.plane;
         let m = plane.rows;
         let n = plane.n;
+        // The device computes the full square: `gemm_q32(a, a)` equals the mirrored triangle.
+        #[cfg(feature = "gpu")]
+        if crate::gpu::limb::takes(m, m, n) {
+            if let Some(c) = crate::gpu::limb::product(&device_operands(plane, plane)?)? {
+                return Ok(c);
+            }
+        }
         let mut c = vec![0i64; m.checked_mul(m).ok_or(LimbError::Shape)?];
         let mut j0 = 0usize;
         while j0 < m {

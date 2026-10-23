@@ -359,6 +359,58 @@ theorem admm_budget_l23_down :
     budgetFinal[0]! - budgetFinal[1]! < iterCurveFinal[1]! - iterCurveFinal[3]! := by
   decide
 
+/-- Entries that differ between the device limb product (`src/gpu/limb.rs`, int8 cooperative matrices,
+64-bit lo/hi accumulator, pooled host finish) and the CPU `product_rows`, at 1024×768×3584, 768×768×3584,
+768×128×3584, 1024×768×128, 1024×768×768, 768×768×1024, 256×256×1024 and 100×37×70, direct and routed
+through `gemm_q32` (`gfp.log`). `List` [a finite sequence of things, in order]. -/
+def limbDeviceDiff : List Nat := [0, 0, 0, 0, 0, 0, 0, 0]
+/-- `gemm_q32` wall at the ADMM `W·Z` shape 1024×768×3584, 34×33 limbs, hundredths of a millisecond:
+three CPU-only runs, then three routed runs (`gfp.log`). `List` [a finite sequence of things, in order]. -/
+def limbCpuWall : List Nat := [3671, 3021, 2827]
+/-- See `limbCpuWall`. `List` [a finite sequence of things, in order]. -/
+def limbRoutedWall : List Nat := [709, 669, 685]
+
+/-- **The device limb product is the CPU product, over 4× faster at the `W·Z` shape**: no entry differs at
+any of the eight shapes, every routed run is under a third of every CPU-only run, and the routed sum
+is under a quarter of the CPU sum (mean 31.73 → 6.88 ms).
+`∀` [for every]; `∈` [is one of the things in]; `∧` [both are true]; `<` [is smaller than]. -/
+theorem limb_device_route :
+    limbDeviceDiff.all (· = 0) = true ∧
+    (∀ a ∈ limbRoutedWall, ∀ b ∈ limbCpuWall, 3 * a < b) ∧
+    4 * limbRoutedWall.sum < limbCpuWall.sum := by
+  decide
+
+/-- `admm_loss` (`10⁻⁵`) of the 100-iteration fit, blk.23 `ffn_down`, r = 768, seed 0, in six interleaved
+runs, device on then off (`dfit2.log`). `List` [a finite sequence of things, in order]. -/
+def deviceFitLoss : List Nat := [11172, 11172, 11172, 11172, 11172, 11172]
+/-- Final `relH` (`10⁻⁵`) after the 128-step sketched tune (s = 128) in the same six runs.
+`List` [a finite sequence of things, in order]. -/
+def deviceFitFinal : List Nat := [2631, 2631, 2631, 2631, 2631, 2631]
+/-- ADMM wall, tenths of a second, device on (`APEIRON_LIMB_DEVICE=1`), three runs.
+`List` [a finite sequence of things, in order]. -/
+def deviceOnAdmm : List Nat := [122, 126, 126]
+/-- ADMM wall, tenths of a second, device off, three runs interleaved with `deviceOnAdmm`.
+`List` [a finite sequence of things, in order]. -/
+def deviceOffAdmm : List Nat := [157, 153, 153]
+/-- Tune wall for 128 steps, hundredths of a second, device on.
+`List` [a finite sequence of things, in order]. -/
+def deviceOnTune : List Nat := [287, 265, 270]
+/-- Tune wall for 128 steps, hundredths of a second, device off.
+`List` [a finite sequence of things, in order]. -/
+def deviceOffTune : List Nat := [315, 318, 317]
+
+/-- **Routing the limb products to the device leaves the fit unchanged and cuts its ADMM wall under
+0.83×**: the loss and the final `relH` are one value across all six runs, every device-on ADMM run is
+under 0.83× every device-off run (means 12.47 against 15.43 s, 0.808×), and every device-on tune is
+faster than every device-off tune (2.74 against 3.17 s).
+`∀` [for every]; `∈` [is one of the things in]; `∧` [both are true]; `<` [is smaller than]. -/
+theorem limb_device_fit_l23_down :
+    deviceFitLoss.all (· = deviceFitLoss[0]!) = true ∧
+    deviceFitFinal.all (· = deviceFitFinal[0]!) = true ∧
+    (∀ a ∈ deviceOnAdmm, ∀ b ∈ deviceOffAdmm, 100 * a < 83 * b) ∧
+    (∀ a ∈ deviceOnTune, ∀ b ∈ deviceOffTune, a < b) := by
+  decide
+
 end NanoQuant
 
 end Learn

@@ -194,6 +194,21 @@ rows ([`col_grads`], 4.5 → 2.97 ms): 5.25/5.23/5.27 s → 4.79/4.80/4.77 s (1.
 (61.3 s) is the dominant term; 128 tune steps are 4.8 s; at 100 iterations ADMM is 15.5 s against 34.4 s for 1024 steps. Logs `/home/socol/oc-tmp/escalation/lead-1023/nq/`
 `b32c.log`, `seed-mixed.log`, `invsmall.log`, `invres.log`, control `invmut.log`; board `APEIRON-QUALITY-118-W1-T01`.
 
+Device limb product ([`src/gpu/limb.rs`], feature `gpu`, routed inside `engine::kern::limb` by `product()` and
+`Prepared::syrk`; `APEIRON_LIMB_DEVICE=0` disables it): int8 M16N16K32 cooperative matrices, one 64-bit lo/hi
+accumulator per pair group, host bound check (out of range → CPU), host finish `round_shift_32` per group
+summed in `i128`, pooled across rows. Routed when `n ≥ 256` and `m·p·n ≥ 2²⁶`: at m·p = 1024·768 the routed
+wall is ≈ 0.89 ms + 2.1e-9 ms/MAC against 1.0e-8 ms/MAC on the CPU, break-even n ≈ 143 (n = 128 ties, 1.10
+against 1.07 ms, so it stays on the CPU). Wall per call, mean of 3 (CPU → routed): `W·Z` 1024×768×3584 31.73
+→ 6.88 ms (4.6×), Gram 768×768×3584 20.83 → 5.37 ms (3.9×), solve 1024×768×768 4.46 → 1.97 ms (2.3×), tune
+768×128×3584 3.55 → 2.40 ms (1.5×); 0 differing entries at all eight test shapes (`gfp.log`). Fit, 100
+iterations, 128-step tune (s = 128), three interleaved runs per arm: ADMM 15.43 → 12.47 s (0.808×), tune
+3.17 → 2.74 s (0.864×); `admm_loss` 0.11172, relH 0.02631, 19 161 flips identical in all six runs
+(`dfit2.log`). Control: the shift dropped from `limb_gemm.comp:93` makes 786 432 of 786 432 entries differ
+(`mut-limb.log`). Verdicts `Learn.NanoQuant.limb_device_route`, `Learn.NanoQuant.limb_device_fit_l23_down`.
+Remaining per iteration ≈ 125 ms: `rank1` (CPU prepares and one-column products), `spd_inverse` (order-384
+sub-products under `2²⁶`), the per-call plane build and upload of `W`, and the f64 maps.
+
 ### Same-model comparison (Qwen3-0.6B-Base, wikitext2 test, 146 × 2048 tokens, grade measured)
 
 Qwen3.5 is outside the reference's `get_decoder_layers` (`utils/utils.py:107`, as is `qwen2`), so the
@@ -214,9 +229,10 @@ the reference's whole-model rate is ≈ 5.05 b/w, while at 27B the embedding sha
 
 Reference wall: 113.6 s per block (116, 138, 100, 100 s on one RTX 5080, including the per-block ppl
 eval); 28 blocks = 53 min plus model KD, above the 600 s ceiling. ADMM is 0.56 s per tensor on the GPU;
-the tune epochs dominate. Our CPU path at 1024×3584 measures 61.3 s ADMM (400 iterations) plus 4.8 s per
+the tune epochs dominate. Our path at 1024×3584 measures 61.3 s ADMM (400 iterations, CPU) plus 4.8 s per
 128 sketched tune steps (≈ 38 s for 1024) per tensor (above): the dominant term is our ADMM per-iteration
-cost (≈ 153 ms, 110× the reference's GPU iteration), not the algorithm.
+cost (≈ 154 ms on the CPU, ≈ 125 ms with the device limb product; 89× the reference's 1.4 ms GPU
+iteration), not the algorithm.
 
 ### Wave map
 
