@@ -170,6 +170,29 @@ step at r = 896 (403.9 s for 1024), against the projected `o·n² + 3·o·n·r` 
 tensor; 28 tensors ≈ 4000 s, one kind (7 tensors) ≈ 1000–1200 s: both above the 600 s ceiling. Levers:
 iterations (150 it costs +7% relH), 2 limbs (K3: needs a measured metric), the GPU path.
 
+### Same-model comparison (Qwen3-0.6B-Base, wikitext2 test, 146 × 2048 tokens, grade measured)
+
+Qwen3.5 is outside the reference's `get_decoder_layers` (`utils/utils.py:107`, as is `qwen2`), so the
+shared model is `Qwen/Qwen3-0.6B-Base@da87bfb6`. Instrument: the reference's `evaluate_ppl` protocol
+plus KL(FP16‖arm) and top-1 agreement over the same 298 862 tokens. Receipts `/home/socol/oc-tmp/nq-ref/`
+`base.log`, `run3.log`; board `APEIRON-QUALITY-118-W1-T01`.
+
+| arm | linear b/w | ppl | × FP16 ppl | KL | top-1 |
+|---|---:|---:|---:|---:|---:|
+| FP16 | 16 | 12.660 | 1.000 | 0 | 1 |
+| Q4_K_M (llama.cpp, whole file 5.2446 b/w, 372.65 MiB) | 4.7750 | 13.750 | 1.086 | 0.0860 | 0.852 |
+| NanoQuant reference, 1.18 b/w, after block 0 only | 1.18 (1 of 28 blocks) | 14.997 | 1.185 | — | — |
+| same, after blocks 0–1 | 1.18 (2 of 28) | 13.819 | 1.092 | — | — |
+| same, after blocks 0–2 | 1.18 (3 of 28) | 16.995 | 1.342 | — | — |
+
+The tied embedding (151936 × 1024) stays FP16 in the reference; at 0.6B it is 26% of the parameters, so
+the reference's whole-model rate is ≈ 5.05 b/w, while at 27B the embedding share is small.
+
+Reference wall: 113.6 s per block (116, 138, 100, 100 s on one RTX 5080, including the per-block ppl
+eval); 28 blocks = 53 min plus model KD, above the 600 s ceiling. ADMM is 0.56 s per tensor on the GPU;
+the tune epochs dominate. Our CPU ADMM is 137–170 s per tensor (above), so our 196-tensor whole-model arm
+projects to ≈ 5–6 h: the dominant term is our ADMM and tune per-step cost, not the algorithm.
+
 ### Wave map
 
 | wave | task | files | gate |
