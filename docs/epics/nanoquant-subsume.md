@@ -389,6 +389,16 @@ interleaved runs per arm), factor byte-identical in all 6. `normals_match_sequen
 of both slot orders and the state after; control: the state advanced by `len` words instead of
 `2·len`, test red (`Perf.LimbDevice.rngPool_fit`).
 
+T17 runs the limb product segment-outer (`src/gpu/spirv/limb_gemm.comp`, P122). Each segment walks
+its blocks innermost; the int32 fragment accumulates across blocks of one shift and enters the
+64-bit accumulator only when the shift changes or the segment ends, so the per-block 64-bit
+read-modify-write of every fragment element is gone. A segment block adds at most 2^20 and at most
+512 blocks (`MAX_INNER / 32`) run in one fragment, under 2^29. Product time at the frame shapes falls
+14–34% (`A` `wz` 3584×768×1024 501 → 394 µs, `B` `gram` 768×768×3584 507 → 336 µs; 56–86 int8 TOPS
+from 44–67). The fit falls from 1.576 to 1.532 s (8 interleaved pairs, 7 faster by 43–122 ms, one
++138 ms outlier), factor byte-identical in all 16. Control: the final flush dropped (`blk < blk1`),
+four device tests red (`Perf.LimbDevice.segRun_fit`).
+
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 
