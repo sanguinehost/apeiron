@@ -451,6 +451,28 @@ theorem limb_device_place :
     placeDiff.all (· = 0) = true ∧ 0 < placeEdge ∧ 0 < placeMutDiff := by
   decide
 
+/-- Differing entries of the device finish (`limb_finish.comp`) against `gemm_q32` at 1024×768×3584,
+768×768×1024, 100×37×70, and against the host finish on the three synthetic cases that stay in `i64`
+(rounding at `Tmin` 0, 1, 17, 31; exact at 32, 50, 91; a sum that leaves `i64` and returns)
+(`finish.log`).
+`List` [a finite sequence of things, in order]. -/
+def finishDiff : List Nat := [0, 0, 0, 0, 0, 0]
+/-- Cases whose device range flag differs from the host's, of the eight (two set it on both). -/
+def finishFlagDiff : Nat := 0
+/-- Synthetic entries whose `v·2^Tmin` has the `2^31` bit set: the population the control moves. -/
+def finishRounded : Nat := 8092
+/-- Differing entries on the rounding case with the `2^31` constant dropped in a throwaway copy
+(`mut-finish.log`). The gemm shapes stay at 0 under it: their `Tmin` is at least 32. -/
+def finishMutDiff : Nat := 3745
+
+/-- The device finish equals the product at every tested case, its range flag equals the host's, the
+rounding bit is reached, and the dropped-constant control is seen.
+`∧` [both are true]; `<` [is smaller than]. -/
+theorem limb_device_finish :
+    finishDiff.all (· = 0) = true ∧ finishFlagDiff = 0 ∧ 0 < finishRounded ∧
+    0 < finishMutDiff := by
+  decide
+
 end NanoQuant
 
 end Learn

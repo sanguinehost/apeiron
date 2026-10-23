@@ -88,4 +88,19 @@ def placeBytes (segs blocks : Nat) : Nat := segs * blocks * (2 * 8 + 4)
 theorem placeBytes_fit : placeBytes 4 112 = 8_960 := by
   decide
 
+/-! ## The device finish (P109)
+
+`src/gpu/spirv/limb_finish.comp` reads the lo and hi `i32` planes of every pair group (`8·G` bytes per
+entry) and writes one `i64` (8 bytes) per entry of the `mp·pp` plane. It replaces the readback of the
+`2·G` planes and the pooled host finish. -/
+
+/-- Bytes moved by the device finish over a `plane`-entry product of `groups` pair groups.
+    Grade `model`. -/
+def finishBytes (plane groups : Nat) : Nat := plane * (8 * groups + 8)
+
+/-- At the fit frame (`W·Z`, `mp·pp = 1024·768`, two pair groups) the finish moves 18 874 368 bytes:
+    19.7 µs at 960 GB/s. -/
+theorem finishBytes_fit : finishBytes (1024 * 768) 2 = 18_874_368 := by
+  decide
+
 end Perf.LimbDevice
