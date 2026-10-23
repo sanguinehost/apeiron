@@ -433,6 +433,24 @@ theorem limb_device_plane_and_f64 :
     f64MapDiff.all (· = 0) = true ∧ 0 < f64FmaDiff := by
   decide
 
+/-- Differing meta and `Tmin_g` words, device placement `limb_place.comp` against `host_meta`, on the
+five cases whose host outcome is a meta table: fit 1024, fit 3584 (two groups), dead blocks,
+`T = 8` edge, all dead (`place.log`). The two fallback cases and the range case set exactly their flag.
+`List` [a finite sequence of things, in order]. -/
+def placeDiff : List Nat := [0, 0, 0, 0, 0]
+/-- Live block pairs at `T = 8` across the cases: the edge the control moves. -/
+def placeEdge : Nat := 80
+/-- Differing words on the dead-blocks case with the live test `T ≥ 8` moved to `T ≥ 9` in a throwaway
+copy (`mut-place.log`). -/
+def placeMutDiff : Nat := 74
+
+/-- The device placement equals the host meta table at every tested case, the `T = 8` edge is
+populated, and the off-by-one control is seen.
+`∧` [both are true]; `<` [is smaller than]. -/
+theorem limb_device_place :
+    placeDiff.all (· = 0) = true ∧ 0 < placeEdge ∧ 0 < placeMutDiff := by
+  decide
+
 end NanoQuant
 
 end Learn

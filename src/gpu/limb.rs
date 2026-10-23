@@ -218,13 +218,6 @@ impl LimbGemm {
     /// multiply-adds, `M`, `P'` the row counts padded to 64, plus `O(G·L·⌈n/32⌉·M·P')` 64-bit
     /// accumulates (one per level and block). Transfers: `(M + P')·n·limbs` bytes up,
     /// `8·G·M·P'` bytes down.
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_possible_wrap,
-        clippy::cast_sign_loss,
-        reason = "meta words are block, pair and row counts below 2^32 and exponent differences \
-                  in [0, 62]"
-    )]
     pub(crate) unsafe fn run(
         &mut self,
         vk: &Vk,
@@ -232,80 +225,12 @@ impl LimbGemm {
     ) -> Result<Option<Vec<i64>>, LimbError> {
         let (m, p) = (ops.m, ops.p);
         let blocks = ops.blocks;
-        let np = ops.pairs.len();
-        let ngroups = np.div_ceil(ops.group);
-        // Segments: the pairs of one group at one level, consecutive in kept-pair order.
-        let mut groups: Vec<(usize, usize)> = Vec::with_capacity(ngroups);
-        let mut segs: Vec<(usize, usize)> = Vec::new();
-        let mut g0 = 0usize;
-        while g0 < np {
-            let g1 = (g0 + ops.group).min(np);
-            let first = segs.len();
-            let mut q = g0;
-            while q < g1 {
-                let level = ops.pairs[q].0 + ops.pairs[q].1;
-                let mut e = q;
-                while e < g1 && ops.pairs[e].0 + ops.pairs[e].1 == level {
-                    e += 1;
-                }
-                segs.push((q, e - q));
-                q = e;
-            }
-            groups.push((first, segs.len()));
-            g0 = g1;
-        }
-        // Per group: the least live exponent, and the bound on the 64-bit accumulator.
-        let mut tmin = vec![0u32; ngroups];
-        let mut shift = vec![DEAD; segs.len() * blocks];
-        for (g, &(s0, s1)) in groups.iter().enumerate() {
-            let mut lo: Option<i32> = None;
-            for &(p0, _) in &segs[s0..s1] {
-                for blk in 0..blocks {
-                    if let Some(t) = ops.exp[p0 * blocks + blk] {
-                        lo = Some(lo.map_or(t, |x| x.min(t)));
-                    }
-                }
-            }
-            let Some(lo) = lo else { continue };
-            let mut bound: u128 = 0;
-            for (k, &(p0, pc)) in segs.iter().enumerate().take(s1).skip(s0) {
-                for blk in 0..blocks {
-                    if let Some(t) = ops.exp[p0 * blocks + blk] {
-                        let sh = (t - lo) as u32;
-                        if sh > 62 {
-                            return Ok(None);
-                        }
-                        bound += (pc as u128) << (DOT_BITS + sh);
-                        shift[k * blocks + blk] = sh;
-                    }
-                }
-            }
-            if bound >= 1u128 << 63 {
-                return Ok(None);
-            }
-            tmin[g] = lo as u32;
-        }
-        let mp = m.div_ceil(TILE) * TILE;
-        let pp = p.div_ceil(TILE) * TILE;
+        let Some((meta, tmin)) = host_meta(ops) else {
+            return Ok(None);
+        };
+        let ngroups = tmin.len();
+        let (mp, pp) = (m.div_ceil(TILE) * TILE, p.div_ceil(TILE) * TILE);
         let row_bytes = blocks * ops.limbs as usize * 32;
-        let off_groups = HEADER;
-        let off_segs = off_groups + 2 * groups.len();
-        let off_pairs = off_segs + 2 * segs.len();
-        let off_shift = off_pairs + 2 * np;
-        let mut meta: Vec<u32> = vec![
-            blocks as u32,
-            ops.limbs,
-            mp as u32,
-            pp as u32,
-            off_groups as u32,
-            off_segs as u32,
-            off_pairs as u32,
-            off_shift as u32,
-        ];
-        meta.extend(groups.iter().flat_map(|&(x, y)| [x as u32, y as u32]));
-        meta.extend(segs.iter().flat_map(|&(x, y)| [x as u32, y as u32]));
-        meta.extend(ops.pairs.iter().flat_map(|&(s, t)| [s, t]));
-        meta.extend_from_slice(&shift);
         let a_bytes = mp * row_bytes;
         let b_bytes = pp * row_bytes;
         let meta_bytes = meta.len() * 4;
@@ -427,6 +352,126 @@ impl LimbGemm {
         }
         self.bound.as_mut().expect("bound above")
     }
+}
+
+/// The pair groups and their segments: `ops.pairs` in consecutive runs of `group` pairs, each run
+/// split into its segments, the pairs of one level `s + t`. `groups[g]` is `g`'s segment range,
+/// `segs[k]` segment `k`'s first pair and pair count.
+///
+/// # Complexity
+///
+/// `O(P)` for `P` kept pairs.
+fn segments(pairs: &[(u32, u32)], group: usize) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+    let np = pairs.len();
+    let mut groups = Vec::with_capacity(np.div_ceil(group));
+    let mut segs = Vec::new();
+    let mut g0 = 0usize;
+    while g0 < np {
+        let g1 = (g0 + group).min(np);
+        let first = segs.len();
+        let mut q = g0;
+        while q < g1 {
+            let level = pairs[q].0 + pairs[q].1;
+            let mut e = q;
+            while e < g1 && pairs[e].0 + pairs[e].1 == level {
+                e += 1;
+            }
+            segs.push((q, e - q));
+            q = e;
+        }
+        groups.push((first, segs.len()));
+        g0 = g1;
+    }
+    (groups, segs)
+}
+
+/// The meta buffer `limb_gemm.comp` and `limb_place.comp` read, without its shift table:
+/// `[blocks, limbs, mp, pp, off_groups, off_segs, off_pairs, off_shift]`, the groups, the segments
+/// and the pairs. Every word depends on the shape and the pairs only, never on the operands.
+///
+/// # Complexity
+///
+/// `O(P)` words.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "meta words are block, pair and row counts below 2^32"
+)]
+fn meta_head(
+    pairs: &[(u32, u32)],
+    group: usize,
+    blocks: usize,
+    limbs: u32,
+    m: usize,
+    p: usize,
+) -> Vec<u32> {
+    let (groups, segs) = segments(pairs, group);
+    let off_groups = HEADER;
+    let off_segs = off_groups + 2 * groups.len();
+    let off_pairs = off_segs + 2 * segs.len();
+    let off_shift = off_pairs + 2 * pairs.len();
+    let mut meta: Vec<u32> = vec![
+        blocks as u32,
+        limbs,
+        (m.div_ceil(TILE) * TILE) as u32,
+        (p.div_ceil(TILE) * TILE) as u32,
+        off_groups as u32,
+        off_segs as u32,
+        off_pairs as u32,
+        off_shift as u32,
+    ];
+    meta.extend(groups.iter().flat_map(|&(x, y)| [x as u32, y as u32]));
+    meta.extend(segs.iter().flat_map(|&(x, y)| [x as u32, y as u32]));
+    meta.extend(pairs.iter().flat_map(|&(s, t)| [s, t]));
+    meta
+}
+
+/// The full meta buffer of `ops` (the head and the `[segment][block]` shift table, `T − Tmin_g` or
+/// [`DEAD`]) and `Tmin_g` per group (0 for a group with no live block pair); `None` when a group's
+/// 64-bit accumulator bound `Σ pc·2^{17 + sh} < 2^63` fails.
+///
+/// # Complexity
+///
+/// `O(P·⌈n/32⌉)`: two passes over the live table per group.
+#[allow(
+    clippy::cast_sign_loss,
+    reason = "a shift T − Tmin_g of a live T is non-negative, and Tmin_g ≥ MIN_PAIR_EXP"
+)]
+fn host_meta(ops: &DeviceOperands<'_>) -> Option<(Vec<u32>, Vec<u32>)> {
+    let blocks = ops.blocks;
+    let (groups, segs) = segments(&ops.pairs, ops.group);
+    let mut tmin = vec![0u32; groups.len()];
+    let mut shift = vec![DEAD; segs.len() * blocks];
+    for (g, &(s0, s1)) in groups.iter().enumerate() {
+        let mut lo: Option<i32> = None;
+        for &(p0, _) in &segs[s0..s1] {
+            for blk in 0..blocks {
+                if let Some(t) = ops.exp[p0 * blocks + blk] {
+                    lo = Some(lo.map_or(t, |x| x.min(t)));
+                }
+            }
+        }
+        let Some(lo) = lo else { continue };
+        let mut bound: u128 = 0;
+        for (k, &(p0, pc)) in segs.iter().enumerate().take(s1).skip(s0) {
+            for blk in 0..blocks {
+                if let Some(t) = ops.exp[p0 * blocks + blk] {
+                    let sh = (t - lo) as u32;
+                    if sh > 62 {
+                        return None;
+                    }
+                    bound += (pc as u128) << (DOT_BITS + sh);
+                    shift[k * blocks + blk] = sh;
+                }
+            }
+        }
+        if bound >= 1u128 << 63 {
+            return None;
+        }
+        tmin[g] = lo as u32;
+    }
+    let mut meta = meta_head(&ops.pairs, ops.group, blocks, ops.limbs, ops.m, ops.p);
+    meta.extend_from_slice(&shift);
+    Some((meta, tmin))
 }
 
 /// The command buffer of one shape: staging to device, the dispatch, device to readback.
@@ -624,6 +669,93 @@ mod plane {
     }
 }
 
+/// The device placement, the second stage of the device-resident ADMM iteration
+/// (`docs/epics/nanoquant-subsume.md`, W6).
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the resident x_update, W6 T4 in docs/epics/nanoquant-subsume.md"
+    )
+)]
+mod place {
+    use crate::gpu::vulkan::*;
+
+    /// The compiled placement.
+    pub(super) static LIMB_PLACE_SPV: &[u8] = include_bytes!("spirv/limb_place.spv");
+
+    /// [`super::host_meta`] on the device over fixed buffers: `ea`, `eb` hold the two planes'
+    /// `⌈n/32⌉` block exponents (as `limb_plane.comp` leaves them), `meta` the
+    /// [`super::meta_head`] words followed by room for the shift table, which the kernel writes;
+    /// `out` receives `[range, fallback, Tmin_g per group]`. `range` nonzero is
+    /// `Layout::placement`'s `Range`, `fallback` nonzero is `host_meta`'s `None`; with both clear,
+    /// the shift table and `Tmin` equal `host_meta`'s.
+    pub(crate) struct Place {
+        pipe: Handle,
+        layout: Handle,
+        dset: Handle,
+        out: Handle,
+        groups: u32,
+    }
+
+    impl Place {
+        /// The pipeline and descriptor set over the given buffers.
+        ///
+        /// # Safety
+        ///
+        /// `vk` is live; `ea`, `eb` hold `⌈n/32⌉` `u32`, `meta` the head of `groups` pair groups
+        /// and its shift table, `out` `2 + groups` `u32` and admits transfer writes.
+        ///
+        /// # Complexity
+        ///
+        /// One pipeline build.
+        pub(crate) unsafe fn new(vk: &Vk, [ea, eb, meta, out]: [Handle; 4], groups: u32) -> Self {
+            let (layout, dset) = vk.ssbo_set(&[ea, eb, meta, out]);
+            Self {
+                pipe: vk.pipeline(LIMB_PLACE_SPV, layout),
+                layout,
+                dset,
+                out,
+                groups,
+            }
+        }
+
+        /// Records the placement into `cb`: both flags ← 0, then one workgroup per pair group. The
+        /// caller orders the writes of `ea` and `eb` before it and its reads of `meta` and `out`
+        /// after it.
+        ///
+        /// # Safety
+        ///
+        /// `cb` is recording on the device `self` was built on.
+        ///
+        /// # Complexity
+        ///
+        /// One dispatch of `64·G` invocations; `O(segments·⌈n/32⌉ / 64)` entries each, twice.
+        pub(crate) unsafe fn record(&self, vk: &Vk, cb: CommandBuffer) {
+            (vk.fill_buffer)(cb, self.out, 0, 8, 0);
+            vk.barrier(
+                cb,
+                STAGE_TRANSFER,
+                STAGE_COMPUTE,
+                ACCESS_TRANSFER_WRITE,
+                ACCESS_SHADER_READ | ACCESS_SHADER_WRITE,
+            );
+            (vk.bind_pipe)(cb, PIPELINE_BIND_POINT_COMPUTE, self.pipe);
+            (vk.bind_sets)(
+                cb,
+                PIPELINE_BIND_POINT_COMPUTE,
+                self.layout,
+                0,
+                1,
+                &self.dset,
+                0,
+                std::ptr::null(),
+            );
+            (vk.dispatch)(cb, self.groups, 1, 1);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -768,6 +900,191 @@ mod tests {
             assert_eq!(dig_cpu.len(), dig_bytes);
             assert_eq!(diff, 0, "digits differ at {rows}x{n}");
         }
+    }
+
+    /// The committed placement SPIR-V is what `glslc` makes of the committed GLSL.
+    #[test]
+    fn place_spirv_is_the_glsl() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/spirv");
+        let out = std::env::temp_dir().join(format!("limb_place_{}.spv", std::process::id()));
+        let st = std::process::Command::new("glslc")
+            .args(GLSLC_ARGS)
+            .arg(dir.join("limb_place.comp"))
+            .arg("-o")
+            .arg(&out)
+            .status()
+            .expect("glslc must be on PATH: the committed SPIR-V is checked against it");
+        assert!(st.success(), "glslc failed: {st}");
+        let fresh = std::fs::read(&out).expect("glslc output");
+        let _ = std::fs::remove_file(&out);
+        assert!(
+            fresh == place::LIMB_PLACE_SPV,
+            "limb_place.spv is stale: re-run glslc"
+        );
+    }
+
+    /// `rows × n` words whose block `b` draws `bits(b)` bits: a fixed-seed LCG as [`words`].
+    fn block_words(rows: usize, n: usize, seed: u64, bits: impl Fn(usize) -> u32) -> Vec<i64> {
+        let mut s = seed;
+        (0..rows * n)
+            .map(|i| {
+                s = s
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                let b = bits((i % n) / 32);
+                let w = ((s >> 11) as i64 >> (53 - b.min(50) - 1)) - (1i64 << b.min(50));
+                w << b.saturating_sub(50)
+            })
+            .collect()
+    }
+
+    /// The device placement equals `host_meta` (every meta word and `Tmin_g`), its fallback flag
+    /// equals `host_meta`'s `None` (both of its causes: a shift past 62, and the bound at shifts in
+    /// 46..=62) and its range flag `Layout::placement`'s `Range`, at one and two pair groups, with
+    /// dead blocks, an all-dead operand pair and live entries at `T = 8`.
+    #[test]
+    fn place_matches_host_meta() {
+        let vk = match unsafe { Vk::load() } {
+            Ok(vk) => vk,
+            Err(e) => {
+                println!("SKIP: No Vulkan device present: {e}");
+                return;
+            }
+        };
+        type Bits = fn(usize) -> u32;
+        // (name, n, bits of a's blocks, bits of b's blocks, expected outcome).
+        let cases: [(&str, usize, Bits, Bits, &str); 8] = [
+            ("fit 1024", 1024, |_| 34, |_| 33, "meta"),
+            ("fit 3584, two groups", 3584, |_| 33, |_| 33, "meta"),
+            (
+                "dead blocks",
+                1024,
+                |b| if b % 3 == 0 { 2 } else { 20 + b as u32 % 11 },
+                |b| if b % 5 == 0 { 3 } else { 21 + b as u32 % 9 },
+                "meta",
+            ),
+            (
+                "T = 8 edge",
+                3584,
+                |b| 15 + b as u32 % 5,
+                |b| 15 + b as u32 % 4,
+                "meta",
+            ),
+            ("all dead", 1024, |_| 3, |_| 3, "meta"),
+            (
+                "shift past 62",
+                1024,
+                |b| if b % 2 == 0 { 12 } else { 45 },
+                |b| if b % 2 == 0 { 12 } else { 45 },
+                "fallback",
+            ),
+            (
+                "bound at shift 46..=62",
+                1024,
+                |b| if b % 2 == 0 { 20 } else { 45 },
+                |b| if b % 2 == 0 { 20 } else { 45 },
+                "fallback",
+            ),
+            ("range", 1024, |_| 56, |_| 56, "range"),
+        ];
+        let (m, p, limbs) = (40usize, 24usize, 3u32);
+        let mut edge = 0usize;
+        for (name, n, fa, fb, want) in cases {
+            let a = block_words(m, n, 0xa11 + n as u64, fa);
+            let b = block_words(p, n, 0xb22 + n as u64, fb);
+            let blocks = n.div_ceil(32);
+            let (ea, eb, pairs, group, exp) =
+                crate::engine::kern::limb::placement_parts(&a, m, &b, p, n, limbs).expect("planes");
+            // `host_meta` reads the shape, the pairs and the exponents only, never the digits.
+            let host = exp.map(|exp| {
+                edge += exp.iter().filter(|&&t| t == Some(8)).count();
+                host_meta(&DeviceOperands {
+                    a_dig: &[],
+                    b_dig: &[],
+                    m,
+                    p,
+                    blocks,
+                    limbs,
+                    pairs: pairs.clone(),
+                    group,
+                    exp,
+                })
+            });
+            let head = meta_head(&pairs, group, blocks, limbs, m, p);
+            let (groups, segs) = segments(&pairs, group);
+            let (ngroups, nsegs) = (groups.len(), segs.len());
+            let meta_words = head.len() + nsegs * blocks;
+            let (meta_dev, out_dev, dev_ms) = unsafe {
+                let host_mem = MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT;
+                let usage = BUFFER_USAGE_STORAGE | BUFFER_USAGE_TRANSFER_DST;
+                let (bea, mea) = vk.buffer(4 * blocks as u64, usage, host_mem).expect("ea");
+                let (beb, meb) = vk.buffer(4 * blocks as u64, usage, host_mem).expect("eb");
+                let (bm, mm) = vk
+                    .buffer(4 * meta_words as u64, usage, host_mem)
+                    .expect("meta");
+                let (bo, mo) = vk
+                    .buffer(4 * (2 + ngroups) as u64, usage, host_mem)
+                    .expect("out");
+                std::ptr::copy_nonoverlapping(ea.as_ptr(), vk.map(mea).cast(), blocks);
+                std::ptr::copy_nonoverlapping(eb.as_ptr(), vk.map(meb).cast(), blocks);
+                // The shift table and the outputs start as a pattern the kernel must overwrite.
+                let pm = vk.map(mm).cast::<u32>();
+                std::ptr::write_bytes(pm, 0xA5, meta_words);
+                std::ptr::copy_nonoverlapping(head.as_ptr(), pm, head.len());
+                std::ptr::write_bytes(vk.map(mo).cast::<u32>(), 0xA5, 2 + ngroups);
+                let pl = place::Place::new(&vk, [bea, beb, bm, bo], ngroups as u32);
+                let cb = vk.command_buffer();
+                vk.begin(cb);
+                pl.record(&vk, cb);
+                vk.barrier(
+                    cb,
+                    STAGE_COMPUTE,
+                    STAGE_HOST,
+                    ACCESS_SHADER_WRITE,
+                    ACCESS_HOST_READ,
+                );
+                check((vk.end_cb)(cb), "vkEndCommandBuffer");
+                let t1 = Instant::now();
+                vk.submit_wait(cb);
+                let dev_ms = t1.elapsed().as_secs_f64() * 1e3;
+                (
+                    std::slice::from_raw_parts(pm, meta_words).to_vec(),
+                    std::slice::from_raw_parts(vk.map(mo).cast::<u32>(), 2 + ngroups).to_vec(),
+                    dev_ms,
+                )
+            };
+            let (range, fallback) = (out_dev[0] != 0, out_dev[1] != 0);
+            let got = match &host {
+                Err(_) => "range",
+                Ok(None) => "fallback",
+                Ok(Some(_)) => "meta",
+            };
+            assert_eq!(got, want, "{name}: the host outcome is not the case's");
+            assert_eq!(range, got == "range", "{name}: range flag");
+            if got != "range" {
+                assert_eq!(fallback, got == "fallback", "{name}: fallback flag");
+            }
+            let mut diff = 0usize;
+            if let Ok(Some((meta, tmin))) = &host {
+                diff = meta.iter().zip(&meta_dev).filter(|(x, y)| x != y).count()
+                    + tmin
+                        .iter()
+                        .zip(&out_dev[2..])
+                        .filter(|(x, y)| x != y)
+                        .count();
+                assert_eq!(meta.len(), meta_dev.len());
+            }
+            println!(
+                "limb_place {name}: n {n}, groups {ngroups}, segments {nsegs}, outcome {got}, \
+                 differing words {diff}, device {dev_ms:.3} ms (submit incl.)"
+            );
+            assert_eq!(diff, 0, "{name}: meta or Tmin differ");
+        }
+        println!("limb_place: {edge} live block pairs at T = 8");
+        assert!(
+            edge > 0,
+            "no live block pair at T = 8: the MIN_PAIR_EXP edge is untested"
+        );
     }
 
     /// Bit identity with the CPU product at the fit's shapes and an odd one, directly and through

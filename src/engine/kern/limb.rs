@@ -296,6 +296,36 @@ pub(crate) fn with_device_operands<R>(
     Ok((cpu, r))
 }
 
+/// The placement of `a · bᵀ` as [`device_operands`] makes it, without running a product: both
+/// planes' block exponents, the kept pairs, the pair-group width, and the `[pair][block]` exponent
+/// table or [`Layout::placement`]'s `Range`. The reference of the device placement.
+#[cfg(all(test, feature = "gpu"))]
+pub(crate) type PlacementParts = (
+    Vec<u32>,
+    Vec<u32>,
+    Vec<(u32, u32)>,
+    usize,
+    Result<Vec<Option<i32>>, LimbError>,
+);
+
+/// See [`PlacementParts`].
+#[cfg(all(test, feature = "gpu"))]
+pub(crate) fn placement_parts(
+    a: &[i64],
+    m: usize,
+    b: &[i64],
+    p: usize,
+    n: usize,
+    limbs: u32,
+) -> Result<PlacementParts, LimbError> {
+    let pa = Plane::build(a, m, n, limbs)?;
+    let pb = Plane::build(b, p, n, limbs)?;
+    let pairs = kept_pairs(limbs);
+    let group = (MAX_INNER / pa.padded).max(1).min(pairs.len());
+    let exp = device_operands(&pa, &pb).map(|ops| ops.exp);
+    Ok((pa.e, pb.e, pairs, group, exp))
+}
+
 /// The block exponents and digits of [`Plane::build`]: the reference of the device plane build.
 #[cfg(all(test, feature = "gpu"))]
 pub(crate) fn plane_parts(
