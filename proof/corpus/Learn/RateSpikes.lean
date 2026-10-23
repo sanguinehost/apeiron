@@ -659,6 +659,7 @@ end HybridVerdict
 | base4 on clean calibration `-c6x2` (chunks 0..5, 11, 12), chunks 8, 9 / 10 | `t20/kl-base4c-89.log` / `t20/kl-base4c-10.log` | `08c6a9c2c6697613` / `610cd84d1ee6d4bc` |
 | base4 on clean calibration `-c6x29` (chunks 0..5, 11..39), chunks 8, 9 / 10 | `t21/kl-base4c-89.log` / `t21/kl-base4c-10.log` | `89711ca7d733fdb7` / `ae7842495d4c39b3` |
 | t14 on clean calibration `gate-c6x29+up-c6x29r+down-c6x29r+o-c6x29b`, chunks 8, 9 / 10 | `t22/kl-89.log` / `t22/kl-10.log` | `67abd67cb728fed7` / `83de84f77006d8ca` |
+| zero-bit `fold_fit` search sweep, `o` l23 on `-c6x29` | `t23/he.log` | `22beabf7320b71c6` |
 | held-out energy, `o` arms / `down-x29` | `t18/he-o.log` / `t18/he-down-x29.log` | `9f7f3648a3a0cbed` / `62aa64aa70a1363f` |
 | SpQR masked refit on `up`, `gate` | commit `7619e8e9` body | — |
 | gated second-order metric on `up` | commit `8c0d7812` body | — |
@@ -932,6 +933,48 @@ energy than `o-res2` on every layer and higher held-out energy on every layer. `
 theorem oCols_invert_7of7 :
     (ceOCols.zip ceORes2).all (fun p => decide (p.1 < p.2)) = true ∧
     (heORes2.zip heOCols).all (fun p => decide (p.1 < p.2)) = true := by
+  decide
+
+/-! ### Zero-bit search settings of `fold_fit` on `o` l23 (held-out energy, `1e-8`)
+
+Every arm packs the same r/c/d bits (73792/12320/10272); only `FoldFitConfig`'s search fields move. -/
+
+/-- Held-out energy of `o` l23 fitted on `-c6x29`, by arm: production (beam 4, sweeps 2, inner 3, ridge
+0.001, damp 0.01, icm ridge 0.2), beam 8, sweeps 4, inner 5, icm ridge 0.1, icm ridge 0.4, ridge 0.0001,
+ridge 0.01, damp 0.001, damp 0.1. `List` [a finite sequence of things, in order]. -/
+def heOFitCfg : List Nat :=
+  [107422300, 107339100, 107724900, 107537000, 99079720, 96519970, 110179800, 107173100, 113828300,
+    104421900]
+
+/-- Calibration energy of `o` l23, production and icm ridge 0.4 (the arm whose argmin picked the
+`gptq_e8` candidate). `List` [a finite sequence of things, in order]. -/
+def ceOFitCfg : List Nat := [106402200, 88703080]
+
+/-- **The ICM ridge is the zero-bit lever**: icm ridge 0.4 lowers `o` l23 held-out energy to below 0.90×
+production and icm ridge 0.1 to below 0.93×, both from the default 0.2, so the response is not monotone in
+the ridge; icm 0.4 also lowers calibration energy below 0.84× (board row APEIRON-QUALITY-118-W1-T01).
+`∧` [both are true]; `<` [is smaller than]. -/
+theorem oFitCfg_icm_wins :
+    100 * heOFitCfg.getD 5 0 < 90 * heOFitCfg.getD 0 0 ∧
+    100 * heOFitCfg.getD 4 0 < 93 * heOFitCfg.getD 0 0 ∧
+    heOFitCfg.getD 5 0 < heOFitCfg.getD 4 0 ∧
+    100 * ceOFitCfg.getD 1 0 < 84 * ceOFitCfg.getD 0 0 := by
+  decide
+
+/-- **Search width does not move it**: beam 8, sweeps 4, inner 5 and ridge 0.01 each land within 1% of
+production held-out energy. `List` [a finite sequence of things, in order]; `∧` [both are true];
+`≤` [is smaller than or equal to]. -/
+theorem oFitCfg_width_flat :
+    [1, 2, 3, 7].all (fun i => decide (100 * heOFitCfg.getD i 0 ≤ 101 * heOFitCfg.getD 0 0 ∧
+      99 * heOFitCfg.getD 0 0 ≤ 100 * heOFitCfg.getD i 0)) = true := by
+  decide
+
+/-- **Less regularisation loses**: ridge 0.0001 and damp 0.001 raise held-out energy above production;
+damp 0.1 lowers it below 0.98×. `∧` [both are true]; `<` [is smaller than]. -/
+theorem oFitCfg_regularisation :
+    heOFitCfg.getD 0 0 < heOFitCfg.getD 6 0 ∧
+    heOFitCfg.getD 0 0 < heOFitCfg.getD 8 0 ∧
+    100 * heOFitCfg.getD 9 0 < 98 * heOFitCfg.getD 0 0 := by
   decide
 
 end GateCode
