@@ -489,6 +489,47 @@ theorem limb_device_x_update :
     admmDiff.all (· = 0) = true ∧ 0 < admmMutDiff := by
   decide
 
+/-- Differing words of the resident `rank1` (`gpu::limb::rank1`, `rank1_map.comp`) against the CPU
+`rank1`, at 130×40, 3584×768 and 1024×768, each with iterations 5, 5 and 1; 130×40 under both start
+sides (`t5-gate.log`).
+`List` [a finite sequence of things, in order]. -/
+def rank1Diff : List Nat := [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+/-- Differing words at 130×40, start columns, 5 iterations, with the sign product negated in a
+throwaway copy (`t5-control.log`): every word of the 130 × 40 output. -/
+def rank1MutDiff : Nat := 5200
+
+/-- The resident `rank1` equals the CPU's at every tested shape, start side and iteration count, and
+the negated-sign control is seen.
+`∧` [both are true]; `<` [is smaller than]. -/
+theorem limb_device_rank1 :
+    rank1Diff.all (· = 0) = true ∧ 0 < rank1MutDiff := by
+  decide
+
+/-- ADMM wall for 100 iterations, tenths of a second, resident `x_update` and `rank1` with the pool
+held spinning (`t5h-ab.txt`).
+`List` [a finite sequence of things, in order]. -/
+def rank1OnAdmm : List Nat := [68, 68, 68]
+/-- The same, `APEIRON_ADMM_DEVICE=0`, interleaved with `rank1OnAdmm`.
+`List` [a finite sequence of things, in order]. -/
+def rank1OffAdmm : List Nat := [113, 115, 114]
+/-- Final `admm_loss` (×10⁵) of the six runs.
+`List` [a finite sequence of things, in order]. -/
+def rank1FitLoss : List Nat := [11172, 11172, 11172, 11172, 11172, 11172]
+/-- Final `relH` (×10⁵) of the six runs.
+`List` [a finite sequence of things, in order]. -/
+def rank1FitFinal : List Nat := [3224, 3224, 3224, 3224, 3224, 3224]
+
+/-- **The resident `rank1` with the pool held spinning leaves the fit unchanged and cuts its ADMM wall
+under 0.75× of T4's**: the loss and the final `relH` are one value across all six runs, every run is
+under 0.75× every T4 device run (6.8 against 9.4–9.7 s), and under 0.61× every device-off run.
+`∀` [for every]; `∈` [is one of the things in]; `∧` [both are true]; `<` [is smaller than]. -/
+theorem limb_device_rank1_fit :
+    rank1FitLoss.all (· = rank1FitLoss[0]!) = true ∧
+    rank1FitFinal.all (· = rank1FitFinal[0]!) = true ∧
+    (∀ a ∈ rank1OnAdmm, ∀ b ∈ [96, 97, 94], 100 * a < 75 * b) ∧
+    (∀ a ∈ rank1OnAdmm, ∀ b ∈ rank1OffAdmm, 100 * a < 61 * b) := by
+  decide
+
 end NanoQuant
 
 end Learn

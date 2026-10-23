@@ -863,3 +863,76 @@ fn admm_x_update_matches_cpu() {
         }
     }
 }
+
+/// The committed rank1 map SPIR-V is what `glslc` makes of the committed GLSL.
+#[test]
+fn rank1_map_spirv_is_the_glsl() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/spirv");
+    let out = std::env::temp_dir().join(format!("rank1_map_{}.spv", std::process::id()));
+    let st = std::process::Command::new("glslc")
+        .args(GLSLC_ARGS)
+        .arg(dir.join("rank1_map.comp"))
+        .arg("-o")
+        .arg(&out)
+        .status()
+        .expect("glslc must be on PATH: the committed SPIR-V is checked against it");
+    assert!(st.success(), "glslc failed: {st}");
+    let fresh = std::fs::read(&out).expect("glslc output");
+    let _ = std::fs::remove_file(&out);
+    assert!(
+        fresh == rank1::RANK1_MAP_SPV,
+        "rank1_map.spv is stale: re-run glslc"
+    );
+}
+
+/// The resident `rank1` equals `learn::nanoquant::rank1` in every bit on an odd shape (both start
+/// sides) and on both sides of the blk.23 `ffn_down` frame, three rounds on one frame (two
+/// recorded `iters`); with both walls.
+#[test]
+fn admm_rank1_matches_cpu() {
+    use crate::learn::nanoquant::{rank1, LIMBS};
+    if device().is_none() {
+        println!("SKIP: No Vulkan device with cooperative matrices");
+        return;
+    }
+    // (k, n, r, start_rows): the matrix is k × r on the frame of (k, n, r).
+    for &(k, n, r, sr) in &[
+        (130, 70, 40, false),
+        (130, 70, 40, true),
+        (3584, 1024, 768, false),
+        (1024, 3584, 768, true),
+    ] {
+        let w = words(k * n, 0x5eed ^ (k * n) as u64, 29);
+        let Some(mut side) = Side::new(&w, k, n, r, LIMBS) else {
+            println!("SKIP: no binary64 device frame");
+            return;
+        };
+        for (round, iters) in [(0u64, 5usize), (1, 5), (2, 1)] {
+            let m = unit(k * r, 41 + round);
+            let start = unit(if sr { k } else { r }, 53 + round);
+            let t = Instant::now();
+            let cpu = rank1(&m, k, r, iters, sr, start.clone()).expect("cpu rank1");
+            let cpu_s = t.elapsed().as_secs_f64();
+            let t = Instant::now();
+            let dev = side
+                .rank1(&m, iters, sr, &start)
+                .expect("device stages flagged");
+            let dev_s = t.elapsed().as_secs_f64();
+            let diff = cpu
+                .iter()
+                .zip(&dev)
+                .filter(|(a, b)| a.to_bits() != b.to_bits())
+                .count();
+            println!(
+                "rank1 {k}x{r} start_rows {sr} iters {iters}: cpu {:.2} ms, device {:.2} ms, {diff} words differ",
+                cpu_s * 1e3,
+                dev_s * 1e3
+            );
+            assert_eq!(
+                (diff, dev.len()),
+                (0, cpu.len()),
+                "rank1 {k}x{r} {sr} {iters}"
+            );
+        }
+    }
+}

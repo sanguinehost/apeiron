@@ -114,4 +114,20 @@ def admmXBytes (k n r : Nat) : Nat :=
 theorem admmXBytes_fit : admmXBytes 3584 1024 768 = 81_789_008 := by
   decide
 
+/-! ## The resident `rank1` (P111)
+
+`src/gpu/limb/rank1.rs` uploads the `rows × cols` target and the start vector of length `ls` in
+binary64 and reads back the 1024-byte flag block and the `rows × cols` sign-product output; the power
+steps, norms and planes stay on the device. -/
+
+/-- Host↔device bytes of one resident `rank1`. Grade `model`. -/
+def rank1Bytes (rows cols ls : Nat) : Nat := 8 * rows * cols + 8 * ls + 1024 + 8 * rows * cols
+
+/-- Side A of the blk.23 `ffn_down` fit (3584 × 768, start on the 768 columns) moves 44 047 360 bytes
+    and side B (1024 × 768, start on the 1024 rows) 12 592 128: 1.76 and 0.50 ms at 25 GB/s over PCIe,
+    against 10.0 and 4.3 ms measured per call. -/
+theorem rank1Bytes_fit :
+    rank1Bytes 3584 768 768 = 44_047_360 ∧ rank1Bytes 1024 768 1024 = 12_592_128 := by
+  decide
+
 end Perf.LimbDevice

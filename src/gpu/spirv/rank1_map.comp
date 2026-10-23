@@ -1,0 +1,97 @@
+#version 450
+// The binary64 maps of `learn::nanoquant::rank1` on the device, between the limb products of
+// `gpu::limb::rank1`. Consumer: `src/gpu/limb/rank1.rs`, which owns the contract this file computes.
+//
+// Every map is the CPU expression evaluated in the same order with no contraction (`precise`), so
+// each value is the CPU's bit for bit. `to_grid` and `from_grid` are those of `admm_map.comp`.
+//   mode 0  wa[i·C + j] = wb[j·R + i] = to_grid(|m[i·C + j]|)                  (R × C, both layouts)
+//   mode 1  wa[i]       = to_grid(m[i])                                        (len)
+//   mode 2  fo[0]       = max(sqrt(from_grid(prod[0])), EPS), one invocation   (the norm)
+//   mode 3  fo[i]       = m[i] / fa[0];  wa[i] = to_grid(fo[i])                (len; unit)
+//   mode 4  fo[i]       = from_grid(prod[i·stride]);  wa[i] = to_grid(fo[i])   (len; a matvec)
+//   mode 5  fo[i·C + j] = (s·fa[i])·fb[j], s = −1 if m[i·C + j] < 0 else 1    (R × C; the result)
+// The norm is `fro2(x)` of one row: Rust's `Sum` of one term from −0.0 is that term, and
+// `from_grid` never yields −0.0. `max(x, EPS)` is Rust's `f64::max`: EPS when x is NaN or below it.
+#extension GL_ARB_gpu_shader_int64 : require
+
+layout(local_size_x = 256) in;
+
+// META: [mode, R, C, stride, total]; total the invocations.
+layout(std430, binding = 0) readonly buffer M { uint meta[]; };
+// IN: m (modes 0, 5), the vector (modes 1, 3).
+layout(std430, binding = 1) readonly buffer I { double fin[]; };
+// A: the norm (mode 3), the row vector (mode 5).
+layout(std430, binding = 2) readonly buffer A { double fa[]; };
+// B: the column vector (mode 5).
+layout(std430, binding = 3) readonly buffer B { double fb[]; };
+// PROD: a finished limb product, row stride `stride`.
+layout(std430, binding = 4) readonly buffer X { int64_t prod[]; };
+// OUT: the binary64 output.
+layout(std430, binding = 5) writeonly buffer O { double fo[]; };
+// WA, WB: grid outputs.
+layout(std430, binding = 6) writeonly buffer WA { int64_t wa[]; };
+layout(std430, binding = 7) writeonly buffer WB { int64_t wb[]; };
+// FLAG: nonzero when a value leaves the grid.
+layout(std430, binding = 8) buffer F { uint flag; };
+
+const double EPS = 1e-12;
+const double SCALE = 4294967296.0;
+const double BOUND = 2147483648.0;
+
+double from_grid(int64_t v) {
+    precise double q = double(v) / SCALE;
+    return q;
+}
+
+// `to_grid(x, 2^31)`; sets FLAG and writes 0 when it refuses.
+int64_t to_grid(double x) {
+    if (!(abs(x) < BOUND)) {
+        atomicOr(flag, 1u);
+        return int64_t(0);
+    }
+    precise double sc = x * SCALE;
+    const double t = trunc(sc);
+    precise double fr = abs(sc - t);
+    const double r = fr >= 0.5 ? t + sign(sc) : t;
+    return int64_t(r);
+}
+
+void main() {
+    const uint mode = meta[0];
+    const uint rows = meta[1];
+    const uint cols = meta[2];
+    const uint stride = meta[3];
+    const uint total = meta[4];
+    const uint id = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * 256u
+        + gl_LocalInvocationIndex;
+    if (id >= total) {
+        return;
+    }
+    if (mode == 0u) {
+        const uint i = id / cols;
+        const uint j = id - i * cols;
+        const int64_t g = to_grid(abs(fin[id]));
+        wa[id] = g;
+        wb[j * rows + i] = g;
+    } else if (mode == 1u) {
+        wa[id] = to_grid(fin[id]);
+    } else if (mode == 2u) {
+        precise double s = sqrt(from_grid(prod[0]));
+        fo[0] = s > EPS ? s : EPS;
+    } else if (mode == 3u) {
+        precise double q = fin[id] / fa[0];
+        fo[id] = q;
+        wa[id] = to_grid(q);
+    } else if (mode == 4u) {
+        const double q = from_grid(prod[id * stride]);
+        fo[id] = q;
+        wa[id] = to_grid(q);
+    } else {
+        const uint i = id / cols;
+        const uint j = id - i * cols;
+        const double s = fin[id] < 0.0 ? -1.0 : 1.0;
+        precise double su = s * fa[i];
+        precise double v = su * fb[j];
+        fo[id] = v;
+    }
+}

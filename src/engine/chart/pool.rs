@@ -49,8 +49,9 @@
 //! were three independently loaded atomics; here the epoch and `n` live in the worker's own slot,
 //! behind one acquire, so that class cannot arise.
 //!
-//! **Park.** A worker whose slot is unchanged spins for [`SPIN_BEFORE_PARK`] and then parks; the
-//! dispatcher unparks the workers it published to only when `sleepers` is non-zero.
+//! **Park.** A worker whose slot is unchanged spins for [`SPIN_BEFORE_PARK`] and then parks, unless a
+//! [`Hot`] guard is live; the dispatcher unparks the workers it published to only when `sleepers` is
+//! non-zero.
 //!
 //! **Output.** [`Pool::chunks_mut`] splits a mutable slice into disjoint chunks. Each task
 //! receives exactly one chunk, so no two tasks alias. The result equals a sequential loop over the
@@ -81,6 +82,27 @@ const IDX_MASK: u64 = (1 << IDX_BITS) - 1;
 pub(crate) const MAX_TASKS: usize = (1 << IDX_BITS) - 1;
 /// Idle time after which a worker parks instead of spinning.
 const SPIN_BEFORE_PARK: Duration = Duration::from_millis(5);
+
+/// Live [`Hot`] guards; while non-zero an idle worker spins past [`SPIN_BEFORE_PARK`].
+static HOT: AtomicUsize = AtomicUsize::new(0);
+
+/// Keeps the pool's idle workers spinning while it lives, for a caller whose dispatches are
+/// separated by device waits or serial work longer than [`SPIN_BEFORE_PARK`]. Measured on the
+/// `learn::nanoquant` ADMM fit (blk.23 `ffn_down`, 100 iterations): unparking the workers before
+/// each host inverse cost 65.0 against 24.0 ms per iteration.
+pub(crate) struct Hot(());
+
+/// A [`Hot`] guard on the process pool.
+pub(crate) fn hot() -> Hot {
+    HOT.fetch_add(1, Ordering::AcqRel);
+    Hot(())
+}
+
+impl Drop for Hot {
+    fn drop(&mut self) {
+        HOT.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 /// The speed weight of a performance-core participant in the heterogeneous partition. The
 /// efficiency weight is `round(PERF_WEIGHT / ρ)`; the scale is small enough that `n·Σw` stays a
@@ -823,7 +845,10 @@ fn worker(sh: &Shared, w: usize) {
         }
         std::hint::spin_loop();
         spins = spins.wrapping_add(1);
-        if spins.is_multiple_of(1024) && idle_since.elapsed() > SPIN_BEFORE_PARK {
+        if spins.is_multiple_of(1024)
+            && idle_since.elapsed() > SPIN_BEFORE_PARK
+            && HOT.load(Ordering::Acquire) == 0
+        {
             sh.sleepers.fetch_add(1, Ordering::AcqRel);
             let again = sh.slots[w].0.load(Ordering::Acquire);
             if again >> IDX_BITS == seen && !sh.shutdown.load(Ordering::Acquire) {

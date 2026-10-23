@@ -2911,6 +2911,9 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.NanoQuant.limb_device_plane_and_f64
 #audit Learn.NanoQuant.limb_device_place
 #audit Learn.NanoQuant.limb_device_finish
+#audit Learn.NanoQuant.limb_device_x_update
+#audit Learn.NanoQuant.limb_device_rank1
+#audit Learn.NanoQuant.limb_device_rank1_fit
 #audit Learn.GateCode.plane_bits
 #audit Learn.GateCode.base_headroom
 #audit Learn.GateCode.t14_fits
