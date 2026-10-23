@@ -99,6 +99,7 @@ import Learn.Solve.WsyrkWitness
 import Learn.QuantVerdicts
 import Learn.Admission
 import Learn.RateSpikes
+import Learn.Quant.NanoQuant
 import Security.PhantomGradient
 import Perf.BitsRefine
 import Numeric.Quantum.Register
@@ -2882,6 +2883,14 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.RateSpikes.mt2_state_open
 #audit Learn.RateSpikes.mt2_mix_unequal_search
 #verdict_guard Learn.RateSpikes
+#audit Learn.NanoQuant.rank_l23_down
+#audit Learn.NanoQuant.w2_relH
+#audit Learn.NanoQuant.step_cost_l23_down
+#audit Learn.NanoQuant.formE_ceiling
+#audit Learn.NanoQuant.sketch_share_tail
+#audit Learn.NanoQuant.sketch_tune_l23_down
+#audit Learn.NanoQuant.sketch_rank_floor
+#audit Learn.NanoQuant.kl_l23_down
 #audit Learn.GateCode.plane_bits
 #audit Learn.GateCode.base_headroom
 #audit Learn.GateCode.t14_fits
@@ -2922,6 +2931,7 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.GateCode.sel_down_split
 #audit Learn.GateCode.trunc_l19_down
 #audit Learn.GateCode.allSel_distance
+#audit Learn.GateCode.allSel_bits
 #audit Learn.GateCode.down_energy_concentration
 #audit Learn.GateCode.down_res2_jump_c8
 #audit Learn.GateCode.t14C29_flattered

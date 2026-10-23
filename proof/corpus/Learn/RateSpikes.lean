@@ -1161,13 +1161,28 @@ theorem q4km_scope_bits :
 10, millionths of a nat (`t27/kl-89.log`, `t27/kl-10.log`). `List` [a finite sequence of things, in order]. -/
 def klAllSel : List Nat := [410459, 424695, 512600]
 
-/-- **The all-selection arm is 18.0–18.1× same-scope Q4_K_M and 4.9× the gate**: summed 1.347754 at 1.043 b/w
+/-- **The all-selection arm is 18.0–18.1× same-scope Q4_K_M and 4.9× the gate**: summed 1.347754 at 1.175 b/w
+(`allSel_bits`: the base fit plus residual planes on `up` L23, `down` L23, `o` L19 and `o` L23)
 against `klQ4KMScope`'s 0.074502 at 4.75 b/w and the gate's 0.2739. Scope of both: 28 tensors, 7 of 24 forward
 layers, FFN and `o` only, attention otherwise exact; same instrument and chunks. `∧` [both are true]; `<` [is
 smaller than]. -/
 theorem allSel_distance :
     180 * klQ4KMScope.sum < 10 * klAllSel.sum ∧ 10 * klAllSel.sum < 181 * klQ4KMScope.sum ∧
     49 * gateSum < 10 * klAllSel.sum ∧ 10 * klAllSel.sum < 50 * gateSum := by
+  decide
+
+/-- **The all-selection arm costs 1.1746 b/w and fits 1.18 with 0.0054 b/w spare**: `baseBits` plus one
+`gateUpPlane` (`up` L23), one `downPlane` (L23) and two `oPlane`s (L19, L23), read from the arm's links
+`l{19,23}.o-c6x29-selb.i64 → o-c6x29-sel-res2`, `l23.{up,down}-c6x29-selr.i64 → *-sel-res2`. An earlier
+report gave the arm at 1.043 b/w, the base without the four planes. No further `down` or `gate`/`up`
+plane fits beside it (board row APEIRON-QUALITY-118-W1-T01). `∧` [both are true]; `<` [is smaller than];
+`¬` [this is not true]. -/
+theorem allSel_bits :
+    fits (baseBits + gateUpPlane + downPlane + 2 * oPlane) ∧
+    10000 * (baseBits + gateUpPlane + downPlane + 2 * oPlane) < 11747 * scope ∧
+    11746 * scope < 10000 * (baseBits + gateUpPlane + downPlane + 2 * oPlane) ∧
+    ¬ fits (baseBits + gateUpPlane + 2 * downPlane + 2 * oPlane) ∧
+    ¬ fits (baseBits + 2 * gateUpPlane + downPlane + 2 * oPlane) := by
   decide
 
 /-! ### `down`: structure, jumps on one calibration, and the levers under 1.18 b/w
