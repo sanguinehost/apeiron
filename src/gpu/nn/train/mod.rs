@@ -42,6 +42,7 @@ use crate::gpu::nn::{
 use crate::gpu::vulkan::*;
 use crate::numeric::fixed_trig::{fixed_sin_cos, turn_to_radians};
 
+pub mod attn_bwd;
 pub mod block;
 pub mod mixer;
 

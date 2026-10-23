@@ -456,4 +456,31 @@ theorem emInterleave_fit :
     (List.zip emInterleaveHeld emJointHeld).all (fun p => p.1 * 100 ≤ p.2 * 89) := by
   decide
 
+/-! ## Gated softmax attention-map backward (P128)
+
+`src/gpu/nn/train/attn_bwd.rs` `AttnBwd`, shader `src/gpu/spirv/train/attn_map_bwd.comp`: the FA2
+recompute-from-lse backward (Dao 2023, Algorithm 2), dq per query row, dk and dv per key column.
+Units: microseconds of device time at `T = 2048`, `NH = 8`, `NKV = 2`, `HD = 256`, means of 5 runs
+on the live tree (`lead-1024/l2a/live-timing.log`). -/
+
+/-- Device time of the forward `attn_map`. Grade `measured`. -/
+def attnFwdMicros : Nat := 2115
+
+/-- Device time of the three backward modes. Grade `measured`. -/
+def attnBwdMicros : Nat := 22044
+
+/-- Matmul-equivalents per pass: the forward's QK and PV; the backward's mode 0 QK, PV, dA·V, dS·K
+and mode 1 QK, dA·V, dSᵀ·Q, Pᵀ·dA. -/
+def attnFwdMatmuls : Nat := 2
+def attnBwdMatmuls : Nat := 8
+
+/-- The registered wall band [3, 6] is refuted: the backward is 10.4× the forward, above the
+falsifier's 8. Per matmul-equivalent the backward runs at least 2.5× slower than the forward, so the
+gap is the backward kernel's rate, not its arithmetic. Correctness clauses are `tested` (P128). -/
+theorem attnBwd_fit :
+    8 * attnFwdMicros < attnBwdMicros ∧
+    10 * attnFwdMicros ≤ attnBwdMicros ∧ attnBwdMicros < 11 * attnFwdMicros ∧
+    5 * attnFwdMicros * attnBwdMatmuls ≤ 2 * attnBwdMicros * attnFwdMatmuls := by
+  decide
+
 end Perf.Train
