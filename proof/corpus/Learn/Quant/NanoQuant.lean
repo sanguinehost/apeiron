@@ -591,6 +591,28 @@ theorem threaded_x_pair :
     (∀ a ∈ threadOnAdmm, ∀ b ∈ threadOffAdmm, a < b) := by
   decide
 
+/-- ADMM wall for 100 iterations, tenths of a second, each side's whole step on its own thread
+(`t8-ab.txt`, arm 1).
+`List` [a finite sequence of things, in order]. -/
+def sideOnAdmm : List Nat := [52, 52, 52]
+/-- The same at `4be01388`, interleaved with `sideOnAdmm` (arm 0).
+`List` [a finite sequence of things, in order]. -/
+def sideOffAdmm : List Nat := [58, 56, 56]
+/-- Bytes differing between the saved factor of the last arm-1 run and that of the last arm-0 run
+(`cmp`; both sha256 `ce1a2b76…`). -/
+def sideFactorDiff : Nat := 0
+/-- Bytes differing from the arm-1 factor with the two `rank1` starts drawn `B` first
+(`t8-control.log`): 28 079 495 of 31 887 392, relH 0.03205. -/
+def sideMutDiff : Nat := 28079495
+
+/-- **Each side's step on its own thread yields the serial factor byte for byte and every run is
+faster than every `4be01388` run**; the draw-order control is seen.
+`∀` [for every]; `∈` [is one of the things in]; `∧` [both are true]; `<` [is smaller than]. -/
+theorem threaded_side_step :
+    sideFactorDiff = 0 ∧ 0 < sideMutDiff ∧
+    (∀ a ∈ sideOnAdmm, ∀ b ∈ sideOffAdmm, a < b) := by
+  decide
+
 end NanoQuant
 
 end Learn
