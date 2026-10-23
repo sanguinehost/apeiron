@@ -35,7 +35,8 @@ use apeiron::gpu::vulkan::Vk;
 use apeiron::learn::fold::stats::kldbase::KldBase;
 use apeiron::learn::grad::load::load_rows;
 use apeiron::learn::grad::model::Config;
-use apeiron::learn::nanoquant::{stored_bits, NqFactor};
+use apeiron::learn::nanoquant::{factorize, stored_bits, NqConfig, NqFactor};
+use apeiron::learn::solve::q32::from_grid;
 
 const MODEL: &str = "~/kld08/qwen08b-f16.gguf";
 const BASE: &str = "~/kld08/calib.c40.kld";
@@ -221,6 +222,33 @@ fn load_factor(path: &str) -> NqFactor {
     }
 }
 
+/// The `out`, `inn` and words of an `.i64` buffer written by [`write_words`].
+fn read_words(path: &str) -> (usize, usize, Vec<i64>) {
+    let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let o = u64::from_le_bytes(b[0..8].try_into().expect("o")) as usize;
+    let n = u64::from_le_bytes(b[8..16].try_into().expect("n")) as usize;
+    let w = b[16..]
+        .chunks_exact(8)
+        .map(|c| i64::from_le_bytes(c.try_into().expect("word")))
+        .collect();
+    (o, n, w)
+}
+
+/// The diagonal of the calibration Gram `{CACHE}/g{l}.c6x29.{gram}.i64`: the reference's `i_norm`
+/// (`tests/learn_nanoquant.rs:455-458`). Slot `o` reads `o`, `gate`/`up` `gate_up`, `down`
+/// `down`.
+fn gram_i_norm(l: usize, s: BlockShape, k: usize) -> Vec<f64> {
+    let gram = match k {
+        0 => "o",
+        1 | 2 => "gate_up",
+        _ => "down",
+    };
+    let (o, n, w) = read_words(&format!("{CACHE}/g{l}.c6x29.{gram}.i64"));
+    assert_eq!(o, n, "layer {l} slot {k}: Gram shape");
+    assert_eq!(n, s.dims(k).1, "layer {l} slot {k}: Gram width");
+    (0..n).map(|i| from_grid(w[i * n + i])).collect()
+}
+
 /// The device image of `f`: latents carry the stored sign with the latent's magnitude (floored
 /// at `1e-6` so a zero latent still reads its stored sign), `V` transposed to `inn × r`.
 fn to_host(f: &NqFactor) -> (HostFactor, usize) {
@@ -334,6 +362,9 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
     let lr_s: f64 = env("APEIRON_BT_LR_SCALE", "1e-3")
         .parse()
         .expect("lr scale");
+    let lr_d: f64 = env("APEIRON_BT_LR_DENSE", "1e-4")
+        .parse()
+        .expect("lr dense");
     let range = env("APEIRON_BT_LAYERS", &format!("0..{}", cfg.n_layer));
     let (a, b) = range.split_once("..").expect("a..b");
     let (la, lb): (usize, usize) = (a.parse().expect("a"), b.parse().expect("b"));
@@ -402,7 +433,7 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
             ranks: [src[0].rank, src[1].rank, src[2].rank, src[3].rank],
         };
         if bt.as_ref().is_none_or(|(s, _)| *s != shape) {
-            bt = Some((shape, unsafe { BlockTune::new(&g, shape, lr, lr_s) }));
+            bt = Some((shape, unsafe { BlockTune::new(&g, shape, lr, lr_s, lr_d) }));
         }
         let (_, tuner) = bt.as_mut().expect("tuner");
         let eval = |tuner: &mut BlockTune, set: &[usize]| -> f64 {
@@ -423,12 +454,27 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
             s / den
         };
         unsafe { tuner.load(&g, &factors, &host.ffn_norm) };
+        // The per-linear schedule (`nanoquant/core/compress_model.py:83-101`): every slot starts
+        // dense with the teacher's weight, and each linear's factorisation is preceded by a dense
+        // tune over the slots still dense (`tune_nonfact`) and followed by a factor tune over the
+        // slots factorised so far (`tune_fact`).
+        let em = env("APEIRON_BT_SCHED", "joint") == "em";
+        if em {
+            unsafe {
+                tuner.load_dense(&g, 0, &host.wo);
+                tuner.load_dense(&g, 1, &host.ffn[0]);
+                tuner.load_dense(&g, 2, &host.ffn[1]);
+                tuner.load_dense(&g, 3, &host.ffn[2]);
+                tuner.set_stage(&g, [false; 4], true);
+            }
+        }
         let held0 = eval(tuner, &held);
         let t_fit = Instant::now();
         let mut ep_loss = Vec::new();
-        for e in 0..epochs {
+        // One epoch over `order`: the step's summed squared error over the teacher target's norm.
+        let tune = |tuner: &mut BlockTune, order: &[usize]| -> f64 {
             let (mut s, mut den) = (0.0, 0.0);
-            for ids in batches(&perm(n_train, e)) {
+            for ids in batches(order) {
                 let y = gather(&yt, &ids, N_CTX, d);
                 den += y.iter().map(|&v| f64::from(v).powi(2)).sum::<f64>();
                 unsafe {
@@ -441,7 +487,64 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
                     s += tuner.run(&g, true);
                 }
             }
-            ep_loss.push(s / den);
+            s / den
+        };
+        if em {
+            let dense_ep: u64 = env("APEIRON_BT_EM_DENSE", "1").parse().expect("em dense");
+            let fact_ep: u64 = env("APEIRON_BT_EM_FACT", "1").parse().expect("em fact");
+            let i_norm: Vec<Vec<f64>> = (0..4).map(|k| gram_i_norm(l, shape, k)).collect();
+            let mut done = [false; 4];
+            for k in 0..4 {
+                unsafe { tuner.set_stage(&g, done, true) };
+                let t_stage = Instant::now();
+                let mut dense_loss = 0.0;
+                for e in 0..dense_ep {
+                    dense_loss = tune(tuner, &perm(n_train, e));
+                }
+                let dense_s = t_stage.elapsed().as_secs_f64();
+                let dense_held = eval(tuner, &held);
+                ep_loss.push(dense_loss);
+                println!(
+                    "BT em l{l:02} {} dense held {dense_held:.5} train {dense_loss:.4} admm 0.0 admm 0.0 s stage {dense_s:.1} s",
+                    KINDS[k]
+                );
+                let (o, inn) = shape.dims(k);
+                let w: Vec<i64> = unsafe { tuner.weight(&g, k) }
+                    .iter()
+                    .map(|&v| (f64::from(v) * 4_294_967_296.0).round() as i64)
+                    .collect();
+                let t_admm = Instant::now();
+                let nf = factorize(
+                    &w,
+                    o,
+                    inn,
+                    &i_norm[k],
+                    &vec![1.0; o],
+                    &NqConfig::reference(src[k].rank),
+                )
+                .expect("factorize");
+                let admm_s = t_admm.elapsed().as_secs_f64();
+                let (hf, _) = to_host(&nf);
+                unsafe { tuner.load_factor(&g, k, &hf) };
+                done[k] = true;
+                unsafe { tuner.set_stage(&g, done, false) };
+                let t_stage = Instant::now();
+                let mut fact_loss = 0.0;
+                for e in 0..fact_ep {
+                    fact_loss = tune(tuner, &perm(n_train, e));
+                }
+                let fact_s = t_stage.elapsed().as_secs_f64();
+                let fact_held = eval(tuner, &held);
+                ep_loss.push(fact_loss);
+                println!(
+                    "BT em l{l:02} {} factor held {fact_held:.5} train {fact_loss:.4} admm {:.4e} admm {admm_s:.1} s stage {fact_s:.1} s",
+                    KINDS[k], nf.admm_loss
+                );
+            }
+        } else {
+            for e in 0..epochs {
+                ep_loss.push(tune(tuner, &perm(n_train, e)));
+            }
         }
         let fit_s = t_fit.elapsed().as_secs_f64();
         let held1 = eval(tuner, &held);

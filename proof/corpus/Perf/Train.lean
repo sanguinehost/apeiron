@@ -428,4 +428,32 @@ theorem deltaBwd_fit :
     3 * (deltaBwdStoreBytes / 960_000) ≤ deltaBwdMicros := by
   decide
 
+/-! ## Per-linear EM interleave of the block tune (P127)
+
+`tests/learn_block_tune.rs` under `APEIRON_BT_SCHED=em`, `src/gpu/nn/train/block.rs` `set_stage`,
+the schedule of NanoQuant `compress_model.py:83-101`: every slot of `o`/`gate`/`up`/`down` starts
+dense at the teacher's weight; for each linear in turn, one epoch tunes the slots still dense, ADMM
+factorises that linear from its tuned weight, and one epoch tunes the slots factorised so far. The
+joint arm factorises all four first and tunes them together. Units: held-out block error ×10⁵ per
+layer, layers 0–3, c4n256; wall in tenths of a second. -/
+
+/-- Held-out block error of the joint arm, layers 0–3 (`c4n256-a.log:6-11`). Grade `measured`. -/
+def emJointHeld : List Nat := [19744, 20142, 20521, 22642]
+
+/-- Held-out block error of the EM arm, layers 0–3, same 256 chunks; one dense and one factor
+epoch per linear (8 epochs) against the joint arm's 4. Grade `measured`. -/
+def emInterleaveHeld : List Nat := [17437, 17110, 17606, 19661]
+
+/-- Wall of the layers 0–3 round under the EM schedule on the live tree (lane runs 231.8 and
+235.8 s). Grade `measured`. -/
+def emRoundDeciseconds : Nat := 2393
+
+/-- The registered prediction: layer 0 below the joint arm and the round inside 580 s. Each of
+the four layers is at least 11% below its joint value (`em · 100 ≤ joint · 89`). -/
+theorem emInterleave_fit :
+    emInterleaveHeld.head! < emJointHeld.head! ∧
+    emRoundDeciseconds ≤ 5800 ∧
+    (List.zip emInterleaveHeld emJointHeld).all (fun p => p.1 * 100 ≤ p.2 * 89) := by
+  decide
+
 end Perf.Train
