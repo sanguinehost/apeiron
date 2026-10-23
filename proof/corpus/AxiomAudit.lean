@@ -2909,3 +2909,6 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.GateCode.oFitCfg_icm_wins
 #audit Learn.GateCode.oFitCfg_width_flat
 #audit Learn.GateCode.oFitCfg_regularisation
+#audit Learn.GateCode.oFitCfg_icm_plateau
+#audit Learn.GateCode.oFitCfg_icm_low_wins
+#audit Learn.GateCode.oFitCfg_damp_no_stack
