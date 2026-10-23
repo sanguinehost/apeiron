@@ -5,7 +5,8 @@
 - Owner: lead. Board: `APEIRON-QUALITY-118-W1-T01`.
 - Source revision: `SamsungLabs/NanoQuant` @ `a9e0a43` (Apache-2.0), checked out at `../NanoQuant`;
   paper arXiv 2602.06694.
-- Status: W1 (ADMM port) and W2 (layer-scope STE tune) tested and measured; W3–W5 open.
+- Status: W1 (ADMM port), W2 (layer-scope STE tune), W3 (KL arm) and the sketched tune measured; W4 verdicts
+  in `proof/corpus/Learn/Quant/NanoQuant.lean` (Aeneas link open); W5 open.
 
 | reference file | sha256 |
 |---|---|
@@ -115,6 +116,41 @@ Command: `APEIRON_NQ_KIND=down APEIRON_NQ_LAYERS=23 … cargo test --release --a
 | NQ ADMM, cubic, 400 it | 0.9844 | 0.03010 | 199 |
 | NQ ADMM, cubic, 150 it | 0.9844 | 0.0322 | 213 |
 | NQ ADMM 400 it + layer tune, 1024 steps (W2) | 1.1451 | 0.01727 | 114 |
+| NQ ADMM 400 it + sketched tune, `s = 256`, 1024 steps | 1.1451 | 0.01678 | 111 |
+| NQ ADMM 400 it + sketched tune, `s = 128`, 1024 steps | 1.1451 | 0.01719 | 114 |
+
+### Held-out KL (W3, same scope: only `blk.23.ffn_down` replaced; chunks 8–9, 510 tokens)
+
+Command: `APEIRON_GATE_ARM=<arm> APEIRON_GATE_SKIP=8 APEIRON_GATE_CHUNKS=2 cargo test --release --all-features
+--locked --test learn_gate_code -- --ignored --exact gate_code_kl --nocapture`; logs
+`/home/socol/oc-tmp/escalation/lead-1023/nq/kl-<arm>-89.log`.
+
+| arm | b/w | KL (sd) | × Q4_K_M | top-1 |
+|---|---:|---:|---:|---:|
+| Q4_K_M (`down-q4kmL23`) | 4.75 | 0.000952 (0.000037) | 1 | 0.980 |
+| c6x29-sel (`down-c6x29selL23`) | 1.175 | 0.050752 (0.000676) | 53.3 | 0.882 |
+| W2 (`down-nqw2b`) | 1.1451 | 0.075035 (0.004615) | 78.8 | 0.855 |
+| NQ ADMM only (`down-nq-b1175lin`) | 1.1451 | 0.077613 (0.003045) | 81.5 | 0.855 |
+
+W2's 29% relH gain over ADMM is a 3% KL gain, inside W2's sd. c6x29-sel leads in both relH and KL. System
+effect: this one W2 tensor costs 5.7× the KL of all seven `o` tensors at Q4_K_M (0.0131). Lean:
+`Learn.NanoQuant.kl_l23_down`.
+
+### Sketched tune (`tune_sketch`, `H ≈ Q·H_s·Qᵀ`, rank `s` subspace iteration, 3 passes)
+
+| s | relH | wall (1024 steps) | MAC/step | × full-step MACs |
+|---:|---:|---:|---:|---:|
+| full (W2) | 0.01727 | 403.9 s | 23.02 G | 1 |
+| 256 | 0.01678 | 110.1 s | 3.24 G | 0.141 |
+| 128 | 0.01719 | 105.0 s | 1.60 G | 0.070 |
+
+The rank-256 sketch holds 43.5% of W2's error energy (92.0% of Q4_K_M's, `nq_sketch_share`); the
+sketched tune still lands below the full tune. Halving `s` halves the MACs and saves 5% wall: a per-step
+cost independent of `s` dominates (profile: `nq-sk-floor-1`). Lean: `sketch_share_tail`,
+`sketch_tune_l23_down`, `sketch_rank_floor`. Logs `tune-sk{256,128}.log`, `sketch.log`.
+Control (`APEIRON-QUALITY-118-W1-T01`): `- self.wq` → `+ self.wq` in `SkFrame::step` turns
+`full_width_sketch_tune_matches_the_full_tune` red (exit 101); the unmutated copy exits 0
+(`/home/socol/oc-tmp/escalation/lead-1023/nq/mut.log`).
 
 ADMM alone is NanoQuant's initialisation; the paper's quality comes after `tune_fact` and KD. The
 ADMM-only arm is 1.26× c6x29 and 2.01× c6x29-sel in relH. The W2 tune (reference rates `1e-5`,
@@ -141,7 +177,7 @@ iterations (150 it costs +7% relH), 2 limbs (K3: needs a measured metric), the G
 | W1 | ADMM port | `src/learn/nanoquant.rs`, `src/learn/mod.rs`, `tests/learn_nanoquant.rs` | `cargo test --release --all-features --locked --test learn_nanoquant` |
 | W2 | layer-scope STE tune: export latents; Adam on `L = tr((Ŵ−W)H(Ŵ−W)ᵀ)` through `sign` | `src/learn/nanoquant.rs`, `tests/learn_nanoquant.rs` | same; relH below the W1 row at 1.1451 b/w |
 | W3 | KL arm vs same-scope Q4_K_M (chunks 8–9) | `tests/learn_gate_code.rs` | KL log |
-| W4 | Lean/Aeneas: budget, factored forward, SVID identity, ridge minimiser | `proof/corpus/Learn/NanoQuant.lean`, `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build` |
+| W4 | Lean/Aeneas: budget, factored forward, SVID identity, ridge minimiser | `proof/corpus/Learn/Quant/NanoQuant.lean`, `proof/corpus/AxiomAudit.lean` | `cd proof/corpus && lake build` |
 | W5 | `o_norm` importance, block-scope tune | `src/learn/nanoquant.rs` | relH, then KL |
 
 W2 step cost: `o·n² + 3·r·o·n` MACs ≈ 13.2 + 9.9 GMAC at `down`, 0.39 s measured.

@@ -21,7 +21,8 @@ use apeiron::engine::loader::Engine;
 use apeiron::learn::grad::load::layer_from_engine;
 use apeiron::learn::grad::model::Config;
 use apeiron::learn::nanoquant::{
-    factorize, rank_for_bits, stored_bits, tune, NqConfig, NqFactor, Schedule, TuneConfig,
+    factorize, h_sketch, rank_for_bits, stored_bits, tune, tune_sketch, NqConfig, NqFactor,
+    Schedule, TuneConfig,
 };
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
@@ -195,6 +196,66 @@ fn latents_carry_the_signs_and_tune_lowers_the_h_energy() {
     );
     assert!(f.u.iter().chain(&f.v).all(|&s| s == 1 || s == -1));
     assert_ne!(before, f.weight().expect("weight"));
+}
+
+/// At `s = n` the sketch spans the input space, `Q·H_s·Qᵀ = H`, and [`tune_sketch`] is [`tune`] in
+/// a rotated frame: the sketched energy equals `tr(EHEᵀ)` and both tunes lower it alike.
+#[test]
+fn full_width_sketch_tune_matches_the_full_tune() {
+    let (o, n, r) = (96, 64, 32);
+    let w = words(&gauss(o * n, 4, 0.05));
+    let h = gram(n, 256, 5);
+    let i_norm: Vec<f64> = (0..n).map(|i| from_grid(h[i * n + i])).collect();
+    let cfg = NqConfig {
+        outer_iters: 40,
+        ..NqConfig::reference(r)
+    };
+    let f0 = factorize(&w, o, n, &i_norm, &vec![1.0; o], &cfg).expect("factorize");
+    let sk = h_sketch(&h, n, n, 3, 0).expect("sketch");
+    let e: Vec<f64> = f0
+        .weight()
+        .expect("weight")
+        .iter()
+        .zip(&w)
+        .map(|(&a, &b)| from_grid(a) - from_grid(b))
+        .collect();
+    let full: f64 = (0..o)
+        .map(|i| {
+            (0..n)
+                .map(|j| {
+                    (0..n)
+                        .map(|k| e[i * n + j] * from_grid(h[j * n + k]) * e[i * n + k])
+                        .sum::<f64>()
+                })
+                .sum::<f64>()
+        })
+        .sum();
+    let sketched = sk.energy(&e, o).expect("energy");
+    // 3-limb products carry about `1e-4` relative (`orth`'s bound); a lost direction costs O(1).
+    assert!(
+        (sketched - full).abs() <= 1e-4 * full,
+        "{sketched} vs {full}"
+    );
+    let tc = TuneConfig {
+        lr_scale: 1e-3,
+        ..TuneConfig::reference(60)
+    };
+    let (mut fa, mut fb) = (f0.clone(), f0);
+    let ta = tune(&mut fa, &w, &h, &tc).expect("tune");
+    let tb = tune_sketch(&mut fb, &w, &h, &sk, &tc).expect("tune_sketch");
+    assert!(
+        tb.rel_after < 0.99 * tb.rel_before,
+        "{} !< 0.99 x {}",
+        tb.rel_after,
+        tb.rel_before
+    );
+    assert!(
+        (tb.rel_after - ta.rel_after).abs() <= 0.02 * ta.rel_after,
+        "{} vs {}",
+        tb.rel_after,
+        ta.rel_after
+    );
+    assert!(fb.u.iter().chain(&fb.v).all(|&s| s == 1 || s == -1));
 }
 
 fn env_usize(k: &str, d: usize) -> usize {
@@ -399,7 +460,14 @@ fn nq_fit() {
             let mut tune_line = String::new();
             if tc.steps > 0 {
                 let t = Instant::now();
-                let tr = tune(&mut f, &lin.w, &hw, &tc).expect("tune");
+                let tr = match env_usize("APEIRON_NQ_TUNE_SKETCH", 0) {
+                    0 => tune(&mut f, &lin.w, &hw, &tc).expect("tune"),
+                    s => {
+                        let sk = h_sketch(&hw, n, s, env_usize("APEIRON_NQ_PASSES", 3), 0)
+                            .expect("sketch");
+                        tune_sketch(&mut f, &lin.w, &hw, &sk, &tc).expect("tune_sketch")
+                    }
+                };
                 let _ = write!(
                     tune_line,
                     " tune {} steps lr {:e}/{:e} {:.1} s relH {:.5}->{:.5} best {:.5}@{} flips {}",
@@ -431,5 +499,62 @@ fn nq_fit() {
             line += &cmp_line(&format!("{CACHE}/l{l}.{kind}"), &h, &w, (o, n), base, rel);
             println!("{line}");
         }
+    }
+}
+
+/// Premise of the sketched tune: the share of `tr(H)`, `tr(WHWᵀ)` and `tr(EHEᵀ)` (each cached
+/// `l{l}.down-{tag}.i64` of `APEIRON_NQ_ARMS`) carried by `PHP`, `P` the rank-`s` [`h_sketch`]
+/// subspace, for each `s` of `APEIRON_NQ_SKETCH` (default `64,128,256,512`), layer
+/// `APEIRON_NQ_LAYERS` (23), `down`.
+#[test]
+#[ignore = "opens the teacher and sketches the cached Gram; run explicitly"]
+fn nq_sketch_share() {
+    let engine = Engine::open(MODEL).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let l = env_usize("APEIRON_NQ_LAYERS", 23);
+    let ll = layer_from_engine(&engine, &cfg, l).expect("layer linears");
+    let lin = ll
+        .linears
+        .iter()
+        .find(|x| x.name == "ffn_down")
+        .expect("down");
+    let (o, n) = (lin.rows, lin.cols);
+    let (_, _, hw) = read_words(&format!("{CACHE}/g{l}.c6x29.down.i64"));
+    let h: Vec<f64> = hw.iter().map(|&x| from_grid(x)).collect();
+    let w: Vec<f64> = lin.w.iter().map(|&x| from_grid(x)).collect();
+    let tr_h: f64 = (0..n).map(|i| h[i * n + i]).sum();
+    let arms: Vec<(String, Vec<f64>, f64)> = std::env::var("APEIRON_NQ_ARMS")
+        .unwrap_or_else(|_| String::from("nqw2a,nqw2b,q4km"))
+        .split(',')
+        .map(|t| {
+            let (_, _, qw) = read_words(&format!("{CACHE}/l{l}.down-{t}.i64"));
+            let e: Vec<f64> = qw.iter().zip(&w).map(|(&q, x)| from_grid(q) - x).collect();
+            let full = energy(&h, &e, o, n);
+            (t.to_string(), e, full)
+        })
+        .collect();
+    let base = energy(&h, &w, o, n);
+    for s in std::env::var("APEIRON_NQ_SKETCH")
+        .unwrap_or_else(|_| String::from("64,128,256,512"))
+        .split(',')
+        .map(|x| x.parse::<usize>().expect("s"))
+    {
+        let t = Instant::now();
+        let sk = h_sketch(&hw, n, s, env_usize("APEIRON_NQ_PASSES", 3), 0).expect("sketch");
+        let sk_s = t.elapsed().as_secs_f64();
+        let tr_s: f64 = (0..s).map(|i| sk.hs[i * s + i]).sum();
+        let mut line = format!(
+            "SKETCH l{l} down s {s} {sk_s:.1} s trH {:.4} W {:.4}",
+            tr_s / tr_h,
+            sk.energy(&w, o).expect("energy") / base
+        );
+        for (tag, e, full) in &arms {
+            let _ = write!(
+                line,
+                " | {tag} E {:.4}",
+                sk.energy(e, o).expect("energy") / full
+            );
+        }
+        println!("{line}");
     }
 }
