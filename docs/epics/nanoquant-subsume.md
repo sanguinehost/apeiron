@@ -279,6 +279,14 @@ T4 moves ADMM from 11.90 to 9.57 s per 100 iterations (0.804×) with every fit n
 only `T = 90`. The fit shapes place every pair group at `Tmin ≥ 32`, so the T3 rounding branch is
 reached only by the synthetic planes; its control is seen there.
 
+T5 passes its gate and control (P111): the resident `rank1` is `src/gpu/limb/rank1.rs` with
+`src/gpu/spirv/rank1_map.comp`, and ADMM falls from 9.57 to 6.80 s per 100 iterations (0.711×; 0.596×
+the CPU path) with every fit number unchanged. With the device `rank1` alone the fit got slower: the
+pool (`src/engine/chart/pool.rs`) parks its workers after 5 ms idle, each device wait parked them,
+and the host inverse ran cold (65.0 against 24.0 ms per iteration). `pool::Hot`, held by `factorize`
+over the ADMM loop, keeps them spinning; T4's 9.57 s also carried that cold start. The host inverse
+(T6) is the largest remaining host stage. Board row `APEIRON-QUALITY-118-W1-T01`.
+
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 

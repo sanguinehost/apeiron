@@ -241,18 +241,19 @@ fn fro2(m: &[f64], rows: usize, cols: usize) -> Result<f64, NqError> {
 }
 
 /// The reference's `rank1_approx`: `sign(M) ⊙ (σu)vᵀ` with `(u, σ, v)` the top singular triplet
-/// of `|M|` after `iters` power steps from a Gaussian start. `start_rows` puts the start vector on
-/// the row side (the reference's `B`, run here on `Bᵀ`), else on the column side.
+/// of `|M|` after `iters` power steps from the Gaussian `start`. `start_rows` puts the start vector
+/// (`rows` long) on the row side (the reference's `B`, run here on `Bᵀ`), else (`cols` long) on the
+/// column side.
 ///
 /// `O(iters·rows·cols·limbs²)` kernel byte products through two prepared planes (`|M|` and
 /// `|M|ᵀ`, `O(rows·cols·limbs)` bytes each), plus `O(rows·cols)` for the sign product.
-fn rank1(
+pub(crate) fn rank1(
     m: &[f64],
     rows: usize,
     cols: usize,
     iters: usize,
     start_rows: bool,
-    rng: &mut Rng,
+    start: Vec<f64>,
 ) -> Result<Vec<f64>, NqError> {
     let abs: Vec<f64> = m.iter().map(|x| x.abs()).collect();
     let pa = prepare(&grid(&abs)?, rows, cols, LIMBS)?;
@@ -278,7 +279,7 @@ fn rank1(
     };
     let (u, v) = if start_rows {
         // Reference frame `Mᵀ` (`cols × rows`): its column-side start is our row side.
-        let mut a = unit((0..rows).map(|_| rng.normal()).collect())?;
+        let mut a = unit(start)?;
         for _ in 0..iters {
             let b = unit(mul_t(&a)?)?;
             a = unit(mul(&b)?)?;
@@ -287,7 +288,7 @@ fn rank1(
         // The reference's `u` (σ folded in) is our column vector, its unit `v` our row vector.
         (a, b_un)
     } else {
-        let mut v = unit((0..cols).map(|_| rng.normal()).collect())?;
+        let mut v = unit(start)?;
         for _ in 0..iters {
             let u = unit(mul(&v)?)?;
             v = unit(mul_t(&u)?)?;
@@ -499,6 +500,31 @@ fn x_step(
     x_update(zx, n, r, wp, k, z, du, rho, reg)
 }
 
+/// [`rank1`] from a Gaussian start drawn from `rng`, on the side's resident frame when it holds one
+/// and the device completes it, the CPU otherwise; the two are equal in every bit
+/// (`gpu::limb::rank1`). `O(rows + cols)` draws plus [`rank1`].
+fn rank1_step(
+    side: &mut Option<Side>,
+    m: &[f64],
+    (rows, cols): (usize, usize),
+    iters: usize,
+    start_rows: bool,
+    rng: &mut Rng,
+) -> Result<Vec<f64>, NqError> {
+    let ls = if start_rows { rows } else { cols };
+    let start: Vec<f64> = (0..ls).map(|_| rng.normal()).collect();
+    #[cfg(feature = "gpu")]
+    if let Some(out) = side
+        .as_mut()
+        .and_then(|s| s.rank1(m, iters, start_rows, &start))
+    {
+        return Ok(out);
+    }
+    #[cfg(not(feature = "gpu"))]
+    let _ = side;
+    rank1(m, rows, cols, iters, start_rows, start)
+}
+
 /// `factorize_admm_nanoquant` on `w` (`out × inn`, Q32.32 row-major) under the input and output
 /// statistics `i_norm` (length `inn`) and `o_norm` (length `out`), exported to the deployed
 /// two-scale sign factor. A wide matrix (`out < inn`) runs on `wᵀ` with the statistics swapped
@@ -565,14 +591,16 @@ pub fn factorize(
     let mut b_ls = transpose(&b_ls_r, r, n);
     let (mut a_z, mut b_z) = if cfg.outer_iters > 0 {
         (
-            rank1(&a_ls, o, r, cfg.inner_iters, false, &mut rng)?,
-            rank1(&b_ls, n, r, cfg.inner_iters, true, &mut rng)?,
+            rank1_step(&mut a_side, &a_ls, (o, r), cfg.inner_iters, false, &mut rng)?,
+            rank1_step(&mut b_side, &b_ls, (n, r), cfg.inner_iters, true, &mut rng)?,
         )
     } else {
         (a_ls.clone(), b_ls.clone())
     };
     let mut a_u: Vec<f64> = a_ls.iter().zip(&a_z).map(|(x, z)| x - z).collect();
     let mut b_u: Vec<f64> = b_ls.iter().zip(&b_z).map(|(x, z)| x - z).collect();
+    // Device waits separate the host inverse's dispatches by more than the pool's park delay.
+    let _hot = crate::engine::chart::pool::hot();
     for t in 0..cfg.outer_iters {
         let x = t as f64 / cfg.outer_iters as f64;
         let rho = cfg.schedule.rho(x);
@@ -580,8 +608,8 @@ pub fn factorize(
         b_ls = x_step(&mut b_side, &a_z, o, r, &wtp, n, &b_z, &b_u, rho, cfg.reg)?;
         let ta: Vec<f64> = a_ls.iter().zip(&a_u).map(|(x, u)| x + u).collect();
         let tb: Vec<f64> = b_ls.iter().zip(&b_u).map(|(x, u)| x + u).collect();
-        a_z = rank1(&ta, o, r, cfg.inner_iters, false, &mut rng)?;
-        b_z = rank1(&tb, n, r, cfg.inner_iters, true, &mut rng)?;
+        a_z = rank1_step(&mut a_side, &ta, (o, r), cfg.inner_iters, false, &mut rng)?;
+        b_z = rank1_step(&mut b_side, &tb, (n, r), cfg.inner_iters, true, &mut rng)?;
         for (u, (l, z)) in a_u.iter_mut().zip(a_ls.iter().zip(&a_z)) {
             *u += l - z;
         }

@@ -55,13 +55,13 @@ const FLAG_BYTES: usize = 64;
 /// # Complexity
 ///
 /// One allocation.
-unsafe fn dev_buf(vk: &Vk, bytes: usize) -> Option<Handle> {
+pub(super) unsafe fn dev_buf(vk: &Vk, bytes: usize) -> Option<Handle> {
     vk.buffer(bytes.max(16) as u64, DEV_USAGE, MEMORY_DEVICE_LOCAL)
         .map(|b| b.0)
 }
 
 /// Every compute and transfer write before every later compute and transfer access.
-unsafe fn full(vk: &Vk, cb: CommandBuffer) {
+pub(super) unsafe fn full(vk: &Vk, cb: CommandBuffer) {
     vk.barrier(
         cb,
         STAGE_COMPUTE | STAGE_TRANSFER,
@@ -72,7 +72,7 @@ unsafe fn full(vk: &Vk, cb: CommandBuffer) {
 }
 
 /// Every transfer write before the host reads.
-unsafe fn to_host(vk: &Vk, cb: CommandBuffer) {
+pub(super) unsafe fn to_host(vk: &Vk, cb: CommandBuffer) {
     vk.barrier(
         cb,
         STAGE_TRANSFER,
@@ -83,7 +83,7 @@ unsafe fn to_host(vk: &Vk, cb: CommandBuffer) {
 }
 
 /// Records a copy of `size` bytes from `src` at `so` to `dst` at `dO`.
-unsafe fn copy(
+pub(super) unsafe fn copy(
     vk: &Vk,
     cb: CommandBuffer,
     src: Handle,
@@ -124,20 +124,20 @@ unsafe fn run(
 }
 
 /// The bytes of `v`.
-fn bytes(v: &[u32]) -> Vec<u8> {
+pub(super) fn bytes(v: &[u32]) -> Vec<u8> {
     v.iter().flat_map(|w| w.to_ne_bytes()).collect()
 }
 
 /// One limb product `a·bᵀ` over fixed planes: the placement into `out = [range, fallback, Tmin_g…]`,
 /// `limb_gemm.comp` into the shared `o`, and the finish into `x` (row stride `pp`).
-struct Product {
+pub(super) struct Product {
     place: Place,
     pipe: Handle,
     layout: Handle,
     dset: Handle,
     groups: [u32; 3],
     finish: Finish,
-    out: Handle,
+    pub(super) out: Handle,
 }
 
 impl Product {
@@ -147,7 +147,7 @@ impl Product {
     /// # Complexity
     ///
     /// `O(limbs²)`.
-    fn o_bytes(m: usize, p: usize, inner: usize, limbs: u32) -> usize {
+    pub(super) fn o_bytes(m: usize, p: usize, inner: usize, limbs: u32) -> usize {
         let (pairs, group) = device_pairs(inner, limbs);
         let ngroups = pairs.len().div_ceil(group);
         2 * ngroups * m.div_ceil(TILE) * TILE * p.div_ceil(TILE) * TILE * 4
@@ -169,7 +169,7 @@ impl Product {
         clippy::too_many_arguments,
         reason = "group and tile counts are far below 2^32; the operands are distinct buffers"
     )]
-    unsafe fn new(
+    pub(super) unsafe fn new(
         vk: &Vk,
         a: [Handle; 2],
         b: [Handle; 2],
@@ -205,7 +205,7 @@ impl Product {
     /// # Complexity
     ///
     /// Three dispatches; device work as [`super::LimbGemm::run`].
-    unsafe fn record(&self, vk: &Vk, cb: CommandBuffer) {
+    pub(super) unsafe fn record(&self, vk: &Vk, cb: CommandBuffer) {
         self.place.record(vk, cb);
         full(vk, cb);
         run(vk, cb, self.pipe, self.layout, self.dset, self.groups);
@@ -214,8 +214,9 @@ impl Product {
     }
 }
 
-/// One mode of `admm_map.comp` over its bound buffers.
-struct Map {
+/// One mode of a map shader (`admm_map.comp`, `rank1_map.comp`: meta plus eight bindings) over its
+/// bound buffers.
+pub(super) struct Map {
     pipe: Handle,
     layout: Handle,
     dset: Handle,
@@ -223,12 +224,12 @@ struct Map {
 }
 
 impl Map {
-    /// The map `mode` over `total` invocations; `bufs` are bindings 1–8 of `admm_map.comp`, the meta
-    /// words are queued on `ups`.
+    /// The map `mode` of the shader `spv` over `total` invocations; `bufs` are its bindings 1–8, the
+    /// meta words are queued on `ups`.
     ///
     /// # Safety
     ///
-    /// `vk` is live and the buffers hold what `admm_map.comp` reads and writes in `mode`.
+    /// `vk` is live and the buffers hold what `spv` reads and writes in `mode`.
     ///
     /// # Complexity
     ///
@@ -237,8 +238,9 @@ impl Map {
         clippy::cast_possible_truncation,
         reason = "r, cols, rp and total index u32 invocations"
     )]
-    unsafe fn new(
+    pub(super) unsafe fn new(
         vk: &Vk,
+        spv: &[u8],
         [mode, r, cols, rp, total]: [usize; 5],
         bufs: [Handle; 8],
         ups: &mut Vec<(Handle, Vec<u8>)>,
@@ -251,14 +253,14 @@ impl Map {
         let wg = total.div_ceil(LOCAL);
         let gx = wg.clamp(1, MAX_GROUPS_X);
         Some(Self {
-            pipe: vk.pipeline(ADMM_MAP_SPV, layout),
+            pipe: vk.pipeline(spv, layout),
             layout,
             dset,
             groups: [gx as u32, wg.div_ceil(gx).max(1) as u32, 1],
         })
     }
 
-    unsafe fn record(&self, vk: &Vk, cb: CommandBuffer) {
+    pub(super) unsafe fn record(&self, vk: &Vk, cb: CommandBuffer) {
         run(vk, cb, self.pipe, self.layout, self.dset, self.groups);
     }
 }
@@ -267,9 +269,11 @@ impl Map {
 /// long as the device. `stage` holds `[rho, reg]`, `Z_x`, `Z`, `U`, `H⁻¹` at [`Frame::off`] (and the
 /// target's words at 0 for `cbw`); `back` the flag block, `hw` and `Fᵀ`.
 pub(crate) struct Frame {
-    k: usize,
+    pub(super) k: usize,
     n: usize,
-    r: usize,
+    pub(super) r: usize,
+    /// The resident `rank1` over `k × r`, built on its first call.
+    pub(super) r1: Option<Box<super::rank1::Rank1>>,
     stage: *mut u8,
     back: *const u8,
     /// Upload of the target's words and its plane build.
@@ -387,6 +391,7 @@ impl Frame {
                    ups: &mut Vec<_>| {
             Map::new(
                 vk,
+                ADMM_MAP_SPV,
                 [mode, r, cols, rp, total],
                 [prm, fin, du, prod, d, wout, out, mflag],
                 ups,
@@ -408,6 +413,7 @@ impl Frame {
             k,
             n,
             r,
+            r1: None,
             stage: std::ptr::null_mut(),
             back: std::ptr::null(),
             cbw: std::ptr::null_mut(),
@@ -533,8 +539,8 @@ static FRAMES: Mutex<Vec<([usize; 4], Box<Frame>)>> = Mutex::new(Vec::new());
 /// One side of a factorisation (`A` over `W`, or `B` over `Wᵀ`) holding its frame, with the
 /// target's plane built; the frame returns to [`FRAMES`] on drop.
 pub(crate) struct Side {
-    key: [usize; 4],
-    frame: Option<Box<Frame>>,
+    pub(super) key: [usize; 4],
+    pub(super) frame: Option<Box<Frame>>,
 }
 
 impl Side {

@@ -549,6 +549,9 @@ mod finish;
 /// The resident `x_update`: the three stages and the binary64 maps between them.
 mod admm;
 
+/// The resident `rank1` on an `admm` frame: power steps, norms and the sign product.
+mod rank1;
+
 pub(crate) use admm::Side;
 
 #[cfg(test)]
