@@ -1124,20 +1124,186 @@ words, under 7.7%. `∧` [both are true]; `<` [is smaller than]. -/
 theorem trunc_l19_down : truncWords = 278901 ∧ downWords = 3670016 ∧ 1000 * truncWords < 77 * downWords := by
   decide
 
-/-- Held-out KL of Q4_K_M (5.50 b/w, llama.cpp) per chunk 8, 9, 10, millionths of a nat, recovered from the
-running means as `k·m_k − (k−1)·m_{k−1}` (rows 9, 10, 11 of `kld08/q4km-kl.log`; resolution ±100 from the
-5-digit means). `List` [a finite sequence of things, in order]. -/
+/-- Held-out KL of whole-model Q4_K_M (5.50 b/w, llama.cpp) per chunk 8, 9, 10, millionths of a nat, recovered
+from the running means as `k·m_k − (k−1)·m_{k−1}` (rows 9, 10, 11 of `kld08/q4km-kl.log`; resolution ±100 from
+the 5-digit means). Its scope is every tensor of the model, ours is 28 tensors: a ratio of one of our arms to
+this list is NOT like-for-like; `klQ4KMScope` is. `List` [a finite sequence of things, in order]. -/
 def klQ4KM : List Nat := [50510, 52050, 74450]
+
+/-- Held-out KL of same-scope Q4_K_M per chunk 8, 9, 10, millionths of a nat: our 28 tensors (`ffn_gate`, `ffn_up`,
+`ffn_down`, `attn_output`/`ssm_out` in L0, 3, 7, 11, 15, 19, 23 of the 24 forward layers) dequantised from
+`kld08/qwen08b-Q4_K_M.gguf` into the binary16 teacher, every other tensor exact; same instrument as our arms
+(`gate_code_kl`, arm `gate-q4km+up-q4km+down-q4km+o-q4km`; `t31/kl-q4km-89.log`, `t31/kl-q4km-10.log`).
+`List` [a finite sequence of things, in order]. -/
+def klQ4KMScope : List Nat := [21533, 19010, 33959]
+
+/-- Same-scope Q4_K_M with only the 7 `ffn_down` tensors replaced (q6_K on L0, L11, L23, q4_K elsewhere);
+`t31/kl-down-q4km.log`. `List` [a finite sequence of things, in order]. -/
+def klQ4KMDown : List Nat := [2486, 2473, 4304]
+
+/-- Same-scope Q4_K_M with only the 7 `ffn_up` tensors replaced (q4_K); `t31/kl-up-q4km-89.log`,
+`t31/kl-up-q4km-10.log`. `List` [a finite sequence of things, in order]. -/
+def klQ4KMUp : List Nat := [5233, 4732, 7029]
+
+/-- Bits of the same-scope Q4_K_M tensors: q4_K is 144 bytes (1152 bits) per 256 weights and holds `gate`, `up`,
+`o` and four `down`; q6_K is 210 bytes (1680 bits) per 256 and holds `down` in L0, L11, L23. -/
+def q4kmScopeBits : Nat :=
+  (2 * layers * ffWeights + 4 * ffWeights + layers * oWeights) * 1152 / 256 + 3 * ffWeights * 1680 / 256
+
+/-- **Same-scope Q4_K_M spends 4.74–4.75 b/w on our 28 tensors**: 435 585 024 bits over `scope`, against our base
+`baseBits` at 1.04–1.05 b/w. `∧` [both are true]; `<` [is smaller than]. -/
+theorem q4km_scope_bits :
+    q4kmScopeBits = 435585024 ∧ 474 * scope < 100 * q4kmScopeBits ∧ 100 * q4kmScopeBits < 475 * scope ∧
+    104 * scope < 100 * baseBits ∧ 100 * baseBits < 105 * scope := by
+  decide
 
 /-- Held-out KL of the all-selection arm `gate-sel+up-selr+down-selr+o-selb` (L19 `down` whole), chunks 8, 9,
 10, millionths of a nat (`t27/kl-89.log`, `t27/kl-10.log`). `List` [a finite sequence of things, in order]. -/
 def klAllSel : List Nat := [410459, 424695, 512600]
 
-/-- **The all-selection arm is 7.6× Q4_K_M and 4.9× the gate**: summed 1.347754 against 0.177010 and 0.2739.
-`∧` [both are true]; `<` [is smaller than]. -/
+/-- **The all-selection arm is 18.0–18.1× same-scope Q4_K_M and 4.9× the gate**: summed 1.347754 at 1.043 b/w
+against `klQ4KMScope`'s 0.074502 at 4.75 b/w and the gate's 0.2739. Scope of both: 28 tensors, 7 of 24 forward
+layers, FFN and `o` only, attention otherwise exact; same instrument and chunks. `∧` [both are true]; `<` [is
+smaller than]. -/
 theorem allSel_distance :
-    76 * klQ4KM.sum < 10 * klAllSel.sum ∧ 10 * klAllSel.sum < 77 * klQ4KM.sum ∧
+    180 * klQ4KMScope.sum < 10 * klAllSel.sum ∧ 10 * klAllSel.sum < 181 * klQ4KMScope.sum ∧
     49 * gateSum < 10 * klAllSel.sum ∧ 10 * klAllSel.sum < 50 * gateSum := by
+  decide
+
+/-! ### `down`: structure, jumps on one calibration, and the levers under 1.18 b/w
+
+Calibrations: `c8x0` (chunks 0..7, overlapping the held-out article), `c8x29` (chunks 0..7, 11..39, also
+overlapping), `c6x29` (chunks 0..5, 11..39, clean). A jump below compares one calibration with itself; a
+cross-calibration figure is named as such. Receipts under `lead-1022/DOWN/` (board row
+). -/
+
+/-- **`down`'s held-out error sits at depth**: on the clean `c6x29` fit L23 carries above 47% of the
+held-out energy and L19 + L23 above 69%; L0–L15 together carry under 31%. `∧` [both are true];
+`<` [is smaller than]. -/
+theorem down_energy_concentration :
+    heDownProd.sum = 296903846 ∧
+    47 * heDownProd.sum < 100 * heDownProd.getD 6 0 ∧
+    69 * heDownProd.sum < 100 * (heDownProd.getD 5 0 + heDownProd.getD 6 0) ∧
+    100 * (heDownProd.take 5).sum < 31 * heDownProd.sum := by
+  decide
+
+/-- **The one same-calibration KL jump on `down` (`c8x0`)**: the L23 residual plane (`down-res2all`, one
+`downPlane`) takes the three-chunk sum to below 0.80× (0.439421 → 0.351101). `down-x29` (`c8x29`) and
+`down-mix` (six planes, `downMix_over_budget`) are not on this footing. `<` [is smaller than]. -/
+theorem down_res2_jump_c8 : 100 * klDownRes2All.sum < 80 * klDown.sum := by decide
+
+/-- Held-out KL of t14's layout on the clean base `-c6x29` with L19 `down` refitted whole (`t29`), chunks 8, 9,
+10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klT14Honest : List Nat := [460232, 423961, 532587]
+
+/-- **The truncated L19 payload flattered `klT14C29` on every chunk**: with L19 `down` whole, t14 on `c6x29`
+is above `klT14C29` on chunks 8, 9 and 10 (summed 1.378333 → 1.416780), while still below the overlapped t14
+on chunk 10. `List` [a finite sequence of things, in order]; `∧` [both are true]; `<` [is smaller than]. -/
+theorem t14C29_flattered :
+    (klT14C29.zip klT14Honest).all (fun p => decide (p.1 < p.2)) = true ∧
+    klT14Honest.sum = 1416780 ∧
+    klT14Honest.getD 2 0 < klT14.getD 2 0 := by
+  decide
+
+/-- **Selection keeps 3 `down` planes inside the budget**: one, two and three extra `downPlane`s each fit
+1.18 b/w on their own; a fourth does not. `∧` [both are true]; `¬` [this is not true]. -/
+theorem down_planes_fit :
+    fits (baseBits + downPlane) ∧ fits (baseBits + 2 * downPlane) ∧
+    fits (baseBits + 3 * downPlane) ∧ ¬ fits (baseBits + 4 * downPlane) := by
+  decide
+
+/-- **A second `down` residual plane is paid from t14's `o` planes**: L23 + L19 `down` planes plus t14's
+`up` L23 plane fit, but adding one `o` plane does not; t14's own layout (`t14_fits`) holds one `down` plane.
+`∧` [both are true]; `¬` [this is not true]. -/
+theorem down_two_planes_cost :
+    fits (baseBits + 2 * downPlane + gateUpPlane) ∧
+    ¬ fits (baseBits + 2 * downPlane + gateUpPlane + oPlane) ∧
+    118 * scope / 100 - (baseBits + 2 * downPlane + gateUpPlane) = 1047168 := by
+  decide
+
+/-! ### `down` and `up` levers on the clean `c6x29` base, measured
+
+Single-kind arms: the named kind is replaced in the 7 fitted layers, the other three kinds are the exact
+teacher. Held-out KL per chunk 8, 9, 10, millionths of a nat; receipts `lead-1022/DOWN/t31/kl-<arm>-89.log` and
+`-10.log`. Arms: A `down-c6x29` (production fit), B `down-c6x29d` (selection on L19, L23, no extra bits),
+C B + L23 residual plane, D C + L19 plane, dr3 D + L15 plane, mix (res2 on L0, L3, L15, L19, res3 on L23: six
+planes). Up: `up-c6x29` (production, no selection), `up-c6x29r` (+ L23 plane), `up-c6x29r2` (+ L19 plane). -/
+
+/-- `down`, arm A, the honest `c6x29` baseline. `List` [a finite sequence of things, in order]. -/
+def klDownC29 : List Nat := [118802, 123725, 170928]
+/-- `down`, arm B (selection on L19, L23). `List` [a finite sequence of things, in order]. -/
+def klDownB : List Nat := [111076, 110582, 152118]
+/-- `down`, arm C (B + L23 plane). `List` [a finite sequence of things, in order]. -/
+def klDownC : List Nat := [77951, 78312, 128501]
+/-- `down`, arm D (C + L19 plane). `List` [a finite sequence of things, in order]. -/
+def klDownD : List Nat := [68637, 65430, 111003]
+/-- `down`, arm dr3 (D + L15 plane). `List` [a finite sequence of things, in order]. -/
+def klDownDr3 : List Nat := [59948, 55023, 84989]
+/-- `down`, the six-plane mix on `c6x29`. `List` [a finite sequence of things, in order]. -/
+def klDownMixC29 : List Nat := [36677, 34468, 55050]
+/-- `up`, the honest `c6x29` baseline. `List` [a finite sequence of things, in order]. -/
+def klUpC29 : List Nat := [127267, 122782, 148573]
+/-- `up` + L23 plane. `List` [a finite sequence of things, in order]. -/
+def klUpR : List Nat := [86702, 71578, 113631]
+/-- `up` + L19 and L23 planes, chunks 8 and 9 only. `List` [a finite sequence of things, in order]. -/
+def klUpR2 : List Nat := [82041, 64452]
+/-- Joint `down-c6x29dr2+up-c6x29r` (arm D's `down` and `up` + L23 plane; gate and `o` exact).
+`List` [a finite sequence of things, in order]. -/
+def klJoint : List Nat := [157578, 137881, 201587]
+
+/-- **Every fitting `down` lever lowers KL, and the over-budget mix is lowest**: A 0.413455 > B 0.373776 >
+C 0.284764 > D 0.245070 > dr3 0.199960 (0.484× A, three planes, fits) > mix 0.126195 (six planes, does not
+fit). `∧` [both are true]; `<` [is smaller than]; `¬` [this is not true]. -/
+theorem down_levers_c6x29 :
+    klDownC29.sum = 413455 ∧ klDownB.sum = 373776 ∧ klDownC.sum = 284764 ∧ klDownD.sum = 245070 ∧
+    klDownDr3.sum = 199960 ∧ klDownMixC29.sum = 126195 ∧
+    klDownMixC29.sum < klDownDr3.sum ∧ klDownDr3.sum < klDownD.sum ∧ klDownD.sum < klDownC.sum ∧
+    klDownC.sum < klDownB.sum ∧ klDownB.sum < klDownC29.sum ∧
+    100 * klDownDr3.sum < 49 * klDownC29.sum ∧
+    fits (baseBits + 3 * downPlane) ∧ ¬ fits (baseBits + downMixExtra) := by
+  decide
+
+/-- Held-out energy saved by one `down` plane (`t31/he-res2.log`, `t31/he-mix.log`, 1e-8): L23, L19, L15, L23's
+second plane, L3, L0. `List` [a finite sequence of things, in order]. -/
+def heDownPlaneSave : List Nat := [70613040, 37880230, 31106830, 24225490, 11412061, 4670503]
+
+/-- **Energy ranks the `down` planes, but its L19/L15 order is not KL's**: the per-plane energy saving falls
+strictly in the order L23, L19, L15, L23 res3, L3, L0; yet the L15 plane (added on D) saves 0.045110 of KL and
+the L19 plane (added on C) 0.039694. `List` [a finite sequence of things, in order]; `∧` [both are true];
+`<` [is smaller than]. -/
+theorem down_energy_rank :
+    (heDownPlaneSave.zip heDownPlaneSave.tail).all (fun p => decide (p.2 < p.1)) = true ∧
+    heDownPlaneSave.getD 2 0 < heDownPlaneSave.getD 1 0 ∧
+    klDownC.sum - klDownD.sum < klDownD.sum - klDownDr3.sum := by
+  decide
+
+/-- **One `up` plane at L23 beats `down`'s best plane at fewer bits**: `up` 0.398622 → 0.271911 (saves 0.126711)
+against `down` B → C (saves 0.089012), with `gateUpPlane < downPlane`. The `up` L19 plane saves under a seventh of
+the L23 plane on chunks 8, 9 (0.011787 against 0.091769). `∧` [both are true]; `<` [is smaller than]. -/
+theorem up_plane_beats_down_plane :
+    klUpC29.sum = 398622 ∧ klUpR.sum = 271911 ∧
+    klDownB.sum - klDownC.sum < klUpC29.sum - klUpR.sum ∧ gateUpPlane < downPlane ∧
+    7 * ((klUpR.take 2).sum - klUpR2.sum) < (klUpC29.take 2).sum - (klUpR.take 2).sum := by
+  decide
+
+/-- **`down` and `up` levers add**: the joint arm (two `down` planes and one `up` plane, fits) sums 0.497046,
+between 0.95× and 1× of the single-kind sum 0.516981. `∧` [both are true]; `<` [is smaller than]. -/
+theorem joint_additive :
+    klJoint.sum = 497046 ∧ klJoint.sum < klDownD.sum + klUpR.sum ∧
+    95 * (klDownD.sum + klUpR.sum) < 100 * klJoint.sum ∧
+    fits (baseBits + 2 * downPlane + gateUpPlane) := by
+  decide
+
+/-- **Per kind, the best fitting levers sit 21–22× (`down`) and 16–17× same-scope Q4_K_M (`up`)**: dr3 0.199960
+against `klQ4KMDown` 0.009263, `up-c6x29r` 0.271911 against `klQ4KMUp` 0.016994; the baselines are 44–45× and
+23–24×. Same scope (one kind's 7 tensors, all else exact), same instrument and chunks. `∧` [both are true];
+`<` [is smaller than]. -/
+theorem kind_q4km_distance :
+    klQ4KMDown.sum = 9263 ∧ klQ4KMUp.sum = 16994 ∧ klQ4KMScope.sum = 74502 ∧
+    21 * klQ4KMDown.sum < klDownDr3.sum ∧ klDownDr3.sum < 22 * klQ4KMDown.sum ∧
+    16 * klQ4KMUp.sum < klUpR.sum ∧ klUpR.sum < 17 * klQ4KMUp.sum ∧
+    44 * klQ4KMDown.sum < klDownC29.sum ∧ klDownC29.sum < 45 * klQ4KMDown.sum ∧
+    23 * klQ4KMUp.sum < klUpC29.sum ∧ klUpC29.sum < 24 * klQ4KMUp.sum := by
   decide
 
 end GateCode

@@ -2921,3 +2921,14 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.GateCode.sel_down_split
 #audit Learn.GateCode.trunc_l19_down
 #audit Learn.GateCode.allSel_distance
+#audit Learn.GateCode.down_energy_concentration
+#audit Learn.GateCode.down_res2_jump_c8
+#audit Learn.GateCode.t14C29_flattered
+#audit Learn.GateCode.down_planes_fit
+#audit Learn.GateCode.down_two_planes_cost
+#audit Learn.GateCode.q4km_scope_bits
+#audit Learn.GateCode.down_levers_c6x29
+#audit Learn.GateCode.down_energy_rank
+#audit Learn.GateCode.up_plane_beats_down_plane
+#audit Learn.GateCode.joint_additive
+#audit Learn.GateCode.kind_q4km_distance
