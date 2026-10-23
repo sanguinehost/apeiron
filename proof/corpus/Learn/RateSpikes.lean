@@ -642,4 +642,232 @@ theorem min_klin_refuted :
 
 end HybridVerdict
 
+/-! ## Gate-code verdicts on Qwen3.5-0.8B: cost model and held-out KL, clause by clause
+
+| run | receipt (`lead-1022/DOWN/`) | sha256 |
+|---|---|---|
+| `down`, chunks 8, 9 / 10 | `gramfix2/kl-down-8.log` / `gramfix2/kl-down-10.log` | `b40b9b5d4d00826c` / `b7d13666ee3132bd` |
+| `up`, chunks 8, 9 / 10 | `gramfix2/kl-up-8.log` / `gramfix2/kl-up-10.log` | `588f8a5168029bb5` / `4930afe36e969bdf` |
+| `gate`, chunks 8, 9 / 10 | `gramfix2/kl-gate-8.log` / `gramfix2/kl-gate-10.log` | `92ca0d41a9d53ef7` / `8d9ebea7ac816bf7` |
+| `o` / `o-res2` / `o-cols256x8` | `t11/kl-o.log` / `t12/kl-o.log` / `t17/kl-ocols.log` | `695d167349603179` / `7328fd18034e7324` / `6bd3a35dd4bb1f14` |
+| `up-res2all` / `up-rows-sal` | `t07/kl-res2all.log` / `t08/kl-sal.log` | `78bcd5284e2a02d7` / `4ec8e2b1a3ce9c30` |
+| `down-res2all` / `down-mix` | `t12/kl-down.log` / `t13/kl-mix.log` | `342cd2898a678e25` / `8e61691c65aca175` |
+| `down-x29` (37 calibration chunks) | `t18/kl-down-x29.log` | `17354a48ff9aac6c` |
+| `gate+up+down` / `gate+up+down+o` | `t09/plain.log` / `t14/kl-base4.log` | `29860e29444960d7` / `481fce0016312d53` |
+| t14 `gate+up-res2all+down-res2all+o-b` / t17 `…+o-c` | `t14/kl-budget.log` / `t17/kl-oc.log` | `14f23063c195addd` / `13108916a4afd4f6` |
+| held-out energy, `o` arms / `down-x29` | `t18/he-o.log` / `t18/he-down-x29.log` | `9f7f3648a3a0cbed` / `62aa64aa70a1363f` |
+| SpQR masked refit on `up`, `gate` | commit `7619e8e9` body | — |
+| gated second-order metric on `up` | commit `8c0d7812` body | — |
+
+Every figure is a `model` input copied from its receipt. KL is in millionths of a nat on held-out chunks
+8, 9, 10 of the 0.8B base file (`n_ctx` 512), measured on the crate's `KernelMode::Q8Act` engine path by
+`tests/learn_gate_code.rs` `gate_code_kl`. Held-out energy `tr(E H Eᵀ)` is in units of `1e-8`, `H` the
+Gram of chunks 8..10. Bits are counted from the `FITK`/`RES` lines of `fold_fit` (sign, row, column and
+diagonal scale bits). No theorem produces a measurement; rustc, the kernel ABI and the `unsafe` pool are
+outside every statement. Scope: the fitted layers 0, 3, 7, 11, 15, 19, 23, tensors `ffn_gate`, `ffn_up`,
+`ffn_down`, `attn_output` (`o`).
+
+The goal (the design notes QUALITY-118, board row ): held-out KL ≤ 0.0913
+(gate), ≤ 0.0266 (target) at ≤ 1.18 b/w.
+-/
+
+
+namespace GateCode
+
+/-! ### Cost model: bits per plane and the 1.18 b/w budget over the scope -/
+
+/-- Weights of one `ffn_gate`, `ffn_up` or `ffn_down` (3584 × 1024). -/
+def ffWeights : Nat := 3584 * 1024
+
+/-- Weights of one `attn_output` (1024 × 2048). -/
+def oWeights : Nat := 1024 * 2048
+
+/-- Fitted layers. -/
+def layers : Nat := 7
+
+/-- The scope: four tensors on each fitted layer. -/
+def scope : Nat := layers * (3 * ffWeights + oWeights)
+
+/-- One `gate`/`up` plane: sign + row/column/diagonal scales (`143424/6176/5152`). -/
+def gateUpPlane : Nat := ffWeights + 143424 + 6176 + 5152
+
+/-- One `down` plane: sign + scales (`122944/21536/17952`). -/
+def downPlane : Nat := ffWeights + 122944 + 21536 + 17952
+
+/-- One `o` plane: sign + scales (`73792/12320/10272`). -/
+def oPlane : Nat := oWeights + 73792 + 12320 + 10272
+
+/-- The base fit: one plane per tensor per layer. -/
+def baseBits : Nat := layers * (2 * gateUpPlane + downPlane + oPlane)
+
+/-- `100 · bits ≤ 118 · weights` is `bits / weights ≤ 1.18`. -/
+def fits (bits : Nat) : Prop := 100 * bits ≤ 118 * scope
+
+/-- `fits` is decided by `Nat.decLe`. -/
+instance (bits : Nat) : Decidable (fits bits) := by unfold fits; infer_instance
+
+/-- t14's extra planes: `up` L23, `down` L23, `o` L19 and L23 (residual pass, same bits as the base). -/
+def t14Extra : Nat := gateUpPlane + downPlane + 2 * oPlane
+
+/-- `down-mix` extra planes: `down-res2` on L0, 3, 15, 19 and `down-res3` (two planes) at L23. -/
+def downMixExtra : Nat := 6 * downPlane
+
+/-- `o-res2` on every fitted layer. -/
+def oRes2AllExtra : Nat := layers * oPlane
+
+/-- The scope is 91 750 400 weights; the plane counts are the receipts' totals. `∧` [both are true]. -/
+theorem plane_bits :
+    scope = 91750400 ∧ gateUpPlane = 3824768 ∧ downPlane = 3832448 ∧ oPlane = 2193536 := by
+  decide
+
+/-- The base fit is 95 728 640 bits (1.0434 b/w) and leaves 12 536 832 bits under 1.18 b/w. `∧` [both are true]. -/
+theorem base_headroom : baseBits = 95728640 ∧ 118 * scope / 100 - baseBits = 12536832 ∧
+    fits baseBits := by
+  decide
+
+/-- t14 fits: base + four residual planes ≤ 1.18 b/w, with 492 544 bits left. `∧` [both are true]. -/
+theorem t14_fits : fits (baseBits + t14Extra) ∧
+    118 * scope / 100 - (baseBits + t14Extra) = 492544 := by
+  decide
+
+/-- After t14 no further plane fits: the smallest plane (`o`, 2 193 536 bits) exceeds what is left. `¬` [this is not true]. -/
+theorem t14_no_further_plane : ¬ fits (baseBits + t14Extra + oPlane) := by decide
+
+/-- `down-mix` (six extra `down` planes) does not fit 1.18 b/w on its own. `¬` [this is not true]. -/
+theorem downMix_over_budget : ¬ fits (baseBits + downMixExtra) := by decide
+
+/-- `o-res2` on all seven layers does not fit 1.18 b/w on its own. `¬` [this is not true]. -/
+theorem oRes2All_over_budget : ¬ fits (baseBits + oRes2AllExtra) := by decide
+
+/-- Refitting on 37 calibration chunks instead of 8 (`down-x29`) costs no bits: the bit count is a
+function of the shape alone. -/
+theorem x29_same_bits : baseBits + 0 = baseBits := rfl
+
+/-! ### Held-out KL, chunks 8, 9, 10 (millionths of a nat) -/
+
+/-- Held-out KL of `down`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klDown : List Nat := [102195, 107066, 230160]
+/-- Held-out KL of `down-x29` (37 calibration chunks), chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klDownX29 : List Nat := [110124, 120432, 160106]
+/-- Held-out KL of `up`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klUp : List Nat := [101351, 98623, 184029]
+/-- Held-out KL of `gate`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klGate : List Nat := [69760, 72221, 158222]
+/-- Held-out KL of `o`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klO : List Nat := [79845, 72782, 154403]
+/-- Held-out KL of `o-res2` (L19, L23 residual planes on every layer), chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klORes2 : List Nat := [28545, 25342, 73530]
+/-- Held-out KL of `o-cols256x8`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klOCols : List Nat := [40270, 36140, 119878]
+/-- Held-out KL of `up-res2all`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klUpRes2All : List Nat := [73273, 71666, 146639]
+/-- Held-out KL of `up-rows-sal`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klUpRowsSal : List Nat := [87138, 89203, 160191]
+/-- Held-out KL of `down-res2all`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klDownRes2All : List Nat := [74145, 76914, 200042]
+/-- Held-out KL of `down-mix`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klDownMix : List Nat := [33184, 36460, 88015]
+/-- Held-out KL of `gate+up+down`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klGateUpDown : List Nat := [268367, 310386, 484157]
+/-- Held-out KL of `gate+up+down+o`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klBase4 : List Nat := [371324, 399189, 664152]
+/-- Held-out KL of t14 `gate+up-res2all+down-res2all+o-b`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klT14 : List Nat := [289309, 330574, 587555]
+/-- Held-out KL of t17 `gate+up-res2all+down-res2all+o-c`, chunks 8, 9, 10, millionths of a nat. `List` [a finite sequence of things, in order]. -/
+def klT17 : List Nat := [292347, 330443, 596437]
+
+/-- The gate, three chunks summed (3 × 0.0913). -/
+def gateSum : Nat := 3 * 91300
+
+/-- **`down-x29` beats `down` on the mean** at the same bits: 0.146474 → 0.130221 (0.889×). `∧` [both are true]; `<` [is smaller than]. -/
+theorem downX29_beats_mean : klDownX29.sum < klDown.sum ∧ 1000 * klDownX29.sum < 890 * klDown.sum := by
+  decide
+
+/-- **…but not on every chunk**: `down-x29` loses on chunks 8 and 9 and wins on chunk 10. `∧` [both are true]; `<` [is smaller than]. -/
+theorem downX29_per_chunk :
+    klDown.getD 0 0 < klDownX29.getD 0 0 ∧ klDown.getD 1 0 < klDownX29.getD 1 0 ∧
+      klDownX29.getD 2 0 < klDown.getD 2 0 := by
+  decide
+
+/-- **Columns overfit on `o`**: full residual planes beat 256 × 8 column planes on held-out KL, and both
+beat the base. `∧` [both are true]; `<` [is smaller than]. -/
+theorem oRes2_beats_cols : klORes2.sum < klOCols.sum ∧ klOCols.sum < klO.sum := by decide
+
+/-- The `up` L23 residual plane beats the salience rows plane, and both beat the base. `∧` [both are true]; `<` [is smaller than]. -/
+theorem upRes2_beats_rows : klUpRes2All.sum < klUpRowsSal.sum ∧ klUpRowsSal.sum < klUp.sum := by
+  decide
+
+/-- `down-res2all` beats `down`; `down-mix` beats both but is over budget (`downMix_over_budget`). `∧` [both are true]; `<` [is smaller than]. -/
+theorem down_residual_order : klDownMix.sum < klDownRes2All.sum ∧ klDownRes2All.sum < klDown.sum := by
+  decide
+
+/-- **SpQR masked refit fails**: every variant spends bits and raises held-out KL on `up` and `gate`
+(three-chunk means: up 0.128001 → 0.136794 / 0.131462 / 0.131416; gate 0.100068 → 0.102440). `∧` [both are true]; `<` [is smaller than]. -/
+theorem spqr_fails : 128001 < 136794 ∧ 128001 < 131462 ∧ 128001 < 131416 ∧ 100068 < 102440 := by
+  decide
+
+/-- **The gated second-order metric fails on `up`**: both arms raise held-out KL (0.128001 → 0.131957,
+0.128513). `∧` [both are true]; `<` [is smaller than]. -/
+theorem gated_metric_fails : 128001 < 131957 ∧ 128001 < 128513 := by decide
+
+/-- **t14 beats the four-tensor base** within budget (`t14_fits`): 0.478222 → 0.402479. `<` [is smaller than]. -/
+theorem t14_beats_base4 : klT14.sum < klBase4.sum := by decide
+
+/-- The `o-c` allocation (t17) loses to t14's `o-b`. `<` [is smaller than]. -/
+theorem t17_loses_to_t14 : klT14.sum < klT17.sum := by decide
+
+/-- **Adding `o` is near-additive**: the four-tensor KL is within 1% of the sum of the four single-tensor
+KLs; three FFN tensors together are sub-additive (below the sum of their singles). `∧` [both are true]; `<` [is smaller than]; `≤` [is smaller than or equal to]. -/
+theorem base4_near_additive :
+    100 * klBase4.sum ≤ 101 * (klGate.sum + klUp.sum + klDown.sum + klO.sum) ∧
+    klGate.sum + klUp.sum + klDown.sum + klO.sum ≤ klBase4.sum ∧
+    klGateUpDown.sum < klGate.sum + klUp.sum + klDown.sum := by
+  decide
+
+/-- The open gap: t14 is above the 0.0913 gate. `<` [is smaller than]. -/
+theorem t14_above_gate : gateSum < klT14.sum := by decide
+
+/-! ### Held-out energy (`1e-8`): the instrument and its per-chunk blind spot -/
+
+/-- Per-layer held-out energy of `down` and `down-x29`, layers 0, 3, 7, 11, 15, 19, 23. `List` [a finite sequence of things, in order]. -/
+def heDown : List Nat := [6779009, 16385250, 12692530, 12979590, 55694280, 68244230, 128678200]
+/-- Per-layer held-out energy of `down-x29`, same layers. `List` [a finite sequence of things, in order]. -/
+def heDownX29 : List Nat := [6356296, 15376400, 11653570, 8667492, 41929810, 55802230, 131663200]
+
+/-- Calibration (chunks 0..8) energy sum of `down`. -/
+def ceDown : Nat := 196203900
+/-- Calibration (chunks 0..8) energy sum of `down-x29`. -/
+def ceDownX29 : Nat := 266770200
+
+/-- **`down-x29` trades calibration energy for held-out energy**: its 8-chunk calibration energy rises
+1.36×, its held-out energy falls to 0.9005×, the direction of the mean KL (`downX29_beats_mean`). `∧` [both are true]; `<` [is smaller than]. -/
+theorem downX29_energy : heDownX29.sum < heDown.sum ∧ ceDown < ceDownX29 ∧
+    10000 * heDownX29.sum < 9006 * heDown.sum := by
+  decide
+
+/-- **`down-x29` wins held-out energy on layers 0–19 and loses at L23**: the next arm keeps plain `down`
+at L23. `∧` [both are true]; `<` [is smaller than]. -/
+theorem downX29_loses_l23 :
+    ((heDownX29.zip heDown).take 6).all (fun p => decide (p.1 < p.2)) = true ∧
+    heDown.getD 6 0 < heDownX29.getD 6 0 := by
+  decide
+
+/-- Per-layer energy of `o-res2` and `o-cols256x8`: calibration and held-out. `List` [a finite sequence of things, in order]. -/
+def ceORes2 : List Nat := [4104458, 1956503, 2412911, 1535993, 3430321, 7444158, 29739740]
+/-- Per-layer calibration energy of `o-cols256x8`. `List` [a finite sequence of things, in order]. -/
+def ceOCols : List Nat := [2789894, 1877993, 2306217, 1437984, 3081559, 5665881, 24846430]
+/-- Per-layer held-out energy of `o-res2`. `List` [a finite sequence of things, in order]. -/
+def heORes2 : List Nat := [5860646, 2646844, 3546589, 3051808, 5422556, 11298760, 36441880]
+/-- Per-layer held-out energy of `o-cols256x8`. `List` [a finite sequence of things, in order]. -/
+def heOCols : List Nat := [7384390, 3767718, 5100205, 4702234, 8374974, 18542500, 47560800]
+
+/-- **The calibration order inverts on held-out on 7/7 layers**: column planes have lower calibration
+energy than `o-res2` on every layer and higher held-out energy on every layer. `∧` [both are true]; `<` [is smaller than]. -/
+theorem oCols_invert_7of7 :
+    (ceOCols.zip ceORes2).all (fun p => decide (p.1 < p.2)) = true ∧
+    (heORes2.zip heOCols).all (fun p => decide (p.1 < p.2)) = true := by
+  decide
+
+end GateCode
+
 end Learn
