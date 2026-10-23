@@ -182,7 +182,10 @@ pub(super) fn device_iters(
             let p = (cfg.schedule.rho(t as f64 / cfg.outer_iters as f64), cfg.reg);
             let it = cfg.inner_iters;
             let (ra, rb) = std::thread::scope(|s| {
-                let hb = s.spawn(|| b.step(p, spd_inverse, it, true, &sb));
+                let hb = s.spawn(|| {
+                    crate::engine::chart::pool::pin_beside_worker();
+                    b.step(p, spd_inverse, it, true, &sb)
+                });
                 (a.step(p, spd_inverse, it, false, &sa), hb.join())
             });
             let rb = rb.unwrap_or_else(|e| std::panic::resume_unwind(e));

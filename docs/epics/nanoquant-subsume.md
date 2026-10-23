@@ -373,6 +373,15 @@ orders 96 and 301; control: the inline loop one task short, and the inline inver
 (`Perf.LimbDevice.inlineLeaf_fit`). Side `B`'s thread inherits `A`'s CPU 0 pin, so both sides' leaves
 share one core; `B` on CPU 3 gives loop 11.50 against 12.92 ms (`p16.log`, single runs).
 
+T15 pins the side-`B` thread to the hyperthread sibling of the first performance worker's core
+(`pool::pin_beside_worker`, P120; CPU 3 on this box). The worker's spin keeps that core out of its
+idle states, and CPU 0 stays side `A`'s. ADMM falls from 1.788 to 1.608 s per 100 iterations
+(3 interleaved runs), factor byte-identical in all 6. Placement profile (`p16.log`, `p17.log`, single
+runs): inherited CPU 0 12.92 ms per iteration, CPU 1 12.60, CPU 3 11.50 and 11.31, unpinned 11.90;
+with the pool's spin off (`Hot` dropped) CPU 2 gives 15.20 ms. `beside_worker_takes_the_first_workers_sibling`
+checks the sibling choice on the host's layout; control: the worker index 1 → 0 chooses CPU 1, test
+red (`Perf.LimbDevice.sideBPin_fit`).
+
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 

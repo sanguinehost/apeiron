@@ -337,4 +337,28 @@ theorem inlineLeaf_fit :
     leafEightSingle < leafHostInlineA ∧ leafHostInlineA - leafEightSingle = 16_740 := by
   decide
 
+/-! ## Side-B placement (P120)
+
+`pool::pin_beside_worker` moves the ADMM side-`B` thread from the caller's inherited core (CPU 0) to
+the SMT sibling of the first performance worker's core (CPU 3). Units: tenths of a microsecond per
+ADMM iteration. -/
+
+/-- ADMM wall per iteration on the blk.23 `down` fit, means of 3 interleaved runs (`t15-ab.log`):
+inherited 1.782 / 1.796 / 1.787 s, sibling 1.600 / 1.624 / 1.600 s per 100 iterations. Grade
+`measured`. -/
+def pinOff : Nat := 178_833
+def pinOn : Nat := 160_800
+
+/-- Side `A`'s host-leaf time per iteration, side `B` inherited (4.18 ms) and on CPU 3 (3.15 ms),
+one profiled run each (`p16.log`). Grade `measured`. -/
+def leafHostShared : Nat := 41_800
+def leafHostBeside : Nat := 31_500
+
+/-- The sibling placement saves 1.80 ms per iteration; side `A`'s leaves alone account for 1.03 ms
+of it (grade `model`: the remainder is side `B`'s leaves and fence waits). -/
+theorem sideBPin_fit :
+    pinOn < pinOff ∧ pinOff - pinOn = 18_033 ∧
+    leafHostBeside < leafHostShared ∧ leafHostShared - leafHostBeside = 10_300 := by
+  decide
+
 end Perf.LimbDevice
