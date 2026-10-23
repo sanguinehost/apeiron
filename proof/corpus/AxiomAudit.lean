@@ -99,6 +99,7 @@ import Learn.Solve.WsyrkWitness
 import Learn.QuantVerdicts
 import Learn.Admission
 import Learn.RateSpikes
+import Security.PhantomGradient
 import Perf.BitsRefine
 import Numeric.Quantum.Register
 import Numeric.Quantum.RegisterRefinement
@@ -2932,3 +2933,10 @@ elab "#audit_chol_boundary " id:ident : command => do
 #audit Learn.GateCode.up_plane_beats_down_plane
 #audit Learn.GateCode.joint_additive
 #audit Learn.GateCode.kind_q4km_distance
+#audit Apeiron.Security.PhantomGradient.trojan_phantom
+#audit Apeiron.Security.PhantomGradient.exact_no_phantom
+#audit Apeiron.Security.PhantomGradient.exact_no_phantom_window
+#audit Apeiron.Security.PhantomGradient.trojan_exact
+#audit Apeiron.Security.PhantomGradient.checked_shift_exact
+#audit Apeiron.Security.PhantomGradient.q32_mul_phantom
+#audit Apeiron.Security.PhantomGradient.extracted_mul_round_phantom
