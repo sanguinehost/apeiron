@@ -38,7 +38,6 @@
               and every loop is one linear composition of the stage it measures"
 )]
 
-use std::fmt::Write as _;
 use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
@@ -293,6 +292,26 @@ fn layer_fit(h: &[f64], g: &[f64], gh: &[f64], u: &[f64], uh: &[f64], n: usize) 
     }
 }
 
+/// Calibration chunks `0..calib` plus `extra` chunks from `CALIB + 3` on, so the held-out chunks
+/// 8, 9, 10 of [`gate_code_kl`] stay out of `H`. `O(chunks)` token copies.
+fn calib_set(chunks: &[Vec<u32>], calib: usize, extra: usize) -> Vec<Vec<u32>> {
+    let from = CALIB + 3;
+    assert!(
+        extra == 0 || calib <= CALIB,
+        "extra chunks need calib <= {CALIB}"
+    );
+    assert!(
+        from + extra <= chunks.len(),
+        "extra {extra}: {} chunks",
+        chunks.len()
+    );
+    chunks[..calib]
+        .iter()
+        .chain(&chunks[from..from + extra])
+        .cloned()
+        .collect()
+}
+
 /// The production calibration Grams over chunks `0..calib`: `Grams::accumulate_tap` on each tapped
 /// chunk, then `Normalisation::Mean`. `gate_up` is the `ffn_gate`/`ffn_up` input Gram (stage 3) and
 /// `down` the `ffn_down` input Gram (stage 4, the engine's own `SwiGLU` product), both `Σ_t x_t x_tᵀ / T`
@@ -362,6 +381,55 @@ fn calib_grams(
     done
 }
 
+/// [`calib_grams`] over all of `set`, cached per layer as `g{l}.{tag}.{o,gate_up,down}.i64` in Q32.32
+/// words, the precision every consumer reads them at. When every file exists they are read and the
+/// layout control is not re-run (it ran when they were written); `qkv` and `tokens` are not cached.
+/// Layers outside `layers` hold empty Grams.
+///
+/// `O(|layers|·(q_out² + n_embd² + n_ff²))` words read or written, plus one [`calib_grams`] on a miss.
+fn grams_cached(
+    engine: &Engine,
+    cfg: &Config,
+    set: &[Vec<u32>],
+    layers: &[usize],
+    tag: &str,
+) -> Vec<LayerGrams> {
+    let path = |l: usize, k: &str| format!("{CACHE}/g{l}.{tag}.{k}.i64");
+    let kinds = ["o", "gate_up", "down"];
+    let hit = layers.iter().all(|&l| {
+        kinds
+            .iter()
+            .all(|k| std::path::Path::new(&path(l, k)).exists())
+    });
+    if !hit {
+        let grams = calib_grams(engine, cfg, set, set.len(), layers);
+        for &l in layers {
+            for (k, g) in kinds
+                .iter()
+                .zip([&grams[l].o, &grams[l].gate_up, &grams[l].down])
+            {
+                let w = g.len().isqrt();
+                write_words(&path(l, k), w, w, &qv(g)).expect("cache Gram");
+            }
+        }
+        return grams;
+    }
+    let read = |l: usize, k: &str| unq(&read_words(&path(l, k)).2);
+    (0..cfg.n_layer)
+        .map(|l| {
+            let on = layers.contains(&l);
+            let get = |k: &str| if on { read(l, k) } else { Vec::new() };
+            LayerGrams {
+                qkv: Vec::new(),
+                o: get("o"),
+                gate_up: get("gate_up"),
+                down: get("down"),
+                tokens: 0,
+            }
+        })
+        .collect()
+}
+
 /// The cost equation and the two fixtures: one 512-token tapped prefill, one production `fold_fit`.
 #[test]
 #[ignore = "opens the 3.1 GB F32 teacher; run explicitly with --ignored"]
@@ -421,32 +489,45 @@ fn gate_code_probe() {
     );
 }
 
-/// Accumulate the calibration `H` over chunks `0..CALIB` and cache it with the fits.
+/// The production fit of each kind in `APEIRON_GATE_KIND` (comma list of `down`, `o`, `gate`, `up`;
+/// default `down`) for `APEIRON_GATE_LAYERS`, under one calibration `H` over [`calib_set`]
+/// (`APEIRON_GATE_CALIB`, `APEIRON_GATE_EXTRA`). Writes `l{l}.{kind}.i64`, or `l{l}.{kind}-x{extra}.i64`
+/// with extra chunks; an existing file is kept and skipped, so a cut run resumes.
+///
+/// `H` costs what [`calib_grams`] states; then one `fold_fit` per layer and kind.
 #[test]
-#[ignore = "opens the 3.1 GB F32 teacher and runs production fold_fit per tensor; run explicitly"]
-fn gate_code_fit() {
+#[ignore = "opens the teacher and runs production fold_fit per tensor; run explicitly"]
+fn gate_code_fit_kind() {
     let engine = Engine::open(&model_path()).expect("open teacher");
     let cfg = Config::from_engine(&engine).expect("config");
     let (chunks, n_ctx) = base_tokens(&base_path());
     let layers = env_layers(cfg.n_layer);
+    let kinds = std::env::var("APEIRON_GATE_KIND").unwrap_or_else(|_| String::from("down"));
+    let extra = env_usize("APEIRON_GATE_EXTRA", 0);
     let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
-    let n = cfg.n_embd;
+    let set = calib_set(&chunks, calib, extra);
     std::fs::create_dir_all(CACHE).expect("cache dir");
     let t0 = Instant::now();
-    let grams = calib_grams(&engine, &cfg, &chunks, calib, &layers);
-    let tokens_seen = calib * n_ctx;
+    let grams = grams_cached(&engine, &cfg, &set, &layers, &format!("c{calib}x{extra}"));
     for &l in &layers {
-        let hw = qv(&grams[l].gate_up);
-        write_words(&format!("{CACHE}/h{l}.i64"), n, n, &hw).expect("cache H");
-        let (g, u, mixer) = gate_up(&engine, &cfg, l);
-        for (name, w) in [("gate", &g[..]), ("up", &u[..])] {
+        for kind in kinds.split(',') {
+            let name = if extra > 0 {
+                format!("{kind}-x{extra}")
+            } else {
+                kind.to_string()
+            };
+            let path = format!("{CACHE}/l{l}.{name}.i64");
+            if std::path::Path::new(&path).exists() {
+                println!("FITK layer {l:02} {name} exists, skipped");
+                continue;
+            }
+            let (w, o, n, h) = teacher(&engine, &cfg, &grams, kind, l);
             let t = Instant::now();
-            let fit = fold_fit(w, &hw, cfg.n_ff, n, None, &production_cfg()).expect("fit");
-            let wall = t.elapsed().as_secs_f64();
-            write_words(&format!("{CACHE}/l{l}.{name}.i64"), cfg.n_ff, n, &fit.wp)
-                .expect("cache fit");
+            let fit = fold_fit(&w, &qv(&h), o, n, None, &production_cfg()).expect("fit");
+            write_words(&path, o, n, &fit.wp).expect("cache fit");
             println!(
-                "FIT layer {l} {mixer} {name} {wall:.2} s bits r/c/d {}/{}/{} tag {}",
+                "FITK layer {l:02} {name} {o}x{n} {:.2} s bits r/c/d {}/{}/{} tag {}",
+                t.elapsed().as_secs_f64(),
                 fit.bits_r,
                 fit.bits_c,
                 fit.bits_d,
@@ -455,103 +536,11 @@ fn gate_code_fit() {
         }
     }
     println!(
-        "FIT done {} layers, {tokens_seen} calibration tokens, {:.1} s",
+        "FITK done {} layers, {} calibration tokens, {:.1} s",
         layers.len(),
+        set.len() * n_ctx,
         t0.elapsed().as_secs_f64()
     );
-}
-
-/// The down calibration `H` (the production `Grams::down`, stage 4, `n_ff × n_ff`) over chunks `0..CALIB`, then
-/// the production fit of `ffn_down` for `APEIRON_GATE_LAYERS`, cached beside the gate/up fits.
-///
-/// `H` costs what [`calib_grams`] states; then one `fold_fit` per layer.
-#[test]
-#[ignore = "opens the teacher and runs production fold_fit on ffn_down; run explicitly"]
-fn gate_code_fit_down() {
-    let engine = Engine::open(&model_path()).expect("open teacher");
-    let cfg = Config::from_engine(&engine).expect("config");
-    let (chunks, n_ctx) = base_tokens(&base_path());
-    let layers = env_layers(cfg.n_layer);
-    let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
-    let (n, f) = (cfg.n_embd, cfg.n_ff);
-    std::fs::create_dir_all(CACHE).expect("cache dir");
-    let t0 = Instant::now();
-    let grams = calib_grams(&engine, &cfg, &chunks, calib, &layers);
-    let tokens_seen = calib * n_ctx;
-    for &l in &layers {
-        let hw = qv(&grams[l].down);
-        let (d, mixer) = ffn_down(&engine, &cfg, l);
-        let t = Instant::now();
-        let fit = fold_fit(&d, &hw, n, f, None, &production_cfg()).expect("fit");
-        let wall = t.elapsed().as_secs_f64();
-        write_words(&format!("{CACHE}/l{l}.down.i64"), n, f, &fit.wp).expect("cache fit");
-        println!(
-            "FITD layer {l} {mixer} down {wall:.2} s bits r/c/d {}/{}/{} tag {}",
-            fit.bits_r,
-            fit.bits_c,
-            fit.bits_d,
-            fit.tag.as_str()
-        );
-    }
-    println!(
-        "FITD done {} layers, {tokens_seen} calibration tokens, {:.1} s",
-        layers.len(),
-        t0.elapsed().as_secs_f64()
-    );
-}
-
-/// The output projection's calibration `H` (the production `Grams::o`, stage 2, `q_out × q_out`) over
-/// chunks `0..CALIB`, then the production fit of `attn_output` (or `ssm_out` on a Gated `DeltaNet`
-/// layer) for `APEIRON_GATE_LAYERS`, cached as `l{l}.o.i64`, with `tr(E H Eᵀ)` before and after.
-///
-/// `H` costs what [`calib_grams`] states; then one `fold_fit` and one [`energy`] (`O(n_embd·q_out²)`)
-/// per layer.
-#[test]
-#[ignore = "opens the teacher and runs production fold_fit on the output projection; run explicitly"]
-fn gate_code_fit_o() {
-    let engine = Engine::open(&model_path()).expect("open teacher");
-    let cfg = Config::from_engine(&engine).expect("config");
-    let (chunks, _) = base_tokens(&base_path());
-    let layers = env_layers(cfg.n_layer);
-    let calib = env_usize("APEIRON_GATE_CALIB", CALIB);
-    std::fs::create_dir_all(CACHE).expect("cache dir");
-    let grams = calib_grams(&engine, &cfg, &chunks, calib, &layers);
-    for &l in &layers {
-        let ll = layer_from_engine(&engine, &cfg, l).expect("layer linears");
-        let w = ll
-            .linears
-            .iter()
-            .find(|x| matches!(x.name, "attn_output" | "ssm_out"))
-            .unwrap_or_else(|| panic!("blk.{l} output projection"));
-        let (o, q) = (w.rows, w.cols);
-        assert_eq!(o, cfg.n_embd, "layer {l}: o rows");
-        assert_eq!(
-            grams[l].o.len(),
-            q * q,
-            "layer {l}: o Gram is q_out x q_out"
-        );
-        let hw = qv(&grams[l].o);
-        let h = unq(&hw);
-        let t = Instant::now();
-        let fit = fold_fit(&w.w, &hw, o, q, None, &production_cfg()).expect("fit");
-        let wall = t.elapsed().as_secs_f64();
-        let diff = |a: &[i64]| -> Vec<i64> { a.iter().zip(&w.w).map(|(x, y)| x - y).collect() };
-        let before = energy(&h, &w.w, o, q);
-        let after = energy(&h, &diff(&fit.wp), o, q);
-        write_words(&format!("{CACHE}/l{l}.o.i64"), o, q, &fit.wp).expect("cache fit");
-        let bits = (o * q) as u64 + fit.bits_r + fit.bits_c + fit.bits_d;
-        println!(
-            "FITO layer {l:02} {:?} {} {o}x{q} {wall:.2} s rel energy {:.4} bits sign/r/c/d {}/{}/{}/{} b/w {:.4}",
-            ll.mixer,
-            w.name,
-            after / before,
-            o * q,
-            fit.bits_r,
-            fit.bits_c,
-            fit.bits_d,
-            bits as f64 / (o * q) as f64
-        );
-    }
 }
 
 /// `tr(E H Eᵀ)` for the `o × n` word matrix `e` under the symmetric `n × n` Gram `h`: one [`quad`]
@@ -568,7 +557,7 @@ fn energy(h: &[f64], e: &[i64], o: usize, n: usize) -> f64 {
 }
 
 /// The teacher words `W` (`o × n`) of `kind` in layer `l` and its calibration Gram `H` (`n × n`):
-/// the cached `h{l}.i64` for gate/up, the [`calib_grams`] `down` or `o` Gram for down/o.
+/// for gate/up the cached `g{l}.c8x0.gate_up.i64` ([`grams_cached`]) when `grams` is empty, else `grams`' Gram of that kind.
 ///
 /// `O(o·n)` to read the tensor; space `O(o·n + n²)`.
 fn teacher(
@@ -595,11 +584,15 @@ fn teacher(
         }
         _ => {
             let n = cfg.n_embd;
-            let (ho, hn, hw) = read_words(&format!("{CACHE}/h{l}.i64"));
-            assert_eq!((ho, hn, hw.len()), (n, n, n * n), "layer {l}: cached H");
+            let h = if grams.is_empty() {
+                let (ho, hn, hw) = read_words(&format!("{CACHE}/g{l}.c8x0.gate_up.i64"));
+                assert_eq!((ho, hn, hw.len()), (n, n, n * n), "layer {l}: cached H");
+                unq(&hw)
+            } else {
+                unq(&qv(&grams[l].gate_up))
+            };
             let (g, up, _mixer) = gate_up(engine, cfg, l);
-            let w = if kind == "gate" { g } else { up };
-            (w, cfg.n_ff, n, unq(&hw))
+            (if kind == "gate" { g } else { up }, cfg.n_ff, n, h)
         }
     }
 }
@@ -611,9 +604,10 @@ fn teacher(
 ///
 /// `APEIRON_GATE_KIND` (`up` | `gate` | `down` | `o`, default `up`), `APEIRON_GATE_LAYERS` (default:
 /// every layer), `APEIRON_GATE_PASSES` (`P`, default 2: the cached fit plus `P − 1` residual passes).
-/// `H` is the calibration Gram of chunks `0..CALIB`: the cached `h{l}.i64` for gate/up, the
-/// [`calib_grams`] `down` or `o` Gram for down/o; no held-out chunk is read.
-/// Writes `{CACHE}/l{l}.{kind}-res{P}.i64`, the summed words, for [`gate_code_kl`]
+/// `H` is the calibration Gram of chunks `0..CALIB`: the cached `g{l}.c8x0.gate_up.i64` for gate/up, the
+/// [`calib_grams`] `down` or `o` Gram for down/o; no held-out chunk is read. `APEIRON_GATE_EXTRA`
+/// widens `H` by [`calib_set`] (every kind) and starts from `l{l}.{kind}-x{extra}.i64`.
+/// Writes `{CACHE}/l{l}.{base}-res{P}.i64`, the summed words, for [`gate_code_kl`]
 /// (`APEIRON_GATE_ARM=up-res2`); `P = 1` writes the cached fit back unchanged.
 ///
 /// Cost: `(P−1)` `fold_fit` per layer (~33 s each for gate/up, ~52–75 s down, measured) plus `2(P−1)`
@@ -634,22 +628,25 @@ fn ffn_residual_fit() {
         "APEIRON_GATE_KIND {kind}"
     );
     let passes = env_usize("APEIRON_GATE_PASSES", 2).max(1);
-    println!("RES layers {layers:?} kind {kind} passes {passes}");
+    let extra = env_usize("APEIRON_GATE_EXTRA", 0);
+    let base = if extra > 0 {
+        format!("{kind}-x{extra}")
+    } else {
+        kind.clone()
+    };
+    println!("RES layers {layers:?} kind {kind} base {base} passes {passes}");
     let t0 = Instant::now();
-    let grams = if matches!(kind.as_str(), "down" | "o") {
+    let grams = if matches!(kind.as_str(), "down" | "o") || extra > 0 {
         let (chunks, _) = base_tokens(&base_path());
-        calib_grams(&engine, &cfg, &chunks, CALIB, &layers)
+        let set = calib_set(&chunks, CALIB, extra);
+        grams_cached(&engine, &cfg, &set, &layers, &format!("c{CALIB}x{extra}"))
     } else {
         Vec::new()
     };
     for &l in &layers {
         let (w, o, n, h) = teacher(&engine, &cfg, &grams, &kind, l);
-        let (wo, wn, cached) = read_words(&format!("{CACHE}/l{l}.{kind}.i64"));
-        assert_eq!(
-            (wo, wn, cached.len()),
-            (o, n, o * n),
-            "layer {l}: cached {kind}"
-        );
+        let (wo, wn, cached) = read_words(&format!("{CACHE}/l{l}.{base}.i64"));
+        assert_eq!((wo, wn, cached.len()), (o, n, o * n), "layer {l}: {base}");
         let mut what = cached;
         let mut failed = false;
         for p in 1..passes {
@@ -686,7 +683,7 @@ fn ffn_residual_fit() {
         if failed {
             continue;
         }
-        let path = format!("{CACHE}/l{l}.{kind}-res{passes}.i64");
+        let path = format!("{CACHE}/l{l}.{base}-res{passes}.i64");
         write_words(&path, o, n, &what).expect("write residual fit");
         println!("RES wrote {path}");
     }
@@ -908,17 +905,6 @@ fn gemm_nt(a: &[f64], b: &[f64], m: usize, k: usize, p: usize) -> Vec<f64> {
     out
 }
 
-/// The transpose of row-major `a` (`m × k`). `O(m·k)` copies.
-fn transpose(a: &[f64], m: usize, k: usize) -> Vec<f64> {
-    let mut t = vec![0.0f64; m * k];
-    for i in 0..m {
-        for j in 0..k {
-            t[j * m + i] = a[i * k + j];
-        }
-    }
-    t
-}
-
 /// The lower Cholesky factor `L` of the symmetric `n × n` `h` (`H = L Lᵀ`, Cholesky–Banachiewicz); a
 /// non-positive pivot is clamped to `1e-12·tr(H)/n`.
 ///
@@ -937,99 +923,6 @@ fn cholesky(h: &[f64], n: usize) -> Vec<f64> {
         }
     }
     l
-}
-
-/// **Measurement 13** (board ). How much of a fit's `H`-weighted error
-/// `E_H(E) = tr(E H Eᵀ)`, `E = Ŵ − W`, a rank-`r` correction removes. The best rank-`r` correction
-/// under the metric is `U_r U_rᵀ E` with `U_r` the top left singular vectors of `E H^{1/2}`
-/// (Eckart and Young (1936) in the `H` inner product; QERA, Zhang et al. (2024)); it removes the top
-/// `r` eigenvalues of `E H Eᵀ`, the same nonzero spectrum as `Lᵀ EᵀE L` (`H = L Lᵀ`), whichever is
-/// smaller. Prints the remaining fraction and the fit's `ρ` after rank `r`, with the factor cost
-/// `r·(o + n)·8` bits as b/w. `APEIRON_GATE_KIND`, `APEIRON_GATE_LAYERS` as in [`ffn_residual_fit`];
-/// `APEIRON_LR_PLANES` (default 1) picks the cached fit (`l{l}.{kind}.i64`, `-res{P}`). Control:
-/// the spectrum's trace against [`energy`].
-///
-/// Cost per layer: `O(o·n·min(o, n))` for the Gram product, `O(4m³/3)` [`eigvalsh`] at
-/// `m = min(o, n)`, `O(n³/3)` [`cholesky`] when `o > n`; space `O(o·n + m²)`.
-#[test]
-#[ignore = "opens the teacher and reads the cached fits; run explicitly"]
-fn gate_code_lowrank() {
-    let engine = Engine::open(&model_path()).expect("open teacher");
-    let cfg = Config::from_engine(&engine).expect("config");
-    let layers = env_layers(cfg.n_layer);
-    let kind = std::env::var("APEIRON_GATE_KIND").unwrap_or_else(|_| String::from("up"));
-    let planes = env_usize("APEIRON_LR_PLANES", 1);
-    let grams = if matches!(kind.as_str(), "down" | "o") {
-        let (chunks, _) = base_tokens(&base_path());
-        calib_grams(&engine, &cfg, &chunks, CALIB, &layers)
-    } else {
-        Vec::new()
-    };
-    for &l in &layers {
-        let (w, o, n, h) = teacher(&engine, &cfg, &grams, &kind, l);
-        let path = if planes == 1 {
-            format!("{CACHE}/l{l}.{kind}.i64")
-        } else {
-            format!("{CACHE}/l{l}.{kind}-res{planes}.i64")
-        };
-        let (_, _, what) = read_words(&path);
-        let ei: Vec<i64> = what.iter().zip(&w).map(|(a, b)| a - b).collect();
-        let (ew, ee) = (energy(&h, &w, o, n), energy(&h, &ei, o, n));
-        let e = unq(&ei);
-        let t = Instant::now();
-        let eh = gemm_nt(&e, &h, o, n, n);
-        let mut col: Vec<f64> = (0..n)
-            .map(|j| (0..o).map(|u| e[u * n + j] * eh[u * n + j]).sum())
-            .collect();
-        let mut grp: Vec<f64> = col.chunks(128).map(|c| c.iter().sum()).collect();
-        col.sort_by(|a, b| b.partial_cmp(a).expect("finite"));
-        grp.sort_by(|a, b| b.partial_cmp(a).expect("finite"));
-        let share = |v: &[f64], k: usize| v[..k].iter().sum::<f64>() / ee;
-        println!(
-            "LOWRANK layer {l:02} kind {kind} columns top 1% {:.4} 2% {:.4} 5% {:.4} 10% {:.4} 25% {:.4} \
-             | groups of 128, top 1 {:.4} 2 {:.4} 4 {:.4} of {}",
-            share(&col, n / 100),
-            share(&col, n / 50),
-            share(&col, n / 20),
-            share(&col, n / 10),
-            share(&col, n / 4),
-            share(&grp, 1),
-            share(&grp, 2),
-            share(&grp, 4),
-            grp.len()
-        );
-        if std::env::var("APEIRON_LR_SPECTRUM").is_ok_and(|v| v == "0") {
-            continue;
-        }
-        let (m, gram) = if o <= n {
-            (o, gemm_nt(&eh, &e, o, n, o))
-        } else {
-            let lt = transpose(&cholesky(&h, n), n, n);
-            let pt = transpose(&gemm_nt(&e, &lt, o, n, n), o, n);
-            (n, gemm_nt(&pt, &pt, n, o, n))
-        };
-        let mut sv = eigvalsh(gram, m);
-        sv.reverse();
-        let tr: f64 = sv.iter().map(|x| x.max(0.0)).sum();
-        println!(
-            "LOWRANK layer {l:02} kind {kind} planes {planes} rho fit {:.4} trace {tr:.6e} energy \
-             {ee:.6e} ({:.1} s)",
-            ee / ew,
-            t.elapsed().as_secs_f64()
-        );
-        let mut line = String::new();
-        let mut acc = 0.0f64;
-        for (i, x) in sv.iter().enumerate() {
-            acc += x.max(0.0);
-            let r = i + 1;
-            if r.is_power_of_two() && r <= 512 {
-                let left = 1.0 - acc / tr;
-                let bw = (r * (o + n) * 8) as f64 / (o * n) as f64;
-                let _ = write!(line, " r{r} {left:.4}/{:.4}/+{bw:.4}", left * ee / ew);
-            }
-        }
-        println!("LOWRANK layer {l:02} kind {kind} left/rho/b-w{line}");
-    }
 }
 
 /// `x` with `L Lᵀ x = b` for the lower Cholesky factor `l` (`k × k`): forward then back substitution.
@@ -1057,7 +950,10 @@ fn chol_solve(l: &[f64], b: &[f64], k: usize) -> Vec<f64> {
 /// `APEIRON_GATE_KIND`, `APEIRON_GATE_LAYERS` as in [`ffn_residual_fit`]; `APEIRON_COLS_K`
 /// (multiple of 128, default 128); `APEIRON_COLS_BASE` (default the kind) names the starting fit
 /// `l{l}.{base}.i64`; `APEIRON_COLS_PASSES` (`P`, default 1) repeats selection and fit on the
-/// updated residual, a greedy water-filling over columns. Writes `l{l}.{base}-cols{k}x{P}.i64`.
+/// updated residual, a greedy water-filling over columns. `APEIRON_COLS_RIDGE` (`λ`, default 0)
+/// adds `λ·tr(H_SS)/k` to the transfer's diagonal; `APEIRON_COLS_TARGET=resid` drops the transfer
+/// (target `−E_S`). Each pass also prints the held-out energy ([`heldout_h`]). Writes
+/// `l{l}.{base}-cols{k}x{P}.i64` (`r{λ}` / `e` appended for a ridge / residual target).
 ///
 /// Cost per layer: `O(o·n²)` for `E H`, `O(k³/3 + o·k²)` for the solve, one `fold_fit` on `o × k`,
 /// two [`energy`] at `O(o·n²)`; space `O(o·n + n²)`.
@@ -1071,36 +967,47 @@ fn cols_fit() {
     let base = std::env::var("APEIRON_COLS_BASE").unwrap_or_else(|_| kind.clone());
     let k = env_usize("APEIRON_COLS_K", 128);
     assert!(k.is_multiple_of(128) && k > 0, "APEIRON_COLS_K {k}");
-    let grams = if matches!(kind.as_str(), "down" | "o") {
-        let (chunks, _) = base_tokens(&base_path());
-        calib_grams(&engine, &cfg, &chunks, CALIB, &layers)
-    } else {
-        Vec::new()
-    };
+    let (chunks, _) = base_tokens(&base_path());
+    let grams = grams_cached(&engine, &cfg, &chunks[..CALIB], &layers, "c8x0");
+    let ho = grams_cached(&engine, &cfg, &chunks[CALIB..CALIB + 3], &layers, "ho");
     let passes = env_usize("APEIRON_COLS_PASSES", 1).max(1);
-    let tag = format!("cols{k}x{passes}");
+    let ridge: f64 = std::env::var("APEIRON_COLS_RIDGE").map_or(0.0, |v| v.parse().expect("ridge"));
+    let resid = std::env::var("APEIRON_COLS_TARGET").is_ok_and(|v| v == "resid");
+    let r = if ridge > 0.0 {
+        format!("r{ridge}")
+    } else {
+        String::new()
+    };
+    let tag = format!("cols{k}x{passes}{r}{}", if resid { "e" } else { "" });
     let mut added = 0u64;
     for &l in &layers {
         let (w, o, n, h) = teacher(&engine, &cfg, &grams, &kind, l);
+        let hh = heldout_h(&ho, &kind, l);
         let (_, _, mut what) = read_words(&format!("{CACHE}/l{l}.{base}.i64"));
         let mut failed = false;
         for p in 1..=passes {
             let ei: Vec<i64> = what.iter().zip(&w).map(|(a, b)| a - b).collect();
-            let before = energy(&h, &ei, o, n);
+            let (before, ho_before) = (energy(&h, &ei, o, n), energy(&hh, &ei, o, n));
             let eh = gemm_nt(&unq(&ei), &h, o, n, n);
             let mut idx: Vec<usize> = (0..n).collect();
             let gain = |j: usize| (0..o).map(|u| eh[u * n + j].powi(2)).sum::<f64>() / h[j * n + j];
             idx.sort_by(|&a, &b| gain(b).partial_cmp(&gain(a)).expect("finite"));
             let mut s = idx[..k].to_vec();
             s.sort_unstable();
-            let hss: Vec<f64> = s
+            let mut hss: Vec<f64> = s
                 .iter()
                 .flat_map(|&a| s.iter().map(move |&b| (a, b)))
                 .map(|(a, b)| h[a * n + b])
                 .collect();
+            let lam = ridge * (0..k).map(|c| hss[c * k + c]).sum::<f64>() / k as f64;
+            (0..k).for_each(|c| hss[c * k + c] += lam);
             let lss = cholesky(&hss, k);
             let mut target = Vec::with_capacity(o * k);
             for u in 0..o {
+                if resid {
+                    target.extend(s.iter().map(|&j| -unq(&ei[u * n + j..=u * n + j])[0]));
+                    continue;
+                }
                 let row: Vec<f64> = s.iter().map(|&j| eh[u * n + j]).collect();
                 target.extend(chol_solve(&lss, &row, k).iter().map(|x| -x));
             }
@@ -1120,15 +1027,16 @@ fn cols_fit() {
                 }
             }
             let e2: Vec<i64> = what.iter().zip(&w).map(|(a, b)| a - b).collect();
-            let after = energy(&h, &e2, o, n);
+            let (after, ho_after) = (energy(&h, &e2, o, n), energy(&hh, &e2, o, n));
             let bits = (o * k) as u64 + fit.bits_r + fit.bits_c + fit.bits_d;
             added += bits;
             let bw = bits as f64 / (o * n) as f64;
             println!(
                 "COLS layer {l:02} kind {kind} base {base} k {k} pass {p} energy before \
-                 {before:.6e} after {after:.6e} ratio {:.4} ln/b-w {:.3} fit {wall:.1} s bits \
-                 sign/r/c/d {}/{}/{}/{} (+{bw:.4} b/w)",
+                 {before:.6e} after {after:.6e} ratio {:.4} heldout ratio {:.4} ln/b-w {:.3} fit \
+                 {wall:.1} s bits sign/r/c/d {}/{}/{}/{} (+{bw:.4} b/w)",
                 after / before,
+                ho_after / ho_before,
                 (after / before).ln() / bw,
                 o * k,
                 fit.bits_r,
@@ -1142,6 +1050,66 @@ fn cols_fit() {
         }
     }
     println!("COLS added {added} bits ({:.3} Mbit)", added as f64 / 1e6);
+}
+
+/// The held-out metric of `kind` at layer `l`: its Gram over chunks 8, 9, 10, the KL chunks of
+/// [`gate_code_kl`] (`ho` is [`calib_grams`] on that slice).
+fn heldout_h(ho: &[LayerGrams], kind: &str, l: usize) -> Vec<f64> {
+    let g = match kind {
+        "o" => &ho[l].o,
+        "down" => &ho[l].down,
+        _ => &ho[l].gate_up,
+    };
+    unq(&qv(g))
+}
+
+/// **Measurement 15** (board ). Is held-out energy the fast proxy of
+/// held-out KL? For cached fits `l{l}.{arm}.i64`, prints `E_H(E)` under the calibration Gram
+/// (chunks 0..8) and the held-out Gram ([`heldout_h`]), and the sums over layers against the first
+/// arm. `APEIRON_GATE_KIND`, `APEIRON_GATE_LAYERS` as in [`ffn_residual_fit`]; `APEIRON_HE_ARMS`
+/// comma-separated (default `o,o-res2,o-cols256x8`); a layer without an arm's file skips it, so
+/// sums compare only over a common layer set.
+///
+/// Cost: the Grams over 11 chunks (~7 s each), two [`energy`] per arm and layer at `O(o·n²)`.
+#[test]
+#[ignore = "opens the teacher and reads the cached fits; run explicitly"]
+fn heldout_energy() {
+    let engine = Engine::open(&model_path()).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let layers = env_layers(cfg.n_layer);
+    let kind = std::env::var("APEIRON_GATE_KIND").unwrap_or_else(|_| String::from("o"));
+    let arms =
+        std::env::var("APEIRON_HE_ARMS").unwrap_or_else(|_| String::from("o,o-res2,o-cols256x8"));
+    let arms: Vec<&str> = arms.split(',').collect();
+    let (chunks, _) = base_tokens(&base_path());
+    let grams = grams_cached(&engine, &cfg, &chunks[..CALIB], &layers, "c8x0");
+    let ho = grams_cached(&engine, &cfg, &chunks[CALIB..CALIB + 3], &layers, "ho");
+    let mut tot = vec![(0.0f64, 0.0f64); arms.len()];
+    for &l in &layers {
+        let (w, o, n, h) = teacher(&engine, &cfg, &grams, &kind, l);
+        let hh = heldout_h(&ho, &kind, l);
+        for (a, arm) in arms.iter().enumerate() {
+            let path = format!("{CACHE}/l{l}.{arm}.i64");
+            if !Path::new(&path).exists() {
+                continue;
+            }
+            let (_, _, what) = read_words(&path);
+            let e: Vec<i64> = what.iter().zip(&w).map(|(x, y)| x - y).collect();
+            let (ec, eh) = (energy(&h, &e, o, n), energy(&hh, &e, o, n));
+            tot[a] = (tot[a].0 + ec, tot[a].1 + eh);
+            println!("HELDOUT layer {l:02} kind {kind} arm {arm} calib {ec:.6e} heldout {eh:.6e}");
+        }
+    }
+    for (a, arm) in arms.iter().enumerate() {
+        println!(
+            "HELDOUT sum arm {arm} calib {:.6e} heldout {:.6e} vs {} calib {:.4} heldout {:.4}",
+            tot[a].0,
+            tot[a].1,
+            arms[0],
+            tot[a].0 / tot[0].0,
+            tot[a].1 / tot[0].1
+        );
+    }
 }
 
 /// The per-layer table: off/near/on, flip against `arccos(ρ_H)/π`, the `H` errors and the split.
@@ -1183,7 +1151,7 @@ fn gate_code_stats() {
         let (gw, uw, mixer) = gate_up(&engine, &cfg, l);
         let (_, _, ghw) = read_words(&format!("{CACHE}/l{l}.gate.i64"));
         let (_, _, uhw) = read_words(&format!("{CACHE}/l{l}.up.i64"));
-        let (_, _, hw) = read_words(&format!("{CACHE}/h{l}.i64"));
+        let (_, _, hw) = read_words(&format!("{CACHE}/g{l}.c8x0.gate_up.i64"));
         let (gf, uf, ghat, uhat, hf) = (unq(&gw), unq(&uw), unq(&ghw), unq(&uhw), unq(&hw));
         let ti = Instant::now();
         let xf = unq(&xs[l]);
