@@ -175,6 +175,67 @@ theorem kl_l23_down :
     klSel < klW2 ∧ 53 * klQ4KM < klSel ∧ klSel < 54 * klQ4KM := by
   decide
 
+/-! ## 7 · The ADMM ridge solve: `H⁻¹` and the limb count (`b32c.log`, `invsmall.log`, `invbase.log`,
+`seed-mixed.log`) -/
+
+/-- Kernel multiply-adds of `nanoquant::spd_inverse_at` above the base order `b`: at each level with
+`p = ⌊n/2⌋`, `q = n − p`, the products `X = A⁻¹B` (`p²q`), `BᵀX` (`q²p`), `Y = X·S⁻¹` (`pq²`) and `YXᵀ`
+(`p²q`), then the two recursive halves. `fuel` bounds the depth. Below `b` the base is scalar
+(`inv_factor_upper`) and counted in no term here.
+`→` [takes the left and gives the right; between statements, if the left holds so does the right];
+`≤` [is smaller than or equal to]. -/
+def invMacs (b : Nat) : Nat → Nat → Nat
+  | 0, _ => 0
+  | fuel + 1, n =>
+    if n ≤ b then 0
+    else
+      invMacs b fuel (n / 2) + invMacs b fuel (n - n / 2) +
+        (2 * (n / 2) * (n / 2) * (n - n / 2) + 2 * (n / 2) * (n - n / 2) * (n - n / 2))
+
+/-- `spd_inverse_at` wall at order 768, base 32, mean of 5 runs, hundredths of a millisecond (12.17 ms). -/
+def invWall32 : Nat := 1217
+/-- Same, base 192 (17.42 ms). -/
+def invWall192 : Nat := 1742
+/-- `max |H·X − I|` at order 300 against an `f64` oracle, base 32, units of `10⁻⁸` (7.705e-6). -/
+def invRes32 : Nat := 771
+/-- Same, unrecursed (base ≥ 300; 3.419e-5). -/
+def invResNone : Nat := 3419
+
+/-- **The recursion is `2n³/3` kernel multiply-adds at base 32 (301 694 976 at order 768, within 0.1% of
+`2·768³/3`); base 192 runs 6% fewer kernel multiply-adds and 43% more wall, so the scalar base, not the
+kernel, sets the inverse's wall; base 32 is also 4.4× more accurate.** `∧` [both are true]; `<` [is smaller
+than]; `≤` [is smaller than or equal to]. -/
+theorem inverse_base_l23_down :
+    invMacs 32 10 768 = 301694976 ∧
+    1000 * invMacs 32 10 768 ≤ 1000 * (2 * 768 ^ 3 / 3) ∧
+    999 * (2 * 768 ^ 3 / 3) < 1000 * invMacs 32 10 768 ∧
+    invMacs 192 10 768 < invMacs 32 10 768 ∧
+    100 * invMacs 32 10 768 < 107 * invMacs 192 10 768 ∧
+    invWall32 < invWall192 ∧ 14 * invWall32 < 10 * invWall192 ∧
+    4 * invRes32 < invResNone ∧ invResNone < 5 * invRes32 := by
+  decide
+
+/-- 20-iteration ADMM wall, blk.23 `down`, `r = 768`, 3 limbs, base 32, seeds 0–2, tenths of a second. `List` [a finite sequence of things, in order]. -/
+def fitBase32 : List Nat := [33, 33, 32]
+/-- The same fit before the base change (3.5 s). -/
+def fitBase192 : Nat := 35
+/-- `admm_loss`, `10⁻⁵`, 3 limbs, base 32, seeds 0–2. `List` [a finite sequence of things, in order]. -/
+def loss3 : List Nat := [16482, 16522, 16484]
+/-- `admm_loss`, `10⁻⁵`, the mixed arm (2-limb `W·Z`, right-hand side and `rank1`; 3-limb Gram and
+inverse), seeds 0–4. `List` [a finite sequence of things, in order]. Board: . -/
+def loss2 : List Nat := [16805, 16818, 16841, 16827, 16822]
+
+/-- **Base 32 is faster on every seed, and 2 limbs lose on every seed**: every base-32 fit is under 3.5 s;
+the mixed arm's best seed (0.16805) is above 3 limbs' worst (0.16522), and its mean is 1.98% above (`K3`: 3
+limbs stay). `∀` [for every]; `∈` [is one of the things in]; `∧` [both are true]; `<` [is smaller than]; `>` [is
+larger than]. -/
+theorem admm_base_and_limbs :
+    (∀ t ∈ fitBase32, t < fitBase192) ∧
+    (∀ a ∈ loss3, ∀ c ∈ loss2, a < c) ∧
+    100 * 3 * loss2.sum > 101 * 5 * loss3.sum ∧
+    100 * 3 * loss2.sum < 102 * 5 * loss3.sum := by
+  decide
+
 end NanoQuant
 
 end Learn
