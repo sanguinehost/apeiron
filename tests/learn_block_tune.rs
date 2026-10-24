@@ -29,7 +29,10 @@ use apeiron::engine::loader::Engine;
 use apeiron::engine::KernelMode;
 use apeiron::format::bpe::Bpe;
 use apeiron::gpu::decode::GpuCtx;
-use apeiron::gpu::nn::train::block::{BlockShape, BlockTune, HostFactor};
+use apeiron::gpu::nn::train::block::{
+    chunk_from, chunk_into, stream_download, stream_upload, BlockShape, BlockTune, HostFactor,
+    Stream,
+};
 use apeiron::gpu::nn::train::mixer::{LayerFwd, LayerHost, Mixer};
 use apeiron::gpu::vulkan::Vk;
 use apeiron::learn::fold::stats::kldbase::KldBase;
@@ -306,6 +309,7 @@ fn from_host(h: &HostFactor, admm_loss: f64) -> NqFactor {
 }
 
 /// Gather the columns of chunks `ids` (each `n_ctx` columns of width `w`) into one step buffer.
+#[allow(dead_code, reason = "the resident stream copies on the device")]
 fn gather(src: &[f32], ids: &[usize], n_ctx: usize, w: usize) -> Vec<f32> {
     let mut out = Vec::with_capacity(ids.len() * n_ctx * w);
     for &c in ids {
@@ -341,7 +345,35 @@ fn batches(order: &[usize]) -> Vec<Vec<usize>> {
         .collect()
 }
 
+/// One fit step on the resident streams: the step's columns copied device-to-device into the
+/// block's `x`, `a` and `yt`, the tape run, and `y` copied into `next`'s chunk regions when
+/// `next` is set. Returns the step's summed loss and its `Σ yt²`.
+fn step(
+    g: &GpuCtx,
+    tuner: &mut BlockTune,
+    xs: &Stream,
+    at: &Stream,
+    yt: &Stream,
+    next: Option<&Stream>,
+    ids: &[usize],
+    train: bool,
+) -> (f64, f64) {
+    let (bx, ba, byt) = tuner.cols();
+    let pre = vec![
+        chunk_into(xs, ids, bx),
+        chunk_into(at, ids, ba),
+        chunk_into(yt, ids, byt),
+    ];
+    let post = next.map_or_else(Vec::new, |n| vec![chunk_from(n, ids, tuner.out())]);
+    unsafe {
+        tuner.set_cols(g, pre, post, train);
+        let s = tuner.run(g, train);
+        (s, tuner.den())
+    }
+}
+
 /// Write the `n_ctx`-column chunks of `src` (width `w`) back to chunks `ids` of `dst`.
+#[allow(dead_code, reason = "the resident stream copies on the device")]
 fn scatter(dst: &mut [f32], src: &[f32], ids: &[usize], n_ctx: usize, w: usize) {
     for (k, &c) in ids.iter().enumerate() {
         dst[c * n_ctx * w..(c + 1) * n_ctx * w]
@@ -376,24 +408,35 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
     let held: Vec<usize> = (n_train..n_all).collect();
     let natural: Vec<usize> = (0..n_all).collect();
     let state = |l: usize, s: &str| format!("{dir}/s-{tag}-l{l}.{s}.f32");
-    let (mut xt, mut xs) = if la == 0 {
-        let all: Vec<Vec<u32>> = train_toks.into_iter().chain(held_toks).collect();
-        let x0 = embed(engine, cfg, &all);
-        (x0.clone(), x0)
-    } else {
-        (read_f32(&state(la, "xt")), read_f32(&state(la, "xs")))
-    };
-    assert_eq!(xt.len(), n_all * N_CTX * d, "teacher stream l{la}");
-    assert_eq!(xs.len(), n_all * N_CTX * d, "student stream l{la}");
+    let vk = unsafe { Vk::load() }.expect("vulkan");
+    let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
+    // The streams are device-resident for the whole call: the layer input of the teacher and of
+    // the student, the teacher's block output, the student's o-projection input and the student's
+    // next layer input. One upload at the start, one download of the two state files at the end,
+    // device-to-device chunk copies per step.
+    let mut xt = unsafe { Stream::new(&g, N_CTX, d, n_all) };
+    let mut xs = unsafe { Stream::new(&g, N_CTX, d, n_all) };
+    let mut yt = unsafe { Stream::new(&g, N_CTX, d, n_all) };
+    let mut next = unsafe { Stream::new(&g, N_CTX, d, n_all) };
+    unsafe {
+        if la == 0 {
+            let all: Vec<Vec<u32>> = train_toks.into_iter().chain(held_toks).collect();
+            let x0 = embed(engine, cfg, &all);
+            stream_upload(&g, xt.buf, &x0);
+            stream_upload(&g, xs.buf, &x0);
+        } else {
+            stream_upload(&g, xt.buf, &read_f32(&state(la, "xt")));
+            stream_upload(&g, xs.buf, &read_f32(&state(la, "xs")));
+        }
+    }
     println!(
         "BT stream {n_train} train + {} held chunks, input {:.1} s",
         n_all - n_train,
         t0.elapsed().as_secs_f64()
     );
-    let vk = unsafe { Vk::load() }.expect("vulkan");
-    let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
     let mut fwds: [Option<LayerFwd>; 2] = [None, None];
     let mut bt: Option<(BlockShape, BlockTune)> = None;
+    let mut at: Option<Stream> = None;
     for l in la..lb {
         let t_layer = Instant::now();
         let host = LayerHost::from_engine(engine, cfg, l).expect("layer host");
@@ -402,14 +445,26 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
             fwds[kind].get_or_insert_with(|| unsafe { LayerFwd::new(&g, &host, N_CTX, PER_STEP) });
         unsafe { fwd.load(&g, &host) };
         let aw = host.a;
-        // The teacher's layer output and the student's mixer output, both through the dense layer.
-        let mut yt = vec![0f32; xt.len()];
-        let mut at = vec![0f32; n_all * N_CTX * aw];
+        // The teacher's layer output and the student's mixer output, both through the dense layer:
+        // the step's chunk regions copied device-to-device, the tape, the outputs copied back.
+        if at.as_ref().is_none_or(|s| s.w != aw) {
+            at = Some(unsafe { Stream::new(&g, N_CTX, aw, n_all) });
+        }
+        let ats = at.as_ref().expect("at stream");
+        let (fx, fao, fy) = fwd.handles();
         for ids in batches(&natural) {
-            let (_, y) = unsafe { fwd.run(&g, &gather(&xt, &ids, N_CTX, d)) };
-            scatter(&mut yt, &y, &ids, N_CTX, d);
-            let (ao, _) = unsafe { fwd.run(&g, &gather(&xs, &ids, N_CTX, d)) };
-            scatter(&mut at, &ao, &ids, N_CTX, aw);
+            unsafe {
+                fwd.run_dev(
+                    &g,
+                    &[chunk_into(&xt, &ids, fx)],
+                    &[chunk_from(&yt, &ids, fy)],
+                );
+                fwd.run_dev(
+                    &g,
+                    &[chunk_into(&xs, &ids, fx)],
+                    &[chunk_from(ats, &ids, fao)],
+                );
+            }
         }
         let t_fwd = t_layer.elapsed().as_secs_f64();
         let src: Vec<NqFactor> = KINDS
@@ -439,17 +494,9 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
         let eval = |tuner: &mut BlockTune, set: &[usize]| -> f64 {
             let (mut s, mut den) = (0.0, 0.0);
             for ids in batches(set) {
-                let y = gather(&yt, &ids, N_CTX, d);
-                den += y.iter().map(|&v| f64::from(v).powi(2)).sum::<f64>();
-                unsafe {
-                    tuner.batch(
-                        &g,
-                        &gather(&xs, &ids, N_CTX, d),
-                        &gather(&at, &ids, N_CTX, aw),
-                        &y,
-                    );
-                    s += tuner.run(&g, false);
-                }
+                let (a, b) = step(&g, tuner, &xs, ats, &yt, None, &ids, false);
+                s += a;
+                den += b;
             }
             s / den
         };
@@ -475,17 +522,9 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
         let tune = |tuner: &mut BlockTune, order: &[usize]| -> f64 {
             let (mut s, mut den) = (0.0, 0.0);
             for ids in batches(order) {
-                let y = gather(&yt, &ids, N_CTX, d);
-                den += y.iter().map(|&v| f64::from(v).powi(2)).sum::<f64>();
-                unsafe {
-                    tuner.batch(
-                        &g,
-                        &gather(&xs, &ids, N_CTX, d),
-                        &gather(&at, &ids, N_CTX, aw),
-                        &y,
-                    );
-                    s += tuner.run(&g, true);
-                }
+                let (a, b) = step(&g, tuner, &xs, ats, &yt, None, &ids, true);
+                s += a;
+                den += b;
             }
             s / den
         };
@@ -548,19 +587,10 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
         }
         let fit_s = t_fit.elapsed().as_secs_f64();
         let held1 = eval(tuner, &held);
-        // The student stream advances through the fitted block.
-        let mut next = vec![0f32; xs.len()];
+        // The student stream advances through the fitted block, `y` copied device-to-device into
+        // `next`'s chunk regions.
         for ids in batches(&natural) {
-            unsafe {
-                tuner.batch(
-                    &g,
-                    &gather(&xs, &ids, N_CTX, d),
-                    &gather(&at, &ids, N_CTX, aw),
-                    &gather(&yt, &ids, N_CTX, d),
-                );
-                tuner.run(&g, false);
-                scatter(&mut next, &tuner.output(&g), &ids, N_CTX, d);
-            }
+            step(&g, tuner, &xs, ats, &yt, Some(&next), &ids, false);
         }
         let fitted = unsafe { tuner.factors(&g) };
         let (mut bits, mut wts) = (0u64, 0usize);
@@ -577,8 +607,8 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
             bits += stored_bits(nf.out, nf.inn, nf.rank);
             wts += nf.out * nf.inn;
         }
-        xt = yt;
-        xs = next;
+        std::mem::swap(&mut xt, &mut yt);
+        std::mem::swap(&mut xs, &mut next);
         let eps: Vec<String> = ep_loss.iter().map(|v| format!("{v:.4}")).collect();
         println!(
             "BT layer {l:02} b/w {:.4} flips {flips} held0 {held0:.5} held1 {held1:.5} x{:.2} epochs [{}] fwd {t_fwd:.1} s fit {fit_s:.1} s total {:.1} s",
@@ -588,8 +618,16 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
             t_layer.elapsed().as_secs_f64()
         );
     }
-    write_f32(&state(lb, "xt"), &xt);
-    write_f32(&state(lb, "xs"), &xs);
+    unsafe {
+        write_f32(
+            &state(lb, "xt"),
+            &stream_download(&g, xt.buf, n_all * N_CTX * d),
+        );
+        write_f32(
+            &state(lb, "xs"),
+            &stream_download(&g, xs.buf, n_all * N_CTX * d),
+        );
+    }
     println!("BT round l{la}..l{lb} {:.1} s", t0.elapsed().as_secs_f64());
 }
 

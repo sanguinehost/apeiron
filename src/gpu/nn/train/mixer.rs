@@ -23,7 +23,7 @@
     reason = "widths, rows and workgroup counts index u32 invocations; Q32.32 words map to f32"
 )]
 
-use super::block::{download, host_buffer, upload, HostBuffer};
+use super::block::{download, host_buffer, record_copies, upload, Copies, HostBuffer};
 use crate::engine::{Engine, MixerKind};
 use crate::gpu::decode::{make_step_named, rec_step, GpuCtx, Step};
 use crate::gpu::nn::act::swiglu_fwd_dispatch;
@@ -269,6 +269,10 @@ pub struct LayerFwd {
     stage: HostBuffer,
     rb: HostBuffer,
     cb: CommandBuffer,
+    /// The same tape, re-recordable for a resident stream's column copies ([`LayerFwd::run_dev`]).
+    cb_dev: CommandBuffer,
+    /// The recorded tape, kept so [`LayerFwd::run_dev`] can re-record it beside the step's copies.
+    steps: Vec<Step>,
     xfer: CommandBuffer,
 }
 
@@ -426,6 +430,8 @@ impl LayerFwd {
             stage,
             rb,
             cb,
+            cb_dev: g.vk.reusable_command_buffer(),
+            steps,
             xfer,
         }
     }
@@ -466,6 +472,52 @@ impl LayerFwd {
         let ao = download(g, self.xfer, &self.rb, self.ao, self.t * self.a);
         let y = download(g, self.xfer, &self.rb, self.y, self.t * self.d);
         (ao, y)
+    }
+
+    /// The layer on a resident stream: `pre` copies the step's columns into `x`, the tape runs,
+    /// and `post` copies `ao` and `y` back out, all in one command buffer and one submission.
+    ///
+    /// # Safety
+    ///
+    /// Every group's buffers hold its regions; no submission of this value is pending.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work and the tape's `O(1)` dispatches re-recorded; the copies move
+    /// `O(chunks·n_ctx·(d + a + d))` bytes on the device.
+    pub unsafe fn run_dev(&self, g: &GpuCtx, pre: &[Copies], post: &[Copies]) {
+        let vk = g.vk;
+        let cb = self.cb_dev;
+        vk.reset_cb(cb);
+        vk.begin(cb);
+        record_copies(vk, cb, pre);
+        vk.barrier(
+            cb,
+            STAGE_TRANSFER,
+            STAGE_COMPUTE,
+            ACCESS_TRANSFER_WRITE,
+            ACCESS_SHADER_READ,
+        );
+        for s in &self.steps {
+            rec_step(vk, cb, s);
+        }
+        vk.barrier(
+            cb,
+            STAGE_COMPUTE,
+            STAGE_TRANSFER,
+            ACCESS_SHADER_WRITE,
+            ACCESS_TRANSFER_READ,
+        );
+        record_copies(vk, cb, post);
+        check((vk.end_cb)(cb), "vkEndCommandBuffer");
+        vk.submit_wait(cb);
+    }
+
+    /// The tape's device buffers: the input `x`, the mixer output `ao` (`t × a`) and the layer
+    /// output `y` (`t × d`).
+    #[must_use]
+    pub fn handles(&self) -> (Handle, Handle, Handle) {
+        (self.x, self.ao, self.y)
     }
 }
 
