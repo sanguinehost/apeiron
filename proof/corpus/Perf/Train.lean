@@ -603,4 +603,22 @@ theorem frontTune_fit :
     6 * 2048 * 1024 * (16 + 2 * 8) * 128 / 100000000 = frontGflopTenths := by
   decide
 
+/-- The tensor-core training GEMMs (P135): `linear_{fwd,bwd_input,bwd_weight}_coop_dispatch` in
+`src/gpu/nn/bwd/coop.rs`, bf16 operands and an f32 accumulator on `16x16x16` cooperative matrices.
+Worst relative error over the 15 products (five Qwen3-0.6B shapes, three products) against an f64
+host product, in units of 1e-6, under the 4e-3 bf16 bound; the control (the last K tile dropped)
+above it. Device time of the 15 calls at `n = 2048`, in microseconds, f32 against coop, mean of 5
+runs: the coop sum is under half the f32 sum. Grade: the errors `tested`, the times `measured`. -/
+def coopErrMicro : Nat := 2106
+def coopBoundMicro : Nat := 4000
+def coopControlErrMicro : Nat := 176000
+def coopF32Micros : Nat := 6849
+def coopMicros : Nat := 2876
+
+theorem trainCoopGemm_fit :
+    coopErrMicro < coopBoundMicro ∧
+    coopBoundMicro < coopControlErrMicro ∧
+    2 * coopMicros < coopF32Micros := by
+  decide
+
 end Perf.Train
