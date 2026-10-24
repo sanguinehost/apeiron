@@ -18,7 +18,9 @@
 //!
 //! Deviations from the reference, each a stated input, not a silent change: the Gaussian draws
 //! come from [`Rng`] (splitmix64 and Box–Muller), not `torch.randn`; the `B` power iteration runs
-//! on the transposed frame with its start vector on the same (input) side as the reference.
+//! on the transposed frame with its start vector on the same (input) side as the reference; the
+//! norms take [`FLOOR_REL`] relative to their mean, where the reference's `eps` clamp is float-only
+//! and a dead Gram coordinate would otherwise scale a column past the limb kernel's exponent range.
 
 #![allow(
     clippy::many_single_char_names,
@@ -42,6 +44,15 @@ pub(crate) const LIMBS: u32 = 3;
 
 /// The reference's `eps` clamp on norms (`admm_nq.py`, `eps=1e-12`).
 const EPS: f64 = 1e-12;
+
+/// The preconditioner floor as a fraction of the mean `sqrt(diag)`: a coordinate dead in the
+/// calibration Gram keeps a column the limb kernel can carry. Deviation from the reference, whose
+/// `eps` clamp is float-only; a dead coordinate carries no weight in `tr(EHEᵀ)`, and the diagonal
+/// rescaling cancels in the export, so the floor moves the fit's conditioning, not its objective.
+/// `1e-6` is a 1e5 margin over the smallest floor that factorizes `Qwen3-0.6B-Base` layer 0 `gate`
+/// (between `5e-12` and `1e-11`); every value to `1.0` factorizes it, `relH` 0.0606–0.0615.
+/// Board `APEIRON-QUALITY-118-W1-T01`; unmeasured against held-out KL.
+const FLOOR_REL: f64 = 1e-6;
 
 /// A refusal of [`factorize`] or [`NqFactor::weight`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -509,6 +520,47 @@ pub fn factorize(
     o_norm: &[f64],
     cfg: &NqConfig,
 ) -> Result<NqFactor, NqError> {
+    factorize_floor(w, out, inn, i_norm, o_norm, cfg, FLOOR_REL)
+}
+
+/// The factor's preprint scales `sqrt(diag)` floored at `floor_rel · mean(sqrt(diag))` (and at
+/// [`EPS`]): a coordinate the calibration never excites would otherwise scale a column by `1e-12`,
+/// which the limb kernel's block-exponent placement refuses. `O(n)` time and `O(n)` words over the
+/// `n` coordinates, one pass for the mean and one for the clamp.
+fn scales(diag: &[f64], floor_rel: f64) -> Vec<f64> {
+    let raw: Vec<f64> = diag.iter().map(|x| x.sqrt()).collect();
+    let mean = raw.iter().sum::<f64>() / raw.len() as f64;
+    let floor = (floor_rel * mean).max(EPS);
+    raw.iter().map(|&v| v.max(floor)).collect()
+}
+
+/// [`factorize`] with the preconditioner floor as a fraction of the mean `sqrt(diag)` ([`FLOOR_REL`]
+/// in [`factorize`]). A fit stage reads it as one knob; the wide-matrix transpose path carries it
+/// to the swapped call.
+///
+/// # Errors
+///
+/// As [`factorize`]; a floor small enough to leave a dead Gram coordinate's column outside the
+/// limb kernel's exponent range still returns [`NqError::Kernel`] (`< 1e-11` on `Qwen3-0.6B-Base`
+/// layer 0 `gate`).
+///
+/// # Complexity
+///
+/// As [`factorize`], plus `O(out + inn)` for [`scales`].
+#[allow(
+    clippy::too_many_lines,
+    reason = "one ADMM loop over the two transposed frames; a split separates the sides' shared \
+              shapes from their steps"
+)]
+pub fn factorize_floor(
+    w: &[i64],
+    out: usize,
+    inn: usize,
+    i_norm: &[f64],
+    o_norm: &[f64],
+    cfg: &NqConfig,
+    floor_rel: f64,
+) -> Result<NqFactor, NqError> {
     if out == 0 || inn == 0 || cfg.rank == 0 {
         return Err(NqError::Shape);
     }
@@ -516,12 +568,20 @@ pub fn factorize(
         return Err(NqError::Shape);
     }
     if out < inn {
-        let f = factorize(&transpose(w, out, inn), inn, out, o_norm, i_norm, cfg)?;
+        let f = factorize_floor(
+            &transpose(w, out, inn),
+            inn,
+            out,
+            o_norm,
+            i_norm,
+            cfg,
+            floor_rel,
+        )?;
         return Ok(transposed(f, out, inn));
     }
     let (o, n, r) = (out, inn, cfg.rank);
-    let ni: Vec<f64> = i_norm.iter().map(|x| x.sqrt().max(EPS)).collect();
-    let no: Vec<f64> = o_norm.iter().map(|x| x.sqrt().max(EPS)).collect();
+    let ni: Vec<f64> = scales(i_norm, floor_rel);
+    let no: Vec<f64> = scales(o_norm, floor_rel);
     let mut wn = vec![0.0f64; o * n];
     for i in 0..o {
         for j in 0..n {
