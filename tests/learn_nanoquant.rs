@@ -22,7 +22,7 @@ use std::time::Instant;
 use apeiron::engine::loader::Engine;
 use apeiron::format::bpe::Bpe;
 use apeiron::learn::grad::load::layer_from_engine;
-use apeiron::learn::grad::model::Config;
+use apeiron::learn::grad::model::{Config, Weights};
 use apeiron::learn::nanoquant::{
     factorize, factorize_floor, h_sketch, rank_for_bits, stored_bits, tune, tune_sketch, NqConfig,
     NqFactor, Schedule, TuneConfig,
@@ -736,4 +736,71 @@ fn nq_sketch_share() {
         }
         println!("{line}");
     }
+}
+
+/// The student image of the teacher: the F16 `GGUF` re-encoded from `Weights::from_engine`, with
+/// the cache's fitted words spliced onto the four linears `NanoQuant` owns. Board
+/// `APEIRON-QUALITY-118-W1-T01`: this file is the first same-harness port row's model.
+///
+/// `APEIRON_NQ_OUT` (required) is the written path. `APEIRON_NQ_SPLICE=none` leaves every teacher
+/// tensor in place, which must reproduce the teacher byte-for-byte; otherwise each layer `l` reads
+/// `{cache}/l{l}.{kind}-nq{tag}.i64` for `down`, `o`, `up`, `gate` (`tag` = [`factor_tag`]), asserts
+/// the shape `nq_fit` fitted against and fails naming a missing file. `Q`/`K`/`V`, the norms and
+/// the embeddings stay the teacher's.
+///
+/// # Complexity
+/// Time and space `O(2·W)` for the `W`-weight teacher: one decode of `W` into `Q32.32` words, one
+/// encode pass over the image and one whole-image buffer.
+#[test]
+#[ignore = "opens the teacher and re-encodes the whole model; run explicitly"]
+fn nq_student() {
+    let t = Instant::now();
+    let (model, cache, tag) = (model_path(), cache_dir(), factor_tag());
+    let out = std::env::var("APEIRON_NQ_OUT").expect("APEIRON_NQ_OUT");
+    let splice = !matches!(std::env::var("APEIRON_NQ_SPLICE").as_deref(), Ok("none"));
+    let engine = Engine::open(&model).expect("open teacher");
+    let (mut w, cfg) = Weights::from_engine(&engine).expect("student weights");
+    let mut spliced = 0usize;
+    if splice {
+        let kinds: [(&str, &[&str]); 4] = [
+            ("down", &["ffn_down"]),
+            ("o", &["attn_output", "ssm_out"]),
+            ("up", &["ffn_up"]),
+            ("gate", &["ffn_gate"]),
+        ];
+        for l in 0..cfg.n_layer {
+            let ll = layer_from_engine(&engine, &cfg, l).expect("layer linears");
+            for (kind, names) in kinds {
+                let lin = ll
+                    .linears
+                    .iter()
+                    .find(|x| names.contains(&x.name))
+                    .unwrap_or_else(|| panic!("blk.{l} {kind}"));
+                let path = format!("{cache}/l{l}.{kind}-nq{tag}.i64");
+                let (ro, cn, words) = read_words(&path);
+                assert_eq!((ro, cn), (lin.rows, lin.cols), "{path}: shape");
+                let lw = &mut w.layers[l];
+                let slot = match kind {
+                    "down" => &mut lw.w_down,
+                    "o" => &mut lw.wo,
+                    "up" => &mut lw.w_up,
+                    _ => &mut lw.w_gate,
+                };
+                assert_eq!(ro * cn, slot.len(), "{path}: teacher {}", slot.len());
+                *slot = words;
+                spliced += 1;
+            }
+        }
+    }
+    drop(engine);
+    let bytes =
+        apeiron::learn::fold::run::convert::student_gguf_bytes(&model, &w).expect("student image");
+    let tmp = format!("{out}.tmp");
+    std::fs::write(&tmp, &bytes).unwrap_or_else(|e| panic!("{tmp}: {e}"));
+    std::fs::rename(&tmp, &out).unwrap_or_else(|e| panic!("{out}: {e}"));
+    println!(
+        "NQ student out {out} bytes {} spliced {spliced} wall {:.1}",
+        bytes.len(),
+        t.elapsed().as_secs_f64()
+    );
 }
