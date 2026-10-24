@@ -1,22 +1,27 @@
 #version 450
 #extension GL_KHR_shader_subgroup_basic : enable
 #extension GL_KHR_shader_subgroup_arithmetic : enable
-// The gated softmax attention mixer of one layer over whole chunks, after its input projections.
-// Consumer: `src/gpu/nn/train/mixer.rs`, which owns the contract; the reference is the CPU path
+// The softmax attention mixer of one layer over whole chunks, after its input projections, gated
+// (the output gate of Qwen3.5's attention) or ungated (Qwen3's, no gate). Consumer:
+// `src/gpu/nn/train/mixer.rs`, which owns the contract; the reference is the CPU path
 // (`engine::step::cols::softmax_cols_tap`).
 //
 //   mode 0 (prep), one workgroup per (row, slot), slot < NH a query head, else a key head:
-//          split the query row into q and gate (q at h·2·HD, gate at h·2·HD + HD), RMS-normalise
-//          the head with its gain (q gains at 0, k gains at HD), then rotate the first ROT dims at
-//          position row mod n_ctx in NEOX pairs (x_j, x_{j + ROT/2}) by angle pos·θ^(−2j/ROT).
+//          split the query row into q and gate (gated: q at h·2·HD and gate at h·2·HD + HD;
+//          ungated: q at h·HD and no gate), RMS-normalise the head with its gain (q gains at 0,
+//          k gains at HD), then rotate the first ROT dims at position row mod n_ctx in NEOX pairs
+//          (x_j, x_{j + ROT/2}) by angle pos·θ^(−2j/ROT).
 //   mode 1 (attend), one workgroup per (chunk, head, query i): causal scores over keys s ≤ i of
-//          the chunk scaled by 1/√HD, softmax, the value mix, times sigmoid(gate).
-// Bindings: 1 qf [T][NH·2·HD], 2 kf [T][NKV·HD], 3 gains [2·HD], 4 q [T][NH·HD],
-// 5 gate [T][NH·HD], 6 k [T][NKV·HD], 7 v [T][NKV·HD], 8 out [T][NH·HD].
+//          the chunk scaled by 1/√HD, softmax, the value mix; times sigmoid(gate) when gated.
+// Bindings: 1 qf [T][NH·2·HD] gated, [T][NH·HD] ungated; 2 kf [T][NKV·HD]; 3 gains [2·HD];
+// 4 q [T][NH·HD]; 5 gate [T][NH·HD] (written and read only when gated); 6 k [T][NKV·HD];
+// 7 v [T][NKV·HD]; 8 out [T][NH·HD].
 layout(local_size_x = 256) in;
 
 // META: [mode, n_ctx, NH, NKV, HD, ROT, theta bits, eps bits, workgroups]; the grid is folded
-// into x < 65535 and y.
+// into x < 65535 and y. `mode` is the stage in bits 0–1 (0 prep, 1 attend) and bit 2 set means
+// ungated attention: no gate half in qf, no sigmoid on the output. A mode of 0, 1 or 2 is gated,
+// the layout every caller before the flag used.
 layout(std430, binding = 0) readonly buffer Meta { uint meta[]; };
 layout(std430, binding = 1) readonly buffer Qf { float qf[]; };
 layout(std430, binding = 2) readonly buffer Kf { float kf[]; };
@@ -32,7 +37,8 @@ shared float sc[1024];
 shared float red[64];
 
 void main() {
-    uint mode = meta[0];
+    uint mode = meta[0] & 3u;
+    bool ungated = (meta[0] & 4u) != 0u;
     uint n_ctx = meta[1];
     uint NH = meta[2];
     uint NKV = meta[3];
@@ -53,9 +59,13 @@ void main() {
         float x = 0.0;
         if (lid < HD) {
             if (is_q) {
-                uint b = row * NH * 2u * HD + slot * 2u * HD;
-                x = qf[b + lid];
-                gate[(row * NH + slot) * HD + lid] = qf[b + HD + lid];
+                if (ungated) {
+                    x = qf[row * NH * HD + slot * HD + lid];
+                } else {
+                    uint b = row * NH * 2u * HD + slot * 2u * HD;
+                    x = qf[b + lid];
+                    gate[(row * NH + slot) * HD + lid] = qf[b + HD + lid];
+                }
             } else {
                 x = kf[(row * NKV + slot - NH) * HD + lid];
             }
@@ -157,7 +167,11 @@ void main() {
         for (uint s = 0u; s <= i; s++) {
             acc += sc[s] * v[((base + s) * NKV + g) * HD + lid];
         }
-        float gt = gate[(row * NH + h) * HD + lid];
-        o[(row * NH + h) * HD + lid] = acc / tot * (1.0 / (1.0 + exp(-gt)));
+        float y = acc / tot;
+        if (!ungated) {
+            float gt = gate[(row * NH + h) * HD + lid];
+            y *= 1.0 / (1.0 + exp(-gt));
+        }
+        o[(row * NH + h) * HD + lid] = y;
     }
 }
