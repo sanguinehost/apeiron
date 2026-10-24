@@ -55,7 +55,8 @@ const MAX_GROUPS_X: usize = 65_535;
 
 /// The attention front's geometry: `chunks` independent sequences of `n_ctx` columns of residual
 /// width `d`, `nh` query heads and `nkv` key/value heads `hd` wide, `rot` rotated dims at base
-/// `theta`, RMS epsilon `eps`, and the rank of the `q`, `k`, `v` factors.
+/// `theta`, RMS epsilon `eps`, and the ranks of the `q`, `k`, `v` factors in that order (the
+/// reference's `calculate_ranks` gives `q` a wider factor than `k`/`v`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrontShape {
     pub chunks: usize,
@@ -67,7 +68,7 @@ pub struct FrontShape {
     pub rot: usize,
     pub theta: f32,
     pub eps: f32,
-    pub rank: usize,
+    pub ranks: [usize; 3],
 }
 
 impl FrontShape {
@@ -263,9 +264,9 @@ impl FrontTune {
         let (t, d, hd) = (shape.t(), shape.d, shape.hd);
         let (qw, kw) = (shape.qw(), shape.kw());
         let dev = |n: usize| g.dev(n * 4);
-        let (fq, mq) = Factor::new(g, qw, d, shape.rank);
-        let (fk, mk) = Factor::new(g, kw, d, shape.rank);
-        let (fv, mv) = Factor::new(g, kw, d, shape.rank);
+        let (fq, mq) = Factor::new(g, qw, d, shape.ranks[0]);
+        let (fk, mk) = Factor::new(g, kw, d, shape.ranks[1]);
+        let (fv, mv) = Factor::new(g, kw, d, shape.ranks[2]);
         let factors = [fq, fk, fv];
         let moments = [mq, mk, mv];
         let (x, g1, gn, n1) = (dev(t * d), dev(d), dev(2 * hd), dev(t * d));
@@ -760,6 +761,29 @@ impl FrontTune {
         self.ao
     }
 
+    /// The front's input `x` (`T × d`) and the output cotangent `dao` (`T × nh·hd`) the tapes read,
+    /// for a caller that fills them by a device copy rather than through [`FrontTune::batch`].
+    #[must_use]
+    pub fn cols(&self) -> (Handle, Handle) {
+        (self.x, self.dao)
+    }
+
+    /// Slot `k`'s materialised weight, `out × inn`: the dense `W` while `factor[k]` is false and the
+    /// materialised factor after a pass, the same buffer [`BlockTune::weight`] reads.
+    ///
+    /// # Safety
+    ///
+    /// A pass has completed.
+    ///
+    /// # Complexity
+    ///
+    /// `O(out·inn)` words downloaded.
+    #[must_use]
+    pub unsafe fn weight(&self, g: &GpuCtx, k: usize) -> Vec<f32> {
+        let fa = &self.factors[k];
+        self.get(g, fa.w, fa.out * fa.inn)
+    }
+
     /// The output cotangent `dao` (`T × nh·hd`) buffer the backward reads.
     #[must_use]
     pub fn dao(&self) -> Handle {
@@ -1079,12 +1103,12 @@ mod tests {
             rot: 16,
             theta: 1e4,
             eps: 1e-6,
-            rank: 4,
+            ranks: [4; 3],
         };
         let fs: Vec<HostFactor> = (0..3)
             .map(|k| {
                 let (o, i) = sh.dims(k);
-                factor(o, i, sh.rank, 10 * k as u64 + 1)
+                factor(o, i, sh.ranks[k], 10 * k as u64 + 1)
             })
             .collect();
         let (t, d) = (sh.t(), sh.d);
@@ -1194,7 +1218,7 @@ mod tests {
             rot: 16,
             theta: 1e4,
             eps: 1e-6,
-            rank: 4,
+            ranks: [4; 3],
         };
         let (t, d) = (sh.t(), sh.d);
         let (qw, kw) = (sh.qw(), sh.kw());
@@ -1229,7 +1253,7 @@ mod tests {
             let fs: Vec<HostFactor> = (0..3)
                 .map(|k| {
                     let (o, i) = sh.dims(k);
-                    factor(o, i, sh.rank, 10 * k as u64 + 1)
+                    factor(o, i, sh.ranks[k], 10 * k as u64 + 1)
                 })
                 .collect();
             ft.load(&g, &fs, &g1, &gn);
