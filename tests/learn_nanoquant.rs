@@ -452,6 +452,142 @@ fn load_factor(path: &str) -> NqFactor {
     }
 }
 
+/// The `block_loop` slot names in file order (`tests/learn_block_tune.rs:95-103` `SLOT_KEYS`).
+const LOOP_KEYS: [&str; 7] = [
+    "self_attn.q_proj",
+    "self_attn.v_proj",
+    "self_attn.o_proj",
+    "self_attn.k_proj",
+    "mlp.gate_proj",
+    "mlp.up_proj",
+    "mlp.down_proj",
+];
+
+/// One `block_loop` slot as `Q32.32` words, `out × inn` row-major, read from the `.param` file
+/// `save_param` writes (`tests/learn_block_tune.rs:686-710`: `[out, inn, rank, kind]` as `u64`,
+/// then a dense `w` for `kind` 0, or a factor's `u` (`out × r`), `vt` (`inn × r`), `s_post`,
+/// `s_pre` for `kind` 1). A factor is `W = diag(s_post)·sign(U)·sign(V)ᵀ·diag(s_pre)` with
+/// `sign(0) = +1` (`modules/linear.py:44-56`, `:120-123`).
+///
+/// # Complexity
+/// Time `O(out·inn·⌈r/64⌉)` word operations: each sign row packs into `⌈r/64⌉` `u64` words and an
+/// entry's sign dot is `r − 2·popcount(a ⊕ b)`. Space `O(out·inn)` words for the result plus
+/// `O((out + inn)·⌈r/64⌉)` for the packed signs.
+fn loop_words(path: &str) -> (usize, usize, Vec<i64>) {
+    let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let word =
+        |i: usize| u64::from_le_bytes(b[8 * i..8 * i + 8].try_into().expect("word")) as usize;
+    let (out, inn, r, kind) = (word(0), word(1), word(2), word(3));
+    let f = |at: usize, n: usize| -> Vec<f32> {
+        b[32 + 4 * at..32 + 4 * (at + n)]
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes(c.try_into().expect("f32")))
+            .collect()
+    };
+    let q32 = |v: f64| (v * 4_294_967_296.0).round() as i64;
+    if kind == 0 {
+        assert_eq!(b.len(), 32 + 4 * out * inn, "{path}: dense bytes");
+        return (
+            out,
+            inn,
+            f(0, out * inn).iter().map(|&v| q32(f64::from(v))).collect(),
+        );
+    }
+    assert_eq!(kind, 1, "{path}: kind {kind}");
+    assert_eq!(
+        b.len(),
+        32 + 4 * ((out + inn) * r + out + inn),
+        "{path}: factor bytes"
+    );
+    let (u, vt) = (f(0, out * r), f(out * r, inn * r));
+    let (s_post, s_pre) = (f((out + inn) * r, out), f((out + inn) * r + out, inn));
+    let nw = r.div_ceil(64);
+    let pack = |m: &[f32], rows: usize| -> Vec<u64> {
+        let mut p = vec![0u64; rows * nw];
+        for i in 0..rows {
+            for k in 0..r {
+                if m[i * r + k] < 0.0 {
+                    p[i * nw + k / 64] |= 1 << (k % 64);
+                }
+            }
+        }
+        p
+    };
+    let (pu, pv) = (pack(&u, out), pack(&vt, inn));
+    let mut w = vec![0i64; out * inn];
+    let threads = std::thread::available_parallelism().map_or(8, std::num::NonZero::get);
+    let rows = out.div_ceil(threads);
+    std::thread::scope(|s| {
+        for (t, chunk) in w.chunks_mut(rows * inn).enumerate() {
+            let (pu, pv, s_post, s_pre) = (&pu, &pv, &s_post, &s_pre);
+            s.spawn(move || {
+                for (di, row) in chunk.chunks_mut(inn).enumerate() {
+                    let i = t * rows + di;
+                    let a = &pu[i * nw..(i + 1) * nw];
+                    for (c, x) in row.iter_mut().enumerate() {
+                        let bv = &pv[c * nw..(c + 1) * nw];
+                        let neg: u32 = a.iter().zip(bv).map(|(p, q)| (p ^ q).count_ones()).sum();
+                        let dot = r as f64 - 2.0 * f64::from(neg);
+                        *x = q32(f64::from(s_post[i]) * dot * f64::from(s_pre[c]));
+                    }
+                }
+            });
+        }
+    });
+    (out, inn, w)
+}
+
+/// `loop_words` against the factor's definition summed entry by entry, at a rank (70) that
+/// spans two packed words, with exact zeros in the latents (`sign(0) = +1`); and a dense file
+/// read back word for word.
+#[test]
+fn loop_words_matches_the_factor() {
+    let (o, n, r) = (5usize, 7usize, 70usize);
+    let mut u: Vec<f32> = gauss(o * r, 1, 1.0).iter().map(|&v| v as f32).collect();
+    let vt: Vec<f32> = gauss(n * r, 2, 1.0).iter().map(|&v| v as f32).collect();
+    u[3] = 0.0;
+    let s_post: Vec<f32> = gauss(o, 3, 0.1).iter().map(|&v| v as f32).collect();
+    let s_pre: Vec<f32> = gauss(n, 4, 0.1).iter().map(|&v| v as f32).collect();
+    let dir = std::env::temp_dir().join(format!("loop-words-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let write = |name: &str, h: [u64; 4], vals: &[&[f32]]| {
+        let mut b: Vec<u8> = h.iter().flat_map(|x| x.to_le_bytes()).collect();
+        for v in vals {
+            b.extend(v.iter().flat_map(|x| x.to_le_bytes()));
+        }
+        let p = dir.join(name).to_string_lossy().into_owned();
+        std::fs::write(&p, b).expect("write");
+        p
+    };
+    let p = write(
+        "f.param",
+        [o as u64, n as u64, r as u64, 1],
+        &[&u, &vt, &s_post, &s_pre],
+    );
+    let (ro, cn, w) = loop_words(&p);
+    assert_eq!((ro, cn), (o, n));
+    let sg = |v: f32| if v < 0.0 { -1.0 } else { 1.0 };
+    for i in 0..o {
+        for c in 0..n {
+            let dot: f64 = (0..r).map(|k| sg(u[i * r + k]) * sg(vt[c * r + k])).sum();
+            let want = f64::from(s_post[i]) * dot * f64::from(s_pre[c]);
+            assert_eq!(
+                w[i * n + c],
+                (want * 4_294_967_296.0).round() as i64,
+                "({i}, {c})"
+            );
+        }
+    }
+    let d: Vec<f32> = gauss(o * n, 5, 1.0).iter().map(|&v| v as f32).collect();
+    let (_, _, wd) = loop_words(&write("d.param", [o as u64, n as u64, 0, 0], &[&d]));
+    let want: Vec<i64> = d
+        .iter()
+        .map(|&v| (f64::from(v) * 4_294_967_296.0).round() as i64)
+        .collect();
+    assert_eq!(wd, want);
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
 fn read_words(path: &str) -> (usize, usize, Vec<i64>) {
     let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
     let o = u64::from_le_bytes(b[0..8].try_into().expect("o")) as usize;
@@ -776,7 +912,33 @@ fn nq_student() {
     let engine = Engine::open(&model).expect("open teacher");
     let (mut w, cfg) = Weights::from_engine(&engine).expect("student weights");
     let mut spliced = 0usize;
-    if splice {
+    if let Ok(dir) = std::env::var("APEIRON_NQ_LOOP") {
+        // `block_loop`'s state: every layer `l` with `{dir}/l{l}/done` takes all seven slots from
+        // its `.param` files; a layer without the marker stays the teacher, as in the reference's
+        // per-block PPL (`utils/eval_utils.py:91-104`).
+        for l in 0..cfg.n_layer {
+            if !std::path::Path::new(&format!("{dir}/l{l}/done")).exists() {
+                continue;
+            }
+            for key in LOOP_KEYS {
+                let path = format!("{dir}/l{l}/{key}.param");
+                let (ro, cn, words) = loop_words(&path);
+                let lw = &mut w.layers[l];
+                let slot = match key {
+                    "self_attn.q_proj" => &mut lw.wq,
+                    "self_attn.k_proj" => &mut lw.wk,
+                    "self_attn.v_proj" => &mut lw.wv,
+                    "self_attn.o_proj" => &mut lw.wo,
+                    "mlp.gate_proj" => &mut lw.w_gate,
+                    "mlp.up_proj" => &mut lw.w_up,
+                    _ => &mut lw.w_down,
+                };
+                assert_eq!(ro * cn, slot.len(), "{path}: teacher {}", slot.len());
+                *slot = words;
+                spliced += 1;
+            }
+        }
+    } else if splice {
         let kinds: [(&str, &[&str]); 4] = [
             ("down", &["ffn_down"]),
             ("o", &["attn_output", "ssm_out"]),
