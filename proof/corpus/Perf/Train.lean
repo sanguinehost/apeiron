@@ -666,4 +666,24 @@ theorem blockLoopDrive_fit :
     driveArmV - driveArmVRef ≤ 1 := by
   decide
 
+/-- The tiled attention backward (P138): `attn_map_bwd.comp` modes 0 and 1 on f16 cooperative
+matrices with an f32 accumulator. Worst gradient error over the gated and ungated device tests
+against f64, in units of 1e-6, under the 5e-3 bound of the precision verdict; the control (mode 0's
+last key tile dropped) above it. Device time per call at `T = 2048`, `n_ctx = 1024`, `nh 16`, `nkv
+8`, `hd 128`, in microseconds, mean of 5 runs: before 58160, after 8280, under the 10 ms
+prediction and more than 7× faster. Grade: the errors `tested`, the times `measured`. -/
+def attnBwdErrMicro : Nat := 1176
+def attnBwdBoundMicro : Nat := 5000
+def attnBwdControlErrMicro : Nat := 997800
+def attnBwdBeforeMicros : Nat := 58160
+def attnBwdAfterMicros : Nat := 8280
+def attnBwdPredMicros : Nat := 10000
+
+theorem attnBwdTile_fit :
+    attnBwdErrMicro < attnBwdBoundMicro ∧
+    attnBwdBoundMicro < attnBwdControlErrMicro ∧
+    attnBwdAfterMicros < attnBwdPredMicros ∧
+    7 * attnBwdAfterMicros < attnBwdBeforeMicros := by
+  decide
+
 end Perf.Train

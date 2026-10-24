@@ -1,21 +1,37 @@
-#version 450
-#extension GL_KHR_shader_subgroup_basic : enable
-#extension GL_KHR_shader_subgroup_arithmetic : enable
+#version 460
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#extension GL_EXT_control_flow_attributes : require
 // The backward of `attn_map.comp`, the softmax attention mixer of one layer over whole chunks,
 // gated (the output gate of Qwen3.5's attention) or ungated (Qwen3's, no gate), in
-// FlashAttention-2 form (Dao, arXiv 2307.08691, Algorithm 2): the softmax probabilities
-// are recomputed from the stored log-sum-exp, so no `[head][query][key]` score or probability array
-// is materialised. Consumer: `src/gpu/nn/train/attn_bwd.rs`, which owns the contract; the reference
-// is its f64 forward and adjoint under `#[cfg(test)]`.
+// FlashAttention-2 tile form (Dao, arXiv 2307.08691, Algorithm 2 and its backward): the softmax
+// probabilities are recomputed from the stored log-sum-exp, so no `[head][query][key]` score or
+// probability array is materialised, and the four gradient products run on cooperative matrices
+// (f16 A/B, f32 accumulate), modelled on `src/gpu/spirv/attn_coopmat.comp`. Consumer:
+// `src/gpu/nn/train/attn_bwd.rs`, which owns the contract; the reference is its f64 forward and
+// adjoint under `#[cfg(test)]`.
 //
-//   mode 0 (dq), one workgroup per (chunk, head, query i): recompute the causal scores s_ij and the
-//          softmax of the row (as `attn_map` mode 1), store lse_i = max + ln Σ, the value mix A_i
-//          and D_i = dA_i·A_i, write the gate half of dqf (= dgate, gated only), then the score
-//          gradient dS_ij = P_ij·(dP_ij − D_i) and dq_rot_i = scale·Σ_{j≤i} dS_ij·k_j. Ungated:
-//          dA_i = dy_i.
-//   mode 1 (dk/dv), one workgroup per (chunk, kv head g, key j): recompute s_ij and dP_ij, then
-//          dk_rot_j = scale·Σ_{h∈g} Σ_{i≥j} dS_ij·q_i and dv_j = Σ_{h∈g} Σ_{i≥j} P_ij·dA_i, summing
-//          the query heads ascending then i ascending, one fixed order per output.
+// Tile geometry, one subgroup per workgroup, one workgroup per output tile: BR = 16 query rows,
+// BC = 16 keys, HC = 128 head-dim columns staged per pass, and `meta[9] = ceil(HD/HC)` head-dim
+// blocks so a block owns 128 output columns of a head width up to 256. Staged operand tiles are
+// `[row][dim]` f16 with a 136-half (34 f16vec4) bank-skewed stride; a transposed operand is the
+// same stage read with `gl_CooperativeMatrixLayoutColumnMajor` (row stride = column stride), which
+// is how `attn_coopmat.comp:126` reads its dim-major K cache.
+//
+//   mode 0 (dq), one workgroup per (chunk, head, query tile, head-dim block): pass 1 walks the key
+//          tiles at or before the query tile and accumulates the online row max and denominator
+//          (lse_i = max + ln Σ); pass 2 recomputes S, forms P = exp(S − lse), accumulates
+//          A = P·V for D_i = dA_i·A_i, dP = dA·Vᵀ, then dS = P ⊙ (dP − D) and
+//          dq_rot = scale·dS·K. dA_i = dy_i ⊙ σ(gate_i) (dy_i ungated) and the gate half of dqf
+//          (dgate_i, gated only).
+//   mode 1 (dk/dv), one workgroup per (chunk, kv head g, key tile, head-dim block): walks the query
+//          tiles at or after the key tile, the query heads of g ascending then the query tiles
+//          ascending; in the key-major form Sᵀ = K·Qᵀ, Pᵀ = exp(Sᵀ − lse),
+//          dV += Pᵀ·dA, dPᵀ = V·dAᵀ, dSᵀ = Pᵀ ⊙ (dPᵀ − D), dK += dSᵀ·Q.
 //   mode 2 (prep adjoint), one workgroup per (row, slot): the rope transpose
 //          (dy_lo = d_lo·cos + d_hi·sin, dy_hi = d_hi·cos − d_lo·sin) then the RMS-normalisation
 //          backward with its gain, dx_e = r·(g_e·dy_e − x̂_e·(1/HD)·Σ_f g_f·dy_f·x̂_f), into the q
@@ -25,11 +41,16 @@
 // 8 dy [T][NH·HD]; 9 lse [T·NH]; 10 dsum [T·NH]; 11 da [T][NH·HD]; 12 dq_rot [T][NH·HD];
 // 13 dk_rot [T][NKV·HD]; 14 dqf [T][NH·2·HD] gated, [T][NH·HD] ungated; 15 dkf [T][NKV·HD];
 // 16 dv [T][NKV·HD].
-layout(local_size_x = 256) in;
+//
+// META: [mode, n_ctx, NH, NKV, HD, ROT, theta bits, eps bits, workgroups, head-dim blocks]; the grid
+// is folded into x < 65535 and y. `mode` is the stage in bits 0–1 (0 dq, 1 dk/dv, 2 prep adjoint)
+// and bit 2 set means ungated attention: no gate half in qf or dqf, dA_i = dy_i, no dgate.
+// Cost: per output tile one walk of `O(n_ctx/16)` tiles; each tile's products are
+// `16·16·128` multiply-accumulates per 128-column chunk (8 M16N16K16 per product), against the
+// row-per-workgroup form's `O(n_ctx·HD)` scalar multiply-adds.
 
-// META: [mode, n_ctx, NH, NKV, HD, ROT, theta bits, eps bits, workgroups]; the grid is folded
-// into x < 65535 and y. `mode` is the stage in bits 0–1 (0 dq, 1 dk/dv, 2 prep adjoint) and bit 2
-// set means ungated attention: no gate half in qf or dqf, dA_i = dy_i, no dgate.
+layout(local_size_x = 32) in;
+
 layout(std430, binding = 0) readonly buffer Meta { uint meta[]; };
 layout(std430, binding = 1) readonly buffer Qf { float qf[]; };
 layout(std430, binding = 2) readonly buffer Kf { float kf[]; };
@@ -48,13 +69,39 @@ layout(std430, binding = 14) buffer Dqf { float dqf[]; };
 layout(std430, binding = 15) buffer Dkf { float dkf[]; };
 layout(std430, binding = 16) buffer Dvv { float dv[]; };
 
-shared float xh[256];
-shared float dh[256];
-shared float ah[256];
-shared float sc[1024];
-shared float sp[1024];
-shared float red[64];
-shared float red2[64];
+#define BR 16u
+#define BC 16u
+#define HC 128u
+#define ST4 34u   // f16 stage row stride, in f16vec4 units (136 halves, bank-skewed)
+#define STS 32u   // 16x16 f16 tile stride, in halves (64 B: a 16-byte multiple, as the fragment load needs)
+#define SSTR 20u  // 16x16 f32 tile stride, in floats
+#define SMS 132u  // 16-row f32 accumulator stride, in floats (HD + 4)
+
+// 4 staged operand tiles: [row][dim] f16, rows = 16
+shared f16vec4 sQ[BR * ST4];
+shared f16vec4 sK[BC * ST4];
+shared f16vec4 sV[BC * ST4];
+shared f16vec4 sDA[BR * ST4];
+// 16x16 f32 tiles: S, dP, and a store target for one product
+shared float sS[BR * SSTR];
+shared float sDP[BR * SSTR];
+shared float sT[BR * SSTR];
+// 16-row f32 accumulators: A (mode 0), dK and dV (mode 1), and dA (mode 0, for D and dgate)
+shared float sM0[BR * SMS];
+shared float sM1[BR * SMS];
+// 16x16 f16 tiles, row-major [query][key] and key-major [key][query]
+shared float16_t sPq[BR * STS];
+shared float16_t sPk[BC * STS];
+shared float16_t sDq[BR * STS];
+shared float16_t sDk[BC * STS];
+shared float16_t sDkLo[BC * STS];
+shared float sRed[2];
+
+#define FRAG_F coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+#define FRAG_A coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA>
+#define FRAG_B coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB>
+
+const float NEG = -3.0e38;
 
 void main() {
     uint mode = meta[0] & 3u;
@@ -78,158 +125,518 @@ void main() {
     float fscale = inversesqrt(float(HD));
     uint half_rot = ROT / 2u;
     if (mode == 0u) {
-        // One (chunk, head, query i): lse, dA, D, the gate half of dqf, then dS and dq_rot.
-        uint i = wg % n_ctx;
-        uint hc = wg / n_ctx;
+        // One (chunk, head, query tile, head-dim block). Pass A walks the key tiles at or before the
+        // query tile carrying the online row max, denominator and D_i = dA_i·A_i (D_i = Σ_j P_ij dP_ij
+        // with P̃ = exp(s − m) rescaled by alpha = exp(m_old − m), the same rescaling FA2's forward
+        // applies to its accumulator), and the value mix A of the owned head-dim chunk for dgate.
+        // Pass B recomputes S and dP, forms P = exp(S − lse), dS = P ⊙ (dP − D) and dq_rot = scale·dS·K.
+        uint nblk = meta[9];
+        uint nemit = (n_ctx + BR - 1u) / BR;
+        uint blk = wg % nblk;
+        uint rest = wg / nblk;
+        uint tb = rest % nemit;
+        uint hc = rest / nemit;
         uint h = hc % NH;
         uint chunk = hc / NH;
         uint g = h / (NH / NKV);
         uint base = chunk * n_ctx;
-        uint row = base + i;
-        if (lid < HD) {
-            xh[lid] = q[(row * NH + h) * HD + lid];
+        uint i0 = tb * BR;
+        uint ocol = blk * HC;
+        uint ocols = min(HC, HD - ocol);
+        uint nchunk = (HD + HC - 1u) / HC;
+        uint r = lane >> 1;
+        uint hf = lane & 1u;
+        uint irow = min(i0 + r, n_ctx - 1u);
+        uint qrow = base + irow;
+        bool rowlive = i0 + r < n_ctx;
+        for (uint idx = lid; idx < BR * SMS; idx += 32u) {
+            sM0[idx] = 0.0;
         }
         barrier();
-        float mx = -3.0e38;
-        for (uint s = grp; s <= i; s += ng) {
-            uint kb = ((base + s) * NKV + g) * HD;
-            float part = 0.0;
-            for (uint e = lane; e < HD; e += sg) {
-                part += xh[e] * k[kb + e];
+        // For a single head-dim chunk (HD <= HC) Q and dA are the same for every key tile, so
+        // stage them once and reuse across both passes; HD > HC re-stages per chunk below.
+        bool single_chunk = (nchunk == 1u);
+        if (single_chunk) {
+            for (uint idx = lid; idx < BR * 32u; idx += 32u) {
+                uint rr = idx >> 5;
+                uint q4 = idx & 31u;
+                vec4 vq = vec4(0.0);
+                vec4 vd = vec4(0.0);
+                if (q4 * 4u < HD) {
+                    uint qq = base + min(i0 + rr, n_ctx - 1u);
+                    uint gb = qq * NH * HD + h * HD + q4 * 4u;
+                    vq = vec4(q[gb], q[gb + 1u], q[gb + 2u], q[gb + 3u]);
+                    float d0 = dy[gb];
+                    float d1 = dy[gb + 1u];
+                    float d2 = dy[gb + 2u];
+                    float d3 = dy[gb + 3u];
+                    if (!ungated) {
+                        d0 *= 1.0 / (1.0 + exp(-gate[gb]));
+                        d1 *= 1.0 / (1.0 + exp(-gate[gb + 1u]));
+                        d2 *= 1.0 / (1.0 + exp(-gate[gb + 2u]));
+                        d3 *= 1.0 / (1.0 + exp(-gate[gb + 3u]));
+                    }
+                    vd = vec4(d0, d1, d2, d3);
+                    if (i0 + rr < n_ctx) {
+                        da[gb] = d0;
+                        da[gb + 1u] = d1;
+                        da[gb + 2u] = d2;
+                        da[gb + 3u] = d3;
+                    }
+                }
+                sQ[rr * ST4 + q4] = f16vec4(vq * fscale);
+                sDA[rr * ST4 + q4] = f16vec4(vd);
             }
-            float dot = subgroupAdd(part) * fscale;
-            if (subgroupElect()) {
-                sc[s] = dot;
+            barrier();
+        }
+        float mrun = NEG;
+        float lsum = 0.0;
+        float dtot = 0.0;
+        for (uint jt = 0u; jt <= tb; jt++) {
+            uint j0 = jt * BC;
+            FRAG_F sf = FRAG_F(0.0);
+            FRAG_F dp = FRAG_F(0.0);
+            for (uint c = 0u; c < nchunk; c++) {
+                uint cw = (c + 1u == nchunk) ? (HD - c * HC) : HC;
+                if (!single_chunk) {
+                    for (uint idx = lid; idx < BR * 32u; idx += 32u) {
+                        uint rr = idx >> 5;
+                        uint q4 = idx & 31u;
+                        vec4 vq = vec4(0.0);
+                        vec4 vd = vec4(0.0);
+                        if (q4 * 4u < cw) {
+                            uint qq = base + min(i0 + rr, n_ctx - 1u);
+                            uint gb = qq * NH * HD + h * HD + c * HC + q4 * 4u;
+                            vq = vec4(q[gb], q[gb + 1u], q[gb + 2u], q[gb + 3u]);
+                            float d0 = dy[gb];
+                            float d1 = dy[gb + 1u];
+                            float d2 = dy[gb + 2u];
+                            float d3 = dy[gb + 3u];
+                            if (!ungated) {
+                                d0 *= 1.0 / (1.0 + exp(-gate[gb]));
+                                d1 *= 1.0 / (1.0 + exp(-gate[gb + 1u]));
+                                d2 *= 1.0 / (1.0 + exp(-gate[gb + 2u]));
+                                d3 *= 1.0 / (1.0 + exp(-gate[gb + 3u]));
+                            }
+                            vd = vec4(d0, d1, d2, d3);
+                            if (i0 + rr < n_ctx) {
+                                da[gb] = d0;
+                                da[gb + 1u] = d1;
+                                da[gb + 2u] = d2;
+                                da[gb + 3u] = d3;
+                            }
+                        }
+                        sQ[rr * ST4 + q4] = f16vec4(vq * fscale);
+                        sDA[rr * ST4 + q4] = f16vec4(vd);
+                    }
+                }
+                for (uint idx = lid; idx < BC * 32u; idx += 32u) {
+                    uint rr = idx >> 5;
+                    uint q4 = idx & 31u;
+                    vec4 vk = vec4(0.0);
+                    vec4 vv = vec4(0.0);
+                    if (q4 * 4u < cw && j0 + rr < n_ctx) {
+                        uint gb = (base + j0 + rr) * NKV * HD + g * HD + c * HC + q4 * 4u;
+                        vk = vec4(k[gb], k[gb + 1u], k[gb + 2u], k[gb + 3u]);
+                        vv = vec4(v[gb], v[gb + 1u], v[gb + 2u], v[gb + 3u]);
+                    }
+                    sK[rr * ST4 + q4] = f16vec4(vk);
+                    sV[rr * ST4 + q4] = f16vec4(vv);
+                }
+                barrier();
+                [[unroll]] for (uint kk = 0u; kk < HC / 16u; kk++) {
+                    FRAG_A qa;
+                    coopMatLoad(qa, sQ, kk * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+                    FRAG_B kb;
+                    coopMatLoad(kb, sK, kk * 4u, ST4, gl_CooperativeMatrixLayoutColumnMajor);
+                    sf = coopMatMulAdd(qa, kb, sf);
+                    FRAG_A dka;
+                    coopMatLoad(dka, sDA, kk * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+                    FRAG_B vb;
+                    coopMatLoad(vb, sV, kk * 4u, ST4, gl_CooperativeMatrixLayoutColumnMajor);
+                    dp = coopMatMulAdd(dka, vb, dp);
+                }
+                barrier();
             }
-            mx = max(mx, dot);
-        }
-        if (subgroupElect()) {
-            red[grp] = mx;
-        }
-        barrier();
-        float gmx = -3.0e38;
-        for (uint s = 0u; s < ng; s++) {
-            gmx = max(gmx, red[s]);
-        }
-        barrier();
-        float sum = 0.0;
-        for (uint s = lid; s <= i; s += 256u) {
-            float e = exp(sc[s] - gmx);
-            sc[s] = e;
-            sum += e;
-        }
-        float ssum = subgroupAdd(sum);
-        if (subgroupElect()) {
-            red[grp] = ssum;
-        }
-        barrier();
-        float tot = 0.0;
-        for (uint s = 0u; s < ng; s++) {
-            tot += red[s];
-        }
-        if (grp == 0u && lane == 0u) {
-            lse[row * NH + h] = gmx + log(tot);
-        }
-        float dpart = 0.0;
-        if (lid < HD) {
-            uint o = (row * NH + h) * HD + lid;
-            float gt = 1.0;
-            float d = dy[o];
+            coopMatStore(sf, sS, 0u, SSTR, gl_CooperativeMatrixLayoutRowMajor);
+            coopMatStore(dp, sDP, 0u, SSTR, gl_CooperativeMatrixLayoutRowMajor);
+            barrier();
+            float mx = NEG;
+            for (uint u = 0u; u < 8u; u++) {
+                uint cc = hf * 8u + u;
+                mx = max(mx, (j0 + cc <= irow) ? sS[r * SSTR + cc] : NEG);
+            }
+            mx = max(mx, subgroupShuffleXor(mx, 1u));
+            float mn = max(mrun, mx);
+            float alpha = exp(mrun - mn);
+            mrun = mn;
+            float tsum = 0.0;
+            float td = 0.0;
+            for (uint u = 0u; u < 8u; u++) {
+                uint cc = hf * 8u + u;
+                bool ok = j0 + cc <= irow;
+                float e = ok ? exp(sS[r * SSTR + cc] - mn) : 0.0;
+                sPq[r * STS + cc] = float16_t(e);
+                tsum += e;
+                td += ok ? e * sDP[r * SSTR + cc] : 0.0;
+            }
+            lsum = lsum * alpha + tsum;
+            dtot = dtot * alpha + td;
+            // A = alpha·A + P̃·V over the owned head-dim chunk, needed only for the gate half
+            // of dqf: skip the whole value mix when ungated.
             if (!ungated) {
-                gt = 1.0 / (1.0 + exp(-gate[o]));
-                d = dy[o] * gt;
-            }
-            da[o] = d;
-            dh[lid] = d;
-            float acc = 0.0;
-            for (uint s = 0u; s <= i; s++) {
-                acc += sc[s] * v[((base + s) * NKV + g) * HD + lid];
-            }
-            ah[lid] = acc / tot;
-            dpart = d * ah[lid];
-            if (!ungated) {
-                dqf[row * NH * 2u * HD + h * 2u * HD + HD + lid] =
-                    dy[o] * ah[lid] * gt * (1.0 - gt);
-            }
-        }
-        barrier();
-        float dloc = subgroupAdd(dpart);
-        if (subgroupElect()) {
-            red2[grp] = dloc;
-        }
-        barrier();
-        float dval = 0.0;
-        for (uint s = 0u; s < ng; s++) {
-            dval += red2[s];
-        }
-        if (grp == 0u && lane == 0u) {
-            dsum[row * NH + h] = dval;
-        }
-        // dP_ij = dA_i·v_j, one scalar per key of the row.
-        for (uint s = grp; s <= i; s += ng) {
-            uint kb = ((base + s) * NKV + g) * HD;
-            float part = 0.0;
-            for (uint e = lane; e < HD; e += sg) {
-                part += dh[e] * v[kb + e];
-            }
-            float dp = subgroupAdd(part);
-            if (subgroupElect()) {
-                sp[s] = dp;
+                for (uint u = 0u; u < 64u; u++) {
+                    uint col = hf * 64u + u;
+                    if (col < ocols) {
+                        sM0[r * SMS + col] *= alpha;
+                    }
+                }
+                for (uint idx = lid; idx < BC * 32u; idx += 32u) {
+                    uint rr = idx >> 5;
+                    uint q4 = idx & 31u;
+                    vec4 vv = vec4(0.0);
+                    if (q4 * 4u < ocols && j0 + rr < n_ctx) {
+                        uint gb = (base + j0 + rr) * NKV * HD + g * HD + ocol + q4 * 4u;
+                        vv = vec4(v[gb], v[gb + 1u], v[gb + 2u], v[gb + 3u]);
+                    }
+                    sV[rr * ST4 + q4] = f16vec4(vv);
+                }
+                barrier();
+                FRAG_A pa;
+                coopMatLoad(pa, sPq, 0u, STS, gl_CooperativeMatrixLayoutRowMajor);
+                [[unroll]] for (uint f = 0u; f < HC / 16u; f++) {
+                    FRAG_B vb;
+                    coopMatLoad(vb, sV, f * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+                    FRAG_F ac = coopMatMulAdd(pa, vb, FRAG_F(0.0));
+                    coopMatStore(ac, sT, 0u, SSTR, gl_CooperativeMatrixLayoutRowMajor);
+                    barrier();
+                    for (uint u = 0u; u < 8u; u++) {
+                        uint col = f * 16u + hf * 8u + u;
+                        if (col < ocols) {
+                            sM0[r * SMS + col] += sT[r * SSTR + hf * 8u + u];
+                        }
+                    }
+                    barrier();
+                }
             }
         }
-        barrier();
-        for (uint s = lid; s <= i; s += 256u) {
-            sc[s] = sc[s] / tot * (sp[s] - dval);
+        lsum += subgroupShuffleXor(lsum, 1u);
+        dtot += subgroupShuffleXor(dtot, 1u);
+        float dval = dtot / lsum;
+        float lse_r = mrun + log(lsum);
+        if (hf == 0u && rowlive) {
+            lse[qrow * NH + h] = lse_r;
+            dsum[qrow * NH + h] = dval;
         }
-        barrier();
-        if (lid < HD) {
-            float acc = 0.0;
-            for (uint s = 0u; s <= i; s++) {
-                acc += sc[s] * k[((base + s) * NKV + g) * HD + lid];
+        if (!ungated && rowlive) {
+            for (uint u = 0u; u < 64u; u++) {
+                uint col = hf * 64u + u;
+                if (col < ocols) {
+                    uint o = qrow * NH * HD + h * HD + ocol + col;
+                    float gt = 1.0 / (1.0 + exp(-gate[o]));
+                    dqf[qrow * NH * 2u * HD + h * 2u * HD + HD + ocol + col] =
+                        dy[o] * sM0[r * SMS + col] / lsum * gt * (1.0 - gt);
+                }
             }
-            dq_rot[(row * NH + h) * HD + lid] = acc * fscale;
+        }
+        // ---- pass B: P, dS and dq_rot ----
+        // dq_rot = scale·Σ_j dS·K accumulates in register fragments (one per 16-column slab of
+        // the owned head-dim block), never through a shared accumulator, so no per-tile
+        // store/load round trip or its barriers.
+        FRAG_F dq_acc[HC / 16u];
+        [[unroll]] for (uint f = 0u; f < HC / 16u; f++) {
+            dq_acc[f] = FRAG_F(0.0);
+        }
+        for (uint jt = 0u; jt <= tb; jt++) {
+            uint j0 = jt * BC;
+            FRAG_F sf2 = FRAG_F(0.0);
+            FRAG_F dp2 = FRAG_F(0.0);
+            for (uint c = 0u; c < nchunk; c++) {
+                uint cw = (c + 1u == nchunk) ? (HD - c * HC) : HC;
+                if (!single_chunk) {
+                    for (uint idx = lid; idx < BR * 32u; idx += 32u) {
+                        uint rr = idx >> 5;
+                        uint q4 = idx & 31u;
+                        vec4 vq = vec4(0.0);
+                        vec4 vd = vec4(0.0);
+                        if (q4 * 4u < cw) {
+                            uint qq = base + min(i0 + rr, n_ctx - 1u);
+                            uint gb = qq * NH * HD + h * HD + c * HC + q4 * 4u;
+                            vq = vec4(q[gb], q[gb + 1u], q[gb + 2u], q[gb + 3u]);
+                            float d0 = da[gb];
+                            float d1 = da[gb + 1u];
+                            float d2 = da[gb + 2u];
+                            float d3 = da[gb + 3u];
+                            vd = vec4(d0, d1, d2, d3);
+                        }
+                        sQ[rr * ST4 + q4] = f16vec4(vq * fscale);
+                        sDA[rr * ST4 + q4] = f16vec4(vd);
+                    }
+                }
+                for (uint idx = lid; idx < BC * 32u; idx += 32u) {
+                    uint rr = idx >> 5;
+                    uint q4 = idx & 31u;
+                    vec4 vk = vec4(0.0);
+                    vec4 vv = vec4(0.0);
+                    if (q4 * 4u < cw && j0 + rr < n_ctx) {
+                        uint gb = (base + j0 + rr) * NKV * HD + g * HD + c * HC + q4 * 4u;
+                        vk = vec4(k[gb], k[gb + 1u], k[gb + 2u], k[gb + 3u]);
+                        vv = vec4(v[gb], v[gb + 1u], v[gb + 2u], v[gb + 3u]);
+                    }
+                    sK[rr * ST4 + q4] = f16vec4(vk);
+                    sV[rr * ST4 + q4] = f16vec4(vv);
+                }
+                barrier();
+                [[unroll]] for (uint kk = 0u; kk < HC / 16u; kk++) {
+                    FRAG_A qa;
+                    coopMatLoad(qa, sQ, kk * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+                    FRAG_B kb;
+                    coopMatLoad(kb, sK, kk * 4u, ST4, gl_CooperativeMatrixLayoutColumnMajor);
+                    sf2 = coopMatMulAdd(qa, kb, sf2);
+                    FRAG_A dka;
+                    coopMatLoad(dka, sDA, kk * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+                    FRAG_B vb;
+                    coopMatLoad(vb, sV, kk * 4u, ST4, gl_CooperativeMatrixLayoutColumnMajor);
+                    dp2 = coopMatMulAdd(dka, vb, dp2);
+                }
+                barrier();
+            }
+            coopMatStore(sf2, sS, 0u, SSTR, gl_CooperativeMatrixLayoutRowMajor);
+            coopMatStore(dp2, sDP, 0u, SSTR, gl_CooperativeMatrixLayoutRowMajor);
+            barrier();
+            uint rr = lane >> 1;
+            uint iro = min(i0 + rr, n_ctx - 1u);
+            float lse_g = lse[(base + iro) * NH + h];
+            float dsu_g = dsum[(base + iro) * NH + h];
+            for (uint u = 0u; u < 8u; u++) {
+                uint cc = (lane & 1u) * 8u + u;
+                bool ok = j0 + cc <= iro;
+                float e = ok ? exp(sS[rr * SSTR + cc] - lse_g) : 0.0;
+                float ds = e * (sDP[rr * SSTR + cc] - dsu_g);
+                sDq[rr * STS + cc] = float16_t(ds);
+                sDk[cc * STS + rr] = float16_t(ds);
+            }
+            for (uint idx = lid; idx < BC * 32u; idx += 32u) {
+                uint rr = idx >> 5;
+                uint q4 = idx & 31u;
+                vec4 vk = vec4(0.0);
+                if (q4 * 4u < ocols && j0 + rr < n_ctx) {
+                    uint gb = (base + j0 + rr) * NKV * HD + g * HD + ocol + q4 * 4u;
+                    vk = vec4(k[gb], k[gb + 1u], k[gb + 2u], k[gb + 3u]);
+                }
+                sK[rr * ST4 + q4] = f16vec4(vk);
+            }
+            barrier();
+            FRAG_A dsa;
+            coopMatLoad(dsa, sDk, 0u, STS, gl_CooperativeMatrixLayoutColumnMajor);
+            [[unroll]] for (uint f = 0u; f < HC / 16u; f++) {
+                FRAG_B kb;
+                coopMatLoad(kb, sK, f * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+                dq_acc[f] = coopMatMulAdd(dsa, kb, dq_acc[f]);
+            }
+            barrier();
+        }
+        for (uint f = 0u; f < HC / 16u; f++) {
+            coopMatStore(dq_acc[f], sT, 0u, SSTR, gl_CooperativeMatrixLayoutRowMajor);
+            barrier();
+            if (rowlive) {
+                for (uint u = 0u; u < 8u; u++) {
+                    uint col = f * 16u + hf * 8u + u;
+                    if (col < ocols) {
+                        dq_rot[(base + irow) * NH * HD + h * HD + ocol + col] =
+                            sT[r * SSTR + hf * 8u + u] * fscale;
+                    }
+                }
+            }
+            barrier();
         }
         return;
     }
     if (mode == 1u) {
-        // One (chunk, kv head g, key j): dk_rot_j and dv_j over the query heads of g, h then i
-        // ascending.
-        uint j = wg % n_ctx;
-        uint gc = wg / n_ctx;
+        // One (chunk, kv head, key tile, head-dim block): dk_rot and dv, the query heads of g
+        // ascending then the query tiles ascending, in the key-major form.
+        uint nblk = meta[9];
+        uint nemitk = (n_ctx + BC - 1u) / BC;
+        uint nemitq = (n_ctx + BR - 1u) / BR;
+        uint blk = wg % nblk;
+        uint rest = wg / nblk;
+        uint jb = rest % nemitk;
+        uint gc = rest / nemitk;
         uint gg = gc % NKV;
         uint chunk = gc / NKV;
         uint base = chunk * n_ctx;
-        uint jrow = base + j;
-        uint jb = (jrow * NKV + gg) * HD;
+        uint j0 = jb * BC;
+        uint ocol = blk * HC;
+        uint ocols = min(HC, HD - ocol);
+        uint nchunk = (HD + HC - 1u) / HC;
         uint rep = NH / NKV;
-        float kacc = 0.0;
-        float vacc = 0.0;
+        uint r = lane >> 1;   // this lane pair's key row
+        uint hf = lane & 1u;  // its half of the 16 query columns
+        bool krowlive = j0 + r < n_ctx;
+        bool single_chunk = (nchunk == 1u);
+        // Stage the fixed key/value tile once; every query head and query tile of this workgroup
+        // shares it. K is pre-scaled by 1/sqrt(HD) so S = K·Qᵀ carries the softmax scale. A
+        // single head-dim chunk holds the whole tile, so stage it once here; HD > HC re-stages
+        // K/V per chunk inside the S/dP loop.
+        if (single_chunk) {
+            for (uint idx = lid; idx < BC * 32u; idx += 32u) {
+                uint rr = idx >> 5;
+                uint q4 = idx & 31u;
+                vec4 vk = vec4(0.0);
+                vec4 vv = vec4(0.0);
+                if (q4 * 4u < HD && j0 + rr < n_ctx) {
+                    uint gb = (base + j0 + rr) * NKV * HD + gg * HD + q4 * 4u;
+                    vk = vec4(k[gb], k[gb + 1u], k[gb + 2u], k[gb + 3u]);
+                    vv = vec4(v[gb], v[gb + 1u], v[gb + 2u], v[gb + 3u]);
+                }
+                sK[rr * ST4 + q4] = f16vec4(vk * fscale);
+                sV[rr * ST4 + q4] = f16vec4(vv);
+            }
+            barrier();
+        }
+        // dV and dK accumulate in register fragments across every query head of g and the whole
+        // query-tile walk, one fragment per 16-column slab of the owned head-dim block.
+        FRAG_F dv_acc[HC / 16u];
+        FRAG_F dk_acc[HC / 16u];
+        [[unroll]] for (uint f = 0u; f < HC / 16u; f++) {
+            dv_acc[f] = FRAG_F(0.0);
+            dk_acc[f] = FRAG_F(0.0);
+        }
         for (uint hh = 0u; hh < rep; hh++) {
             uint h = gg * rep + hh;
-            for (uint i = j; i < n_ctx; i++) {
-                uint row = base + i;
-                uint qb = (row * NH + h) * HD;
-                // Every subgroup spans the whole head width, so its own sum is the complete dot
-                // and no cross-subgroup exchange (or barrier) is needed.
-                float ps = 0.0;
-                float pd = 0.0;
-                for (uint e = lane; e < HD; e += sg) {
-                    ps += q[qb + e] * k[jb + e];
-                    pd += da[qb + e] * v[jb + e];
+            for (uint mt = jb; mt < nemitq; mt++) {
+                uint m0 = mt * BR;
+                // pass A: Sᵀ = K·Qᵀ and dPᵀ = V·dAᵀ over every head-dim chunk on f16
+                // cooperative matrices with f32 accumulation (admitted by the 5e-3 bound).
+                FRAG_F st = FRAG_F(0.0);
+                FRAG_F dpt = FRAG_F(0.0);
+                for (uint c = 0u; c < nchunk; c++) {
+                    uint cw = (c + 1u == nchunk) ? (HD - c * HC) : HC;
+                    for (uint idx = lid; idx < BR * 32u; idx += 32u) {
+                        uint rr = idx >> 5;
+                        uint q4 = idx & 31u;
+                        vec4 vq = vec4(0.0);
+                        vec4 vd = vec4(0.0);
+                        if (q4 * 4u < cw && m0 + rr < n_ctx) {
+                            uint gb = (base + m0 + rr) * NH * HD + h * HD + c * HC + q4 * 4u;
+                            vq = vec4(q[gb], q[gb + 1u], q[gb + 2u], q[gb + 3u]);
+                            vd = vec4(da[gb], da[gb + 1u], da[gb + 2u], da[gb + 3u]);
+                        }
+                        sQ[rr * ST4 + q4] = f16vec4(vq);
+                        sDA[rr * ST4 + q4] = f16vec4(vd);
+                    }
+                    if (!single_chunk) {
+                        for (uint idx = lid; idx < BC * 32u; idx += 32u) {
+                            uint rr = idx >> 5;
+                            uint q4 = idx & 31u;
+                            vec4 vk = vec4(0.0);
+                            vec4 vv = vec4(0.0);
+                            if (q4 * 4u < cw && j0 + rr < n_ctx) {
+                                uint gb = (base + j0 + rr) * NKV * HD + gg * HD + c * HC + q4 * 4u;
+                                vk = vec4(k[gb], k[gb + 1u], k[gb + 2u], k[gb + 3u]);
+                                vv = vec4(v[gb], v[gb + 1u], v[gb + 2u], v[gb + 3u]);
+                            }
+                            sK[rr * ST4 + q4] = f16vec4(vk * fscale);
+                            sV[rr * ST4 + q4] = f16vec4(vv);
+                        }
+                    }
+                    barrier();
+                    [[unroll]] for (uint kk = 0u; kk < HC / 16u; kk++) {
+                        FRAG_A ka;
+                        coopMatLoad(ka, sK, kk * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+                        FRAG_B qb;
+                        coopMatLoad(qb, sQ, kk * 4u, ST4, gl_CooperativeMatrixLayoutColumnMajor);
+                        st = coopMatMulAdd(ka, qb, st);
+                        FRAG_A va;
+                        coopMatLoad(va, sV, kk * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+                        FRAG_B db;
+                        coopMatLoad(db, sDA, kk * 4u, ST4, gl_CooperativeMatrixLayoutColumnMajor);
+                        dpt = coopMatMulAdd(va, db, dpt);
+                    }
+                    barrier();
                 }
-                float sd = subgroupAdd(ps) * fscale;
-                float dd = subgroupAdd(pd);
-                float p_ij = exp(sd - lse[row * NH + h]);
-                float ds_ij = p_ij * (dd - dsum[row * NH + h]);
-                if (lid < HD) {
-                    kacc += ds_ij * q[qb + lid];
-                    vacc += p_ij * da[qb + lid];
+                coopMatStore(st, sS, 0u, SSTR, gl_CooperativeMatrixLayoutRowMajor);
+                coopMatStore(dpt, sDP, 0u, SSTR, gl_CooperativeMatrixLayoutRowMajor);
+                barrier();
+                // Pᵀ and dSᵀ: element (key r, query m0 + cc)
+                for (uint u = 0u; u < 8u; u++) {
+                    uint cc = hf * 8u + u;
+                    uint qq = m0 + cc;
+                    float e = 0.0;
+                    float ds = 0.0;
+                    if (qq < n_ctx && j0 + r <= qq) {
+                        e = exp(sS[r * SSTR + cc] - lse[(base + qq) * NH + h]);
+                        ds = e * (sDP[r * SSTR + cc] - dsum[(base + qq) * NH + h]);
+                    }
+                    float16_t ds_hi = float16_t(ds);
+                    sPk[r * STS + cc] = float16_t(e);
+                    sDk[r * STS + cc] = ds_hi;
+                    sDkLo[r * STS + cc] = float16_t(ds - float(ds_hi));
                 }
+                // pass B: dV += Pᵀ·dA and dK += dSᵀ·Q over the owned head-dim chunk. For a single
+                // head-dim chunk sQ/sDA are already staged by pass A; HD > HC re-stages the owned
+                // columns here.
+                if (!single_chunk) {
+                    for (uint idx = lid; idx < BR * 32u; idx += 32u) {
+                        uint rr = idx >> 5;
+                        uint q4 = idx & 31u;
+                        vec4 vq = vec4(0.0);
+                        vec4 vd = vec4(0.0);
+                        if (q4 * 4u < ocols && m0 + rr < n_ctx) {
+                            uint gb = (base + m0 + rr) * NH * HD + h * HD + ocol + q4 * 4u;
+                            vq = vec4(q[gb], q[gb + 1u], q[gb + 2u], q[gb + 3u]);
+                            vd = vec4(da[gb], da[gb + 1u], da[gb + 2u], da[gb + 3u]);
+                        }
+                        sQ[rr * ST4 + q4] = f16vec4(vq);
+                        sDA[rr * ST4 + q4] = f16vec4(vd);
+                    }
+                }
+                barrier();
+                FRAG_A pa;
+                coopMatLoad(pa, sPk, 0u, STS, gl_CooperativeMatrixLayoutRowMajor);
+                FRAG_A dsa;
+                coopMatLoad(dsa, sDk, 0u, STS, gl_CooperativeMatrixLayoutRowMajor);
+                FRAG_A dsaLo;
+                coopMatLoad(dsaLo, sDkLo, 0u, STS, gl_CooperativeMatrixLayoutRowMajor);
+                [[unroll]] for (uint f = 0u; f < HC / 16u; f++) {
+                    FRAG_B ab;
+                    coopMatLoad(ab, sDA, f * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+                    FRAG_B qb;
+                    coopMatLoad(qb, sQ, f * 4u, ST4, gl_CooperativeMatrixLayoutRowMajor);
+                    dv_acc[f] = coopMatMulAdd(pa, ab, dv_acc[f]);
+                    dk_acc[f] = coopMatMulAdd(dsa, qb, dk_acc[f]);
+                    dk_acc[f] = coopMatMulAdd(dsaLo, qb, dk_acc[f]);
+                }
+                barrier();
             }
         }
-        if (lid < HD) {
-            dk_rot[(jrow * NKV + gg) * HD + lid] = kacc * fscale;
-            dv[(jrow * NKV + gg) * HD + lid] = vacc;
+        for (uint f = 0u; f < HC / 16u; f++) {
+            coopMatStore(dv_acc[f], sT, 0u, SSTR, gl_CooperativeMatrixLayoutRowMajor);
+            barrier();
+            if (krowlive) {
+                for (uint u = 0u; u < 8u; u++) {
+                    uint col = f * 16u + hf * 8u + u;
+                    if (col < ocols) {
+                        dv[(base + j0 + r) * NKV * HD + gg * HD + ocol + col] =
+                            sT[r * SSTR + hf * 8u + u];
+                    }
+                }
+            }
+            barrier();
+        }
+        for (uint f = 0u; f < HC / 16u; f++) {
+            coopMatStore(dk_acc[f], sT, 0u, SSTR, gl_CooperativeMatrixLayoutRowMajor);
+            barrier();
+            if (krowlive) {
+                for (uint u = 0u; u < 8u; u++) {
+                    uint col = f * 16u + hf * 8u + u;
+                    if (col < ocols) {
+                        dk_rot[(base + j0 + r) * NKV * HD + gg * HD + ocol + col] =
+                            sT[r * SSTR + hf * 8u + u] * fscale;
+                    }
+                }
+            }
+            barrier();
         }
         return;
     }
@@ -239,73 +646,53 @@ void main() {
     uint slot = wg % slots;
     bool is_q = slot < NH;
     uint goff = is_q ? 0u : HD;
-    float x = 0.0;
-    float dx = 0.0;
-    if (lid < HD) {
-        if (is_q) {
-            x = ungated ? qf[row * NH * HD + slot * HD + lid]
-                        : qf[row * NH * 2u * HD + slot * 2u * HD + lid];
-            dx = dq_rot[(row * NH + slot) * HD + lid];
-        } else {
-            x = kf[(row * NKV + slot - NH) * HD + lid];
-            dx = dk_rot[(row * NKV + slot - NH) * HD + lid];
-        }
-        dh[lid] = dx;
+    float ss = 0.0;
+    for (uint e = lane; e < HD; e += 32u) {
+        float x = is_q ? (ungated ? qf[row * NH * HD + slot * HD + e]
+                                 : qf[row * NH * 2u * HD + slot * 2u * HD + e])
+                       : kf[(row * NKV + slot - NH) * HD + e];
+        ss += x * x;
     }
-    float ss = subgroupAdd(x * x);
-    if (subgroupElect()) {
-        red[grp] = ss;
-    }
-    barrier();
-    float tot = 0.0;
-    for (uint s = 0u; s < ng; s++) {
-        tot += red[s];
-    }
-    barrier();
-    float r = inversesqrt(tot / float(HD) + eps);
-    float dyv = 0.0;
-    if (lid < HD) {
-        ah[lid] = x * r;
-        // The rope transpose: the pre-rotation gradient of dims < ROT.
-        float dy_e = dh[lid];
-        if (lid < ROT) {
-            uint jj = lid % half_rot;
+    float tot = subgroupAdd(ss);
+    float pr = inversesqrt(tot / float(HD) + eps);
+    float part = 0.0;
+    for (uint e = lane; e < HD; e += 32u) {
+        float x = is_q ? (ungated ? qf[row * NH * HD + slot * HD + e]
+                                 : qf[row * NH * 2u * HD + slot * 2u * HD + e])
+                       : kf[(row * NKV + slot - NH) * HD + e];
+        uint doff = is_q ? (row * NH + slot) * HD : (row * NKV + slot - NH) * HD;
+        float dg = is_q ? dq_rot[doff + e] : dk_rot[doff + e];
+        if (e < ROT) {
+            uint jj = e % half_rot;
             float pos = float(row % n_ctx);
             float ang = pos * pow(theta, -2.0 * float(jj) / float(ROT));
             float cs = cos(ang);
             float sn = sin(ang);
-            if (lid < half_rot) {
-                dy_e = dh[lid] * cs + dh[lid + half_rot] * sn;
+            if (e < half_rot) {
+                float hi = is_q ? dq_rot[doff + e + half_rot] : dk_rot[doff + e + half_rot];
+                dg = dg * cs + hi * sn;
             } else {
-                dy_e = dh[lid] * cs - dh[lid - half_rot] * sn;
+                float lo = is_q ? dq_rot[doff + e - half_rot] : dk_rot[doff + e - half_rot];
+                dg = dg * cs - lo * sn;
             }
         }
-        dyv = dy_e * gains[goff + lid];
-        xh[lid] = dyv;
+        float dyv = dg * gains[goff + e];
+        float xr = x * pr;
+        sM0[e] = dyv;
+        sM1[e] = xr;
+        part += dyv * xr;
     }
-    float part = 0.0;
-    if (lid < HD) {
-        part = xh[lid] * ah[lid];
-    }
-    float ploc = subgroupAdd(part);
-    if (subgroupElect()) {
-        red[grp] = ploc;
-    }
-    barrier();
-    float pd = 0.0;
-    for (uint s = 0u; s < ng; s++) {
-        pd += red[s];
-    }
-    if (lid < HD) {
-        float g = r * (dyv - ah[lid] * pd / float(HD));
+    float pd = subgroupAdd(part);
+    for (uint e = lane; e < HD; e += 32u) {
+        float g = pr * (sM0[e] - sM1[e] * pd / float(HD));
         if (is_q) {
             if (ungated) {
-                dqf[row * NH * HD + slot * HD + lid] = g;
+                dqf[row * NH * HD + slot * HD + e] = g;
             } else {
-                dqf[row * NH * 2u * HD + slot * 2u * HD + lid] = g;
+                dqf[row * NH * 2u * HD + slot * 2u * HD + e] = g;
             }
         } else {
-            dkf[(row * NKV + slot - NH) * HD + lid] = g;
+            dkf[(row * NKV + slot - NH) * HD + e] = g;
         }
     }
 }

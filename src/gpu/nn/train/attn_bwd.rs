@@ -118,6 +118,14 @@ fn fold(wg: usize) -> (u32, u32) {
     (gx as u32, wg.div_ceil(gx).max(1) as u32)
 }
 
+/// Query rows per tile and keys per tile; `attn_map_bwd.comp`'s `BR` and `BC`.
+pub(super) const BR: usize = 16;
+/// Keys per key tile; `attn_map_bwd.comp`'s `BC`.
+pub(super) const BC: usize = 16;
+/// Head-dim columns staged per pass and owned per workgroup; `attn_map_bwd.comp`'s `HC`. The
+/// shader's staged tiles are sized for it: `HD ≤ 2·HC`.
+pub(super) const HC: usize = 128;
+
 /// The three backward dispatches over caller-provided handles, as reusable [`Step`]s: a caller
 /// that owns the buffers a wider tape needs (the attention front's `q`, `k`, `v` slots,
 /// [`FrontTune`](super::front::FrontTune)) records the same three dispatches in its own command
@@ -133,8 +141,13 @@ fn fold(wg: usize) -> (u32, u32) {
 ///
 /// # Complexity
 ///
-/// `O(1)` host work; the three dispatches cover `chunks·nh·n_ctx`, `chunks·nkv·n_ctx` and
-/// `T·(nh + nkv)` invocations.
+/// `O(1)` host work. The three dispatches cover `chunks·nh·ceil(n_ctx/BR)·nblk`,
+/// `chunks·nkv·ceil(n_ctx/BC)·nblk` and `T·(nh + nkv)` workgroups (`BR = BC = 16`, `nblk =
+/// ceil(HD/HC)`): mode 0 walks the key tiles at or before its query tile twice (once for the
+/// online lse/dsum statistics, once for `dQ`), mode 1 walks the query tiles at or after its key
+/// tile over every query head of the key head, and mode 2 is one row/slot. Each `16·16·128`
+/// product runs on f16 cooperative matrices with f32 accumulation, and the `dQ`/`dK`/`dV`
+/// accumulators are register fragments, not shared-memory round trips.
 #[allow(
     clippy::cast_possible_truncation,
     reason = "n_ctx, nh, nkv, hd, rot and the workgroup count index u32 dispatch words"
@@ -146,6 +159,7 @@ pub(super) unsafe fn tape(
     bufs: [Handle; 16],
 ) -> Vec<Step> {
     let flag = if gated { 0u32 } else { 4u32 };
+    let nblk = s.hd.div_ceil(HC);
     let meta = |mode: u32, wg: usize| {
         [
             mode | flag,
@@ -157,12 +171,21 @@ pub(super) unsafe fn tape(
             s.theta.to_bits(),
             s.eps.to_bits(),
             wg as u32,
+            nblk as u32,
         ]
     };
     let mut steps: Vec<Step> = Vec::with_capacity(3);
     for (mode, wg, name) in [
-        (0u32, s.chunks * s.nh * s.n_ctx, "attn_bwd_dq"),
-        (1, s.chunks * s.nkv * s.n_ctx, "attn_bwd_dkv"),
+        (
+            0u32,
+            s.chunks * s.nh * s.n_ctx.div_ceil(BR) * nblk,
+            "attn_bwd_dq",
+        ),
+        (
+            1,
+            s.chunks * s.nkv * s.n_ctx.div_ceil(BC) * nblk,
+            "attn_bwd_dkv",
+        ),
         (2, s.t() * (s.nh + s.nkv), "attn_bwd_prep"),
     ] {
         let mut all = vec![g.up_u32(&meta(mode, wg))];
@@ -232,7 +255,7 @@ impl AttnBwd {
     /// `O(T·nh·hd)` device words allocated; no arithmetic on the host.
     pub unsafe fn new(g: &GpuCtx, s: AttnBwdShape, gated: bool) -> Self {
         assert!(
-            s.hd <= 256 && s.nh % s.nkv == 0 && s.n_ctx <= 1024,
+            s.hd <= 2 * HC && s.hd % 4 == 0 && s.nh % s.nkv == 0 && s.n_ctx <= 1024,
             "attn_map_bwd geometry"
         );
         assert!(s.rot == 0 || s.rot % 2 == 0, "rope pairs");
@@ -358,6 +381,14 @@ pub(crate) mod tests {
     use crate::gpu::nn::GLSLC_ARGS;
     use std::path::Path;
     use std::time::Instant;
+
+    /// The attention-backward device tests gate every gradient at `rel <= 5e-3` against the f64
+    /// reference, per the lead verdict
+    /// `lead-1024/w7/verdict-attn-bwd-precision.md`: NanoQuant
+    /// trains in bf16 on FA2 whose own gradients measure 6.4e-3..3.5e-2 against f64, so 1e-3 was
+    /// an over-tight bar that forced an f32 scalar S/dP recompute; 5e-3 admits f16
+    /// cooperative-matrix products with f32 accumulation on every product.
+    const BD_BOUND: f64 = 5e-3;
 
     fn fresh(name: &str) -> Vec<u8> {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/spirv/train");
@@ -1030,8 +1061,8 @@ pub(crate) mod tests {
         println!("AB T={t} dev {dev_s:.4} s: {}", line.join(" "));
         for (n, r) in rows {
             assert!(
-                r <= 1e-3 && r.is_finite(),
-                "{n}: rel {r:.3e} > 1e-3 at T={t}"
+                r <= BD_BOUND && r.is_finite(),
+                "{n}: rel {r:.3e} > {BD_BOUND:.0e} at T={t}"
             );
         }
     }
@@ -1127,6 +1158,76 @@ pub(crate) mod tests {
             bw.iter().all(|&p| p.is_finite()) && mean(&bw) > 0.0,
             "bwd wall"
         );
+    }
+
+    /// Time one dispatch (or the whole tape) between two GPU timestamps, transfers excluded.
+    /// Returns `(mean, min, max)` in ms over `n` submissions.
+    unsafe fn time_ms(vk: &Vk, steps: &[&Step], pool: &QueryPool, n: usize) -> (f64, f64, f64) {
+        let mut devs = Vec::with_capacity(n);
+        for _ in 0..n {
+            let cb = vk.command_buffer();
+            vk.begin(cb);
+            vk.cmd_reset_timestamps(cb, pool);
+            vk.cmd_write_timestamp(cb, pool, STAGE_ALL_COMMANDS, 0);
+            for st in steps {
+                rec_step(vk, cb, st);
+            }
+            vk.cmd_write_timestamp(cb, pool, STAGE_ALL_COMMANDS, 1);
+            check((vk.end_cb)(cb), "vkEndCommandBuffer");
+            vk.submit_wait(cb);
+            let ts = vk.read_timestamps(pool);
+            let ticks = ts[1].wrapping_sub(ts[0]) as f64;
+            devs.push(ticks * f64::from(vk.timestamp_period) / 1e6);
+        }
+        let mean = devs.iter().sum::<f64>() / devs.len() as f64;
+        let (mut lo, mut hi) = (f64::INFINITY, 0.0f64);
+        for &p in &devs {
+            lo = lo.min(p);
+            hi = hi.max(p);
+        }
+        (mean, lo, hi)
+    }
+
+    /// The backward dispatch wall at the production shape, `n_ctx = 1024` (`T = 2048`),
+    /// `nh 16 / nkv 8 / hd 128` ungated, two GPU timestamps around the three-dispatch tape,
+    /// transfers excluded, `n = 5`. Prints the whole-tape wall and each dispatch's split.
+    #[test]
+    #[ignore = "needs a Vulkan device; reports the bwd dispatch wall"]
+    fn attn_bwd_timing_querypool() {
+        let s = AttnBwdShape {
+            n_ctx: 1024,
+            chunks: 2,
+            nh: 16,
+            nkv: 8,
+            hd: 128,
+            rot: 128,
+            theta: 1e6,
+            eps: 1e-6,
+        };
+        let x = make_case(s, 0x5150_2a2a, false);
+        let p = ref_prep(&x);
+        let d = device_inputs(&x, &p);
+        let inp = as_in(&d);
+        let vk = unsafe { Vk::load() }.expect("vulkan");
+        let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
+        let bwd = unsafe { AttnBwd::new(&g, s, false) };
+        let _ = unsafe { bwd.run(&g, &inp) };
+        let bufs = [
+            bwd.qf, bwd.kf, bwd.gains, bwd.q, bwd.gate, bwd.k, bwd.v, bwd.dy, bwd.lse, bwd.dsum,
+            bwd.da, bwd.dq_rot, bwd.dk_rot, bwd.dqf, bwd.dkf, bwd.dv,
+        ];
+        let steps = unsafe { tape(&g, s, false, bufs) };
+        let pool = unsafe { vk.timestamp_pool(2) };
+        let names = ["dq", "dkv", "prep"];
+        let mut splits = Vec::new();
+        for (st, name) in steps.iter().zip(names) {
+            let (m, lo, hi) = unsafe { time_ms(&vk, &[st], &pool, 5) };
+            println!("ATB-SPLIT {name} {m:.4} ms [{lo:.4}, {hi:.4}] n=5");
+            splits.push((name, m));
+        }
+        let all: Vec<&Step> = steps.iter().collect();
+        let (mean, lo, hi) = unsafe { time_ms(&vk, &all, &pool, 5) };
+        println!("ATB T={} bwd {mean:.4} ms [{lo:.4}, {hi:.4}] n=5", s.t());
     }
 
     // ---- the ungated map (Qwen3: no output gate) and the gated dump ----------------------------
@@ -1330,8 +1431,8 @@ pub(crate) mod tests {
         println!("AU T={t} dev {dev_s:.4} s: {}", line.join(" "));
         for (n, r) in rows {
             assert!(
-                r <= 1e-3 && r.is_finite(),
-                "{n}: rel {r:.3e} > 1e-3 at T={t}"
+                r <= BD_BOUND && r.is_finite(),
+                "{n}: rel {r:.3e} > {BD_BOUND:.0e} at T={t}"
             );
         }
     }
