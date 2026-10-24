@@ -843,6 +843,35 @@ impl BlockTune {
         self.record(g, false);
     }
 
+    /// Re-record the evaluation tape with the current stage flags — the profiler's hook
+    /// ([`crate::gpu::decode::prof_arm`]). Armed, `rec_step` writes a timestamp pair around each
+    /// dispatch of this tape; every other tape keeps its unstamped recording.
+    ///
+    /// # Safety
+    ///
+    /// No tape of this value is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; the evaluation tape carries `O(1)` dispatches.
+    pub unsafe fn rerecord_eval(&self, g: &GpuCtx) {
+        self.record(g, false);
+    }
+
+    /// Re-record the training tape (backward, factor adjoints, Adam steps) with the current stage
+    /// flags; the profiler's hook, as [`BlockTune::rerecord_eval`].
+    ///
+    /// # Safety
+    ///
+    /// No tape of this value is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; the training tape carries `O(1)` dispatches.
+    pub unsafe fn rerecord_train(&self, g: &GpuCtx) {
+        self.record(g, true);
+    }
+
     /// Set the per-output importance `D` of the loss, `d` words: the loss is
     /// `Σ_r Σ_c D[c]·(y − y_t)[r,c]²` and its gradient `dy[r,c] = scale·D[c]·(y − y_t)[r,c]`.
     /// All ones is the default, the unweighted sum. The reference weights the same way

@@ -2636,13 +2636,22 @@ impl Vk {
     /// Read all `count` timestamps back as u64 ticks, waiting for them to be available.
     /// GPU-active µs between two ticks = `(b - a) as f64 * timestamp_period / 1000.0`.
     pub unsafe fn read_timestamps(&self, pool: &QueryPool) -> Vec<u64> {
-        let mut out = vec![0u64; pool.count as usize];
+        self.read_timestamps_prefix(pool, pool.count)
+    }
+
+    /// Read the first `queries` timestamps of `pool` back as u64 ticks, waiting for them to be
+    /// available. A stamped tape fills a prefix of its pool, so a caller reads exactly the prefix it
+    /// wrote: `QUERY_RESULT_WAIT` blocks until every query asked for holds a value, and a query that
+    /// was never written never does.
+    pub unsafe fn read_timestamps_prefix(&self, pool: &QueryPool, queries: u32) -> Vec<u64> {
+        let queries = queries.min(pool.count);
+        let mut out = vec![0u64; queries as usize];
         (self.get_query_results)(
             self.device,
             pool.handle,
             0,
-            pool.count,
-            pool.count as usize * 8,
+            queries,
+            queries as usize * 8,
             out.as_mut_ptr().cast(),
             8,
             QUERY_RESULT_64 | QUERY_RESULT_WAIT,

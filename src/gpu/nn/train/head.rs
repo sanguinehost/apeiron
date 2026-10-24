@@ -70,6 +70,27 @@ pub struct KdHead {
     dh: Handle,
     loss: Handle,
     cb: CommandBuffer,
+    /// The tape's own handles and dispatches: kept, not dropped, so the tape can be re-recorded
+    /// with the profiler's timestamps ([`KdHead::rerecord`]) in the order [`KdHead::new`] recorded
+    /// it. The buffers are held alive by the device; these handles are their tape-side addresses.
+    tape: HeadTape,
+}
+
+/// What the head's tape reads: the two whole-`T` norm passes, the norm adjoint, and per chunk its
+/// buffers and four dispatches. Only the recording touches these; the consumer reads `dh` and
+/// `loss`.
+struct HeadTape {
+    hf_s: Handle,
+    hf_t: Handle,
+    hf_s_c: Handle,
+    hf_t_c: Handle,
+    dhf_c: Handle,
+    dhf: Handle,
+    loss_c: Handle,
+    norm_s: Step,
+    norm_t: Step,
+    norm_bwd: Step,
+    chunks: Vec<Chunk>,
 }
 
 impl KdHead {
@@ -151,14 +172,62 @@ impl KdHead {
         }
         // ── the tape: the norms, then per chunk (row copy down, two products, the loss head, the
         // input adjoint, the loss rows and the cotangent rows copied out), then the norm adjoint ──
-        let vk = g.vk;
-        let cb = vk.reusable_command_buffer();
+        let cb = g.vk.reusable_command_buffer();
+        let mut chunks = chunks;
+        chunks.shrink_to_fit();
+        let s = Self {
+            t,
+            d,
+            v,
+            rc,
+            z_s,
+            dh,
+            loss,
+            cb,
+            // `hf_s`, `hf_t`, `hf_s_c`, `hf_t_c`, `dhf_c` and `loss_c` are reachable only from the
+            // recorded tape; the tape struct holds the handles that keep their buffers' addresses.
+            tape: HeadTape {
+                hf_s,
+                hf_t,
+                hf_s_c,
+                hf_t_c,
+                dhf_c,
+                dhf,
+                loss_c,
+                norm_s,
+                norm_t,
+                norm_bwd,
+                chunks,
+            },
+        };
+        s.record(g);
+        s
+    }
+
+    /// Record the head's tape into [`KdHead::cb`]: the two whole-`T` norm passes, then per chunk
+    /// (row copy down, the two logit products, the loss head, the input adjoint, the loss rows and
+    /// the cotangent rows copied out), then the norm adjoint. The buffer is reset first.
+    ///
+    /// The tape is recorded from [`KdHead::tape`], so it can be re-recorded unchanged at any time
+    /// ([`KdHead::rerecord`]) — the order above is the one the reference's step runs, and step 0's
+    /// golden receipt pins it.
+    ///
+    /// # Safety
+    ///
+    /// No tape of this value is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; `3 + 4·⌈t/rc⌉` dispatches and the chunk copies recorded.
+    unsafe fn record(&self, g: &GpuCtx) {
+        let (vk, cb, d) = (g.vk, self.cb, self.d);
+        let tape = &self.tape;
         let words = |rows: u32, w: u32| u64::from(rows) * u64::from(w) * 4;
         vk.reset_cb(cb);
         vk.begin(cb);
-        rec_step(vk, cb, &norm_s);
-        rec_step(vk, cb, &norm_t);
-        for c in &chunks {
+        rec_step(vk, cb, &tape.norm_s);
+        rec_step(vk, cb, &tape.norm_t);
+        for c in &tape.chunks {
             let at = u64::from(c.start);
             vk.barrier(
                 cb,
@@ -172,8 +241,8 @@ impl KdHead {
                 dst_offset: 0,
                 size: words(c.rows, d),
             };
-            (vk.copy_buffer)(cb, hf_s, hf_s_c, 1, &down);
-            (vk.copy_buffer)(cb, hf_t, hf_t_c, 1, &down);
+            (vk.copy_buffer)(cb, tape.hf_s, tape.hf_s_c, 1, &down);
+            (vk.copy_buffer)(cb, tape.hf_t, tape.hf_t_c, 1, &down);
             vk.barrier(
                 cb,
                 STAGE_TRANSFER,
@@ -197,13 +266,13 @@ impl KdHead {
                 dst_offset: at * u64::from(d) * 4,
                 size: words(c.rows, d),
             };
-            (vk.copy_buffer)(cb, dhf_c, dhf, 1, &up);
+            (vk.copy_buffer)(cb, tape.dhf_c, tape.dhf, 1, &up);
             let lrow = BufferCopy {
                 src_offset: 0,
                 dst_offset: at * 4,
                 size: u64::from(c.rows) * 4,
             };
-            (vk.copy_buffer)(cb, loss_c, loss, 1, &lrow);
+            (vk.copy_buffer)(cb, tape.loss_c, self.loss, 1, &lrow);
         }
         vk.barrier(
             cb,
@@ -212,19 +281,23 @@ impl KdHead {
             ACCESS_TRANSFER_WRITE,
             ACCESS_SHADER_READ,
         );
-        rec_step(vk, cb, &norm_bwd);
+        rec_step(vk, cb, &tape.norm_bwd);
         check((vk.end_cb)(cb), "vkEndCommandBuffer");
-        chunks.shrink_to_fit();
-        Self {
-            t,
-            d,
-            v,
-            rc,
-            z_s,
-            dh,
-            loss,
-            cb,
-        }
+    }
+
+    /// Re-record the tape with the profiler's timestamps: armed ([`crate::gpu::decode::prof_arm`]),
+    /// `rec_step` writes a timestamp pair around each dispatch, so one [`KdHead::run`] yields one
+    /// span per dispatch. The head's only re-record hook; the tape's dispatch order is unchanged.
+    ///
+    /// # Safety
+    ///
+    /// No tape of this value is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; the tape carries `3 + 4·⌈t/rc⌉` dispatches.
+    pub unsafe fn rerecord(&self, g: &GpuCtx) {
+        self.record(g);
     }
 
     /// Submit the head's tape: `h_s`, `h_t` → `dh` and the `loss` rows. `W_emb` and `g_final` are

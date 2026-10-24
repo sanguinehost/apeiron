@@ -11,7 +11,7 @@
 use crate::gpu::nn::*;
 use crate::gpu::simt::{gemv_bytes, Carrier};
 use crate::gpu::vulkan::*;
-use std::sync::OnceLock;
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
 pub mod layer;
 pub mod model;
@@ -453,7 +453,138 @@ pub unsafe fn step_barrier(vk: &Vk, cb: CommandBuffer) {
     }
 }
 
+/// The armed per-dispatch profiler: one timestamp query pair per `rec_step`, in tape order.
+struct Prof {
+    /// The device's timestamps: `2·dispatches` queries, read back in one `vkGetQueryPoolResults`.
+    pool: QueryPool,
+    /// The next free query index; a stamped dispatch takes `[next, next + 1]`.
+    next: u32,
+    /// `(dispatch name, its start query index)`, in tape order.
+    labels: Vec<(&'static str, u32)>,
+}
+
+/// The one profiler state. `None` — the default, and the state after [`prof_take`] — leaves
+/// [`rec_step`]'s recorded tape byte-identical to an unprofiled build.
+static PROF: Mutex<Option<Prof>> = Mutex::new(None);
+
+/// The profiler state, poison-tolerant: a panic inside a stamped tape must not switch the
+/// profiler off for the rest of the process.
+fn prof_lock() -> MutexGuard<'static, Option<Prof>> {
+    PROF.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Arm the profiler for one tape of at most `dispatches` dispatches: a fresh timestamp pool,
+/// host-reset, no labels. Returns `false` — leaving `rec_step` unstamped — when the device reports
+/// no timestamp support (`timestamp_valid_bits == 0`) or `dispatches` is zero.
+///
+/// # Safety
+///
+/// No submission is pending on the device queue: the pool is written by the next submission only.
+///
+/// # Complexity
+///
+/// `O(1)` host work and one `vkCreateQueryPool`; `O(dispatches)` device queries, `16·dispatches`
+/// bytes. The pool's device object is not destroyed (no other one-shot pool of this port is).
+pub unsafe fn prof_arm(vk: &Vk, dispatches: u32) -> bool {
+    if vk.timestamp_valid_bits == 0 || dispatches == 0 {
+        return false;
+    }
+    let pool = vk.timestamp_pool(2 * dispatches);
+    let _ = vk.reset_timestamps_host(&pool);
+    *prof_lock() = Some(Prof {
+        pool,
+        next: 0,
+        labels: Vec::new(),
+    });
+    true
+}
+
+/// Disarm the profiler: `rec_step` records an unmodified tape again.
+///
+/// # Complexity
+///
+/// `O(1)` host work; one `Vec` dropped.
+pub fn prof_disarm() {
+    *prof_lock() = None;
+}
+
+/// Whether [`rec_step`] is stamping right now.
+///
+/// # Complexity
+///
+/// `O(1)`: one uncontended lock.
+#[must_use]
+pub fn prof_armed() -> bool {
+    prof_lock().is_some()
+}
+
+/// Read the armed profiler's timestamps and disarm it: `(dispatch name, GPU µs)` in tape order,
+/// empty when no profiler is armed. A dispatch's span is its own GPU time — the second timestamp
+/// is written before the barrier that follows it — so no barrier or copy time is attributed to it.
+///
+/// # Safety
+///
+/// Every armed tape has been submitted and the queue has drained (`submit_wait`), so every query
+/// holds the timestamp its dispatch wrote.
+///
+/// # Complexity
+///
+/// `O(d)` ticks read back and converted, `d` the armed dispatch count.
+pub unsafe fn prof_take(vk: &Vk) -> Vec<(&'static str, f64)> {
+    let Some(p) = prof_lock().take() else {
+        return Vec::new();
+    };
+    if p.labels.is_empty() {
+        return Vec::new();
+    }
+    // A tape fills a prefix of the pool: read `2·labels` queries and never the unwritten tail, on
+    // which `QUERY_RESULT_WAIT` would block (the armed pool is sized with headroom, band 1 of
+    // `KdTrain::profile_layer`).
+    let written = 2 * u32::try_from(p.labels.len()).unwrap_or(0);
+    let ts = vk.read_timestamps_prefix(&p.pool, written);
+    // `timestamp_period` is ns per tick; a dispatch's span is `(end − start)·period / 1000` µs.
+    let us_per_tick = f64::from(vk.timestamp_period) / 1000.0;
+    p.labels
+        .iter()
+        .map(|&(name, at)| {
+            let (a, b) = (at as usize, at as usize + 1);
+            (name, ts[b].wrapping_sub(ts[a]) as f64 * us_per_tick)
+        })
+        .collect()
+}
+
+/// Write the start timestamp of one dispatch when the profiler is armed: the pair's end query
+/// index, `None` when off or when the armed pool has no pair left (the tape's tail stays unstamped).
+///
+/// # Complexity
+///
+/// `O(1)`: one uncontended lock and one `vkCmdWriteTimestamp2` per armed dispatch.
+fn prof_stamp_open(vk: &Vk, cb: CommandBuffer, name: &'static str) -> Option<u32> {
+    let mut state = prof_lock();
+    let p = state.as_mut()?;
+    let (start, end) = (p.next, p.next.checked_add(1)?);
+    if end >= p.pool.count {
+        return None;
+    }
+    p.next = end + 1;
+    p.labels.push((name, start));
+    unsafe { vk.cmd_write_timestamp(cb, &p.pool, STAGE_ALL_COMMANDS, start) };
+    Some(end)
+}
+
+/// Write the end timestamp `prof_stamp_open` reserved, before the dispatch's follower barrier.
+///
+/// # Complexity
+///
+/// `O(1)`: one uncontended lock and one `vkCmdWriteTimestamp2` per armed dispatch.
+fn prof_stamp_close(vk: &Vk, cb: CommandBuffer, end: u32) {
+    if let Some(p) = prof_lock().as_ref() {
+        unsafe { vk.cmd_write_timestamp(cb, &p.pool, STAGE_ALL_COMMANDS, end) };
+    }
+}
+
 pub unsafe fn rec_step(vk: &Vk, cb: CommandBuffer, s: &Step) -> u32 {
+    let stamped = prof_stamp_open(vk, cb, s.name);
     (vk.bind_pipe)(cb, PIPELINE_BIND_POINT_COMPUTE, s.pipe);
     (vk.bind_sets)(
         cb,
@@ -466,6 +597,9 @@ pub unsafe fn rec_step(vk: &Vk, cb: CommandBuffer, s: &Step) -> u32 {
         std::ptr::null(),
     );
     (vk.dispatch)(cb, s.groups.0, s.groups.1, 1);
+    if let Some(end) = stamped {
+        prof_stamp_close(vk, cb, end);
+    }
     step_barrier(vk, cb);
     1
 }

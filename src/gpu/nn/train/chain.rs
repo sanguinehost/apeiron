@@ -285,6 +285,38 @@ impl ChainLayer {
         copy_words(g, self.xfer, self.block.da(), self.front.dao(), t * qw);
         self.front.backward_cols(g);
     }
+
+    /// Re-record the tapes a [`ChainLayer::forward`] submits — the front's evaluation tape and the
+    /// block's — with their current stage flags. The profiler's hook
+    /// ([`crate::gpu::decode::prof_arm`]): armed, `rec_step` writes a timestamp pair around each
+    /// dispatch of those tapes, so one submission yields one span per dispatch.
+    ///
+    /// # Safety
+    ///
+    /// No tape of this value is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; the re-recorded tapes carry `O(1)` dispatches.
+    pub unsafe fn rerecord_fwd(&self, g: &GpuCtx) {
+        self.front.rerecord_fwd(g);
+        self.block.rerecord_eval(g);
+    }
+
+    /// Re-record the tapes a [`ChainLayer::backward`] submits — the block's training tape and the
+    /// front's backward tape — with their current stage flags.
+    ///
+    /// # Safety
+    ///
+    /// No tape of this value is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; the re-recorded tapes carry `O(1)` dispatches.
+    pub unsafe fn rerecord_bwd(&self, g: &GpuCtx) {
+        self.block.rerecord_train(g);
+        self.front.rerecord_bwd(g);
+    }
 }
 
 #[cfg(test)]
