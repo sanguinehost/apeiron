@@ -686,4 +686,33 @@ theorem attnBwdTile_fit :
     7 * attnBwdAfterMicros < attnBwdBeforeMicros := by
   decide
 
+/-- One 2048-token attention chunk (P139): `attn_map.comp` holds `MAX_N_CTX = 2048` scores, the
+reference's calibration sample whole (`NanoQuant` `main.py:38`). Teacher relative error to the
+reference's `b0/yt0.bf16` in units of 1e-6: 34000 at two 1024-token halves, 5203 at one chunk, under
+the 1e-2 prediction. Worst ungated attention-backward gradient at `n_ctx = 2048` under the 5e-3
+bound; device time per call 14830 µs, inside the predicted 14000–20000 µs. Block-0 per-epoch loss
+gap to the reference, in per-mille: q fact 39 and v fact 3 inside the 100 band, v nonfact 179
+outside it (our f32 update below the reference's bf16 one). Grade: errors and losses `tested`,
+times `measured`. -/
+def nctxTeacherBeforeMicro : Nat := 34000
+def nctxTeacherAfterMicro : Nat := 5203
+def nctxTeacherPredMicro : Nat := 10000
+def nctxBwdErrMicro : Nat := 921
+def nctxBwdMicrosLo : Nat := 14000
+def nctxBwdMicros : Nat := 14830
+def nctxBwdMicrosHi : Nat := 20000
+def nctxQFactMille : Nat := 39
+def nctxVFactMille : Nat := 3
+def nctxVNonfactMille : Nat := 179
+
+theorem nctx2048_fit :
+    nctxTeacherAfterMicro < nctxTeacherPredMicro ∧
+    6 * nctxTeacherAfterMicro < nctxTeacherBeforeMicro ∧
+    nctxBwdErrMicro < attnBwdBoundMicro ∧
+    nctxBwdMicrosLo < nctxBwdMicros ∧ nctxBwdMicros < nctxBwdMicrosHi ∧
+    nctxQFactMille < driveBandMille ∧
+    nctxVFactMille < driveBandMille ∧
+    driveBandMille < nctxVNonfactMille := by
+  decide
+
 end Perf.Train

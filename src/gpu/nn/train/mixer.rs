@@ -44,6 +44,9 @@ use crate::learn::grad::model::{Config, ModelError};
 pub static DELTA_SCAN_SPV: &[u8] = include_bytes!("../../spirv/train/delta_scan.spv");
 /// `attn_map.comp` compiled by `glslc` with [`crate::gpu::nn::GLSLC_ARGS`].
 pub static ATTN_MAP_SPV: &[u8] = include_bytes!("../../spirv/train/attn_map.spv");
+/// Scores `attn_map.comp` holds per query row (`shared float sc[2048]`): the longest chunk, the
+/// reference's 2048-token calibration sample (`NanoQuant` `main.py:38`, `seqlen` default 2048).
+pub const MAX_N_CTX: usize = 2048;
 /// `delta_bwd.comp` compiled by `glslc` with [`crate::gpu::nn::GLSLC_ARGS`].
 pub static DELTA_BWD_SPV: &[u8] = include_bytes!("../../spirv/train/delta_bwd.spv");
 
@@ -296,7 +299,7 @@ impl LayerFwd {
     /// One upload of every weight, `O(Σ rows·cols)` words; `O(T·(d + f + C))` device words.
     #[allow(clippy::too_many_lines, reason = "one tape")]
     pub unsafe fn new(g: &GpuCtx, host: &LayerHost, n_ctx: usize, chunks: usize) -> Self {
-        assert!(n_ctx <= 1024, "attn_map holds 1024 scores");
+        assert!(n_ctx <= MAX_N_CTX, "attn_map holds MAX_N_CTX scores");
         let LayerHost { d, f, a, eps, .. } = *host;
         let t = n_ctx * chunks;
         let dev = |n: usize| g.dev(n * 4);

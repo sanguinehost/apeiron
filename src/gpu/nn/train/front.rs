@@ -253,7 +253,9 @@ impl FrontTune {
     #[must_use]
     pub unsafe fn new(g: &GpuCtx, shape: FrontShape, lr: f64, lr_scale: f64) -> Self {
         assert!(
-            shape.hd <= 256 && shape.nh % shape.nkv == 0 && shape.n_ctx <= 1024,
+            shape.hd <= 256
+                && shape.nh % shape.nkv == 0
+                && shape.n_ctx <= crate::gpu::nn::train::mixer::MAX_N_CTX,
             "attn_map geometry"
         );
         assert!(
