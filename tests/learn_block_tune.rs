@@ -73,7 +73,12 @@ fn bt_dir() -> String {
 
 /// The base file's 40 token chunks.
 fn base_chunks() -> Vec<Vec<u32>> {
-    let mut base = KldBase::open(Path::new(BASE)).expect("open base file");
+    base_chunks_at(BASE)
+}
+
+/// The `40` token chunks of the base file at `path`.
+fn base_chunks_at(path: &str) -> Vec<Vec<u32>> {
+    let mut base = KldBase::open(Path::new(path)).expect("open base file");
     (0..base.n_chunk())
         .map(|_| base.next_chunk().expect("chunk").tokens)
         .collect()
@@ -348,6 +353,10 @@ fn batches(order: &[usize]) -> Vec<Vec<usize>> {
 /// One fit step on the resident streams: the step's columns copied device-to-device into the
 /// block's `x`, `a` and `yt`, the tape run, and `y` copied into `next`'s chunk regions when
 /// `next` is set. Returns the step's summed loss and its `Σ yt²`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one step's three streams, the optional next stream, its ids and its train flag"
+)]
 fn step(
     g: &GpuCtx,
     tuner: &mut BlockTune,
@@ -690,12 +699,22 @@ fn layer_tap_matches_prefill() {
 /// The device layer forward (`gpu::nn::train::mixer`) reproduces the CPU tap's mixer output and
 /// layer output on a `DeltaNet` layer and a softmax layer, to the `Q8Act` schedule's relative
 /// error; prints both walls.
+///
+/// The model and base file are `APEIRON_BT_MODEL` / `APEIRON_BT_BASE` (default [`MODEL`] /
+/// [`BASE`]), the layers `APEIRON_BT_LF_LAYERS` (default `0,3`), so the same assertion covers the
+/// ungated softmax face (`APEIRON_BT_MODEL=<Qwen3>`, layers `0,3`).
 #[test]
 #[ignore = "reads the teacher model; needs a Vulkan device"]
 fn layer_fwd_matches_cpu() {
-    let engine = Engine::open(MODEL).expect("open teacher");
+    let model = env("APEIRON_BT_MODEL", MODEL);
+    let base = env("APEIRON_BT_BASE", BASE);
+    let layers: Vec<usize> = env("APEIRON_BT_LF_LAYERS", "0,3")
+        .split(',')
+        .map(|s| s.trim().parse().expect("LF layer"))
+        .collect();
+    let engine = Engine::open(&model).expect("open teacher");
     let cfg = Config::from_engine(&engine).expect("config");
-    let toks: Vec<u32> = base_chunks()[0].clone();
+    let toks: Vec<u32> = base_chunks_at(&base)[0].clone();
     let n_ctx = toks.len();
     let mut st = engine.state(n_ctx).expect("state");
     let (_o, rows) = engine
@@ -712,7 +731,7 @@ fn layer_fwd_matches_cpu() {
         }
         (num / den).sqrt()
     };
-    for l in [0, 3] {
+    for l in layers {
         let host = LayerHost::from_engine(&engine, &cfg, l).expect("layer host");
         let fwd = unsafe { LayerFwd::new(&g, &host, n_ctx, 1) };
         let x = flat(&rows[l][HIDDEN_IN]);

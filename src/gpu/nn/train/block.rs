@@ -16,16 +16,15 @@ use crate::gpu::decode::{rec_step, GpuCtx, Step};
 use crate::gpu::nn::act::{swiglu_bwd_dispatch, swiglu_fwd_dispatch};
 use crate::gpu::nn::fwd::{linear_fwd_dispatch, rmsnorm_fwd_dispatch};
 use crate::gpu::nn::{
-    adam_bias_corrections, adam_update_dispatch_reused, add_inplace_bytes,
-    linear_bwd_input_dispatch, linear_bwd_weight_dispatch, rmsnorm_bwd_dispatch,
+    adam_bias_corrections, add_inplace_bytes, linear_bwd_input_dispatch,
+    linear_bwd_weight_dispatch, rmsnorm_bwd_dispatch,
 };
 use crate::gpu::vulkan::*;
 
+use super::slot::{map, q32, upload_dense, upload_factor, Factor};
+
 /// The block maps (sign, scale, row and column reductions, MSE gradient, loss rows).
 pub static BLOCK_MAP_SPV: &[u8] = include_bytes!("../../spirv/train/block_map.spv");
-
-const LOCAL: usize = 256;
-const MAX_GROUPS_X: usize = 65_535;
 
 /// One factor's host image: `u` is `out × rank`, `vt` is `inn × rank` (the reference's `V`
 /// transposed), both latent reals; `s_post` has `out` entries, `s_pre` `inn`.
@@ -349,65 +348,6 @@ pub(super) unsafe fn host_buffer(g: &GpuCtx, n: usize, usage: u32) -> HostBuffer
     }
 }
 
-/// One factor's device buffers.
-struct Factor {
-    out: usize,
-    inn: usize,
-    rank: usize,
-    /// Latents and scales, in the Adam order `[u, vt, s_post, s_pre]`, with their gradients and
-    /// moments.
-    p: [Handle; 4],
-    grad: [Handle; 4],
-    us: Handle,
-    vts: Handle,
-    m: Handle,
-    w: Handle,
-    dw: Handle,
-    dm: Handle,
-}
-
-/// Map `mode` of [`BLOCK_MAP_SPV`] over `[rows, cols, total]` with bindings `bufs` (1..=4).
-///
-/// # Safety
-///
-/// The buffers hold what the mode reads and writes.
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "rows, cols and totals index u32 invocations"
-)]
-unsafe fn map(
-    g: &GpuCtx,
-    mode: u32,
-    [rows, cols, total]: [usize; 3],
-    scale: f32,
-    bufs: [Handle; 4],
-    name: &'static str,
-) -> Step {
-    let wg = match mode {
-        2 | 5 => rows,
-        _ => total.div_ceil(LOCAL),
-    };
-    let gx = wg.clamp(1, MAX_GROUPS_X);
-    let meta = [
-        mode,
-        rows as u32,
-        cols as u32,
-        total as u32,
-        gx as u32,
-        scale.to_bits(),
-    ];
-    let mb = g.up_u32(&meta);
-    let (layout, dset) = g.vk.ssbo_set(&[mb, bufs[0], bufs[1], bufs[2], bufs[3]]);
-    Step {
-        pipe: g.vk.pipeline(BLOCK_MAP_SPV, layout),
-        layout,
-        dset,
-        groups: (gx as u32, wg.div_ceil(gx).max(1) as u32),
-        name,
-        bytes: 0,
-    }
-}
-
 /// The device block fit: the buffers and the recorded tape of one step.
 pub struct BlockTune {
     shape: BlockShape,
@@ -493,21 +433,9 @@ impl BlockTune {
         let mut moments = Vec::with_capacity(4);
         for (k, &rank) in ranks.iter().enumerate() {
             let (out, inn) = shape.dims(k);
-            let sizes = [out * rank, inn * rank, out, inn];
-            factors.push(Factor {
-                out,
-                inn,
-                rank,
-                p: sizes.map(dev),
-                grad: sizes.map(dev),
-                us: dev(out * rank),
-                vts: dev(inn * rank),
-                m: dev(out * inn),
-                w: dev(out * inn),
-                dw: dev(out * inn),
-                dm: dev(out * inn),
-            });
-            moments.push(sizes.map(|n| [dev(n), dev(n)]));
+            let (fa, mo) = Factor::new(g, out, inn, rank);
+            factors.push(fa);
+            moments.push(mo);
         }
         let (x, at, yt, h, n2) = (dev(t * d), dev(t * a), dev(t * d), dev(t * d), dev(t * d));
         let (gt, up, mm, y) = (dev(t * f), dev(t * f), dev(t * f), dev(t * d));
@@ -529,34 +457,7 @@ impl BlockTune {
 
         let mut materialise = Vec::with_capacity(4);
         for fa in &factors {
-            let (out, inn, r) = (fa.out, fa.inn, fa.rank);
-            materialise.push(vec![
-                map(
-                    g,
-                    0,
-                    [0, 0, out * r],
-                    0.0,
-                    [fa.p[0], fa.us, fa.us, fa.us],
-                    "sign_u",
-                ),
-                map(
-                    g,
-                    0,
-                    [0, 0, inn * r],
-                    0.0,
-                    [fa.p[1], fa.vts, fa.vts, fa.vts],
-                    "sign_v",
-                ),
-                linear_fwd_dispatch(g, fa.us, fa.vts, fa.m, out as u32, r as u32, inn as u32),
-                map(
-                    g,
-                    1,
-                    [out, inn, out * inn],
-                    0.0,
-                    [fa.m, fa.w, fa.p[2], fa.p[3]],
-                    "scale_w",
-                ),
-            ]);
+            materialise.push(super::slot::materialise(g, fa));
         }
 
         let add = |dst: Handle, src: Handle, n: usize| {
@@ -599,76 +500,25 @@ impl BlockTune {
         ];
         let mut factor_bwd = Vec::with_capacity(4);
         for fa in &factors {
-            let (out, inn, r) = (fa.out, fa.inn, fa.rank);
-            factor_bwd.push(vec![
-                map(
-                    g,
-                    1,
-                    [out, inn, out * inn],
-                    0.0,
-                    [fa.dw, fa.dm, fa.p[2], fa.p[3]],
-                    "scale_dm",
-                ),
-                map(
-                    g,
-                    2,
-                    [out, inn, out * inn],
-                    0.0,
-                    [fa.dw, fa.m, fa.grad[2], fa.p[3]],
-                    "ds_post",
-                ),
-                map(
-                    g,
-                    3,
-                    [out, inn, inn],
-                    0.0,
-                    [fa.dw, fa.m, fa.p[2], fa.grad[3]],
-                    "ds_pre",
-                ),
-                linear_bwd_input_dispatch(
-                    g, fa.dm, fa.vts, fa.grad[0], out as u32, r as u32, inn as u32,
-                ),
-                linear_bwd_weight_dispatch(
-                    g, fa.dm, fa.us, fa.grad[1], out as u32, r as u32, inn as u32,
-                ),
-            ]);
+            factor_bwd.push(super::slot::factor_bwd(g, fa));
         }
 
         let bias_stage = host_buffer(g, 2, BUFFER_USAGE_TRANSFER_SRC);
         let bias_buf = dev(2);
-        let q32 = |v: f64| (v * 4_294_967_296.0).round() as i64;
         let mut adam_fact = Vec::with_capacity(4);
         let mut adam_dense = Vec::with_capacity(4);
         let mut dense_moments = Vec::with_capacity(4);
         for (fa, mo) in factors.iter().zip(&moments) {
-            let mut steps = Vec::with_capacity(4);
-            for j in 0..4 {
-                let n = [fa.out * fa.rank, fa.inn * fa.rank, fa.out, fa.inn][j];
-                let rate = if j < 2 { lr } else { lr_scale };
-                steps.push(adam_update_dispatch_reused(
-                    g,
-                    fa.p[j],
-                    fa.grad[j],
-                    mo[j][0],
-                    mo[j][1],
-                    bias_buf,
-                    n as u32,
-                    q32(rate),
-                ));
-            }
-            adam_fact.push(steps);
-            let n = fa.out * fa.inn;
-            let dmo = [dev(n), dev(n)];
-            adam_dense.push(adam_update_dispatch_reused(
+            adam_fact.push(super::slot::adam_factor(
                 g,
-                fa.w,
-                fa.dw,
-                dmo[0],
-                dmo[1],
+                fa,
+                mo,
                 bias_buf,
-                n as u32,
-                q32(lr_dense),
+                q32(lr),
+                q32(lr_scale),
             ));
+            let (step, dmo) = super::slot::adam_dense(g, fa, bias_buf, q32(lr_dense));
+            adam_dense.push(step);
             dense_moments.push(dmo);
         }
         let big = factors
@@ -862,16 +712,7 @@ impl BlockTune {
             (hf.out, hf.inn, hf.rank),
             "block load_factor {k}: shape"
         );
-        self.put(g, fa.p[0], &hf.u);
-        self.put(g, fa.p[1], &hf.vt);
-        self.put(g, fa.p[2], &hf.s_post);
-        self.put(g, fa.p[3], &hf.s_pre);
-        for (j, pair) in self.moments[k].iter().enumerate() {
-            let n = [fa.out * fa.rank, fa.inn * fa.rank, fa.out, fa.inn][j];
-            let zero = vec![0f32; n];
-            self.put(g, pair[0], &zero);
-            self.put(g, pair[1], &zero);
-        }
+        upload_factor(g, self.xfer, &self.stage, fa, hf, &self.moments[k]);
     }
 
     /// Put slot `k`'s dense `W` (`out × inn`, row-major) into its `w` buffer and zero that slot's
@@ -887,10 +728,7 @@ impl BlockTune {
     pub unsafe fn load_dense(&mut self, g: &GpuCtx, k: usize, w: &[f32]) {
         let fa = &self.factors[k];
         assert_eq!(w.len(), fa.out * fa.inn, "block load_dense {k}: shape");
-        self.put(g, fa.w, w);
-        let zero = vec![0f32; fa.out * fa.inn];
-        self.put(g, self.dense_moments[k][0], &zero);
-        self.put(g, self.dense_moments[k][1], &zero);
+        upload_dense(g, self.xfer, &self.stage, fa, w, &self.dense_moments[k]);
     }
 
     /// Set the stage: `factor[k]` places slot `k`'s `W` in its latents (`true`) or in its `w`
