@@ -209,6 +209,7 @@ pub struct FrontTune {
     da: Handle,
     dq_rot: Handle,
     dk_rot: Handle,
+    amax: Handle,
     /// The input adjoint's buffers: `dn1`'s three `[T][d]` accumulators (`q`, `k`, `v`), the
     /// result `dx`, the caller's residual adjoint `dres` (zeroed at construction) and the norm's
     /// thread-local part of `dγ` (dropped: `g1` is frozen).
@@ -297,6 +298,7 @@ impl FrontTune {
         let (dqf, dkf, dv) = (dev(t * qw), dev(t * kw), dev(t * kw));
         let (lse, dsum) = (dev(t * shape.nh), dev(t * shape.nh));
         let (da, dq_rot, dk_rot) = (dev(t * qw), dev(t * qw), dev(t * kw));
+        let amax = dev(super::attn_bwd::amax_len(&attn));
         // Three buffers, not one: `[dev(n); 3]` evaluates the allocation once and aliases the
         // three accumulators.
         let dn1 = [dev(t * d), dev(t * d), dev(t * d)];
@@ -330,7 +332,7 @@ impl FrontTune {
             attn,
             false,
             [
-                pq, pk, gn, q, gate, k, pv, dao, lse, dsum, da, dq_rot, dk_rot, dqf, dkf, dv,
+                pq, pk, gn, q, gate, k, pv, dao, lse, dsum, da, dq_rot, dk_rot, dqf, dkf, dv, amax,
             ],
         );
         backward.push(linear_bwd_weight_dispatch(
@@ -498,6 +500,7 @@ impl FrontTune {
             da,
             dq_rot,
             dk_rot,
+            amax,
             dn1,
             dx,
             dres,
@@ -919,6 +922,28 @@ impl FrontTune {
                 vt: self.get(g, fa.p[1], fa.inn * fa.rank),
                 s_post: self.get(g, fa.p[2], fa.out),
                 s_pre: self.get(g, fa.p[3], fa.inn),
+            })
+            .collect()
+    }
+
+    /// The two scale gradients of the last backward, `[slot][s_post, s_pre]`, `O(out + inn)` words
+    /// each — the KD driver's read, which does not need the latent gradients next to them.
+    ///
+    /// # Safety
+    ///
+    /// [`FrontTune::backward_cols`] has completed and no submission is pending.
+    ///
+    /// # Complexity
+    ///
+    /// `O(Σ (out + inn))` words downloaded: 22 528 at Qwen3-0.6B's geometry, 90 KiB.
+    pub(crate) unsafe fn scale_grads(&self, g: &GpuCtx) -> Vec<[Vec<f32>; 2]> {
+        self.factors
+            .iter()
+            .map(|fa| {
+                [
+                    self.get(g, fa.grad[2], fa.out),
+                    self.get(g, fa.grad[3], fa.inn),
+                ]
             })
             .collect()
     }

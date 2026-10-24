@@ -11,7 +11,18 @@
 // FlashAttention-2 tile form (Dao, arXiv 2307.08691, Algorithm 2 and its backward): the softmax
 // probabilities are recomputed from the stored log-sum-exp, so no `[head][query][key]` score or
 // probability array is materialised, and the four gradient products run on cooperative matrices
-// (f16 A/B, f32 accumulate), modelled on `src/gpu/spirv/attn_coopmat.comp`. Consumer:
+// (f16 A/B, f32 accumulate), modelled on `src/gpu/spirv/attn_coopmat.comp`.
+//
+// dA and dS are staged to f16 times a power of two `s = 2^-floor(log2 m)`, `m` the max |dA| over
+// the rows the workgroup reduces over (mode 0: its query tile; mode 1: every query tile at or after
+// its key tile, over the query heads of g), and the f32 accumulators are multiplied by `1/s` at the
+// store, exact in f32. Unscaled, a distillation cotangent (max |dA| 5.5e-5 at Qwen3-0.6B layer 23)
+// sits wholly below f16's least normal 6.1e-5: the subnormal operands put a 6e-2 relative error on
+// dq and 0.96 cosine on the k-norm scale gradient
+// (`/home/socol/oc-tmp/nq-ref/kd/receipts/kd-emu.txt`). The reference FA2 backward runs
+// `HMMA.1688.F32.BF16` (`/home/socol/oc-tmp/nq-ref/kd/llvm/MANIFEST.txt`), bf16 keeping f32's
+// exponent; the scaled f16 measures 1.7e-4..5.7e-4 against f64 where bf16 measures 1.5e-3..4.4e-3
+// on the same tensors. Consumer:
 // `src/gpu/nn/train/attn_bwd.rs`, which owns the contract; the reference is its f64 forward and
 // adjoint under `#[cfg(test)]`.
 //
@@ -40,7 +51,8 @@
 // 4 q [T][NH·HD]; 5 gate [T][NH·HD] (read only when gated); 6 k [T][NKV·HD]; 7 v [T][NKV·HD];
 // 8 dy [T][NH·HD]; 9 lse [T·NH]; 10 dsum [T·NH]; 11 da [T][NH·HD]; 12 dq_rot [T][NH·HD];
 // 13 dk_rot [T][NKV·HD]; 14 dqf [T][NH·2·HD] gated, [T][NH·HD] ungated; 15 dkf [T][NKV·HD];
-// 16 dv [T][NKV·HD].
+// 16 dv [T][NKV·HD]; 17 amax [chunks·NH·ceil(n_ctx/BR)], mode 0's max |dA| per query tile, which
+// mode 1 reduces to its scale.
 //
 // META: [mode, n_ctx, NH, NKV, HD, ROT, theta bits, eps bits, workgroups, head-dim blocks]; the grid
 // is folded into x < 65535 and y. `mode` is the stage in bits 0–1 (0 dq, 1 dk/dv, 2 prep adjoint)
@@ -68,6 +80,7 @@ layout(std430, binding = 13) buffer Dkrot { float dk_rot[]; };
 layout(std430, binding = 14) buffer Dqf { float dqf[]; };
 layout(std430, binding = 15) buffer Dkf { float dkf[]; };
 layout(std430, binding = 16) buffer Dvv { float dv[]; };
+layout(std430, binding = 17) buffer Amax { float amax[]; };
 
 #define BR 16u
 #define BC 16u
@@ -102,6 +115,16 @@ shared float sRed[2];
 #define FRAG_B coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB>
 
 const float NEG = -3.0e38;
+
+// 2^-floor(log2 m) from m's exponent field, so m·s lies in [1, 2); the biased exponent is clamped to
+// [27, 227] so both s and 1/s stay normal f32 powers of two; 1 when m = 0.
+float pow2_inv(float m) {
+    if (!(m > 0.0)) {
+        return 1.0;
+    }
+    int ex = int((floatBitsToUint(m) >> 23) & 0xffu);
+    return uintBitsToFloat(uint(clamp(254 - ex, 27, 227)) << 23);
+}
 
 void main() {
     uint mode = meta[0] & 3u;
@@ -152,6 +175,25 @@ void main() {
         for (uint idx = lid; idx < BR * SMS; idx += 32u) {
             sM0[idx] = 0.0;
         }
+        // The tile's max |dA| over its live rows and every head-dim column: the scale of the f16
+        // dA and dS stages, and (from the first head-dim block) mode 1's per-tile input.
+        float am = 0.0;
+        for (uint idx = lid; idx < BR * HD; idx += 32u) {
+            uint rr = idx / HD;
+            if (i0 + rr < n_ctx) {
+                uint o = (base + i0 + rr) * NH * HD + h * HD + idx % HD;
+                float d = dy[o];
+                if (!ungated) {
+                    d *= 1.0 / (1.0 + exp(-gate[o]));
+                }
+                am = max(am, abs(d));
+            }
+        }
+        am = subgroupMax(am);
+        if (blk == 0u && lid == 0u) {
+            amax[(chunk * NH + h) * nemit + tb] = am;
+        }
+        float sc = pow2_inv(am);
         barrier();
         // For a single head-dim chunk (HD <= HC) Q and dA are the same for every key tile, so
         // stage them once and reuse across both passes; HD > HC re-stages per chunk below.
@@ -185,7 +227,7 @@ void main() {
                     }
                 }
                 sQ[rr * ST4 + q4] = f16vec4(vq * fscale);
-                sDA[rr * ST4 + q4] = f16vec4(vd);
+                sDA[rr * ST4 + q4] = f16vec4(vd * sc);
             }
             barrier();
         }
@@ -227,7 +269,7 @@ void main() {
                             }
                         }
                         sQ[rr * ST4 + q4] = f16vec4(vq * fscale);
-                        sDA[rr * ST4 + q4] = f16vec4(vd);
+                        sDA[rr * ST4 + q4] = f16vec4(vd * sc);
                     }
                 }
                 for (uint idx = lid; idx < BC * 32u; idx += 32u) {
@@ -322,7 +364,7 @@ void main() {
         }
         lsum += subgroupShuffleXor(lsum, 1u);
         dtot += subgroupShuffleXor(dtot, 1u);
-        float dval = dtot / lsum;
+        float dval = dtot / lsum / sc;
         float lse_r = mrun + log(lsum);
         if (hf == 0u && rowlive) {
             lse[qrow * NH + h] = lse_r;
@@ -370,7 +412,7 @@ void main() {
                             vd = vec4(d0, d1, d2, d3);
                         }
                         sQ[rr * ST4 + q4] = f16vec4(vq * fscale);
-                        sDA[rr * ST4 + q4] = f16vec4(vd);
+                        sDA[rr * ST4 + q4] = f16vec4(vd * sc);
                     }
                 }
                 for (uint idx = lid; idx < BC * 32u; idx += 32u) {
@@ -412,7 +454,7 @@ void main() {
                 uint cc = (lane & 1u) * 8u + u;
                 bool ok = j0 + cc <= iro;
                 float e = ok ? exp(sS[rr * SSTR + cc] - lse_g) : 0.0;
-                float ds = e * (sDP[rr * SSTR + cc] - dsu_g);
+                float ds = e * (sDP[rr * SSTR + cc] - dsu_g * sc);
                 sDq[rr * STS + cc] = float16_t(ds);
                 sDk[cc * STS + rr] = float16_t(ds);
             }
@@ -444,7 +486,7 @@ void main() {
                     uint col = f * 16u + hf * 8u + u;
                     if (col < ocols) {
                         dq_rot[(base + irow) * NH * HD + h * HD + ocol + col] =
-                            sT[r * SSTR + hf * 8u + u] * fscale;
+                            sT[r * SSTR + hf * 8u + u] * (fscale / sc);
                     }
                 }
             }
@@ -474,6 +516,15 @@ void main() {
         uint hf = lane & 1u;  // its half of the 16 query columns
         bool krowlive = j0 + r < n_ctx;
         bool single_chunk = (nchunk == 1u);
+        // The scale over every query tile this workgroup reduces: the max of mode 0's tile maxima
+        // over the query heads of g and the query tiles at or after the key tile.
+        float am = 0.0;
+        for (uint idx = lid; idx < rep * (nemitq - jb); idx += 32u) {
+            uint hh = idx / (nemitq - jb);
+            uint mt = jb + idx % (nemitq - jb);
+            am = max(am, amax[(chunk * NH + gg * rep + hh) * nemitq + mt]);
+        }
+        float sc = pow2_inv(subgroupMax(am));
         // Stage the fixed key/value tile once; every query head and query tile of this workgroup
         // shares it. K is pre-scaled by 1/sqrt(HD) so S = K·Qᵀ carries the softmax scale. A
         // single head-dim chunk holds the whole tile, so stage it once here; HD > HC re-stages
@@ -523,7 +574,7 @@ void main() {
                             vd = vec4(da[gb], da[gb + 1u], da[gb + 2u], da[gb + 3u]);
                         }
                         sQ[rr * ST4 + q4] = f16vec4(vq);
-                        sDA[rr * ST4 + q4] = f16vec4(vd);
+                        sDA[rr * ST4 + q4] = f16vec4(vd * sc);
                     }
                     if (!single_chunk) {
                         for (uint idx = lid; idx < BC * 32u; idx += 32u) {
@@ -566,7 +617,7 @@ void main() {
                     float ds = 0.0;
                     if (qq < n_ctx && j0 + r <= qq) {
                         e = exp(sS[r * SSTR + cc] - lse[(base + qq) * NH + h]);
-                        ds = e * (sDP[r * SSTR + cc] - dsum[(base + qq) * NH + h]);
+                        ds = e * (sDP[r * SSTR + cc] - dsum[(base + qq) * NH + h] * sc);
                     }
                     float16_t ds_hi = float16_t(ds);
                     sPk[r * STS + cc] = float16_t(e);
@@ -588,7 +639,7 @@ void main() {
                             vd = vec4(da[gb], da[gb + 1u], da[gb + 2u], da[gb + 3u]);
                         }
                         sQ[rr * ST4 + q4] = f16vec4(vq);
-                        sDA[rr * ST4 + q4] = f16vec4(vd);
+                        sDA[rr * ST4 + q4] = f16vec4(vd * sc);
                     }
                 }
                 barrier();
@@ -618,7 +669,7 @@ void main() {
                     uint col = f * 16u + hf * 8u + u;
                     if (col < ocols) {
                         dv[(base + j0 + r) * NKV * HD + gg * HD + ocol + col] =
-                            sT[r * SSTR + hf * 8u + u];
+                            sT[r * SSTR + hf * 8u + u] / sc;
                     }
                 }
             }
@@ -632,7 +683,7 @@ void main() {
                     uint col = f * 16u + hf * 8u + u;
                     if (col < ocols) {
                         dk_rot[(base + j0 + r) * NKV * HD + gg * HD + ocol + col] =
-                            sT[r * SSTR + hf * 8u + u] * fscale;
+                            sT[r * SSTR + hf * 8u + u] * (fscale / sc);
                     }
                 }
             }
