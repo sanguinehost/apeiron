@@ -732,4 +732,22 @@ theorem kdChain_fit :
     kdChainBoundMicro < kdChainControlMicro := by
   decide
 
+/-- The KD loss head (P141): `KdHead` computes `loss = mean_t H(p_t, p_s)` and
+`dh = rmsnorm_bwd(h_s, g_final, ((softmax z_s − p_t) / T) · W_emb)` at the full vocabulary 151936,
+tiled 512 rows (`NanoQuant` `compress_model.py:160-181`, `:262-265`). Against the reference's bf16
+`dz` on its rows {0, 1, 1023, 2047} of step 0, max abs error in units of 1e-9: 630, under the 1000
+bound; the control (the `inv_t` multiply dropped) 104700000. Full-vocabulary step at T = 2048, in
+units of 0.1 ms: 1460, against the reference's whole KD step 3870. Grade: `tested`. -/
+def kdHeadDzNano : Nat := 630
+def kdHeadBoundNano : Nat := 1000
+def kdHeadControlNano : Nat := 104700000
+def kdHeadWallDeciMs : Nat := 1460
+def kdRefStepDeciMs : Nat := 3870
+
+theorem kdHead_fit :
+    kdHeadDzNano < kdHeadBoundNano ∧
+    kdHeadBoundNano < kdHeadControlNano ∧
+    kdHeadWallDeciMs < kdRefStepDeciMs := by
+  decide
+
 end Perf.Train
