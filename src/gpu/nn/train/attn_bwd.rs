@@ -21,6 +21,13 @@
 //!    RMS-normalisation backward with its gain, into the q half of `dqf` or into `dkf`. The norm
 //!    gains are frozen (the distillation tunes scales only), so no gain gradient is produced.
 //!
+//! The f16 `dA`/`dS` operands carry a scale `s = 2^-floor(log2 max|dA|)` per (chunk, head, query
+//! tile), from mode 0's `amax` scratch; the f32 accumulators take the exact `1/s` at the store. A
+//! KD cotangent's max |dA| is 5.5e-5..1.3e-4, so every unscaled `dS` is below f16's least normal
+//! 6.1e-5 (`~/nq-ref/kd/receipts/kd-emu.txt`: scaled f16 1.7e-4..5.7e-4 rel
+//! to f64; the reference's bf16, `HMMA.1688.F32.BF16` in `nq-ref/kd/llvm/MANIFEST.txt`, 1.5e-3..
+//! 4.4e-3).
+//!
 //! # Trust boundary
 //!
 //! Not covered: the GPU driver, the SPIR-V compiler, the f32 transcendental precision of the device
@@ -132,8 +139,8 @@ pub(super) const HC: usize = 128;
 /// buffer instead of letting [`AttnBwd`] own them.
 ///
 /// `bufs` is [`AttnBwd`]'s field order: `[qf, kf, gains, q, gate, k, v, dy, lse, dsum, da,
-/// dq_rot, dk_rot, dqf, dkf, dv]`. `gated` sets bit 2 of every `mode` word exactly as
-/// [`AttnBwd::new`]'s flag does.
+/// dq_rot, dk_rot, dqf, dkf, dv, amax]`, `amax` holding [`amax_len`] words. `gated` sets bit 2
+/// of every `mode` word exactly as [`AttnBwd::new`]'s flag does.
 ///
 /// # Safety
 ///
@@ -146,8 +153,8 @@ pub(super) const HC: usize = 128;
 /// ceil(HD/HC)`): mode 0 walks the key tiles at or before its query tile twice (once for the
 /// online lse/dsum statistics, once for `dQ`), mode 1 walks the query tiles at or after its key
 /// tile over every query head of the key head, and mode 2 is one row/slot. Each `16·16·128`
-/// product runs on f16 cooperative matrices with f32 accumulation, and the `dQ`/`dK`/`dV`
-/// accumulators are register fragments, not shared-memory round trips.
+/// product runs on f16 cooperative matrices with f32 accumulation (`dA`/`dS` scaled, module
+/// docs); the `dQ`/`dK`/`dV` accumulators are register fragments, not shared-memory round trips.
 #[allow(
     clippy::cast_possible_truncation,
     reason = "n_ctx, nh, nkv, hd, rot and the workgroup count index u32 dispatch words"
@@ -156,7 +163,7 @@ pub(super) unsafe fn tape(
     g: &GpuCtx,
     s: AttnBwdShape,
     gated: bool,
-    bufs: [Handle; 16],
+    bufs: [Handle; 17],
 ) -> Vec<Step> {
     let flag = if gated { 0u32 } else { 4u32 };
     let nblk = s.hd.div_ceil(HC);
@@ -196,6 +203,12 @@ pub(super) unsafe fn tape(
     steps
 }
 
+/// Words of the `amax` scratch: one max |dA| per (chunk, head, query tile), reduced by mode 1.
+#[must_use]
+pub(super) fn amax_len(s: &AttnBwdShape) -> usize {
+    s.chunks * s.nh * s.n_ctx.div_ceil(BR)
+}
+
 /// The backward over `chunks · n_ctx` columns: every activation and gradient device-resident, one
 /// recorded tape per call.
 pub struct AttnBwd {
@@ -215,21 +228,14 @@ pub struct AttnBwd {
     // Row statistics and the recompute scratch.
     lse: Handle,
     dsum: Handle,
-    #[allow(
-        dead_code,
-        reason = "the handle keeps the buffer alive for the recorded tape"
-    )]
+    #[allow(dead_code, reason = "keeps the buffer alive for the tape")]
     da: Handle,
-    #[allow(
-        dead_code,
-        reason = "the handle keeps the buffer alive for the recorded tape"
-    )]
+    #[allow(dead_code, reason = "keeps the buffer alive for the tape")]
     dq_rot: Handle,
-    #[allow(
-        dead_code,
-        reason = "the handle keeps the buffer alive for the recorded tape"
-    )]
+    #[allow(dead_code, reason = "keeps the buffer alive for the tape")]
     dk_rot: Handle,
+    #[allow(dead_code, reason = "keeps the buffer alive for the tape")]
+    amax: Handle,
     // Outputs.
     dqf: Handle,
     dkf: Handle,
@@ -278,8 +284,9 @@ impl AttnBwd {
         let da = dev(t * nh * hd);
         let (dq_rot, dk_rot) = (dev(t * nh * hd), dev(t * nkv * hd));
         let (dqf, dkf, dv) = (dev(t * nh * qw * hd), dev(t * nkv * hd), dev(t * nkv * hd));
+        let amax = dev(amax_len(&s));
         let bufs = [
-            qf, kf, gains, q, gate, k, v, dy, lse, dsum, da, dq_rot, dk_rot, dqf, dkf, dv,
+            qf, kf, gains, q, gate, k, v, dy, lse, dsum, da, dq_rot, dk_rot, dqf, dkf, dv, amax,
         ];
         let steps = tape(g, s, gated, bufs);
         let stage = host_buffer(g, t * nh * 2 * hd, BUFFER_USAGE_TRANSFER_SRC);
@@ -308,6 +315,7 @@ impl AttnBwd {
             da,
             dq_rot,
             dk_rot,
+            amax,
             dqf,
             dkf,
             dv,
@@ -390,7 +398,8 @@ pub(crate) mod tests {
     /// `lead-1024/w7/verdict-attn-bwd-precision.md`: NanoQuant
     /// trains in bf16 on FA2 whose own gradients measure 6.4e-3..3.5e-2 against f64, so 1e-3 was
     /// an over-tight bar that forced an f32 scalar S/dP recompute; 5e-3 admits f16
-    /// cooperative-matrix products with f32 accumulation on every product.
+    /// cooperative-matrix products with f32 accumulation on every product, at any `dy` magnitude
+    /// the power-of-two operand scale covers (`attn_bwd_device_matches_ref_ungated_small_dy`).
     const BD_BOUND: f64 = 5e-3;
 
     fn fresh(name: &str) -> Vec<u8> {
@@ -1217,7 +1226,7 @@ pub(crate) mod tests {
         let _ = unsafe { bwd.run(&g, &inp) };
         let bufs = [
             bwd.qf, bwd.kf, bwd.gains, bwd.q, bwd.gate, bwd.k, bwd.v, bwd.dy, bwd.lse, bwd.dsum,
-            bwd.da, bwd.dq_rot, bwd.dk_rot, bwd.dqf, bwd.dkf, bwd.dv,
+            bwd.da, bwd.dq_rot, bwd.dk_rot, bwd.dqf, bwd.dkf, bwd.dv, bwd.amax,
         ];
         let steps = unsafe { tape(&g, s, false, bufs) };
         let pool = unsafe { vk.timestamp_pool(2) };
@@ -1400,6 +1409,18 @@ pub(crate) mod tests {
     /// the reference's calibration sample whole.
     #[test]
     fn attn_bwd_device_matches_ref_ungated() {
+        device_vs_ref_ungated(1.0, "AU");
+    }
+
+    /// `dy` × 1e-5 (max ≈ 5e-5, the KD step's max |dA| at layer 23,
+    /// `nq-ref/kd/receipts/kd-emu.txt`), below f16's least normal: unscaled f16 `dA`/`dS` fail
+    /// the bound, the scaled stages pass.
+    #[test]
+    fn attn_bwd_device_matches_ref_ungated_small_dy() {
+        device_vs_ref_ungated(1e-5, "AU-small");
+    }
+
+    fn device_vs_ref_ungated(dy_scale: f64, tag: &str) {
         let s = AttnBwdShape {
             n_ctx: 2048,
             chunks: 1,
@@ -1410,7 +1431,10 @@ pub(crate) mod tests {
             theta: 1e6,
             eps: 1e-6,
         };
-        let x = make_case(s, 0x5150_2a2a, false);
+        let mut x = make_case(s, 0x5150_2a2a, false);
+        for d in &mut x.dy {
+            *d = (*d * dy_scale) as f32 as f64;
+        }
         let vk = unsafe { Vk::load() }.expect("vulkan");
         let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
         let t0 = Instant::now();
@@ -1431,7 +1455,7 @@ pub(crate) mod tests {
             ("dv", rel(&got.dv, &want.dv)),
         ];
         let line: Vec<String> = rows.iter().map(|(n, r)| format!("{n} {r:.3e}")).collect();
-        println!("AU T={t} dev {dev_s:.4} s: {}", line.join(" "));
+        println!("{tag} T={t} dev {dev_s:.4} s: {}", line.join(" "));
         for (n, r) in rows {
             assert!(
                 r <= BD_BOUND && r.is_finite(),

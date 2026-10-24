@@ -49,6 +49,7 @@ mod block_mask;
 pub mod chain;
 pub mod front;
 pub mod head;
+pub mod kd;
 pub mod mixer;
 pub mod slot;
 

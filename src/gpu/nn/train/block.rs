@@ -1088,6 +1088,28 @@ impl BlockTune {
         let fa = &self.factors[k];
         self.get(g, fa.w, fa.out * fa.inn)
     }
+
+    /// The two scale gradients of the last training step, `[slot][s_post, s_pre]`, `O(out + inn)`
+    /// words each — the KD driver's read, which does not need the latent gradients next to them.
+    ///
+    /// # Safety
+    ///
+    /// A training pass has completed and no submission is pending.
+    ///
+    /// # Complexity
+    ///
+    /// `O(Σ (out + inn))` words downloaded: 22 528 at Qwen3-0.6B's geometry, 90 KiB.
+    pub(crate) unsafe fn scale_grads(&self, g: &GpuCtx) -> Vec<[Vec<f32>; 2]> {
+        self.factors
+            .iter()
+            .map(|fa| {
+                [
+                    self.get(g, fa.grad[2], fa.out),
+                    self.get(g, fa.grad[3], fa.inn),
+                ]
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

@@ -750,4 +750,27 @@ theorem kdHead_fit :
     kdHeadWallDeciMs < kdRefStepDeciMs := by
   decide
 
+/-- The KD step (P142): one `KdTrain` step on the reference's step-0 batch, scored against the
+reference's f32 golden trace (`~/nq-ref/kd/llvm/rt/out-f32`). The floors are the
+reference's own: its bf16 run against that f32 trace (SASS `HMMA.16816.F32.BF16`,
+`HMMA.1688.F32.BF16`) composed with its run-to-run spread (`floor-l2.txt`, `floor-sign.txt`).
+Scale-gradient cosine minimum in units of 1e-6: 997949, over the floor 979907; the control (the
+attention backward without the f16 `dA`/`dS` power-of-two prescale) 853236. Layer-input adjoint
+cosine minimum 999905 over the floor 993393. Loss relative error in units of 1e-6: 382, under the
+floor 2265. Grade: `tested`. -/
+def kdStepGCosMicro : Nat := 997949
+def kdStepGFloorMicro : Nat := 979907
+def kdStepGControlMicro : Nat := 853236
+def kdStepDhCosMicro : Nat := 999905
+def kdStepDhFloorMicro : Nat := 993393
+def kdStepLossRelMicro : Nat := 382
+def kdStepLossFloorMicro : Nat := 2265
+
+theorem kdStep_fit :
+    kdStepGControlMicro < kdStepGFloorMicro ∧
+    kdStepGFloorMicro < kdStepGCosMicro ∧
+    kdStepDhFloorMicro < kdStepDhCosMicro ∧
+    kdStepLossRelMicro < kdStepLossFloorMicro := by
+  decide
+
 end Perf.Train
