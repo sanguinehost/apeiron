@@ -21,7 +21,7 @@ Quality at the weight budget (target: within 10% of Q4_K_M at ≤ 4 GB resident 
 | held-out KL vs f16, chunks 8..10 (510 tokens) | Qwen3.5-0.8B / `o`,`gate`,`up`,`down` at 1.1456 b/w, rest f16 | 1.185169 | 0.049140 | 24.1x | P124 |
 | wikitext-2 ppl, 146 x 2048 tokens (NanoQuant `evaluate_model`, bf16) | Qwen3-0.6B-Base / NanoQuant reference as shipped, 1.18 b/w linears | 24.3317 | 13.7633 | 1.768x (bar 1.10x) | P131 |
 | mean 0-shot acc, boolq/piqa/hellaswag/winogrande/arc_easy/arc_challenge | same | 0.4235 | 0.5556 | 0.762x (bar 0.90x) | P131 |
-| wikitext-2 ppl, same harness, F16 image | Qwen3-0.6B-Base / port's block loop, blocks 0..12 of 28 factored at 1.18 b/w, 13..27 f16; the reference at the same split is 16.946 (`run4.log:1941`, `Block 12: Test Data PPL`), ours 1.021x it (1.035x at blocks 0..7 against `run4.log:1226`, 15.973) | 17.3074 | 13.7633 | 1.258x (bar 1.10x; loop at 13/28) | `APEIRON-QUALITY-118-W1-T01`: `learn_nanoquant::nq_student` with `APEIRON_NQ_LOOP`, receipt `/home/socol/oc-tmp/nq-ref/arm-loop-l13.json` |
+| wikitext-2 ppl, same harness, F16 image | Qwen3-0.6B-Base / port's block loop, blocks 0..15 of 28 factored at 1.18 b/w, 16..27 f16; the reference at the same split is 17.467 (`run4.log:2370`, `Block 15: Test Data PPL`), ours 1.019x it (1.035x at blocks 0..7 against `run4.log:1226`, 1.021x at 0..12 against `run4.log:1941`) | 17.7900 | 13.7633 | 1.293x (bar 1.10x; loop at 16/28) | `APEIRON-QUALITY-118-W1-T01`: `learn_nanoquant::nq_student` with `APEIRON_NQ_LOOP`, receipt `/home/socol/oc-tmp/nq-ref/arm-loop-l16.json` |
 
 The CUDA comparators are `llama-bench -ngl 99` runs: decode 880.9 tok/s (P62), prefill 63,018.5 tok/s
 (pp512 campaign at `b82ae99`, 15 samples, contended host). The ratios are quotients of recorded medians,
