@@ -60,7 +60,7 @@
 //! its optimiser state is bf16 — `optimi/adam.py:99-101`); and the teacher, whose `h28` is the F16
 //! engine's stream where the reference's is a bf16 `transformers` forward.
 
-use crate::gpu::decode::GpuCtx;
+use crate::gpu::decode::{prof_arm, prof_disarm, prof_take, GpuCtx};
 use crate::gpu::vulkan::*;
 
 use super::block::{
@@ -765,6 +765,83 @@ impl KdTrain {
             }
         }
         Bwd { scales: out, dh }
+    }
+
+    /// The dispatches of one layer's use, per kernel: the layer's forward, one head run, the
+    /// backward's checkpointing re-run of that forward, and the layer's backward — each submitted
+    /// once with the profiler armed ([`crate::gpu::decode::prof_arm`]) and read back as GPU
+    /// microseconds per dispatch, in tape order, as `(band, dispatch name, µs)`.
+    ///
+    /// The tapes are re-recorded with their current stage flags before each submission, because a
+    /// tape carries its timestamp queries from the moment it is recorded, and re-recorded clean
+    /// afterwards, so the caller's next step submits timestamp-free tapes. The four bands are
+    /// separate submissions because the forward tape is submitted twice — once alone and once
+    /// inside the backward's checkpointing re-run — and one query cannot hold two spans: band
+    /// `fwd` is the forward `KdTrain::forward` runs once per layer, band `fwd2` is the same tape
+    /// re-recorded, band `bwd` is the block's training tape and the front's backward tape, band
+    /// `head` is the head's tape.
+    ///
+    /// Layer `l` is taken into its trainer (`l % resident`) first, so no band pays the parameter
+    /// load ([`KdTrain::use_layer`]) that a step pays once per layer anyway. The backward's `dy` is
+    /// the head's cotangent — layer 27's cotangent in a real step; for `l < 27` the step copies
+    /// layer `l + 1`'s `dx` instead, a `T × d` device copy this profile leaves out.
+    ///
+    /// # Safety
+    ///
+    /// No submission is pending on the queue, `l` is in `0..layers`, and the trainer's `x` and `dy`
+    /// columns hold this layer's buffers after [`KdTrain::use_layer`] has run.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work and four band submissions carrying the layer's `O(t·n_ctx·nh·hd +
+    /// t·d·(nh·hd + nkv·hd) + t·(a·d + 3·d·f) + Σ out·inn·rank)` multiply-adds three times (the
+    /// forward twice, the layer's backward once) plus the head's `O(t·d·v)`; `2·dispatches` device
+    /// queries per band, `512` dispatches of headroom, and one `Vec` of `O(dispatches)` entries.
+    pub unsafe fn profile_layer(
+        &mut self,
+        g: &GpuCtx,
+        l: usize,
+    ) -> Vec<(&'static str, &'static str, f64)> {
+        // Dispatches one band may carry. A layer's front+block tape is ~60 and the head's tape is
+        // `3 + 4·⌈t/rc⌉` = 35 at `t = 2048, rc = 256`, so 512 is headroom, not a limit that binds.
+        const BAND: u32 = 512;
+        assert!(l < self.shapes.layers, "kd profile: layer ordinal");
+        self.use_layer(g, l);
+        let (t, d) = (self.shapes.t, self.shapes.d);
+        let slot = l % self.layers.len();
+        let mut out: Vec<(&'static str, &'static str, f64)> = Vec::new();
+        // ── 1. the layer's forward, as `KdTrain::forward` runs it ──
+        if prof_arm(g.vk, BAND) {
+            self.layers[slot].rerecord_fwd(g);
+            Self::put_residual(g, self.xfer, self.h[l], self.layers[slot].x(), t * d);
+            self.layers[slot].forward(g);
+            out.extend(prof_take(g.vk).into_iter().map(|(n, us)| ("fwd", n, us)));
+        }
+        // ── 2. the head, one run ──
+        if prof_arm(g.vk, BAND) {
+            self.head.rerecord(g);
+            self.head.run(g);
+            out.extend(prof_take(g.vk).into_iter().map(|(n, us)| ("head", n, us)));
+        }
+        // ── 3. the backward's checkpointing re-run of this layer's forward ──
+        if prof_arm(g.vk, BAND) {
+            self.layers[slot].rerecord_fwd(g);
+            Self::put_residual(g, self.xfer, self.h[l], self.layers[slot].x(), t * d);
+            self.layers[slot].forward(g);
+            out.extend(prof_take(g.vk).into_iter().map(|(n, us)| ("fwd2", n, us)));
+        }
+        // ── 4. the layer's backward ──
+        if prof_arm(g.vk, BAND) {
+            self.layers[slot].rerecord_bwd(g);
+            Self::put_residual(g, self.xfer, self.head.dh(), self.layers[slot].dy(), t * d);
+            self.layers[slot].backward(g);
+            out.extend(prof_take(g.vk).into_iter().map(|(n, us)| ("bwd", n, us)));
+        }
+        prof_disarm();
+        self.layers[slot].rerecord_fwd(g);
+        self.layers[slot].rerecord_bwd(g);
+        self.head.rerecord(g);
+        out
     }
 
     /// Download each layer's input cotangent during the backward (the check path's switch; off, a

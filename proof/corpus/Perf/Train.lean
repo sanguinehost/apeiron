@@ -790,4 +790,23 @@ theorem kdSwap_wall :
     kdRefWallStepDeciMs < kdCeilingStepDeciMs := by
   decide
 
+/-! Per-dispatch GPU timestamps of one KD layer use and one head run
+(`~/nq-ref/kd/receipts/kd-prof.log`), against the reference's own trace
+(`~/nq-ref/kd/llvm/src/kernels-full.tsv`: fmhaF 84 calls, 80967 µs). -/
+def kdProfHeadBwdInputUs : Nat := 20261
+def kdProfHeadLinearFwdUs : Nat := 3550
+def kdProfAttendUs : Nat := 6976
+def kdRefFmhaFUs : Nat := 964
+def kdProfAttributedMs : Nat := 2044
+def kdProfStepMs : Nat := 2270
+
+/-- The head's transposed product runs more than 5× its forward on the same shape; our attention
+forward runs more than 7× the reference's fmhaF per call; the timestamps attribute less than the
+measured step. -/
+theorem kdProf_rank :
+    5 * kdProfHeadLinearFwdUs < kdProfHeadBwdInputUs ∧
+    7 * kdRefFmhaFUs < kdProfAttendUs ∧
+    kdProfAttributedMs < kdProfStepMs := by
+  decide
+
 end Perf.Train

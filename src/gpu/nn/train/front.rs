@@ -741,6 +741,34 @@ impl FrontTune {
         }
     }
 
+    /// Re-record the evaluation tape with the current stage flags — the profiler's hook
+    /// ([`crate::gpu::decode::prof_arm`]). Armed, `rec_step` writes a timestamp pair around each
+    /// dispatch of this tape; every other tape keeps its unstamped recording.
+    ///
+    /// # Safety
+    ///
+    /// No tape of this value is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; the evaluation tape carries `O(1)` dispatches.
+    pub unsafe fn rerecord_fwd(&self, g: &GpuCtx) {
+        self.record(g, Tape::Fwd);
+    }
+
+    /// As [`FrontTune::rerecord_fwd`], for the backward tape.
+    ///
+    /// # Safety
+    ///
+    /// No tape of this value is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; the backward tape carries `O(1)` dispatches.
+    pub unsafe fn rerecord_bwd(&self, g: &GpuCtx) {
+        self.record(g, Tape::Bwd);
+    }
+
     /// Set the optimiser constants the Adam steps bake; the moments are kept and the three tapes
     /// are re-recorded. [`AdamHyper::OPTIMI`] is the NanoQuant reference's set.
     ///

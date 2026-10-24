@@ -808,3 +808,130 @@ fn kd_wall() {
     );
     finish();
 }
+
+/// One layer's use, per dispatch: the layer's forward, one head run, the backward's checkpointing
+/// re-run of that forward, and the layer's backward, as GPU microseconds per kernel
+/// ([`KdTrain::profile_layer`]).
+///
+/// The control is the benchmark: the per-dispatch sum of the forward band sits within 25% of the
+/// per-layer forward wall `kd_wall` measures (0.455 s / 28 = 16.2 ms), the difference being the
+/// barrier and submission time a dispatch's own span excludes.
+#[test]
+#[ignore = "measurement: opens the device and the teacher"]
+fn kd_kernel_profile() {
+    let engine = Engine::open(MODEL).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let t = 2048;
+    let d = cfg.n_embd;
+    let rk = ranks(DUMP);
+    let perm = read_i32(&format!("{KD}/perm8.i32"));
+    let student = env("APEIRON_KD_STUDENT", LOOP);
+    let h = &LayerHost::from_engine(&engine, &cfg, 0).expect("layer host");
+    let (nh, nkv, hd, rot, theta) = match &h.mixer {
+        Mixer::Softmax {
+            nh,
+            nkv,
+            hd,
+            rot,
+            theta,
+            ..
+        } => (*nh, *nkv, *hd, *rot, *theta),
+        Mixer::Affine { .. } => panic!("not a softmax layer"),
+    };
+    let (fs, bs) = shapes_of(t, d, nh, nkv, hd, rot, theta, h.eps, h.a, cfg.n_ff, rk[0]);
+    let p = prep(&engine, &cfg, &student);
+    let s = perm[0] as usize;
+    let vk = unsafe { Vk::load() }.expect("vulkan");
+    let (g, _mem) = GpuCtx::new(&vk).expect("gpu ctx");
+    let n = t * d;
+    // One sample's `h0`, not the pool of 128: the profile runs one layer, and `begin(.., 0, ..)`
+    // then reads sample `s` out of a `T × d` buffer instead of uploading 1 GiB.
+    let h0 = unsafe { stream_buffer(&g, n) };
+    unsafe { stream_upload(&g, h0, &p.h0[s * n..(s + 1) * n]) };
+    let we = unsafe { g.up_f32(&p.w_emb) };
+    let gf = unsafe { g.up_f32(&p.g_final) };
+    let shapes = KdShapes {
+        layers: 28,
+        t,
+        d,
+        v: cfg.vocab,
+    };
+    let t0 = std::time::Instant::now();
+    let mut tr = unsafe { KdTrain::new(&g, shapes, fs, bs, p.pars, we, gf, h0, 256, 1) };
+    println!(
+        "KD PROF setup {:.1} s: free {} MiB, trainers resident 1, head rc 256",
+        t0.elapsed().as_secs_f64(),
+        free_mib()
+    );
+    let ht = sample_of(&format!("{LOOP}/s-28.xt.f32"), s, n);
+    unsafe { tr.begin(&g, 0, &ht) };
+    let layer = envu("APEIRON_KD_PROF_LAYER", 13);
+    println!(
+        "KD PROF layer {layer} sample {s} t {t} d {d} v {}",
+        cfg.vocab
+    );
+    let t1 = std::time::Instant::now();
+    let prof = unsafe { tr.profile_layer(&g, layer) };
+    println!(
+        "KD PROF wall {:.3} s, {} dispatches stamped",
+        t1.elapsed().as_secs_f64(),
+        prof.len()
+    );
+    // The control's other half on this run and this source: one 28-layer forward, per layer,
+    // including each layer's `use_layer` image copy — the part a dispatch span cannot see. The
+    // first pass also pays the one-time host→store upload of each layer's 70.9 MiB image; the
+    // second is the steady-state per-layer wall a step pays.
+    let t2 = std::time::Instant::now();
+    unsafe { tr.forward(&g) };
+    let cold = t2.elapsed().as_secs_f64() * 1e3 / 28.0;
+    let t3 = std::time::Instant::now();
+    unsafe { tr.forward(&g) };
+    let per_layer = t3.elapsed().as_secs_f64() * 1e3 / 28.0;
+    println!(
+        "KD PROF fwd wall per layer: first pass (28 image uploads) {cold:.3} ms, second pass \
+         (steady) {per_layer:.3} ms"
+    );
+    for (band, name, us) in &prof {
+        println!("PROF {band} {name} {us:.1}");
+    }
+    let mut agg: Vec<(&'static str, usize, f64)> = Vec::new();
+    for (_, name, us) in &prof {
+        match agg.iter_mut().find(|a| a.0 == *name) {
+            Some(a) => {
+                a.1 += 1;
+                a.2 += us;
+            }
+            None => agg.push((name, 1, *us)),
+        }
+    }
+    agg.sort_by(|a, b| b.2.total_cmp(&a.2));
+    for (name, calls, us) in &agg {
+        println!("PROFSUM {name} calls {calls} us {us:.1}");
+    }
+    for band in ["fwd", "fwd2", "head", "bwd"] {
+        let mut calls = 0usize;
+        let mut us = 0f64;
+        for (b, _, u) in &prof {
+            if *b == band {
+                calls += 1;
+                us += u;
+            }
+        }
+        println!(
+            "PROFSUM TAPE {band} calls {calls} us {us:.1} ms {:.3}",
+            us / 1000.0
+        );
+    }
+    let fwd_us = prof
+        .iter()
+        .filter(|(b, _, _)| *b == "fwd")
+        .map(|(_, _, u)| *u)
+        .sum::<f64>();
+    println!(
+        "KD PROF CONTROL fwd dispatches {:.3} ms vs wall {per_layer:.3} ms: ratio {:.3} \
+         (band 0.75..1.25 of the wall)",
+        fwd_us / 1000.0,
+        fwd_us / 1000.0 / per_layer
+    );
+    finish();
+}
