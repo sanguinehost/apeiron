@@ -20,6 +20,7 @@ use std::fmt::Write as _;
 use std::time::Instant;
 
 use apeiron::engine::loader::Engine;
+use apeiron::format::bpe::Bpe;
 use apeiron::learn::grad::load::layer_from_engine;
 use apeiron::learn::grad::model::Config;
 use apeiron::learn::nanoquant::{
@@ -28,8 +29,47 @@ use apeiron::learn::nanoquant::{
 };
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
-const MODEL: &str = "~/kld08/qwen08b-f16.gguf";
-const CACHE: &str = "~/kld08/gatecode-tok";
+/// The teacher image: `Qwen3.5-0.8B` binary16. Overridable by `APEIRON_NQ_MODEL`, so a second
+/// model (`Qwen3-0.6B-Base`, 28 layers) fits against its own Grams without editing this default.
+const MODEL_DEFAULT: &str = "~/kld08/qwen08b-f16.gguf";
+/// Where the calibration Grams, the factors and the fitted words are cached. Overridable by
+/// `APEIRON_NQ_CACHE`; the producer is `learn_gate_code`'s `grams_cached`, whose directory is its
+/// own `CACHE` const, so a cache for a second model is those `g{l}.{tag}.*` files copied under
+/// the tag it wrote.
+const CACHE_DEFAULT: &str = "~/kld08/gatecode-tok";
+
+/// The teacher image path, `APEIRON_NQ_MODEL` or [`MODEL_DEFAULT`].
+fn model_path() -> String {
+    std::env::var("APEIRON_NQ_MODEL").unwrap_or_else(|_| String::from(MODEL_DEFAULT))
+}
+
+/// The cache directory, `APEIRON_NQ_CACHE` or [`CACHE_DEFAULT`].
+fn cache_dir() -> String {
+    std::env::var("APEIRON_NQ_CACHE").unwrap_or_else(|_| String::from(CACHE_DEFAULT))
+}
+
+/// The factor tag: `APEIRON_NQ_TAG` if set, else `-{model stem}` (`-q3-0p6b-f16`), so no run
+/// overwrites another model's `l{l}.{kind}-nq{tag}.{nqf,i64}`.
+fn factor_tag() -> String {
+    if let Ok(t) = std::env::var("APEIRON_NQ_TAG") {
+        return t;
+    }
+    let path = model_path();
+    let stem = path.rsplit('/').next().unwrap_or(&path);
+    let stem = stem.strip_suffix(".gguf").unwrap_or(stem);
+    let stem: String = stem
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    format!("-{stem}")
+}
+
+/// The calibration Gram tag in the cache, `APEIRON_NQ_GRAM_TAG` (default `c6x29`): the
+/// `calib`/`extra` pair `learn_gate_code`'s `grams_cached` writes as `g{l}.c{calib}x{extra}.*.i64`.
+/// Board : the model, cache and tag knobs let a second model be fitted.
+fn gram_tag() -> String {
+    std::env::var("APEIRON_NQ_GRAM_TAG").unwrap_or_else(|_| String::from("c6x29"))
+}
 
 fn gauss(n: usize, seed: u64, scale: f64) -> Vec<f64> {
     let mut s = seed;
@@ -271,6 +311,56 @@ fn env_usize(k: &str, d: usize) -> usize {
         .unwrap_or(d)
 }
 
+/// Calibration-base builder: `APEIRON_NQ_TEXT` (natural text) tokenized by `APEIRON_NQ_TOKENIZER`
+/// (`Qwen3-0.6B-Base`'s `tokenizer.json`, vocabulary 151936) and written to `APEIRON_NQ_BASE` as
+/// llama.cpp's `_logits_` base file — signature, `n_ctx`, `n_vocab`, `n_chunk`, tokens, then the per
+/// chunk row blocks of `src/learn/fold/stats/kldbase.rs`. `APEIRON_NQ_CHUNKS` (15) is the chunk
+/// count and `n_ctx` is 512. The row blocks are a sparse zero tail: `learn_gate_code`'s Gram stage
+/// reads the tokens and no row. Cost: `O(tokens)` encode over the first `n_ctx·n_chunk` ids, one
+/// `O(n_ctx·n_chunk)` write and one `set_len`.
+#[test]
+#[ignore = "writes a calibration base file; run explicitly"]
+fn nq_calib_base() {
+    let get = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k}"));
+    let (n_ctx, n_chunk) = (512usize, env_usize("APEIRON_NQ_CHUNKS", 15));
+    let bpe = Bpe::from_tokenizer_json(&get("APEIRON_NQ_TOKENIZER")).expect("tokenizer");
+    let text = std::fs::read_to_string(get("APEIRON_NQ_TEXT")).expect("text");
+    let head: String = text.chars().take(24 * n_ctx * n_chunk).collect();
+    let mut ids = bpe.encode(&head).expect("encode");
+    assert!(
+        ids.len() >= n_ctx * n_chunk,
+        "{} tokens for {} chunks",
+        ids.len(),
+        n_chunk
+    );
+    ids.truncate(n_ctx * n_chunk);
+    let n_vocab = bpe.vocab_size();
+    let mut out = Vec::with_capacity(20 + 4 * ids.len());
+    out.extend_from_slice(b"_logits_");
+    for v in [n_ctx, n_vocab, n_chunk] {
+        out.extend_from_slice(&(v as u32).to_le_bytes());
+    }
+    for id in &ids {
+        out.extend_from_slice(&id.to_le_bytes());
+    }
+    let path = get("APEIRON_NQ_BASE");
+    std::fs::write(&path, &out).expect("write base");
+    let rows = n_ctx - 1 - n_ctx / 2;
+    let nv = 2 * n_vocab.div_ceil(2) + 4;
+    let total = out.len() + rows * nv * 2 * n_chunk;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .expect("open base")
+        .set_len(total as u64)
+        .expect("sparse rows");
+    println!(
+        "BASE {path} n_ctx {n_ctx} n_vocab {n_vocab} n_chunk {n_chunk} tokens {} bytes {total} max_id {}",
+        ids.len(),
+        ids.iter().max().expect("a token")
+    );
+}
+
 fn env_f64(k: &str, d: f64) -> f64 {
     std::env::var(k)
         .ok()
@@ -401,7 +491,9 @@ fn cmp_line(
 /// Fit stage. `APEIRON_NQ_KIND` (comma list of `gate`, `up`, `down`, `o`), `APEIRON_NQ_LAYERS`
 /// (default `0,3,7,11,15,19,23`, the cached Gram layers), `APEIRON_NQ_ITERS` (400),
 /// `APEIRON_NQ_BITS_PPM` (1000000), `APEIRON_NQ_SCHEDULE` (`linear`, or `cubic`), `APEIRON_NQ_TAG`.
-/// The factor is saved to `l{l}.{kind}-nq{tag}.nqf`; `APEIRON_NQ_FROM=<tag>` loads that factor in
+/// `APEIRON_NQ_GRAM_TAG` (default `c6x29`) names the cached Gram `g{l}.{tag}.{gate_up,down,o}.i64`;
+/// `APEIRON_NQ_MODEL` the teacher and `APEIRON_NQ_CACHE` the directory both are read from. The
+/// factor is saved to `l{l}.{kind}-nq{tag}.nqf`; `APEIRON_NQ_FROM=<tag>` loads that factor in
 /// place of the ADMM. `APEIRON_NQ_TUNE_STEPS` (0) runs [`tune`] at `APEIRON_NQ_TUNE_LR` and
 /// `APEIRON_NQ_TUNE_LR_SCALE` (both `1e-5`). `i_norm = diag(H)` of the cached `g{l}.c6x29.*` Gram (the reference's unclipped `dbf` statistic up to a constant, to which the
 /// ADMM is equivariant); `o_norm = 1`. Prints the ADMM loss and the relative `H`-energy
@@ -409,8 +501,14 @@ fn cmp_line(
 #[test]
 #[ignore = "opens the teacher and runs the ADMM per tensor; run explicitly"]
 fn nq_fit() {
-    let engine = Engine::open(MODEL).expect("open teacher");
+    let (model, cache, gtag) = (model_path(), cache_dir(), gram_tag());
+    let engine = Engine::open(&model).expect("open teacher");
     let cfg = Config::from_engine(&engine).expect("config");
+    std::fs::create_dir_all(&cache).expect("cache dir");
+    println!(
+        "NQ model {model} cache {cache} gram {gtag} n_embd {} n_ff {} n_layer {} head {} kv {} head_dim {}",
+        cfg.n_embd, cfg.n_ff, cfg.n_layer, cfg.n_head, cfg.n_head_kv, cfg.head_dim
+    );
     let kinds = std::env::var("APEIRON_NQ_KIND").unwrap_or_else(|_| String::from("down"));
     let layers: Vec<usize> = std::env::var("APEIRON_NQ_LAYERS")
         .unwrap_or_else(|_| String::from("0,3,7,11,15,19,23"))
@@ -424,7 +522,7 @@ fn nq_fit() {
         .split(',')
         .map(|s| s.parse().expect("seed"))
         .collect();
-    let tag = std::env::var("APEIRON_NQ_TAG").unwrap_or_default();
+    let tag = factor_tag();
     let from = std::env::var("APEIRON_NQ_FROM").ok();
     let schedule = match std::env::var("APEIRON_NQ_SCHEDULE").as_deref() {
         Ok("cubic") => Schedule::Cubic,
@@ -452,7 +550,7 @@ fn nq_fit() {
                 .find(|x| names.contains(&x.name))
                 .unwrap_or_else(|| panic!("blk.{l} {kind}"));
             let (o, n) = (lin.rows, lin.cols);
-            let (ho, hn, hw) = read_words(&format!("{CACHE}/g{l}.c6x29.{gram}.i64"));
+            let (ho, hn, hw) = read_words(&format!("{cache}/g{l}.{gtag}.{gram}.i64"));
             assert_eq!((ho, hn), (n, n), "layer {l} {kind}: Gram");
             let h: Vec<f64> = hw.iter().map(|&x| from_grid(x)).collect();
             let i_norm: Vec<f64> = (0..n).map(|i| h[i * n + i]).collect();
@@ -466,7 +564,7 @@ fn nq_fit() {
                 };
                 let t = Instant::now();
                 let mut f = match &from {
-                    Some(ft) => load_factor(&format!("{CACHE}/l{l}.{kind}-nq{ft}.nqf")),
+                    Some(ft) => load_factor(&format!("{cache}/l{l}.{kind}-nq{ft}.nqf")),
                     None => factorize(&lin.w, o, n, &i_norm, &vec![1.0; o], &c).expect("factorize"),
                 };
                 let fit_s = t.elapsed().as_secs_f64();
@@ -497,10 +595,10 @@ fn nq_fit() {
                     tr.flips
                 );
                 }
-                save_factor(&format!("{CACHE}/l{l}.{kind}-nq{tag}.nqf"), &f);
+                save_factor(&format!("{cache}/l{l}.{kind}-nq{tag}.nqf"), &f);
                 let r = f.rank;
                 let wq = f.weight().expect("weight");
-                let path = format!("{CACHE}/l{l}.{kind}-nq{tag}.i64");
+                let path = format!("{cache}/l{l}.{kind}-nq{tag}.i64");
                 write_words(&path, o, n, &wq);
                 let w: Vec<f64> = lin.w.iter().map(|&x| from_grid(x)).collect();
                 let base = energy(&h, &w, o, n);
@@ -511,7 +609,7 @@ fn nq_fit() {
                 stored_bits(o, n, r) as f64 / (o * n) as f64,
                 f.admm_loss
             );
-                line += &cmp_line(&format!("{CACHE}/l{l}.{kind}"), &h, &w, (o, n), base, rel);
+                line += &cmp_line(&format!("{cache}/l{l}.{kind}"), &h, &w, (o, n), base, rel);
                 println!("{line}");
             }
         }
@@ -525,7 +623,8 @@ fn nq_fit() {
 #[test]
 #[ignore = "opens the teacher and sketches the cached Gram; run explicitly"]
 fn nq_sketch_share() {
-    let engine = Engine::open(MODEL).expect("open teacher");
+    let (cache, gtag) = (cache_dir(), gram_tag());
+    let engine = Engine::open(&model_path()).expect("open teacher");
     let cfg = Config::from_engine(&engine).expect("config");
     let l = env_usize("APEIRON_NQ_LAYERS", 23);
     let ll = layer_from_engine(&engine, &cfg, l).expect("layer linears");
@@ -535,7 +634,7 @@ fn nq_sketch_share() {
         .find(|x| x.name == "ffn_down")
         .expect("down");
     let (o, n) = (lin.rows, lin.cols);
-    let (_, _, hw) = read_words(&format!("{CACHE}/g{l}.c6x29.down.i64"));
+    let (_, _, hw) = read_words(&format!("{cache}/g{l}.{gtag}.down.i64"));
     let h: Vec<f64> = hw.iter().map(|&x| from_grid(x)).collect();
     let w: Vec<f64> = lin.w.iter().map(|&x| from_grid(x)).collect();
     let tr_h: f64 = (0..n).map(|i| h[i * n + i]).sum();
@@ -543,7 +642,7 @@ fn nq_sketch_share() {
         .unwrap_or_else(|_| String::from("nqw2a,nqw2b,q4km"))
         .split(',')
         .map(|t| {
-            let (_, _, qw) = read_words(&format!("{CACHE}/l{l}.down-{t}.i64"));
+            let (_, _, qw) = read_words(&format!("{cache}/l{l}.down-{t}.i64"));
             let e: Vec<f64> = qw.iter().zip(&w).map(|(&q, x)| from_grid(q) - x).collect();
             let full = energy(&h, &e, o, n);
             (t.to_string(), e, full)
