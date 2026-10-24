@@ -437,6 +437,29 @@ block, for each of q, v, o, k, gate, up, down, `tune_nonfact` over the block's d
 | T04 | `FrontTune` (`src/gpu/nn/train/front.rs`): the attention front of one Qwen3 layer with q, k, v as factor slots (rmsnorm, three factor linears, `attn_map` modes 4/5), the ungated `AttnBwd` tape over caller handles (`attn_bwd.rs` `tape`, `AttnBwd::new` calls it), dense dW, `factor_bwd` and Adam per slot, from a caller-filled `dao` | `front_tune_matches_host`: host reference against central differences 5.49e-7; device factor gradients against the host 6.00e-7 (q), 5.30e-7 (k), 2.95e-7 (v), bound 1e-3; Adam lowers L; `attn_bwd` tests unchanged. Control: `dv` and `dkf` swapped between the k and v weight gradients → 2.54e0, red |
 | T05 | `block_loop` in resumable rounds (`APEIRON_NQ_PHASES` units each, ≤ 580 s): a resumed block keeps its dense slots' placeholder factors at shape (`load_params`), reads `s-{lo}` and ends the round at an unfinished block (`APEIRON-QUALITY-118-W1-T01`) | block 0 at n_ctx 2048 in two rounds, 363.4 s + 174.8 s (the reference 100.77 s), against `run4.log` block 1/28: ADMM norm within 0.24% on all seven slots; fact epoch 8 q −5.8%, the other six −1.4% to −1.7%; nonfact epoch 8 −1.4% to −2.0%, v −14.6% (the bf16-optimiser deviation). Receipts `/home/socol/oc-tmp/escalation/lead-1024/w7/rounds/r00-l00.log`, `r02-l00.log`; the crash before the fix `r01-l00.log` (`block.rs:726`) |
 
+### W8: KD kernel parity
+
+One KD step at T = 2048, Qwen3-0.6B. The reference trace is `/home/socol/oc-tmp/nq-ref/kd/llvm/src/kernels-full.tsv`:
+88 kernels, 384.2 ms of kernel time against its 399.6 ms step. Ours is P144 (`895f77ac`): 2.270 s per step, of
+which 2.044 s is attributed. The SASS and its digests are under `/home/socol/oc-tmp/nq-ref/kd/llvm/` (`sass/index.tsv`,
+`MANIFEST.txt`). The CUTLASS source is `src/mem_eff_attention/` (torch 2.8.0+cu128, git `a1cb3cc0`):
+`kernel_forward.h` (sha256 `6dcc1d40…`) and `kernel_backward.h` (`cae5442d…`). AGENTS.md § Goal, gap and method
+states the rule: an `own design` row is a defect, ranked by time share. Board `APEIRON-QUALITY-118-W1-T01`.
+
+| stage | reference kernel (SASS digest) | tile, launch, formats | ours | kind | ref / ours per step | ratio |
+|---|---|---|---|---|---|---|
+| attention fwd | `fmha_cutlassF_bf16_aligned_64x128_rf_sm80` (`8b06e357…`) | 64 q × 128 k, kMaxK 128, output in registers; grid [32,16], 8 warps, 52224 B smem; `HMMA.1688.F32.BF16`, `F2FP.BF16.F32.PACK_AB`, `MUFU.EX2` | `attn_map.comp` mode 1: one 256-thread f32 workgroup per query row, no tiles, no matrix units | own design | 80.97 / 586 ms (84 calls) | 7.2× |
+| attention bwd | `fmha_cutlassB_bf16_aligned_64x64_k128_seqaligned_sm80` (`de0ce27b…`) | 64 × 64, k128; grid [12,16], 128 threads, 34048 B smem; 160 `HMMA.1688.F32.BF16` | `attn_bwd_dq` + `attn_bwd_dkv` (f16 coopmat, prescaled) | own design | 76.58 / 391 ms (28 calls) | 5.1× |
+| linears (fwd, dX, dW, head) | `cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_*` (128x128, 256x128, 64x256; nn/tn/nt) and `cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32` (`sass/gemm.*.sass`) | bf16 operands, f32 accumulate, `HMMA.16816.F32.BF16` | `linear_fwd`, `linear_bwd_input`, `linear_bwd_weight` | own design | 125.9 / 882 ms (1378 calls) | 7.0× |
+| softmax, elementwise, Adam, reductions | `cunn_SoftMaxForward/Backward`, `vectorized_elementwise_kernel` (addcdiv, lerp, addcmul, sqrt, silu, add, mul), `reduce_kernel` | bf16 storage, f32 math | per-op shaders | not yet mapped | 100.7 / ≈ 185 ms | ≈ 1.8× |
+
+The KD path dispatches the scalar f32 `linear_fwd`/`linear_bwd_*` builders. The bf16 coopmat twin
+`src/gpu/nn/bwd/coop.rs` (`lin_coop.comp`, 64 × 64 tile, one stage) exists and is not on the path. The "other" ours
+figure is the 2.044 s attributed less the three rows above it.
+
+Port order is by excess time: the linears (756 ms), attention fwd (505 ms), then attention bwd (314 ms). The attention bwd port
+consumes the fwd port's logsumexp, as fmhaB consumes fmhaF's.
+
 ### Negative controls
 
 Dropping `s_pre` in `NqFactor::weight` in a throwaway copy turns

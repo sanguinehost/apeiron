@@ -54,6 +54,21 @@ in full; this section is how they bind here.
   - A tolerance is derived from those precisions, or measured as the reference's own
     run-to-run spread. A tolerance or expected figure with neither derivation is a guess, and the
     brief is refused.
+- **A reference code path runs a copy of the reference's kernel, never our own design.** Owner,
+  2026-10-25: "my instructions to you are literally to copy them exactly".
+  - Every kernel in the reference's executed trace has one row in its epic's kernel-parity table:
+    the reference kernel, its SASS path and digest, tile and launch shape, and operand/accumulate
+    formats. The row also names our kernel and states `port` or `own design`, with µs per call
+    for both and the ratio.
+  - The port copies the reference's tiling, staging, loop order, operand and accumulate formats
+    and epilogue, read from its source and SASS. A deviation is allowed only where Vulkan lacks the
+    instruction, and each deviation names its substitute.
+  - An `own design` row on a reference path is a defect. Defect rows are ranked first, by time
+    share. While any defect row stands, no lane runs on host-side, scheduling or tuning terms of
+    that path.
+  - The rule covers kernels that predate it. The KD step ran our f32 scalar attention
+    (`attn_map.comp` mode 1, 7.2× fmhaF) and our own linears for weeks, because the previous bullet
+    bound only new briefs.
 
 Apeiron owns the canonical definitions, the reusable Rust primitives and their refinements. The
 programme thesis, ownership, outcomes, primitive correspondence, migration and execution order are
