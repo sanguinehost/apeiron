@@ -47,7 +47,7 @@ const MAX_GROUPS_X: usize = 65_535;
 /// The mixer geometry of one layer over `chunks` independent sequences of `n_ctx` columns each.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AttnBwdShape {
-    /// Columns per chunk; `n_ctx ≤ 1024` (the shader holds 1024 scores).
+    /// Columns per chunk; `n_ctx ≤ MAX_N_CTX` (the forward map holds that many scores).
     pub n_ctx: usize,
     /// Independent sequences in the tape; `T = chunks · n_ctx`.
     pub chunks: usize,
@@ -255,7 +255,10 @@ impl AttnBwd {
     /// `O(T·nh·hd)` device words allocated; no arithmetic on the host.
     pub unsafe fn new(g: &GpuCtx, s: AttnBwdShape, gated: bool) -> Self {
         assert!(
-            s.hd <= 2 * HC && s.hd % 4 == 0 && s.nh % s.nkv == 0 && s.n_ctx <= 1024,
+            s.hd <= 2 * HC
+                && s.hd % 4 == 0
+                && s.nh % s.nkv == 0
+                && s.n_ctx <= crate::gpu::nn::train::mixer::MAX_N_CTX,
             "attn_map_bwd geometry"
         );
         assert!(s.rot == 0 || s.rot % 2 == 0, "rope pairs");
@@ -1188,15 +1191,15 @@ pub(crate) mod tests {
         (mean, lo, hi)
     }
 
-    /// The backward dispatch wall at the production shape, `n_ctx = 1024` (`T = 2048`),
+    /// The backward dispatch wall at the production shape, one chunk of `n_ctx = T = 2048`,
     /// `nh 16 / nkv 8 / hd 128` ungated, two GPU timestamps around the three-dispatch tape,
     /// transfers excluded, `n = 5`. Prints the whole-tape wall and each dispatch's split.
     #[test]
     #[ignore = "needs a Vulkan device; reports the bwd dispatch wall"]
     fn attn_bwd_timing_querypool() {
         let s = AttnBwdShape {
-            n_ctx: 1024,
-            chunks: 2,
+            n_ctx: 2048,
+            chunks: 1,
             nh: 16,
             nkv: 8,
             hd: 128,
@@ -1393,13 +1396,13 @@ pub(crate) mod tests {
     }
 
     /// The ungated device forward and backward against the f64 reference at the Qwen3-0.6B
-    /// geometry: `nh 16, nkv 8, hd 128`, full rotary, `theta 1e6`, `n_ctx 512`, four chunks
-    /// (`T = 2048`).
+    /// geometry: `nh 16, nkv 8, hd 128`, full rotary, `theta 1e6`, one chunk of `n_ctx = T = 2048`,
+    /// the reference's calibration sample whole.
     #[test]
     fn attn_bwd_device_matches_ref_ungated() {
         let s = AttnBwdShape {
-            n_ctx: 512,
-            chunks: 4,
+            n_ctx: 2048,
+            chunks: 1,
             nh: 16,
             nkv: 8,
             hd: 128,

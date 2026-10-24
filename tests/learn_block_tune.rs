@@ -24,12 +24,10 @@
 //!
 //! # Stated deviations from the reference
 //!
-//! - **Attention span.** `attn_map` holds 1024 scores per query row
-//!   (`src/gpu/spirv/train/attn_map.comp:37`), so a 2048-token sample runs as two independent
-//!   1024-column halves; teacher and student share the truncation, so a block's first loss is still
-//!   exactly zero.
 //! - **Precision.** The reference's parameters and streams are bf16 with Kahan summation in the
-//!   optimiser; ours are f32 without (`AdamHyper::OPTIMI`'s documented `ε` deviation).
+//!   optimiser; ours are f32 without (`AdamHyper::OPTIMI`'s documented `ε` deviation). Optimi holds
+//!   the bf16 parameter's moments in bf16 too (`optimi/adam.py:99-101`). Measured at block 0, q/v:
+//!   v nonfact 13.5–17.9% below the reference every epoch; q fact within 3.9%, v fact within 0.3%.
 //! - **Preconditioner floor.** The reference clamps `sqrt(diag)` at its own `eps = 1e-12`; ADMM here
 //!   runs `factorize_floor` with floor `APEIRON_NQ_FLOOR` (default `0`, the reference's clamp).
 //!
@@ -89,7 +87,7 @@ const B0: &str = "b0";
 const PER_STEP: usize = 4;
 /// `attn_map`'s score buffer, `src/gpu/spirv/train/attn_map.comp:37`: the longest sequence one
 /// device dispatch can attend over.
-const N_CTX: usize = 1024;
+const N_CTX: usize = 2048;
 /// The base rate the two tuners are built with; each phase's rate arrives as the schedule
 /// multiplier `c = lr_t / base` (`BlockTune::set_schedule`, `AdamHyper`'s `adam_scheduled_bias`).
 const LR_BASE: f64 = 1e-5;
@@ -952,8 +950,9 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
     let mut xs = unsafe { Stream::new(&g, seq, d, n_samples) };
     let mut yt = unsafe { Stream::new(&g, seq, d, n_samples) };
     let mut next = unsafe { Stream::new(&g, seq, d, n_samples) };
-    let s0_xt = format!("{dir}/s-0.xt.f32");
-    let s0_xs = format!("{dir}/s-0.xs.f32");
+    // Block `lo`'s input streams: `s-{lo}` is block `lo − 1`'s advanced output (`s-0` the embedding).
+    let s0_xt = format!("{dir}/s-{}.xt.f32", o.lo);
+    let s0_xs = format!("{dir}/s-{}.xs.f32", o.lo);
     if Path::new(&s0_xt).exists() && Path::new(&s0_xs).exists() {
         unsafe {
             load_stream(&g, cb, &stage, &xt, &s0_xt);
@@ -961,6 +960,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
         }
         println!("BT streams restored from {s0_xt}");
     } else {
+        assert_eq!(o.lo, 0, "block {}: no saved input stream {s0_xt}", o.lo);
         let mut x0: Vec<f32> = Vec::with_capacity(n_samples * seq * d);
         for s in 0..n_samples {
             let toks: Vec<usize> = ids[s * seq..(s + 1) * seq]
@@ -1117,7 +1117,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
             }
         }
         let yt_s = t_yt.elapsed().as_secs_f64();
-        if l == o.lo {
+        if l == 0 {
             let want = read_bf16(&dump_at(&format!("{B0}/yt0.bf16")));
             let mut got = vec![0f32; seq * d];
             let mut at = 0;
@@ -1132,10 +1132,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                 num += (f64::from(got[i]) - f64::from(w)).powi(2);
                 den += f64::from(w).powi(2);
             }
-            println!(
-                "BT teacher vs b0/yt0.bf16 rel {:.3e} (the 1024-column attention split's cost)",
-                (num / den).sqrt()
-            );
+            println!("BT teacher vs b0/yt0.bf16 rel {:.3e}", (num / den).sqrt());
         }
         println!("BT l{l:02} teacher {yt_s:.1} s");
         let (g1, g2) = (host.attn_norm.clone(), host.ffn_norm.clone());
@@ -1412,6 +1409,10 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
             round_t.elapsed().as_secs_f64()
         );
         round_t = Instant::now();
+        // Block `l + 1` reads block `l`'s advanced streams; an unfinished block ends the round.
+        if !done {
+            break;
+        }
     }
     finish();
 }
