@@ -401,6 +401,13 @@ fn env_f64(k: &str, d: f64) -> f64 {
         .unwrap_or(d)
 }
 
+/// The `tr(EHEᵀ)/tr(WHWᵀ)` screen runs unless `APEIRON_NQ_RELH=0`; the `.nqf` and `.i64` writes
+/// never depend on it. Board : the screen is two dense `n×n` passes per
+/// tensor, a build of the student needs neither.
+fn relh_enabled() -> bool {
+    !matches!(std::env::var("APEIRON_NQ_RELH").as_deref(), Ok("0"))
+}
+
 /// `out, inn, rank` (u64), `admm_loss`, `s_post`, `s_pre`, `u_latent`, `v_latent` (f64), `u`, `v`
 /// (i8), little-endian.
 fn save_factor(path: &str, f: &NqFactor) {
@@ -529,7 +536,9 @@ fn cmp_line(
 /// factor is saved to `l{l}.{kind}-nq{tag}.nqf`; `APEIRON_NQ_FROM=<tag>` loads that factor in
 /// place of the ADMM. `APEIRON_NQ_TUNE_STEPS` (0) runs [`tune`] at `APEIRON_NQ_TUNE_LR` and
 /// `APEIRON_NQ_TUNE_LR_SCALE` (both `1e-5`). `APEIRON_NQ_FLOOR` sets the preconditioner floor of
-/// [`factorize_floor`] (unset: [`factorize`]'s own). `i_norm = diag(H)` of the cached `g{l}.c6x29.*` Gram (the reference's unclipped `dbf` statistic up to a constant, to which the
+/// [`factorize_floor`] (unset: [`factorize`]'s own). `APEIRON_NQ_RELH=0` drops the two dense
+/// `energy` passes and the `Q4_K_M` comparison from the printed line (and from the run's cost);
+/// `i_norm = diag(H)` of the cached `g{l}.c6x29.*` Gram (the reference's unclipped `dbf` statistic up to a constant, to which the
 /// ADMM is equivariant); `o_norm = 1`. Prints the ADMM loss and the relative `H`-energy
 /// `tr(EHEᵀ)/tr(WHWᵀ)` of the fit and of the cached same-scope `Q4_K_M` part.
 #[test]
@@ -643,21 +652,28 @@ fn nq_fit() {
                     tr.flips
                 );
                 }
+                // `wq` is written whatever the screen; the two dense `energy` passes and the
+                // `Q4_K_M` comparison are the screen.
                 save_factor(&format!("{cache}/l{l}.{kind}-nq{tag}.nqf"), &f);
                 let r = f.rank;
                 let wq = f.weight().expect("weight");
                 let path = format!("{cache}/l{l}.{kind}-nq{tag}.i64");
                 write_words(&path, o, n, &wq);
-                let w: Vec<f64> = lin.w.iter().map(|&x| from_grid(x)).collect();
-                let base = energy(&h, &w, o, n);
-                let e: Vec<f64> = wq.iter().zip(&w).map(|(&q, x)| from_grid(q) - x).collect();
-                let rel = energy(&h, &e, o, n) / base;
                 let mut line = format!(
-                "NQ layer {l:02} {kind} {o}x{n} seed {seed} r {r} b/w {:.4} iters {iters} {fit_s:.1} s admm_loss {:.5}{tune_line} relH {rel:.5}",
+                "NQ layer {l:02} {kind} {o}x{n} seed {seed} r {r} b/w {:.4} iters {iters} {fit_s:.1} s admm_loss {:.5}{tune_line}",
                 stored_bits(o, n, r) as f64 / (o * n) as f64,
                 f.admm_loss
             );
-                line += &cmp_line(&format!("{cache}/l{l}.{kind}"), &h, &w, (o, n), base, rel);
+                if relh_enabled() {
+                    let w: Vec<f64> = lin.w.iter().map(|&x| from_grid(x)).collect();
+                    let base = energy(&h, &w, o, n);
+                    let e: Vec<f64> = wq.iter().zip(&w).map(|(&q, x)| from_grid(q) - x).collect();
+                    let rel = energy(&h, &e, o, n) / base;
+                    let _ = write!(line, " relH {rel:.5}");
+                    line += &cmp_line(&format!("{cache}/l{l}.{kind}"), &h, &w, (o, n), base, rel);
+                } else {
+                    line += " relH n/a";
+                }
                 println!("{line}");
             }
         }
