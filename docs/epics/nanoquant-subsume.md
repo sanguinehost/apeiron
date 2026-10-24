@@ -433,6 +433,7 @@ block, for each of q, v, o, k, gate, up, down, `tune_nonfact` over the block's d
 |---|---|---|
 | T01 | `Mixer::Softmax` carries `gated`; the ungated face (Qwen3: no gate half, `attn_map` mode bit 2, `attn_map.comp:41`) records and runs | `layer_fwd_matches_cpu`: Qwen3.5 l0 rel 5.688e-3 / 2.814e-2; Qwen3-0.6B l0 1.100e-2 / 1.556e-2, l3 2.475e-2 / 6.864e-4 (bound 3e-2). Control: mode bit dropped → l0 9.723e-1, red |
 | T02 | the per-slot builders (factor allocation, materialise, factor adjoint, Adam, upload) move to `src/gpu/nn/train/slot.rs`, the tapes unchanged | `gpu::nn::train` 15 passed; loss device 347.652154 / host 347.652157, Adam 347.6522 → 307.0150, identical before and after. Control: `ds_post` reads `w` for `m` → red |
+| T03 | `BlockTune`'s backward ends `da = dh·Wo` (`linear_bwd_input_dispatch` after the `dwt(0)` weight gradient), the gradient at the attention output the q/k/v slots read; accessor `BlockTune::da` | `block_tune_matches_host`: `da` worst relative error 1.79e-7 against f64 central differences (bound 1e-4); loss and scale gradient unchanged. Control: `wt(1)` in place of `wt(0)` → 3.29e0, red |
 
 ### Negative controls
 
