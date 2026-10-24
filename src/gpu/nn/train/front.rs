@@ -21,19 +21,23 @@
 //! [`FrontTune::backward`] takes it as its input: the three-dispatch ungated backward
 //! (`attn_bwd::tape`) gives `dqf`, `dkf`, `dv`; then `dWq = dqfᵀ·n1`, `dWk = dkfᵀ·n1`,
 //! `dWv = dvᵀ·n1` and each slot's factor adjoint and Adam step (`slot::factor_bwd`,
-//! `slot::adam_factor`). The block input gradient `dx` is not computed: the input stream is
-//! fixed.
+//! `slot::adam_factor`). The input adjoint is `dn1 = dqf·Wq + dkf·Wk + dv·Wv`, then
+//! `dx = rmsnorm_bwd(x, g1, dn1) + dres`, where `dres` is the caller's residual adjoint — the
+//! block's `dh` — held in [`FrontTune::dres`] for a device copy. [`FrontTune::dx`] exposes the
+//! result, so two layers chain on the device without a host round trip
+//! ([`chain`](super::chain)).
 //!
 //! # Evidence grade
 //!
 //! `tested` by `front_tune_matches_host` in this file: the f64 host reference against central
-//! differences, the device factor gradients against that reference, and a short Adam run.
+//! differences, the device factor gradients against that reference, and a short Adam run; and by
+//! `chain_dx_matches_fd` in `chain.rs`: the chained input adjoint of two layers against central
+//! differences of the chained loss.
 //!
 //! # Trust boundary
 //!
 //! Not covered: the GPU driver, the SPIR-V compiler, the device's f32 transcendental precision,
-//! and the integration that fills `dao` from `BlockTune`'s o-projection adjoint, which the caller
-//! supplies.
+//! and the correctness of the caller's `dres` (the block's `dh`), which the caller supplies.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -43,11 +47,14 @@
 
 use crate::gpu::decode::{rec_step, GpuCtx, Step};
 use crate::gpu::nn::fwd::{linear_fwd_dispatch, rmsnorm_fwd_dispatch};
-use crate::gpu::nn::{adam_scheduled_bias, linear_bwd_weight_dispatch, AdamHyper};
+use crate::gpu::nn::{
+    adam_scheduled_bias, add_inplace_bytes, linear_bwd_input_dispatch, linear_bwd_weight_dispatch,
+    rmsnorm_bwd_dispatch, AdamHyper,
+};
 use crate::gpu::vulkan::*;
 
 use super::attn_bwd::{tape, AttnBwdShape};
-use super::block::{download, host_buffer, upload, HostBuffer, HostFactor};
+use super::block::{download, host_buffer, stream_buffer, upload, HostBuffer, HostFactor};
 use super::mixer::ATTN_MAP_SPV;
 use super::slot::{q32, upload_dense, upload_factor, Factor};
 
@@ -202,11 +209,19 @@ pub struct FrontTune {
     da: Handle,
     dq_rot: Handle,
     dk_rot: Handle,
+    /// The input adjoint's buffers: `dn1`'s three `[T][d]` accumulators (`q`, `k`, `v`), the
+    /// result `dx`, the caller's residual adjoint `dres` (zeroed at construction) and the norm's
+    /// thread-local part of `dγ` (dropped: `g1` is frozen).
+    dn1: [Handle; 3],
+    dx: Handle,
+    dres: Handle,
+    dgr: Handle,
     /// The materialise tape of each slot: the two signs, `M`, then the scales. Recorded only for a
     /// slot whose `W` is held as a factor.
     materialise: [Vec<Step>; 3],
     forward: Vec<Step>,
-    /// The three backward dispatches, then the three dense weight adjoints into each slot's `dw`.
+    /// The three backward dispatches, then the three dense weight adjoints into each slot's `dw`,
+    /// then the input adjoint into `dx`.
     backward: Vec<Step>,
     factor_bwd: [Vec<Step>; 3],
     adam_fact: [Vec<Step>; 3],
@@ -266,20 +281,26 @@ impl FrontTune {
         let (t, d, hd) = (shape.t(), shape.d, shape.hd);
         let (qw, kw) = (shape.qw(), shape.kw());
         let dev = |n: usize| g.dev(n * 4);
+        // The buffers a chained layer copies into or out of (`chain.rs`) carry both transfer bits.
+        let stream = |n: usize| stream_buffer(g, n);
         let (fq, mq) = Factor::new(g, qw, d, shape.ranks[0]);
         let (fk, mk) = Factor::new(g, kw, d, shape.ranks[1]);
         let (fv, mv) = Factor::new(g, kw, d, shape.ranks[2]);
         let factors = [fq, fk, fv];
         let moments = [mq, mk, mv];
-        let (x, g1, gn, n1) = (dev(t * d), dev(d), dev(2 * hd), dev(t * d));
+        let (x, g1, gn, n1) = (stream(t * d), dev(d), dev(2 * hd), dev(t * d));
         let (pq, pk, pv) = (dev(t * qw), dev(t * kw), dev(t * kw));
         // The gate is read and written only when gated; ungated, one word keeps binding 5 valid
         // without a `T·nh·hd` buffer the shaders never touch.
         let (q, gate, k) = (dev(t * qw), dev(1), dev(t * kw));
-        let (ao, dao) = (dev(t * qw), dev(t * qw));
+        let (ao, dao) = (stream(t * qw), stream(t * qw));
         let (dqf, dkf, dv) = (dev(t * qw), dev(t * kw), dev(t * kw));
         let (lse, dsum) = (dev(t * shape.nh), dev(t * shape.nh));
         let (da, dq_rot, dk_rot) = (dev(t * qw), dev(t * qw), dev(t * kw));
+        // Three buffers, not one: `[dev(n); 3]` evaluates the allocation once and aliases the
+        // three accumulators.
+        let dn1 = [dev(t * d), dev(t * d), dev(t * d)];
+        let (dx, dres, dgr) = (stream(t * d), g.dev_zeroed(t * d * 4), dev(t * d));
         let (tu, du) = (t as u32, d as u32);
         let (qu, ku) = (qw as u32, kw as u32);
         let forward = vec![
@@ -339,6 +360,51 @@ impl FrontTune {
             du,
             ku,
         ));
+        let add = |dst: Handle, src: Handle| {
+            crate::gpu::decode::make_step_named(
+                g,
+                &add_inplace_bytes((t * d) as u32, 256),
+                &[dst, src],
+                ((t * d) as u32).div_ceil(256),
+                1,
+                "add_inplace",
+            )
+        };
+        // The input adjoint: `dn1 = dqf·Wq + dkf·Wk + dv·Wv` (the block's `da = dh·Wo` shape per
+        // projection), then `dx = rmsnorm_bwd(x, g1, dn1)`, then `dx += dres`.
+        backward.push(linear_bwd_input_dispatch(
+            g,
+            dqf,
+            factors[0].w,
+            dn1[0],
+            tu,
+            du,
+            qu,
+        ));
+        backward.push(linear_bwd_input_dispatch(
+            g,
+            dkf,
+            factors[1].w,
+            dn1[1],
+            tu,
+            du,
+            ku,
+        ));
+        backward.push(linear_bwd_input_dispatch(
+            g,
+            dv,
+            factors[2].w,
+            dn1[2],
+            tu,
+            du,
+            ku,
+        ));
+        backward.push(add(dn1[0], dn1[1]));
+        backward.push(add(dn1[0], dn1[2]));
+        backward.push(rmsnorm_bwd_dispatch(
+            g, x, g1, dn1[0], dx, dgr, tu, du, 1e-6,
+        ));
+        backward.push(add(dx, dres));
         let bias_stage = host_buffer(g, 2, BUFFER_USAGE_TRANSFER_SRC);
         let bias_buf = dev(2);
         // One tape per slot, built by name so the field names below shadow nothing.
@@ -432,6 +498,10 @@ impl FrontTune {
             da,
             dq_rot,
             dk_rot,
+            dn1,
+            dx,
+            dres,
+            dgr,
             materialise,
             forward,
             backward,
@@ -792,6 +862,36 @@ impl FrontTune {
         self.dao
     }
 
+    /// The front's input adjoint `dx` (`T × d`), valid after a backward: `rmsnorm_bwd(x, g1, dn1)`
+    /// plus [`FrontTune::dres`]. It is the layer input's cotangent, so it is the previous layer's
+    /// `dy` in a chain ([`chain`](super::chain)).
+    #[must_use]
+    pub fn dx(&self) -> Handle {
+        self.dx
+    }
+
+    /// The residual adjoint `dres` (`T × d`) the backward adds to `dx`: the block's `dh`, which the
+    /// caller copies in by a device copy ([`chain`](super::chain)). Zeroed at construction.
+    #[must_use]
+    pub fn dres(&self) -> Handle {
+        self.dres
+    }
+
+    /// Run the backward tape alone, over the `dao` and `dres` buffers a caller filled by device
+    /// copies, leaving `dx` holding the input adjoint.
+    ///
+    /// # Safety
+    ///
+    /// [`FrontTune::load`] has run and no tape is pending.
+    ///
+    /// # Complexity
+    ///
+    /// One submission of the backward's `O(T·n_ctx·nh·hd + T·d·(nh·hd + nkv·hd) + Σ out·inn·rank)`
+    /// multiply-adds.
+    pub unsafe fn backward_cols(&mut self, g: &GpuCtx) {
+        self.run(g, Tape::Bwd);
+    }
+
     /// The attention output `ao` of the last pass, `T × nh·hd`.
     ///
     /// # Safety
@@ -831,7 +931,7 @@ impl FrontTune {
     /// # Safety
     ///
     /// A backward has completed.
-    unsafe fn grads(&self, g: &GpuCtx) -> Vec<[Vec<f32>; 4]> {
+    pub(crate) unsafe fn grads(&self, g: &GpuCtx) -> Vec<[Vec<f32>; 4]> {
         self.factors
             .iter()
             .map(|fa| {
@@ -856,7 +956,7 @@ impl FrontTune {
     /// # Safety
     ///
     /// A backward has completed.
-    unsafe fn dense_grad(&self, g: &GpuCtx, k: usize) -> Vec<f32> {
+    pub(crate) unsafe fn dense_grad(&self, g: &GpuCtx, k: usize) -> Vec<f32> {
         let fa = &self.factors[k];
         self.get(g, fa.dw, fa.out * fa.inn)
     }

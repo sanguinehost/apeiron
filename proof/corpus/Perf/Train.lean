@@ -715,4 +715,21 @@ theorem nctx2048_fit :
     driveBandMille < nctxVNonfactMille := by
   decide
 
+/-- The chained input adjoint (P140): `FrontTune` computes `dn1 = dqf·Wq + dkf·Wk + dv·Wv`, then
+`dx = rmsnorm_bwd(x, g1, dn1) + dres` with `dres` the block's `dh`, so the KD cotangent reaches every
+layer's scales (`NanoQuant` `compress_model.py:213-230`). Two chained layers against f64 central
+differences, relative error in units of 1e-6: `dx0` worst 361 over 8 indices and the layer-0 scale
+gradients worst whole-vector 663, both under the 1000 prediction; the control (the `dx += dres` add
+deleted) 1420000. Grade: `tested`. -/
+def kdChainDxMicro : Nat := 361
+def kdChainScaleMicro : Nat := 663
+def kdChainBoundMicro : Nat := 1000
+def kdChainControlMicro : Nat := 1420000
+
+theorem kdChain_fit :
+    kdChainDxMicro < kdChainBoundMicro ∧
+    kdChainScaleMicro < kdChainBoundMicro ∧
+    kdChainBoundMicro < kdChainControlMicro := by
+  decide
+
 end Perf.Train

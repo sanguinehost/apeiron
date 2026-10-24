@@ -1543,6 +1543,7 @@ import Gpu.Handoff
 #audit Perf.Train.blockLoopDrive_fit
 #audit Perf.Train.attnBwdTile_fit
 #audit Perf.Train.nctx2048_fit
+#audit Perf.Train.kdChain_fit
 #audit Perf.Handoff.align256_eq
 #audit Perf.Handoff.writeChunk_le_cap
 #audit Perf.Handoff.writeChunk_le_remaining
