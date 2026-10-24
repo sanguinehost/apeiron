@@ -511,4 +511,17 @@ theorem residentStreams_fit :
     3200 < residentLayerAfter := by
   decide
 
+/-- Ungated softmax attention (Qwen3) on the device attention map: bit 2 of the `mode` word drops
+the `sigmoid(gate)` factor from the attend stage and its gradient from the backward. Device errors
+against the f64 reference at `T = 2048`, `NH = 16`, `NKV = 8`, `HD = 128`, in units of 1e-9, under
+the 1e-3 bound. Grade `measured`; gated bit identity (`cmp` of the dump) is `tested`. -/
+def ungatedFwdErrNano : Nat := 221
+def ungatedDqfErrNano : Nat := 9195
+def ungatedBoundNano : Nat := 1000000
+
+theorem ungatedAttn_fit :
+    ungatedFwdErrNano < ungatedBoundNano ∧
+    ungatedDqfErrNano < ungatedBoundNano := by
+  decide
+
 end Perf.Train

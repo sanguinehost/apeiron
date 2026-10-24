@@ -1,16 +1,18 @@
 #version 450
 #extension GL_KHR_shader_subgroup_basic : enable
 #extension GL_KHR_shader_subgroup_arithmetic : enable
-// The backward of `attn_map.comp`, the gated softmax attention mixer of one layer over whole
-// chunks, in FlashAttention-2 form (Dao, arXiv 2307.08691, Algorithm 2): the softmax probabilities
+// The backward of `attn_map.comp`, the softmax attention mixer of one layer over whole chunks,
+// gated (the output gate of Qwen3.5's attention) or ungated (Qwen3's, no gate), in
+// FlashAttention-2 form (Dao, arXiv 2307.08691, Algorithm 2): the softmax probabilities
 // are recomputed from the stored log-sum-exp, so no `[head][query][key]` score or probability array
 // is materialised. Consumer: `src/gpu/nn/train/attn_bwd.rs`, which owns the contract; the reference
 // is its f64 forward and adjoint under `#[cfg(test)]`.
 //
 //   mode 0 (dq), one workgroup per (chunk, head, query i): recompute the causal scores s_ij and the
 //          softmax of the row (as `attn_map` mode 1), store lse_i = max + ln Σ, the value mix A_i
-//          and D_i = dA_i·A_i, write the gate half of dqf (= dgate), then the score gradient
-//          dS_ij = P_ij·(dP_ij − D_i) and dq_rot_i = scale·Σ_{j≤i} dS_ij·k_j.
+//          and D_i = dA_i·A_i, write the gate half of dqf (= dgate, gated only), then the score
+//          gradient dS_ij = P_ij·(dP_ij − D_i) and dq_rot_i = scale·Σ_{j≤i} dS_ij·k_j. Ungated:
+//          dA_i = dy_i.
 //   mode 1 (dk/dv), one workgroup per (chunk, kv head g, key j): recompute s_ij and dP_ij, then
 //          dk_rot_j = scale·Σ_{h∈g} Σ_{i≥j} dS_ij·q_i and dv_j = Σ_{h∈g} Σ_{i≥j} P_ij·dA_i, summing
 //          the query heads ascending then i ascending, one fixed order per output.
@@ -18,14 +20,16 @@
 //          (dy_lo = d_lo·cos + d_hi·sin, dy_hi = d_hi·cos − d_lo·sin) then the RMS-normalisation
 //          backward with its gain, dx_e = r·(g_e·dy_e − x̂_e·(1/HD)·Σ_f g_f·dy_f·x̂_f), into the q
 //          half of dqf or into dkf. The norm gains are frozen: no gain gradient.
-// Bindings: 1 qf [T][NH·2·HD], 2 kf [T][NKV·HD], 3 gains [2·HD], 4 q [T][NH·HD],
-// 5 gate [T][NH·HD], 6 k [T][NKV·HD], 7 v [T][NKV·HD], 8 dy [T][NH·HD], 9 lse [T·NH],
-// 10 dsum [T·NH], 11 da [T][NH·HD], 12 dq_rot [T][NH·HD], 13 dk_rot [T][NKV·HD],
-// 14 dqf [T][NH·2·HD], 15 dkf [T][NKV·HD], 16 dv [T][NKV·HD].
+// Bindings: 1 qf [T][NH·2·HD] gated, [T][NH·HD] ungated; 2 kf [T][NKV·HD]; 3 gains [2·HD];
+// 4 q [T][NH·HD]; 5 gate [T][NH·HD] (read only when gated); 6 k [T][NKV·HD]; 7 v [T][NKV·HD];
+// 8 dy [T][NH·HD]; 9 lse [T·NH]; 10 dsum [T·NH]; 11 da [T][NH·HD]; 12 dq_rot [T][NH·HD];
+// 13 dk_rot [T][NKV·HD]; 14 dqf [T][NH·2·HD] gated, [T][NH·HD] ungated; 15 dkf [T][NKV·HD];
+// 16 dv [T][NKV·HD].
 layout(local_size_x = 256) in;
 
 // META: [mode, n_ctx, NH, NKV, HD, ROT, theta bits, eps bits, workgroups]; the grid is folded
-// into x < 65535 and y.
+// into x < 65535 and y. `mode` is the stage in bits 0–1 (0 dq, 1 dk/dv, 2 prep adjoint) and bit 2
+// set means ungated attention: no gate half in qf or dqf, dA_i = dy_i, no dgate.
 layout(std430, binding = 0) readonly buffer Meta { uint meta[]; };
 layout(std430, binding = 1) readonly buffer Qf { float qf[]; };
 layout(std430, binding = 2) readonly buffer Kf { float kf[]; };
@@ -53,7 +57,8 @@ shared float red[64];
 shared float red2[64];
 
 void main() {
-    uint mode = meta[0];
+    uint mode = meta[0] & 3u;
+    bool ungated = (meta[0] & 4u) != 0u;
     uint n_ctx = meta[1];
     uint NH = meta[2];
     uint NKV = meta[3];
@@ -128,8 +133,12 @@ void main() {
         float dpart = 0.0;
         if (lid < HD) {
             uint o = (row * NH + h) * HD + lid;
-            float gt = 1.0 / (1.0 + exp(-gate[o]));
-            float d = dy[o] * gt;
+            float gt = 1.0;
+            float d = dy[o];
+            if (!ungated) {
+                gt = 1.0 / (1.0 + exp(-gate[o]));
+                d = dy[o] * gt;
+            }
             da[o] = d;
             dh[lid] = d;
             float acc = 0.0;
@@ -138,7 +147,10 @@ void main() {
             }
             ah[lid] = acc / tot;
             dpart = d * ah[lid];
-            dqf[row * NH * 2u * HD + h * 2u * HD + HD + lid] = dy[o] * ah[lid] * gt * (1.0 - gt);
+            if (!ungated) {
+                dqf[row * NH * 2u * HD + h * 2u * HD + HD + lid] =
+                    dy[o] * ah[lid] * gt * (1.0 - gt);
+            }
         }
         barrier();
         float dloc = subgroupAdd(dpart);
@@ -231,7 +243,8 @@ void main() {
     float dx = 0.0;
     if (lid < HD) {
         if (is_q) {
-            x = qf[row * NH * 2u * HD + slot * 2u * HD + lid];
+            x = ungated ? qf[row * NH * HD + slot * HD + lid]
+                        : qf[row * NH * 2u * HD + slot * 2u * HD + lid];
             dx = dq_rot[(row * NH + slot) * HD + lid];
         } else {
             x = kf[(row * NKV + slot - NH) * HD + lid];
@@ -286,7 +299,11 @@ void main() {
     if (lid < HD) {
         float g = r * (dyv - ah[lid] * pd / float(HD));
         if (is_q) {
-            dqf[row * NH * 2u * HD + slot * 2u * HD + lid] = g;
+            if (ungated) {
+                dqf[row * NH * HD + slot * HD + lid] = g;
+            } else {
+                dqf[row * NH * 2u * HD + slot * 2u * HD + lid] = g;
+            }
         } else {
             dkf[(row * NKV + slot - NH) * HD + lid] = g;
         }
