@@ -421,6 +421,19 @@ The held-out instrument (`src/learn/fold/stats/heldout.rs`) scores a chunk's stu
 Measurement after each task: `nq_fit`, three interleaved runs per arm, ADMM seconds per 100 iterations
 (baseline 11.9–12.5 s), `admm_loss`, relH and flips unchanged.
 
+### W7: the reference block loop on the device
+
+The reference's quality comes from its sequential block loop (`core/compress_model.py:83-101`): per
+block, for each of q, v, o, k, gate, up, down, `tune_nonfact` over the block's dense linears, ADMM, then
+`tune_fact` over the factorised ones, both streams advancing through the block. The device fit
+(`src/gpu/nn/train/block.rs` `BlockTune`) tapes o, gate, up and down only. Board
+`APEIRON-QUALITY-118-W1-T01`.
+
+| task | change | gate on the live tree |
+|---|---|---|
+| T01 | `Mixer::Softmax` carries `gated`; the ungated face (Qwen3: no gate half, `attn_map` mode bit 2, `attn_map.comp:41`) records and runs | `layer_fwd_matches_cpu`: Qwen3.5 l0 rel 5.688e-3 / 2.814e-2; Qwen3-0.6B l0 1.100e-2 / 1.556e-2, l3 2.475e-2 / 6.864e-4 (bound 3e-2). Control: mode bit dropped → l0 9.723e-1, red |
+| T02 | the per-slot builders (factor allocation, materialise, factor adjoint, Adam, upload) move to `src/gpu/nn/train/slot.rs`, the tapes unchanged | `gpu::nn::train` 15 passed; loss device 347.652154 / host 347.652157, Adam 347.6522 → 307.0150, identical before and after. Control: `ds_post` reads `w` for `m` → red |
+
 ### Negative controls
 
 Dropping `s_pre` in `NqFactor::weight` in a throwaway copy turns

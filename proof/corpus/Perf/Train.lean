@@ -538,4 +538,27 @@ theorem nqReference_missesBars :
     10 * nqRefAccE4 < 9 * q4kmAccE4 := by
   decide
 
+/-- The device block tune for Qwen3 (P132). The ungated softmax face on the device layer forward:
+relative error of the layer output against the CPU engine at layer 0 and of the attention output at
+layer 3 of Qwen3-0.6B-Base, 512 columns, in units of 1e-5, under the 3e-2 bound; the control (mode bit
+2 dropped) is above it. The step of `BlockTune` (o/gate/up/down, `T = 2048`) measures 73.8 ms against
+a GEMM floor of 7.7 ms, and the reference block loop runs about 2.9e5 token-passes per second against
+our 2.77e4. Grade `measured`; the slot refactor's tape identity is `tested`. -/
+def q3LayerOutErrE5 : Nat := 1556
+def q3AttnOutErrE5 : Nat := 2475
+def q3LayerBoundE5 : Nat := 3000
+def q3ControlErrE5 : Nat := 97230
+def blockStepMicro : Nat := 73800
+def blockFloorMicro : Nat := 7700
+def refTokPerS : Nat := 290000
+def ourTokPerS : Nat := 27700
+
+theorem qwen3BlockTune_fit :
+    q3LayerOutErrE5 < q3LayerBoundE5 ∧
+    q3AttnOutErrE5 < q3LayerBoundE5 ∧
+    q3LayerBoundE5 < q3ControlErrE5 ∧
+    9 * blockFloorMicro < blockStepMicro ∧
+    10 * ourTokPerS < refTokPerS := by
+  decide
+
 end Perf.Train

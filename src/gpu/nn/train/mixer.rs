@@ -3,8 +3,15 @@
 //! block fit reads, the mixer output (`TAP_ATTN_OUT`, the o-projection input) and the layer output.
 //!
 //! `n1 = rmsnorm(x, g1)`; the mixer's input projections of `n1`; the mixer
-//! ([`DELTA_SCAN_SPV`] for a Gated `DeltaNet` layer, [`ATTN_MAP_SPV`] for a gated softmax layer) to
-//! `ao`; `h = x + ao·Woᵀ`; `n2 = rmsnorm(h, g2)`; `y = h + (silu(n2·Wgᵀ) ⊙ n2·Wuᵀ)·Wdᵀ`.
+//! ([`DELTA_SCAN_SPV`] for a gated `DeltaNet` layer, [`ATTN_MAP_SPV`] for a softmax layer) to `ao`;
+//! `h = x + ao·Woᵀ`; `n2 = rmsnorm(h, g2)`; `y = h + (silu(n2·Wgᵀ) ⊙ n2·Wuᵀ)·Wdᵀ`.
+//!
+//! The softmax mixer has two faces, chosen by the engine's `attn_gate`. Gated (Qwen3.5): `attn_q` is
+//! `[q | gate]` per head and the attention output is scaled by `sigmoid(gate)`. Ungated (Qwen3):
+//! `attn_q` is `q` alone and there is no output gate, which is bit 2 of the shader's `mode` word
+//! (`src/gpu/spirv/train/attn_map.comp:41`) — Qwen3 attention as
+//! `transformers/models/qwen3/modeling_qwen3.py:200-201` computes it (q and k RMS-normalised over the
+//! head dimension, then RoPE, no gate).
 //!
 //! # Evidence grade
 //!
@@ -53,8 +60,10 @@ pub enum Mixer {
         conv: Vec<f32>,
         par: Vec<f32>,
     },
-    /// Gated softmax attention: `nh` query heads, `nkv` key heads, `hd` wide, `rot` rotated dims at
-    /// base `theta`; `gains` = `[q gains (hd) | k gains (hd)]`.
+    /// Softmax attention: `nh` query heads, `nkv` key heads, `hd` wide, `rot` rotated dims at base
+    /// `theta`; `gains` = `[q gains (hd) | k gains (hd)]`. `gated`: `attn_q` carries `[q | gate]`
+    /// per head and the output is scaled by `sigmoid(gate)`; when false `attn_q` is `q` alone and
+    /// there is no gate (Qwen3, bit 2 of the `mode` word, `src/gpu/spirv/train/attn_map.comp:41`).
     Softmax {
         nh: usize,
         nkv: usize,
@@ -62,6 +71,7 @@ pub enum Mixer {
         rot: usize,
         theta: f32,
         gains: Vec<f32>,
+        gated: bool,
     },
 }
 
@@ -173,9 +183,6 @@ impl LayerHost {
                             ModelError::Missing(format!("blk.{l} qk norm"))
                         })?));
                 }
-                if !ec.attn_gate {
-                    return Err(ModelError::Shape(format!("blk.{l}: ungated attention")));
-                }
                 let (nh, hd) = (cfg.n_head, cfg.head_dim);
                 (
                     Mixer::Softmax {
@@ -185,6 +192,7 @@ impl LayerHost {
                         rot: ec.rot_dims,
                         theta: cfg.rope_theta as f32,
                         gains,
+                        gated: ec.attn_gate,
                     },
                     vec![(rows(0), w(0)), (rows(1), w(1)), (rows(2), w(2))],
                     w(3),
@@ -376,15 +384,22 @@ impl LayerFwd {
                 hd,
                 rot,
                 theta,
+                gated,
                 ..
             } => {
                 assert!(*hd <= 256 && nh % nkv == 0, "attn_map geometry");
+                let qrows = nh * hd * if *gated { 2 } else { 1 };
+                assert_eq!(wp[0].0, qrows, "attn_q rows");
                 let gn = extra[0];
-                let (q, gate, k) = (dev(t * nh * hd), dev(t * nh * hd), dev(t * nkv * hd));
+                // The gate is read and written only when gated; ungated, one word keeps binding 5
+                // valid without a `t·nh·hd` buffer the shader never touches.
+                let gate = if *gated { dev(t * nh * hd) } else { dev(1) };
+                let (q, k) = (dev(t * nh * hd), dev(t * nkv * hd));
                 let bufs = [pb[0], pb[1], gn, q, gate, k, pb[2], ao];
+                let flag = if *gated { 0u32 } else { 4 };
                 for (mode, wg, name) in [
-                    (0u32, t * (nh + nkv), "attn_prep"),
-                    (1u32, chunks * nh * n_ctx, "attn_attend"),
+                    (flag, t * (nh + nkv), "attn_prep"),
+                    (1 | flag, chunks * nh * n_ctx, "attn_attend"),
                 ] {
                     let meta = [
                         mode,
