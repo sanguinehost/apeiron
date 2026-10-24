@@ -1,0 +1,168 @@
+#version 460
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_EXT_bfloat16 : require
+#extension GL_EXT_control_flow_attributes : require
+
+// Cooperative-matrix (tensor-core) training GEMM for the dense layer: `C[m][n] = sum_k A[m][k] B[k][n]`
+// with bf16 fragment operands and an f32 accumulator (the device lists `bf16*bf16 -> f32` M16N16K16
+// at subgroup scope), f32 buffers in and out. The three products of the layer are one emitted body
+// with three operand descriptions, as `simt_nn::fwd::lin::tiled_gemm`:
+//
+//   forward      A = x[m][k]   (k inner)   B = w[n][k]  (k inner)
+//   input adjoint A = dy[m][k] (k inner)   B = w[k][n]  (n inner)
+//   weight adjoint A = dy[k][m] (m inner)  B = x[k][n]  (n inner)
+//
+// ACOL/BCOL name the operand's memory order: 0 = [row][k] (RowMajor fragment load), 1 = [k][row]
+// (ColumnMajor). The staging loop therefore always reads the operand's *contiguous* global
+// dimension as a vec4 and writes the shared tile linearly, and no transpose kernel exists.
+//
+// Tile: one workgroup owns BM rows x BN cols; SGM x SGN = 4 subgroups, each WM x WN M16N16K16
+// fragments held in registers across the whole reduction; BK-wide operand slices staged in shared
+// per barrier pair (two 16-wide fragment steps). Shared: 2 x BM x BK bf16 halves = 8 KB.
+//
+// Preconditions: ROWS % BM == 0, COLS % BN == 0, KD % BK == 0 (the Rust builder asserts them);
+// RSA/RSB are the operands' row strides in f32 words and every staged read is 16-byte aligned.
+// Dispatch (ROWS/BM * COLS/BN, 1, 1).
+
+#define BM 64
+#define BN 64
+#define BK 32
+#define SGM 2
+#define SGN 2
+#define WM (BM / 16 / SGM)
+#define WN (BN / 16 / SGN)
+#define NT (32 * SGM * SGN)
+// shared tile sizes in bf16vec4 units: A is BM*BK halves, B is BK*BN halves
+#define SA4 ((BM * BK / 4))
+#define SB4 ((BK * BN / 4))
+
+layout(local_size_x = NT, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint COLS = 1024;
+layout(constant_id = 1) const uint KD = 1024;
+layout(constant_id = 2) const uint RSA = 1024;
+layout(constant_id = 3) const uint RSB = 1024;
+layout(constant_id = 4) const uint ACOL = 0;
+layout(constant_id = 5) const uint BCOL = 0;
+
+layout(set = 0, binding = 0, std430) readonly buffer A_ { vec4 a4[]; };
+layout(set = 0, binding = 1, std430) readonly buffer B_ { vec4 b4[]; };
+layout(set = 0, binding = 2, std430) writeonly buffer O_ { vec4 o4[]; };
+
+shared bf16vec4 sA[SA4];
+shared bf16vec4 sB[SB4];
+
+#define FRAG_F coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+#define FRAG_A coopmat<bfloat16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA>
+#define FRAG_B coopmat<bfloat16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB>
+
+// the two operand orders, each a literal layout operand (OpCooperativeMatrixLoadKHR's ColumnMajor
+// operand is a constant; a specialization constant is not one)
+void loadA(inout FRAG_A f, uint off, uint stride) {
+    if (ACOL == 0u) {
+        coopMatLoad(f, sA, off, stride, gl_CooperativeMatrixLayoutRowMajor);
+    } else {
+        coopMatLoad(f, sA, off, stride, gl_CooperativeMatrixLayoutColumnMajor);
+    }
+}
+
+void loadB(inout FRAG_B f, uint off, uint stride) {
+    if (BCOL == 0u) {
+        coopMatLoad(f, sB, off, stride, gl_CooperativeMatrixLayoutRowMajor);
+    } else {
+        coopMatLoad(f, sB, off, stride, gl_CooperativeMatrixLayoutColumnMajor);
+    }
+}
+
+bf16vec4 narrow(vec4 v) {
+    return bf16vec4(bfloat16_t(v.x), bfloat16_t(v.y), bfloat16_t(v.z), bfloat16_t(v.w));
+}
+
+void main() {
+    const uint tid = gl_LocalInvocationIndex;
+    const uint sg = tid >> 5u;
+    const uint gid = gl_WorkGroupID.x;
+    const uint tiles_c = (COLS + BN - 1u) / BN;
+    const uint tr = gid / tiles_c;
+    const uint tc = gid - tr * tiles_c;
+    const uint mbase = tr * BM;
+    const uint nbase = tc * BN;
+    const uint sgr = sg / SGN;
+    const uint sgc = sg - sgr * SGN;
+    // shared row stride, in bf16vec4 units: a [row][k] tile is BK/4 wide, a [k][row] tile BM/4 or BN/4
+    const uint SSA = (ACOL == 0u) ? (BK / 4u) : (BM / 4u);
+    const uint SSB = (BCOL == 0u) ? (BN / 4u) : (BK / 4u);
+
+    FRAG_F acc[WM * WN];
+    [[unroll]] for (uint f = 0u; f < WM * WN; ++f) {
+        acc[f] = FRAG_F(0.0);
+    }
+
+    for (uint k0 = 0u; k0 < KD; k0 += BK) {
+        barrier();
+        // A tile: idx is the linear bf16vec4 index of the shared tile, so the shared write is
+        // conflict-free and the global read is one contiguous vec4 of the operand's inner dimension
+        [[unroll]] for (uint it = 0u; it < SA4 / NT; ++it) {
+            const uint idx = tid + it * NT;
+            uint base;
+            if (ACOL == 0u) {
+                const uint m = idx / (BK / 4u);
+                const uint kv = idx - m * (BK / 4u);
+                base = (mbase + m) * RSA + k0 + kv * 4u;
+            } else {
+                const uint k = idx / (BM / 4u);
+                const uint mv = idx - k * (BM / 4u);
+                base = (k0 + k) * RSA + mbase + mv * 4u;
+            }
+            sA[idx] = narrow(a4[base / 4u]);
+        }
+        [[unroll]] for (uint it = 0u; it < SB4 / NT; ++it) {
+            const uint idx = tid + it * NT;
+            uint base;
+            if (BCOL == 0u) {
+                const uint k = idx / (BN / 4u);
+                const uint nv = idx - k * (BN / 4u);
+                base = (k0 + k) * RSB + nbase + nv * 4u;
+            } else {
+                const uint n = idx / (BK / 4u);
+                const uint kv = idx - n * (BK / 4u);
+                base = (nbase + n) * RSB + k0 + kv * 4u;
+            }
+            sB[idx] = narrow(b4[base / 4u]);
+        }
+        barrier();
+
+        [[unroll]] for (uint kk = 0u; kk < BK / 16u; ++kk) {
+            FRAG_A fa[WM];
+            [[unroll]] for (uint i = 0u; i < WM; ++i) {
+                const uint ml = sgr * (16u * WM) + i * 16u;
+                const uint off = (ACOL == 0u) ? (ml * SSA + kk * 4u) : (kk * 16u * SSA + ml / 4u);
+                loadA(fa[i], off, SSA);
+            }
+            FRAG_B fb[WN];
+            [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                const uint nl = sgc * (16u * WN) + j * 16u;
+                const uint off = (BCOL == 0u) ? (kk * 16u * SSB + nl / 4u) : (nl * SSB + kk * 4u);
+                loadB(fb[j], off, SSB);
+            }
+            [[unroll]] for (uint i = 0u; i < WM; ++i) {
+                [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                    acc[i * WN + j] = coopMatMulAdd(fa[i], fb[j], acc[i * WN + j]);
+                }
+            }
+        }
+    }
+
+    // store: the output is [row][col] f32, one row = COLS/4 bf16vec4-equivalent vec4s
+    const uint OSS = COLS / 4u;
+    [[unroll]] for (uint i = 0u; i < WM; ++i) {
+        const uint mo = mbase + sgr * (16u * WM) + i * 16u;
+        [[unroll]] for (uint j = 0u; j < WN; ++j) {
+            const uint no = nbase + sgc * (16u * WN) + j * 16u;
+            coopMatStore(acc[i * WN + j], o4, mo * OSS + no / 4u, OSS,
+                         gl_CooperativeMatrixLayoutRowMajor);
+        }
+    }
+}
