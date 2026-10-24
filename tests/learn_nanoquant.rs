@@ -746,7 +746,10 @@ fn nq_sketch_share() {
 /// tensor in place, which must reproduce the teacher byte-for-byte; otherwise each layer `l` reads
 /// `{cache}/l{l}.{kind}-nq{tag}.i64` for `down`, `o`, `up`, `gate` (`tag` = [`factor_tag`]), asserts
 /// the shape `nq_fit` fitted against and fails naming a missing file. `Q`/`K`/`V`, the norms and
-/// the embeddings stay the teacher's.
+/// the embeddings stay the teacher's. `APEIRON_NQ_KINDS` (comma list of `down`, `o`, `up`, `gate`;
+/// unset = all four) restricts the splice to the named kinds, skips the rest without reading their
+/// files, and panics on a name outside that set. The kind restriction separates a splice defect
+/// from compounding damage in .
 ///
 /// # Complexity
 /// Time and space `O(2·W)` for the `W`-weight teacher: one decode of `W` into `Q32.32` words, one
@@ -754,10 +757,22 @@ fn nq_sketch_share() {
 #[test]
 #[ignore = "opens the teacher and re-encodes the whole model; run explicitly"]
 fn nq_student() {
+    const ALL: [&str; 4] = ["down", "o", "up", "gate"];
     let t = Instant::now();
     let (model, cache, tag) = (model_path(), cache_dir(), factor_tag());
     let out = std::env::var("APEIRON_NQ_OUT").expect("APEIRON_NQ_OUT");
     let splice = !matches!(std::env::var("APEIRON_NQ_SPLICE").as_deref(), Ok("none"));
+    let wanted: Vec<String> = match std::env::var("APEIRON_NQ_KINDS") {
+        Ok(list) => list
+            .split(',')
+            .map(|k| {
+                let k = k.trim();
+                assert!(ALL.contains(&k), "APEIRON_NQ_KINDS: unknown kind {k:?}");
+                String::from(k)
+            })
+            .collect(),
+        Err(_) => ALL.iter().map(|k| String::from(*k)).collect(),
+    };
     let engine = Engine::open(&model).expect("open teacher");
     let (mut w, cfg) = Weights::from_engine(&engine).expect("student weights");
     let mut spliced = 0usize;
@@ -771,6 +786,9 @@ fn nq_student() {
         for l in 0..cfg.n_layer {
             let ll = layer_from_engine(&engine, &cfg, l).expect("layer linears");
             for (kind, names) in kinds {
+                if !wanted.iter().any(|k| k.as_str() == kind) {
+                    continue;
+                }
                 let lin = ll
                     .linears
                     .iter()
