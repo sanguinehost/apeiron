@@ -1541,6 +1541,7 @@ import Gpu.Handoff
 #audit Perf.Train.trainCoopGemm_fit
 #audit Perf.Train.refTuneStep_fit
 #audit Perf.Train.blockLoopDrive_fit
+#audit Perf.Train.attnBwdTile_fit
 #audit Perf.Handoff.align256_eq
 #audit Perf.Handoff.writeChunk_le_cap
 #audit Perf.Handoff.writeChunk_le_remaining
