@@ -24,8 +24,8 @@ use apeiron::format::bpe::Bpe;
 use apeiron::learn::grad::load::layer_from_engine;
 use apeiron::learn::grad::model::Config;
 use apeiron::learn::nanoquant::{
-    factorize, h_sketch, rank_for_bits, stored_bits, tune, tune_sketch, NqConfig, NqFactor,
-    Schedule, TuneConfig,
+    factorize, factorize_floor, h_sketch, rank_for_bits, stored_bits, tune, tune_sketch, NqConfig,
+    NqFactor, Schedule, TuneConfig,
 };
 use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 
@@ -238,6 +238,39 @@ fn latents_carry_the_signs_and_tune_lowers_the_h_energy() {
     );
     assert!(f.u.iter().chain(&f.v).all(|&s| s == 1 || s == -1));
     assert_ne!(before, f.weight().expect("weight"));
+}
+
+/// A coordinate dead in the calibration Gram: `diag = 0` exactly, as `Qwen3-0.6B-Base` layer 0
+/// `gate_up` has at index 1 (its neighbours 2.2, 2.0, 1.7). At `EPS = 1e-12` the scaled column is
+/// `1e-12` of the others and the limb kernel refuses it (`LimbError::Range`); the relative floor
+/// keeps the column inside the block-exponent range. The coordinate is dead, so it carries no
+/// weight in `tr(EHEᵀ)`.
+#[test]
+fn dead_gram_coordinate_does_not_refuse() {
+    let (o, n, r) = (96, 64, 32);
+    let w = words(&gauss(o * n, 7, 0.05));
+    let h = gram(n, 256, 5);
+    let mut i_norm: Vec<f64> = (0..n).map(|i| from_grid(h[i * n + i])).collect();
+    i_norm[1] = 0.0;
+    let cfg = NqConfig {
+        outer_iters: 40,
+        ..NqConfig::reference(r)
+    };
+    let f = factorize(&w, o, n, &i_norm, &vec![1.0; o], &cfg).expect("a dead coordinate fits");
+    let wq = f.weight().expect("weight");
+    let hf: Vec<f64> = h.iter().map(|&x| from_grid(x)).collect();
+    let wf: Vec<f64> = w.iter().map(|&x| from_grid(x)).collect();
+    let e: Vec<f64> = wq
+        .iter()
+        .zip(&w)
+        .map(|(&q, &x)| from_grid(q) - from_grid(x))
+        .collect();
+    let rel = energy(&hf, &e, o, n) / energy(&hf, &wf, o, n);
+    assert!(
+        f.admm_loss.is_finite() && rel.is_finite() && rel < 1.0,
+        "admm_loss {} relH {rel}",
+        f.admm_loss
+    );
 }
 
 /// At `s = n` the sketch spans the input space, `Q·H_s·Qᵀ = H`, and [`tune_sketch`] is [`tune`] in
@@ -495,7 +528,8 @@ fn cmp_line(
 /// `APEIRON_NQ_MODEL` the teacher and `APEIRON_NQ_CACHE` the directory both are read from. The
 /// factor is saved to `l{l}.{kind}-nq{tag}.nqf`; `APEIRON_NQ_FROM=<tag>` loads that factor in
 /// place of the ADMM. `APEIRON_NQ_TUNE_STEPS` (0) runs [`tune`] at `APEIRON_NQ_TUNE_LR` and
-/// `APEIRON_NQ_TUNE_LR_SCALE` (both `1e-5`). `i_norm = diag(H)` of the cached `g{l}.c6x29.*` Gram (the reference's unclipped `dbf` statistic up to a constant, to which the
+/// `APEIRON_NQ_TUNE_LR_SCALE` (both `1e-5`). `APEIRON_NQ_FLOOR` sets the preconditioner floor of
+/// [`factorize_floor`] (unset: [`factorize`]'s own). `i_norm = diag(H)` of the cached `g{l}.c6x29.*` Gram (the reference's unclipped `dbf` statistic up to a constant, to which the
 /// ADMM is equivariant); `o_norm = 1`. Prints the ADMM loss and the relative `H`-energy
 /// `tr(EHEᵀ)/tr(WHWᵀ)` of the fit and of the cached same-scope `Q4_K_M` part.
 #[test]
@@ -565,7 +599,21 @@ fn nq_fit() {
                 let t = Instant::now();
                 let mut f = match &from {
                     Some(ft) => load_factor(&format!("{cache}/l{l}.{kind}-nq{ft}.nqf")),
-                    None => factorize(&lin.w, o, n, &i_norm, &vec![1.0; o], &c).expect("factorize"),
+                    None => match std::env::var("APEIRON_NQ_FLOOR") {
+                        Ok(fl) => factorize_floor(
+                            &lin.w,
+                            o,
+                            n,
+                            &i_norm,
+                            &vec![1.0; o],
+                            &c,
+                            fl.parse().expect("floor"),
+                        )
+                        .expect("factorize"),
+                        Err(_) => {
+                            factorize(&lin.w, o, n, &i_norm, &vec![1.0; o], &c).expect("factorize")
+                        }
+                    },
                 };
                 let fit_s = t.elapsed().as_secs_f64();
                 let mut tune_line = String::new();
