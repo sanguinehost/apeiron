@@ -524,4 +524,18 @@ theorem ungatedAttn_fit :
     ungatedDqfErrNano < ungatedBoundNano := by
   decide
 
+/-- Same-harness reference arms on Qwen3-0.6B-Base (NanoQuant `evaluate_model`: wikitext-2 perplexity
+and the mean of six 0-shot accuracies), in units of 1e-4 (accuracy) and 1e-3 (perplexity); P131.
+Grade `measured`. NanoQuant as shipped at 1.18 b/w misses both bars against Q4_K_M: perplexity
+above 1.10 x and accuracy below 0.90 x. -/
+def q4kmPplMilli : Nat := 13763
+def nqRefPplMilli : Nat := 24332
+def q4kmAccE4 : Nat := 5556
+def nqRefAccE4 : Nat := 4235
+
+theorem nqReference_missesBars :
+    10 * nqRefPplMilli > 11 * q4kmPplMilli ∧
+    10 * nqRefAccE4 < 9 * q4kmAccE4 := by
+  decide
+
 end Perf.Train
