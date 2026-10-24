@@ -43,6 +43,17 @@ in full; this section is how they bind here.
 - **Quantisation follows the same steps.** Step 2 is the SOTA's own pipeline, run as shipped on our
   proxy model, with its number recorded beside ours in the same run. Our port changes nothing until
   that comparison exists. A lane whose base the measured winner does not pay for is a tax (§3a).
+- **The reference's compiled output is saved and cited before a port brief is written.** Owner,
+  2026-10-25: "stop fucking guessing. Get the references LLVM, SAVE IT, USE IT".
+  - Saved: the profiler trace of the executed kernels (name, count, grid, registers), and the
+    SASS/PTX of exactly those kernels from the reference's own binaries. Also every
+    optimiser or fused-op source the trace names, kept under `/home/socol/oc-tmp/nq-ref/<stage>/llvm/`
+    with a `MANIFEST.txt` of sha256 digests.
+  - A port brief cites that path and digest per stage, and states each stage's load, accumulate
+    and store precision as read from the SASS (e.g. `HMMA.16816.F32.BF16`, `F2FP.BF16.F32.PACK_AB`).
+  - A tolerance is derived from those precisions, or measured as the reference's own
+    run-to-run spread. A tolerance or expected figure with neither derivation is a guess, and the
+    brief is refused.
 
 Apeiron owns the canonical definitions, the reusable Rust primitives and their refinements. The
 programme thesis, ownership, outcomes, primitive correspondence, migration and execution order are
@@ -916,6 +927,7 @@ evidence within budget on named source/tool identities, and retains exclusions a
 | Worker routing had four sources that disagreed. The antigravity plugin's SessionStart notice, the owner layer's §Capacity rules and §9.1 here sent bounded work to agy or a Haiku subagent. §3b sent it to DeepSeek through the intent MCP, the route the owner uses | `/home/socol/oc-tmp/escalation/lead-1024/owner-AGENTS.before.md` §Capacity; `git show 50c348ce:AGENTS.md` §9.1; owner, 2026-10-24: "We don't use agy we use deepseek w/ intent MCP dogfooding it. That itself is an example of this shit sucking" | One routing statement: owner layer §Capacity, restated in §3b and §9.1 here. A plugin notice routes nothing | `rg -n 'agy' ../*/AGENTS.md` returns no routing row | The plugin notice stays on until the owner turns off its `coding_policy`; no gate compares the routing statements across files |
 | Rules were saved in one Claude session's auto-memory (`~/.claude/projects/*/memory/`). DeepSeek, Gemini and Codex workers never read it, nor do sessions in other repositories; song alone held 175 memory files | `ls ~/.claude/projects/*/memory/`; owner, 2026-10-24, on the goal saved as a memory: "virtually useless" | A rule lives in an `AGENTS.md`, the one file every agent is delivered (§1). Memory holds facts about the owner and pointers to references (owner layer §Owner) | None mechanical | A check that refuses a rule written into a memory file |
 | Quality predictions were refuted at the overall rate, 43% against 42%, and 39% of all predictions were withdrawn untested. A refutation was recorded as a verdict and refitted nothing, and each change was judged by a whole-trunk run (236 s at `50c348ce`), not by a check of ≤ 30 s | derivation gate `status` (556 rows, 2026-10-24); `/home/socol/oc-tmp/escalation/lead-1024/root-cause.md` RC4, RC5 | A refuted prediction refits the model that made it, in the same commit. A quantisation change is screened by a per-tensor predictor of system KL before a trunk run | Prediction ledger with verdicts | The per-tensor system-KL predictor, fitted from the measured runs, with its hit rate on the ledger |
+| An f16 operand underflowed in the attention backward. The KD step's `max|dA|` is 5.5e-5 to 1.3e-4, under the f16 least normal 6.1e-5, so `dS` fed to the f16 cooperative matrix was subnormal or zero. The scale gradients sat at cosine 0.853 of the reference while every unit test on unit-scale `dy` stayed green | `/home/socol/oc-tmp/nq-ref/kd/receipts/kd-f16-emu.txt`, `attn-bwd-small-dy-red.log`; `docs/evidence/perf-predictions.md` P142 (board `APEIRON-QUALITY-118-W1-T01`) | A port's operand precision is checked against the reference's SASS at the operand magnitudes of the production step, not at unit scale. A narrower operand format than the reference's (f16 against `HMMA.1688.F32.BF16`) carries a measured range argument or a prescale | `attn_bwd_device_matches_ref_ungated_small_dy` (dqf 1.222e-2 red without the prescale, 5.165e-4 with it, bound 5e-3); the per-KV-group power-of-two prescale in `src/gpu/spirv/train/attn_map_bwd.comp` | No check compares each port kernel's operand formats and magnitude range with the reference SASS |
 
 ## 11 · Tool recipes and standing owner rules
 
