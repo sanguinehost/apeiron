@@ -46,6 +46,7 @@ pub mod attn_bwd;
 pub mod block;
 #[cfg(test)]
 mod block_mask;
+pub mod chain;
 pub mod front;
 pub mod mixer;
 pub mod slot;
