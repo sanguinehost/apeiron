@@ -56,7 +56,7 @@ use crate::gpu::vulkan::*;
 use super::attn_bwd::{tape, AttnBwdShape};
 use super::block::{download, host_buffer, stream_buffer, upload, HostBuffer, HostFactor};
 use super::mixer::ATTN_MAP_SPV;
-use super::slot::{q32, upload_dense, upload_factor, Factor};
+use super::slot::{q32, record_factor_swap, upload_dense, upload_factor, Factor};
 
 const MAX_GROUPS_X: usize = 65_535;
 
@@ -642,6 +642,45 @@ impl FrontTune {
         self.put(g, self.g1, g1);
         self.put(g, self.gn, gn);
         self.step_no = 0;
+    }
+
+    /// Record into `cb` the device form of [`FrontTune::load`]: the three factors and the gains
+    /// `g1`, `gn` copied from `store` at word `at` onward, every moment zeroed, the step count
+    /// restarted. Returns the word after the front's image.
+    ///
+    /// # Safety
+    ///
+    /// `store` holds the image from `at`; `cb` is recording and no tape is pending.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; `O(Σ (out + inn)·(rank + 1) + d)` words moved on the device.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "word offsets index a u64 byte offset"
+    )]
+    pub(super) unsafe fn record_swap(
+        &mut self,
+        vk: &Vk,
+        cb: CommandBuffer,
+        store: Handle,
+        at: usize,
+    ) -> usize {
+        let mut at = at;
+        for k in 0..3 {
+            at = record_factor_swap(vk, cb, store, at, &self.factors[k], &self.moments[k]);
+        }
+        for (dst, n) in [(self.g1, self.shape.d), (self.gn, 2 * self.shape.hd)] {
+            let region = BufferCopy {
+                src_offset: (at * 4) as u64,
+                dst_offset: 0,
+                size: (n * 4) as u64,
+            };
+            (vk.copy_buffer)(cb, store, dst, 1, &region);
+            at += n;
+        }
+        self.step_no = 0;
+        at
     }
 
     /// Put slot `k`'s factor and zero its four moment pairs.

@@ -665,6 +665,64 @@ fn kd_step0_golden() {
     finish();
 }
 
+/// One layer's trainer, its three phases timed alone: the factor load `KdTrain::use_layer` makes,
+/// the forward and the backward, each a synchronous submission, eight reps after one warm rep.
+#[test]
+#[ignore = "measurement: opens the device and the teacher"]
+fn kd_layer_wall() {
+    let engine = Engine::open(MODEL).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let (t, d) = (2048, cfg.n_embd);
+    let rk = ranks(DUMP);
+    let h = &LayerHost::from_engine(&engine, &cfg, 0).expect("layer host");
+    let (nh, nkv, hd, rot, theta) = match &h.mixer {
+        Mixer::Softmax {
+            nh,
+            nkv,
+            hd,
+            rot,
+            theta,
+            ..
+        } => (*nh, *nkv, *hd, *rot, *theta),
+        Mixer::Affine { .. } => panic!("not a softmax layer"),
+    };
+    let (fs, bs) = shapes_of(t, d, nh, nkv, hd, rot, theta, h.eps, h.a, cfg.n_ff, rk[0]);
+    let p = prep(&engine, &cfg, &env("APEIRON_KD_STUDENT", LOOP));
+    let vk = unsafe { Vk::load() }.expect("vulkan");
+    let (g, _mem) = GpuCtx::new(&vk).expect("gpu ctx");
+    let mut ch = unsafe { ChainLayer::new(&g, fs, bs, 0.0, 0.0, 0.0) };
+    let n = t * d;
+    unsafe { stream_upload(&g, ch.x(), &p.h0[..n]) };
+    unsafe { stream_upload(&g, ch.dy(), &vec![1e-4f32; n]) };
+    let reps = 8;
+    let (mut tl, mut tf, mut tb) = (0f64, 0f64, 0f64);
+    for r in 0..=reps {
+        let lp = &p.pars[r % 2];
+        let t0 = std::time::Instant::now();
+        unsafe { ch.load(&g, &lp.ff, &lp.g1, &lp.gn, &lp.bf, &lp.g2) };
+        let t1 = std::time::Instant::now();
+        unsafe { ch.forward(&g) };
+        let t2 = std::time::Instant::now();
+        unsafe { ch.backward(&g) };
+        let t3 = std::time::Instant::now();
+        if r > 0 {
+            tl += (t1 - t0).as_secs_f64();
+            tf += (t2 - t1).as_secs_f64();
+            tb += (t3 - t2).as_secs_f64();
+        }
+    }
+    let ms = 1e3 / reps as f64;
+    println!(
+        "KD LAYER mean of {reps}: load {:.2} fwd {:.2} bwd {:.2} ms; per step as KdTrain runs it \
+         (56 loads, 56 fwd, 28 bwd) {:.3} s",
+        tl * ms,
+        tf * ms,
+        tb * ms,
+        (56.0 * tl + 56.0 * tf + 28.0 * tb) / reps as f64
+    );
+    finish();
+}
+
 /// Steps 0..5 on our student, the median wall per step split into its four parts.
 #[test]
 #[ignore = "measurement: opens the device and the teacher"]

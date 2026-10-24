@@ -773,4 +773,21 @@ theorem kdStep_fit :
     kdStepLossRelMicro < kdStepLossFloorMicro := by
   decide
 
+/-- The KD layer swap (P143): each layer's 31-piece parameter image lives in its own device buffer
+and enters the two compute slots by `copy_buffer` (`slot.rs` `record_factor_swap`), in place of a
+host repack and upload per use. Steady-state step, mean of 6, in units of 0.1 ms: 53680 before
+(`kd-wall.log`), 22700 after (`kd-swap-wall.log`); the golden step-0 figures are unchanged
+(`kd-swap-golden.log`). The 600 s ceiling over 1024 steps allows 5859 per step and the reference's
+step is 3996, so the step still projects above the ceiling. Grade: `measured`. -/
+def kdSwapBeforeDeciMs : Nat := 53680
+def kdSwapAfterDeciMs : Nat := 22700
+def kdCeilingStepDeciMs : Nat := 5859
+def kdRefWallStepDeciMs : Nat := 3996
+
+theorem kdSwap_wall :
+    kdSwapAfterDeciMs < kdSwapBeforeDeciMs ∧
+    kdCeilingStepDeciMs < kdSwapAfterDeciMs ∧
+    kdRefWallStepDeciMs < kdCeilingStepDeciMs := by
+  decide
+
 end Perf.Train
