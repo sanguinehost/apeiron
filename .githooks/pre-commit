@@ -219,6 +219,14 @@ run_step kernel-route "$step_budget" bash -c "$(declare -f kernel_route); kernel
 # `tools/gate/coverage/roots.rs` is the exact unrooted set and only shrinks: a new product (a
 # second implementation) or a stale row (a body fixed without removing its row) exits 1.
 run_step kernel-roots "$step_budget" cargo run -q --locked --manifest-path tools/gate/Cargo.toml -- roots --check --staged
+# Step 0d, one path (AGENTS.md § Goal, gap and method: one path is king). A port lands as a face of
+# the engine's one kernel for its role, never as a second kernel. `gate onepath --staged` sees every
+# `.comp` and `.spv` under `src/` as well as the Rust: a shader no `[[kernel]]` row in
+# `docs/contracts/one-path.toml` names, a face that is no row's, a product shader outside the two
+# engine rows, and, against `HEAD`, a new refusal, a debt row whose finding `HEAD` did not carry, a
+# grown consumer count and a new product kernel row are each refused. The refusals `HEAD` already
+# carries are the burn-down queue and do not block a commit; a commit that only removes them passes.
+run_step one-path "$step_budget" cargo run -q --locked --manifest-path tools/gate/Cargo.toml -- onepath --check --staged
 run_step board-declaration "$step_budget" python3 -B tools/hooks/lane.py staged
 # The per-cycle checkpoint step is retired with the acceptance harness: it read a reg1
 # acceptance stream from `examples/reg1`, and with the comparison removed there is no such

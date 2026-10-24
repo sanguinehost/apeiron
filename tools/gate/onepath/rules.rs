@@ -1056,8 +1056,8 @@ pub(crate) fn analyse(tree: &Tree, idx: &super::graph::Index, edges: &[Edges]) -
     let bits = propagate(&precise, &seeds);
     let is_fwd = |v: usize| bits[v] == 7;
     let mut forwards = Vec::new();
-    for i in 0..n {
-        if is_src(&tree.fns[i]) && is_fwd(i) && !precise[i].iter().any(|&w| w != i && is_fwd(w)) {
+    for (i, callees) in precise.iter().enumerate() {
+        if is_src(&tree.fns[i]) && is_fwd(i) && !callees.iter().any(|&w| w != i && is_fwd(w)) {
             forwards.push(i);
         }
     }

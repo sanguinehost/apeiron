@@ -3,11 +3,116 @@
 # `[forward] bodies`: the declared minimal forward bodies. Each `[[debt]]` row carries one finding
 # the source still has, the open ticket that removes it, and, for forward/backward/descent, the
 # consumer count. Debt only shrinks: a new finding, a stale row and a moved count are refusals.
+#
+# `[[kernel]]`: the closed role map of the GPU tree, one row per `.comp` under `src/`. `role` is
+# unique; `faces` are the `.spv` files compiled from that `.comp`; `product = true` is a declaration
+# that the shader computes a matrix product or an attention score, which only the engine's own kernel
+# for that role may. A `.comp` no row names, a `.spv` that is no row's face, a row whose file is
+# gone, a duplicated role, and a product shader outside a `product = true` row are each a refusal.
+# A product shader the engine does not hold is carried by a `[[debt]] rule = "shader-product"` row
+# whose `item` is the `.comp` and whose `consumers` is the count of fns embedding its faces.
 
 schema = 1
 
 [forward]
 bodies = ["src/engine/step/cols.rs:Engine::softmax_cols_tap"]
+
+# The engine's two product kernels: pp512 1.795x llama.cpp CUDA (`021ab9d5`).
+[[kernel]]
+role = "gemm"
+comp = "src/gpu/spirv/coopmat_gemm.comp"
+faces = ["src/gpu/spirv/coopmat_gemm.spv"]
+product = true
+
+[[kernel]]
+role = "attention"
+comp = "src/gpu/spirv/attn_coopmat.comp"
+faces = ["src/gpu/spirv/attn_coopmat.spv"]
+product = true
+
+[[kernel]]
+role = "limb-gemm"
+comp = "src/gpu/spirv/limb_gemm.comp"
+faces = ["src/gpu/spirv/limb_gemm.spv"]
+product = false
+
+[[kernel]]
+role = "limb-finish"
+comp = "src/gpu/spirv/limb_finish.comp"
+faces = ["src/gpu/spirv/limb_finish.spv"]
+product = false
+
+[[kernel]]
+role = "limb-place"
+comp = "src/gpu/spirv/limb_place.comp"
+faces = ["src/gpu/spirv/limb_place.spv"]
+product = false
+
+[[kernel]]
+role = "limb-plane"
+comp = "src/gpu/spirv/limb_plane.comp"
+faces = ["src/gpu/spirv/limb_plane.spv"]
+product = false
+
+[[kernel]]
+role = "inv-map"
+comp = "src/gpu/spirv/inv_map.comp"
+faces = ["src/gpu/spirv/inv_map.spv"]
+product = false
+
+[[kernel]]
+role = "rank1-map"
+comp = "src/gpu/spirv/rank1_map.comp"
+faces = ["src/gpu/spirv/rank1_map.spv"]
+product = false
+
+[[kernel]]
+role = "admm-map"
+comp = "src/gpu/spirv/admm_map.comp"
+faces = ["src/gpu/spirv/admm_map.spv"]
+product = false
+
+[[kernel]]
+role = "splitk-reduce"
+comp = "src/gpu/spirv/splitk_reduce.comp"
+faces = ["src/gpu/spirv/splitk_reduce.spv"]
+product = false
+
+[[kernel]]
+role = "attn-map"
+comp = "src/gpu/spirv/train/attn_map.comp"
+faces = ["src/gpu/spirv/train/attn_map.spv"]
+product = false
+
+[[kernel]]
+role = "attn-map-bwd"
+comp = "src/gpu/spirv/train/attn_map_bwd.comp"
+faces = ["src/gpu/spirv/train/attn_map_bwd.spv"]
+product = false
+
+[[kernel]]
+role = "block-map"
+comp = "src/gpu/spirv/train/block_map.comp"
+faces = ["src/gpu/spirv/train/block_map.spv"]
+product = false
+
+[[kernel]]
+role = "delta-bwd"
+comp = "src/gpu/spirv/train/delta_bwd.comp"
+faces = ["src/gpu/spirv/train/delta_bwd.spv"]
+product = false
+
+[[kernel]]
+role = "delta-scan"
+comp = "src/gpu/spirv/train/delta_scan.comp"
+faces = ["src/gpu/spirv/train/delta_scan.spv"]
+product = false
+
+[[kernel]]
+role = "lin-coop"
+comp = "src/gpu/spirv/train/lin_coop.comp"
+faces = ["src/gpu/spirv/train/lin_coop.spv"]
+product = false
 
 [[debt]]
 rule = "product"
@@ -979,3 +1084,48 @@ rule = "forward"
 item = "src/learn/fold/stats/parts.rs:attn_words"
 consumers = 43
 ticket = "APEIRON-QUALITY-118-W1-T01"
+
+# Product shaders the engine's two role kernels do not hold: a second kernel for a role the engine
+# already has, under APEIRON-DEL-GPU-ONE-W1-T01. `consumers` is the count of fns that embed the
+# shader's `.spv` with `include_bytes!`; a second embed site moves it, and a moved count is a refusal.
+[[debt]]
+rule = "shader-product"
+item = "src/gpu/spirv/limb_gemm.comp"
+consumers = 1
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "shader-product"
+item = "src/gpu/spirv/train/attn_map.comp"
+consumers = 1
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "shader-product"
+item = "src/gpu/spirv/train/attn_map_bwd.comp"
+consumers = 1
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "shader-product"
+item = "src/gpu/spirv/train/block_map.comp"
+consumers = 1
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "shader-product"
+item = "src/gpu/spirv/train/delta_bwd.comp"
+consumers = 1
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "shader-product"
+item = "src/gpu/spirv/train/delta_scan.comp"
+consumers = 1
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
+
+[[debt]]
+rule = "shader-product"
+item = "src/gpu/spirv/train/lin_coop.comp"
+consumers = 1
+ticket = "APEIRON-DEL-GPU-ONE-W1-T01"

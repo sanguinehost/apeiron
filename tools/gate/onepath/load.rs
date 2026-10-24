@@ -71,14 +71,30 @@ fn walk(root: &Path, rel: &str, out: &mut Sources) -> Result<(), String> {
 ///
 /// Cost: one `git ls-files` and one `git cat-file --batch`; time O(B) over the B bytes.
 pub(crate) fn staged_sources(root: &Path) -> Result<Sources, String> {
+    git_sources(root, None)
+}
+
+/// Reads every `.rs` file under [`SOURCE_DIRS`] at `HEAD`: the tree the last commit recorded, for
+/// the `--staged` ratchet.
+///
+/// Cost: one `git ls-tree` and one `git cat-file --batch`; time O(B) over the B bytes.
+pub(crate) fn head_sources(root: &Path) -> Result<Sources, String> {
+    git_sources(root, Some("HEAD"))
+}
+
+fn git_sources(root: &Path, rev: Option<&str>) -> Result<Sources, String> {
+    let args: Vec<&str> = match rev {
+        None => vec!["ls-files", "-z", "--cached", "--"],
+        Some(r) => vec!["ls-tree", "-r", "-z", "--name-only", r, "--"],
+    };
     let ls = Command::new("git")
         .current_dir(root)
-        .args(["ls-files", "-z", "--cached", "--"])
+        .args(&args)
         .args(SOURCE_DIRS)
         .output()
-        .map_err(|e| format!("git ls-files: {e}"))?;
+        .map_err(|e| format!("git {}: {e}", args[0]))?;
     if !ls.status.success() {
-        return Err(format!("git ls-files exited {}", ls.status));
+        return Err(format!("git {} exited {}", args[0], ls.status));
     }
     let paths: Vec<String> = ls
         .stdout
@@ -95,9 +111,10 @@ pub(crate) fn staged_sources(root: &Path) -> Result<Sources, String> {
         .map_err(|e| format!("git cat-file: {e}"))?;
     let mut request = String::new();
     for p in &paths {
-        request.push(':');
-        request.push_str(p);
-        request.push('\n');
+        match rev {
+            Some(r) => request.push_str(&format!("{r}:{p}\n")),
+            None => request.push_str(&format!(":{p}\n")),
+        }
     }
     let mut stdin = child.stdin.take().ok_or("git cat-file: no stdin")?;
     let writer = std::thread::spawn(move || {
@@ -521,7 +538,13 @@ impl Tree {
     /// arguments, enum discriminants) as a root node. rustc's `dead_code` lint, under
     /// `clippy -D warnings`, already refuses an unused private type; a type is not a node of the
     /// call graph, so the consts its layout names are reached from here.
-    fn push_type_consts(&mut self, ctx: &Ctx, attrs: &[syn::Attribute], ident: &syn::Ident, item: &syn::Item) {
+    fn push_type_consts(
+        &mut self,
+        ctx: &Ctx,
+        attrs: &[syn::Attribute],
+        ident: &syn::Ident,
+        item: &syn::Item,
+    ) {
         let mut c = TypeConsts(Vec::new());
         syn::visit::Visit::visit_item(&mut c, item);
         if c.0.is_empty() {
@@ -546,7 +569,11 @@ impl Tree {
             sig,
             body: syn::Block {
                 brace_token: Default::default(),
-                stmts: c.0.into_iter().map(|e| syn::Stmt::Expr(e, Some(Default::default()))).collect(),
+                stmts: c
+                    .0
+                    .into_iter()
+                    .map(|e| syn::Stmt::Expr(e, Some(Default::default())))
+                    .collect(),
             },
         });
     }
