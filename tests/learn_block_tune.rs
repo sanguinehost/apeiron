@@ -799,7 +799,9 @@ fn save_params(dir: &str, p: &Params) {
     }
 }
 
-fn load_params(dir: &str) -> Params {
+/// A still-dense slot keeps [`teacher_params`]' placeholder factor at its shape and rank: the
+/// tuners' `load` uploads all four factors and asserts each shape.
+fn load_params(dir: &str, fs: FrontShape, bs: BlockShape) -> Params {
     let mut p = Params {
         fd: [false; 3],
         bd: [false; 4],
@@ -807,8 +809,14 @@ fn load_params(dir: &str) -> Params {
         bdims: [(0, 0); 4],
         fw: [Vec::new(), Vec::new(), Vec::new()],
         bw: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
-        ff: [(); 3].map(|()| ones_factor(0, 0, 0)),
-        bf: [(); 4].map(|()| ones_factor(0, 0, 0)),
+        ff: [0, 1, 2].map(|k| {
+            let (o, i) = fs.dims(k);
+            ones_factor(o, i, fs.ranks[k])
+        }),
+        bf: [0, 1, 2, 3].map(|k| {
+            let (o, i) = bs.dims(k);
+            ones_factor(o, i, bs.ranks[k])
+        }),
     };
     for k in 0..3 {
         match load_param(&format!("{dir}/{}.param", FRONT_KEYS[k])) {
@@ -1144,7 +1152,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
         std::fs::create_dir_all(&dir_l).expect("block dir");
         let resume = load_state(&dir_l);
         let (mut cur, mut cph, mut p) = if let Some((si, ph, fd, bd)) = resume {
-            let mut p = load_params(&dir_l);
+            let mut p = load_params(&dir_l, fs, bs);
             p.fd = fd;
             p.bd = bd;
             println!("BT l{l:02} resume at slot {si} phase {ph}");
