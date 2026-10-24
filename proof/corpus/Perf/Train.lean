@@ -483,4 +483,32 @@ theorem attnBwd_fit :
     5 * attnFwdMicros * attnBwdMatmuls ≤ 2 * attnBwdMicros * attnFwdMatmuls := by
   decide
 
+/-! ## Device-resident block-tune streams (P129)
+
+`src/gpu/nn/train/block.rs` `Stream`, `chunk_into`, `chunk_from`, `BlockTune::set_cols`,
+`src/gpu/nn/train/mixer.rs` `LayerFwd::run_dev`: the activation, teacher and target streams of one
+layer live on the device, and each step copies its chunks device to device inside the step's own
+command buffer, one `submit_wait` per step. Units: hundredths of a second per layer, layer 0, mean of
+3 runs, base 78de1af2 against the installed tree (`lead-1024/r/live-ga.log`, lane attribution). -/
+
+/-- Host/device transfer terms of one layer before and after (gather, upload memcpy and submit,
+forward download submit and memcpy, scatter, loss read). Grade `measured`. -/
+def residentTransferBefore : Nat := 1440
+def residentTransferAfter : Nat := 58
+
+/-- Whole per-layer wall before and after; the ADMM term is not in this ledger. Grade `measured`. -/
+def residentLayerBefore : Nat := 6230
+def residentLayerAfter : Nat := 4050
+
+/-- The registered layer wall of about 32 s is refuted: the measured 40.5 s keeps the tape's own
+29 ms per step, so the excess over the prediction is compute, not transfer. The transfer term falls
+at least 20-fold and the layer wall falls by at least a third. Output identity (32 of 32 factor
+files, both state files) is `tested`, not proved. -/
+theorem residentStreams_fit :
+    20 * residentTransferAfter ≤ residentTransferBefore ∧
+    residentLayerAfter < residentLayerBefore ∧
+    3 * residentLayerAfter ≤ 2 * residentLayerBefore ∧
+    3200 < residentLayerAfter := by
+  decide
+
 end Perf.Train

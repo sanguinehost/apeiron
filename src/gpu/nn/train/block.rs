@@ -82,6 +82,26 @@ pub(super) unsafe fn upload(
     dst: Handle,
     data: &[f32],
 ) {
+    upload_at(g, cb, stage, dst, 0, data);
+}
+
+/// [`upload`] into `dst` at word offset `at`.
+///
+/// # Safety
+///
+/// `dst` holds at least `at + data.len()` f32; `cb` is not pending.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "word offsets index a u64 byte offset"
+)]
+pub(super) unsafe fn upload_at(
+    g: &GpuCtx,
+    cb: CommandBuffer,
+    stage: &HostBuffer,
+    dst: Handle,
+    at: usize,
+    data: &[f32],
+) {
     assert!(data.len() <= stage.n, "upload: {} words", data.len());
     std::ptr::copy_nonoverlapping(data.as_ptr(), stage.ptr, data.len());
     let vk = g.vk;
@@ -89,12 +109,165 @@ pub(super) unsafe fn upload(
     vk.begin(cb);
     let region = BufferCopy {
         src_offset: 0,
-        dst_offset: 0,
+        dst_offset: (at * 4) as u64,
         size: (data.len() * 4) as u64,
     };
     (vk.copy_buffer)(cb, stage.buf, dst, 1, &region);
     check((vk.end_cb)(cb), "vkEndCommandBuffer");
     vk.submit_wait(cb);
+}
+
+/// A device buffer of `words` f32 a stream copy reads from and writes to.
+///
+/// # Safety
+///
+/// Vulkan handle creation; the buffer is owned by the returned handle for the process.
+pub unsafe fn stream_buffer(g: &GpuCtx, words: usize) -> Handle {
+    g.vk.buffer(
+        words.max(1) as u64 * 4,
+        BUFFER_USAGE_STORAGE | BUFFER_USAGE_TRANSFER_SRC | BUFFER_USAGE_TRANSFER_DST,
+        MEMORY_DEVICE_LOCAL,
+    )
+    .expect("stream buffer")
+    .0
+}
+
+/// A device-resident token stream: `n_all` chunks of `n_ctx` columns of width `w`, chunk-major.
+pub struct Stream {
+    pub buf: Handle,
+    pub n_ctx: usize,
+    pub w: usize,
+    pub n_all: usize,
+}
+
+impl Stream {
+    /// Allocate `n_all` chunks of `n_ctx × w` on the device.
+    ///
+    /// # Safety
+    ///
+    /// `g` outlives the value.
+    pub unsafe fn new(g: &GpuCtx, n_ctx: usize, w: usize, n_all: usize) -> Self {
+        Self {
+            buf: stream_buffer(g, n_ctx * w * n_all),
+            n_ctx,
+            w,
+            n_all,
+        }
+    }
+
+    /// f32 per chunk.
+    #[must_use]
+    pub fn chunk_words(&self) -> usize {
+        self.n_ctx * self.w
+    }
+
+    /// The words of the whole stream.
+    #[must_use]
+    pub fn words(&self) -> usize {
+        self.chunk_words() * self.n_all
+    }
+}
+
+/// The step's copies from `s` into words `[k·chunk, (k+1)·chunk)` of `buf`, in `ids` order: chunk
+/// `ids[k]` of `s` into slot `k`.
+#[must_use]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "word offsets index a u64 byte offset"
+)]
+pub fn chunk_into(s: &Stream, ids: &[usize], buf: Handle) -> Copies {
+    let c = s.chunk_words();
+    Copies {
+        src: s.buf,
+        dst: buf,
+        regions: ids
+            .iter()
+            .enumerate()
+            .map(|(k, &id)| BufferCopy {
+                src_offset: (id * c * 4) as u64,
+                dst_offset: (k * c * 4) as u64,
+                size: (c * 4) as u64,
+            })
+            .collect(),
+    }
+}
+
+/// The mirror of [`chunk_into`]: slot `k` of `buf` into chunk `ids[k]` of `s`.
+#[must_use]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "word offsets index a u64 byte offset"
+)]
+pub fn chunk_from(s: &Stream, ids: &[usize], buf: Handle) -> Copies {
+    let c = s.chunk_words();
+    Copies {
+        src: buf,
+        dst: s.buf,
+        regions: ids
+            .iter()
+            .enumerate()
+            .map(|(k, &id)| BufferCopy {
+                src_offset: (k * c * 4) as u64,
+                dst_offset: (id * c * 4) as u64,
+                size: (c * 4) as u64,
+            })
+            .collect(),
+    }
+}
+
+/// One device-to-device transfer group, recorded beside the compute: `regions` from `src` into
+/// `dst`.
+pub struct Copies {
+    pub src: Handle,
+    pub dst: Handle,
+    pub regions: Vec<BufferCopy>,
+}
+
+/// Record `groups` on `cb`.
+///
+/// # Safety
+///
+/// Every group's buffers hold its regions; `cb` is recording.
+pub(super) unsafe fn record_copies(vk: &Vk, cb: CommandBuffer, groups: &[Copies]) {
+    for c in groups {
+        if !c.regions.is_empty() {
+            let n = c.regions.len() as u32;
+            (vk.copy_buffer)(cb, c.src, c.dst, n, c.regions.as_ptr());
+        }
+    }
+}
+
+/// Upload `data` into the whole of `dst`, one submission per 2 M-word slice.
+///
+/// # Safety
+///
+/// `dst` holds `data.len()` f32.
+pub unsafe fn stream_upload(g: &GpuCtx, dst: Handle, data: &[f32]) {
+    let n = (1 << 21).min(data.len().max(1));
+    let stage = host_buffer(g, n, BUFFER_USAGE_TRANSFER_SRC);
+    let cb = g.vk.reusable_command_buffer();
+    for (i, part) in data.chunks(n).enumerate() {
+        upload_at(g, cb, &stage, dst, i * n, part);
+    }
+}
+
+/// Download the whole of `src`'s `n` f32 into a host vector, one submission per 2 M-word slice.
+///
+/// # Safety
+///
+/// `src` holds `n` f32.
+pub unsafe fn stream_download(g: &GpuCtx, src: Handle, n: usize) -> Vec<f32> {
+    let m = (1 << 21).min(n.max(1));
+    let rb = host_buffer(g, m, BUFFER_USAGE_TRANSFER_DST);
+    let cb = g.vk.reusable_command_buffer();
+    let mut out = Vec::with_capacity(n);
+    let mut at = 0;
+    while at < n {
+        let take = m.min(n - at);
+        out.extend_from_slice(&download_at(g, cb, &rb, src, at, take));
+        at += take;
+    }
+    out
 }
 
 /// Read `n` f32 of the device buffer `src` through `rb`, on the reusable command buffer `cb`.
@@ -109,6 +282,26 @@ pub(super) unsafe fn download(
     src: Handle,
     n: usize,
 ) -> Vec<f32> {
+    download_at(g, cb, rb, src, 0, n)
+}
+
+/// [`download`] of `n` f32 of `src` from word offset `at`.
+///
+/// # Safety
+///
+/// `src` holds at least `at + n` f32; `cb` is not pending.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "word offsets index a u64 byte offset"
+)]
+pub(super) unsafe fn download_at(
+    g: &GpuCtx,
+    cb: CommandBuffer,
+    rb: &HostBuffer,
+    src: Handle,
+    at: usize,
+    n: usize,
+) -> Vec<f32> {
     assert!(n <= rb.n, "download: {n} words");
     let vk = g.vk;
     vk.reset_cb(cb);
@@ -121,7 +314,7 @@ pub(super) unsafe fn download(
         ACCESS_TRANSFER_READ,
     );
     let region = BufferCopy {
-        src_offset: 0,
+        src_offset: (at * 4) as u64,
         dst_offset: 0,
         size: (n * 4) as u64,
     };
@@ -225,7 +418,10 @@ pub struct BlockTune {
     y: Handle,
     g2: Handle,
     loss: Handle,
-    /// Device → host: the loss rows and `y`.
+    /// A zeroed `t × d` buffer and the per-column sums of `yt²` (`norm`), beside `loss`'s rows.
+    loss2: Handle,
+    norm: Step,
+    /// Device → host: the loss rows and the `yt²` column sums.
     rb_loss: HostBuffer,
     rb: HostBuffer,
     /// Host → device staging, as large as the largest buffer.
@@ -257,6 +453,10 @@ pub struct BlockTune {
     /// loss readback) and an evaluation pass (materialise, forward, loss readback).
     cb_train: CommandBuffer,
     cb_eval: CommandBuffer,
+    /// The step's column copies: `pre` at the head of the tape (stream → `x`/`a`/`yt`), `post`
+    /// at its tail (`y` → stream). Empty on the host-fed [`BlockTune::batch`] path.
+    pre: Vec<Copies>,
+    post: Vec<Copies>,
     /// Re-recorded for every host transfer.
     xfer: CommandBuffer,
 }
@@ -314,6 +514,15 @@ impl BlockTune {
         let (dy, dmm, dgt, dup) = (dev(t * d), dev(t * f), dev(t * f), dev(t * f));
         let (dn2, tmp, dh, dgr) = (dev(t * d), dev(t * d), dev(t * d), dev(t * d));
         let (g2, loss) = (dev(d), dev(t));
+        let (zero, loss2) = (g.dev_zeroed(t * d * 4), dev(t));
+        let norm = map(
+            g,
+            5,
+            [t, d, t * d],
+            0.0,
+            [yt, zero, loss2, loss2],
+            "norm_rows",
+        );
         let (to, tg, tu, td) = (t as u32, d as u32, a as u32, f as u32);
         let wt = |k: usize| factors[k].w;
         let dwt = |k: usize| factors[k].dw;
@@ -477,7 +686,9 @@ impl BlockTune {
             y,
             g2,
             loss,
-            rb_loss: host_buffer(g, t, BUFFER_USAGE_TRANSFER_DST),
+            loss2,
+            norm,
+            rb_loss: host_buffer(g, 2 * t, BUFFER_USAGE_TRANSFER_DST),
             rb: host_buffer(g, big, BUFFER_USAGE_TRANSFER_DST),
             stage: host_buffer(g, big, BUFFER_USAGE_TRANSFER_SRC),
             bias_stage,
@@ -493,6 +704,8 @@ impl BlockTune {
             factor: [true; 4],
             train_dense: false,
             step_no: 0,
+            pre: Vec::new(),
+            post: Vec::new(),
             cb_train: g.vk.reusable_command_buffer(),
             cb_eval: g.vk.reusable_command_buffer(),
             xfer: g.vk.reusable_command_buffer(),
@@ -514,6 +727,7 @@ impl BlockTune {
         let cb = if train { self.cb_train } else { self.cb_eval };
         vk.reset_cb(cb);
         vk.begin(cb);
+        record_copies(vk, cb, &self.pre);
         if train {
             let region = BufferCopy {
                 src_offset: 0,
@@ -539,6 +753,7 @@ impl BlockTune {
         for s in &self.forward {
             rec_step(vk, cb, s);
         }
+        rec_step(vk, cb, &self.norm);
         if train {
             for s in &self.backward {
                 rec_step(vk, cb, s);
@@ -575,7 +790,14 @@ impl BlockTune {
             dst_offset: 0,
             size: (self.shape.t * 4) as u64,
         };
+        let region2 = BufferCopy {
+            src_offset: 0,
+            dst_offset: (self.shape.t * 4) as u64,
+            size: (self.shape.t * 4) as u64,
+        };
         (vk.copy_buffer)(cb, self.loss, self.rb_loss.buf, 1, &region);
+        (vk.copy_buffer)(cb, self.loss2, self.rb_loss.buf, 1, &region2);
+        record_copies(vk, cb, &self.post);
         vk.barrier(
             cb,
             STAGE_TRANSFER,
@@ -702,9 +924,51 @@ impl BlockTune {
             (t * d, t * aw, t * d),
             "block batch"
         );
+        if !self.pre.is_empty() || !self.post.is_empty() {
+            self.pre.clear();
+            self.post.clear();
+            self.record(g, true);
+            self.record(g, false);
+        }
         self.put(g, self.x, x);
         self.put(g, self.a, a);
         self.put(g, self.yt, yt);
+    }
+
+    /// Set the step's columns from device streams: `pre` copies the step's chunk regions into
+    /// `x`, `a` and `yt`, `post` copies `y` back out, and both are recorded in the step's own
+    /// command buffer, so one submission runs the copies and the tape.
+    ///
+    /// # Safety
+    ///
+    /// Every group's buffers hold its regions; no submission of this value is pending.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; the selected tape's `O(1)` dispatches re-recorded.
+    pub unsafe fn set_cols(
+        &mut self,
+        g: &GpuCtx,
+        pre: Vec<Copies>,
+        post: Vec<Copies>,
+        train: bool,
+    ) {
+        self.pre = pre;
+        self.post = post;
+        self.record(g, train);
+    }
+
+    /// The step's `Σ yt²`, from the per-column sums the tape recorded beside the loss rows.
+    ///
+    /// # Safety
+    ///
+    /// A run has completed.
+    #[must_use]
+    pub unsafe fn den(&self) -> f64 {
+        std::slice::from_raw_parts(self.rb_loss.ptr.add(self.shape.t), self.shape.t)
+            .iter()
+            .map(|&v| f64::from(v))
+            .sum()
     }
 
     /// Record and run materialise + forward (+ backward and Adam when `train`); returns the step's
@@ -730,6 +994,19 @@ impl BlockTune {
             .iter()
             .map(|&v| f64::from(v))
             .sum()
+    }
+
+    /// The step's buffers: the block input `x` (`t × d`), the o-projection input `a` (`t × a`) and
+    /// the teacher target `yt` (`t × d`).
+    #[must_use]
+    pub fn cols(&self) -> (Handle, Handle, Handle) {
+        (self.x, self.a, self.yt)
+    }
+
+    /// The block output `y` (`t × d`) buffer, without a download.
+    #[must_use]
+    pub fn out(&self) -> Handle {
+        self.y
     }
 
     /// The block output `y` of the last [`BlockTune::run`], `t × d`.
