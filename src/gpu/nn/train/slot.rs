@@ -14,7 +14,7 @@
 use crate::gpu::decode::{GpuCtx, Step};
 use crate::gpu::nn::fwd::linear_fwd_dispatch;
 use crate::gpu::nn::{
-    adam_update_dispatch_reused, linear_bwd_input_dispatch, linear_bwd_weight_dispatch,
+    adam_update_dispatch_reused_h, linear_bwd_input_dispatch, linear_bwd_weight_dispatch, AdamHyper,
 };
 use crate::gpu::vulkan::*;
 
@@ -214,7 +214,10 @@ pub(super) unsafe fn factor_bwd(g: &GpuCtx, fa: &Factor) -> Vec<Step> {
 }
 
 /// Adam over `fa`'s four parameters against the moment pairs `mo`, at `lr` for the two latents and
-/// `lr_scale` for the two scale vectors (both Q32.32).
+/// `lr_scale` for the two scale vectors (both Q32.32), under `h`'s constants.
+///
+/// Both rates are the group's base rate: the step's schedule multiplier arrives in `bias_buf`
+/// (see [`crate::gpu::nn::adam_scheduled_bias`]), so one buffer serves every group.
 ///
 /// # Safety
 ///
@@ -230,20 +233,35 @@ pub(super) unsafe fn adam_factor(
     bias_buf: Handle,
     lr: i64,
     lr_scale: i64,
+    h: AdamHyper,
 ) -> Vec<Step> {
     (0..4)
         .map(|j| {
             let n = [fa.out * fa.rank, fa.inn * fa.rank, fa.out, fa.inn][j];
             let rate = if j < 2 { lr } else { lr_scale };
-            adam_update_dispatch_reused(
-                g, fa.p[j], fa.grad[j], mo[j][0], mo[j][1], bias_buf, n as u32, rate,
+            adam_update_dispatch_reused_h(
+                g, fa.p[j], fa.grad[j], mo[j][0], mo[j][1], bias_buf, n as u32, rate, h,
             )
         })
         .collect()
 }
 
-/// Allocate slot `fa`'s dense moment pair over `out × inn` and build the Adam step over its dense
-/// `W` and `dW`, at `lr_dense` (Q32.32).
+/// Allocate slot `fa`'s dense moment pair over `out × inn`.
+///
+/// # Safety
+///
+/// `g` is a live device context.
+///
+/// # Complexity
+///
+/// `O(1)` device allocations holding `O(out·inn)` words each.
+pub(super) unsafe fn dense_moments(g: &GpuCtx, fa: &Factor) -> [Handle; 2] {
+    let n = fa.out * fa.inn;
+    [g.dev(n * 4), g.dev(n * 4)]
+}
+
+/// The Adam step over slot `fa`'s dense `W` and `dW` against the moment pair `dmo`, at `lr_dense`
+/// (Q32.32), under `h`'s constants.
 ///
 /// # Safety
 ///
@@ -251,18 +269,19 @@ pub(super) unsafe fn adam_factor(
 ///
 /// # Complexity
 ///
-/// `O(out·inn)` device allocations and words updated per step.
+/// `O(out·inn)` device words updated per step.
 pub(super) unsafe fn adam_dense(
     g: &GpuCtx,
     fa: &Factor,
+    dmo: &[Handle; 2],
     bias_buf: Handle,
     lr_dense: i64,
-) -> (Step, [Handle; 2]) {
+    h: AdamHyper,
+) -> Step {
     let n = fa.out * fa.inn;
-    let dmo = [g.dev(n * 4), g.dev(n * 4)];
-    let step =
-        adam_update_dispatch_reused(g, fa.w, fa.dw, dmo[0], dmo[1], bias_buf, n as u32, lr_dense);
-    (step, dmo)
+    adam_update_dispatch_reused_h(
+        g, fa.w, fa.dw, dmo[0], dmo[1], bias_buf, n as u32, lr_dense, h,
+    )
 }
 
 /// A real learning rate as Q32.32, the integer form [`adam_update_dispatch_reused`] takes.

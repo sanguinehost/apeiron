@@ -43,13 +43,13 @@
 
 use crate::gpu::decode::{rec_step, GpuCtx, Step};
 use crate::gpu::nn::fwd::{linear_fwd_dispatch, rmsnorm_fwd_dispatch};
-use crate::gpu::nn::{adam_bias_corrections, linear_bwd_weight_dispatch};
+use crate::gpu::nn::{adam_scheduled_bias, linear_bwd_weight_dispatch, AdamHyper};
 use crate::gpu::vulkan::*;
 
 use super::attn_bwd::{tape, AttnBwdShape};
 use super::block::{download, host_buffer, upload, HostBuffer, HostFactor};
 use super::mixer::ATTN_MAP_SPV;
-use super::slot::{q32, upload_factor, Factor};
+use super::slot::{q32, upload_dense, upload_factor, Factor};
 
 const MAX_GROUPS_X: usize = 65_535;
 
@@ -201,13 +201,26 @@ pub struct FrontTune {
     da: Handle,
     dq_rot: Handle,
     dk_rot: Handle,
-    /// The materialise tape of each slot: the two signs, `M`, then the scales.
+    /// The materialise tape of each slot: the two signs, `M`, then the scales. Recorded only for a
+    /// slot whose `W` is held as a factor.
     materialise: [Vec<Step>; 3],
     forward: Vec<Step>,
     /// The three backward dispatches, then the three dense weight adjoints into each slot's `dw`.
     backward: Vec<Step>,
     factor_bwd: [Vec<Step>; 3],
     adam_fact: [Vec<Step>; 3],
+    /// Each slot's dense moment pair over `out × inn`, and the Adam step over its dense `W`.
+    dense_moments: [[Handle; 2]; 3],
+    adam_dense: [Step; 3],
+    /// The stage: `factor[k]` holds slot `k`'s `W` in its latents (`true`) or in its `w` buffer
+    /// (`false`); `train[k]` puts slot `k` in the trained set.
+    factor: [bool; 3],
+    train: [bool; 3],
+    /// The two base learning rates `[latent, scale]` in real units, the optimiser constants their
+    /// steps bake, and the per-step schedule multiplier `c = lr_t/lr_base` (empty: constant rate).
+    lr: [f64; 2],
+    hyper: AdamHyper,
+    sched: Vec<f64>,
     /// Host → device staging, as large as the largest buffer; host ← device readback.
     stage: HostBuffer,
     rb: HostBuffer,
@@ -339,10 +352,49 @@ impl FrontTune {
             super::slot::factor_bwd(g, f2),
         ];
         let adam_fact = [
-            super::slot::adam_factor(g, f0, m0, bias_buf, q32(lr), q32(lr_scale)),
-            super::slot::adam_factor(g, f1, m1, bias_buf, q32(lr), q32(lr_scale)),
-            super::slot::adam_factor(g, f2, m2, bias_buf, q32(lr), q32(lr_scale)),
+            super::slot::adam_factor(
+                g,
+                f0,
+                m0,
+                bias_buf,
+                q32(lr),
+                q32(lr_scale),
+                AdamHyper::ORACLE,
+            ),
+            super::slot::adam_factor(
+                g,
+                f1,
+                m1,
+                bias_buf,
+                q32(lr),
+                q32(lr_scale),
+                AdamHyper::ORACLE,
+            ),
+            super::slot::adam_factor(
+                g,
+                f2,
+                m2,
+                bias_buf,
+                q32(lr),
+                q32(lr_scale),
+                AdamHyper::ORACLE,
+            ),
         ];
+        let dense_moments = [
+            super::slot::dense_moments(g, f0),
+            super::slot::dense_moments(g, f1),
+            super::slot::dense_moments(g, f2),
+        ];
+        let adam_dense = std::array::from_fn(|k| {
+            super::slot::adam_dense(
+                g,
+                &factors[k],
+                &dense_moments[k],
+                bias_buf,
+                q32(lr),
+                AdamHyper::ORACLE,
+            )
+        });
         let big = [t * d, t * qw, t * kw, d, 2 * hd]
             .into_iter()
             .chain(factors.iter().map(|fa| {
@@ -382,6 +434,13 @@ impl FrontTune {
             backward,
             factor_bwd,
             adam_fact,
+            dense_moments,
+            adam_dense,
+            factor: [true; 3],
+            train: [true; 3],
+            lr: [lr, lr_scale],
+            hyper: AdamHyper::ORACLE,
+            sched: Vec::new(),
             stage: host_buffer(g, big, BUFFER_USAGE_TRANSFER_SRC),
             rb: host_buffer(g, big, BUFFER_USAGE_TRANSFER_DST),
             bias_stage,
@@ -431,7 +490,10 @@ impl FrontTune {
                 ACCESS_SHADER_READ,
             );
         }
-        for steps in &self.materialise {
+        for (k, steps) in self.materialise.iter().enumerate() {
+            if !self.factor[k] {
+                continue;
+            }
             for s in steps {
                 rec_step(vk, cb, s);
             }
@@ -444,12 +506,18 @@ impl FrontTune {
                 rec_step(vk, cb, s);
             }
             for k in 0..3 {
-                for s in &self.factor_bwd[k] {
-                    rec_step(vk, cb, s);
-                }
-                if tape == Tape::Train {
-                    for s in &self.adam_fact[k] {
+                if self.factor[k] {
+                    for s in &self.factor_bwd[k] {
                         rec_step(vk, cb, s);
+                    }
+                }
+                if tape == Tape::Train && self.train[k] {
+                    if self.factor[k] {
+                        for s in &self.adam_fact[k] {
+                            rec_step(vk, cb, s);
+                        }
+                    } else {
+                        rec_step(vk, cb, &self.adam_dense[k]);
                     }
                 }
             }
@@ -519,6 +587,90 @@ impl FrontTune {
         upload_factor(g, self.xfer, &self.stage, fa, hf, &self.moments[k]);
     }
 
+    /// Put slot `k`'s dense `W` (`out × inn`, row-major) into its `w` buffer and zero that slot's
+    /// dense moments. Leaves the stage as it is.
+    ///
+    /// The reference's still-dense `nn.Linear`s are trained in place (`tune_nonfact`,
+    /// `compress_block.py:58-62`), before their own factorisation replaces them.
+    ///
+    /// # Safety
+    ///
+    /// `w` has slot `k`'s `out·inn` words (asserted); no tape is pending.
+    ///
+    /// # Complexity
+    ///
+    /// `O(out·inn)` words copied, three times.
+    pub unsafe fn load_dense(&mut self, g: &GpuCtx, k: usize, w: &[f32]) {
+        let fa = &self.factors[k];
+        assert_eq!(w.len(), fa.out * fa.inn, "front load_dense {k}: shape");
+        upload_dense(g, self.xfer, &self.stage, fa, w, &self.dense_moments[k]);
+    }
+
+    /// Set the stage: `factor[k]` places slot `k`'s `W` in its latents (`true`) or in its `w`
+    /// buffer (`false`), and `train[k]` puts slot `k` in the trained set — it updates its factor's
+    /// latents and scales when `factor[k]`, or its dense `W` when not. A slot outside the set keeps
+    /// its parameters and moments bit-identical. Re-records all three tapes.
+    ///
+    /// # Safety
+    ///
+    /// No tape is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; three tapes re-recorded.
+    pub unsafe fn set_stage(&mut self, g: &GpuCtx, factor: [bool; 3], train: [bool; 3]) {
+        self.factor = factor;
+        self.train = train;
+        for t in [Tape::Fwd, Tape::Bwd, Tape::Train] {
+            self.record(g, t);
+        }
+    }
+
+    /// Set the optimiser constants the Adam steps bake; the moments are kept and the three tapes
+    /// are re-recorded. [`AdamHyper::OPTIMI`] is the NanoQuant reference's set.
+    ///
+    /// # Safety
+    ///
+    /// No tape is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; `O(1)` pipelines rebuilt.
+    pub unsafe fn set_hyper(&mut self, g: &GpuCtx, h: AdamHyper) {
+        self.hyper = h;
+        let (lr, ls) = (q32(self.lr[0]), q32(self.lr[1]));
+        let [f0, f1, f2] = &self.factors;
+        self.adam_fact = [
+            super::slot::adam_factor(g, f0, &self.moments[0], self.bias_buf, lr, ls, h),
+            super::slot::adam_factor(g, f1, &self.moments[1], self.bias_buf, lr, ls, h),
+            super::slot::adam_factor(g, f2, &self.moments[2], self.bias_buf, lr, ls, h),
+        ];
+        let mut dense = std::array::from_fn(|k| {
+            super::slot::adam_dense(
+                g,
+                &self.factors[k],
+                &self.dense_moments[k],
+                self.bias_buf,
+                lr,
+                h,
+            )
+        });
+        std::mem::swap(&mut self.adam_dense, &mut dense);
+        for t in [Tape::Fwd, Tape::Bwd, Tape::Train] {
+            self.record(g, t);
+        }
+    }
+
+    /// Set the per-step schedule multiplier `c_t = lr_t/lr_base` every Adam step of a run shares:
+    /// entry `t−1` is step `t`'s. An empty vector (the default) keeps each group's base rate.
+    ///
+    /// # Complexity
+    ///
+    /// `O(steps)` words held; `O(1)` host work.
+    pub fn set_schedule(&mut self, c: Vec<f64>) {
+        self.sched = c;
+    }
+
     /// Set the step's columns: the front's input `x` (`T × d`) and the output cotangent `dao`
     /// (`T × nh·hd`), both row-major.
     ///
@@ -549,7 +701,11 @@ impl FrontTune {
     unsafe fn run(&mut self, g: &GpuCtx, tape: Tape) {
         if tape == Tape::Train {
             self.step_no += 1;
-            let (b1t, rbc2) = adam_bias_corrections(self.step_no);
+            let t = self.step_no;
+            let (b1t, rbc2) = match self.sched.get(t as usize - 1) {
+                Some(&c) => adam_scheduled_bias(self.hyper, t, c),
+                None => self.hyper.bias_corrections(t),
+            };
             *self.bias_stage.ptr = b1t;
             *self.bias_stage.ptr.add(1) = rbc2;
         }
@@ -657,6 +813,54 @@ impl FrontTune {
                 [0, 1, 2, 3].map(|j| self.get(g, fa.grad[j], n[j]))
             })
             .collect()
+    }
+
+    /// The dense `W` of slot `k` (`out × inn`).
+    ///
+    /// # Safety
+    ///
+    /// A pass has completed.
+    unsafe fn dense_w(&self, g: &GpuCtx, k: usize) -> Vec<f32> {
+        let fa = &self.factors[k];
+        self.get(g, fa.w, fa.out * fa.inn)
+    }
+
+    /// The dense `W` gradient of slot `k` from the last backward, `out × inn`.
+    ///
+    /// # Safety
+    ///
+    /// A backward has completed.
+    unsafe fn dense_grad(&self, g: &GpuCtx, k: usize) -> Vec<f32> {
+        let fa = &self.factors[k];
+        self.get(g, fa.dw, fa.out * fa.inn)
+    }
+
+    /// Every parameter and moment word of slot `k` in its current form — the four factor buffers
+    /// with their moment pairs, or the dense `W` with its pair — as bits.
+    ///
+    /// # Safety
+    ///
+    /// The device is idle.
+    pub(super) unsafe fn slot_words(&self, g: &GpuCtx, k: usize) -> Vec<u32> {
+        let fa = &self.factors[k];
+        let n = [fa.out * fa.rank, fa.inn * fa.rank, fa.out, fa.inn];
+        let mut src: Vec<(Handle, usize)> = Vec::new();
+        if self.factor[k] {
+            for j in 0..4 {
+                src.push((fa.p[j], n[j]));
+                src.push((self.moments[k][j][0], n[j]));
+                src.push((self.moments[k][j][1], n[j]));
+            }
+        } else {
+            src.push((fa.w, fa.out * fa.inn));
+            src.push((self.dense_moments[k][0], fa.out * fa.inn));
+            src.push((self.dense_moments[k][1], fa.out * fa.inn));
+        }
+        let mut words = Vec::new();
+        for (h, len) in src {
+            words.extend(self.get(g, h, len).iter().map(|v| v.to_bits()));
+        }
+        words
     }
 }
 
@@ -967,6 +1171,112 @@ mod tests {
                 l1 < l0,
                 "20 Adam steps did not lower the loss: {l0} -> {l1}"
             );
+        }
+    }
+
+    /// Dense `q`, `k`, `v`: the device `ao` and the three `dW` equal the f64 host reference of the
+    /// same dense weights (the twin of `front_tune_matches_host`), and a train mask over one slot
+    /// moves that slot only.
+    #[test]
+    fn front_dense_matches_host() {
+        let Ok(vk) = (unsafe { Vk::load() }) else {
+            println!("SKIP: no Vulkan device");
+            return;
+        };
+        let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
+        let sh = FrontShape {
+            chunks: 2,
+            n_ctx: 8,
+            d: 32,
+            nh: 4,
+            nkv: 2,
+            hd: 16,
+            rot: 16,
+            theta: 1e4,
+            eps: 1e-6,
+            rank: 4,
+        };
+        let (t, d) = (sh.t(), sh.d);
+        let (qw, kw) = (sh.qw(), sh.kw());
+        let x = unit(t * d, 91);
+        let g1: Vec<f32> = unit(d, 90).iter().map(|v| 1.0 + 0.2 * v).collect();
+        let gn: Vec<f32> = unit(2 * sh.hd, 92).iter().map(|v| 1.0 + 0.2 * v).collect();
+        let r: Vec<f32> = unit(t * qw, 93).iter().map(|v| 0.5 * v).collect();
+        let ws: Vec<Vec<f32>> = [(qw, 4u64), (kw, 5), (kw, 6)]
+            .iter()
+            .map(|&(o, sd)| unit(o * d, sd).iter().map(|&v| 0.3 * v).collect())
+            .collect();
+        let host = Host {
+            sh,
+            gn: to64(&gn),
+            r: to64(&r),
+            n1: rmsnorm(&to64(&x), &to64(&g1), t, d),
+        };
+        let w64: Vec<Vec<f64>> = ws.iter().map(|w| to64(w)).collect();
+        let pq = lin(&host.n1, &w64[0], t, d, qw);
+        let pk = lin(&host.n1, &w64[1], t, d, kw);
+        let pv = lin(&host.n1, &w64[2], t, d, kw);
+        let ao = ref_fwd_ungated(sh.attn(), &pq, &pk, &host.gn, &pv);
+        let (_, dqf, dkf, dv) = ref_bwd_ungated(sh.attn(), &pq, &pk, &host.gn, &pv, &host.r);
+        let want = [
+            dwt(&dqf, &host.n1, t, d, qw),
+            dwt(&dkf, &host.n1, t, d, kw),
+            dwt(&dv, &host.n1, t, d, kw),
+        ];
+        unsafe {
+            let mut ft = FrontTune::new(&g, sh, 1e-3, 1e-3);
+            // The norm gains come from `load`, whose factors a dense stage never reads.
+            let fs: Vec<HostFactor> = (0..3)
+                .map(|k| {
+                    let (o, i) = sh.dims(k);
+                    factor(o, i, sh.rank, 10 * k as u64 + 1)
+                })
+                .collect();
+            ft.load(&g, &fs, &g1, &gn);
+            for k in 0..3 {
+                ft.load_dense(&g, k, &ws[k]);
+            }
+            ft.set_stage(&g, [false; 3], [true; 3]);
+            for k in 0..3 {
+                let bits = |v: &[f32]| v.iter().map(|&x| x.to_bits()).collect::<Vec<u32>>();
+                assert_eq!(bits(&ft.dense_w(&g, k)), bits(&ws[k]), "dense W {k} upload");
+            }
+            ft.batch(&g, &x, &r);
+            ft.forward(&g);
+            println!("dense ao vs host {:.3e}", rel32(&ft.output(&g), &ao));
+            ft.backward(&g, &r);
+            let mut worst = 0f64;
+            for k in 0..3 {
+                let w = rel32(&ft.dense_grad(&g, k), &want[k]);
+                println!(
+                    "dense dW worst relative error {w:.2e} ({})",
+                    ["q", "k", "v"][k]
+                );
+                worst = worst.max(w);
+            }
+            assert!(worst < 1e-3, "dense dW worst relative error {worst:.2e}");
+            // The mask: training slot 1 leaves slots 0 and 2 bit-identical.
+            ft.set_stage(&g, [false; 3], [false, true, false]);
+            let before: Vec<Vec<u32>> = (0..3).map(|k| ft.slot_words(&g, k)).collect();
+            for _ in 0..3 {
+                ft.train(&g);
+            }
+            let after: Vec<Vec<u32>> = (0..3).map(|k| ft.slot_words(&g, k)).collect();
+            assert!(before[1] != after[1], "slot 1 did not move");
+            assert_eq!(before[0], after[0], "slot 0 moved");
+            assert_eq!(before[2], after[2], "slot 2 moved");
+            println!("front mask: slot 1 moved, slots 0 and 2 hold");
+            // The optimiser stage: the reference's constants and its schedule through the tape.
+            ft.set_hyper(&g, AdamHyper::OPTIMI);
+            ft.set_schedule(crate::gpu::nn::cosine_lr(1.0, 1e-4, 256, 2));
+            ft.set_stage(&g, [true; 3], [true; 3]);
+            let before = ft.slot_words(&g, 0);
+            ft.train(&g);
+            assert!(
+                before != ft.slot_words(&g, 0),
+                "the scheduled step moved nothing"
+            );
+            println!("front optimi + cosine schedule: one step moved slot 0");
         }
     }
 }

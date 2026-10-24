@@ -7,8 +7,13 @@
 //   mode 1  B[r·cols + c] = A[r·cols + c]·C[r]·D[c]            (W from M; dM from dW)  total = rows·cols
 //   mode 2  C[r] = Σ_c A[r·cols + c]·B[r·cols + c]·D[c]         (ds_post), one workgroup per row
 //   mode 3  D[c] = Σ_r A[r·cols + c]·B[r·cols + c]·C[r]         (ds_pre), one invocation per column
-//   mode 4  C[i] = (A[i] − B[i])·scale                         (MSE gradient)          total = n
-//   mode 5  C[r] = Σ_c (A[r·cols + c] − B[r·cols + c])²         (loss rows), one workgroup per row
+//   mode 4  C[i] = (A[i] − B[i])·scale·D[i mod cols]           (weighted MSE gradient)  total = n
+//   mode 5  C[r] = Σ_c D[c]·(A[r·cols + c] − B[r·cols + c])²   (weighted loss rows), one workgroup per row
+//
+// `D` is the column weight of modes 4 and 5 — the fit's per-output importance, the reference's
+// `importance` (`nanoquant/core/compress_block.py:17-19`, a `[hidden]` vector from `o_norm`,
+// `compress_model.py:69-78`) — indexed by the column `i mod cols`. Modes 1 and 2 keep their own
+// meaning for `D` (s_pre and the column weight of the ds_pre reduction).
 layout(local_size_x = 256) in;
 
 // META: [mode, rows, cols, total, gx, scale bits].
@@ -42,7 +47,7 @@ void main() {
                 s += a[ix] * b[ix] * d[k];
             } else {
                 float e = a[ix] - b[ix];
-                s += e * e;
+                s += d[k] * e * e;
             }
         }
         part[lid] = s;
@@ -75,6 +80,7 @@ void main() {
         }
         d[i] = s;
     } else if (mode == 4u) {
-        c[i] = (a[i] - b[i]) * scale;
+        uint k = i - (i / cols) * cols;
+        c[i] = (a[i] - b[i]) * scale * d[k];
     }
 }

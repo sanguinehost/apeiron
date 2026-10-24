@@ -521,7 +521,7 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
                 tuner.load_dense(&g, 1, &host.ffn[0]);
                 tuner.load_dense(&g, 2, &host.ffn[1]);
                 tuner.load_dense(&g, 3, &host.ffn[2]);
-                tuner.set_stage(&g, [false; 4], true);
+                tuner.set_stage(&g, [false; 4], [true; 4]);
             }
         }
         let held0 = eval(tuner, &held);
@@ -543,7 +543,7 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
             let i_norm: Vec<Vec<f64>> = (0..4).map(|k| gram_i_norm(l, shape, k)).collect();
             let mut done = [false; 4];
             for k in 0..4 {
-                unsafe { tuner.set_stage(&g, done, true) };
+                unsafe { tuner.set_stage(&g, done, done.map(|d| !d)) };
                 let t_stage = Instant::now();
                 let mut dense_loss = 0.0;
                 for e in 0..dense_ep {
@@ -575,7 +575,7 @@ fn stream(engine: &Engine, cfg: &Config, tag: &str) {
                 let (hf, _) = to_host(&nf);
                 unsafe { tuner.load_factor(&g, k, &hf) };
                 done[k] = true;
-                unsafe { tuner.set_stage(&g, done, false) };
+                unsafe { tuner.set_stage(&g, done, done) };
                 let t_stage = Instant::now();
                 let mut fact_loss = 0.0;
                 for e in 0..fact_ep {

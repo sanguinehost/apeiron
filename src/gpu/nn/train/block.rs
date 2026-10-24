@@ -16,8 +16,8 @@ use crate::gpu::decode::{rec_step, GpuCtx, Step};
 use crate::gpu::nn::act::{swiglu_bwd_dispatch, swiglu_fwd_dispatch};
 use crate::gpu::nn::fwd::{linear_fwd_dispatch, rmsnorm_fwd_dispatch};
 use crate::gpu::nn::{
-    adam_bias_corrections, add_inplace_bytes, linear_bwd_input_dispatch,
-    linear_bwd_weight_dispatch, rmsnorm_bwd_dispatch,
+    adam_scheduled_bias, add_inplace_bytes, linear_bwd_input_dispatch, linear_bwd_weight_dispatch,
+    rmsnorm_bwd_dispatch, AdamHyper,
 };
 use crate::gpu::vulkan::*;
 
@@ -356,6 +356,8 @@ pub struct BlockTune {
     a: Handle,
     /// The o-projection's input adjoint `[t][a]`, written by the backward.
     da: Handle,
+    /// The weighted MSE gradient `dy[r,c] = scale·imp[c]·(y−y_t)[r,c]`, `[t][d]`.
+    dy: Handle,
     yt: Handle,
     y: Handle,
     g2: Handle,
@@ -388,8 +390,16 @@ pub struct BlockTune {
     /// The block's state per slot `[o, gate, up, down]`: `true` where `W` is held as a factor,
     /// `false` where it is a dense `W` in its `w` buffer.
     factor: [bool; 4],
-    /// The stage's trained set: `true` trains the dense slots, `false` the factor slots.
-    train_dense: bool,
+    /// The stage's trained set per slot: `true` where slot `k`'s parameters are updated, whichever
+    /// of the two forms `factor[k]` selects; outside it, parameters and moments stay bit-identical.
+    train: [bool; 4],
+    /// The loss's per-output importance `D`, `d` words; all ones until [`BlockTune::load_importance`].
+    imp: Handle,
+    /// The base rates `[latent, scale, dense]` in real units and the constants their steps bake.
+    lr: [f64; 3],
+    hyper: AdamHyper,
+    /// The steps' schedule multiplier `c = lr_t/lr_base`; empty means a constant rate.
+    sched: Vec<f64>,
     step_no: u32,
     /// The recorded tapes: a training step (bias copy, materialise, forward, backward, Adam,
     /// loss readback) and an evaluation pass (materialise, forward, loss readback).
@@ -446,12 +456,14 @@ impl BlockTune {
         let (dn2, tmp, dh, dgr) = (dev(t * d), dev(t * d), dev(t * d), dev(t * d));
         let (g2, loss) = (dev(d), dev(t));
         let (zero, loss2) = (g.dev_zeroed(t * d * 4), dev(t));
+        // The per-output importance of the loss; all ones until `load_importance` writes it.
+        let imp = dev(d);
         let norm = map(
             g,
             5,
             [t, d, t * d],
             0.0,
-            [yt, zero, loss2, loss2],
+            [yt, zero, loss2, imp],
             "norm_rows",
         );
         let (to, tg, tu, td) = (t as u32, d as u32, a as u32, f as u32);
@@ -473,7 +485,9 @@ impl BlockTune {
                 "add_inplace",
             )
         };
-        // The MSE gradient's scale: `2 / (t·d)`, the mean over the step's entries.
+        // The weighted MSE gradient's scale `s` in `dy[r,c] = s·imp[c]·(y−yt)[r,c]`: the mean over
+        // the entries, `2/(t·d)`. The reference's divisor is the batch size (`compress_block.py:88`),
+        // which the caller sets through `set_loss_scale`.
         let mse = 2.0 / (t * d) as f32;
         let forward = vec![
             linear_fwd_dispatch(g, at, wt(0), h, to, tu, tg),
@@ -484,8 +498,8 @@ impl BlockTune {
             swiglu_fwd_dispatch(g, gt, up, mm, (t * f) as u32),
             linear_fwd_dispatch(g, mm, wt(3), y, to, td, tg),
             add(y, h, t * d),
-            map(g, 5, [t, d, t * d], 0.0, [y, yt, loss, loss], "loss_rows"),
-            map(g, 4, [0, 0, t * d], mse, [y, yt, dy, dy], "mse_grad"),
+            map(g, 5, [t, d, t * d], 0.0, [y, yt, loss, imp], "loss_rows"),
+            map(g, 4, [t, d, t * d], mse, [y, yt, dy, imp], "mse_grad"),
         ];
 
         let backward = vec![
@@ -511,34 +525,23 @@ impl BlockTune {
 
         let bias_stage = host_buffer(g, 2, BUFFER_USAGE_TRANSFER_SRC);
         let bias_buf = dev(2);
-        let mut adam_fact = Vec::with_capacity(4);
-        let mut adam_dense = Vec::with_capacity(4);
-        let mut dense_moments = Vec::with_capacity(4);
-        for (fa, mo) in factors.iter().zip(&moments) {
-            adam_fact.push(super::slot::adam_factor(
-                g,
-                fa,
-                mo,
-                bias_buf,
-                q32(lr),
-                q32(lr_scale),
-            ));
-            let (step, dmo) = super::slot::adam_dense(g, fa, bias_buf, q32(lr_dense));
-            adam_dense.push(step);
-            dense_moments.push(dmo);
-        }
+        let dense_moments: Vec<[Handle; 2]> = factors
+            .iter()
+            .map(|fa| super::slot::dense_moments(g, fa))
+            .collect();
         let big = factors
             .iter()
             .map(|fa| fa.out * fa.inn)
             .chain([t * a, t * d])
             .max()
             .unwrap_or(1);
-        let s = Self {
+        let mut s = Self {
             shape,
             factors,
             x,
             a: at,
             da,
+            dy,
             yt,
             y,
             g2,
@@ -554,12 +557,16 @@ impl BlockTune {
             forward,
             backward,
             factor_bwd,
-            adam_fact,
-            adam_dense,
+            adam_fact: Vec::new(),
+            adam_dense: Vec::new(),
             moments,
             dense_moments,
             factor: [true; 4],
-            train_dense: false,
+            train: [true; 4],
+            imp,
+            lr: [lr, lr_scale, lr_dense],
+            hyper: AdamHyper::ORACLE,
+            sched: Vec::new(),
             step_no: 0,
             pre: Vec::new(),
             post: Vec::new(),
@@ -567,6 +574,9 @@ impl BlockTune {
             cb_eval: g.vk.reusable_command_buffer(),
             xfer: g.vk.reusable_command_buffer(),
         };
+        s.build_adam(g);
+        let ones = vec![1.0f32; d];
+        upload(g, s.xfer, &s.stage, s.imp, &ones);
         s.record(g, true);
         s.record(g, false);
         s
@@ -615,23 +625,22 @@ impl BlockTune {
             for s in &self.backward {
                 rec_step(vk, cb, s);
             }
-            if self.train_dense {
-                for (k, s) in self.adam_dense.iter().enumerate() {
-                    if !self.factor[k] {
-                        rec_step(vk, cb, s);
-                    }
+            // The trained set: a slot outside it records no adjoint and no Adam step, so its
+            // parameters and its moments are untouched. A factor slot trains the adjoint of its
+            // latents and scales, a dense slot the Adam step over its `W`.
+            for k in 0..4 {
+                if !self.train[k] {
+                    continue;
                 }
-            } else {
-                for (k, steps) in self.factor_bwd.iter().enumerate() {
-                    if !self.factor[k] {
-                        continue;
-                    }
-                    for s in steps {
+                if self.factor[k] {
+                    for s in &self.factor_bwd[k] {
                         rec_step(vk, cb, s);
                     }
                     for s in &self.adam_fact[k] {
                         rec_step(vk, cb, s);
                     }
+                } else {
+                    rec_step(vk, cb, &self.adam_dense[k]);
                 }
             }
         }
@@ -700,7 +709,7 @@ impl BlockTune {
         }
         self.put(g, self.g2, g2);
         self.step_no = 0;
-        self.set_stage(g, [true; 4], false);
+        self.set_stage(g, [true; 4], [true; 4]);
     }
 
     /// Put slot `k`'s factor and zero its four moment pairs. Leaves the stage as it is.
@@ -739,9 +748,11 @@ impl BlockTune {
     }
 
     /// Set the stage: `factor[k]` places slot `k`'s `W` in its latents (`true`) or in its `w`
-    /// buffer (`false`), and `train_dense` selects the trained set — the dense slots' `W` or the
-    /// factor slots' latents and scales. Re-records both tapes for that selection and touches no
-    /// parameter.
+    /// buffer (`false`), and `train[k]` puts slot `k` in the trained set — it updates its factor's
+    /// latents and scales when `factor[k]`, or its dense `W` when not; a slot outside the set keeps
+    /// its parameters and moments bit-identical. The reference's two scopes: `tune_nonfact` trains
+    /// the still-dense linears (`compress_block.py:58-62`), `tune_fact` one linear's factor
+    /// parameters (`:22-48`), one slot at a time (`compress_model.py:83-101`).
     ///
     /// # Safety
     ///
@@ -750,11 +761,118 @@ impl BlockTune {
     /// # Complexity
     ///
     /// `O(1)` host work; the re-recorded tapes carry `O(1)` dispatches.
-    pub unsafe fn set_stage(&mut self, g: &GpuCtx, factor: [bool; 4], train_dense: bool) {
+    pub unsafe fn set_stage(&mut self, g: &GpuCtx, factor: [bool; 4], train: [bool; 4]) {
         self.factor = factor;
-        self.train_dense = train_dense;
+        self.train = train;
         self.record(g, true);
         self.record(g, false);
+    }
+
+    /// Set the per-output importance `D` of the loss, `d` words: the loss is
+    /// `Σ_r Σ_c D[c]·(y − y_t)[r,c]²` and its gradient `dy[r,c] = scale·D[c]·(y − y_t)[r,c]`.
+    /// All ones is the default, the unweighted sum. The reference weights the same way
+    /// (`compress_block.py:17-19`), `D` its `[hidden]` vector `sublayers['mlp.down_proj'].o_norm`
+    /// (`compress_model.py:69-78`).
+    ///
+    /// # Safety
+    ///
+    /// `imp` has `d` words (asserted); no tape is pending.
+    ///
+    /// # Complexity
+    ///
+    /// `O(d)` words copied.
+    pub unsafe fn load_importance(&mut self, g: &GpuCtx, imp: &[f32]) {
+        assert_eq!(imp.len(), self.shape.d, "block load_importance: d words");
+        upload(g, self.xfer, &self.stage, self.imp, imp);
+    }
+
+    /// Set the loss scale `s` in `dy[r,c] = s·D[c]·(y − y_t)[r,c]` and re-record both tapes. The
+    /// reference's step is `(loss/batch_size).backward()` (`compress_block.py:88`), so a caller
+    /// reproducing it sets `s = 2/bs`; the default is the mean over the entries, `2/(t·d)`.
+    ///
+    /// # Safety
+    ///
+    /// No tape is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; two tapes re-recorded.
+    pub unsafe fn set_loss_scale(&mut self, g: &GpuCtx, scale: f32) {
+        let (t, d) = (self.shape.t, self.shape.d);
+        let end = self.forward.len() - 1;
+        self.forward[end] = map(
+            g,
+            4,
+            [t, d, t * d],
+            scale,
+            [self.y, self.yt, self.dy, self.imp],
+            "mse_grad",
+        );
+        self.record(g, true);
+        self.record(g, false);
+    }
+
+    /// Set the optimiser constants the Adam steps bake; the moments are kept and both tapes are
+    /// re-recorded. [`AdamHyper::OPTIMI`] is the NanoQuant reference's set.
+    ///
+    /// # Safety
+    ///
+    /// No tape is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; `O(1)` pipelines rebuilt.
+    pub unsafe fn set_hyper(&mut self, g: &GpuCtx, h: AdamHyper) {
+        self.hyper = h;
+        self.build_adam(g);
+        self.record(g, true);
+        self.record(g, false);
+    }
+
+    /// Set the per-step schedule multiplier `c_t = lr_t/lr_base` every Adam step of the run shares:
+    /// entry `t−1` is step `t`'s; empty (the default) keeps each group's base rate. The reference
+    /// steps a `CosineAnnealingLR` once per optimiser step (`compress_block.py:96-98`), so `c` is
+    /// `cosine_lr(1.0, 1e-4, t_max, steps)`; one scalar serves every group because `eta_min` is
+    /// `1e-4` times each group's base rate (`:74`, `:177`), which makes the recursion linear in it.
+    ///
+    /// # Complexity
+    ///
+    /// `O(steps)` words held; `O(1)` host work.
+    pub fn set_schedule(&mut self, c: Vec<f64>) {
+        self.sched = c;
+    }
+
+    /// Build the Adam steps of every slot under `self.hyper`, leaving the moment buffers in place:
+    /// `O(1)` pipelines, `O(Σ out·inn·rank + out·inn)` words per step.
+    ///
+    /// # Safety
+    ///
+    /// `g` is a live device context; no tape is pending when the caller re-records.
+    unsafe fn build_adam(&mut self, g: &GpuCtx) {
+        let (lr, ls, ld) = (q32(self.lr[0]), q32(self.lr[1]), q32(self.lr[2]));
+        let mut adam_fact = Vec::with_capacity(4);
+        let mut adam_dense = Vec::with_capacity(4);
+        for (k, fa) in self.factors.iter().enumerate() {
+            adam_fact.push(super::slot::adam_factor(
+                g,
+                fa,
+                &self.moments[k],
+                self.bias_buf,
+                lr,
+                ls,
+                self.hyper,
+            ));
+            adam_dense.push(super::slot::adam_dense(
+                g,
+                fa,
+                &self.dense_moments[k],
+                self.bias_buf,
+                ld,
+                self.hyper,
+            ));
+        }
+        self.adam_fact = adam_fact;
+        self.adam_dense = adam_dense;
     }
 
     /// Set the step's columns: `x` and `yt` are `t × d`, `a` is `t × a`, row-major.
@@ -817,7 +935,7 @@ impl BlockTune {
     }
 
     /// Record and run materialise + forward (+ backward and Adam when `train`); returns the step's
-    /// summed squared error `Σ (y − y_t)²` before the update.
+    /// weighted summed squared error `Σ D[c]·(y − y_t)[·,c]²` before the update.
     ///
     /// # Safety
     ///
@@ -830,7 +948,11 @@ impl BlockTune {
     pub unsafe fn run(&mut self, g: &GpuCtx, train: bool) -> f64 {
         if train {
             self.step_no += 1;
-            let (b1t, rbc2) = adam_bias_corrections(self.step_no);
+            let t = self.step_no;
+            let (b1t, rbc2) = match self.sched.get(t as usize - 1) {
+                Some(&c) => adam_scheduled_bias(self.hyper, t, c),
+                None => self.hyper.bias_corrections(t),
+            };
             *self.bias_stage.ptr = b1t;
             *self.bias_stage.ptr.add(1) = rbc2;
         }
@@ -921,36 +1043,43 @@ impl BlockTune {
         let fa = &self.factors[k];
         self.get(g, fa.dw, fa.out * fa.inn)
     }
+
+    /// The weighted gradient `dy` of the last step, `[t][d]`.
+    pub(crate) unsafe fn dy(&self, g: &GpuCtx) -> Vec<f32> {
+        self.get(g, self.dy, self.shape.t * self.shape.d)
+    }
+
+    /// Every parameter and moment word of slot `k` in its current form — the four factor buffers
+    /// with their moment pairs, or the dense `W` with its pair — as bits.
+    pub(crate) unsafe fn slot_words(&self, g: &GpuCtx, k: usize) -> Vec<u32> {
+        let fa = &self.factors[k];
+        let n = [fa.out * fa.rank, fa.inn * fa.rank, fa.out, fa.inn];
+        let mut src: Vec<(Handle, usize)> = Vec::new();
+        if self.factor[k] {
+            for j in 0..4 {
+                src.push((fa.p[j], n[j]));
+                src.push((self.moments[k][j][0], n[j]));
+                src.push((self.moments[k][j][1], n[j]));
+            }
+        } else {
+            src.push((fa.w, fa.out * fa.inn));
+            src.push((self.dense_moments[k][0], fa.out * fa.inn));
+            src.push((self.dense_moments[k][1], fa.out * fa.inn));
+        }
+        let mut words = Vec::new();
+        for (h, len) in src {
+            words.extend(self.get(g, h, len).iter().map(|v| v.to_bits()));
+        }
+        words
+    }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use crate::gpu::nn::GLSLC_ARGS;
-    use std::path::Path;
-
-    #[test]
-    fn block_map_spirv_is_the_glsl() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/spirv/train");
-        let out = std::env::temp_dir().join(format!("block_map_{}.spv", std::process::id()));
-        let st = std::process::Command::new("glslc")
-            .args(GLSLC_ARGS)
-            .arg(dir.join("block_map.comp"))
-            .arg("-o")
-            .arg(&out)
-            .status()
-            .expect("glslc must be on PATH: the committed SPIR-V is checked against it");
-        assert!(st.success(), "glslc failed: {st}");
-        let fresh = std::fs::read(&out).expect("glslc output");
-        let _ = std::fs::remove_file(&out);
-        assert!(
-            fresh == BLOCK_MAP_SPV,
-            "block_map.spv is stale: re-run glslc"
-        );
-    }
 
     /// A fixed-seed LCG value in `[-1, 1)`.
-    fn unit(n: usize, seed: u64) -> Vec<f32> {
+    pub(crate) fn unit(n: usize, seed: u64) -> Vec<f32> {
         let mut s = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
         (0..n)
             .map(|_| {
@@ -962,7 +1091,7 @@ mod tests {
             .collect()
     }
 
-    fn factor(out: usize, inn: usize, rank: usize, seed: u64) -> HostFactor {
+    pub(crate) fn factor(out: usize, inn: usize, rank: usize, seed: u64) -> HostFactor {
         let pos = |v: Vec<f32>| v.into_iter().map(|x| 0.05 + 0.1 * x.abs()).collect();
         HostFactor {
             out,
@@ -976,7 +1105,7 @@ mod tests {
     }
 
     /// `W = s_post ⊙ sign(U)·sign(V)ᵀ ⊙ s_pre` in f64.
-    fn dense(f: &HostFactor) -> Vec<f64> {
+    pub(crate) fn dense(f: &HostFactor) -> Vec<f64> {
         let sg = |v: f32| if v < 0.0 { -1.0 } else { 1.0 };
         let mut w = vec![0f64; f.out * f.inn];
         for r in 0..f.out {
@@ -991,7 +1120,7 @@ mod tests {
     }
 
     /// `y = x·wᵀ`, `x` is `n × i`, `w` is `o × i`.
-    fn lin(x: &[f64], w: &[f64], n: usize, i: usize, o: usize) -> Vec<f64> {
+    pub(crate) fn lin(x: &[f64], w: &[f64], n: usize, i: usize, o: usize) -> Vec<f64> {
         let mut y = vec![0f64; n * o];
         for r in 0..n {
             for c in 0..o {
@@ -1274,7 +1403,7 @@ mod tests {
             for k in [1, 2, 3] {
                 bt.load_dense(&g, k, &dense_w[k]);
             }
-            bt.set_stage(&g, [true, false, false, false], true);
+            bt.set_stage(&g, [true, false, false, false], [false, true, true, true]);
             bt.batch(&g, &x, &a, &yt);
             let _ = bt.run(&g, false);
             let before: Vec<Vec<f32>> = (0..4).map(|k| bt.weight(&g, k)).collect();
@@ -1329,7 +1458,7 @@ mod tests {
             println!("dense dW worst relative error {worst:.2e}");
             let frozen: Vec<Vec<f32>> = (0..4).map(|k| bt.weight(&g, k)).collect();
             let f_mid = bt.factors(&g);
-            bt.set_stage(&g, [true, false, false, false], false);
+            bt.set_stage(&g, [true, false, false, false], [true, false, false, false]);
             let _ = bt.run(&g, true);
             let kept: Vec<Vec<f32>> = (0..4).map(|k| bt.weight(&g, k)).collect();
             for k in [1, 2, 3] {
