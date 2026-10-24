@@ -324,6 +324,46 @@ pub(super) unsafe fn upload_factor(
     }
 }
 
+/// Record into `cb` the device form of [`upload_factor`]: `fa`'s four parameters copied from
+/// `store` at word `at` onward in the Adam order `[u, vt, s_post, s_pre]`, and its four moment
+/// pairs `mo` filled with zero. Returns the word after the factor's image.
+///
+/// # Safety
+///
+/// `store` holds `at` plus the factor's `(out + inn)·(rank + 1)` words; `cb` is recording.
+///
+/// # Complexity
+///
+/// `O(1)` host work; four copies and eight fills recorded, `O((out + inn)·(rank + 1))` words moved.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "word offsets index a u64 byte offset"
+)]
+pub(super) unsafe fn record_factor_swap(
+    vk: &Vk,
+    cb: CommandBuffer,
+    store: Handle,
+    at: usize,
+    fa: &Factor,
+    mo: &[[Handle; 2]; 4],
+) -> usize {
+    let n = [fa.out * fa.rank, fa.inn * fa.rank, fa.out, fa.inn];
+    let mut at = at;
+    for j in 0..4 {
+        let region = BufferCopy {
+            src_offset: (at * 4) as u64,
+            dst_offset: 0,
+            size: (n[j] * 4) as u64,
+        };
+        (vk.copy_buffer)(cb, store, fa.p[j], 1, &region);
+        for &m in &mo[j] {
+            (vk.fill_buffer)(cb, m, 0, (n[j] * 4) as u64, 0);
+        }
+        at += n[j];
+    }
+    at
+}
+
 /// Put the dense `W` `w` into `fa`'s `w` buffer and zero the dense moment pair `dmo`.
 ///
 /// # Safety

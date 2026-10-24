@@ -33,15 +33,15 @@
 //! same geometry and the same four ranks (`dump/ranks.json`: `q` 768, `k`/`v` 576, `o` 768,
 //! `gate`/`up`/`down` 864), so one trainer serves every layer. [`KdTrain::memory_line`] reports the
 //! measured per-trainer bytes beside the free device memory, and [`KdTrain::new`] takes the number
-//! of trainers that fit: at `resident < 28` a layer's seven factor images are pushed into the
-//! trainer it is scheduled on, at `resident = 28` each layer keeps its own.
+//! of trainers that fit.
 //!
-//! The push is a host→device upload of the frozen latents (`O(Σ (out + inn)·rank)` words, 70 MiB per
-//! layer for Qwen3-0.6B), because a trainer's parameter buffers have no device-side swap entry
-//! point: [`FrontTune::load`](super::front::FrontTune::load) and
-//! [`BlockTune::load`](super::block::BlockTune::load) take host factor images. Costing that entry
-//! point, a `pub(super)` handle accessor on the two tuners, is the next task if the upload dominates
-//! the measured step.
+//! Every layer's parameter image (`O(Σ (out + inn)·(rank + 1))` words, 70.9 MiB per layer for
+//! Qwen3-0.6B, 1.94 GiB for 28) is device-resident in [`KdTrain`]'s store. A trainer takes the layer
+//! it is scheduled on by one submission of device copies and moment fills
+//! ([`ChainLayer::record_swap`], the device form of [`ChainLayer::load`]); the host uploads only
+//! what moved — the whole image after [`KdTrain::set_pars`] or [`KdTrain::pars_mut`], the 22 528
+//! scale words after an Adam step. The host upload this replaces was 62.78 ms per layer, 3.52 s of a
+//! 5.368 s step (`~/nq-ref/kd/receipts/kd-layer-wall.log`).
 //!
 //! # Where the Adam step runs
 //!
@@ -63,7 +63,9 @@
 use crate::gpu::decode::GpuCtx;
 use crate::gpu::vulkan::*;
 
-use super::block::{stream_buffer, stream_download, stream_upload, BlockShape, HostFactor};
+use super::block::{
+    host_buffer, stream_buffer, stream_download, stream_upload, BlockShape, HostBuffer, HostFactor,
+};
 use super::chain::{copy_words, ChainLayer};
 use super::front::FrontShape;
 use super::head::KdHead;
@@ -153,6 +155,32 @@ fn read_param(path: &str) -> Result<(usize, usize, Option<HostFactor>, Vec<f32>)
 }
 
 impl LayerPars {
+    /// The device image [`ChainLayer::record_swap`] reads, as its pieces in order, each marked
+    /// `true` when it is a scale vector (the only part the KD step trains): the front's
+    /// `[q, k, v]` as `[u, vt, s_post, s_pre]`, `g1`, `gn`, then the block's `[o, gate, up, down]`
+    /// the same way and `g2`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)`: 31 slices.
+    fn image(&self) -> Vec<(&[f32], bool)> {
+        fn fac(f: &HostFactor) -> [(&[f32], bool); 4] {
+            [
+                (f.u.as_slice(), false),
+                (f.vt.as_slice(), false),
+                (f.s_post.as_slice(), true),
+                (f.s_pre.as_slice(), true),
+            ]
+        }
+        let mut v = Vec::with_capacity(31);
+        self.ff.iter().for_each(|f| v.extend(fac(f)));
+        v.push((self.g1.as_slice(), false));
+        v.push((self.gn.as_slice(), false));
+        self.bf.iter().for_each(|f| v.extend(fac(f)));
+        v.push((self.g2.as_slice(), false));
+        v
+    }
+
     /// Layer `l`'s seven linears out of `dir` (`<dir>/{key}.param`), the gains from `gains` (the
     /// front's `[q | k]` per-head gains and the two norm gains, `mixer::LayerHost`).
     ///
@@ -290,6 +318,13 @@ pub struct KdTrain {
     layers: Vec<ChainLayer>,
     /// Which layer's parameters each trainer currently holds, if any.
     held: Vec<Option<usize>>,
+    /// Every layer's [`LayerPars::image`] on the device, `28 × 70.9 MiB` at Qwen3-0.6B's geometry:
+    /// a trainer takes a layer by one device copy instead of a host upload.
+    store: Vec<Handle>,
+    /// Which part of each layer's `store` image is behind `pars`.
+    stale: Vec<Stale>,
+    /// The host stage a stale image goes up through, one image long.
+    stage: HostBuffer,
     /// Every layer's parameters on the host: `28 × 70 MiB` at Qwen3-0.6B's geometry.
     pars: Vec<LayerPars>,
     shapes: KdShapes,
@@ -305,6 +340,17 @@ pub struct KdTrain {
     xfer: crate::gpu::vulkan::CommandBuffer,
     /// `true` when the backward also downloads each layer's input cotangent: the check path only.
     capture: bool,
+}
+
+/// The part of a layer's device image that differs from its host parameters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stale {
+    /// The whole image: the parameters were set or lent out mutably.
+    All,
+    /// The scale vectors: an Adam step moved them.
+    Scales,
+    /// Nothing.
+    Fresh,
 }
 
 /// One backward's result: every layer's scale gradients and, when [`KdTrain::capture_dh`] is on,
@@ -404,6 +450,11 @@ impl KdTrain {
             h.push(stream_buffer(g, t * d));
         }
         let ht = stream_buffer(g, t * d);
+        let words: usize = pars[0].image().iter().map(|(p, _)| p.len()).sum();
+        let store = (0..shapes.layers)
+            .map(|_| stream_buffer(g, words))
+            .collect();
+        let stage = host_buffer(g, words, BUFFER_USAGE_TRANSFER_SRC);
         let head = KdHead::new(
             g,
             t as u32,
@@ -417,6 +468,9 @@ impl KdTrain {
         );
         Self {
             held: (0..resident).map(|_| None).collect(),
+            store,
+            stale: vec![Stale::All; shapes.layers],
+            stage,
             layers,
             pars,
             shapes,
@@ -479,8 +533,69 @@ impl KdTrain {
         vk.submit_wait(cb);
     }
 
-    /// Put layer `l`'s seven factor images into the trainer it runs on, if that trainer holds
-    /// another layer.
+    /// Record that the host parameters moved by `s`: every trainer must swap its layer in again,
+    /// and every device image is behind by at least `s`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(L)`.
+    fn mark(&mut self, s: Stale) {
+        self.held.iter_mut().for_each(|h| *h = None);
+        for st in &mut self.stale {
+            if *st != Stale::All {
+                *st = s;
+            }
+        }
+    }
+
+    /// Bring layer `l`'s device image up to its host parameters: the whole image when
+    /// [`Stale::All`], its 14 scale vectors when [`Stale::Scales`], through one submission.
+    ///
+    /// # Safety
+    ///
+    /// No submission is pending.
+    ///
+    /// # Complexity
+    ///
+    /// `O(words)` host words staged and uploaded: 18.6 M at `All`, 22 528 at `Scales`.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "word offsets index a u64 byte offset"
+    )]
+    unsafe fn refresh(&mut self, g: &GpuCtx, l: usize) {
+        let all = match self.stale[l] {
+            Stale::Fresh => return,
+            Stale::All => true,
+            Stale::Scales => false,
+        };
+        let (mut at, mut put) = (0usize, 0usize);
+        let mut regions = Vec::with_capacity(31);
+        for (p, scale) in self.pars[l].image() {
+            if all || scale {
+                std::ptr::copy_nonoverlapping(p.as_ptr(), self.stage.ptr.add(put), p.len());
+                regions.push(BufferCopy {
+                    src_offset: (put * 4) as u64,
+                    dst_offset: (at * 4) as u64,
+                    size: (p.len() * 4) as u64,
+                });
+                put += p.len();
+            }
+            at += p.len();
+        }
+        let vk = g.vk;
+        let cb = self.xfer;
+        vk.reset_cb(cb);
+        vk.begin(cb);
+        let n = regions.len() as u32;
+        (vk.copy_buffer)(cb, self.stage.buf, self.store[l], n, regions.as_ptr());
+        check((vk.end_cb)(cb), "vkEndCommandBuffer");
+        vk.submit_wait(cb);
+        self.stale[l] = Stale::Fresh;
+    }
+
+    /// Put layer `l` into the trainer it runs on, if that trainer holds another layer: the device
+    /// form of [`ChainLayer::load`], its image copied from `store` and its moments zeroed in one
+    /// submission.
     ///
     /// # Safety
     ///
@@ -488,14 +603,36 @@ impl KdTrain {
     ///
     /// # Complexity
     ///
-    /// `O(Σ (out + inn)·rank)` words uploaded (70 MiB at Qwen3-0.6B), two tapes re-recorded.
+    /// `O(1)` host work and one submission moving the image's 18.6 M words on the device, plus
+    /// [`KdTrain::refresh`]'s upload when the image is stale.
     unsafe fn use_layer(&mut self, g: &GpuCtx, l: usize) {
         let slot = l % self.layers.len();
         if self.held[slot] == Some(l) {
             return;
         }
-        let p = &self.pars[l];
-        self.layers[slot].load(g, &p.ff, &p.g1, &p.gn, &p.bf, &p.g2);
+        self.refresh(g, l);
+        let vk = g.vk;
+        let cb = self.xfer;
+        vk.reset_cb(cb);
+        vk.begin(cb);
+        vk.barrier(
+            cb,
+            STAGE_COMPUTE,
+            STAGE_TRANSFER,
+            ACCESS_SHADER_READ | ACCESS_SHADER_WRITE,
+            ACCESS_TRANSFER_WRITE,
+        );
+        let words = self.layers[slot].record_swap(vk, cb, self.store[l]);
+        assert_eq!(words, self.stage.n, "kd use_layer: image layout");
+        vk.barrier(
+            cb,
+            STAGE_TRANSFER,
+            STAGE_COMPUTE,
+            ACCESS_TRANSFER_WRITE,
+            ACCESS_SHADER_READ | ACCESS_SHADER_WRITE,
+        );
+        check((vk.end_cb)(cb), "vkEndCommandBuffer");
+        vk.submit_wait(cb);
         self.held[slot] = Some(l);
     }
 
@@ -694,7 +831,7 @@ impl KdTrain {
     pub fn set_pars(&mut self, pars: Vec<LayerPars>) {
         assert_eq!(pars.len(), self.shapes.layers, "kd: one image per layer");
         self.pars = pars;
-        self.held.iter_mut().for_each(|h| *h = None);
+        self.mark(Stale::All);
     }
 
     /// The student's layer images, the read side of [`KdTrain::set_pars`].
@@ -705,7 +842,7 @@ impl KdTrain {
 
     /// The student's layer images mutably, for the returned Adam step's result.
     pub fn pars_mut(&mut self) -> &mut [LayerPars] {
-        self.held.iter_mut().for_each(|h| *h = None);
+        self.mark(Stale::All);
         &mut self.pars
     }
 
@@ -762,7 +899,7 @@ impl KdTrain {
             }
             self.pars[l].set_scales(&s);
         }
-        self.held.iter_mut().for_each(|h| *h = None);
+        self.mark(Stale::Scales);
     }
 
     /// Write every layer's state into `dir` as `l<k>/{key}.param`, the `loop_words` format the
@@ -895,7 +1032,7 @@ impl KdTrain {
                 }
             }
         }
-        self.held.iter_mut().for_each(|h| *h = None);
+        self.mark(Stale::Scales);
         Ok((step, order, adam))
     }
 }

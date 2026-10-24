@@ -28,7 +28,7 @@ use crate::gpu::nn::{
 };
 use crate::gpu::vulkan::*;
 
-use super::slot::{map, q32, upload_dense, upload_factor, Factor};
+use super::slot::{map, q32, record_factor_swap, upload_dense, upload_factor, Factor};
 
 /// The block maps (sign, scale, row and column reductions, MSE gradient, loss rows).
 pub static BLOCK_MAP_SPV: &[u8] = include_bytes!("../../spirv/train/block_map.spv");
@@ -743,6 +743,48 @@ impl BlockTune {
         self.put(g, self.g2, g2);
         self.step_no = 0;
         self.set_stage(g, [true; 4], [true; 4]);
+    }
+
+    /// Record into `cb` the device form of [`BlockTune::load`]: the four factors and the gain `g2`
+    /// copied from `store` at word `at` onward, every moment zeroed, the step count restarted.
+    /// The stage must already be all four factors trained (asserted), so the tapes `load` would
+    /// re-record are the recorded ones. Returns the word after the block's image.
+    ///
+    /// # Safety
+    ///
+    /// `store` holds the image from `at`; `cb` is recording and no tape is pending.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; `O(Σ (out + inn)·(rank + 1) + d)` words moved on the device.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "word offsets index a u64 byte offset"
+    )]
+    pub(super) unsafe fn record_swap(
+        &mut self,
+        vk: &Vk,
+        cb: CommandBuffer,
+        store: Handle,
+        at: usize,
+    ) -> usize {
+        assert_eq!(
+            (self.factor, self.train),
+            ([true; 4], [true; 4]),
+            "block record_swap: the stage load sets"
+        );
+        let mut at = at;
+        for k in 0..4 {
+            at = record_factor_swap(vk, cb, store, at, &self.factors[k], &self.moments[k]);
+        }
+        let region = BufferCopy {
+            src_offset: (at * 4) as u64,
+            dst_offset: 0,
+            size: (self.shape.d * 4) as u64,
+        };
+        (vk.copy_buffer)(cb, store, self.g2, 1, &region);
+        self.step_no = 0;
+        at + self.shape.d
     }
 
     /// Put slot `k`'s factor and zero its four moment pairs. Leaves the stage as it is.

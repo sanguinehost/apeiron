@@ -180,6 +180,27 @@ impl ChainLayer {
         self.block.load(g, bf, g2);
     }
 
+    /// Record into `cb` the device form of [`ChainLayer::load`] from the layer image at `store`:
+    /// the front's `[q, k, v]` and `g1`, `gn`, then the block's `[o, gate, up, down]` and `g2`,
+    /// each factor as `[u, vt, s_post, s_pre]`. Returns the image's word count.
+    ///
+    /// # Safety
+    ///
+    /// `store` holds the whole image; `cb` is recording and no tape is pending.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` host work; the image's words moved on the device.
+    pub(super) unsafe fn record_swap(
+        &mut self,
+        vk: &Vk,
+        cb: CommandBuffer,
+        store: Handle,
+    ) -> usize {
+        let at = self.front.record_swap(vk, cb, store, 0);
+        self.block.record_swap(vk, cb, store, at)
+    }
+
     /// The layer input's buffer, `t × d`: the front's `x`, which the block's `x` is copied from.
     #[must_use]
     pub fn x(&self) -> Handle {

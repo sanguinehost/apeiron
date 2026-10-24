@@ -1546,6 +1546,7 @@ import Gpu.Handoff
 #audit Perf.Train.kdChain_fit
 #audit Perf.Train.kdHead_fit
 #audit Perf.Train.kdStep_fit
+#audit Perf.Train.kdSwap_wall
 #audit Perf.Handoff.align256_eq
 #audit Perf.Handoff.writeChunk_le_cap
 #audit Perf.Handoff.writeChunk_le_remaining
