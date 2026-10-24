@@ -354,6 +354,8 @@ pub struct BlockTune {
     factors: Vec<Factor>,
     x: Handle,
     a: Handle,
+    /// The o-projection's input adjoint `[t][a]`, written by the backward.
+    da: Handle,
     yt: Handle,
     y: Handle,
     g2: Handle,
@@ -438,6 +440,7 @@ impl BlockTune {
             moments.push(mo);
         }
         let (x, at, yt, h, n2) = (dev(t * d), dev(t * a), dev(t * d), dev(t * d), dev(t * d));
+        let da = dev(t * a);
         let (gt, up, mm, y) = (dev(t * f), dev(t * f), dev(t * f), dev(t * d));
         let (dy, dmm, dgt, dup) = (dev(t * d), dev(t * f), dev(t * f), dev(t * f));
         let (dn2, tmp, dh, dgr) = (dev(t * d), dev(t * d), dev(t * d), dev(t * d));
@@ -497,6 +500,9 @@ impl BlockTune {
             rmsnorm_bwd_dispatch(g, h, g2, dn2, dh, dgr, to, tg, 1e-6),
             add(dh, dy, t * d),
             linear_bwd_weight_dispatch(g, dh, at, dwt(0), to, tu, tg),
+            // The o-projection's input adjoint `da = dh·Wo`, `[t][a]`: the forward's dims
+            // verbatim, `n = t`, `i = a`, `o = d`.
+            linear_bwd_input_dispatch(g, dh, wt(0), da, to, tu, tg),
         ];
         let mut factor_bwd = Vec::with_capacity(4);
         for fa in &factors {
@@ -532,6 +538,7 @@ impl BlockTune {
             factors,
             x,
             a: at,
+            da,
             yt,
             y,
             g2,
@@ -847,6 +854,12 @@ impl BlockTune {
         self.y
     }
 
+    /// The adjoint of the o-projection input, `[t][a]`, valid after a backward.
+    #[must_use]
+    pub fn da(&self) -> Handle {
+        self.da
+    }
+
     /// The block output `y` of the last [`BlockTune::run`], `t × d`.
     ///
     /// # Safety
@@ -1114,6 +1127,35 @@ mod tests {
                 }
             }
             println!("scale gradient worst relative error {worst:.2e}");
+            // The o-projection's input adjoint `da = dh·Wo` (`[t][a]`) against the f64 host
+            // central differences of the block loss w.r.t. the o-projection input `a`, over the
+            // weights the forward materialised from `fs`.
+            let da = bt.get(&g, bt.da(), s.t * s.a);
+            let mut da_worst = 0f64;
+            for r in [0, s.t / 2, s.t - 1] {
+                for c in [0, s.a / 2, s.a - 1] {
+                    let eps = 1e-3f32;
+                    let mut p = a.clone();
+                    let mut q = a.clone();
+                    p[r * s.a + c] += eps;
+                    q[r * s.a + c] -= eps;
+                    // The applied step, exact in f64: the f32 perturbed values differ from
+                    // `±eps` by their own rounding.
+                    let step = f64::from(p[r * s.a + c]) - f64::from(q[r * s.a + c]);
+                    let fd = (host_loss(s, &fs, &g2, &x, &p, &yt)
+                        - host_loss(s, &fs, &g2, &x, &q, &yt))
+                        / step
+                        / td;
+                    let got = f64::from(da[r * s.a + c]);
+                    let err = (got - fd).abs() / fd.abs().max(1e-6);
+                    da_worst = da_worst.max(err);
+                    assert!(
+                        err < 1e-4,
+                        "da [{r},{c}]: device {got} fd {fd} relative {err:.2e}"
+                    );
+                }
+            }
+            println!("da worst relative error {da_worst:.2e}");
             let mut last = l0;
             for _ in 0..60 {
                 last = bt.run(&g, true);

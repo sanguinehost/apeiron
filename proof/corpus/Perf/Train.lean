@@ -562,4 +562,22 @@ theorem qwen3BlockTune_fit :
     2 * ourTokPerS < refTokPerS := by
   decide
 
+/-- The o-proj input adjoint of `BlockTune` (P133): `da = dh·Wo`, one `linear_bwd_input_dispatch`
+after the `dwt(0)` weight gradient, the gradient the q/k/v slots of the reference loop read
+(`compress_model.py:83-101`). Worst relative error against f64 central differences of the host loss,
+in units of 1e-9, under the 1e-4 bound; the control (`wt(1)` for `wt(0)`) is above it. The added
+GEMM is `2·T·a·d` flops, 8.6 GFLOP at `T = 2048`, `a = 2048`, `d = 1024` (Qwen3-0.6B), on a step
+floor of 161 GFLOP. Grade: the errors `tested`, the cost `model`. -/
+def daErrNano : Nat := 179
+def daBoundNano : Nat := 100000
+def daControlErrNano : Nat := 3290000000
+def daGflopTenths : Nat := 86
+def blockFloorGflopTenths : Nat := 1610
+
+theorem blockTuneAdjoint_fit :
+    daErrNano < daBoundNano ∧
+    daBoundNano < daControlErrNano ∧
+    10 * daGflopTenths < blockFloorGflopTenths := by
+  decide
+
 end Perf.Train
