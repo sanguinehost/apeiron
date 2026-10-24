@@ -224,6 +224,18 @@ plus KL(FP16‖arm) and top-1 agreement over the same 298 862 tokens. Receipts `
 | same, after blocks 0–1 | 1.18 (2 of 28) | 13.819 | 1.092 | — | — |
 | same, after blocks 0–2 | 1.18 (3 of 28) | 16.995 | 1.342 | — | — |
 
+Owner metric (perplexity and task accuracy), same harness and run (`eval_arm.py`, NanoQuant's `evaluate_model`; receipts
+`arm-bf16.json`, `arm-q4km.json`, `run4.log`; `docs/evidence/perf-predictions.md` P131):
+
+| arm | ppl | × Q4_K_M | mean 0-shot acc | × Q4_K_M |
+|---|---:|---:|---:|---:|
+| bf16 | 12.6705 | 0.921 | 0.5635 | 1.014 |
+| Q4_K_M | 13.7633 | 1.000 | 0.5556 | 1.000 |
+| NanoQuant reference, 1.18 b/w, as shipped (run4) | 24.3317 | 1.768 | 0.4235 | 0.762 |
+| bar (ppl ≤ 1.10×, accuracy ≥ 0.90×) | 15.14 | 1.10 | 0.500 | 0.90 |
+
+The reference as shipped misses both bars on this model. The port has no row until a Qwen3-0.6B student exists.
+
 The tied embedding (151936 × 1024) stays FP16 in the reference; at 0.6B it is 26% of the parameters, so
 the reference's whole-model rate is ≈ 5.05 b/w, while at 27B the embedding share is small.
 
