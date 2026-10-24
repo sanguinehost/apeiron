@@ -580,4 +580,27 @@ theorem blockTuneAdjoint_fit :
     10 * daGflopTenths < blockFloorGflopTenths := by
   decide
 
+/-- The q/k/v front of the device block tune (P134): `FrontTune` gradients of the q, k and v factor
+slots against the f64 host reference, which itself matches central differences; worst relative
+errors in units of 1e-9 under the 1e-3 bound, and the control (the k and v weight gradients swapped)
+above it. The added GEMM work, `6·T·d·(nh + 2·nkv)·hd` at `T = 2048`, `d = 1024`, `nh = 16`,
+`nkv = 8`, `hd = 128`, in tenths of a GFLOP. Grade: the errors `tested`, the cost `model`. -/
+def frontFdErrNano : Nat := 549
+def frontFdBoundNano : Nat := 1000
+def frontQErrNano : Nat := 600
+def frontKErrNano : Nat := 530
+def frontVErrNano : Nat := 295
+def frontBoundNano : Nat := 1000000
+def frontControlErrNano : Nat := 2540000000
+def frontGflopTenths : Nat := 515
+
+theorem frontTune_fit :
+    frontFdErrNano < frontFdBoundNano ∧
+    frontQErrNano < frontBoundNano ∧
+    frontKErrNano < frontBoundNano ∧
+    frontVErrNano < frontBoundNano ∧
+    frontBoundNano < frontControlErrNano ∧
+    6 * 2048 * 1024 * (16 + 2 * 8) * 128 / 100000000 = frontGflopTenths := by
+  decide
+
 end Perf.Train

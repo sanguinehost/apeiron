@@ -118,6 +118,61 @@ fn fold(wg: usize) -> (u32, u32) {
     (gx as u32, wg.div_ceil(gx).max(1) as u32)
 }
 
+/// The three backward dispatches over caller-provided handles, as reusable [`Step`]s: a caller
+/// that owns the buffers a wider tape needs (the attention front's `q`, `k`, `v` slots,
+/// [`FrontTune`](super::front::FrontTune)) records the same three dispatches in its own command
+/// buffer instead of letting [`AttnBwd`] own them.
+///
+/// `bufs` is [`AttnBwd`]'s field order: `[qf, kf, gains, q, gate, k, v, dy, lse, dsum, da,
+/// dq_rot, dk_rot, dqf, dkf, dv]`. `gated` sets bit 2 of every `mode` word exactly as
+/// [`AttnBwd::new`]'s flag does.
+///
+/// # Safety
+///
+/// Every handle holds the extent `s` and `gated` name; `g` outlives the steps.
+///
+/// # Complexity
+///
+/// `O(1)` host work; the three dispatches cover `chunks·nh·n_ctx`, `chunks·nkv·n_ctx` and
+/// `T·(nh + nkv)` invocations.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "n_ctx, nh, nkv, hd, rot and the workgroup count index u32 dispatch words"
+)]
+pub(super) unsafe fn tape(
+    g: &GpuCtx,
+    s: AttnBwdShape,
+    gated: bool,
+    bufs: [Handle; 16],
+) -> Vec<Step> {
+    let flag = if gated { 0u32 } else { 4u32 };
+    let meta = |mode: u32, wg: usize| {
+        [
+            mode | flag,
+            s.n_ctx as u32,
+            s.nh as u32,
+            s.nkv as u32,
+            s.hd as u32,
+            s.rot as u32,
+            s.theta.to_bits(),
+            s.eps.to_bits(),
+            wg as u32,
+        ]
+    };
+    let mut steps: Vec<Step> = Vec::with_capacity(3);
+    for (mode, wg, name) in [
+        (0u32, s.chunks * s.nh * s.n_ctx, "attn_bwd_dq"),
+        (1, s.chunks * s.nkv * s.n_ctx, "attn_bwd_dkv"),
+        (2, s.t() * (s.nh + s.nkv), "attn_bwd_prep"),
+    ] {
+        let mut all = vec![g.up_u32(&meta(mode, wg))];
+        all.extend_from_slice(&bufs);
+        let (gx, gy) = fold(wg);
+        steps.push(make_step_named(g, ATTN_MAP_BWD_SPV, &all, gx, gy, name));
+    }
+    steps
+}
+
 /// The backward over `chunks · n_ctx` columns: every activation and gradient device-resident, one
 /// recorded tape per call.
 pub struct AttnBwd {
@@ -200,31 +255,7 @@ impl AttnBwd {
         let bufs = [
             qf, kf, gains, q, gate, k, v, dy, lse, dsum, da, dq_rot, dk_rot, dqf, dkf, dv,
         ];
-        let flag = if gated { 0u32 } else { 4u32 };
-        let meta = |mode: u32, wg: usize| {
-            [
-                mode | flag,
-                s.n_ctx as u32,
-                nh as u32,
-                nkv as u32,
-                hd as u32,
-                s.rot as u32,
-                s.theta.to_bits(),
-                s.eps.to_bits(),
-                wg as u32,
-            ]
-        };
-        let mut steps: Vec<Step> = Vec::with_capacity(3);
-        for (mode, wg, name) in [
-            (0u32, s.chunks * nh * s.n_ctx, "attn_bwd_dq"),
-            (1, s.chunks * nkv * s.n_ctx, "attn_bwd_dkv"),
-            (2, t * (nh + nkv), "attn_bwd_prep"),
-        ] {
-            let mut all = vec![g.up_u32(&meta(mode, wg))];
-            all.extend_from_slice(&bufs);
-            let (gx, gy) = fold(wg);
-            steps.push(make_step_named(g, ATTN_MAP_BWD_SPV, &all, gx, gy, name));
-        }
+        let steps = tape(g, s, gated, bufs);
         let stage = host_buffer(g, t * nh * 2 * hd, BUFFER_USAGE_TRANSFER_SRC);
         let rb = host_buffer(g, t * nh * 2 * hd, BUFFER_USAGE_TRANSFER_DST);
         let xfer = g.vk.reusable_command_buffer();
@@ -321,7 +352,7 @@ impl AttnBwd {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::gpu::nn::train::mixer::ATTN_MAP_SPV;
     use crate::gpu::nn::GLSLC_ARGS;
@@ -656,6 +687,65 @@ mod tests {
             dkf,
             dv,
         }
+    }
+
+    /// One [`RefIn`] at the words a caller's slots produce, ungated: `qf` is `[T][nh·hd]`, `kf`
+    /// and `v` are `[T][nkv·hd]`, `gains` is `[2·hd]`; `dy` may be empty for a forward-only call.
+    fn refin_ungated(
+        s: AttnBwdShape,
+        qf: &[f64],
+        kf: &[f64],
+        gains: &[f64],
+        v: &[f64],
+        dy: &[f64],
+    ) -> RefIn {
+        RefIn {
+            gated: false,
+            n_ctx: s.n_ctx,
+            chunks: s.chunks,
+            nh: s.nh,
+            nkv: s.nkv,
+            hd: s.hd,
+            rot: s.rot,
+            theta: f64::from(s.theta),
+            eps: f64::from(s.eps),
+            qf: qf.to_vec(),
+            kf: kf.to_vec(),
+            gains: gains.to_vec(),
+            v: v.to_vec(),
+            dy: dy.to_vec(),
+        }
+    }
+
+    /// The f64 forward of the ungated map alone: the twin of `attn_map`'s modes 4 and 5 over
+    /// caller words. Consumer: the attention front's host reference
+    /// ([`super::super::front`](crate::gpu::nn::train::front)).
+    pub(crate) fn ref_fwd_ungated(
+        s: AttnBwdShape,
+        qf: &[f64],
+        kf: &[f64],
+        gains: &[f64],
+        v: &[f64],
+    ) -> Vec<f64> {
+        let x = refin_ungated(s, qf, kf, gains, v, &[]);
+        ref_forward(&x, &ref_prep(&x))
+    }
+
+    /// [`ref_fwd_ungated`] and its adjoint at the output cotangent `dy`, as `(out, dqf, dkf, dv)`:
+    /// the f64 twin of the three-dispatch gate/ungated tape over caller words.
+    pub(crate) fn ref_bwd_ungated(
+        s: AttnBwdShape,
+        qf: &[f64],
+        kf: &[f64],
+        gains: &[f64],
+        v: &[f64],
+        dy: &[f64],
+    ) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+        let x = refin_ungated(s, qf, kf, gains, v, dy);
+        let p = ref_prep(&x);
+        let out = ref_forward(&x, &p);
+        let gr = ref_backward(&x, &p);
+        (out, gr.dqf, gr.dkf, gr.dv)
     }
 
     /// A deterministic uniform generator: no dependency, bounded values, smooth at every knee.
