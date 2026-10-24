@@ -460,6 +460,16 @@ figure is the 2.044 s attributed less the three rows above it.
 Port order is by excess time: the linears (756 ms), attention fwd (505 ms), then attention bwd (314 ms). The attention bwd port
 consumes the fwd port's logsumexp, as fmhaB consumes fmhaF's.
 
+Each port lands as a face of the engine kernel for its role (AGENTS.md § Goal, gap and method):
+- the linears in `src/gpu/spirv/coopmat_gemm.comp`, as a bf16 operand face with an f32 epilogue,
+  with the cutlass 128x128 and 256x128 tilings as measured variants beside the committed 128 × 64;
+- attention fwd and bwd in `src/gpu/spirv/attn_coopmat.comp`, with HD 128, a bf16 operand face,
+  and an f32 output plus logsumexp face; the fmhaF 64 × 128 tiling is a variant.
+
+Each port then deletes the training-stack body it replaces (`lin_coop.comp`, `linear_*_dispatch`,
+`attn_map` mode 1, `attn_bwd_*`) and its `docs/contracts/one-path.toml` row under
+`APEIRON-DEL-GPU-ONE-W1-T01`.
+
 ### Negative controls
 
 Dropping `s_pre` in `NqFactor::weight` in a throwaway copy turns

@@ -69,6 +69,29 @@ in full; this section is how they bind here.
   - The rule covers kernels that predate it. The KD step ran our f32 scalar attention
     (`attn_map.comp` mode 1, 7.2× fmhaF) and our own linears for weeks, because the previous bullet
     bound only new briefs.
+- **A port lands as a face of the engine's one kernel for its role, never as a second kernel.**
+  Owner, 2026-10-25: "Why aren't you re-using the same style that we used to beat CUDA on
+  inference?" and "there isn't even supposed to be more than onepath".
+  - The engine kernels and the receipt they hold: GEMM `src/gpu/spirv/coopmat_gemm.comp` (builder
+    `src/gpu/nn/coopmat_gemm.rs`); attention `src/gpu/spirv/attn_coopmat.comp` (builder
+    `src/gpu/nn/attn/prefill.rs` `attn_prefill_coopmat_module`). Together they give pp512 1.795× llama.cpp
+    CUDA (P31, `021ab9d5`).
+  - A reference's operand format, head dimension, tiling or epilogue enters that file as a spec
+    constant or `#define` face. The existing faces' `.spv` stay byte-identical, pinned by their
+    freshness tests and `gpu_coopmat_gemm` / `gpu_prefill_match`. The reference's tiling is one
+    measured variant beside the committed one, timed on device timestamps at the production shape.
+  - The style is the inference one:
+    1. a structural identity first (block-aligned K, register prefetch of the next stage, a fused
+       epilogue);
+    2. variants measured on the RTX 5080;
+    3. SASS of our own `.spv` read through `Vk::isolated_cache_blob` and set beside the reference's
+       SASS.
+  - A brief that names a new `.comp`, a new builder, or a training twin (`src/gpu/spirv/train/`,
+    `src/gpu/nn/{fwd,bwd,train}/`) for a role that has an engine kernel is refused. The training
+    stack is one-path debt under `APEIRON-DEL-GPU-ONE-W1-T01` (`docs/contracts/one-path.toml`).
+  - Each port routes the role's every call site onto the face, then deletes the second body: its
+    `.comp`/`.spv`, its dispatch function and its `one-path.toml` debt row, in the same diff.
+  - Enforcer gap: `gate onepath` parses Rust only, so a GLSL twin is invisible to it.
 
 Apeiron owns the canonical definitions, the reusable Rust primitives and their refinements. The
 programme thesis, ownership, outcomes, primitive correspondence, migration and execution order are
@@ -944,6 +967,7 @@ evidence within budget on named source/tool identities, and retains exclusions a
 | Rules were saved in one Claude session's auto-memory (`~/.claude/projects/*/memory/`). DeepSeek, Gemini and Codex workers never read it, nor do sessions in other repositories; song alone held 175 memory files | `ls ~/.claude/projects/*/memory/`; owner, 2026-10-24, on the goal saved as a memory: "virtually useless" | A rule lives in an `AGENTS.md`, the one file every agent is delivered (§1). Memory holds facts about the owner and pointers to references (owner layer §Owner) | None mechanical | A check that refuses a rule written into a memory file |
 | Quality predictions were refuted at the overall rate, 43% against 42%, and 39% of all predictions were withdrawn untested. A refutation was recorded as a verdict and refitted nothing, and each change was judged by a whole-trunk run (236 s at `50c348ce`), not by a check of ≤ 30 s | derivation gate `status` (556 rows, 2026-10-24); `/home/socol/oc-tmp/escalation/lead-1024/root-cause.md` RC4, RC5 | A refuted prediction refits the model that made it, in the same commit. A quantisation change is screened by a per-tensor predictor of system KL before a trunk run | Prediction ledger with verdicts | The per-tensor system-KL predictor, fitted from the measured runs, with its hit rate on the ledger |
 | An f16 operand underflowed in the attention backward. The KD step's `max|dA|` is 5.5e-5 to 1.3e-4, under the f16 least normal 6.1e-5, so `dS` fed to the f16 cooperative matrix was subnormal or zero. The scale gradients sat at cosine 0.853 of the reference while every unit test on unit-scale `dy` stayed green | `/home/socol/oc-tmp/nq-ref/kd/receipts/kd-f16-emu.txt`, `attn-bwd-small-dy-red.log`; `docs/evidence/perf-predictions.md` P142 (board `APEIRON-QUALITY-118-W1-T01`) | A port's operand precision is checked against the reference's SASS at the operand magnitudes of the production step, not at unit scale. A narrower operand format than the reference's (f16 against `HMMA.1688.F32.BF16`) carries a measured range argument or a prescale | `attn_bwd_device_matches_ref_ungated_small_dy` (dqf 1.222e-2 red without the prescale, 5.165e-4 with it, bound 5e-3); the per-KV-group power-of-two prescale in `src/gpu/spirv/train/attn_map_bwd.comp` | No check compares each port kernel's operand formats and magnitude range with the reference SASS |
+| The KD kernel-port briefs built on the second GPU stack. KD-LIN rewrote `src/gpu/spirv/train/lin_coop.comp` (a bf16 twin, off the path), and KD-FMHAF created a new `attn_fmha.comp` plus `fmha.rs`, naming `attn_coopmat.comp` only as "take its structure, not its formats". `one-path.toml` already lists that stack as debt under `APEIRON-DEL-GPU-ONE-W1-T01`, and the engine's `coopmat_gemm.comp` / `attn_coopmat.comp` hold the 1.795× CUDA receipt. Three gaps let it through: the copy rule named no landing site, `gate onepath` does not read GLSL, and lanes commit nothing until install | `/home/socol/oc-tmp/escalation/lead-1025/kd/brief-kd-{lin,fmhaf}.md`; abandoned diffs `/home/socol/oc-tmp/escalation/lead-1025/kd/abandoned/kd-{lin,fmhaf}.diff`; owner, 2026-10-25: "there isn't even supposed to be more than onepath" | § Goal, gap and method: a port lands as a face of the engine's one kernel for its role; it deletes the second body and its debt row in the same diff | review only | `gate onepath` reading `src/gpu/spirv/**/*.comp`: a shader with no builder on the engine path, or a second shader for one role, is a finding |
 
 ## 11 · Tool recipes and standing owner rules
 
