@@ -621,4 +621,25 @@ theorem trainCoopGemm_fit :
     2 * coopMicros < coopF32Micros := by
   decide
 
+/-- The reference tune step on the device tapes (P136): NanoQuant's optimiser (`optimi`, betas
+`(0.9, 0.99)`, eps `1e-6`, debiased-β form), its `CosineAnnealingLR` folded into the bias word by
+`β₁ᵗ' = 1 − (1−β₁ᵗ)/c`, and its importance-weighted loss `Σ imp[c]·(y−yt)²` in `block_map` modes 4
+and 5. Worst relative errors in units of 1e-9: `p − p0` over 256 scheduled steps against an f64
+host replica of `optimi/adam.py:371-394` under 1e-4, with the control (`β₂ = 0.999`) above it; the
+weighted `dy` against f64 under 1e-4, with the control (`D` dropped from mode 4) above it. Grade:
+`tested`; no time is claimed. -/
+def optimiErrNano : Nat := 22200
+def optimiBoundNano : Nat := 100000
+def optimiControlErrNano : Nat := 26300000
+def impDyErrNano : Nat := 121
+def impDyBoundNano : Nat := 100000
+def impDyControlErrNano : Nat := 2640000000
+
+theorem refTuneStep_fit :
+    optimiErrNano < optimiBoundNano ∧
+    optimiBoundNano < optimiControlErrNano ∧
+    impDyErrNano < impDyBoundNano ∧
+    impDyBoundNano < impDyControlErrNano := by
+  decide
+
 end Perf.Train
