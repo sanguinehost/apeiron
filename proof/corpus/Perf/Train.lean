@@ -642,4 +642,28 @@ theorem refTuneStep_fit :
     impDyBoundNano < impDyControlErrNano := by
   decide
 
+/-- The block-loop driver (P137): `tests/learn_block_tune.rs` `block_loop` on block 0, slots q and
+v, factors injected from the reference's dump. Worst per-epoch deviation from the reference's own
+`losses.json`, in per-mille, against the 10% band: q fact and v fact inside it, v nonfact outside
+it (the refuted clause); the control (importance all ones) at 122× the reference. The ADMM arm's
+recon norm in units of 1e-4, ours against the reference's. Grade: `measured`. -/
+def driveBandMille : Nat := 100
+def driveQFactMille : Nat := 27
+def driveVFactMille : Nat := 13
+def driveVNonfactMille : Nat := 193
+def driveControlMille : Nat := 122000
+def driveArmQ : Nat := 2595
+def driveArmQRef : Nat := 2595
+def driveArmV : Nat := 3042
+def driveArmVRef : Nat := 3041
+
+theorem blockLoopDrive_fit :
+    driveQFactMille < driveBandMille ∧
+    driveVFactMille < driveBandMille ∧
+    driveBandMille < driveVNonfactMille ∧
+    driveBandMille < driveControlMille ∧
+    driveArmQ = driveArmQRef ∧
+    driveArmV - driveArmVRef ≤ 1 := by
+  decide
+
 end Perf.Train
