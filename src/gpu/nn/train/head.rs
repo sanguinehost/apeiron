@@ -731,18 +731,44 @@ mod tests {
             let dev = dh16[idx];
             let floor = 1e-3 * scale;
             let rel = (fd - an).abs() / an.abs().max(floor);
-            let rel_dev = (fd - dev).abs() / an.abs().max(floor);
+            // The device's `dh` is the bf16 face's, so its own bound is the chain's cancellation
+            // form. `dh[r][c]` comes from `dhf[r][c] = Σ_v dz[r][v]·W[v][c]` (`v` terms) behind
+            // `dz[r][v] = Σ_k hf[r][k]·Wᵀ` (`d` terms), and each GEMM stages two operands, so a
+            // rounding of `u = 2^-8` per operand gives
+            //   |Δdhf| <= κ₂·(4u·|dhf| + 4u·κ₁·|dhf|) + (v + d)·2^-24·κ₂·|dhf|,
+            // κ₂ = Σ_v|dz·W| / |dhf| and κ₁ = Σ_k|hf·W| / |z| — the two sums' cancellation, taken
+            // from the reference's own f64 intermediates at this very entry.
+            let (row, col) = (idx / d, idx % d);
+            let mut mag2 = 0.0f64;
+            let mut mag1 = 0.0f64;
+            for q in 0..v {
+                mag2 += (dz64[row * v + q] * w64[q * d + col]).abs();
+                if q < d {
+                    mag1 += (hf_s64[row * d + q] * w64[col * d + q]).abs();
+                }
+            }
+            let k2 = mag2 / dhf64[idx].abs().max(1e-300);
+            let k1 = mag1 / zs64[row * v + col].abs().max(1e-300);
+            let u = crate::gpu::nn::BF16_U;
+            let bnd_abs =
+                k2 * (4.0 * u * (1.0 + k1) + (v + d) as f64 * 5.960_464_477_539_063e-8) * an.abs();
+            let bound = bnd_abs / an.abs().max(floor);
+            // `rel` is the reference's own FD error (f64 against f64), so it keeps its own 1e-3.
+            let rel_dev = (dev - an).abs() / an.abs().max(floor);
             println!(
                 "fd h_s[{idx}]: central {fd:.9e} analysed f64 {an:.9e} device {dev:.9e} (rel \
-                 {rel:.2e}, {rel_dev:.2e})"
+                 {rel:.2e}; device vs analytic {rel_dev:.2e} / bound {bound:.2e} = {:.3},\n                 \
+                 kappa1 {k1:.1} kappa2 {k2:.1})",
+                rel_dev / bound.max(1e-300)
             );
             assert!(
                 rel <= 1e-3,
                 "fd h_s[{idx}]: central {fd:.6e} vs analysed {an:.6e} is {rel:.2e} relative"
             );
             assert!(
-                rel_dev <= 1e-3,
-                "fd h_s[{idx}]: central {fd:.6e} vs device {dev:.6e} is {rel_dev:.2e} relative"
+                rel_dev <= bound,
+                "fd h_s[{idx}]: device {dev:.6e} vs analysed {an:.6e} is {rel_dev:.2e} relative, \
+                 over the derived bound {bound:.2e} (kappa1 {k1:.1}, kappa2 {k2:.1})"
             );
         }
         // ── dz on the chunk-boundary rows of the 16-row tiling, plus the last row ──
@@ -760,20 +786,44 @@ mod tests {
         for (label, dh) in [("rc=16", &dh16), ("rc=48", &dh48)] {
             let (ma, mr, at) = max_abs_rel(dh, &dh64);
             let scale = dh64.iter().fold(0.0f64, |m, x| m.max(x.abs()));
+            // The same chain bound as the FD loop above, at the entry that deviates most, in this
+            // metric: |Δdh| <= κ₂·(4u(1 + κ₁) + (v + d)·2^-24)·|dhf|, scaled by 1/max|dh|.
+            let (row, col) = (at / d, at % d);
+            let mut mag2 = 0.0f64;
+            let mut mag1 = 0.0f64;
+            for q in 0..v {
+                mag2 += (dz64[row * v + q] * w64[q * d + col]).abs();
+                if q < d {
+                    mag1 += (hf_s64[row * d + q] * w64[col * d + q]).abs();
+                }
+            }
+            let k2 = mag2 / dhf64[at].abs().max(1e-300);
+            let k1 = mag1 / zs64[row * v + col].abs().max(1e-300);
+            let u = crate::gpu::nn::BF16_U;
+            let bound = k2
+                * (4.0 * u * (1.0 + k1) + (v + d) as f64 * 5.960_464_477_539_063e-8)
+                * dh64[at].abs()
+                / scale;
+            let bound_rel = k2 * (4.0 * u * (1.0 + k1) + (v + d) as f64 * 5.960_464_477_539_063e-8);
             println!(
-                "{label} dh: max |Δ| {ma:.3e} = {:.2e} of max|dh| {scale:.3e}; worst per-entry \
-                 relative (|dh| ≥ 1% of max) {mr:.2e}; at {at} f64 {:.6e} device {:.6e}",
+                "{label} dh: max |Δ| {ma:.3e} = {:.2e} of max|dh| {scale:.3e} (bound {bound:.2e}, \
+                 ratio {:.3}); worst per-entry relative (|dh| ≥ 1% of max) {mr:.2e} / bound \
+                 {bound_rel:.2e} = {:.3}; at {at} f64 {:.6e} device {:.6e} (kappa1 {k1:.1} \
+                 kappa2 {k2:.1})",
                 ma / scale,
+                ma / bound.max(1e-300),
+                mr / bound_rel.max(1e-300),
                 dh64[at],
                 dh[at]
             );
             assert!(
-                ma <= 1e-4 * scale,
-                "{label} dh: max |Δ| {ma:.3e} exceeds 1e-4 of max|dh| {scale:.3e}"
+                ma <= bound,
+                "{label} dh: max |Δ| {ma:.3e} exceeds the derived bound {bound:.3e}"
             );
             assert!(
-                mr <= 1e-4,
-                "{label} dh: worst per-entry relative error {mr:.2e} exceeds 1e-4"
+                mr <= bound_rel,
+                "{label} dh: worst per-entry relative error {mr:.2e} exceeds the derived bound \
+                 {bound_rel:.2e}"
             );
         }
     }

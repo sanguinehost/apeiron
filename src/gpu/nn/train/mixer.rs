@@ -35,6 +35,7 @@ use crate::engine::{Engine, MixerKind};
 use crate::gpu::decode::{make_step_named, rec_step, GpuCtx, Step};
 use crate::gpu::nn::act::swiglu_fwd_dispatch;
 use crate::gpu::nn::add_inplace_bytes;
+use crate::gpu::nn::attn::{attn_kd_dispatch, ATTN_KD_HD};
 use crate::gpu::nn::fwd::{linear_fwd_dispatch, rmsnorm_fwd_dispatch};
 use crate::gpu::vulkan::*;
 use crate::learn::grad::load::{layer_from_engine, load_matrix};
@@ -42,10 +43,11 @@ use crate::learn::grad::model::{Config, ModelError};
 
 /// `delta_scan.comp` compiled by `glslc` with [`crate::gpu::nn::GLSLC_ARGS`].
 pub static DELTA_SCAN_SPV: &[u8] = include_bytes!("../../spirv/train/delta_scan.spv");
-/// `attn_map.comp` compiled by `glslc` with [`crate::gpu::nn::GLSLC_ARGS`].
+/// `attn_map.comp` (the attention prep: per-head norm, gate split, RoPE) compiled by `glslc` with
+/// [`crate::gpu::nn::GLSLC_ARGS`]; the attention itself is [`attn_kd_dispatch`].
 pub static ATTN_MAP_SPV: &[u8] = include_bytes!("../../spirv/train/attn_map.spv");
-/// Scores `attn_map.comp` holds per query row (`shared float sc[2048]`): the longest chunk, the
-/// reference's 2048-token calibration sample (`NanoQuant` `main.py:38`, `seqlen` default 2048).
+/// The longest chunk these tapes are built for: the reference's 2048-token calibration sample
+/// (`NanoQuant` `main.py:38`, `seqlen` default 2048). Nothing here has measured past it.
 pub const MAX_N_CTX: usize = 2048;
 /// `delta_bwd.comp` compiled by `glslc` with [`crate::gpu::nn::GLSLC_ARGS`].
 pub static DELTA_BWD_SPV: &[u8] = include_bytes!("../../spirv/train/delta_bwd.spv");
@@ -299,7 +301,10 @@ impl LayerFwd {
     /// One upload of every weight, `O(Σ rows·cols)` words; `O(T·(d + f + C))` device words.
     #[allow(clippy::too_many_lines, reason = "one tape")]
     pub unsafe fn new(g: &GpuCtx, host: &LayerHost, n_ctx: usize, chunks: usize) -> Self {
-        assert!(n_ctx <= MAX_N_CTX, "attn_map holds MAX_N_CTX scores");
+        assert!(
+            n_ctx <= MAX_N_CTX,
+            "these tapes are built for n_ctx <= {MAX_N_CTX}"
+        );
         let LayerHost { d, f, a, eps, .. } = *host;
         let t = n_ctx * chunks;
         let dev = |n: usize| g.dev(n * 4);
@@ -390,33 +395,60 @@ impl LayerFwd {
                 gated,
                 ..
             } => {
-                assert!(*hd <= 256 && nh % nkv == 0, "attn_map geometry");
+                // The face is hd 128 over one causal sequence: a multi-chunk tape would attend
+                // across chunk boundaries. Refused, not computed differently.
+                assert!(
+                    *hd == ATTN_KD_HD as usize && chunks == 1 && nh % nkv == 0,
+                    "LayerFwd: the attention face is hd {}, one chunk and an integral GQA ratio; \
+                     got hd {} chunks {} nh {} nkv {}",
+                    ATTN_KD_HD,
+                    hd,
+                    chunks,
+                    nh,
+                    nkv
+                );
                 let qrows = nh * hd * if *gated { 2 } else { 1 };
                 assert_eq!(wp[0].0, qrows, "attn_q rows");
                 let gn = extra[0];
-                // The gate is read and written only when gated; ungated, one word keeps binding 5
-                // valid without a `t·nh·hd` buffer the shader never touches.
+                // The gate is read only when gated; ungated, one word keeps binding 5 valid.
                 let gate = if *gated { dev(t * nh * hd) } else { dev(1) };
                 let (q, k) = (dev(t * nh * hd), dev(t * nkv * hd));
                 let bufs = [pb[0], pb[1], gn, q, gate, k, pb[2], ao];
+                // bit 2: ungated, `qf` carries no gate half
                 let flag = if *gated { 0u32 } else { 4 };
-                for (mode, wg, name) in [
-                    (flag, t * (nh + nkv), "attn_prep"),
-                    (1 | flag, chunks * nh * n_ctx, "attn_attend"),
-                ] {
-                    let meta = [
-                        mode,
-                        n_ctx as u32,
-                        *nh as u32,
-                        *nkv as u32,
-                        *hd as u32,
-                        *rot as u32,
-                        theta.to_bits(),
-                        eps.to_bits(),
-                        wg as u32,
-                    ];
-                    steps.push(shader(g, ATTN_MAP_SPV, &meta, &bufs, fold(wg), name));
-                }
+                let meta = [
+                    flag,
+                    n_ctx as u32,
+                    *nh as u32,
+                    *nkv as u32,
+                    *hd as u32,
+                    *rot as u32,
+                    theta.to_bits(),
+                    eps.to_bits(),
+                    (t * (nh + nkv)) as u32,
+                ];
+                steps.push(shader(
+                    g,
+                    ATTN_MAP_SPV,
+                    &meta,
+                    &bufs,
+                    fold(t * (nh + nkv)),
+                    "attn_prep",
+                ));
+                steps.push(attn_kd_dispatch(
+                    g,
+                    q,
+                    k,
+                    pb[2],
+                    gate,
+                    ao,
+                    dev(t * nh),
+                    *nh as u32,
+                    *nkv as u32,
+                    t as u32,
+                    1.0 / (*hd as f32).sqrt(),
+                    *gated,
+                ));
             }
         }
         steps.extend([

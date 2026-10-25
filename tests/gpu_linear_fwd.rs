@@ -64,14 +64,13 @@ fn to_q32(v: f32) -> i64 {
     }
 }
 
-/// One shape and its pinned per-entry bound in Q32.32 units (measured on this device, about twice
-/// the observed maximum).
+/// One shape. The per-entry bound is not a constant: [`derived_bound`] computes it from the
+/// fixture's own operands.
 struct Fixture {
     label: &'static str,
     n: usize,
     i: usize,
     o: usize,
-    bound: f64,
 }
 
 #[test]
@@ -90,21 +89,18 @@ fn linear_forward_matches_cpu() {
             n: 1,
             i: 32,
             o: 64,
-            bound: 1500.0,
         },
         Fixture {
             label: "n=7 i=64 o=128",
             n: 7,
             i: 64,
             o: 128,
-            bound: 6500.0,
         },
         Fixture {
             label: "n=512 i=256 o=256",
             n: 512,
             i: 256,
             o: 256,
-            bound: 30000.0,
         },
     ];
     for f in &fixtures {
@@ -172,16 +168,46 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
     assert!(gpu_y.iter().all(|v| v.is_finite()), "non-finite y");
 
     let (max_y, at_y) = max_err(&gpu_y, &cpu_y, o);
+    // The bound of the kernel's own precision chain, from this fixture's operands:
+    // |C − C64| <= (2u + k·2^-24)·Σ_k|a||b| with u = 2^-8, u 32-bit fractional unit = 2^-32.
+    let bound = derived_bound(&xf, &wf, n, i, o);
     println!(
-        "{}: y max |gpu-cpu| = {max_y} units at {at_y:?}; pinned bound {}",
-        f.label, f.bound
+        "{}: y max |gpu-cpu| = {max_y} units at {at_y:?}; derived bound {bound:.0} units, \
+         ratio {:.3}",
+        f.label,
+        max_y as f64 / bound
     );
     assert!(
-        max_y as f64 <= f.bound,
-        "{}: y error {max_y} units at {at_y:?} exceeds the pinned bound {}",
-        f.label,
-        f.bound
+        max_y as f64 <= bound,
+        "{}: y error {max_y} units at {at_y:?} exceeds the derived bound {bound:.0}",
+        f.label
     );
+}
+
+fn bf16_dot_bound(a: &[f32], b: &[f32]) -> f64 {
+    assert_eq!(a.len(), b.len(), "bf16_dot_bound: lengths");
+    let mag: f64 = a
+        .iter()
+        .zip(b)
+        .map(|(&x, &y)| f64::from(x).abs() * f64::from(y).abs())
+        .sum();
+    (2.0 * (1.0 / 256.0) + (a.len() as f64) * 5.960_464_477_539_063e-8) * mag
+}
+
+/// `(2u + k·2^-24)·Σ_k|a||b|` in Q32.32 units, over the worst output row of `x·wᵀ`: the bound the
+/// bf16 face's precision chain implies (operands rounded once to bf16, u = 2^-8; f32 accumulate,
+/// `eps = 2^-24`). One 32-bit fractional unit is `2^-32` of the real value.
+fn derived_bound(x: &[f32], w: &[f32], n: usize, i: usize, o: usize) -> f64 {
+    let mut worst = 0.0f64;
+    for r in 0..n {
+        for c in 0..o {
+            worst = worst.max(bf16_dot_bound(
+                &x[r * i..(r + 1) * i],
+                &w[c * i..(c + 1) * i],
+            ));
+        }
+    }
+    worst * 4294967296.0
 }
 
 fn max_err(gpu: &[f32], cpu: &[i64], cols: usize) -> (i128, (usize, usize)) {

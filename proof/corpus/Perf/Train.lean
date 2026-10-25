@@ -809,4 +809,19 @@ theorem kdProf_rank :
     kdProfAttributedMs < kdProfStepMs := by
   decide
 
+/-! Attention forward KD port (`src/gpu/spirv/attn_coopmat.comp`, face `attn_coopmat_kd.spv`),
+measured 274.1 µs per call (84 calls = 23.0 ms per step), against the reference's fmhaF
+(964 µs per call = 81.0 ms) and our previous `attn_map.comp` mode 1 (6976 µs per call = 586 ms). -/
+def kdAttnFwdPortUs : Nat := 275
+def kdAttnFwdPrevUs : Nat := 6976
+def kdAttnFwdRefUs : Nat := 964
+
+/-- The attention-forward port beats the reference fmhaF by more than 3× and cuts our previous
+scalar attention forward by more than 25×. -/
+theorem kdAttentionFwd_gain :
+    3 * kdAttnFwdPortUs < kdAttnFwdRefUs ∧
+    25 * kdAttnFwdPortUs < kdAttnFwdPrevUs := by
+  decide
+
 end Perf.Train
+
