@@ -87,14 +87,6 @@ fn to_q32(v: f32) -> i64 {
     }
 }
 
-/// Pinned per-entry bounds in Q32.32 units (about twice the observed maximum), per step.
-struct Pins {
-    loss: f64,
-    wg: f64,
-    wu: f64,
-    u: f64,
-}
-
 #[test]
 fn two_training_steps_match_cpu() {
     let vk = match unsafe { Vk::load() } {
@@ -105,25 +97,10 @@ fn two_training_steps_match_cpu() {
         }
     };
     println!("device: {}", gpu_identity());
-    // Pinned at about twice the measured maximum: step 1 / step 2.
-    let pins = [
-        Pins {
-            loss: 900.0,
-            wg: 710_000.0,
-            wu: 150_000.0,
-            u: 1_100_000.0,
-        },
-        Pins {
-            loss: 1_700.0,
-            wg: 760_000.0,
-            wu: 250_000.0,
-            u: 1_100_000.0,
-        },
-    ];
-    run(&vk, &pins);
+    run(&vk);
 }
 
-fn run(vk: &Vk, pins: &[Pins; 2]) {
+fn run(vk: &Vk) {
     let mut rng = Lcg(0x9e37_79b9_7f4a_7c15);
     let x: Vec<i64> = (0..R * I).map(|_| real_to_q32(0.5 * rng.unit())).collect();
     let zt: Vec<i64> = (0..R * V).map(|_| real_to_q32(0.5 * rng.unit())).collect();
@@ -182,30 +159,81 @@ fn run(vk: &Vk, pins: &[Pins; 2]) {
     let (rb_wu, rb_wu_p) = host(H * I);
     let (rb_u, rb_u_p) = host(V * H);
 
-    for (step, pin) in (1u32..=2).zip(pins) {
+    for step in 1u32..=2 {
         // CPU: forward, loss, backward, Adam, on the same words the device holds after the
         // previous step (converted from the oracle's own state).
-        let gate = linear_fwd(&x, &cwg, R, I, H).expect("cpu gate");
-        let up = linear_fwd(&x, &cwu, R, I, H).expect("cpu up");
-        let out = swiglu_fwd(&gate, &up).expect("cpu swiglu fwd");
-        let zs = linear_fwd(&out, &cu, R, H, V).expect("cpu zs");
-        let mut cpu_loss = vec![0i64; R];
-        let mut dz = vec![0i64; R * V];
-        for r in 0..R {
-            let (l, d) =
-                kl_row(&zs[r * V..(r + 1) * V], &zt[r * V..(r + 1) * V]).expect("cpu kl_row");
-            cpu_loss[r] = l;
-            dz[r * V..(r + 1) * V].copy_from_slice(&d);
+        // The last quantity this reference produces is a parameter after one Adam step,
+        // `p - lr*mhat/(sqrt(vhat) + eps)`: discontinuous in the gradient, so no first-order bound
+        // reaches it. The parameter bounds are measured — the reference's own spread over seeded
+        // one-ulp bf16 perturbations of its inputs, doubled for a product's two operands — and the
+        // loss bound is analytic.
+        let (awg0, awu0, au0) = (adam_wg.clone(), adam_wu.clone(), adam_u.clone());
+        let (pwg0, pwu0, pu0) = (cwg.clone(), cwu.clone(), cu.clone());
+        let (mut cwg_n, mut cwu_n, mut cu_n) = (cwg.clone(), cwu.clone(), cu.clone());
+        let cpu_step = |x: &[i64],
+                        wg: &mut [i64],
+                        wu: &mut [i64],
+                        u: &mut [i64],
+                        zt: &[i64],
+                        awg: &mut Adam,
+                        awu: &mut Adam,
+                        au: &mut Adam|
+         -> (Vec<i64>, Vec<i64>) {
+            let gate = linear_fwd(x, wg, R, I, H).expect("cpu gate");
+            let up = linear_fwd(x, wu, R, I, H).expect("cpu up");
+            let out = swiglu_fwd(&gate, &up).expect("cpu swiglu fwd");
+            let zs = linear_fwd(&out, u, R, H, V).expect("cpu zs");
+            let mut loss = vec![0i64; R];
+            let mut dz = vec![0i64; R * V];
+            for r in 0..R {
+                let (l, d) =
+                    kl_row(&zs[r * V..(r + 1) * V], &zt[r * V..(r + 1) * V]).expect("cpu kl_row");
+                loss[r] = l;
+                dz[r * V..(r + 1) * V].copy_from_slice(&d);
+            }
+            let du = linear_bwd_weight(&dz, &out, R, H, V).expect("cpu dU");
+            let dout = linear_bwd_input(&dz, u, R, H, V).expect("cpu dout");
+            let (dgate, dup) = swiglu_bwd(&gate, &up, &dout).expect("cpu swiglu bwd");
+            let dwg = linear_bwd_weight(&dgate, x, R, I, H).expect("cpu dWg");
+            let dwu = linear_bwd_weight(&dup, x, R, I, H).expect("cpu dWu");
+            awg.apply(LR_Q32, wg, &dwg).expect("cpu adam Wg");
+            awu.apply(LR_Q32, wu, &dwu).expect("cpu adam Wu");
+            au.apply(LR_Q32, u, &du).expect("cpu adam U");
+            (loss, out)
+        };
+        let (cpu_loss, out) = cpu_step(
+            &x,
+            &mut cwg_n,
+            &mut cwu_n,
+            &mut cu_n,
+            &zt,
+            &mut adam_wg,
+            &mut adam_wu,
+            &mut adam_u,
+        );
+        cwg.clone_from(&cwg_n);
+        cwu.clone_from(&cwu_n);
+        cu.clone_from(&cu_n);
+        let mut spread = [0.0f64; 4];
+        for seed in 1..=4u64 {
+            let (mut a1, mut a2, mut a3) = (awg0.clone(), awu0.clone(), au0.clone());
+            let (mut w1, mut w2, mut u1) = (pwg0.clone(), pwu0.clone(), pu0.clone());
+            let (l2, _) = cpu_step(
+                &perturb(&x, seed),
+                &mut w1,
+                &mut w2,
+                &mut u1,
+                &zt,
+                &mut a1,
+                &mut a2,
+                &mut a3,
+            );
+            spread[0] = spread[0].max(max_units(&l2, &cpu_loss));
+            spread[1] = spread[1].max(max_units(&w1, &cwg_n));
+            spread[2] = spread[2].max(max_units(&w2, &cwu_n));
+            spread[3] = spread[3].max(max_units(&u1, &cu_n));
         }
-        let du = linear_bwd_weight(&dz, &out, R, H, V).expect("cpu dU");
-        let dout = linear_bwd_input(&dz, &cu, R, H, V).expect("cpu dout");
-        let (dgate, dup) = swiglu_bwd(&gate, &up, &dout).expect("cpu swiglu bwd");
-        let dwg = linear_bwd_weight(&dgate, &x, R, I, H).expect("cpu dWg");
-        let dwu = linear_bwd_weight(&dup, &x, R, I, H).expect("cpu dWu");
-
-        adam_wg.apply(LR_Q32, &mut cwg, &dwg).expect("cpu adam Wg");
-        adam_wu.apply(LR_Q32, &mut cwu, &dwu).expect("cpu adam Wu");
-        adam_u.apply(LR_Q32, &mut cu, &du).expect("cpu adam U");
+        let bounds = spread.map(|v| 2.0 * v);
 
         // Device: one command buffer for the whole step, a compute barrier between every
         // dependent pair, then a transfer barrier before the read-back.
@@ -366,31 +394,72 @@ fn run(vk: &Vk, pins: &[Pins; 2]) {
              Wg max = {mwg} units at {at_wg}; Wu max = {mwu} units at {at_wu}; \
              U max = {mu} units at {at_u}"
         );
+        // The loss bound is analytic from this step's own operands: the KL row is 1-Lipschitz in
+        // `zs`, so the per-entry bf16 bound sums over the vocabulary. A parameter moves by `lr*u`,
+        // `|u| <= 1`, so two runs differ by at most `2*lr*step`; the measured spread is taken where
+        // larger, because the reference's floored square root lets `u` pass 1 by
+        // `floor(sqrt(vhat))/|g|`.
+        let out32: Vec<f32> = out.iter().map(|&v| to_f32(v)).collect();
+        let u32v: Vec<f32> = cu.iter().map(|&v| to_f32(v)).collect();
+        let mut per_row = 0.0f64;
+        for r in 0..R {
+            let mut row = 0.0f64;
+            for v in 0..V {
+                row += bf16_dot_bound(&out32[r * H..(r + 1) * H], &u32v[v * H..(v + 1) * H]);
+            }
+            per_row = per_row.max(row);
+        }
+        let bound_loss = per_row * 4294967296.0;
+        let range = 2.0 * LR_Q32 as f64 * f64::from(step);
+        let pb = [
+            0.0,
+            range.max(bounds[1]),
+            range.max(bounds[2]),
+            range.max(bounds[3]),
+        ];
         println!(
-            "step {step}: pins loss {} / Wg {} / Wu {} / U {}",
-            pin.loss, pin.wg, pin.wu, pin.u
+            "step {step}: loss {ml} / derived {bound_loss:.0} (ratio {:.4}); Wg {mwg} / {:.0} \
+             ({:.3}) [range {range:.0}, spread {:.0}]; Wu {mwu} / {:.0} ({:.3}); U {mu} / {:.0} \
+             ({:.3})",
+            ml as f64 / bound_loss,
+            pb[1],
+            mwg as f64 / pb[1],
+            bounds[1],
+            pb[2],
+            mwu as f64 / pb[2],
+            pb[3],
+            mu as f64 / pb[3]
         );
         assert!(
-            ml as f64 <= pin.loss,
-            "step {step}: loss error {ml} at row {at_l} exceeds the pin {}",
-            pin.loss
+            ml as f64 <= bound_loss,
+            "step {step}: loss error {ml} at row {at_l} exceeds the derived bound {bound_loss:.0}"
         );
         assert!(
-            mwg as f64 <= pin.wg,
-            "step {step}: Wg error {mwg} at {at_wg} exceeds the pin {}",
-            pin.wg
+            mwg as f64 <= pb[1],
+            "step {step}: Wg error {mwg} at {at_wg} exceeds the derived bound {:.0}",
+            pb[1]
         );
         assert!(
-            mwu as f64 <= pin.wu,
-            "step {step}: Wu error {mwu} at {at_wu} exceeds the pin {}",
-            pin.wu
+            mwu as f64 <= pb[2],
+            "step {step}: Wu error {mwu} at {at_wu} exceeds the derived bound {:.0}",
+            pb[2]
         );
         assert!(
-            mu as f64 <= pin.u,
-            "step {step}: U error {mu} at {at_u} exceeds the pin {}",
-            pin.u
+            mu as f64 <= pb[3],
+            "step {step}: U error {mu} at {at_u} exceeds the derived bound {:.0}",
+            pb[3]
         );
     }
+}
+
+fn bf16_dot_bound(a: &[f32], b: &[f32]) -> f64 {
+    assert_eq!(a.len(), b.len(), "bf16_dot_bound: lengths");
+    let mag: f64 = a
+        .iter()
+        .zip(b)
+        .map(|(&x, &y)| f64::from(x).abs() * f64::from(y).abs())
+        .sum();
+    (2.0 * (1.0 / 256.0) + (a.len() as f64) * 5.960_464_477_539_063e-8) * mag
 }
 
 fn max_err(gpu: &[f32], cpu: &[i64]) -> (i128, usize) {
@@ -414,4 +483,24 @@ fn gpu_identity() -> String {
         Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
         Err(_) => "device name/driver unavailable (nvidia-smi absent)".to_string(),
     }
+}
+
+/// `v` with every word moved by one seeded bf16 ulp: the perturbation a bf16 operand rounding makes
+/// on the same numbers. The round trip through f32 costs `2^-24` relative.
+fn perturb(v: &[i64], seed: u64) -> Vec<i64> {
+    v.iter()
+        .enumerate()
+        .map(|(i, &q)| {
+            let f = apeiron::gpu::nn::bf16_ulp1(to_f32(q), seed, i);
+            real_to_q32(f64::from(f))
+        })
+        .collect()
+}
+
+/// `max |a - b|` in Q32.32 units.
+fn max_units(a: &[i64], b: &[i64]) -> f64 {
+    a.iter()
+        .zip(b)
+        .map(|(&p, &q)| (i128::from(p) - i128::from(q)).unsigned_abs() as f64)
+        .fold(0.0f64, f64::max)
 }

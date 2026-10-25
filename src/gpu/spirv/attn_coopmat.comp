@@ -1,7 +1,11 @@
 #version 460
 #extension GL_KHR_cooperative_matrix : require
 #extension GL_KHR_memory_scope_semantics : require
+#ifdef KDF
+#extension GL_EXT_bfloat16 : require
+#else
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#endif
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_shuffle : require
 #extension GL_EXT_control_flow_attributes : require
@@ -25,6 +29,245 @@
 // Constants: NH, NKV, QKVM, TMAX, SCALE, DPW are specialization constants (patched in the binary by
 // `simt_nn::attn_prefill_coopmat_module`). QKVM and TMAX must be multiples of 4. DPW in {1, 2}.
 
+#ifdef KDF
+// ---- the KD face ---------------------------------------------------------------------------
+// NanoQuant's KD attention forward as a FACE of this file, compiled by
+// `glslc -DKDF=1 ... -o attn_coopmat_kd.spv`; the inference face below is untouched and compiles
+// byte-identically. hd = 128, bf16 x bf16 -> f32 M16N16K16, f32 global tensors in the KD layout
+// (q [T][NH*HD], k/v [T][NKV*HD], out [T][NH*HD]), causal over the whole sequence, scale*log2e
+// folded and exp2 as `iterative_softmax`, P rounded once to bf16, O f32, logsumexp [NH][T] f32 for
+// the backward face, gated epilogue sigmoid(gate) under the GATED spec constant.
+//
+// The reference is `mem_eff_attention`'s bf16 causal forward, instance `kernels/cutlassF.h:20`
+// (`AttentionKernel<bfloat16_t, Sm80, true, 64, 128, 128, true, true>`, torch 2.8.0+cu128):
+// key-block loop `kernel_forward.h:700`, MM0 = Q.K^T :747-801 with the scale folded :798-801,
+// `iterative_softmax` :1182-1290 (running max, exp2 rescale :1257), MM1 = P.V :1004-1140,
+// logsumexp :1160-1178. Its SASS (`fmhaF.sass`) holds 64 `HMMA.1688.F32.BF16`.
+//
+// One workgroup = one head x BR = 16*NSG query rows; subgroup `sg` owns rows 16*sg .. 16*sg+15 and
+// walks the key slabs of BK = 64 keys, as the inference face does:
+//     S = Q K^T          bf16 x bf16 -> f32; Q fragments in registers for the whole walk
+//     m, alpha, P        f32 softmax on the S tile through shared memory (two lanes per row)
+//     O = alpha O + P V' f32 accumulate, P rounded to bf16 at the shared store
+// K and V share one staged buffer: a key-major [key][dim] slab is read as the B operand column-major
+// for Q.K^T and row-major for P.V, so both walks stage the contiguous dim run of the KD layout.
+//
+// Deviation from the reference: its q/k/v are bf16 in memory; here they are f32 and are rounded
+// once at the shared store, so the operand precision of both MMAs is the same bf16.
+// Shared: 47360 B (sKV 17408 + sS 17408 + sP 9216 + sQ 3072 + sAl 256), under the 49152 B the
+// device reports; the fmhaF tile (64 queries x 128 keys) needs 87040 B with S through shared.
+
+#ifndef NSG
+#define NSG 4
+#endif
+#define HD 128
+#define BK 64
+#define BR (16 * NSG)
+#define NT (32 * NSG)
+// row strides in bf16vec4 (8 B) units: 8 halves of pad keep every row 16-byte aligned and skew the
+// banks; SOT is the 16-column f32 epilogue tile
+#define SKV4 34u
+#define SP4 18u
+#define SQ4 6u
+#define SSTR 68u
+#define SOT 16u
+
+layout(local_size_x = NT, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint NH = 16;
+layout(constant_id = 1) const uint NKV = 8;
+layout(constant_id = 2) const uint T = 2048;
+layout(constant_id = 3) const float SCALE = 0.08838834764831845;
+layout(constant_id = 4) const uint GATED = 0;
+
+layout(set = 0, binding = 0, std430) readonly buffer Q_ { vec4 q4[]; };
+layout(set = 0, binding = 1, std430) readonly buffer K_ { vec4 k4[]; };
+layout(set = 0, binding = 2, std430) readonly buffer V_ { vec4 v4[]; };
+layout(set = 0, binding = 3, std430) readonly buffer G_ { vec4 g4[]; };
+layout(set = 0, binding = 4, std430) writeonly buffer O_ { vec4 o4[]; };
+layout(set = 0, binding = 5, std430) writeonly buffer LSE_ { float lse[]; };
+
+shared bf16vec4 sKV[BK * SKV4]; // [key][dim], the K slab then the V slab
+shared bf16vec4 sP[BR * SP4];  // P [row][key]
+shared bf16vec4 sQ[BR * SQ4];  // the query tile, 16 dims at a time
+shared float sS[BR * SSTR];    // S [row][key], then the 16-column epilogue tile
+shared float sAl[BR];          // per-row alpha, then the per-row denominator
+
+#define FRAG_KD_F coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+#define FRAG_KD_A coopmat<bfloat16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA>
+#define FRAG_KD_B coopmat<bfloat16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB>
+
+const float NEG = -1.0e30;
+const float LOG2E = 1.4426950408889634;
+const float LN2 = 0.6931471805599453;
+
+void main() {
+    const uint tid = gl_LocalInvocationIndex;
+    const uint sg = tid >> 5;
+    const uint lane = tid & 31u;
+    const uint h = gl_WorkGroupID.x;
+    const uint kvh = h / (NH / NKV);
+    const uint ntile = (T + BR - 1u) / BR;
+    if (gl_WorkGroupID.y >= ntile) {
+        return;
+    }
+    // heaviest query tile first, as the inference face
+    const uint tile = ntile - 1u - gl_WorkGroupID.y;
+    const uint i0 = tile * BR;
+
+    // the query tile into registers, one 16-dim chunk of shared at a time
+    FRAG_KD_A qa[HD / 16];
+    for (uint kk = 0u; kk < HD / 16u; ++kk) {
+        barrier();
+        [[unroll]] for (uint it = 0u; it < (BR * 16u / 4u) / NT; ++it) {
+            const uint idx = tid + it * NT;
+            const uint r = idx >> 2;
+            const uint q = idx & 3u;
+            const uint ir = min(i0 + r, T - 1u);
+            sQ[r * SQ4 + q] = bf16vec4(q4[((ir * NH + h) * HD + kk * 16u) / 4u + q]);
+        }
+        barrier();
+        coopMatLoad(qa[kk], sQ, sg * 16u * SQ4, SQ4, gl_CooperativeMatrixLayoutRowMajor);
+    }
+
+    // this lane's softmax row: two lanes per row, 32 keys of each 64-key slab apiece
+    const uint lr = sg * 16u + (lane >> 1);
+    const uint hf = lane & 1u;
+    const uint lrow = min(i0 + lr, T - 1u);
+    const uint len = lrow + 1u;
+    const uint sub_len = min(i0 + sg * 16u + 15u, T - 1u) + 1u;
+    const uint maxlen = min(i0 + BR - 1u, T - 1u) + 1u;
+    const float kq = SCALE * LOG2E;
+
+    FRAG_KD_F o[HD / 16];
+    [[unroll]] for (uint f = 0u; f < HD / 16u; ++f) {
+        o[f] = FRAG_KD_F(0.0);
+    }
+    float mrun = NEG;
+    float lsum = 0.0;
+
+    for (uint t0 = 0u; t0 < maxlen; t0 += BK) {
+        barrier();
+        // K slab, key-major [key][dim]: the contiguous dim run of the KD layout, rounded once
+        [[unroll]] for (uint it = 0u; it < (BK * HD / 4u) / NT; ++it) {
+            const uint idx = tid + it * NT;
+            const uint j = idx >> 5;
+            const uint q = idx & 31u;
+            sKV[j * SKV4 + q] = bf16vec4(k4[((min(t0 + j, T - 1u) * NKV + kvh) * HD) / 4u + q]);
+        }
+        barrier();
+        if (t0 < sub_len) {
+            // S = Q K^T, the K slab as a column-major B operand
+            FRAG_KD_F sc[BK / 16];
+            [[unroll]] for (uint nb = 0u; nb < BK / 16u; ++nb) {
+                sc[nb] = FRAG_KD_F(0.0);
+                [[unroll]] for (uint kk = 0u; kk < HD / 16u; ++kk) {
+                    FRAG_KD_B kb;
+                    coopMatLoad(kb, sKV, (nb * 16u) * SKV4 + kk * 4u, SKV4,
+                                gl_CooperativeMatrixLayoutColumnMajor);
+                    sc[nb] = coopMatMulAdd(qa[kk], kb, sc[nb]);
+                }
+                coopMatStore(sc[nb], sS, sg * 16u * SSTR + nb * 16u, SSTR,
+                             gl_CooperativeMatrixLayoutRowMajor);
+            }
+            subgroupMemoryBarrierShared();
+            subgroupBarrier();
+        }
+        barrier();
+        // V slab into the same staged buffer: row-major B for P V
+        [[unroll]] for (uint it = 0u; it < (BK * HD / 4u) / NT; ++it) {
+            const uint idx = tid + it * NT;
+            const uint j = idx >> 5;
+            const uint q = idx & 31u;
+            sKV[j * SKV4 + q] = bf16vec4(v4[((min(t0 + j, T - 1u) * NKV + kvh) * HD) / 4u + q]);
+        }
+        barrier();
+        if (t0 < sub_len) {
+            // online softmax of this lane's row over its 32 keys of the slab
+            float mx = NEG;
+            [[unroll]] for (uint j = 0u; j < 32u; ++j) {
+                const uint c = hf * 32u + j;
+                mx = max(mx, (t0 + c < len) ? sS[lr * SSTR + c] * kq : NEG);
+            }
+            mx = max(mx, subgroupShuffleXor(mx, 1u));
+            const float mn = max(mrun, mx);
+            const float alpha = exp2(mrun - mn);
+            mrun = mn;
+            float ssum = 0.0;
+            [[unroll]] for (uint j4 = 0u; j4 < 8u; ++j4) {
+                bf16vec4 pv;
+                [[unroll]] for (uint u = 0u; u < 4u; ++u) {
+                    const uint c = hf * 32u + j4 * 4u + u;
+                    const float e =
+                        (t0 + c < len) ? exp2(sS[lr * SSTR + c] * kq - mn) : 0.0;
+                    ssum += e;
+                    pv[u] = bfloat16_t(e);
+                }
+                sP[lr * SP4 + hf * 8u + j4] = pv;
+            }
+            lsum = lsum * alpha + ssum;
+            if (hf == 0u) {
+                sAl[lr] = alpha;
+            }
+            subgroupMemoryBarrierShared();
+            subgroupBarrier();
+
+            // O = alpha O + P V
+            FRAG_KD_F fal;
+            coopMatLoad(fal, sAl, sg * 16u, 0u, gl_CooperativeMatrixLayoutColumnMajor);
+            FRAG_KD_A pa[BK / 16];
+            [[unroll]] for (uint kk = 0u; kk < BK / 16u; ++kk) {
+                coopMatLoad(pa[kk], sP, sg * 16u * SP4 + kk * 4u, SP4,
+                            gl_CooperativeMatrixLayoutRowMajor);
+            }
+            [[unroll]] for (uint nb = 0u; nb < HD / 16u; ++nb) {
+                FRAG_KD_F acc = o[nb] * fal;
+                [[unroll]] for (uint kk = 0u; kk < BK / 16u; ++kk) {
+                    FRAG_KD_B vb;
+                    coopMatLoad(vb, sKV, kk * 16u * SKV4 + nb * 4u, SKV4,
+                                gl_CooperativeMatrixLayoutRowMajor);
+                    acc = coopMatMulAdd(pa[kk], vb, acc);
+                }
+                o[nb] = acc;
+            }
+        }
+    }
+
+    // epilogue: the row denominator, the logsumexp the backward face reads, O / denominator, gate
+    const float ltot = lsum + subgroupShuffleXor(lsum, 1u);
+    if (hf == 0u) {
+        sAl[lr] = 1.0 / ltot;
+        if (i0 + lr < T) {
+            lse[h * T + i0 + lr] = mrun * LN2 + log(ltot);
+        }
+    }
+    barrier();
+    [[unroll]] for (uint f = 0u; f < HD / 16u; ++f) {
+        const uint base = sg * 256u;
+        coopMatStore(o[f], sS, base, SOT, gl_CooperativeMatrixLayoutRowMajor);
+        subgroupMemoryBarrierShared();
+        subgroupBarrier();
+        [[unroll]] for (uint it = 0u; it < 2u; ++it) {
+            const uint idx = lane + it * 32u;
+            const uint r = idx >> 2;
+            const uint w = idx & 3u;
+            const uint ir = i0 + sg * 16u + r;
+            if (ir < T) {
+                const uint so = base + r * SOT + w * 4u;
+                const float inv = sAl[sg * 16u + r];
+                vec4 y = vec4(sS[so], sS[so + 1u], sS[so + 2u], sS[so + 3u]) * inv;
+                if (GATED == 1u) {
+                    const vec4 gv = g4[((ir * NH + h) * HD + f * 16u + w * 4u) / 4u];
+                    y *= 1.0 / (1.0 + exp(-gv));
+                }
+                o4[((ir * NH + h) * HD + f * 16u + w * 4u) / 4u] = y;
+            }
+        }
+        subgroupMemoryBarrierShared();
+        subgroupBarrier();
+    }
+}
+#else
 #ifndef NSG
 #define NSG 4
 #endif
@@ -284,3 +527,4 @@ void main() {
         }
     }
 }
+#endif

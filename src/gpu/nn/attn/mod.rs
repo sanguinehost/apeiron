@@ -7,6 +7,8 @@ use super::*;
 mod attn_dp4a;
 mod bwd;
 mod fwd;
+#[cfg(feature = "gpu")]
+pub mod kd;
 mod pool;
 mod prefill;
 mod prefill_glue;
@@ -14,6 +16,8 @@ mod sparse;
 
 pub use bwd::*;
 pub use fwd::*;
+#[cfg(feature = "gpu")]
+pub use kd::*;
 pub use pool::*;
 pub use prefill::*;
 pub use prefill_glue::*;

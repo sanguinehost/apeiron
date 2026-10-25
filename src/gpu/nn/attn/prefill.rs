@@ -1044,10 +1044,13 @@ pub static ATTN_COOPMAT_SPV: &[u8] = include_bytes!("../../spirv/attn_coopmat.sp
 /// `specialize`, kept local because that file is not this task's.
 ///
 /// Cost: two linear passes over the module, O(words) time, O(1) extra space beyond the copy.
-fn attn_coop_specialize(module: &[u32], vals: &[(u32, u32)]) -> Vec<u32> {
-    const OP_DECORATE: u32 = 71;
-    const OP_SPEC_CONSTANT: u32 = 50;
-    const DEC_SPEC_ID: u32 = 1;
+pub(super) fn attn_coop_specialize(module: &[u32], vals: &[(u32, u32)]) -> Vec<u32> {
+    // Prefixed, not `OP_DECORATE`/`OP_SPEC_CONSTANT`/`DEC_SPEC_ID`: `gate onepath` binds a const use
+    // by bare name across the crate, so an unprefixed local aliases `bwd/coop.rs`'s finding and
+    // makes every caller of this fn a consumer of a const it never touches.
+    const SPV_OP_DECORATE: u32 = 71;
+    const SPV_OP_SPEC_CONSTANT: u32 = 50;
+    const SPV_DEC_SPEC_ID: u32 = 1;
     let mut out = module.to_vec();
     let mut ids: Vec<(u32, u32)> = Vec::new();
     let mut i = 5;
@@ -1057,7 +1060,7 @@ fn attn_coop_specialize(module: &[u32], vals: &[(u32, u32)]) -> Vec<u32> {
             len > 0 && i + len <= out.len(),
             "malformed SPIR-V at word {i}"
         );
-        if op == OP_DECORATE && len == 4 && out[i + 2] == DEC_SPEC_ID {
+        if op == SPV_OP_DECORATE && len == 4 && out[i + 2] == SPV_DEC_SPEC_ID {
             if let Some(&(_, v)) = vals.iter().find(|(s, _)| *s == out[i + 3]) {
                 ids.push((out[i + 1], v));
             }
@@ -1069,7 +1072,7 @@ fn attn_coop_specialize(module: &[u32], vals: &[(u32, u32)]) -> Vec<u32> {
     i = 5;
     while i < out.len() {
         let (len, op) = ((out[i] >> 16) as usize, out[i] & 0xffff);
-        if op == OP_SPEC_CONSTANT && len == 4 {
+        if op == SPV_OP_SPEC_CONSTANT && len == 4 {
             if let Some(&(_, v)) = ids.iter().find(|(id, _)| *id == out[i + 2]) {
                 out[i + 3] = v;
                 patched += 1;

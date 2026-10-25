@@ -866,3 +866,30 @@ fn ratchet_accepts_an_unchanged_or_shrunk_source_count() {
     let down = staged_backward(38, 30);
     assert!(down.is_empty(), "{down:?}");
 }
+
+#[test]
+fn ratchet_accepts_shrunk_orphan_debt_row() {
+    let files = [
+        ("src/lib.rs", "pub mod a;\n".to_string()),
+        ("src/a.rs", "pub fn o1() {}\npub fn o2() {}\n".to_string()),
+        ("tests/t.rs", "#[test]\nfn t() {}\n".to_string()),
+    ];
+    let head_contract = format!(
+        "{EMPTY}\n[[debt]]\nrule = \"orphan\"\nitems = [\"src/a.rs:o1\", \"src/a.rs:o2\"]\nticket = \"T-OPEN\"\n"
+    );
+    let root = git_repo(&refs(&files), &head_contract);
+    // In index, o2 becomes reached/used by test or code, so only o1 remains orphan:
+    let now_files = [
+        ("src/lib.rs", "pub mod a;\n".to_string()),
+        ("src/a.rs", "pub fn o1() {}\npub fn o2() {}\n".to_string()),
+        ("tests/t.rs", "#[test]\nfn t() {\n    apeiron::a::o2();\n}\n".to_string()),
+    ];
+    let now_contract = format!(
+        "{EMPTY}\n[[debt]]\nrule = \"orphan\"\nitems = [\"src/a.rs:o1\"]\nticket = \"T-OPEN\"\n"
+    );
+    write_contract(&root, &now_contract);
+    let r = staged(&root, &refs(&now_files));
+    std::fs::remove_dir_all(root.parent().unwrap()).unwrap();
+    assert!(r.is_empty(), "expected clean ratchet pass on shrunk orphan debt row, got {r:?}");
+}
+

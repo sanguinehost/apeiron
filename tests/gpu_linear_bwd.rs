@@ -66,15 +66,13 @@ fn to_q32(v: f32) -> i64 {
     }
 }
 
-/// One shape and its pinned per-entry bounds in Q32.32 units (measured on this device, about
-/// twice the observed maximum, stated per product).
+/// One shape. The per-entry bounds are not constants: [`derived_bound`] computes each from the
+/// fixture's own operands.
 struct Fixture {
     label: &'static str,
     n: usize,
     i: usize,
     o: usize,
-    bound_dx: f64,
-    bound_dw: f64,
 }
 
 #[test]
@@ -93,24 +91,18 @@ fn linear_backward_matches_cpu() {
             n: 1,
             i: 32,
             o: 64,
-            bound_dx: 9000.0,
-            bound_dw: 600.0,
         },
         Fixture {
             label: "n=7 i=64 o=128",
             n: 7,
             i: 64,
             o: 128,
-            bound_dx: 40000.0,
-            bound_dw: 3500.0,
         },
         Fixture {
             label: "n=512 i=256 o=256",
             n: 512,
             i: 256,
             o: 256,
-            bound_dx: 120000.0,
-            bound_dw: 220000.0,
         },
     ];
     for f in &fixtures {
@@ -198,22 +190,64 @@ fn run_fixture(vk: &Vk, f: &Fixture) {
 
     let (max_dx, at_dx) = max_err(&gpu_dx, &cpu_dx, i);
     let (max_dw, at_dw) = max_err(&gpu_dw, &cpu_dw, i);
+    // The bound of the kernel's own precision chain, from this fixture's operands:
+    // |C − C64| <= (2u + k·2^-24)·Σ_k|a||b|, u = 2^-8, one Q32.32 unit = 2^-32.
+    let b_dx = derived_bound(&yf, &wf, n, i, o, false);
+    let b_dw = derived_bound(&yf, &xf, o, i, n, true);
     println!(
-        "{}: dx max |gpu-cpu| = {max_dx} units at {at_dx:?}; dw max = {max_dw} units at {at_dw:?}; pinned bounds dx {} / dw {}",
-        f.label, f.bound_dx, f.bound_dw
+        "{}: dx max |gpu-cpu| = {max_dx} units at {at_dx:?}; dw max = {max_dw} units at {at_dw:?}; \
+         derived bounds dx {b_dx:.0} / dw {b_dw:.0}, ratios {:.3} / {:.3}",
+        f.label,
+        max_dx as f64 / b_dx,
+        max_dw as f64 / b_dw
     );
     assert!(
-        max_dx as f64 <= f.bound_dx,
-        "{}: dx error {max_dx} units at {at_dx:?} exceeds the pinned bound {}",
-        f.label,
-        f.bound_dx
+        max_dx as f64 <= b_dx,
+        "{}: dx error {max_dx} units at {at_dx:?} exceeds the derived bound {b_dx:.0}",
+        f.label
     );
     assert!(
-        max_dw as f64 <= f.bound_dw,
-        "{}: dw error {max_dw} units at {at_dw:?} exceeds the pinned bound {}",
-        f.label,
-        f.bound_dw
+        max_dw as f64 <= b_dw,
+        "{}: dw error {max_dw} units at {at_dw:?} exceeds the derived bound {b_dw:.0}",
+        f.label
     );
+}
+
+/// `(2u + k·2^-24)·Σ_k|a||b|` in Q32.32 units, over the worst output entry of one adjoint.
+/// `dX[r][c] = Σ_k dY[r·o + k]·W[k·i + c]` sums `o` products (`k_inner == false`); `dW[r][c] =
+/// Σ_k dY[k·o + r]·X[k·i + c]` sums `n` of them, both operands read k-major, so the dot is
+/// `a` and `b` strided by `rows`.
+fn bf16_dot_bound(a: &[f32], b: &[f32]) -> f64 {
+    assert_eq!(a.len(), b.len(), "bf16_dot_bound: lengths");
+    let mag: f64 = a
+        .iter()
+        .zip(b)
+        .map(|(&x, &y)| f64::from(x).abs() * f64::from(y).abs())
+        .sum();
+    (2.0 * (1.0 / 256.0) + (a.len() as f64) * 5.960_464_477_539_063e-8) * mag
+}
+
+fn derived_bound(a: &[f32], b: &[f32], rows: usize, cols: usize, k: usize, k_first: bool) -> f64 {
+    let mut worst = 0.0f64;
+    let mut dot = vec![0.0f32; k];
+    let mut dot2 = vec![0.0f32; k];
+    for r in 0..rows {
+        for c in 0..cols {
+            for (t, (p, q)) in dot.iter_mut().zip(dot2.iter_mut()).enumerate() {
+                if k_first {
+                    // A[k][row], B[k][col]
+                    *p = a[t * rows + r];
+                    *q = b[t * cols + c];
+                } else {
+                    // A[row][k], B[k][col]
+                    *p = a[r * k + t];
+                    *q = b[t * cols + c];
+                }
+            }
+            worst = worst.max(bf16_dot_bound(&dot, &dot2));
+        }
+    }
+    worst * 4294967296.0
 }
 
 fn max_err(gpu: &[f32], cpu: &[i64], cols: usize) -> (i128, (usize, usize)) {

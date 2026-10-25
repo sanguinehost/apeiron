@@ -388,7 +388,7 @@ impl AttnBwd {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::gpu::nn::train::mixer::ATTN_MAP_SPV;
+    use crate::gpu::nn::attn::kd::tests::{fwd_steps, ref_forward_bf};
     use crate::gpu::nn::GLSLC_ARGS;
     use std::path::Path;
     use std::time::Instant;
@@ -401,6 +401,8 @@ pub(crate) mod tests {
     /// cooperative-matrix products with f32 accumulation on every product, at any `dy` magnitude
     /// the power-of-two operand scale covers (`attn_bwd_device_matches_ref_ungated_small_dy`).
     const BD_BOUND: f64 = 5e-3;
+    /// The KD face's operand precision: bf16, `u = 2^-8`.
+    const BF_BOUND: f64 = 1.0 / 256.0;
 
     fn fresh(name: &str) -> Vec<u8> {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/spirv/train");
@@ -440,7 +442,7 @@ pub(crate) mod tests {
 
     /// One mixer's inputs in f64: the prep's inputs, the values and the output gradient.
     #[derive(Clone)]
-    struct RefIn {
+    pub(crate) struct RefIn {
         /// The attention map's gate: `qf` and `dqf` are `[T][nh·2·hd]` when true, `[T][nh·hd]`
         /// when false.
         gated: bool,
@@ -455,7 +457,7 @@ pub(crate) mod tests {
         qf: Vec<f64>,
         kf: Vec<f64>,
         gains: Vec<f64>,
-        v: Vec<f64>,
+        pub(crate) v: Vec<f64>,
         dy: Vec<f64>,
     }
 
@@ -480,10 +482,11 @@ pub(crate) mod tests {
     }
 
     /// The forward's prep outputs; `v` is an input and stays in [`RefIn`].
-    struct Prep {
-        q: Vec<f64>,
-        gate: Vec<f64>,
-        k: Vec<f64>,
+    #[derive(Clone)]
+    pub(crate) struct Prep {
+        pub(crate) q: Vec<f64>,
+        pub(crate) gate: Vec<f64>,
+        pub(crate) k: Vec<f64>,
     }
 
     /// The per-row half of the prep that both the forward and its adjoint apply: the split, the RMS
@@ -523,7 +526,7 @@ pub(crate) mod tests {
     }
 
     /// `attn_map` mode 0 over every row and slot.
-    fn ref_prep(x: &RefIn) -> Prep {
+    pub(crate) fn ref_prep(x: &RefIn) -> Prep {
         let (nh, nkv, hd) = (x.nh, x.nkv, x.hd);
         let t = x.t();
         let mut q = vec![0.0; t * nh * hd];
@@ -578,8 +581,11 @@ pub(crate) mod tests {
         (tot, mx)
     }
 
-    /// `attn_map` mode 1: the causal softmax mix of the values, times the gate when gated.
-    fn ref_forward(x: &RefIn, p: &Prep) -> Vec<f64> {
+    /// The causal softmax mix of the values, times the gate when gated. `w_round` rounds each
+    /// softmax weight to bf16 before it multiplies `v`, the one operand rounding the engine kernel's
+    /// KD face performs on `P` (`src/gpu/attn/kd`: `bfloat16_t(e)`); with the operands the caller
+    /// rounded, this is the face's own arithmetic in f64.
+    pub(crate) fn ref_forward_w(x: &RefIn, p: &Prep, w_round: bool) -> Vec<f64> {
         let (nh, nkv, hd, nc) = (x.nh, x.nkv, x.hd, x.n_ctx);
         let rep = nh / nkv;
         let t = x.t();
@@ -595,7 +601,13 @@ pub(crate) mod tests {
                     for e in 0..hd {
                         let mut acc = 0.0;
                         for j in 0..=i {
-                            acc += s[j] / tot * x.v[((base + j) * nkv + g) * hd + e];
+                            let w = s[j] / tot;
+                            let w = if w_round {
+                                crate::gpu::nn::attn::kd::tests::round_bf16_64(w)
+                            } else {
+                                w
+                            };
+                            acc += w * x.v[((base + j) * nkv + g) * hd + e];
                         }
                         let gt = if x.gated {
                             sigm(p.gate[(row * nh + h) * hd + e])
@@ -608,6 +620,12 @@ pub(crate) mod tests {
             }
         }
         out
+    }
+
+    /// [`ref_forward_w`] with the operands exact: the f32/f64 reference the backward bounds are
+    /// stated against.
+    fn ref_forward(x: &RefIn, p: &Prep) -> Vec<f64> {
+        ref_forward_w(x, p, false)
     }
 
     /// The adjoint: the FlashAttention-2 reverse of `ref_forward`, then the prep adjoint.
@@ -734,7 +752,7 @@ pub(crate) mod tests {
 
     /// One [`RefIn`] at the words a caller's slots produce, ungated: `qf` is `[T][nh·hd]`, `kf`
     /// and `v` are `[T][nkv·hd]`, `gains` is `[2·hd]`; `dy` may be empty for a forward-only call.
-    fn refin_ungated(
+    pub(crate) fn refin_ungated(
         s: AttnBwdShape,
         qf: &[f64],
         kf: &[f64],
@@ -1079,19 +1097,20 @@ pub(crate) mod tests {
         }
     }
 
-    /// The device backward wall against the `attn_map` forward wall at `T = 2048`, paired: both are
-    /// tape submissions on the same buffers, transfers excluded, `n = 5`.
+    /// The device backward wall against the forward wall at the KD shape (`T = 2048`, `nh 16`,
+    /// `nkv 8`, `hd 128`, one chunk), paired on the same buffers, transfers excluded, `n = 5`. The
+    /// forward arm is the prep plus the engine kernel's KD face, the pair the KD tape records.
     #[test]
     #[ignore = "needs a Vulkan device; reports the paired walls"]
     fn attn_bwd_timing() {
         let s = AttnBwdShape {
-            n_ctx: 512,
-            chunks: 4,
-            nh: 8,
-            nkv: 2,
-            hd: 256,
-            rot: 64,
-            theta: 1e7,
+            n_ctx: 2048,
+            chunks: 1,
+            nh: 16,
+            nkv: 8,
+            hd: 128,
+            rot: 128,
+            theta: 1e6,
             eps: 1e-6,
         };
         let x = make_case(s, 0xabcd_0f0f, true);
@@ -1107,27 +1126,8 @@ pub(crate) mod tests {
         let bufs = [
             bwd.qf, bwd.kf, bwd.gains, bwd.q, bwd.gate, bwd.k, bwd.v, out,
         ];
-        let mut fsteps: Vec<Step> = Vec::with_capacity(2);
-        for (mode, wg, name) in [
-            (0u32, t * (nh + nkv), "attn_prep"),
-            (1, s.chunks * nh * s.n_ctx, "attn_attend"),
-        ] {
-            let meta = [
-                mode,
-                s.n_ctx as u32,
-                nh as u32,
-                nkv as u32,
-                hd as u32,
-                s.rot as u32,
-                s.theta.to_bits(),
-                s.eps.to_bits(),
-                wg as u32,
-            ];
-            let mut all = vec![unsafe { g.up_u32(&meta) }];
-            all.extend_from_slice(&bufs);
-            let (gx, gy) = fold(wg);
-            fsteps.push(unsafe { make_step_named(&g, ATTN_MAP_SPV, &all, gx, gy, name) });
-        }
+        let klse = unsafe { g.dev(t * nh * 4) };
+        let fsteps = fwd_steps(&g, s, bufs, klse, true);
         let fcb = unsafe { g.vk.command_buffer() };
         unsafe {
             g.vk.begin(fcb);
@@ -1264,8 +1264,8 @@ pub(crate) mod tests {
         }
     }
 
-    /// `attn_map` mode 0 (prep) then mode 1 (attend) with `x.gated` in the mode word, transfers
-    /// included.
+    /// The prep with `x.gated` in the flag word, then the KD face when the shape is the face's
+    /// (`hd 128`, one chunk), transfers included. `Fwd::out` is empty when the face did not run.
     fn device_forward(g: &GpuCtx, s: AttnBwdShape, x: &RefIn) -> Fwd {
         let (nh, nkv, hd) = (s.nh, s.nkv, s.hd);
         let qw = if x.gated { 2 } else { 1 };
@@ -1290,28 +1290,9 @@ pub(crate) mod tests {
             upload(g, xfer, &stage, v, &to32(&x.v));
         }
         let bufs = [qf, kf, gains, q, gate, k, v, out];
-        let flag = if x.gated { 0u32 } else { 4u32 };
-        let mut steps = Vec::new();
-        for (mode, wg, name) in [
-            (0u32, t * (nh + nkv), "attn_prep"),
-            (1, s.chunks * nh * s.n_ctx, "attn_attend"),
-        ] {
-            let meta = [
-                mode | flag,
-                s.n_ctx as u32,
-                nh as u32,
-                nkv as u32,
-                hd as u32,
-                s.rot as u32,
-                s.theta.to_bits(),
-                s.eps.to_bits(),
-                wg as u32,
-            ];
-            let mut all = vec![unsafe { g.up_u32(&meta) }];
-            all.extend_from_slice(&bufs);
-            let (gx, gy) = fold(wg);
-            steps.push(unsafe { make_step_named(g, ATTN_MAP_SPV, &all, gx, gy, name) });
-        }
+        let klse = dev(t * nh);
+        let steps = fwd_steps(g, s, bufs, klse, x.gated);
+        let attended = steps.len() == 2;
         let cb = unsafe { g.vk.command_buffer() };
         unsafe {
             g.vk.begin(cb);
@@ -1322,7 +1303,11 @@ pub(crate) mod tests {
             g.vk.submit_wait(cb);
         }
         Fwd {
-            out: unsafe { download(g, xfer, &rb, out, t * nh * hd) },
+            out: if attended {
+                unsafe { download(g, xfer, &rb, out, t * nh * hd) }
+            } else {
+                Vec::new()
+            },
             q: unsafe { download(g, xfer, &rb, q, t * nh * hd) },
             gate: unsafe { download(g, xfer, &rb, gate, t * nh * hd) },
             k: unsafe { download(g, xfer, &rb, k, t * nkv * hd) },
@@ -1441,25 +1426,40 @@ pub(crate) mod tests {
         let f = device_forward(&g, s, &x);
         let dev_s = t0.elapsed().as_secs_f64();
         let p32 = f.prep();
-        let want_out = ref_forward(&x, &p32);
+        let want_out = ref_forward_bf(&x, &p32);
         let d = device_inputs(&x, &p32);
         let inp = as_in(&d);
         let bwd = unsafe { AttnBwd::new(&g, s, false) };
         let got = unsafe { bwd.run(&g, &inp) };
         let want = ref_backward(&x, &p32);
         let t = s.t();
-        let rows = [
-            ("out", rel(&f.out, &want_out)),
-            ("dqf", rel(&got.dqf, &want.dqf)),
-            ("dkf", rel(&got.dkf, &want.dkf)),
-            ("dv", rel(&got.dv, &want.dv)),
-        ];
-        let line: Vec<String> = rows.iter().map(|(n, r)| format!("{n} {r:.3e}")).collect();
+        // The forward row exists only where the KD face ran (the shape the KD tape builds) and is
+        // stated against the face's own precision: q, k, v and each softmax weight are rounded once
+        // to bf16 there, so `BF_BOUND = u` (an entry whose f32 and f64 prep outputs straddle a bf16
+        // boundary moves the row by at most one ulp). The backward rows keep `BD_BOUND`: its
+        // operands are the f32 prep outputs, with no bf16 on its path.
+        let mut rows = Vec::with_capacity(4);
+        if !f.out.is_empty() {
+            rows.push(("out", rel(&f.out, &want_out), BF_BOUND));
+        } else {
+            println!(
+                "{tag} T={t}: forward not run (shape outside the face), the out row is absent"
+            );
+        }
+        rows.extend([
+            ("dqf", rel(&got.dqf, &want.dqf), BD_BOUND),
+            ("dkf", rel(&got.dkf, &want.dkf), BD_BOUND),
+            ("dv", rel(&got.dv, &want.dv), BD_BOUND),
+        ]);
+        let line: Vec<String> = rows
+            .iter()
+            .map(|(n, r, b)| format!("{n} {r:.3e}/{b:.0e}"))
+            .collect();
         println!("{tag} T={t} dev {dev_s:.4} s: {}", line.join(" "));
-        for (n, r) in rows {
+        for (n, r, b) in rows {
             assert!(
-                r <= BD_BOUND && r.is_finite(),
-                "{n}: rel {r:.3e} > {BD_BOUND:.0e} at T={t}"
+                r <= b && r.is_finite(),
+                "{n}: rel {r:.3e} > {b:.0e} at T={t}"
             );
         }
     }

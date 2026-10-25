@@ -15,19 +15,28 @@
 schema = 1
 
 [forward]
-bodies = ["src/engine/step/cols.rs:Engine::softmax_cols_tap"]
+bodies = [
+  "src/engine/step/cols.rs:Engine::softmax_cols_tap",
+  "src/gpu/nn/train/front.rs:FrontTune::new",
+  "src/gpu/nn/train/mixer.rs:LayerFwd::new",
+]
 
 # The engine's two product kernels: pp512 1.795x llama.cpp CUDA (`021ab9d5`).
 [[kernel]]
 role = "gemm"
 comp = "src/gpu/spirv/coopmat_gemm.comp"
-faces = ["src/gpu/spirv/coopmat_gemm.spv"]
+faces = [
+  "src/gpu/spirv/coopmat_gemm.spv",
+  "src/gpu/spirv/coopmat_gemm_bf16.spv",
+  "src/gpu/spirv/coopmat_gemm_bf16_bn128.spv",
+  "src/gpu/spirv/coopmat_gemm_bf16_guarded.spv",
+]
 product = true
 
 [[kernel]]
 role = "attention"
 comp = "src/gpu/spirv/attn_coopmat.comp"
-faces = ["src/gpu/spirv/attn_coopmat.spv"]
+faces = ["src/gpu/spirv/attn_coopmat.spv", "src/gpu/spirv/attn_coopmat_kd.spv"]
 product = true
 
 [[kernel]]
@@ -106,12 +115,6 @@ product = false
 role = "delta-scan"
 comp = "src/gpu/spirv/train/delta_scan.comp"
 faces = ["src/gpu/spirv/train/delta_scan.spv"]
-product = false
-
-[[kernel]]
-role = "lin-coop"
-comp = "src/gpu/spirv/train/lin_coop.comp"
-faces = ["src/gpu/spirv/train/lin_coop.spv"]
 product = false
 
 [[debt]]
@@ -264,18 +267,6 @@ ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
 rule = "backward"
 item = "src/gpu/nn/attn/bwd.rs:attn_bwd_dkdv_dispatch"
 consumers = 10
-ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
-
-[[debt]]
-rule = "backward"
-item = "src/gpu/nn/bwd/lin.rs:linear_bwd_input_dispatch"
-consumers = 12
-ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
-
-[[debt]]
-rule = "backward"
-item = "src/gpu/nn/bwd/lin.rs:linear_bwd_weight_dispatch"
-consumers = 12
 ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
 
 [[debt]]
@@ -673,7 +664,7 @@ ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
 
 [[debt]]
 rule = "orphan"
-items = ["src/gpu/vulkan.rs:EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION", "src/gpu/vulkan.rs:MAP_SHARED", "src/gpu/vulkan.rs:MAP_SHARED_ANON", "src/gpu/vulkan.rs:Nvml::energy_mj", "src/gpu/vulkan.rs:Nvml::power_mw", "src/gpu/vulkan.rs:PROT_READ", "src/gpu/vulkan.rs:PROT_WRITE", "src/gpu/vulkan.rs:STAGE_TOP_OF_PIPE", "src/gpu/vulkan.rs:ST_BUFFER_DEVICE_ADDRESS_INFO", "src/gpu/vulkan.rs:ST_FENCE_CREATE_INFO", "src/gpu/vulkan.rs:ST_IMPORT_MEMORY_HOST_POINTER_INFO", "src/gpu/vulkan.rs:ST_MEMORY_HOST_POINTER_PROPERTIES", "src/gpu/vulkan.rs:ST_PIPELINE_EXECUTABLE_INFO", "src/gpu/vulkan.rs:ST_PIPELINE_EXECUTABLE_INTERNAL_REPRESENTATION", "src/gpu/vulkan.rs:ST_PIPELINE_EXECUTABLE_PROPERTIES", "src/gpu/vulkan.rs:ST_PIPELINE_EXECUTABLE_STATISTIC", "src/gpu/vulkan.rs:ST_PIPELINE_INFO", "src/gpu/vulkan.rs:VK_TIMEOUT", "src/gpu/vulkan.rs:Vk::buffer_from_anon_ptr", "src/gpu/vulkan.rs:Vk::buffer_from_host_ptr", "src/gpu/vulkan.rs:Vk::buffer_from_mapping", "src/gpu/vulkan.rs:Vk::cache_data", "src/gpu/vulkan.rs:Vk::device_address", "src/gpu/vulkan.rs:Vk::disasm", "src/gpu/vulkan.rs:Vk::import_anon_probe", "src/gpu/vulkan.rs:Vk::isolated_cache_blob", "src/gpu/vulkan.rs:Vk::reset_timestamps_host", "src/gpu/vulkan.rs:Vk::stats", "src/gpu/vulkan.rs:Vk::submit_timeout"]
+items = ["src/gpu/vulkan.rs:EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION", "src/gpu/vulkan.rs:MAP_SHARED", "src/gpu/vulkan.rs:MAP_SHARED_ANON", "src/gpu/vulkan.rs:Nvml::energy_mj", "src/gpu/vulkan.rs:Nvml::power_mw", "src/gpu/vulkan.rs:PROT_READ", "src/gpu/vulkan.rs:PROT_WRITE", "src/gpu/vulkan.rs:STAGE_TOP_OF_PIPE", "src/gpu/vulkan.rs:ST_BUFFER_DEVICE_ADDRESS_INFO", "src/gpu/vulkan.rs:ST_FENCE_CREATE_INFO", "src/gpu/vulkan.rs:ST_IMPORT_MEMORY_HOST_POINTER_INFO", "src/gpu/vulkan.rs:ST_MEMORY_HOST_POINTER_PROPERTIES", "src/gpu/vulkan.rs:ST_PIPELINE_EXECUTABLE_INTERNAL_REPRESENTATION", "src/gpu/vulkan.rs:ST_PIPELINE_EXECUTABLE_PROPERTIES", "src/gpu/vulkan.rs:VK_TIMEOUT", "src/gpu/vulkan.rs:Vk::buffer_from_anon_ptr", "src/gpu/vulkan.rs:Vk::buffer_from_host_ptr", "src/gpu/vulkan.rs:Vk::buffer_from_mapping", "src/gpu/vulkan.rs:Vk::cache_data", "src/gpu/vulkan.rs:Vk::device_address", "src/gpu/vulkan.rs:Vk::disasm", "src/gpu/vulkan.rs:Vk::import_anon_probe", "src/gpu/vulkan.rs:Vk::submit_timeout"]
 ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
 
 [[debt]]
@@ -1096,12 +1087,6 @@ ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
 
 [[debt]]
 rule = "shader-product"
-item = "src/gpu/spirv/train/attn_map.comp"
-consumers = 1
-ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
-
-[[debt]]
-rule = "shader-product"
 item = "src/gpu/spirv/train/attn_map_bwd.comp"
 consumers = 1
 ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
@@ -1121,11 +1106,5 @@ ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
 [[debt]]
 rule = "shader-product"
 item = "src/gpu/spirv/train/delta_scan.comp"
-consumers = 1
-ticket = "APEIRON-DEL-GPU-ONE-W1-T01"
-
-[[debt]]
-rule = "shader-product"
-item = "src/gpu/spirv/train/lin_coop.comp"
 consumers = 1
 ticket = "APEIRON-DEL-GPU-ONE-W1-T01"

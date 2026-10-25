@@ -8,6 +8,18 @@
 #extension GL_EXT_control_flow_attributes : require
 #extension GL_EXT_integer_dot_product : require
 
+// Two faces of one body. `OPF == 0` (the default, and the committed `coopmat_gemm.spv`) is the
+// int8 chart GEMM of prefill. `OPF == 1` (`coopmat_gemm_bf16.spv`, built with `-DOPF=1`) is the
+// bf16 tensor-core GEMM the KD step's linear products run on: same tile macros, same staging
+// discipline, no second body. The chart path below is unchanged: it preprocesses to exactly the
+// text it always compiled from.
+#ifndef OPF
+#define OPF 0
+#endif
+#if OPF
+#extension GL_EXT_bfloat16 : require
+#endif
+
 // Cooperative-matrix (tensor-core) chart GEMM for prefill: the drop-in for
 // `simt::gemv_dp4a_batch_rt_module` (src/gpu/simt/superblock.rs), same six bindings, same chart, same
 // per-32-block f32 epilogue `acc += ((d*q)*sx + lo*xs)` in block order. Only the per-block integer dot
@@ -81,8 +93,78 @@
 // shared row stride in uvec4 units: 32 data bytes + 16 pad -> conflict-free 16-byte stores
 #define AS4 3u
 
+#if OPF
+// bf16 face staging geometry, the chart face's discipline in bf16vec4 (8-byte) units. A stage holds
+// KS = 16*KB k positions; the shared row strides carry 2 bf16vec4 (16 bytes) of pad so every
+// cooperative-matrix offset stays 16-byte aligned. TA == 0 stages [row][k] (K4 vectors a row,
+// stride SSA); TA == 1 stages [k][row] (BM/4 vectors a k slab, stride SSA_T). BM*K4 == KS*BM/4, so
+// one index range covers both orders.
+#define KS (16 * KB)
+#define K4 (KS / 4)
+#define SSA (K4 + 2)
+#define SSB (K4 + 2)
+#define SSA_T (BM / 4 + 2)
+#define SSB_T (BN / 4 + 2)
+#define SA_TILE (BM * SSA)
+#define SB_TILE (BN * SSB)
+#define PRA ((BM * K4) / NT)
+#define PRB ((BN * K4) / NT)
+#if (BM * K4) % NT != 0 || (BN * K4) % NT != 0
+#error the bf16 face stages whole bf16vec4 per lane: BM*K4 and BN*K4 must be multiples of NT
+#endif
+#if (KS * SSA_T) > SA_TILE || (KS * SSB_T) > SB_TILE
+#error the bf16 shared tile is sized for the k-inner order only
+#endif
+#endif
+
 layout(local_size_x = NT, local_size_y = 1, local_size_z = 1) in;
 
+#if OPF
+// `GUARD`: 1 when a staged four-word run can be short or unaligned (`K` or a stride not a multiple
+// of 4 f32), so the fetch reads word by word; 0 when every run is a whole aligned vec4. `EPIMASK`:
+// 1 when a tile overhangs `M` or `N`, so the epilogue masks; 0 when it does not. Both default to the
+// guarded form — the committed guarded image is `-DOPF=1` alone — and the production images are
+// compiled with both at 0, where `glslc` deletes the guarded paths instead of leaving them behind a
+// branch the driver has to keep.
+#ifndef GUARD
+#define GUARD 1
+#endif
+#ifndef EPIMASK
+#define EPIMASK 1
+#endif
+
+// bf16 face spec constants. 0 = M, rows of C (the A tile's row extent); 1 = STAGES, ceil(K/(16*KB));
+// 2 = K, the reduction length; 3 = N, columns of C (the B tile's column extent); 9..11 = the A, B
+// and C row strides in f32 words (RSO is C's: element (row r, col t) at `o[t*RSO + r]`); 12/13 = each
+// operand's memory order, 0 = [row][k] with k contiguous, 1 = [k][row] with the row contiguous.
+layout(constant_id = 0) const uint M = 16;
+layout(constant_id = 1) const uint STAGES = 1;
+layout(constant_id = 2) const uint KL = 4;
+layout(constant_id = 3) const uint NC = 16;
+layout(constant_id = 9) const uint RSA = 4;
+layout(constant_id = 10) const uint RSB = 4;
+layout(constant_id = 11) const uint RSO = 4;
+layout(constant_id = 12) const uint TA = 0;
+layout(constant_id = 13) const uint TB = 0;
+
+// bf16 face buffers: A and B at 0 and 1, C at 2, and A and B again at 3 and 4 as f32 words. The
+// vec4 views are the staged read of a 16-byte-aligned operand row; the word views carry the two
+// guards the vec4 view cannot: a row whose stride is not a multiple of 4 f32 (so its rows are not
+// 16-byte aligned) and a k or column run that straddles the operand's limit.
+layout(set = 0, binding = 0, std430) readonly buffer WA_ { vec4 wa[]; };
+layout(set = 0, binding = 1, std430) readonly buffer XB_ { vec4 xb[]; };
+layout(set = 0, binding = 2, std430) writeonly buffer O_ { float o[]; };
+layout(set = 0, binding = 3, std430) readonly buffer WAF_ { float waf[]; };
+layout(set = 0, binding = 4, std430) readonly buffer XBF_ { float xbf[]; };
+
+shared bf16vec4 sAb[SA_TILE];
+shared bf16vec4 sBb[SB_TILE];
+#if EPIMASK
+// One 16x16 f32 fragment a subgroup, for the masked epilogue: 4 subgroups x 256 words. Absent from
+// the production images, which never mask.
+shared float sEp[NSG * 256];
+#endif
+#else
 layout(constant_id = 0) const uint M = 16;
 layout(constant_id = 1) const uint BLOCKS = 1; // a multiple of KB (the Rust builder asserts it)
 layout(constant_id = 2) const uint PACK = 4;   // codes per chart word: Q8 4, Q4 8, Q2 16
@@ -137,10 +219,17 @@ shared float sXs[KB * BN];
 shared int sBias[KB * BN];
 shared int sScA[KB * BM]; // Q6: signed per-16 code scale sc_a of a row's half 0 (dm bits 16..23)
 shared int sScB[KB * BM]; // Q6: sc_b of half 1 (dm bits 24..31)
+#endif
 
 #define FRAG_F coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+#if OPF
+#define FRAG_A coopmat<bfloat16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA>
+#define FRAG_B coopmat<bfloat16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB>
+#else
 #define FRAG_I coopmat<int32_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+#endif
 
+#if !OPF
 // float(q) for |q| < 2^22 without I2F: the bits of 1.5*2^23 plus q are the float 1.5*2^23 + q,
 // exactly, and subtracting 1.5*2^23 is exact. |q| <= 32*255*127 < 2^22 for every chart carrier (Q5 codes are <= 31:
 // |q| <= 32*31*127 < 2^17).
@@ -376,7 +465,236 @@ void swiglu_epilogue(FRAG_F acc[WM * WN], uint lid, uint sg) {
     }
 }
 #endif
+#endif // !OPF
 
+#if OPF
+// f32 -> bf16 at the shared-tile store. The reference's tensors are bf16 in memory and its kernels
+// convert nowhere; ours reads f32 global memory and rounds once per staged element (deviation).
+bf16vec4 narrow(vec4 v) {
+    return bf16vec4(bfloat16_t(v.x), bfloat16_t(v.y), bfloat16_t(v.z), bfloat16_t(v.w));
+}
+
+bf16vec4 zero_b() {
+    return bf16vec4(bfloat16_t(0.0));
+}
+
+// Four f32 words of A or B at global `base`, whose in-row offset is `off`, zeroed element by element
+// past `lim`. `off` and `lim` are the offsets inside the operand's row; `base` is the word index in
+// the binding. The vec4 read needs the whole run inside `lim` and the operand's rows 16-byte aligned
+// (`RSx % 4 == 0`); otherwise the four words are read singly, which is also what a stride that is not
+// a multiple of 4 f32 needs.
+vec4 run4_a(uint base, uint off, uint lim) {
+    if (GUARD == 0u || (off + 4u <= lim && (RSA & 3u) == 0u)) {
+        return wa[base >> 2u];
+    }
+    return vec4(off < lim ? waf[base] : 0.0,
+                off + 1u < lim ? waf[base + 1u] : 0.0,
+                off + 2u < lim ? waf[base + 2u] : 0.0,
+                off + 3u < lim ? waf[base + 3u] : 0.0);
+}
+
+vec4 run4_b(uint base, uint off, uint lim) {
+    if (GUARD == 0u || (off + 4u <= lim && (RSB & 3u) == 0u)) {
+        return xb[base >> 2u];
+    }
+    return vec4(off < lim ? xbf[base] : 0.0,
+                off + 1u < lim ? xbf[base + 1u] : 0.0,
+                off + 2u < lim ? xbf[base + 2u] : 0.0,
+                off + 3u < lim ? xbf[base + 3u] : 0.0);
+}
+
+// Four consecutive k of A's row `row` ([row][k]), from k `kb`. Zero past row `mlim` or past `KL`.
+bf16vec4 run_a(uint row, uint kb, uint mlim) {
+    if (GUARD != 0u && (row >= mlim || kb >= KL)) {
+        return zero_b();
+    }
+    return narrow(run4_a(row * RSA + kb, kb, KL));
+}
+
+// Four consecutive rows of A at k `k` ([k][row]), from row `mb`.
+bf16vec4 run_a_major(uint k, uint mb, uint mlim) {
+    if (GUARD != 0u && (k >= KL || mb >= mlim)) {
+        return zero_b();
+    }
+    return narrow(run4_a(k * RSA + mb, mb, mlim));
+}
+
+// The same two runs of B, whose non-reduction extent is `NC`.
+bf16vec4 run_b(uint col, uint kb, uint nlim) {
+    if (GUARD != 0u && (col >= nlim || kb >= KL)) {
+        return zero_b();
+    }
+    return narrow(run4_b(col * RSB + kb, kb, KL));
+}
+
+bf16vec4 run_b_major(uint k, uint cb, uint nlim) {
+    if (GUARD != 0u && (k >= KL || cb >= nlim)) {
+        return zero_b();
+    }
+    return narrow(run4_b(k * RSB + cb, cb, nlim));
+}
+
+// Narrow stage `s`'s A and B into registers, one bf16vec4 a lane per iteration. Index `idx`
+// enumerates the stage's four-word runs; TA/TB pick which dimension is contiguous, so the read is
+// one vec4 of the operand's inner dimension in either order.
+//
+// Bounds, all three dimensions: a row or column past M/N and a k past KL contribute zero (the
+// epilogue then drops their outputs), so a tile that overhangs any edge computes the same numbers
+// as a full one. A four-word run has three read forms: the 16-byte-aligned vec4 (the production
+// shape), the four word loads (a stride that is not a multiple of 4 f32, so the rows are not
+// aligned), and the masked tail (a run that straddles the limit or lies beyond it).
+void fetch_b(uint s, uint lid, uint row0, uint col0, inout bf16vec4 ra[PRA], inout bf16vec4 rb[PRB]) {
+    [[unroll]] for (uint it = 0u; it < PRA; ++it) {
+        uint idx = lid + it * NT;
+        if (TA == 0u) {
+            uint m = idx / K4;
+            uint kv = idx - m * K4;
+            ra[it] = run_a(row0 + m, s * KS + kv * 4u, M);
+        } else {
+            uint k = idx / (BM / 4u);
+            uint mv = idx - k * (BM / 4u);
+            ra[it] = run_a_major(s * KS + k, row0 + mv * 4u, M);
+        }
+    }
+    [[unroll]] for (uint it = 0u; it < PRB; ++it) {
+        uint idx = lid + it * NT;
+        if (TB == 0u) {
+            uint c = idx / K4;
+            uint kv = idx - c * K4;
+            rb[it] = run_b(col0 + c, s * KS + kv * 4u, NC);
+        } else {
+            uint k = idx / (BN / 4u);
+            uint cv = idx - k * (BN / 4u);
+            rb[it] = run_b_major(s * KS + k, col0 + cv * 4u, NC);
+        }
+    }
+}
+
+// Registers -> shared. The shared row stride is the one the fragment load below names: SSA/SSB for
+// the k-inner order (K4 data vectors a row), SSA_T/SSB_T for the k-major order (a row inside a
+// vec4, BM/4 or BN/4 vectors a k slab).
+void commit_b(uint lid, bf16vec4 ra[PRA], bf16vec4 rb[PRB]) {
+    [[unroll]] for (uint it = 0u; it < PRA; ++it) {
+        uint idx = lid + it * NT;
+        if (TA == 0u) {
+            uint m = idx / K4;
+            sAb[m * SSA + (idx - m * K4)] = ra[it];
+        } else {
+            uint k = idx / (BM / 4u);
+            sAb[k * SSA_T + (idx - k * (BM / 4u))] = ra[it];
+        }
+    }
+    [[unroll]] for (uint it = 0u; it < PRB; ++it) {
+        uint idx = lid + it * NT;
+        if (TB == 0u) {
+            uint c = idx / K4;
+            sBb[c * SSB + (idx - c * K4)] = rb[it];
+        } else {
+            uint k = idx / (BN / 4u);
+            sBb[k * SSB_T + (idx - k * (BN / 4u))] = rb[it];
+        }
+    }
+}
+
+void main() {
+    const uint lid = gl_LocalInvocationIndex;
+    const uint sg = gl_SubgroupID;
+    const uint row0 = gl_WorkGroupID.x * BM;
+    const uint col0 = gl_WorkGroupID.y * BN;
+    // the tile-local row and column a subgroup's fragments start at
+    const uint rl = (sg % SGM) * (WM * 16u);
+    const uint cl = (sg / SGM) * (WN * 16u);
+    const uint ssa = TA == 0u ? uint(SSA) : uint(SSA_T);
+    const uint ssb = TB == 0u ? uint(SSB) : uint(SSB_T);
+
+    FRAG_F acc[WM * WN];
+    [[unroll]] for (uint f = 0u; f < WM * WN; ++f) {
+        acc[f] = FRAG_F(0.0);
+    }
+
+    bf16vec4 ra[PRA];
+    bf16vec4 rb[PRB];
+    fetch_b(0u, lid, row0, col0, ra, rb);
+    for (uint s = 0u; s < STAGES; ++s) {
+        commit_b(lid, ra, rb);
+        barrier();
+        if (s + 1u < STAGES) {
+            fetch_b(s + 1u, lid, row0, col0, ra, rb);
+        }
+        [[unroll]] for (uint kk = 0u; kk < KB; ++kk) {
+            FRAG_A fa[WM];
+            FRAG_B fb[WN];
+            [[unroll]] for (uint i = 0u; i < WM; ++i) {
+                const uint ml = rl + 16u * i;
+                if (TA == 0u) {
+                    coopMatLoad(fa[i], sAb, ml * ssa + kk * 4u, ssa,
+                                gl_CooperativeMatrixLayoutRowMajor);
+                } else {
+                    coopMatLoad(fa[i], sAb, kk * 16u * ssa + ml / 4u, ssa,
+                                gl_CooperativeMatrixLayoutColumnMajor);
+                }
+            }
+            [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                const uint nl = cl + 16u * j;
+                if (TB == 0u) {
+                    coopMatLoad(fb[j], sBb, nl * ssb + kk * 4u, ssb,
+                                gl_CooperativeMatrixLayoutColumnMajor);
+                } else {
+                    coopMatLoad(fb[j], sBb, kk * 16u * ssb + nl / 4u, ssb,
+                                gl_CooperativeMatrixLayoutRowMajor);
+                }
+            }
+            [[unroll]] for (uint i = 0u; i < WM; ++i) {
+                [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                    acc[i * WN + j] = coopMatMulAdd(fa[i], fb[j], acc[i * WN + j]);
+                }
+            }
+        }
+        barrier();
+    }
+
+    // Guards. `coopMatStore` is an opaque fragment store, so a tile that overhangs the row or column
+    // edge cannot be masked through it: a ragged dispatch stages each fragment in shared memory and
+    // copies it element by element, a whole one stores directly. `M % 16` and `NC % BN` are spec
+    // constants, so the choice is uniform over the dispatch and the full path pays one test.
+#if EPIMASK
+    if (EPIMASK != 0) {
+        [[unroll]] for (uint i = 0u; i < WM; ++i) {
+            const uint r0 = row0 + rl + 16u * i;
+            [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                const uint c0 = col0 + cl + 16u * j;
+                coopMatStore(acc[i * WN + j], sEp, sg * 256u, 16u,
+                             gl_CooperativeMatrixLayoutRowMajor);
+                barrier();
+                // 256 elements a fragment: 8 rounds of the owning subgroup's 32 lanes (not
+                // unrolled: this is the ragged path, and the code is not the tile's)
+                for (uint e = 0u; e < 8u; ++e) {
+                    const uint t = e * 32u + (lid & 31u);
+                    const uint r = r0 + (t >> 4u);
+                    const uint c = c0 + (t & 15u);
+                    if (r < M && c < NC) {
+                        o[c * RSO + r] = sEp[sg * 256u + t];
+                    }
+                }
+                barrier();
+            }
+        }
+        return;
+    }
+#endif
+
+    // f32 epilogue: element (row r, col t) at o[t*RSO + r], the chart face's store convention
+    [[unroll]] for (uint i = 0u; i < WM; ++i) {
+        const uint r = row0 + rl + 16u * i;
+        if (r < M) {
+            [[unroll]] for (uint j = 0u; j < WN; ++j) {
+                coopMatStore(acc[i * WN + j], o, (col0 + cl + 16u * j) * RSO + r, RSO,
+                             gl_CooperativeMatrixLayoutColumnMajor);
+            }
+        }
+    }
+}
+#else
 void main() {
     const uint lid = gl_LocalInvocationIndex;
     const uint sg = gl_SubgroupID;
@@ -511,3 +829,4 @@ void main() {
         }
     }
 }
+#endif // OPF

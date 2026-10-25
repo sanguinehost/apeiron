@@ -520,7 +520,13 @@ fn ratchet(root: &Path, contract_text: &str, index: &Outcome) -> Result<Vec<Stri
                 }
             }
             None => {
-                if !head_found.contains(&(d.rule.clone(), d.items.clone())) {
+                let is_orphan_subset = d.rule == "orphan"
+                    && head_contract.debts.iter().any(|hd| {
+                        hd.rule == "orphan"
+                            && !d.items.is_empty()
+                            && d.items.iter().all(|item| hd.items.contains(item))
+                    });
+                if !head_found.contains(&(d.rule.clone(), d.items.clone())) && !is_orphan_subset {
                     out.push(format!(
                         "ratchet: {CONTRACT} adds a debt row whose finding HEAD had not: {} {}",
                         d.rule,

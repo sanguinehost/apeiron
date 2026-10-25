@@ -11,11 +11,12 @@
 //! (`_compute_forward`), the same one `slot::Factor` materialises.
 //!
 //! The tape over `T = chunks·n_ctx` columns:
-//! `n1 = rmsnorm(x, g1)`; `pq = n1·Wqᵀ`, `pk = n1·Wkᵀ`, `pv = n1·Wvᵀ`; then `attn_map`'s modes 4
-//! and 5 (ungated, bit 2 of the `mode` word, `src/gpu/spirv/train/attn_map.comp:41`) over
-//! `[pq, pk, gn, q, gate, k, pv, ao]` — the per-head `q`/`k` RMS norm with gains, the RoPE and the
+//! `n1 = rmsnorm(x, g1)`; `pq = n1·Wqᵀ`, `pk = n1·Wkᵀ`, `pv = n1·Wvᵀ`; then `attn_map`'s prep
+//! (ungated, bit 2 of the flag word, `src/gpu/spirv/train/attn_map.comp`) over
+//! `[pq, pk, gn, q, gate, k, pv, ao]` — the per-head `q`/`k` RMS norm with gains and the RoPE — and
+//! the engine kernel's KD face ([`attn_kd_dispatch`], `src/gpu/spirv/attn_coopmat_kd.spv`) for the
 //! causal `GQA` softmax, the same two dispatches a `Mixer::Softmax { gated: false }` layer records
-//! (`src/gpu/nn/train/mixer.rs:381-417`) — giving `ao` `[T][nh·hd]`.
+//! (`src/gpu/nn/train/mixer.rs`) — giving `ao` `[T][nh·hd]`.
 //!
 //! `L = Σ ao ⊙ R` for the caller's fixed `R`, so the output cotangent is `dao = R` and
 //! [`FrontTune::backward`] takes it as its input: the three-dispatch ungated backward
@@ -46,6 +47,7 @@
 )]
 
 use crate::gpu::decode::{rec_step, GpuCtx, Step};
+use crate::gpu::nn::attn::{attn_kd_dispatch, ATTN_KD_HD};
 use crate::gpu::nn::fwd::{linear_fwd_dispatch, rmsnorm_fwd_dispatch};
 use crate::gpu::nn::{
     adam_scheduled_bias, add_inplace_bytes, linear_bwd_input_dispatch, linear_bwd_weight_dispatch,
@@ -124,41 +126,6 @@ impl FrontShape {
     }
 }
 
-/// A map of [`ATTN_MAP_SPV`] with the 9-word meta `mixer.rs` records, over `bufs`.
-///
-/// # Safety
-///
-/// The buffers hold what the mode reads and writes for `s` and `mode`.
-///
-/// # Complexity
-///
-/// `O(1)` host work; the dispatch covers `wg` invocations.
-unsafe fn attn_step(
-    g: &GpuCtx,
-    s: &FrontShape,
-    mode: u32,
-    wg: usize,
-    bufs: [Handle; 8],
-    name: &'static str,
-) -> Step {
-    let meta = [
-        mode,
-        s.n_ctx as u32,
-        s.nh as u32,
-        s.nkv as u32,
-        s.hd as u32,
-        s.rot as u32,
-        s.theta.to_bits(),
-        s.eps.to_bits(),
-        wg as u32,
-    ];
-    let mut all = vec![g.up_u32(&meta)];
-    all.extend_from_slice(&bufs);
-    let gx = wg.clamp(1, MAX_GROUPS_X);
-    let gy = wg.div_ceil(gx).max(1);
-    crate::gpu::decode::make_step_named(g, ATTN_MAP_SPV, &all, gx as u32, gy as u32, name)
-}
-
 /// The three recorded tapes: the evaluation pass, the same pass with the backward, and one training
 /// step (backward plus Adam).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -198,6 +165,9 @@ pub struct FrontTune {
     k: Handle,
     /// The output `[T][nh·hd]` and the caller's output cotangent of the same extent.
     ao: Handle,
+    /// The face's logsumexp `[nh][T]`: written by the forward, unread here (the backward recomputes
+    /// its row statistics; the ported backward takes this binding).
+    klse: Handle,
     dao: Handle,
     /// The backward's outputs: `dqf` (`[T][nh·hd]` ungated), `dkf` and `dv` (`[T][nkv·hd]`).
     dqf: Handle,
@@ -268,11 +238,16 @@ impl FrontTune {
     )]
     #[must_use]
     pub unsafe fn new(g: &GpuCtx, shape: FrontShape, lr: f64, lr_scale: f64) -> Self {
+        // The attention is the engine kernel's KD face: hd 128, one causal sequence per tape. A
+        // multi-chunk tape would attend across chunk boundaries, and n_ctx past the reference's
+        // 2048-token sample is unmeasured: both are refused, not computed differently.
         assert!(
-            shape.hd <= 256
+            shape.hd == ATTN_KD_HD as usize
+                && shape.chunks == 1
                 && shape.nh % shape.nkv == 0
-                && shape.n_ctx <= crate::gpu::nn::train::mixer::MAX_N_CTX,
-            "attn_map geometry"
+                && shape.n_ctx <= super::mixer::MAX_N_CTX,
+            "FrontTune: hd {ATTN_KD_HD}, one chunk, nkv | nh and n_ctx <= {}; got {shape:?}",
+            super::mixer::MAX_N_CTX
         );
         assert!(
             shape.rot == 0 || shape.rot % 2 == 0,
@@ -280,6 +255,8 @@ impl FrontTune {
         );
         let attn = shape.attn();
         let (t, d, hd) = (shape.t(), shape.d, shape.hd);
+        let (nh, nkv) = (shape.nh, shape.nkv);
+        let scale = 1.0 / (hd as f32).sqrt();
         let (qw, kw) = (shape.qw(), shape.kw());
         let dev = |n: usize| g.dev(n * 4);
         // The buffers a chained layer copies into or out of (`chain.rs`) carry both transfer bits.
@@ -297,6 +274,8 @@ impl FrontTune {
         let (ao, dao) = (stream(t * qw), stream(t * qw));
         let (dqf, dkf, dv) = (dev(t * qw), dev(t * kw), dev(t * kw));
         let (lse, dsum) = (dev(t * shape.nh), dev(t * shape.nh));
+        // the face's logsumexp `[nh][T]`: unread here, the backward recomputing its own
+        let klse = dev(t * shape.nh);
         let (da, dq_rot, dk_rot) = (dev(t * qw), dev(t * qw), dev(t * kw));
         let amax = dev(super::attn_bwd::amax_len(&attn));
         // Three buffers, not one: `[dev(n); 3]` evaluates the allocation once and aliases the
@@ -310,21 +289,35 @@ impl FrontTune {
             linear_fwd_dispatch(g, n1, factors[0].w, pq, tu, du, qu),
             linear_fwd_dispatch(g, n1, factors[1].w, pk, tu, du, ku),
             linear_fwd_dispatch(g, n1, factors[2].w, pv, tu, du, ku),
-            attn_step(
-                g,
-                &shape,
-                4,
-                t * (shape.nh + shape.nkv),
-                [pq, pk, gn, q, gate, k, pv, ao],
-                "attn_prep",
-            ),
-            attn_step(
-                g,
-                &shape,
-                5,
-                shape.chunks * shape.nh * shape.n_ctx,
-                [pq, pk, gn, q, gate, k, pv, ao],
-                "attn_attend",
+            {
+                // the prep: the per-head norm with its gains and the rope (bit 2: ungated)
+                let wg = t * (nh + nkv);
+                let meta = [
+                    4u32,
+                    shape.n_ctx as u32,
+                    nh as u32,
+                    nkv as u32,
+                    hd as u32,
+                    shape.rot as u32,
+                    shape.theta.to_bits(),
+                    shape.eps.to_bits(),
+                    wg as u32,
+                ];
+                let mut all = vec![g.up_u32(&meta)];
+                all.extend_from_slice(&[pq, pk, gn, q, gate, k, pv, ao]);
+                let gx = wg.clamp(1, MAX_GROUPS_X);
+                let gy = wg.div_ceil(gx).max(1);
+                crate::gpu::decode::make_step_named(
+                    g,
+                    ATTN_MAP_SPV,
+                    &all,
+                    gx as u32,
+                    gy as u32,
+                    "attn_prep",
+                )
+            },
+            attn_kd_dispatch(
+                g, q, k, pv, gate, ao, klse, nh as u32, nkv as u32, t as u32, scale, false,
             ),
         ];
         let mut backward = tape(
@@ -491,6 +484,7 @@ impl FrontTune {
             gate,
             k,
             ao,
+            klse,
             dao,
             dqf,
             dkf,
@@ -1083,418 +1077,4 @@ impl FrontTune {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::gpu::nn::train::attn_bwd::tests::{ref_bwd_ungated, ref_fwd_ungated};
-
-    /// A fixed-seed LCG value in `[-1, 1)` (Knuth's MMIX constants).
-    fn unit(n: usize, seed: u64) -> Vec<f32> {
-        let mut s = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-        (0..n)
-            .map(|_| {
-                s = s
-                    .wrapping_mul(6_364_136_223_846_793_005)
-                    .wrapping_add(1_442_695_040_888_963_407);
-                ((s >> 33) as f64 / f64::from(1u32 << 30) - 1.0) as f32
-            })
-            .collect()
-    }
-
-    fn to64(v: &[f32]) -> Vec<f64> {
-        v.iter().map(|&x| f64::from(x)).collect()
-    }
-
-    fn factor(out: usize, inn: usize, rank: usize, seed: u64) -> HostFactor {
-        let pos = |v: Vec<f32>| v.into_iter().map(|x| 0.05 + 0.1 * x.abs()).collect();
-        HostFactor {
-            out,
-            inn,
-            rank,
-            u: unit(out * rank, seed),
-            vt: unit(inn * rank, seed + 1),
-            s_post: pos(unit(out, seed + 2)),
-            s_pre: pos(unit(inn, seed + 3)),
-        }
-    }
-
-    fn sg(v: f64) -> f64 {
-        if v < 0.0 {
-            -1.0
-        } else {
-            1.0
-        }
-    }
-
-    /// `M = sign(U)·sign(V)ᵀ` in f64, `out × inn`.
-    fn signs(f: &HostFactor) -> Vec<f64> {
-        let (o, i, r) = (f.out, f.inn, f.rank);
-        let mut m = vec![0f64; o * i];
-        for row in 0..o {
-            for c in 0..i {
-                m[row * i + c] = (0..r)
-                    .map(|j| sg(f64::from(f.u[row * r + j])) * sg(f64::from(f.vt[c * r + j])))
-                    .sum();
-            }
-        }
-        m
-    }
-
-    /// `W = s_post ⊙ M ⊙ s_pre` in f64, `out × inn`.
-    fn dense(f: &HostFactor) -> Vec<f64> {
-        let m = signs(f);
-        (0..f.out * f.inn)
-            .map(|x| f64::from(f.s_post[x / f.inn]) * m[x] * f64::from(f.s_pre[x % f.inn]))
-            .collect()
-    }
-
-    /// `y = x·wᵀ`: `x` is `n × i`, `w` is `o × i`.
-    fn lin(x: &[f64], w: &[f64], n: usize, i: usize, o: usize) -> Vec<f64> {
-        let mut y = vec![0f64; n * o];
-        for row in 0..n {
-            for c in 0..o {
-                y[row * o + c] = (0..i).map(|k| x[row * i + k] * w[c * i + k]).sum();
-            }
-        }
-        y
-    }
-
-    /// `dw = dyᵀ·x`: `dy` is `n × o`, `x` is `n × i`, the result `o × i`.
-    fn dwt(dy: &[f64], x: &[f64], n: usize, i: usize, o: usize) -> Vec<f64> {
-        let mut dw = vec![0f64; o * i];
-        for r in 0..o {
-            for c in 0..i {
-                dw[r * i + c] = (0..n).map(|k| dy[k * o + r] * x[k * i + c]).sum();
-            }
-        }
-        dw
-    }
-
-    /// `n1 = rmsnorm(x, g)` over `d` at the device forward's epsilon.
-    fn rmsnorm(x: &[f64], g: &[f64], t: usize, d: usize) -> Vec<f64> {
-        let mut n = vec![0f64; t * d];
-        for row in 0..t {
-            let ms: f64 = x[row * d..(row + 1) * d].iter().map(|v| v * v).sum::<f64>() / d as f64;
-            let inv = 1.0 / (ms + 1e-6).sqrt();
-            for c in 0..d {
-                n[row * d + c] = x[row * d + c] * inv * g[c];
-            }
-        }
-        n
-    }
-
-    fn dot(a: &[f64], b: &[f64]) -> f64 {
-        a.iter().zip(b).map(|(x, y)| x * y).sum()
-    }
-
-    /// The f64 host case of one front: the shape, the per-head norm gains, the output cotangent
-    /// `R` and `n1` (which no factor moves).
-    struct Host {
-        sh: FrontShape,
-        gn: Vec<f64>,
-        r: Vec<f64>,
-        n1: Vec<f64>,
-    }
-
-    impl Host {
-        /// The projections' outputs `(pq, pk, pv)` from the factors' dense `W`.
-        fn proj(&self, fs: &[HostFactor]) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
-            let (t, d) = (self.sh.t(), self.sh.d);
-            let (qw, kw) = (self.sh.qw(), self.sh.kw());
-            (
-                lin(&self.n1, &dense(&fs[0]), t, d, qw),
-                lin(&self.n1, &dense(&fs[1]), t, d, kw),
-                lin(&self.n1, &dense(&fs[2]), t, d, kw),
-            )
-        }
-
-        /// The forward alone, `ao`.
-        fn ao(&self, fs: &[HostFactor]) -> Vec<f64> {
-            let (pq, pk, pv) = self.proj(fs);
-            ref_fwd_ungated(self.sh.attn(), &pq, &pk, &self.gn, &pv)
-        }
-
-        /// `L = Σ ao ⊙ R`.
-        fn loss(&self, fs: &[HostFactor]) -> f64 {
-            dot(&self.ao(fs), &self.r)
-        }
-
-        /// The three slots' dense `dW = dyᵀ·n1` in `[q, k, v]` order.
-        fn dw(&self, fs: &[HostFactor]) -> [Vec<f64>; 3] {
-            let (t, d) = (self.sh.t(), self.sh.d);
-            let (qw, kw) = (self.sh.qw(), self.sh.kw());
-            let (pq, pk, pv) = self.proj(fs);
-            let (_, dqf, dkf, dv) =
-                ref_bwd_ungated(self.sh.attn(), &pq, &pk, &self.gn, &pv, &self.r);
-            [
-                dwt(&dqf, &self.n1, t, d, qw),
-                dwt(&dkf, &self.n1, t, d, kw),
-                dwt(&dv, &self.n1, t, d, kw),
-            ]
-        }
-    }
-
-    /// The factor adjoint of `f` given its dense `dW`: `[u, vt, s_post, s_pre]`, the twin of
-    /// `slot::factor_bwd`'s five dispatches (`src/gpu/spirv/train/block_map.comp` modes 1, 2, 3).
-    fn factor_grads(f: &HostFactor, dw: &[f64]) -> [Vec<f64>; 4] {
-        let (o, i, r) = (f.out, f.inn, f.rank);
-        let m = signs(f);
-        let mut dm = vec![0f64; o * i];
-        let mut ds_post = vec![0f64; o];
-        let mut ds_pre = vec![0f64; i];
-        for row in 0..o {
-            for c in 0..i {
-                let x = row * i + c;
-                let sp = f64::from(f.s_post[row]);
-                let sq = f64::from(f.s_pre[c]);
-                dm[x] = dw[x] * sp * sq;
-                ds_post[row] += dw[x] * m[x] * sq;
-                ds_pre[c] += dw[x] * m[x] * sp;
-            }
-        }
-        let mut du = vec![0f64; o * r];
-        let mut dvt = vec![0f64; i * r];
-        for row in 0..o {
-            for c in 0..i {
-                for j in 0..r {
-                    du[row * r + j] += dm[row * i + c] * sg(f64::from(f.vt[c * r + j]));
-                    dvt[c * r + j] += dm[row * i + c] * sg(f64::from(f.u[row * r + j]));
-                }
-            }
-        }
-        [du, dvt, ds_post, ds_pre]
-    }
-
-    /// `max|got − want| / max|want|`.
-    fn rel32(got: &[f32], want: &[f64]) -> f64 {
-        let mut num = 0.0f64;
-        let mut den = 1e-30f64;
-        for (&p, &q) in got.iter().zip(want) {
-            num = num.max((f64::from(p) - q).abs());
-            den = den.max(q.abs());
-        }
-        num / den
-    }
-
-    /// The attention front against the f64 host reference at a small shape: (a) the reference's
-    /// scale gradients against central differences of its own loss, (b) the device factor
-    /// gradients of `q`, `k`, `v` against the reference, (c) a short Adam run lowers
-    /// `L = Σ ao ⊙ R`.
-    #[test]
-    #[allow(clippy::too_many_lines, reason = "one tape comparison")]
-    fn front_tune_matches_host() {
-        let Ok(vk) = (unsafe { Vk::load() }) else {
-            println!("SKIP: no Vulkan device");
-            return;
-        };
-        let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
-        let sh = FrontShape {
-            chunks: 2,
-            n_ctx: 8,
-            d: 32,
-            nh: 4,
-            nkv: 2,
-            hd: 16,
-            rot: 16,
-            theta: 1e4,
-            eps: 1e-6,
-            ranks: [4; 3],
-        };
-        let fs: Vec<HostFactor> = (0..3)
-            .map(|k| {
-                let (o, i) = sh.dims(k);
-                factor(o, i, sh.ranks[k], 10 * k as u64 + 1)
-            })
-            .collect();
-        let (t, d) = (sh.t(), sh.d);
-        let x = unit(t * d, 91);
-        let g1: Vec<f32> = unit(d, 90).iter().map(|v| 1.0 + 0.2 * v).collect();
-        let gn: Vec<f32> = unit(2 * sh.hd, 92).iter().map(|v| 1.0 + 0.2 * v).collect();
-        let r: Vec<f32> = unit(t * sh.qw(), 93).iter().map(|v| 0.5 * v).collect();
-        let host = Host {
-            sh,
-            gn: to64(&gn),
-            r: to64(&r),
-            n1: rmsnorm(&to64(&x), &to64(&g1), t, d),
-        };
-
-        // (a) the reference's scale gradients against central differences of its own loss.
-        let analytic: Vec<[Vec<f64>; 4]> = {
-            let dw = host.dw(&fs);
-            (0..3).map(|k| factor_grads(&fs[k], &dw[k])).collect()
-        };
-        let mut worst = 0f64;
-        for k in 0..3 {
-            for j in [2usize, 3] {
-                let len = if j == 2 { fs[k].out } else { fs[k].inn };
-                for idx in [0, len / 2, len - 1] {
-                    let eps = 1e-4f32;
-                    let (mut p, mut q) = (fs.clone(), fs.clone());
-                    if j == 2 {
-                        p[k].s_post[idx] += eps;
-                        q[k].s_post[idx] -= eps;
-                    } else {
-                        p[k].s_pre[idx] += eps;
-                        q[k].s_pre[idx] -= eps;
-                    }
-                    // The perturbed entries are f32, so the exact step is their difference, not
-                    // `2·eps`: rounding `s + eps` to f32 is a 6e-5 relative error at these scales
-                    // and it would dominate the difference.
-                    let (hi, lo) = if j == 2 {
-                        (p[k].s_post[idx], q[k].s_post[idx])
-                    } else {
-                        (p[k].s_pre[idx], q[k].s_pre[idx])
-                    };
-                    let fd = (host.loss(&p) - host.loss(&q)) / (f64::from(hi) - f64::from(lo));
-                    let got = analytic[k][j][idx];
-                    let err = (got - fd).abs() / fd.abs().max(1e-6);
-                    worst = worst.max(err);
-                }
-            }
-        }
-        println!("fd worst relative error {worst:.2e}");
-        assert!(worst < 1e-6, "fd worst relative error {worst:.2e}");
-
-        unsafe {
-            let mut ft = FrontTune::new(&g, sh, 1e-3, 2e-3);
-            ft.load(&g, &fs, &g1, &gn);
-            ft.batch(&g, &x, &r);
-            ft.forward(&g);
-            println!("ao vs host {:.3e}", rel32(&ft.output(&g), &host.ao(&fs)));
-
-            // (b) the device factor gradients of the three slots against the reference.
-            ft.backward(&g, &r);
-            let gr = ft.grads(&g);
-            for k in 0..3 {
-                let mut w = 0f64;
-                for j in 0..4 {
-                    w = w.max(rel32(&gr[k][j], &analytic[k][j]));
-                }
-                println!(
-                    "qkv grad worst relative error {w:.2e} ({})",
-                    ["q", "k", "v"][k]
-                );
-                assert!(w < 1e-3, "slot {k}: worst relative error {w:.2e}");
-            }
-
-            // (c) a short Adam run on the same loss.
-            ft.forward(&g);
-            let l0 = dot(&to64(&ft.output(&g)), &host.r);
-            for _ in 0..20 {
-                ft.train(&g);
-            }
-            ft.forward(&g);
-            let l1 = dot(&to64(&ft.output(&g)), &host.r);
-            println!("adam: loss {l0:.6} -> {l1:.6}");
-            assert!(
-                l1 < l0,
-                "20 Adam steps did not lower the loss: {l0} -> {l1}"
-            );
-        }
-    }
-
-    /// Dense `q`, `k`, `v`: the device `ao` and the three `dW` equal the f64 host reference of the
-    /// same dense weights (the twin of `front_tune_matches_host`), and a train mask over one slot
-    /// moves that slot only.
-    #[test]
-    fn front_dense_matches_host() {
-        let Ok(vk) = (unsafe { Vk::load() }) else {
-            println!("SKIP: no Vulkan device");
-            return;
-        };
-        let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
-        let sh = FrontShape {
-            chunks: 2,
-            n_ctx: 8,
-            d: 32,
-            nh: 4,
-            nkv: 2,
-            hd: 16,
-            rot: 16,
-            theta: 1e4,
-            eps: 1e-6,
-            ranks: [4; 3],
-        };
-        let (t, d) = (sh.t(), sh.d);
-        let (qw, kw) = (sh.qw(), sh.kw());
-        let x = unit(t * d, 91);
-        let g1: Vec<f32> = unit(d, 90).iter().map(|v| 1.0 + 0.2 * v).collect();
-        let gn: Vec<f32> = unit(2 * sh.hd, 92).iter().map(|v| 1.0 + 0.2 * v).collect();
-        let r: Vec<f32> = unit(t * qw, 93).iter().map(|v| 0.5 * v).collect();
-        let ws: Vec<Vec<f32>> = [(qw, 4u64), (kw, 5), (kw, 6)]
-            .iter()
-            .map(|&(o, sd)| unit(o * d, sd).iter().map(|&v| 0.3 * v).collect())
-            .collect();
-        let host = Host {
-            sh,
-            gn: to64(&gn),
-            r: to64(&r),
-            n1: rmsnorm(&to64(&x), &to64(&g1), t, d),
-        };
-        let w64: Vec<Vec<f64>> = ws.iter().map(|w| to64(w)).collect();
-        let pq = lin(&host.n1, &w64[0], t, d, qw);
-        let pk = lin(&host.n1, &w64[1], t, d, kw);
-        let pv = lin(&host.n1, &w64[2], t, d, kw);
-        let ao = ref_fwd_ungated(sh.attn(), &pq, &pk, &host.gn, &pv);
-        let (_, dqf, dkf, dv) = ref_bwd_ungated(sh.attn(), &pq, &pk, &host.gn, &pv, &host.r);
-        let want = [
-            dwt(&dqf, &host.n1, t, d, qw),
-            dwt(&dkf, &host.n1, t, d, kw),
-            dwt(&dv, &host.n1, t, d, kw),
-        ];
-        unsafe {
-            let mut ft = FrontTune::new(&g, sh, 1e-3, 1e-3);
-            // The norm gains come from `load`, whose factors a dense stage never reads.
-            let fs: Vec<HostFactor> = (0..3)
-                .map(|k| {
-                    let (o, i) = sh.dims(k);
-                    factor(o, i, sh.ranks[k], 10 * k as u64 + 1)
-                })
-                .collect();
-            ft.load(&g, &fs, &g1, &gn);
-            for k in 0..3 {
-                ft.load_dense(&g, k, &ws[k]);
-            }
-            ft.set_stage(&g, [false; 3], [true; 3]);
-            for k in 0..3 {
-                let bits = |v: &[f32]| v.iter().map(|&x| x.to_bits()).collect::<Vec<u32>>();
-                assert_eq!(bits(&ft.dense_w(&g, k)), bits(&ws[k]), "dense W {k} upload");
-            }
-            ft.batch(&g, &x, &r);
-            ft.forward(&g);
-            println!("dense ao vs host {:.3e}", rel32(&ft.output(&g), &ao));
-            ft.backward(&g, &r);
-            let mut worst = 0f64;
-            for k in 0..3 {
-                let w = rel32(&ft.dense_grad(&g, k), &want[k]);
-                println!(
-                    "dense dW worst relative error {w:.2e} ({})",
-                    ["q", "k", "v"][k]
-                );
-                worst = worst.max(w);
-            }
-            assert!(worst < 1e-3, "dense dW worst relative error {worst:.2e}");
-            // The mask: training slot 1 leaves slots 0 and 2 bit-identical.
-            ft.set_stage(&g, [false; 3], [false, true, false]);
-            let before: Vec<Vec<u32>> = (0..3).map(|k| ft.slot_words(&g, k)).collect();
-            for _ in 0..3 {
-                ft.train(&g);
-            }
-            let after: Vec<Vec<u32>> = (0..3).map(|k| ft.slot_words(&g, k)).collect();
-            assert!(before[1] != after[1], "slot 1 did not move");
-            assert_eq!(before[0], after[0], "slot 0 moved");
-            assert_eq!(before[2], after[2], "slot 2 moved");
-            println!("front mask: slot 1 moved, slots 0 and 2 hold");
-            // The optimiser stage: the reference's constants and its schedule through the tape.
-            ft.set_hyper(&g, AdamHyper::OPTIMI);
-            ft.set_schedule(crate::gpu::nn::cosine_lr(1.0, 1e-4, 256, 2));
-            ft.set_stage(&g, [true; 3], [true; 3]);
-            let before = ft.slot_words(&g, 0);
-            ft.train(&g);
-            assert!(
-                before != ft.slot_words(&g, 0),
-                "the scheduled step moved nothing"
-            );
-            println!("front optimi + cosine schedule: one step moved slot 0");
-        }
-    }
-}
+mod tests;

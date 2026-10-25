@@ -147,6 +147,17 @@ mod tests {
             bt.load(&g, &c.fs, &c.g2);
             bt.load_importance(&g, &imp);
             bt.set_loss_scale(&g, 2.0);
+            // DEVICE-SIDE CONTROL `KD_LIN_CTL=3`: scale the buffer `bt.run` reads (the factor's
+            // `s_post`) by 2.0 after the load; `c.fs` stays unperturbed, so the derived `dy` bound
+            // must go red.
+            #[cfg(test)]
+            if std::env::var("KD_LIN_CTL").as_deref() == Ok("3") {
+                let mut fs2 = c.fs.clone();
+                for v in fs2[0].s_post.iter_mut() {
+                    *v *= 2.0;
+                }
+                bt.load(&g, &fs2, &c.g2);
+            }
             bt.batch(&g, &c.x, &c.a, &c.yt);
             let dev = bt.run(&g, false);
             let host: f64 = (0..e.len())
@@ -159,14 +170,63 @@ mod tests {
             );
             let _ = bt.run(&g, true);
             let dy = bt.dy(&g);
-            let (mut num, mut den) = (0f64, 1e-30f64);
+            // `dy = scale·imp ⊙ e`, and `e = down(m) + h − y_t` comes from four bf16 GEMMs. The
+            // reference is the exact-f64 `e` (no difference); the bound is `delta·M` with
+            // `delta = 4·(4u) + (ΣK + 2)·2^-24` — four products, each rounding both operands (4u),
+            // then the f32 chains of their reductions — and `M` the per-entry magnitude sum the four
+            // contractions carry, `Σ|a||W|` each ([`mags`]).
+            let (t, d, aw, f) = (c.s.t, c.s.d, c.s.a, c.s.f);
+            let cvt = |v: &[f32]| v.iter().map(|&q| f64::from(q)).collect::<Vec<f64>>();
+            let (x64, a64) = (cvt(&c.x), cvt(&c.a));
+            let m_o = mags(&a64, &w[0], t, aw, d);
+            let n = {
+                let mut hh = lin(&a64, &w[0], t, aw, d);
+                for (hv, xv) in hh.iter_mut().zip(&x64) {
+                    *hv += xv;
+                }
+                let mut nv = vec![0f64; t * d];
+                for row in 0..t {
+                    let ms: f64 = hh[row * d..(row + 1) * d]
+                        .iter()
+                        .map(|v| v * v)
+                        .sum::<f64>()
+                        / d as f64;
+                    let inv = 1.0 / (ms + 1e-6).sqrt();
+                    for cc in 0..d {
+                        nv[row * d + cc] = hh[row * d + cc] * inv * f64::from(c.g2[cc]);
+                    }
+                }
+                nv
+            };
+            let m_g = mags(&n, &w[1], t, d, f);
+            let m_u = mags(&n, &w[2], t, d, f);
+            let m_in = {
+                let gt = lin(&n, &w[1], t, d, f);
+                let uu = lin(&n, &w[2], t, d, f);
+                gt.iter()
+                    .zip(&uu)
+                    .map(|(&gv, &uv)| gv / (1.0 + (-gv).exp()) * uv)
+                    .collect::<Vec<f64>>()
+            };
+            let m_d = mags(&m_in, &w[3], t, f, d);
+            let delta = 4.0 * (4.0 * crate::gpu::nn::BF16_U)
+                + ((aw + d + d + f) as f64 + 2.0) * 5.960_464_477_539_063e-8;
+            let (mut num, mut den, mut bound) = (0f64, 1e-30f64, 0f64);
             for (i, &got) in dy.iter().enumerate() {
                 let want = 2.0 * f64::from(imp[i % c.s.d]) * e[i];
+                let m = m_o[i] + m_g[i % (t * f)] + m_u[i % (t * f)] + m_d[i];
                 num = num.max((f64::from(got) - want).abs());
+                bound = bound.max(2.0 * f64::from(imp[i % c.s.d]) * delta * m);
                 den = den.max(want.abs());
             }
-            println!("weighted dy worst relative error {:.2e}", num / den);
-            assert!(num / den <= 1e-4, "dy relative error {:.2e}", num / den);
+            println!(
+                "weighted dy err {num:.3e} / bound {bound:.3e} = {:.3}",
+                num / bound.max(1e-300)
+            );
+            assert!(
+                num <= bound,
+                "dy error {num:.3e} over the derived bound {bound:.3e}"
+            );
         }
     }
 
@@ -228,5 +288,16 @@ mod tests {
             );
             println!("optimi + cosine schedule: one step, loss {loss:.6}");
         }
+    }
+    /// `Σ_k|a||W|` a output entry: the magnitude sum the reduction of `y = a·Wᵀ` carries, the `M`
+    /// of the `delta·M` bound at the entry's own operands.
+    fn mags(a: &[f64], w: &[f64], n: usize, i: usize, o: usize) -> Vec<f64> {
+        let mut out = vec![0f64; n * o];
+        for row in 0..n {
+            for c in 0..o {
+                out[row * o + c] = (0..i).map(|k| (a[row * i + k] * w[c * i + k]).abs()).sum();
+            }
+        }
+        out
     }
 }

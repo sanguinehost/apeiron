@@ -372,6 +372,22 @@ pub struct BlockTune {
     yt: Handle,
     y: Handle,
     g2: Handle,
+    /// The tape's intermediate activations, kept alive for the teacher-forced stage checks
+    /// (`#[cfg(test)]` only): `h = x + a·Woᵀ` `[t][d]`, the norm output `n2` `[t][d]`, the gate and up
+    /// projections `[t][f]`, the SwiGLU product `mm` `[t][f]`, and the down projection's cotangent `dmm`
+    /// `[t][f]`. They are the buffers the tape already allocates; a release build carries no field.
+    #[cfg(test)]
+    h: Handle,
+    #[cfg(test)]
+    n2: Handle,
+    #[cfg(test)]
+    gt: Handle,
+    #[cfg(test)]
+    up: Handle,
+    #[cfg(test)]
+    mm: Handle,
+    #[cfg(test)]
+    dmm: Handle,
     loss: Handle,
     /// A zeroed `t × d` buffer and the per-column sums of `yt²` (`norm`), beside `loss`'s rows.
     loss2: Handle,
@@ -570,6 +586,18 @@ impl BlockTune {
             yt,
             y,
             g2,
+            #[cfg(test)]
+            h,
+            #[cfg(test)]
+            n2,
+            #[cfg(test)]
+            gt,
+            #[cfg(test)]
+            up,
+            #[cfg(test)]
+            mm,
+            #[cfg(test)]
+            dmm,
             loss,
             loss2,
             norm,
@@ -1205,6 +1233,38 @@ impl BlockTune {
     /// The weighted gradient `dy` of the last step, `[t][d]`.
     pub(crate) unsafe fn dy(&self, g: &GpuCtx) -> Vec<f32> {
         self.get(g, self.dy, self.shape.t * self.shape.d)
+    }
+
+    /// One tape-resident intermediate of the forward or the backward, by name: the teacher-forced
+    /// stage checks feed each stage its own device input rather than a re-derived one.
+    ///
+    /// # Safety
+    ///
+    /// The named tape has run and no submission is pending.
+    ///
+    /// # Panics
+    ///
+    /// On a name the tape does not hold.
+    pub(crate) unsafe fn stage(&self, g: &GpuCtx, name: &str) -> Vec<f32> {
+        let (t, d, f) = (self.shape.t, self.shape.d, self.shape.f);
+        let (buf, n) = match name {
+            "h" => (self.h, t * d),
+            "n2" => (self.n2, t * d),
+            "gt" => (self.gt, t * f),
+            "up" => (self.up, t * f),
+            "mm" => (self.mm, t * f),
+            "dmm" => (self.dmm, t * f),
+            "y" => (self.y, t * d),
+            "dy" => (self.dy, t * d),
+            "dh" => (self.dh, t * d),
+            "da" => (self.da, t * self.shape.a),
+            // the materialised dense weight `Wo` (mean term): the device computes `da = dh·Wo_dev`
+            // with its own bf16 weight, so a reference built from the f64 `dense` is a different
+            // object on a cancelling entry.
+            "wo" => (self.factors[0].w, self.shape.d * self.shape.a),
+            other => panic!("BlockTune::stage: no intermediate {other}"),
+        };
+        self.get(g, buf, n)
     }
 
     /// Every parameter and moment word of slot `k` in its current form — the four factor buffers
