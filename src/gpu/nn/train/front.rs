@@ -47,7 +47,9 @@
 )]
 
 use crate::gpu::decode::{rec_step, GpuCtx, Step};
-use crate::gpu::nn::attn::{attn_kd_dispatch, ATTN_KD_HD};
+use crate::gpu::nn::attn::{
+    attn_kd_bwd_dispatch, attn_kd_dispatch, attn_kdb_qtmp_len, ATTN_KDB_QUERIES, ATTN_KD_HD,
+};
 use crate::gpu::nn::fwd::{linear_fwd_dispatch, rmsnorm_fwd_dispatch};
 use crate::gpu::nn::{
     adam_scheduled_bias, add_inplace_bytes, linear_bwd_input_dispatch, linear_bwd_weight_dispatch,
@@ -55,7 +57,7 @@ use crate::gpu::nn::{
 };
 use crate::gpu::vulkan::*;
 
-use super::attn_bwd::{tape, AttnBwdShape};
+use super::attn_bwd::AttnBwdShape;
 use super::block::{download, host_buffer, stream_buffer, upload, HostBuffer, HostFactor};
 use super::mixer::ATTN_MAP_SPV;
 use super::slot::{q32, record_factor_swap, upload_dense, upload_factor, Factor};
@@ -180,6 +182,9 @@ pub struct FrontTune {
     dq_rot: Handle,
     dk_rot: Handle,
     amax: Handle,
+    qlock: Handle,
+    qcnt: Handle,
+    qtmp: Handle,
     /// The input adjoint's buffers: `dn1`'s three `[T][d]` accumulators (`q`, `k`, `v`), the
     /// result `dx`, the caller's residual adjoint `dres` (zeroed at construction) and the norm's
     /// thread-local part of `dγ` (dropped: `g1` is frozen).
@@ -320,14 +325,48 @@ impl FrontTune {
                 g, q, k, pv, gate, ao, klse, nh as u32, nkv as u32, t as u32, scale, false,
             ),
         ];
-        let mut backward = tape(
-            g,
-            attn,
-            false,
-            [
-                pq, pk, gn, q, gate, k, pv, dao, lse, dsum, da, dq_rot, dk_rot, dqf, dkf, dv, amax,
-            ],
-        );
+        let tiles = nh * t.div_ceil(ATTN_KDB_QUERIES as usize);
+        let qlock = g.dev_zeroed(tiles * 4);
+        let qcnt = g.dev_zeroed(tiles * 4);
+        let qtmp = g.dev_zeroed(attn_kdb_qtmp_len(nh as u32, t as u32) * 4);
+        let mut backward = vec![
+            unsafe {
+                attn_kd_bwd_dispatch(
+                    g, q, k, pv, dao, ao, gate, klse, dq_rot, dk_rot, dv, da, qlock, qcnt, qtmp,
+                    nh as u32, nkv as u32, tu, scale, false,
+                )
+            },
+            unsafe {
+                let wg = t * (nh + nkv);
+                let meta = [
+                    2u32 | 4u32,
+                    shape.n_ctx as u32,
+                    nh as u32,
+                    nkv as u32,
+                    hd as u32,
+                    shape.rot as u32,
+                    shape.theta.to_bits(),
+                    shape.eps.to_bits(),
+                    wg as u32,
+                    1u32,
+                ];
+                let mut all = vec![g.up_u32(&meta)];
+                all.extend_from_slice(&[
+                    pq, pk, gn, q, gate, k, pv, dao, lse, dsum, da, dq_rot, dk_rot, dqf, dkf, dv,
+                    amax,
+                ]);
+                let gx = wg.clamp(1, MAX_GROUPS_X);
+                let gy = wg.div_ceil(gx).max(1);
+                crate::gpu::decode::make_step_named(
+                    g,
+                    super::attn_bwd::ATTN_MAP_BWD_SPV,
+                    &all,
+                    gx as u32,
+                    gy as u32,
+                    "attn_bwd_prep",
+                )
+            },
+        ];
         backward.push(linear_bwd_weight_dispatch(
             g,
             dqf,
@@ -495,6 +534,9 @@ impl FrontTune {
             dq_rot,
             dk_rot,
             amax,
+            qlock,
+            qcnt,
+            qtmp,
             dn1,
             dx,
             dres,
