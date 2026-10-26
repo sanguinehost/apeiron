@@ -1,7 +1,7 @@
 #version 460
 #extension GL_KHR_cooperative_matrix : require
 #extension GL_KHR_memory_scope_semantics : require
-#ifdef KDF
+#if defined(KDF) || defined(KDB)
 #extension GL_EXT_bfloat16 : require
 #else
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
@@ -29,7 +29,448 @@
 // Constants: NH, NKV, QKVM, TMAX, SCALE, DPW are specialization constants (patched in the binary by
 // `simt_nn::attn_prefill_coopmat_module`). QKVM and TMAX must be multiples of 4. DPW in {1, 2}.
 
-#ifdef KDF
+#ifdef KDB
+// ---- the KD backward face ----------------------------------------------------------------
+// NanoQuant's KD attention backward as a FACE of this file, compiled by
+// `glslc -DKDB=1 ... -o attn_coopmat_kd_bwd.spv`. The reference is `mem_eff_attention`'s
+// `AttentionBackwardKernel<Sm80, bfloat16_t, true, 64, 64, 128, true>` (torch 2.8.0+cu128,
+// git a1cb3cc0), `kernel_backward.h:1302` `attention_kernel` and `:1438` `processBlockIJ`:
+// grid [num_splits_key, nH, B], one CTA per (head, key block), the query walk from the causal
+// start, and per block  S = K Q^T, P = exp(S*scale - lse), dV += P^T dO, dP = dO V^T,
+// dS = P (dP - delta), dK += dS^T Q, dQ += dS K. `delta = rowsum(dO . O)` is the reference's
+// `kKernelComputesDelta` (:271, `computeDelta` :2499) computed inside the walk rather than by a
+// preceding pass.
+//
+// One workgroup = one (kv head, 64-key block), grid (NKV, ceil(T/64)); it walks every query block
+// at or after its key block, once, for every query head of its kv head, so dK and dV need no
+// cross-CTA reduction. Tile 64 keys x 64 queries, warp shape <32, 32, 32> as the reference's
+// (kernel_backward.h:302-306): 4 subgroups, subgroup `sg` owning the 32x32 quadrant
+// (keys 32*(sg>>1).., queries 32*(sg&1)..) of S, P, dP and dS, and the rows [32*(sg>>1)..) x the
+// 64 head dims [64*(sg&1)..) of the three output gradients.
+//
+// bf16 operands, f32 accumulate (`HMMA.1688.F32.BF16`); P and dS are rounded once to bf16
+// (`F2FP.BF16.F32.PACK_AB`); lse and delta are f32.
+//
+// Shared 48644 B: two 64x128 bf16 operand tiles (sA keys, sB queries) staged per phase, one 64x64
+// bf16 exchange tile holding P and then dS in place (the reference's `attn_shared_storage`, which
+// its part2/part4/part5 unions reuse), one 16x16 f32 scratch per subgroup, delta and lse.
+//
+// Deviations from the reference, each with its substitute: LDGSTS/ldmatrix -> a plain staged copy
+// from global to shared and cooperative-matrix loads from shared (the staging loop below);
+// the epilogue arithmetic on the accumulator in registers -> one 16x16 fragment at a time through
+// that subgroup's f32 shared scratch, because KHR_cooperative_matrix has no element access;
+// the reference's per-warp gmem accumulator tiles (`kOutputInRF` false, :745, :1823) -> the f32
+// dK/dV outputs themselves, accumulated in place by the one CTA that owns their rows
+// (`AccumTileGmem` `gmem_tile.load`/`store` becomes the add below); the GradQ lock/counter ->
+// the reference's own `GradQTempStorage` (`:159-185`, `:622`) with one acquisition per workgroup.
+// q/k/v are f32 in memory and rounded once at the shared store, so both MMA operands are the same
+// bf16; the reference's are bf16 in memory.
+
+#define HD_B 128
+#define NT 128u
+#define KBB 64
+#define QBB 64
+#define SB (HD_B / 4 + 2)
+#define XB (QBB / 4 + 2)
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint NH = 16;
+layout(constant_id = 1) const uint NKV = 8;
+layout(constant_id = 2) const uint T = 2048;
+layout(constant_id = 3) const float SCALE = 0.08838834764831845;
+layout(constant_id = 4) const uint GATED = 0;
+
+layout(set = 0, binding = 0, std430) readonly buffer Q_ { vec4 q4[]; };
+layout(set = 0, binding = 1, std430) readonly buffer K_ { vec4 k4[]; };
+layout(set = 0, binding = 2, std430) readonly buffer V_ { vec4 v4[]; };
+layout(set = 0, binding = 3, std430) readonly buffer DY_ { vec4 dy4[]; };
+layout(set = 0, binding = 4, std430) readonly buffer O_ { vec4 o4[]; };
+layout(set = 0, binding = 5, std430) readonly buffer G_ { vec4 g4[]; };
+layout(set = 0, binding = 6, std430) readonly buffer LSE_ { float lse[]; };
+layout(set = 0, binding = 7, std430) buffer DQ_ { vec4 dq4[]; };
+layout(set = 0, binding = 8, std430) buffer DK_ { vec4 dk4[]; };
+layout(set = 0, binding = 9, std430) buffer DV_ { vec4 dv4[]; };
+layout(set = 0, binding = 10, std430) writeonly buffer DG_ { vec4 dg4[]; };
+layout(set = 0, binding = 11, std430) buffer QLK_ { uint qlock[]; };
+layout(set = 0, binding = 12, std430) buffer QCN_ { uint qcnt[]; };
+layout(set = 0, binding = 13, std430) buffer QTP_ { float qtmp[]; };
+
+shared bf16vec4 sA[KBB * SB]; // keys: K for S and dQ, V for dP
+shared bf16vec4 sB[KBB * SB]; // queries: Q for S and dK, dA for dP and dV
+shared bf16vec4 sX[KBB * XB]; // P, then dS in place: [key][query]
+shared float sF[4 * 256];     // one 16x16 f32 fragment per subgroup
+shared float sD[QBB];         // delta = rowsum(dA . O)
+shared float sL[QBB];         // lse
+shared uint sLast;            // 1 = this workgroup is the last dQ contributor of the tile
+
+const float LOG2E = 1.4426950408889634;
+
+#define FRAG_BW_F coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>
+#define FRAG_BW_A coopmat<bfloat16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA>
+#define FRAG_BW_B coopmat<bfloat16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB>
+
+// One 16x16 f32 fragment out of `sF` into the f32 gradient buffer `g4`, added to what is there.
+// `base` is the first row of the tile, `col` its first column, both in the output's own indexing;
+// `rows` and `cols` clamp the store for a text past its last block. 16 rows x 4 vec4 = 64 vec4.
+//
+// Cost: O(1), two vec4 per lane.
+#define ADD_FRAG(g4, stride, base, col, rowok)                     \
+    {                                                             \
+        [[unroll]] for (uint ta = 0u; ta < 2u; ++ta) {             \
+            const uint ia = lane + ta * 32u;                       \
+            const uint ra = ia >> 2u;                              \
+            const uint ca = ia & 3u;                               \
+            if (rowok) {                                           \
+                const uint oa = (base + ra) * stride + (col) / 4u + ca; \
+                g4[oa] += vec4(sF[o + ra * 16u + ca * 4u],          \
+                               sF[o + ra * 16u + ca * 4u + 1u],     \
+                               sF[o + ra * 16u + ca * 4u + 2u],     \
+                               sF[o + ra * 16u + ca * 4u + 3u]);    \
+            }                                                      \
+        }                                                          \
+    }
+
+void main() {
+    const uint tid = gl_LocalInvocationIndex;
+    const uint sg = tid >> 5u;
+    const uint lane = tid & 31u;
+    const uint kvh = gl_WorkGroupID.x;
+    const uint kbo = gl_WorkGroupID.y;
+    const uint j0 = kbo * KBB;
+    if (j0 >= T) {
+        return;
+    }
+    const uint nhg = NH / NKV;
+    const float kq = SCALE * LOG2E;
+    const uint qtiles = (T + QBB - 1u) / QBB;
+    const uint r = sg >> 1u;   // key half of the quadrant: rows [32r, 32r+32)
+    const uint c = sg & 1u;    // query half of the quadrant
+    const uint o = sg * 256u;  // this subgroup's scratch
+
+    // dK and dV keep their f32 accumulators in global memory, one workgroup per (kv head, key
+    // block) owning those rows, so neither is carried in registers across the walk.
+    for (uint hh = 0u; hh < nhg; ++hh) {
+        const uint h = kvh * nhg + hh;
+        for (uint qb = kbo; qb < qtiles; ++qb) {
+            const uint i0 = qb * QBB;
+            const uint diag = (qb == kbo) ? 1u : 0u;
+            barrier();
+
+            // ---- K -> sA, Q -> sB, lse -> sL
+            [[unroll]] for (uint it = 0u; it < (KBB * (HD_B / 4u)) / NT; ++it) {
+                const uint idx = tid + it * NT;
+                const uint jr = idx >> 5u;
+                const uint dc = idx & 31u;
+                const uint jm = min(j0 + jr, T - 1u);
+                sA[jr * SB + dc] = bf16vec4(k4[((jm * NKV + kvh) * HD_B) / 4u + dc]);
+            }
+            [[unroll]] for (uint it = 0u; it < (QBB * (HD_B / 4u)) / NT; ++it) {
+                const uint idx = tid + it * NT;
+                const uint ir = idx >> 5u;
+                const uint dc = idx & 31u;
+                const uint im = min(i0 + ir, T - 1u);
+                sB[ir * SB + dc] = bf16vec4(q4[((im * NH + h) * HD_B) / 4u + dc]);
+            }
+            if (tid < QBB) {
+                sL[tid] = lse[h * T + min(i0 + tid, T - 1u)];
+            }
+            barrier();
+
+            // ---- S = K Q^T over the 128 head dims, this quadrant: 2x2 fragments of 16x16
+            FRAG_BW_F sc[4];
+            [[unroll]] for (uint m = 0u; m < 4u; ++m) {
+                const uint kr = r * 32u + (m >> 1u) * 16u;
+                const uint qc = c * 32u + (m & 1u) * 16u;
+                FRAG_BW_F acc = FRAG_BW_F(0.0);
+                [[unroll]] for (uint kk = 0u; kk < HD_B / 16u; ++kk) {
+                    FRAG_BW_A ka;
+                    FRAG_BW_B qf;
+                    coopMatLoad(ka, sA, kr * SB + kk * 4u, SB,
+                                gl_CooperativeMatrixLayoutRowMajor);
+                    coopMatLoad(qf, sB, qc * SB + kk * 4u, SB,
+                                gl_CooperativeMatrixLayoutColumnMajor);
+                    acc = coopMatMulAdd(ka, qf, acc);
+                }
+                sc[m] = acc;
+            }
+
+            // ---- P = exp2(S SCALE log2e - lse log2e) into sX, causal on the diagonal block.
+            // Two lanes per key row, eight queries each; the fragment goes through this subgroup's
+            // scratch because a cooperative matrix cannot be indexed.
+            [[unroll]] for (uint m = 0u; m < 4u; ++m) {
+                const uint kr = r * 32u + (m >> 1u) * 16u;
+                const uint qc = c * 32u + (m & 1u) * 16u;
+                coopMatStore(sc[m], sF, o, 16u, gl_CooperativeMatrixLayoutRowMajor);
+                subgroupMemoryBarrierShared();
+                subgroupBarrier();
+                const uint lr = lane >> 1u;
+                const uint lc = (lane & 1u) * 8u;
+                const uint jj = kr + lr;
+                const uint j = j0 + jj;
+                bf16vec4 p0;
+                bf16vec4 p1;
+                [[unroll]] for (uint u = 0u; u < 4u; ++u) {
+                    const uint ii = qc + lc + u;
+                    float p = 0.0;
+                    if (j < T && i0 + ii < T && (diag == 0u || jj <= ii)) {
+                        p = exp2(sF[o + lr * 16u + lc + u] * kq - sL[ii] * LOG2E);
+                    }
+                    p0[u] = bfloat16_t(p);
+                }
+                [[unroll]] for (uint u = 0u; u < 4u; ++u) {
+                    const uint ii = qc + lc + 4u + u;
+                    float p = 0.0;
+                    if (j < T && i0 + ii < T && (diag == 0u || jj <= ii)) {
+                        p = exp2(sF[o + lr * 16u + lc + 4u + u] * kq - sL[ii] * LOG2E);
+                    }
+                    p1[u] = bfloat16_t(p);
+                }
+                sX[jj * XB + (qc + lc) / 4u] = p0;
+                sX[jj * XB + (qc + lc) / 4u + 1u] = p1;
+                subgroupMemoryBarrierShared();
+                subgroupBarrier();
+            }
+
+            // ---- V -> sA, dA = dy*sigmoid(gate) -> sB, delta = rowsum(dy . out) -> sD.
+            // Two lanes per query row, 64 dims each.
+            barrier();
+            [[unroll]] for (uint it = 0u; it < (KBB * (HD_B / 4u)) / NT; ++it) {
+                const uint idx = tid + it * NT;
+                const uint jr = idx >> 5u;
+                const uint dc = idx & 31u;
+                const uint jm = min(j0 + jr, T - 1u);
+                sA[jr * SB + dc] = bf16vec4(v4[((jm * NKV + kvh) * HD_B) / 4u + dc]);
+            }
+            {
+                const uint ir = tid >> 1u;
+                const uint sub = tid & 1u;
+                const uint im = min(i0 + ir, T - 1u);
+                float dsum = 0.0;
+                [[unroll]] for (uint e4 = 0u; e4 < 16u; ++e4) {
+                    const uint e = sub * 64u + e4 * 4u;
+                    const uint off = ((im * NH + h) * HD_B + e) / 4u;
+                    const vec4 dyv = dy4[off];
+                    const vec4 ov = o4[off];
+                    dsum += dot(dyv, ov);
+                    vec4 av = dyv;
+                    if (GATED == 1u) {
+                        const vec4 gi = 1.0 / (1.0 + exp(-g4[off]));
+                        av = dyv * gi;
+                        // dgate = dO . O . sigmoid'(g): written by key block 0, which is the one
+                        // workgroup that walks every query tile, so the walk's other visits to this
+                        // row do not repeat it
+                        if (kbo == 0u) {
+                            dg4[off] = dyv * ov * (vec4(1.0) - gi);
+                        }
+                    }
+                    sB[ir * SB + (e >> 2u)] = bf16vec4(av);
+                }
+                dsum += subgroupShuffleXor(dsum, 1u);
+                if (sub == 0u) {
+                    sD[ir] = dsum;
+                }
+            }
+            barrier();
+
+            // ---- dP = V dA^T over the 128 head dims
+            FRAG_BW_F dp[4];
+            [[unroll]] for (uint m = 0u; m < 4u; ++m) {
+                const uint kr = r * 32u + (m >> 1u) * 16u;
+                const uint qc = c * 32u + (m & 1u) * 16u;
+                FRAG_BW_F acc = FRAG_BW_F(0.0);
+                [[unroll]] for (uint kk = 0u; kk < HD_B / 16u; ++kk) {
+                    FRAG_BW_A va;
+                    FRAG_BW_B df;
+                    coopMatLoad(va, sA, kr * SB + kk * 4u, SB,
+                                gl_CooperativeMatrixLayoutRowMajor);
+                    coopMatLoad(df, sB, qc * SB + kk * 4u, SB,
+                                gl_CooperativeMatrixLayoutColumnMajor);
+                    acc = coopMatMulAdd(va, df, acc);
+                }
+                dp[m] = acc;
+            }
+
+            // ---- dV += P^T dA, reduced over this block's 64 queries. This subgroup owns rows
+            // [32r, 32r+32) of the (keys x dims) output and the 64 dims [64c, 64c+64): one 16x16
+            // fragment at a time, straight into the f32 output.
+            [[unroll]] for (uint a = 0u; a < 2u; ++a) {
+                const uint krow = r * 32u + a * 16u;
+                [[unroll]] for (uint b = 0u; b < 4u; ++b) {
+                    const uint dcol = c * 64u + b * 16u;
+                    FRAG_BW_F acc = FRAG_BW_F(0.0);
+                    [[unroll]] for (uint kk = 0u; kk < QBB / 16u; ++kk) {
+                        FRAG_BW_A pa;
+                        FRAG_BW_B db;
+                        coopMatLoad(pa, sX, krow * XB + kk * 4u, XB,
+                                    gl_CooperativeMatrixLayoutRowMajor);
+                        coopMatLoad(db, sB, kk * 16u * SB + dcol / 4u, SB,
+                                    gl_CooperativeMatrixLayoutRowMajor);
+                        acc = coopMatMulAdd(pa, db, acc);
+                    }
+                    coopMatStore(acc, sF, o, 16u, gl_CooperativeMatrixLayoutRowMajor);
+                    subgroupMemoryBarrierShared();
+                    subgroupBarrier();
+                    ADD_FRAG(dv4, NKV * HD_B / 4u, (j0 + krow) * NKV + kvh, dcol, j0 + krow + (ia >> 2u) < T);
+                    subgroupMemoryBarrierShared();
+                    subgroupBarrier();
+                }
+            }
+
+            // ---- dS = P (dP - delta) SCALE, rounded once to bf16, over P in place
+            barrier();
+            [[unroll]] for (uint m = 0u; m < 4u; ++m) {
+                const uint kr = r * 32u + (m >> 1u) * 16u;
+                const uint qc = c * 32u + (m & 1u) * 16u;
+                coopMatStore(dp[m], sF, o, 16u, gl_CooperativeMatrixLayoutRowMajor);
+                subgroupMemoryBarrierShared();
+                subgroupBarrier();
+                const uint lr = lane >> 1u;
+                const uint lc = (lane & 1u) * 8u;
+                const uint jj = kr + lr;
+                const uint j = j0 + jj;
+                bf16vec4 d0;
+                bf16vec4 d1;
+                [[unroll]] for (uint u = 0u; u < 8u; ++u) {
+                    const uint ii = qc + lc + u;
+                    float p = 0.0;
+                    if (j < T && i0 + ii < T && (diag == 0u || jj <= ii)) {
+                        p = float(sX[jj * XB + (ii >> 2u)][ii & 3u]);
+                    }
+                    const float ds = p * (sF[o + lr * 16u + lc + u] - sD[ii]) * SCALE;
+                    if (u < 4u) {
+                        d0[u] = bfloat16_t(ds);
+                    } else {
+                        d1[u - 4u] = bfloat16_t(ds);
+                    }
+                }
+                sX[jj * XB + (qc + lc) / 4u] = d0;
+                sX[jj * XB + (qc + lc) / 4u + 1u] = d1;
+                subgroupMemoryBarrierShared();
+                subgroupBarrier();
+            }
+
+            // ---- K -> sA and Q -> sB again: sA held V, sB held dA, both read out by dP and dV
+            [[unroll]] for (uint it = 0u; it < (KBB * (HD_B / 4u)) / NT; ++it) {
+                const uint idx = tid + it * NT;
+                const uint jr = idx >> 5u;
+                const uint dc = idx & 31u;
+                const uint jm = min(j0 + jr, T - 1u);
+                sA[jr * SB + dc] = bf16vec4(k4[((jm * NKV + kvh) * HD_B) / 4u + dc]);
+            }
+            [[unroll]] for (uint it = 0u; it < (QBB * (HD_B / 4u)) / NT; ++it) {
+                const uint idx = tid + it * NT;
+                const uint ir = idx >> 5u;
+                const uint dc = idx & 31u;
+                const uint im = min(i0 + ir, T - 1u);
+                sB[ir * SB + dc] = bf16vec4(q4[((im * NH + h) * HD_B) / 4u + dc]);
+            }
+            barrier();
+
+            // ---- dK += dS^T Q, reduced over this block's 64 queries
+            [[unroll]] for (uint a = 0u; a < 2u; ++a) {
+                const uint krow = r * 32u + a * 16u;
+                [[unroll]] for (uint b = 0u; b < 4u; ++b) {
+                    const uint dcol = c * 64u + b * 16u;
+                    FRAG_BW_F acc = FRAG_BW_F(0.0);
+                    [[unroll]] for (uint kk = 0u; kk < QBB / 16u; ++kk) {
+                        FRAG_BW_A da;
+                        FRAG_BW_B qf;
+                        coopMatLoad(da, sX, krow * XB + kk * 4u, XB,
+                                    gl_CooperativeMatrixLayoutRowMajor);
+                        coopMatLoad(qf, sB, kk * 16u * SB + dcol / 4u, SB,
+                                    gl_CooperativeMatrixLayoutRowMajor);
+                        acc = coopMatMulAdd(da, qf, acc);
+                    }
+                    coopMatStore(acc, sF, o, 16u, gl_CooperativeMatrixLayoutRowMajor);
+                    subgroupMemoryBarrierShared();
+                    subgroupBarrier();
+                    ADD_FRAG(dk4, NKV * HD_B / 4u, (j0 + krow) * NKV + kvh, dcol, j0 + krow + (ia >> 2u) < T);
+                    subgroupMemoryBarrierShared();
+                    subgroupBarrier();
+                }
+            }
+
+            // ---- dQ += dS K, reduced over this block's 64 keys, into the reference's
+            // GradQTempStorage tile: one acquisition of the lock per workgroup, the counter's
+            // last arrival writes the tile out and clears it for the next submission.
+            {
+                const uint tile = h * qtiles + qb;
+                if (tid == 0u) {
+                    while (atomicCompSwap(qlock[tile], 0u, 1u) != 0u) {
+                    }
+                }
+                barrier();
+                memoryBarrierBuffer();
+                [[unroll]] for (uint a = 0u; a < 2u; ++a) {
+                    const uint qrow = r * 32u + a * 16u;
+                    [[unroll]] for (uint b = 0u; b < 4u; ++b) {
+                        const uint dcol = c * 64u + b * 16u;
+                        FRAG_BW_F acc = FRAG_BW_F(0.0);
+                        [[unroll]] for (uint kk = 0u; kk < KBB / 16u; ++kk) {
+                            FRAG_BW_A dt;
+                            FRAG_BW_B kf;
+                            coopMatLoad(dt, sX, kk * 16u * XB + qrow / 4u, XB,
+                                        gl_CooperativeMatrixLayoutColumnMajor);
+                            coopMatLoad(kf, sA, kk * 16u * SB + dcol / 4u, SB,
+                                        gl_CooperativeMatrixLayoutRowMajor);
+                            acc = coopMatMulAdd(dt, kf, acc);
+                        }
+                        coopMatStore(acc, sF, o, 16u, gl_CooperativeMatrixLayoutRowMajor);
+                        subgroupMemoryBarrierShared();
+                        subgroupBarrier();
+                        // the tile's rows are the query block's, its columns the head dims: one
+                        // workgroup's addition is its own rows [32r, 32r+32) x dims [64c, 64c+64)
+                        [[unroll]] for (uint ta = 0u; ta < 2u; ++ta) {
+                            const uint ia = lane + ta * 32u;
+                            const uint ra = ia >> 2u;
+                            const uint ca = ia & 3u;
+                            const uint bq = tile * QBB * HD_B + (qrow + ra) * HD_B + dcol + ca * 4u;
+                            qtmp[bq] += sF[o + ra * 16u + ca * 4u];
+                            qtmp[bq + 1u] += sF[o + ra * 16u + ca * 4u + 1u];
+                            qtmp[bq + 2u] += sF[o + ra * 16u + ca * 4u + 2u];
+                            qtmp[bq + 3u] += sF[o + ra * 16u + ca * 4u + 3u];
+                        }
+                        subgroupMemoryBarrierShared();
+                        subgroupBarrier();
+                    }
+                }
+                barrier();
+                memoryBarrierBuffer();
+                if (tid == 0u) {
+                    qlock[tile] = 0u;
+                    // contributors to query tile `qb` are key blocks 0..qb, so the last arrival
+                    // is the one that reads qb
+                    sLast = (atomicAdd(qcnt[tile], 1u) == qb) ? 1u : 0u;
+                }
+                barrier();
+                if (sLast == 1u) {
+                    if (tid == 0u) {
+                        qcnt[tile] = 0u;
+                    }
+                    [[unroll]] for (uint t2 = 0u; t2 < 16u; ++t2) {
+                        const uint idx = tid + t2 * NT;
+                        const uint ir = idx >> 5u;
+                        const uint dc = idx & 31u;
+                        const uint i = i0 + ir;
+                        const uint bq = tile * QBB * HD_B + ir * HD_B + dc * 4u;
+                        if (i < T) {
+                            dq4[((i * NH + h) * HD_B) / 4u + dc] =
+                                vec4(qtmp[bq], qtmp[bq + 1u], qtmp[bq + 2u], qtmp[bq + 3u]);
+                        }
+                        qtmp[bq] = 0.0;
+                        qtmp[bq + 1u] = 0.0;
+                        qtmp[bq + 2u] = 0.0;
+                        qtmp[bq + 3u] = 0.0;
+                    }
+                }
+                memoryBarrierBuffer();
+                barrier();
+            }
+        }
+    }
+}
+#elif defined(KDF)
 // ---- the KD face ---------------------------------------------------------------------------
 // NanoQuant's KD attention forward as a FACE of this file, compiled by
 // `glslc -DKDF=1 ... -o attn_coopmat_kd.spv`; the inference face below is untouched and compiles
