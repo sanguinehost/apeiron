@@ -1,61 +1,83 @@
 {
-  "acceptance_summary": "",
-  "check_in_bytes": 1916,
-  "check_in_digest": "07a5c3b87e90ffed88bacdebdd748f5f6656e8d0c5d569ff80113ee3cf9d3314",
-  "check_in_id": "",
-  "created": "2026-10-05T00:48:44Z",
+  "acceptance_summary": "registered=2752 load_bearing=2408 applicable=1500 pass=743 fail=757 missing=0 unauthorized=0 not_applicable=908 informational=344 concurrency_unmatched=6 address_face_unmatched=6 worst_pair=spatial/n5000/hashbrown_rayon worst_ratio=8.3849 full_acceptance=false",
+  "check_in_bytes": 2092,
+  "check_in_digest": "727f88dff684bebba3de3035289784edb7897ea223db2f717968e97307ea7116",
+  "check_in_id": "2026-10-19-CcpPnPmFlCnDgoZZNFXcSE",
+  "check_in_transport": {
+    "check_in_id": "2026-10-19-CcpPnPmFlCnDgoZZNFXcSE",
+    "read_back": true,
+    "read_ids": [
+      "2026-10-25-FlmepH2mDXk5WTEWOXG7lN",
+      "2026-10-19-CMlmHTdEUhhoGf8Nb2ds8U",
+      "2026-10-19-Eex8DQDxEmTLDCb11OyQeV",
+      "2026-10-19-Gd7Vd9M4XoVeKnuvqrBxnJ",
+      "2026-10-19-ELemKszwSoGES2211Ih7Pz",
+      "2026-10-19-5dmsJDpUPbkXOU9E0wbSX",
+      "2026-10-19-BXtGUq9DHSskVH5L2Rp9ED",
+      "2026-10-19-DqvzG8QqOyJVfqGibEHeYI"
+    ],
+    "transport": "landed",
+    "transport_error": ""
+  },
+  "created": "2026-10-25T23:55:45Z",
   "headline": {
     "hashtrinity_count_par": {
       "decided_pairs": 6,
-      "digest_fail": null,
+      "digest_fail": 3,
       "pass_at_campaign": "[0, 0, 0]",
-      "ratio_max": 1.8678,
-      "ratio_mean": 1.0054,
-      "ratio_min": 0.817,
-      "ratio_spread": 2.2861,
-      "worst_cell": "spatial/n50000",
+      "ratio_max": 5.8998,
+      "ratio_mean": 3.5105,
+      "ratio_min": 1.5536,
+      "ratio_spread": 3.7975,
+      "worst_cell": "spatial/n10000",
       "worst_cell_pooled": "fail",
-      "worst_cell_ratio_max": 1.8678
+      "worst_cell_ratio_max": 5.8998
     },
     "hashtrinity_get_each": {
       "decided_pairs": 6,
-      "digest_fail": null,
+      "digest_fail": 3,
       "pass_at_campaign": "[0, 0, 0]",
-      "ratio_max": 1.3945,
-      "ratio_mean": 1.0373,
-      "ratio_min": 0.9102,
-      "ratio_spread": 1.5321,
-      "worst_cell": "spatial/n50000",
+      "ratio_max": 5.7077,
+      "ratio_mean": 3.3692,
+      "ratio_min": 1.6683,
+      "ratio_spread": 3.4213,
+      "worst_cell": "spatial/n10000",
       "worst_cell_pooled": "fail",
-      "worst_cell_ratio_max": 1.3945
+      "worst_cell_ratio_max": 5.7077
     },
     "hashtrinity_table": {
       "decided_pairs": 160,
-      "digest_fail": null,
-      "pass_at_campaign": "[0, 1, 0]",
-      "ratio_max": 1.1758,
-      "ratio_mean": 0.9757,
-      "ratio_min": 0.3527,
-      "ratio_spread": 3.3337,
-      "worst_cell": "occ16-seeded-random-absent-miss-replacement",
+      "digest_fail": 0,
+      "pass_at_campaign": "[64, 63, 62]",
+      "ratio_max": 5.1023,
+      "ratio_mean": 1.7465,
+      "ratio_min": 0.0931,
+      "ratio_spread": 54.779,
+      "worst_cell": "occ1-direct-index-resident-admitted-fresh-insert-replacement",
       "worst_cell_pooled": "fail",
-      "worst_cell_ratio_max": 1.1758
+      "worst_cell_ratio_max": 5.1023
     }
   },
-  "measure_path": "/home/socol/oc-tmp/reg1-remeasure/parity-1.out",
-  "measure_sha256": "f130fef71d6713f7224255a4a1db58ad00d53ec947b46afe746945fbd5b665e4",
-  "measure_skipped_newer": [],
-  "mode": "dry-run",
+  "measure_path": "/home/socol/oc-tmp/reg1-remeasure/run6.json",
+  "measure_sha256": "75bf75caa12db2ec1b2c8a7770f9e59a1c0976a9e7b9ba7b9658b2db85943159",
+  "measure_skipped_newer": [
+    "/home/socol/oc-tmp/reg1-remeasure/stream-postrestore.json",
+    "/home/socol/oc-tmp/reg1-remeasure/live-5.json",
+    "/home/socol/oc-tmp/reg1-remeasure/live-4.json",
+    "/home/socol/oc-tmp/reg1-remeasure/live-3.json",
+    "/home/socol/oc-tmp/reg1-remeasure/live-2.json",
+    "/home/socol/oc-tmp/reg1-remeasure/live-1.json"
+  ],
+  "mode": "post",
   "project": "apeiron",
   "rows": [],
   "schema": 1,
-  "source_digest": "91e1be7026e35e763fc61d37a0aae2b9df525689f3f529588be701788ba08dce",
-  "source_files": 168,
+  "source_digest": "c4ecc5419a8227eb3036857aec386c8f8929d4a4b711cc0905a7b81dc53cfb8b",
+  "source_files": 295,
   "source_prefixes": [
-    "src/",
-    "examples/reg1/"
+    "src/"
   ],
-  "staged_digest": "4534c6e1a1957b8129a0c2074a82cd91f27b9057bf76c69e9b0bffd9a6363c9d",
-  "staged_files": 167,
+  "staged_digest": "356f4807ead44c9d37afafbbe5970bf78870ceadb8f8b15bd2d1d04bf8aaa9b6",
+  "staged_files": 295,
   "tool": "tools/board/checkpoint.py"
 }

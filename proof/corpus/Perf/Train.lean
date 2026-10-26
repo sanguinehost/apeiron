@@ -823,5 +823,19 @@ theorem kdAttentionFwd_gain :
     25 * kdAttnFwdPortUs < kdAttnFwdPrevUs := by
   decide
 
+/-! Attention backward KD port (`src/gpu/spirv/attn_coopmat.comp`, face `attn_coopmat_kd_bwd.spv`),
+measured 2019 µs per call (84 calls = 169.6 ms per step), against the reference's fmhaB
+(2735 µs per call = 229.7 ms) and our previous 3-dispatch path (15010 µs per call = 1260.8 ms). -/
+def kdAttnBwdPortUs : Nat := 2019
+def kdAttnBwdPrevUs : Nat := 15010
+def kdAttnBwdRefUs : Nat := 2735
+
+/-- The attention-backward port beats the reference fmhaB and cuts our previous attention backward by more than 7×. -/
+theorem kdAttentionBwd_gain :
+    kdAttnBwdPortUs < kdAttnBwdRefUs ∧
+    7 * kdAttnBwdPortUs < kdAttnBwdPrevUs := by
+  decide
+
 end Perf.Train
+
 

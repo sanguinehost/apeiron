@@ -36,7 +36,11 @@ product = true
 [[kernel]]
 role = "attention"
 comp = "src/gpu/spirv/attn_coopmat.comp"
-faces = ["src/gpu/spirv/attn_coopmat.spv", "src/gpu/spirv/attn_coopmat_kd.spv"]
+faces = [
+  "src/gpu/spirv/attn_coopmat.spv",
+  "src/gpu/spirv/attn_coopmat_kd.spv",
+  "src/gpu/spirv/attn_coopmat_kd_bwd.spv",
+]
 product = true
 
 [[kernel]]
