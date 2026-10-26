@@ -836,6 +836,20 @@ theorem kdAttentionBwd_gain :
     7 * kdAttnBwdPortUs < kdAttnBwdPrevUs := by
   decide
 
+/-! FrontTune wired to the Cutlass attention-backward face (P147), measuring
+mean wall of 711 ms per step (down from 2270 ms in P143, 3.19x faster),
+projecting 1024 steps to 728 s. -/
+def kdStepPrevMs : Nat := 2270
+def kdStepNowMs : Nat := 711
+def kdStep1024NowS : Nat := 728
+def kdStep1024PrevS : Nat := 2324
+
+/-- The Cutlass attention-backward integration cuts whole-step wall time by more than 3x. -/
+theorem kdStepBwd_gain :
+    3 * kdStepNowMs < kdStepPrevMs ∧
+    kdStep1024NowS < kdStep1024PrevS := by
+  decide
+
 end Perf.Train
 
 

@@ -115,14 +115,14 @@ const float LOG2E = 1.4426950408889634;
 // `rows` and `cols` clamp the store for a text past its last block. 16 rows x 4 vec4 = 64 vec4.
 //
 // Cost: O(1), two vec4 per lane.
-#define ADD_FRAG(g4, stride, base, col, rowok)                     \
+#define ADD_FRAG(g4, j_base, kv_head, col, rowok)                  \
     {                                                             \
         [[unroll]] for (uint ta = 0u; ta < 2u; ++ta) {             \
             const uint ia = lane + ta * 32u;                       \
             const uint ra = ia >> 2u;                              \
             const uint ca = ia & 3u;                               \
             if (rowok) {                                           \
-                const uint oa = (base + ra) * stride + (col) / 4u + ca; \
+                const uint oa = ((j_base + ra) * NKV + (kv_head)) * (HD_B / 4u) + (col) / 4u + ca; \
                 g4[oa] += vec4(sF[o + ra * 16u + ca * 4u],          \
                                sF[o + ra * 16u + ca * 4u + 1u],     \
                                sF[o + ra * 16u + ca * 4u + 2u],     \
@@ -150,6 +150,21 @@ void main() {
 
     // dK and dV keep their f32 accumulators in global memory, one workgroup per (kv head, key
     // block) owning those rows, so neither is carried in registers across the walk.
+    // Zero this workgroup's owned rows before the query walk so accumulators start clean.
+    [[unroll]] for (uint it = 0u; it < (KBB * (HD_B / 4u)) / NT; ++it) {
+        const uint idx = tid + it * NT;
+        const uint jr = idx >> 5u;
+        const uint dc = idx & 31u;
+        const uint j = j0 + jr;
+        if (j < T) {
+            const uint oa = ((j * NKV + kvh) * HD_B) / 4u + dc;
+            dk4[oa] = vec4(0.0);
+            dv4[oa] = vec4(0.0);
+        }
+    }
+    memoryBarrierBuffer();
+    barrier();
+
     for (uint hh = 0u; hh < nhg; ++hh) {
         const uint h = kvh * nhg + hh;
         for (uint qb = kbo; qb < qtiles; ++qb) {
@@ -311,7 +326,7 @@ void main() {
                     coopMatStore(acc, sF, o, 16u, gl_CooperativeMatrixLayoutRowMajor);
                     subgroupMemoryBarrierShared();
                     subgroupBarrier();
-                    ADD_FRAG(dv4, NKV * HD_B / 4u, (j0 + krow) * NKV + kvh, dcol, j0 + krow + (ia >> 2u) < T);
+                    ADD_FRAG(dv4, j0 + krow, kvh, dcol, j0 + krow + (ia >> 2u) < T);
                     subgroupMemoryBarrierShared();
                     subgroupBarrier();
                 }
@@ -385,7 +400,7 @@ void main() {
                     coopMatStore(acc, sF, o, 16u, gl_CooperativeMatrixLayoutRowMajor);
                     subgroupMemoryBarrierShared();
                     subgroupBarrier();
-                    ADD_FRAG(dk4, NKV * HD_B / 4u, (j0 + krow) * NKV + kvh, dcol, j0 + krow + (ia >> 2u) < T);
+                    ADD_FRAG(dk4, j0 + krow, kvh, dcol, j0 + krow + (ia >> 2u) < T);
                     subgroupMemoryBarrierShared();
                     subgroupBarrier();
                 }
