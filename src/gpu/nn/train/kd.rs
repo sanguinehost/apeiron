@@ -991,7 +991,10 @@ impl KdTrain {
     /// `O(L · Σ (out + inn)·rank)` bytes written, 1.9 GiB at Qwen3-0.6B's geometry.
     pub fn export(&self, dir: &str) -> Result<(), String> {
         for (l, p) in self.pars.iter().enumerate() {
-            p.save(&format!("{dir}/l{l}"))?;
+            let ldir = format!("{dir}/l{l}");
+            p.save(&ldir)?;
+            std::fs::write(format!("{ldir}/done"), b"1\n")
+                .map_err(|e| format!("{ldir}/done: {e}"))?;
         }
         std::fs::write(format!("{dir}/done"), b"1\n").map_err(|e| format!("{dir}/done: {e}"))
     }

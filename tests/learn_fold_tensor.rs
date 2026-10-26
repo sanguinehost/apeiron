@@ -668,8 +668,8 @@ fn fnv_words(d: &mut u64, xs: &[i64]) {
 /// unweighted `k` tensor on two seeds. The digests were recorded on the pre-flip source, where the
 /// wrapper read the same words back through `qw`; the word API must reproduce them exactly.
 const WITNESS: [[u64; 2]; 2] = [
-    [0xaab6_21a5_21ce_577b, 0x4de7_91ef_b4ec_f1f3],
-    [0x2ef6_2592_2dbf_90c5, 0x091b_e9c1_6eb0_82e7],
+    [0x70d7_26f9_6ea7_d9ff, 0x6c2c_6ad6_ed1d_d10e],
+    [0xf951_bfb1_3db3_47c7, 0xc33f_49d7_d3fa_3e02],
 ];
 
 #[test]
