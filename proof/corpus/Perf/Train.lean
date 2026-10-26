@@ -850,6 +850,20 @@ theorem kdStepBwd_gain :
     kdStep1024NowS < kdStep1024PrevS := by
   decide
 
+/-! 1024-step KD run on device (P148), executing all 1024 steps in 670 s (0.654 s/step),
+moving wikitext-2 perplexity from 26.8953 before KD to 24.5751 after KD (receipt
+`~/nq-ref/arm-kd1024-full.json`), matching reference post-KD 24.3317
+within 1.010x. -/
+def kdRunPrePplMilli : Nat := 26895
+def kdRunPostPplMilli : Nat := 24575
+def kdRunRefPostPplMilli : Nat := 24332
+
+/-- 1024-step KD on device reduces perplexity below the pre-KD baseline and sits within 1.011x of the reference. -/
+theorem kdRun1024_ppl :
+    kdRunPostPplMilli < kdRunPrePplMilli ∧
+    1000 * kdRunPostPplMilli < 1011 * kdRunRefPostPplMilli := by
+  decide
+
 end Perf.Train
 
 
