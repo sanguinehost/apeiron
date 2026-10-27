@@ -65,6 +65,10 @@ const MODEL: &str = "~/models/gguf/qwen05b-f16.gguf";
 /// The C4 calibration tokens (`kl_distill.train_ids`, disjoint from the `seal/calib-c4.txt` shard).
 const TOKENS: &str = "~/lanes/w18/kd/c4data/train-c4.qwen.npy";
 
+/// The fit's working directory: its checkpoints, its student `GGUF`s and its JSON receipt. A
+/// separate `const` keeps every expression that names it short enough to lay out the same way.
+const GEN_DIR: &str = "~/gen-w1-t01";
+
 /// Tokens per chunk, as `oneshot_qwen05b` and `tests/learn_fold_heldout.rs` chunk the stream.
 const CHUNK: usize = 512;
 
@@ -756,7 +760,7 @@ fn probe(
 #[ignore = "loads the 0.5B model and fits 7 linears; run --release --ignored --nocapture"]
 fn gen_qwen05b() {
     let t_all = Instant::now();
-    let dir = env("APEIRON_GEN_DIR").unwrap_or_else(|| "~/gen-w1-t01".to_string());
+    let dir = env("APEIRON_GEN_DIR").unwrap_or_else(|| GEN_DIR.to_string());
     for sub in ["", "/fit", "/students"] {
         fs::create_dir_all(format!("{dir}{sub}")).expect("gen dir");
     }
@@ -1127,8 +1131,7 @@ fn kv_str(b: &mut Vec<u8>, k: &str, v: &str) {
 
 /// A scratch directory under the lane's disk, never the tmpfs.
 fn scratch(name: &str) -> String {
-    let root = env("APEIRON_GEN_TEST_DIR")
-        .unwrap_or_else(|| "~/gen-w1-t01/test".to_string());
+    let root = env("APEIRON_GEN_TEST_DIR").unwrap_or_else(|| format!("{GEN_DIR}/test"));
     let dir = format!("{root}/{name}-{}", std::process::id());
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("scratch dir");

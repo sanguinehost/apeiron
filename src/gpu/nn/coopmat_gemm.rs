@@ -707,6 +707,7 @@ mod tests {
 
     use std::path::Path;
 
+    #[cfg(feature = "gpu")]
     extern "C" {
         fn dlopen(filename: *const std::os::raw::c_char, flags: i32) -> *mut std::ffi::c_void;
         fn dlsym(
@@ -715,6 +716,7 @@ mod tests {
         ) -> *mut std::ffi::c_void;
     }
     /// glibc `RTLD_NOW` (bits/dlfcn.h)
+    #[cfg(feature = "gpu")]
     const RTLD_NOW: i32 = 2;
 
     /// Compile `src/gpu/spirv/coopmat_gemm.comp` with `args` and compare it to `committed`, whose
@@ -750,6 +752,7 @@ mod tests {
     #[test]
     fn coopmat_bf16_spirv_is_the_glsl() {}
 
+    #[cfg(feature = "gpu")]
     #[repr(C)]
     struct Props {
         s_type: u32,
@@ -764,8 +767,10 @@ mod tests {
         sat: u32,
         scope: u32,
     }
+    #[cfg(feature = "gpu")]
     const ST_PROPS: u32 = 1_000_506_001;
 
+    #[cfg(feature = "gpu")]
     fn comp(t: u32) -> &'static str {
         match t {
             0 => "f16",
@@ -785,6 +790,7 @@ mod tests {
     }
 
     /// Step 1: every `(A, B, C, Result, M, N, K, scope)` the device lists. Skips without Vulkan.
+    #[cfg(feature = "gpu")]
     #[test]
     fn coopmat_properties() {
         let vk = match unsafe { crate::gpu::vulkan::Vk::load() } {

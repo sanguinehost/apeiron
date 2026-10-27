@@ -396,7 +396,8 @@ pub unsafe fn adam_update_dispatch_reused(
     adam_update_dispatch_reused_h(g, p, grad, m, v, bias, n, lr, AdamHyper::ORACLE)
 }
 
-#[cfg(test)]
+/// The module is the device replay of the Adam pass: it needs the `gpu` feature's runtime.
+#[cfg(all(test, feature = "gpu"))]
 mod tests {
     use super::*;
     use crate::gpu::decode::{rec_step, GpuCtx};

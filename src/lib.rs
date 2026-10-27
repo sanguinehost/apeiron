@@ -52,5 +52,6 @@ pub use carrier::{
 };
 pub use cell::{Cell, Sigma};
 pub use exchange::{accept_derived_impulse, elastic_exchange, exchange_impulse, Exchange};
+pub use map::freq;
 pub use map::pepper::{process_pepper, set_process_pepper};
 pub use map::table::{StorageError, Table};
