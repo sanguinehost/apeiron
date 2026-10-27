@@ -4,6 +4,10 @@
 
 # Removed from the tree and from every commit.
 strip = [
+  ".intent/",
+  "docs/contracts/extraction.toml",
+  "docs/contracts/one-path.toml",
+  "docs/contracts/tree.toml",
   "docs/README.md",
   "docs/archive/",
   "docs/call-census/",
@@ -110,6 +114,7 @@ text_map = [
   "regex: ?\\(`LEARN-HATTN`, task `HATTN-T(\\d+)`\\)==> (attention-cut T\\1)",
   "regex:`?escalation/FACES-R1-H5-PREDICTION\\.md`?==>the H5 prediction note",
   "regex:(?:~/)?\\bescalation/==>",
+  "regex:\\bHATTN-HOTCOLD\\b==>attention-cut hot/cold",
   "regex:\\bHATTN-T(\\d+)\\b==>attention-cut T\\1",
   "regex:\\bFACES-([A-Z]\\d+)\\b==>faces \\1",
   "/tmp/opencode==>/tmp/apeiron",
@@ -126,6 +131,7 @@ text_map = [
 
 # Applied to every commit message.
 message_map = [
+  "regex:\\(deepseek/deepseek-flash\\)==>(worker model)",
   "regex:(?m)^board:.*\\n?==>",
   "regex:\\brel-apeiron-[a-z-]+-[A-Za-z0-9]{20,24}\\b==>",
   "regex:/home/socol/(?:oc-tmp/|Workspace/)?==>~/",
