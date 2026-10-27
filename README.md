@@ -49,10 +49,34 @@ under `mdbook test book -L target/debug/deps`.
 
 ## Inference engine against llama.cpp
 
-CPU throughput on an i9-14900KF (32 threads), Q8_0 models, llama.cpp `0324696b8` at its best of 8,
-16, 24 and 32 threads. Ratios are the median of the per-round ratios, apeiron over llama.cpp; the
-range is the minimum to maximum round. `pp` is prompt tokens per second, `tg` is generated tokens
-per second (64 tokens). Every round passed the quiet-host gate (busy cores < 0.05).
+Current figures. `pp512` is 512 prompt tokens per second, `tg128` is 128 generated tokens per
+second. Ratios are apeiron over llama.cpp. The commit is the apeiron revision the figure was
+recorded at; the figures are copied from those recorded measurements, not re-run for this
+release.
+
+| metric | model / device | apeiron | llama.cpp | ratio | commit | receipt |
+|---|---|---:|---:|---:|---|---|
+| pp512 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 113,099 tok/s | 63,018.5 tok/s (CUDA) | **1.795×** | `021ab9d5` | quotient of recorded medians |
+| tg128 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 973.8 tok/s | 880.9 tok/s (CUDA) | **1.105×** | `392e08e6` | quotient of recorded medians |
+| pp512 | Qwen3.5-0.8B Q8_0 / i9-14900KF | 917.82 tok/s | 416.41 tok/s (CPU) | **2.24×** (2.14–2.25) | `eb5efdfa` | [`1792648053-qwen08b-q8-cpu`](bench/cpu/1792648053-qwen08b-q8-cpu.md) |
+| tg128 | Qwen3.5-0.8B Q8_0 / i9-14900KF | 92.13 tok/s | 51.42 tok/s (CPU) | **1.80×** (1.70–1.81) | `eb5efdfa` | [`1792648053-qwen08b-q8-cpu`](bench/cpu/1792648053-qwen08b-q8-cpu.md) |
+| pp512 | Qwen3.5-0.8B Q4_K_M / i9-14900KF | 658.10 tok/s | 632.67 tok/s (CPU) | 1.02× (1.00–1.10) | `84fe9407` | [`1792653496-qwen08b-q4km-kqc-live`](bench/cpu/1792653496-qwen08b-q4km-kqc-live.md) |
+| tg128 | Qwen3.5-0.8B Q4_K_M / i9-14900KF | 84.19 tok/s | 60.39 tok/s (CPU) | **1.39×** (1.33–1.40) | `84fe9407` | [`1792653496-qwen08b-q4km-kqc-live`](bench/cpu/1792653496-qwen08b-q4km-kqc-live.md) |
+
+- CPU rows: llama.cpp `60bc8866b` at its best of 16 and 32 threads, median of 5 paired rounds, range
+  is the minimum to maximum round, every round passed the quiet-host gate (busy cores < 1).
+- GPU rows: the CUDA comparator is `llama-bench -ngl 99`. The prefill comparator was measured on a
+  contended host, and the ratios are quotients of recorded medians, not paired-round medians.
+- The Q4_K_M prefill row is parity (1.02×); decode is ahead. First-token agreement has not been run
+  on the Q4_K_M files.
+- Q4_K_M receipts were recorded from a working tree with uncommitted paths; the receipt names the
+  source sha256.
+
+### Earlier CPU receipts
+
+More models and prompt lengths, Q8_0, measured earlier at revision `04d206013f70` against llama.cpp
+`0324696b8` at its best of 8, 16, 24 and 32 threads. `tg` here is 64 generated tokens. Every round
+passed the quiet-host gate (busy cores < 0.05).
 
 | weights | pp tokens | rounds | pp ratio | tg ratio | receipt |
 |---|---:|---:|---|---|---|
@@ -81,8 +105,29 @@ name their prompt ids by sha256 in the receipt and are not reproducible from a c
 
 Throughput is accepted only alongside agreement with the comparator on the same model (first
 tokens and perplexity); the book's [Results](book/src/engine/results.md) chapter gives the protocol
-and the GPU commands (`gpu_decode_bench`, `gpu_ppl`). The GPU rows and the hash table comparison
-against `hashbrown` are not in this table: their ratios are not claimed here.
+and the GPU commands (`gpu_decode_bench`, `gpu_ppl`). The hash table comparison against
+`hashbrown` is not in these tables: its ratios are not claimed here.
+
+## Quantisation: the open gap
+
+The goal is a 27B-class model in at most 4 GB of resident weights (about 1.18 bits per weight) that
+stays within 10% of Q4_K_M: perplexity at most 1.15× and zero-shot task accuracy at least 0.90× of
+Q4_K_M's, from the same run. That bar is not met yet.
+
+| metric | model / setting | apeiron | Q4_K_M | ratio | bar |
+|---|---|---:|---:|---:|---:|
+| wikitext-2 perplexity | Qwen3-0.6B-Base, 1.18 b/w, 1024-step KD | 24.5751 | 13.7633 | 1.785× | 1.15× |
+| mean 0-shot accuracy (boolq, piqa, hellaswag, winogrande, arc_easy, arc_challenge) | same | 0.4194 | 0.5556 | 0.755× | 0.90× |
+| relative Hessian distortion, all 28 blocks | same, Fold E8 lattice codebook vs NanoQuant's sign-rank factorisation | 0.0149 | 0.0805 (NanoQuant) | 5.39× lower | n/a |
+
+- NanoQuant as shipped, on the same model and harness: perplexity 24.3317 (1.768×), accuracy 0.4235
+  (0.762×). At equal bits the port is 1.010× the reference's perplexity and 0.99× its accuracy, with
+  5.39× lower layer distortion; both are short of the bar.
+- Qwen3.8-27B (48 DeltaNet and 16 attention layers) runs end to end at 1.18 b/w with 3.753 GiB of
+  resident weights, inside the 4 GB budget: prompt processing 586.4 tok/s and generation
+  4.85–5.90 tok/s on an RTX 5080 with 38 layers offloaded plus CPU, prefix-cache hit 98.3%. It has
+  no quality measurement yet.
+- Figures are copied from the recorded measurements, not re-run for this release.
 
 ## What is proved, tested and open
 
