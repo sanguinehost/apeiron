@@ -35,7 +35,7 @@ probe.
 extern crate apeiron;
 use apeiron::freq::CoordMap;
 
-let mut grid = CoordMap::<u64, i64>::coordinate();
+let mut grid = CoordMap::<u64, i64>::coordinate_with_capacity(0);
 grid.insert_with(1_000_003, 5, |old, new| old + new);
 grid.insert_with(1_000_003, 5, |old, new| old + new);
 assert_eq!(grid.get(&1_000_003), Some(&10));

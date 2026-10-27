@@ -196,8 +196,8 @@ fn fold_pack_is_lossless_under_118_and_sees_a_code_bit_flip() {
 #[test]
 #[ignore = "reads the 4-layer resumable transfer checkpoint; --release --ignored --nocapture"]
 fn fold_pack_real_checkpoint() {
-    let dir = std::env::var("APEIRON_TRANSFER_DIR")
-        .unwrap_or_else(|_| "/home/socol/oc-tmp/q-tr1/ckpt".to_string());
+    const CKPT: &str = "/home/socol/oc-tmp/q-tr1/ckpt";
+    let dir = std::env::var("APEIRON_TRANSFER_DIR").unwrap_or_else(|_| CKPT.to_string());
     assert!(
         checkpoint_present(&dir),
         "blocker: no transfer checkpoint at {dir}"
