@@ -63,7 +63,7 @@ per second (64 tokens). Every round passed the quiet-host gate (busy cores < 0.0
 | qwen15b | 200 | 5 | 1.77 (1.74–2.00) | 1.10 (1.08–1.14) | [`1790798386-w7-qwen15b-r5-pp200`](bench/cpu/1790798386-w7-qwen15b-r5-pp200.md) |
 | qwen15b | 512 | 3 | 1.91 (1.89–1.96) | 1.19 (1.06–1.21) | [`1790797926-w7-qwen15b-pp512`](bench/cpu/1790797926-w7-qwen15b-pp512.md) |
 
-All six were measured at revision `04d206013f70`, source sha256 `0218e7d911a3…`, with the default `f32`
+All six were measured at revision `644190d7771f`, source sha256 `0218e7d911a3…`, with the default `f32`
 carrier. Each receipt holds the model and prompt digests, the machine, the compiler and the
 per-phase trace. Reproduce one with:
 

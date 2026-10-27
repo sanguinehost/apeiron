@@ -84,7 +84,7 @@ The authoritative Charon selection is the `--start-from` entries in `regen.sh`. 
 diff from the committed `ApeironWord.lean`, so a source change that alters the generated
 definitions cannot pass silently.
 
-At `9eed90e5` on this 32-thread host the plain run writes the generated file in 566 s; `--check`
+At `848a4ea7` on this 32-thread host the plain run writes the generated file in 566 s; `--check`
 did not complete within the 600 s ceiling in three runs (598 s each). The extraction's budget
 headroom is the route's open item under .
 
@@ -562,12 +562,12 @@ pinned at 11.5 GB. The cap must exceed the 13.7 GB peak.
 
 Current state of the gate at `6c724104`: both runs exit 1 on
 `stale: ApeironWord.lean does not match regeneration from current source` (415 diff hunks). The
-committed file predates the extracted-source changes in `src/engine/kern/gemm.rs` (`cc5ed3f0`) and
-`src/engine/kern/limb.rs` (`89ee1732`): 37 trailing-blank lines, shifted `Source:` spans, and the
+committed file predates the extracted-source changes in `src/engine/kern/gemm.rs` (`9b290304`) and
+`src/engine/kern/limb.rs` (`c5dcb0b0`): 37 trailing-blank lines, shifted `Source:` spans, and the
 `kern::limb::Prepared::syrk` loop decomposition differ. Regenerating `ApeironWord.lean` and
 re-elaborating `proof/corpus` is a separate task; the budget is not what holds the gate red.
 
-Between `6c724104` and `e1d3af8e` the translated set grows by one function,
+Between `6c724104` and `f9f01445` the translated set grows by one function,
 `limb::split_block` (1,586 MIR nodes against `r_band_q`'s 343,781, 0.46 %). The pack writer and
 reader and the fit's `flat_pair_sum` are included by `#[path]` but are not roots, so they do not
 translate; a 580 s timeout on the loaded box (a 15–20-core peer lane) is the single-threaded tail
@@ -705,7 +705,7 @@ proof/bootstrap.sh
 proof/regen.sh --check          # prints: extraction is fresh
 ```
 
-- Verified against a fresh local clone of the published repository at HEAD `65e4693` with `target/`
+- Verified against a fresh local clone of the published repository at HEAD `2a01ac9` with `target/`
   absent, `APEIRON_AENEAS_BUILD_ROOT` set to a second build root (not the step-1 root): the
   chain exits 0 and `regen.sh --check` prints `extraction is fresh` (89 s wall clock; bootstrap 49 s,
   of which the aeneas `dune build` from an empty `_build` is ≈42 s, and regen 40 s). Revision-bound

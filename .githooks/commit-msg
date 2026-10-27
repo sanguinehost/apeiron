@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# commit-msg: require a Developer Certificate of Origin sign-off (`git commit -s`), as
+# CONTRIBUTING.md states. Merge and revert messages git generates are exempt.
+
+set -uo pipefail
+
+msg=$1
+first=$(grep -v '^#' "$msg" | sed -n '1p')
+case "$first" in
+  "Merge "* | "Revert "*) exit 0 ;;
+esac
+
+if ! grep -Eq '^Signed-off-by: .+ <.+@.+>$' "$msg"; then
+  echo "commit-msg: FAIL no 'Signed-off-by: Name <email>' line; commit with 'git commit -s'" >&2
+  exit 1
+fi
+echo "commit-msg: sign-off present"

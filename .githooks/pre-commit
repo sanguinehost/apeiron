@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# pre-commit: the gates that fit a commit.
+#
+#   1. formatting          cargo fmt --all -- --check
+#   2. citation resolution python3 tools/check-claims.py
+#
+# Each step runs under its own wall-clock budget (APEIRON_HOOKS_STEP_BUDGET, default 90 s). A step
+# that reaches its budget fails the commit. `git commit --no-verify` skips every hook; CI runs the
+# same gates.
+
+set -uo pipefail
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "pre-commit: not inside a git work tree" >&2
+  exit 1
+}
+cd "$root" || exit 1
+
+step_budget=${APEIRON_HOOKS_STEP_BUDGET:-90}
+status=0
+
+run_step() {
+  local name=$1
+  shift
+  local t0 code
+  t0=$(date +%s)
+  timeout "$step_budget" "$@"
+  code=$?
+  if (( code == 124 || code == 137 )); then
+    echo "pre-commit: $name: FAIL budget ${step_budget}s exceeded" >&2
+    status=1
+  elif (( code != 0 )); then
+    echo "pre-commit: $name: FAIL exit $code" >&2
+    status=1
+  else
+    echo "pre-commit: $name: PASS $(( $(date +%s) - t0 ))s"
+  fi
+}
+
+run_step cargo-fmt cargo fmt --all -- --check
+run_step check-claims python3 -B tools/check-claims.py
+
+if (( status != 0 )); then
+  echo "pre-commit: REFUSED; the commit was not created" >&2
+fi
+exit "$status"
