@@ -904,8 +904,8 @@ fn fits_digest_refusal() {
 #[test]
 #[ignore = "loads the 994 MB F16 Qwen2.5-0.5B and writes a ~1 GB GGUF; --release --ignored --nocapture"]
 fn gguf_identity() {
-    let t0 = Instant::now();
     const OUT: &str = "/home/socol/oc-tmp/q-tr1/gguf-identity";
+    let t0 = Instant::now();
     let root = std::env::var("APEIRON_GGUF_IDENTITY_DIR").unwrap_or_else(|_| OUT.to_string());
     fs::create_dir_all(&root).expect("identity dir");
     let out = format!("{root}/student-f16.gguf");
@@ -996,8 +996,8 @@ fn gguf_identity() {
 #[test]
 #[ignore = "loads and converts the 0.5B model, quantises one layer per ~10^11 flops; --release --ignored --nocapture"]
 fn transfer_qwen05b() {
-    let t_test = Instant::now();
     const DIR: &str = "/home/socol/oc-tmp/q-tr1/ckpt";
+    let t_test = Instant::now();
     let dir = std::env::var("APEIRON_TRANSFER_DIR").unwrap_or_else(|_| DIR.to_string());
     let ids_raw = fs::read(TOKENS).expect("read token npy");
     let ids = read_npy_i4(&ids_raw).expect("parse token npy");

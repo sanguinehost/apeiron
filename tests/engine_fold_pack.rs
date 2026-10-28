@@ -690,7 +690,7 @@ fn kind_planes(k: usize) -> usize {
 
 /// The seven coded linears' record index range in [`fitted_linears`]'s order.
 fn kind_records(k: usize) -> usize {
-    (0..k).map(|j| kind_planes(j)).sum()
+    (0..k).map(kind_planes).sum()
 }
 
 /// The engine on `(GGUF, fold pack)` equals the engine on the `F16` image of the same linears:
@@ -980,7 +980,7 @@ fn fold_engine_matches_student_gguf() {
     // keeping their own `rows`. Reordering the records alone moves nothing — the loader takes a
     // plane's global rows from the record's own `rows` field (`src/engine/loader/fold.rs:177`) —
     // so the swap that can be seen is the payload of rows `0..128` against rows `128..256`.
-    let (mut swapped, _) = (records.clone(), ());
+    let mut swapped = records.clone();
     let second = 4 + 1;
     {
         let (head, tail) = swapped.split_at_mut(second);

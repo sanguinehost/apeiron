@@ -1001,12 +1001,16 @@ mod timing {
     }
 
     /// Mean and observed `[min..max]` of a set of microsecond samples.
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "`v.len() as f64` is exact: the sample set is a five-round campaign, far below 2^52"
+    )]
     fn stats(v: &[f64]) -> (f64, f64, f64) {
         let mean = v.iter().sum::<f64>() / (v.len() as f64);
         (
             mean,
-            v.iter().cloned().fold(f64::INFINITY, f64::min),
-            v.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+            v.iter().copied().fold(f64::INFINITY, f64::min),
+            v.iter().copied().fold(f64::NEG_INFINITY, f64::max),
         )
     }
 
