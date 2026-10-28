@@ -9,11 +9,6 @@ unextracted = 15
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
-path = "src/crypto/chacha.rs"
-unextracted = 2
-row = "EXTRACT-COVERAGE"
-
-[[debt]]
 path = "src/crypto/keccak.rs"
 unextracted = 2
 row = "EXTRACT-COVERAGE"
@@ -105,7 +100,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/engine/mixer.rs"
-unextracted = 15
+unextracted = 13
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -125,7 +120,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/engine/num/fp.rs"
-unextracted = 33
+unextracted = 30
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -385,7 +380,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/finish/train.rs"
-unextracted = 23
+unextracted = 22
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -460,7 +455,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/learn/fold/run/transfer.rs"
-unextracted = 40
+unextracted = 38
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -630,7 +625,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/map/hashtrinity/mod.rs"
-unextracted = 19
+unextracted = 14
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -813,42 +808,6 @@ class = "ffi"
 reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
 
 [[waiver]]
-path = "src/gpu/nn/bwd/lin.rs"
-fn = "linear_bwd_input_module"
-class = "gpu"
-reason = "SPIR-V builder for the dense-layer input-adjoint GEMM; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
-
-[[waiver]]
-path = "src/gpu/nn/bwd/lin.rs"
-fn = "linear_bwd_input_bytes"
-class = "gpu"
-reason = "Word encoding of linear_bwd_input_module for pipeline creation; SPIR-V bytes, no extracted arithmetic."
-
-[[waiver]]
-path = "src/gpu/nn/bwd/lin.rs"
-fn = "linear_bwd_input_dispatch"
-class = "ffi"
-reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
-
-[[waiver]]
-path = "src/gpu/nn/bwd/lin.rs"
-fn = "linear_bwd_weight_module"
-class = "gpu"
-reason = "SPIR-V builder for the dense-layer weight-adjoint GEMM; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
-
-[[waiver]]
-path = "src/gpu/nn/bwd/lin.rs"
-fn = "linear_bwd_weight_bytes"
-class = "gpu"
-reason = "Word encoding of linear_bwd_weight_module for pipeline creation; SPIR-V bytes, no extracted arithmetic."
-
-[[waiver]]
-path = "src/gpu/nn/bwd/lin.rs"
-fn = "linear_bwd_weight_dispatch"
-class = "ffi"
-reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
-
-[[waiver]]
 path = "src/gpu/nn/attn/bwd.rs"
 fn = "attn_bwd_rowsum_module"
 class = "gpu"
@@ -985,18 +944,6 @@ path = "src/gpu/nn/bwd/opt.rs"
 fn = "adam_update_dispatch_reused"
 class = "ffi"
 reason = "Unsafe Vulkan command-record dispatch through the dlopen'd driver for the reused Adam pipeline; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
-
-[[waiver]]
-path = "src/gpu/nn/fwd/lin.rs"
-fn = "linear_fwd_module"
-class = "gpu"
-reason = "SPIR-V builder for the dense-layer forward GEMM; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
-
-[[waiver]]
-path = "src/gpu/nn/fwd/lin.rs"
-fn = "linear_fwd_bytes"
-class = "gpu"
-reason = "Word encoding of linear_fwd_module for pipeline creation; SPIR-V bytes, no extracted arithmetic."
 
 [[waiver]]
 path = "src/gpu/nn/fwd/lin.rs"

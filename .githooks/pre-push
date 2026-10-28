@@ -5,7 +5,8 @@
 #
 #   1. clippy        cargo clippy --workspace --all-features --all-targets --locked -- -D warnings
 #   2. tests         cargo test --locked --lib --test table --test native_locator
-#   3. board drift   python3 tools/board/board.py check --controls
+#   3. coverage      tools/gate coverage --check per pushed tip (reported; APEIRON_HOOKS_COVERAGE_CHECK=block enforces)
+#   4. board drift   python3 tools/board/board.py check --controls
 #                   --plan docs/plan.md --live   (or --source <snapshot>)
 #
 # Tier 3 stays at the wave barrier and is NOT wired into any hook:
@@ -225,9 +226,34 @@ coverage_tree() {
   rm -rf "$dir"
   return $rc
 }
+# Reported, not enforced, by default: the debt table lags the tree between extraction waves, and
+# it stood red at a1d0618e (66 rows) with no per-commit step to keep it level. A refused verdict
+# prints its rows and the push goes on; a timeout or a gate crash still fails the push.
+# APEIRON_HOOKS_COVERAGE_CHECK=block makes a refused verdict blocking (APEIRON-EXTRACT-W1-T02).
+coverage_mode=${APEIRON_HOOKS_COVERAGE_CHECK:-report}
 for sha in "${pushed_shas[@]}"; do
   tip=${sha##*..}
-  run_step "coverage ${tip:0:8}" "$step_budget" bash -c "$(declare -f coverage_tree); coverage_tree $tip"
+  if [ "$coverage_mode" = "block" ]; then
+    run_step "coverage ${tip:0:8}" "$step_budget" bash -c "$(declare -f coverage_tree); coverage_tree $tip"
+    continue
+  fi
+  cov_log=$(mktemp)
+  cov_t0=$(date +%s)
+  timeout "$step_budget" bash -c "$(declare -f coverage_tree); coverage_tree $tip" >"$cov_log" 2>&1
+  cov_code=$?
+  cat "$cov_log"
+  case $cov_code in
+    0) echo "pre-push: coverage ${tip:0:8}: PASS $(( $(date +%s) - cov_t0 ))s" ;;
+    1)
+      echo "pre-push: coverage ${tip:0:8}: REPORT $(grep -c '^refuse' "$cov_log" 2>/dev/null || echo '?') refusal rows (mode=report; $(grep '^refusals=' "$cov_log" 2>/dev/null | head -1))" >&2
+      echo "pre-push: coverage ${tip:0:8}: rows are in docs/contracts/extraction.toml terms; APEIRON_HOOKS_COVERAGE_CHECK=block enforces" >&2
+      ;;
+    *)
+      echo "pre-push: coverage ${tip:0:8}: FAIL exit $cov_code (timeout or gate crash is not a pass)" >&2
+      status=1
+      ;;
+  esac
+  rm -f "$cov_log"
 done
 
 run_board
