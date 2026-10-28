@@ -494,8 +494,22 @@ impl Engine {
         mode: KernelMode,
         pre: Option<&[QuantAct]>,
     ) -> Result<Vec<Vec<i64>>, StepError> {
+        // A fitted linear's operand is its fold face, not its payload: this stands ahead of every
+        // branch below, so no arm reads the bytes of a linear a pack replaces.
+        let key = super::part_key(layer, part);
+        if self.fold_linear(key).is_some() {
+            let mut out = Vec::with_capacity(xs.len());
+            let mut i = 0usize;
+            while i < xs.len() {
+                let y = self.fold_proj(key, n_out, n_in, &xs[i])?.ok_or_else(|| {
+                    StepError::BadConfig(format!("fold linear {key} left the pack"))
+                })?;
+                out.push(y);
+                i += 1;
+            }
+            return Ok(out);
+        }
         let Some(li) = li else {
-            let key = super::part_key(layer, part);
             let mut out = Vec::with_capacity(xs.len());
             let mut i = 0usize;
             while i < xs.len() {
@@ -975,9 +989,12 @@ impl Engine {
             3 * trace::q8_bytes(n_ff, n_embd),
             3 * trace::macs(n_ff, n_embd, xs.len()),
         );
+        // A fitted `gate`, `up` or `down` is a fold face, so the payload-index branches below
+        // would read the `GGUF` bytes instead of it; the `proj_cols` route serves them.
+        let folded = (4..=6).any(|p| self.fold_linear(super::part_key(layer, p)).is_some());
         // The `Exact` schedule resolves no layer index, so the single-column entry below has no
         // tap; run the tapped exact body per column here and record the gate, up and product.
-        if li.is_none() && mode == KernelMode::Exact && tap.is_some() {
+        if li.is_none() && mode == KernelMode::Exact && tap.is_some() && !folded {
             let mut out: Vec<Vec<i64>> = Vec::with_capacity(xs.len());
             let mut gate_rows: Vec<Vec<i64>> = Vec::with_capacity(xs.len());
             let mut up_rows: Vec<Vec<i64>> = Vec::with_capacity(xs.len());
@@ -996,7 +1013,7 @@ impl Engine {
             }
             return Ok(out);
         }
-        if xs.len() == 1 || li.is_none() {
+        if (xs.len() == 1 || li.is_none()) && !folded {
             let mut out = Vec::with_capacity(xs.len());
             for x in xs {
                 out.push(match li {

@@ -17,6 +17,7 @@ use core::ops::Range;
 use std::sync::Arc;
 
 use crate::format::gguf::{host_read_all, host_read_at, parse_header, GVal, GgufHeader};
+use crate::format::packing::FoldPlane;
 use crate::format::quant;
 
 pub use super::error::EngineError;
@@ -28,8 +29,11 @@ use crate::engine::num::f32_convert::dequant_f32_row;
 use crate::engine::num::fp::F64;
 use crate::engine::num::value::round_shift_32;
 
+#[path = "loader/fold.rs"]
+mod fold;
 #[path = "loader/hadamard.rs"]
 mod hadamard;
+use fold::{build_fold_table, FoldLinear, FoldTable, FOLD_KINDS};
 pub use hadamard::{hadamard_meta, HadamardMeta};
 
 /// Bits of the default `RoPE` base (`10_000.0_f64`) when `*.rope.freq_base` is absent. A bit pattern,
@@ -407,6 +411,8 @@ pub struct Engine {
     /// The `F16` limb tile of each projection tensor, keyed by directory index and packed on the
     /// first multi-column `Q8Act` projection of that tensor; owned by this engine, dropped with it.
     f16_tiles: std::sync::Mutex<std::collections::HashMap<usize, Arc<super::kern::limb::F16Tile>>>,
+    /// The fitted linears this engine executes from a fold pack; empty for a GGUF-only load.
+    fold: FoldTable,
 }
 
 /// A checked byte extent of the resident file: the payload `resident()[off..off + len]`, resolved
@@ -985,11 +991,81 @@ impl Engine {
             pq2_luts: Vec::new(),
             bitplane: std::sync::OnceLock::new(),
             f16_tiles: std::sync::Mutex::new(std::collections::HashMap::new()),
+            fold: FoldTable::default(),
         };
         let vectors = engine.load_decode_vectors()?;
         engine.vectors = vectors;
         engine.pq2_luts = engine.build_pq2_luts();
         Ok(engine)
+    }
+
+    /// Build an engine from an in-memory GGUF image whose fitted linears execute from `fold`
+    /// (`APFOLDP1`, [`crate::learn::fold::run::pack::fold_pack_read`]).
+    ///
+    /// The GGUF stays the container for embeddings, norms, biases and every tensor the pack does not
+    /// carry; each fitted linear's seven-kind record becomes a [`FoldLinear`] over
+    /// [`FoldFace`](super::kern::fold::FoldFace)s, so its operand is never expanded to dense words and
+    /// its payload is never read. An empty `fold` is exactly [`Engine::from_bytes`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(file bytes)` for the GGUF load, then `O(planes + 7·n_layer·directory entries)` for the map.
+    ///
+    /// # Errors
+    ///
+    /// Every refusal of [`Engine::from_bytes`]; [`EngineError::ConfigMismatch`] when the pack's plane
+    /// count, `o` or `n` disagrees with the config's linears, or a record is not a codebook face.
+    pub fn from_bytes_with_fold(
+        label: &str,
+        data: Vec<u8>,
+        fold: &[FoldPlane],
+    ) -> Result<Engine, EngineError> {
+        let mut engine = Engine::from_bytes(label, data)?;
+        if fold.is_empty() {
+            return Ok(engine);
+        }
+        engine.fold = build_fold_table(&engine.config, engine.table(), fold)?;
+        Ok(engine)
+    }
+
+    /// The fold linear that replaces `key`, or `None` when the tensor is not fitted.
+    /// `O(1)`.
+    #[must_use]
+    pub(crate) fn fold_linear(&self, key: TensorKey) -> Option<&FoldLinear> {
+        let kind = usize::from(key.part);
+        if kind >= FOLD_KINDS {
+            return None;
+        }
+        let at = usize::try_from(key.layer).ok()?.checked_mul(FOLD_KINDS)? + kind;
+        self.fold.linears.get(at)?.as_ref()
+    }
+
+    /// The engine's resident weight bytes under the fold budget: every directory tensor the pack
+    /// replaces is counted as its face's stored bytes, every other tensor as its stored bytes.
+    /// `O(entries · log fitted)`.
+    ///
+    /// # Trust boundary
+    ///
+    /// The loader still holds the whole GGUF buffer ([`Engine::from_bytes`]), so a fitted linear's
+    /// GGUF payload is resident beside its face until the image that omits those payloads lands; this
+    /// value is the budget accounting and not the process's resident set.
+    #[must_use]
+    pub fn resident_weight_bytes(&self) -> u64 {
+        let entries = self.table.entries();
+        let mut total = 0_u64;
+        for (i, t) in entries.iter().enumerate() {
+            if self.fold.entries.binary_search(&i).is_err() {
+                total = total.saturating_add(t.n_bytes.unwrap_or(0));
+            }
+        }
+        total.saturating_add(self.fold.face_bytes)
+    }
+
+    /// The fitted linears' stored bytes and the weights they carry (`Σ o·n`), the two terms of the
+    /// face's bits per weight. `O(1)`.
+    #[must_use]
+    pub fn fold_storage(&self) -> (u64, u64) {
+        (self.fold.face_bytes, self.fold.weights)
     }
 
     /// The decode `F32` gain/bias vectors resolved once at load.
