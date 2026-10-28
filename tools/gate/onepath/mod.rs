@@ -490,6 +490,11 @@ fn ratchet(root: &Path, contract_text: &str, index: &Outcome) -> Result<Vec<Stri
     for f in &index.found {
         let Some(now) = f.count else { continue };
         let key = (f.rule.to_string(), f.items.clone());
+        // A declared forward body is the engine's one path: a new caller of it is the goal, not debt
+        // (APEIRON-PORT-ROOTING-W1-T01).
+        if f.rule == "forward" && f.items.iter().all(|i| index_contract.forward.contains(i)) {
+            continue;
+        }
         if let Some(&before) = head_counts.get(&key) {
             if now > before {
                 out.push(format!(

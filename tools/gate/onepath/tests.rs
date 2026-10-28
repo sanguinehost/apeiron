@@ -1,5 +1,6 @@
 //! Fixture controls: each rule refuses a seeded defect and accepts its rooted form.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -882,7 +883,10 @@ fn ratchet_accepts_shrunk_orphan_debt_row() {
     let now_files = [
         ("src/lib.rs", "pub mod a;\n".to_string()),
         ("src/a.rs", "pub fn o1() {}\npub fn o2() {}\n".to_string()),
-        ("tests/t.rs", "#[test]\nfn t() {\n    apeiron::a::o2();\n}\n".to_string()),
+        (
+            "tests/t.rs",
+            "#[test]\nfn t() {\n    apeiron::a::o2();\n}\n".to_string(),
+        ),
     ];
     let now_contract = format!(
         "{EMPTY}\n[[debt]]\nrule = \"orphan\"\nitems = [\"src/a.rs:o1\"]\nticket = \"T-OPEN\"\n"
@@ -890,6 +894,180 @@ fn ratchet_accepts_shrunk_orphan_debt_row() {
     write_contract(&root, &now_contract);
     let r = staged(&root, &refs(&now_files));
     std::fs::remove_dir_all(root.parent().unwrap()).unwrap();
-    assert!(r.is_empty(), "expected clean ratchet pass on shrunk orphan debt row, got {r:?}");
+    assert!(
+        r.is_empty(),
+        "expected clean ratchet pass on shrunk orphan debt row, got {r:?}"
+    );
 }
 
+// A generic dispatch (`k.run()` on a type-parameter receiver) resolves at the call site that fixes
+// the parameter, not to every crate method of the name.
+
+/// The outgoing edges of every fn of a source set, by finding key: precise and loose key sets.
+fn graph(files: &[(&str, &str)]) -> BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)> {
+    let mut src = super::load::Sources::new();
+    for (path, text) in files {
+        src.insert((*path).to_string(), (*text).to_string());
+    }
+    let tree = super::load::load(&src);
+    let idx = super::graph::index(&tree);
+    let edges = super::graph::edges(&tree, &idx);
+    let keys: Vec<String> = tree.fns.iter().map(|f| f.key()).collect();
+    tree.fns
+        .iter()
+        .zip(edges)
+        .map(|(f, e)| {
+            let named = |set: &BTreeSet<usize>| -> BTreeSet<String> {
+                set.iter().map(|&i| keys[i].clone()).collect()
+            };
+            (f.key(), (named(&e.precise), named(&e.loose)))
+        })
+        .collect()
+}
+
+/// Every key reachable from `from` over the loose edges (including `from`).
+fn reaches(
+    g: &BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)>,
+    from: &str,
+) -> BTreeSet<String> {
+    let mut seen = BTreeSet::new();
+    let mut stack = vec![from.to_string()];
+    while let Some(k) = stack.pop() {
+        if !seen.insert(k.clone()) {
+            continue;
+        }
+        if let Some((_, loose)) = g.get(&k) {
+            stack.extend(loose.iter().cloned());
+        }
+    }
+    seen
+}
+
+const JOBS: &str = "pub trait Job {\n    fn run(&self);\n}\n\npub struct JobA {\n    pub n: u8,\n}\n\npub struct JobB {\n    pub n: u8,\n}\n\nimpl Job for JobA {\n    fn run(&self) {}\n}\n\nimpl Job for JobB {\n    fn run(&self) {}\n}\n\npub fn run_all<K: Job>(k: &K) {\n    k.run()\n}\n";
+
+#[test]
+fn generic_dispatch_resolves_at_the_call_site() {
+    let src = format!(
+        "{JOBS}\npub fn a() {{\n    run_all(&JobA {{ n: 1 }})\n}}\n\npub fn b() {{\n    run_all(&JobB {{ n: 2 }})\n}}\n"
+    );
+    let g = graph(&[("src/lib.rs", &src)]);
+    let (_, a) = &g["src/lib.rs:a"];
+    assert!(a.contains("src/lib.rs:JobA::run"), "{a:?}");
+    assert!(!a.contains("src/lib.rs:JobB::run"), "{a:?}");
+    let (_, b) = &g["src/lib.rs:b"];
+    assert!(b.contains("src/lib.rs:JobB::run"), "{b:?}");
+    assert!(!b.contains("src/lib.rs:JobA::run"), "{b:?}");
+    // The body defers: nothing in `run_all` reaches an impl by name.
+    let (_, inner) = &g["src/lib.rs:run_all"];
+    assert!(!inner.contains("src/lib.rs:JobA::run"), "{inner:?}");
+    assert!(!inner.contains("src/lib.rs:JobB::run"), "{inner:?}");
+    // The callee itself stays an edge, so it is not orphaned by the narrowing.
+    assert!(a.contains("src/lib.rs:run_all"), "{a:?}");
+}
+
+#[test]
+fn unknown_argument_type_reaches_every_impl() {
+    let src = format!("{JOBS}\npub fn c() {{\n    let j = make();\n    run_all(&j)\n}}\n");
+    let g = graph(&[("src/lib.rs", &src)]);
+    let (_, c) = &g["src/lib.rs:c"];
+    assert!(c.contains("src/lib.rs:JobA::run"), "{c:?}");
+    assert!(c.contains("src/lib.rs:JobB::run"), "{c:?}");
+}
+
+#[test]
+fn generic_dispatch_propagates_through_a_generic_caller() {
+    let src = format!(
+        "{JOBS}\npub fn outer<Q: Job>(q: &Q) {{\n    run_all(q)\n}}\n\npub fn d() {{\n    outer(&JobA {{ n: 3 }})\n}}\n"
+    );
+    let g = graph(&[("src/lib.rs", &src)]);
+    let r = reaches(&g, "src/lib.rs:d");
+    assert!(r.contains("src/lib.rs:JobA::run"), "{r:?}");
+    assert!(!r.contains("src/lib.rs:JobB::run"), "{r:?}");
+}
+
+#[test]
+fn generic_fn_taken_as_a_value_reaches_every_impl() {
+    let src = format!(
+        "{JOBS}\npub fn e() {{\n    let f: fn(&JobA) = run_all::<JobA>;\n    f(&JobA {{ n: 4 }})\n}}\n"
+    );
+    let g = graph(&[("src/lib.rs", &src)]);
+    let r = reaches(&g, "src/lib.rs:e");
+    assert!(r.contains("src/lib.rs:JobA::run"), "{r:?}");
+    assert!(r.contains("src/lib.rs:JobB::run"), "{r:?}");
+}
+
+// A dispatch on a type parameter of the enclosing `impl` (`impl<K: Job> Ctx<K> { fn go }`) is fixed
+// by the struct literal the caller built the context with.
+
+const CTX: &str = "pub trait Job {\n    fn run(&self);\n}\n\npub struct JobA {\n    pub n: u8,\n}\n\npub struct JobB {\n    pub n: u8,\n}\n\nimpl Job for JobA {\n    fn run(&self) {}\n}\n\nimpl Job for JobB {\n    fn run(&self) {}\n}\n\npub struct Ctx<'a, K> {\n    pub k: &'a K,\n}\n\nimpl<K: Job> Ctx<'_, K> {\n    pub fn go(&self) {\n        self.k.run()\n    }\n}\n";
+
+#[test]
+fn impl_generic_dispatch_resolves_from_the_literal() {
+    let src = format!(
+        "{CTX}\npub fn a() {{\n    let c = Ctx {{ k: &JobA {{ n: 1 }} }};\n    c.go()\n}}\n"
+    );
+    let g = graph(&[("src/lib.rs", &src)]);
+    let r = reaches(&g, "src/lib.rs:a");
+    assert!(r.contains("src/lib.rs:JobA::run"), "{r:?}");
+    assert!(!r.contains("src/lib.rs:JobB::run"), "{r:?}");
+    // The impl body itself settles nothing by name: it defers `K`.
+    let (_, go) = &g["src/lib.rs:Ctx::go"];
+    assert!(!go.contains("src/lib.rs:JobA::run"), "{go:?}");
+    assert!(!go.contains("src/lib.rs:JobB::run"), "{go:?}");
+}
+
+#[test]
+fn impl_generic_dispatch_on_an_unknown_field_reaches_every_impl() {
+    let src = format!(
+        "{CTX}\npub fn b() {{\n    let j = make();\n    let c = Ctx {{ k: &j }};\n    c.go()\n}}\n"
+    );
+    let g = graph(&[("src/lib.rs", &src)]);
+    let r = reaches(&g, "src/lib.rs:b");
+    assert!(r.contains("src/lib.rs:JobA::run"), "{r:?}");
+    assert!(r.contains("src/lib.rs:JobB::run"), "{r:?}");
+}
+
+// A receiver whose type follows from a declared return type resolves to that type's own method.
+
+const FACES: &str = "pub struct Face {\n    pub w: u8,\n}\n\nimpl Face {\n    pub fn n(&self) -> usize {\n        1\n    }\n}\n\npub struct Other {\n    pub w: u8,\n}\n\nimpl Other {\n    pub fn n(&self) -> usize {\n        2\n    }\n}\n\npub fn make_face() -> Face {\n    Face { w: 0 }\n}\n\npub fn make_opt() -> Option<Face> {\n    None\n}\n";
+
+#[test]
+fn a_local_bound_by_a_declared_return_type_resolves_its_receiver() {
+    let src = format!("{FACES}\npub fn c() {{\n    let f = make_face();\n    let _ = f.n();\n}}\n");
+    let g = graph(&[("src/lib.rs", &src)]);
+    let (_, c) = &g["src/lib.rs:c"];
+    assert!(c.contains("src/lib.rs:Face::n"), "{c:?}");
+    assert!(!c.contains("src/lib.rs:Other::n"), "{c:?}");
+}
+
+#[test]
+fn an_unknown_make_reaches_every_method_of_the_name() {
+    let src = format!("{FACES}\npub fn d() {{\n    let f = make();\n    let _ = f.n();\n}}\n");
+    let g = graph(&[("src/lib.rs", &src)]);
+    let r = reaches(&g, "src/lib.rs:d");
+    assert!(r.contains("src/lib.rs:Face::n"), "{r:?}");
+    assert!(r.contains("src/lib.rs:Other::n"), "{r:?}");
+}
+
+#[test]
+fn a_variant_pattern_payload_takes_the_scrutinee_argument() {
+    let src = format!(
+        "{FACES}\npub fn e() {{\n    let Some(f) = make_opt() else {{\n        return;\n    }};\n    let _ = f.n();\n}}\n"
+    );
+    let g = graph(&[("src/lib.rs", &src)]);
+    let r = reaches(&g, "src/lib.rs:e");
+    assert!(r.contains("src/lib.rs:Face::n"), "{r:?}");
+    assert!(!r.contains("src/lib.rs:Other::n"), "{r:?}");
+}
+
+#[test]
+fn ratchet_accepts_a_new_caller_of_a_declared_forward_body() {
+    let mut head = fwd_files("pub fn second(_x: &[i32], _w: &[i32]) {}\n");
+    head[3].1 = "#[test]\nfn t() {\n    apeiron::forward(&[1], &[2]);\n}\n".to_string();
+    let root = git_repo(&refs(&head), DECLARED);
+    let mut now = head.clone();
+    now[3].1 = "#[test]\nfn t() {\n    apeiron::forward(&[1], &[2]);\n}\n#[test]\nfn u() {\n    apeiron::forward(&[1], &[2]);\n}\n".to_string();
+    let r = staged(&root, &refs(&now));
+    std::fs::remove_dir_all(root.parent().unwrap()).unwrap();
+    assert!(!has(&r, "source consumers grew"), "{r:?}");
+}
