@@ -230,7 +230,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/gpu/decode.rs"
-unextracted = 27
+unextracted = 19
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -365,7 +365,7 @@ row = "EXTRACT-COVERAGE"
 
 [[debt]]
 path = "src/gpu/vulkan.rs"
-unextracted = 35
+unextracted = 3
 row = "EXTRACT-COVERAGE"
 
 [[debt]]
@@ -728,6 +728,53 @@ path = "src/scalar.rs"
 unextracted = 30
 row = "EXTRACT-COVERAGE"
 
+# Train stack and bwd/opt.rs: one-path debt (APEIRON-DEL-GPU-ONE-W1-T01); these rows leave with the
+# deletion. Coverage board row APEIRON-EXTRACT-W1-T02.
+[[debt]]
+path = "src/gpu/nn/bwd/opt.rs"
+unextracted = 3
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/train/attn_bwd.rs"
+unextracted = 3
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/train/block.rs"
+unextracted = 11
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/train/chain.rs"
+unextracted = 6
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/train/front.rs"
+unextracted = 11
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/train/head.rs"
+unextracted = 4
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/train/kd.rs"
+unextracted = 23
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/train/mixer.rs"
+unextracted = 5
+row = "EXTRACT-COVERAGE"
+
+[[debt]]
+path = "src/gpu/nn/train/slot.rs"
+unextracted = 1
+row = "EXTRACT-COVERAGE"
+
 [[waiver]]
 path = "src/gpu/nn/norm_bwd.rs"
 fn = "round_q32"
@@ -1064,3 +1111,1299 @@ path = "src/gpu/nn/train/mod.rs"
 fn = "*"
 class = "ffi"
 reason = "Host composition of SPIR-V dispatches: the Trainer records the waived ffi/gpu dispatch surface into Vulkan command buffers and every arithmetic operation lives in the SPIR-V kernels; the composition is outside the extraction domain, whose operating contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "dev_zeroed"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "dev_maybe_zeroed"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "dev"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "host"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "up"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "up_f32"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "up_u32"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "make_gemv"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "make_step"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "make_step_named"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "step_barrier"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "prof_arm"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "prof_take"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "rec_step"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/decode.rs"
+fn = "rec_gemv"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb.rs"
+fn = "bind"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb.rs"
+fn = "record"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/admm.rs"
+fn = "dev_buf"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/admm.rs"
+fn = "full"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/admm.rs"
+fn = "to_host"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/admm.rs"
+fn = "copy"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/admm.rs"
+fn = "run"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/admm.rs"
+fn = "record"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/admm.rs"
+fn = "with"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/admm.rs"
+fn = "flags"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/admm.rs"
+fn = "build"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/finish.rs"
+fn = "new"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/finish.rs"
+fn = "record"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/inverse.rs"
+fn = "plane"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/inverse.rs"
+fn = "product"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/inverse.rs"
+fn = "map"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/inverse.rs"
+fn = "cut_seg"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/inverse.rs"
+fn = "open"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/inverse.rs"
+fn = "child"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/inverse.rs"
+fn = "node"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/inverse.rs"
+fn = "build"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/place.rs"
+fn = "new"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/place.rs"
+fn = "record"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/plane.rs"
+fn = "new"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/plane.rs"
+fn = "record"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/rank1.rs"
+fn = "flag"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/rank1.rs"
+fn = "step"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/rank1.rs"
+fn = "build"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/rank1.rs"
+fn = "unit"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/rank1.rs"
+fn = "mul"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/rank1.rs"
+fn = "record"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/rank1.rs"
+fn = "commit"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/limb/rank1.rs"
+fn = "rank1_submit"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/attn/kd.rs"
+fn = "attn_coopmat_kd_module"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/attn/kd.rs"
+fn = "attn_coopmat_kd_bytes"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/attn/kd.rs"
+fn = "attn_kd_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/attn/kd.rs"
+fn = "attn_kd_bwd_module"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/attn/kd.rs"
+fn = "attn_kd_bwd_bytes"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/attn/kd.rs"
+fn = "attn_kd_bwd_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/bwd/opt.rs"
+fn = "adam_update_module_h"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/bwd/opt.rs"
+fn = "adam_update_module_reused_h"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/bwd/opt.rs"
+fn = "adam_update_bytes_h"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/bwd/opt.rs"
+fn = "adam_update_bytes_reused_h"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/bwd/opt.rs"
+fn = "adam_update_dispatch_h"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/bwd/opt.rs"
+fn = "adam_update_dispatch_reused_h"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "coopmat_gemm_module"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "coopmat_gemm_module_from"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "coopmat_gemm_chart_module"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "coopmat_gemm_chart_bytes"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "coopmat_gemm_swiglu_module"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "coopmat_gemm_swiglu_bytes"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "coopmat_gemm_split_module"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "coopmat_gemm_split_bytes"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "splitk_reduce_module"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "splitk_reduce_bytes"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "to_bytes"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "coopmat_gemm_bytes"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "coopmat_gemm_bf16_module"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "coopmat_gemm_bf16_bytes"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "lin_bf16_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "lin_bf16_step"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "linear_bwd_input_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/coopmat_gemm.rs"
+fn = "linear_bwd_weight_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/fwd/head.rs"
+fn = "ce_row_module"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/fwd/head.rs"
+fn = "ce_row_bytes"
+class = "gpu"
+reason = "SPIR-V module builder or its word encoding; Vulkan/SPIR-V is outside the extraction domain, whose handoff contract is Gpu.Handoff."
+
+[[waiver]]
+path = "src/gpu/nn/fwd/head.rs"
+fn = "ce_row_dispatch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/attn_bwd.rs"
+fn = "tape"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/attn_bwd.rs"
+fn = "new"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/attn_bwd.rs"
+fn = "submit"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/attn_bwd.rs"
+fn = "run"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "upload"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "upload_at"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "stream_buffer"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "new"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "record_copies"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "stream_upload"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "stream_download"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "download"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "download_at"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "host_buffer"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "record"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "put"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "get"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "load"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "record_swap"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "load_factor"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "load_dense"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "set_stage"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "rerecord_eval"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "rerecord_train"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "load_importance"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "set_loss_scale"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "set_hyper"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "build_adam"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "batch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "set_cols"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "den"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "run"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "set_external_cotangent"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "output"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "factors"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "weight"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/block.rs"
+fn = "scale_grads"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/chain.rs"
+fn = "copy_words"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/chain.rs"
+fn = "new"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/chain.rs"
+fn = "load"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/chain.rs"
+fn = "record_swap"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/chain.rs"
+fn = "forward"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/chain.rs"
+fn = "backward"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/chain.rs"
+fn = "rerecord_fwd"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/chain.rs"
+fn = "rerecord_bwd"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "new"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "record"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "put"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "get"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "load"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "record_swap"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "load_factor"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "load_dense"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "set_stage"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "rerecord_fwd"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "rerecord_bwd"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "set_hyper"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "batch"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "run"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "forward"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "backward"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "train"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "weight"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "backward_cols"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "output"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "factors"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/front.rs"
+fn = "scale_grads"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/head.rs"
+fn = "new"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/head.rs"
+fn = "record"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/head.rs"
+fn = "rerecord"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/head.rs"
+fn = "run"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/head.rs"
+fn = "loss"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "new"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "copy_at"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "refresh"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "use_layer"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "begin"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "forward"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "put_residual"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "head"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "backward"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "profile_layer"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "residual"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "head_dh"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/kd.rs"
+fn = "set_residual"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/mixer.rs"
+fn = "shader"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/mixer.rs"
+fn = "new"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/mixer.rs"
+fn = "load"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/mixer.rs"
+fn = "run"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/mixer.rs"
+fn = "run_dev"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/mixer.rs"
+fn = "submit"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/slot.rs"
+fn = "new"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/slot.rs"
+fn = "map"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/slot.rs"
+fn = "materialise"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/slot.rs"
+fn = "factor_bwd"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/slot.rs"
+fn = "adam_factor"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/slot.rs"
+fn = "dense_moments"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/slot.rs"
+fn = "adam_dense"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/slot.rs"
+fn = "upload_factor"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/slot.rs"
+fn = "record_factor_swap"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/train/slot.rs"
+fn = "upload_dense"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "load"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "energy_mj"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "power_mw"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "load_fn"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "isolated_cache_blob"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "cache_data"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "disasm"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "stats"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "buffer"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "buffer_from_host_ptr"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "buffer_from_anon_ptr"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "buffer_from_mapping"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "import_anon_probe"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "device_address"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "map"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "ssbo_set"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "pipeline"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "pipeline_in"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "reusable_command_buffer"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "reset_cb"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "command_buffer"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "begin"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "barrier"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "barrier2"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "submit_wait"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "timestamp_pool"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "cmd_reset_timestamps"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "reset_timestamps_host"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "cmd_write_timestamp"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "read_timestamps"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "read_timestamps_prefix"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/vulkan.rs"
+fn = "submit_timeout"
+class = "ffi"
+reason = "Unsafe Vulkan command-record or dispatch through the dlopen'd driver; the operating contract is the Gpu.Handoff VulkanContract, and the FFI layer is not extracted."
+
+[[waiver]]
+path = "src/gpu/nn/attn/kd/tests.rs"
+fn = "*"
+class = "test-support"
+reason = "Test-only module (cfg(test)); it carries oracles and harnesses for the tested body, not a shipped computation."
+
+[[waiver]]
+path = "src/learn/nanoquant/tests.rs"
+fn = "*"
+class = "test-support"
+reason = "Test-only module (cfg(test)); it carries oracles and harnesses for the tested body, not a shipped computation."
