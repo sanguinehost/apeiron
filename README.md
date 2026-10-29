@@ -49,7 +49,7 @@ under `mdbook test book -L target/debug/deps`.
 
 ## Inference engine against llama.cpp
 
-Current figures, re-measured 2026-10-29 with paired, interleaved rounds. `pp512` is 512 prompt
+Current figures, re-measured 2026-10-29 (CPU) and 2026-10-30 (GPU) with paired, interleaved rounds. `pp512` is 512 prompt
 tokens per second, `tg128` is 128 generated tokens per second. Ratios are apeiron over llama.cpp,
 the median of 5 paired rounds with the minimum to maximum round in brackets. Every number below is
 in a saved receipt registered in `docs/evidence/ledger.jsonl`; `tools/bench-save.sh verify`
@@ -57,8 +57,8 @@ fails when one is not.
 
 | metric | model / device | apeiron | llama.cpp | ratio | receipt |
 |---|---|---:|---:|---:|---|
-| pp512 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 108,176 tok/s | 62,808 tok/s (CUDA) | **1.73×** (1.71–1.75) | [`1793261269-20261029-qwen05b-q4km-gpu`](docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.md) |
-| tg128 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 1,011.7 tok/s | 882.7 tok/s (CUDA) | **1.15×** (1.11–1.15) | [`1793261269-20261029-qwen05b-q4km-gpu`](docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.md) |
+| pp512 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 111,440 tok/s | 61,823 tok/s (CUDA) | **1.73×** (1.71–1.75) | [`1793316889-20261030-qwen05b-q4km-gpu`](docs/evidence/receipts/bench/1793316889-20261030-qwen05b-q4km-gpu.md) |
+| tg128 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 1,026.7 tok/s | 879.0 tok/s (CUDA) | **1.15×** (1.11–1.15) | [`1793316889-20261030-qwen05b-q4km-gpu`](docs/evidence/receipts/bench/1793316889-20261030-qwen05b-q4km-gpu.md) |
 | pp512 | Qwen3.5-0.8B Q8_0 / i9-14900KF | 957.36 tok/s | 520.07 tok/s (CPU) | **1.82×** (1.66–1.97) | [`1793260444-20261029-qwen08b-q8-cpu`](bench/cpu/1793260444-20261029-qwen08b-q8-cpu.md) |
 | tg128 | Qwen3.5-0.8B Q8_0 / i9-14900KF | 91.76 tok/s | 50.59 tok/s (CPU) | **1.81×** (1.77–1.85) | [`1793260444-20261029-qwen08b-q8-cpu`](bench/cpu/1793260444-20261029-qwen08b-q8-cpu.md) |
 | pp512 | Qwen3.5-0.8B Q4_K_M / i9-14900KF | 676.20 tok/s | 694.28 tok/s (CPU) | 0.97× (0.95–0.98) | [`1793260567-20261029-qwen08b-q4km-cpu`](bench/cpu/1793260567-20261029-qwen08b-q4km-cpu.md) |

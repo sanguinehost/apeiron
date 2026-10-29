@@ -86,8 +86,8 @@
    "docs/evidence/perf-predictions.md"
   ],
   "key": "stat.apeiron_pp.median",
-  "receipt": "docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.json",
-  "text": "108,176"
+  "receipt": "docs/evidence/receipts/bench/1793316889-20261030-qwen05b-q4km-gpu.json",
+  "text": "111,440"
  },
  "gpu-pp512-llama": {
   "digits": 0,
@@ -96,8 +96,8 @@
    "docs/evidence/perf-predictions.md"
   ],
   "key": "stat.llama_pp.median",
-  "receipt": "docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.json",
-  "text": "62,808"
+  "receipt": "docs/evidence/receipts/bench/1793316889-20261030-qwen05b-q4km-gpu.json",
+  "text": "61,823"
  },
  "gpu-tg128-apeiron": {
   "digits": 1,
@@ -106,8 +106,8 @@
    "docs/evidence/perf-predictions.md"
   ],
   "key": "stat.apeiron_tg.median",
-  "receipt": "docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.json",
-  "text": "1,011.7"
+  "receipt": "docs/evidence/receipts/bench/1793316889-20261030-qwen05b-q4km-gpu.json",
+  "text": "1,026.7"
  },
  "gpu-tg128-llama": {
   "digits": 1,
@@ -116,7 +116,7 @@
    "docs/evidence/perf-predictions.md"
   ],
   "key": "stat.llama_tg.median",
-  "receipt": "docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.json",
-  "text": "882.7"
+  "receipt": "docs/evidence/receipts/bench/1793316889-20261030-qwen05b-q4km-gpu.json",
+  "text": "879.0"
  }
 }

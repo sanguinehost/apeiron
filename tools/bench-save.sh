@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The one path a measured figure takes from a run to a document.
 #   bench-save.sh gpu <model.gguf> <label> [rounds]   interleaved apeiron/llama-bench GPU rounds; writes and registers a receipt
-#   bench-save.sh register <file>... [-- summary]     index receipts another tool wrote (engine_profile writes bench/cpu/*)
+#   bench-save.sh register <file>... [-- summary]     index receipts another tool wrote (engine_profile writes bench/cpu/*);
+#                                                     re-run on figures.json after editing it
 #   bench-save.sh verify                              fail on an unregistered, edited or unmirrored receipt, or a figure that
 #                                                     differs from its receipt or is missing from the document quoting it
 # Every writer indexes in docs/evidence/ledger.jsonl (sha256) and copies to $APEIRON_RECEIPT_MIRROR
@@ -26,19 +27,34 @@ register() {
       jq -cS -n --arg id "bench-$(basename "${r%.*}")-${r##*.}" --arg p "$r" --arg s "$(sha "$p")" --arg m "$summary" \
         --argjson b "$(stat -c %s "$p")" '{bytes:$b,id:$id,kind:"receipt",path:$p,sha256:$s,summary:$m}' >> "$LEDGER"
       echo "registered $r"
+    elif [ "$r" = "$FIGURES" ] && [ "$(jq -r --arg p "$r" 'select(.path==$p)|.sha256' "$LEDGER")" != "$(sha "$p")" ]; then
+      # figures.json is the one registered file that changes in place: refresh its row, never append a second id
+      local row; row=$(jq -cS --arg p "$r" --arg s "$(sha "$p")" --argjson b "$(stat -c %s "$p")" \
+        'select(.path==$p)|.sha256=$s|.bytes=$b' "$LEDGER")
+      # replace that one line; the other rows keep their bytes
+      awk -v p="\"path\": \"$r\"" -v q="\"path\":\"$r\"" -v row="$row" 'index($0,p)||index($0,q){print row;next}{print}' "$LEDGER" > "$LEDGER.tmp" && mv "$LEDGER.tmp" "$LEDGER"
+      echo "refreshed $r"
     fi
   done
 }
 
-quiet() { # load1 < 2 and GPU util < 10% before every round
-  for _ in $(seq 12); do
-    local load util
-    load=$(cut -d' ' -f1 /proc/loadavg)
+busy_cores() { # busy cores over a 3 s window, from /proc/stat (instantaneous; load1 lags by a minute)
+  local a b
+  a=$(head -1 /proc/stat); sleep 3; b=$(head -1 /proc/stat)
+  awk -v a="$a" -v b="$b" -v n="$(nproc)" 'BEGIN{
+    split(a,x," "); split(b,y," "); t=0; for(i=2;i<=9;i++) t+=y[i]-x[i]
+    idle=(y[5]-x[5])+(y[6]-x[6]); printf "%.2f", (t>0)? (t-idle)/t*n : 0 }'
+}
+
+quiet() { # busy cores < 2 and GPU util < 10%, re-checked every 5 s for up to 10 min before every round
+  local cores util
+  for _ in $(seq 120); do
+    cores=$(busy_cores)
     util=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits | head -1)
-    if awk -v l="$load" 'BEGIN{exit !(l<2)}' && [ "$util" -lt 10 ]; then return 0; fi
-    sleep 5
+    if awk -v c="$cores" 'BEGIN{exit !(c<2)}' && [ "$util" -lt 10 ]; then return 0; fi
+    sleep 2
   done
-  echo "host never went quiet (load1 $load, gpu util $util%)" >&2; exit 1
+  echo "host never went quiet (busy cores $cores, gpu util $util%)" >&2; exit 1
 }
 
 gpu() {
@@ -68,7 +84,7 @@ gpu() {
     def st(k): {median: med(k), min: (map(.[k])|min), max: (map(.[k])|max)};
     {schema:"apeiron.bench-gpu.v2",label:$label,epoch:$epoch,command:$cmd,model:$model,model_sha256:$msha,carrier:"q4",pp:512,tg:128,
      git:$git,dirty_paths:$dirty,diff_sha256:$diff,apeiron_binary_sha256:$abin,llama_binary_sha256:$lbin,llama_commit:$lc,
-     gpu:$gpu,cpu:$cpu,rustc:$rustc,gate:"load1<2 and gpu util<10% before every round",
+     gpu:$gpu,cpu:$cpu,rustc:$rustc,gate:"busy cores<2 (3 s /proc/stat window) and gpu util<10% before every round",
      stat:{apeiron_pp:st("apeiron_pp"),llama_pp:st("llama_pp"),ratio_pp:st("ratio_pp"),apeiron_tg:st("apeiron_tg"),llama_tg:st("llama_tg"),ratio_tg:st("ratio_tg")},
      rounds:.}' > "$out"
   jq -r '"| metric (tok/s) | median | min | max |\n|---|---:|---:|---:|", (.stat|to_entries[]|"| \(.key) | \(.value.median) | \(.value.min) | \(.value.max) |")' "$out" > "${out%.json}.md.tmp"
@@ -88,6 +104,8 @@ verify() {
     if [ ! -f "$MIRROR/$p" ] || [ "$(sha "$MIRROR/$p")" != "$(sha "$p")" ]; then echo "not mirrored: $p"; bad=1; fi
   done < <(find bench docs/evidence/receipts/bench -type f | sort)
   if [ -f "$FIGURES" ]; then
+    [ "$(jq -r --arg p "$FIGURES" 'select(.path==$p)|.sha256' "$LEDGER")" = "$(sha "$FIGURES")" ] || { echo "figures.json differs from its ledger row: run tools/bench-save.sh register $FIGURES"; bad=1; }
+    [ -f "$MIRROR/$FIGURES" ] && [ "$(sha "$MIRROR/$FIGURES")" = "$(sha "$FIGURES")" ] || { echo "not mirrored: $FIGURES"; bad=1; }
     while IFS=$'\t' read -r name rec key digits text docs; do
       [ -f "$rec" ] || { echo "figure $name: receipt $rec missing"; bad=1; continue; }
       local v

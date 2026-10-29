@@ -7,14 +7,14 @@ below are the prediction/measurement history, not a second current status.
 
 | metric | model / device | Apeiron | llama.cpp | ratio | receipt |
 |---|---|---:|---:|---:|---|
-| pp512 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 108,176 tok/s | 62,808 tok/s (CUDA) | 1.73x (1.71–1.75) | `docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.md` |
-| tg128 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 1,011.7 tok/s | 882.7 tok/s (CUDA) | 1.15x (1.11–1.15) | `docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.md` |
+| pp512 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 111,440 tok/s | 61,823 tok/s (CUDA) | 1.78x (1.73–1.86) | `docs/evidence/receipts/bench/1793316889-20261030-qwen05b-q4km-gpu.md` |
+| tg128 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 1,026.7 tok/s | 879.0 tok/s (CUDA) | 1.17x (1.15–1.17) | `docs/evidence/receipts/bench/1793316889-20261030-qwen05b-q4km-gpu.md` |
 | pp512 | Qwen3.5-0.8B Q8_0 / i9-14900KF | 957.36 tok/s | 520.07 tok/s (CPU) | 1.82x (1.66–1.97) | `bench/cpu/1793260444-20261029-qwen08b-q8-cpu.md` |
 | tg128 | Qwen3.5-0.8B Q8_0 / i9-14900KF | 91.76 tok/s | 50.59 tok/s (CPU) | 1.81x (1.77–1.85) | `bench/cpu/1793260444-20261029-qwen08b-q8-cpu.md` |
 | pp512 | Qwen3.5-0.8B Q4_K_M / i9-14900KF | 676.20 tok/s | 694.28 tok/s (CPU) | 0.97x (0.95–0.98) | `bench/cpu/1793260567-20261029-qwen08b-q4km-cpu.md` |
 | tg128 | Qwen3.5-0.8B Q4_K_M / i9-14900KF | 87.33 tok/s | 58.08 tok/s (CPU) | 1.51x (1.47–1.54) | `bench/cpu/1793260567-20261029-qwen08b-q4km-cpu.md` |
 
-Re-measured 2026-10-29 (board `APEIRON-QUALITY-118-W1-T01`), paired and interleaved, comparators llama.cpp `ece963f41` (CUDA) and `0324696b8` (CPU). Receipts are registered in `docs/evidence/ledger.jsonl` (`tools/bench-save.sh verify`). The earlier figures (GPU 113,099 / 63,018.5 pp512 and 973.8 / 880.9 tg128; CPU Q8_0 2.24x / 1.80x, Q4_K_M 1.02x / 1.39x against llama.cpp `60bc8866b`) are history in the P-rows.
+Re-measured 2026-10-29 (CPU) and 2026-10-30 (GPU) (board `APEIRON-QUALITY-118-W1-T01`), paired and interleaved, comparators llama.cpp `ece963f41` (CUDA) and `0324696b8` (CPU). Receipts are registered in `docs/evidence/ledger.jsonl` (`tools/bench-save.sh verify`). The earlier figures (GPU 113,099 / 63,018.5 pp512 and 973.8 / 880.9 tg128; CPU Q8_0 2.24x / 1.80x, Q4_K_M 1.02x / 1.39x against llama.cpp `60bc8866b`) are history in the P-rows.
 
 Quality at the weight budget (target: within 10% of Q4_K_M at ≤ 4 GB resident weights):
 

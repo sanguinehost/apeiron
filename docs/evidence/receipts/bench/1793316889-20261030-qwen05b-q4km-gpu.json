@@ -1,0 +1,100 @@
+{
+  "schema": "apeiron.bench-gpu.v2",
+  "label": "20261030-qwen05b-q4km-gpu",
+  "epoch": 1793316889,
+  "command": "tools/bench-save.sh gpu /home/socol/models/gguf/qwen05b-Q4_K_M.gguf 20261030-qwen05b-q4km-gpu 5",
+  "model": "/home/socol/models/gguf/qwen05b-Q4_K_M.gguf",
+  "model_sha256": "ebd3d6faed5ef9dfa6770a9d36fbb91f421e67ff08b102c17244970fd11cec19",
+  "carrier": "q4",
+  "pp": 512,
+  "tg": 128,
+  "git": "191cbb60d7c8376edc312decf081ac73a542ea4e",
+  "dirty_paths": 27,
+  "diff_sha256": "69f47286b8e5506d2a1566e1d98838f645a3febae9ceec328922c50aa5e55530",
+  "apeiron_binary_sha256": "552aa15e1a185b4fe86c4469ab864ba932fd7c8d38b4367af940a373732b308f",
+  "llama_binary_sha256": "50ace10e9f0d4f7147d6b85d3a84bb54aa3d42e98fc8874877ceb1245306ef35",
+  "llama_commit": "ece963f41",
+  "gpu": "NVIDIA GeForce RTX 5080, 615.78.08",
+  "cpu": "Intel(R) Core(TM) i9-14900KF",
+  "rustc": "rustc 1.97.0-nightly (17584a181 2026-04-13)",
+  "gate": "busy cores<2 (3 s /proc/stat window) and gpu util<10% before every round",
+  "stat": {
+    "apeiron_pp": {
+      "median": 111440.0,
+      "min": 106737.5,
+      "max": 112985.6
+    },
+    "llama_pp": {
+      "median": 61822.837448,
+      "min": 60827.146689,
+      "max": 62441.937672
+    },
+    "ratio_pp": {
+      "median": 1.7846979795114772,
+      "min": 1.7265060033806814,
+      "max": 1.8574864373908295
+    },
+    "apeiron_tg": {
+      "median": 1026.7,
+      "min": 1013.3,
+      "max": 1030.2
+    },
+    "llama_tg": {
+      "median": 879.003213,
+      "min": 876.052817,
+      "max": 881.830078
+    },
+    "ratio_tg": {
+      "median": 1.1682914939974538,
+      "min": 1.1490875909995895,
+      "max": 1.1720093678428911
+    }
+  },
+  "rounds": [
+    {
+      "round": 0,
+      "apeiron_pp": 106737.5,
+      "llama_pp": 61822.837448,
+      "ratio_pp": 1.7265060033806814,
+      "apeiron_tg": 1030.2,
+      "llama_tg": 879.003213,
+      "ratio_tg": 1.1720093678428911
+    },
+    {
+      "round": 1,
+      "apeiron_pp": 111981.8,
+      "llama_pp": 61102.383253,
+      "ratio_pp": 1.8326911985794259,
+      "apeiron_tg": 1026.7,
+      "llama_tg": 876.052817,
+      "ratio_tg": 1.1719613019633723
+    },
+    {
+      "round": 2,
+      "apeiron_pp": 108351.7,
+      "llama_pp": 62411.255513,
+      "ratio_pp": 1.7360922979258253,
+      "apeiron_tg": 1013.3,
+      "llama_tg": 881.830078,
+      "ratio_tg": 1.1490875909995895
+    },
+    {
+      "round": 3,
+      "apeiron_pp": 112985.6,
+      "llama_pp": 60827.146689,
+      "ratio_pp": 1.8574864373908295,
+      "apeiron_tg": 1023.4,
+      "llama_tg": 878.408568,
+      "ratio_tg": 1.1650614956205665
+    },
+    {
+      "round": 4,
+      "apeiron_pp": 111440.0,
+      "llama_pp": 62441.937672,
+      "ratio_pp": 1.7846979795114772,
+      "apeiron_tg": 1027.8,
+      "llama_tg": 879.746198,
+      "ratio_tg": 1.1682914939974538
+    }
+  ]
+}
