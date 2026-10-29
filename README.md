@@ -49,28 +49,32 @@ under `mdbook test book -L target/debug/deps`.
 
 ## Inference engine against llama.cpp
 
-Current figures. `pp512` is 512 prompt tokens per second, `tg128` is 128 generated tokens per
-second. Ratios are apeiron over llama.cpp. The commit is the apeiron revision the figure was
-recorded at; the figures are copied from those recorded measurements, not re-run for this
-release.
+Current figures, re-measured 2026-10-29 with paired, interleaved rounds. `pp512` is 512 prompt
+tokens per second, `tg128` is 128 generated tokens per second. Ratios are apeiron over llama.cpp,
+the median of 5 paired rounds with the minimum to maximum round in brackets. Every number below is
+in a saved receipt registered in `docs/evidence/ledger.jsonl`; `tools/bench-save.sh verify`
+fails when one is not.
 
-| metric | model / device | apeiron | llama.cpp | ratio | commit | receipt |
-|---|---|---:|---:|---:|---|---|
-| pp512 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 113,099 tok/s | 63,018.5 tok/s (CUDA) | **1.795×** | `021ab9d5` | quotient of recorded medians |
-| tg128 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 973.8 tok/s | 880.9 tok/s (CUDA) | **1.105×** | `392e08e6` | quotient of recorded medians |
-| pp512 | Qwen3.5-0.8B Q8_0 / i9-14900KF | 917.82 tok/s | 416.41 tok/s (CPU) | **2.24×** (2.14–2.25) | `eb5efdfa` | [`1792648053-qwen08b-q8-cpu`](bench/cpu/1792648053-qwen08b-q8-cpu.md) |
-| tg128 | Qwen3.5-0.8B Q8_0 / i9-14900KF | 92.13 tok/s | 51.42 tok/s (CPU) | **1.80×** (1.70–1.81) | `eb5efdfa` | [`1792648053-qwen08b-q8-cpu`](bench/cpu/1792648053-qwen08b-q8-cpu.md) |
-| pp512 | Qwen3.5-0.8B Q4_K_M / i9-14900KF | 658.10 tok/s | 632.67 tok/s (CPU) | 1.02× (1.00–1.10) | `84fe9407` | [`1792653496-qwen08b-q4km-kqc-live`](bench/cpu/1792653496-qwen08b-q4km-kqc-live.md) |
-| tg128 | Qwen3.5-0.8B Q4_K_M / i9-14900KF | 84.19 tok/s | 60.39 tok/s (CPU) | **1.39×** (1.33–1.40) | `84fe9407` | [`1792653496-qwen08b-q4km-kqc-live`](bench/cpu/1792653496-qwen08b-q4km-kqc-live.md) |
+| metric | model / device | apeiron | llama.cpp | ratio | receipt |
+|---|---|---:|---:|---:|---|
+| pp512 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 108,176 tok/s | 62,808 tok/s (CUDA) | **1.73×** (1.71–1.75) | [`1793261269-20261029-qwen05b-q4km-gpu`](docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.md) |
+| tg128 | Qwen2.5-0.5B Q4_K_M / RTX 5080 | 1,011.7 tok/s | 882.7 tok/s (CUDA) | **1.15×** (1.11–1.15) | [`1793261269-20261029-qwen05b-q4km-gpu`](docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.md) |
+| pp512 | Qwen3.5-0.8B Q8_0 / i9-14900KF | 957.36 tok/s | 520.07 tok/s (CPU) | **1.82×** (1.66–1.97) | [`1793260444-20261029-qwen08b-q8-cpu`](bench/cpu/1793260444-20261029-qwen08b-q8-cpu.md) |
+| tg128 | Qwen3.5-0.8B Q8_0 / i9-14900KF | 91.76 tok/s | 50.59 tok/s (CPU) | **1.81×** (1.77–1.85) | [`1793260444-20261029-qwen08b-q8-cpu`](bench/cpu/1793260444-20261029-qwen08b-q8-cpu.md) |
+| pp512 | Qwen3.5-0.8B Q4_K_M / i9-14900KF | 676.20 tok/s | 694.28 tok/s (CPU) | 0.97× (0.95–0.98) | [`1793260567-20261029-qwen08b-q4km-cpu`](bench/cpu/1793260567-20261029-qwen08b-q4km-cpu.md) |
+| tg128 | Qwen3.5-0.8B Q4_K_M / i9-14900KF | 87.33 tok/s | 58.08 tok/s (CPU) | **1.51×** (1.47–1.54) | [`1793260567-20261029-qwen08b-q4km-cpu`](bench/cpu/1793260567-20261029-qwen08b-q4km-cpu.md) |
 
-- CPU rows: llama.cpp `60bc8866b` at its best of 16 and 32 threads, median of 5 paired rounds, range
-  is the minimum to maximum round, every round passed the quiet-host gate (busy cores < 1).
-- GPU rows: the CUDA comparator is `llama-bench -ngl 99`. The prefill comparator was measured on a
-  contended host, and the ratios are quotients of recorded medians, not paired-round medians.
-- The Q4_K_M prefill row is parity (1.02×); decode is ahead. First-token agreement has not been run
-  on the Q4_K_M files.
-- Q4_K_M receipts were recorded from a working tree with uncommitted paths; the receipt names the
-  source sha256.
+- Comparator: llama.cpp `ece963f41` (CUDA rows, `llama-bench -ngl 99`) and `0324696b8` (CPU rows, best
+  of 16 and 32 threads). Both are newer than the `60bc8866b` of the earlier figures; the Q8_0 prefill
+  ratio fell from 2.24× because llama.cpp's own prefill rose from 416 to 520 tok/s, while apeiron's
+  rose from 918 to 957.
+- Every round passed the quiet-host gate (CPU: busy cores < 1; GPU: load1 < 2 and device
+  utilisation < 10%).
+- Q4_K_M prefill on the CPU is behind llama.cpp (0.97×); decode is ahead.
+- The receipts were recorded from a working tree with uncommitted paths; each names the source hash.
+  First-token agreement has not been run on the Q4_K_M files.
+- Reproduce: `engine_profile` for the CPU rows (see `book/src/engine/results.md`) and
+  `tools/bench-save.sh gpu <gguf> <name>` for the GPU rows.
 
 ### Earlier CPU receipts
 

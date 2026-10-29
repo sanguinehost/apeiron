@@ -1,0 +1,122 @@
+{
+ "cpu-q4km-pp512-apeiron": {
+  "digits": 2,
+  "docs": [
+   "README.md",
+   "docs/evidence/perf-predictions.md"
+  ],
+  "key": "apeiron pp",
+  "receipt": "bench/cpu/1793260567-20261029-qwen08b-q4km-cpu.md",
+  "text": "676.20"
+ },
+ "cpu-q4km-pp512-llama": {
+  "digits": 2,
+  "docs": [
+   "README.md",
+   "docs/evidence/perf-predictions.md"
+  ],
+  "key": "llama.cpp pp (best threads)",
+  "receipt": "bench/cpu/1793260567-20261029-qwen08b-q4km-cpu.md",
+  "text": "694.28"
+ },
+ "cpu-q4km-tg128-apeiron": {
+  "digits": 2,
+  "docs": [
+   "README.md",
+   "docs/evidence/perf-predictions.md"
+  ],
+  "key": "apeiron tg",
+  "receipt": "bench/cpu/1793260567-20261029-qwen08b-q4km-cpu.md",
+  "text": "87.33"
+ },
+ "cpu-q4km-tg128-llama": {
+  "digits": 2,
+  "docs": [
+   "README.md",
+   "docs/evidence/perf-predictions.md"
+  ],
+  "key": "llama.cpp tg (best threads)",
+  "receipt": "bench/cpu/1793260567-20261029-qwen08b-q4km-cpu.md",
+  "text": "58.08"
+ },
+ "cpu-q8-pp512-apeiron": {
+  "digits": 2,
+  "docs": [
+   "README.md",
+   "docs/evidence/perf-predictions.md"
+  ],
+  "key": "apeiron pp",
+  "receipt": "bench/cpu/1793260444-20261029-qwen08b-q8-cpu.md",
+  "text": "957.36"
+ },
+ "cpu-q8-pp512-llama": {
+  "digits": 2,
+  "docs": [
+   "README.md",
+   "docs/evidence/perf-predictions.md"
+  ],
+  "key": "llama.cpp pp (best threads)",
+  "receipt": "bench/cpu/1793260444-20261029-qwen08b-q8-cpu.md",
+  "text": "520.07"
+ },
+ "cpu-q8-tg128-apeiron": {
+  "digits": 2,
+  "docs": [
+   "README.md",
+   "docs/evidence/perf-predictions.md"
+  ],
+  "key": "apeiron tg",
+  "receipt": "bench/cpu/1793260444-20261029-qwen08b-q8-cpu.md",
+  "text": "91.76"
+ },
+ "cpu-q8-tg128-llama": {
+  "digits": 2,
+  "docs": [
+   "README.md",
+   "docs/evidence/perf-predictions.md"
+  ],
+  "key": "llama.cpp tg (best threads)",
+  "receipt": "bench/cpu/1793260444-20261029-qwen08b-q8-cpu.md",
+  "text": "50.59"
+ },
+ "gpu-pp512-apeiron": {
+  "digits": 0,
+  "docs": [
+   "README.md",
+   "docs/evidence/perf-predictions.md"
+  ],
+  "key": "stat.apeiron_pp.median",
+  "receipt": "docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.json",
+  "text": "108,176"
+ },
+ "gpu-pp512-llama": {
+  "digits": 0,
+  "docs": [
+   "README.md",
+   "docs/evidence/perf-predictions.md"
+  ],
+  "key": "stat.llama_pp.median",
+  "receipt": "docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.json",
+  "text": "62,808"
+ },
+ "gpu-tg128-apeiron": {
+  "digits": 1,
+  "docs": [
+   "README.md",
+   "docs/evidence/perf-predictions.md"
+  ],
+  "key": "stat.apeiron_tg.median",
+  "receipt": "docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.json",
+  "text": "1,011.7"
+ },
+ "gpu-tg128-llama": {
+  "digits": 1,
+  "docs": [
+   "README.md",
+   "docs/evidence/perf-predictions.md"
+  ],
+  "key": "stat.llama_tg.median",
+  "receipt": "docs/evidence/receipts/bench/1793261269-20261029-qwen05b-q4km-gpu.json",
+  "text": "882.7"
+ }
+}

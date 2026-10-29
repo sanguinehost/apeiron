@@ -1,0 +1,7 @@
+{
+ "wikitext2": {
+  "ppl": 24.575103759765625
+ },
+ "_arm": "gguf:/home/socol/oc-tmp/q3-student-kd1024.gguf",
+ "_wall_s": 25.09541416168213
+}

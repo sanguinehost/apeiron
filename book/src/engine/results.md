@@ -32,16 +32,32 @@ each thread count in `--llama-threads` and the best is used. Each run writes a r
 model digest, the source digest, the machine, the compiler version, the comparator revision and the
 per-round ratios. A prompt id file for a 0.8B model is in `tests/fixtures/`.
 
+## Saving a measurement
+
+A figure in the README or `perf-predictions.md` is a row in `docs/evidence/figures.json`: a receipt
+path, a key in it, and the text as quoted. One tool owns the path from run to document:
+
+```sh
+tools/bench-save.sh gpu <model.gguf> <name>   # interleaved GPU rounds, writes and registers a receipt
+tools/bench-save.sh register bench/cpu/<run>.json bench/cpu/<run>.md   # index an engine_profile receipt
+tools/bench-save.sh verify
+```
+
+Every writer indexes the receipt in `docs/evidence/ledger.jsonl` with its sha256 and copies it to
+`$APEIRON_RECEIPT_MIRROR` (default `~/Backups/apeiron-receipts`). `verify` fails on an unregistered
+or edited receipt, a receipt missing from the mirror, and a quoted figure that differs from its
+receipt or is absent from the document. Commit the receipt in the same change as the figure.
+
 ## GPU decode
 
 ```sh
 cargo run --release --locked --features gpu --example gpu_decode_bench -- <model.gguf> --gen 128 --reps 5 --carrier q4
 cargo run --release --locked --features gpu --example gpu_decode_bench -- <model.gguf> --prefill 512 --reps 5 --carrier q4
-cargo run --release --locked --features gpu --example gpu_ppl -- <model.gguf>
 ```
 
-`gpu_decode_bench` reports `tg` and `pp` from device timing. `gpu_ppl` compares perplexity with
-llama.cpp over 512-token chunks.
+`gpu_decode_bench` reports `tg` and `pp` from device timing; `tools/bench-save.sh gpu` runs it
+against `llama-bench` and saves the receipt. `gpu_ppl` was deleted with the examples in `e0d991c5`, so
+no GPU-path perplexity check against llama.cpp exists at this revision.
 
 ## Hash tables
 

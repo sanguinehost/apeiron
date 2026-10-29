@@ -1,0 +1,57 @@
+{
+ "wikitext2": {
+  "ppl": 12.671177864074707
+ },
+ "boolq": {
+  "name": "boolq",
+  "alias": "boolq",
+  "sample_len": 3270,
+  "acc,none": 0.6963302752293578,
+  "acc_stderr,none": 0.008042682539896385
+ },
+ "piqa": {
+  "name": "piqa",
+  "alias": "piqa",
+  "sample_len": 1838,
+  "acc,none": 0.6964091403699674,
+  "acc_stderr,none": 0.010728079893076493,
+  "acc_norm,none": 0.6985854189336235,
+  "acc_norm_stderr,none": 0.010706248242753826
+ },
+ "hellaswag": {
+  "name": "hellaswag",
+  "alias": "hellaswag",
+  "sample_len": 10042,
+  "acc,none": 0.4102768372834097,
+  "acc_stderr,none": 0.004908786109095339,
+  "acc_norm,none": 0.5368452499502091,
+  "acc_norm_stderr,none": 0.0049762149894837
+ },
+ "winogrande": {
+  "name": "winogrande",
+  "alias": "winogrande",
+  "sample_len": 1267,
+  "acc,none": 0.5864246250986582,
+  "acc_stderr,none": 0.013840971763195336
+ },
+ "arc_easy": {
+  "name": "arc_easy",
+  "alias": "arc_easy",
+  "sample_len": 2376,
+  "acc,none": 0.6536195286195287,
+  "acc_stderr,none": 0.009763542075695658,
+  "acc_norm,none": 0.5791245791245792,
+  "acc_norm_stderr,none": 0.010130502164066243
+ },
+ "arc_challenge": {
+  "name": "arc_challenge",
+  "alias": "arc_challenge",
+  "sample_len": 1172,
+  "acc,none": 0.33532423208191126,
+  "acc_stderr,none": 0.013796182947785536,
+  "acc_norm,none": 0.3856655290102389,
+  "acc_norm_stderr,none": 0.014224250973257123
+ },
+ "_arm": "gguf:/home/socol/oc-tmp/nq-ref/q3-student-ctl.gguf",
+ "_wall_s": 221.84693813323975
+}
