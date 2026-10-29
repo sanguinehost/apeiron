@@ -123,10 +123,10 @@ Q4_K_M's, from the same run. That bar is not met yet.
 - NanoQuant as shipped, on the same model and harness: perplexity 24.3317 (1.768×), accuracy 0.4235
   (0.762×). At equal bits the port is 1.010× the reference's perplexity and 0.99× its accuracy, with
   5.39× lower layer distortion; both are short of the bar.
-- Qwen3.8-27B (48 DeltaNet and 16 attention layers) runs end to end at 1.18 b/w with 3.753 GiB of
-  resident weights, inside the 4 GB budget: prompt processing 586.4 tok/s and generation
-  4.85–5.90 tok/s on an RTX 5080 with 38 layers offloaded plus CPU, prefix-cache hit 98.3%. It has
-  no quality measurement yet.
+- Qwen3.8-27B (48 DeltaNet and 16 attention layers) has been run only as its Q4_K_M file (15.3 GiB):
+  prompt processing 586.4 tok/s and generation 4.85–5.90 tok/s on an RTX 5080 with 38 layers
+  offloaded plus CPU, prefix-cache hit 98.3%. No 1.18 b/w 27B has been built; its 3.753 GiB is the
+  arithmetic N·1.18/8, not a measurement. Quantisation quality is measured only on Qwen3-0.6B-Base.
 - Figures are copied from the recorded measurements, not re-run for this release.
 
 ## What is proved, tested and open
