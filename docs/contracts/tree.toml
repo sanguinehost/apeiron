@@ -294,6 +294,12 @@ recursive = true
 files = ["*"]
 
 [[dir]]
+path = "tools/gpu-bench"
+holds = "the GPU decode benchmark harness; its own manifest, outside the crate"
+recursive = true
+files = ["*"]
+
+[[dir]]
 path = "tools/neural-adapt"
 holds = "patches against external trees, pending STRUCT-MIGRATE"
 recursive = true

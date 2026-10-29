@@ -13,7 +13,7 @@ LEDGER=docs/evidence/ledger.jsonl
 FIGURES=docs/evidence/figures.json
 MIRROR=${APEIRON_RECEIPT_MIRROR:-$HOME/Backups/apeiron-receipts}
 LLAMA=${LLAMA_BENCH_CUDA:-$HOME/Workspace/llama.cpp/build-cuda/bin/llama-bench}
-APEIRON=target/release/examples/gpu_decode_bench
+APEIRON=tools/gpu-bench/target/release/gpu-bench
 sha() { sha256sum "$1" | cut -d' ' -f1; }
 
 register() {

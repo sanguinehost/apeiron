@@ -1,0 +1,14 @@
+# Benchmark harness for the quality-118 speed receipts (board row APEIRON-QUALITY-118-W1-T01).
+[package]
+name = "gpu-bench"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# The apeiron side of the GPU llama-bench comparison, kept outside the crate so the crate's
+# one-path ratchet does not count a measurement harness as a consumer. Run through
+# `tools/bench-save.sh gpu`.
+[dependencies]
+apeiron = { path = "../..", features = ["gpu"] }
+
+[workspace]
