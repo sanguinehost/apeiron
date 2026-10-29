@@ -304,7 +304,7 @@ files = ["*"]
 path = "docs"
 holds = "the governing documents and their registries"
 files = ["README.md", "direction.md", "kernel-boundary.md", "plan.md", "moved.tsv", "hash-comparison.md",
-         "roadmap.md", "state-ledger.tsv"]
+         "roadmap.md", "state-ledger.tsv", "architecture.md"]
 
 [[dir]]
 path = "docs/epics"
