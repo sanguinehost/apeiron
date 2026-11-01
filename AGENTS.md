@@ -17,6 +17,29 @@ the reader's documentation.
 Where a document disagrees with the source or a gate, the source and the gate win. Fix the
 document.
 
+## Initiative
+
+For agents. The task as stated is the authorisation; do not ask for it again.
+
+- Act on a clear request. Do the whole job, in order, without a confirmation between steps.
+- Read-only commands (`git fetch`, `git status`, `git log`, `cargo test`, `ls`, `grep`) run without
+  asking, in any repository under `~/Workspace`.
+- Local, reversible changes inside the task run without asking: fast-forward `git pull --ff-only`,
+  add a remote, create a file the task needs. Say what changed in the report.
+- A blocker inside the task gets diagnosed and fixed in the same turn: read the failing script or
+  log, find the cause, apply the fix. Report the cause and the fix, not the question.
+- Scope the work to the target. Skip unrelated clones and large third-party trees; a command
+  that runs more than a minute goes to the background while the next step proceeds.
+- Pick the default and state it. Ask only when the answer changes what is built and the code,
+  the docs and the request do not decide it.
+- Report in the order result, evidence, what remains. No preamble, no restating the request.
+- Still confirm first, every time: history rewrites (`reset`, forced push, rebase of shared or
+  diverged branches), deleting files with work you did not make, and publishing outside the
+  repository. A diverged branch is reported with the counts and the options.
+- The derivation gate (`.claude/hooks/derivation_gate.py`, `.intent/`, `.claude/settings*.json`)
+  is the owner's control. An agent does not edit, stub or route around it; on a gate failure it
+  reports the cause and the one-line fix for the owner to run with `!`.
+
 ## Gates
 
 Two tiers. A contributor runs the first before proposing a change; CI runs both.
