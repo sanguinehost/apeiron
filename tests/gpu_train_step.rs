@@ -7,7 +7,7 @@
 //! `dout = linear_bwd_input(dz, U)`, `(dgate, dup) = swiglu_bwd(gate, up, dout)`,
 //! `dWg = linear_bwd_weight(dgate, x)`, `dWu = linear_bwd_weight(dup, x)`, then the device
 //! `adam_update_dispatch` on `Wg`, `Wu`, `U`. The CPU reference runs the same composition with
-//! `learn::grad::{dense,head}` and `learn::fold::finish::train::Adam::apply`, both with
+//! `learn::grad::{dense,head}` and `learn::grad::adam::Adam::apply`, both with
 //! `lr = round(1e-3·2^32) = 4294967` and the same initial words.
 //!
 //! Initial weights, `x` and the teacher logits `z_t` are a fixed-seed LCG in `[-0.5, 0.5)`; they
@@ -39,7 +39,7 @@ use apeiron::gpu::nn::{
     adam_update_dispatch, linear_bwd_input_dispatch, linear_bwd_weight_dispatch,
 };
 use apeiron::gpu::vulkan::*;
-use apeiron::learn::fold::finish::train::Adam;
+use apeiron::learn::grad::adam::Adam;
 use apeiron::learn::grad::dense::{
     linear_bwd_input, linear_bwd_weight, linear_fwd, swiglu_bwd, swiglu_fwd,
 };

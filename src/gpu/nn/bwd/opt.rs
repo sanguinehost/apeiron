@@ -1,15 +1,17 @@
 //! simt_nn::bwd::opt — the Adam update as one f32 SPIR-V elementwise pass, the device twin of
-//! `learn::fold::finish::train::Adam::apply`.
+//! `learn::grad::adam::Adam::apply`.
 //!
-//! The oracle's words and scales (read from `src/learn/fold/finish/train.rs`): `p`, `g` and the
+//! The oracle's words and scales (read from `src/learn/grad/adam.rs`): `p`, `g` and the
 //! first moment `m` are Q32.32 `i64` (`ONE = 1 << 32`); the second moment `v` is Q64.64 `i128`,
 //! because `t1 = rshift_rne(β₂·v, 32)` with `β₂` at Q32.32 is `round(β₂·v/2^32)` and the squared
 //! Q32.32 gradient `g·g` is exactly Q64.64. `narrow(isqrt(v))` then returns Q32.32 because
 //! `√(v_real·2^64) = √v_real·2^32`. Per element and step `t` the oracle computes
 //!
-//!     m ← β₁·m + (1−β₁)·g
-//!     v ← β₂·v + (1−β₂)·g²
-//!     p ← p − lr·(m/(1−β₁ᵗ)) / (√v/√(1−β₂ᵗ) + ε)
+//! ```text
+//! m ← β₁·m + (1−β₁)·g
+//! v ← β₂·v + (1−β₂)·g²
+//! p ← p − lr·(m/(1−β₁ᵗ)) / (√v/√(1−β₂ᵗ) + ε)
+//! ```
 //!
 //! with each `mul` a round-to-even Q32.32 product and `div` a round-to-even quotient. The kernel
 //! carries the same four quantities in real units (host divides by `2^32`, `2^32`, `2^32`, `2^64`)

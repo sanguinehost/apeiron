@@ -54,7 +54,7 @@ use apeiron::engine::RopeTable;
 use apeiron::gpu::decode::GpuCtx;
 use apeiron::gpu::nn::train::{rope_tables, HostWeights, LayerCfg, Trainer};
 use apeiron::gpu::vulkan::Vk;
-use apeiron::learn::fold::finish::train::Adam;
+use apeiron::learn::grad::adam::Adam;
 use apeiron::learn::grad::attn::{attn_bwd_kern, attn_fwd_kern, rope_bwd, rope_fwd};
 use apeiron::learn::grad::dense::{
     linear_bwd_input, linear_bwd_weight, linear_fwd, rmsnorm_bwd, rmsnorm_fwd, swiglu_bwd,

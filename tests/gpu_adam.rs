@@ -1,5 +1,5 @@
 //! Adam elementwise update on the device (`gpu::nn::bwd::opt::adam_update_dispatch`) against the
-//! CPU oracle `learn::fold::finish::train::Adam::apply`, one dispatch per step.
+//! CPU oracle `learn::grad::adam::Adam::apply`, one dispatch per step.
 //!
 //! Oracle, read from `src/learn/fold/finish/train.rs`: `p`, `g` and the first moment `m` are
 //! Q32.32 `i64` (`ONE = 1 << 32`); the second moment `v` is Q64.64 `i128`. `mul(a, b)` is
@@ -41,7 +41,7 @@
 use apeiron::gpu::decode::{rec_step, GpuCtx};
 use apeiron::gpu::nn::adam_update_dispatch;
 use apeiron::gpu::vulkan::*;
-use apeiron::learn::fold::finish::train::Adam;
+use apeiron::learn::grad::adam::Adam;
 
 /// `round(1e-3·2^32)`, the oracle's `lr` argument.
 const LR_Q32: i64 = 4_294_967;

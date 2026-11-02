@@ -4,6 +4,7 @@
 //! [`model`] is the extraction unit's subject; [`load`] is the engine-reading IO glue that fills it
 //! and stays outside `proof/extract/`.
 
+pub mod adam;
 pub mod attn;
 pub mod dense;
 pub mod head;

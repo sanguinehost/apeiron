@@ -11,7 +11,7 @@
 //! `dWq = linear_bwd_weight(dq, x)`, `dWk = linear_bwd_weight(dk, x)`,
 //! `dWv = linear_bwd_weight(dv, x)`, then the device `adam_update_dispatch` on `Wq`, `Wk`, `Wv`,
 //! `U`. The CPU reference runs the same composition with `learn::grad::{dense, attn, head}` and
-//! `learn::fold::finish::train::Adam::apply`, both with `lr = round(1e-3·2^32) = 4294967` and the
+//! `learn::grad::adam::Adam::apply`, both with `lr = round(1e-3·2^32) = 4294967` and the
 //! same initial words.
 //!
 //! Shapes `t=8, i=8, nh=2, nkv=1, hd=8, v=8`; weights are a fixed-seed LCG in `[-0.5, 0.5)`, `x`
@@ -51,7 +51,7 @@ use apeiron::gpu::nn::{
     linear_bwd_input_dispatch, linear_bwd_weight_dispatch,
 };
 use apeiron::gpu::vulkan::*;
-use apeiron::learn::fold::finish::train::Adam;
+use apeiron::learn::grad::adam::Adam;
 use apeiron::learn::grad::attn::{attn_bwd_kern, attn_fwd_kern};
 use apeiron::learn::grad::dense::{linear_bwd_input, linear_bwd_weight, linear_fwd};
 use apeiron::learn::grad::head::kl_row;
