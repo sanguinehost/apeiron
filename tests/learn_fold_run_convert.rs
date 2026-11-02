@@ -23,7 +23,6 @@ use apeiron::learn::fold::run::convert::{
     decode_bf16, decode_f16, decode_f32, encode_f16, encode_f32, student_gguf_bytes,
     student_to_grad, teacher_from_grad, ConvertError, Teacher,
 };
-use apeiron::learn::fold::run::transfer::{h0_from_chunks, TransferError};
 use apeiron::learn::fold::stats::hocapture::engine_tape_mode;
 use apeiron::learn::grad::model::{Config, LayerWeights as GradLayer, Weights};
 use apeiron::learn::solve::q32::{to_grid, GRID_BOUND};
@@ -612,27 +611,6 @@ fn recorded_decode_and_encode_digests_hold() {
         (0xC0FF_EE02, 0x3d3a_faa0_91fa_09cf),
     ] {
         assert_eq!(witness_convert(seed), want, "seed {seed:016x}");
-    }
-}
-
-/// (a) The gather copies the embedding rows in chunk order; a token past the vocabulary is refused.
-#[test]
-fn h0_gathers_the_embedding_rows() {
-    let w = build_weights(0xC4);
-    let teacher = teacher_from_grad(&w, &cfg()).expect("teacher");
-    let chunks = vec![vec![3u32, 0, 31], Vec::new(), vec![7u32]];
-    let got = h0_from_chunks(&teacher, &chunks).expect("h0");
-    let mut want = Vec::new();
-    for c in &chunks {
-        for &id in c {
-            let at = usize::try_from(id).expect("token id") * HID;
-            want.extend_from_slice(&teacher.embed[at..at + HID]);
-        }
-    }
-    assert_eq!(got, want);
-    match h0_from_chunks(&teacher, &[vec![u32::try_from(VOCAB).expect("fits")]]) {
-        Err(TransferError::Shape(m)) => assert!(m.contains("vocab"), "{m}"),
-        other => panic!("expected Shape, got {other:?}"),
     }
 }
 

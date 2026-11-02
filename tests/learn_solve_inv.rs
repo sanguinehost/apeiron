@@ -1,13 +1,10 @@
 //! `tests/learn_solve_inv.rs` — the Q32.32 upper-triangular inverse factor `U` (`UᵀU = H⁻¹`):
 //! agreement with a test-local `f64` upper-`Cholesky`/back-substitution reference and the
 //! `UᵀU·H = I` residual on SPD matrices of a `1e6` diagonal range, exact upper-triangularity and
-//! positive diagonal, bit-identical output across repeated pooled calls, the typed refusals, the
-//! `feedback_u` boundary (new grid path against the old `f64` formula, damping and the
-//! zero-diagonal-replaced-by-1 branch), and an ignored timing table at `n = 4864`. Grade `tested`
-//! for correctness, `measured` for the timing run.
+//! positive diagonal, bit-identical output across repeated pooled calls and the typed refusals.
+//! Grade `tested`; the ignored scale sweep is `measured`.
 //!
-//! The scale the boundary applies to `H` before the grid (the same closed form as `feedback_u`'s
-//! `inv_scale`) is re-derived here over the test's own matrix as [`balanced_scale`]: `s = 2^e` with
+//! The scale applied to `H` before the grid is derived here over the test's own matrix as [`balanced_scale`]: `s = 2^e` with
 //! `e` the even integer nearest `−(2·log2(h_min) + log2(h_max))/3`, which equalizes the grid's
 //! relative error on `H` and on the returned `(sH)^{-1/2}`. `fill_scale`'s target (`max·s ≈ 2^31`)
 //! is also measured, and rejected: the `×sqrt(s)` undo multiplies the grid's absolute error by
@@ -28,36 +25,12 @@
               stay on for the crate's non-test code."
 )]
 
-use apeiron::engine::ONE;
-use apeiron::learn::fold::fit::gptq_e8::{feedback_u, GptqE8Error, UFac};
 use apeiron::learn::solve::chol::SolveError;
 use apeiron::learn::solve::inv::inv_factor_upper;
-use apeiron::learn::solve::q32::{fill_scale, from_grid, to_grid, GRID_BOUND};
-
-/// The Q32.32 word of `x`: `round(x·2³²)`. `O(1)`.
-fn word(x: f64) -> i64 {
-    to_grid(x, GRID_BOUND).expect("value inside the Q32.32 grid range")
-}
-
-/// The words of a real buffer, the boundary conversion the callers of the flipped API apply. `O(len)`.
-fn qw(x: &[f64]) -> Vec<i64> {
-    x.iter().map(|&v| word(v)).collect()
-}
+use apeiron::learn::solve::q32::{fill_scale, from_grid, GRID_BOUND};
 
 /// `2^32`, the Q32.32 scale factor.
 const SCALE: f64 = 4_294_967_296.0;
-
-/// The `f64` view of a [`UFac`]: `U_ij = (hat_ij / 2^32)·2^-d_j` above the diagonal, `0` below.
-fn ufac_to_f64(uf: &UFac) -> Vec<f64> {
-    let n = uf.n;
-    let mut out = vec![0.0f64; n * n];
-    for i in 0..n {
-        for j in i..n {
-            out[i * n + j] = uf.hat[i * n + j] as f64 / ONE as f64 * 2f64.powi(-uf.d[j]);
-        }
-    }
-    out
-}
 
 /// Deterministic 64-bit LCG (Numerical Recipes constants): the tests' only randomness source.
 struct Lcg(u64);
@@ -136,8 +109,7 @@ fn spd_wide(seed: u64, n: usize) -> Vec<f64> {
     spd_wide_c(seed, n, 1.0e-3)
 }
 
-/// The exact power of two `feedback_u` applies to the damped Hessian, re-derived here so the test
-/// builds the same grid the boundary does: `s = 2^e`, `e` the even integer nearest
+/// The power of two applied to the Hessian before the grid: `s = 2^e`, `e` the even integer nearest
 /// `−(2·log2(min diag) + log2(max |entry|))/3`, clamped so `max·s < 2³¹` and `min·s ≥ 2⁻²⁷⁰`.
 fn balanced_scale(h: &[f64], n: usize) -> f64 {
     let mut h_min = f64::INFINITY;
@@ -154,7 +126,7 @@ fn balanced_scale(h: &[f64], n: usize) -> f64 {
 }
 
 /// Test-local `f64` upper (`UL`) `Cholesky` factor `V` with `V·Vᵀ = h`, from the bottom-right
-/// corner: the factor of the `f64` `ul_cholesky` the old `feedback_u` called, re-derived flat.
+/// corner: the `f64` reference factor.
 fn ref_ul_cholesky(h: &[f64], n: usize) -> Vec<f64> {
     let mut v = vec![0.0f64; n * n];
     for j in (0..n).rev() {
@@ -177,7 +149,7 @@ fn ref_ul_cholesky(h: &[f64], n: usize) -> Vec<f64> {
 }
 
 /// Test-local `f64` inverse of an upper-triangular `v` by back-substitution, `U[r, c] =
-/// −(Σ_{t>r} V[r, t]·U[t, c])/V[r, r]`: the `f64` `upper_tri_inverse` the old `feedback_u` called.
+/// −(Σ_{t>r} V[r, t]·U[t, c])/V[r, r]`: the `f64` reference inverse.
 fn ref_upper_inverse(v: &[f64], n: usize) -> Vec<f64> {
     let mut u = vec![0.0f64; n * n];
     for c in 0..n {
@@ -191,18 +163,6 @@ fn ref_upper_inverse(v: &[f64], n: usize) -> Vec<f64> {
         }
     }
     u
-}
-
-/// The old `feedback_u` in `f64`: the Python damping and zero-diagonal rule, then
-/// `upper_tri_inverse(ul_cholesky(H))`.
-fn ref_feedback_u(h: &[f64], n: usize, damp: f64) -> Vec<f64> {
-    let mean = (0..n).map(|i| h[i * n + i]).sum::<f64>() / n as f64;
-    let mut hh = h.to_vec();
-    for i in 0..n {
-        let v = hh[i * n + i] + damp * mean;
-        hh[i * n + i] = if v == 0.0 { 1.0 } else { v };
-    }
-    ref_upper_inverse(&ref_ul_cholesky(&hh, n), n)
 }
 
 /// `(max |(UᵀU·H)_ij − δ_ij|, max|UᵀU|·max|H|)`: the raw residual of the defining equation
@@ -237,8 +197,7 @@ fn residual(u: &[f64], h: &[f64], n: usize) -> (f64, f64) {
     (worst, pmax * hmax)
 }
 
-/// `residual` restricted to the upper triangle (`j ≥ i`), the entries
-/// `tests/learn_fold_gptq_e8.rs::feedback_u_is_the_upper_inverse_factor` actually measures.
+/// `residual` restricted to the upper triangle (`j ≥ i`).
 fn residual_upper(u: &[f64], h: &[f64], n: usize) -> (f64, f64) {
     let mut p = vec![0.0f64; n * n];
     for i in 0..n {
@@ -375,27 +334,11 @@ fn u_is_upper_triangular_with_a_positive_diagonal() {
     }
 }
 
-/// (d) The refusals are typed and none of them panics: `n = 0`, a wrong shape, a non-finite entry,
-/// a non-SPD Hessian and a non-SPD grid.
+/// (d) The refusals are typed and none of them panics: `n = 0`, a wrong shape and a non-positive
+/// diagonal.
 #[test]
 fn refusals_are_typed() {
-    let (n, damp) = (64usize, 0.01);
-    let h = spd_wide(0x1234_5678, n);
-    let (hq, dq) = (qw(&h), word(damp));
-    assert_eq!(feedback_u(&hq, 0, dq), Err(GptqE8Error::ZeroDim));
-    assert_eq!(feedback_u(&hq[1..], n, dq), Err(GptqE8Error::ShapeMismatch));
-    // A non-finite Hessian has no Q32.32 word, so `NonFinite` is unreachable from `&[i64]`.
-    // Every diagonal `-1`: `mean(diag) = -1`, so damping leaves a negative diagonal and the
-    // equilibration refuses it.
-    let mut neg = vec![0i64; n * n];
-    for i in 0..n {
-        neg[i * n + i] = -word(1.0);
-    }
-    assert_eq!(
-        feedback_u(&neg, n, dq),
-        Err(GptqE8Error::NotPositiveDefinite)
-    );
-    // The primitive's own refusals.
+    let n = 64usize;
     assert_eq!(inv_factor_upper(&[], 0), Err(SolveError::Empty));
     assert_eq!(
         inv_factor_upper(&[1i64 << 32], 2),
@@ -411,67 +354,8 @@ fn refusals_are_typed() {
     );
 }
 
-/// (e) The boundary agrees with the old `f64` formula to relative `1e-7` — the damping branch on the
-/// wide-diagonal fixtures (normwise and on the diagonal, which is what the group scale consumes),
-/// and the zero-diagonal-replaced-by-`1.0` branch on a decoupled Hessian, where both paths return
-/// exactly `U = I`.
-#[test]
-fn feedback_u_agrees_with_the_old_f64_formula() {
-    for &n in &[8usize, 64, 130] {
-        let h = spd_wide(0xFEED_0000 ^ n as u64, n);
-        for &damp in &[0.01f64, 0.0] {
-            let u = ufac_to_f64(&feedback_u(&qw(&h), n, word(damp)).expect("SPD factor"));
-            let r = ref_feedback_u(&h, n, damp);
-            let mut diff = 0.0f64;
-            let mut mag = 0.0f64;
-            for idx in 0..n * n {
-                diff = diff.max((u[idx] - r[idx]).abs());
-                mag = mag.max(r[idx].abs());
-            }
-            println!("n={n} damp={damp}: normwise {:.3e}", diff / mag);
-            assert!(
-                diff <= 1e-7 * mag,
-                "n={n} damp={damp}: normwise difference {diff:e} > 1e-7·{mag:e}"
-            );
-            for j in 0..n {
-                let (a, b) = (u[j * n + j], r[j * n + j]);
-                assert!(
-                    (a - b).abs() <= 1e-7 * b.abs(),
-                    "n={n} damp={damp}: U({j},{j}) {a} != {b}"
-                );
-            }
-        }
-    }
-    // The zero-diagonal branch: `damp = 0.0` and an exactly zero diagonal entry, so `v == 0.0`
-    // exactly and both paths replace it with `1.0`. With the rest of the row and column zero the
-    // damped Hessian is the identity, and both paths return exactly `U = I`.
-    let n = 8usize;
-    let mut h = vec![0.0f64; n * n];
-    for i in 1..n {
-        h[i * n + i] = 1.0;
-    }
-    let u = ufac_to_f64(&feedback_u(&qw(&h), n, 0).expect("SPD factor"));
-    let r = ref_feedback_u(&h, n, 0.0);
-    for i in 0..n {
-        for j in 0..n {
-            let want = if i == j { 1.0 } else { 0.0 };
-            assert_eq!(r[i * n + j], want, "reference ({i},{j})");
-            assert_eq!(u[i * n + j], want, "grid ({i},{j})");
-        }
-    }
-    // A non-SPD Hessian with a zero diagonal and no damping is not mistaken for the guarded one:
-    // `H = diag(0, -1, ...)` keeps a negative diagonal after the replacement.
-    let mut bad = h.clone();
-    bad[n + 1] = -1.0;
-    assert_eq!(
-        feedback_u(&qw(&bad), n, 0),
-        Err(GptqE8Error::NotPositiveDefinite)
-    );
-}
-
-/// Measurement (not part of the default gate): the `UᵀU·H − I` residual of a `feedback_u`-shaped
-/// boundary over power-of-two scales `s`, on the fixture `tests/learn_fold_gptq_e8.rs` asserts
-/// `< 1e-9` for (`correlated_h`-shaped, `n = 64`, narrow diagonal range). The measured floor is
+/// Measurement (not part of the default gate): the `UᵀU·H − I` residual of `inv_factor_upper` over
+/// power-of-two scales `s` on a damped correlated Hessian (`n = 64`, narrow diagonal range). The measured floor is
 /// `≈ 1.5e-9` at its best scale and `≈ 1.8e-9` at the balanced `s = 2^0` this boundary picks — the
 /// residual is dominated by the `2^-34` absolute grid error on `H` at small `s` (term `∝ 1/s`) and
 /// by the `sqrt(s)·2^-34` absolute grid error on `U` at large `s` (term `∝ sqrt(s)`), so the Q32.32
@@ -509,7 +393,7 @@ fn scale_sweep_grid_residual_floor() {
     }
 }
 
-/// `tests/learn_fold_gptq_e8.rs::correlated_h` with the same fixture parameters.
+/// A correlated SPD fixture: `XᵀX/n` with a slowly rising column gain, plus `0.25·I`.
 fn correlated_h_like(n: usize, seed: u64) -> Vec<f64> {
     let mut st = seed;
     let gain: Vec<f64> = (0..n).map(|j| 1.0 + (j / 128) as f64 * 0.05).collect();
@@ -542,57 +426,4 @@ fn correlated_h_like(n: usize, seed: u64) -> Vec<f64> {
         h[i * n + i] += 0.25;
     }
     h
-}
-
-/// (f) Timing at `n = 4864`: `feedback_u` three runs (the boundary's `8` threads) and the old `f64`
-/// formula once, wall seconds.
-#[test]
-#[ignore = "timing: n = 4864, three feedback_u runs plus the scalar f64 path once; run with \
-            --release -- --ignored --nocapture"]
-fn timing_feedback_u() {
-    let n = 4864usize;
-    let rows = 512usize;
-    let mut lcg = Lcg::new(0xfeed_face_dead_beef);
-    let mut m = vec![0.0f64; rows * n];
-    for v in &mut m {
-        *v = lcg.sym();
-    }
-    // A correlated SPD Hessian of the shape `feedback_u` sees: `A = XᵀX/rows + I`.
-    let mut h = vec![0.0f64; n * n];
-    for r in 0..rows {
-        let mrow = &m[r * n..r * n + n];
-        for i in 0..n {
-            let mi = mrow[i];
-            for j in 0..=i {
-                h[i * n + j] += mi * mrow[j];
-            }
-        }
-    }
-    let inv = 1.0 / rows as f64;
-    for i in 0..n {
-        for j in 0..=i {
-            let v = h[i * n + j] * inv + if i == j { 1.0 } else { 0.0 };
-            h[i * n + j] = v;
-            h[j * n + i] = v;
-        }
-    }
-    let mut ts: Vec<f64> = Vec::new();
-    for _ in 0..3 {
-        let t0 = std::time::Instant::now();
-        let u = feedback_u(&qw(&h), n, word(0.01)).expect("SPD factor");
-        let dt = t0.elapsed().as_secs_f64();
-        std::hint::black_box(u.hat[0]);
-        ts.push(dt);
-    }
-    let mean = ts.iter().sum::<f64>() / (ts.len() as f64);
-    let mn = ts.iter().copied().fold(f64::INFINITY, f64::min);
-    let mx = ts.iter().copied().fold(0.0f64, f64::max);
-    let t0 = std::time::Instant::now();
-    let r = ref_feedback_u(&h, n, 0.01);
-    let old = t0.elapsed().as_secs_f64();
-    std::hint::black_box(r[0]);
-    println!(
-        "feedback_u n={n}: new pooled mean {mean:.3}s min {mn:.3}s max {mx:.3}s runs {ts:?}; \
-         old f64 once {old:.3}s"
-    );
 }

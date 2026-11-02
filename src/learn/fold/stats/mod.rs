@@ -1,10 +1,6 @@
-//! Statistics the fold transfer consumes: activation Grams, held-out evaluation, shrinkage
-//! intensity and byte accounting.
+//! Statistics the NanoQuant path consumes: activation Grams, the output-side Hessian sketch and
+//! held-out evaluation.
 
-/// Input-basis concentration arms (`H`, `I`, `J`, `V`) and reverse water-filling at 1.18 b/w.
-pub mod basis;
-/// Exact 27B byte accounting at a target bits-per-weight, over the reference class table.
-pub mod budget;
 /// Per-layer activation Grams of the four linears, accumulated from the forward tape.
 pub mod capture;
 /// Softmax, sampled-label cross entropy and target draw of the held-out capture.
@@ -15,8 +11,5 @@ pub mod heldout;
 pub mod hocapture;
 /// Reader of llama.cpp's `--kl-divergence-base` log-probability file, one chunk at a time.
 pub mod kldbase;
-/// Analytic shrinkage intensities (Schäfer–Strimmer, Ledoit–Wolf) of the output-side Hessian sketch.
-pub mod lw;
-/// `f64` CPU forward of one `Qwen2` decoder layer, returning every intermediate the fold transfer
-/// reads.
+/// `f64` CPU forward of one `Qwen2` decoder layer, returning every intermediate the corrector reads.
 pub mod parts;

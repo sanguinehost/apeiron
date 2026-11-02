@@ -1,15 +1,11 @@
-//! Fold-transfer pipeline on the crate build path: the weight-fit steps (`fit`) and the activation,
-//! evaluation and accounting statistics they consume (`stats`).
+//! Calibration and evaluation statistics the NanoQuant path consumes (`stats`), the engine-weight
+//! conversions it writes students through (`run`), and the symmetric eigendecomposition and scale
+//! quantisers the solvers share (`fit`). The E8 fold fit that gave the module its name is removed.
 
-/// Finishing stage: the frozen-code coded weight plane carrying the trainable log-multiplicative
-/// latents.
-pub mod finish;
-/// Weight-fit steps: Jacobi eigendecomposition, scale quantisers, closed-form steps, ICM passes and
-/// the low-rank corrector.
+/// Symmetric eigendecomposition (cyclic Jacobi), the low-rank corrector it backs, and the binary16
+/// and hierarchical scale quantisers.
 pub mod fit;
-/// Per-layer production scaling steps these fits feed into (the `-resq` plane row scale).
-pub mod layer;
-/// Run glue: the `Q32.32` engine weights below the `f64` fold driver, in both directions.
+/// Conversions between the engine-loaded `Q32.32` weights and student `GGUF` bytes.
 pub mod run;
-/// Statistics: activation Grams, held-out KL, layer-wise intensity and the exact byte budget.
+/// Activation Grams, the output-side Hessian sketch, held-out KL and the `--kl-divergence-base` reader.
 pub mod stats;

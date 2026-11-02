@@ -23,7 +23,6 @@ use apeiron::engine::loader::Engine;
 use apeiron::engine::{KernelMode, ONE};
 use apeiron::format::quant;
 use apeiron::learn::fold::run::convert::student_gguf_bytes;
-use apeiron::learn::fold::run::transfer::write_student_gguf;
 use apeiron::learn::fold::stats::heldout::{
     held_out, held_out_kldbase_chunk, held_out_seq, score_base_row, BaseScore,
 };
@@ -965,8 +964,8 @@ fn from_bytes_matches_open() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// One encoder, two consumers: `student_gguf_bytes` is exactly the bytes `write_student_gguf`
-/// writes, and `Engine::from_bytes` over those bytes opens and reproduces the teacher's columns.
+/// `student_gguf_bytes` round-trips through a file, and `Engine::from_bytes` over those bytes opens
+/// and reproduces the teacher's columns.
 ///
 /// The student is the teacher's own weights read back through `Weights::from_engine`, so the
 /// re-encode is the identity up to the binary16 round trip already exact in `Q32.32`.
@@ -982,9 +981,12 @@ fn student_gguf_bytes_matches_the_written_file() {
         "one"
     ));
     let out = out.to_str().expect("utf8 temp path").to_string();
-    write_student_gguf(&path, &weights, &out).expect("write student gguf");
+    std::fs::write(&out, &bytes).expect("write student gguf");
     let file = std::fs::read(&out).expect("read the written student");
-    assert_eq!(bytes, file, "the in-memory encoder and the writer disagree");
+    assert_eq!(
+        bytes, file,
+        "the student image did not round-trip through the file"
+    );
 
     let student = Engine::from_bytes(&out, file).expect("from_bytes over the student image");
     assert_eq!(student.path, out);

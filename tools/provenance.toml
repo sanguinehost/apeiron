@@ -40,16 +40,6 @@ file = "src/learn/gguf.rs"
 upstream = [{ rev = "llama", path = "gguf-py/gguf/gguf_writer.py" }]
 containment = 0.0
 
-[[ported]]
-file = "src/learn/imatrix.rs"
-upstream = [{ rev = "llama", path = "tools/imatrix/imatrix.cpp" }, { rev = "llama", path = "common/imatrix-loader.cpp" }]
-containment = 0.007
-
-[[ported]]
-file = "src/learn/seal.rs"
-upstream = [{ rev = "llama", path = "ggml/src/ggml-quants.c" }]
-containment = 0.104
-
 # Every file matching one of these globs must match an `[[origin]]` glob.
 [coverage]
 globs = ["fuzz/seeds/*/*", "src/gpu/spirv/*.spv", "src/gpu/spirv/*.comp", "examples/gpu_dump_spirv/*", "fold-abi/*.md"]
