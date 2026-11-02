@@ -3,7 +3,6 @@
 //! `matvec_fixed` on the dequantized `quant_act` activation.
 
 pub(crate) mod bitplane;
-pub(crate) mod fold;
 pub(crate) mod gemm;
 #[cfg(test)]
 mod gemm_probe;
