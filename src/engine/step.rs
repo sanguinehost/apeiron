@@ -1464,6 +1464,9 @@ impl Engine {
         sched: Sched,
         mode: KernelMode,
     ) -> Result<Vec<i64>, StepError> {
+        if let Some(out) = self.fold_proj(key, n_out, n_in, x)? {
+            return Ok(out);
+        }
         let (idx, ggml_type, at) = self.tensor_payload(key, n_out, n_in, sched)?;
         let folded = folded_activation(self.hadamard(), key, x)?;
         let activation: &[i64] = opt_slice(&folded).unwrap_or(x);
@@ -1506,6 +1509,35 @@ impl Engine {
             ),
         };
         out.map_err(StepError::Matvec)
+    }
+
+    /// The fitted linear's product of `x` where the GGUF's payload would be projected, or `None` when
+    /// `key` is not fitted. The fold face, not the payload, carries the weight: the projection runs on
+    /// [`matvec_fold`](super::matvec_fold) and the tensor's bytes are never read.
+    ///
+    /// # Errors
+    ///
+    /// [`StepError::BadShape`] when the config's shape for `key` is not the fold linear's;
+    /// [`StepError::Overflow`] when the product leaves `i64` or the face refuses the activation.
+    fn fold_proj(
+        &self,
+        key: TensorKey,
+        n_out: usize,
+        n_in: usize,
+        x: &[i64],
+    ) -> Result<Option<Vec<i64>>, StepError> {
+        let Some(lin) = self.fold_linear(key) else {
+            return Ok(None);
+        };
+        if (lin.o(), lin.n()) != (n_out, n_in) {
+            return Err(StepError::BadShape {
+                tensor: key.to_string(),
+                dims: vec![n_in as u64, n_out as u64],
+                expected: vec![lin.n() as u64, lin.o() as u64],
+            });
+        }
+        let out = lin.project(x).ok_or(StepError::Overflow)?;
+        Ok(Some(out))
     }
 
     /// Q/K/V projections for `layer` over `x` under the schedule and kernel `sched`/`mode` choose:

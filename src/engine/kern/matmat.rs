@@ -101,7 +101,8 @@ enum RowOutcome {
 /// &qs[c])` for every `c`, including the same `Err`.
 ///
 /// `Q8_0` and `Q5_0` with a whole-block width, `k ≤ 16`, exact activation magnitudes and a
-/// call-level overflow bound run the shared-decode kernel; `Q4_K` and `Q6_K` run the pooled
+/// call-level overflow bound run the shared-decode kernel; a wider `k` is split into runs of
+/// `MAX_K` columns, each the same call; `Q4_K` and `Q6_K` run the pooled
 /// multi-column kernel of `chart::kcols` under the same exactness conditions; every other input is
 /// the per-column [`matvec_q8act`]. Either way column `c` equals the per-column call bit for bit, so
 /// a caller may read the k columns as k independent projections.
@@ -115,8 +116,8 @@ enum RowOutcome {
 /// # Complexity
 ///
 /// Temporal `O(n_out·n_in·k)` exact integer multiply-adds — the same count as `k` separate calls,
-/// with the weight payload's `O(n_out·n_in)` bytes read once per call instead of `k` times and the
-/// `k·n_out·n_in` activation code bytes read per column. Spatial `O(n_out·k)` for the output plus
+/// with the weight payload's `O(n_out·n_in)` bytes read `⌈k/MAX_K⌉` times (once for `k ≤ MAX_K`)
+/// instead of `k` times and the `k·n_out·n_in` activation code bytes read per column. Spatial `O(n_out·k)` for the output plus
 /// `O(k)` column state; the kernel keeps no `O(n_in)` scratch.
 #[allow(
     clippy::cast_possible_truncation,
@@ -143,6 +144,17 @@ pub(crate) fn matmat_q8act(
         return Ok(cols);
     }
     let k = qs.len();
+    // Past `MAX_K` columns the shared-decode kernel is refused and the whole call would fall to
+    // `k` separate matvecs (one serial pass over the weights per column). Columns are independent,
+    // so each run of `MAX_K` is the same call on fewer columns; a refusal in run `i` is returned
+    // only after runs `< i` succeed, which keeps the lowest-indexed column's refusal.
+    if k > MAX_K && matches!(ggml_type, GGML_TYPE_Q8_0 | GGML_TYPE_Q5_0) {
+        let mut cols: Vec<Vec<i64>> = Vec::with_capacity(k);
+        for run in qs.chunks(MAX_K) {
+            cols.extend(matmat_q8act(ggml_type, raw, n_out, n_in, run)?);
+        }
+        return Ok(cols);
+    }
     // `Q4_K`/`Q6_K`: the packed-lane kernels of `chart::kcols` read each weight row once per call
     // and defer every refusal to the per-column path below, so `None` only costs this attempt.
     #[cfg(target_arch = "x86_64")]
@@ -971,6 +983,27 @@ mod tests {
         const KS: [usize; 5] = [1, 2, 3, 8, 16];
         let mut seed = 0x1234_5678_9abc_def0u64;
         for (ti, &ggml_type) in TYPES.iter().enumerate() {
+            for &(rows, n_in) in &SHAPES {
+                seed = seed
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                let raw = random_payload(ggml_type, rows, n_in, 0x3800, seed);
+                for &k in &KS {
+                    let qs = acts(n_in, k, seed ^ ((k as u64) << 17) ^ ti as u64);
+                    check_columns(ggml_type, &raw, rows, n_in, &qs);
+                }
+            }
+        }
+    }
+
+    /// `k` past the fast kernel's `MAX_K`: the runs of `MAX_K` columns equal the per-column
+    /// [`matvec_q8act`] bit for bit, in column order, including the ragged last run.
+    #[test]
+    fn wide_column_sets_match_per_column_matvec_q8act() {
+        const SHAPES: [(usize, usize); 3] = [(4, 64), (2, 300), (3, 256)];
+        const KS: [usize; 5] = [17, 32, 33, 40, 64];
+        let mut seed = 0x0dd5_eed5_1ced_beefu64;
+        for (ti, &ggml_type) in [GGML_TYPE_Q8_0, GGML_TYPE_Q5_0].iter().enumerate() {
             for &(rows, n_in) in &SHAPES {
                 seed = seed
                     .wrapping_mul(6_364_136_223_846_793_005)
