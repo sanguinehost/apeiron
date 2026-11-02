@@ -1,13 +1,14 @@
 //! `tests/learn_onebit_bits.rs` — `onebit_bits` reproduces the five bit counters of the Qwen2.5-0.5B
-//! arm `...-sink-fnorm-grow-res-qmlp-nb` exactly (the receipts/onebit/t3-nb-3seed note.json`,
-//! `Receipts.t3_nb_3seed`), and the controls move the totals by the amounts the closed form
-//! predicts. Grade `tested` (Python counter versus Rust closed form; not a refinement).
+//! arm `...-sink-fnorm-grow-res-qmlp-nb` exactly (`tests/fixtures/onebit/t3-nb-3seed.json`,
+//! sha256 `228765ed…a934`, byte-identical to the receipt `Receipts.t3_nb_3seed` is bound to), and
+//! the controls move the totals by the amounts the closed form predicts. Grade `tested` (Python
+//! counter versus Rust closed form; not a refinement).
 
 use apeiron::learn::onebit_bits::{
     bits_c, bits_corr, bits_d, bits_r, bits_sign, index_bits, params, total_bits, Cfg,
 };
 
-const RECEIPT: &str = include_str!("../the receipts/onebit/t3-nb-3seed note.json");
+const RECEIPT: &str = include_str!("fixtures/onebit/t3-nb-3seed.json");
 
 const SIGN: u64 = 400_490_496;
 const R: u64 = 15_347_712;
