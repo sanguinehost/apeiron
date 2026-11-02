@@ -2,7 +2,7 @@ import ApeironWord
 import Numeric.Engine.Norm
 import Numeric.Engine.Rsqrt
 import Numeric.SiluSaturation
-import Learn.GramExact
+import Learn.Grad.IndexLemmas
 import Numeric.MoeRouter
 import Learn.Grad.DenseNormSpec
 
@@ -413,9 +413,9 @@ theorem swiglu_fwd_loop_body_step
   have hklt_gate : k.val < gate.val.length := by omega
   have hklt_up : k.val < up.val.length := by omega
   have hgate : Slice.index_usize gate k = ok (gate.val.getD k.val default) :=
-    apeiron_gram.slice_index_getD gate k hklt_gate
+    apeiron_index.slice_index_getD gate k hklt_gate
   have hup' : Slice.index_usize up k = ok (up.val.getD k.val default) :=
-    apeiron_gram.slice_index_getD up k hklt_up
+    apeiron_index.slice_index_getD up k hklt_up
   have hkn : k < n := (UScalar.lt_equiv k n).2 hk
   obtain ⟨out', hpush, hout'⟩ := alloc.vec.Vec.push_val out v hbound
   obtain ⟨k', hk', hk'v⟩ := WP.spec_imp_exists
@@ -740,11 +740,11 @@ theorem swiglu_bwd_loop_body_step
   have hklt_up : k.val < up.val.length := by omega
   have hklt_dy : k.val < dy.val.length := by omega
   have hgate : Slice.index_usize gate k = ok (gate.val.getD k.val default) :=
-    apeiron_gram.slice_index_getD gate k hklt_gate
+    apeiron_index.slice_index_getD gate k hklt_gate
   have hup' : Slice.index_usize up k = ok (up.val.getD k.val default) :=
-    apeiron_gram.slice_index_getD up k hklt_up
+    apeiron_index.slice_index_getD up k hklt_up
   have hdy' : Slice.index_usize dy k = ok (dy.val.getD k.val default) :=
-    apeiron_gram.slice_index_getD dy k hklt_dy
+    apeiron_index.slice_index_getD dy k hklt_dy
   have hkn : k < n := (UScalar.lt_equiv k n).2 hk
   have hlen1 : dgate.val.length = k.val := by
     have hh := congrArg List.length hinv1
@@ -910,10 +910,10 @@ theorem rmsnorm_fwd_loop_body_step
   have hklt_gamma : k.val < gamma.val.length := by omega
   have hklt_v : k.val < v.val.length := by omega
   have hgamma : Slice.index_usize gamma k = ok (gamma.val.getD k.val default) :=
-    apeiron_gram.slice_index_getD gamma k hklt_gamma
+    apeiron_index.slice_index_getD gamma k hklt_gamma
   have hnormed : alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice I64) v k
       = ok (v.val.getD k.val default) :=
-    apeiron_gram.vec_index_getD v k hklt_v
+    apeiron_index.vec_index_getD v k hklt_v
   have hkn : k < n := (UScalar.lt_equiv k n).2 hk
   obtain ⟨out', hpush, hout'⟩ := alloc.vec.Vec.push_val out w hbound
   obtain ⟨k', hk', hk'v⟩ := WP.spec_imp_exists
@@ -1083,7 +1083,7 @@ theorem inv_rms_loop_body_step (x : Slice I64) (n : Usize) (sum_sq : I128) (k : 
   have hget : x.val.getD k.val default = x.val[k.val] := List.getD_eq_getElem x.val default hklt_x
   have hxv : (x.val.getD k.val default).val = x.val[k.val].val := by rw [hget]
   have hi : Slice.index_usize x k = ok (x.val.getD k.val default) :=
-    apeiron_gram.slice_index_getD x k hklt_x
+    apeiron_index.slice_index_getD x k hklt_x
   have hvv : (core.convert.num.FromI128I64.from (x.val.getD k.val default)).val =
       (x.val.getD k.val default).val := core.convert.num.FromI128I64.from_val_eq _
   have hmullo : I128.min ≤ (core.convert.num.FromI128I64.from (x.val.getD k.val default)).val *
@@ -1366,11 +1366,11 @@ theorem rmsnorm_bwd_loop0_body_step
     rw [h1]; omega
   obtain ⟨k', hk', hk'v⟩ := WP.spec_imp_exists (Usize.add_spec (x := k) (y := 1#usize) hiaddmax)
   have hig : Slice.index_usize gamma k = ok (gamma.val.getD k.val default) :=
-    apeiron_gram.slice_index_getD gamma k hklt_g
+    apeiron_index.slice_index_getD gamma k hklt_g
   have hidy : Slice.index_usize dy k = ok (dy.val.getD k.val default) :=
-    apeiron_gram.slice_index_getD dy k hklt_d
+    apeiron_index.slice_index_getD dy k hklt_d
   have hix : Slice.index_usize x k = ok (x.val.getD k.val default) :=
-    apeiron_gram.slice_index_getD x k hklt_x
+    apeiron_index.slice_index_getD x k hklt_x
   refine ⟨a', acc', k', ?_, hk'v, ?_, ?_⟩
   · rw [learn_port.dense.rmsnorm_bwd_loop0.body, if_pos hkn, if_pos rfl]
     rw [hig, hidy, hix]

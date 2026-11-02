@@ -41,20 +41,6 @@ pub fn word_learn_gguf_write_file(
     gguf::write_file(header, data)
 }
 
-/// Real `learn::gram::gram_accumulator_clear`: `|g[idx]| ≤ i64::MAX − rows·16_384` for every entry.
-pub fn word_learn_gram_accumulator_clear(g: &[i64], rows: usize) -> bool {
-    crate::gram::gram_accumulator_clear(g, rows)
-}
-
-/// Real `learn::gram::gram_accumulate`: `g[i*d+j] += cols[j][i]`, checked `i64`.
-pub fn word_learn_gram_accumulate(
-    g: Vec<i64>,
-    cols: &[Vec<i64>],
-    d: usize,
-) -> Result<Vec<i64>, crate::gram::GramError> {
-    crate::gram::gram_accumulate(g, cols, d)
-}
-
 /// Real `learn::solve::q32::div_rne_pos`: `num / den` rounded to nearest, ties to even, positive
 /// divisor.
 pub fn word_solve_q32_div_rne_pos(num: i128, den: i128) -> i128 {
@@ -132,9 +118,4 @@ pub fn word_model_embedding_grad(
     vocab: usize,
 ) -> Result<Vec<i64>, model::ModelError> {
     model::embedding_grad(dh, tokens, t, w, vocab)
-}
-
-/// Real `learn::onebit_bits::Cfg::qwen25_05b_nb`: the Qwen2.5-0.5B `-nb` arm's fixed dimensions.
-pub fn word_onebit_qwen25_05b_nb() -> crate::onebit_bits::Cfg {
-    crate::onebit_bits::Cfg::qwen25_05b_nb()
 }

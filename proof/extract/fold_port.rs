@@ -63,10 +63,7 @@ pub mod learn {
     }
     pub mod fold {
         pub use crate::fold_port::{fit, stats};
-        pub use crate::fold_finish_port::{convert, finish};
-        /// The per-layer step (`src/learn/fold/layer/`), declared in `fold_layer_port.rs`.
-        pub use crate::fold_layer_port::layer;
-        /// The `run` sources name `crate::learn::fold::run::convert`; only `convert` is declared.
+        /// The sources name `crate::learn::fold::run::convert`; only `convert` is declared.
         pub mod run {
             pub use crate::fold_finish_port::convert;
         }
@@ -75,61 +72,10 @@ pub mod learn {
         pub use crate::grad_solve_port::model;
         pub use crate::learn_port::{attn, dense, head};
     }
-    pub mod code {
-        pub use crate::learn_port::e8;
-    }
     pub use crate::grad_solve_port::gguf;
 }
 
 // ── `learn::fold::stats` ─────────────────────────────────────────────────────────────────────
-
-/// The real `ceil(bits / 8)`, rooted at the concrete `u128`.
-pub fn word_stats_budget_bytes_ceil(bits: u128) -> Option<u128> {
-    stats::budget::bytes_ceil(bits)
-}
-
-/// The real largest-fitting uniform body rate, rooted at the concrete `u64` rationals.
-pub fn word_stats_budget_max_body_bpw(
-    total_weights: u64,
-    embd_weights: u64,
-    head_weights: u64,
-    embd_bpw: (u64, u64),
-    head_bpw: (u64, u64),
-    budget_bytes: u64,
-    reserve_bytes: u64,
-) -> Option<(u64, u64)> {
-    stats::budget::max_body_bpw(
-        total_weights,
-        embd_weights,
-        head_weights,
-        embd_bpw,
-        head_bpw,
-        budget_bytes,
-        reserve_bytes,
-    )
-}
-
-/// The real Schäfer–Strimmer intensity, rooted at the concrete Q32.32 words.
-pub fn word_stats_lw_intensity(
-    s4: i64,
-    q: &[i64],
-    h: &[i64],
-    o: usize,
-    n: usize,
-) -> Result<(i64, i64), stats::lw::LwError> {
-    stats::lw::lw_intensity(s4, q, h, o, n)
-}
-
-/// The real batch-means intensity, rooted at the concrete Q32.32 words.
-pub fn word_stats_lw_block_intensity(
-    p: i64,
-    b: usize,
-    h: &[i64],
-    o: usize,
-    n: usize,
-) -> Result<(i64, i64), stats::lw::LwError> {
-    stats::lw::lw_block_intensity(p, b, h, o, n)
-}
 
 /// The real `a·b` Q32.32 product, rooted at the concrete words.
 pub fn word_stats_parts_mul(a: i64, b: i64) -> Option<i64> {
@@ -292,100 +238,6 @@ pub fn word_fit_gram_scale(m: &[i64]) -> i32 {
 }
 
 // ── `learn::fold::stats::basis` ─────────────────────────────────────────────────────────────
-
-/// The real damped input Gram `H + DAMP_Q·mean(diag H)·I`, rooted at the concrete words.
-pub fn word_stats_basis_damped_gram(
-    h: &[i64],
-    n: usize,
-) -> Result<Vec<i64>, stats::basis::BasisError> {
-    stats::basis::damped_gram(h, n)
-}
-
-/// The real `n × n` identity basis, rooted at the concrete Q32.32 words.
-pub fn word_stats_basis_identity_basis(n: usize) -> Result<Vec<i64>, stats::basis::BasisError> {
-    stats::basis::identity_basis(n)
-}
-
-/// The real normalised 128-block Hadamard basis, rooted at the concrete Q32.32 words.
-pub fn word_stats_basis_hadamard_basis(n: usize) -> Result<Vec<i64>, stats::basis::BasisError> {
-    stats::basis::hadamard_basis(n)
-}
-
-/// The real row energies `r_i = Σ_j B_ij²`, rooted at the concrete words.
-pub fn word_stats_basis_row_energies(
-    b: &[i64],
-    o: usize,
-    n: usize,
-) -> Result<Vec<i64>, stats::basis::BasisError> {
-    stats::basis::row_energies(b, o, n)
-}
-
-/// The real column energies `c_j = Σ_i B_ij²`, rooted at the concrete words.
-pub fn word_stats_basis_column_energies(
-    b: &[i64],
-    o: usize,
-    n: usize,
-) -> Result<Vec<i64>, stats::basis::BasisError> {
-    stats::basis::column_energies(b, o, n)
-}
-
-/// The real `Σ_j ln c_j` over the positive column energies, rooted at the concrete words.
-pub fn word_stats_basis_sum_log_column_energies(c: &[i64]) -> i64 {
-    stats::basis::sum_log_column_energies(c)
-}
-
-/// The real reverse water-filling distortion `D(θ) = Σ min(λ, θ)`, rooted at the concrete words.
-pub fn word_stats_basis_distortion_at(
-    lambda: &[i64],
-    theta: i64,
-) -> Result<i64, stats::basis::BasisError> {
-    stats::basis::distortion_at(lambda, theta)
-}
-
-/// The real reverse water-filling rate `R(θ)`, rooted at the concrete words.
-pub fn word_stats_basis_rate_at(
-    lambda: &[i64],
-    theta: i64,
-) -> Result<i64, stats::basis::BasisError> {
-    stats::basis::rate_at(lambda, theta)
-}
-
-/// The real fixed-rate distortion `D_u`, rooted at the concrete words.
-pub fn word_stats_basis_uniform_distortion(
-    lambda: &[i64],
-    budget_bits: i64,
-    side_bits: i64,
-) -> Result<i64, stats::basis::BasisError> {
-    stats::basis::uniform_distortion(lambda, budget_bits, side_bits)
-}
-
-/// The real reverse water-filling solution at the target rate, rooted at the concrete words.
-pub fn word_stats_basis_solve_water_fill(
-    lambda: &[i64],
-    budget_bits: i64,
-    side_bits: i64,
-) -> stats::basis::WaterFill {
-    stats::basis::solve_water_fill(lambda, budget_bits, side_bits)
-}
-
-/// The real [`stats::basis::Density::side_bits`] charge at the concrete separable density.
-pub fn word_stats_basis_density_side_bits(o: usize, n: usize) -> i64 {
-    stats::basis::Density::Separable.side_bits(o, n)
-}
-
-/// The real [`stats::basis::Density::sigma`] coefficient-variance map at the separable density.
-pub fn word_stats_basis_density_sigma(
-    b: &[i64],
-    o: usize,
-    n: usize,
-) -> Result<Vec<i64>, stats::basis::BasisError> {
-    stats::basis::Density::Separable.sigma(b, o, n)
-}
-
-/// The real adapted-butterfly angle side charge, rooted at the concrete bit count.
-pub fn word_stats_basis_butterfly_side_bits(n: usize) -> i64 {
-    stats::basis::butterfly_side_bits(n)
-}
 
 // ── `learn::fold::stats::hocapture` ────────────────────────────────────────────────────────
 

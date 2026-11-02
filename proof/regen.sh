@@ -190,15 +190,11 @@ $REPO_DIR/src/map/hashtrinity/tregex.rs
 $REPO_DIR/src/map/hashtrinity/par.rs
 $REPO_DIR/src/map/hashtrinity/face.rs
 $REPO_DIR/src/map/hashtrinity/crypto.rs
-$REPO_DIR/src/learn/gram.rs
-$REPO_DIR/src/learn/sigma_delta.rs
-$REPO_DIR/src/learn/onebit_bits.rs
 $REPO_DIR/src/learn/grad/dense.rs
 $REPO_DIR/src/learn/grad/attn.rs
 $REPO_DIR/src/learn/grad/head.rs
 $REPO_DIR/src/learn/grad/model.rs
 $REPO_DIR/src/learn/gguf.rs
-$REPO_DIR/src/learn/code/e8.rs
 $REPO_DIR/src/learn/solve/q32.rs
 $REPO_DIR/src/learn/solve/syrk.rs
 $REPO_DIR/src/learn/solve/gemm.rs
@@ -206,25 +202,15 @@ $REPO_DIR/src/learn/solve/chol.rs
 $REPO_DIR/src/learn/solve/inv.rs
 $REPO_DIR/src/learn/solve/eig.rs
 $REPO_DIR/src/learn/fold/stats/mod.rs
-$REPO_DIR/src/learn/fold/stats/basis.rs
-$REPO_DIR/src/learn/fold/stats/budget.rs
 $REPO_DIR/src/learn/fold/stats/capture.rs
 $REPO_DIR/src/learn/fold/stats/heldout.rs
 $REPO_DIR/src/learn/fold/stats/hocapture.rs
 $REPO_DIR/src/learn/fold/stats/kldbase.rs
-$REPO_DIR/src/learn/fold/stats/lw.rs
 $REPO_DIR/src/learn/fold/stats/parts.rs
 $REPO_DIR/src/learn/fold/fit/mod.rs
 $REPO_DIR/src/learn/fold/fit/corrector.rs
 $REPO_DIR/src/learn/fold/fit/eigh.rs
-$REPO_DIR/src/learn/fold/fit/fnorm.rs
-$REPO_DIR/src/learn/fold/fit/fold_fit.rs
-$REPO_DIR/src/learn/fold/fit/gptq_e8.rs
-$REPO_DIR/src/learn/fold/fit/gptq_e8_carrier.rs
-$REPO_DIR/src/learn/fold/fit/icm.rs
-$REPO_DIR/src/learn/fold/fit/nb_refine.rs
 $REPO_DIR/src/learn/fold/fit/quant.rs
-$REPO_DIR/src/learn/fold/fit/steps.rs
 $EXTRACT_DIR/fold_port.rs
 $EXTRACT_DIR/learn_port.rs
 $EXTRACT_DIR/solve_port.rs
@@ -232,15 +218,9 @@ $EXTRACT_DIR/grad_solve_port.rs
 $EXTRACT_DIR/hashtrinity_port.rs
 $EXTRACT_DIR/ports/format_port.rs
 $EXTRACT_DIR/coord_port.rs
-$EXTRACT_DIR/ports/fit_port.rs
 $EXTRACT_DIR/ports/crypto_port.rs
 $EXTRACT_DIR/ports/fold_finish_port.rs
-$REPO_DIR/src/learn/fold/finish/mod.rs
-$REPO_DIR/src/learn/fold/finish/plane.rs
-$REPO_DIR/src/learn/fold/finish/train.rs
 $REPO_DIR/src/learn/fold/run/convert.rs
-$REPO_DIR/src/learn/fold/run/transfer.rs
-$EXTRACT_DIR/ports/fold_layer_port.rs
 $EXTRACT_DIR/ports/table_port.rs
 $REPO_DIR/src/engine/kern/limb.rs
 $EXTRACT_DIR/ports/limb_port.rs
@@ -252,11 +232,6 @@ $EXTRACT_DIR/ports/gpu_port.rs
 $EXTRACT_DIR/ports/gpu_nn_port.rs
 $REPO_DIR/src/gpu/runtime.rs
 $EXTRACT_DIR/ports/gpu_runtime_port.rs
-$REPO_DIR/src/learn/fold/layer/mod.rs
-$REPO_DIR/src/learn/fold/layer/driver.rs
-$REPO_DIR/src/learn/fold/layer/tensor.rs
-$REPO_DIR/src/learn/fold/layer/resq.rs
-$REPO_DIR/src/learn/fold/layer/stage.rs
 $REPO_DIR/src/map/hashtrinity/side.rs
 $REPO_DIR/src/map/hashtrinity/overflow.rs
 $EXTRACT_DIR/Cargo.toml
@@ -477,19 +452,6 @@ run_extract() {
         --start-from crate::coord_port::word_identity_nodes_get \
         --start-from crate::coord_port::word_identity_nodes_iter \
         --start-from crate::coord_port::word_identity_nodes_into_iter \
-        --start-from crate::fit_port::word_fit_steps_fwht_words \
-        --start-from crate::fit_port::word_fit_steps_had_gram \
-        --start-from crate::fit_port::word_fit_steps_compose \
-        --start-from crate::fit_port::word_fit_gptq_e8_carrier_feedback_u \
-        --start-from crate::fit_port::word_fit_icm_codebook \
-        --start-from crate::fit_port::word_fit_icm_nearest_index \
-        --start-from crate::fit_port::word_fit_icm_ridged_metric \
-        --start-from crate::fit_port::word_fit_icm_plane_w \
-        --start-from crate::fit_port::word_fit_icm_j_rows \
-        --start-from crate::fit_port::word_fit_icm_e8_icm_step \
-        --start-from crate::fit_port::word_fit_icm_best_code_q \
-        --start-from crate::fit_port::word_fit_icm_r_step2 \
-        --start-from crate::fit_port::word_fit_icm_matmul \
         --start-from crate::crypto_port::word_crypto_ct_eq \
         --start-from crate::crypto_port::word_crypto_sha256 \
         --start-from crate::crypto_port::word_crypto_sha512 \
@@ -555,35 +517,10 @@ run_extract() {
         --start-from crate::crypto_port::word_crypto2_x509_der_children \
         --start-from crate::crypto_port::word_crypto2_age_b64d \
         --start-from crate::crypto_port::word_crypto2_jwt_b64url_decode \
-        --start-from crate::fold_finish_port::word_finish_train_linear_new \
-        --start-from crate::fold_finish_port::word_finish_train_planes_new \
-        --start-from crate::fold_finish_port::word_finish_train_planes_linear \
-        --start-from crate::fold_finish_port::word_finish_train_planes_linear_mut \
-        --start-from crate::fold_finish_port::word_finish_train_layer_tunables_new \
-        --start-from crate::fold_finish_port::word_finish_train_layer_tunables_bias_scale \
-        --start-from crate::fold_finish_port::word_finish_train_layer_tunables_tuned \
-        --start-from crate::fold_finish_port::word_finish_train_tunables_new \
-        --start-from crate::fold_finish_port::word_finish_train_tunables_output_norm \
-        --start-from crate::fold_finish_port::word_finish_train_frozen_new \
-        --start-from crate::fold_finish_port::word_finish_train_schedule_new \
-        --start-from crate::fold_finish_port::word_finish_train_schedule_factor \
-        --start-from crate::fold_finish_port::word_finish_train_adam_zeros \
-        --start-from crate::fold_finish_port::word_finish_train_adam_len \
-        --start-from crate::fold_finish_port::word_finish_train_adam_is_empty \
-        --start-from crate::fold_finish_port::word_finish_train_adam_apply \
-        --start-from crate::fold_finish_port::word_finish_train_kl_mean \
         --start-from crate::fold_finish_port::word_run_convert_decode_f16 \
         --start-from crate::fold_finish_port::word_run_convert_decode_bf16 \
         --start-from crate::fold_finish_port::word_run_convert_decode_f32 \
         --start-from crate::coord_port::word_identity_node_iter_next \
-        --start-from crate::fold_layer_port::word_layer_driver_layer_words \
-        --start-from crate::fold_layer_port::word_layer_driver_g_row_from_vec \
-        --start-from crate::fold_layer_port::word_layer_driver_g_row_from_matrix \
-        --start-from crate::fold_layer_port::word_layer_driver_model_init \
-        --start-from crate::fold_layer_port::word_layer_tensor_recon \
-        --start-from crate::fold_layer_port::word_layer_tensor_fold_row_scale \
-        --start-from crate::fold_layer_port::word_layer_resq_rescale_hier \
-        --start-from crate::fold_layer_port::word_layer_resq_rescale_hier_top \
         --start-from crate::hashtrinity_port::word_locate_ref_coord \
         --start-from crate::hashtrinity_port::word_locate_ref_same \
         --start-from crate::hashtrinity_port::word_absorb_ref \
@@ -650,16 +587,6 @@ run_extract() {
         --start-from crate::word_count_offsets \
         --start-from crate::word_count_slot \
         --start-from crate::word_count_aggregate \
-        --start-from crate::word_gram_fold_i8 \
-        --start-from crate::word_sd_binary_block \
-        --start-from crate::word_onebit_total_bits \
-        --start-from crate::word_onebit_bits_sign \
-        --start-from crate::word_onebit_bits_r \
-        --start-from crate::word_onebit_bits_c \
-        --start-from crate::word_onebit_bits_d \
-        --start-from crate::word_onebit_bits_corr \
-        --start-from crate::word_onebit_params \
-        --start-from crate::word_onebit_index_bits \
         --start-from crate::learn_port::word_dense_linear_fwd \
         --start-from crate::learn_port::word_dense_linear_bwd_input \
         --start-from crate::learn_port::word_dense_linear_bwd_weight \
@@ -675,9 +602,6 @@ run_extract() {
         --start-from crate::learn_port::word_head_kl_row \
         --start-from crate::learn_port::word_head_tv_row \
         --start-from crate::learn_port::word_head_head_chunked \
-        --start-from crate::learn_port::word_e8_codeword \
-        --start-from crate::learn_port::word_e8_nearest \
-        --start-from crate::learn_port::word_e8_nearest_scaled \
         --start-from crate::solve_port::word_solve_gemm_nn \
         --start-from crate::solve_port::word_solve_gemm_nt \
         --start-from crate::solve_port::word_solve_wsyrk \
@@ -694,9 +618,6 @@ run_extract() {
         --start-from crate::solve_port::word_solve_q32_round_f16 \
         --start-from crate::grad_solve_port::word_learn_gguf_write_header \
         --start-from crate::grad_solve_port::word_learn_gguf_write_file \
-        --start-from crate::grad_solve_port::word_learn_gram_accumulator_clear \
-        --start-from crate::grad_solve_port::word_learn_gram_accumulate \
-        --start-from crate::grad_solve_port::word_onebit_qwen25_05b_nb \
         --start-from crate::grad_solve_port::word_solve_q32_div_rne_pos \
         --start-from crate::grad_solve_port::word_solve_q32_spd_to_q32 \
         --start-from crate::grad_solve_port::word_model_config_q_out \
@@ -746,10 +667,6 @@ run_extract() {
         --start-from crate::hashtrinity_port::word_freq_insert \
         --start-from crate::hashtrinity_port::word_freq_longest_probe \
         --start-from crate::hashtrinity_port::word_freq_primary_examinations \
-        --start-from crate::fold_port::word_stats_budget_bytes_ceil \
-        --start-from crate::fold_port::word_stats_budget_max_body_bpw \
-        --start-from crate::fold_port::word_stats_lw_intensity \
-        --start-from crate::fold_port::word_stats_lw_block_intensity \
         --start-from crate::fold_port::word_stats_parts_mul \
         --start-from crate::fold_port::word_stats_parts_sqrt \
         --start-from crate::fold_port::word_stats_parts_sin_cos \
@@ -772,19 +689,6 @@ run_extract() {
         --start-from crate::fold_port::word_fit_r_level \
         --start-from crate::fold_port::word_fit_r_hier_reconstruct \
         --start-from crate::fold_port::word_fit_gram_scale \
-        --start-from crate::fold_port::word_stats_basis_damped_gram \
-        --start-from crate::fold_port::word_stats_basis_identity_basis \
-        --start-from crate::fold_port::word_stats_basis_hadamard_basis \
-        --start-from crate::fold_port::word_stats_basis_row_energies \
-        --start-from crate::fold_port::word_stats_basis_column_energies \
-        --start-from crate::fold_port::word_stats_basis_sum_log_column_energies \
-        --start-from crate::fold_port::word_stats_basis_distortion_at \
-        --start-from crate::fold_port::word_stats_basis_rate_at \
-        --start-from crate::fold_port::word_stats_basis_uniform_distortion \
-        --start-from crate::fold_port::word_stats_basis_solve_water_fill \
-        --start-from crate::fold_port::word_stats_basis_density_side_bits \
-        --start-from crate::fold_port::word_stats_basis_density_sigma \
-        --start-from crate::fold_port::word_stats_basis_butterfly_side_bits \
         --start-from crate::fold_port::word_stats_hocapture_softmax_row \
         --start-from crate::fold_port::word_stats_hocapture_cross_entropy_sum \
         --start-from crate::fold_port::word_stats_hocapture_logits_grad_ce \

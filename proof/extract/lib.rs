@@ -1389,85 +1389,7 @@ pub fn word_count_aggregate(routed: &[u64], lo: usize, hi: usize) -> hashtrinity
     hashtrinity::FreqMap::<u64, i64>::count_aggregate(routed, lo, hi)
 }
 
-// The exact-integer Gram fold (`src/learn/gram.rs`), reached by `#[path]` so the extracted body is
-// the real source. The module is dependency-free; the wrapper fixes nothing and calls the real
-// function.
-#[path = "../../src/learn/gram.rs"]
-pub mod gram;
-
-/// Real `learn::gram::gram_fold_i8`: the exact checked `i64` fold `g += XᵀX` over a batch of `i8`
-/// rows. The wrapper calls the real body; it does not restate the product or the accumulation.
-pub fn word_gram_fold_i8(
-    g: Vec<i64>,
-    x: &[i8],
-    rows: usize,
-    d: usize,
-) -> Result<Vec<i64>, gram::GramError> {
-    gram::gram_fold_i8(g, x, rows, d)
-}
-
-// The exact-integer sigma-delta block (`src/learn/sigma_delta.rs`), reached by `#[path]` so the
-// extracted body is the real source. The module is dependency-free; the wrapper fixes nothing and
-// calls the real function.
-#[path = "../../src/learn/sigma_delta.rs"]
-pub mod sigma_delta;
-
-/// Real `learn::sigma_delta::sd_binary_block`: the checked `i64` first-order sigma-delta block. It
-/// returns the final error state and the peak `max |e_t|`, or `None` on a shape mismatch or a
-/// checked overflow. The wrapper calls the real body; it does not restate the sign test or the
-/// recurrence.
-pub fn word_sd_binary_block(w: &[i64], a: i64, s: &mut [i8]) -> Option<(i64, i64)> {
-    sigma_delta::sd_binary_block(w, a, s)
-}
-
-// The one-bit arm bit budget (`src/learn/onebit_bits.rs`), reached by `#[path]` so the extracted
-// bodies are the real source. The module depends only on `core`; each wrapper fixes nothing and
-// calls the real function.
-#[path = "../../src/learn/onebit_bits.rs"]
-pub mod onebit_bits;
-
-/// Real `learn::onebit_bits::total_bits`: `nsign + nr + nc + nd + ncorr`, `None` on a checked
-/// overflow or a width that does not divide `group`.
-pub fn word_onebit_total_bits(c: &onebit_bits::Cfg) -> Option<u64> {
-    onebit_bits::total_bits(c)
-}
-
-/// Real `learn::onebit_bits::bits_sign`.
-pub fn word_onebit_bits_sign(c: &onebit_bits::Cfg) -> Option<u64> {
-    onebit_bits::bits_sign(c)
-}
-
-/// Real `learn::onebit_bits::bits_r`.
-pub fn word_onebit_bits_r(c: &onebit_bits::Cfg) -> Option<u64> {
-    onebit_bits::bits_r(c)
-}
-
-/// Real `learn::onebit_bits::bits_c`.
-pub fn word_onebit_bits_c(c: &onebit_bits::Cfg) -> Option<u64> {
-    onebit_bits::bits_c(c)
-}
-
-/// Real `learn::onebit_bits::bits_d`.
-pub fn word_onebit_bits_d(c: &onebit_bits::Cfg) -> Option<u64> {
-    onebit_bits::bits_d(c)
-}
-
-/// Real `learn::onebit_bits::bits_corr`.
-pub fn word_onebit_bits_corr(c: &onebit_bits::Cfg) -> Option<u64> {
-    onebit_bits::bits_corr(c)
-}
-
-/// Real `learn::onebit_bits::params`.
-pub fn word_onebit_params(c: &onebit_bits::Cfg) -> Option<u64> {
-    onebit_bits::params(c)
-}
-
-/// Real `learn::onebit_bits::index_bits`.
-pub fn word_onebit_index_bits(c: &onebit_bits::Cfg) -> Option<u64> {
-    onebit_bits::index_bits(c)
-}
-
-// The one-bit backward passes and the E8 codebook (`src/learn/{grad,code}`).
+// The backward passes (`src/learn/grad`).
 #[path = "learn_port.rs"]
 pub mod learn_port;
 // The Q32.32 linear-algebra primitives (`src/learn/solve/`).
@@ -1484,15 +1406,10 @@ pub mod fold_port;
 pub mod format_port;
 #[path = "coord_port.rs"]
 pub mod coord_port;
-#[path = "ports/fit_port.rs"]
-pub mod fit_port;
 #[path = "ports/crypto_port.rs"]
 pub mod crypto_port;
 #[path = "ports/fold_finish_port.rs"]
 pub mod fold_finish_port;
-// The per-layer fold transfer (`src/learn/fold/layer/`).
-#[path = "ports/fold_layer_port.rs"]
-pub mod fold_layer_port;
 // The table's scoped-parallel scheduling and reservation seams (`src/map/table/parallel.rs`).
 #[path = "ports/table_port.rs"]
 pub mod table_port;
