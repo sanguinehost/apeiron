@@ -118,11 +118,16 @@ Q4_K_M's, from the same run. That bar is not met yet.
 |---|---|---:|---:|---:|---:|
 | wikitext-2 perplexity | Qwen3-0.6B-Base, 1.18 b/w, 1024-step KD | 24.5751 | 13.7633 | 1.785× | 1.15× |
 | mean 0-shot accuracy (boolq, piqa, hellaswag, winogrande, arc_easy, arc_challenge) | same | 0.4194 | 0.5556 | 0.755× | 0.90× |
-| relative Hessian distortion, all 28 blocks | same, Fold E8 lattice codebook vs NanoQuant's sign-rank factorisation | 0.0149 | 0.0805 (NanoQuant) | 5.39× lower | n/a |
+| relative Hessian distortion, all 28 blocks (unreproduced, see below) | same, Fold E8 lattice codebook vs NanoQuant's sign-rank factorisation | 0.0149 | 0.0805 (NanoQuant) | 5.39× lower | n/a |
 
 - NanoQuant as shipped, on the same model and harness: perplexity 24.3317 (1.768×), accuracy 0.4235
   (0.762×). At equal bits the port is 1.010× the reference's perplexity and 0.99× its accuracy, with
-  5.39× lower layer distortion; both are short of the bar.
+  5.39× lower layer distortion (unreproduced, below); both are short of the bar.
+- The distortion row is a figure recorded on another machine. Its receipt, 112 per-linear fits
+  (`q3-gram/l{0..27}.{down,o,up,gate}-nq-fold.i64`), is not in this repository, and the entry point
+  it names, `learn_nanoquant::fold_fit_all`, is not in the source. The E8 codebook and its fit are
+  here (`src/learn/code/e8.rs`, `src/learn/fold/fit/gptq_e8.rs`); the 0.0149 and 0.0805 are not
+  re-derivable from a clone and carry no grade.
 - Qwen3.8-27B (48 DeltaNet and 16 attention layers) runs end to end at 1.18 b/w with 3.753 GiB of
   resident weights, inside the 4 GB budget: prompt processing 586.4 tok/s and generation
   4.85–5.90 tok/s on an RTX 5080 with 38 layers offloaded plus CPU, prefix-cache hit 98.3%. It has
