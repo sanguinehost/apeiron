@@ -8,23 +8,27 @@ You need a GGUF model and its `tokenizer.json`. The loader reads `general.archit
 file. The examples and receipts name `qwen2` (Qwen2.5-0.5B) and `qwen35` (Qwen3.5-0.8B) models; no
 other architecture is claimed. The quantisation types it reads are in [Formats](../engine/formats.md).
 
-## Greedy decode
+## Generate text
 
 ```sh
-cargo run --release --locked --example engine_decode -- <model.gguf> <tokenizer.json> 16
+cargo run --release --locked --example generate -- \
+  --model <model.gguf> --tokenizer <tokenizer.json> --chat --prompt "What is the capital of France?"
 ```
 
-Arguments are `[gguf] [tokenizer.json] [n]`. The example tokenises a fixed prompt, prefills it,
-then greedy-decodes `n` tokens. It prints the prompt ids, the generated ids, the detokenised
-completion and the wall-clock tokens per second. Two environment variables change the run:
+The completion streams to stdout. The prompt token count, prefill and decode throughput, and the
+stop reason go to stderr. Decoding is greedy.
 
-| variable | effect |
+| flag | effect |
 |---|---|
-| `APEIRON_KERNEL=q8act` | int8-activation projections instead of the exact path |
-| `APEIRON_PROMPT_IDS` | read prompt ids from a file instead of tokenising |
+| `--model`, `--tokenizer` | required; the GGUF file and its `tokenizer.json` |
+| `--prompt TEXT` | the prompt; read from stdin when absent |
+| `--chat` | wrap the prompt as one ChatML turn and stop at the end-of-turn token |
+| `--system TEXT` | the system message with `--chat` |
+| `--n N` | at most `N` generated tokens, default 64 |
+| `--kernel q8act\|exact` | `q8act` (default) runs int8-activation projections; `exact` is the i128 reference path, about ten times slower |
 
-Omit the gguf and tokenizer arguments only if you have put the models where the example's defaults
-point. Pass both paths explicitly otherwise.
+A prompt id at or above the model's vocabulary, an empty prompt, and a prompt plus `n` beyond the
+KV capacity are refused with an error.
 
 ## Check a projection by hand
 
