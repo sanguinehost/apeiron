@@ -5,7 +5,7 @@
 //!  [--prompt TEXT | stdin] [--n 64] [--chat] [--system TEXT] [--kernel q8act|exact]`
 //!
 //! - Without `--chat` the prompt is a raw completion prefix.
-//! - With `--chat` the prompt is wrapped as one ChatML user turn (the `qwen2` and `qwen35` template:
+//! - With `--chat` the prompt is wrapped as one `ChatML` user turn (the `qwen2` and `qwen35` template:
 //!   `<|im_start|>role\n…<|im_end|>\n`) and the model's end-of-turn token stops generation.
 //! - `--kernel q8act` (default) is the int8-activation path every throughput receipt measures;
 //!   `exact` is the i128 reference path, about an order of magnitude slower.
@@ -76,13 +76,12 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
 }
 
 fn run(a: &Args) -> Result<(), Box<dyn Error>> {
-    let user = match &a.prompt {
-        Some(p) => p.clone(),
-        None => {
-            let mut s = String::new();
-            std::io::stdin().read_to_string(&mut s)?;
-            s
-        }
+    let user = if let Some(p) = &a.prompt {
+        p.clone()
+    } else {
+        let mut s = String::new();
+        std::io::stdin().read_to_string(&mut s)?;
+        s
     };
     let text = if a.chat {
         format!(
