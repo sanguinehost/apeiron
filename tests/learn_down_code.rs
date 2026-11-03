@@ -107,8 +107,10 @@ fn read_words(path: &str) -> (usize, usize, Vec<i64>) {
     let o = u64::from_le_bytes(b[0..8].try_into().expect("8")) as usize;
     let n = u64::from_le_bytes(b[8..16].try_into().expect("8")) as usize;
     let words = b[16..]
-        .chunks_exact(8)
-        .map(|c| i64::from_le_bytes(c.try_into().expect("8")))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| i64::from_le_bytes(*c))
         .collect();
     (o, n, words)
 }
@@ -408,7 +410,7 @@ fn median(v: &[f64]) -> f64 {
     if n % 2 == 1 {
         s[n / 2]
     } else {
-        0.5 * (s[n / 2 - 1] + s[n / 2])
+        f64::midpoint(s[n / 2 - 1], s[n / 2])
     }
 }
 

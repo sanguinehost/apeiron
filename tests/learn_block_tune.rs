@@ -125,22 +125,28 @@ fn dump_at(parts: &str) -> String {
 
 fn read_f32(path: &str) -> Vec<f32> {
     let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    b.chunks_exact(4)
-        .map(|c| f32::from_le_bytes(c.try_into().expect("4")))
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
         .collect()
 }
 
 fn read_i32(path: &str) -> Vec<i32> {
     let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    b.chunks_exact(4)
-        .map(|c| i32::from_le_bytes(c.try_into().expect("4")))
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| i32::from_le_bytes(*c))
         .collect()
 }
 
 /// The dump's `bf16` payloads: the high half of an f32.
 fn read_bf16(path: &str) -> Vec<f32> {
     let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    b.chunks_exact(2)
+    b.as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16))
         .collect()
 }
@@ -385,8 +391,10 @@ unsafe fn load_stream(g: &GpuCtx, cb: CommandBuffer, st: &Stage, s: &Stream, pat
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
     assert_eq!(bytes.len(), s.words() * 4, "{path}: stream words");
     let v: Vec<f32> = bytes
-        .chunks_exact(4)
-        .map(|c| f32::from_le_bytes(c.try_into().expect("4")))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
         .collect();
     let mut at = 0;
     while at < s.words() {
@@ -715,8 +723,10 @@ fn load_param(path: &str) -> Param {
     let mut at = 32;
     let mut take = |n: usize| -> Vec<f32> {
         let v = b[at..at + 4 * n]
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes(c.try_into().expect("f32")))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_le_bytes(*c))
             .collect();
         at += 4 * n;
         v

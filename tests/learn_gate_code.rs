@@ -198,8 +198,10 @@ fn read_words(path: &str) -> (usize, usize, Vec<i64>) {
     let o = u64::from_le_bytes(b[0..8].try_into().expect("8")) as usize;
     let n = u64::from_le_bytes(b[8..16].try_into().expect("8")) as usize;
     let words = b[16..]
-        .chunks_exact(8)
-        .map(|c| i64::from_le_bytes(c.try_into().expect("8")))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| i64::from_le_bytes(*c))
         .collect::<Vec<i64>>();
     assert_eq!(words.len(), o * n, "{path}: payload is not o*n words");
     (o, n, words)
@@ -896,7 +898,7 @@ fn gate_code_floor() {
             let b = p as f64 * plane / (o * n) as f64;
             let (mut lo, mut hi) = (0.0f64, 16.0f64);
             for _ in 0..50 {
-                let mid = 0.5 * (lo + hi);
+                let mid = f64::midpoint(lo, hi);
                 if rho(mid) > rf {
                     lo = mid;
                 } else {

@@ -806,7 +806,7 @@ fn grid_act(g: &GpuCtx<'_>, rng: &mut Rng, k: usize, n: usize) -> GridAct {
     let blocks = k / 32;
     let rows = n.div_ceil(TILE_BN as usize) * TILE_BN as usize;
     let mut codes = vec![0i8; n * k];
-    for blk in codes.chunks_exact_mut(32) {
+    for blk in codes.as_chunks_mut::<32>().0 {
         for c in blk.iter_mut() {
             *c = ((rng.next() % 255) as i32 - 127) as i8;
         }
@@ -860,7 +860,7 @@ fn grid_reference(wperm: &[f64], codes: &[i8], n: usize, m: usize, k: usize) -> 
                         for t in 0..n {
                             let x = &xf[t * k..(t + 1) * k];
                             let mut a = [0f64; 4];
-                            for (wc, xc) in w.chunks_exact(4).zip(x.chunks_exact(4)) {
+                            for (wc, xc) in w.as_chunks::<4>().0.iter().zip(x.as_chunks::<4>().0) {
                                 for l in 0..4 {
                                     a[l] += wc[l] * xc[l];
                                 }

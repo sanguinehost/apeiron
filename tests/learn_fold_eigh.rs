@@ -283,7 +283,7 @@ fn ref_eigh(a: &[f64], n: usize) -> (Vec<f64>, Vec<f64>) {
     let mut m = vec![0.0f64; n * n];
     for i in 0..n {
         for j in 0..n {
-            m[i * n + j] = 0.5 * (a[i * n + j] + a[j * n + i]);
+            m[i * n + j] = f64::midpoint(a[i * n + j], a[j * n + i]);
         }
     }
     let mut v = vec![0.0f64; n * n];
@@ -324,7 +324,7 @@ fn ref_corrector(dw: &[f64], hl: &[f64], o: usize, n: usize, rank: usize) -> (Ve
     let mut m = matmul(&w1, &transpose(dw, o, n), o, n, o);
     for i in 0..o {
         for j in 0..i {
-            let avg = 0.5 * (m[i * o + j] + m[j * o + i]);
+            let avg = f64::midpoint(m[i * o + j], m[j * o + i]);
             m[i * o + j] = avg;
             m[j * o + i] = avg;
         }

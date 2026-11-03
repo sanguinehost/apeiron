@@ -480,8 +480,10 @@ fn loop_words(path: &str) -> (usize, usize, Vec<i64>) {
     let (out, inn, r, kind) = (word(0), word(1), word(2), word(3));
     let f = |at: usize, n: usize| -> Vec<f32> {
         b[32 + 4 * at..32 + 4 * (at + n)]
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes(c.try_into().expect("f32")))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_le_bytes(*c))
             .collect()
     };
     let q32 = |v: f64| (v * 4_294_967_296.0).round() as i64;
@@ -593,8 +595,10 @@ fn read_words(path: &str) -> (usize, usize, Vec<i64>) {
     let o = u64::from_le_bytes(b[0..8].try_into().expect("o")) as usize;
     let n = u64::from_le_bytes(b[8..16].try_into().expect("n")) as usize;
     let w = b[16..]
-        .chunks_exact(8)
-        .map(|c| i64::from_le_bytes(c.try_into().expect("word")))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| i64::from_le_bytes(*c))
         .collect();
     (o, n, w)
 }

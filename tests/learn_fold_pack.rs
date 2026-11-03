@@ -219,7 +219,7 @@ fn fold_pack_real_checkpoint() {
             .iter()
             .zip(planes.iter().filter(|p| p.dense.is_none()))
         {
-            for (b, blk) in p.s_rot.chunks_exact(BLOCK).enumerate() {
+            for (b, blk) in p.s_rot.as_chunks::<BLOCK>().0.iter().enumerate() {
                 assert_eq!(
                     cb[usize::from(rec.idx[b])].as_slice(),
                     blk,
