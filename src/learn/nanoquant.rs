@@ -463,7 +463,7 @@ pub(crate) fn x_update(
         if i == j {
             hn(i, i) + stab
         } else {
-            0.5 * (hn(i, j) + hn(j, i))
+            f64::midpoint(hn(i, j), hn(j, i))
         }
     })?;
     let hi = spd_inverse(&hw, r)?;

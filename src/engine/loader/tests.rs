@@ -123,7 +123,7 @@ fn config_resolves_from_qwen2_metadata() {
     assert_eq!(c.n_ff, 8);
     assert_eq!(c.vocab_size, 8);
     assert_eq!(c.head_dim, 2);
-    assert!(c.rope_theta.to_bits() == DEFAULT_ROPE_THETA_BITS);
+    assert_eq!(c.rope_theta.to_bits(), DEFAULT_ROPE_THETA_BITS);
 }
 
 /// A block count above the tensor directory is refused before the per-layer schedule is

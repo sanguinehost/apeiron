@@ -809,14 +809,14 @@ impl Gguf {
         match t.ggml_type {
             quant::GGML_TYPE_F32 => {
                 let mut out = Vec::with_capacity(n);
-                for c in raw.chunks_exact(4) {
+                for c in raw.as_chunks::<4>().0 {
                     out.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]));
                 }
                 Ok(out)
             }
             quant::GGML_TYPE_F16 => {
                 let mut out = Vec::with_capacity(n);
-                for c in raw.chunks_exact(2) {
+                for c in raw.as_chunks::<2>().0 {
                     out.push(quant::f16_to_f32(u16::from_le_bytes([c[0], c[1]])));
                 }
                 Ok(out)

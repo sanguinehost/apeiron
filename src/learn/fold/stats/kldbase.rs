@@ -66,7 +66,9 @@ impl KldBase {
         let mut raw = vec![0u8; count.checked_mul(4).ok_or_else(|| invalid("bytes"))?];
         file.read_exact(&mut raw)?;
         let tokens = raw
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|b| u32::try_from(i32::from_le_bytes([b[0], b[1], b[2], b[3]])))
             .collect::<Result<Vec<u32>, _>>()
             .map_err(|_| invalid("negative token id"))?;
@@ -109,7 +111,9 @@ impl KldBase {
             .ok_or_else(|| invalid("tokens"))?;
         self.next += 1;
         let words = raw
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|b| u16::from_le_bytes([b[0], b[1]]))
             .collect();
         Ok(KldChunk {

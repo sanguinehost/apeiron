@@ -148,14 +148,14 @@ struct Pass<'a> {
 impl ChunkTask<u8> for Pass<'_> {
     fn run(&self, _c: usize, start: usize, piece: &mut [u8]) {
         if matches!(self.map, Map::F16) {
-            for (i, slot) in piece.chunks_exact_mut(2).enumerate() {
+            for (i, slot) in piece.as_chunks_mut::<2>().0.iter_mut().enumerate() {
                 match f16_pair(self.q[start / 2 + i]) {
                     Ok(b) => slot.copy_from_slice(&b),
                     Err(e) => return self.first.record(start / 2 + i, e),
                 }
             }
         } else {
-            for (i, slot) in piece.chunks_exact_mut(4).enumerate() {
+            for (i, slot) in piece.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 let bits = F32::from_q32(self.q[start / 4 + i]).to_bits();
                 slot.copy_from_slice(&bits.to_le_bytes());
             }

@@ -145,7 +145,9 @@ fn strip_suffix<'a>(name: &'a [u8], suffix: &[u8]) -> Option<&'a str> {
 /// caller; here a trailing partial word is dropped by `chunks_exact`. Cost `O(bytes)`.
 fn f32_payload(bytes: &[u8]) -> Vec<f32> {
     bytes
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
 }

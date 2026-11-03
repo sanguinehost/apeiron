@@ -298,7 +298,7 @@ fn fold_plane_from_fit(
         )));
     }
     let mut idx = Vec::with_capacity(o * (n / BLOCK));
-    for blk in p.s_rot.chunks_exact(BLOCK) {
+    for blk in p.s_rot.as_chunks::<BLOCK>().0 {
         let mut w = [0_i64; BLOCK];
         w.copy_from_slice(blk);
         let j = *cb.get(&w).ok_or_else(|| {

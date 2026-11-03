@@ -194,7 +194,7 @@ pub fn quantize_row(g: &Grid, x: &[f32], qw: &[f32], out: &mut [u8]) {
     assert_eq!(out.len(), x.len() / QK_K * BLOCK_BYTES);
     let x_p = [-1.0 + DELTA, DELTA, 1.0 + DELTA];
     let x_m = [-1.0 - DELTA, -DELTA, 1.0 - DELTA];
-    for (ibl, ob) in out.chunks_exact_mut(BLOCK_BYTES).enumerate() {
+    for (ibl, ob) in out.as_chunks_mut::<BLOCK_BYTES>().0.iter_mut().enumerate() {
         ob.fill(0);
         let xbl = &x[QK_K * ibl..QK_K * (ibl + 1)];
         let mut sumx2 = 0f32;
@@ -358,7 +358,7 @@ pub fn quantize_row(g: &Grid, x: &[f32], qw: &[f32], out: &mut [u8]) {
 pub fn dequantize_row(blocks: &[u8], y: &mut [f32]) {
     assert_eq!(blocks.len() / BLOCK_BYTES * QK_K, y.len());
     let mut at = 0;
-    for b in blocks.chunks_exact(BLOCK_BYTES) {
+    for b in blocks.as_chunks::<BLOCK_BYTES>().0 {
         let d = crate::format::quant::f16_to_f32(u16::from_le_bytes([b[0], b[1]]));
         for ib in 0..8 {
             let h = u16::from_le_bytes([b[34 + 2 * ib], b[35 + 2 * ib]]);

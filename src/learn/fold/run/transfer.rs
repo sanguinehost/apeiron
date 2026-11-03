@@ -205,7 +205,7 @@ fn words_from_bytes(b: &[u8]) -> Result<Vec<i64>, TransferError> {
         )));
     }
     let mut out = Vec::with_capacity(b.len() / 8);
-    for c in b.chunks_exact(8) {
+    for c in b.as_chunks::<8>().0 {
         let mut w = [0u8; 8];
         w.copy_from_slice(c);
         out.push(i64::from_le_bytes(w));

@@ -516,7 +516,7 @@ pub fn quantize_row_q4_k(row: &[f32], weights: Option<&[f32]>) -> Result<Vec<u8>
     }
     let mut out = Vec::with_capacity(row.len() / QK_K * Q4_K_BLOCK_BYTES);
     let mut block = [0u8; Q4_K_BLOCK_BYTES];
-    for (b, chunk) in row.chunks_exact(QK_K).enumerate() {
+    for (b, chunk) in row.as_chunks::<QK_K>().0.iter().enumerate() {
         let qw = weights.map(|w| &w[b * QK_K..(b + 1) * QK_K]);
         quantize_block(chunk, qw, &mut block);
         out.extend_from_slice(&block);
@@ -749,7 +749,7 @@ pub fn quantize_row_q6_k(row: &[f32], weights: Option<&[f32]>) -> Result<Vec<u8>
     }
     let mut out = Vec::with_capacity(row.len() / QK_K * Q6_K_BLOCK_BYTES);
     let mut block = [0u8; Q6_K_BLOCK_BYTES];
-    for (b, chunk) in row.chunks_exact(QK_K).enumerate() {
+    for (b, chunk) in row.as_chunks::<QK_K>().0.iter().enumerate() {
         let qw = weights.map(|w| &w[b * QK_K..(b + 1) * QK_K]);
         quantize_q6_k_block(chunk, qw, &mut block);
         out.extend_from_slice(&block);
@@ -887,7 +887,7 @@ pub fn quantize_row_q5_0(row: &[f32], weights: Option<&[f32]>) -> Result<Vec<u8>
     let mut block = [0u8; Q5_0_BLOCK_BYTES];
     match weights {
         None => {
-            for chunk in row.chunks_exact(Q5_0_NK) {
+            for chunk in row.as_chunks::<Q5_0_NK>().0 {
                 quantize_q5_0_block_ref(chunk, &mut block);
                 out.extend_from_slice(&block);
             }
@@ -895,7 +895,7 @@ pub fn quantize_row_q5_0(row: &[f32], weights: Option<&[f32]>) -> Result<Vec<u8>
         Some(w) => {
             let sum_x2: f32 = row.iter().map(|&v| v * v).sum();
             let sigma2 = sum_x2 / row.len() as f32;
-            for (b, chunk) in row.chunks_exact(Q5_0_NK).enumerate() {
+            for (b, chunk) in row.as_chunks::<Q5_0_NK>().0.iter().enumerate() {
                 quantize_q5_0_block(
                     chunk,
                     &w[b * Q5_0_NK..(b + 1) * Q5_0_NK],
