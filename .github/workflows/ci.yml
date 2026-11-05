@@ -158,8 +158,9 @@ jobs:
 
   proof:
     name: Proof (extraction + Lean)
-    # The canonical toolchain digests are binutils-version-sensitive at the strip step. They were
-    # measured with GNU binutils 2.46 (Ubuntu 26.04); 24.04's 2.42 produces a different digest.
+    # The canonical identities were measured on the fully updated Ubuntu 26.04.1 toolchain (binutils
+    # 2.46, gcc 15.2.0, glibc 2.43). The image ships older packages; the job upgrades and asserts
+    # them before building. Ubuntu 24.04 and the unupgraded 26.04 image produce different digests.
     runs-on: ubuntu-26.04
     timeout-minutes: 240
     env:
@@ -172,14 +173,30 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: System packages
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends opam libgmp-dev pkg-config binutils bubblewrap
-
-      - name: Canonical strip version
         run: |
-          version=$(strip --version | sed -n '1s/.*) //p')
-          case "$version" in
-            2.46*) echo "strip $version" ;;
-            *) echo "proof canonical identity requires binutils strip 2.46; found ${version:-unknown}" >&2; exit 1 ;;
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get -y upgrade
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends opam libgmp-dev pkg-config binutils bubblewrap
+
+      - name: Canonical toolchain versions
+        run: |
+          gcc-15 --version | sed -n '1p'
+          ldd --version | sed -n '1p'
+          strip --version | sed -n '1p'
+          gcc_version=$(gcc-15 -dumpfullversion)
+          libc_version=$(ldd --version | sed -n '1s/.*) //p')
+          strip_version=$(strip --version | sed -n '1s/.*) //p')
+          case "$gcc_version" in
+            15.2.0) ;;
+            *) echo "proof canonical identity requires gcc 15.2.0; found ${gcc_version:-unknown}" >&2; exit 1 ;;
+          esac
+          case "$libc_version" in
+            2.43*) ;;
+            *) echo "proof canonical identity requires glibc 2.43; found ${libc_version:-unknown}" >&2; exit 1 ;;
+          esac
+          case "$strip_version" in
+            2.46*) ;;
+            *) echo "proof canonical identity requires binutils strip 2.46; found ${strip_version:-unknown}" >&2; exit 1 ;;
           esac
 
       - name: Cache opam root and Aeneas build
@@ -188,7 +205,7 @@ jobs:
           path: |
             ${{ env.APEIRON_OPAMROOT }}
             ${{ env.APEIRON_AENEAS_BUILD_ROOT }}
-          key: ${{ runner.os }}-ubuntu-26.04-aeneas-${{ hashFiles('proof/opam-switch.export', 'proof/patches/PINS', 'proof/bootstrap.sh') }}
+          key: ${{ runner.os }}-ubuntu-26.04.1-aeneas-${{ hashFiles('proof/opam-switch.export', 'proof/patches/PINS', 'proof/bootstrap.sh') }}
 
       - name: OCaml closure (pinned switch export)
         run: |
