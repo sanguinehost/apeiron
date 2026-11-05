@@ -22,8 +22,8 @@
 # OCaml records the build directory, and removing the note drops the content-derived build-id, so
 # the pinned digest is a function of the source and toolchain and not of the build root. The
 # canonical toolchain is Ubuntu 26.04.1 as measured below: GNU strip 2.46, gcc 15.2.0 and glibc
-# 2.43. Another strip or C compiler produces a different stripped image; the CI proof job upgrades
-# to the canonical package set and asserts all three versions.
+# 2.43. Another strip or C compiler produces a different stripped image; the CI proof job installs
+# the canonical package set and asserts all three versions.
 # AENEAS_TRANSLATOR_SHA256 is the identity that translates this repository's `src/`; `regen.sh`
 # asserts it (fail-closed) and `bootstrap.sh` asserts all three before installing.
 #
@@ -61,7 +61,7 @@ CHARON_DRIVER_SHA256=3e1ae2c1e444c2f3d0a80bfb312cc650d5993198d5e9ea174f7f8677b1c
 # standard-library directory; dependency panic locations). The canonical build fixes the OCaml root
 # at /tmp/apeiron-opam and remaps CARGO_HOME and RUSTUP_HOME, so its digests do not depend on the
 # user's home. The strip and C/OCaml toolchain versions are part of the identity, not the build root;
-# the CI proof job upgrades to the canonical package set and fails closed on another version.
+# the CI proof job installs the canonical package set and fails closed on another version.
 # `bootstrap.sh --check` and `regen.sh` accept either set; a build produces only the canonical one.
 AENEAS_TRANSLATOR_CANON_SHA256=93c997dd4fec76bd1c26dbc10acd7796582d681ead5467c2db2124df621530ce
 CHARON_CANON_SHA256=fe5a5a2caa3a20ee70c9d322752d983b823cf8688e0943a87770100a9a1b3809

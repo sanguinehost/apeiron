@@ -159,7 +159,7 @@ jobs:
   proof:
     name: Proof (extraction + Lean)
     # The canonical identities were measured on the fully updated Ubuntu 26.04.1 toolchain (binutils
-    # 2.46, gcc 15.2.0, glibc 2.43). The image ships older packages; the job upgrades and asserts
+    # 2.46, gcc 15.2.0, glibc 2.43). The image ships older packages; the job installs and asserts
     # them before building. Ubuntu 24.04 and the unupgraded 26.04 image produce different digests.
     runs-on: ubuntu-26.04
     timeout-minutes: 240
@@ -175,8 +175,10 @@ jobs:
       - name: System packages
         run: |
           sudo DEBIAN_FRONTEND=noninteractive apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get -y upgrade
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends opam libgmp-dev pkg-config binutils bubblewrap
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades --no-install-recommends \
+            gcc-15=15.2.0-16ubuntu1 g++-15=15.2.0-16ubuntu1 \
+            libc6=2.43-2ubuntu2.4 libc6-dev=2.43-2ubuntu2.4 \
+            binutils=2.46-3ubuntu2 opam libgmp-dev pkg-config bubblewrap
 
       - name: Canonical toolchain versions
         run: |

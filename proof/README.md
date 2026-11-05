@@ -722,7 +722,7 @@ proof/regen.sh --check          # prints: extraction is fresh
   `CARGO_HOME`/`RUSTUP_HOME`. Measured: three builds (two build roots, two `HOME` values) strip to one
   digest per binary. The strip and C/OCaml toolchain versions are part of the identity: the canonical
   digests were measured on Ubuntu 26.04.1 with binutils 2.46, gcc 15.2.0 and glibc 2.43. The 24.04
-  image and the unupgraded 26.04 image produced different images. The proof job upgrades to the
+  image and the unupgraded 26.04 image produced different images. The proof job installs the
   canonical package set and fails closed on another version. `bootstrap.sh --check` and `regen.sh`
   accept the canonical or the original set.
 - CI: the `proof` job in `.github/workflows/ci.yml` runs `proof/bootstrap.sh`, `proof/regen.sh --check`
