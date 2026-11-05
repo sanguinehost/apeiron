@@ -298,7 +298,7 @@ fi
 strip_identity "$AENEAS_PRODUCT" "$AENEAS_IDENTITY"
 built_aeneas=$(sha256 "$AENEAS_IDENTITY")
 [ "$built_aeneas" = "$AENEAS_TRANSLATOR_CANON_SHA256" ] \
-    || die "stripped aeneas $built_aeneas != canonical $AENEAS_TRANSLATOR_CANON_SHA256 (opam root $OPAMROOT_DIR, strip ${strip_version:-unknown}; the canonical identity needs /tmp/apeiron-opam and the Ubuntu 26.04.1 toolchain: binutils 2.46, gcc 15.2.0, glibc 2.43)"
+    || die "stripped aeneas $built_aeneas != canonical $AENEAS_TRANSLATOR_CANON_SHA256 (opam root $OPAMROOT_DIR, strip ${strip_version:-unknown}; the canonical identity needs /tmp/apeiron-opam and the GitHub ubuntu-24.04 runner toolchain, binutils 2.42)"
 log "aeneas: $built_aeneas == pinned (stripped identity)"
 
 # --- 4. build charon / charon-driver (Rust) ------------------------------------------------------

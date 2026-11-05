@@ -21,9 +21,9 @@
 # `strip -R .note.gnu.build-id`: `strip` removes the symbol table and the debug sections, in which
 # OCaml records the build directory, and removing the note drops the content-derived build-id, so
 # the pinned digest is a function of the source and toolchain and not of the build root. The
-# canonical toolchain is Ubuntu 26.04.1 as measured below: GNU strip 2.46, gcc 15.2.0 and glibc
-# 2.43. Another strip or C compiler produces a different stripped image; the CI proof job installs
-# the canonical package set and asserts all three versions.
+# canonical toolchain is the GitHub ubuntu-24.04 runner as measured below: GNU strip 2.42. Another
+# strip or C compiler produces a different stripped image; the CI proof job asserts the canonical
+# strip version and fails closed on another.
 # AENEAS_TRANSLATOR_SHA256 is the identity that translates this repository's `src/`; `regen.sh`
 # asserts it (fail-closed) and `bootstrap.sh` asserts all three before installing.
 #
@@ -55,15 +55,14 @@ CHARON_SHA256=a96627e90aac379f70edd093d7dabdee5fa79dca77012a94029bad5bdef2a232
 CHARON_DRIVER_SHA256=3e1ae2c1e444c2f3d0a80bfb312cc650d5993198d5e9ea174f7f8677b1cc75a1
 
 # Canonical identities: the digests a fresh `proof/bootstrap.sh` build produces on the GitHub
-# `ubuntu-26.04` runner with the toolchain installed by the proof job (binutils 2.46-3ubuntu2, gcc
-# 15.2.0-16ubuntu1, glibc 2.43-2ubuntu2.4), opam root /tmp/apeiron-opam, and CARGO_HOME/RUSTUP_HOME
+# `ubuntu-24.04` runner (GNU binutils 2.42), opam root /tmp/apeiron-opam, and CARGO_HOME/RUSTUP_HOME
 # remapped. The `AENEAS_TRANSLATOR_SHA256` / `CHARON_SHA256` / `CHARON_DRIVER_SHA256` values above
 # are the digests of the original installation, whose OCaml root and Cargo home paths are embedded
 # in the binaries (the OCaml standard-library directory; dependency panic locations). The strip, the
 # OCaml root and the C/OCaml toolchain are part of the identity. A build at another opam root, with
 # another toolchain, or with a different strip version produces a different digest; the CI proof job
-# installs the canonical package set and fails closed on another version. `bootstrap.sh --check` and
+# asserts the canonical strip and fails closed on another version. `bootstrap.sh --check` and
 # `regen.sh` accept either set; a build produces only the canonical one.
-AENEAS_TRANSLATOR_CANON_SHA256=7225e44e7c3ee0af5de9f164787b20a74f37a47b296fdd8fd80ce931585f3ac1
-CHARON_CANON_SHA256=96fa590a7c555ea9ed67073fbc6ac81dfe4863a6611df07f29d2d52d5ec34c94
-CHARON_DRIVER_CANON_SHA256=96a7f17068851de39476b449b0f08c700a7f50f796d15932d5c8afcbb1fb220c
+AENEAS_TRANSLATOR_CANON_SHA256=b882c2f3a11f21ca337257453a287ce487c04e37a9111438590c63e2d423f635
+CHARON_CANON_SHA256=7175631addbbf48f759c7de45998e589b6bc58d182b228516cfddd1a4dd1218e
+CHARON_DRIVER_CANON_SHA256=a18e39f6960b1886670db6563521109a003755a50d04304af1f0de396fe2d95c
