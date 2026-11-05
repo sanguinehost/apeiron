@@ -1,0 +1,3 @@
+// Provenance wrapper for the KD forward face: `attn_coopmat.comp` with `KDF=1`.
+#define KDF 1
+#include "attn_coopmat.comp"
