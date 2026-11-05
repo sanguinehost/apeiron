@@ -47,6 +47,13 @@ The [book](book/src/introduction.md) covers installation, the algebra, the table
 on the CPU and the GPU, and the verification. Build it with `mdbook build book`; its examples run
 under `mdbook test book -L target/debug/deps`.
 
+## Local provider (Nous)
+
+The opt-in [`nous/`](nous/README.md) crate exposes the engine as a loopback OpenAI-compatible
+provider (`/v1/models`, `/v1/chat/completions`, streaming). It includes an OpenCode provider
+configuration, OpenAI SDK and `curl` examples, and a small test suite. The library crate itself
+still opens no socket.
+
 ## Inference engine against llama.cpp
 
 Current figures. `pp512` is 512 prompt tokens per second, `tg128` is 128 generated tokens per

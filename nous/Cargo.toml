@@ -1,0 +1,17 @@
+[package]
+name = "nous"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+description = "A loopback OpenAI-compatible provider for the apeiron engine."
+
+[dependencies]
+apeiron = { path = ".." }
+serde_json = "1"
+
+[[bin]]
+name = "nous-serve"
+path = "src/bin/nous-serve.rs"
+
+[workspace]
