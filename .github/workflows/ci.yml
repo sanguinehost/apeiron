@@ -168,6 +168,10 @@ jobs:
       APEIRON_AENEAS_BUILD_ROOT: /home/runner/aeneas-build
       ELAN_VERSION: v4.2.3
       ELAN_SHA256: df0b2b3a439961ffcbb3985214365ffe40f49bc871df04dff268c7d8e21ca8b2
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+      RAYON_NUM_THREADS: 2
+      MALLOC_ARENA_MAX: 2
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -185,6 +189,17 @@ jobs:
             2.42*) ;;
             *) echo "proof canonical identity requires binutils strip 2.42; found ${strip_version:-unknown}" >&2; exit 1 ;;
           esac
+
+      - name: Swap and headroom
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          sudo sysctl -w vm.swappiness=100
+          free -h
+          df -h / /tmp
+          nproc
 
       - name: Cache opam root and Aeneas build
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -213,6 +228,7 @@ jobs:
         run: proof/bootstrap.sh --step-timeout 3000
 
       - name: Extraction is fresh
+        timeout-minutes: 180
         run: proof/regen.sh --check
 
       - name: Lean bridge (Mathlib cache, then build)
