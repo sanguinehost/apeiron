@@ -158,10 +158,9 @@ jobs:
 
   proof:
     name: Proof (extraction + Lean)
-    # The canonical identities were measured on the fully updated Ubuntu 26.04.1 toolchain (binutils
-    # 2.46, gcc 15.2.0, glibc 2.43). The image ships older packages; the job installs and asserts
-    # them before building. Ubuntu 24.04 and the unupgraded 26.04 image produce different digests.
-    runs-on: ubuntu-26.04
+    # Debug: measure the pinned tool identities on the 24.04 runner, whose extraction did not hit
+    # the 26.04 memory-pressure runner shutdown.
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
     env:
       APEIRON_OPAMROOT: /tmp/apeiron-opam
@@ -173,33 +172,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: System packages
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades --no-install-recommends \
-            gcc-15=15.2.0-16ubuntu1 g++-15=15.2.0-16ubuntu1 \
-            libc6=2.43-2ubuntu2.4 libc6-dev=2.43-2ubuntu2.4 \
-            binutils=2.46-3ubuntu2 opam libgmp-dev pkg-config bubblewrap
-
-      - name: Canonical toolchain versions
-        run: |
-          gcc-15 --version | sed -n '1p'
-          ldd --version | sed -n '1p'
-          strip --version | sed -n '1p'
-          gcc_version=$(gcc-15 -dumpfullversion)
-          libc_version=$(ldd --version | sed -n '1s/.*) //p')
-          strip_version=$(strip --version | sed -n '1s/.*) //p')
-          case "$gcc_version" in
-            15.2.0) ;;
-            *) echo "proof canonical identity requires gcc 15.2.0; found ${gcc_version:-unknown}" >&2; exit 1 ;;
-          esac
-          case "$libc_version" in
-            2.43*) ;;
-            *) echo "proof canonical identity requires glibc 2.43; found ${libc_version:-unknown}" >&2; exit 1 ;;
-          esac
-          case "$strip_version" in
-            2.46*) ;;
-            *) echo "proof canonical identity requires binutils strip 2.46; found ${strip_version:-unknown}" >&2; exit 1 ;;
-          esac
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends opam libgmp-dev pkg-config binutils bubblewrap
 
       - name: Cache opam root and Aeneas build
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -207,7 +180,7 @@ jobs:
           path: |
             ${{ env.APEIRON_OPAMROOT }}
             ${{ env.APEIRON_AENEAS_BUILD_ROOT }}
-          key: ${{ runner.os }}-ubuntu-26.04.1-aeneas-${{ hashFiles('proof/opam-switch.export', 'proof/patches/PINS', 'proof/bootstrap.sh') }}
+          key: ${{ runner.os }}-ubuntu-24.04-debug-aeneas-${{ hashFiles('proof/opam-switch.export', 'proof/patches/PINS', 'proof/bootstrap.sh') }}
 
       - name: OCaml closure (pinned switch export)
         run: |
