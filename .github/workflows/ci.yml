@@ -158,7 +158,9 @@ jobs:
 
   proof:
     name: Proof (extraction + Lean)
-    runs-on: ubuntu-24.04
+    # The canonical toolchain digests are binutils-version-sensitive at the strip step. They were
+    # measured with GNU binutils 2.46 (Ubuntu 26.04); 24.04's 2.42 produces a different digest.
+    runs-on: ubuntu-26.04
     timeout-minutes: 240
     env:
       APEIRON_OPAMROOT: /tmp/apeiron-opam
@@ -172,13 +174,21 @@ jobs:
       - name: System packages
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends opam libgmp-dev pkg-config binutils bubblewrap
 
+      - name: Canonical strip version
+        run: |
+          version=$(strip --version | sed -n '1s/.*) //p')
+          case "$version" in
+            2.46*) echo "strip $version" ;;
+            *) echo "proof canonical identity requires binutils strip 2.46; found ${version:-unknown}" >&2; exit 1 ;;
+          esac
+
       - name: Cache opam root and Aeneas build
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ${{ env.APEIRON_OPAMROOT }}
             ${{ env.APEIRON_AENEAS_BUILD_ROOT }}
-          key: ${{ runner.os }}-aeneas-${{ hashFiles('proof/opam-switch.export', 'proof/patches/PINS', 'proof/bootstrap.sh') }}
+          key: ${{ runner.os }}-ubuntu-26.04-aeneas-${{ hashFiles('proof/opam-switch.export', 'proof/patches/PINS', 'proof/bootstrap.sh') }}
 
       - name: OCaml closure (pinned switch export)
         run: |

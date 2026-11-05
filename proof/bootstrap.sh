@@ -185,6 +185,7 @@ command -v git >/dev/null 2>&1 || die "missing tool: git"
 command -v tar >/dev/null 2>&1 || die "missing tool: tar"
 command -v patch >/dev/null 2>&1 || die "missing tool: patch"
 command -v strip >/dev/null 2>&1 || die "missing tool: strip (binutils; needed for a path-independent binary identity)"
+strip_version=$(strip --version | sed -n '1s/.*) //p')
 DL=""
 for c in curl wget; do command -v "$c" >/dev/null 2>&1 && { DL=$c; break; }; done
 [ -n "$DL" ] || die "missing downloader (curl or wget)"
@@ -297,7 +298,7 @@ fi
 strip_identity "$AENEAS_PRODUCT" "$AENEAS_IDENTITY"
 built_aeneas=$(sha256 "$AENEAS_IDENTITY")
 [ "$built_aeneas" = "$AENEAS_TRANSLATOR_CANON_SHA256" ] \
-    || die "stripped aeneas $built_aeneas != canonical $AENEAS_TRANSLATOR_CANON_SHA256 (opam root $OPAMROOT_DIR; the canonical identity needs /tmp/apeiron-opam)"
+    || die "stripped aeneas $built_aeneas != canonical $AENEAS_TRANSLATOR_CANON_SHA256 (opam root $OPAMROOT_DIR, strip ${strip_version:-unknown}; the canonical identity needs /tmp/apeiron-opam and binutils 2.46)"
 log "aeneas: $built_aeneas == pinned (stripped identity)"
 
 # --- 4. build charon / charon-driver (Rust) ------------------------------------------------------
