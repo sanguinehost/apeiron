@@ -192,12 +192,16 @@ jobs:
 
       - name: Swap and headroom
         run: |
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          sudo rm -f /swapfile.apeiron
+          if ! sudo fallocate -l 8G /swapfile.apeiron; then
+            sudo dd if=/dev/zero of=/swapfile.apeiron bs=1M count=8192 status=progress
+          fi
+          sudo chmod 600 /swapfile.apeiron
+          sudo mkswap /swapfile.apeiron
+          sudo swapon /swapfile.apeiron
           sudo sysctl -w vm.swappiness=100
           free -h
+          swapon --show
           df -h / /tmp
           nproc
 
