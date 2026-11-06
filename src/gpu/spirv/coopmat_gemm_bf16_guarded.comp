@@ -1,0 +1,3 @@
+// Provenance wrapper for the guarded bf16 face: `coopmat_gemm.comp` with its default guards.
+#define OPF 1
+#include "coopmat_gemm.comp"
