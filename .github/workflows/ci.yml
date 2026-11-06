@@ -234,6 +234,8 @@ jobs:
 
       - name: Extraction is fresh
         timeout-minutes: 300
+        env:
+          APEIRON_PROOF_DUMP: ${{ github.workspace }}/proof/ApeironWord.generated.lean
         run: |
           set +e
           (
@@ -250,6 +252,14 @@ jobs:
           kill "$mon" 2>/dev/null || true
           wait "$mon" 2>/dev/null || true
           exit "$rc"
+
+      - name: Upload generated extraction
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: apeiron-word-generated
+          path: proof/ApeironWord.generated.lean
+          if-no-files-found: warn
 
       - name: Lean bridge (Mathlib cache, then build)
         working-directory: proof/corpus

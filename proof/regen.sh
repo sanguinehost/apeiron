@@ -173,6 +173,20 @@ $REPO_DIR/src/policy/decide.rs
 $REPO_DIR/src/engine/loader.rs
 $REPO_DIR/src/engine/step.rs
 $REPO_DIR/src/engine/chart/mod.rs
+$REPO_DIR/src/engine/chart/ffn.rs
+$REPO_DIR/src/engine/chart/kcols.rs
+$REPO_DIR/src/engine/chart/portable.rs
+$REPO_DIR/src/engine/chart/pool.rs
+$REPO_DIR/src/engine/chart/pool/chunks.rs
+$REPO_DIR/src/engine/chart/pool/place.rs
+$REPO_DIR/src/engine/chart/task.rs
+$REPO_DIR/src/engine/chart/x86.rs
+$REPO_DIR/src/engine/kern/bitplane.rs
+$REPO_DIR/src/engine/kern/fold/mod.rs
+$REPO_DIR/src/engine/kern/gemm.rs
+$REPO_DIR/src/engine/kern/lut.rs
+$REPO_DIR/src/engine/kern/matmat.rs
+$REPO_DIR/src/engine/loader/fold.rs
 $REPO_DIR/src/engine/kern/mod.rs
 $REPO_DIR/src/engine/trace.rs
 $REPO_DIR/src/numeric/fixed_ln.rs
@@ -275,6 +289,10 @@ sha256sum $SOURCE_FILES
 # resulting axiom is recorded in `boundary-axioms.txt`).
 SERVING_OPAQUE=(
     --opaque 'crate::chart::x86' # simd-twin: AVX2 row kernels, twin = chart::portable
+    --opaque 'crate::chart::kcols' # simd-twin: AVX2 column kernels, twin = chart::portable
+    --opaque 'crate::kern::fold' # serving fast path: AVX2 fold kernels, twin = the scalar fold path
+    --opaque 'crate::loader::fold' # serving fast path: fitted-linear projection, twin = loader::fold scalar plan
+    --opaque 'crate::kern::bitplane::BitplaneHead::argmax' # serving fast path: AVX2 bitplane argmax, twin = the scalar row path
     --opaque 'crate::kern::gemm::x86' # simd-twin: AVX2 GEMM rows, twin = the scalar gemm path
     --opaque 'crate::kern::bitplane::x86' # simd-twin: AVX2 bitplane interval, twin = the scalar bitplane path
     --opaque 'crate::kern::matmat::q5_0_block_kdots_avx2' # simd-twin
@@ -886,7 +904,14 @@ if [ "${1:-}" = "--check" ]; then
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
     mkdir -p "$tmp/out"
+    set +e
     run_extract "$tmp/out" "$tmp/$CRATE.llbc"
+    extract_rc=$?
+    set -e
+    if [ -n "${APEIRON_PROOF_DUMP:-}" ] && [ -f "$tmp/out/$GENERATED" ]; then
+        cp "$tmp/out/$GENERATED" "$APEIRON_PROOF_DUMP"
+    fi
+    [ "$extract_rc" -eq 0 ] || exit "$extract_rc"
     audit "$tmp/out/$GENERATED"
     if ! diff -u "$PROOF_DIR/$GENERATED" "$tmp/out/$GENERATED"; then
         echo "stale: $GENERATED does not match regeneration from current source" >&2
