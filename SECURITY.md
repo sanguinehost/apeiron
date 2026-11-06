@@ -49,6 +49,8 @@ Stated limits, reported as known rather than as vulnerabilities:
 
 ## No network listener
 
-The crate opens no socket: there is no network listener, server or client in `src/` or `examples/`.
-Any network exposure is the embedding application's. A change that adds one is a security-relevant
-change and is reviewed as such.
+The library crate opens no socket: there is no network listener, server or client in `src/` or
+`examples/`. The opt-in `nous/` package is outside the library and is the only listener in the
+repository. It binds loopback only, refuses a non-loopback `--addr`, and has no authentication or
+TLS; treat it as a local tool. Any other network exposure is the embedding application's. A change
+that adds one is a security-relevant change and is reviewed as such.

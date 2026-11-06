@@ -1,0 +1,50 @@
+# Provider packages are standalone crates: the engine library remains listener-free. These jobs
+# run the package tests, clippy and rustfmt that the root workspace deliberately does not include.
+name: Provider packages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    name: Nous / serve tools
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Rust toolchain (nightly-2026-04-14)
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: nightly-2026-04-14
+          components: rustfmt, clippy
+
+      - name: Nous tests
+        run: cargo test --manifest-path nous/Cargo.toml --locked
+
+      - name: Nous clippy
+        run: cargo clippy --manifest-path nous/Cargo.toml --all-targets --locked -- -D warnings
+
+      - name: Nous formatting
+        run: cargo fmt --manifest-path nous/Cargo.toml -- --check
+
+      - name: Serve tokenizer tests, when present
+        run: |
+          if [ -f serve/tokenize/Cargo.toml ]; then
+            cargo test --manifest-path serve/tokenize/Cargo.toml --locked
+            cargo clippy --manifest-path serve/tokenize/Cargo.toml --all-targets --locked -- -D warnings
+            cargo fmt --manifest-path serve/tokenize/Cargo.toml -- --check
+          fi
+
+      - name: Retrieval tests, when present
+        run: |
+          if [ -f serve/tools/test_retrieval_qwen.py ]; then
+            python3 -m unittest -v serve/tools/test_retrieval_qwen.py
+          fi
