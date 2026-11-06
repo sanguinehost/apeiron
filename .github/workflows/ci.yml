@@ -162,7 +162,7 @@ jobs:
     # GitHub's ubuntu-26.04 image has a documented runner shutdown under memory pressure during
     # long jobs, so the pinned proof runs on 24.04.
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 360
     env:
       APEIRON_OPAMROOT: /tmp/apeiron-opam
       APEIRON_AENEAS_BUILD_ROOT: /home/runner/aeneas-build
@@ -193,13 +193,14 @@ jobs:
       - name: Swap and headroom
         run: |
           sudo rm -f /swapfile.apeiron
-          if ! sudo fallocate -l 8G /swapfile.apeiron; then
-            sudo dd if=/dev/zero of=/swapfile.apeiron bs=1M count=8192 status=progress
+          if ! sudo fallocate -l 24G /swapfile.apeiron; then
+            sudo dd if=/dev/zero of=/swapfile.apeiron bs=1M count=24576 status=progress
           fi
           sudo chmod 600 /swapfile.apeiron
           sudo mkswap /swapfile.apeiron
           sudo swapon /swapfile.apeiron
           sudo sysctl -w vm.swappiness=100
+          sudo sysctl -w vm.overcommit_memory=1
           free -h
           swapon --show
           df -h / /tmp
@@ -232,8 +233,23 @@ jobs:
         run: proof/bootstrap.sh --step-timeout 3000
 
       - name: Extraction is fresh
-        timeout-minutes: 180
-        run: proof/regen.sh --check
+        timeout-minutes: 300
+        run: |
+          set +e
+          (
+            while true; do
+              printf 'MEM %s ' "$(date -u +%H:%M:%S)"
+              free -m | awk '/^Mem:/{printf "ram_used=%sMB ram_avail=%sMB ", $3, $7} /^Swap:/{printf "swap_used=%sMB swap_free=%sMB\n", $3, $4}'
+              ps -eo rss,comm --sort=-rss | head -n 6
+              sleep 30
+            done
+          ) &
+          mon=$!
+          proof/regen.sh --check
+          rc=$?
+          kill "$mon" 2>/dev/null || true
+          wait "$mon" 2>/dev/null || true
+          exit "$rc"
 
       - name: Lean bridge (Mathlib cache, then build)
         working-directory: proof/corpus
