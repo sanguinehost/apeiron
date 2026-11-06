@@ -20,7 +20,10 @@
 # `$AENEAS_HOME/{aeneas,charon,charon-driver}`. Each is the digest of the pinned build after
 # `strip -R .note.gnu.build-id`: `strip` removes the symbol table and the debug sections, in which
 # OCaml records the build directory, and removing the note drops the content-derived build-id, so
-# the pinned digest is a function of the source and toolchain and not of the build root.
+# the pinned digest is a function of the source and toolchain and not of the build root. The
+# canonical toolchain is the GitHub ubuntu-24.04 runner as measured below: GNU strip 2.42. Another
+# strip or C compiler produces a different stripped image; the CI proof job asserts the canonical
+# strip version and fails closed on another.
 # AENEAS_TRANSLATOR_SHA256 is the identity that translates this repository's `src/`; `regen.sh`
 # asserts it (fail-closed) and `bootstrap.sh` asserts all three before installing.
 #
@@ -51,13 +54,15 @@ AENEAS_TRANSLATOR_SHA256=7b6982382aee623b3e02965031bcce3736bf58222ed822b11a94599
 CHARON_SHA256=a96627e90aac379f70edd093d7dabdee5fa79dca77012a94029bad5bdef2a232
 CHARON_DRIVER_SHA256=3e1ae2c1e444c2f3d0a80bfb312cc650d5993198d5e9ea174f7f8677b1cc75a1
 
-# Canonical identities: the digests a fresh `proof/bootstrap.sh` build produces anywhere. The
-# `AENEAS_TRANSLATOR_SHA256` / `CHARON_SHA256` / `CHARON_DRIVER_SHA256` values above are the digests
-# of the original installation, whose OCaml root and Cargo home paths are embedded in the binaries
-# (the OCaml standard-library directory; dependency panic locations). The canonical build fixes the
-# OCaml root at /tmp/apeiron-opam and remaps CARGO_HOME and RUSTUP_HOME, so its digests do not
-# depend on the user's home. `bootstrap.sh --check` and `regen.sh` accept either set; a build
-# produces only the canonical one.
-AENEAS_TRANSLATOR_CANON_SHA256=93c997dd4fec76bd1c26dbc10acd7796582d681ead5467c2db2124df621530ce
-CHARON_CANON_SHA256=fe5a5a2caa3a20ee70c9d322752d983b823cf8688e0943a87770100a9a1b3809
-CHARON_DRIVER_CANON_SHA256=0aff2588f4978b0e77e8e2fe94295ba76219a5e04575dc0a02f91b27904c3689
+# Canonical identities: the digests a fresh `proof/bootstrap.sh` build produces on the GitHub
+# `ubuntu-24.04` runner (GNU binutils 2.42), opam root /tmp/apeiron-opam, and CARGO_HOME/RUSTUP_HOME
+# remapped. The `AENEAS_TRANSLATOR_SHA256` / `CHARON_SHA256` / `CHARON_DRIVER_SHA256` values above
+# are the digests of the original installation, whose OCaml root and Cargo home paths are embedded
+# in the binaries (the OCaml standard-library directory; dependency panic locations). The strip, the
+# OCaml root and the C/OCaml toolchain are part of the identity. A build at another opam root, with
+# another toolchain, or with a different strip version produces a different digest; the CI proof job
+# asserts the canonical strip and fails closed on another version. `bootstrap.sh --check` and
+# `regen.sh` accept either set; a build produces only the canonical one.
+AENEAS_TRANSLATOR_CANON_SHA256=b882c2f3a11f21ca337257453a287ce487c04e37a9111438590c63e2d423f635
+CHARON_CANON_SHA256=7175631addbbf48f759c7de45998e589b6bc58d182b228516cfddd1a4dd1218e
+CHARON_DRIVER_CANON_SHA256=a18e39f6960b1886670db6563521109a003755a50d04304af1f0de396fe2d95c

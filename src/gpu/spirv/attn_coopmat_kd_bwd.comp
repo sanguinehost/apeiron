@@ -1,0 +1,3 @@
+// Provenance wrapper for the KD backward face: `attn_coopmat.comp` with `KDB=1`.
+#define KDB 1
+#include "attn_coopmat.comp"
