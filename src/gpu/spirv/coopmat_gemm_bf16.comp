@@ -1,0 +1,4 @@
+// Provenance wrapper for the committed bf16 face. The body is `coopmat_gemm.comp`; `OPF=1`
+// selects the bf16 face exactly as the build command recorded in `src/gpu/nn/coopmat_gemm.rs`.
+#define OPF 1
+#include "coopmat_gemm.comp"
