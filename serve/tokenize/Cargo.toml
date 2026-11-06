@@ -1,0 +1,15 @@
+[package]
+name = "apeiron-retrieval-tokenize"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Exact Qwen BPE token count for the retrieval index. A tool, not a listener."
+
+[dependencies]
+apeiron = { path = "../.." }
+
+[[bin]]
+name = "tokenize"
+path = "src/main.rs"
+
+[workspace]
