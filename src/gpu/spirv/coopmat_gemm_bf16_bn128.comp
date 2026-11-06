@@ -1,0 +1,5 @@
+// Provenance wrapper for the wide bf16 face: `coopmat_gemm.comp` with the two guard faces off.
+#define OPF 1
+#define GUARD 0
+#define EPIMASK 0
+#include "coopmat_gemm.comp"
