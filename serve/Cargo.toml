@@ -1,0 +1,19 @@
+[package]
+name = "nq-serve"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "An OpenAI-compatible chat endpoint over the apeiron engine, for Intent's `local` provider."
+
+# A sibling workspace: `cargo test --workspace` at the repository root does not
+# build this crate, and this crate's lockfile is its own. The listener lives
+# here, outside `src/` and `examples/`, because network exposure is the
+# embedding application's (SECURITY.md, "No network listener").
+[workspace]
+
+[dependencies]
+apeiron = { path = ".." }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3

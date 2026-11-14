@@ -180,6 +180,14 @@ skeleton are mapped read-only and the sign planes stay in the mapping, so the an
 copied pair peaked at 4.33 GiB. `q8act` raises the anonymous set to 780 MiB, so `exact` is the
 serving mode. The receipt is `bench/cpu/1794690665-nq8b-laptop-serve.md`.
 
+`serve/nq-serve` is a sibling workspace (outside `src/` and `examples/`) that exposes the same pair
+as an OpenAI-compatible `/v1/chat/completions` endpoint. Intent's `local` provider drove the 8B v3
+pack through a one-turn `Hello World` with the assembled system prompt replaced by a 25-token
+request: 457.390 s prefill and 215.983 s for four tokens at load average 35–49, ending
+`finish_reason: stop` and Intent `outcome: complete`; the 0.6B pack took 60.095 s and 27.614 s for
+nine tokens on the same path. The full 2,672-token prompt Intent assembles was not run. The receipt
+is `bench/cpu/1794696786-nq8b-intent-loop.md`.
+
 The 0.6B pack is 5.05× its F16 image (81.100342 against 16.056083) and 292.263889 against 55.166982
 (5.2978×) on the exporter's 64-sample protocol, with 0-shot ratios of 0.61–0.95 per task; the 8B
 0-shot ratio is 0.670× its reference across boolq, piqa, hellaswag, winogrande, arc_easy and
