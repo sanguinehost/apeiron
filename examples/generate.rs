@@ -2,10 +2,14 @@
 //!
 //! Run:
 //! `cargo run --release --locked --example generate -- --model <gguf> --tokenizer <tokenizer.json>
-//!  [--prompt TEXT | stdin] [--n 64] [--chat] [--system TEXT] [--kernel q8act|exact]`
+//!  [--pack <model.nqp>] [--prompt TEXT | stdin] [--n 64] [--chat] [--system TEXT]
+//!  [--kernel q8act|exact]`
+//!
+//! `--pack` installs the `NanoQuant` factors over the GGUF skeleton (`Engine::open_with_nq`); the
+//! replaced linears then read the pack and the rest of the model runs from the GGUF.
 //!
 //! - Without `--chat` the prompt is a raw completion prefix.
-//! - With `--chat` the prompt is wrapped as one ChatML user turn (the `qwen2` and `qwen35` template:
+//! - With `--chat` the prompt is wrapped as one `ChatML` user turn (the `qwen2` and `qwen35` template:
 //!   `<|im_start|>role\n…<|im_end|>\n`) and the model's end-of-turn token stops generation.
 //! - `--kernel q8act` (default) is the int8-activation path every throughput receipt measures;
 //!   `exact` is the i128 reference path, about an order of magnitude slower.
@@ -28,9 +32,11 @@ use std::time::Instant;
 use apeiron::engine::loader::Engine;
 use apeiron::engine::KernelMode;
 use apeiron::format::bpe::Bpe;
+use apeiron::format::nq;
 
 struct Args {
     model: String,
+    pack: Option<String>,
     tokenizer: String,
     prompt: Option<String>,
     n: usize,
@@ -42,6 +48,7 @@ struct Args {
 fn parse_args() -> Result<Args, Box<dyn Error>> {
     let mut a = Args {
         model: String::new(),
+        pack: None,
         tokenizer: String::new(),
         prompt: None,
         n: 64,
@@ -54,6 +61,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         let mut val = || it.next().ok_or_else(|| format!("{flag} needs a value"));
         match flag.as_str() {
             "--model" => a.model = val()?,
+            "--pack" => a.pack = Some(val()?),
             "--tokenizer" => a.tokenizer = val()?,
             "--prompt" => a.prompt = Some(val()?),
             "--n" => a.n = val()?.parse()?,
@@ -76,13 +84,12 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
 }
 
 fn run(a: &Args) -> Result<(), Box<dyn Error>> {
-    let user = match &a.prompt {
-        Some(p) => p.clone(),
-        None => {
-            let mut s = String::new();
-            std::io::stdin().read_to_string(&mut s)?;
-            s
-        }
+    let user = if let Some(p) = &a.prompt {
+        p.clone()
+    } else {
+        let mut s = String::new();
+        std::io::stdin().read_to_string(&mut s)?;
+        s
     };
     let text = if a.chat {
         format!(
@@ -95,7 +102,19 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
     };
 
     let bpe = Bpe::from_tokenizer_json(&a.tokenizer)?;
-    let engine = Engine::open(&a.model)?;
+    let engine = match &a.pack {
+        Some(path) => {
+            let pack = nq::open(path).map_err(|e| e.to_string())?;
+            eprintln!(
+                "pack          {} linears, {:.6} b/w, {} factor bytes",
+                pack.linears.len(),
+                pack.bits_per_weight().unwrap_or(0.0),
+                pack.stored_bits().div_ceil(8)
+            );
+            Engine::open_with_nq(&a.model, pack)?
+        }
+        None => Engine::open(&a.model)?,
+    };
     let ids = bpe.encode(&text)?;
     if ids.is_empty() {
         return Err("the prompt is empty".into());

@@ -54,7 +54,7 @@ blake3 = "=1.8.7"
 sha2 = "=0.10.9"
 
 [workspace]
-members = ["derive", "fold-abi"]
+members = ["derive", "fold-abi", "wasm"]
 # `fuzz` builds under a sanitizer with its own flags and its own lockfile; it is a sibling
 # project, not a member of this one.
 exclude = ["fuzz"]

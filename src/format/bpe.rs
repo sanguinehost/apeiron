@@ -78,7 +78,8 @@ impl core::fmt::Display for BpeError {
 
 impl std::error::Error for BpeError {}
 
-/// A loaded byte-level BPE tokenizer. Built by [`Bpe::from_tokenizer_json`].
+/// A loaded byte-level BPE tokenizer. Built by [`Bpe::from_tokenizer_json`] or
+/// [`Bpe::from_tokenizer_bytes`].
 pub struct Bpe {
     /// token string → id, for the encode lookup.
     vocab: HashMap<String, u32>,
@@ -97,18 +98,33 @@ pub struct Bpe {
 }
 
 impl Bpe {
+    /// Load a byte-level BPE tokenizer from the bytes of a HuggingFace `tokenizer.json`.
+    ///
+    /// The JSON reader works on the slice, so the wasm ABI passes the bytes the browser already
+    /// holds; the refusal is its message so JavaScript can surface it. The file path entry point
+    /// [`Bpe::from_tokenizer_json`] shares this body and keeps its typed [`BpeError`].
+    pub fn from_tokenizer_bytes(raw: &[u8]) -> Result<Bpe, String> {
+        Self::from_tokenizer_document(raw).map_err(|e| e.to_string())
+    }
+
     /// Load a byte-level BPE tokenizer from a HuggingFace `tokenizer.json`.
     ///
     /// Refuses, rather than approximating, a checkpoint whose `model.type` is not `BPE`, whose
     /// `model.byte_fallback` is set, or whose `pre_tokenizer` declares no `Split` regex.
+    pub fn from_tokenizer_json(path: &str) -> Result<Bpe, BpeError> {
+        let raw = std::fs::read(path).map_err(|e| BpeError::Io(e.to_string()))?;
+        Self::from_tokenizer_document(&raw)
+    }
+
+    /// The shared loader behind [`Bpe::from_tokenizer_json`] and [`Bpe::from_tokenizer_bytes`]:
+    /// the JSON document bytes in, the typed refusal out.
     #[allow(
         clippy::too_many_lines,
         reason = "one linear, stage-per-block loader; splitting it would spread the field paths \
                   that a reader must check together"
     )]
-    pub fn from_tokenizer_json(path: &str) -> Result<Bpe, BpeError> {
-        let raw = std::fs::read(path).map_err(|e| BpeError::Io(e.to_string()))?;
-        let root = parse_document(&raw)?;
+    fn from_tokenizer_document(raw: &[u8]) -> Result<Bpe, BpeError> {
+        let root = parse_document(raw)?;
 
         let model = obj_get(&root, "model").ok_or(BpeError::Missing("model"))?;
         match obj_get(model, "type").and_then(as_str) {
@@ -1172,6 +1188,10 @@ mod tests {
         );
         let path = write_temp("int_w3t26_fixture.json", &full);
         let bpe = Bpe::from_tokenizer_json(&path).expect("fixture loads");
+        // The in-memory entry point reads the same document to the same tokenizer.
+        let from_bytes = Bpe::from_tokenizer_bytes(full.as_bytes()).expect("bytes load");
+        assert_eq!(from_bytes.encode("ab").expect("bytes encode"), vec![256]);
+        assert!(Bpe::from_tokenizer_bytes(b"{\"model\":").is_err());
 
         // all 256 byte chars resolve; one merge produces id 256.
         assert_eq!(bpe.encode("ab").expect("encode"), vec![256]);

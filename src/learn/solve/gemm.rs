@@ -72,7 +72,12 @@ use crate::engine::chart::task::ChunkTask;
 
 /// The largest accepted contraction length: `k < MAX_K` keeps the exact `i128` sum plus the
 /// round-half add inside `i128` (`(MAX_K−1)·(2³⁶−1)² + 2³¹ < 2¹²⁷`). `127 − 2·BOUND_BITS = 55`.
+#[cfg(target_pointer_width = "64")]
 pub const MAX_K: usize = 1 << (127 - 2 * BOUND_BITS as usize);
+/// The 32-bit `usize` bound: every representable `k < 2³²` is below the arithmetic limit `2⁵⁵`,
+/// so the whole `usize` domain satisfies the contraction contract.
+#[cfg(not(target_pointer_width = "64"))]
+pub const MAX_K: usize = usize::MAX;
 
 /// Rows of the A cache panel: `MC · KC · 8 B = 64 KiB`.
 const MC: usize = 64;

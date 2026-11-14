@@ -108,27 +108,97 @@ tokens and perplexity); the book's [Results](book/src/engine/results.md) chapter
 and the GPU commands (`gpu_decode_bench`, `gpu_ppl`). The hash table comparison against
 `hashbrown` is not in these tables: its ratios are not claimed here.
 
-## Quantisation: the open gap
+## Quantisation: NanoQuant
 
-The goal is a 27B-class model in at most 4 GB of resident weights (about 1.18 bits per weight) that
-stays within 10% of Q4_K_M: perplexity at most 1.15× and zero-shot task accuracy at least 0.90× of
-Q4_K_M's, from the same run. That bar is not met yet.
+NanoQuant (`SamsungLabs/NanoQuant` @ `a9e0a43`) stores a linear as binary low-rank factors
+`W ≈ diag(s_post)·U·diag(s_mid)·V·diag(s_pre)`, `U` and `V` signs, plus a sparse residual on a few
+input columns. The engine has one served route:
 
-| metric | model / setting | NanoQuant port | Q4_K_M | ratio | bar |
-|---|---|---:|---:|---:|---:|
-| wikitext-2 perplexity | Qwen3-0.6B-Base, 1.18 b/w, 1024-step KD | 24.5751 | 13.7633 | 1.785× | 1.15× |
-| mean 0-shot accuracy (boolq, piqa, hellaswag, winogrande, arc_easy, arc_challenge) | same | 0.4194 | 0.5556 | 0.755× | 0.90× |
+| piece | file |
+|---|---|
+| converter: arelath `nq_*` GGUF → pack + skeleton | `tools/nq_convert.py`, `tools/nq_gguf.py` |
+| pack `APNQPK01` v2/v3: reader, writer, validation | `src/format/nq.rs` |
+| product `y = s_post ⊙ U(s_mid ⊙ (V(s_pre ⊙ x))) + Σ_j salient[·,j]·x[idx[j]] + Σ_l s_res_l ⊙ (sign_l x)` | `src/engine/kern/nq.rs` |
+| install and the one dispatch | `Engine::open_with_nq`, `Engine::step_proj_sched` |
+| in-tree ADMM fit, not the source of these artifacts | `src/learn/nanoquant.rs`, `tests/learn_nanoquant.rs` |
 
-- The quantiser is the in-tree port of NanoQuant (`src/learn/nanoquant.rs`, `SamsungLabs/NanoQuant`
-  @ `a9e0a43`): its block loop over all 28 blocks, then 1024 steps of KD on the device.
-- NanoQuant as shipped, on the same model and harness: perplexity 24.3317 (1.768×), accuracy 0.4235
-  (0.762×). At equal bits the port is 1.010× the reference's perplexity and 0.99× its accuracy;
-  both are short of the bar.
-- Qwen3.8-27B (48 DeltaNet and 16 attention layers) runs end to end at 1.18 b/w with 3.753 GiB of
-  resident weights, inside the 4 GB budget: prompt processing 586.4 tok/s and generation
-  4.85–5.90 tok/s on an RTX 5080 with 38 layers offloaded plus CPU, prefix-cache hit 98.3%. It has
-  no quality measurement yet.
-- Figures are copied from the recorded measurements, not re-run for this release.
+The pack stores the sign planes as `I32` words (4 B per 32 signs), the three scale vectors as
+bfloat16, the residual as binary16 and the indices as `I32`, all in the exporter's layout; the
+kernel decodes the scales to Q32.32 once at load and keeps the signs bit-packed. Version 3 adds a
+per-linear dense sign residual: `out × ⌈inn/32⌉` sign words and one bfloat16 row scale per layer.
+A pack whose sections carry no residual is written as version 2; a reader that predates the
+residual accepts it. Version 1 packs are refused: they carry no `s_mid`, residual or residual
+indices. The fused `attn_qkv` factor is split
+by output row into q, k and v sections that share `V`, `s_pre`, `s_mid` and the indices; the split
+is exact for the fused factor and duplicates those sections, which is 91,450,016 B of the 8B pack
+and 9.5% of its projection additions. On Linux the pack is mapped read-only and the sign planes
+stay in the mapping; its pages are reclaimable and are not a second resident copy.
+
+Measured with `cargo run --release --locked --example ppl`: the 8B rows on a rented vast.ai CPU
+instance (Intel Xeon E5-2690 v4, 14 vCPU, 62 GB RAM, `APEIRON_THREADS=12`), the 0.6B row on the
+laptop, over the raw wikitext-2 test file, consecutive non-overlapping windows, `Q8Act` trunk and
+the packed linears exact. The receipt is `bench/cpu/1794553293-nq8b-q4km-ppl.md`:
+
+| checkpoint | pack | linear-only rate | skeleton | PPL | run |
+|---|---:|---:|---:|---:|---|
+| `arelath/Qwen3-0.6B-nanoquant-GGUF` (sha256 `b0ffbcc3…`) | 63,370,960 B | 1.151033 b/w on 440,401,920 | 336,814,976 B | 81.100342 | ctx 128, second half (laptop); F16 image 16.056083 |
+| `arelath/Qwen3-8B-nanoquant-GGUF` (sha256 `75d3f4f1…`) | 976,049,680 B | 1.124186 b/w on 6,945,767,424 | 1,329,625,696 B | 33.041986 / 28.307562 / 14.903005 | 2048 tokens at ctx 64 / 128 / 512; 992 / 1008 / 1020 scored (vast.ai) |
+
+Both artifacts are the exporter's; neither is an in-tree fit. `--second-half` scores positions
+`ctx/2 … ctx-2` of each window, llama.cpp's perplexity span. The 8B source GGUF is 2,214,297,824 B
+and the served pair 2,305,675,376 B. Its skeleton holds 1,323,683,840 B of payload (a Q8_0
+embedding and a different Q8_0 head, so both are kept, plus the norms) and 5,941,856 B of metadata,
+mostly the tokenizer. In those runs, which read both files into memory, the resident weight budget is
+2,299,725,424 B (skeleton payload plus the
+pack's stored factors); the peak resident set is 2399.2 MiB at ctx 128 and 2567.1 MiB at ctx 512.
+
+The bar is 7B-class at 1.18 b/w on the replaced linears within 2 GB resident, wikitext-2 perplexity
+at most 1.15× Q4_K_M and mean 0-shot accuracy at least 0.90× of it. The v2 pack misses it on both
+bits and quality: 1.12 b/w on the replaced linears but 1.756× Q4_K_M. The earlier receipt compared
+the instruct-derived pack to `Qwen3-8B-Base`, which is a different checkpoint. Official
+`Qwen3-8B-Q4_K_M.gguf` (sha256 `d98cdcbd…`) scores 16.124694 at ctx 128 over 1008 tokens on the
+same engine. The ctx 64 and 512 rows of that receipt
+(14.520989 / 6.557804, against the base checkpoint) are not re-measured against the official
+model. The exporter's 1.7568× is over 64 random 128-token samples and includes each sample's
+low-context first positions; the same ratio appears here only on the first 31 positions (1.7367×),
+not once 64 or more positions of context are scored.
+
+A version-3 pack adds per-linear dense sign-residual layers. Two refit layers measure
+4,047,721,568 B (80.5% of Q4_K_M) and 16.295301 PPL at ctx 128 over 1008 tokens (1.011× Q4_K_M);
+the v2 pack is 28.307562 (1.756×). One refit layer is 51.153269 (3.172×), and one layer without
+the sparse refit is catastrophic (1.38M on the first window), so the refit and the second bit are
+both required. The receipt is `bench/cpu/1794653685-nq8b-residual-ppl.md`. V3 therefore meets the
+perplexity half of the bar at 80.5% of Q4_K_M's bytes, not the 1.18 b/w rate (it is 3.13 b/w on the
+replaced linears), and the 0-shot half of the bar was not re-measured.
+
+The same pair serves end-to-end from the laptop through `examples/generate --pack`, which installs
+the factors with `Engine::open_with_nq`: with four threads and the exact kernel the 4,047,721,568 B
+pair runs a 29-token chat under a 1 GiB cgroup at 0.09 tok/s (prefill 0.09 tok/s) on the 6.7 GiB
+i5-10210U; a cold one-token start reads 3.22 GiB from NVMe and takes 28 s. The pack and the
+skeleton are mapped read-only and the sign planes stay in the mapping, so the anonymous set is
+171.3 MiB and the 4.05 GB pair is reclaimable file-backed page cache. Before the mapping change the
+copied pair peaked at 4.33 GiB. `q8act` raises the anonymous set to 780 MiB, so `exact` is the
+serving mode. The receipt is `bench/cpu/1794690665-nq8b-laptop-serve.md`.
+
+The 0.6B pack is 5.05× its F16 image (81.100342 against 16.056083) and 292.263889 against 55.166982
+(5.2978×) on the exporter's 64-sample protocol, with 0-shot ratios of 0.61–0.95 per task; the 8B
+0-shot ratio is 0.670× its reference across boolq, piqa, hellaswag, winogrande, arc_easy and
+arc_challenge. The 36-layer reconstruction error is spread across the trunk: up, gate and down
+carry 78.1% of the squared error and the largest layer (L33) is 3.19% of the total, so replacing
+one layer's section with a dense tensor cannot close the gap on its own; the dense residual layers
+above are what move it.
+
+The 2 GB *stored* target is not met: the v3 pair is 4.05 GB, and even the v2 skeleton alone is
+1.32 GB with 0.98 GB of factors, because the Q8_0 embedding and head dominate at this size. What
+the mapping changes is *residency*: the process's anonymous set is 171 MiB and the pair is
+file-backed page cache. What is established, by
+`cargo test --release --test engine_nq -- --ignored` and by the 8B runs above, is narrower: a
+7B-class pack of this form opens, serves and scores on a CPU instance, with the sign product as the
+only projection path, prefill bit-identical to one-token steps, and logits stable across loads.
+
+A pack is a CPU-executor artifact: the Vulkan path uploads GGUF payloads and does not read one.
+Rust code generation, the kernel ABI, Vulkan drivers and the GPU remain outside the evidence, as
+stated below.
 
 ## What is proved, tested and open
 

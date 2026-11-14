@@ -1,0 +1,11 @@
+=== q4-128b start 2026-11-13T06:31:53Z
+ppl 11.325463 on 1008 tokens (16 windows of <= 128, kernel Q8Act): mean nll 2.427054, 10.1 tok/s in 99.8 s
+peak rss 4931.0 MiB
+=== q4-128b exit 0 2026-11-13T06:33:36Z
+=== nq-128b start 2026-11-13T06:33:36Z
+pack: 252 linears, 1.124186 b/w, 976041584 factor bytes
+pack factors: 976041584 stored bytes for 6945767424 weights, 1.124186 b/w
+ppl 26.318065 on 1008 tokens (16 windows of <= 128, kernel Q8Act): mean nll 3.270256, 0.6 tok/s in 1581.7 s
+peak rss 2399.2 MiB
+=== nq-128b exit 0 2026-11-13T07:00:00Z
+SPAN2_DONE

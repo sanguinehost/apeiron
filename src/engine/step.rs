@@ -16,9 +16,10 @@ use super::chart::task::HeadTask;
 use super::error::{
     TensorKey, N_BLK_PARTS, N_LAYER_PARTS, PART_OUTPUT, TENSOR_PART_BYTES, TENSOR_PART_LEN,
 };
-#[cfg(test)]
+#[cfg(any(test, target_arch = "wasm32"))]
 use super::kern::lut::q8act_projection;
 use super::kern::lut::LUT_ROW_ALIGN;
+use super::kern::nq::NqError;
 use super::loader::{opt_slice, HadamardMeta, PayloadRef};
 use super::mixer::AffineState;
 use super::{
@@ -30,8 +31,9 @@ use crate::engine::num::dequant::dequant_row_fixed;
 use crate::engine::num::value::round_shift_32;
 use crate::engine::ops::lm_head;
 
-// Unchunked kernel: test-only `Sched::Sequential`; executing `Sched::Resident` is `par::matvec_rows_chunked`.
-#[cfg(test)]
+// Unchunked kernel: the `Sched::Sequential` oracle (tests and the wasm32 build); executing
+// `Sched::Resident` is `par::matvec_rows_chunked`.
+#[cfg(any(test, target_arch = "wasm32"))]
 use super::matvec_fixed;
 
 /// One greedy decode step's result (rows 0–8 composed).
@@ -58,6 +60,8 @@ pub enum StepError {
     Kv(AttnError),
     /// A projection refused.
     Matvec(MatvecError),
+    /// A `NanoQuant` sign-rank product refused.
+    Nq(NqError),
     /// The FFN refused.
     Ffn(FfnError),
     /// The LM head refused.
@@ -122,6 +126,7 @@ impl core::fmt::Display for StepError {
             StepError::Norm(e) => write!(f, "norm: {e:?}"),
             StepError::Kv(e) => write!(f, "kv: {e:?}"),
             StepError::Matvec(e) => write!(f, "matvec: {e:?}"),
+            StepError::Nq(e) => write!(f, "nq: {e}"),
             StepError::Ffn(e) => write!(f, "ffn: {e:?}"),
             StepError::LmHead(e) => write!(f, "lm head: {e:?}"),
             StepError::Sampler(e) => write!(f, "sampler: {e:?}"),
@@ -220,13 +225,26 @@ pub enum KernelMode {
 }
 
 /// How a step sources each tensor payload: [`Sched::Resident`] the executing borrowed path,
-/// [`Sched::Sequential`] the `cfg(test)` oracle (owned `read_range`, one [`matvec_fixed`]).
+/// [`Sched::Sequential`] the unchunked oracle (owned `read_range` in tests, the resident slice on
+/// wasm32, one [`matvec_fixed`] in both).
 #[derive(Clone, Copy)]
 pub(crate) enum Sched {
     Resident,
-    #[cfg(test)]
+    #[cfg(any(test, target_arch = "wasm32"))]
     Sequential,
 }
+
+/// The schedule the step entry points select, fixed at compile time: native executes the resident
+/// path; wasm32 has no scoped threads or worker pool, so it executes the sequential one. The host
+/// carries no runtime test of this choice.
+#[cfg(target_arch = "wasm32")]
+const STEP_SCHED: Sched = Sched::Sequential;
+#[cfg(not(target_arch = "wasm32"))]
+const STEP_SCHED: Sched = Sched::Resident;
+/// The wasm build cannot reach the resident path's scoped threads, so the selection is checked at
+/// compile time rather than by a test that only runs on the host.
+#[cfg(target_arch = "wasm32")]
+const _: () = assert!(matches!(STEP_SCHED, Sched::Sequential));
 
 /// Checked `x[i] += y[i]` over two equal-width Q32.32 rows (the residual adds and bias add).
 fn add_assign_fixed(x: &mut [i64], y: &[i64]) -> Result<(), StepError> {
@@ -863,6 +881,10 @@ impl Engine {
         #[cfg(not(test))]
         match sched {
             Sched::Resident => {}
+            // The wasm build has no file to read: the sequential schedule borrows the resident
+            // bytes, and only the row kernel differs from `Resident`.
+            #[cfg(target_arch = "wasm32")]
+            Sched::Sequential => {}
         }
         let at = match self.payload_ref(t.byte_range.start, n_bytes) {
             Ok(p) => p,
@@ -1166,8 +1188,10 @@ impl Engine {
         }
         let raw = match sched {
             Sched::Resident => Cow::Borrowed(self.payload(at, row_bytes)?),
-            #[cfg(test)]
+            #[cfg(all(test, not(target_arch = "wasm32")))]
             Sched::Sequential => Cow::Owned(self.read_range(at, row_bytes)?),
+            #[cfg(target_arch = "wasm32")]
+            Sched::Sequential => Cow::Borrowed(self.payload(at, row_bytes)?),
         };
         let mut out: Vec<i64> = Vec::with_capacity(self.config.n_embd);
         dequant_row_fixed(t.ggml_type, raw.as_ref(), self.config.n_embd, &mut out)?;
@@ -1333,6 +1357,8 @@ impl Engine {
         #[cfg(not(test))]
         match sched {
             Sched::Resident => {}
+            #[cfg(target_arch = "wasm32")]
+            Sched::Sequential => {}
         }
         let at = match self.payload_ref(t.byte_range.start, need) {
             Ok(p) => p,
@@ -1376,11 +1402,11 @@ impl Engine {
                 Ok(v) => Ok(v),
                 Err(e) => Err(LmHeadError::Matvec(e)),
             },
-            #[cfg(test)]
+            #[cfg(any(test, target_arch = "wasm32"))]
             (Sched::Sequential, KernelMode::Exact) => {
                 lm_head::lm_head_fixed(t.ggml_type, raw, vocab, n_embd, x)
             }
-            #[cfg(test)]
+            #[cfg(any(test, target_arch = "wasm32"))]
             (Sched::Sequential, KernelMode::Q8Act) => match q8act_projection(
                 self,
                 self.lm_head_index(),
@@ -1464,6 +1490,11 @@ impl Engine {
         sched: Sched,
         mode: KernelMode,
     ) -> Result<Vec<i64>, StepError> {
+        // A packed NanoQuant linear replaces the payload: the factors carry the weight, so the
+        // kernel mode is the exact sign product and no GGUF row is read.
+        if let Some(out) = self.nq_proj(key, n_out, n_in, x)? {
+            return Ok(out);
+        }
         let (idx, ggml_type, at) = self.tensor_payload(key, n_out, n_in, sched)?;
         let folded = folded_activation(self.hadamard(), key, x)?;
         let activation: &[i64] = opt_slice(&folded).unwrap_or(x);
@@ -1485,7 +1516,7 @@ impl Engine {
                 activation,
                 crate::engine::ops::par::row_chunk_budget(n_out),
             ),
-            #[cfg(test)]
+            #[cfg(any(test, target_arch = "wasm32"))]
             (Sched::Sequential, KernelMode::Exact) => matvec_fixed(
                 ggml_type,
                 &self.resident()[at.off..at.off + at.len],
@@ -1493,7 +1524,7 @@ impl Engine {
                 n_in,
                 activation,
             ),
-            #[cfg(test)]
+            #[cfg(any(test, target_arch = "wasm32"))]
             (Sched::Sequential, KernelMode::Q8Act) => q8act_projection(
                 self,
                 idx,
@@ -1522,7 +1553,12 @@ impl Engine {
         mode: KernelMode,
     ) -> Result<[Vec<i64>; 3], StepError> {
         let keys = [part_key(layer, 0), part_key(layer, 1), part_key(layer, 2)];
-        if !matches!(sched, Sched::Resident) || mode != KernelMode::Q8Act {
+        // A packed linear has no GGUF payload for the fused group to read; the three separate
+        // calls take the sign-rank product.
+        if keys.iter().any(|&key| self.nq_linear(key).is_some())
+            || !matches!(sched, Sched::Resident)
+            || mode != KernelMode::Q8Act
+        {
             return self.step_qkv_separate(&keys, outs, n_in, x, sched, mode);
         }
         // A folded tensor rotates its own activation copy; the three then share no `quant_act`.
@@ -1634,14 +1670,7 @@ impl Engine {
     /// `O(n_layer·(n_embd² + n_embd·n_ff) + vocab·n_embd)` checked multiply-adds plus the LM-head
     /// dequantization; `O(vocab)` for the returned logits.
     pub fn step_logits(&self, kv: &mut KvState, token_id: u32) -> Result<Vec<i64>, StepError> {
-        self.compose_logits(
-            kv,
-            None,
-            token_id,
-            Sched::Resident,
-            KernelMode::Exact,
-            false,
-        )
+        self.compose_logits(kv, None, token_id, STEP_SCHED, KernelMode::Exact, false)
     }
 
     /// The Q32.32 logits of one decode step under the projection kernel `mode`.
@@ -1661,9 +1690,11 @@ impl Engine {
             kv,
             None,
             token_id,
-            Sched::Resident,
+            STEP_SCHED,
             mode,
-            mode == KernelMode::Q8Act,
+            // The Q8Act head dispatch is the pool's; the wasm build keeps the serial head even
+            // when a caller asks for that kernel.
+            mode == KernelMode::Q8Act && !cfg!(target_arch = "wasm32"),
         )
     }
 
@@ -1912,6 +1943,32 @@ impl Engine {
         mode: KernelMode,
     ) -> Result<u32, StepError> {
         self.prefill_state_with_width(st, tokens, mode, prefill_block())
+    }
+
+    /// Prefill `tokens` and return every position's output-normed final state, before the head.
+    ///
+    /// Column `c` is exactly the state of one single-token step at position `c`, at the
+    /// prefill block width the engine chooses. The caller reads the head itself when it needs the
+    /// logits of every position, as the perplexity harness does.
+    ///
+    /// # Errors
+    ///
+    /// As [`Engine::step_state`]; [`StepError::BadConfig`] for an empty prompt.
+    ///
+    /// # Complexity
+    ///
+    /// `⌈n / prefill_block()⌉` block passes, each reading the served weights once where the kernel
+    /// supports a multi-column pass; `O(n · n_embd)` returned words.
+    pub fn prefill_states(
+        &self,
+        st: &mut DecodeState,
+        tokens: &[u32],
+        mode: KernelMode,
+    ) -> Result<Vec<Vec<i64>>, StepError> {
+        if tokens.is_empty() {
+            return Err(StepError::BadConfig(String::from("empty prompt")));
+        }
+        self.prefill_cols(st, tokens, mode)
     }
 
     pub(crate) fn prefill_state_with_width(

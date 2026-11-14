@@ -1,4 +1,4 @@
-//! `tests/learn_calib.rs` — the calibration Grams NanoQuant fits against (`tests/learn_nanoquant.rs`
+//! `tests/learn_calib.rs` — the calibration Grams `NanoQuant` fits against (`tests/learn_nanoquant.rs`
 //! reads them as `{cache}/g{l}.{tag}.{gate_up,down,o}.i64`).
 //!
 //! For each layer the file writes three activation Grams `Σ_t x_t x_tᵀ / T` in Q32.32 words with an
@@ -10,7 +10,7 @@
 //!
 //! Chunks: `0..APEIRON_CALIB_CHUNKS` (default 8) plus `APEIRON_CALIB_EXTRA` (default 0) chunks from
 //! `CALIB + 3 = 11` on, so chunks 8, 9 and 10 stay held out. The tag is `c{calib}x{extra}`;
-//! NanoQuant's default `APEIRON_NQ_GRAM_TAG` is `c6x29` (6 + 29 chunks, a 40-chunk base file).
+//! `NanoQuant`'s default `APEIRON_NQ_GRAM_TAG` is `c6x29` (6 + 29 chunks, a 40-chunk base file).
 //!
 //! Layout control: per layer, the diagonal of `gate_up` and `down` against `Σ_t x_t[k]² / T` summed
 //! straight from the tap columns, relative error below `1e-4`.
@@ -194,7 +194,7 @@ fn calib_grams(
 /// `APEIRON_CALIB_LAYERS`, a comma list). An existing complete set is left as it is.
 ///
 /// `APEIRON_CALIB_MODEL` (default `~/nq-ref/q3-0p6b-f16.gguf`), `APEIRON_CALIB_BASE` (default
-/// `~/kld08/calib.c40.kld`), `APEIRON_CALIB_CACHE` (default `~/kld08/gatecode-tok`, NanoQuant's
+/// `~/kld08/calib.c40.kld`), `APEIRON_CALIB_CACHE` (default `~/kld08/gatecode-tok`, `NanoQuant`'s
 /// `APEIRON_NQ_CACHE` default), `APEIRON_CALIB_CHUNKS`, `APEIRON_CALIB_EXTRA`.
 #[test]
 #[ignore = "opens the teacher and prefills every calibration chunk; run explicitly"]

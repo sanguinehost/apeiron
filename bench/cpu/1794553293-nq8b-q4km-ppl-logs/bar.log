@@ -1,0 +1,13 @@
+=== q4-128 start 2026-11-13T03:02:46Z
+ppl 10.988133 on 1008 tokens (16 windows of <= 128, kernel Q8Act): mean nll 2.396816, 10.0 tok/s in 101.1 s
+peak rss 4931.0 MiB
+=== q4-128 exit 0 2026-11-13T03:04:30Z
+=== q4-512 start 2026-11-13T03:04:30Z
+ppl 6.557804 on 1020 tokens (4 windows of <= 512, kernel Q8Act): mean nll 1.880656, 9.7 tok/s in 105.3 s
+peak rss 5100.9 MiB
+=== q4-512 exit 0 2026-11-13T03:06:18Z
+=== q8-128 start 2026-11-13T03:06:18Z
+ppl 10.676001 on 1008 tokens (16 windows of <= 128, kernel Q8Act): mean nll 2.367998, 0.5 tok/s in 1896.1 s
+peak rss 8441.2 MiB
+=== q8-128 exit 0 2026-11-13T03:38:00Z
+=== q8-512 start 2026-11-13T03:38:00Z

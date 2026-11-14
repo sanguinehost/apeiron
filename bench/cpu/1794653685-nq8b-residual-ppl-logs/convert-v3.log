@@ -1,0 +1,10 @@
+source: /workspace/qwen3-8b-nanoquant.gguf 2214297824 B, 36 layers, 1407 tensors, 0 dense linears, 1 residual layers
+residual: 1 layer(s), mean rel 0.321329, max 0.478462
+pack: /workspace/nq8b-v3-r1/model.nqp 1847073280 B, 252 linears, 2.127413 b/w on 6945767424 fitted weights
+skeleton: /workspace/nq8b-v3-r1/skeleton.gguf 1329625696 B, 147 tensors, 0 B of dense linears
+artifact: 3176698976 B on disk
+source: /workspace/qwen3-8b-nanoquant.gguf 2214297824 B, 36 layers, 1407 tensors, 0 dense linears, 2 residual layers
+residual: 2 layer(s), mean rel 0.194157, max 0.288921
+pack: /workspace/nq8b-v3-r2/model.nqp 2718095872 B, 252 linears, 3.130640 b/w on 6945767424 fitted weights
+skeleton: /workspace/nq8b-v3-r2/skeleton.gguf 1329625696 B, 147 tensors, 0 B of dense linears
+artifact: 4047721568 B on disk

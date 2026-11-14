@@ -494,8 +494,11 @@ impl Engine {
         mode: KernelMode,
         pre: Option<&[QuantAct]>,
     ) -> Result<Vec<Vec<i64>>, StepError> {
-        let Some(li) = li else {
-            let key = super::part_key(layer, part);
+        let key = super::part_key(layer, part);
+        // A packed linear carries no GGUF payload, so it takes the same per-column entry as the
+        // no-index schedule; `step_proj_sched` is the one dispatch that knows the sign-rank face.
+        // The pooled payload kernels below need a directory entry and do not apply.
+        let Some(li) = li.filter(|_| self.nq_linear(key).is_none()) else {
             let mut out = Vec::with_capacity(xs.len());
             let mut i = 0usize;
             while i < xs.len() {
@@ -547,14 +550,7 @@ impl Engine {
         let mut out = Vec::with_capacity(xs.len());
         let mut i = 0usize;
         while i < xs.len() {
-            out.push(self.proj_q8act_at(
-                idx,
-                super::part_key(layer, part),
-                n_out,
-                n_in,
-                &xs[i],
-                budget,
-            )?);
+            out.push(self.proj_q8act_at(idx, key, n_out, n_in, &xs[i], budget)?);
             i += 1;
         }
         Ok(out)
@@ -633,7 +629,12 @@ impl Engine {
         sched: Sched,
         mode: KernelMode,
     ) -> Result<Vec<Vec<Vec<i64>>>, StepError> {
-        if xs.len() == 1 {
+        // A packed member has no payload, so the fused group kernel does not apply; the per-part
+        // loop below takes `proj_cols`' sign-rank face for it.
+        let nq = parts
+            .iter()
+            .any(|&part| self.nq_linear(super::part_key(layer, part)).is_some());
+        if xs.len() == 1 && !nq {
             if let Some(li) = li {
                 let mut got = self.group_q8act_at(
                     li,
@@ -661,7 +662,7 @@ impl Engine {
             Some(_) => true,
             None => false,
         };
-        let packed = has_index && xs.len() > 1;
+        let packed = has_index && xs.len() > 1 && !nq;
         let qs = if packed { quant_cols(xs)? } else { Vec::new() };
         // The parts of a resident `Q8_0` group share `n_in`, so one activation pack and one row
         // dispatch serve them all. The group defers (`None`) to the per-part loop below, which owns
@@ -975,9 +976,12 @@ impl Engine {
             3 * trace::q8_bytes(n_ff, n_embd),
             3 * trace::macs(n_ff, n_embd, xs.len()),
         );
+        // A fitted FFN has no GGUF payload for the fused or exact-tapped kernels; its three
+        // projections take the separate path below through `proj_cols`' sign-rank face.
+        let nq_ffn = self.nq_linear(super::part_key(layer, 4)).is_some();
         // The `Exact` schedule resolves no layer index, so the single-column entry below has no
         // tap; run the tapped exact body per column here and record the gate, up and product.
-        if li.is_none() && mode == KernelMode::Exact && tap.is_some() {
+        if !nq_ffn && li.is_none() && mode == KernelMode::Exact && tap.is_some() {
             let mut out: Vec<Vec<i64>> = Vec::with_capacity(xs.len());
             let mut gate_rows: Vec<Vec<i64>> = Vec::with_capacity(xs.len());
             let mut up_rows: Vec<Vec<i64>> = Vec::with_capacity(xs.len());
@@ -996,7 +1000,7 @@ impl Engine {
             }
             return Ok(out);
         }
-        if xs.len() == 1 || li.is_none() {
+        if !nq_ffn && (xs.len() == 1 || li.is_none()) {
             let mut out = Vec::with_capacity(xs.len());
             for x in xs {
                 out.push(match li {
@@ -1006,7 +1010,7 @@ impl Engine {
             }
             return Ok(out);
         }
-        let qs = quant_cols(xs)?;
+        let qs = if nq_ffn { None } else { Some(quant_cols(xs)?) };
         // The tap's gate/up buffers, `k·n_ff` column-major words each, exist only when recording:
         // the fused epilogue stores into them and the separate path's gate/up projections are
         // recorded directly. Nothing is allocated on the off path.
@@ -1022,7 +1026,13 @@ impl Engine {
         // One pooled `[W_gate; W_up]` GEMM with the `SwiGLU` epilogue when both weights are `Q8_0`
         // and the fused kernel applies; `None` keeps the separate gate/up/`SwiGLU` path, which is
         // also the refusal owner for any gate/up value the fused kernel cannot produce exactly.
-        let hs = match self.ffn_fused_swiglu(li, layer, n_ff, n_embd, &qs, tape) {
+        // A fitted FFN takes that separate path with no activation pack: `proj_cols` dispatches
+        // each projection's sign-rank face from the same call.
+        let fused = match qs.as_deref() {
+            Some(q) if !nq_ffn => self.ffn_fused_swiglu(li, layer, n_ff, n_embd, q, tape),
+            _ => None,
+        };
+        let hs = match fused {
             Some(Ok(hs)) => {
                 record_flat_tap(tap, layer, &gate_flat, &up_flat, n_ff);
                 hs
@@ -1030,8 +1040,9 @@ impl Engine {
             Some(Err(e)) => return Err(StepError::Ffn(e)),
             None => {
                 let gate =
-                    self.proj_cols(li, layer, 4, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
-                let up = self.proj_cols(li, layer, 5, n_ff, n_embd, xs, sched, mode, Some(&qs))?;
+                    self.proj_cols(li, layer, 4, n_ff, n_embd, xs, sched, mode, qs.as_deref())?;
+                let up =
+                    self.proj_cols(li, layer, 5, n_ff, n_embd, xs, sched, mode, qs.as_deref())?;
                 // The separate path holds the same pre-activations as its two projection
                 // outputs, so the tap takes them there.
                 record_tap(tap, layer, STAGE_GATE, &gate);

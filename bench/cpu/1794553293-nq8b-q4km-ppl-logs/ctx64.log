@@ -1,0 +1,15 @@
+=== q4-64 start 2026-11-13T05:20:20Z
+ppl 14.520989 on 992 tokens (32 windows of <= 64, kernel Q8Act): mean nll 2.675595, 9.7 tok/s in 102.1 s
+peak rss 4885.2 MiB
+=== q4-64 exit 0 2026-11-13T05:22:05Z
+=== nq-64 start 2026-11-13T05:22:05Z
+pack: 252 linears, 1.124186 b/w, 976041584 factor bytes
+pack factors: 976041584 stored bytes for 6945767424 weights, 1.124186 b/w
+ppl 33.041986 on 992 tokens (32 windows of <= 64, kernel Q8Act): mean nll 3.497779, 0.6 tok/s in 1577.2 s
+peak rss 2368.7 MiB
+=== nq-64 exit 0 2026-11-13T05:48:24Z
+=== q8-512 start 2026-11-13T05:48:24Z
+ppl 6.339447 on 1020 tokens (4 windows of <= 512, kernel Q8Act): mean nll 1.846792, 0.5 tok/s in 1900.3 s
+peak rss 8611.7 MiB
+=== q8-512 exit 0 2026-11-13T06:20:10Z
+CTX64_DONE

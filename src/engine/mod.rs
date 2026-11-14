@@ -210,7 +210,8 @@ mod tests;
 
 pub use self::attn::f32_core::attn_core_f32_strided;
 pub use self::attn::{AttnError, KvState};
-pub use self::error::EngineError;
+pub use self::error::{EngineError, TensorKey};
+pub use self::kern::nq::NqError;
 pub use self::loader::{AffineGeom, AffineVectors, Engine, MixerKind, TensorEntry};
 pub use self::mixer::AffineState;
 pub use self::num::dequant::{dequant_row_fixed, f16_to_fixed};

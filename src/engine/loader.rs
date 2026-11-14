@@ -7,16 +7,18 @@
 //! leaves the file. Quant unpacking lives in `crate::format::quant`; this module only records the
 //! directory extent and the exact geometry where that module has it.
 //!
-//! Payloads are resident: [`Engine::open`] reads the whole file once into a `Box<[u8]>`, and
-//! [`Engine::payload`] serves a borrowed slice of it with the same checked bounds as
-//! [`Engine::read_range`]; no directory value is used before it is checked, and no failure is a
-//! panic. [`Engine::read_range`] is retained for callers that need owned bytes. Models larger than
-//! RAM (an mmap or streaming path) are a later task.
+//! Payloads stay in the file image: on Linux [`Engine::open`] maps the GGUF read-only and
+//! [`Engine::payload`] serves a borrowed slice of the mapping, so the pages are file-backed and
+//! reclaimable instead of a second anonymous copy of the skeleton; other platforms read the file
+//! into a `Box<[u8]>` ([`Engine::from_bytes`]). No directory value is used before it is checked,
+//! and no failure is a panic. [`Engine::read_range`] is retained for callers that need owned bytes.
 
 use core::ops::Range;
 use std::sync::Arc;
 
-use crate::format::gguf::{host_read_all, host_read_at, parse_header, GVal, GgufHeader};
+#[cfg(not(target_os = "linux"))]
+use crate::format::gguf::host_read_all;
+use crate::format::gguf::{host_read_at, parse_header, GVal, GgufHeader};
 use crate::format::quant;
 
 pub use super::error::EngineError;
@@ -31,6 +33,11 @@ use crate::engine::num::value::round_shift_32;
 #[path = "loader/hadamard.rs"]
 mod hadamard;
 pub use hadamard::{hadamard_meta, HadamardMeta};
+
+#[path = "loader/nq.rs"]
+mod nq;
+use crate::format::nq::NqPack;
+use nq::{build_nq_table, NqTable};
 
 /// Bits of the default `RoPE` base (`10_000.0_f64`) when `*.rope.freq_base` is absent. A bit pattern,
 /// not a float constant: the extraction cannot translate float constants.
@@ -382,6 +389,32 @@ pub(crate) fn qk_norm_heads(
     Ok(())
 }
 
+/// The resident GGUF image: an owned read for an in-memory image, or the read-only file mapping
+/// [`Engine::open`] uses on Linux.
+///
+/// Mapping matters at 8B: the skeleton is 1.33 GB, but a decode step reads one embedding row and
+/// the whole head. Keeping the file-backed pages reclaimable lets the kernel keep the head hot and
+/// evict embedding rows the step never touches, instead of pinning the whole skeleton in anonymous
+/// memory.
+#[derive(Debug)]
+enum Image {
+    /// The whole file, copied into the engine.
+    Owned(Box<[u8]>),
+    /// The whole file, file-backed.
+    #[cfg(target_os = "linux")]
+    Mapped(crate::format::nq::MappedFile),
+}
+
+impl Image {
+    fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Owned(b) => b,
+            #[cfg(target_os = "linux")]
+            Self::Mapped(m) => m.bytes(),
+        }
+    }
+}
+
 /// A loaded GGUF: resolved config, checked tensor directory and the resident file bytes.
 #[derive(Debug)]
 pub struct Engine {
@@ -393,8 +426,8 @@ pub struct Engine {
     pub config: EngineConfig,
     /// The validated `prism.hadamard.*` fold contract, or `None` for an unrotated model.
     pub hadamard: Option<HadamardMeta>,
-    /// The whole file, read once at open; [`Engine::payload`] serves checked slices of it.
-    data: Box<[u8]>,
+    /// The whole file, opened once; [`Engine::payload`] serves checked slices of it.
+    data: Image,
     table: TensorTable,
     token_embd: usize,
     vectors: DecodeVectors,
@@ -407,6 +440,8 @@ pub struct Engine {
     /// The `F16` limb tile of each projection tensor, keyed by directory index and packed on the
     /// first multi-column `Q8Act` projection of that tensor; owned by this engine, dropped with it.
     f16_tiles: std::sync::Mutex<std::collections::HashMap<usize, Arc<super::kern::limb::F16Tile>>>,
+    /// The packed `NanoQuant` factors that replace the served linears; empty for a plain GGUF.
+    pub(crate) nq: NqTable,
 }
 
 /// A checked byte extent of the resident file: the payload `resident()[off..off + len]`, resolved
@@ -929,8 +964,17 @@ impl Engine {
     /// Returns [`EngineError::Io`] on a read failure; every refusal of [`Engine::from_bytes`]
     /// otherwise.
     pub fn open(path: &str) -> Result<Engine, EngineError> {
-        let data = host_read_all(path).map_err(EngineError::Io)?;
-        Engine::from_bytes(path, data)
+        #[cfg(target_os = "linux")]
+        {
+            let map = crate::format::nq::MappedFile::open(path)
+                .map_err(|e| EngineError::Io(e.to_string()))?;
+            Engine::from_image(path, Image::Mapped(map))
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let data = host_read_all(path).map_err(EngineError::Io)?;
+            Engine::from_bytes(path, data)
+        }
     }
 
     /// Build an engine from an in-memory GGUF image, labelled `label`.
@@ -957,9 +1001,16 @@ impl Engine {
     /// cross-check failure, a missing `token_embd.weight`, or a tensor extent that leaves the
     /// buffer.
     pub fn from_bytes(label: &str, data: Vec<u8>) -> Result<Engine, EngineError> {
+        Engine::from_image(label, Image::Owned(data.into_boxed_slice()))
+    }
+
+    /// The shared open path: an owned image from [`Engine::from_bytes`] or the file mapping
+    /// [`Engine::open`] makes.
+    fn from_image(label: &str, data: Image) -> Result<Engine, EngineError> {
         hold_heap();
-        let file_len = u64::try_from(data.len()).map_err(|_| EngineError::LengthOverflow)?;
-        let header = parse_header(&data, file_len)?;
+        let bytes = data.bytes();
+        let file_len = u64::try_from(bytes.len()).map_err(|_| EngineError::LengthOverflow)?;
+        let header = parse_header(bytes, file_len)?;
         let config = resolve_config(&header)?;
         let hadamard = hadamard_meta(&header)?;
         let table = build_table(&header, file_len)?;
@@ -978,18 +1029,87 @@ impl Engine {
             file_len,
             config,
             hadamard,
-            data: data.into_boxed_slice(),
+            data,
             table,
             token_embd,
             vectors: DecodeVectors::default(),
             pq2_luts: Vec::new(),
             bitplane: std::sync::OnceLock::new(),
             f16_tiles: std::sync::Mutex::new(std::collections::HashMap::new()),
+            nq: NqTable::default(),
         };
         let vectors = engine.load_decode_vectors()?;
         engine.vectors = vectors;
         engine.pq2_luts = engine.build_pq2_luts();
         Ok(engine)
+    }
+
+    /// Open a GGUF skeleton and install a `NanoQuant` pack: [`Engine::open`] then
+    /// [`Engine::from_bytes_with_nq`]'s table build.
+    ///
+    /// The GGUF may still carry the replaced linears (a full quantised image) or omit them (a
+    /// skeleton). Either way the projection path reads the pack's factors, not the payload; the
+    /// skeleton form is what keeps the resident model at the pack's rate.
+    ///
+    /// # Errors
+    ///
+    /// [`Engine::open`]'s refusals, then every [`Engine::from_bytes_with_nq`] refusal.
+    pub fn open_with_nq(gguf: &str, pack: NqPack) -> Result<Engine, EngineError> {
+        let mut engine = Engine::open(gguf)?;
+        engine.install_nq(pack)?;
+        Ok(engine)
+    }
+
+    /// Build an engine from an in-memory GGUF image and install a `NanoQuant` pack.
+    ///
+    /// The pack must cover exactly the config's trunk layers and every kind; each section's
+    /// `(out, in)` is checked against the config's linear geometry. An empty pack leaves the engine
+    /// a plain GGUF engine.
+    ///
+    /// # Errors
+    ///
+    /// [`Engine::from_bytes`]'s refusals, and [`EngineError::ConfigMismatch`] for a pack whose layer
+    /// count, linear geometry or factor scales do not fit the model.
+    pub fn from_bytes_with_nq(
+        label: &str,
+        data: Vec<u8>,
+        pack: NqPack,
+    ) -> Result<Engine, EngineError> {
+        let mut engine = Engine::from_bytes(label, data)?;
+        engine.install_nq(pack)?;
+        Ok(engine)
+    }
+
+    fn install_nq(&mut self, pack: NqPack) -> Result<(), EngineError> {
+        if !pack.linears.is_empty() {
+            self.nq = build_nq_table(&self.config, self.table(), pack)?;
+        }
+        Ok(())
+    }
+
+    /// The resident weight bytes with the `NanoQuant` factors in place of the linears they replace:
+    /// every directory tensor the pack replaces is counted as its factor's stored bytes, every
+    /// other tensor as its stored GGUF bytes.
+    ///
+    /// # Trust boundary
+    ///
+    /// The loader still holds the whole GGUF buffer ([`Engine::from_bytes`]), so a replaced
+    /// linear's GGUF payload is resident beside its factors until the skeleton image that omits
+    /// those payloads is the one opened; this value is the budget accounting and not the process's
+    /// resident set.
+    ///
+    /// # Complexity
+    ///
+    /// `O(entries · log fitted)`.
+    #[must_use]
+    pub fn resident_weight_bytes(&self) -> u64 {
+        let mut total = 0u64;
+        for (i, t) in self.table.entries().iter().enumerate() {
+            if self.nq.entries.binary_search(&i).is_err() {
+                total = total.saturating_add(t.n_bytes.unwrap_or(0));
+            }
+        }
+        total.saturating_add(self.nq.factor_bytes)
     }
 
     /// The decode `F32` gain/bias vectors resolved once at load.
@@ -1358,6 +1478,7 @@ impl Engine {
         let start = usize::try_from(at).map_err(|_| EngineError::LengthOverflow)?;
         let stop = usize::try_from(end).map_err(|_| EngineError::LengthOverflow)?;
         self.data
+            .bytes()
             .get(start..stop)
             .ok_or(EngineError::LengthOverflow)
     }
@@ -1379,7 +1500,7 @@ impl Engine {
         }
         let start = usize::try_from(at).map_err(|_| EngineError::LengthOverflow)?;
         let stop = usize::try_from(end).map_err(|_| EngineError::LengthOverflow)?;
-        if self.data.get(start..stop).is_none() {
+        if self.data.bytes().get(start..stop).is_none() {
             return Err(EngineError::LengthOverflow);
         }
         Ok(PayloadRef {
@@ -1391,7 +1512,7 @@ impl Engine {
     /// The whole resident file; a [`PayloadRef`] indexes it.
     #[must_use]
     pub fn resident(&self) -> &[u8] {
-        &self.data
+        self.data.bytes()
     }
 }
 
