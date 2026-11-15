@@ -54,6 +54,18 @@ const EPS: f64 = 1e-12;
 /// Board unmeasured against held-out KL.
 const FLOOR_REL: f64 = 1e-6;
 
+/// Why the limb kernel refused a product, carried by [`NqError::Kernel`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LimbRefusal {
+    /// A mismatched slice or dimension, no limb, or a contraction past the kernel's width.
+    Shape,
+    /// A block pair whose scale placement cannot carry the product, or a sum that leaves `i64`.
+    Range,
+    /// No kernel: never produced. A host without AVX-VNNI falls back to `matmat_q8act` on the
+    /// same planes, and the variant exists so a caller can name the condition it cannot see.
+    NoKernel,
+}
+
 /// A refusal of [`factorize`] or [`NqFactor::weight`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NqError {
@@ -61,15 +73,19 @@ pub enum NqError {
     Shape,
     /// A value left the Q32.32 grid or is not finite.
     Range,
-    /// The limb kernel refused a product (shape or scale placement).
-    Kernel,
+    /// The limb kernel refused a product; the carried [`LimbRefusal`] names why.
+    Kernel(LimbRefusal),
     /// The ridge system's inverse factor was refused.
     Solve(SolveError),
 }
 
 impl From<LimbError> for NqError {
-    fn from(_: LimbError) -> Self {
-        Self::Kernel
+    fn from(e: LimbError) -> Self {
+        Self::Kernel(match e {
+            LimbError::Shape => LimbRefusal::Shape,
+            LimbError::Range => LimbRefusal::Range,
+            LimbError::NoKernel => LimbRefusal::NoKernel,
+        })
     }
 }
 
@@ -691,14 +707,26 @@ fn admm_loss(
     r: usize,
 ) -> Result<f64, NqError> {
     let bzr = transpose(b_z, n, r);
-    let mid = rowdot_q32(&grid(&bzr)?, &grid(&bzr)?, r, n, LIMBS)?;
+    // As below: a diagnostic refuses nothing the factor can still export.
+    let mid = match rowdot_q32(&grid(&bzr)?, &grid(&bzr)?, r, n, LIMBS) {
+        Ok(mid) => mid,
+        Err(LimbError::Range) => return Ok(f64::INFINITY),
+        Err(e) => return Err(NqError::from(e)),
+    };
     let mut am = a_z.to_vec();
     for i in 0..o {
         for k in 0..r {
             am[i * r + k] /= from_grid(mid[k]).sqrt().max(EPS);
         }
     }
-    let pred = gemm_q32(&grid(&am)?, o, &grid(b_z)?, n, r, LIMBS)?;
+    // The loss is a diagnostic: a Q32.32 prediction the scale placement cannot carry (a block
+    // pair outside the exponent range, as on Qwen2.5-7B `ffn_down` at 18,944) leaves the factor
+    // itself exportable, so the loss is reported as infinite rather than refusing the fit.
+    let pred = match gemm_q32(&grid(&am)?, o, &grid(b_z)?, n, r, LIMBS) {
+        Ok(pred) => pred,
+        Err(LimbError::Range) => return Ok(f64::INFINITY),
+        Err(e) => return Err(NqError::from(e)),
+    };
     let e: Vec<f64> = wn
         .iter()
         .zip(&pred)
@@ -711,7 +739,8 @@ fn admm_loss(
 /// Frobenius norm, scale `A`'s columns by `1/‖A_z col‖`, take `s_pre`/`s_post` as the mean
 /// magnitudes and `U`/`V` as the signs (zero to `+1`). The latents `A_ls + A_u`, `B_ls + B_u`
 /// take the same statistics and balance, without the column scale. `z = [A_z, B_zᵀ, A_lat,
-/// B_latᵀ]`. `O(r·(o + n))` plus two `rowdot_q32`.
+/// B_latᵀ]`. `O(r·(o + n))`, with the column norms summed in f64 rather than by `rowdot_q32` so a
+/// wide `o` cannot refuse the export on the kernel's scale placement.
 fn export(
     z: &[&[f64]; 4],
     ni: &[f64],
@@ -737,11 +766,14 @@ fn export(
     let na = fro2(&a, o, r)?.sqrt().max(EPS);
     let nb = fro2(&b, n, r)?.sqrt().max(EPS);
     let bf = (nb / na).sqrt();
-    let azt = transpose(a_z, o, r);
-    let col = rowdot_q32(&grid(&azt)?, &grid(&azt)?, r, o, LIMBS)?;
+    // The column norms are a norm, not a product: sum them in f64 so the export does not depend
+    // on the limb placement's exponent range for a wide `o` (7B `ffn_down`'s 18,944).
+    let col: Vec<f64> = (0..r)
+        .map(|k| (0..o).map(|i| a_z[i * r + k] * a_z[i * r + k]).sum())
+        .collect();
     for i in 0..o {
         for k in 0..r {
-            a[i * r + k] *= bf / from_grid(col[k]).sqrt().max(EPS);
+            a[i * r + k] *= bf / col[k].sqrt().max(EPS);
         }
     }
     for x in &mut b {

@@ -1,5 +1,24 @@
 use super::*;
 
+/// The public error keeps the kernel's reason: a fit on a wide shape must report `Shape` (a
+/// width past `MAX_INNER`) apart from `Range` (a scale placement), or the next run cannot tell a
+/// missing bound from a data-dependent refusal.
+#[test]
+fn limb_refusals_keep_their_reason() {
+    assert_eq!(
+        NqError::from(LimbError::Shape),
+        NqError::Kernel(LimbRefusal::Shape)
+    );
+    assert_eq!(
+        NqError::from(LimbError::Range),
+        NqError::Kernel(LimbRefusal::Range)
+    );
+    assert_eq!(
+        NqError::from(LimbError::NoKernel),
+        NqError::Kernel(LimbRefusal::NoKernel)
+    );
+}
+
 /// `H·spd_inverse(H) = I` within `1e-5` (`f64` oracle) on a well-conditioned `H = AAᵀ + I` of
 /// order 300, and no worse than the unrecursed base `UᵀU` on the same `H`.
 #[test]
