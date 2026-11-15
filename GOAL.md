@@ -126,6 +126,13 @@ states it separately.
 6. Write the receipt with the criterion id, the grade, the scope and the non-coverage. Run
    `python3 tools/check-claims.py` and `python3 tools/book-check.py`.
 
+## Reminders
+
+The owner's OpenCode configuration loads `~/.config/opencode/plugins/goal-reminder`, which sends a
+`[goal-reminder]` prompt to the named session at a random 30–45 minute cadence. It pauses when a real
+user message arrives, when `/tmp/opencode/goal-reminder.stop` exists, or when the plugin is unloaded.
+The plugin is local to the owner's machine and is not part of this repository.
+
 ## Definitions
 
 - **7B-class**: 6.5–8.5 billion parameters. Primary checkpoint: Qwen2.5-7B-Instruct. Comparison:
