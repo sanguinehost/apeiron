@@ -145,6 +145,9 @@ apeiron is Apache-2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)). Report a vulnerabi
 [SECURITY.md](SECURITY.md) says. The working agreement, with its gates and evidence grades, is
 [AGENTS.md](AGENTS.md). It applies to people and coding agents alike. Read the
 [book](book/src/introduction.md) chapter for the area, and `proof/README.md` if you touch the Lean.
+The deployment goal and its acceptance criteria are [GOAL.md](GOAL.md): a 7B-class model at about
+30 tok/s on the 6.6 GiB laptop with a 200k context, serving `../intent` and leaving 2 GiB for the
+agent sessions. A pack, a row or a speedup is an artifact of that goal, not the goal.
 
 ### Build and check
 
