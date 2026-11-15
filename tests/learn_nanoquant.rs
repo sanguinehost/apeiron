@@ -674,6 +674,9 @@ fn cmp_line(
 /// `APEIRON_NQ_TUNE_LR_SCALE` (both `1e-5`). `APEIRON_NQ_FLOOR` sets the preconditioner floor of
 /// [`factorize_floor`] (unset: [`factorize`]'s own). `APEIRON_NQ_RELH=0` drops the two dense
 /// `energy` passes and the `Q4_K_M` comparison from the printed line (and from the run's cost);
+/// `APEIRON_NQ_DENSE=0` also skips the dense `l{l}.{kind}-nq{tag}.i64` reconstruction, which the
+/// pack does not read. `APEIRON_NQ_GRAM_TAG`'s diagonal form `g{l}.{tag}.{kind}.diag.i64` is read
+/// when the full Gram is absent;
 /// `i_norm = diag(H)` of the cached `g{l}.c6x29.*` Gram (the reference's unclipped `dbf` statistic up to a constant, to which the
 /// ADMM is equivariant); `o_norm = 1`. Prints the ADMM loss and the relative `H`-energy
 /// `tr(EHEᵀ)/tr(WHWᵀ)` of the fit and of the cached same-scope `Q4_K_M` part.
@@ -733,10 +736,25 @@ fn nq_fit() {
                 .find(|x| names.contains(&x.name))
                 .unwrap_or_else(|| panic!("blk.{l} {kind}"));
             let (o, n) = (lin.rows, lin.cols);
-            let (ho, hn, hw) = read_words(&format!("{cache}/g{l}.{gtag}.{gram}.i64"));
-            assert_eq!((ho, hn), (n, n), "layer {l} {kind}: Gram");
-            let h: Vec<f64> = hw.iter().map(|&x| from_grid(x)).collect();
-            let i_norm: Vec<f64> = (0..n).map(|i| h[i * n + i]).collect();
+            // The fit uses only `diag(H)` (the preconditioner); a 7B down Gram is 2.87 GB per
+            // layer, so `calib_diag_write` writes that diagonal alone. A full `g{l}...i64`, when
+            // present, still feeds the optional relH screen and the tune.
+            let diag_path = format!("{cache}/g{l}.{gtag}.{gram}.diag.i64");
+            let (i_norm, hw_full, h_full) = if std::path::Path::new(&diag_path).exists() {
+                let (ho, hn, dw) = read_words(&diag_path);
+                assert_eq!((ho, hn), (1, n), "layer {l} {kind}: diagonal Gram");
+                (
+                    dw.iter().map(|&x| from_grid(x)).collect::<Vec<f64>>(),
+                    None,
+                    None,
+                )
+            } else {
+                let (ho, hn, hw) = read_words(&format!("{cache}/g{l}.{gtag}.{gram}.i64"));
+                assert_eq!((ho, hn), (n, n), "layer {l} {kind}: Gram");
+                let h: Vec<f64> = hw.iter().map(|&x| from_grid(x)).collect();
+                let i_norm: Vec<f64> = (0..n).map(|i| h[i * n + i]).collect();
+                (i_norm, Some(hw), Some(h))
+            };
             // `APEIRON_NQ_RANK` pins the rank (a comparison against a factor fitted at another
             // budget); `0` uses the bit budget.
             let r = match env_usize("APEIRON_NQ_RANK", 0) {
@@ -772,15 +790,18 @@ fn nq_fit() {
                 let fit_s = t.elapsed().as_secs_f64();
                 let mut tune_line = String::new();
                 if tc.steps > 0 {
+                    let hw = hw_full
+                        .as_ref()
+                        .expect("APEIRON_NQ_TUNE_STEPS needs the full Gram, not its diagonal");
                     let mut sk_s = 0.0;
                     let t = Instant::now();
                     let tr = match env_usize("APEIRON_NQ_TUNE_SKETCH", 0) {
-                        0 => tune(&mut f, &lin.w, &hw, &tc).expect("tune"),
+                        0 => tune(&mut f, &lin.w, hw, &tc).expect("tune"),
                         s => {
-                            let sk = h_sketch(&hw, n, s, env_usize("APEIRON_NQ_PASSES", 3), 0)
+                            let sk = h_sketch(hw, n, s, env_usize("APEIRON_NQ_PASSES", 3), 0)
                                 .expect("sketch");
                             sk_s = t.elapsed().as_secs_f64();
-                            tune_sketch(&mut f, &lin.w, &hw, &sk, &tc).expect("tune_sketch")
+                            tune_sketch(&mut f, &lin.w, hw, &sk, &tc).expect("tune_sketch")
                         }
                     };
                     let _ = write!(
@@ -797,25 +818,37 @@ fn nq_fit() {
                     tr.flips
                 );
                 }
-                // `wq` is written whatever the screen; the two dense `energy` passes and the
-                // `Q4_K_M` comparison are the screen.
+                // `save_factor` is always written. The dense `.i64` reconstruction is written
+                // unless `APEIRON_NQ_DENSE=0`; the relH screen and the tune read it when they run.
                 save_factor(&format!("{cache}/l{l}.{kind}-nq{tag}.nqf"), &f);
                 let r = f.rank;
-                let wq = f.weight().expect("weight");
-                let path = format!("{cache}/l{l}.{kind}-nq{tag}.i64");
-                write_words(&path, o, n, &wq);
+                let dense = !matches!(std::env::var("APEIRON_NQ_DENSE").as_deref(), Ok("0"));
+                let wq = if dense || relh_enabled() {
+                    Some(f.weight().expect("weight"))
+                } else {
+                    None
+                };
+                if dense {
+                    let path = format!("{cache}/l{l}.{kind}-nq{tag}.i64");
+                    write_words(&path, o, n, wq.as_ref().expect("dense"));
+                }
                 let mut line = format!(
                 "NQ layer {l:02} {kind} {o}x{n} seed {seed} r {r} b/w {:.4} iters {iters} {fit_s:.1} s admm_loss {:.5}{tune_line}",
                 stored_bits(o, n, r) as f64 / (o * n) as f64,
                 f.admm_loss
             );
                 if relh_enabled() {
-                    let w: Vec<f64> = lin.w.iter().map(|&x| from_grid(x)).collect();
-                    let base = energy(&h, &w, o, n);
-                    let e: Vec<f64> = wq.iter().zip(&w).map(|(&q, x)| from_grid(q) - x).collect();
-                    let rel = energy(&h, &e, o, n) / base;
-                    let _ = write!(line, " relH {rel:.5}");
-                    line += &cmp_line(&format!("{cache}/l{l}.{kind}"), &h, &w, (o, n), base, rel);
+                    if let Some(h) = &h_full {
+                        let wq = wq.as_ref().expect("relH needs the dense reconstruction");
+                        let w: Vec<f64> = lin.w.iter().map(|&x| from_grid(x)).collect();
+                        let base = energy(h, &w, o, n);
+                        let e: Vec<f64> = wq.iter().zip(&w).map(|(&q, x)| from_grid(q) - x).collect();
+                        let rel = energy(h, &e, o, n) / base;
+                        let _ = write!(line, " relH {rel:.5}");
+                        line += &cmp_line(&format!("{cache}/l{l}.{kind}"), h, &w, (o, n), base, rel);
+                    } else {
+                        line += " relH n/a (diagonal Gram)";
+                    }
                 } else {
                     line += " relH n/a";
                 }

@@ -38,6 +38,10 @@ use apeiron::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 /// `n_ff` width of the down Gram, so the Gram is not rank-limited by the row count.
 const CALIB: usize = 8;
 
+/// Tap slot of the attention-side `RMSNorm` output, the q/k/v input (`STAGE_LN1_OUT`).
+const TAP_LN1: usize = 1;
+/// Tap slot of the attention output, the `o` projection input (`STAGE_ATTN_OUT`).
+const TAP_ATTN: usize = 2;
 /// Tap slot of the FFN-side `RMSNorm` output: the gate/up input (`STAGE_LN2_OUT`).
 const TAP_LN2: usize = 3;
 /// Tap slot of the `SwiGLU` product, the `ffn_down` input (`STAGE_M`).
@@ -62,11 +66,6 @@ fn env_usize(key: &str, default: usize) -> usize {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(default)
-}
-
-/// `words` as reals, one conversion at the boundary.
-fn unq(words: &[i64]) -> Vec<f64> {
-    words.iter().map(|&w| from_grid(w)).collect()
 }
 
 /// `x` as Q32.32 words, the one rounding into the grid.
@@ -134,6 +133,19 @@ fn calib_set(chunks: &[Vec<u32>], calib: usize, extra: usize) -> Vec<Vec<u32>> {
     chunks[..calib].iter().chain(tail).cloned().collect()
 }
 
+/// Add `Σ_t x_t²` for each column of `cols` (one column per token) into `d`, the mean-diagonal
+/// accumulator. `O(cols·width)`; [`calib_grams`] checks this sum against the full Gram's diagonal
+/// to `1e-4` relative.
+fn add_diag(d: &mut [f64], cols: &[Vec<i64>]) {
+    for col in cols {
+        assert_eq!(col.len(), d.len(), "diag column width");
+        for (k, &w) in col.iter().enumerate() {
+            let v = from_grid(w);
+            d[k] += v * v;
+        }
+    }
+}
+
 /// The calibration Grams over `chunks`, with the diagonal layout control for every layer in
 /// `layers`. Cost: `O(chunks·n_layer·t·(n_embd² + q_out² + n_ff²)/2)` multiply-adds in the
 /// accumulator plus `O(chunks·|layers|·t·(n_embd + n_ff))` for the control; space the
@@ -153,16 +165,8 @@ fn calib_grams(
         let rows = tapped(engine, tokens);
         grams.accumulate_tap(&rows).expect("accumulate");
         for &l in layers {
-            for col in &rows[l][TAP_LN2] {
-                for (k, v) in unq(col).iter().enumerate() {
-                    diag[l].0[k] += v * v;
-                }
-            }
-            for col in &rows[l][TAP_M] {
-                for (k, v) in unq(col).iter().enumerate() {
-                    diag[l].1[k] += v * v;
-                }
-            }
+            add_diag(&mut diag[l].0, &rows[l][TAP_LN2]);
+            add_diag(&mut diag[l].1, &rows[l][TAP_M]);
         }
         seen += tokens.len();
         println!("CALIB chunk {c} at {:.1} s", t0.elapsed().as_secs_f64());
@@ -239,6 +243,138 @@ fn calib_grams_write() {
         "CALIB {tag}: {} layers, {} tokens, written to {cache}",
         layers.len(),
         set.len() * n_ctx
+    );
+}
+
+/// One layer's four mean-diagonal accumulators, in [`calib_grams_write`]'s `kinds` order.
+struct Diag {
+    o: Vec<f64>,
+    gate_up: Vec<f64>,
+    down: Vec<f64>,
+    qkv: Vec<f64>,
+}
+
+/// Write only the mean diagonal of each calibration Gram, `{cache}/g{l}.{tag}.{kind}.diag.i64`
+/// (header `(1, w)`, Q32.32), instead of the full `w × w` Gram.
+///
+/// `nq_fit` uses only `diag(H)` as its preconditioner; the full `n_ff × n_ff` down Gram of a 7B
+/// model is 2.87 GB per layer, 80 GB over 28 layers, and its `finish` copy doubles that. The
+/// diagonal fits in megabytes and the same one-pass prefill accumulates it.
+///
+/// `APEIRON_CALIB_CHECK_LAYER` also accumulates that layer's full Gram in the same pass and asserts
+/// its diagonal against this accumulator to `1e-4` relative, the full-Gram control's bound.
+///
+/// Env: `APEIRON_CALIB_MODEL`, `APEIRON_CALIB_BASE`, `APEIRON_CALIB_CACHE`, `APEIRON_CALIB_CHUNKS`,
+/// `APEIRON_CALIB_EXTRA`, `APEIRON_CALIB_LAYERS`, `APEIRON_CALIB_CHECK_LAYER`.
+#[test]
+#[ignore = "opens the teacher and prefills every calibration chunk; run explicitly"]
+fn calib_diag_write() {
+    let model = env_path("APEIRON_CALIB_MODEL", "~/nq-ref/q3-0p6b-f16.gguf");
+    let base = env_path("APEIRON_CALIB_BASE", "~/kld08/calib.c40.kld");
+    let cache = env_path("APEIRON_CALIB_CACHE", "~/kld08/gatecode-tok");
+    let calib = env_usize("APEIRON_CALIB_CHUNKS", CALIB);
+    let extra = env_usize("APEIRON_CALIB_EXTRA", 0);
+    let tag = format!("c{calib}x{extra}");
+    let engine = Engine::open(&model).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let layers: Vec<usize> = match std::env::var("APEIRON_CALIB_LAYERS") {
+        Ok(s) if !s.is_empty() => s.split(',').filter_map(|t| t.trim().parse().ok()).collect(),
+        _ => (0..cfg.n_layer).collect(),
+    };
+    std::fs::create_dir_all(&cache).expect("cache dir");
+    let path = |l: usize, k: &str| format!("{cache}/g{l}.{tag}.{k}.diag.i64");
+    let kinds = ["o", "gate_up", "down", "qkv"];
+    if layers
+        .iter()
+        .all(|&l| kinds.iter().all(|k| Path::new(&path(l, k)).exists()))
+    {
+        println!("DIAG {tag}: every diagonal exists in {cache}, nothing written");
+        return;
+    }
+    let (chunks, _n_ctx) = base_tokens(&base);
+    let set = calib_set(&chunks, calib, extra);
+    let (n, q, f) = (
+        cfg.n_embd,
+        cfg.q_out().expect("q_out"),
+        cfg.n_ff,
+    );
+    let mut diag: Vec<Diag> = (0..cfg.n_layer)
+        .map(|_| Diag {
+            o: vec![0.0; q],
+            gate_up: vec![0.0; n],
+            down: vec![0.0; f],
+            qkv: vec![0.0; n],
+        })
+        .collect();
+    let mut check = std::env::var("APEIRON_CALIB_CHECK_LAYER")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .map(|l| {
+            assert!(l < cfg.n_layer, "check layer {l}");
+            let cfg1 = Config {
+                n_layer: 1,
+                ..cfg.clone()
+            };
+            (l, Grams::new(&cfg1).expect("check grams"))
+        });
+    let mut seen = 0usize;
+    let t0 = Instant::now();
+    for (c, tokens) in set.iter().enumerate() {
+        let rows = tapped(&engine, tokens);
+        for l in 0..cfg.n_layer {
+            add_diag(&mut diag[l].o, &rows[l][TAP_ATTN]);
+            add_diag(&mut diag[l].gate_up, &rows[l][TAP_LN2]);
+            add_diag(&mut diag[l].down, &rows[l][TAP_M]);
+            add_diag(&mut diag[l].qkv, &rows[l][TAP_LN1]);
+        }
+        if let Some((l, g)) = check.as_mut() {
+            g.accumulate_tap(&rows[*l..=*l]).expect("check accumulate");
+        }
+        seen += tokens.len();
+        println!("DIAG chunk {c} at {:.1} s", t0.elapsed().as_secs_f64());
+    }
+    if let Some((l, g)) = check.take() {
+        let full = g.finish(Normalisation::Mean).expect("check finish");
+        let lg = &full[0];
+        let d = &diag[l];
+        for (name, mat, acc, w) in [
+            ("qkv", &lg.qkv, &d.qkv, n),
+            ("o", &lg.o, &d.o, q),
+            ("gate_up", &lg.gate_up, &d.gate_up, n),
+            ("down", &lg.down, &d.down, f),
+        ] {
+            let (mut num, mut den) = (0.0f64, 0.0f64);
+            for k in 0..w {
+                let e = acc[k] / seen as f64;
+                num += (mat[k * w + k] - e).powi(2);
+                den += e * e;
+            }
+            let rel = (num / den).sqrt();
+            println!("DIAG layer {l} {name} full-Gram rel {rel:.3e}");
+            assert!(
+                rel < 1e-4,
+                "layer {l} {name}: diagonal off the full Gram by {rel}"
+            );
+        }
+    }
+    for &l in &layers {
+        for (k, d) in [
+            ("o", &diag[l].o),
+            ("gate_up", &diag[l].gate_up),
+            ("down", &diag[l].down),
+            ("qkv", &diag[l].qkv),
+        ] {
+            let words: Vec<i64> = d
+                .iter()
+                .map(|&v| to_grid(v / seen as f64, GRID_BOUND).expect("diag grid"))
+                .collect();
+            write_words(&path(l, k), 1, d.len(), &words).expect("write diagonal");
+        }
+    }
+    println!(
+        "DIAG {tag}: {} layers, {} tokens, written to {cache}",
+        layers.len(),
+        seen
     );
 }
 
