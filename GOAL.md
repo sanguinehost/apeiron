@@ -70,12 +70,12 @@ does not cover.
 
 | criterion | status | established | not covered |
 |---|---|---|---|
-| Q1 | **partial** | a 12-row sample packs to 4,978,784 B at 1.1510 b/w on 34,603,008 weights; the shipped factor stores 1.166 b/w; receipt `bench/cpu/1794740406-nq-118-distortion.md` | a full 7B-class pack; the sample is 12 rows, not a model |
+| Q1 | **partial** | a 12-row sample packs to 4,978,784 B at 1.1510 b/w on 34,603,008 weights; the shipped factor stores 1.166 b/w; receipt `bench/cpu/1794740406-nq-118-distortion.md`. Qwen2.5-7B's calibration covers all 28 layers (112 diagonals, 17,920 tokens, full-Gram control ≤2.9e-6) and the recipe computes 1.174036 b/w, 957,615,232 B on 6,525,288,448 weights at `APEIRON_NQ_BITS_PPM=1180000`; one layer-0 `attn_output` fits at 1.1339 b/w, `ffn_down` still refuses, and the campaign is out of credit; receipt `bench/cpu/1794781140-nq7b-118-full-pack.md` | the pack itself; the 18,944-wide `down` fit; Q2 |
 | Q2 | **open** | the 8B v3 pair measures 16.295301 PPL at ctx 128, 1.011× Q4_K_M, at 3.13 b/w; receipt `bench/cpu/1794653685-nq8b-residual-ppl.md` | the 1.15–1.18 b/w pack; ctx ≥ 2048; the 0-shot half |
 | M1 | **open** | the 8B v3 pair peaks at 2399.2 MiB RSS at ctx 128 and 2567.1 MiB at ctx 512; receipt `bench/cpu/1794690665-nq8b-laptop-serve.md` | 200k context; five sessions; a 1.15 b/w pack |
 | T1 | **open** | 0.09 tok/s on the 8B v3 pair on the laptop; the 1.15 b/w projection model is 66× at T=400 and 137× at T=200 against the pre-fix projection, with a same-host A/B of 53–63×; `bench/notes/fit-cost.md` | 30 tok/s at 2k and 24 tok/s at 200k on the whole model |
 | T2 | **open** | no 1k turn at 200k has run | the latency bar |
-| C1 | **open** | the classic f16 KV is still the serving path; ColdKV E0/E1c supports a fixed A=1024 budget across 31× context, but it is a torch probe and its full-KV cold store does not fit 200k | a port, a 1 GiB allocation at 200k, and the growth argument |
+| C1 | **open** | the classic f16 KV is still the serving path; ColdKV E0/E1c supports a fixed A=1024 budget across 31× context, but it is a torch probe and its full-KV cold store does not fit 200k. The 7B state is 5,734,400,000 values at 200k, so the 1 GiB cap is 1.4976 bits/value including hot tier, cold store and index; the file-backed plane relocates bytes to disk and does not meet it; `bench/notes/context-budget.md` | a carrier at ≤1.5 bits/value, a 1 GiB allocation at 200k, and the growth argument |
 | C2 | **open** | no replacement has been scored at 200k | the Q2 bar at 200k and the agreement test |
 | I1 | **partial** | one 25-token turn through Intent's `local` provider reached `finish_reason: stop` and Intent `outcome: complete` on the 8B v3 pack; receipt `bench/cpu/1794696786-nq8b-intent-loop.md` | the full 2,672-token assembled prompt and a real coding turn |
 | I2 | **open** | no 20-task suite and no local/DeepSeek split | the replacement bar |
