@@ -293,11 +293,7 @@ fn calib_diag_write() {
     }
     let (chunks, _n_ctx) = base_tokens(&base);
     let set = calib_set(&chunks, calib, extra);
-    let (n, q, f) = (
-        cfg.n_embd,
-        cfg.q_out().expect("q_out"),
-        cfg.n_ff,
-    );
+    let (n, q, f) = (cfg.n_embd, cfg.q_out().expect("q_out"), cfg.n_ff);
     let mut diag: Vec<Diag> = (0..cfg.n_layer)
         .map(|_| Diag {
             o: vec![0.0; q],

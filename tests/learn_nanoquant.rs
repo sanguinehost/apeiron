@@ -842,10 +842,12 @@ fn nq_fit() {
                         let wq = wq.as_ref().expect("relH needs the dense reconstruction");
                         let w: Vec<f64> = lin.w.iter().map(|&x| from_grid(x)).collect();
                         let base = energy(h, &w, o, n);
-                        let e: Vec<f64> = wq.iter().zip(&w).map(|(&q, x)| from_grid(q) - x).collect();
+                        let e: Vec<f64> =
+                            wq.iter().zip(&w).map(|(&q, x)| from_grid(q) - x).collect();
                         let rel = energy(h, &e, o, n) / base;
                         let _ = write!(line, " relH {rel:.5}");
-                        line += &cmp_line(&format!("{cache}/l{l}.{kind}"), h, &w, (o, n), base, rel);
+                        line +=
+                            &cmp_line(&format!("{cache}/l{l}.{kind}"), h, &w, (o, n), base, rel);
                     } else {
                         line += " relH n/a (diagonal Gram)";
                     }
