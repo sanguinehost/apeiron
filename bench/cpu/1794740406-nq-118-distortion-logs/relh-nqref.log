@@ -1,0 +1,13 @@
+l00 down 1024x3072 nqref E 0.201116 norm 44.85%
+l00 gate 3072x1024 nqref E 0.040344 norm 20.09%
+l00 up   3072x1024 nqref E 0.264280 norm 51.41%
+l00 o    1024x2048 nqref E 0.120037 norm 34.65%
+l26 down 1024x3072 nqref E 0.165268 norm 40.65%
+l26 gate 3072x1024 nqref E 0.143070 norm 37.82%
+l26 up   3072x1024 nqref E 0.151778 norm 38.96%
+l26 o    1024x2048 nqref E 0.157607 norm 39.70%
+l27 down 1024x3072 nqref E 0.054086 norm 23.26%
+l27 gate 3072x1024 nqref E 0.041141 norm 20.28%
+l27 up   3072x1024 nqref E 0.099885 norm 31.60%
+l27 o    1024x2048 nqref E 0.273716 norm 52.32%
+csv: /workspace/models/qwen06/relh-nqref.csv

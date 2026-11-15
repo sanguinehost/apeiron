@@ -448,8 +448,11 @@ pub(crate) fn x_update(
 ) -> Result<Vec<f64>, NqError> {
     // `Z_xᵀ` on the grid in one pass: entry `(i, j)` of the `r × n` result is `zx[j·r + i]`.
     let zt = grid_map(r * n, &|c| zx[(c % n) * r + c / n])?;
-    // The full square in one product: `syrk_q32` tiles `SYRK_COLS = 16` columns per kernel call.
-    let g = prepare(&zt, r, n, LIMBS)?.gemm(&zt, r)?;
+    // `Z·Zᵀ` is symmetric, so the upper triangle and its mirror are the whole square:
+    // `syrk_q32` tiles `SYRK_COLS = 16` columns per kernel call and mirrors, which is half the
+    // kernel work of `gemm` on the same plane and bit-identical (`syrk`'s doc: the same pair
+    // grouping, the mirror is exact).
+    let g = syrk_q32(&zt, r, n, LIMBS)?;
     let d: Vec<f64> = (0..r)
         .map(|i| from_grid(g[i * r + i]).sqrt().max(EPS))
         .collect();

@@ -1,0 +1,9 @@
+
+running 1 test
+NQ model /workspace/models/qwen06/Qwen3-0.6B-Base-F16.gguf cache /workspace/models/qwen06/gatecode-tok gram c6x29 n_embd 1024 n_ff 3072 n_layer 28 head 16 kv 8 head_dim 128
+test nq_fit has been running for over 60 seconds
+NQ layer 26 up 3072x1024 seed 0 r 864 b/w 1.1458 iters 400 162.8 s admm_loss 0.17445 relH 0.11242 | nqref relH 0.151778 nq/nqref x0.74
+test nq_fit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 167.66s
+

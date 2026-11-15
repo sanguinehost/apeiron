@@ -213,7 +213,7 @@ fn calib_grams_write() {
     };
     std::fs::create_dir_all(&cache).expect("cache dir");
     let path = |l: usize, k: &str| format!("{cache}/g{l}.{tag}.{k}.i64");
-    let kinds = ["o", "gate_up", "down"];
+    let kinds = ["o", "gate_up", "down", "qkv"];
     if layers
         .iter()
         .all(|&l| kinds.iter().all(|k| Path::new(&path(l, k)).exists()))
@@ -225,10 +225,12 @@ fn calib_grams_write() {
     let set = calib_set(&chunks, calib, extra);
     let grams = calib_grams(&engine, &cfg, &set, &layers);
     for &l in &layers {
-        for (k, g) in kinds
-            .iter()
-            .zip([&grams[l].o, &grams[l].gate_up, &grams[l].down])
-        {
+        for (k, g) in kinds.iter().zip([
+            &grams[l].o,
+            &grams[l].gate_up,
+            &grams[l].down,
+            &grams[l].qkv,
+        ]) {
             let w = g.len().isqrt();
             write_words(&path(l, k), w, w, &qv(g)).expect("write Gram");
         }

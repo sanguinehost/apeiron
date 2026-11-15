@@ -721,6 +721,10 @@ fn nq_fit() {
                 "up" => (&["ffn_up"], "gate_up"),
                 "down" => (&["ffn_down"], "down"),
                 "o" => (&["attn_output", "ssm_out"], "o"),
+                // q, k and v take the same `attn_norm` output, so one Gram covers all three.
+                "q" => (&["attn_q"], "qkv"),
+                "k" => (&["attn_k"], "qkv"),
+                "v" => (&["attn_v"], "qkv"),
                 k => panic!("kind {k}"),
             };
             let lin = ll
@@ -733,7 +737,12 @@ fn nq_fit() {
             assert_eq!((ho, hn), (n, n), "layer {l} {kind}: Gram");
             let h: Vec<f64> = hw.iter().map(|&x| from_grid(x)).collect();
             let i_norm: Vec<f64> = (0..n).map(|i| h[i * n + i]).collect();
-            let r = rank_for_bits(o, n, ppm, 32);
+            // `APEIRON_NQ_RANK` pins the rank (a comparison against a factor fitted at another
+            // budget); `0` uses the bit budget.
+            let r = match env_usize("APEIRON_NQ_RANK", 0) {
+                0 => rank_for_bits(o, n, ppm, 32),
+                r => r,
+            };
             for &seed in &seeds {
                 let c = NqConfig {
                     outer_iters: iters,

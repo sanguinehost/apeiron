@@ -1,0 +1,2 @@
+l00 down 1024x3072 nqref E 0.201116 norm 44.85% nq-t100 E 0.211381 norm 45.98% | norm ratio 0.98x energy ratio 0.95x
+csv: /workspace/models/qwen06/relh-t100.csv

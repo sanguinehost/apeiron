@@ -1,0 +1,12 @@
+l0 ffn_down     out 1024 inn 3072 bytes   476944 b/w 1.213
+l0 ffn_gate     out 3072 inn 1024 bytes   546824 b/w 1.391
+l0 ffn_up       out 3072 inn 1024 bytes   398792 b/w 1.014
+l0 attn_output  out 1024 inn 2048 bytes   358156 b/w 1.366
+l26 ffn_down     out 1024 inn 3072 bytes   542736 b/w 1.380
+l26 ffn_gate     out 3072 inn 1024 bytes   267208 b/w 0.680
+l26 ffn_up       out 3072 inn 1024 bytes   448136 b/w 1.140
+l26 attn_output  out 1024 inn 2048 bytes   284044 b/w 1.084
+l27 ffn_down     out 1024 inn 3072 bytes   542736 b/w 1.380
+l27 ffn_gate     out 3072 inn 1024 bytes   398792 b/w 1.014
+l27 ffn_up       out 3072 inn 1024 bytes   481032 b/w 1.223
+l27 attn_output  out 1024 inn 2048 bytes   296396 b/w 1.131

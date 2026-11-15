@@ -137,7 +137,10 @@ fn spd_inverse_matches_serial() {
         let got = spd_inverse_at(&h, n, base).unwrap();
         let ms = t.elapsed().as_secs_f64() * 1e3;
         let diff = want.iter().zip(&got).filter(|(x, y)| x != y).count();
-        println!("INV serial n {n} base {base} skew {skew}: {diff} of {} words differ; ref {ref_ms:.2} ms, pooled {ms:.2} ms", n * n);
+        println!(
+            "INV serial n {n} base {base} skew {skew}: {diff} of {} words differ; ref {ref_ms:.2} ms, pooled {ms:.2} ms",
+            n * n
+        );
         assert_eq!(
             diff, 0,
             "spd_inverse_at differs from the serial body at n {n} base {base}"
@@ -260,5 +263,110 @@ fn spd_inverse_base_wall() {
             .iter()
             .fold((f64::MAX, 0.0f64), |(l, h), &m| (l.min(m), h.max(m)));
         println!("INV base {base} n {n} mean {mean:.2} ms min {lo:.2} max {hi:.2} runs 5");
+    }
+}
+
+/// Phase split of one [`x_update`] at the two side shapes of `down` (1024 × 3072), which
+/// [`factorize`] transposes to `o = 3072, n = 1024` and runs at rank 864. Each timed block is the
+/// call `x_update` makes, in the same order; the trailing `x_update` row is the whole function, so
+/// the phase sum and the measured total can be compared in one table. The printed `threads` is
+/// the pool's participant count, which is not `APEIRON_THREADS`: the pool caps at the pinnable
+/// performance cores and adds the efficiency cores unless `APEIRON_ECORES=0`.
+#[test]
+#[ignore = "measurement: release run, three timed passes per side"]
+fn x_update_phases() {
+    use std::time::Instant;
+    let r = 864usize;
+    let names = [
+        "zt grid_map",
+        "syrk_q32",
+        "d/hn/stab",
+        "hw grid_map",
+        "spd_inverse",
+        "wp.gemm",
+        "rt grid_map",
+        "gemm_q32",
+        "par_fill",
+    ];
+    for &(k, n) in &[(3072usize, 1024usize), (1024, 3072)] {
+        let mut rng = Rng(0x5eed_0f00_1234_5678);
+        let wf = rng.normals(k * n, |c| c);
+        let wg = grid(&wf).expect("w on the grid");
+        let wp = prepare(&wg, k, n, LIMBS).expect("prepared");
+        let zx = rng.normals(n * r, |c| c);
+        let z = rng.normals(k * r, |c| c);
+        let du = rng.normals(k * r, |c| c);
+        let (rho, reg) = (1.0f64, 1e-6f64);
+        let mut best = [f64::MAX; 9];
+        let mut total = f64::MAX;
+        for _ in 0..3 {
+            let mut ms = [0.0f64; 9];
+            let t = Instant::now();
+            let zt = grid_map(r * n, &|c| zx[(c % n) * r + c / n]).expect("zt");
+            ms[0] = t.elapsed().as_secs_f64() * 1e3;
+            let t = Instant::now();
+            let g = syrk_q32(&zt, r, n, LIMBS).expect("gram");
+            ms[1] = t.elapsed().as_secs_f64() * 1e3;
+            let t = Instant::now();
+            let d: Vec<f64> = (0..r)
+                .map(|i| from_grid(g[i * r + i]).sqrt().max(EPS))
+                .collect();
+            let hn = |i: usize, j: usize| from_grid(g[i * r + j]) / (d[i] * d[j]);
+            let mean_diag = (0..r).map(|i| hn(i, i)).sum::<f64>() / r as f64;
+            let stab = (rho * mean_diag.abs() + reg).max(EPS);
+            ms[2] = t.elapsed().as_secs_f64() * 1e3;
+            let t = Instant::now();
+            let hw = grid_map(r * r, &|c| {
+                let (i, j) = (c / r, c % r);
+                if i == j {
+                    hn(i, i) + stab
+                } else {
+                    0.5 * (hn(i, j) + hn(j, i))
+                }
+            })
+            .expect("hw");
+            ms[3] = t.elapsed().as_secs_f64() * 1e3;
+            let t = Instant::now();
+            let hi = spd_inverse(&hw, r).expect("inverse");
+            ms[4] = t.elapsed().as_secs_f64() * 1e3;
+            let t = Instant::now();
+            let wz = wp.gemm(&zt, r).expect("wz");
+            ms[5] = t.elapsed().as_secs_f64() * 1e3;
+            let t = Instant::now();
+            let rt = grid_map(k * r, &|c| {
+                from_grid(wz[c]) / d[c % r] + rho * (z[c] - du[c])
+            })
+            .expect("rt");
+            ms[6] = t.elapsed().as_secs_f64() * 1e3;
+            let t = Instant::now();
+            let f = gemm_q32(&rt, k, &hi, r, r, LIMBS).expect("f");
+            ms[7] = t.elapsed().as_secs_f64() * 1e3;
+            let t = Instant::now();
+            let mut out = vec![0.0f64; f.len()];
+            par_fill(&mut out, &|c, o| *o = from_grid(f[c]));
+            ms[8] = t.elapsed().as_secs_f64() * 1e3;
+            std::hint::black_box(&out);
+            for (b, &m) in best.iter_mut().zip(&ms) {
+                *b = b.min(m);
+            }
+            let t = Instant::now();
+            let whole = x_update(&zx, n, r, &wp, k, &z, &du, rho, reg).expect("x_update");
+            std::hint::black_box(&whole);
+            total = total.min(t.elapsed().as_secs_f64() * 1e3);
+        }
+        let sum: f64 = best.iter().sum();
+        println!(
+            "XU k {k} n {n} r {r} threads {} best of 3, ms",
+            width_global()
+        );
+        for (name, &m) in names.iter().zip(&best) {
+            println!("  {name:<14} {m:>9.2} {:>6.1}%", 100.0 * m / sum);
+        }
+        println!(
+            "  {:<14} {sum:>9.2} {:>6.1}% of the whole",
+            "phase sum",
+            100.0 * sum / total
+        );
+        println!("  {:<14} {total:>9.2}", "x_update");
     }
 }

@@ -13,9 +13,34 @@ import struct
 GGUF_DEFAULT_ALIGN = 32
 GGML_F32, GGML_F16, GGML_BF16, GGML_Q8_0 = 0, 1, 30, 8
 GGML_I32 = 26
+# The `K`-quant family, for reading comparison images (`llama.cpp` `ggml-common.h` block layouts).
+GGML_Q2_K, GGML_Q3_K, GGML_Q4_K, GGML_Q5_K, GGML_Q6_K, GGML_Q8_K = 10, 11, 12, 13, 14, 15
 
 # Types with a fixed block layout, as `(elements, bytes)` per block.
-GGML_BLOCKS = {GGML_Q8_0: (32, 34), GGML_I32: (1, 4)}
+GGML_BLOCKS = {
+    GGML_Q8_0: (32, 34),
+    GGML_I32: (1, 4),
+    GGML_Q2_K: (256, 84),
+    GGML_Q3_K: (256, 110),
+    GGML_Q4_K: (256, 144),
+    GGML_Q5_K: (256, 176),
+    GGML_Q6_K: (256, 210),
+    GGML_Q8_K: (256, 292),
+}
+
+GGML_NAMES = {
+    GGML_F32: "F32",
+    GGML_F16: "F16",
+    GGML_Q8_0: "Q8_0",
+    GGML_Q2_K: "Q2_K",
+    GGML_Q3_K: "Q3_K",
+    GGML_Q4_K: "Q4_K",
+    GGML_Q5_K: "Q5_K",
+    GGML_Q6_K: "Q6_K",
+    GGML_Q8_K: "Q8_K",
+    GGML_I32: "I32",
+    GGML_BF16: "BF16",
+}
 
 COPY_CHUNK = 1 << 20
 
@@ -136,7 +161,7 @@ def ggml_nbytes(t, dims):
         if n % qk:
             raise ValueError(f"gguf type {t}: {n} elements is not a block multiple of {qk}")
         return n // qk * per_block
-    raise ValueError(f"gguf type {t}: no block layout in this exporter")
+    raise ValueError(f"gguf type {t} ({GGML_NAMES.get(t, '?')}): no block layout in this exporter")
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,13 @@
+l00 down 1024x3072 nqref E 0.201116 norm 44.85% nqpack E 0.197302 norm 44.42% | norm ratio 1.01x energy ratio 1.02x
+l00 gate 3072x1024 nqref E 0.040344 norm 20.09% nqpack E 0.047791 norm 21.86% | norm ratio 0.92x energy ratio 0.84x
+l00 up   3072x1024 nqref E 0.264280 norm 51.41% nqpack E 0.205558 norm 45.34% | norm ratio 1.13x energy ratio 1.29x
+l00 o    1024x2048 nqref E 0.120037 norm 34.65% nqpack E 0.129832 norm 36.03% | norm ratio 0.96x energy ratio 0.92x
+l26 down 1024x3072 nqref E 0.165268 norm 40.65% nqpack E 0.137427 norm 37.07% | norm ratio 1.10x energy ratio 1.20x
+l26 gate 3072x1024 nqref E 0.143070 norm 37.82% nqpack E 0.064119 norm 25.32% | norm ratio 1.49x energy ratio 2.23x
+l26 up   3072x1024 nqref E 0.151778 norm 38.96% nqpack E 0.112432 norm 33.53% | norm ratio 1.16x energy ratio 1.35x
+l26 o    1024x2048 nqref E 0.157607 norm 39.70% nqpack E 0.097991 norm 31.30% | norm ratio 1.27x energy ratio 1.61x
+l27 down 1024x3072 nqref E 0.054086 norm 23.26% nqpack E 0.010976 norm 10.48% | norm ratio 2.22x energy ratio 4.93x
+l27 gate 3072x1024 nqref E 0.041141 norm 20.28% nqpack E 0.022017 norm 14.84% | norm ratio 1.37x energy ratio 1.87x
+l27 up   3072x1024 nqref E 0.099885 norm 31.60% nqpack E 0.070029 norm 26.46% | norm ratio 1.19x energy ratio 1.43x
+l27 o    1024x2048 nqref E 0.273716 norm 52.32% nqpack E 0.196552 norm 44.33% | norm ratio 1.18x energy ratio 1.39x
+csv: /workspace/models/qwen06/relh-118-served.csv

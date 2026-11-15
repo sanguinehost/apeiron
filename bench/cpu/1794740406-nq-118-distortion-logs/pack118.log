@@ -1,0 +1,3 @@
+pack: /workspace/models/qwen06/pack118/model.nqp 4978784 B, 12 sections, 1.150968 b/w on 34603008 fitted weights
+skeleton: /workspace/models/qwen06/pack118/skeleton.gguf 317366496 B, 114 tensors
+artifact: 322345280 B on disk
