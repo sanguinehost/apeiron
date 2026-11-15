@@ -4,6 +4,19 @@ An OpenAI-compatible `/v1/chat/completions` endpoint over the apeiron engine. It
 application's listener, so the apeiron crate keeps its rule that `src/` and `examples/` open no
 socket (`../SECURITY.md`, "No network listener").
 
+## Goal
+
+This server is the serving path for the goal in [`../GOAL.md`](../GOAL.md): a 7B-class model on the
+6.6 GiB laptop at about 30 tok/s CPU decode with a 200,000-token context, leaving at least 2 GiB for
+four or five coding-agent sessions, driven by `../intent`. The relevant acceptance criteria are M1
+(memory), T1 and T2 (decode and turn latency), C1 and C2 (context state and quality), and I1 and I2
+(Intent integration and the DeepSeek replacement share).
+
+The current 8B v3 pair is a comparison artifact, not the goal: it stores 4.05 GB at 3.13 b/w, keeps
+the classic f16 KV cache, and decodes at 0.09 tok/s on the laptop (`../bench/cpu/1794690665-nq8b-laptop-serve.md`).
+It does not meet Q1, M1, T1 or C1. A pack, a row or a speedup is an artifact of the goal, not the
+goal.
+
 This crate is a sibling workspace, not a member of the apeiron workspace: `cargo test --workspace`
 at the repository root does not build it, and it has its own `Cargo.lock` and `target/`.
 

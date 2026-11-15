@@ -1,6 +1,7 @@
 # Summary
 
 [Introduction](introduction.md)
+[The goal](goal.md)
 
 # Getting started
 

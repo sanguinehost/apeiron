@@ -4,6 +4,14 @@ A Rust library for the algebra `R[x]/(x² − σ)`, a growable hash table built 
 engine for GGUF models that runs on the CPU and, through Vulkan, on the GPU. The algebra and the
 word-level arithmetic are specified and checked in Lean 4.
 
+> **The goal.** Run a 7B-class model on the 6.6 GiB laptop at about 30 tok/s on the CPU with a
+> 200,000-token context, leaving at least 2 GiB available for four or five coding-agent sessions.
+> Serve it through `serve/` into `../intent` and replace DeepSeek usage to a reported share. Ship
+> the quantiser, the context method and the Vulkan/SPIR-V kernels open source, with the kernels
+> formally verified through Aeneas and Lean. [`GOAL.md`](GOAL.md) holds the statement of work,
+> acceptance criteria and status. A pack, a benchmark row or a single speedup is an artifact of the
+> goal, not the goal.
+
 - **`Cell<R>`**: a pair `(a, b)` over a ring `R`, with multiplication `(a₁a₂ + σb₁b₂, a₁b₂ + b₁a₂)`
   and norm form `a² − σb²`. `σ = −1, 0, 1` gives the elliptic, parabolic and hyperbolic faces.
 - **`freq::Table`, `CoordMap`, `FreqMap`**: flat tables with a spill region. Lookup is a fixed number
