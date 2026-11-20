@@ -1,10 +1,11 @@
 //! The traced decode split, and the dominant-term gate.
 //!
-//! `phase_split --model <gguf> [--pack <nqp>] [--steps 16] [--target <phase>] [--json]`
+//! `phase_split --model <gguf> [--pack <nqp>] [--steps 16] [--prefix 0] [--target <phase>] [--json]`
 //!
 //! Runs decode steps under [`apeiron::engine::trace`], prints each phase's milliseconds per token
-//! and share of wall, and names the largest term. With `--target`, exits 1 unless that phase owns
-//! the largest share: a change to a phase holding share `s` cannot exceed `1/s`, so a target that
+//! and share of wall, and names the largest term. `--prefix N` first appends `N` copies of token 1
+//! to the cache without tracing, so the split is measured at a real context length rather than at
+//! the empty prefix. With `--target`, exits 1 unless that phase owns the largest share: a change to a phase holding share `s` cannot exceed `1/s`, so a target that
 //! is not the dominant term is refused before it is built. `untraced` is a legal target: it names
 //! the part of a pass no span covers, and choosing it means instrumenting the pass first.
 //!
@@ -23,6 +24,8 @@ struct Args {
     model: String,
     pack: Option<String>,
     steps: usize,
+    /// Decode steps run before tracing, to place the KV cache at a real context length.
+    prefix: usize,
     target: Option<String>,
     json: bool,
 }
@@ -32,6 +35,7 @@ fn parse_args() -> Result<Args, String> {
         model: String::new(),
         pack: None,
         steps: 16,
+        prefix: 0,
         target: None,
         json: false,
     };
@@ -42,6 +46,7 @@ fn parse_args() -> Result<Args, String> {
             "--model" => a.model = val()?,
             "--pack" => a.pack = Some(val()?),
             "--steps" => a.steps = val()?.parse().map_err(|e| format!("--steps: {e}"))?,
+            "--prefix" => a.prefix = val()?.parse().map_err(|e| format!("--prefix: {e}"))?,
             "--target" => a.target = Some(val()?),
             "--json" => a.json = true,
             other => return Err(format!("unknown flag {other}")),
@@ -87,11 +92,20 @@ fn run(a: &Args) -> Result<bool, String> {
     let _ = e
         .next_token_state(&mut warm, 1, KernelMode::Q8Act)
         .map_err(|e| format!("{e:?}"))?;
-    let mut st = e.state(a.steps + 8).map_err(|e| format!("{e:?}"))?;
+    let mut st = e
+        .state(a.prefix + a.steps + 8)
+        .map_err(|e| format!("{e:?}"))?;
+    // A prefix of one repeated token has the same per-position attention arithmetic as text. It
+    // places the cache at a real length; it is not a quality input, and the receipt says so.
+    let mut id = 1u32;
+    for _ in 0..a.prefix {
+        id = e
+            .next_token_state(&mut st, id, KernelMode::Q8Act)
+            .map_err(|e| format!("{e:?}"))?;
+    }
     trace::reset();
     trace::set_enabled(true);
     let t = Instant::now();
-    let mut id = 1u32;
     for _ in 0..a.steps {
         id = e
             .next_token_state(&mut st, id, KernelMode::Q8Act)
@@ -129,7 +143,7 @@ fn run(a: &Args) -> Result<bool, String> {
     });
 
     if a.json {
-        println!("{{\"schema\":\"apeiron.phase_split.v1\",\"model\":\"{}\",\"steps\":{},\"wall_s\":{wall:.6},\"phases\":[", a.model, a.steps);
+        println!("{{\"schema\":\"apeiron.phase_split.v1\",\"model\":\"{}\",\"steps\":{},\"prefix\":{},\"wall_s\":{wall:.6},\"phases\":[", a.model, a.steps, a.prefix);
         let mut first = true;
         for s in stats.iter().filter(|s| s.ns > 0) {
             if !first {
@@ -156,8 +170,9 @@ fn run(a: &Args) -> Result<bool, String> {
         println!();
     } else {
         println!(
-            "decode split: {} steps, {:.3} s wall, {:.2} ms/token",
+            "decode split: {} steps after a {} token prefix, {:.3} s wall, {:.2} ms/token",
             a.steps,
+            a.prefix,
             wall,
             wall * 1e3 / tok
         );
