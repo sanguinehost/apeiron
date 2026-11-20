@@ -135,16 +135,19 @@ the dominant term. **Done.**
 ### S1 — int8 KV, kv-head-major, GQA group read (0.6B)
 
 Files: `src/engine/attn.rs`, `src/engine/attn/f32_core.rs`, `src/engine/attn/kvplane.rs`,
-`src/engine/step/softmax.rs`, tests. A `KvCarrier` dial with `F32 | I8`; the I8 plane stores
-`(layer, kv_head, position, dim)` codes plus one f32 scale per `(layer, kv_head, position, K|V)`.
-The attention task becomes `(layer, kv_head)` and writes G query-head outputs. The F32 body is the
-safe twin and the oracle.
+`src/engine/step/softmax.rs`, `src/engine/mixer.rs`, tests. A `KvCarrier` dial with `F32 | I8`; the
+I8 plane stores `(layer, kv_head, position, dim)` codes plus one f32 scale per
+`(layer, kv_head, position, K|V)`. The attention task becomes `(layer, kv_head)` and writes G
+query-head outputs. The F32 body is the safe twin and the oracle. Selector:
+`APEIRON_KV_CARRIER=f32|i8|i4`, default `f32` until the gate; `APEIRON_F32_CARRIER=0` keeps Q32 for
+the oracle.
 
 Commands:
 
 ```sh
-generate --model <0.6B skeleton> --pack <nq06-v3> --prompt "$(cat <2k prompt>)" --n 32
-ppl --model <0.6B skeleton> --pack <nq06-v3> --ctx 2048 --carrier f32|i8
+APEIRON_KV_CARRIER=f32 generate --model <0.6B skeleton> --pack <nq06-v3> --prompt "$(cat <2k prompt>)" --n 32
+APEIRON_KV_CARRIER=i8  generate --model <0.6B skeleton> --pack <nq06-v3> --prompt "$(cat <2k prompt>)" --n 32
+APEIRON_KV_CARRIER=i8  ppl --model <0.6B skeleton> --pack <nq06-v3> --tokenizer <tok> --data <text> --ctx 2048
 ```
 
 Gate: **≥20 tok/s mean of three runs at 2k**, PPL at ctx 2,048 within **1.01×** the F32 carrier on
@@ -169,9 +172,9 @@ Files: `src/engine/attn/select.rs` (new; the certificate in `cert.rs` stays exac
 per-block scale; exact softmax on the support; a dense-int8 reference behind a flag. No cold file
 yet: 32k int8 KV is 1.94 GB and fits.
 
-Gate: **≥20 tok/s at 32k**, RSS ≤ 2 GiB, NIAH at 32k 100% over 10 depths, PPL within 1.02× the dense
-int8 read at 32k. Expected: dense is 1.94 GB = 67 ms at 28.8 (14 tok/s before the fixed term); a
-4k-position support with block 256 is 242 MB = 8.4 ms. Receipt advances C1, C2.
+Gate: **≥20 tok/s at 32k**, anonymous RSS ≤ 2 GiB, NIAH at 32k 100% over 10 depths, PPL within
+1.02× the dense int8 read at 32k. Expected: dense is 1.94 GB = 67 ms at 28.8 (14 tok/s before the
+fixed term); a 4k-position support with block 256 is 242 MB = 8.4 ms. Receipt advances C1, C2.
 
 ### S4 — int8 activation dot (shared kernel)
 
