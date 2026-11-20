@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Build a targeted two-plane residual pack by splicing two packs of the same source.
 
+Legacy reproduction, not the quality path: `examples/nq_fit.rs --diag-dir --residual N` writes the
+residual planes in the same fit, and the pack header is the rate. This splicer exists to reproduce
+the 8B targeted receipts, which were fitted before the onepath residual writer; a new point is
+`nq_fit`, not a splice of two old packs.
+
 The uniform residual arm fits both planes on every section and costs 1,742,045,184 B. The fit is
 per-section and independent, so the pack that serves two planes on a chosen subset is a byte-level
 splice of the residual-free pack (v2) and the uniform two-plane pack (v3): unselected sections come

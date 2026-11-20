@@ -11,19 +11,50 @@ and serves `y = Ŵ·x` without materialising `Ŵ`. The factors and the three sca
 `APNQPK01` pack (`format::nq`); the untouched tensors come from a GGUF skeleton, and
 `Engine::open_with_nq` installs the pack over it.
 
+A pack is written by `examples/nq_fit.rs` from the fitter (one linear or the whole model) and by
+`gpu::nn::train::pack::write_pack` from a block-loop checkpoint tree; `tools/nq_campaign.sh` orders
+the campaign's five stages and gates the wall with `tools/fit-budget.py`.
+
 `U` is the output-side factor: each of its `out` rows is a sign pattern over the `rank` features.
 `V` is the input-side factor: each of its `rank` rows is a sign pattern over the `inn` inputs.
 Rank component `k` contributes the rank-1 matrix `s_mid[k]·(s_post ⊙ u_k)(s_pre ⊙ v_k)^T`, so the
 pack is a sum of `rank` signed outer products, not a per-weight sign. The sparse term `S` repairs
 `k` input columns per output row in the weight's own units.
 
-## What a section stores
+## The fit's inputs
+
+The fit reads two statistics per linear and one token tape, all from the reference's calibration
+pass (`utils/data_utils.py:19-70,112-248`; `core/importance.py`):
+
+| input | definition | producer |
+|---|---|---|
+| `i_norm` | mean input Gram diagonal, each sample's rows clipped at the `99.9`th percentile of the row L2 norm, shrunk `0.4` toward the mean | `calib_diag_write` |
+| `o_norm` | mean squared output gradient of the language-modelling loss in the reference's `1e6` unit, clipped and shrunk the same way | `calib_onorm_write` |
+| tape | 128 samples of 2048 tokens from wikitext2 **train** | `nq_calib_base`, `nq_dump_write` |
+
+The tape is the reference's sampling: concatenate the split's rows with `"\n\n"`, tokenize once,
+draw 128 slices of 2048 tokens at `randint(0, len − 2049)`, shuffle the sample list, then draw 128
+indices with replacement. The statistics are written under the tag `s128`.
+`APEIRON_CALIB_STRATEGY=online` (the default) grows the clip threshold as samples arrive and
+rescales the accumulator; `two_phase` profiles every sample first and applies one fixed threshold.
+`nq_dump_write` adds `calib_ids.i32`, `ranks.json` and the 112 epoch draws (`7` slots × `2` phases
+× `8` epochs; the reference calls `set_seed(0)` at the start of every call, so the eight draws
+repeat). `tools/nq_campaign.sh` runs statistics → dump → block loop → model KD → pack → PPL.
+
+The forward is the engine's `Q8Act` prefill, not the reference's bf16 `nn.Linear`, and the device
+arithmetic is f32 with Q32.32 solves rather than bf16 with Kahan summation. The sample geometry,
+the percentile, the `1e6` unit and the shrinkage are the reference's. The draws are this tree's
+xorshift64\*, not Python's MT19937 or NumPy's `RandomState`: same distribution and operation order,
+different stream. The model KD recomputes the teacher's logits from its final residual instead of
+caching all 128 × 2048 × vocabulary tensors; the student gradient is the same. The residual planes
+and salient columns in the pack are extensions the reference does not have; they are off unless a
+rate below the sign-factor cap asks for them.
 
 | field | shape | bits |
 |---|---|---|
 | `U` | `out × ceil(r/32)` words | `32·out·ceil(r/32)` |
 | `V` | `r × ceil(inn/32)` words | `32·r·ceil(inn/32)` |
-| `s_pre`, `s_mid`, `s_post` | binary16 vectors | `16·(inn + r + out)` |
+| `s_pre`, `s_mid`, `s_post` | bfloat16 vectors | `16·(inn + r + out)` |
 | residual layers (optional) | `res_layers × out × ceil(inn/32)` words | 1 bit per weight per layer |
 | salient columns (optional) | `k` indices and `out × k` binary16 | small |
 

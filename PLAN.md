@@ -146,7 +146,13 @@ block certificate stays Q32-only.
 Measured at 1,827 on 4 pinned cores under a concurrent `node` process, three runs per arm: F32 9.61
 tok/s → I8 14.75 tok/s (1.54×); `attn.core` 58.71 → 21.76 ms (2.70×); token 102.34 → 66.08 ms. PPL
 at ctx 2,048 (2,047 positions): F32 571.89, I8 515.80 (0.902×); teacher-forced top-1 agreement
-1,620/2,047 (79.1%); peak RSS 783.5 → 450.9 MiB. Receipt `1795177681`.
+1,620/2,047 (79.1%); peak RSS 783.5 → 450.9 MiB. Receipt `1795177681`. The absolute is the 0.6B
+pack's, not the carrier's: it is 54.807 at ctx 512/8,176 and 74.297 at ctx 512/2,044
+(`1794822341`), rising to 111.067 at ctx 1,024 and 571.891 at ctx 2,048 (`1795202555`), and
+`fd6ad4b0` returns the same two rows. The pack is the 0.977 b/w end of the measured dial; its PPL
+is the quality at that rate, not a separate approach. The 8B family is 1.124–3.131 b/w,
+1.011–1.607× Q4, the 1.18 points 1.499–1.555× (`1794896874`, `1794893449`). The dial is monotone in
+rate; the 0.6B's long-window degradation is the mechanism to fix at that setting.
 
 Commands:
 
@@ -158,7 +164,8 @@ APEIRON_KV_CARRIER=i8  ppl --model <0.6B skeleton> --pack <nq06-v3> --tokenizer 
 
 Gate: **≥20 tok/s mean of three runs at 2k** (open: 14.75 tok/s under the concurrent process; the
 same split scaled to the clean F32 baseline ratio is ~19, short of 20), PPL at ctx 2,048 within
-**1.01×** the F32 carrier (pass, 0.902×), and top-1 agreement over 64 tokens at 2k recorded
+**1.01×** the F32 carrier (pass, 0.902×; a carrier gate on a fixed pack, not a quality result,
+`1795202555`), and top-1 agreement over 64 tokens at 2k recorded
 (79.1% over 2,047 teacher-forced positions). Receipt advances T1; C1 stays open. The 20 tok/s gate
 moves to S2: at the traced 66.08 ms token the 18.7 ms head leaves 47.38 ms = 21.1 tok/s before the
 head's pack read and ~49.1 ms = 20.4 after it at the 67.8 ms rate mean, so S2 is marginal against 20
@@ -170,7 +177,9 @@ Files: `src/format/nq.rs` (reserved head section), `src/engine/loader/nq.rs`, `s
 (head slot), `examples/nq_fit.rs`. Rank 1,200 at 1.18 b/w, 23.0 MB, fitted against the final hidden
 state with the Gram diagonal.
 
-Gate: head bytes ≤ 25 MB, PPL within 1.01× the Q8_0 head, head phase ≤ 2 ms at 2k. Expected token
+Gate: head bytes ≤ 25 MB, PPL within 1.01× the Q8_0 head on the same pack, head phase ≤ 2 ms at
+2k. The PPL gate is a head comparison on the same pack; the 0.6B onepath trunk point is
+unmeasured, so S2 does not establish product quality. Expected token
 ~49.1 ms = 20.4 tok/s from the 67.8 ms S1 rate mean under the same contention, and 50.6–51.1 ms =
 19.6–19.8 tok/s once the head's own pack read is counted: the gate is marginal, 0.4 ms of predicted
 margin against a 1.9 ms spread, and the `ffn` (14.29 ms, 21.6%) is the next term if it falls short.
@@ -292,6 +301,17 @@ This is the only stage that touches the listener.
 3. S2's head fit on the 0.6B, then S3's selection at 32k, then S5's cold file at 200k and 1M.
 4. S4's shared int8 dot before the 1M budget is final; S6/S7 on the 8B after the 0.6B method is
    proven.
+5. Run the quality campaign as one command, `tools/nq_campaign.sh` (statistics → dump → block loop
+   → model KD → pack → PPL). The inputs are the reference's: 128 samples of 2048 tokens drawn
+   from wikitext2 **train** (the builder tokenizes the joined split once, slices, shuffles and
+   draws with replacement; `wiki.train.raw` is under `~/models/wikitext2/wikitext-2-raw/`), the
+   `s128` diagonal and output-gradient statistics with the `online` clip, and 2048-token blocks.
+   The wall gate is `tools/fit-budget.py`; the measured 0.6B layer-0
+   seven linears are 1,134.5 s at T=400 on the AVX-VNNI box (`1794834689`), 8.8 h over 28 layers.
+   The block loop and the KD epochs need a Vulkan host with cooperative matrices; the Vulkan path
+   refuses on this laptop and the rented host is unpaid (balance −$0.47), so the campaign is
+   blocked on credit. The stages are in the tree; the block loop and the KD epochs have not run
+   end to end on any host, so the campaign's first execution is also their first validation.
 
 The one-line version: **the 0.6B at 1,827 is 49.8% attention; the 8B at 2k is 46% ffn and 18%
 attention; 20 tok/s is a 2.9k-position RAM budget at 8B and 11.7k at 0.6B, cut to ~0.6–3.1k by the

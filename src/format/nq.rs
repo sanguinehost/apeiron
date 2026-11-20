@@ -2,8 +2,8 @@
 //! stored at their rate.
 //!
 //! A fitted linear is `Ŵ = diag(s_post)·U·diag(s_mid)·V·diag(s_pre)`, `U ∈ {±1}^{out×rank}`,
-//! `V ∈ {±1}^{rank×in}`, three binary16 scale vectors, and a sparse correction
-//! `S[o, idx[j]] = salient[o, j]` with binary16 values (`SamsungLabs/NanoQuant` @ `a9e0a43`,
+//! `V ∈ {±1}^{rank×in}`, three bfloat16 scale vectors, and a sparse correction
+//! `S[o, idx[j]] = salient[o, j]` with binary16 (f16) values (`SamsungLabs/NanoQuant` @ `a9e0a43`,
 //! `src/nanoquant/core/compress_model.py`; the `s_mid` and salient terms are the newer export
 //! this engine serves). Version 3 adds `N` dense sign-residual layers,
 //! `Ŵ + Σ_l diag(s_res_l)·sign_l`, each `sign_l ∈ {±1}^{out×in}` with one bfloat16 row scale.
@@ -21,8 +21,8 @@
 //! subset of the `layers · kinds` linears; an omitted one keeps its dense skeleton payload. Each
 //! section is the layer, the kind, the
 //! `out`/`in`/`rank` dimensions, the two packed row strides, the salient count, the `U` words, the
-//! `V` words, the `s_pre`/`s_mid`/`s_post` binary16 words, the `salient_idx` `u32` words and the
-//! `salient` binary16 words. Version 3 inserts the residual layer count after the salient count
+//! `V` words, the `s_pre`/`s_mid`/`s_post` bfloat16 words, the `salient_idx` `u32` words and the
+//! `salient` binary16 (f16) words. Version 3 inserts the residual layer count after the salient count
 //! and appends the residual sign words and row scales. Version 4 inserts a `group` word after the
 //! residual count; a `group = 1` section is a `k` or `v` member and carries only `U`, `s_post`,
 //! `salient`, the residual and its scales, binding `V`/`s_pre`/`s_mid`/`idx` to the head `q`
@@ -325,7 +325,8 @@ impl<T: PartialEq> PartialEq for Plane<T> {
 
 impl<T: Eq> Eq for Plane<T> {}
 
-/// One linear's stored factors: the packed signs and the binary16 scale words, verbatim.
+/// One linear's stored factors: the packed signs and the 16-bit scale and residual words,
+/// verbatim (bfloat16 scales, binary16 salient residuals).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackedLinear {
     /// Block index.
@@ -342,15 +343,15 @@ pub struct PackedLinear {
     pub u: Plane<u32>,
     /// `V`, row-major `[rank, ceil(inn/32)]`, bit `1` is `+1`.
     pub v: Plane<u32>,
-    /// `s_pre`, binary16 bits, length `inn`.
+    /// `s_pre`, bfloat16 bits, length `inn`.
     pub s_pre: Plane<u16>,
-    /// `s_mid`, binary16 bits, length `rank`.
+    /// `s_mid`, bfloat16 bits, length `rank`.
     pub s_mid: Plane<u16>,
-    /// `s_post`, binary16 bits, length `out`.
+    /// `s_post`, bfloat16 bits, length `out`.
     pub s_post: Plane<u16>,
     /// The salient input columns, length `k`; each below `inn`.
     pub salient_idx: Plane<u32>,
-    /// The salient residuals, binary16 bits, row-major `[out, k]`.
+    /// The salient residuals, binary16 (f16) bits, row-major `[out, k]`.
     pub salient: Plane<u16>,
     /// The dense sign-residual layers; 0 for a version-2 section.
     pub res_layers: usize,

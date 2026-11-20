@@ -2,7 +2,7 @@
 //! 2048 tokens through all 28 layers, the cross-entropy head of [`KdHead`](super::head::KdHead), the
 //! chained input adjoints of [`ChainLayer`](super::chain::ChainLayer), and one Adam step over the
 //! 392 per-linear scale vectors (`SamsungLabs/NanoQuant` @ `a9e0a43`,
-//! `src/nanoquant/core/compress_model.py:125-297` `compress_model_recon`).
+//! `src/nanoquant/core/compress_model.py:125-286` `compress_model_recon`).
 //!
 //! # What the reference trains
 //!

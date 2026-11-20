@@ -51,6 +51,7 @@ pub mod front;
 pub mod head;
 pub mod kd;
 pub mod mixer;
+pub mod pack;
 pub mod slot;
 
 /// A layer shape. Hidden width `i`, FFN width `h`, vocabulary width `v`.

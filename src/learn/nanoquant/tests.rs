@@ -572,3 +572,139 @@ fn x_update_phases() {
         println!("  {:<14} {total:>9.2}", "x_update");
     }
 }
+
+/// One dense sign-residual plane clears a target it can represent, and the sparse value absorbs
+/// the residual at the salient column so the served sum is exact there.
+#[test]
+fn dense_residual_clears_a_sign_target_and_absorbs_the_salient_column() {
+    let g = |x: i64| x << 32;
+    let w = vec![g(3), 0, g(-3), g(3)];
+    let that = vec![0i64; 4];
+    let r = dense_residual(&w, &that, &[7.0], &[1], 1, 4, 1).expect("residual");
+    assert_eq!(r.res, vec![0b1001]);
+    assert_eq!(r.s_res, vec![3.0]);
+    assert!(r.rel < 1e-12);
+    // Column 1 is salient and masked from the fit; its bit is `-1`, so the sparse value carries
+    // `7 − (−3)` and the served sum `sal + R` is the dense `7`.
+    let rho = if (r.res[0] >> 1) & 1 == 1 {
+        r.s_res[0]
+    } else {
+        -r.s_res[0]
+    };
+    assert!((r.salient[0] + rho - 7.0).abs() < 1e-12);
+}
+
+/// The planes are sequential: the second sees `R_0 = W − Ŵ − R_1`, and two planes clear a target
+/// one plane leaves at half the row scale.
+#[test]
+fn dense_residual_layers_are_sequential() {
+    let g = |x: i64| x << 32;
+    let w = vec![g(3), g(-1)];
+    let that = vec![0i64; 2];
+    let one = dense_residual(&w, &that, &[], &[], 1, 2, 1).expect("one");
+    assert_eq!(one.s_res, vec![2.0]);
+    assert!((one.rel - (2.0f64 / 10.0).sqrt()).abs() < 1e-12);
+    let two = dense_residual(&w, &that, &[], &[], 1, 2, 2).expect("two");
+    assert_eq!(two.s_res, vec![2.0, 1.0]);
+    assert!(two.rel < 1e-12);
+}
+
+/// A shape that disagrees with the declared dimensions refuses rather than indexing past the
+/// matrix.
+#[test]
+fn dense_residual_refuses_a_short_matrix() {
+    assert!(matches!(
+        dense_residual(&[0; 3], &[0; 4], &[], &[], 1, 4, 1),
+        Err(NqError::Shape)
+    ));
+}
+
+/// The residual writer's bits and scales, served through the engine's own `NqLinear`, reproduce a
+/// target the factor misses by one representable sign plane. If the bit convention or the row
+/// scale disagreed with `src/engine/kern/nq.rs`, the projected column would not equal `w`.
+#[test]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the test's residual scales are 3.0 on the bfloat16 grid; the f64 → f32 cast is the \
+              pack's scale conversion"
+)]
+fn dense_residual_serves_through_the_engine() {
+    use crate::engine::kern::nq::NqLinear;
+    use crate::format::nq::PackedLinear;
+
+    fn bf16_bits(v: f32) -> u16 {
+        let b = v.to_bits();
+        let r = 0x7fff + ((b >> 16) & 1);
+        ((b.wrapping_add(r)) >> 16) as u16
+    }
+    fn pack(signs: &[i8], rows: usize, cols: usize) -> Vec<u32> {
+        let words = cols.div_ceil(32);
+        let mut out = vec![0u32; rows * words];
+        for i in 0..rows {
+            for j in 0..cols {
+                if signs[i * cols + j] > 0 {
+                    out[i * words + j / 32] |= 1 << (j % 32);
+                }
+            }
+        }
+        out
+    }
+
+    let (out, inn, rank) = (2usize, 4usize, 2usize);
+    let g = |x: i64| x << 32;
+    let factor = NqFactor {
+        out,
+        inn,
+        rank,
+        u: vec![1, 1, 1, -1],
+        v: vec![1, 1, -1, -1, 1, -1, 1, -1],
+        s_pre: vec![1.0; inn],
+        s_mid: vec![1.0; rank],
+        s_post: vec![1.0; out],
+        admm_loss: 0.0,
+        u_latent: Vec::new(),
+        v_latent: Vec::new(),
+    };
+    let that = factor.weight().expect("weight");
+    let sign = |i: usize, j: usize| if (i + j).is_multiple_of(2) { 1i64 } else { -1 };
+    let w: Vec<i64> = that
+        .iter()
+        .enumerate()
+        .map(|(at, &t)| t + g(3) * sign(at / inn, at % inn))
+        .collect();
+    let res = dense_residual(&w, &that, &[], &[], out, inn, 1).expect("residual");
+    assert_eq!(res.s_res, vec![3.0, 3.0]);
+    assert!(res.rel < 1e-12);
+    let p = PackedLinear {
+        layer: 0,
+        kind: 0,
+        out,
+        inn,
+        rank,
+        u: pack(&factor.u, out, rank).into(),
+        v: pack(&factor.v, rank, inn).into(),
+        s_pre: vec![bf16_bits(1.0); inn].into(),
+        s_mid: vec![bf16_bits(1.0); rank].into(),
+        s_post: vec![bf16_bits(1.0); out].into(),
+        salient_idx: Vec::new().into(),
+        salient: Vec::new().into(),
+        res_layers: 1,
+        shared: false,
+        res: res.res.into(),
+        s_res: res
+            .s_res
+            .iter()
+            .map(|&x| bf16_bits(x as f32))
+            .collect::<Vec<u16>>()
+            .into(),
+    };
+    let linear = NqLinear::from_packed(p).expect("decode");
+    for j in 0..inn {
+        let mut x = vec![0i64; inn];
+        x[j] = 1 << 32;
+        let y = linear.project(&x).expect("project");
+        for i in 0..out {
+            assert_eq!(y[i], w[i * inn + j], "row {i} column {j}");
+        }
+    }
+}

@@ -6,8 +6,9 @@
 //! Per block `i` (`compress_model.py:56-113`): the teacher's output on the fp stream
 //! (`:58-63`), then per linear `tune_nonfact` (`core/compress_block.py:52-98`, lr 1e-4, batch 4,
 //! 8 epochs, `CosineAnnealingLR(T_max=256, eta_min=1e-8)`, one `randperm(128)` per epoch after
-//! `set_seed(0)`), ADMM (`compress_model.py:107-153`, our `learn::nanoquant::factorize` on the
-//! nonfact-tuned `W`), and `tune_fact` (`core/compress_block.py:160-201`, lr 1e-5, batch 1,
+//! `set_seed(0)`; the stream is our xorshift draw), ADMM (`compress_model.py:107-153`, our
+//! `learn::nanoquant::factorize` on the nonfact-tuned `W`), and `tune_fact`
+//! (`core/compress_block.py:160-201`, lr 1e-5, batch 1,
 //! 8 epochs, `T_max=1024`, `eta_min=1e-9`), then `finalize` (`modules/linear.py:264-283`). The
 //! loss is `((y − y_t)²·imp).sum()` (`compress_block.py:17-19`) with `imp` the block's
 //! `mlp.down_proj.o_norm` (`compress_model.py:67-78`); its gradient is
@@ -196,8 +197,10 @@ fn ranks(dump: &str) -> Vec<[usize; 7]> {
     out
 }
 
-/// `perm.json`'s draws in call order (`torch.randperm(128)` under `set_seed(0)`), each with the
-/// calling function's name.
+/// `perm.json`'s draws in call order, each with the calling function's name. The reference replays
+/// the same eight `randperm(128)` draws in every `tune_nonfact` / `tune_fact` call (`set_seed(0)`
+/// at `compress_block.py:53,161`); the writer emits that pattern with our xorshift Fisher–Yates
+/// instead of torch's CPU MT19937.
 fn perms(dump: &str) -> Vec<(String, Vec<usize>)> {
     let s = std::fs::read_to_string(format!("{dump}/perm.json")).expect("perm.json");
     let mut out = Vec::new();
@@ -948,7 +951,18 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
     let (d, f) = (cfg.n_embd, cfg.n_ff);
     let ids = read_i32(&dump_at(&o.dump, "calib_ids.i32"));
     let n_samples = envu("APEIRON_NQ_SAMPLES", 128);
+    assert_eq!(
+        n_samples % o.per_step,
+        0,
+        "the reference steps a trailing partial batch (`compress_block.py:84`); the device tape's \
+         fixed T has no masked columns, so the sample count must divide the nonfact batch size \
+         (the reference default 128 over 4 does)"
+    );
     let seq = ids.len() / n_samples;
+    assert_eq!(
+        seq, 2048,
+        "calibration sample width: the reference's `seqlen` is 2048 (`quant_config.py:16`)"
+    );
     let t = o.per_step * seq;
     let chunks = t / o.nctx;
     let numel = (n_samples * seq * d) as f64;
@@ -1000,20 +1014,25 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
         unsafe {
             submit_copies(&g, cb, &[(xt.buf, 0, xs.buf, 0, xt.words())]);
         }
-        // The dump's own block-0 input, sample 0: the embedding path's check (`b0/x0.bf16`).
-        let want = read_bf16(&dump_at(&o.dump, &format!("{B0}/x0.bf16")));
-        let got = &x0[..seq * d];
-        let (mut num, mut den) = (0f64, 0f64);
-        for (i, &w) in want.iter().enumerate() {
-            let gv = f64::from(got[i]);
-            num += (gv - f64::from(w)).powi(2);
-            den += f64::from(w).powi(2);
+        // The reference dump's own block-0 input, sample 0, when the dump carries it: the
+        // embedding path's check. A self-generated dump has no `b0/`, and the campaign does not
+        // need the check to run.
+        let x0p = dump_at(&o.dump, &format!("{B0}/x0.bf16"));
+        if Path::new(&x0p).exists() {
+            let want = read_bf16(&x0p);
+            let got = &x0[..seq * d];
+            let (mut num, mut den) = (0f64, 0f64);
+            for (i, &w) in want.iter().enumerate() {
+                let gv = f64::from(got[i]);
+                num += (gv - f64::from(w)).powi(2);
+                den += f64::from(w).powi(2);
+            }
+            println!(
+                "BT embed vs b0/x0.bf16 rel {:.3e} ({} elements)",
+                (num / den).sqrt(),
+                seq * d
+            );
         }
-        println!(
-            "BT embed vs b0/x0.bf16 rel {:.3e} ({} elements)",
-            (num / den).sqrt(),
-            seq * d
-        );
         if o.bf16 {
             unsafe {
                 let all: Vec<usize> = (0..n_samples).collect();
@@ -1142,8 +1161,9 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
             }
         }
         let yt_s = t_yt.elapsed().as_secs_f64();
-        if l == 0 {
-            let want = read_bf16(&dump_at(&o.dump, &format!("{B0}/yt0.bf16")));
+        let yt0p = dump_at(&o.dump, &format!("{B0}/yt0.bf16"));
+        if l == 0 && Path::new(&yt0p).exists() {
+            let want = read_bf16(&yt0p);
             let mut got = vec![0f32; seq * d];
             let mut at = 0;
             while at < seq * d {
@@ -1303,8 +1323,8 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                                 orig += (q32_f32(*a2) as f64).powi(2);
                             }
                             println!(
-                                "BT l{l:02} {key} injected recon norm={:.4} raw={raw:.4} \
-                                 (run4 q 0.2589 / v 0.3043), ADMM time=0.00s",
+                                "BT l{l:02} {key} injected recon norm={:.4} raw={raw:.4}, \
+                                 ADMM time=0.00s",
                                 raw / orig
                             );
                         }
@@ -1464,6 +1484,29 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
             break;
         }
     }
+    // The campaign's export: every layer's seven checkpoints become the pack. A partial round
+    // writes no pack, so a resumed run cannot ship a mixed dense/factor model.
+    let all_done = (0..cfg.n_layer).all(|l| Path::new(&format!("{dir}/l{l}/done")).exists());
+    if all_done {
+        let out = env("APEIRON_NQ_PACK", &format!("{dir}/pack.nqp"));
+        match apeiron::gpu::nn::train::pack::write_pack(engine, cfg, &dir, &out) {
+            Ok(pack) => println!(
+                "BT pack {out}: {} layers, {} sections, {:.6} b/w",
+                pack.layers,
+                pack.linears.len(),
+                pack.bits_per_weight().unwrap_or(0.0)
+            ),
+            Err(e) => println!("BT pack refused: {e}"),
+        }
+    } else {
+        println!(
+            "BT pack not written: only {} of {} blocks have their done marker",
+            (0..cfg.n_layer)
+                .filter(|&l| Path::new(&format!("{dir}/l{l}/done")).exists())
+                .count(),
+            cfg.n_layer
+        );
+    }
     finish();
 }
 
@@ -1505,8 +1548,8 @@ fn arm_b0(o: &Opt) {
                 .zip(&nq_from_host(&theirs, 0.0).weight().expect("weight")),
         );
         println!(
-            "BT arm-b {key} rank {rank} ours norm={:.4} theirs(binary) norm={:.4} \
-             (run4 float 0.2589/0.3043) ratio {:.3}, admm_loss {:.5e}, {s:.2} s",
+            "BT arm-b {key} rank {rank} ours norm={:.4} theirs(binary) norm={:.4} ratio {:.3}, \
+             admm_loss {:.5e}, {s:.2} s",
             ours / orig,
             theirs / orig,
             ours / theirs,

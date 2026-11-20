@@ -137,6 +137,13 @@ fn rank_fits_budget_and_is_maximal() {
     }
     // A budget below the scale vectors falls back to the minimum rank.
     assert_eq!(rank_for_bits(64, 64, 100_000, 32), 32);
+    // The reference clamps after the 32-rounding (`utils.py:167-175`): at 4 b/w a square 64×64
+    // layer's unclamped 96 would exceed `min(a, b)`.
+    assert_eq!(rank_for_bits(64, 64, 4_000_000, 32), 64);
+    assert_eq!(rank_for_bits(64, 96, 4_000_000, 32), 64);
+    assert_eq!(rank_for_bits(96, 64, 4_000_000, 32), 64);
+    // Above the clamp the reference's budget arithmetic is unchanged.
+    assert_eq!(rank_for_bits(64, 64, 1_000_000, 32), 32);
 }
 
 #[test]
@@ -344,37 +351,90 @@ fn env_usize(k: &str, d: usize) -> usize {
         .unwrap_or(d)
 }
 
+/// A nonzero xorshift state from a user seed: `0` maps to the usual odd constant, and any other
+/// seed is used as given. `seed | 1` is not used because it maps `2n` and `2n+1` to one stream,
+/// which would replay the same base or epoch draw twice.
+fn seed_state(seed: u64) -> u64 {
+    if seed == 0 {
+        0x9e37_79b9_7f4a_7c15
+    } else {
+        seed
+    }
+}
+
+/// One xorshift64\* step. Deterministic; stands in for Python's MT19937 in the base builder's
+/// sampling, which is the reference's shape but not its stream.
+fn xorshift64(s: &mut u64) -> u64 {
+    *s ^= *s << 13;
+    *s ^= *s >> 7;
+    *s ^= *s << 17;
+    *s
+}
+
 /// Calibration-base builder: `APEIRON_NQ_TEXT` (natural text) tokenized by `APEIRON_NQ_TOKENIZER`
 /// (`Qwen3-0.6B-Base`'s `tokenizer.json`, vocabulary 151936) and written to `APEIRON_NQ_BASE` as
 /// llama.cpp's `_logits_` base file — signature, `n_ctx`, `n_vocab`, `n_chunk`, tokens, then the per
-/// chunk row blocks of `src/learn/fold/stats/kldbase.rs`. `APEIRON_NQ_CHUNKS` (15) is the chunk
-/// count and `n_ctx` is 512. The row blocks are a sparse zero tail: `learn_gate_code`'s Gram stage
-/// reads the tokens and no row. Cost: `O(tokens)` encode over the first `n_ctx·n_chunk` ids, one
-/// `O(n_ctx·n_chunk)` write and one `set_len`.
+/// chunk row blocks of `src/learn/fold/stats/kldbase.rs`.
+///
+/// The construction is the reference's (`utils/data_utils.py:19-70,112-248`): tokenize the whole
+/// text once, draw `APEIRON_NQ_SAMPLES` (128) slices of `APEIRON_NQ_NCTX` (2048) tokens at
+/// `randint(0, len − n_ctx − 1)`, `random.shuffle` the sample list, then draw the same count with
+/// replacement (`np.random.randint(0, len(ds), size=n_samples)`), seeding again first as
+/// `get_calib_loader` does. `n_chunk` is the final sample count and each chunk is one sample, so
+/// the base is exactly the 128×2048 tape the statistics, block loop and KD consume. The draws are
+/// this crate's xorshift64\* : same distribution and order of operations, not Python's MT19937 or
+/// `NumPy`'s `RandomState` stream.
+///
+/// The row blocks are a sparse zero tail: the calibration path reads tokens and no row. Cost:
+/// `O(text)` encode, `O(samples·n_ctx)` draw and write, one `set_len`.
 #[test]
 #[ignore = "writes a calibration base file; run explicitly"]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the `_logits_` header is u32 by format; the sample count, token count and vocabulary \
+              are far below u32, and the row total is an in-memory length"
+)]
 fn nq_calib_base() {
     let get = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k}"));
-    let (n_ctx, n_chunk) = (512usize, env_usize("APEIRON_NQ_CHUNKS", 15));
+    let n_ctx = env_usize("APEIRON_NQ_NCTX", 2048);
+    let n_chunk = env_usize("APEIRON_NQ_SAMPLES", 128);
+    let seed = env_usize("APEIRON_NQ_SEED", 0) as u64;
+    let mut s = seed_state(seed);
     let bpe = Bpe::from_tokenizer_json(&get("APEIRON_NQ_TOKENIZER")).expect("tokenizer");
     let text = std::fs::read_to_string(get("APEIRON_NQ_TEXT")).expect("text");
-    let head: String = text.chars().take(24 * n_ctx * n_chunk).collect();
-    let mut ids = bpe.encode(&head).expect("encode");
+    let ids = bpe.encode(&text).expect("encode");
     assert!(
-        ids.len() >= n_ctx * n_chunk,
-        "{} tokens for {} chunks",
-        ids.len(),
-        n_chunk
+        ids.len() > n_ctx + 1,
+        "{} tokens: the text is not longer than the {n_ctx}-token sample",
+        ids.len()
     );
-    ids.truncate(n_ctx * n_chunk);
+    let last = ids.len() - n_ctx - 1;
+    let mut draws: Vec<&[u32]> = (0..n_chunk)
+        .map(|_| {
+            let i = (xorshift64(&mut s) % (last as u64 + 1)) as usize;
+            &ids[i..i + n_ctx]
+        })
+        .collect();
+    // `random.shuffle(samples)`, then `set_seed(0)` again in `get_calib_loader`.
+    for i in (1..draws.len()).rev() {
+        let j = (xorshift64(&mut s) % (i as u64 + 1)) as usize;
+        draws.swap(i, j);
+    }
+    s = seed_state(seed);
+    let samples: Vec<&[u32]> = (0..n_chunk)
+        .map(|_| draws[(xorshift64(&mut s) % n_chunk as u64) as usize])
+        .collect();
     let n_vocab = bpe.vocab_size();
-    let mut out = Vec::with_capacity(20 + 4 * ids.len());
+    let mut out = Vec::with_capacity(20 + 4 * n_ctx * n_chunk);
     out.extend_from_slice(b"_logits_");
     for v in [n_ctx, n_vocab, n_chunk] {
         out.extend_from_slice(&(v as u32).to_le_bytes());
     }
-    for id in &ids {
-        out.extend_from_slice(&id.to_le_bytes());
+    for sample in &samples {
+        assert_eq!(sample.len(), n_ctx, "sample width");
+        for id in *sample {
+            out.extend_from_slice(&id.to_le_bytes());
+        }
     }
     let path = get("APEIRON_NQ_BASE");
     std::fs::write(&path, &out).expect("write base");
@@ -387,10 +447,14 @@ fn nq_calib_base() {
         .expect("open base")
         .set_len(total as u64)
         .expect("sparse rows");
+    let max_id = samples
+        .iter()
+        .flat_map(|s| s.iter())
+        .max()
+        .expect("a token");
     println!(
-        "BASE {path} n_ctx {n_ctx} n_vocab {n_vocab} n_chunk {n_chunk} tokens {} bytes {total} max_id {}",
-        ids.len(),
-        ids.iter().max().expect("a token")
+        "BASE {path} n_ctx {n_ctx} n_vocab {n_vocab} n_chunk {n_chunk} tokens {} bytes {total} max_id {max_id}",
+        out.len() / 4 - 5
     );
 }
 

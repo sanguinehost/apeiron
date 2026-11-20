@@ -912,7 +912,7 @@ impl NqLinear {
     /// # Errors
     ///
     /// [`NqError::Packed`] for a field whose length disagrees with its dimensions, and
-    /// [`NqError::Scale`] for a binary16 scale that is not finite or does not fit Q32.32.
+    /// [`NqError::Scale`] for a bfloat16 scale that is not finite or does not fit Q32.32.
     pub fn from_packed(p: PackedLinear) -> Result<Self, NqError> {
         let shape = checked_shape(&p)?;
         let mut s_pre = Vec::with_capacity(p.inn);
@@ -1415,7 +1415,7 @@ mod tests {
         *state as u32
     }
 
-    /// `f32` to binary16 bits, round-to-nearest (test-only; scales only).
+    /// `f32` to bfloat16 bits, round-to-nearest (test-only; scales only).
     fn bf16_bits(v: f32) -> u16 {
         let bits = v.to_bits();
         let round = 0x7fff + ((bits >> 16) & 1);

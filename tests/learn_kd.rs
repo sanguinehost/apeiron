@@ -1,5 +1,5 @@
 //! The KD step of `NanoQuant`'s global scale fit on the device, against the reference's own step 0
-//! (`SamsungLabs/NanoQuant` @ `a9e0a43`, `src/nanoquant/core/compress_model.py:125-297`; the trace
+//! (`SamsungLabs/NanoQuant` @ `a9e0a43`, `src/nanoquant/core/compress_model.py:125-286`; the trace
 //! is `~/nq-ref/kd/trace/`).
 //!
 //! Three tests, all `#[ignore]` because each opens the device, the teacher and the trace:
@@ -36,6 +36,7 @@ use apeiron::gpu::nn::train::kd::{
     BLOCK_KEYS, FRONT_KEYS, KEYS,
 };
 use apeiron::gpu::nn::train::mixer::{LayerHost, Mixer};
+use apeiron::gpu::nn::train::pack;
 use apeiron::gpu::nn::{cosine_lr, AdamHyper};
 use apeiron::gpu::vulkan::Vk;
 use apeiron::learn::grad::load::load_rows;
@@ -207,22 +208,27 @@ struct Prep {
 }
 
 fn prep(engine: &Engine, cfg: &Config, student: &str) -> Prep {
+    prep_n(engine, cfg, student, DUMP, 128)
+}
+
+/// [`prep`] over `dump`'s ids, `ns` samples. The campaign's dump carries the calibration base's
+/// sample count, not the reference's 128.
+fn prep_n(engine: &Engine, cfg: &Config, student: &str, dump: &str, ns: usize) -> Prep {
     let d = cfg.n_embd;
-    let rk = ranks(DUMP);
-    let ids = read_i32(&format!("{DUMP}/calib_ids.i32"));
-    let ns = 128;
+    let rk = ranks(dump);
+    let ids = read_i32(&format!("{dump}/calib_ids.i32"));
     let t = ids.len() / ns;
-    let mut hosts = Vec::with_capacity(28);
-    for l in 0..28 {
-        hosts.push(LayerHost::from_engine(engine, cfg, l).expect("layer host"));
-    }
+    assert_eq!(
+        ids.len(),
+        ns * t,
+        "{} ids are not {ns} whole samples",
+        ids.len()
+    );
     let all: Vec<usize> = (0..cfg.vocab).collect();
     let we = load_rows(engine, "token_embd.weight", cfg.vocab, d, &all).expect("embedding");
     println!(
         "KD prep {} layers, {ns} samples x {t} tokens, d {d}, vocab {}, ranks {:?}",
-        hosts.len(),
-        cfg.vocab,
-        rk[0]
+        cfg.n_layer, cfg.vocab, rk[0]
     );
     let w_emb: Vec<f32> = we.iter().map(|&x| q32_f32(x)).collect();
     drop(we);
@@ -241,21 +247,24 @@ fn prep(engine: &Engine, cfg: &Config, student: &str) -> Prep {
             h0.extend(row.iter().map(|&x| round_bf16(x)));
         }
     }
-    let pars = (0..28)
-        .map(|l| {
-            let gains = match &hosts[l].mixer {
-                Mixer::Softmax { gains, .. } => gains.clone(),
-                Mixer::Affine { .. } => panic!("layer {l}: not a softmax layer"),
-            };
+    let mut pars = Vec::with_capacity(cfg.n_layer);
+    for l in 0..cfg.n_layer {
+        // One layer host at a time: 28 of them resident is 1.8 GiB at Qwen3-0.6B's geometry.
+        let host = LayerHost::from_engine(engine, cfg, l).expect("layer host");
+        let gains = match &host.mixer {
+            Mixer::Softmax { gains, .. } => gains.clone(),
+            Mixer::Affine { .. } => panic!("layer {l}: not a softmax layer"),
+        };
+        pars.push(
             LayerPars::load(
                 &format!("{student}/l{l}"),
-                &hosts[l].attn_norm,
+                &host.attn_norm,
                 &gains,
-                &hosts[l].ffn_norm,
+                &host.ffn_norm,
             )
-            .unwrap_or_else(|e| panic!("layer {l}: {e}"))
-        })
-        .collect();
+            .unwrap_or_else(|e| panic!("layer {l}: {e}")),
+        );
+    }
     Prep {
         pars,
         h0,
@@ -666,6 +675,123 @@ fn kd_step0_golden() {
         "kd golden: {bad_small} of {n_small} update signs disagree below that, over the \
          reference's own {small_max}"
     );
+    finish();
+}
+
+/// One shuffle of `0..n` for epoch `seed`: xorshift64\* and Fisher–Yates, `O(n)`.
+fn perm_draw(n: usize, seed: u64) -> Vec<usize> {
+    let mut v: Vec<usize> = (0..n).collect();
+    let mut s = if seed == 0 {
+        0x9e37_79b9_7f4a_7c15
+    } else {
+        seed
+    };
+    for i in (1..n).rev() {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        let j = (s % (i as u64 + 1)) as usize;
+        v.swap(i, j);
+    }
+    v
+}
+
+/// The reference's model KD (`compress_model.py:195-300`): eight epochs over the calibration
+/// samples at `model_kd_lr = 1e-5`, batch 1, `CosineAnnealingLR(T_max = epochs·N)`, every
+/// `NanoQuantLinear` scale trainable and every sign frozen. The student is the block loop's
+/// checkpoint tree; the teacher's final residual is the loop's `s-{L}.xt.f32`.
+///
+/// Env: `APEIRON_NQ_MODEL` (through [`MODEL`]), `APEIRON_KD_STUDENT` (default [`LOOP`]),
+/// `APEIRON_NQ_DUMP` (default [`DUMP`]), `APEIRON_NQ_SAMPLES`, `APEIRON_KD_EPOCHS`,
+/// `APEIRON_KD_STEP_SAVE`, `APEIRON_NQ_PACK`.
+#[test]
+#[ignore = "the model-KD stage: device, teacher and the block loop's checkpoints"]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one campaign stage: the geometry, the checkpoint load, the epoch loop and the pack"
+)]
+fn kd_fit() {
+    let engine = Engine::open(MODEL).expect("open teacher");
+    let cfg = Config::from_engine(&engine).expect("config");
+    let student = env("APEIRON_KD_STUDENT", LOOP);
+    let dump = env("APEIRON_NQ_DUMP", DUMP);
+    let ns = envu("APEIRON_NQ_SAMPLES", 128);
+    let epochs = envu("APEIRON_KD_EPOCHS", 8);
+    let save_every = envu("APEIRON_KD_STEP_SAVE", 64);
+    let ids = read_i32(&format!("{dump}/calib_ids.i32"));
+    let t = ids.len() / ns;
+    assert_eq!(ids.len(), ns * t, "sample count");
+    let d = cfg.n_embd;
+    let rk = ranks(&dump);
+    let h = &LayerHost::from_engine(&engine, &cfg, 0).expect("layer host");
+    let (nh, nkv, hd, rot, theta) = match &h.mixer {
+        Mixer::Softmax {
+            nh,
+            nkv,
+            hd,
+            rot,
+            theta,
+            ..
+        } => (*nh, *nkv, *hd, *rot, *theta),
+        Mixer::Affine { .. } => panic!("not a softmax layer"),
+    };
+    let (fs, bs) = shapes_of(t, d, nh, nkv, hd, rot, theta, h.eps, h.a, cfg.n_ff, rk[0]);
+    let p = prep_n(&engine, &cfg, &student, &dump, ns);
+    let vk = unsafe { Vk::load() }.expect("vulkan");
+    let (g, _mem) = GpuCtx::new(&vk).expect("gpu ctx");
+    let n = t * d;
+    let h0 = unsafe { stream_buffer(&g, ns * n) };
+    unsafe { stream_upload(&g, h0, &p.h0) };
+    let we = unsafe { g.up_f32(&p.w_emb) };
+    let gf = unsafe { g.up_f32(&p.g_final) };
+    let shapes = KdShapes {
+        layers: cfg.n_layer,
+        t,
+        d,
+        v: cfg.vocab,
+    };
+    let mut tr = unsafe { KdTrain::new(&g, shapes, fs, bs, p.pars, we, gf, h0, 256, 1) };
+    let mut adam = ScaleAdam::zero(cfg.n_layer, &tr.pars()[0].scales());
+    let total = epochs * ns;
+    let lrs = cosine_lr(1e-5, 0.0, total, total);
+    let teacher = format!("{student}/s-{}.xt.f32", cfg.n_layer);
+    let mut step = 0usize;
+    for e in 0..epochs {
+        let perm = perm_draw(ns, 0x9e37_79b9_7f4a_7c15 ^ (e as u64));
+        let mut sum = 0.0f64;
+        for &s in &perm {
+            let ht = sample_of(&teacher, s, n);
+            unsafe {
+                tr.begin(&g, s, &ht);
+                tr.forward(&g);
+            }
+            sum += unsafe { tr.head(&g) };
+            let bwd = unsafe { tr.backward(&g) };
+            tr.adam(&mut adam, &bwd.scales, step + 1, lrs[step]);
+            step += 1;
+            if save_every > 0 && step.is_multiple_of(save_every) {
+                tr.export(&student).expect("kd checkpoint");
+                println!("KD checkpoint at step {step}");
+            }
+        }
+        println!(
+            "KD epoch {}/{}: loss {:.5}, {step} steps",
+            e + 1,
+            epochs,
+            sum / ns as f64
+        );
+    }
+    tr.export(&student).expect("kd export");
+    let out = env("APEIRON_NQ_PACK", &format!("{student}/pack.nqp"));
+    match pack::write_pack(&engine, &cfg, &student, &out) {
+        Ok(pack) => println!(
+            "KD pack {out}: {} layers, {} sections, {:.6} b/w",
+            pack.layers,
+            pack.linears.len(),
+            pack.bits_per_weight().unwrap_or(0.0)
+        ),
+        Err(e) => panic!("pack: {e}"),
+    }
     finish();
 }
 

@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Convert an arelath `nq_*` GGUF into an `APNQPK01` pack and a frozen-tensor skeleton.
 
+Legacy conversion, not the quality path: `examples/nq_fit.rs --diag-dir` fits a pack from a GGUF
+teacher and now writes its dense residual planes in the same call (`--residual`). This tool remains
+to reproduce the 8B packs whose receipts cite it, and to build a skeleton from a source GGUF. A new
+quality point is `nq_fit`, not this converter.
+
 The source carries one binary sign-rank linear per `attn_qkv`, `attn_output`, `ffn_gate`,
 `ffn_up` and `ffn_down`, plus the embedding, head and norms. This tool writes:
 

@@ -5,11 +5,12 @@
 //!  --data <wiki.test.raw> [--pack <model.nqp>] [--tokens 8192] [--skip 0] [--ctx 512]
 //!  [--head-batch 16] [--kernel q8act|ternary|exact] [--trace] [--dump] [--dump-argmax]`
 //!
-//! The text is tokenized once, `--skip` tokens are dropped, the rest is truncated to `--tokens`,
-//! and scored in consecutive non-overlapping windows of at most `--ctx` tokens: each window is one
-//! prefill, every position but the last predicts the next token, and the cross-entropy is the
-//! softmax of [`Engine::lm_head_cols`]. The number is `exp(Σ −ln p(target))` over the scored
-//! positions.
+//! The text is tokenized once, `--skip` tokens are dropped, the rest is truncated to `--tokens`
+//! (`0` = the whole file), and scored in consecutive whole windows of `--ctx` tokens: each window
+//! is one prefill, every position but the last predicts the next token, and the cross-entropy is
+//! the softmax of [`Engine::lm_head_cols`]. The split is the reference's `numel // seqlen`
+//! (`utils/eval_utils.py:13-84`): a tail shorter than `--ctx` is dropped, or scored as a shorter
+//! window with `--partial-window`. The number is `exp(Σ −ln p(target))` over the scored positions.
 //!
 //! `--pack` installs the sign-rank factors over the GGUF skeleton ([`Engine::open_with_nq`]). The
 //! kernel mode then selects the activation reader over those factors: `q8act` quantizes each stage
@@ -59,6 +60,7 @@ struct Args {
     dump: bool,
     dump_argmax: bool,
     second_half: bool,
+    partial_window: bool,
     ids_out: Option<String>,
 }
 
@@ -77,6 +79,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         dump: false,
         dump_argmax: false,
         second_half: false,
+        partial_window: false,
         ids_out: None,
     };
     let mut it = std::env::args().skip(1);
@@ -95,6 +98,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--dump" => a.dump = true,
             "--dump-argmax" => a.dump_argmax = true,
             "--second-half" => a.second_half = true,
+            "--partial-window" => a.partial_window = true,
             "--ids-out" => a.ids_out = Some(val()?),
             "--kernel" => {
                 a.mode = match val()?.as_str() {
@@ -165,7 +169,12 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
         return Err(format!("--skip {} leaves fewer than two tokens", a.skip).into());
     }
     let ids = &ids[a.skip..];
-    let ids = &ids[..ids.len().min(a.tokens)];
+    let n = if a.tokens == 0 {
+        ids.len()
+    } else {
+        ids.len().min(a.tokens)
+    };
+    let ids = &ids[..n];
     if let Some(path) = &a.ids_out {
         let mut bytes = Vec::with_capacity(ids.len() * 4);
         for &id in ids {
@@ -201,11 +210,24 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
         );
     }
 
+    let scored_len = if a.partial_window {
+        ids.len()
+    } else {
+        ids.len() / a.ctx * a.ctx
+    };
+    if scored_len < a.ctx {
+        return Err(format!(
+            "{} tokens: fewer than one {}-token window; pass --partial-window",
+            ids.len(),
+            a.ctx
+        )
+        .into());
+    }
     let t0 = Instant::now();
     let (mut nll, mut count, mut windows) = (0.0f64, 0usize, 0usize);
     let mut start = 0usize;
-    while start + 1 < ids.len() {
-        let end = (start + a.ctx).min(ids.len());
+    while start + 1 < scored_len {
+        let end = (start + a.ctx).min(scored_len);
         let window = &ids[start..end];
         let mut st = engine.state(window.len())?;
         let states = engine.prefill_states(&mut st, window, a.mode)?;

@@ -7,24 +7,37 @@
 //! pack `src/format/nq.rs` serves. It is an example, not a library entry point: the only public
 //! surface it uses is already public for the ignored test.
 //!
-//! The input preconditioner is the mean calibration Gram diagonal `g{l}.{tag}.{gram}.diag.i64`
-//! (`tests/learn_calib.rs::calib_diag_write`, header `(1, width)`, Q32.32) when `--diag-dir` names
-//! it; otherwise the tensor's own column RMS. The output statistic is `1`, as in `nq_fit`.
+//! The preconditioners are the reference's two calibration statistics: the mean input Gram
+//! diagonal `g{l}.{tag}.{gram}.diag.i64` (`tests/learn_calib.rs::calib_diag_write`) and the mean
+//! squared output gradient `g{l}.{tag}.{kind}.o_norm.i64`
+//! (`tests/learn_calib.rs::calib_onorm_write`), both with the reference's per-sample
+//! `99.9`th-percentile row clip (`online` by default), `0.4` covariance shrinkage and the
+//! reference's `1e6` output-gradient unit already applied, header `(1, width)`, Q32.32. This is the
+//! onepath quality fit: a rate below the sign-factor cap spends its extra bits on the same call's
+//! `--residual` planes, and the pack header is the rate. There is no second fitter and no
+//! fallback preconditioner. `--ones-norm` is the reference-parity exemption, and
+//! `--allow-column-rms` names a shape test; neither writes a quality point.
 //!
 //! ```text
 //! cargo run --release --locked --example nq_fit -- \
 //!   --model <teacher.gguf> --out <pack.nqp> --layers 0 \
 //!   --kinds q,k,v,o,gate,up,down --iters 400 --ranks q:800,k:608,v:608,o:800,gate:864,up:864,down:864 \
-//!   [--diag-dir <dir> --diag-tag c1x0] [--rel] [--require-device] [--reg <ridge>]
-//!   [--seed <u64>] [--salient-frac 0.001] [--schedule linear|cubic]
+//!   --diag-dir <dir> --o-norm-dir <dir> --diag-tag s128 [--residual 1] [--rel] [--require-device] \
+//!   [--reg <ridge>] [--seed <u64>] [--salient-frac 0.001] [--schedule linear|cubic]
 //! ```
 //!
 //! `--salient-frac <f>` removes the `ceil(f·inn)` input columns with the largest calibration Gram
-//! diagonal from the fit before ADMM, the reference's `removed_column_importance = "zero"`. The
-//! served pack restores them exactly (`s_pre[idx] = 0`, `sal = f16(W[:, idx])`), so this flag is
-//! only the first half of the term: the fit must not spend rank on them. Without it the Gram's
-//! energy can collapse the factor onto a few columns (`l06 down`: 99.85% of `tr(H)` in 13 of
-//! 12,288), which no per-rank weight can undo.
+//! diagonal from the fit before ADMM; the served pack restores them exactly (`s_pre[idx] = 0`,
+//! `sal = f16(W[:, idx] − R[:, idx])`), so this flag is only the first half of the term: the fit
+//! must not spend rank on them. Without it the Gram's energy can collapse the factor onto a few
+//! columns (`l06 down`: 99.85% of `tr(H)` in 13 of 12,288), which no per-rank weight can undo.
+//!
+//! `--residual <planes>` fits that many dense sign-residual layers
+//! (`learn::nanoquant::dense_residual`) in the same call: one bit per weight per plane plus one
+//! bfloat16 row scale, from
+//! `R_0 = W − Ŵ`. This is the rate dial's upper range, not a second approach: a 4-bit point is the
+//! same `nq_fit` with the planes the header counts, and a 1-bit point is the same call with zero.
+//! The sparse values absorb the residual at the salient columns (the pack stays exact there).
 //!
 //! `--rel` prints the relative Frobenius error of the served factor, `‖W − Ŵ‖/‖W‖`; it costs one
 //! `NqFactor::weight()` per linear. The pack is written after every requested section fits, so a
@@ -41,8 +54,10 @@
     clippy::cast_sign_loss,
     clippy::many_single_char_names,
     clippy::needless_range_loop,
-    reason = "the driver's dimensions are usize below 2^32, its rates are f64 reports, and the \
-              loops are index maps into row-major weight and sign arrays"
+    clippy::struct_excessive_bools,
+    reason = "the driver's dimensions are usize below 2^32, its rates are f64 reports, the loops \
+              are index maps into row-major weight and sign arrays, and its flags are independent \
+              command-line switches"
 )]
 
 use std::error::Error;
@@ -51,7 +66,9 @@ use std::time::Instant;
 use apeiron::engine::loader::Engine;
 use apeiron::format::nq::{write, NqPack, PackedLinear};
 use apeiron::learn::grad::load::load_matrix;
-use apeiron::learn::nanoquant::{factorize, rank_for_bits, NqConfig, NqFactor, Schedule};
+use apeiron::learn::nanoquant::{
+    dense_residual, factorize, rank_for_bits, NqConfig, NqFactor, NqResidual, Schedule,
+};
 use apeiron::learn::solve::q32::from_grid;
 
 /// The seven fitted linears in pack-kind order: `(kind index, tensor suffix, Gram kind)`.
@@ -91,6 +108,11 @@ struct Args {
     reg: Option<f64>,
     seed: u64,
     salient_frac: f64,
+    /// Dense sign-residual planes per section: one bit per weight per plane plus one bfloat16
+    /// row scale. The rate dial's upper range, fit in the same call as the factor.
+    residual: usize,
+    /// Permitted only as a shape test: the column-RMS preconditioner is not a quality path.
+    allow_column_rms: bool,
     schedule: Schedule,
     /// Write the fitted linear's `W`, `i_norm` and `o_norm` here and stop: the reference
     /// `factorize_admm_nanoquant` reads the same three arrays, so a parity run starts from the
@@ -100,6 +122,10 @@ struct Args {
     /// `model.layers.{l}.{q,k,v,o,gate,up,down}_proj.{i,o}.f32`). Absent stats stop the fit
     /// rather than fall back.
     norm_dir: Option<String>,
+    /// Directory of `g{l}.{tag}.{kind}.o_norm.i64` (`tests/learn_calib.rs::calib_onorm_write`),
+    /// the output statistic `factorize` weights the rows by. Part of the onepath result, like the
+    /// input diagonal: a fit with `o_norm = 1` ignores which output rows the loss moves.
+    o_norm_dir: Option<String>,
     /// Fit with `i_norm = o_norm = 1`, so the goal is `W` itself and a parity run against the
     /// reference excludes the preconditioner (whose floor is ours alone).
     ones_norm: bool,
@@ -115,15 +141,18 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         ppm: 1_174_000,
         ranks: None,
         diag_dir: None,
-        diag_tag: String::from("c1x0"),
+        diag_tag: String::from("s128"),
         rel: false,
         require_device: false,
         reg: None,
         seed: 0,
         salient_frac: 0.0,
+        residual: 0,
+        allow_column_rms: false,
         schedule: Schedule::Linear,
         dump: None,
         norm_dir: None,
+        o_norm_dir: None,
         ones_norm: false,
     };
     let mut it = std::env::args().skip(1);
@@ -181,8 +210,11 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--reg" => a.reg = Some(val()?.parse()?),
             "--seed" => a.seed = val()?.parse()?,
             "--salient-frac" => a.salient_frac = val()?.parse()?,
+            "--residual" => a.residual = val()?.parse()?,
+            "--allow-column-rms" => a.allow_column_rms = true,
             "--dump" => a.dump = Some(val()?),
             "--norm-dir" => a.norm_dir = Some(val()?),
+            "--o-norm-dir" => a.o_norm_dir = Some(val()?),
             "--ones-norm" => a.ones_norm = true,
             "--schedule" => {
                 a.schedule = match val()?.as_str() {
@@ -217,21 +249,40 @@ fn read_f32(path: &str, want: usize) -> Option<Vec<f64>> {
 }
 
 /// The mean Gram diagonal at `{dir}/g{l}.{tag}.{gram}.diag.i64` (`(1, width)` u64 header, Q32.32
-/// words), or `None` when the file is absent.
-fn read_diag(dir: &str, layer: usize, tag: &str, gram: &str) -> Option<Vec<f64>> {
-    let path = format!("{dir}/g{layer}.{tag}.{gram}.diag.i64");
-    let bytes = std::fs::read(&path).ok()?;
+/// words), `Ok(None)` when the file is absent, and an error when it is present but is not exactly
+/// the `(1, inn)` file the fit named.
+fn read_stat(
+    dir: &str,
+    layer: usize,
+    tag: &str,
+    name: &str,
+    what: &str,
+    inn: usize,
+) -> Result<Option<Vec<f64>>, Box<dyn Error>> {
+    let path = format!("{dir}/g{layer}.{tag}.{name}.{what}.i64");
+    let Ok(bytes) = std::fs::read(&path) else {
+        return Ok(None);
+    };
+    if bytes.len() < 16 {
+        return Err(format!("{path}: shorter than its 16-byte header").into());
+    }
     let word = |at: usize| -> u64 {
         u64::from_le_bytes(bytes[at..at + 8].try_into().expect("eight bytes"))
     };
     let (rows, width) = (word(0) as usize, word(8) as usize);
-    assert_eq!(rows, 1, "{path}: header rows");
-    assert_eq!(bytes.len(), 16 + 8 * width, "{path}: extent");
-    Some(
+    if rows != 1 || width != inn || bytes.len() != 16 + 8 * inn {
+        return Err(format!(
+            "{path}: header ({rows}, {width}), {} B; want (1, {inn}), {} B",
+            16 + 8 * width,
+            16 + 8 * inn
+        )
+        .into());
+    }
+    Ok(Some(
         (0..width)
             .map(|i| from_grid(i64::try_from(word((2 + i) * 8)).expect("diag word")))
             .collect(),
-    )
+    ))
 }
 
 /// Column RMS of a row-major `out × inn` matrix, the fallback input statistic.
@@ -324,12 +375,28 @@ fn rel_fro_mid(f: &NqFactor, w: &[i64], mask: &[bool], mid: &[f64]) -> Result<f6
     Ok((num / den.max(f64::MIN_POSITIVE)).sqrt())
 }
 
+/// The served product on the pack's bfloat16 scales: [`NqFactor::weight`] after rounding each
+/// scale vector to the grid `PackedLinear` stores. The dense residual is fit against this, not
+/// against the unrounded f64 factor the ADMM exits with.
+fn served_weight(f: &NqFactor) -> Result<Vec<i64>, Box<dyn Error>> {
+    let pre: Vec<f64> = f.s_pre.iter().map(|&x| bf16_value(bf16(x))).collect();
+    let mid: Vec<f64> = f.s_mid.iter().map(|&x| bf16_value(bf16(x))).collect();
+    let post: Vec<f64> = f.s_post.iter().map(|&x| bf16_value(bf16(x))).collect();
+    f.weight_with_scales(&pre, &mid, &post)
+        .map_err(|e| format!("{e:?}").into())
+}
+
+/// The bfloat16 value of `bits`, for fitting against the stored scale.
+fn bf16_value(bits: u16) -> f64 {
+    f64::from(f32::from_bits(u32::from(bits) << 16))
+}
+
 fn packed_linear(
     layer: usize,
     kind: usize,
     f: &NqFactor,
     salient_idx: &[u32],
-    salient: &[u16],
+    residual: &NqResidual,
 ) -> PackedLinear {
     let u = pack_signs(&f.u, f.out, f.rank);
     let v = pack_signs(&f.v, f.rank, f.inn);
@@ -362,11 +429,21 @@ fn packed_linear(
             .collect::<Vec<u16>>()
             .into(),
         salient_idx: salient_idx.to_vec().into(),
-        salient: salient.to_vec().into(),
-        res_layers: 0,
+        salient: residual
+            .salient
+            .iter()
+            .map(|&x| f16(x))
+            .collect::<Vec<u16>>()
+            .into(),
+        res_layers: residual.s_res.len() / f.out,
         shared: false,
-        res: Vec::new().into(),
-        s_res: Vec::new().into(),
+        res: residual.res.clone().into(),
+        s_res: residual
+            .s_res
+            .iter()
+            .map(|&x| bf16(x))
+            .collect::<Vec<u16>>()
+            .into(),
     }
 }
 
@@ -376,6 +453,31 @@ fn packed_linear(
 )]
 fn main() -> Result<(), Box<dyn Error>> {
     let a = parse_args()?;
+    // One quality path. The calibration Gram diagonal is the reference preconditioner and part of
+    // the result: a column-RMS fit is a shape test whose PPL says nothing about a pack. Refuse it
+    // by default rather than writing a pack that looks like a dial point and is not one.
+    if !a.ones_norm && a.diag_dir.is_none() && a.norm_dir.is_none() && !a.allow_column_rms {
+        return Err(
+            "no onepath fit without the calibration Gram diagonal: pass --diag-dir <dir> \
+                    (the reference preconditioner), --norm-dir for reference parity, or \
+                    --ones-norm for a ones-preconditioner parity run; --allow-column-rms names a \
+                    shape test, not a quality pack"
+                .into(),
+        );
+    }
+    if !a.ones_norm && a.norm_dir.is_none() && a.o_norm_dir.is_none() && !a.allow_column_rms {
+        return Err(
+            "no onepath fit without the calibration output statistic: pass --o-norm-dir <dir> \
+                    (calib_onorm_write's `o_norm.i64`), --norm-dir for reference parity, or \
+                    --ones-norm for a ones-preconditioner parity run"
+                .into(),
+        );
+    }
+    // A plane is one bit per weight plus one row scale; past 32 the header is already beyond any
+    // rate this product serves, and the allocation is no longer a typo away from the grid.
+    if a.residual > 32 {
+        return Err("--residual: at most 32 planes, one bit per weight each".into());
+    }
     // A full campaign's wall is measured on the device path. Refuse a CPU-only build before the
     // first linear rather than discovering it after the wall, as campaign 2 did.
     #[cfg(feature = "gpu")]
@@ -441,26 +543,30 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             let i_norm = if a.ones_norm {
                 vec![1.0f64; inn]
+            } else if let Some(x) = norm_in {
+                x
+            } else if let Some(d) = a.diag_dir.as_deref() {
+                read_stat(d, layer, &a.diag_tag, gram, "diag", inn)?.ok_or_else(|| {
+                    format!(
+                        "l{layer} {name}: no {d}/g{layer}.{}.{gram}.diag.i64; the onepath fit \
+                         refuses rather than falling back to column RMS",
+                        a.diag_tag
+                    )
+                })?
             } else {
-                norm_in.unwrap_or_else(|| {
-                    a.diag_dir
-                        .as_deref()
-                        .and_then(|d| read_diag(d, layer, &a.diag_tag, gram))
-                        .unwrap_or_else(|| col_rms(&w, out, inn))
-                })
+                col_rms(&w, out, inn)
             };
             assert_eq!(i_norm.len(), inn, "l{layer} {name}: diag width");
-            // The reference removes the salient columns from the fit and stores them exactly
-            // (`outliers.removed_column_importance = "zero"`). Zeroing before ADMM keeps the
-            // activation Gram's energy from collapsing the factor onto a few columns: on
-            // `l06 down` 99.85% of `tr(H)` sits in 13 of 12,288 input columns.
+            // The salient columns leave the fit and are stored exactly. Zeroing them before ADMM
+            // keeps the activation Gram's energy from collapsing the factor onto a few columns:
+            // on `l06 down` 99.85% of `tr(H)` sits in 13 of 12,288 input columns.
             let k = if a.salient_frac > 0.0 {
                 ((a.salient_frac * inn as f64).ceil() as usize).min(inn)
             } else {
                 0
             };
             let mut mask = vec![true; inn];
-            let (mut salient_idx, mut salient) = (Vec::new(), Vec::new());
+            let (mut salient_idx, mut salient_dense) = (Vec::new(), Vec::new());
             if k > 0 {
                 let mut order: Vec<usize> = (0..inn).collect();
                 order.sort_by(|&x, &y| i_norm[y].total_cmp(&i_norm[x]));
@@ -470,10 +576,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 // `y += Σ_j sal[·, j]·x[idx[j]]` (`src/engine/kern/nq.rs`). Record the exact
                 // values before zeroing and force `s_pre` to zero so the factor contributes none.
                 salient_idx = order.iter().map(|&j| j as u32).collect();
-                salient = vec![0u16; out * k];
+                salient_dense = vec![0.0f64; out * k];
                 for i in 0..out {
                     for (at, &j) in order.iter().enumerate() {
-                        salient[i * k + at] = f16(from_grid(w[i * inn + j]));
+                        salient_dense[i * k + at] = from_grid(w[i * inn + j]);
                         w[i * inn + j] = 0;
                     }
                 }
@@ -481,7 +587,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                     mask[j] = false;
                 }
             }
-            let o_norm = norm_out.unwrap_or_else(|| vec![1.0f64; out]);
+            let o_norm = if a.ones_norm {
+                vec![1.0f64; out]
+            } else if let Some(x) = norm_out {
+                x
+            } else if let Some(d) = a.o_norm_dir.as_deref() {
+                read_stat(d, layer, &a.diag_tag, name, "o_norm", out)?.ok_or_else(|| {
+                    format!(
+                        "l{layer} {name}: no {d}/g{layer}.{}.{name}.o_norm.i64; the onepath fit \
+                         refuses rather than weighting every output row equally",
+                        a.diag_tag
+                    )
+                })?
+            } else {
+                vec![1.0f64; out]
+            };
             if let Some(dir) = a.dump.as_deref() {
                 std::fs::create_dir_all(dir)?;
                 let mut wb = Vec::with_capacity(w.len() * 4);
@@ -524,6 +644,28 @@ fn main() -> Result<(), Box<dyn Error>> {
                     factor.s_pre[j as usize] = 0.0;
                 }
             }
+            // The rate dial's upper range: the same fit spends its extra bits on the dense sign
+            // residual, and the sparse values absorb both terms at the salient columns.
+            let residual = if a.residual > 0 {
+                let that = served_weight(&factor)?;
+                dense_residual(
+                    &w,
+                    &that,
+                    &salient_dense,
+                    &salient_idx,
+                    out,
+                    inn,
+                    a.residual,
+                )
+                .map_err(|e| format!("{e:?}"))?
+            } else {
+                NqResidual {
+                    res: Vec::new(),
+                    s_res: Vec::new(),
+                    salient: salient_dense.clone(),
+                    rel: 0.0,
+                }
+            };
             let wall = t.elapsed().as_secs_f64();
             let rel = if a.rel {
                 let one = vec![1.0f64; rank];
@@ -535,15 +677,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             } else {
                 String::new()
             };
-            let bits =
-                32 * (out * rank.div_ceil(32) + rank * inn.div_ceil(32)) + 16 * (inn + rank + out);
+            let bits = 32
+                * (out * rank.div_ceil(32)
+                    + rank * inn.div_ceil(32)
+                    + a.residual * out * inn.div_ceil(32)
+                    + salient_idx.len())
+                + 16 * (inn + rank + out + out * salient_idx.len() + a.residual * out);
             println!(
-                "l{layer:02} {name:4} {out}x{inn} r {rank} k {k} b/w {:.5} {wall:.2} s \
-                 admm_loss {:.5}{rel}",
+                "l{layer:02} {name:4} {out}x{inn} r {rank} k {k} res {} b/w {:.5} {wall:.2} s \
+                 admm_loss {:.5} relR {:.5}{rel}",
+                a.residual,
                 bits as f64 / (out * inn) as f64,
-                factor.admm_loss
+                factor.admm_loss,
+                residual.rel
             );
-            linears.push(packed_linear(layer, at, &factor, &salient_idx, &salient));
+            linears.push(packed_linear(layer, at, &factor, &salient_idx, &residual));
         }
         if let Some(path) = a.out.as_deref() {
             checkpoint(path, cfg.n_layer, &linears)?;

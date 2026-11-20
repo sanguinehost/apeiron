@@ -109,13 +109,16 @@ impl From<SolveError> for NqError {
 
 /// The two-scale rank of an `a × b` matrix at `bits_ppm` millionths of a bit per weight
 /// (`calculate_ranks`, `num_scales = 2`): `r = ⌊a·b·bits/(a + b)⌋ − 16`, floored to a multiple of
-/// 32, and `min_rank` when that is zero or below.
+/// 32, `min_rank` when that is zero or below, then clamped to `min(a, b)`
+/// (`utils.py:128-183`: `_finalize_rank` then `_validate_rank`). The clamp binds at 4 bits: rank
+/// cannot exceed `min(a, b)`, and the rounding to 32 happens before the clamp, so a square
+/// `64 × 64` layer at 4 b/w is rank 64, not 96.
 #[must_use]
 pub fn rank_for_bits(a: usize, b: usize, bits_ppm: u64, min_rank: usize) -> usize {
     let ab = (a as u128) * (b as u128) * u128::from(bits_ppm);
     let per = ab / (1_000_000u128 * (a as u128 + b as u128));
     let r = (per as usize).saturating_sub(16) / 32 * 32;
-    r.max(min_rank)
+    r.max(min_rank).min(a.min(b))
 }
 
 /// Stored bits of a two-scale rank-`r` factor of an `a × b` matrix: `r·(a + b) + 16·(a + b)`.
@@ -1634,7 +1637,7 @@ impl NqFactor {
     /// [`NqError::Shape`] when `s_mid` is not `rank` long; [`NqError::Kernel`] if the product
     /// refuses; [`NqError::Range`] off the grid.
     pub fn weight(&self) -> Result<Vec<i64>, NqError> {
-        self.weight_with_mid(&self.s_mid)
+        self.weight_with_scales(&self.s_pre, &self.s_mid, &self.s_post)
     }
 
     /// The same product with an explicit per-rank weight `m`, so an export arm can be measured
@@ -1646,8 +1649,29 @@ impl NqFactor {
     /// [`NqError::Shape`] when `m` is not `rank` long; [`NqError::Kernel`] if the product refuses;
     /// [`NqError::Range`] off the grid.
     pub fn weight_with_mid(&self, mid: &[f64]) -> Result<Vec<i64>, NqError> {
+        self.weight_with_scales(&self.s_pre, mid, &self.s_post)
+    }
+
+    /// The same product with all three scale vectors given, so a caller can reconstruct the
+    /// served form on the pack's rounded (bfloat16) scales without cloning the factor. The dense
+    /// residual writer uses this to fit against what the engine decodes.
+    ///
+    /// # Errors
+    ///
+    /// [`NqError::Shape`] unless `pre`, `mid` and `post` have lengths `inn`, `rank` and `out`;
+    /// [`NqError::Kernel`] if the product refuses; [`NqError::Range`] off the grid.
+    ///
+    /// # Complexity
+    ///
+    /// As [`weight_with_mid`]: `O(out·in·r)` kernel products plus `O(out·in + out·r)`.
+    pub fn weight_with_scales(
+        &self,
+        pre: &[f64],
+        mid: &[f64],
+        post: &[f64],
+    ) -> Result<Vec<i64>, NqError> {
         let (o, n, r) = (self.out, self.inn, self.rank);
-        if mid.len() != r {
+        if mid.len() != r || pre.len() != n || post.len() != o {
             return Err(NqError::Shape);
         }
         let mut u = vec![0.0f64; o * r];
@@ -1665,11 +1689,160 @@ impl NqFactor {
         let mut w = vec![0.0f64; o * n];
         for i in 0..o {
             for j in 0..n {
-                w[i * n + j] = from_grid(uv[i * n + j]) * self.s_post[i] * self.s_pre[j];
+                w[i * n + j] = from_grid(uv[i * n + j]) * post[i] * pre[j];
             }
         }
         grid(&w)
     }
+}
+
+/// A dense sign residual of a served factor: `R = Σ_l s_res_l ⊙ sign_l`, each `sign_l` one bit
+/// per weight (bit 1 is `+1`) and each `s_res_l` one bfloat16 row scale.
+#[derive(Debug, Clone)]
+pub struct NqResidual {
+    /// Signs, row-major `[layers, out, ceil(inn/32)]`.
+    pub res: Vec<u32>,
+    /// Row scales, length `layers · out`, rounded to the bfloat16 grid the pack stores.
+    pub s_res: Vec<f64>,
+    /// The sparse values that keep the salient columns exact after the factor and the residual:
+    /// `salient[i·k + a] = W[i, idx[a]] − Ŵ[i, idx[a]] − R[i, idx[a]]`.
+    pub salient: Vec<f64>,
+    /// `‖W − Ŵ − R‖ / ‖W‖` over every column of the target `w`.
+    pub rel: f64,
+}
+
+/// Round `x` to the nearest bfloat16 value, ties to even. The pack stores every row scale in
+/// bfloat16, so the residual is fit and the sparse correction is computed against the value the
+/// engine decodes, not the real number before rounding.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "a bfloat16 scale has 8 mantissa bits; the f64 → f32 narrowing is the store's grid"
+)]
+fn bf16_round(x: f64) -> f64 {
+    let bits = (x as f32).to_bits();
+    let round = 0x7fff + ((bits >> 16) & 1);
+    let r = (bits.wrapping_add(round) >> 16) as u16;
+    f64::from(f32::from_bits(u32::from(r) << 16))
+}
+
+/// Fit `layers` dense sign-residual planes of the served factor `that` against the target `w`,
+/// greedily from `R_0 = W − Ŵ`: `alpha_i = mean_j |R_j|`, `R -= alpha_i · sign(R_i)`. The
+/// reference's `residual_planes` (`tools/nq_convert.py`) is the same recurrence; this is the
+/// onepath fitter, so a rate that leaves the sign-factor cap spends its extra bits here in the
+/// same call that fits the factor.
+///
+/// `w` is the fit target with the salient columns already zeroed, as [`factorize`] sees it; `that`
+/// is the served product `s_post ⊙ U diag(s_mid) V diag(s_pre)` on the pack's bfloat16 scales.
+/// The returned sparse values absorb both the factor and the residual at `idx`, so the served
+/// linear reproduces those columns exactly (to the f16 store).
+///
+/// # Errors
+///
+/// [`NqError::Shape`] on a mismatched length, an out-of-range salient index, or a plane count that
+/// overflows the row-word product.
+///
+/// # Complexity
+///
+/// `O(layers · out · inn)` time, `O(inn)` row scratch and `O(layers · out · ceil(inn/32) + out·k)`
+/// output.
+pub fn dense_residual(
+    w: &[i64],
+    that: &[i64],
+    salient_dense: &[f64],
+    idx: &[u32],
+    out: usize,
+    inn: usize,
+    layers: usize,
+) -> Result<NqResidual, NqError> {
+    if out == 0 || inn == 0 || w.len() != out * inn || that.len() != out * inn {
+        return Err(NqError::Shape);
+    }
+    let k = idx.len();
+    if salient_dense.len() != out * k || idx.iter().any(|&j| j as usize >= inn) {
+        return Err(NqError::Shape);
+    }
+    let words = inn.div_ceil(32);
+    let rows = layers.checked_mul(out).ok_or(NqError::Shape)?;
+    let len = rows.checked_mul(words).ok_or(NqError::Shape)?;
+    let mut res = vec![0u32; len];
+    let mut s_res = vec![0.0f64; rows];
+    let mut salient = Vec::with_capacity(out * k);
+    let mut r = vec![0.0f64; inn];
+    let mut keep = vec![true; inn];
+    for &j in idx {
+        if !keep[j as usize] {
+            return Err(NqError::Shape);
+        }
+        keep[j as usize] = false;
+    }
+    let kept = inn - k;
+    let (mut num, mut den) = (0.0f64, 0.0f64);
+    for i in 0..out {
+        for j in 0..inn {
+            if !keep[j] {
+                continue;
+            }
+            let t = from_grid(w[i * inn + j]);
+            r[j] = t - from_grid(that[i * inn + j]);
+            den += t * t;
+        }
+        for l in 0..layers {
+            // The salient columns are stored exactly by the sparse term, so the residual's row
+            // scale is the mean over the columns it is asked to model, not over zeros the sparse
+            // term already covers.
+            let alpha = if kept == 0 {
+                0.0
+            } else {
+                bf16_round(
+                    keep.iter()
+                        .zip(&r)
+                        .filter(|(k, _)| **k)
+                        .map(|(_, x)| x.abs())
+                        .sum::<f64>()
+                        / kept as f64,
+                )
+            };
+            s_res[l * out + i] = alpha;
+            let at = (l * out + i) * words;
+            for j in 0..inn {
+                if !keep[j] {
+                    continue;
+                }
+                if r[j] >= 0.0 {
+                    res[at + j / 32] |= 1 << (j % 32);
+                    r[j] -= alpha;
+                } else {
+                    r[j] += alpha;
+                }
+            }
+        }
+        num += keep
+            .iter()
+            .zip(&r)
+            .filter(|(k, _)| **k)
+            .map(|(_, x)| x * x)
+            .sum::<f64>();
+        for (a, &j) in idx.iter().enumerate() {
+            let j = j as usize;
+            let mut rho = 0.0f64;
+            for l in 0..layers {
+                let at = (l * out + i) * words + j / 32;
+                let bit = (res[at] >> (j % 32)) & 1;
+                rho += if bit == 1 {
+                    s_res[l * out + i]
+                } else {
+                    -s_res[l * out + i]
+                };
+            }
+            salient.push(salient_dense[i * k + a] - from_grid(that[i * inn + j]) - rho);
+        }
+    }
+    Ok(NqResidual {
+        res,
+        s_res,
+        salient,
+        rel: (num / den.max(f64::MIN_POSITIVE)).sqrt(),
+    })
 }
 
 #[path = "nanoquant/step.rs"]

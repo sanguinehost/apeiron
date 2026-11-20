@@ -9,8 +9,8 @@ Grades: `model` / source audit for the code comparison, `measured` for the Phase
 - **Provenance of the benchmarked 8B packs:** The 1.124 b/w and 1.1788 b/w packs scored in `GOAL.md` (v1 five-window screen: `1.462553×` official Q4_K_M PPL, `1.525440×` Q8_0 PPL, v0 0-shot `0.7534×` Q4_K_M) come from converting the third-party `arelath/Qwen3-8B-nanoquant-GGUF` via `tools/nq_convert.py`. That upstream file carries fused `attn_qkv`, `nq_scale_mid`, and sparse salient columns (`nq_salient_idx` / `nq_salient_weight`). None of those scored packs came from `SamsungLabs/NanoQuant` directly or from `apeiron-nq`'s `examples/nq_fit.rs`.
 - **Four fragmented pack producers currently exist:**
   1. Third-party `arelath` GGUFs via `tools/nq_convert.py`.
-  2. Standalone CLI `examples/nq_fit.rs` + `src/learn/nanoquant.rs` (ADMM-only, independent per linear, no backward Fisher `o_norm`, no clipping/shrinkage, no block tuning, no model KD).
-  3. Vulkan GPU training tests `tests/learn_block_tune.rs` + `tests/learn_kd.rs` (`src/gpu/nn/train/{front,block,chain,head,kd}.rs`): port OG's `compress_block_recon` and `compress_model_recon`, but are `#[ignore]` 0.6B-only tests; `tests/learn_block_tune.rs:29-30`'s `0.3–3.9%` parity claim has no receipt in `bench/`, and `:1300-1301,1477-1478` print `(run4 q 0.2589 / v 0.3043)` as literal hardcoded labels — **asserted, not measured**.
+  2. Standalone CLI `examples/nq_fit.rs` + `src/learn/nanoquant.rs`: ADMM, independent per linear, on the reference's `i_norm`/`o_norm` (clipped and shrunk), `--residual` in the same call; no block tuning or model KD.
+  3. Vulkan GPU training tests `tests/learn_block_tune.rs` + `tests/learn_kd.rs` (`src/gpu/nn/train/{front,block,chain,head,kd}.rs`): port OG's `compress_block_recon` and `compress_model_recon` and export through `pack::write_pack`; `#[ignore]` 0.6B-only tests. The arms print the measured `ours`/`theirs` norms (the hardcoded `run4` labels are removed); `tests/learn_block_tune.rs:29-30`'s `0.3–3.9%` parity claim still has no receipt in `bench/`.
   4. Untouched original `SamsungLabs/NanoQuant` (`/home/lucas/Workspace/NanoQuant`, Apache-2.0).
 
 ---
@@ -21,23 +21,23 @@ Grades: `model` / source audit for the code comparison, `measured` for the Phase
 
 | aspect | `SamsungLabs/NanoQuant` (`core/importance.py`) | `apeiron-nq` (`tests/learn_calib.rs`, `examples/nq_fit.rs`) | consequence |
 |---|---|---|---|
-| Input statistic `i_norm` | Forward hook on `nn.Linear`, `x_clipped.square().mean(dim=0)` over 128 × 2048 tokens (`wikitext2` train) | Tapped `Q8Act` prefill Gram diagonal (`g{l}.{tag}.{gram}.diag.i64`); falls back to weight column RMS when `--diag-dir` is omitted | Weight column-RMS fallback collapses quality (185k–1.2M PPL on 0.6B layer 0) |
-| Output statistic `o_norm` | Full backward hook (`linear_cross_entropy`), squared output gradients scaled by `GRAD_SCALE_FACTOR = 1e6` | Hardcoded `vec![1.0; out]` in `examples/nq_fit.rs:367` | ADMM weights all output rows equally; ignores downstream loss sensitivity |
-| Outlier clipping | 99.9th-percentile L2 row-norm clipping (`PERCENTILE = 0.999`, `online` cumulative or `two_phase` fixed) | None (`--salient-frac` zeroes top-`k` columns in `nq_fit.rs:347-366` while `packed_linear()` writes empty `salient`/`salient_idx`) | Extreme channels dominate `W_norm`, or get silently dropped on export |
-| Covariance shrinkage | `get_shrunk_stats`: `H_new = 0.6·H + 0.4·mean(H)` (`calib_shrinkage = 0.4`) | None; only dead-coordinate floor `FLOOR_REL = 1e-6 * mean(sqrt(diag))` (`src/learn/nanoquant.rs:55`) | Unshrunk diagonals increase ADMM condition spread |
+| Input statistic `i_norm` | Forward hook on `nn.Linear`, `x_clipped.square().mean(dim=0)` over 128 × 2048 tokens (`wikitext2` train) | `tests/learn_calib.rs::calib_diag_write`: tapped `Q8Act` prefill mean diagonal, per-sample `99.9`th-percentile row clip, `0.4` shrink, tag `s128` (`nq_fit --diag-dir`); the default refuses without a statistic (`--allow-column-rms` is a shape-test escape only) | Same statistic on a Q8Act forward; a column-RMS fit is no longer a quality path |
+| Output statistic `o_norm` | Full backward hook (`linear_cross_entropy`), squared output gradients scaled by `GRAD_SCALE_FACTOR = 1e6` | `calib_onorm_write`: the same CE at `shift=1` (mean over 2047 valid positions), `1e6` unit, same clip and shrink (`nq_fit --o-norm-dir`) | Same downstream-loss sensitivity; the backward runs f32/Q32.32, not bf16 |
+| Outlier clipping | 99.9th-percentile L2 row-norm clipping (`PERCENTILE = 0.999`, `online` cumulative or `two_phase` fixed) | Both producers implement it per 2048-row sample; `APEIRON_CALIB_STRATEGY=online` is the default and `two_phase` is the profiled alternative | Same clip; `nq_fit` reads the clipped files |
+| Covariance shrinkage | `get_shrunk_stats`: `H_new = 0.6·H + 0.4·mean(H)` (`calib_shrinkage = 0.4`) | `shrink(0.4)` on both `i_norm` and `o_norm` in the producers; `FLOOR_REL` remains a separate limb-kernel guard | Same shrinkage |
 
 ### 2.2 Rank Allocation & Scale Count
 
 - **Formula:** `utils/utils.py:128-182` (`calculate_ranks`) and `src/learn/nanoquant.rs:98-107` (`rank_for_bits`) use the same 2-scale formula `floor((a·b·bits / (a + b) - 16) / 32) * 32`, minimum `32`.
-- **Differences:** OG caps rank at `min(in_features, out_features)` (`_validate_rank`, `utils.py:161-167`), while `rank_for_bits` does not; OG `admm_nq` stores **2 scales** (`scale_pre`, `scale_post`, **no `scale_mid`**; 3 scales are `admm_dbf` only), whereas `APNQPK01` v2 always charges `16·r` bits for `s_mid` even when it is `1`: ~1.08 MB over the 252 fitted sections, i.e. ~0.010 b/w of the 1.000 pack spent on a plane the reference does not have.
+- **Differences:** OG caps rank at `min(in_features, out_features)` (`_validate_rank`, `utils.py:161-167`); `rank_for_bits` now applies the same clamp after the 32-rounding. OG `admm_nq` stores **2 scales** (`scale_pre`, `scale_post`, **no `scale_mid`**; 3 scales are `admm_dbf` only), whereas `APNQPK01` v2 always charges `16·r` bits for `s_mid` even when it is `1`: ~1.08 MB over the 252 fitted sections, i.e. ~0.010 b/w of the 1.000 pack spent on a plane the reference does not have.
 
 ### 2.3 ADMM, Block Reconstruction & Model KD
 
 | stage | `SamsungLabs/NanoQuant` (`a9e0a43`) | `apeiron-nq` |
 |---|---|---|
 | **ADMM** | `core/admm_nq.py`: fp32/TF32 CUDA, `cholesky_ex` + `linalg.solve` fallback, `linear` ρ default (CLI), T=400, 2-scale export | `src/learn/nanoquant.rs`: Q32.32 3-limb GEMM + recursive Schur `spd_inverse`; leaf refusal on 8B `l06 down` `r=3040` and the f64 leaf fallback (§3.2); export fixed to `col(A_z)`, `s_mid = 1` (§3.1) |
-| **Block Recon** | `compress_model.py:19-122`, `compress_block.py:52-201`: sequential per linear in order `q, v, o, k, gate, up, down` on compressed stream `xs` vs FP `yt`, weighted by `mlp.down_proj.o_norm`: 8 ep `tune_nonfact` (lr `1e-4`, bs 4) → ADMM → 8 ep `tune_fact` STE (lr `1e-5`, bs 1) → `finalize()` | `examples/nq_fit.rs` skips all three. `nanoquant.rs::tune` is single-linear Gram-MSE only. `tests/learn_block_tune.rs` ports the 3-phase loop to Vulkan (f32 vs OG bf16+Kahan), but is `#[ignore]` 0.6B-only and unreceipted |
-| **Model KD** | `compress_model.py:125-286`: 8 ep forward-KL distillation (`AdamW`, lr `1e-5`, bs 1, cosine LR) tuning **only `scale_*`** globally with `U`/`V` frozen | Absent from `nq_fit`. Ported in `src/gpu/nn/train/kd.rs` + `tests/learn_kd.rs` (0.6B step 0 only), not wired to 7B/8B pack export |
+| **Block Recon** | `compress_model.py:19-122`, `compress_block.py:52-201`: sequential per linear in order `q, v, o, k, gate, up, down` on compressed stream `xs` vs FP `yt`, weighted by `mlp.down_proj.o_norm`: 8 ep `tune_nonfact` (lr `1e-4`, bs 4) → ADMM → 8 ep `tune_fact` STE (lr `1e-5`, bs 1) → `finalize()` | `examples/nq_fit.rs` skips all three. `nanoquant.rs::tune` is single-linear Gram-MSE only. `tests/learn_block_tune.rs` ports the 3-phase loop to Vulkan (f32 vs OG bf16+Kahan) and ends in `pack::write_pack`; it is `#[ignore]` 0.6B-only and unreceipted |
+| **Model KD** | `compress_model.py:125-286`: 8 ep forward-KL distillation (`AdamW`, lr `1e-5`, bs 1, cosine LR) tuning **only `scale_*`** globally with `U`/`V` frozen | Absent from `nq_fit`. Ported in `src/gpu/nn/train/kd.rs` + `tests/learn_kd.rs`, and `pack::write_pack` exports the tuned scales; not run on a device host yet |
 
 ### 2.4 Format, Kernels & Evaluation
 
@@ -114,13 +114,16 @@ the direct factor also cannot hold still surfaces, with the offending `max |entr
 completes — is pinned by `the_direct_factor_agrees_with_the_recursion`. Status: code written, not
 yet compiled or run; the box is stopped (§5, blocker).
 
-### 3.3 Missing calibration and tuning in `examples/nq_fit.rs`
+### 3.3 Calibration in `examples/nq_fit.rs`, and the tuning it does not carry
 
-`examples/nq_fit.rs` still lacks `o_norm` (`vec![1.0; out]`), 99.9th-percentile clipping, `0.4`
-covariance shrinkage, `tune_nonfact`, `tune_fact` and global scale KD. `--salient-frac` is fixed:
-it records the removed columns as `salient_idx`/`salient` and zeroes `s_pre` on them, so the
-served form `y += Σ_j sal[·,j]·x[idx[j]]` (`src/engine/kern/nq.rs`) restores exactly what the
-factor drops.
+`examples/nq_fit.rs` reads the reference's `i_norm` and `o_norm` (`--diag-dir`, `--o-norm-dir`)
+and refuses a fit without a calibration statistic; the `99.9`th-percentile clip and `0.4`
+covariance shrinkage are applied by the producer (`tests/learn_calib.rs`), not re-applied here.
+It does not carry `tune_nonfact`, `tune_fact` or model KD: those are the campaign's `block_loop`
+and `kd_fit`. `--salient-frac` records the removed columns as `salient_idx`/`salient` and zeroes
+`s_pre` on them, so the served form `y += Σ_j sal[·,j]·x[idx[j]]` (`src/engine/kern/nq.rs`)
+restores exactly what the factor drops. The reference has no salient mechanism; the extension is
+off at `0.0`.
 
 ### 3.4 A sign factor is not in the ADMM's model class, for the reference either
 

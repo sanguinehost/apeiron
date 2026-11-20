@@ -89,6 +89,16 @@ impl KldBase {
         self.n_chunk
     }
 
+    /// The token block, `n_ctx·n_chunk` ids in chunk order. `O(1)`: [`KldBase::open`] read it once.
+    ///
+    /// The calibration consumers use this instead of [`KldBase::next_chunk`], whose row block is
+    /// `rows·n_vocab` zeros: a 128×2048 tape at a 151,936-word vocabulary is 40 GB of rows for
+    /// 262,144 tokens, and no consumer of the tokens reads a row.
+    #[must_use]
+    pub fn tokens(&self) -> &[u32] {
+        &self.tokens
+    }
+
     /// Read the next chunk's tokens and row block; `InvalidData` once every chunk has been read.
     /// Time `O(n_ctx + rows·n_vocab)`; space `O(rows·n_vocab + n_ctx)` on [`KldChunk`]. `next·n_ctx`
     /// cannot leave `usize`: `open` checked `n_ctx·n_chunk`.
