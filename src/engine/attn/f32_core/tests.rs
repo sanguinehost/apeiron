@@ -18,8 +18,8 @@
 )]
 
 use super::*;
+use crate::engine::attn::KvCarrier;
 use crate::engine::attn::KvState;
-use crate::engine::mixer::Carrier;
 use crate::engine::num::fp::F64;
 
 fn fv(x: &[f32]) -> Vec<F32> {
@@ -328,9 +328,9 @@ fn test_attn_core_vs_q32_oracle_deviation() {
     let max_cap = 64;
 
     let mut kv_q32 =
-        KvState::with_carrier(1, n_head, n_head_kv, hd, max_cap, Carrier::Q32).expect("kv q32");
+        KvState::with_carrier(1, n_head, n_head_kv, hd, max_cap, KvCarrier::Q32).expect("kv q32");
     let mut kv_f32 =
-        KvState::with_carrier(1, n_head, n_head_kv, hd, max_cap, Carrier::F32).expect("kv f32");
+        KvState::with_carrier(1, n_head, n_head_kv, hd, max_cap, KvCarrier::F32).expect("kv f32");
 
     // Fill KV caches with realistic Q32.32 values
     let scale_q32 = 1i64 << 32;
@@ -412,9 +412,9 @@ fn attn_f32_vs_q32_timing() {
     let cap = pos + 1;
 
     let mut kv_q32 =
-        KvState::with_carrier(1, n_head, n_head_kv, hd, cap, Carrier::Q32).expect("kv q32");
+        KvState::with_carrier(1, n_head, n_head_kv, hd, cap, KvCarrier::Q32).expect("kv q32");
     let mut kv_f32 =
-        KvState::with_carrier(1, n_head, n_head_kv, hd, cap, Carrier::F32).expect("kv f32");
+        KvState::with_carrier(1, n_head, n_head_kv, hd, cap, KvCarrier::F32).expect("kv f32");
     let scale_q32 = 1i64 << 32;
 
     for _ in 0..cap {
@@ -593,7 +593,7 @@ fn attn_layer_segments_k200() {
     let gain: Vec<i64> = (0..hd).map(|_| one + word(-0.1, 0.1)).collect();
     let eps = one / 1_000_000;
     let rope = RopeTable::new(F64::from_f64(10_000_000.0), rot).expect("rope");
-    let mut kv = KvState::with_carrier(1, nh, nkv, hd, 256, Carrier::F32).expect("kv");
+    let mut kv = KvState::with_carrier(1, nh, nkv, hd, 256, KvCarrier::F32).expect("kv");
 
     let mut prep = vec![0i64; k * stride];
     let mut att = vec![0i64; k * q_out];
@@ -843,7 +843,8 @@ fn attn_layer_segments_k200() {
     let core_only = |kv: &KvState, prep: &[i64], last: &[usize], att: &mut [i64], readout: bool| {
         let (kp, vp) = match &kv.storage {
             crate::engine::attn::KvStorage::F32 { k, v } => (&k[0][..], &v[0][..]),
-            crate::engine::attn::KvStorage::Q32 { .. } => unreachable!(),
+            crate::engine::attn::KvStorage::Q32 { .. }
+            | crate::engine::attn::KvStorage::I8 { .. } => unreachable!(),
         };
         crate::engine::chart::pool::chunks_mut_global(
             att,

@@ -295,8 +295,9 @@ impl Engine {
         kv.append(slot, key, value).map_err(StepError::Kv)
     }
 
-    /// The per-head attention read of one column into an `q_out`-wide output; `dims` is
-    /// `[n_head, hd, q_out, appended]`.
+    /// The per-KV-head attention read of one column into an `q_out`-wide output; `dims` is
+    /// `[n_head, hd, q_out, appended]`. One task owns one KV head and its `group` query heads, so
+    /// the K/V rows are read once per group rather than once per query head.
     ///
     /// # Complexity
     ///
@@ -310,16 +311,22 @@ impl Engine {
     ) -> Result<Vec<i64>, StepError> {
         let [n_head, hd, q_out, appended] = dims;
         let mut att: Vec<i64> = vec![0i64; q_out];
+        let group = n_head / kv.n_head_kv();
+        let width = group * hd;
         let head = QueryHeadCtx {
             kv,
             slot,
             query,
-            hd,
+            width,
             appended,
         };
-        if let Some((_, e)) =
-            crate::engine::chart::ffn::attn_heads(n_head, hd, &mut att, parallel_heads, &head)
-        {
+        if let Some((_, e)) = crate::engine::chart::ffn::attn_heads(
+            kv.n_head_kv(),
+            width,
+            &mut att,
+            parallel_heads,
+            &head,
+        ) {
             return Err(StepError::Kv(e));
         }
         Ok(att)
@@ -342,9 +349,10 @@ impl Engine {
     /// 1. per column (one task each): bias, gate split, q/k norm and `RoPE` at position
     ///    `pos₀ + c`;
     /// 2. in token order: append each column's key and value;
-    /// 3. per (column, head) (`k·n_head` tasks): attention over positions `0..=pos₀ + c`, then
-    ///    that head's slice of the sigmoid output gate. The pool task index runs over the fold
-    ///    order ([`fold_col`]) so a contiguous speed-weighted range alternates cheap and expensive
+    /// 3. per (column, KV head) (`k·n_head_kv` tasks): the `group = n_head / n_head_kv` query heads
+    ///    of that KV head attend over positions `0..=pos₀ + c` in one read of its K/V rows, then
+    ///    each head's sigmoid output gate is applied. The pool task index runs over the fold order
+    ///    ([`fold_col`]) so a contiguous speed-weighted range alternates cheap and expensive
     ///    columns; a gather restores the block order.
     ///
     /// Column `c` sees exactly the keys the per-column loop had appended when it attended, so the
@@ -356,7 +364,7 @@ impl Engine {
     ///
     /// # Complexity
     ///
-    /// `O(k·n_head·(pos₀ + k)·head_dim)` for the attention over `k·n_head` pool tasks, plus
+    /// `O(k·n_head·(pos₀ + k)·head_dim)` for the attention over `k·n_head_kv` pool tasks, plus
     /// `O(k·(q_proj + 2·kv_out))` for stages 1–2; three dispatches instead of `k`. With `tap`,
     /// stage 1's post-`RoPE` query and key and its value are appended to [`STAGE_Q`], [`STAGE_K`]
     /// and [`STAGE_V`] in block column order, one `O(q_out + 2·kv_out)` copy per column; the off
@@ -449,16 +457,20 @@ impl Engine {
         let fused = exact_scan_enabled();
         let mut att = vec![0i64; k * q_out];
         let kv_ro: &KvState = kv;
+        let n_kv = kv.n_head_kv();
+        let group = n_head / n_kv;
+        let width = group * hd;
         // One status slot per task, written only by that task; the slots are reduced after the
-        // dispatch (`first_by_key`), so no shared error cell crosses the pool boundary.
-        let tasks = att.len().div_ceil(hd.max(1));
+        // dispatch (`first_by_key`), so no shared error cell crosses the pool boundary. A task is
+        // one (column, KV head): its `group` query heads share one K/V read.
+        let tasks = att.len().div_ceil(width.max(1));
         let mut status: Vec<Option<StepError>> = Vec::with_capacity(tasks);
         let mut s = 0usize;
         while s < tasks {
             status.push(None);
             s += 1;
         }
-        let dims = [n_head, hd, kv_out, q_out, stride, k];
+        let dims = [n_kv, group, hd, kv_out, q_out, stride, k];
         let ctx = AttnHeadCtx {
             kv: kv_ro,
             layer: slot,
@@ -468,11 +480,11 @@ impl Engine {
             dims,
         };
         let dispatched: Result<(), ()> =
-            crate::engine::chart::pool::for_chunks2(&mut att, hd, &mut status, 1, &ctx);
+            crate::engine::chart::pool::for_chunks2(&mut att, width, &mut status, 1, &ctx);
         if dispatched.is_err() {
             return Err(StepError::BadConfig(String::from("attention dispatch")));
         }
-        if let Some(e) = first_by_key(&mut status, k, n_head) {
+        if let Some(e) = first_by_key(&mut status, k, n_kv) {
             return Err(e);
         }
         // Block `n` holds column `fold_col(n, k)`; gather it back to index `c` with the same `k`
@@ -490,14 +502,15 @@ impl Engine {
     }
 }
 
-/// Stage-3 pool task `t = n·n_head + h`: head `h` of key column `c = fold_col(n, k)`, written into
-/// `dst` (`hd` words), gated when `flags[1]`. `flags = [fused, gated]`, `dims = [n_head, hd,
-/// kv_out, q_out, stride, k]`. A refusal goes to `status[0]` and the task returns `Ok`, so the pool
-/// never sees an error and every task runs once.
+/// Stage-3 pool task `t = n·n_kv + kvh`: the `group` query heads of KV head `kvh` for key column
+/// `c = fold_col(n, k)`, written into `dst` (`group · hd` words), gated when `flags[1]`.
+/// `flags = [fused, gated]`, `dims = [n_kv, group, hd, kv_out, q_out, stride, k]`. A refusal goes
+/// to `status[0]` and the task returns `Ok`, so the pool never sees an error and every task runs
+/// once.
 ///
 /// # Complexity
 ///
-/// Time `O(hd · (pos + 1))` words of KV read for the head; no allocation.
+/// Time `O(group · hd · (pos + 1))` words of KV read for the group; no allocation.
 #[allow(
     clippy::too_many_arguments,
     clippy::unnecessary_wraps,
@@ -509,30 +522,35 @@ fn attn_head_task(
     flags: [bool; 2],
     prep: &[i64],
     last: &[usize],
-    dims: [usize; 6],
+    dims: [usize; 7],
     task: usize,
     dst: &mut [i64],
     status: &mut [Option<StepError>],
 ) -> Result<(), ()> {
-    let [n_head, hd, kv_out, q_out, stride, cols] = dims;
-    let (fold_pos, head) = (task / n_head.max(1), task % n_head.max(1));
+    let [n_kv, group, hd, kv_out, q_out, stride, cols] = dims;
+    let (fold_pos, kvh) = (task / n_kv.max(1), task % n_kv.max(1));
     let col = fold_col(fold_pos, cols);
     let base = col * stride;
-    let query = &prep[base + head * hd..base + (head + 1) * hd];
-    let read = if flags[0] {
-        kv.attn_head_fused(layer, head, query, last[col], EXACT_SCAN_TILE, dst)
-            .map_err(StepError::Kv)
-    } else {
-        kv.attn_head(layer, head, query, last[col], dst)
-            .map_err(StepError::Kv)
-    };
-    let done = match read {
+    let width = group * hd;
+    let lo = kvh * width;
+    // Query head `kvh · group + g` is `prep[base + (kvh · group + g) · hd ..]`, so the group's rows
+    // are one contiguous run.
+    let query = &prep[base + lo..base + lo + width];
+    let tile = if flags[0] { EXACT_SCAN_TILE } else { 0 };
+    let done = match kv.attn_head_group(layer, kvh, query, last[col], tile, dst) {
         Ok(()) if flags[1] => {
-            let g0 = base + 2 * kv_out + q_out + head * hd;
-            apply_sigmoid_gate(dst, &prep[g0..g0 + hd])
+            let g0 = base + 2 * kv_out + q_out + lo;
+            let mut g = 0usize;
+            let mut res: Result<(), StepError> = Ok(());
+            while g < group && res.is_ok() {
+                let off = g * hd;
+                res = apply_sigmoid_gate(&mut dst[off..off + hd], &prep[g0 + off..g0 + off + hd]);
+                g += 1;
+            }
+            res
         }
         Ok(()) => Ok(()),
-        Err(e) => Err(e),
+        Err(e) => Err(StepError::Kv(e)),
     };
     if let Err(e) = done {
         status[0] = Some(e);
@@ -540,14 +558,15 @@ fn attn_head_task(
     Ok(())
 }
 
-/// The shared borrows of one attention-head dispatch; `run` is the single call to [`attn_head_task`].
+/// The shared borrows of one attention-group dispatch; `run` is the single call to
+/// [`attn_head_task`].
 struct AttnHeadCtx<'a> {
     kv: &'a KvState,
     layer: usize,
     flags: [bool; 2],
     prep: &'a [i64],
     last: &'a [usize],
-    dims: [usize; 6],
+    dims: [usize; 7],
 }
 
 impl Task2<i64, Option<StepError>, ()> for AttnHeadCtx<'_> {
@@ -558,40 +577,44 @@ impl Task2<i64, Option<StepError>, ()> for AttnHeadCtx<'_> {
     }
 }
 
-/// The shared borrows of one query-head attention read; `run` is the single call to [`query_head_attn`].
+/// The shared borrows of one KV head's attention read; `run` is the single call to
+/// [`query_group_attn`].
 struct QueryHeadCtx<'a> {
     kv: &'a KvState,
     slot: usize,
     query: &'a [i64],
-    hd: usize,
+    /// `group · hd`: the `n_head / n_head_kv` query heads one KV head serves, as one row.
+    width: usize,
     appended: usize,
 }
 
 impl HeadTask<i64, AttnError> for QueryHeadCtx<'_> {
-    fn run(&self, h: usize, dst: &mut [i64]) -> Result<(), AttnError> {
-        query_head_attn(
+    fn run(&self, kv_head: usize, dst: &mut [i64]) -> Result<(), AttnError> {
+        query_group_attn(
             self.kv,
             self.slot,
             self.query,
-            self.hd,
+            self.width,
             self.appended,
-            h,
+            kv_head,
             dst,
         )
     }
 }
 
-/// One head of the query read: the `hd`-wide slice of `query` for head `h`, attended over `appended` positions.
-fn query_head_attn(
+/// One KV head of the query read: its `width`-word query row, attended over `appended` positions
+/// into `dst` in the same layout.
+fn query_group_attn(
     kv: &KvState,
     slot: usize,
     query: &[i64],
-    hd: usize,
+    width: usize,
     appended: usize,
-    h: usize,
+    kv_head: usize,
     dst: &mut [i64],
 ) -> Result<(), AttnError> {
-    kv.attn_head(slot, h, &query[h * hd..(h + 1) * hd], appended, dst)
+    let lo = kv_head * width;
+    kv.attn_head_group(slot, kv_head, &query[lo..lo + width], appended, 0, dst)
 }
 
 /// The shared borrows of one column's stage-1 preparation; `run` is the single call to [`prep_column`].

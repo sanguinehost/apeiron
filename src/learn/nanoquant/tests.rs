@@ -119,7 +119,7 @@ fn export_serves_the_b_step_product_not_its_column_rescaling() {
         "s_mid = column norm rescales every rank: rel {cur}"
     );
     assert!(
-        f.s_mid.iter().all(|&x| x == 1.0),
+        f.s_mid.iter().all(|&x| x.to_bits() == 1.0f64.to_bits()),
         "the served form is two-scale"
     );
 }

@@ -384,8 +384,8 @@ fn clamp_i64(v: i128) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::attn::KvCarrier;
     use crate::engine::attn::{score_at, KvState, KvStorage};
-    use crate::engine::mixer::Carrier;
     use crate::engine::ONE;
 
     /// A deterministic Q32.32 word in `[-4·ONE, 4·ONE)` from a 64-bit LCG state.
@@ -402,7 +402,8 @@ mod tests {
         // Two KV heads of width 5 over three 8-position blocks, so the radius is nontrivial and
         // the block is narrower than the plane stride.
         let (n_head_kv, hd, block, keys) = (2usize, 5usize, 8usize, 24usize);
-        let mut kv = KvState::with_carrier(1, 4, n_head_kv, hd, keys, Carrier::Q32).expect("geom");
+        let mut kv =
+            KvState::with_carrier(1, 4, n_head_kv, hd, keys, KvCarrier::Q32).expect("geom");
         let mut seed = 0x1234_5678_9ABC_DEF0_u64;
         let mut s = 0usize;
         while s < keys {
@@ -425,7 +426,7 @@ mod tests {
         let mut index = KvBlockIndex::new(1, n_head_kv, hd, block);
         let kplane = match &kv.storage {
             KvStorage::Q32 { k, .. } => &k[0],
-            KvStorage::F32 { .. } => unreachable!(),
+            KvStorage::F32 { .. } | KvStorage::I8 { .. } => unreachable!(),
         };
         index.rebuild_layer(0, kplane, keys);
 

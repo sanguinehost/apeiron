@@ -791,23 +791,22 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
         } else {
             score_item_shared(&engine, &bpe, ctx, a.mode, a.head_batch, &item.candidates)?
         };
-        let scored = match shared {
-            Some(shared) => shared,
-            None => {
-                let mut joint = Vec::with_capacity(item.candidates.len());
-                for cand in &item.candidates {
-                    joint.push(score_candidate(
-                        &engine,
-                        &bpe,
-                        ctx,
-                        a.mode,
-                        a.head_batch,
-                        a.rebound,
-                        cand,
-                    )?);
-                }
-                joint
+        let scored = if let Some(shared) = shared {
+            shared
+        } else {
+            let mut joint = Vec::with_capacity(item.candidates.len());
+            for cand in &item.candidates {
+                joint.push(score_candidate(
+                    &engine,
+                    &bpe,
+                    ctx,
+                    a.mode,
+                    a.head_batch,
+                    a.rebound,
+                    cand,
+                )?);
             }
+            joint
         };
         for (cand, s) in item.candidates.iter().zip(scored) {
             sll.push(s.ll);

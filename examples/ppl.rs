@@ -3,7 +3,7 @@
 //! Run:
 //! `cargo run --release --locked --example ppl -- --model <gguf> --tokenizer <tokenizer.json>
 //!  --data <wiki.test.raw> [--pack <model.nqp>] [--tokens 8192] [--skip 0] [--ctx 512]
-//!  [--head-batch 16] [--kernel q8act|ternary|exact] [--trace]`
+//!  [--head-batch 16] [--kernel q8act|ternary|exact] [--trace] [--dump] [--dump-argmax]`
 //!
 //! The text is tokenized once, `--skip` tokens are dropped, the rest is truncated to `--tokens`,
 //! and scored in consecutive non-overlapping windows of at most `--ctx` tokens: each window is one
@@ -20,7 +20,9 @@
 //! `--head-batch` columns at a time, which bounds the `vocab × batch` logit buffer.
 //!
 //! Domain: the file must tokenize, every id must be below the model vocabulary, and at least one
-//! window must hold two tokens; the text is truncated, never padded. Cost is one prefill pass over
+//! window must hold two tokens; the text is truncated, never padded. `--dump` prints the NLL of
+//! every scored position; `--dump-argmax` prints its argmax id, so two runs can be compared
+//! position by position. Cost is one prefill pass over
 //! `--tokens` tokens plus one head projection per scored position; space is `O(ctx·n_embd)` states
 //! and `O(head-batch·vocab)` logits.
 
@@ -39,6 +41,10 @@ use apeiron::engine::KernelMode;
 use apeiron::format::bpe::Bpe;
 use apeiron::format::nq;
 
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent CLI flags; each selects a different dump or scoring mode"
+)]
 struct Args {
     model: String,
     pack: Option<String>,
@@ -51,6 +57,7 @@ struct Args {
     mode: KernelMode,
     trace: bool,
     dump: bool,
+    dump_argmax: bool,
     second_half: bool,
     ids_out: Option<String>,
 }
@@ -68,6 +75,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         mode: KernelMode::Q8Act,
         trace: false,
         dump: false,
+        dump_argmax: false,
         second_half: false,
         ids_out: None,
     };
@@ -85,6 +93,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--head-batch" => a.head_batch = val()?.parse()?,
             "--trace" => a.trace = true,
             "--dump" => a.dump = true,
+            "--dump-argmax" => a.dump_argmax = true,
             "--second-half" => a.second_half = true,
             "--ids-out" => a.ids_out = Some(val()?),
             "--kernel" => {
@@ -144,6 +153,10 @@ fn peak_rss_kib() -> Option<u64> {
     })
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the window loop, the dump modes and the report read as one scoring pass"
+)]
 fn run(a: &Args) -> Result<(), Box<dyn Error>> {
     let text = std::fs::read_to_string(&a.data)?;
     let bpe = Bpe::from_tokenizer_json(&a.tokenizer)?;
@@ -219,6 +232,20 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
                 }
                 if a.dump {
                     println!("nll {} {:.8}", start + at + c, -lp);
+                }
+                if a.dump_argmax {
+                    // Strict `>` keeps the lowest index on a tie, the rule `argmax_fixed` uses.
+                    let mut best = 0usize;
+                    let mut best_v = row.first().copied().unwrap_or(i64::MIN);
+                    let mut i = 1usize;
+                    while i < row.len() {
+                        if row[i] > best_v {
+                            best = i;
+                            best_v = row[i];
+                        }
+                        i += 1;
+                    }
+                    println!("argmax {} {}", start + at + c, best);
                 }
             }
             count += take;

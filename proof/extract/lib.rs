@@ -954,12 +954,13 @@ pub fn word_lm_head_fixed(
 /// types and the carrier.
 ///
 /// **Coverage consequence.** This wrapper replaced a call to `KvState::new`, which is
-/// `Self::with_carrier(.., carrier_from_env())` — an environment read behind a `OnceLock` that the
-/// pinned Aeneas does not model. `KvState::new` and `mixer::carrier_from_env` therefore have zero
-/// extracted coverage: no axiom and no body in the generated corpus covers either, and neither is
-/// checked by `proof/corpus/`. `KvState::new` is not on the production path (production constructs
-/// through `KvState::with_carrier(.., carrier)`), so this states a non-claim rather than an
-/// omission, but it is a non-claim: the environment-driven carrier selection is unverified.
+/// `Self::with_carrier(.., kv_carrier_from_env())` — an environment read behind a `OnceLock` that
+/// the pinned Aeneas does not model. `KvState::new`, `attn::kv_carrier_from_env` and
+/// `mixer::carrier_from_env` therefore have zero extracted coverage: no axiom and no body in the
+/// generated corpus covers any of them, and none is checked by `proof/corpus/`. `KvState::new` is not
+/// on the production path (production constructs through `KvState::with_carrier(.., carrier)`), so
+/// this states a non-claim rather than an omission, but it is a non-claim: the environment-driven
+/// carrier selection is unverified.
 pub fn word_kv_state_new(
     n_layer: usize,
     n_head: usize,
@@ -973,7 +974,7 @@ pub fn word_kv_state_new(
         n_head_kv,
         head_dim,
         cap,
-        mixer::Carrier::Q32,
+        attn::KvCarrier::Q32,
     )
 }
 

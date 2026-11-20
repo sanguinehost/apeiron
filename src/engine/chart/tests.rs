@@ -687,18 +687,33 @@ fn vnni_and_avx2_cores_match_the_portable_twins() {
         let qh_k: Vec<u8> = (0..32)
             .map(|_| (next_rand(&mut state) & 0xff) as u8)
             .collect();
+        let second_low: Vec<u8> = (0..64)
+            .map(|_| (next_rand(&mut state) & 0xff) as u8)
+            .collect();
+        let second_high: Vec<u8> = (0..32)
+            .map(|_| (next_rand(&mut state) & 0xff) as u8)
+            .collect();
         let xq_k: Vec<i8> = (0..256)
             .map(|_| ((next_rand(&mut state) % 255) as i64 - 127) as i8)
             .collect();
         // SAFETY: AVX2 was detected; `ql` holds 64 bytes, `qh_k` 32 bytes and each 128-lane
         // `xq_k` half is in bounds.
         let half_dots = unsafe { x86::q6_k_half_dots(ql.as_ptr(), qh_k.as_ptr(), xq_k.as_ptr()) };
-        // SAFETY: as above; the second call reads lanes 128..256 of the 256-lane vector.
-        let half_dots_hi =
-            unsafe { x86::q6_k_half_dots(ql.as_ptr(), qh_k.as_ptr(), xq_k.as_ptr().add(128)) };
+        // SAFETY: as above; the second half reads its own 64 `ql` bytes and 32 `qh` bytes at the
+        // block's `+64`/`+32` offsets, as `q6_k_row_kcols_avx2` calls it, and lanes 128..256 of
+        // `xq_k`.
+        let half_dots_hi = unsafe {
+            x86::q6_k_half_dots(
+                second_low.as_ptr(),
+                second_high.as_ptr(),
+                xq_k.as_ptr().add(128),
+            )
+        };
         let mut blk = vec![0u8; quant::Q6_K_BLOCK_BYTES];
         blk[..64].copy_from_slice(&ql);
+        blk[64..128].copy_from_slice(&second_low);
         blk[128..160].copy_from_slice(&qh_k);
+        blk[160..192].copy_from_slice(&second_high);
         let codes256 = quant::q6_k_codes(&blk).expect("q6_k_codes");
         for g in 0..16 {
             let got = if g < 8 {

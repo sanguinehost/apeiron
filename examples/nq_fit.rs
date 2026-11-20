@@ -208,8 +208,10 @@ fn read_f32(path: &str, want: usize) -> Option<Vec<f64>> {
     }
     Some(
         bytes
-            .chunks_exact(4)
-            .map(|c| f64::from(f32::from_le_bytes([c[0], c[1], c[2], c[3]])))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f64::from(f32::from_le_bytes(*c)))
             .collect(),
     )
 }
@@ -368,6 +370,10 @@ fn packed_linear(
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the campaign's argument checks, per-kind fit loop and report are one driver"
+)]
 fn main() -> Result<(), Box<dyn Error>> {
     let a = parse_args()?;
     // A full campaign's wall is measured on the device path. Refuse a CPU-only build before the
@@ -419,7 +425,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .ranks
                 .as_ref()
                 .map_or_else(|| rank_for_bits(out, inn, a.ppm, 32), |r| r[at]);
-            let (ni_ref, no_ref) = a.norm_dir.as_deref().map_or((None, None), |d| {
+            let (norm_in, norm_out) = a.norm_dir.as_deref().map_or((None, None), |d| {
                 let at = format!("model.layers.{layer}.{}", REF[at]);
                 (
                     read_f32(&format!("{d}/{at}.i.f32"), inn),
@@ -428,7 +434,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             });
             if let Some(d) = a.norm_dir.as_deref() {
                 assert!(
-                    ni_ref.is_some() && no_ref.is_some(),
+                    norm_in.is_some() && norm_out.is_some(),
                     "l{layer} {name}: no reference stats for model.layers.{layer}.{} under {d}",
                     REF[at]
                 );
@@ -436,7 +442,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let i_norm = if a.ones_norm {
                 vec![1.0f64; inn]
             } else {
-                ni_ref.unwrap_or_else(|| {
+                norm_in.unwrap_or_else(|| {
                     a.diag_dir
                         .as_deref()
                         .and_then(|d| read_diag(d, layer, &a.diag_tag, gram))
@@ -475,7 +481,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     mask[j] = false;
                 }
             }
-            let o_norm = no_ref.unwrap_or_else(|| vec![1.0f64; out]);
+            let o_norm = norm_out.unwrap_or_else(|| vec![1.0f64; out]);
             if let Some(dir) = a.dump.as_deref() {
                 std::fs::create_dir_all(dir)?;
                 let mut wb = Vec::with_capacity(w.len() * 4);

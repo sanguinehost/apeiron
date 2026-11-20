@@ -76,6 +76,7 @@ solve_port.syrk.block_rows_pool	thread-driver boundary, src/learn/solve/syrk.rs:
 ## SIMD twins and intrinsics
 # AVX2/AVX/SSE2 bodies. Each twin has a scalar Lean body and a *_equals_scalar test; intrinsics are stdarch items. MXCSR and codegen are named boundaries. Grade tested.
 attn.f32_core.attn_core_f32_strided_avx2_inner	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
+attn.i8.attn_core_i8_group_avx2_inner	AVX2/stdarch SIMD operation; scalar twin plus the_vector_source_equals_the_scalar_source test, MXCSR and LLVM codegen outside the claim. Grade tested.
 chart.ffn.swiglu_f32_avx2_8_into	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 chart.Q4_KDecoder.Insts.Apeiron_wordChartFastBlockDecoder.decode_step_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.
 chart.Q5_0Decoder.Insts.Apeiron_wordChartFastBlockDecoder.decode_step_avx2	AVX2/stdarch SIMD operation; scalar twin plus *_equals_scalar test, MXCSR and LLVM codegen outside the claim. Grade tested.

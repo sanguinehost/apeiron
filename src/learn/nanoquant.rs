@@ -544,7 +544,9 @@ fn normalized_plane(zx: &[f64], n: usize, r: usize) -> Vec<f64> {
 /// inverse ([`spd_inverse`]) and `Rᵀ·H⁻¹`, all on the kernel but the inverse's order-32 bases.
 #[allow(
     clippy::too_many_arguments,
-    reason = "the ADMM step's operands are distinct matrices"
+    clippy::manual_midpoint,
+    reason = "the ADMM step's operands are distinct matrices; the halved sum is the reference's \
+              expression, and `f64::midpoint` halves each operand and is not bit-identical"
 )]
 pub(crate) fn x_update(
     zx: &[f64],
@@ -1008,6 +1010,10 @@ fn sign_words(x: &[f64]) -> Vec<i64> {
 /// rank weight, and `∂U`/`∂Vᵀ` carry the same `s_mid[k]` because the latent's sign enters with it.
 /// Two `o·n·r` kernel products and two `rowdot_q32`s of `o·n`, plus `O(o·n)` element maps and
 /// transposes.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the loss gradients' operands are distinct matrices and scale vectors"
+)]
 fn grads(
     pt: &[f64],
     m: &[f64],
@@ -1086,6 +1092,10 @@ fn grads(
 /// Per step `o·n² + 3·o·n·r` multiply-adds on the kernel (`EH`, `UV` and the two latent
 /// gradients) plus `O(o·n)` element maps and two `rowdot_q32`s; one more `EH` before the first
 /// step, one after the last, and one `WH`. Space `O(o·n + n²)` words.
+#[allow(
+    clippy::too_many_lines,
+    reason = "the forward, the four gradients and the reverse update read as one ADMM step"
+)]
 pub fn tune(
     f: &mut NqFactor,
     w: &[i64],

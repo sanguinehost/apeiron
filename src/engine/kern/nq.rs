@@ -2401,18 +2401,24 @@ mod tests {
         let u8s = read("U.i8");
         let v8s = read("V.i8");
         let u16s = |b: &[u8]| -> Vec<u16> {
-            b.chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            b.as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
                 .collect()
         };
         let f32s = |b: &[u8]| -> Vec<f32> {
-            b.chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            b.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| f32::from_le_bytes(*c))
                 .collect()
         };
         let f64s = |b: &[u8]| -> Vec<f64> {
-            b.chunks_exact(8)
-                .map(|c| f64::from_le_bytes(c.try_into().expect("8 bytes")))
+            b.as_chunks::<8>()
+                .0
+                .iter()
+                .map(|c| f64::from_le_bytes(*c))
                 .collect()
         };
         let (u_words, v_words) = (rank.div_ceil(32), inn.div_ceil(32));

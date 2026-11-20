@@ -51,6 +51,26 @@ refusal differs between the two modes.
   and chooses per dispatch between a round-robin and a speed-weighted contiguous split by modelled
   makespan. Thread affinity uses `libc` on Linux; that is the crate's only non-optional dependency.
 
+## Key/value cache
+
+The cache has its own carrier dial, `APEIRON_KV_CARRIER`:
+
+| value | plane | bytes per element |
+|---|---|---:|
+| `q32` | Q32.32 `i64`, position-major | 8 |
+| `f32` | binary32, position-major | 4 |
+| `i8` | signed code plus one binary32 scale per `(kv_head, position, K or V)`, KV-head-major | 1 + 4/head_dim |
+
+Unset falls back to `APEIRON_F32_CARRIER`: `0` selects `q32`, every other value `f32`. An int8 row
+quantises at append to `s = max|x| / 127` and `code = clamp(round_ties_even(x / s), -127, 127)`;
+`-128` is never stored, so negation is exact. The read reconstructs `code · s` in binary32.
+
+One pool task owns one KV head and its `group = n_head / n_head_kv` query heads. Under `i8` the
+task reads each K and V code row once and folds every query head of the group against it; under
+`q32` and `f32` it issues the per-head reads in the same order, so the words are the per-head
+words. The int8 scalar body and its AVX2 body are bit-identical; the AVX2 body is opaque to the
+extraction and `tested` equal to the scalar twin. The block certificate is `q32`-only.
+
 ## What is established
 
 | claim | grade | gate |
@@ -58,6 +78,9 @@ refusal differs between the two modes.
 | `f16` to Q32.32 conversion is exact for every finite `f16` | tested | `cargo test --workspace --all-features --locked` |
 | `Q8Act` equals the exact projection on the quantised activation | tested | `cargo test --workspace --all-features --locked` |
 | AVX2 core equals the portable core | tested | `cargo test --workspace --all-features --locked` |
+| the int8 KV group read equals the per-head read of each slot | tested | `cargo test --workspace --all-features --locked` |
+| the int8 KV scalar and AVX2 bodies are bit-identical | tested | `cargo test --workspace --all-features --locked` |
+| the int8 KV read matches an f64 causal-softmax oracle | tested | `cargo test --workspace --all-features --locked` |
 | the executed engine refines a Lean specification | open | none |
 
 The [trust boundary](../verification/trust.md) lists the layers the evidence does not reach.

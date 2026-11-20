@@ -134,26 +134,35 @@ the dominant term. **Done.**
 
 ### S1 — int8 KV, kv-head-major, GQA group read (0.6B)
 
-Files: `src/engine/attn.rs`, `src/engine/attn/f32_core.rs`, `src/engine/attn/kvplane.rs`,
-`src/engine/step/softmax.rs`, `src/engine/mixer.rs`, tests. A `KvCarrier` dial with `F32 | I8`; the
-I8 plane stores `(layer, kv_head, position, dim)` codes plus one f32 scale per
+Files: `src/engine/attn.rs`, `src/engine/attn/i8.rs` (new), `src/engine/step/softmax.rs`,
+`examples/ppl.rs`, tests. A `KvCarrier` dial `Q32 | F32 | I8`; the I8 plane stores
+`(layer, kv_head, position, dim)` signed codes plus one binary32 scale per
 `(layer, kv_head, position, K|V)`. The attention task becomes `(layer, kv_head)` and writes G
-query-head outputs. The F32 body is the safe twin and the oracle. Selector:
-`APEIRON_KV_CARRIER=f32|i8|i4`, default `f32` until the gate; `APEIRON_F32_CARRIER=0` keeps Q32 for
-the oracle.
+query-head outputs; under I8 one pass reads each K and V code row once for the whole group. The I8
+scalar body and its AVX2 body are bit-identical; the Q32 and F32 arms keep the per-head call.
+Selector: `APEIRON_KV_CARRIER=q32|f32|i8`, falling back to `APEIRON_F32_CARRIER` (`0` → Q32). The
+block certificate stays Q32-only.
+
+Measured at 1,827 on 4 pinned cores under a concurrent `node` process, three runs per arm: F32 9.61
+tok/s → I8 14.75 tok/s (1.54×); `attn.core` 58.71 → 21.76 ms (2.70×); token 102.34 → 66.08 ms. PPL
+at ctx 2,048 (2,047 positions): F32 571.89, I8 515.80 (0.902×); teacher-forced top-1 agreement
+1,620/2,047 (79.1%); peak RSS 783.5 → 450.9 MiB. Receipt `1795177681`.
 
 Commands:
 
 ```sh
 APEIRON_KV_CARRIER=f32 generate --model <0.6B skeleton> --pack <nq06-v3> --prompt "$(cat <2k prompt>)" --n 32
 APEIRON_KV_CARRIER=i8  generate --model <0.6B skeleton> --pack <nq06-v3> --prompt "$(cat <2k prompt>)" --n 32
-APEIRON_KV_CARRIER=i8  ppl --model <0.6B skeleton> --pack <nq06-v3> --tokenizer <tok> --data <text> --ctx 2048
+APEIRON_KV_CARRIER=i8  ppl --model <0.6B skeleton> --pack <nq06-v3> --tokenizer <tok> --data <text> --tokens 2048 --ctx 2048
 ```
 
-Gate: **≥20 tok/s mean of three runs at 2k**, PPL at ctx 2,048 within **1.01×** the F32 carrier on
-the same pack and token stream, and top-1 agreement over 64 tokens at 2k recorded (reported, not
-gated: fold's int8 row is 238/256 on a different model). Expected 23 tok/s (`1795170568`). Receipt
-advances T1; C1 stays open.
+Gate: **≥20 tok/s mean of three runs at 2k** (open: 14.75 tok/s under the concurrent process; the
+same split scaled to the clean F32 baseline ratio is ~19, short of 20), PPL at ctx 2,048 within
+**1.01×** the F32 carrier (pass, 0.902×), and top-1 agreement over 64 tokens at 2k recorded
+(79.1% over 2,047 teacher-forced positions). Receipt advances T1; C1 stays open. The 20 tok/s gate
+moves to S2: at the traced 66.08 ms token the 18.7 ms head leaves 47.38 ms = 21.1 tok/s before the
+head's pack read and ~49.1 ms = 20.4 after it at the 67.8 ms rate mean, so S2 is marginal against 20
+on this host.
 
 ### S2 — head into the pack (0.6B, local rehearsal)
 
@@ -162,8 +171,10 @@ Files: `src/format/nq.rs` (reserved head section), `src/engine/loader/nq.rs`, `s
 state with the Gram diagonal.
 
 Gate: head bytes ≤ 25 MB, PPL within 1.01× the Q8_0 head, head phase ≤ 2 ms at 2k. Expected token
-~29 ms = 34.6 tok/s from the 43.3 ms S1 point. Receipt advances Q1, T1. This is the rehearsal for
-the 8B S6.
+~49.1 ms = 20.4 tok/s from the 67.8 ms S1 rate mean under the same contention, and 50.6–51.1 ms =
+19.6–19.8 tok/s once the head's own pack read is counted: the gate is marginal, 0.4 ms of predicted
+margin against a 1.9 ms spread, and the `ffn` (14.29 ms, 21.6%) is the next term if it falls short.
+Receipt advances Q1, T1. This is the rehearsal for the 8B S6.
 
 ### S3 — selection at 32k (0.6B)
 
