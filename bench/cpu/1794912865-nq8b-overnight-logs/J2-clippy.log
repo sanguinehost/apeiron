@@ -1,0 +1,5 @@
+agent-guard: available=3272MiB cap=2048MiB jobs=2
+    Checking apeiron v0.1.0 (/home/lucas/Workspace/apeiron-nq)
+    Checking apeiron-wasm v0.0.0 (/home/lucas/Workspace/apeiron-nq/wasm)
+    Checking apeiron-fold-abi v0.0.0 (/home/lucas/Workspace/apeiron-nq/fold-abi)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.81s

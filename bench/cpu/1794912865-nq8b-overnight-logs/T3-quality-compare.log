@@ -1,0 +1,13 @@
+task               n  ref    metric      nq      q4   ratio
+piqa               5    0  acc_norm  0.8000  0.8000  1.0000
+
+tasks            1  (piqa)
+items            5
+mean acc nq      0.800000
+mean acc q4      0.800000
+ratio            1.000000   (bar 0.900000)
+paired diff      +0.000000 +- nan  (95 % t interval, df 0, t 1.96)
+task sd          nan
+needed diff      -0.080000   (= -0.10 x mean acc q4)
+verdict          undecided
+design           sample: 5 of 1838 split items (piqa 5/1838)

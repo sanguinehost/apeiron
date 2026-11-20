@@ -1,0 +1,44 @@
+Recorded 2026-11-16 on the 6.7 GiB laptop (i5-10210U, 4 cores / 8 threads, 15 W),
+Qwen2.5-0.5B-Instruct Q4_K_M (491,400,032 B), `serve/` listener on 127.0.0.1,
+`--max-tokens 96`, `APEIRON_THREADS=4`, greedy, power profile `performance`, on a
+quiet box (loadavg 0.9, package 70 C, 3.9-4.1 GHz). This is the fallback if the live
+listener is slow or the box is loaded. The model is deterministic: a rerun gives the
+same text. Three further runs of the first prompt on the same profile: first token
+0.41-0.42 s, decode 39.55-41.05 tok/s; three 96-token runs: 0.34-0.38 s, 35.04-38.16
+tok/s.
+
+$ ./demo/ask.sh "Summarise this client note in one plain sentence, without adding anything: 'I have been sleeping badly and worrying about work. I would like to talk to someone.'"
+
+prompt   Summarise this client note in one plain sentence, without adding anything: 'I have been
+         sleeping badly and worrying about work. I would like to talk to someone.'
+answer   The client is experiencing sleep issues and worries about work. They want to talk to
+         someone.
+
+time to first token  0.42 s
+decode               18 tok in 0.43 s (42.05 tok/s)
+end-to-end           0.84 s
+finish       stop
+memory       VmHWM 600,400 kB; VmRSS 600,400 kB
+server       prompt 42 tok, prefill 0.409 s, decode 0.428 s, 18 tok, stop
+
+$ ./demo/ask.sh "Write a warm, two-sentence welcome message for a community mental health clinic. Use plain language."
+
+prompt   Write a warm, two-sentence welcome message for a community mental health clinic. Use plain language.
+answer   Welcome to our community mental health clinic! We're here to support you, offering a safe
+         space to explore your feelings and learn about mental health. Let's chat about what's on
+         your mind and how we can help you on your journey towards healing.
+
+time to first token  0.29 s
+decode               50 tok in 1.23 s (40.64 tok/s)
+end-to-end           1.52 s
+finish       stop
+memory       VmHWM 601,836 kB; VmRSS 601,836 kB
+server       prompt 28 tok, prefill 0.278 s, decode 1.230 s, 50 tok, stop
+
+On the `power-saver` profile the same binary and model measured 1.86 s to the first
+token, 10.12 tok/s, 3.64 s end-to-end for the first prompt, and 1.17 s / 10.18 tok/s /
+6.08 s for the welcome message. Quote one arm or the other, not a mix.
+
+What this is: the whole path (model, tokenizer, CPU kernels, listener, terminal) on the laptop,
+with no network. What it is not: a quality claim. The live model is half a billion parameters;
+the project's target is seven billion at about 30 tokens per second.

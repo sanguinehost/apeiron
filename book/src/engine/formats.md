@@ -27,6 +27,17 @@ arithmetic, the payload read and the dequantiser dispatch all use it, so they ca
 Any other type id is `QuantError::UnknownType`. The embedding lookup supports `F16`, `Q8_0`, `Q5_0`,
 `Q4_K`, `Q6_K`, `Q2_K` and `Q3_K`; `F32` refuses because its domain needs a rounding contract.
 
+## Formats are carriers
+
+A quantisation format is a carrier dial on the one projection loop, not a kernel. It supplies three
+things: the `(weights per block, bytes per block)` geometry from `block_geom`, the decode from a
+32-lane group to `(w_scale, w_min, codes)`, and the weight range the checked products use. The loop,
+the column count, the thread split and the refusal assembly are shared. [One path](onepath.md)
+states the rule and the current carrier table.
+
+The cost of a format is therefore its bytes per weight and its decode, not a separate code path. A
+new bit depth adds a carrier row; it does not add a `gemm_*` or `*_row_*` function.
+
 ## Exact dequantisation
 
 Every finite `f16` is an integer multiple of `2^-24`, so it is an exact multiple of the Q32.32

@@ -1,0 +1,102 @@
+# The NanoQuant pack
+
+The 1-bit path replaces a linear `W` (`out × inn`) with a sign-rank factor
+
+```text
+Ŵ = diag(s_post) · U · diag(s_mid) · V · diag(s_pre)
+U ∈ {±1}^{out × r},  V ∈ {±1}^{r × inn}
+```
+
+and serves `y = Ŵ·x` without materialising `Ŵ`. The factors and the three scale vectors are the
+`APNQPK01` pack (`format::nq`); the untouched tensors come from a GGUF skeleton, and
+`Engine::open_with_nq` installs the pack over it.
+
+`U` is the output-side factor: each of its `out` rows is a sign pattern over the `rank` features.
+`V` is the input-side factor: each of its `rank` rows is a sign pattern over the `inn` inputs.
+Rank component `k` contributes the rank-1 matrix `s_mid[k]·(s_post ⊙ u_k)(s_pre ⊙ v_k)^T`, so the
+pack is a sum of `rank` signed outer products, not a per-weight sign. The sparse term `S` repairs
+`k` input columns per output row in the weight's own units.
+
+## What a section stores
+
+| field | shape | bits |
+|---|---|---|
+| `U` | `out × ceil(r/32)` words | `32·out·ceil(r/32)` |
+| `V` | `r × ceil(inn/32)` words | `32·r·ceil(inn/32)` |
+| `s_pre`, `s_mid`, `s_post` | binary16 vectors | `16·(inn + r + out)` |
+| residual layers (optional) | `res_layers × out × ceil(inn/32)` words | 1 bit per weight per layer |
+| salient columns (optional) | `k` indices and `out × k` binary16 | small |
+
+One linear therefore stores `r(out + inn) + 16(inn + r + out)` bits when `inn` and `r` are
+multiples of 32, plus `32k + 16·out·k` for the sparse columns. The rate is a property of the rank: a
+1.174 b/w plan on a 7B (q/o rank 2080, k/v 512, gate/up/down 3520) stores 0.958 GB over 6.525 G
+replaced weights, and computes `r·(out + inn)` sign terms — 7.613 G per token. **Bits and terms move
+together**: lowering the rank lowers both the bytes and the multiply count, which is why the rate
+target and the speed target are one decision, not two.
+
+A sign term is one bit of `U` or `V` against one int8 activation code. The transport is therefore
+`1` bit per term plus the scale vectors, and the arithmetic is a selection, not a multiply.
+
+## The shared qkv block
+
+A layer's `q`, `k` and `v` linears read the same input, and the fit gives the three the same `V`,
+`s_pre`, `s_mid` and `salient_idx` block; only `U`, `s_post`, `salient` and the residual differ.
+Version 4 stores that block once. A `k` or `v` section with `group = 1` is a member: it keeps its own
+fields and binds the four shared ones to the same layer's `q` section, which carries `group = 0`.
+The reader resolves the binding, so the kernel receives a complete linear and the arithmetic is
+unchanged; `stored_bits` counts the block once. A member must be `k` or `v`, its head must be the
+same layer's `q`, and the shared bytes must be equal, or the pack refuses with `SharedHead`.
+
+## Two readers
+
+| mode | entry | arithmetic |
+|---|---|---|
+| exact | `NqLinear::project` | each sign plane expanded to `i64` `±1`, three-byte-limb products, checked `i128` |
+| q8 activation | `NqLinear::project_q8` | each stage activation quantised to one int8 code per element; the sign dot is `sum − 2·selected` |
+
+`project_q8` quantises the stage activation with the same chart `matmat_q8act` uses: `S_b = 2^e_b`,
+the smallest power of two with `127·S_b ≥ absmax_b`, one code per element. For a sign plane the
+product collapses to a selection: with `c_i` the code and `b_i` the sign bit,
+
+```text
+Σ sign_i·c_i = Σ c_i − 2·Σ_{b_i = 0} c_i
+```
+
+so the kernel keeps the block's code sum and subtracts twice the codes selected by the sign word.
+The selector `code_select_avx2` and its scalar twin `code_select_twin` compute the same integer; the
+test `the_code_source_equals_the_scalar_source` asserts equality over the boundary lengths. The
+`Q8Act` dispatch falls back to `project` when the stage bound refuses, so no activation can overflow
+a code path that the exact reader would accept.
+
+## The bound
+
+`project_q8` is not bit-identical to `project`: the int8 activation code is a rounding of the
+activation, and a stage's error is bounded by `1/127` of that stage's magnitude. The shipped test
+`q8_projection_is_within_the_bound_of_exact` asserts a relative bound of `1/32` of the output
+magnitude on the fixture, three times the rounding bound, and asserts the deviation is nonzero — a
+route mix-up would leave it. On the production shapes the measured deviation is 0.96–1.04% of `|y|`.
+
+## What is established
+
+| claim | grade | gate |
+|---|---|---|
+| the AVX2 selector equals its scalar twin | tested | `cargo test --lib --locked nq::tests` |
+| the q8 projection stays within `1/32` of the exact reader on the fixture | tested | `cargo test --lib --locked nq::tests` |
+| a sign flip of one factor moves the output | tested | `cargo test --lib --locked nq::tests` |
+| the staged product equals the sequential product | tested | `cargo test --lib --locked nq::tests` |
+| the pack's stored bits equal the section payload | tested | `cargo test --lib --locked format::nq` |
+| a version-4 member binds to its layer's `q` and the shared block is stored once | tested | `cargo test --lib --locked format::nq` |
+
+The extraction does not include `code_select_avx2` or any AVX2 body: Aeneas does not model
+`core::arch`, so an intrinsic body is `tested` against its safe twin and never `proved`. The
+refinement theorem covers the twin and the integer arithmetic around it.
+
+## What it does not establish
+
+- The sign-rank factor's approximation error against the dense `W`. That is a property of the fit,
+  not of the kernel, and it is measured as perplexity, not proved.
+- The 1.174 b/w point: no full pack at that rate exists. The 0.6B sample is 53,815,472 B over
+  440,401,920 replaced weights, **0.978 b/w**, and the 8B residual pack is 3.13 b/w; neither is the
+  production pack.
+- Any GPU carrier for the sign planes: the Vulkan path serves `F16`/`F32`/`Q8`/`Q4`/`Q2`/`Q3`/`Q5`
+  and has no 1-bit variant.

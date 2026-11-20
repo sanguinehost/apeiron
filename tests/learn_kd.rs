@@ -147,8 +147,10 @@ fn ranks(dump: &str) -> Vec<[usize; 7]> {
 
 fn read_i32(path: &str) -> Vec<i32> {
     let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    b.chunks_exact(4)
-        .map(|c| i32::from_le_bytes(c.try_into().expect("i32")))
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| i32::from_le_bytes(*c))
         .collect()
 }
 
@@ -188,8 +190,10 @@ fn sample_of(path: &str, s: usize, n: usize) -> Vec<f32> {
     f.seek(SeekFrom::Start((s * n * 4) as u64)).expect("seek");
     let mut b = vec![0u8; n * 4];
     f.read_exact(&mut b).expect("read");
-    b.chunks_exact(4)
-        .map(|c| f32::from_le_bytes(c.try_into().expect("f32")))
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
         .collect()
 }
 

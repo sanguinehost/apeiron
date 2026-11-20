@@ -7,9 +7,9 @@ engine serves: `model.nqp` (version 2, no salient term and no residual) and `ske
 source's metadata and every non-linear tensor). A kind with no `.nqf` is left out of the pack; if
 the skeleton also lacks it, the engine refuses the image, so a partial fit is a partial pack.
 
-The scale vectors are stored as binary16, exactly as the kernel decodes them, and `s_mid` is `1`;
-`--dense` writes each packed section's reconstruction as `l{l}.{kind}-nqpack.i64`, which is the
-served form `tools/nq_relh.py --fit nqpack` measures.
+The scale vectors are stored as binary16, exactly as the kernel decodes them, and `s_mid` is the
+factor's per-rank weight; `--dense` writes each packed section's reconstruction as
+`l{l}.{kind}-nqpack.i64`, which is the served form `tools/nq_relh.py --fit nqpack` measures.
 
 Usage:
   nq_pack_factors.py --model Qwen3-0.6B-Base-F16.gguf --factors DIR --tag -qwen3-0-6B-Base-F16 \
@@ -31,12 +31,12 @@ BF16_ONE = 0x3F80
 
 
 def read_factor(path):
-    """`(out, inn, rank, s_post, s_pre, u, v)` of a `.nqf`; `u` is `out × rank`, `v` `rank × inn`."""
+    """`(out, inn, rank, s_post, s_pre, s_mid, u, v)` of a `.nqf`; `u` is `out × rank`, `v` `rank × inn`."""
     with open(path, "rb") as f:
         head = np.frombuffer(f.read(32), "<u8")
         out, inn, rank = int(head[0]), int(head[1]), int(head[2])
         body = f.read()
-    want = 8 * (out + inn + out * rank + rank * inn) + out * rank + rank * inn
+    want = 8 * (out + inn + rank + out * rank + rank * inn) + out * rank + rank * inn
     if len(body) != want:
         raise SystemExit(f"{path}: {len(body)} B, want {want}")
     at = 0
@@ -47,13 +47,13 @@ def read_factor(path):
         at += 8 * n
         return v
 
-    s_post, s_pre = take(out), take(inn)
+    s_post, s_pre, s_mid = take(out), take(inn), take(rank)
     take(out * rank)
     take(rank * inn)
     u = np.frombuffer(body, np.int8, count=out * rank, offset=at) > 0
     at += out * rank
     v = np.frombuffer(body, np.int8, count=rank * inn, offset=at) > 0
-    return out, inn, rank, s_post, s_pre, u.reshape(out, rank), v.reshape(rank, inn)
+    return out, inn, rank, s_post, s_pre, s_mid, u.reshape(out, rank), v.reshape(rank, inn)
 
 
 def pack_bits(bits, words):
@@ -77,13 +77,12 @@ def decode_bf16(bits):
 
 def write_section(out, layer, kind, factor):
     """Write one version-2 section; return `(signs bits, scale bits, bytes)`."""
-    out_rows, inn, rank, s_post, s_pre, u, v = factor
+    out_rows, inn, rank, s_post, s_pre, s_mid, u, v = factor
     u_words = (rank + 31) // 32
     v_words = (inn + 31) // 32
     uw = pack_bits(u, u_words)
     vw = pack_bits(v, v_words)
-    pre, post = bf16(s_pre), bf16(s_post)
-    mid = np.full(rank, BF16_ONE, dtype="<u2")
+    pre, post, mid = bf16(s_pre), bf16(s_post), bf16(s_mid)
     out.write(struct.pack("<IIIIIIII", layer, kind, out_rows, inn, rank, u_words, v_words, 0))
     out.write(uw.tobytes())
     out.write(vw.tobytes())
@@ -97,12 +96,13 @@ def write_section(out, layer, kind, factor):
 
 def served_dense(factor):
     """The section's reconstruction from the stored bits and the binary16-decoded scales."""
-    out_rows, inn, rank, s_post, s_pre, u, v = factor
+    out_rows, inn, rank, s_post, s_pre, s_mid, u, v = factor
     uu = u.astype(np.float64) * 2 - 1
     vv = v.astype(np.float64) * 2 - 1
     pre = decode_bf16(bf16(s_pre)).astype(np.float64)
+    mid = decode_bf16(bf16(s_mid)).astype(np.float64)
     post = decode_bf16(bf16(s_post)).astype(np.float64)
-    return post[:, None] * (uu @ vv) * pre[None, :]
+    return post[:, None] * (uu @ (vv * mid[:, None])) * pre[None, :]
 
 
 def main():

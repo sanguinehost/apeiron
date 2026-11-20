@@ -38,6 +38,14 @@ pub mod spirv;
 pub mod decode;
 #[cfg(feature = "gpu")]
 pub(crate) mod limb;
+
+/// Whether the [`limb`] path loads a Vulkan device with cooperative matrices. A fit campaign calls
+/// this before its first linear so a CPU-only build cannot silently run the full wall.
+#[cfg(feature = "gpu")]
+#[must_use]
+pub fn limb_available() -> bool {
+    limb::available()
+}
 // `runtime` is declared unconditionally so the extraction unit compiles its pure handoff
 // arithmetic (`stage_align`, `stage_fit`, `stage_region`, `scatter_src`, `binds_exactly`,
 // `write_chunk`, `bar_emits`) without the `gpu` feature; the Vulkan half of the file is gated

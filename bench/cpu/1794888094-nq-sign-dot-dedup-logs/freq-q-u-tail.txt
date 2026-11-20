@@ -1,0 +1,15 @@
+layer 0 q U: 4096 x 2528 bits; min 13 p1 76 p5 728 median 1117 mean 1060; chance 1264
+  rows whose nearest neighbour is within 64 bits: 39 (0.95%)
+  rows whose nearest neighbour is within 128 bits: 62 (1.51%)
+  rows whose nearest neighbour is within 256 bits: 81 (1.98%)
+  rows whose nearest neighbour is within 512 bits: 125 (3.05%)
+layer 17 q U: 4096 x 2432 bits; min 176 p1 562 p5 724 median 964 mean 944; chance 1216
+  rows whose nearest neighbour is within 64 bits: 0 (0.00%)
+  rows whose nearest neighbour is within 128 bits: 0 (0.00%)
+  rows whose nearest neighbour is within 256 bits: 6 (0.15%)
+  rows whose nearest neighbour is within 512 bits: 27 (0.66%)
+layer 35 q U: 4096 x 2432 bits; min 531 p1 749 p5 891 median 1093 mean 1060; chance 1216
+  rows whose nearest neighbour is within 64 bits: 0 (0.00%)
+  rows whose nearest neighbour is within 128 bits: 0 (0.00%)
+  rows whose nearest neighbour is within 256 bits: 0 (0.00%)
+  rows whose nearest neighbour is within 512 bits: 0 (0.00%)

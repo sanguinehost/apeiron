@@ -1,0 +1,14 @@
+l00 q    2048x1024 r 640 b/w 0.96582 55.74 s admm_loss 0.27180 relF 0.54017
+l00 k    1024x1024 r 480 b/w 0.97607 25.08 s admm_loss 0.27139 relF 0.52928
+l00 v    1024x1024 r 480 b/w 0.97607 26.28 s admm_loss 0.34653 relF 0.60211
+l00 o    1024x2048 r 640 b/w 0.96582 83.75 s admm_loss 0.32367 relF 0.62341
+l00 gate 3072x1024 r 704 b/w 0.94108 222.93 s admm_loss 0.31422 relF 0.56454
+l00 up   3072x1024 r 704 b/w 0.94108 244.13 s admm_loss 0.35375 relF 0.60014
+l00 down 1024x3072 r 704 b/w 0.94108 228.80 s admm_loss 0.35240 relF 0.59630
+fit 7 linears in 887.1 s
+pack l0-0978.nqp 1872640 B, 7 sections, 0.952344 b/w
+
+real	14m47.136s
+user	236m23.783s
+sys	0m5.147s
+FIT_DONE

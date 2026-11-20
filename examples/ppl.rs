@@ -3,7 +3,7 @@
 //! Run:
 //! `cargo run --release --locked --example ppl -- --model <gguf> --tokenizer <tokenizer.json>
 //!  --data <wiki.test.raw> [--pack <model.nqp>] [--tokens 8192] [--skip 0] [--ctx 512]
-//!  [--head-batch 16] [--kernel q8act|exact] [--trace]`
+//!  [--head-batch 16] [--kernel q8act|ternary|exact] [--trace]`
 //!
 //! The text is tokenized once, `--skip` tokens are dropped, the rest is truncated to `--tokens`,
 //! and scored in consecutive non-overlapping windows of at most `--ctx` tokens: each window is one
@@ -11,10 +11,13 @@
 //! softmax of [`Engine::lm_head_cols`]. The number is `exp(Σ −ln p(target))` over the scored
 //! positions.
 //!
-//! `--pack` installs the sign-rank factors over the GGUF skeleton ([`Engine::open_with_nq`]); the
-//! layer projections then run the exact packed product and `--kernel` selects only the head and
-//! any non-fitted tensor. Without `--pack` the file's own weights run the dense path. The head is
-//! projected in `--head-batch` columns at a time, which bounds the `vocab × batch` logit buffer.
+//! `--pack` installs the sign-rank factors over the GGUF skeleton ([`Engine::open_with_nq`]). The
+//! kernel mode then selects the activation reader over those factors: `q8act` quantizes each stage
+//! activation to one int8 code per element (`NqLinear::project_q8`), `ternary` quantizes it to one
+//! trit per term with one scale per 64 (`NqLinear::project_ternary`), `exact` reads
+//! the Q32.32 words (`NqLinear::project`), and the same mode selects the head and any non-fitted
+//! tensor. Without `--pack` the file's own weights run the dense path. The head is projected in
+//! `--head-batch` columns at a time, which bounds the `vocab × batch` logit buffer.
 //!
 //! Domain: the file must tokenize, every id must be below the model vocabulary, and at least one
 //! window must hold two tokens; the text is truncated, never padded. Cost is one prefill pass over
@@ -88,7 +91,10 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
                 a.mode = match val()?.as_str() {
                     "exact" => KernelMode::Exact,
                     "q8act" => KernelMode::Q8Act,
-                    other => return Err(format!("--kernel is q8act|exact, got {other:?}").into()),
+                    "ternary" => KernelMode::Ternary,
+                    other => {
+                        return Err(format!("--kernel is q8act|ternary|exact, got {other:?}").into())
+                    }
                 }
             }
             other => return Err(format!("unknown argument {other:?}").into()),

@@ -1,0 +1,7 @@
+stage stats: Q32.32 words divided by 2^32; one row per dump
+L0  attn_norm cols=512 width=1024 rms=0.2136 absmax=3.48 nonzero=0.979
+L0  ffn_norm  cols=512 width=1024 rms=0.4448 absmax=11.03 nonzero=1.000
+L13 attn_norm cols=512 width=1024 rms=1.5283 absmax=32.30 nonzero=1.000
+L13 ffn_norm  cols=512 width=1024 rms=0.9338 absmax=21.29 nonzero=1.000
+L27 attn_norm cols=512 width=1024 rms=12.6021 absmax=288.58 nonzero=1.000
+L27 ffn_norm  cols=512 width=1024 rms=3.7814 absmax=550.30 nonzero=1.000

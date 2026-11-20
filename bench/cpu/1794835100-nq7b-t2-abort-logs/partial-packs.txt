@@ -1,0 +1,10 @@
+Partial packs kept outside the repository at /home/lucas/models/vast/q7b-results/t2-partials/.
+All are APNQPK01 version 2, 28 layers, 7 kinds, written by the atomic per-linear patch.
+
+file              bytes      sections  b/w (log)  sha256
+nq7b-t2.nqp       13344768   5         1.097693   d31eb3b0067234794c4d8a65bd46716b8406f877c399a98cfe4f7fb3635d4ff0
+nq7b-t2-b.nqp      4011552   4         1.093018   e5a318ce27a4992ddd4adbce6e20071e709f4cc3189afda15316f4608a82d6aa
+nq7b-t2-c.nqp      2244288   3         1.087085   f14a18720989069affb1002467fa8bdad4f61c9f6494a13337d7b5713229bd02
+
+nq7b-t2.nqp holds layer 0 q,k,v,o,gate; nq7b-t2-b.nqp layer 10 q,k,v,o; nq7b-t2-c.nqp
+layer 19 q,k,v. None is a full model pack and none was scored.

@@ -1,0 +1,4 @@
+pack: 252 linears, 1.178785 b/w, 1023445968 factor bytes
+item 1 elapsed 9.9 s
+{"summary":true,"task":"piqa","items":5,"scored":5,"refused":0,"truncated":0,"ties":0,"acc":1.000000,"acc_norm":0.800000,"acc_tok":0.800000,"seconds":94.5,"kernel":"Q8Act"}
+peak rss 1670.1 MiB

@@ -1,0 +1,4 @@
+pack: 252 linears, 1.178785 b/w, 1023445968 factor bytes
+pack factors: 1023445968 stored bytes for 6945767424 weights, 1.178785 b/w
+ppl 19.487060 on 1023 tokens (1 windows of <= 2048, kernel Q8Act): mean nll 2.969751, 1.8 tok/s in 556.0 s
+peak rss 2362.4 MiB

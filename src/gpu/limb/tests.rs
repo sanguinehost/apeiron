@@ -817,7 +817,7 @@ fn unit(len: usize, seed: u64) -> Vec<f64> {
 /// runs the device inverse above it (odd splits at rank 75) and the host sees only leaves.
 #[test]
 fn admm_x_update_matches_cpu() {
-    use crate::learn::nanoquant::{spd_inverse, x_update, LIMBS};
+    use crate::learn::nanoquant::{spd_inverse, x_update, INV_LIMBS, LIMBS};
     if device().is_none() {
         println!("SKIP: No Vulkan device with cooperative matrices");
         return;
@@ -836,7 +836,7 @@ fn admm_x_update_matches_cpu() {
         // W_n on the grid at |w| < 2^-3, as the normalised target.
         let w = words(k * n, 0x5eed ^ (k * n) as u64, 29);
         let wp = crate::engine::kern::limb::prepare(&w, k, n, LIMBS).expect("plane");
-        let Some(mut side) = Side::new(&w, k, n, r, LIMBS, cut) else {
+        let Some(mut side) = Side::new(&w, k, n, r, LIMBS, INV_LIMBS, cut) else {
             println!("SKIP: no binary64 device frame");
             return;
         };
@@ -933,7 +933,7 @@ fn rank1_map_spirv_is_the_glsl() {
 /// recorded `iters`); with both walls.
 #[test]
 fn admm_rank1_matches_cpu() {
-    use crate::learn::nanoquant::{rank1, LIMBS};
+    use crate::learn::nanoquant::{rank1, INV_LIMBS, LIMBS};
     if device().is_none() {
         println!("SKIP: No Vulkan device with cooperative matrices");
         return;
@@ -946,7 +946,7 @@ fn admm_rank1_matches_cpu() {
         (1024, 3584, 768, true),
     ] {
         let w = words(k * n, 0x5eed ^ (k * n) as u64, 29);
-        let Some(mut side) = Side::new(&w, k, n, r, LIMBS, 0) else {
+        let Some(mut side) = Side::new(&w, k, n, r, LIMBS, INV_LIMBS, 0) else {
             println!("SKIP: no binary64 device frame");
             return;
         };

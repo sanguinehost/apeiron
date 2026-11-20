@@ -1,0 +1,17 @@
+dominant=ffn
+decode split: 24 steps, 6.787 s wall, 282.78 ms/token
+| phase | ms/token | share | calls |
+|---|---:|---:|---:|
+| embed | 0.023 | 0.0% | 24 |
+| norm | 3.011 | 1.1% | 1752 |
+| residual | 1.223 | 0.4% | 1728 |
+| attn.proj_in | 47.756 | 16.9% | 864 |
+| attn.core | 8.613 | 3.0% | 864 |
+| attn.proj_out | 19.405 | 6.9% | 864 |
+| ffn | 159.696 | 56.5% | 864 |
+| head | 42.739 | 15.1% | 24 |
+| pass (encloses) | 240.041 | 84.9% | 24 |
+| pool.wait (overlay) | 16.945 | 6.0% | 15600 |
+| untraced | 0.315 | 0.1% | |
+dominant term: ffn at 56.5%, ceiling 2.30x
+TARGET ffn: share 56.5%, ceiling 2.30x

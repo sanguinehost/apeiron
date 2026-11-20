@@ -9,9 +9,17 @@ use crate::engine::ops::matvec::row_dot_fixed;
 use crate::numeric::fixed_exp::fixed_exp;
 use crate::numeric::fixed_rsqrt::fixed_rsqrt;
 use std::cell::Cell;
+use std::sync::Arc;
 
+#[path = "attn/cert.rs"]
+mod cert;
 #[path = "attn/f32_core.rs"]
 pub mod f32_core;
+#[path = "attn/kvplane.rs"]
+pub mod kvplane;
+
+pub use self::cert::CertStats;
+use self::kvplane::{KvFileError, KvMap, KvPlane};
 
 // Test seam for `APEIRON_EXACT_SCAN`: a per-thread override of the flag, `None` falling through
 // to the process value. The process parse lives in `src/engine/step/cols.rs` where the flag is
@@ -84,21 +92,24 @@ pub enum AttnError {
 }
 
 /// Typed storage for key and value planes: either Q32.32 fixed-point `i64` or binary32 `f32`.
+///
+/// Each plane is a [`KvPlane`]: an owned vector, or a disjoint range of one writable cache file
+/// ([`KvState::with_file`]). The read and write paths are identical for both backings.
 #[derive(Debug, Clone)]
 pub enum KvStorage {
     /// Fixed-point Q32.32 key and value planes.
     Q32 {
         /// Position-major key planes, one per layer.
-        k: Vec<Vec<i64>>,
+        k: Vec<KvPlane<i64>>,
         /// Position-major value planes, one per layer.
-        v: Vec<Vec<i64>>,
+        v: Vec<KvPlane<i64>>,
     },
     /// Native binary32 floating-point key and value planes.
     F32 {
         /// Position-major key planes, one per layer.
-        k: Vec<Vec<F32>>,
+        k: Vec<KvPlane<F32>>,
         /// Position-major value planes, one per layer.
-        v: Vec<Vec<F32>>,
+        v: Vec<KvPlane<F32>>,
     },
 }
 
@@ -117,10 +128,111 @@ pub enum KvStorage {
 /// two `vec![blank; n_layer]` repetitions over a `plane`-element element, so it closes at
 /// `2 · n_layer · plane` writes.
 fn alloc_f32_storage(plane: usize, n_layer: usize) -> KvStorage {
-    let blank = vec![F32::ZERO; plane];
+    let blank = KvPlane::owned(vec![F32::ZERO; plane]);
     let k = vec![blank.clone(); n_layer];
     let v = vec![blank; n_layer];
     KvStorage::F32 { k, v }
+}
+
+/// A refused file-backed key/value cache ([`KvState::with_file`]).
+#[derive(Debug)]
+pub enum KvInitError {
+    /// The geometry the cache was asked for is not a cache geometry.
+    Geometry(AttnError),
+    /// The cache file could not be created, allocated or mapped.
+    File(KvFileError),
+}
+
+impl core::fmt::Display for KvInitError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Geometry(e) => write!(f, "kv geometry: {e:?}"),
+            Self::File(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for KvInitError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Geometry(_) => None,
+            Self::File(e) => Some(e),
+        }
+    }
+}
+
+impl From<AttnError> for KvInitError {
+    fn from(e: AttnError) -> Self {
+        Self::Geometry(e)
+    }
+}
+
+impl From<KvFileError> for KvInitError {
+    fn from(e: KvFileError) -> Self {
+        Self::File(e)
+    }
+}
+
+/// The geometry guard chain shared by the owned and file-backed constructors: the zero and
+/// divisibility guards, the `fixed_rsqrt` window, and the checked per-layer plane length. Returns
+/// the plane length in elements and the load-time score scale.
+///
+/// # Errors
+///
+/// [`AttnError::BadGeometry`], [`AttnError::ScaleOutOfRange`] and [`AttnError::Overflow`], in that
+/// order, exactly as [`KvState::with_carrier`] has always refused.
+///
+/// # Complexity
+///
+/// `O(1)` checked arithmetic.
+fn checked_geometry(
+    n_layer: usize,
+    n_head: usize,
+    n_head_kv: usize,
+    head_dim: usize,
+    cap: usize,
+) -> Result<(usize, i64), AttnError> {
+    if n_layer == 0 || n_head == 0 || n_head_kv == 0 || head_dim == 0 || cap == 0 {
+        return Err(AttnError::BadGeometry);
+    }
+    if !n_head.is_multiple_of(n_head_kv) {
+        return Err(AttnError::BadGeometry);
+    }
+    // `head_dim` widened after an explicit range check: `i64::try_from` emits an unmodeled
+    // external the fail-closed extraction audit rejects. The check is exact on 64-bit, where
+    // `head_dim as i64` is negative exactly when `head_dim > i64::MAX`.
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "the `hd_i64 < 0` check immediately above the cast is the range guard; the \
+                  cast is exact for every value it admits"
+    )]
+    let hd_signed = head_dim as i64;
+    if hd_signed < 0 {
+        return Err(AttnError::ScaleOutOfRange);
+    }
+    // `checked_shl` is unmodeled; `head_dim · 2^FIXED_FRAC_BITS` is the same radicand and
+    // overflows `i64` on exactly the inputs the shift rejects.
+    let radicand = hd_signed
+        .checked_mul(ONE)
+        .ok_or(AttnError::ScaleOutOfRange)?;
+    let scale = fixed_rsqrt(radicand).map_err(|_| AttnError::ScaleOutOfRange)?;
+    // `Option::and_then` is unmodeled; the nested match is the same checked product.
+    let plane = match n_head_kv.checked_mul(cap) {
+        Some(x) => match x.checked_mul(head_dim) {
+            Some(plane) => plane,
+            None => return Err(AttnError::Overflow),
+        },
+        None => return Err(AttnError::Overflow),
+    };
+    Ok((plane, scale))
+}
+
+/// The byte offsets of the `(key, value)` planes of `layer` in a cache file whose planes are each
+/// `plane_bytes` wide, key then value per layer.
+fn plane_offsets(plane_bytes: usize, layer: usize) -> Option<(usize, usize)> {
+    let k = plane_bytes.checked_mul(layer.checked_mul(2)?)?;
+    let v = k.checked_add(plane_bytes)?;
+    Some((k, v))
 }
 
 /// The single-token key/value cache of port-map row 5: one flat Q32.32 or binary32 plane per layer.
@@ -131,7 +243,12 @@ fn alloc_f32_storage(plane: usize, n_layer: usize) -> KvStorage {
 /// (GQA). [`KvState::append`] writes a whole token's KV rows at the next position of a layer and
 /// returns that position; [`KvState::attn_head`] reads one query head over the causal prefix
 /// `0..=pos`.
-#[derive(Debug, Clone)]
+///
+/// The planes are owned vectors ([`KvState::new`]) or ranges of one writable cache file
+/// ([`KvState::with_file`]). The file backing changes where the words live, not the words: every
+/// read and write below is shared, and a clone materialises the planes into owned memory so two
+/// writable states never share the file.
+#[derive(Debug)]
 pub struct KvState {
     carrier: Carrier,
     n_layer: usize,
@@ -142,6 +259,33 @@ pub struct KvState {
     scale: i64,
     occupied: Vec<usize>,
     storage: KvStorage,
+    /// The cache file shared by every mapped plane, or `None` for an owned state.
+    map: Option<Arc<KvMap>>,
+    /// The exact-on-certificate block summaries, or `None` for the full-scan read.
+    blocks: Option<cert::KvBlockIndex>,
+}
+
+impl Clone for KvState {
+    /// A cloned state owns its planes.
+    ///
+    /// A mapped plane is copied into an owned vector, so the clone and the original never share a
+    /// writable mapping and the clone cannot overwrite the file the original reads. The prefix
+    /// cache is the only clone site; the serving path never clones a file-backed state.
+    fn clone(&self) -> Self {
+        Self {
+            carrier: self.carrier,
+            n_layer: self.n_layer,
+            n_head: self.n_head,
+            n_head_kv: self.n_head_kv,
+            head_dim: self.head_dim,
+            cap: self.cap,
+            scale: self.scale,
+            occupied: self.occupied.clone(),
+            storage: self.storage.clone(),
+            map: None,
+            blocks: self.blocks.clone(),
+        }
+    }
 }
 
 /// The Q32.32 position-major value of `(s, kvh, i)` in a layer's key or value plane.
@@ -797,41 +941,10 @@ impl KvState {
         cap: usize,
         carrier: Carrier,
     ) -> Result<KvState, AttnError> {
-        if n_layer == 0 || n_head == 0 || n_head_kv == 0 || head_dim == 0 || cap == 0 {
-            return Err(AttnError::BadGeometry);
-        }
-        if !n_head.is_multiple_of(n_head_kv) {
-            return Err(AttnError::BadGeometry);
-        }
-        // `head_dim` widened after an explicit range check: `i64::try_from` emits an unmodeled
-        // external the fail-closed extraction audit rejects. The check is exact on 64-bit, where
-        // `head_dim as i64` is negative exactly when `head_dim > i64::MAX`.
-        #[allow(
-            clippy::cast_possible_wrap,
-            reason = "the `hd_i64 < 0` check immediately above the cast is the range guard; the \
-                      cast is exact for every value it admits"
-        )]
-        let hd_signed = head_dim as i64;
-        if hd_signed < 0 {
-            return Err(AttnError::ScaleOutOfRange);
-        }
-        // `checked_shl` is unmodeled; `head_dim · 2^FIXED_FRAC_BITS` is the same radicand and
-        // overflows `i64` on exactly the inputs the shift rejects.
-        let radicand = hd_signed
-            .checked_mul(ONE)
-            .ok_or(AttnError::ScaleOutOfRange)?;
-        let scale = fixed_rsqrt(radicand).map_err(|_| AttnError::ScaleOutOfRange)?;
-        // `Option::and_then` is unmodeled; the nested match is the same checked product.
-        let plane = match n_head_kv.checked_mul(cap) {
-            Some(x) => match x.checked_mul(head_dim) {
-                Some(plane) => plane,
-                None => return Err(AttnError::Overflow),
-            },
-            None => return Err(AttnError::Overflow),
-        };
+        let (plane, scale) = checked_geometry(n_layer, n_head, n_head_kv, head_dim, cap)?;
         let storage = match carrier {
             Carrier::Q32 => {
-                let blank = vec![0i64; plane];
+                let blank = KvPlane::owned(vec![0i64; plane]);
                 let k = vec![blank.clone(); n_layer];
                 let v = vec![blank; n_layer];
                 KvStorage::Q32 { k, v }
@@ -848,7 +961,167 @@ impl KvState {
             scale,
             occupied: vec![0usize; n_layer],
             storage,
+            map: None,
+            blocks: None,
         })
+    }
+
+    /// Allocate a cache whose planes are disjoint ranges of one writable `MAP_SHARED` cache file.
+    ///
+    /// The file holds the same words an owned cache would: `2 · n_layer` position-major planes of
+    /// `n_head_kv · cap · head_dim` elements, the key plane of layer `0`, its value plane, then
+    /// layer `1`, and so on. It is allocated to its full extent with `posix_fallocate` at creation,
+    /// so a capacity the filesystem cannot hold is refused here with [`KvInitError::File`] instead
+    /// of `SIGBUS` on a later store. The file is a cache: its bytes carry no header and are
+    /// host-endian fixed-point or binary32 words.
+    ///
+    /// # Errors
+    ///
+    /// [`KvInitError::Geometry`] for a geometry [`KvState::with_carrier`] refuses, and
+    /// [`KvInitError::File`] for a refused create, allocation or mapping. A zero-length file is
+    /// never created.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` file operations and page-table entries; no plane page is touched until a token is
+    /// appended. The file's `2 · n_layer · plane · size_of::<T>()` bytes are reserved by the
+    /// filesystem, which is what the error path checks.
+    #[cfg(target_os = "linux")]
+    pub fn with_file(
+        path: &str,
+        n_layer: usize,
+        n_head: usize,
+        n_head_kv: usize,
+        head_dim: usize,
+        cap: usize,
+    ) -> Result<KvState, KvInitError> {
+        Self::with_file_carrier(
+            path,
+            n_layer,
+            n_head,
+            n_head_kv,
+            head_dim,
+            cap,
+            carrier_from_env(),
+        )
+    }
+
+    /// [`KvState::with_file`] with an explicit numerical carrier.
+    ///
+    /// # Errors
+    ///
+    /// As [`KvState::with_file`].
+    ///
+    /// # Complexity
+    ///
+    /// As [`KvState::with_file`].
+    #[cfg(target_os = "linux")]
+    pub(crate) fn with_file_carrier(
+        path: &str,
+        n_layer: usize,
+        n_head: usize,
+        n_head_kv: usize,
+        head_dim: usize,
+        cap: usize,
+        carrier: Carrier,
+    ) -> Result<KvState, KvInitError> {
+        let (plane, scale) = checked_geometry(n_layer, n_head, n_head_kv, head_dim, cap)?;
+        let elem = match carrier {
+            Carrier::Q32 => core::mem::size_of::<i64>(),
+            Carrier::F32 => core::mem::size_of::<F32>(),
+        };
+        let plane_bytes = plane
+            .checked_mul(elem)
+            .ok_or(AttnError::Overflow)
+            .map_err(KvInitError::Geometry)?;
+        let bytes = plane_bytes
+            .checked_mul(n_layer)
+            .and_then(|x| x.checked_mul(2))
+            .ok_or(AttnError::Overflow)
+            .map_err(KvInitError::Geometry)?;
+        let map = Arc::new(KvMap::create(path, bytes)?);
+        let storage = match carrier {
+            Carrier::Q32 => {
+                let mut k = Vec::with_capacity(n_layer);
+                let mut v = Vec::with_capacity(n_layer);
+                let mut layer = 0usize;
+                while layer < n_layer {
+                    let (koff, voff) = plane_offsets(plane_bytes, layer)
+                        .ok_or(AttnError::Overflow)
+                        .map_err(KvInitError::Geometry)?;
+                    k.push(KvPlane::<i64>::mapped(Arc::clone(&map), koff, plane)?);
+                    v.push(KvPlane::<i64>::mapped(Arc::clone(&map), voff, plane)?);
+                    layer += 1;
+                }
+                KvStorage::Q32 { k, v }
+            }
+            Carrier::F32 => {
+                let mut k = Vec::with_capacity(n_layer);
+                let mut v = Vec::with_capacity(n_layer);
+                let mut layer = 0usize;
+                while layer < n_layer {
+                    let (koff, voff) = plane_offsets(plane_bytes, layer)
+                        .ok_or(AttnError::Overflow)
+                        .map_err(KvInitError::Geometry)?;
+                    k.push(KvPlane::<F32>::mapped(Arc::clone(&map), koff, plane)?);
+                    v.push(KvPlane::<F32>::mapped(Arc::clone(&map), voff, plane)?);
+                    layer += 1;
+                }
+                KvStorage::F32 { k, v }
+            }
+        };
+        Ok(KvState {
+            carrier,
+            n_layer,
+            n_head,
+            n_head_kv,
+            head_dim,
+            cap,
+            scale,
+            occupied: vec![0usize; n_layer],
+            storage,
+            map: Some(map),
+            blocks: None,
+        })
+    }
+
+    /// A file-backed cache on a target without writable mappings refuses.
+    ///
+    /// # Errors
+    ///
+    /// Always [`KvInitError::File`] with [`KvFileError::Unsupported`].
+    #[cfg(not(target_os = "linux"))]
+    pub fn with_file(
+        _path: &str,
+        _n_layer: usize,
+        _n_head: usize,
+        _n_head_kv: usize,
+        _head_dim: usize,
+        _cap: usize,
+    ) -> Result<KvState, KvInitError> {
+        Err(KvInitError::File(KvFileError::Unsupported))
+    }
+
+    /// Write every dirty cache-file page back and wait for the writes; a no-op for an owned cache.
+    ///
+    /// # Errors
+    ///
+    /// The mapping's `msync` refusal.
+    ///
+    /// # Complexity
+    ///
+    /// `O(dirty pages)` I/O; one `msync` call.
+    pub fn sync_file(&self) -> Result<(), KvFileError> {
+        match &self.map {
+            Some(map) => map.sync(),
+            None => Ok(()),
+        }
+    }
+
+    /// The cache file's byte length, or `None` for an owned cache.
+    #[must_use]
+    pub fn file_bytes(&self) -> Option<usize> {
+        self.map.as_ref().map(|m| m.len())
     }
 
     /// The numerical carrier for this key/value cache.
@@ -1012,7 +1285,109 @@ impl KvState {
             }
         }
         self.occupied[layer] = pos.checked_add(1).ok_or(AttnError::Overflow)?;
+        let len = self.occupied[layer];
+        self.seal_completed_block(layer, len)?;
         Ok(pos)
+    }
+
+    /// Seal the block summary of `layer` when `len` positions complete one.
+    ///
+    /// Called by [`KvState::append`] after the position counter advances. A block is sealed once,
+    /// when its last position is written; the summary is a pure function of the key plane's
+    /// `0..len` rows, so a sealed block is never revisited unless a truncation drops it.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` when no block completes. At a boundary, `O(n_head_kv · block · head_dim)` additions
+    /// and comparisons: one mean pass and one deviation pass over the completed block for each KV
+    /// head, so the amortised cost is `O(n_head_kv · head_dim)` per appended token.
+    fn seal_completed_block(&mut self, layer: usize, len: usize) -> Result<(), AttnError> {
+        let block = match &self.blocks {
+            Some(idx) => idx.block(),
+            None => return Ok(()),
+        };
+        if block == 0 || !len.is_multiple_of(block) {
+            return Ok(());
+        }
+        let index = len / block;
+        let kplane: &[i64] = match &self.storage {
+            KvStorage::Q32 { k, .. } => &k[layer],
+            KvStorage::F32 { .. } => return Ok(()),
+        };
+        if let Some(idx) = self.blocks.as_mut() {
+            idx.seal(
+                layer,
+                kplane,
+                index.checked_sub(1).ok_or(AttnError::Overflow)?,
+            );
+        }
+        Ok(())
+    }
+
+    /// Build the exact-on-certificate block index over the positions already appended, in blocks of
+    /// `block` positions, and use it for every later [`KvState::attn_head`].
+    ///
+    /// The index stores, for each `(layer, kv_head, block)`, the rounded component mean `μ` of the
+    /// block's keys and the largest `radius = Σ_i |k_{j,i} − μ_i|` over the block. For any query
+    /// `q`, `|q·k_j − q·μ| ≤ max_i |q_i| · radius`, which bounds the block's exact score in both
+    /// directions ([`KvState::attn_head_certified`]). The summaries are rebuilt for every completed
+    /// block; a partial trailing block is not summarised and is always scanned.
+    ///
+    /// # Errors
+    ///
+    /// [`AttnError::BadGeometry`] for `block == 0` or an `F32` carrier, and the geometry refusals
+    /// the state already passed.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n_layer · n_head_kv · occupied · head_dim)` time to rebuild, and
+    /// `n_layer · n_head_kv · ⌈occupied/block⌉ · head_dim · 8` bytes plus the radii: one `head_dim`
+    /// mean per block. `block == 1` is the full index (never useful); `block >= occupied` is empty.
+    pub fn enable_block_index(&mut self, block: usize) -> Result<(), AttnError> {
+        if block == 0 || self.carrier != Carrier::Q32 {
+            return Err(AttnError::BadGeometry);
+        }
+        let mut index = cert::KvBlockIndex::new(self.n_layer, self.n_head_kv, self.head_dim, block);
+        match &self.storage {
+            KvStorage::Q32 { k, .. } => {
+                let mut layer = 0usize;
+                while layer < self.n_layer {
+                    index.rebuild_layer(layer, &k[layer], self.occupied[layer]);
+                    layer += 1;
+                }
+            }
+            KvStorage::F32 { .. } => return Err(AttnError::BadGeometry),
+        }
+        self.blocks = Some(index);
+        Ok(())
+    }
+
+    /// Drop the block index, restoring the full-scan read.
+    pub fn disable_block_index(&mut self) {
+        self.blocks = None;
+    }
+
+    /// Whether a block index is installed.
+    #[must_use]
+    pub fn has_block_index(&self) -> bool {
+        self.blocks.is_some()
+    }
+
+    /// The running [`CertStats`] of every certified read through the installed index, or `None`
+    /// when no index is installed.
+    ///
+    /// The counters accumulate over the state's lifetime; [`KvState::reset_cert_stats`] clears
+    /// them (for example at the start of one served request).
+    #[must_use]
+    pub fn cert_stats(&self) -> Option<CertStats> {
+        self.blocks.as_ref().map(cert::KvBlockIndex::totals)
+    }
+
+    /// Clear the running certificate counters, leaving the summaries in place.
+    pub fn reset_cert_stats(&mut self) {
+        if let Some(index) = self.blocks.as_mut() {
+            index.reset_totals();
+        }
     }
 
     /// Read one query head at position `pos` over the causal prefix `0..=pos`.
@@ -1060,6 +1435,11 @@ impl KvState {
     ) -> Result<(), AttnError> {
         if self.carrier == Carrier::F32 {
             return self.attn_head_f32(layer, q_head, q, pos, out);
+        }
+        if self.blocks.is_some() {
+            // The certified read returns the same words as the full scan below (the skipped
+            // blocks' `fixed_exp` words are exactly zero), so the caller sees one read.
+            return self.attn_head_certified(layer, q_head, q, pos, out, &mut CertStats::default());
         }
         let hd = self.head_dim;
         if layer >= self.n_layer {
@@ -1259,6 +1639,332 @@ impl KvState {
         if let Some(e) = err {
             return Err(e);
         }
+        Ok(())
+    }
+
+    /// The exact-on-certificate read: [`KvState::attn_head`]'s words, with blocks whose score
+    /// upper bound is provably below the survivor maximum removed from every pass.
+    ///
+    /// Let `ub_b` be [`cert::KvBlockIndex::bounds`]' upper bound for block `b`, `mx_lb` the largest
+    /// lower bound over the summarised blocks, and `limit = mx_lb - 16·ONE`. A block with
+    /// `ub_b < limit` has every score below `limit`, and the block attaining `mx_lb` is never
+    /// skipped (`ub >= mx_lb > limit`), so the maximum over the scanned blocks is at least `mx_lb`
+    /// and every skipped score is more than `16·ONE` below it. [`exp_at`] therefore returns exactly
+    /// `0` for every skipped key, its weight is `0`, and every skipped term is exactly `0` in the
+    /// `i128` sums: the output is bit-identical to the full scan.
+    ///
+    /// # Errors
+    ///
+    /// The [`KvState::attn_head`] guard chain, [`AttnError::BadGeometry`] when no index is
+    /// installed, and the same overflow refusals. `stats` is filled on `Ok` and unspecified on
+    /// `Err`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n_blocks · head_dim)` to bound every block, then
+    /// `O(scanned_positions · head_dim)` for the scores, exponentials and value fold. With
+    /// `B`-position blocks the bound pass is `1/B` of the full score pass; a skipped block saves
+    /// its keys' and values' reads.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the three passes of the read, each with the fragment's flag loop; splitting them \
+                  would copy the block cursor and bounds into every pass"
+    )]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "the `as i64` narrowing is range-checked against i128::from(i64::MAX)/i64::MIN \
+                  immediately before it; `i64::try_from` emits an unmodeled external the fail-closed \
+                  extraction audit rejects"
+    )]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "`q`/`k`/`v` and the block cursor `b` are the names of the full scan this read \
+                  reproduces word for word"
+    )]
+    #[allow(
+        clippy::manual_let_else,
+        reason = "`src/engine/attn.rs` is extraction source: the pinned Charon frontend models the \
+                  `match ... None => return` form, not `let ... else`"
+    )]
+    pub fn attn_head_certified(
+        &self,
+        layer: usize,
+        q_head: usize,
+        q: &[i64],
+        pos: usize,
+        out: &mut [i64],
+        stats: &mut CertStats,
+    ) -> Result<(), AttnError> {
+        let hd = self.head_dim;
+        if layer >= self.n_layer {
+            return Err(AttnError::LayerOutOfRange {
+                layer,
+                n_layer: self.n_layer,
+            });
+        }
+        if q_head >= self.n_head {
+            return Err(AttnError::HeadOutOfRange {
+                head: q_head,
+                n_head: self.n_head,
+            });
+        }
+        if q.len() != hd {
+            return Err(AttnError::RowLength {
+                expected: hd,
+                got: q.len(),
+            });
+        }
+        if out.len() != hd {
+            return Err(AttnError::RowLength {
+                expected: hd,
+                got: out.len(),
+            });
+        }
+        let len = self.occupied[layer];
+        if pos >= len {
+            return Err(AttnError::PositionOutOfRange { pos, len });
+        }
+        let (kplane, vplane) = match &self.storage {
+            KvStorage::Q32 { k, v } => (&k[layer], &v[layer]),
+            KvStorage::F32 { .. } => return Err(AttnError::BadGeometry),
+        };
+        let index = match &self.blocks {
+            Some(i) => i,
+            None => return Err(AttnError::BadGeometry),
+        };
+        let group = self.n_head / self.n_head_kv;
+        let kvh = q_head / group;
+        let kv = self.n_head_kv;
+        let stride = kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let first = kvh.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let block = index.block();
+        if block == 0 {
+            return Err(AttnError::BadGeometry);
+        }
+        let slots = pos.checked_add(1).ok_or(AttnError::Overflow)?;
+        let nb = slots.div_ceil(block);
+
+        // The bound pass: one `head_dim` dot per block, not per position. `None` is a block with
+        // no summary (the partial tail) and is always scanned.
+        let mut bnds: Vec<Option<(i64, i64)>> = Vec::with_capacity(nb);
+        let mut mx_lb = i64::MIN;
+        let mut any = false;
+        let mut b = 0usize;
+        while b < nb {
+            let bound = index.bounds(layer, kvh, b, len, q, self.scale);
+            if let Some((lb, _)) = bound {
+                any = true;
+                if lb > mx_lb {
+                    mx_lb = lb;
+                }
+            }
+            bnds.push(bound);
+            b += 1;
+        }
+        let mut limit = i64::MIN;
+        if any {
+            if let Some(v) = mx_lb.checked_sub(16 * ONE) {
+                limit = v;
+            }
+        }
+        let mut skip_blocks = 0u64;
+        let mut scanned_blocks = 0u64;
+        let mut skipped_positions = 0u64;
+        let mut skip: Vec<bool> = Vec::with_capacity(nb);
+        b = 0usize;
+        while b < nb {
+            let s0 = block.checked_mul(b).ok_or(AttnError::Overflow)?;
+            let s1 = core::cmp::min(s0.checked_add(block).ok_or(AttnError::Overflow)?, slots);
+            let positions = u64::try_from(s1 - s0).map_err(|_| AttnError::Overflow)?;
+            let skippable = match bnds[b] {
+                Some((_, ub)) => ub < limit,
+                None => false,
+            };
+            skip.push(skippable);
+            if skippable {
+                skip_blocks = skip_blocks.checked_add(1).ok_or(AttnError::Overflow)?;
+                skipped_positions = skipped_positions
+                    .checked_add(positions)
+                    .ok_or(AttnError::Overflow)?;
+            } else {
+                scanned_blocks = scanned_blocks.checked_add(1).ok_or(AttnError::Overflow)?;
+            }
+            b += 1;
+        }
+
+        // Scores over the scanned blocks only, in ascending position order.
+        let mut scores: Vec<i64> = Vec::with_capacity(slots);
+        let mut mx = i64::MIN;
+        let mut ok = true;
+        let mut err: Option<AttnError> = None;
+        b = 0usize;
+        while b < nb && ok {
+            if skip[b] {
+                b += 1;
+            } else {
+                let s0 = block.checked_mul(b).ok_or(AttnError::Overflow)?;
+                let s1 = core::cmp::min(s0.checked_add(block).ok_or(AttnError::Overflow)?, slots);
+                let mut s = s0;
+                while s < s1 && ok {
+                    let base = first + s * stride;
+                    if base > kplane.len().saturating_sub(hd) {
+                        err = Some(AttnError::Overflow);
+                        ok = false;
+                    } else {
+                        let end = base + hd;
+                        if let Ok(raw) = row_dot_fixed(&kplane[base..end], q) {
+                            if let Some(prod) = i128::from(raw).checked_mul(i128::from(self.scale))
+                            {
+                                let rounded = round_shift_32(prod);
+                                if rounded > i128::from(i64::MAX) || rounded < i128::from(i64::MIN)
+                                {
+                                    err = Some(AttnError::Overflow);
+                                    ok = false;
+                                } else {
+                                    let score = rounded as i64;
+                                    if score > mx {
+                                        mx = score;
+                                    }
+                                    scores.push(score);
+                                }
+                            } else {
+                                err = Some(AttnError::Overflow);
+                                ok = false;
+                            }
+                        } else {
+                            err = Some(AttnError::Overflow);
+                            ok = false;
+                        }
+                    }
+                    s += 1;
+                }
+                b += 1;
+            }
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+
+        // Softmax over the scanned blocks. A skipped block's shifted score is below `-16·ONE`,
+        // so its `exp_at` word is exactly zero and it adds nothing to the exact total.
+        let mut exps: Vec<i64> = Vec::with_capacity(scores.len());
+        let mut total: i128 = 0;
+        let mut cursor = 0usize;
+        b = 0usize;
+        while b < nb && ok {
+            if skip[b] {
+                b += 1;
+            } else {
+                let s0 = block.checked_mul(b).ok_or(AttnError::Overflow)?;
+                let s1 = core::cmp::min(s0.checked_add(block).ok_or(AttnError::Overflow)?, slots);
+                let mut s = s0;
+                while s < s1 && ok {
+                    match exp_at(scores[cursor], mx) {
+                        Ok(e) => {
+                            if let Some(t) = total.checked_add(i128::from(e)) {
+                                total = t;
+                                exps.push(e);
+                            } else {
+                                err = Some(AttnError::Overflow);
+                                ok = false;
+                            }
+                        }
+                        Err(e) => {
+                            err = Some(e);
+                            ok = false;
+                        }
+                    }
+                    s += 1;
+                    cursor += 1;
+                }
+                b += 1;
+            }
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        if total <= 0 {
+            return Err(AttnError::ZeroSum);
+        }
+
+        // Output over the scanned blocks: the same weight per surviving key and the same checked
+        // `i128` per-component sums, in the same ascending key order.
+        let recip = recip_u64(total);
+        let mut acc: Vec<i128> = vec![0i128; hd];
+        cursor = 0;
+        b = 0usize;
+        while b < nb && ok {
+            if skip[b] {
+                b += 1;
+            } else {
+                let s0 = block.checked_mul(b).ok_or(AttnError::Overflow)?;
+                let s1 = core::cmp::min(s0.checked_add(block).ok_or(AttnError::Overflow)?, slots);
+                let mut s = s0;
+                while s < s1 && ok {
+                    let w = match recip {
+                        Some(r) => weight_at_recip(exps[cursor], total, r),
+                        None => weight_at(exps[cursor], total),
+                    };
+                    match w {
+                        Ok(weight) => {
+                            let base = first + s * stride;
+                            if base > vplane.len().saturating_sub(hd) {
+                                err = Some(AttnError::Overflow);
+                                ok = false;
+                            } else {
+                                let end = base + hd;
+                                let row = &vplane[base..end];
+                                let w = i128::from(weight);
+                                let mut i = 0usize;
+                                while i < hd && ok {
+                                    if let Some(term) = w.checked_mul(i128::from(row[i])) {
+                                        if let Some(next) = acc[i].checked_add(term) {
+                                            acc[i] = next;
+                                        } else {
+                                            err = Some(AttnError::Overflow);
+                                            ok = false;
+                                        }
+                                    } else {
+                                        err = Some(AttnError::Overflow);
+                                        ok = false;
+                                    }
+                                    i += 1;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            err = Some(e);
+                            ok = false;
+                        }
+                    }
+                    s += 1;
+                    cursor += 1;
+                }
+                b += 1;
+            }
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        let mut i = 0usize;
+        while i < hd && ok {
+            let rounded = round_shift_32(acc[i]);
+            if rounded > i128::from(i64::MAX) || rounded < i128::from(i64::MIN) {
+                err = Some(AttnError::Overflow);
+                ok = false;
+            } else {
+                out[i] = rounded as i64;
+            }
+            i += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        stats.blocks = u64::try_from(nb).map_err(|_| AttnError::Overflow)?;
+        stats.scanned = scanned_blocks;
+        stats.skipped = skip_blocks;
+        stats.skipped_positions = skipped_positions;
+        index.add_read(stats);
         Ok(())
     }
 
@@ -1473,6 +2179,11 @@ impl KvState {
             return Err(AttnError::PositionOutOfRange { pos: m, len });
         }
         self.occupied.fill(m);
+        if let Some(idx) = self.blocks.as_mut() {
+            // A block summary covers only a completed block; rewinding into one drops it so the
+            // next append re-seals the block from the rows actually stored.
+            idx.truncate(m);
+        }
         Ok(())
     }
 }
@@ -2109,5 +2820,348 @@ mod tests {
             );
             assert_eq!(kv.occupied(0), Ok(5));
         }
+    }
+
+    /// A unique path under the temp dir for a cache-file test.
+    fn temp_path(tag: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        std::env::temp_dir().join(format!(
+            "apeiron-kvstate-{tag}-{}-{nanos}.bin",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn certified_read_equals_full_scan_and_skips_distant_blocks() {
+        let (n_head, n_head_kv, hd, cap, block) = (2usize, 2usize, 4usize, 64usize, 8usize);
+        let mut kv =
+            KvState::with_carrier(1, n_head, n_head_kv, hd, cap, Carrier::Q32).expect("geometry");
+        let mut seed = 0x05EE_D0FA_11CE_u64;
+        let mut s = 0usize;
+        while s < cap {
+            // The first block is the maximum; the rest are 20 units below it, so every later
+            // block clears the 16·ONE floor by four units.
+            let base = if s < block { 2 * ONE } else { -3 * ONE };
+            let k = vec![base; n_head_kv * hd];
+            let mut v = vec![0i64; n_head_kv * hd];
+            let mut i = 0usize;
+            while i < v.len() {
+                v[i] = word(&mut seed);
+                i += 1;
+            }
+            assert_eq!(kv.append(0, &k, &v), Ok(s));
+            s += 1;
+        }
+        kv.enable_block_index(block).expect("index");
+        let mut full = kv.clone();
+        full.disable_block_index();
+        assert!(kv.has_block_index() && !full.has_block_index());
+
+        let q = [2 * ONE; 4];
+        let mut pos = 0usize;
+        while pos < cap {
+            let mut head = 0usize;
+            while head < n_head {
+                let mut got = [0i64; 4];
+                let mut want = [0i64; 4];
+                kv.attn_head(0, head, &q, pos, &mut got)
+                    .expect("certified read");
+                full.attn_head(0, head, &q, pos, &mut want)
+                    .expect("full scan");
+                assert_eq!(got, want, "pos {pos} head {head}");
+                head += 1;
+            }
+            pos += 1;
+        }
+
+        let mut out = [0i64; 4];
+        let mut stats = CertStats::default();
+        kv.attn_head_certified(0, 0, &q, cap - 1, &mut out, &mut stats)
+            .expect("certified read");
+        assert_eq!(stats.blocks, 8);
+        assert_eq!(stats.scanned + stats.skipped, stats.blocks);
+        assert_eq!(stats.skipped, 7, "every block but the maximum is certified");
+        assert_eq!(stats.skipped_positions, 56);
+    }
+
+    #[test]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "the test lays out `k`/`v`/`q` exactly as the plane it checks"
+    )]
+    fn certified_read_after_truncate_and_reappend_equals_full_scan() {
+        let (n_head, n_head_kv, hd, cap, block) = (2usize, 2usize, 3usize, 48usize, 4usize);
+        let mut kv =
+            KvState::with_carrier(1, n_head, n_head_kv, hd, cap, Carrier::Q32).expect("geometry");
+        kv.enable_block_index(block).expect("index");
+        let mut seed = 0xC0FF_EE12_3456_789A_u64;
+        let mut s = 0usize;
+        while s < 24 {
+            let mut k = vec![0i64; n_head_kv * hd];
+            let mut v = vec![0i64; n_head_kv * hd];
+            let mut i = 0usize;
+            while i < k.len() {
+                k[i] = word(&mut seed);
+                v[i] = word(&mut seed);
+                i += 1;
+            }
+            assert_eq!(kv.append(0, &k, &v), Ok(s));
+            s += 1;
+        }
+        assert_eq!(kv.truncate(18), Ok(()));
+        // Re-append different rows over positions 18..23; blocks 4 and 5 must re-seal.
+        let mut s = 18usize;
+        while s < 24 {
+            let mut k = vec![0i64; n_head_kv * hd];
+            let mut v = vec![0i64; n_head_kv * hd];
+            let mut i = 0usize;
+            while i < k.len() {
+                k[i] = word(&mut seed);
+                v[i] = word(&mut seed);
+                i += 1;
+            }
+            assert_eq!(kv.append(0, &k, &v), Ok(s));
+            s += 1;
+        }
+        let mut full = kv.clone();
+        full.disable_block_index();
+        let q = vec![word(&mut seed); hd];
+        let mut pos = 0usize;
+        while pos < 24 {
+            let mut head = 0usize;
+            while head < n_head {
+                let mut got = [0i64; 3];
+                let mut want = [0i64; 3];
+                kv.attn_head(0, head, &q, pos, &mut got)
+                    .expect("certified read");
+                full.attn_head(0, head, &q, pos, &mut want)
+                    .expect("full scan");
+                assert_eq!(got, want, "pos {pos} head {head}");
+                head += 1;
+            }
+            pos += 1;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "the test lays out `k`/`v`/`q` exactly as the plane it checks"
+    )]
+    fn file_backed_state_matches_owned_state() {
+        let path = temp_path("q32");
+        let path_s = path.to_str().expect("utf-8 temp path");
+        let (n_layer, n_head, n_head_kv, hd, cap) = (1usize, 4usize, 2usize, 3usize, 6usize);
+        let mut owned = KvState::with_carrier(n_layer, n_head, n_head_kv, hd, cap, Carrier::Q32)
+            .expect("owned");
+        let mut file =
+            KvState::with_file_carrier(path_s, n_layer, n_head, n_head_kv, hd, cap, Carrier::Q32)
+                .expect("file");
+        assert_eq!(
+            file.file_bytes(),
+            Some(n_layer * 2 * n_head_kv * cap * hd * 8)
+        );
+        assert_eq!(owned.file_bytes(), None);
+
+        let mut seed = 0x0BAD_C0DE_DEAD_BEEF_u64;
+        let mut s = 0usize;
+        while s < cap {
+            let mut k = vec![0i64; n_head_kv * hd];
+            let mut v = vec![0i64; n_head_kv * hd];
+            let mut i = 0usize;
+            while i < k.len() {
+                k[i] = word(&mut seed);
+                v[i] = word(&mut seed);
+                i += 1;
+            }
+            assert_eq!(owned.append(0, &k, &v), Ok(s));
+            assert_eq!(file.append(0, &k, &v), Ok(s));
+            s += 1;
+        }
+        let mut pos = 0usize;
+        while pos < cap {
+            let q = [word(&mut seed), word(&mut seed), word(&mut seed)];
+            let mut head = 0usize;
+            while head < n_head {
+                let (mut a, mut b) = ([0i64; 3], [0i64; 3]);
+                owned
+                    .attn_head(0, head, &q, pos, &mut a)
+                    .expect("owned read");
+                file.attn_head(0, head, &q, pos, &mut b).expect("file read");
+                assert_eq!(a, b, "attn_head pos {pos} head {head}");
+                let (mut fa, mut fb) = ([0i64; 3], [0i64; 3]);
+                owned
+                    .attn_head_fused(0, head, &q, pos, 2, &mut fa)
+                    .expect("owned fused read");
+                file.attn_head_fused(0, head, &q, pos, 2, &mut fb)
+                    .expect("file fused read");
+                assert_eq!(fa, fb, "attn_head_fused pos {pos} head {head}");
+                assert_eq!(
+                    owned.attn_max(0, head, &q, pos),
+                    file.attn_max(0, head, &q, pos)
+                );
+                assert_eq!(
+                    owned.attn_fused_state(0, head, &q, pos, fa[0], 2),
+                    file.attn_fused_state(0, head, &q, pos, fa[0], 2)
+                );
+                head += 1;
+            }
+            pos += 1;
+        }
+        file.sync_file().expect("msync");
+
+        // A mapped state rewinds and re-appends exactly like an owned one.
+        assert_eq!(file.truncate(3), owned.truncate(3));
+        let mut k = vec![0i64; n_head_kv * hd];
+        let mut v = vec![0i64; n_head_kv * hd];
+        let mut i = 0usize;
+        while i < k.len() {
+            k[i] = word(&mut seed);
+            v[i] = word(&mut seed);
+            i += 1;
+        }
+        assert_eq!(owned.append(0, &k, &v), Ok(3));
+        assert_eq!(file.append(0, &k, &v), Ok(3));
+        let q = [word(&mut seed), word(&mut seed), word(&mut seed)];
+        let (mut a, mut b) = ([0i64; 3], [0i64; 3]);
+        owned.attn_head(0, 0, &q, 3, &mut a).expect("owned read");
+        file.attn_head(0, 0, &q, 3, &mut b).expect("file read");
+        assert_eq!(a, b);
+
+        drop(file);
+        std::fs::remove_file(&path).expect("remove q32 file");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn file_backed_f32_state_matches_owned_f32_state() {
+        let path = temp_path("f32");
+        let path_s = path.to_str().expect("utf-8 temp path");
+        let (n_layer, n_head, n_head_kv, hd, cap) = (1usize, 4usize, 2usize, 3usize, 6usize);
+        let mut owned = KvState::with_carrier(n_layer, n_head, n_head_kv, hd, cap, Carrier::F32)
+            .expect("owned");
+        let mut file =
+            KvState::with_file_carrier(path_s, n_layer, n_head, n_head_kv, hd, cap, Carrier::F32)
+                .expect("file");
+        assert_eq!(
+            file.file_bytes(),
+            Some(n_layer * 2 * n_head_kv * cap * hd * 4)
+        );
+        let mut seed = 0x1357_9BDF_2468_ACE0_u64;
+        let mut s = 0usize;
+        while s < cap {
+            let mut k = vec![0i64; n_head_kv * hd];
+            let mut v = vec![0i64; n_head_kv * hd];
+            let mut i = 0usize;
+            while i < k.len() {
+                k[i] = word(&mut seed);
+                v[i] = word(&mut seed);
+                i += 1;
+            }
+            assert_eq!(owned.append(0, &k, &v), Ok(s));
+            assert_eq!(file.append(0, &k, &v), Ok(s));
+            s += 1;
+        }
+        let q = [word(&mut seed), word(&mut seed), word(&mut seed)];
+        let mut pos = 0usize;
+        while pos < cap {
+            let mut head = 0usize;
+            while head < n_head {
+                let (mut a, mut b) = ([0i64; 3], [0i64; 3]);
+                owned.attn_head(0, head, &q, pos, &mut a).expect("owned");
+                file.attn_head(0, head, &q, pos, &mut b).expect("file");
+                assert_eq!(a, b, "pos {pos} head {head}");
+                head += 1;
+            }
+            pos += 1;
+        }
+        drop(file);
+        std::fs::remove_file(&path).expect("remove f32 file");
+    }
+
+    /// The resident and anonymous kilobytes of every `/proc/self/smaps` region backed by `path`.
+    ///
+    /// Kernels differ in the field names: older ones report `RssAnon:`/`RssFile:`, this one
+    /// reports `Anonymous:` and only `Rss:`. The file count is the reported `RssFile` when present,
+    /// else the region's resident pages less its anonymous ones.
+    #[cfg(target_os = "linux")]
+    fn smaps_rss(path: &str) -> (u64, u64) {
+        fn kb(v: &str) -> u64 {
+            v.split_whitespace()
+                .next()
+                .and_then(|x| x.parse().ok())
+                .unwrap_or(0)
+        }
+        fn flush(anon: &mut u64, file: &mut u64, cur: (u64, u64, u64)) {
+            *anon += cur.1;
+            *file += if cur.2 != 0 {
+                cur.2
+            } else {
+                cur.0.saturating_sub(cur.1)
+            };
+        }
+        let text = std::fs::read_to_string("/proc/self/smaps").unwrap_or_default();
+        let mut anon = 0u64;
+        let mut file = 0u64;
+        let mut ours = false;
+        let mut cur = (0u64, 0u64, 0u64);
+        for line in text.lines() {
+            let header =
+                line.as_bytes().first().is_some_and(u8::is_ascii_hexdigit) && line.contains(" rw");
+            if header {
+                flush(&mut anon, &mut file, cur);
+                cur = (0, 0, 0);
+                ours = line.trim_end().ends_with(path);
+                continue;
+            }
+            if !ours {
+                continue;
+            }
+            if let Some(v) = line.strip_prefix("Rss:") {
+                cur.0 += kb(v);
+            }
+            if let Some(v) = line.strip_prefix("RssAnon:") {
+                cur.1 += kb(v);
+            }
+            if let Some(v) = line.strip_prefix("Anonymous:") {
+                cur.1 += kb(v);
+            }
+            if let Some(v) = line.strip_prefix("RssFile:") {
+                cur.2 += kb(v);
+            }
+        }
+        flush(&mut anon, &mut file, cur);
+        (anon, file)
+    }
+
+    /// The KV pages of a file-backed state are file-backed: they appear as `RssFile`, never
+    /// `RssAnon`, and the kernel may evict them without swapping.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn mapped_cache_pages_are_file_backed() {
+        let path = temp_path("smaps");
+        let path_s = path.to_str().expect("utf-8 temp path");
+        let (n_layer, n_head, n_head_kv, hd, cap) = (1usize, 1usize, 1usize, 128usize, 64usize);
+        let mut kv =
+            KvState::with_file_carrier(path_s, n_layer, n_head, n_head_kv, hd, cap, Carrier::Q32)
+                .expect("file");
+        let k = vec![ONE; hd];
+        let v = vec![ONE; hd];
+        let mut s = 0usize;
+        while s < cap {
+            assert_eq!(kv.append(0, &k, &v), Ok(s));
+            s += 1;
+        }
+        let (anon_kb, file_kb) = smaps_rss(path_s);
+        drop(kv);
+        std::fs::remove_file(&path).expect("remove");
+        assert_eq!(anon_kb, 0, "mapped KV must not be anonymous");
+        assert!(
+            file_kb >= 64,
+            "the touched 128 KiB cache file shows {file_kb} KiB of file-backed pages"
+        );
     }
 }

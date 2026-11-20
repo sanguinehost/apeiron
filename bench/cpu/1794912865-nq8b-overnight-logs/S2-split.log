@@ -1,0 +1,15 @@
+decode split: 24 steps, 8.533 s wall, 355.52 ms/token
+| phase | ms/token | share | calls |
+|---|---:|---:|---:|
+| embed | 0.017 | 0.0% | 24 |
+| norm | 2.178 | 0.6% | 1752 |
+| residual | 0.894 | 0.3% | 1728 |
+| attn.proj_in | 56.701 | 15.9% | 864 |
+| attn.core | 11.113 | 3.1% | 864 |
+| attn.proj_out | 23.202 | 6.5% | 864 |
+| ffn | 202.502 | 57.0% | 864 |
+| head | 58.678 | 16.5% | 24 |
+| pass (encloses) | 296.844 | 83.5% | 24 |
+| pool.wait (overlay) | 2.998 | 0.8% | 15600 |
+| untraced | 0.236 | 0.1% | |
+dominant term: ffn at 57.0%, ceiling 2.32x

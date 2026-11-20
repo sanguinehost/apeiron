@@ -176,7 +176,7 @@ fn encode(case: &Case, output: &mut Vec<u8>) -> (usize, usize) {
             output.extend_from_slice(&exponent.to_le_bytes());
         }
     }
-    for group in codes.chunks_exact(4) {
+    for group in codes.as_chunks::<4>().0 {
         output.extend(group.iter().map(|code| code.cast_unsigned()));
     }
     for scale in scales {
@@ -509,7 +509,7 @@ fn encode_real_inputs(case: &RealQuantizerCase, output: &mut Vec<u8>) {
     }
     for q in &case.quantized {
         assert_eq!(q.codes().len(), case.blocks * ACT_QK);
-        for group in q.codes().chunks_exact(4) {
+        for group in q.codes().as_chunks::<4>().0 {
             output.extend(group.iter().map(|code| code.cast_unsigned()));
         }
     }

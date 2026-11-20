@@ -1,0 +1,9 @@
+agent-guard: available=3746MiB cap=2048MiB jobs=2
+   Compiling apeiron v0.1.0 (/home/lucas/Workspace/apeiron-nq)
+    Finished `release` profile [optimized] target(s) in 1m 18s
+     Running unittests src/lib.rs (target/release/deps/apeiron-947ff21c07d159c8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 753 filtered out; finished in 0.00s
+

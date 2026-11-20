@@ -139,8 +139,16 @@ residual accepts it. Version 1 packs are refused: they carry no `s_mid`, residua
 indices. The fused `attn_qkv` factor is split
 by output row into q, k and v sections that share `V`, `s_pre`, `s_mid` and the indices; the split
 is exact for the fused factor and duplicates those sections, which is 91,450,016 B of the 8B pack
-and 9.5% of its projection additions. On Linux the pack is mapped read-only and the sign planes
+and 9.5% of its projection additions. A shared-section format stores the source's 884,591,568 B
+factor payload, **1.018865 b/w** with the header; the split pack is 1.124186 b/w
+(`bench/cpu/1794885786-nq8b-uv-signs.md`). On Linux the pack is mapped read-only and the sign planes
 stay in the mapping; its pages are reclaimable and are not a second resident copy.
+
+The sign dot's bit sum is the packed word's `popcount`, not a per-lane quantity: the exact reader's
+`i64`-lane loop drops the eight `vpsrlq` and eight `vpaddq` that rebuilt it, **58 → 44
+instructions** per 32 terms, measured **1.39×** (`bench/cpu/1794888094-nq-sign-dot-dedup.md`). The
+q8act reader folds the same term into `CodeTerms::sum` once per activation, so that path is
+unchanged and its 12 instructions per 32 terms stand.
 
 Measured with `cargo run --release --locked --example ppl`: the 8B rows on a rented vast.ai CPU
 instance (Intel Xeon E5-2690 v4, 14 vCPU, 62 GB RAM, `APEIRON_THREADS=12`), the 0.6B row on the
@@ -150,7 +158,16 @@ the packed linears exact. The receipt is `bench/cpu/1794553293-nq8b-q4km-ppl.md`
 | checkpoint | pack | linear-only rate | skeleton | PPL | run |
 |---|---:|---:|---:|---:|---|
 | `arelath/Qwen3-0.6B-nanoquant-GGUF` (sha256 `b0ffbcc3…`) | 63,370,960 B | 1.151033 b/w on 440,401,920 | 336,814,976 B | 81.100342 | ctx 128, second half (laptop); F16 image 16.056083 |
-| `arelath/Qwen3-8B-nanoquant-GGUF` (sha256 `75d3f4f1…`) | 976,049,680 B | 1.124186 b/w on 6,945,767,424 | 1,329,625,696 B | 33.041986 / 28.307562 / 14.903005 | 2048 tokens at ctx 64 / 128 / 512; 992 / 1008 / 1020 scored (vast.ai) |
+| `arelath/Qwen3-8B-nanoquant-GGUF` (sha256 `75d3f4f1…`) | 976,049,680 B | 1.124186 b/w on 6,945,767,424 | 1,329,625,696 B | 33.041986 / 28.307562 / 14.903005 / 12.189530 | 2048 tokens at ctx 64 / 128 / 512 / 2048; 992 / 1008 / 1020 / 1023 scored (vast.ai) |
+
+The ctx-2048 arm is scored against the same checkpoint's `Qwen3-8B-Q4_K_M.gguf` on the same
+stream: 12.189530 against 7.587145, **1.607×** (the 1.5× bar is 11.380718). At ctx 512 the pair is
+14.879110 against 9.221624, 1.613×. Receipt `bench/cpu/1794879503-nq8b-1124-ctx2048.md`; the ctx 64,
+128 and 512 rows above are `bench/cpu/1794553293-nq8b-q4km-ppl.md`, whose Q4_K_M and Q8_0 images are
+the Base checkpoint and whose ratios are not bars. An exact-vs-q8act A/B on this pack scores
+12.187527 vs 12.189530 at ctx 2048 and 14.903740 vs 14.879110 at ctx 512: the q8 activation reader
+is at most 0.17% and sign-inconsistent, so the 1.607× gap is the pack's weight error, not the kernel
+(`bench/cpu/1794884461-nq8b-kernel-attribution.md`).
 
 Both artifacts are the exporter's; neither is an in-tree fit. `--second-half` scores positions
 `ctx/2 … ctx-2` of each window, llama.cpp's perplexity span. The 8B source GGUF is 2,214,297,824 B

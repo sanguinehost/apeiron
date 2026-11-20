@@ -83,10 +83,12 @@ const LOOP: &str = "~/nq-ref/loop";
 /// The reference's block-0 input and target for sample 0, for the two stream checks.
 const B0: &str = "b0";
 /// Columns per device column-step: the four samples of a `tune_nonfact` batch
-/// (`quant_config['nonfact_batch_size']`, `main.py:69`), `2048` tokens each.
+/// (`quant_config['nonfact_batch_size']`, `main.py:69`), one sample's `seq` tokens each.
+/// `APEIRON_NQ_BATCH` overrides it.
 const PER_STEP: usize = 4;
 /// `attn_map`'s score buffer, `src/gpu/spirv/train/attn_map.comp:37`: the longest sequence one
-/// device dispatch can attend over.
+/// device dispatch can attend over. `APEIRON_NQ_NCTX` overrides it; a diagnostic model with a
+/// 64-token sequence sets it to `seq`, so `chunks` stays a whole number.
 const N_CTX: usize = 2048;
 /// The base rate the two tuners are built with; each phase's rate arrives as the schedule
 /// multiplier `c = lr_t / base` (`BlockTune::set_schedule`, `AdamHyper`'s `adam_scheduled_bias`).
@@ -119,29 +121,35 @@ fn envf(key: &str, default: f64) -> f64 {
 }
 
 /// A path under the dump.
-fn dump_at(parts: &str) -> String {
-    format!("{DUMP}/{parts}")
+fn dump_at(root: &str, parts: &str) -> String {
+    format!("{root}/{parts}")
 }
 
 fn read_f32(path: &str) -> Vec<f32> {
     let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    b.chunks_exact(4)
-        .map(|c| f32::from_le_bytes(c.try_into().expect("4")))
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
         .collect()
 }
 
 fn read_i32(path: &str) -> Vec<i32> {
     let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    b.chunks_exact(4)
-        .map(|c| i32::from_le_bytes(c.try_into().expect("4")))
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| i32::from_le_bytes(*c))
         .collect()
 }
 
 /// The dump's `bf16` payloads: the high half of an f32.
 fn read_bf16(path: &str) -> Vec<f32> {
     let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    b.chunks_exact(2)
-        .map(|c| f32::from_bits(u32::from(u16::from_le_bytes([c[0], c[1]])) << 16))
+    b.as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| f32::from_bits(u32::from(u16::from_le_bytes(*c)) << 16))
         .collect()
 }
 
@@ -385,8 +393,10 @@ unsafe fn load_stream(g: &GpuCtx, cb: CommandBuffer, st: &Stage, s: &Stream, pat
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
     assert_eq!(bytes.len(), s.words() * 4, "{path}: stream words");
     let v: Vec<f32> = bytes
-        .chunks_exact(4)
-        .map(|c| f32::from_le_bytes(c.try_into().expect("4")))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
         .collect();
     let mut at = 0;
     while at < s.words() {
@@ -485,6 +495,7 @@ fn nq_from_host(h: &HostFactor, admm_loss: f64) -> NqFactor {
         u: h.u.iter().map(|&x| sg(x)).collect(),
         v,
         s_pre: h.s_pre.iter().map(|&x| f64::from(x)).collect(),
+        s_mid: vec![1.0; r],
         s_post: h.s_post.iter().map(|&x| f64::from(x)).collect(),
         admm_loss,
         u_latent: h.u.iter().map(|&x| f64::from(x)).collect(),
@@ -715,8 +726,10 @@ fn load_param(path: &str) -> Param {
     let mut at = 32;
     let mut take = |n: usize| -> Vec<f32> {
         let v = b[at..at + 4 * n]
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes(c.try_into().expect("f32")))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_le_bytes(*c))
             .collect();
         at += 4 * n;
         v
@@ -889,6 +902,8 @@ struct Opt {
     inject: bool,
     floor: f64,
     phases: usize,
+    nctx: usize,
+    per_step: usize,
 }
 
 fn opt() -> Opt {
@@ -920,6 +935,8 @@ fn opt() -> Opt {
         inject: env("APEIRON_NQ_ADMM", "b") == "a",
         floor: envf("APEIRON_NQ_FLOOR", 0.0),
         phases: envu("APEIRON_NQ_PHASES", usize::MAX),
+        nctx: envu("APEIRON_NQ_NCTX", N_CTX),
+        per_step: envu("APEIRON_NQ_BATCH", PER_STEP),
     }
 }
 
@@ -929,11 +946,11 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
     let vk = unsafe { Vk::load() }.expect("vulkan");
     let (g, _mem) = GpuCtx::new(&vk).expect("gpu ctx");
     let (d, f) = (cfg.n_embd, cfg.n_ff);
-    let ids = read_i32(&dump_at("calib_ids.i32"));
+    let ids = read_i32(&dump_at(&o.dump, "calib_ids.i32"));
     let n_samples = envu("APEIRON_NQ_SAMPLES", 128);
     let seq = ids.len() / n_samples;
-    let t = PER_STEP * seq;
-    let chunks = t / N_CTX;
+    let t = o.per_step * seq;
+    let chunks = t / o.nctx;
     let numel = (n_samples * seq * d) as f64;
     let rk = ranks(&o.dump);
     let pm = perms(&o.dump);
@@ -944,7 +961,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
         o.tag,
         pm.len()
     );
-    let dir = format!("{LOOP}/{}", o.tag);
+    let dir = format!("{}/{}", loop_root(), o.tag);
     std::fs::create_dir_all(&dir).expect("loop dir");
     let cb = unsafe { g.vk.reusable_command_buffer() };
     let stage = unsafe {
@@ -984,7 +1001,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
             submit_copies(&g, cb, &[(xt.buf, 0, xs.buf, 0, xt.words())]);
         }
         // The dump's own block-0 input, sample 0: the embedding path's check (`b0/x0.bf16`).
-        let want = read_bf16(&dump_at(&format!("{B0}/x0.bf16")));
+        let want = read_bf16(&dump_at(&o.dump, &format!("{B0}/x0.bf16")));
         let got = &x0[..seq * d];
         let (mut num, mut den) = (0f64, 0f64);
         for (i, &w) in want.iter().enumerate() {
@@ -1036,7 +1053,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
         };
         let fs = FrontShape {
             chunks,
-            n_ctx: N_CTX,
+            n_ctx: o.nctx,
             d,
             nh,
             nkv,
@@ -1054,12 +1071,12 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
             ranks: [rk[l][2], rk[l][4], rk[l][5], rk[l][6]],
         };
         let fss = FrontShape {
-            chunks: seq / N_CTX,
+            chunks: seq / o.nctx,
             ..fs
         };
         let bss = BlockShape { t: seq, ..bs };
         if fwd.is_none() {
-            fwd = Some(unsafe { LayerFwd::new(&g, &host, N_CTX, chunks) });
+            fwd = Some(unsafe { LayerFwd::new(&g, &host, seq, 1) });
         }
         let fw = fwd.as_ref().expect("fwd");
         unsafe { fw.load(&g, &host) };
@@ -1111,22 +1128,22 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
         // `yt = fp_block(xt)`, one sample at a time (`compress_model.py:58-63`), bf16 on store.
         let t_yt = Instant::now();
         let (fx, _fao, fy) = fw.handles();
-        for s0 in (0..n_samples).step_by(PER_STEP) {
-            let ids4: Vec<usize> = (s0..s0 + PER_STEP).collect();
+        for s0 in 0..n_samples {
+            let ids1 = [s0];
             unsafe {
                 fw.run_dev(
                     &g,
-                    &[chunk_into(&xt, &ids4, fx)],
-                    &[chunk_from(&yt, &ids4, fy)],
+                    &[chunk_into(&xt, &ids1, fx)],
+                    &[chunk_from(&yt, &ids1, fy)],
                 );
             }
             if o.bf16 {
-                unsafe { round_ids(&g, cb, &stage, &yt, &ids4) };
+                unsafe { round_ids(&g, cb, &stage, &yt, &ids1) };
             }
         }
         let yt_s = t_yt.elapsed().as_secs_f64();
         if l == 0 {
-            let want = read_bf16(&dump_at(&format!("{B0}/yt0.bf16")));
+            let want = read_bf16(&dump_at(&o.dump, &format!("{B0}/yt0.bf16")));
             let mut got = vec![0f32; seq * d];
             let mut at = 0;
             while at < seq * d {
@@ -1179,7 +1196,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                 let t_u = Instant::now();
                 match phase {
                     0 => {
-                        let sched = sched_scaled(1e-4, 1e-8, 256);
+                        let sched = sched_scaled(1e-4, 1e-8, n_samples.div_ceil(o.per_step) * 8);
                         let tf = [!p.fd[0], !p.fd[1], !p.fd[2]];
                         let tb = [!p.bd[0], !p.bd[1], !p.bd[2], !p.bd[3]];
                         unsafe {
@@ -1190,7 +1207,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                                 &p,
                                 (&g1, &gn, &g2),
                                 &sched,
-                                2.0 / PER_STEP as f32,
+                                2.0 / o.per_step as f32,
                                 (tf, tb),
                             );
                         }
@@ -1198,8 +1215,8 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                         for e in 0..8 {
                             let perm = &pm[2 * si * 8 + e].1;
                             let mut sum = 0.0;
-                            for b0 in 0..n_samples / PER_STEP {
-                                let ids4 = perm[b0 * PER_STEP..(b0 + 1) * PER_STEP].to_vec();
+                            for b0 in 0..n_samples / o.per_step {
+                                let ids4 = perm[b0 * o.per_step..(b0 + 1) * o.per_step].to_vec();
                                 sum += unsafe { step(&bund, bt, ft, &ids4, tf.iter().any(|x| *x)) };
                             }
                             sums.push(sum);
@@ -1216,7 +1233,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                         println!(
                             "BT l{l:02} {} nonfact {} steps {:.1} s",
                             SLOT_KEYS[si],
-                            n_samples / PER_STEP * 8,
+                            n_samples / o.per_step * 8,
                             t_u.elapsed().as_secs_f64()
                         );
                     }
@@ -1312,7 +1329,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                         save_state(&dir_l, si, 2, p.fd, p.bd);
                     }
                     _ => {
-                        let sched = sched_scaled(1e-5, 1e-9, 1024);
+                        let sched = sched_scaled(1e-5, 1e-9, n_samples * 8);
                         let mut tf = [false; 3];
                         let mut tb = [false; 4];
                         if let Some(k) = SLOT_FRONT[si] {
@@ -1388,17 +1405,42 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                     &p,
                     (&g1, &gn, &g2),
                     &sched_scaled(1e-7, 1e-7, 1),
-                    2.0 / PER_STEP as f32,
+                    2.0 / o.per_step as f32,
                     ([false; 3], [false; 4]),
                 );
             }
             let t_adv = Instant::now();
-            for s0 in (0..n_samples).step_by(PER_STEP) {
-                let ids4: Vec<usize> = (s0..s0 + PER_STEP).collect();
+            for s0 in (0..n_samples).step_by(o.per_step) {
+                let ids4: Vec<usize> = (s0..s0 + o.per_step).collect();
                 unsafe { eval_pass(&bund, bt, ft, &ids4) };
             }
             std::mem::swap(&mut xt, &mut yt);
             std::mem::swap(&mut xs, &mut next);
+            // The reference's own input to block `l + 1`: the teacher stream after the finished
+            // block, so a mismatch here is this port's forward, not a later stage's.
+            let xp = dump_at(&o.dump, &format!("{B0}/x_all_b{}.f32", l + 1));
+            if Path::new(&xp).exists() {
+                let want = read_f32(&xp);
+                assert_eq!(want.len(), n_samples * seq * d, "x_all_b{}", l + 1);
+                let mut got = vec![0f32; seq * d];
+                let mut at = 0;
+                while at < seq * d {
+                    let take = stage.n.min(seq * d - at);
+                    let v = unsafe { get_at(&g, cb, &stage, xt.buf, at, take) };
+                    got[at..at + take].copy_from_slice(&v);
+                    at += take;
+                }
+                let (mut num, mut den) = (0f64, 0f64);
+                for (i, &w) in want[..seq * d].iter().enumerate() {
+                    num += (f64::from(got[i]) - f64::from(w)).powi(2);
+                    den += f64::from(w).powi(2);
+                }
+                println!(
+                    "BT l{l:02} teacher stream vs b0/x_all_b{} rel {:.3e}",
+                    l + 1,
+                    (num / den).sqrt()
+                );
+            }
             let adv_s = t_adv.elapsed().as_secs_f64();
             unsafe {
                 save_stream(&g, cb, &stage, &xt, &format!("{dir}/s-{}.xt.f32", l + 1));
@@ -1431,7 +1473,7 @@ fn arm_b0(o: &Opt) {
     let rk = ranks(&o.dump);
     for si in [0usize, 1] {
         let key = SLOT_KEYS[si];
-        let w = read_f32(&dump_at(&format!("{B0}/{key}.w_in.f32")));
+        let w = read_f32(&dump_at(&o.dump, &format!("{B0}/{key}.w_in.f32")));
         let f64s = |which: &str| -> Vec<f64> {
             stat(&o.dump, 0, key, which)
                 .iter()
@@ -1470,6 +1512,16 @@ fn arm_b0(o: &Opt) {
             ours / theirs,
             nf.admm_loss
         );
+    }
+}
+
+/// Checkpoint root (`APEIRON_NQ_LOOP`); `<root>/<tag>/`. A leading `~/` is expanded from `HOME`:
+/// a test's CWD is the package, and a literal `~` directory would hide the checkpoints there.
+fn loop_root() -> String {
+    let p = env("APEIRON_NQ_LOOP", LOOP);
+    match p.strip_prefix("~/") {
+        Some(rest) => format!("{}/{}", std::env::var("HOME").unwrap_or_default(), rest),
+        None => p,
     }
 }
 

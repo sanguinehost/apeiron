@@ -154,7 +154,11 @@ impl crate::engine::loader::Engine {
     }
 
     /// The sign-rank product of `x` through the linear that replaces `key`, or `None` when the
-    /// tensor is not fitted.
+    /// tensor is not fitted. [`KernelMode::Exact`] reads the exact Q32.32 words
+    /// ([`NqLinear::project`]); [`KernelMode::Q8Act`] reads the Q8 block codes
+    /// ([`NqLinear::project_q8`]); [`KernelMode::Ternary`] reads the trit masks
+    /// ([`NqLinear::project_ternary`]). Both block readers fall back to the exact reader when
+    /// their bounds refuse.
     ///
     /// # Errors
     ///
@@ -166,6 +170,7 @@ impl crate::engine::loader::Engine {
         n_out: usize,
         n_in: usize,
         x: &[i64],
+        mode: crate::engine::KernelMode,
     ) -> Result<Option<Vec<i64>>, crate::engine::StepError> {
         let Some(linear) = self.nq_linear(key) else {
             return Ok(None);
@@ -183,10 +188,24 @@ impl crate::engine::loader::Engine {
                 ],
             });
         }
-        linear
-            .project(x)
-            .map(Some)
-            .map_err(crate::engine::StepError::Nq)
+        let out = match mode {
+            crate::engine::KernelMode::Exact => linear.project(x),
+            crate::engine::KernelMode::Q8Act => linear.project_q8(x).or_else(|e| {
+                if e == crate::engine::NqError::Overflow {
+                    linear.project(x)
+                } else {
+                    Err(e)
+                }
+            }),
+            crate::engine::KernelMode::Ternary => linear.project_ternary(x).or_else(|e| {
+                if e == crate::engine::NqError::Overflow {
+                    linear.project(x)
+                } else {
+                    Err(e)
+                }
+            }),
+        };
+        out.map(Some).map_err(crate::engine::StepError::Nq)
     }
 
     /// The fitted linears' stored bytes and the dense weights they carry: the two terms of the

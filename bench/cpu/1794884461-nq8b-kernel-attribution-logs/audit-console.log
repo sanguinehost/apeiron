@@ -1,0 +1,19 @@
++ cd /workspace
++ export APEIRON_THREADS=24
++ APEIRON_THREADS=24
++ mkdir -p models logs tools
++ chmod +x ppl
++ ./ppl --model models/nq8b-r0/skeleton.gguf --pack models/nq8b-r0/model.nqp --tokenizer models/tokenizer.json --data models/wiki.test.raw --tokens 2048 --skip 0 --ctx 512 --head-batch 16 --kernel q8act --second-half
++ date
+Tue Nov 17 02:33:45 UTC 2026
++ ./ppl --model models/nq8b-r0/skeleton.gguf --pack models/nq8b-r0/model.nqp --tokenizer models/tokenizer.json --data models/wiki.test.raw --tokens 2048 --skip 0 --ctx 512 --head-batch 16 --kernel exact --second-half
++ date
+Tue Nov 17 02:44:17 UTC 2026
++ ./ppl --model models/nq8b-r0/skeleton.gguf --pack models/nq8b-r0/model.nqp --tokenizer models/tokenizer.json --data models/wiki.test.raw --tokens 2048 --skip 0 --ctx 2048 --head-batch 16 --kernel q8act --second-half
++ date
+Tue Nov 17 02:48:39 UTC 2026
++ ./ppl --model models/nq8b-r0/skeleton.gguf --pack models/nq8b-r0/model.nqp --tokenizer models/tokenizer.json --data models/wiki.test.raw --tokens 2048 --skip 0 --ctx 2048 --head-batch 16 --kernel exact --second-half
++ date
+Tue Nov 17 03:01:10 UTC 2026
++ echo DONE
+DONE

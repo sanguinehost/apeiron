@@ -1,0 +1,21 @@
++ cd /workspace/apeiron
++ export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
++ PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
++ cargo build --release --locked --example nq_fit
++ echo 'REBUILD 0'
+REBUILD 0
++ sha256sum examples/nq_fit.rs
+5fff619f7cd2930c4dfd1392200b58afed11e605d571234cdae0c8fd74288038  examples/nq_fit.rs
++ export APEIRON_THREADS=23
++ APEIRON_THREADS=23
++ date -u +%s
+++ seq -s, 0 27
++ LAYERS=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27
++ ./target/release/examples/nq_fit --model /workspace/models/Qwen2.5-7B-Instruct-f16.gguf --out /workspace/nq7b-t2.nqp --layers 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27 --kinds q,k,v,o,gate,up,down --iters 2 --bits-ppm 1100000 --diag-dir /workspace/cal/diag-c6x29 --diag-tag c6x29
++ echo 'FIT 0'
+FIT 0
++ date -u +%s
++ tail -3 /workspace/fit.log
+l27 down 3584x18944 r 3296 b/w 1.09971 266.66 s admm_loss 58.59863 precond diag
+pack /workspace/nq7b-t2.nqp 896312736 B, 196 sections, 1.098871 b/w
+fit 196 linears in 24675.4 s

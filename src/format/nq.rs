@@ -9,9 +9,11 @@
 //! `Ŵ + Σ_l diag(s_res_l)·sign_l`, each `sign_l ∈ {±1}^{out×in}` with one bfloat16 row scale.
 //! This module stores exactly the bits the rate counts:
 //! `32·(|U| + |V| + |idx| + |res|) + 16·(|s_pre| + |s_mid| + |s_post| + |salient| + |s_res|)` per
-//! linear, with every sign plane bit-packed in little-endian `u32` words. The section says
-//! nothing about how the factors were fitted; it is the format the exporter writes and the engine
-//! reads.
+//! linear, with every sign plane bit-packed in little-endian `u32` words. A version-4 `k`/`v`
+//! section that shares its layer's `q` block omits `V`, `s_pre`, `s_mid` and `idx`, which the three
+//! linears hold byte-identically because they read the same input; those bytes are counted once.
+//! The section says nothing about how the factors were fitted; it is the format the exporter writes
+//! and the engine reads.
 //!
 //! **Layout.** An eight-byte magic, a `u32` version, a `u32` header length, the layer count, the
 //! kind count, the linear count and one reserved word (32 bytes), then one section per fitted
@@ -21,10 +23,14 @@
 //! `out`/`in`/`rank` dimensions, the two packed row strides, the salient count, the `U` words, the
 //! `V` words, the `s_pre`/`s_mid`/`s_post` binary16 words, the `salient_idx` `u32` words and the
 //! `salient` binary16 words. Version 3 inserts the residual layer count after the salient count
-//! and appends the residual sign words and row scales. A pack whose sections carry no residual is
+//! and appends the residual sign words and row scales. Version 4 inserts a `group` word after the
+//! residual count; a `group = 1` section is a `k` or `v` member and carries only `U`, `s_post`,
+//! `salient`, the residual and its scales, binding `V`/`s_pre`/`s_mid`/`idx` to the head `q`
+//! section of the same layer. A pack whose sections carry no residual is
 //! written as version 2, which a reader that predates the residual accepts; any residual writes
-//! version 3. Every dimension, word count and byte extent is checked; a section
-//! that leaves the buffer, repeats a linear, or disagrees with its own stride refuses.
+//! version 3, and any sharing writes version 4. Every dimension, word count and byte extent is
+//! checked; a section that leaves the buffer, repeats a linear, or disagrees with its own stride
+//! refuses, and so does a member without a matching head.
 //!
 //! **Round trip.** [`write`] emits the bytes [`read`] parses; neither rounds a value. The factors
 //! and the scale words are copied verbatim, so a write-read cycle is byte-identical.
@@ -43,16 +49,18 @@ use std::sync::Arc;
 
 /// The pack magic: `APNQPK01`.
 pub const NQ_MAGIC: [u8; 8] = *b"APNQPK01";
-/// The pack version this module writes. [`read`] also accepts version 2, which has no residual
-/// section.
-pub const NQ_VERSION: u32 = 3;
+/// The pack version this module writes when a section shares its `V`/`s_pre`/`s_mid`/`idx` block
+/// with a preceding `q` section.
+pub const NQ_VERSION: u32 = 4;
+/// The residual version without sharing.
+const NQ_VERSION_RESIDUAL: u32 = 3;
 /// The version without a dense sign residual.
 const NQ_VERSION_BASE: u32 = 2;
 /// The header length in bytes: magic, version, header length, layers, kinds, linears, reserved.
 pub const NQ_HEADER_BYTES: usize = 32;
 /// The per-linear section header in bytes: layer, kind, out, in, rank, `u_words`, `v_words`, `k`,
-/// and in version 3 `res_layers`.
-pub const NQ_LINEAR_HEADER_BYTES: usize = 36;
+/// and in version 3 `res_layers`, and in version 4 `res_layers` and `group`.
+pub const NQ_LINEAR_HEADER_BYTES: usize = 40;
 /// The linear kinds, in the writer's order and the engine's directory-part order.
 pub const NQ_KIND_NAMES: [&str; 7] = ["q", "k", "v", "o", "gate", "up", "down"];
 /// The number of linear kinds in a section.
@@ -70,7 +78,7 @@ pub enum NqError {
     },
     /// The magic is not [`NQ_MAGIC`].
     BadMagic,
-    /// The version is neither [`NQ_VERSION`] nor the residual-free version it replaces.
+    /// The version is not 2, 3 or 4.
     BadVersion {
         /// Version found.
         version: u32,
@@ -99,6 +107,21 @@ pub enum NqError {
         /// Layer found.
         layer: usize,
         /// Kind found.
+        kind: usize,
+    },
+    /// A version-4 group word is neither 0 (a head or a standalone section) nor 1 (a member).
+    BadGroup {
+        /// Group word found.
+        group: u32,
+    },
+    /// A member section has no `q` head in its layer, or that head's dimensions or shared block
+    /// disagree with the member's.
+    SharedHead {
+        /// Section index.
+        at: usize,
+        /// Layer of the member.
+        layer: usize,
+        /// Kind of the member.
         kind: usize,
     },
     /// A dimension or rank is zero.
@@ -153,6 +176,11 @@ impl fmt::Display for NqError {
             NqError::BadOrder { at, layer, kind } => {
                 write!(f, "nq pack: section {at} is blk.{layer} kind {kind}")
             }
+            NqError::BadGroup { group } => write!(f, "nq pack: group {group}, want 0 or 1"),
+            NqError::SharedHead { at, layer, kind } => write!(
+                f,
+                "nq pack: section {at} is blk.{layer} kind {kind} without a matching q block"
+            ),
             NqError::ZeroDimension => write!(f, "nq pack: zero dimension or rank"),
             NqError::BadStride {
                 which,
@@ -326,6 +354,11 @@ pub struct PackedLinear {
     pub salient: Plane<u16>,
     /// The dense sign-residual layers; 0 for a version-2 section.
     pub res_layers: usize,
+    /// Version-4 member: `V`, `s_pre`, `s_mid` and `salient_idx` are not stored in this section and
+    /// are read from the same layer's `q` section. The in-memory value carries them either way, so
+    /// the kernel sees a complete linear; [`PackedLinear::stored_bits`] counts only this section's
+    /// own bytes.
+    pub shared: bool,
     /// The residual signs, row-major `[res_layers, out, ceil(inn/32)]`, bit `1` is `+1`.
     pub res: Plane<u32>,
     /// The residual row scales, bfloat16 bits, row-major `[res_layers, out]`.
@@ -358,24 +391,33 @@ impl PackedLinear {
     }
 
     /// The stored bits: `32·(|U| + |V| + |idx| + |res|) + 16·(|s_pre| + |s_mid| + |s_post| +
-    /// |salient| + |s_res|)`.
+    /// |salient| + |s_res|)`, omitting the block a [`shared`](Self::shared) member takes from its
+    /// layer's `q` section.
     #[must_use]
     pub fn stored_bits(&self) -> u64 {
+        let (v, pre, mid, idx) = if self.shared {
+            (0, 0, 0, 0)
+        } else {
+            (
+                self.v.len(),
+                self.s_pre.len(),
+                self.s_mid.len(),
+                self.salient_idx.len(),
+            )
+        };
         let signs = self
             .u
             .len()
-            .saturating_add(self.v.len())
+            .saturating_add(v)
             .saturating_add(self.res.len());
-        let scales = self
-            .s_pre
-            .len()
-            .saturating_add(self.s_mid.len())
+        let scales = pre
+            .saturating_add(mid)
             .saturating_add(self.s_post.len())
             .saturating_add(self.salient.len())
             .saturating_add(self.s_res.len());
         (signs as u64)
             .saturating_mul(32)
-            .saturating_add((self.salient_idx.len() as u64).saturating_mul(32))
+            .saturating_add((idx as u64).saturating_mul(32))
             .saturating_add((scales as u64).saturating_mul(16))
     }
 
@@ -443,6 +485,46 @@ fn check_order(layers: usize, linears: &[PackedLinear]) -> Result<(), NqError> {
     Ok(())
 }
 
+/// Check every [`shared`](PackedLinear::shared) member against its layer's `q` head.
+///
+/// A member is only `k` or `v`; its layer must carry a `q` section, and that head's input width,
+/// rank and shared block (`V`, `s_pre`, `s_mid`, `salient_idx`) must be the member's. The file
+/// stores the block once, so a writer that dropped it from an unequal section would lose bytes.
+///
+/// # Complexity
+///
+/// `O(members · (linears + shared_bytes))`: each member scans the section list for its layer's `q`
+/// and then compares a block of `4·rank·ceil(inn/32) + 2·inn + 2·rank + 4·k` bytes. Space is
+/// `O(1)`.
+fn check_shared(linears: &[PackedLinear]) -> Result<(), NqError> {
+    for (at, l) in linears.iter().enumerate() {
+        if !l.shared {
+            continue;
+        }
+        let head = if l.kind == 1 || l.kind == 2 {
+            linears.iter().find(|h| h.layer == l.layer && h.kind == 0)
+        } else {
+            None
+        };
+        let matched = head.is_some_and(|h| {
+            h.inn == l.inn
+                && h.rank == l.rank
+                && h.v == l.v
+                && h.s_pre == l.s_pre
+                && h.s_mid == l.s_mid
+                && h.salient_idx == l.salient_idx
+        });
+        if !matched {
+            return Err(NqError::SharedHead {
+                at,
+                layer: l.layer,
+                kind: l.kind,
+            });
+        }
+    }
+    Ok(())
+}
+
 impl NqPack {
     /// Build a pack from sections in the required order.
     ///
@@ -452,9 +534,11 @@ impl NqPack {
     /// # Errors
     ///
     /// [`NqError::ZeroDimension`] for a zero layer count, [`NqError::BadCount`] for more sections
-    /// than `layers · kinds`, and [`NqError::BadOrder`] for a section out of range or out of order.
+    /// than `layers · kinds`, [`NqError::BadOrder`] for a section out of range or out of order, and
+    /// [`NqError::SharedHead`] for a member whose layer has no matching `q` head.
     pub fn new(layers: usize, linears: Vec<PackedLinear>) -> Result<Self, NqError> {
         check_order(layers, &linears)?;
+        check_shared(&linears)?;
         Ok(Self {
             layers,
             kinds: NQ_KINDS,
@@ -612,7 +696,7 @@ fn read_with<P: Planes>(bytes: &[u8], planes: &P) -> Result<NqPack, NqError> {
         return Err(NqError::BadMagic);
     }
     let version = read_u32(bytes, 8)?;
-    if version != NQ_VERSION && version != NQ_VERSION_BASE {
+    if version != NQ_VERSION && version != NQ_VERSION_RESIDUAL && version != NQ_VERSION_BASE {
         return Err(NqError::BadVersion { version });
     }
     let header_bytes = read_u32(bytes, 12)?;
@@ -640,12 +724,13 @@ fn read_with<P: Planes>(bytes: &[u8], planes: &P) -> Result<NqPack, NqError> {
             expected: most,
         });
     }
-    // A per-linear section is at least its header plus two scale words, so a count whose sections
-    // cannot fit the buffer is refused before any allocation.
-    let section_header = if version == NQ_VERSION {
-        NQ_LINEAR_HEADER_BYTES
-    } else {
-        NQ_LINEAR_HEADER_BYTES - 4
+    // A per-linear section is at least its header, so a count whose sections cannot fit the buffer
+    // is refused before any allocation. Version 2 has neither the residual word nor the group word;
+    // version 3 adds the residual; version 4 adds the group.
+    let section_header = match version {
+        NQ_VERSION => NQ_LINEAR_HEADER_BYTES,
+        NQ_VERSION_RESIDUAL => NQ_LINEAR_HEADER_BYTES - 4,
+        _ => NQ_LINEAR_HEADER_BYTES - 8,
     };
     let need = linears
         .checked_mul(section_header)
@@ -676,13 +761,24 @@ fn read_with<P: Planes>(bytes: &[u8], planes: &P) -> Result<NqPack, NqError> {
         at += 4;
         let k = read_u32(bytes, at)? as usize;
         at += 4;
-        let res_layers = if version == NQ_VERSION {
+        let res_layers = if version == NQ_VERSION_BASE {
+            0
+        } else {
             let value = read_u32(bytes, at)? as usize;
+            at += 4;
+            value
+        };
+        let group = if version == NQ_VERSION {
+            let value = read_u32(bytes, at)?;
             at += 4;
             value
         } else {
             0
         };
+        if group > 1 {
+            return Err(NqError::BadGroup { group });
+        }
+        let shared = group == 1;
         if out_rows == 0 || inn == 0 || rank == 0 {
             return Err(NqError::ZeroDimension);
         }
@@ -731,16 +827,45 @@ fn read_with<P: Planes>(bytes: &[u8], planes: &P) -> Result<NqPack, NqError> {
             .ok_or(NqError::LengthOverflow)?;
         let res_bytes = res_len.checked_mul(4).ok_or(NqError::LengthOverflow)?;
         let s_res_bytes = s_res_len.checked_mul(2).ok_or(NqError::LengthOverflow)?;
+        // A member's header still declares the shared block's width and stride; bind them to the
+        // layer's `q` section so the in-memory linear is complete and the writer can compare it.
+        let shared_block = if shared {
+            let Some(head) = out.iter().rev().find(|h| h.layer == layer && h.kind == 0) else {
+                return Err(NqError::SharedHead { at: i, layer, kind });
+            };
+            if head.inn != inn || head.rank != rank || head.k() != k || head.v_words() != v_words {
+                return Err(NqError::SharedHead { at: i, layer, kind });
+            }
+            Some((
+                head.v.clone(),
+                head.s_pre.clone(),
+                head.s_mid.clone(),
+                head.salient_idx.clone(),
+            ))
+        } else {
+            None
+        };
+        // A member's payload is `U`, `s_post`, `salient` and its residual; the shared block is
+        // absent from the file.
+        let payload = if shared {
+            u_bytes
+                .checked_add(post_bytes)
+                .and_then(|x| x.checked_add(salient_bytes))
+                .and_then(|x| x.checked_add(res_bytes))
+                .and_then(|x| x.checked_add(s_res_bytes))
+        } else {
+            u_bytes
+                .checked_add(v_bytes)
+                .and_then(|x| x.checked_add(pre_bytes))
+                .and_then(|x| x.checked_add(mid_bytes))
+                .and_then(|x| x.checked_add(post_bytes))
+                .and_then(|x| x.checked_add(idx_bytes))
+                .and_then(|x| x.checked_add(salient_bytes))
+                .and_then(|x| x.checked_add(res_bytes))
+                .and_then(|x| x.checked_add(s_res_bytes))
+        };
         let end = at
-            .checked_add(u_bytes)
-            .and_then(|x| x.checked_add(v_bytes))
-            .and_then(|x| x.checked_add(pre_bytes))
-            .and_then(|x| x.checked_add(mid_bytes))
-            .and_then(|x| x.checked_add(post_bytes))
-            .and_then(|x| x.checked_add(idx_bytes))
-            .and_then(|x| x.checked_add(salient_bytes))
-            .and_then(|x| x.checked_add(res_bytes))
-            .and_then(|x| x.checked_add(s_res_bytes))
+            .checked_add(payload.ok_or(NqError::LengthOverflow)?)
             .ok_or(NqError::LengthOverflow)?;
         if end > bytes.len() {
             return Err(NqError::Truncated {
@@ -750,18 +875,30 @@ fn read_with<P: Planes>(bytes: &[u8], planes: &P) -> Result<NqPack, NqError> {
         }
         let u = planes.u32s(at, u_len)?;
         at += u_bytes;
-        let v = planes.u32s(at, v_len)?;
-        at += v_bytes;
-        let s_pre = planes.u16s(at, inn)?;
-        at += pre_bytes;
-        let s_mid = planes.u16s(at, rank)?;
-        at += mid_bytes;
+        let (v, s_pre, s_mid) = if let Some((v, s_pre, s_mid, _)) = &shared_block {
+            (v.clone(), s_pre.clone(), s_mid.clone())
+        } else {
+            let v = planes.u32s(at, v_len)?;
+            at += v_bytes;
+            let s_pre = planes.u16s(at, inn)?;
+            at += pre_bytes;
+            let s_mid = planes.u16s(at, rank)?;
+            at += mid_bytes;
+            (v, s_pre, s_mid)
+        };
         let s_post = planes.u16s(at, out_rows)?;
         at += post_bytes;
-        let salient_idx = planes.u32s(at, k)?;
-        at += idx_bytes;
-        let salient = planes.u16s(at, salient_len)?;
-        at += salient_bytes;
+        let (salient_idx, salient) = if let Some((_, _, _, idx)) = shared_block {
+            let salient = planes.u16s(at, salient_len)?;
+            at += salient_bytes;
+            (idx, salient)
+        } else {
+            let idx = planes.u32s(at, k)?;
+            at += idx_bytes;
+            let salient = planes.u16s(at, salient_len)?;
+            at += salient_bytes;
+            (idx, salient)
+        };
         let res = planes.u32s(at, res_len)?;
         at += res_bytes;
         let s_res = planes.u16s(at, s_res_len)?;
@@ -780,6 +917,7 @@ fn read_with<P: Planes>(bytes: &[u8], planes: &P) -> Result<NqPack, NqError> {
             salient_idx,
             salient,
             res_layers,
+            shared,
             res,
             s_res,
         });
@@ -899,15 +1037,19 @@ fn check_linear(l: &PackedLinear) -> Result<(), NqError> {
 ///
 /// # Errors
 ///
-/// [`NqError::BadCount`] or [`NqError::BadOrder`] for a section list that is not layer-major, and
-/// every [`NqError`] [`check_linear`] raises for a field whose length disagrees with its
-/// dimensions. A subset pack writes only the sections it carries.
+/// [`NqError::BadCount`] or [`NqError::BadOrder`] for a section list that is not layer-major,
+/// [`NqError::SharedHead`] for a member that cannot bind to its layer's `q` section, and every
+/// [`NqError`] [`check_linear`] raises for a field whose length disagrees with its dimensions. A
+/// subset pack writes only the sections it carries.
 pub fn write(pack: &NqPack) -> Result<Vec<u8>, NqError> {
     check_order(pack.layers, &pack.linears)?;
-    // A pack with no residual section is written as version 2 so a reader that predates the
-    // residual still accepts it; any residual upgrades the whole file to version 3.
-    let version = if pack.linears.iter().any(|l| l.res_layers != 0) {
+    check_shared(&pack.linears)?;
+    // Sharing writes version 4; without it a residual writes version 3 and a residual-free pack
+    // version 2, which a reader that predates the residual still accepts.
+    let version = if pack.linears.iter().any(|l| l.shared) {
         NQ_VERSION
+    } else if pack.linears.iter().any(|l| l.res_layers != 0) {
+        NQ_VERSION_RESIDUAL
     } else {
         NQ_VERSION_BASE
     };
@@ -929,31 +1071,38 @@ pub fn write(pack: &NqPack) -> Result<Vec<u8>, NqError> {
         push_u32(&mut out, l.u_words())?;
         push_u32(&mut out, l.v_words())?;
         push_u32(&mut out, l.salient_idx.len())?;
-        if version == NQ_VERSION {
+        if version != NQ_VERSION_BASE {
             push_u32(&mut out, l.res_layers)?;
+        }
+        if version == NQ_VERSION {
+            push_u32(&mut out, usize::from(l.shared))?;
         }
         for &w in l.u.iter() {
             out.extend_from_slice(&w.to_le_bytes());
         }
-        for &w in l.v.iter() {
-            out.extend_from_slice(&w.to_le_bytes());
-        }
-        for &s in l.s_pre.iter() {
-            out.extend_from_slice(&s.to_le_bytes());
-        }
-        for &s in l.s_mid.iter() {
-            out.extend_from_slice(&s.to_le_bytes());
+        if !l.shared {
+            for &w in l.v.iter() {
+                out.extend_from_slice(&w.to_le_bytes());
+            }
+            for &s in l.s_pre.iter() {
+                out.extend_from_slice(&s.to_le_bytes());
+            }
+            for &s in l.s_mid.iter() {
+                out.extend_from_slice(&s.to_le_bytes());
+            }
         }
         for &s in l.s_post.iter() {
             out.extend_from_slice(&s.to_le_bytes());
         }
-        for &j in l.salient_idx.iter() {
-            out.extend_from_slice(&j.to_le_bytes());
+        if !l.shared {
+            for &j in l.salient_idx.iter() {
+                out.extend_from_slice(&j.to_le_bytes());
+            }
         }
         for &s in l.salient.iter() {
             out.extend_from_slice(&s.to_le_bytes());
         }
-        if version == NQ_VERSION {
+        if version != NQ_VERSION_BASE {
             for &w in l.res.iter() {
                 out.extend_from_slice(&w.to_le_bytes());
             }
@@ -1151,6 +1300,7 @@ mod tests {
                 .collect::<Vec<u16>>()
                 .into(),
             res_layers,
+            shared: false,
             res: res.into(),
             s_res: (0..res_layers * out)
                 .map(|i| 0x3000 + i as u16)
@@ -1167,6 +1317,66 @@ mod tests {
             }
         }
         NqPack::new(layers, linears).expect("pack")
+    }
+
+    /// A `k`/`v` member that takes `head`'s `V`, `s_pre`, `s_mid` and `salient_idx`: the same
+    /// `inn` and `rank`, its own `out` rows and residual.
+    fn member(layer: usize, kind: usize, head: &PackedLinear) -> PackedLinear {
+        let out = 4usize;
+        let res_layers = 2usize;
+        let k = head.salient_idx.len();
+        let words =
+            |n: usize, seed: u32| -> Vec<u32> { (0..n).map(|i| seed ^ (i as u32)).collect() };
+        PackedLinear {
+            layer,
+            kind,
+            out,
+            inn: head.inn,
+            rank: head.rank,
+            u: words(out * head.rank.div_ceil(32), 0x1000_0000).into(),
+            v: head.v.clone(),
+            s_pre: head.s_pre.clone(),
+            s_mid: head.s_mid.clone(),
+            s_post: (0..out)
+                .map(|i| 0x3c00 + i as u16)
+                .collect::<Vec<u16>>()
+                .into(),
+            salient_idx: head.salient_idx.clone(),
+            salient: (0..out * k)
+                .map(|i| 0x3900 + i as u16)
+                .collect::<Vec<u16>>()
+                .into(),
+            res_layers,
+            shared: true,
+            res: words(res_layers * out * head.inn.div_ceil(32), 0x2000_0000).into(),
+            s_res: (0..res_layers * out)
+                .map(|i| 0x3100 + i as u16)
+                .collect::<Vec<u16>>()
+                .into(),
+        }
+    }
+
+    fn pack_v4() -> NqPack {
+        let mut p = pack(1);
+        let head = p.linears[0].clone();
+        p.linears[1] = member(0, 1, &head);
+        p.linears[2] = member(0, 2, &head);
+        NqPack::new(1, p.linears).expect("v4 pack")
+    }
+
+    /// The bytes one section occupies in the file: its header plus the payload its `shared` flag
+    /// says it stores.
+    fn section_len(l: &PackedLinear) -> usize {
+        let shared = if l.shared {
+            0
+        } else {
+            4 * l.v.len() + 2 * (l.s_pre.len() + l.s_mid.len()) + 4 * l.salient_idx.len()
+        };
+        NQ_LINEAR_HEADER_BYTES
+            + 4 * l.u.len()
+            + 4 * l.res.len()
+            + 2 * (l.s_post.len() + l.salient.len() + l.s_res.len())
+            + shared
     }
 
     #[test]
@@ -1211,6 +1421,81 @@ mod tests {
     }
 
     #[test]
+    fn a_residual_pack_without_sharing_writes_version_three() {
+        let bytes = write(&pack(1)).expect("write");
+        assert_eq!(read_u32(&bytes, 8).expect("version"), NQ_VERSION_RESIDUAL);
+    }
+
+    #[test]
+    fn a_version_four_pack_round_trips_and_stores_the_shared_block_once() {
+        let p = pack_v4();
+        let bytes = write(&p).expect("write");
+        assert_eq!(read_u32(&bytes, 8).expect("version"), NQ_VERSION);
+        assert_eq!(read(&bytes).expect("read"), p);
+        let saved: usize = p.linears[1..=2]
+            .iter()
+            .map(|l| 4 * l.v.len() + 2 * (l.s_pre.len() + l.s_mid.len()) + 4 * l.salient_idx.len())
+            .sum();
+        let mut unshared = p.clone();
+        for l in &mut unshared.linears {
+            l.shared = false;
+        }
+        let unshared_bytes = write(&unshared).expect("unshared");
+        assert_eq!(
+            bytes.len() + saved,
+            unshared_bytes.len() + p.linears.len() * 4
+        );
+        assert_eq!(p.stored_bits() + saved as u64 * 8, unshared.stored_bits());
+    }
+
+    #[test]
+    fn a_member_without_its_head_refuses() {
+        let p = pack_v4();
+        let mut linears = p.linears.clone();
+        linears.remove(0);
+        assert!(matches!(
+            NqPack::new(1, linears),
+            Err(NqError::SharedHead {
+                at: 0,
+                layer: 0,
+                kind: 1
+            })
+        ));
+        let mut edited = p;
+        edited.linears.remove(0);
+        assert!(matches!(
+            write(&edited),
+            Err(NqError::SharedHead { at: 0, .. })
+        ));
+    }
+
+    #[test]
+    fn a_member_whose_shared_block_differs_refuses() {
+        let mut p = pack_v4();
+        p.linears[1].s_pre[0] ^= 1;
+        assert!(matches!(write(&p), Err(NqError::SharedHead { at: 1, .. })));
+        let mut p = pack_v4();
+        p.linears[2].salient_idx[0] ^= 1;
+        assert!(matches!(write(&p), Err(NqError::SharedHead { at: 2, .. })));
+    }
+
+    #[test]
+    fn only_k_or_v_may_share() {
+        let mut p = pack_v4();
+        p.linears[0].shared = true;
+        assert!(matches!(write(&p), Err(NqError::SharedHead { at: 0, .. })));
+    }
+
+    #[test]
+    fn a_group_word_above_one_refuses() {
+        let p = pack_v4();
+        let mut bytes = write(&p).expect("write");
+        let at = NQ_HEADER_BYTES + section_len(&p.linears[0]) + 9 * 4;
+        bytes[at..at + 4].copy_from_slice(&2u32.to_le_bytes());
+        assert_eq!(read(&bytes), Err(NqError::BadGroup { group: 2 }));
+    }
+
+    #[test]
     fn rate_is_the_stored_bits_over_the_replaced_weights() {
         let p = pack(1);
         let want: u64 = p
@@ -1243,8 +1528,8 @@ mod tests {
         bad[0] ^= 1;
         assert_eq!(read(&bad), Err(NqError::BadMagic));
         let mut bad = bytes.clone();
-        bad[8..12].copy_from_slice(&4u32.to_le_bytes());
-        assert_eq!(read(&bad), Err(NqError::BadVersion { version: 4 }));
+        bad[8..12].copy_from_slice(&5u32.to_le_bytes());
+        assert_eq!(read(&bad), Err(NqError::BadVersion { version: 5 }));
         let mut bad = bytes.clone();
         bad.extend_from_slice(&[0]);
         assert_eq!(read(&bad), Err(NqError::Trailing { bytes: 1 }));

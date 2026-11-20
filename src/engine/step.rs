@@ -109,6 +109,8 @@ pub enum StepError {
         /// Supplied head width.
         kv_head_dim: usize,
     },
+    /// A file-backed KV cache could not be created, allocated or mapped.
+    KvFile(String),
     /// A config field cannot form a step quantity.
     BadConfig(String),
     /// A length did not fit the target integer width.
@@ -156,6 +158,7 @@ impl core::fmt::Display for StepError {
                 f,
                 "kv geometry {kv_layer}x{kv_head}x{kv_head_kv}x{kv_head_dim} != config"
             ),
+            StepError::KvFile(e) => write!(f, "kv file: {e}"),
             StepError::BadConfig(k) => write!(f, "bad config field {k}"),
             StepError::LengthOverflow => write!(f, "length overflow"),
             StepError::Overflow => write!(f, "fixed-point overflow"),
@@ -214,7 +217,8 @@ impl From<F32Error> for StepError {
 }
 
 /// Which projection kernel a decode step uses: [`KernelMode::Exact`] the pre-chart path,
-/// [`KernelMode::Q8Act`] the int8-activation chart (`matvec ∘ quant_act`) or LUT kernel.
+/// [`KernelMode::Q8Act`] the int8-activation chart (`matvec ∘ quant_act`) or LUT kernel,
+/// [`KernelMode::Ternary`] the ternary-activation reader over a `NanoQuant` pack.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum KernelMode {
     /// The pre-change path over the dequantized activation.
@@ -222,6 +226,9 @@ pub enum KernelMode {
     Exact,
     /// The int8-activation chart kernel, or the `PQ2_0` lookup-table kernel.
     Q8Act,
+    /// The ternary-activation reader over the fitted linears; stored tensors keep the `Q8Act`
+    /// kernels, because the dial only changes the activation reader over the factors.
+    Ternary,
 }
 
 /// How a step sources each tensor payload: [`Sched::Resident`] the executing borrowed path,
@@ -1290,7 +1297,7 @@ impl Engine {
     ) -> Result<Vec<Vec<i64>>, LmHeadError> {
         let n_embd = self.config.n_embd;
         let vocab = self.config.vocab_size;
-        if xs.len() > 1 && mode == KernelMode::Q8Act {
+        if xs.len() > 1 && matches!(mode, KernelMode::Q8Act | KernelMode::Ternary) {
             let t = self.lm_head();
             let need = lm_head::head_payload_len(t.ggml_type, &t.dims, n_embd, vocab)?;
             let extent = t.byte_range.end - t.byte_range.start;
@@ -1390,15 +1397,16 @@ impl Engine {
                     }
                 }
             }
-            (Sched::Resident, KernelMode::Q8Act) => match self.proj_q8act_quantified(
-                self.lm_head_index(),
-                t.ggml_type,
-                at,
-                vocab,
-                n_embd,
-                x,
-                crate::engine::ops::par::row_chunk_budget(vocab),
-            ) {
+            (Sched::Resident, KernelMode::Q8Act | KernelMode::Ternary) => match self
+                .proj_q8act_quantified(
+                    self.lm_head_index(),
+                    t.ggml_type,
+                    at,
+                    vocab,
+                    n_embd,
+                    x,
+                    crate::engine::ops::par::row_chunk_budget(vocab),
+                ) {
                 Ok(v) => Ok(v),
                 Err(e) => Err(LmHeadError::Matvec(e)),
             },
@@ -1407,7 +1415,7 @@ impl Engine {
                 lm_head::lm_head_fixed(t.ggml_type, raw, vocab, n_embd, x)
             }
             #[cfg(any(test, target_arch = "wasm32"))]
-            (Sched::Sequential, KernelMode::Q8Act) => match q8act_projection(
+            (Sched::Sequential, KernelMode::Q8Act | KernelMode::Ternary) => match q8act_projection(
                 self,
                 self.lm_head_index(),
                 t.ggml_type,
@@ -1490,9 +1498,10 @@ impl Engine {
         sched: Sched,
         mode: KernelMode,
     ) -> Result<Vec<i64>, StepError> {
-        // A packed NanoQuant linear replaces the payload: the factors carry the weight, so the
-        // kernel mode is the exact sign product and no GGUF row is read.
-        if let Some(out) = self.nq_proj(key, n_out, n_in, x)? {
+        // A packed NanoQuant linear replaces the payload: the factors carry the weight, so no GGUF
+        // row is read. The kernel mode chooses the activation reader over those factors: the exact
+        // Q32.32 words, the Q8 block codes or the ternary trit masks.
+        if let Some(out) = self.nq_proj(key, n_out, n_in, x, mode)? {
             return Ok(out);
         }
         let (idx, ggml_type, at) = self.tensor_payload(key, n_out, n_in, sched)?;
@@ -1507,15 +1516,16 @@ impl Engine {
                 activation,
                 crate::engine::ops::par::row_chunk_budget(n_out),
             ),
-            (Sched::Resident, KernelMode::Q8Act) => self.proj_q8act_quantified(
-                idx,
-                ggml_type,
-                at,
-                n_out,
-                n_in,
-                activation,
-                crate::engine::ops::par::row_chunk_budget(n_out),
-            ),
+            (Sched::Resident, KernelMode::Q8Act | KernelMode::Ternary) => self
+                .proj_q8act_quantified(
+                    idx,
+                    ggml_type,
+                    at,
+                    n_out,
+                    n_in,
+                    activation,
+                    crate::engine::ops::par::row_chunk_budget(n_out),
+                ),
             #[cfg(any(test, target_arch = "wasm32"))]
             (Sched::Sequential, KernelMode::Exact) => matvec_fixed(
                 ggml_type,
@@ -1525,7 +1535,7 @@ impl Engine {
                 activation,
             ),
             #[cfg(any(test, target_arch = "wasm32"))]
-            (Sched::Sequential, KernelMode::Q8Act) => q8act_projection(
+            (Sched::Sequential, KernelMode::Q8Act | KernelMode::Ternary) => q8act_projection(
                 self,
                 idx,
                 ggml_type,
@@ -1557,7 +1567,7 @@ impl Engine {
         // calls take the sign-rank product.
         if keys.iter().any(|&key| self.nq_linear(key).is_some())
             || !matches!(sched, Sched::Resident)
-            || mode != KernelMode::Q8Act
+            || !matches!(mode, KernelMode::Q8Act | KernelMode::Ternary)
         {
             return self.step_qkv_separate(&keys, outs, n_in, x, sched, mode);
         }
@@ -1694,7 +1704,8 @@ impl Engine {
             mode,
             // The Q8Act head dispatch is the pool's; the wasm build keeps the serial head even
             // when a caller asks for that kernel.
-            mode == KernelMode::Q8Act && !cfg!(target_arch = "wasm32"),
+            matches!(mode, KernelMode::Q8Act | KernelMode::Ternary)
+                && !cfg!(target_arch = "wasm32"),
         )
     }
 
@@ -1757,7 +1768,7 @@ impl Engine {
             token_id,
             Sched::Resident,
             mode,
-            mode == KernelMode::Q8Act,
+            matches!(mode, KernelMode::Q8Act | KernelMode::Ternary),
         )
     }
 
@@ -1833,12 +1844,49 @@ impl Engine {
     /// The [`KvState`] planes plus `O(n_affine · state words)`, zeroed once.
     pub fn state(&self, cap: usize) -> Result<DecodeState, StepError> {
         let kv = self.decode_state(cap)?;
+        Ok(self.state_with_kv(kv))
+    }
+
+    /// A decode state whose KV planes live in one writable cache file at `path`.
+    ///
+    /// The file is created (or truncated), allocated to its full capacity and mapped
+    /// `MAP_SHARED`; see [`KvState::with_file`]. The capacity check is the allocation, so a cache
+    /// the filesystem cannot hold is refused here.
+    ///
+    /// # Errors
+    ///
+    /// [`StepError::BadConfig`] for a zero or above-context capacity, [`StepError::Kv`] for a
+    /// geometry refusal, and [`StepError::KvFile`] for a refused file.
+    pub fn state_with_file(&self, cap: usize, path: &str) -> Result<DecodeState, StepError> {
+        if cap == 0 {
+            return Err(StepError::BadConfig(String::from("kv capacity")));
+        }
+        let ctx = self.config.context_length;
+        if ctx != 0 && cap > ctx {
+            return Err(StepError::BadConfig(String::from(
+                "kv capacity above context_length",
+            )));
+        }
+        let kv = KvState::with_file(
+            path,
+            count_mixers(&self.config.mixers, MixerKind::Softmax),
+            self.config.n_head,
+            self.config.n_head_kv,
+            self.config.head_dim,
+            cap,
+        )
+        .map_err(|e| StepError::KvFile(e.to_string()))?;
+        Ok(self.state_with_kv(kv))
+    }
+
+    /// Wrap a resolved [`KvState`] with the affine carrier this model's schedule needs.
+    fn state_with_kv(&self, kv: KvState) -> DecodeState {
         let n_affine = count_mixers(&self.config.mixers, MixerKind::Affine);
         let affine = match self.config.affine {
             Some(g) if n_affine > 0 => Some(AffineState::new(&g, n_affine)),
             _ => None,
         };
-        Ok(DecodeState { kv, affine })
+        DecodeState { kv, affine }
     }
 
     /// One greedy decode step over any schedule; `mode` selects the projection kernel.
@@ -1878,7 +1926,7 @@ impl Engine {
             token_id,
             Sched::Resident,
             mode,
-            mode == KernelMode::Q8Act,
+            matches!(mode, KernelMode::Q8Act | KernelMode::Ternary),
         )
     }
 
@@ -1924,7 +1972,7 @@ impl Engine {
                 block,
                 Sched::Resident,
                 mode,
-                mode == KernelMode::Q8Act,
+                matches!(mode, KernelMode::Q8Act | KernelMode::Ternary),
                 None,
             )?);
         }
@@ -1996,7 +2044,7 @@ impl Engine {
                 block,
                 Sched::Resident,
                 mode,
-                mode == KernelMode::Q8Act,
+                matches!(mode, KernelMode::Q8Act | KernelMode::Ternary),
                 None,
             )?;
             if i + 1 == num_blocks {
@@ -2016,7 +2064,7 @@ impl Engine {
             super::trace::q8_bytes(vocab, n_embd),
             super::trace::macs(vocab, n_embd, 1),
         );
-        if mode == KernelMode::Q8Act && bitplane_enabled() {
+        if matches!(mode, KernelMode::Q8Act | KernelMode::Ternary) && bitplane_enabled() {
             if let Some(bp) = self.bitplane_head() {
                 if let Some(q) = super::chart::ffn::quant_act_pooled(xf) {
                     if super::chart::q8act_fast_bound_ok(xf.len(), 128, &q, true) {
@@ -2058,7 +2106,7 @@ impl Engine {
             token_id,
             Sched::Resident,
             mode,
-            mode == KernelMode::Q8Act,
+            matches!(mode, KernelMode::Q8Act | KernelMode::Ternary),
         )?;
         self.head_greedy_state(&xf, mode)
     }

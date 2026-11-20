@@ -1,0 +1,23 @@
+agent-guard: waiting for another guarded job to finish...
+agent-guard: available=2794MiB cap=1770MiB jobs=2
+equality ok: ces 758537472==758537472 sd 132112692445696==132112692445696
+code_select shuffle    507768 ns/pass  968.490 ns/word
+code_select min        595484 ns/pass  1135.795 ns/word
+sign_dot    current   3159462 ns/pass  6026.196 ns/word
+sign_dot    popcnt    2247000 ns/pass  4285.812 ns/word
+min/shuffle 1.1727   pop/current 0.7112
+--
+equality ok: ces 758537472==758537472 sd 132112692445696==132112692445696
+code_select shuffle    557898 ns/pass  1064.105 ns/word
+code_select min        620280 ns/pass  1183.090 ns/word
+sign_dot    current   3083746 ns/pass  5881.779 ns/word
+sign_dot    popcnt    2244060 ns/pass  4280.205 ns/word
+min/shuffle 1.1118   pop/current 0.7277
+--
+equality ok: ces 758537472==758537472 sd 132112692445696==132112692445696
+code_select shuffle    549682 ns/pass  1048.435 ns/word
+code_select min        621454 ns/pass  1185.330 ns/word
+sign_dot    current   3123324 ns/pass  5957.267 ns/word
+sign_dot    popcnt    2251737 ns/pass  4294.847 ns/word
+min/shuffle 1.1306   pop/current 0.7209
+--

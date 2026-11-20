@@ -1,0 +1,4 @@
+pack: 196 linears, 1.098871 b/w, 896306432 factor bytes
+pack factors: 896306432 stored bytes for 6525288448 weights, 1.098871 b/w
+ppl: norm: OutOfRange
+WALL 1.41 s  PEAK_RSS_KB 336336  EXIT 1

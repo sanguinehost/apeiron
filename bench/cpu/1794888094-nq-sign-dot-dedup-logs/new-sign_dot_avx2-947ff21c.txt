@@ -1,0 +1,140 @@
+
+apeiron-947ff21c07d159c8:     file format elf64-x86-64
+
+
+Disassembly of section .text:
+
+00000000004c8390 <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2>:
+  4c8390:	push   %r14
+  4c8392:	push   %rbx
+  4c8393:	push   %rax
+  4c8394:	test   %rcx,%rcx
+  4c8397:	je     4c84ec <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x15c>
+  4c839d:	lea    0x0(,%rcx,4),%rax
+  4c83a5:	vpxor  %xmm0,%xmm0,%xmm0
+  4c83a9:	xor    %ebx,%ebx
+  4c83ab:	vmovdqa -0x45b993(%rip),%ymm1        # 6ca20 <anon.eba55a6df24cea575616dac9100e1f2d.377.llvm.8470296326554694471+0x60>
+  4c83b3:	vmovdqa -0x45c49b(%rip),%ymm2        # 6bf20 <anon.ce62be71f67121823f225f6b792c8c88.1306.llvm.18196246835368246246+0x80>
+  4c83bb:	vmovdqa -0x45bf43(%rip),%ymm3        # 6c480 <anon.0cc341647a2bd7c0bbc70fb088dd2ec0.52.llvm.15748141749669518540+0x20>
+  4c83c3:	vmovdqa -0x45c50b(%rip),%ymm4        # 6bec0 <anon.ce62be71f67121823f225f6b792c8c88.1306.llvm.18196246835368246246+0x20>
+  4c83cb:	vmovdqa -0x45c313(%rip),%ymm5        # 6c0c0 <anon.eba55a6df24cea575616dac9100e1f2d.371.llvm.8470296326554694471+0x100>
+  4c83d3:	vmovdqa -0x45b99b(%rip),%ymm6        # 6ca40 <anon.eba55a6df24cea575616dac9100e1f2d.377.llvm.8470296326554694471+0x80>
+  4c83db:	vmovdqa -0x45c1e3(%rip),%ymm7        # 6c200 <anon.eba55a6df24cea575616dac9100e1f2d.348.llvm.8470296326554694471+0xe0>
+  4c83e3:	vmovdqa -0x45ba4b(%rip),%ymm8        # 6c9a0 <anon.e54c4fb09e8fb6865c005b5ed9a594ca.124.llvm.221813238862631193+0x40>
+  4c83eb:	xor    %r11d,%r11d
+  4c83ee:	vpxor  %xmm9,%xmm9,%xmm9
+  4c83f3:	xor    %r10d,%r10d
+  4c83f6:	cs nopw 0x0(%rax,%rax,1)
+  4c8400:	lea    0x20(%rbx),%r9
+  4c8404:	cmp    %r8,%r9
+  4c8407:	ja     4c84f9 <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x169>
+  4c840d:	mov    (%rdx,%r11,1),%r14d
+  4c8411:	vmovq  %r14,%xmm10
+  4c8416:	vpbroadcastq %xmm10,%ymm10
+  4c841b:	vpsllvq %ymm1,%ymm10,%ymm11
+  4c8420:	vpcmpgtq %ymm11,%ymm0,%ymm11
+  4c8425:	vpxor  (%rdi,%rbx,8),%ymm11,%ymm11
+  4c842a:	vpaddq %ymm9,%ymm11,%ymm9
+  4c842f:	vpsllvq %ymm2,%ymm10,%ymm11
+  4c8434:	vpcmpgtq %ymm11,%ymm0,%ymm11
+  4c8439:	vpxor  -0xe0(%rdi,%r9,8),%ymm11,%ymm11
+  4c8443:	vpsllvq %ymm3,%ymm10,%ymm12
+  4c8448:	vpcmpgtq %ymm12,%ymm0,%ymm12
+  4c844d:	vpxor  -0xc0(%rdi,%r9,8),%ymm12,%ymm12
+  4c8457:	vpaddq %ymm12,%ymm11,%ymm11
+  4c845c:	vpaddq %ymm11,%ymm9,%ymm9
+  4c8461:	vpsllvq %ymm4,%ymm10,%ymm11
+  4c8466:	vpcmpgtq %ymm11,%ymm0,%ymm11
+  4c846b:	vpxor  -0xa0(%rdi,%r9,8),%ymm11,%ymm11
+  4c8475:	vpsllvq %ymm5,%ymm10,%ymm12
+  4c847a:	vpcmpgtq %ymm12,%ymm0,%ymm12
+  4c847f:	vpxor  -0x80(%rdi,%r9,8),%ymm12,%ymm12
+  4c8486:	vpaddq %ymm12,%ymm11,%ymm11
+  4c848b:	vpsllvq %ymm6,%ymm10,%ymm12
+  4c8490:	vpcmpgtq %ymm12,%ymm0,%ymm12
+  4c8495:	vpxor  -0x60(%rdi,%r9,8),%ymm12,%ymm12
+  4c849c:	vpaddq %ymm12,%ymm11,%ymm11
+  4c84a1:	vpsllvq %ymm7,%ymm10,%ymm12
+  4c84a6:	vpcmpgtq %ymm12,%ymm0,%ymm12
+  4c84ab:	vpxor  -0x40(%rdi,%r9,8),%ymm12,%ymm12
+  4c84b2:	vpsllvq %ymm8,%ymm10,%ymm10
+  4c84b7:	vpcmpgtq %ymm10,%ymm0,%ymm10
+  4c84bc:	vpxor  -0x20(%rdi,%r9,8),%ymm10,%ymm10
+  4c84c3:	vpaddq %ymm11,%ymm9,%ymm9
+  4c84c8:	vpaddq %ymm10,%ymm12,%ymm10
+  4c84cd:	vpaddq %ymm10,%ymm9,%ymm9
+  4c84d2:	popcnt %r14d,%ebx
+  4c84d7:	add    %rbx,%r10
+  4c84da:	add    $0x4,%r11
+  4c84de:	mov    %r9,%rbx
+  4c84e1:	cmp    %r11,%rax
+  4c84e4:	jne    4c8400 <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x70>
+  4c84ea:	jmp    4c84fc <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x16c>
+  4c84ec:	vpxor  %xmm9,%xmm9,%xmm9
+  4c84f1:	xor    %r10d,%r10d
+  4c84f4:	xor    %r9d,%r9d
+  4c84f7:	jmp    4c84fc <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x16c>
+  4c84f9:	mov    %rbx,%r9
+  4c84fc:	vextracti128 $0x1,%ymm9,%xmm0
+  4c8502:	vpaddq %xmm0,%xmm9,%xmm0
+  4c8506:	vpshufd $0xee,%xmm0,%xmm1
+  4c850b:	vpaddq %xmm1,%xmm0,%xmm0
+  4c850f:	vmovq  %xmm0,%rax
+  4c8514:	add    %r10,%rax
+  4c8517:	sub    %r9,%r8
+  4c851a:	jbe    4c859e <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x20e>
+  4c8520:	mov    %r9,%r11
+  4c8523:	shr    $0x5,%r11
+  4c8527:	cmp    %r11,%rcx
+  4c852a:	jbe    4c8598 <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x208>
+  4c852c:	mov    %rsi,%r10
+  4c852f:	sub    %r9,%r10
+  4c8532:	jb     4c85a9 <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x219>
+  4c8534:	lea    (%rdx,%rcx,4),%rcx
+  4c8538:	lea    (%rdi,%r9,8),%rsi
+  4c853c:	lea    (%rdx,%r11,4),%rdx
+  4c8540:	xor    %r9d,%r9d
+  4c8543:	xor    %edi,%edi
+  4c8545:	jmp    4c855c <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x1cc>
+  4c8547:	nopw   0x0(%rax,%rax,1)
+  4c8550:	mov    %r11,%rdi
+  4c8553:	add    $0x4,%rdx
+  4c8557:	cmp    %rcx,%rdx
+  4c855a:	je     4c859b <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x20b>
+  4c855c:	lea    0x20(%rdi),%r11
+  4c8560:	cmp    %r11,%r8
+  4c8563:	cmovb  %r8,%r11
+  4c8567:	cmp    %r11,%rdi
+  4c856a:	jae    4c8553 <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x1c3>
+  4c856c:	mov    (%rdx),%ebx
+  4c856e:	xchg   %ax,%ax
+  4c8570:	cmp    %r10,%rdi
+  4c8573:	jae    4c85bf <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x22f>
+  4c8575:	mov    %r9,%r14
+  4c8578:	mov    %ebx,%r9d
+  4c857b:	and    $0x1,%r9d
+  4c857f:	add    %r9,%r14
+  4c8582:	neg    %r9
+  4c8585:	xor    (%rsi,%rdi,8),%r9
+  4c8589:	add    %r14,%r9
+  4c858c:	shr    $1,%ebx
+  4c858e:	inc    %rdi
+  4c8591:	cmp    %rdi,%r11
+  4c8594:	jne    4c8570 <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x1e0>
+  4c8596:	jmp    4c8550 <_RNvNtNtNtCshsEvpnzj2YE_7apeiron6engine4kern2nq13sign_dot_avx2+0x1c0>
+  4c8598:	xor    %r9d,%r9d
+  4c859b:	add    %r9,%rax
+  4c859e:	add    $0x8,%rsp
+  4c85a2:	pop    %rbx
+  4c85a3:	pop    %r14
+  4c85a5:	vzeroupper
+  4c85a8:	ret
+  4c85a9:	lea    0x32cda8(%rip),%rcx        # 7f5358 <anon.c1e431ceb2677a9348f1a5a832bb31c7.293.llvm.10426835830670591816+0x18>
+  4c85b0:	mov    %r9,%rdi
+  4c85b3:	mov    %rsi,%rdx
+  4c85b6:	vzeroupper
+  4c85b9:	call   *0x350d39(%rip)        # 8192f8 <_DYNAMIC+0x268>
+  4c85bf:	lea    0x32cdaa(%rip),%rdx        # 7f5370 <anon.c1e431ceb2677a9348f1a5a832bb31c7.293.llvm.10426835830670591816+0x30>
+  4c85c6:	mov    %r10,%rsi
+  4c85c9:	vzeroupper
+  4c85cc:	call   *0x350d96(%rip)        # 819368 <_DYNAMIC+0x2d8>

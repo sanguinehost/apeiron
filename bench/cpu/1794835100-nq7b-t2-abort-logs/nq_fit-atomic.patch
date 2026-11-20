@@ -1,0 +1,45 @@
+--- /workspace/nq_fit.orig.rs	2026-11-16 11:49:14.070954188 +0000
++++ examples/nq_fit.rs	2026-11-16 11:49:14.083954450 +0000
+@@ -299,6 +299,9 @@
+                 factor.admm_loss
+             );
+             linears.push(packed_linear(layer, at, &factor));
++            if let Some(path) = &a.out {
++                write_pack(path, cfg.n_layer, &linears)?;
++            }
+         }
+     }
+     println!(
+@@ -306,16 +309,21 @@
+         linears.len(),
+         t_all.elapsed().as_secs_f64()
+     );
+-    if let Some(path) = &a.out {
+-        let pack = NqPack::new(cfg.n_layer, linears)?;
+-        let bytes = write(&pack)?;
+-        std::fs::write(path, &bytes)?;
+-        println!(
+-            "pack {path} {} B, {} sections, {:.6} b/w",
+-            bytes.len(),
+-            pack.linears.len(),
+-            pack.bits_per_weight().unwrap_or(0.0)
+-        );
+-    }
++    Ok(())
++}
++
++/// Write the completed prefix of the pack atomically, so a later failure keeps every section.
++fn write_pack(path: &str, layers: usize, linears: &[PackedLinear]) -> Result<(), Box<dyn Error>> {
++    let pack = NqPack::new(layers, linears.to_vec())?;
++    let bytes = write(&pack)?;
++    let tmp = format!("{path}.tmp");
++    std::fs::write(&tmp, &bytes)?;
++    std::fs::rename(&tmp, path)?;
++    println!(
++        "pack {path} {} B, {} sections, {:.6} b/w",
++        bytes.len(),
++        pack.linears.len(),
++        pack.bits_per_weight().unwrap_or(0.0)
++    );
+     Ok(())
+ }

@@ -1,0 +1,21 @@
+== 4 threads run 1 ==
+pack          252 linears, 1.178785 b/w, 1023445968 factor bytes
+prompt_ids    1884 tokens
+712 in the city of Xianyang ( modern – day Xi'an ) . His mother was a woman of high social standing and was the daughter of
+prefill       489.754 s, 3.85 tok/s
+decode        11.088 s, 2.89 tok/s (32 tokens, stop: length)
+== 4 threads run 2 ==
+pack          252 linears, 1.178785 b/w, 1023445968 factor bytes
+prompt_ids    1884 tokens
+712 in the city of Xianyang ( modern – day Xi'an ) . His mother was a woman of high social standing and was the daughter of
+prefill       469.740 s, 4.01 tok/s
+decode        11.003 s, 2.91 tok/s (32 tokens, stop: length)
+== 4 threads run 3 ==
+pack          252 linears, 1.178785 b/w, 1023445968 factor bytes
+prompt_ids    1884 tokens
+712 in the city of Xianyang ( modern – day Xi'an ) . His mother was a woman of high social standing and was the daughter of
+prefill       510.524 s, 3.69 tok/s
+decode        11.201 s, 2.86 tok/s (32 tokens, stop: length)
+== 1 thread run 1 ==
+pack          252 linears, 1.178785 b/w, 1023445968 factor bytes
+prompt_ids    1884 tokens

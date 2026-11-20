@@ -1,0 +1,23 @@
+{
+  "protocol": 1,
+  "pack_sha256": "271fd5a7862b1559c9cdc3338bc5dc5d0e8f50a5ec52fcd2a1bf18342b0dfea3",
+  "pack_sha256_path": "/home/lucas/models/arelath/nq8b-late-v4/model.nqp",
+  "skeleton_sha256": "4a1978ceca0424ca37d244b1909f4eb6dcfc1748dc1447db923a49ea95eec59b",
+  "skeleton_sha256_path": "/home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf",
+  "rate": 1.178785,
+  "served_bytes": 1891196336,
+  "windows": 5,
+  "ppl": {
+    "nq": 15.674387331,
+    "q4": 10.717138617,
+    "q8": 10.275320992
+  },
+  "ratios": {
+    "nq/q4": 1.462553382,
+    "nq/q8": 1.525440163
+  },
+  "missing": ["q4b", "shot", "decode"],
+  "host": "vast.ai 61136454: Intel Xeon E5-2696 v3, 18 cores / 36 threads, 2.30 GHz base, 3.80 GHz max",
+  "binary_sha256": "9ad7961f59e98a5f70d4d926846c6ddbb6c69e5e4316178670bd0fd51fa24764",
+  "note": "v1 five-window screen, full 2,047-token spans; the 17-window confirm list, the bartowski arm, the six-task arm and a timed decode are not run"
+}

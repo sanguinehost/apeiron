@@ -383,7 +383,15 @@ impl Frame {
         clippy::too_many_lines,
         reason = "one frame's buffer graph, recorded in order"
     )]
-    unsafe fn build(vk: &Vk, k: usize, n: usize, r: usize, limbs: u32, cut: usize) -> Option<Self> {
+    unsafe fn build(
+        vk: &Vk,
+        k: usize,
+        n: usize,
+        r: usize,
+        limbs: u32,
+        inv_limbs: u32,
+        cut: usize,
+    ) -> Option<Self> {
         let (kp, rp) = (k.div_ceil(TILE) * TILE, r.div_ceil(TILE) * TILE);
         let (bn, br) = (n.div_ceil(32), r.div_ceil(32));
         let lb = limbs as usize * 32;
@@ -617,7 +625,7 @@ impl Frame {
             rec2(true, true),
         ];
         if cut > 0 {
-            me.inv = super::inverse::Inverse::build(vk, r, cut, limbs, hw, hi[0]).map(Box::new);
+            me.inv = super::inverse::Inverse::build(vk, r, cut, inv_limbs, hw, hi[0]).map(Box::new);
         }
         // cbl: the iterate's upload; cbr: one iterate buffer to the readback.
         me.cbl = vk.command_buffer();
@@ -641,12 +649,12 @@ impl Frame {
 }
 
 /// Frames not checked out, by `[k, n, r, limbs, cut]`.
-static FRAMES: Mutex<Vec<([usize; 5], Box<Frame>)>> = Mutex::new(Vec::new());
+static FRAMES: Mutex<Vec<([usize; 6], Box<Frame>)>> = Mutex::new(Vec::new());
 
 /// One side of a factorisation (`A` over `W`, or `B` over `Wᵀ`) holding its frame, with the
 /// target's plane built; the frame returns to [`FRAMES`] on drop.
 pub(crate) struct Side {
-    pub(super) key: [usize; 5],
+    pub(super) key: [usize; 6],
     pub(super) frame: Option<Box<Frame>>,
 }
 
@@ -666,6 +674,7 @@ impl Side {
         n: usize,
         r: usize,
         limbs: u32,
+        inv_limbs: u32,
         cut: usize,
     ) -> Option<Self> {
         if std::env::var("APEIRON_ADMM_DEVICE").is_ok_and(|v| v.trim() == "0") {
@@ -674,7 +683,7 @@ impl Side {
         if k == 0 || n == 0 || r == 0 || n > MAX_INNER || r > MAX_INNER || w.len() != k * n {
             return None;
         }
-        let key = [k, n, r, limbs as usize, cut];
+        let key = [k, n, r, limbs as usize, inv_limbs as usize, cut];
         let dev = device()?;
         let cached = {
             let mut fr = FRAMES.lock().unwrap_or_else(PoisonError::into_inner);
@@ -690,7 +699,7 @@ impl Side {
         // SAFETY: the device mutex is held; the frame was built on this device and is ours alone.
         let frame = match cached {
             Some(f) => f,
-            None => Box::new(unsafe { Frame::build(vk, k, n, r, limbs, cut) }?),
+            None => Box::new(unsafe { Frame::build(vk, k, n, r, limbs, inv_limbs, cut) }?),
         };
         unsafe {
             std::ptr::copy_nonoverlapping(w.as_ptr().cast::<u8>(), frame.stage, 8 * w.len());
@@ -709,7 +718,11 @@ impl Side {
     }
 
     /// `x_update(zx, n, r, w, k, z, du, rho, reg)` on the device, `inv` the host inverse of `hw`
-    /// (`spd_inverse`). See the module contract for the three outcomes.
+    /// (`spd_inverse`). `zx` is the plane after [`normalized_plane`], in its `n × r` layout: the
+    /// map transposes it and grids it (`admm_map.comp` mode 0), so the device products read the
+    /// same normalised words the host would. See the module contract for the three outcomes.
+    ///
+    /// [`normalized_plane`]: crate::learn::nanoquant::normalized_plane
     ///
     /// # Complexity
     ///

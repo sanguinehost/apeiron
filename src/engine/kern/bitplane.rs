@@ -309,7 +309,7 @@ impl BitplaneHead {
         // Per-block activation slack of the unread low plane: 15·Σ max(0, a) and 15·Σ min(0, a).
         let mut pos = Vec::with_capacity(self.blocks);
         let mut neg = Vec::with_capacity(self.blocks);
-        for blk in q.codes().chunks_exact(Q8_0_QK) {
+        for blk in q.codes().as_chunks::<Q8_0_QK>().0 {
             let (mut p, mut n) = (0i64, 0i64);
             for &a in blk {
                 if a > 0 {
@@ -1157,7 +1157,7 @@ mod tests {
         }
         let mut pos = Vec::with_capacity(head.blocks);
         let mut neg = Vec::with_capacity(head.blocks);
-        for blk in q.codes().chunks_exact(Q8_0_QK) {
+        for blk in q.codes().as_chunks::<Q8_0_QK>().0 {
             let (mut p, mut n) = (0i64, 0i64);
             for &a in blk {
                 if a > 0 {

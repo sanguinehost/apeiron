@@ -1,0 +1,294 @@
+driver start epoch=1794913051 model=/home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf pack=/home/lucas/models/arelath/nq8b-late-v4/model.nqp
+start J0-q4-probe epoch=1794913051 :: bash -c 
+    df -h /home/lucas | tail -1
+    ls -l /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf 2>/dev/null || echo "no full Q4 file"
+    vastai show instances 2>&1 | tail -3
+
+end J0-q4-probe rc=0 wall=5s
+start J1-fast-gate epoch=1794913056 :: bash -c /home/lucas/Workspace/tools/agent-guard run -- cargo fmt --all -- --check && python3 tools/check-claims.py && python3 tools/book-check.py
+end J1-fast-gate rc=0 wall=4s
+start J7a-membw-build epoch=1794913060 :: /home/lucas/Workspace/tools/agent-guard run -- cc -O3 -march=native -pthread -o /tmp/membw tools/membw.c
+end J7a-membw-build rc=0 wall=1s
+start J7b-membw epoch=1794913061 :: bash -c 
+    for t in 1 2 4 8; do
+        echo "== ${t} threads =="
+        /home/lucas/Workspace/tools/agent-guard run -- taskset -c 0-7 /tmp/membw "$t" 128 60
+    done
+
+end J7b-membw rc=0 wall=12s
+mem ok avail=3427MiB need=2600MiB
+start J5-phase-split epoch=1794913073 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/phase_split --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --steps 24 --json
+end J5-phase-split rc=1 wall=0s
+mem ok avail=3423MiB need=2600MiB
+start J6-head-time epoch=1794913073 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/head_time /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf /home/lucas/models/arelath/nq8b-late-v4/model.nqp
+end J6-head-time rc=1 wall=1s
+mem ok avail=3409MiB need=2600MiB
+start J8-decode-2k epoch=1794913074 :: bash -c 
+        p=$(cat /tmp/opencode/nq8b-2k-prompt.txt)
+        for i in 1 2 3; do
+            echo "== run $i =="
+            systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- \
+                /home/lucas/Workspace/apeiron-nq/target/release/examples/generate --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json \
+                --prompt "$p" --n 32 --kernel q8act
+        done
+    
+end J8-decode-2k rc=1 wall=1s
+start J2-clippy epoch=1794913075 :: /home/lucas/Workspace/tools/agent-guard run -- cargo clippy --workspace --all-features --all-targets --locked -j 1 -- -D warnings
+end J2-clippy rc=0 wall=16s
+start J3-tests epoch=1794913091 :: /home/lucas/Workspace/tools/agent-guard run -- cargo test --workspace --all-features --locked --no-fail-fast -- --skip gpu --skip spd_inverse_matches_serial
+end J3-tests rc=101 wall=690s
+mem ok avail=3693MiB need=2600MiB
+start J4-exact-ppl epoch=1794913781 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 0 --ctx 2048 --head-batch 16 --kernel exact --second-half
+end J4-exact-ppl rc=0 wall=2215s
+queue done epoch=1794915996
+run2 start epoch=1794915996
+start R1-build epoch=1794915996 :: /home/lucas/Workspace/tools/agent-guard run -- cargo build --release --locked --examples
+end R1-build rc=101 wall=1s
+mem ok avail=3821MiB need=2600MiB
+start J5b-phase-split epoch=1794915997 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/phase_split --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --steps 24 --json
+end J5b-phase-split rc=1 wall=0s
+mem ok avail=3822MiB need=2600MiB
+start J6b-head-time epoch=1794915997 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/head_time /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf /home/lucas/models/arelath/nq8b-late-v4/model.nqp
+end J6b-head-time rc=1 wall=2s
+mem ok avail=3824MiB need=2600MiB
+start J8b-decode-2k epoch=1794915999 :: bash -c 
+        p=$(cat /tmp/opencode/nq8b-2k-prompt.txt)
+        for i in 1 2 3; do
+            echo "== run $i =="
+            systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- \
+                /home/lucas/Workspace/apeiron-nq/target/release/examples/generate --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json \
+                --prompt "$p" --n 32 --kernel q8act
+        done
+    
+end J8b-decode-2k rc=1 wall=0s
+mem ok avail=3711MiB need=2600MiB
+start J8c-decode-2k-8t epoch=1794915999 :: bash -c 
+        p=$(cat /tmp/opencode/nq8b-2k-prompt.txt)
+        systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- \
+            env APEIRON_THREADS=8 /home/lucas/Workspace/apeiron-nq/target/release/examples/generate --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json \
+            --prompt "$p" --n 32 --kernel q8act
+    
+end J8c-decode-2k-8t rc=1 wall=0s
+start J7c-membw-clean epoch=1794915999 :: bash -c 
+    for t in 4 8; do
+        echo "== ${t} threads, 256 MiB, 100 passes =="
+        /home/lucas/Workspace/tools/agent-guard run -- taskset -c 0-7 /tmp/membw "$t" 256 100
+    done
+
+end J7c-membw-clean rc=137 wall=9s
+run2 done epoch=1794916008
+run3 start epoch=1794916008
+mem ok avail=3846MiB need=2600MiB
+start W2048-ppl epoch=1794916008 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 2048 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end W2048-ppl rc=0 wall=559s
+mem ok avail=3843MiB need=2600MiB
+start W4096-ppl epoch=1794916567 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 4096 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end W4096-ppl rc=0 wall=551s
+mem ok avail=3841MiB need=2600MiB
+start W6144-ppl epoch=1794917118 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 6144 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end W6144-ppl rc=0 wall=551s
+mem ok avail=3836MiB need=2600MiB
+start W8192-ppl epoch=1794917669 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 8192 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end W8192-ppl rc=0 wall=552s
+window skip=2048 nq_ppl=17.361910 breakeven_q4=11.574607 vs_window1_q4=7.587145 ratio_if_same=2.288332
+window skip=4096 nq_ppl=17.226503 breakeven_q4=11.484335 vs_window1_q4=7.587145 ratio_if_same=2.270486
+window skip=6144 nq_ppl=14.057420 breakeven_q4=9.371613 vs_window1_q4=7.587145 ratio_if_same=1.852794
+window skip=8192 nq_ppl=15.236382 breakeven_q4=10.157588 vs_window1_q4=7.587145 ratio_if_same=2.008184
+run3 done epoch=1794918221
+run4 start epoch=1794918221
+start R2-q4-sha epoch=1794918221 :: bash -c 
+    f=/home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf
+    b=$(stat -c %s "$f" 2>/dev/null || echo 0)
+    echo "bytes=$b expected=5027783488"
+    [ "$b" = 5027783488 ] || { echo "size mismatch"; exit 1; }
+    s=$(sha256sum "$f" | cut -d" " -f1)
+    echo "sha256=$s"
+    [ "$s" = d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785 ] || { echo "sha mismatch"; exit 1; }
+
+end R2-q4-sha rc=0 wall=34s
+mem ok avail=3868MiB need=3400MiB
+start Q4W1-ppl epoch=1794918255 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 0 --ctx 2048 --head-batch 16 --second-half
+end Q4W1-ppl rc=0 wall=442s
+mem ok avail=4018MiB need=3400MiB
+start Q4W2-ppl epoch=1794918697 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 2048 --ctx 2048 --head-batch 16 --second-half
+end Q4W2-ppl rc=0 wall=426s
+Q2 samehost window1 q4=7.587145 nq=11.374839 ratio=1.499225 bar=11.380717 margin=+0.005878
+Q2 samehost window2 q4=11.834074 nq=17.361910 ratio=1.467112 bar=17.751111 margin=+0.389201
+Q2 host-reproduction q4_window1_here=7.587145 vs rented=7.587145 delta=+0.000000 (+0.000%)
+run4 done epoch=1794919123
+run5 start epoch=1794919123
+mem ok avail=4133MiB need=2600MiB
+start K1-split epoch=1794919123 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/phase_split --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --steps 24
+end K1-split rc=0 wall=9s
+start K1j-split-json epoch=1794919132 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/phase_split --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --steps 24 --json
+end K1j-split-json rc=0 wall=7s
+start K2-target-gate epoch=1794919139 :: bash -c 
+        dom=$(grep -o "\"dominant\":\"[^\"]*\"" bench/cpu/1794912865-nq8b-overnight-logs/K1j-split-json.log | tail -1 | cut -d\" -f4)
+        echo "dominant=$dom"
+        [ -n "$dom" ] || exit 1
+        exec systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- \
+            /home/lucas/Workspace/apeiron-nq/target/release/examples/phase_split --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --steps 24 --target "$dom"
+    
+end K2-target-gate rc=0 wall=7s
+mem ok avail=4049MiB need=2600MiB
+start K3-head-time epoch=1794919146 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/head_time /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf /home/lucas/models/arelath/nq8b-late-v4/model.nqp
+end K3-head-time rc=0 wall=7s
+mem ok avail=4012MiB need=2600MiB
+start K4-decode-2k epoch=1794919153 :: bash -c 
+        p=$(cat /tmp/opencode/nq8b-2k-prompt.txt)
+        for i in 1 2 3; do
+            echo "== 4 threads run $i =="
+            systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- \
+                /home/lucas/Workspace/apeiron-nq/target/release/examples/generate --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json \
+                --prompt "$p" --n 32 --kernel q8act
+        done
+        echo "== 1 thread run 1 =="
+        systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- \
+            env APEIRON_THREADS=1 /home/lucas/Workspace/apeiron-nq/target/release/examples/generate --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json \
+            --prompt "$p" --n 32 --kernel q8act
+        echo "== 2 threads run 1 =="
+        systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- \
+            env APEIRON_THREADS=2 /home/lucas/Workspace/apeiron-nq/target/release/examples/generate --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json \
+            --prompt "$p" --n 32 --kernel q8act
+    
+end K4-decode-2k rc=137 wall=1515s
+start K5-q6k-test epoch=1794920668 :: /home/lucas/Workspace/tools/agent-guard run -- cargo test --release --locked --lib --all-features chart::avx2_group_cores_match_the_portable_loop -- --nocapture
+stop K4 after 3x4t: 1t/2t 2k runs cancelled; thread scaling -> run8 (phase_split)
+end K5-q6k-test rc=0 wall=80s
+run5 done epoch=1794920748
+run7 start epoch=1794920748
+mem ok avail=3740MiB need=3400MiB
+start Q4W4096-ppl epoch=1794920748 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 4096 --ctx 2048 --head-batch 16 --second-half
+end Q4W4096-ppl rc=0 wall=448s
+mem ok avail=3973MiB need=3400MiB
+start Q4W6144-ppl epoch=1794921196 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 6144 --ctx 2048 --head-batch 16 --second-half
+end Q4W6144-ppl rc=0 wall=448s
+mem ok avail=3974MiB need=3400MiB
+start Q4W8192-ppl epoch=1794921644 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 8192 --ctx 2048 --head-batch 16 --second-half
+end Q4W8192-ppl rc=0 wall=439s
+Q2 window skip=2048 nq=17.361910 q4=11.834074 ratio=1.467112 bar=17.751111 margin=+0.389201
+Q2 window skip=4096 nq=17.226503 q4=10.462647 ratio=1.646477 bar=15.693971 margin=-1.532533
+Q2 window skip=6144 nq=14.057420 q4=9.354884 ratio=1.502682 bar=14.032326 margin=-0.025094
+Q2 window skip=8192 nq=15.236382 q4=10.927844 ratio=1.394272 bar=16.391766 margin=+1.155384
+run7 done epoch=1794922083
+run8 start epoch=1794922083
+start S1-split epoch=1794922083 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- env APEIRON_THREADS=1 /home/lucas/Workspace/apeiron-nq/target/release/examples/phase_split --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --steps 24
+end S1-split rc=0 wall=18s
+start S2-split epoch=1794922101 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- env APEIRON_THREADS=2 /home/lucas/Workspace/apeiron-nq/target/release/examples/phase_split --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --steps 24
+end S2-split rc=0 wall=9s
+start S8-split epoch=1794922110 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- env APEIRON_THREADS=8 /home/lucas/Workspace/apeiron-nq/target/release/examples/phase_split --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --steps 24
+end S8-split rc=0 wall=8s
+run8 done epoch=1794922118
+run9 start epoch=1794922118
+start T1-quality-nq epoch=1794922118 :: systemd-run --user --scope -q -p MemoryMax=3200M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/quality --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --items /home/lucas/Workspace/apeiron-nq/bench/quality/items/piqa-200.jsonl --out bench/cpu/1794912865-nq8b-overnight-logs/quality-smoke/piqa-5.nq.jsonl --limit 5 --kernel q8act --head-batch 16
+end T1-quality-nq rc=0 wall=94s
+start T2-quality-q4 epoch=1794922212 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/quality --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --items /home/lucas/Workspace/apeiron-nq/bench/quality/items/piqa-200.jsonl --out bench/cpu/1794912865-nq8b-overnight-logs/quality-smoke/piqa-5.q4.jsonl --limit 5 --kernel q8act --head-batch 16
+end T2-quality-q4 rc=0 wall=71s
+start T3-quality-compare epoch=1794922283 :: bash -c 
+        python3 /home/lucas/Workspace/apeiron-nq/tools/quality-compare.py --nq bench/cpu/1794912865-nq8b-overnight-logs/quality-smoke/piqa-5.nq.jsonl --q4 bench/cpu/1794912865-nq8b-overnight-logs/quality-smoke/piqa-5.q4.jsonl
+        rc=$?
+        [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ]
+    
+end T3-quality-compare rc=0 wall=0s
+run9 done epoch=1794922283
+run10 start epoch=1794922283
+start K5b-q6k-test epoch=1794922283 :: /home/lucas/Workspace/tools/agent-guard run -- cargo test --release --locked --lib --all-features avx2_group_cores_match_the_portable_loop -- --nocapture
+end K5b-q6k-test rc=0 wall=1s
+run10 done epoch=1794922284
+run13 start epoch=1794922284
+mem ok avail=3939MiB need=3400MiB
+start NQw1-repeat epoch=1794922284 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 0 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQw1-repeat rc=0 wall=562s
+mem ok avail=3935MiB need=3400MiB
+start Q4w1-repeat epoch=1794922846 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 0 --ctx 2048 --head-batch 16 --second-half
+end Q4w1-repeat rc=0 wall=435s
+mem ok avail=3915MiB need=3400MiB
+start Q4w3-repeat epoch=1794923281 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 4096 --ctx 2048 --head-batch 16 --second-half
+end Q4w3-repeat rc=0 wall=437s
+determinism nq w1: first=11.374839 repeat=11.374839 delta=+0.000000
+determinism q4 w1: first=7.587145 repeat=7.587145 delta=+0.000000
+determinism q4 w3: first=10.462647 repeat=10.462647 delta=+0.000000
+run13 done epoch=1794923718
+run14 start epoch=1794923718
+mem ok avail=3998MiB need=3400MiB
+start NQ10240-ppl epoch=1794923718 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 10240 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQ10240-ppl rc=0 wall=565s
+mem ok avail=3988MiB need=3600MiB
+start Q4W10240-ppl epoch=1794924283 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 10240 --ctx 2048 --head-batch 16 --second-half
+end Q4W10240-ppl rc=0 wall=436s
+mem ok avail=4036MiB need=3400MiB
+start NQ12288-ppl epoch=1794924719 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 12288 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+run14 restart epoch=1794924941 :: systematic skips
+mem ok avail=3931MiB need=3400MiB
+skip NQ10240-ppl (done)
+mem ok avail=3931MiB need=3600MiB
+skip Q4W10240-ppl (done)
+mem ok avail=3932MiB need=3400MiB
+start NQ22016-ppl epoch=1794924941 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 22016 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQ22016-ppl rc=0 wall=537s
+mem ok avail=3939MiB need=3600MiB
+start Q4W22016-ppl epoch=1794925478 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 22016 --ctx 2048 --head-batch 16 --second-half
+end Q4W22016-ppl rc=0 wall=434s
+mem ok avail=3895MiB need=3400MiB
+start NQ33792-ppl epoch=1794925912 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 33792 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQ33792-ppl rc=0 wall=561s
+mem ok avail=3959MiB need=3600MiB
+start Q4W33792-ppl epoch=1794926473 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 33792 --ctx 2048 --head-batch 16 --second-half
+end Q4W33792-ppl rc=0 wall=432s
+mem ok avail=3882MiB need=3400MiB
+start NQ45568-ppl epoch=1794926905 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 45568 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQ45568-ppl rc=0 wall=558s
+mem ok avail=3961MiB need=3600MiB
+start Q4W45568-ppl epoch=1794927463 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 45568 --ctx 2048 --head-batch 16 --second-half
+end Q4W45568-ppl rc=0 wall=434s
+mem ok avail=3949MiB need=3400MiB
+start NQ57344-ppl epoch=1794927897 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 57344 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQ57344-ppl rc=0 wall=558s
+mem ok avail=3961MiB need=3600MiB
+start Q4W57344-ppl epoch=1794928455 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 57344 --ctx 2048 --head-batch 16 --second-half
+end Q4W57344-ppl rc=0 wall=434s
+mem ok avail=3981MiB need=3400MiB
+start NQ69120-ppl epoch=1794928889 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 69120 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQ69120-ppl rc=0 wall=559s
+mem ok avail=3926MiB need=3600MiB
+start Q4W69120-ppl epoch=1794929448 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 69120 --ctx 2048 --head-batch 16 --second-half
+end Q4W69120-ppl rc=0 wall=435s
+mem ok avail=3904MiB need=3400MiB
+start NQ80896-ppl epoch=1794929883 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 80896 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQ80896-ppl rc=0 wall=558s
+mem ok avail=3888MiB need=3600MiB
+start Q4W80896-ppl epoch=1794930441 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 80896 --ctx 2048 --head-batch 16 --second-half
+end Q4W80896-ppl rc=0 wall=432s
+mem ok avail=3973MiB need=3400MiB
+start NQ92672-ppl epoch=1794930873 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 92672 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQ92672-ppl rc=0 wall=557s
+mem ok avail=3927MiB need=3600MiB
+start Q4W92672-ppl epoch=1794931430 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 92672 --ctx 2048 --head-batch 16 --second-half
+end Q4W92672-ppl rc=0 wall=433s
+mem ok avail=3969MiB need=3400MiB
+start NQ104448-ppl epoch=1794931863 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 104448 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQ104448-ppl rc=0 wall=558s
+mem ok avail=3911MiB need=3600MiB
+start Q4W104448-ppl epoch=1794932421 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 104448 --ctx 2048 --head-batch 16 --second-half
+end Q4W104448-ppl rc=0 wall=434s
+mem ok avail=3958MiB need=3400MiB
+start NQ116224-ppl epoch=1794932855 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 116224 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQ116224-ppl rc=0 wall=557s
+mem ok avail=3947MiB need=3600MiB
+start Q4W116224-ppl epoch=1794933412 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 116224 --ctx 2048 --head-batch 16 --second-half
+end Q4W116224-ppl rc=0 wall=435s
+mem ok avail=3983MiB need=3400MiB
+start NQ128000-ppl epoch=1794933847 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 128000 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQ128000-ppl rc=0 wall=557s
+mem ok avail=3899MiB need=3600MiB
+start Q4W128000-ppl epoch=1794934404 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 128000 --ctx 2048 --head-batch 16 --second-half
+end Q4W128000-ppl rc=0 wall=446s
+mem ok avail=3942MiB need=3400MiB
+start NQ139776-ppl epoch=1794934851 :: systemd-run --user --scope -q -p MemoryMax=3600M -p MemorySwapMax=0 -- /home/lucas/Workspace/apeiron-nq/target/release/examples/ppl --model /home/lucas/models/arelath/nq8b/skeleton-q6k-q4kembed.gguf --pack /home/lucas/models/arelath/nq8b-late-v4/model.nqp --tokenizer /home/lucas/models/arelath/nq8b/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 2048 --skip 139776 --ctx 2048 --head-batch 16 --kernel q8act --second-half
+end NQ139776-ppl rc=0 wall=774s
+mem wait avail=3171MiB need=3600MiB
+mem wait avail=2677MiB need=3600MiB
+mem wait avail=943MiB need=3600MiB
+mem wait avail=875MiB need=3600MiB
+mem wait avail=1684MiB need=3600MiB
+run14 retired: 17 of 25 pairs on the laptop (through 139776); the 25-window line moves to rented host 61104165

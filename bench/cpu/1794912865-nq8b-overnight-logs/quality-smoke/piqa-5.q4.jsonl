@@ -1,0 +1,5 @@
+{"task":"piqa","item":4,"gold":0,"ll":[-35.086905555,-43.544076161],"n_tok":[11,11],"n_bytes":[47,46],"norm_len":[46,45],"correct":{"acc":true,"acc_norm":true,"acc_tok":true},"refused":null,"truncated":false,"seconds":9.783}
+{"task":"piqa","item":13,"gold":0,"ll":[-44.586924163,-45.903611641],"n_tok":[10,10],"n_bytes":[45,39],"norm_len":[44,38],"correct":{"acc":true,"acc_norm":true,"acc_tok":true},"refused":null,"truncated":false,"seconds":10.511}
+{"task":"piqa","item":22,"gold":1,"ll":[-184.499888698,-108.204919410],"n_tok":[71,37],"n_bytes":[342,164],"norm_len":[341,163],"correct":{"acc":true,"acc_norm":false,"acc_tok":false},"refused":null,"truncated":false,"seconds":26.983}
+{"task":"piqa","item":32,"gold":1,"ll":[-37.105843324,-30.208254236],"n_tok":[12,12],"n_bytes":[57,56],"norm_len":[56,55],"correct":{"acc":true,"acc_norm":true,"acc_tok":true},"refused":null,"truncated":false,"seconds":10.409}
+{"task":"piqa","item":41,"gold":1,"ll":[-62.993166310,-46.606002750],"n_tok":[19,17],"n_bytes":[86,78],"norm_len":[85,77],"correct":{"acc":true,"acc_norm":true,"acc_tok":true},"refused":null,"truncated":false,"seconds":12.532}

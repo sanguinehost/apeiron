@@ -20,6 +20,10 @@ proof/extract/target/
 # local secrets (owner-provided); never tracked
 .env
 
+# campaign staging (tarballs, tokenizer copies, host logs) and local build parallelism; never tracked
+/.upload/
+/.cargo/
+
 # the agent voice guide (owner-provided); never tracked
 /VOICE.md
 # per-worktree build-product lock (AGENTS.md §6)

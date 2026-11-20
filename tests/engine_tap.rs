@@ -684,7 +684,7 @@ fn tapped_gate_up_reproduce_stage_m() {
         let field = |key: &str| -> i64 {
             stdout
                 .lines()
-                .find_map(|l| l.strip_prefix(key))
+                .find_map(|l| l.split_once(key).map(|(_, rest)| rest))
                 .unwrap_or_else(|| panic!("carrier {carrier}: no {key} in\n{stdout}"))
                 .trim()
                 .parse()

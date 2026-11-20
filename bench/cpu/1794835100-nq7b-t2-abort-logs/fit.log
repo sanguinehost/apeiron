@@ -1,0 +1,10 @@
+l00 q    3584x3584 r 1952 b/w 1.10065 56.92 s admm_loss 605.35116
+pack /workspace/nq7b-t2.nqp 1767296 B, 1 sections, 1.100646 b/w
+l00 k    512x3584 r 448 b/w 1.03962 0.56 s admm_loss 955.48351
+pack /workspace/nq7b-t2.nqp 2005792 B, 2 sections, 1.093018 b/w
+l00 v    512x3584 r 448 b/w 1.03962 0.55 s admm_loss 9094.45757
+pack /workspace/nq7b-t2.nqp 2244288 B, 3 sections, 1.087085 b/w
+l00 o    3584x3584 r 1952 b/w 1.10065 34.50 s admm_loss 10546.14903
+pack /workspace/nq7b-t2.nqp 4011552 B, 4 sections, 1.093018 b/w
+l00 gate 18944x3584 r 3296 b/w 1.09971 443.33 s admm_loss 45.95153
+pack /workspace/nq7b-t2.nqp 13344768 B, 5 sections, 1.097693 b/w

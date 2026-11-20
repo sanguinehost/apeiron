@@ -268,6 +268,12 @@ struct Diag {
 /// `APEIRON_CALIB_EXTRA`, `APEIRON_CALIB_LAYERS`, `APEIRON_CALIB_CHECK_LAYER`.
 #[test]
 #[ignore = "opens the teacher and prefills every calibration chunk; run explicitly"]
+#[allow(
+    clippy::too_many_lines,
+    clippy::many_single_char_names,
+    reason = "one calibration pass: the single-letter names are the config's n_embd, q_out and \
+              n_ff, and the stages share the open engine and cache"
+)]
 fn calib_diag_write() {
     let model = env_path("APEIRON_CALIB_MODEL", "~/nq-ref/q3-0p6b-f16.gguf");
     let base = env_path("APEIRON_CALIB_BASE", "~/kld08/calib.c40.kld");

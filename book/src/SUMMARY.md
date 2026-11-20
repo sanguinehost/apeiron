@@ -30,7 +30,9 @@
 
 # Engine
 
+- [One path](engine/onepath.md)
 - [Formats](engine/formats.md)
+- [The NanoQuant pack](engine/nanoquant.md)
 - [CPU path](engine/cpu.md)
 - [SPIR-V and Vulkan](engine/spirv.md)
 - [Results](engine/results.md)

@@ -227,7 +227,9 @@ impl Engine {
         drop(t_embed);
         // The resident `Q8Act` composition resolves the per-layer directory entries once per
         // pass (`LayerIndex`); every other schedule keeps the name-based lookups.
-        let layers = if matches!(sched, Sched::Resident) && mode == KernelMode::Q8Act {
+        let layers = if matches!(sched, Sched::Resident)
+            && matches!(mode, KernelMode::Q8Act | KernelMode::Ternary)
+        {
             self.resolve_layers()
         } else {
             Vec::new()
@@ -338,7 +340,7 @@ impl Engine {
                 block,
                 Sched::Resident,
                 mode,
-                mode == KernelMode::Q8Act,
+                matches!(mode, KernelMode::Q8Act | KernelMode::Ternary),
                 None,
                 record,
             )?;
@@ -512,6 +514,7 @@ impl Engine {
         if xs.len() > 1 && self.hadamard().is_none() {
             let (ggml_type, at) = self.payload_at(idx, n_out, n_in, Sched::Resident)?;
             if ggml_type == quant::GGML_TYPE_Q8_0
+                || ggml_type == quant::GGML_TYPE_Q5_0
                 || ggml_type == quant::GGML_TYPE_Q4_K
                 || ggml_type == quant::GGML_TYPE_Q6_K
                 || ggml_type == quant::GGML_TYPE_F16
@@ -527,6 +530,7 @@ impl Engine {
                 // row kernels when it admits every column and the per-column oracle otherwise, so
                 // a refusal here is the single-column call's own value.
                 if ggml_type == quant::GGML_TYPE_Q8_0
+                    || ggml_type == quant::GGML_TYPE_Q5_0
                     || ggml_type == quant::GGML_TYPE_Q4_K
                     || ggml_type == quant::GGML_TYPE_Q6_K
                 {
@@ -1191,7 +1195,7 @@ impl Engine {
                     x,
                 )
             }
-            KernelMode::Q8Act => {
+            KernelMode::Q8Act | KernelMode::Ternary => {
                 self.ffn_q8act_step([gi, ui, di], [(gt, gat), (ut, uat), (dt, dat)], n_ff, x)
             }
         }

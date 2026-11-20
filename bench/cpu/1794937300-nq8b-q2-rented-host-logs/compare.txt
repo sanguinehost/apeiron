@@ -1,0 +1,18 @@
+task               n  ref    metric      nq      q4   ratio
+arc_challenge    100    0  acc_norm  0.3800  0.5200  0.7308
+arc_easy         100    0  acc_norm  0.5800  0.7900  0.7342
+boolq            100    0       acc  0.6300  0.8800  0.7159
+hellaswag        100    0  acc_norm  0.5700  0.7400  0.7703
+piqa             100    0  acc_norm  0.7100  0.7700  0.9221
+winogrande       100    0       acc  0.4900  0.7600  0.6447
+
+tasks            6  (arc_challenge, arc_easy, boolq, hellaswag, piqa, winogrande)
+items            600
+mean acc nq      0.560000
+mean acc q4      0.743333
+ratio            0.753363   (bar 0.900000)
+paired diff      -0.183333 +- 0.081212  (95 % t interval, df 5, t 2.571)
+task sd          0.077374
+needed diff      -0.074333   (= -0.10 x mean acc q4)
+verdict          refute
+design           sample: 600 of 19965 split items (arc_challenge 100/1172, arc_easy 100/2376, boolq 100/3270, hellaswag 100/10042, piqa 100/1838, winogrande 100/1267)

@@ -15,8 +15,11 @@
 //!
 //! **One face.** This is not a second forward and not a dtype-specific copy: the one dispatch
 //! point `Engine::step_proj_sched` selects it for a tensor the pack replaces, exactly as it
-//! selects the payload kernels for a stored tensor. A fitted tensor has no GGUF row, so the
-//! kernel mode chooses nothing here; the sign product is the weight. The pack reader decodes the
+//! selects the payload kernels for a stored tensor. A fitted tensor has no GGUF row, so the kernel
+//! mode chooses the activation reader over the factors: the exact Q32.32 words
+//! ([`NqLinear::project`]), the Q8 block codes ([`NqLinear::project_q8`]) or the ternary block masks
+//! ([`NqLinear::project_ternary`]), the same quantized activation contract the stored rows read. The
+//! pack reader decodes the
 //! three scale vectors and every residual row scale once ([`PackedLinear`], `bf16_to_fixed`) and
 //! the sparse correction with the `f16_to_fixed` the other `F16` rows use.
 //!
@@ -41,6 +44,8 @@
 )]
 
 use crate::engine::chart::pool::Pool;
+use crate::engine::chart::{quant_act, QuantAct};
+use crate::engine::kern::pow2::act_scale;
 use crate::engine::num::dequant::{bf16_to_fixed, f16_to_fixed};
 use crate::engine::num::value::mul_q32;
 use crate::format::nq::{PackedLinear, Plane};
@@ -102,7 +107,7 @@ impl core::fmt::Display for NqError {
 
 impl std::error::Error for NqError {}
 
-/// The sign dot `Σ (2·bit − 1)·t[i]` of one packed row, written once for both accumulator widths.
+/// The sign dot `Σ (1 − 2·bit)·t[i]` of one packed row, written once for both accumulator widths.
 ///
 /// `$acc` is `i64` when the caller's `n·max|t|` bound fits and `i128` otherwise; the bit mask is
 /// all ones for `1` and zero for `0`, so `(t ^ mask) - mask` is `t` or `-t` without a branch.
@@ -124,6 +129,757 @@ macro_rules! sign_dot {
     }};
 }
 
+/// The narrow sign dot: the AVX2 byte source when the stage's planes are present, the AVX2
+/// `i64`-lane source otherwise, the scalar macro when the host has no AVX2.
+///
+/// `t.len()` is at least `len` and `words` covers those `len` bits; every caller passes the
+/// `len` terms the caller's `len·max|t| ≤ i64::MAX` bound covers. `sum` is `Σ t[..len]` and
+/// `planes` the four-digit split of the same terms; the `i64`-lane source and the macro read
+/// neither.
+fn sign_dot_i64(
+    t: &[i64],
+    planes: Option<&BytePlanes>,
+    sum: i64,
+    words: &[u32],
+    len: usize,
+) -> i64 {
+    #[cfg(target_arch = "x86_64")]
+    if std::arch::is_x86_feature_detected!("avx2") {
+        if let Some(planes) = planes {
+            // SAFETY: the detection above names AVX2; `t.len() >= len`, `words` covers `len`
+            // bits, `sum` is `Σ t[..len]`, and `Terms` builds planes only for a term set whose
+            // four digits and `i32` lane sums are exact.
+            return unsafe { sign_dot_planes_avx2(t, planes, sum, words, len) };
+        }
+        if std::arch::is_x86_feature_detected!("popcnt") {
+            // SAFETY: the detection above names AVX2 and POPCNT, and `t.len() >= len` is the
+            // callers' precondition, the same prefix the scalar macro indexes.
+            return unsafe { sign_dot_avx2(t, words, len) };
+        }
+    }
+    sign_dot!(t, words, len, i64)
+}
+
+/// The 64-term ternary cell in safe Rust: `Σ_{i<64} (1 − 2·bit_i(w))·t_i` with `t_i = [p_i] − [n_i]`
+/// and the contract `p & n = 0`. Bit `i` of `w` is the stored weight sign, bit `i` of `p`/`n` the
+/// positive/negative trit; the three states per term are exact:
+/// `00 → 0`, `10 → 1 − 2b`, `01 → 2b − 1`.
+///
+/// This is the extracted body (the denotation `proof/corpus/WordRefinement.lean` states); the row
+/// loop is the same identity with the row-independent `pc(p) − pc(n)` folded into one constant per
+/// activation vector. `count_ones` is the intrinsic the twin names.
+///
+/// # Complexity
+///
+/// `O(1)` time: two masks, four popcounts, three subtractions. `O(1)` space.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "`count_ones` of a `u64` is at most 64, exact in `i32`"
+)]
+fn ternary_block(w: u64, p: u64, n: u64) -> i32 {
+    2 * ((w & n).count_ones().cast_signed()) - 2 * ((w & p).count_ones().cast_signed())
+        + (p.count_ones().cast_signed())
+        - (n.count_ones().cast_signed())
+}
+
+/// Four `i64` lanes per `__m256i`: the vector twin of [`sign_dot!`] for the narrow accumulator.
+///
+/// AVX2 has no `vpsignq`, so bit `b` of a word becomes the mask `-(b)` and each lane is
+/// `(t ^ mask) − mask`: `t` for `0`, `−t` for `1`, the scalar macro's own expression. One word
+/// drives eight four-lane groups; the trailing word shorter than 32 terms runs the scalar source,
+/// so bits past `len` are padding on both paths.
+///
+/// `− mask` is `+ b`, and `Σ b` over a word is its `popcount`: the bit sum is a property of the
+/// packed word, not of the lanes. The vector accumulator therefore holds only `Σ (t ^ mask)` and
+/// the bit count is added once per word in `i64`, which removes the eight `vpsrlq` and eight
+/// `vpaddq` the lane-wise form spent rebuilding it. The intermediates are the same ones the
+/// lane-wise expression produces, so the narrow-accumulator bound is unchanged.
+///
+/// # Complexity
+///
+/// `O(len)` terms: `len/32` words, each eight groups of four loads, masks and adds, plus one
+/// scalar popcount per word and at most 31 scalar tail terms. `O(1)` space: one vector
+/// accumulator in registers.
+///
+/// # Safety
+///
+/// The host CPU supports AVX2, and `t.len() >= len`: the groups read `t[..len]`, the same prefix
+/// [`sign_dot!`] indexes. The caller's `len·max|t| ≤ i64::MAX` bound keeps every lane sum exact,
+/// because each lane and horizontal fold is a subset sum of `±t`.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,popcnt")]
+#[allow(
+    clippy::cast_ptr_alignment,
+    reason = "`_mm256_loadu_si256` is the unaligned load; the cast target's alignment is not a \
+              requirement of the instruction"
+)]
+unsafe fn sign_dot_avx2(t: &[i64], words: &[u32], len: usize) -> i64 {
+    use std::arch::x86_64::{
+        __m256i, _mm256_add_epi64, _mm256_and_si256, _mm256_castsi256_si128,
+        _mm256_extracti128_si256, _mm256_loadu_si256, _mm256_set1_epi64x, _mm256_setr_epi64x,
+        _mm256_setzero_si256, _mm256_srli_epi64, _mm256_srlv_epi64, _mm256_sub_epi64,
+        _mm256_xor_si256, _mm_add_epi64, _mm_cvtsi128_si64, _mm_unpackhi_epi64,
+    };
+    let zero = _mm256_setzero_si256();
+    let one = _mm256_set1_epi64x(1);
+    // `bits` is shifted right four bits per group, so these are the four bit positions the
+    // group's lanes read relative to its first term.
+    let lane = _mm256_setr_epi64x(0, 1, 2, 3);
+    let mut acc = zero;
+    let mut i = 0usize;
+    let mut bits_total = 0i64;
+    for &word in words {
+        if i + 32 > len {
+            break;
+        }
+        bits_total += i64::from(word.count_ones());
+        let mut bits = _mm256_set1_epi64x(i64::from(word));
+        let mut g = 0usize;
+        while g < 8 {
+            let at = i + g * 4;
+            // SAFETY: `i + 32 <= len <= t.len()`, so this load reads inside `t`.
+            unsafe {
+                let v = _mm256_loadu_si256(t.as_ptr().add(at).cast::<__m256i>());
+                let bit = _mm256_and_si256(_mm256_srlv_epi64(bits, lane), one);
+                let mask = _mm256_sub_epi64(zero, bit);
+                acc = _mm256_add_epi64(acc, _mm256_xor_si256(v, mask));
+            }
+            bits = _mm256_srli_epi64::<4>(bits);
+            g += 1;
+        }
+        i += 32;
+    }
+    let half = _mm_add_epi64(
+        _mm256_castsi256_si128(acc),
+        _mm256_extracti128_si256::<1>(acc),
+    );
+    let half = _mm_add_epi64(half, _mm_unpackhi_epi64(half, half));
+    let mut total = _mm_cvtsi128_si64(half) + bits_total;
+    if i < len {
+        // One partial word is left and it starts at `i`, a multiple of 32; its bits past `len`
+        // are padding. The scalar source cuts at the same bit, so both paths skip them.
+        let tail_words = &words[(i / 32).min(words.len())..];
+        total += sign_dot!(&t[i..], tail_words, len - i, i64);
+    }
+    total
+}
+
+/// The four signed byte digits of one stage's terms, little-endian two's complement:
+/// `Σ_b 2^{8b}·plane[b][i] == exact[i]` for every term `i`.
+///
+/// Four planes are the same bytes a 32-bit term array would hold, split into four streams the
+/// vector source reads one `__m256i` at a time. [`BytePlanes::of`] returns `None` when a term
+/// needs a fifth digit, so the split is exact over its whole domain rather than rounded.
+struct BytePlanes {
+    /// `plane[b][i]` is digit `b` of term `i`, as its two's-complement byte.
+    plane: [Box<[u8]>; 4],
+}
+
+impl BytePlanes {
+    /// Split `exact` into four signed byte digits, or `None` when a term leaves the range four
+    /// digits cover: `−2,155,905,152 … 2,139,062,143`, the `i32` range less its top 8,421,504
+    /// values.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` time, four shift-and-subtract steps per term; `O(n)` space, four bytes per term.
+    fn of(exact: &[i64]) -> Option<Self> {
+        let n = exact.len();
+        let mut plane: [Box<[u8]>; 4] = std::array::from_fn(|_| vec![0u8; n].into_boxed_slice());
+        for (i, &value) in exact.iter().enumerate() {
+            let mut rest = value;
+            for digit in &mut plane {
+                let byte = rest.to_le_bytes()[0];
+                // The byte read back as `i8` without a cast: the pattern is the digit.
+                let signed = i64::from(i8::from_ne_bytes([byte]));
+                digit[i] = byte;
+                rest = (rest - signed) >> 8;
+            }
+            if rest != 0 {
+                return None;
+            }
+        }
+        Some(Self { plane })
+    }
+}
+
+/// Whether the byte source's `i32` lanes hold every partial sum: each lane takes four digits per
+/// word and a digit is at most `128` below zero, so `512·ceil(len/32) ≤ i32::MAX` bounds a lane,
+/// and the `i64` epilogue stays inside `i64` for every `len` this admits.
+fn lane_sums_fit(len: usize) -> bool {
+    i32::try_from(len.div_ceil(32).saturating_mul(512)).is_ok()
+}
+
+/// Thirty-two terms per `__m256i`: the byte-plane twin of [`sign_dot!`] for the narrow accumulator.
+///
+/// A word's 32 bits become 32 `i8` selectors in five instructions: one broadcast, one `vpsrlvd`
+/// that puts bits `4k..4k+3` in the low nibble of dword `k`, one `vpshufb` that repeats that
+/// nibble across the dword's four bytes, one `vpand` with `[1,2,4,8]`, and one `vpshufb` that maps
+/// `2^j` to `1`. Each digit plane then costs one `vpmaddubsw` (unsigned selector × signed digit,
+/// adjacent pairs in `i16`), one `vpmaddwd` with ones (pairs to four-term `i32` lanes) and one
+/// `vpaddd`; the load folds into the `vpmaddubsw`. The four plane sums are combined as
+/// `Σ_b 2^{8b}·(Σ_{bit=1} digit_b) = Σ_{bit=1} t`, and the result is `Σ t − 2·Σ_{bit=1} t`, the
+/// macro's `Σ (1 − 2·bit)·t`.
+///
+/// # Complexity
+///
+/// `O(len)` terms: `len/32` words of five selector instructions and four planes of three vector
+/// operations, plus at most 31 scalar tail terms. `O(1)` space: four accumulator registers.
+///
+/// # Safety
+///
+/// The host CPU supports AVX2; `t.len() >= len`; each of `planes.plane` holds at least `len`
+/// bytes; `words` covers `len` bits; `sum == Σ t[..len]`; every term splits into four digits (the
+/// [`BytePlanes`] invariant); and `lane_sums_fit(len)` holds, so each `i32` lane sum, the four
+/// `i64` plane sums and `2·Σ_{bit=1} t` are exact.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(
+    clippy::cast_ptr_alignment,
+    reason = "`_mm256_loadu_si256` is the unaligned load; the cast target's alignment is not a \
+              requirement of the instruction"
+)]
+unsafe fn sign_dot_planes_avx2(
+    t: &[i64],
+    planes: &BytePlanes,
+    sum: i64,
+    words: &[u32],
+    len: usize,
+) -> i64 {
+    use std::arch::x86_64::{
+        __m256i, _mm256_add_epi32, _mm256_add_epi64, _mm256_and_si256, _mm256_castsi256_si128,
+        _mm256_cvtepi32_epi64, _mm256_extracti128_si256, _mm256_loadu_si256, _mm256_madd_epi16,
+        _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_setr_epi32,
+        _mm256_setr_epi8, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_srlv_epi32,
+        _mm_add_epi64, _mm_cvtsi128_si64, _mm_unpackhi_epi64,
+    };
+    // `[1,2,4,8]` in each dword: byte `j` of dword `k` tests bit `4k + j` of the word.
+    let digit_mask = _mm256_set1_epi32(0x0804_0201);
+    // `word >> 4k` in dword `k`, so its low nibble holds bits `4k..4k+3`.
+    let bit_at = _mm256_setr_epi32(0, 4, 8, 12, 16, 20, 24, 28);
+    // Byte `j` of dword `k` takes lane byte `4k`: the low nibble, four times.
+    let repeat = _mm256_setr_epi8(
+        0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12, 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12,
+        12, 12, 12,
+    );
+    // The byte `2^j` maps to `1`; every other byte maps to `0`.
+    let select_one = _mm256_setr_epi8(
+        0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+        0, 0,
+    );
+    let ones = _mm256_set1_epi16(1);
+    let mut acc = [_mm256_setzero_si256(); 4];
+    let mut i = 0usize;
+    for &word in words {
+        if i + 32 > len {
+            break;
+        }
+        let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
+        let nibble = _mm256_shuffle_epi8(spread, repeat);
+        let select = _mm256_shuffle_epi8(select_one, _mm256_and_si256(nibble, digit_mask));
+        let mut b = 0usize;
+        while b < 4 {
+            // SAFETY: `i + 32 <= len <= planes.plane[b].len()`, so the load reads inside it.
+            let digits =
+                unsafe { _mm256_loadu_si256(planes.plane[b].as_ptr().add(i).cast::<__m256i>()) };
+            let pair = _mm256_maddubs_epi16(select, digits);
+            acc[b] = _mm256_add_epi32(acc[b], _mm256_madd_epi16(pair, ones));
+            b += 1;
+        }
+        i += 32;
+    }
+    // The four plane sums to `i64`, then `Σ_b 2^{8b}·(Σ_{bit=1} digit_b)`.
+    let mut selected = 0i64;
+    let mut b = 0usize;
+    while b < 4 {
+        let lane = acc[b];
+        let lo = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(lane));
+        let hi = _mm256_cvtepi32_epi64(_mm256_extracti128_si256::<1>(lane));
+        let quad = _mm256_add_epi64(lo, hi);
+        let half = _mm_add_epi64(
+            _mm256_castsi256_si128(quad),
+            _mm256_extracti128_si256::<1>(quad),
+        );
+        let half = _mm_add_epi64(half, _mm_unpackhi_epi64(half, half));
+        selected += _mm_cvtsi128_si64(half) << (8 * b);
+        b += 1;
+    }
+    let mut total = sum;
+    if i < len {
+        // The partial word starts at `i`, a multiple of 32; its bits past `len` are padding.
+        // The plane identity covers `t[..i]`, so the tail's own `Σ t` leaves `total` and the
+        // scalar source supplies the tail's signed sum.
+        let tail_len = len - i;
+        let tail = &t[i..i + tail_len];
+        total -= tail.iter().copied().sum::<i64>();
+        total += sign_dot!(tail, &words[(i / 32).min(words.len())..], tail_len, i64);
+    }
+    total - 2 * selected
+}
+
+/// One stage's terms in the forms the sign dot reads: the exact `i64` values, their four signed
+/// byte digits when the split and the lane sums are exact, and the exact row sum.
+struct Terms<'a> {
+    /// The exact terms: the scalar source's values and the `i64`-lane source's input.
+    exact: &'a [i64],
+    /// The four byte digits, present when every term splits into four and the lanes fit.
+    planes: Option<BytePlanes>,
+    /// `Σ exact`, the byte source's `Σ t` term.
+    sum: i64,
+}
+
+impl<'a> Terms<'a> {
+    /// Read `exact` into its three forms: one `O(n)` pass for the sum and one for the digits.
+    ///
+    /// The caller has checked `n·max|exact| ≤ i64::MAX`, so the sum and the plane source's
+    /// intermediates are exact.
+    fn new(exact: &'a [i64]) -> Self {
+        let sum = exact.iter().copied().sum();
+        let planes = if lane_sums_fit(exact.len()) {
+            BytePlanes::of(exact)
+        } else {
+            None
+        };
+        Self { exact, planes, sum }
+    }
+
+    /// The narrow sign dot of `words` over `exact[..len]`; `len` is `exact.len()`.
+    fn dot(&self, words: &[u32], len: usize) -> i64 {
+        sign_dot_i64(self.exact, self.planes.as_ref(), self.sum, words, len)
+    }
+}
+
+/// The Q8 block reader's safe twin: `Σ_b S_b · Σ_{bit=1} codes[j]` over `len` terms, folded block by
+/// block in `i128` with no intrinsic. This is the selected sum, one half of the sign dot
+/// (`Σ x̂ − 2·selected`); the block scale is applied once per 32 terms, so the twin is the
+/// definition of the quantized selection, not a rearrangement of the exact Q32.32 dot.
+fn code_select_twin(codes: &[i8], scales: &[i64], words: &[u32], len: usize) -> i128 {
+    let mut acc = 0i128;
+    let mut i = 0usize;
+    while i < len {
+        let block = i / 32;
+        let end = (i + 32).min(len);
+        let mut inner = 0i64;
+        while i < end {
+            if (words[block] >> (i % 32)) & 1 == 1 {
+                inner += i64::from(codes[i]);
+            }
+            i += 1;
+        }
+        acc += i128::from(scales[block]) * i128::from(inner);
+    }
+    acc
+}
+
+/// One activation in the Q8 block reader: the int8 codes, their per-32 block scales, and the
+/// exponent shifts that let one `i32` lane accumulator add every block's selected sum before a
+/// single `e_min` shift at the row's end.
+///
+/// The scales are powers of two (`quant_act`'s `act_scale`), so block `b` contributes
+/// `2^{e_min + shifts[b]} · inner_b`; normalizing by the smallest exponent turns the per-block
+/// multiply into a per-lane shift. [`CodeTerms::new`] admits only the terms whose lane sum fits
+/// `i32` and whose total fits `i64`, and refuses the rest, so the reader is exact over its whole
+/// domain rather than truncated.
+struct CodeTerms<'a> {
+    /// The int8 codes, one per activation element.
+    codes: &'a [i8],
+    /// The verbatim per-block scale, the scalar dispatch's input.
+    scales: &'a [i64],
+    /// `e_b − e_min` broadcast to eight lanes per block: the vector body loads this once per block
+    /// instead of rebuilding it from a scalar, which keeps the per-block work off the shuffle
+    /// port.
+    shift_vecs: Vec<[i32; 8]>,
+    /// The smallest block exponent; the row's lane sum shifts left by it once.
+    e_min: u32,
+    /// `Σ_b S_b·Σ_j codes[j]`, the dequantized activation's total, the sign dot's `Σ x̂` term.
+    sum: i64,
+    /// Whether the host runs the AVX2 selector: detected once per activation instead of once per
+    /// output row, where the same cached load competed with the row's own work.
+    vector: bool,
+}
+
+impl<'a> CodeTerms<'a> {
+    /// Read `q` into the normalized block form, or `None` when a scale is not a power of two, the
+    /// lane sum leaves `i32`, or the total leaves `i64`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n/32)` time and space in the activation length `n`: two passes over the blocks (the
+    /// smallest exponent, then the shifts and the two lane bounds) and one vector pass over the
+    /// codes for the total.
+    fn new(q: &'a QuantAct) -> Option<Self> {
+        let codes = q.codes();
+        let scales = q.scales();
+        let blocks = codes.len().div_ceil(32);
+        if scales.len() < blocks {
+            return None;
+        }
+        let mut e_min = u32::MAX;
+        let mut b = 0usize;
+        while b < blocks {
+            let s = scales[b];
+            if s != 0 {
+                if s < 0 || !s.unsigned_abs().is_power_of_two() {
+                    return None;
+                }
+                e_min = e_min.min(s.unsigned_abs().trailing_zeros());
+            }
+            b += 1;
+        }
+        let e_min = if e_min == u32::MAX { 0 } else { e_min };
+        let mut shift_vecs: Vec<[i32; 8]> = Vec::with_capacity(blocks);
+        let mut norm: u64 = 0;
+        let mut scale_sum: u128 = 0;
+        b = 0;
+        while b < blocks {
+            let s = scales[b].unsigned_abs();
+            let sh = if s == 0 {
+                0
+            } else {
+                s.trailing_zeros() - e_min
+            };
+            shift_vecs.push([i32::try_from(sh).ok()?; 8]);
+            norm = norm.saturating_add(1u64.checked_shl(sh).unwrap_or(u64::MAX));
+            scale_sum = scale_sum.saturating_add(u128::from(s));
+            b += 1;
+        }
+        // A `vpmaddwd` lane sums four selected codes of at most 127, so `508` bounds it before the
+        // block shift; `4064` bounds one block's selected sum before its scale. Both are the
+        // reader's whole domain check, not padding: outside them the caller keeps the exact path.
+        if norm.saturating_mul(508) > u64::from(i32::MAX.cast_unsigned()) {
+            return None;
+        }
+        if scale_sum.saturating_mul(4064) > i64::MAX as u128 {
+            return None;
+        }
+        #[cfg(target_arch = "x86_64")]
+        let vector = std::arch::is_x86_feature_detected!("avx2");
+        #[cfg(not(target_arch = "x86_64"))]
+        let vector = false;
+        // The dequantized total is the selector over every bit set: one vector pass over the codes
+        // rather than a scalar walk, and exactly the body each output row then runs. The bounds
+        // above make it exact, so its own tail and shift agree with the twin.
+        let ones = vec![u32::MAX; blocks];
+        #[cfg(target_arch = "x86_64")]
+        let sum = if vector {
+            // SAFETY: `vector` names AVX2; `codes.len()` covers the terms, `ones` covers every
+            // block bit, `shift_vecs` covers `blocks` (checked above), and the lane bound above
+            // keeps every lane sum inside `i32` with the total inside `i64`.
+            unsafe { code_select_avx2(codes, scales, &shift_vecs, e_min, &ones, codes.len())? }
+        } else {
+            i64::try_from(code_select_twin(codes, scales, &ones, codes.len())).ok()?
+        };
+        #[cfg(not(target_arch = "x86_64"))]
+        let sum = i64::try_from(code_select_twin(codes, scales, &ones, codes.len())).ok()?;
+        Some(Self {
+            codes,
+            scales,
+            shift_vecs,
+            e_min,
+            sum,
+            vector,
+        })
+    }
+
+    /// The quantized selection `Σ_b S_b·Σ_{bit=1} codes[j]` of `words` over `codes[..len]`, or
+    /// `None` when a caller's length is outside this reader (the caller then keeps the exact
+    /// form). The sign dot is `sum − 2·selected`.
+    fn selected(&self, words: &[u32], len: usize) -> Option<i64> {
+        if len > self.codes.len() || words.len() < len.div_ceil(32) {
+            return None;
+        }
+        #[cfg(target_arch = "x86_64")]
+        if self.vector {
+            // SAFETY: `vector` names AVX2; `len <= codes.len()` and `words` covers `len` bits
+            // (checked above); `shift_vecs` and `scales` cover `len.div_ceil(32)` blocks, and
+            // `CodeTerms::new` admitted only a lane sum inside `i32` and a total inside `i64`.
+            return unsafe {
+                code_select_avx2(
+                    self.codes,
+                    self.scales,
+                    &self.shift_vecs,
+                    self.e_min,
+                    words,
+                    len,
+                )
+            };
+        }
+        i64::try_from(code_select_twin(self.codes, self.scales, words, len)).ok()
+    }
+}
+
+/// One 64-term block of the ternary activation reader: the positive and negative trit masks and
+/// the block scale's exponent.
+///
+/// The masks are the quantiser's, not the pack's: bit `i` of `p` is `τ_i = +1`, bit `i` of `n` is
+/// `τ_i = −1`, and `p & n = 0`. Bits past the block's real term count are zero, so a tail word's
+/// padding bits meet only zero masks.
+struct TernaryBlock {
+    /// `τ_i = +1` at bit `i`.
+    p: u64,
+    /// `τ_i = −1` at bit `i`.
+    n: u64,
+    /// `k_b`: the block scale is `2^{k_b}` (`0` for an all-zero block).
+    shift: u32,
+}
+
+/// One activation in the ternary block reader: the per-64-term masks of
+/// `t̂_i = 2^{k_b+6}·τ_i`, the pure trit level with the code residual dropped.
+///
+/// The reader is exact for `t̂`; the error against the pre-scaled activation is the dropped code
+/// residual, which the 0.6B PPL arm measures.
+struct TernaryTerms {
+    blocks: Vec<TernaryBlock>,
+    len: usize,
+}
+
+impl TernaryTerms {
+    /// Quantize `x` into the 64-term ternary form. `x` is the engine's pre-scaled Q32.32
+    /// activation, so the block scale is chosen on the words the projection actually reads.
+    ///
+    /// Per block: `S = 2^k` the smallest power of two with `127·S ≥ absmax`, `c = round(x/S)` by
+    /// the same ties-away rule as `quant_act`, and `τ = sign(c)` when `2|c| > 64` else `0`. The
+    /// code residual `r = c − 64·τ` is dropped.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` time and `O(n/64)` space in the activation length `n`: one absmax pass and one code
+    /// pass per block.
+    fn new(x: &[i64]) -> Option<Self> {
+        let blocks = x.len().div_ceil(64);
+        let mut out: Vec<TernaryBlock> = Vec::with_capacity(blocks);
+        let mut b = 0usize;
+        while b < blocks {
+            let lo = b * 64;
+            let take = (x.len() - lo).min(64);
+            let mut absmax = 0u64;
+            let mut j = lo;
+            while j < lo + take {
+                absmax = absmax.max(x[j].unsigned_abs());
+                j += 1;
+            }
+            let scale = act_scale(absmax)?;
+            let shift = if scale == 0 {
+                0
+            } else {
+                scale.trailing_zeros()
+            };
+            let mut p = 0u64;
+            let mut n = 0u64;
+            j = 0;
+            while j < take {
+                let t = x[lo + j];
+                let tau = if scale == 0 {
+                    0i64
+                } else {
+                    let mag = u128::from(t.unsigned_abs());
+                    let q = (2 * mag + u128::from(scale)) / (2 * u128::from(scale));
+                    let q = i64::try_from(q).ok()?;
+                    let code = if t < 0 { -q } else { q };
+                    if 2 * code.unsigned_abs() > 64 {
+                        code.signum()
+                    } else {
+                        0
+                    }
+                };
+                if tau > 0 {
+                    p |= 1u64 << j;
+                } else if tau < 0 {
+                    n |= 1u64 << j;
+                }
+                j += 1;
+            }
+            out.push(TernaryBlock { p, n, shift });
+            b += 1;
+        }
+        Some(Self {
+            blocks: out,
+            len: x.len(),
+        })
+    }
+
+    /// The ternary sign dot `Σ_i (1 − 2·bit_i(w))·t̂_i` over the first `len` terms, or `None` when
+    /// `len` is not this reader's activation (the caller then keeps the exact source).
+    ///
+    /// Per block the stored weight word and the trit masks meet [`ternary_block`]'s `2d + c`
+    /// identity, shifted once by the block exponent: `t̂_i = 2^{k_b+6}·τ_i`, so the block sum is
+    /// `(2d + c) << (k_b + 6)`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(len/64)` time: four popcounts, three subtractions and one shift per block. `O(1)` space.
+    fn dot(&self, words: &[u32], len: usize) -> Option<i128> {
+        if len != self.len || words.len() < len.div_ceil(32) {
+            return None;
+        }
+        let mut acc: i128 = 0;
+        let mut b = 0usize;
+        while b < self.blocks.len() {
+            let block = &self.blocks[b];
+            let low = u64::from(words[2 * b]);
+            let w = if 2 * b + 1 < words.len() && 64 * b + 32 < len {
+                low | (u64::from(words[2 * b + 1]) << 32)
+            } else {
+                low
+            };
+            // The masks are zero past the block's real length, so the padding bits of `w`
+            // contribute nothing.
+            acc += i128::from(ternary_block(w, block.p, block.n)) << (block.shift + 6);
+            b += 1;
+        }
+        Some(acc)
+    }
+}
+
+/// The Q8 block selection, 32 terms per `__m256i`: the byte selector of [`sign_dot_planes_avx2`]
+/// against one int8 activation plane instead of four digit planes.
+///
+/// A word's 32 bits become 32 `i8` selectors in five instructions (broadcast, `vpsrlvd`,
+/// `vpshufb`, `vpand`, `vpshufb`), each block's `vpmaddubsw` selects the codes of its set bits,
+/// `vpmaddwd` folds pairs into four-term `i32` lanes, and one `vpsllvd` by the normalized block
+/// exponent plus one `vpaddd` adds the block before the row's single `e_min` shift. The block scale
+/// multiply that the exact reader spends on four plane accumulators is one shift per block here.
+///
+/// # Complexity
+///
+/// `O(len)` terms: `len/32` words of eleven vector operations, plus at most 31 scalar tail terms.
+/// `O(1)` space: one `i32` accumulator in registers.
+///
+/// # Safety
+///
+/// The host CPU supports AVX2; `len <= codes.len()`; `words` covers `len` bits; `shift_vecs` and
+/// `scales` cover `len.div_ceil(32)` blocks; `e_min` is the smallest block exponent; every scale is
+/// a non-negative power of two; and the [`CodeTerms::new`] bounds hold (`508·Σ 2^{shifts} ≤
+/// i32::MAX`, `4064·Σ scales ≤ i64::MAX`), so every lane shift and the final total are exact.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(
+    clippy::cast_ptr_alignment,
+    reason = "`_mm256_loadu_si256` is the unaligned load; the cast target's alignment is not a \
+              requirement of the instruction"
+)]
+unsafe fn code_select_avx2(
+    codes: &[i8],
+    scales: &[i64],
+    shift_vecs: &[[i32; 8]],
+    e_min: u32,
+    words: &[u32],
+    len: usize,
+) -> Option<i64> {
+    use std::arch::x86_64::{
+        __m256i, _mm256_add_epi32, _mm256_add_epi64, _mm256_and_si256, _mm256_castsi256_si128,
+        _mm256_cvtepi32_epi64, _mm256_extracti128_si256, _mm256_loadu_si256, _mm256_madd_epi16,
+        _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_setr_epi32,
+        _mm256_setr_epi8, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_sllv_epi32,
+        _mm256_srlv_epi32, _mm_add_epi64, _mm_cvtsi128_si64, _mm_unpackhi_epi64,
+    };
+    let full = len / 32;
+    if words.len() < full || shift_vecs.len() < full {
+        return None;
+    }
+    let digit_mask = _mm256_set1_epi32(0x0804_0201);
+    let bit_at = _mm256_setr_epi32(0, 4, 8, 12, 16, 20, 24, 28);
+    let repeat = _mm256_setr_epi8(
+        0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12, 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12,
+        12, 12, 12,
+    );
+    let select_one = _mm256_setr_epi8(
+        0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+        0, 0,
+    );
+    let ones = _mm256_set1_epi16(1);
+    let mut acc = _mm256_setzero_si256();
+    // The full blocks iterate as three exact-length zips: no per-block bounds check, no `Option`,
+    // no scalar `try_from`, and the shift arrives as one load rather than a port-5 broadcast.
+    for ((chunk, &word), shift) in codes[..full * 32]
+        .as_chunks::<32>()
+        .0
+        .iter()
+        .zip(&words[..full])
+        .zip(&shift_vecs[..full])
+    {
+        let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
+        let nibble = _mm256_shuffle_epi8(spread, repeat);
+        let select = _mm256_shuffle_epi8(select_one, _mm256_and_si256(nibble, digit_mask));
+        // SAFETY: `chunk` is one 32-byte block of `codes`.
+        let plane = unsafe { _mm256_loadu_si256(chunk.as_ptr().cast::<__m256i>()) };
+        let pair = _mm256_maddubs_epi16(select, plane);
+        let part = _mm256_madd_epi16(pair, ones);
+        // SAFETY: `shift` is one `[i32; 8]`, exactly the 32 bytes the load reads.
+        let sv = unsafe { _mm256_loadu_si256(shift.as_ptr().cast::<__m256i>()) };
+        acc = _mm256_add_epi32(acc, _mm256_sllv_epi32(part, sv));
+    }
+    let lo = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(acc));
+    let hi = _mm256_cvtepi32_epi64(_mm256_extracti128_si256::<1>(acc));
+    let quad = _mm256_add_epi64(lo, hi);
+    let half = _mm_add_epi64(
+        _mm256_castsi256_si128(quad),
+        _mm256_extracti128_si256::<1>(quad),
+    );
+    let half = _mm_add_epi64(half, _mm_unpackhi_epi64(half, half));
+    let norm = _mm_cvtsi128_si64(half);
+    let mut total = i128::from(norm) << e_min;
+    let tail = full * 32;
+    if tail < len {
+        // The partial block starts at `tail`; its bits past `len` are padding. The full blocks'
+        // scales were normalized by `e_min`, the tail keeps its own scales.
+        total += code_select_twin(&codes[tail..], &scales[full..], &words[full..], len - tail);
+    }
+    i64::try_from(total).ok()
+}
+
+/// One stage's activation in the forms [`NqLinear::project_with`] reads: the exact Q32.32 words,
+/// their four-plane reader when the narrow bound holds, and the Q8 or ternary block reader when
+/// the mode and its bounds admit it.
+struct Stage<'a> {
+    /// The exact activation, the wide `i128` source's input.
+    wide: &'a [i64],
+    /// The four-plane source, present when the narrow bound holds, a block reader is absent and a
+    /// residual layer reads this stage (the only reader besides the block readers).
+    terms: Option<Terms<'a>>,
+    /// The Q8 reader, present under [`Reader::Q8`] when its bounds hold.
+    codes: Option<CodeTerms<'a>>,
+    /// The ternary reader, present under [`Reader::Ternary`] when its quantizer admits the
+    /// activation.
+    ternary: Option<TernaryTerms>,
+}
+
+impl Stage<'_> {
+    /// The stage's sign dot over `words`: the ternary reader when present and in range, else the
+    /// Q8 reader when present and in range, else the exact plane source, else the wide scalar
+    /// source. Each fast form is exact over its own domain: the Q8 form is the quantized sign dot
+    /// `Σ x̂ − 2·selected`, the ternary form the trit dot of [`TernaryTerms::dot`].
+    fn dot(&self, words: &[u32], len: usize) -> i128 {
+        if let Some(ternary) = &self.ternary {
+            if let Some(dot) = ternary.dot(words, len) {
+                return dot;
+            }
+        }
+        if let Some(codes) = &self.codes {
+            if let Some(selected) = codes.selected(words, len) {
+                return i128::from(codes.sum) - 2 * i128::from(selected);
+            }
+        }
+        if let Some(terms) = &self.terms {
+            i128::from(terms.dot(words, len))
+        } else {
+            sign_dot!(self.wide, words, len, i128)
+        }
+    }
+}
+
+/// The activation reader a projection runs: the exact Q32.32 words, the Q8 block codes, or the
+/// ternary block masks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reader {
+    /// The exact words through [`Terms`].
+    Exact,
+    /// Int8 block codes through [`CodeTerms`].
+    Q8,
+    /// Ternary trit masks through [`TernaryTerms`].
+    Ternary,
+}
+
 /// One fitted linear in the form the kernel executes: bits, Q32.32 scales, the sparse residual and
 /// the dense sign-residual layers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,6 +898,9 @@ pub struct NqLinear {
     salient_idx: Box<[u32]>,
     salient: Box<[i64]>,
     res_layers: usize,
+    /// The packed section stored no shared block; its `v`, `s_pre`, `s_mid` and `salient_idx`
+    /// point at the layer's `q` section in the same mapping.
+    shared: bool,
     res_words: usize,
     res: Plane<u32>,
     s_res: Box<[i64]>,
@@ -202,6 +961,7 @@ impl NqLinear {
             salient_idx: p.salient_idx.to_vec().into_boxed_slice(),
             salient: salient.into_boxed_slice(),
             res_layers: shape.res_layers,
+            shared: p.shared,
             res_words: shape.res_words,
             res: p.res,
             s_res: s_res.into_boxed_slice(),
@@ -227,27 +987,38 @@ impl NqLinear {
     }
 
     /// The stored bits: the two sign planes, the three scale vectors, the index list, the sparse
-    /// residual and every dense sign-residual layer.
+    /// residual and every dense sign-residual layer, omitting the block a shared member takes from
+    /// its layer's `q` section.
     #[must_use]
     pub fn stored_bits(&self) -> u64 {
+        let (v, pre, mid, idx) = if self.shared {
+            (0, 0, 0, 0)
+        } else {
+            (
+                self.v.len(),
+                self.s_pre.len(),
+                self.s_mid.len(),
+                self.salient_idx.len(),
+            )
+        };
         let signs = self
             .u
             .len()
-            .saturating_add(self.v.len())
+            .saturating_add(v)
             .saturating_add(self.res.len());
-        let scales = self
-            .s_pre
-            .len()
-            .saturating_add(self.s_mid.len())
+        let scales = pre
+            .saturating_add(mid)
             .saturating_add(self.s_post.len())
             .saturating_add(self.salient.len())
             .saturating_add(self.s_res.len());
         (signs as u64)
             .saturating_mul(32)
-            .saturating_add((self.salient_idx.len() as u64).saturating_mul(32))
+            .saturating_add((idx as u64).saturating_mul(32))
             .saturating_add((scales as u64).saturating_mul(16))
     }
 
+    /// The exact Q32.32 projection over the exact activation words: the reference reader.
+    ///
     /// `round(s_post_i · Σ_k U_ik · z_k / 2^32)` plus `Σ_j salient_ij·x_idx[j]` and
     /// `Σ_l s_res_li·Σ_j sign_lij·x_j`, for every output row, with
     /// `z = s_mid ⊙ (V (s_pre ⊙ x))`.
@@ -263,6 +1034,52 @@ impl NqLinear {
     /// `O(rank·inn + out·rank + out·k + res_layers·out·inn)` additions and products; scratch
     /// `O(inn + rank)` words and `O(out)` output.
     pub fn project(&self, x: &[i64]) -> Result<Vec<i64>, NqError> {
+        self.project_with(x, Reader::Exact)
+    }
+
+    /// The same projection with the Q8 block reader for the `V`, `U` and dense-residual
+    /// activations: each stage activation is quantized to one int8 code per element and one
+    /// power-of-two scale per 32 elements, and every sign row folds those codes through
+    /// [`code_select_avx2`], the block shape `matvec_q8act` reads for a stored quantized row.
+    /// The result is the exact integer projection of the quantized activation, not of the exact
+    /// Q32.32 words: this is the fast reader and [`NqLinear::project`] is its oracle. A pack with
+    /// no residual layer reads `x` only through the sparse correction, so its `x` stage is not
+    /// quantized at all.
+    ///
+    /// # Errors
+    ///
+    /// As [`NqLinear::project`]. A stage whose activation cannot be quantized, or whose codes
+    /// leave [`CodeTerms`]' domain, keeps the exact reader for that stage; an actual fixed-point
+    /// overflow still refuses.
+    ///
+    /// # Complexity
+    ///
+    /// As [`NqLinear::project`] plus `O(inn + rank)` quantization work, and `O(inn)` less when the
+    /// pack has no residual layer.
+    pub fn project_q8(&self, x: &[i64]) -> Result<Vec<i64>, NqError> {
+        self.project_with(x, Reader::Q8)
+    }
+
+    /// The same projection with the ternary block reader for the `V`, `U` and dense-residual
+    /// activations: each stage activation is quantized to one trit per term and one power-of-two
+    /// scale per 64 terms, the code residual is dropped, and every sign row folds the trit masks
+    /// with the [`ternary_block`] identity. The result is the exact integer projection of the
+    /// ternary-quantized activation, not of the exact Q32.32 words: this is the fast carrier and
+    /// [`NqLinear::project`] is its oracle.
+    ///
+    /// # Errors
+    ///
+    /// As [`NqLinear::project`]. A stage whose activation cannot be quantized keeps the exact
+    /// reader for that stage; an actual fixed-point overflow still refuses.
+    ///
+    /// # Complexity
+    ///
+    /// As [`NqLinear::project`] plus `O(inn + rank)` quantization work.
+    pub fn project_ternary(&self, x: &[i64]) -> Result<Vec<i64>, NqError> {
+        self.project_with(x, Reader::Ternary)
+    }
+
+    fn project_with(&self, x: &[i64], reader: Reader) -> Result<Vec<i64>, NqError> {
         if x.len() != self.inn {
             return Err(NqError::Shape {
                 x: x.len(),
@@ -272,10 +1089,8 @@ impl NqLinear {
         // t_j = round(s_pre_j · x_j / 2^32).
         let mut t: Vec<i64> = Vec::with_capacity(self.inn);
         let mut max_abs_t = 0u64;
-        let mut max_abs_x = 0u64;
         let mut j = 0usize;
         while j < self.inn {
-            max_abs_x = max_abs_x.max(x[j].unsigned_abs());
             match mul_q32(x[j], self.s_pre[j]) {
                 Some(v) => {
                     max_abs_t = max_abs_t.max(v.unsigned_abs());
@@ -291,6 +1106,17 @@ impl NqLinear {
         // narrow and takes the wide source.
         let bound_v = u128::from(max_abs_t).saturating_mul(self.inn as u128);
         let narrow_v = bound_v <= i64::MAX as u128;
+        let q8 = reader == Reader::Q8;
+        let ternary = reader == Reader::Ternary;
+        let t_ternary = if ternary { TernaryTerms::new(&t) } else { None };
+        let t_q = if q8 { quant_act(&t) } else { None };
+        let t_codes = t_q.as_ref().and_then(CodeTerms::new);
+        let t_stage = Stage {
+            wide: &t,
+            terms: (t_codes.is_none() && t_ternary.is_none() && narrow_v).then(|| Terms::new(&t)),
+            codes: t_codes,
+            ternary: t_ternary,
+        };
         let pool = Pool::global();
         let width = pool.width().max(1);
         let mut z: Vec<i64> = vec![0; self.rank];
@@ -301,13 +1127,10 @@ impl NqLinear {
             while d < zs.len() {
                 let k = at + d;
                 let vrow = &self.v[k * self.v_words..(k + 1) * self.v_words];
-                let dot = if narrow_v {
-                    sign_dot!(t, vrow, self.inn, i64)
-                } else if let Ok(v) = i64::try_from(sign_dot!(t, vrow, self.inn, i128)) {
-                    v
-                } else {
+                let Some(dot) = i64::try_from(t_stage.dot(vrow, self.inn)).ok() else {
                     overflow.store(true, std::sync::atomic::Ordering::Relaxed);
-                    0
+                    d += 1;
+                    continue;
                 };
                 match mul_q32(dot, self.s_mid[k]) {
                     Some(v) => zs[d] = v,
@@ -328,28 +1151,57 @@ impl NqLinear {
         }
         let bound_u = u128::from(max_abs_z).saturating_mul(self.rank as u128);
         let narrow_u = bound_u <= i64::MAX as u128;
+        let z_ternary = if ternary { TernaryTerms::new(&z) } else { None };
+        let z_q = if q8 { quant_act(&z) } else { None };
+        let z_codes = z_q.as_ref().and_then(CodeTerms::new);
+        let z_stage = Stage {
+            wide: &z,
+            terms: (z_codes.is_none() && z_ternary.is_none() && narrow_u).then(|| Terms::new(&z)),
+            codes: z_codes,
+            ternary: z_ternary,
+        };
+        // The dense residual is the only reader of the `x` stage's codes and planes, and the
+        // sparse correction indexes `x` directly. A pack with no residual layer therefore skips
+        // the whole `x` setup; its stage keeps the exact words as the fallback source.
+        let residual = self.res_layers > 0;
+        let max_abs_x = if residual {
+            x.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0)
+        } else {
+            0
+        };
         // The dense sign dot sums `inn` activation words; it is narrow exactly when that bound is.
         let bound_x = u128::from(max_abs_x).saturating_mul(self.inn as u128);
-        let narrow_x = bound_x <= i64::MAX as u128;
-        let y = self.project_rows(pool, &z, x, narrow_u, narrow_x, &overflow);
+        let narrow_x = residual && bound_x <= i64::MAX as u128;
+        let x_ternary = if ternary && residual {
+            TernaryTerms::new(x)
+        } else {
+            None
+        };
+        let x_q = if q8 && residual { quant_act(x) } else { None };
+        let x_codes = x_q.as_ref().and_then(CodeTerms::new);
+        let x_stage = Stage {
+            wide: x,
+            terms: (x_codes.is_none() && x_ternary.is_none() && narrow_x).then(|| Terms::new(x)),
+            codes: x_codes,
+            ternary: x_ternary,
+        };
+        let y = self.project_rows(pool, &z_stage, &x_stage, &overflow);
         if overflow.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(NqError::Overflow);
         }
         Ok(y)
     }
 
-    /// The `U` stage of [`NqLinear::project`]: `round(s_post_i·Σ_k U_ik·z_k / 2^32)` plus the
-    /// sparse residual, one row per output element, parallel over `pool` chunks.
+    /// The `U` stage of [`NqLinear::project_with`]: `round(s_post_i·Σ_k U_ik·z_k / 2^32)` plus
+    /// the sparse residual, one row per output element, parallel over `pool` chunks.
     ///
     /// A refusal sets `overflow` and moves on rather than unwinding, because the body runs on pool
     /// workers; the first stage shares the flag, so the caller reads it once after both stages.
     fn project_rows(
         &self,
         pool: &Pool,
-        z: &[i64],
-        x: &[i64],
-        narrow_u: bool,
-        narrow_x: bool,
+        z: &Stage<'_>,
+        x: &Stage<'_>,
         overflow: &std::sync::atomic::AtomicBool,
     ) -> Vec<i64> {
         let width = pool.width().max(1);
@@ -362,11 +1214,7 @@ impl NqLinear {
                 let urow = &self.u[i * self.u_words..(i + 1) * self.u_words];
                 // A wide `U` sum is not a refusal by itself: the post-scale can bring it back
                 // into `i64`, so only the scaled output is checked.
-                let acc = if narrow_u {
-                    i128::from(sign_dot!(z, urow, self.rank, i64))
-                } else {
-                    sign_dot!(z, urow, self.rank, i128)
-                };
+                let acc = z.dot(urow, self.rank);
                 let Some(low) = acc.checked_mul(i128::from(self.s_post[i])) else {
                     overflow.store(true, std::sync::atomic::Ordering::Relaxed);
                     d += 1;
@@ -380,8 +1228,8 @@ impl NqLinear {
                 let mut c = 0usize;
                 while c < self.k {
                     let src = self.salient_idx[c] as usize;
-                    let term =
-                        i128::from(self.salient[i * self.k + c]).checked_mul(i128::from(x[src]));
+                    let term = i128::from(self.salient[i * self.k + c])
+                        .checked_mul(i128::from(x.wide[src]));
                     if let Some(v) = term.and_then(|t| corr.checked_add(t)) {
                         corr = v;
                     } else {
@@ -398,13 +1246,9 @@ impl NqLinear {
                     let at = (l * self.out + i) * self.res_words;
                     let srow = &self.res[at..at + self.res_words];
                     // The bits in `U` and `V` are consumed as a product, so their shared
-                    // inversion cancels; a residual plane is read once, and the negated
-                    // `sign_dot!` restores the format's bit-1-is-`+1` convention.
-                    let dot = if narrow_x {
-                        i128::from(-sign_dot!(x, srow, self.inn, i64))
-                    } else {
-                        -sign_dot!(x, srow, self.inn, i128)
-                    };
+                    // inversion cancels; a residual plane is read once, and the negated stage dot
+                    // restores the format's bit-1-is-`+1` convention.
+                    let dot = -x.dot(srow, self.inn);
                     let term = dot.checked_mul(i128::from(self.s_res[l * self.out + i]));
                     let Some(v) = term.and_then(|t| res.checked_add(t)) else {
                         overflow.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -556,6 +1400,13 @@ mod tests {
     use crate::engine::num::value::round_shift_32;
     use crate::format::nq::PackedLinear;
 
+    /// The stated relative bound on [`NqLinear::project_q8`] against [`NqLinear::project`] on the
+    /// `packed(11)` fixture: `max_dev·32 ≤ max_abs`. The production shapes measure 0.96–1.04% of
+    /// `|y|` at eight output rows per activation; one int8 activation code per element bounds the
+    /// error at about `1/127` of the activation's magnitude, so `1/32` of `|y|` is a threefold
+    /// margin and a route mix-up (a different reader's whole-unit error) leaves it.
+    const Q8_REL_BOUND: u64 = 32;
+
     /// A deterministic xorshift word source.
     fn next_u32(state: &mut u64) -> u32 {
         *state ^= *state << 13;
@@ -616,6 +1467,7 @@ mod tests {
                 .collect::<Vec<u16>>()
                 .into(),
             res_layers,
+            shared: false,
             res: planes.into(),
             s_res: (0..res_layers * out)
                 .map(|i| bf16_bits(0.0005 + 0.0001 * (i % 7) as f32))
@@ -786,5 +1638,851 @@ mod tests {
             .project(&x)
             .expect("b");
         assert_ne!(a, b);
+    }
+
+    /// The vector source and the scalar macro must agree at every boundary: empty, below one
+    /// word, one word, one word plus a bit, several words, and a word count that leaves a
+    /// partial tail. The padding bits of the tail are then set and both must still agree.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn the_vector_source_equals_the_scalar_source() {
+        if !std::arch::is_x86_feature_detected!("avx2")
+            || !std::arch::is_x86_feature_detected!("popcnt")
+        {
+            return;
+        }
+        let mut state = 0x5eed_0f17_1234_9876u64;
+        for len in [0usize, 1, 31, 32, 33, 64, 127, 128, 1000] {
+            let t: Vec<i64> = (0..len)
+                .map(|_| i64::from(next_u32(&mut state) as i32))
+                .collect();
+            let mut words: Vec<u32> = (0..len.div_ceil(32))
+                .map(|_| next_u32(&mut state))
+                .collect();
+            let scalar = sign_dot!(&t, &words, len, i64);
+            // SAFETY: AVX2 is detected above and `t.len() == len`.
+            let vector = unsafe { sign_dot_avx2(&t, &words, len) };
+            assert_eq!(scalar, vector, "len {len}");
+            if len % 32 != 0 {
+                *words.last_mut().expect("a partial word") |= !0u32 << (len % 32);
+            }
+            let padded_scalar = sign_dot!(&t, &words, len, i64);
+            // SAFETY: as above.
+            let padded_vector = unsafe { sign_dot_avx2(&t, &words, len) };
+            assert_eq!(
+                scalar, padded_scalar,
+                "len {len}: padding moved the scalar sum"
+            );
+            assert_eq!(
+                padded_scalar, padded_vector,
+                "len {len}: padding moved only the vector sum"
+            );
+        }
+    }
+
+    /// The byte-plane source's safe twin: the same four signed digits and the same
+    /// `Σ t − 2·Σ_{bit=1} t`, folded term by term in `i64` without an intrinsic. The vector
+    /// source's `i32` lane grouping is exact under `lane_sums_fit`, so the two fold one sum.
+    fn sign_dot_planes_twin(t: &[i64], words: &[u32], len: usize) -> i64 {
+        let planes = BytePlanes::of(&t[..len]).expect("four digits");
+        let mut sum = 0i64;
+        let mut selected = 0i64;
+        let mut i = 0usize;
+        while i < len {
+            let mut term = 0i64;
+            let mut b = 0usize;
+            while b < 4 {
+                term += i64::from(planes.plane[b][i] as i8) << (8 * b);
+                b += 1;
+            }
+            assert_eq!(term, t[i], "digits of term {i}");
+            sum += term;
+            selected += term * i64::from((words[i / 32] >> (i % 32)) & 1);
+            i += 1;
+        }
+        sum - 2 * selected
+    }
+
+    /// The byte-plane source, its safe twin and the scalar macro must agree at every boundary:
+    /// empty, below one word, one word, one word plus a bit, several words, and a partial tail,
+    /// at three term scales up to the four-digit edge. The tail word's padding bits are then set
+    /// and all three must still agree.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn the_plane_source_equals_the_scalar_source() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let mut state = 0x5eed_1234_0f17_abcd_u64;
+        for len in [
+            0usize, 1, 7, 8, 9, 31, 32, 33, 63, 64, 65, 96, 127, 128, 129, 1000, 1023,
+        ] {
+            assert!(lane_sums_fit(len), "len {len}");
+            for bound in [1i64 << 8, 1 << 20, 2_139_062_143] {
+                let t: Vec<i64> = (0..len)
+                    .map(|_| i64::from(next_u32(&mut state) as i32) % bound)
+                    .collect();
+                let mut words: Vec<u32> = (0..len.div_ceil(32))
+                    .map(|_| next_u32(&mut state))
+                    .collect();
+                let planes = BytePlanes::of(&t).expect("four digits");
+                let padded = |words: &[u32]| {
+                    let scalar = sign_dot!(&t, words, len, i64);
+                    let twin = sign_dot_planes_twin(&t, words, len);
+                    let sum = t.iter().copied().sum();
+                    // SAFETY: AVX2 is detected above, `t.len() == len`, `words` covers `len`
+                    // bits, and `planes` splits every term into four digits.
+                    let vector = unsafe { sign_dot_planes_avx2(&t, &planes, sum, words, len) };
+                    assert_eq!(scalar, twin, "len {len} bound {bound}: twin");
+                    assert_eq!(scalar, vector, "len {len} bound {bound}: plane source");
+                };
+                padded(&words);
+                if len % 32 != 0 {
+                    *words.last_mut().expect("a partial word") |= !0u32 << (len % 32);
+                }
+                padded(&words);
+            }
+        }
+    }
+
+    /// The Q8 reader's safe twin, its AVX2 body and the existing sign dot over the dequantized
+    /// codes must agree at every boundary, at block scales from `2^0` to `2^42`. The tail word's
+    /// padding bits are then set and all three must still agree.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn the_code_source_equals_the_scalar_source() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let mut state = 0x5eed_c0de_0f17_2468u64;
+        for len in [
+            0usize, 1, 7, 31, 32, 33, 63, 64, 65, 127, 128, 129, 1000, 1023,
+        ] {
+            for e in [0u32, 1, 12, 40] {
+                let blocks = len.div_ceil(32);
+                let codes: Vec<i8> = (0..len)
+                    .map(|_| {
+                        i8::try_from(i32::try_from(next_u32(&mut state) % 255).expect("byte") - 127)
+                            .expect("[-127, 127]")
+                    })
+                    .collect();
+                // Adjacent blocks differ by four exponents, so the normalized shifts are
+                // exercised on every length, not only the long ones.
+                let scales: Vec<i64> = (0..blocks)
+                    .map(|b| 1i64 << (e + u32::from(b % 2 == 0) * 2))
+                    .collect();
+                let mut words: Vec<u32> = (0..blocks).map(|_| next_u32(&mut state)).collect();
+                let q = QuantAct::from_parts(scales.clone(), codes.clone());
+                let terms = CodeTerms::new(&q).expect("the code plan admits the fixture");
+                let run = |words: &[u32]| {
+                    let selected = code_select_twin(&codes, &scales, words, len);
+                    // The exact sign dot over the dequantized codes, and the activation total the
+                    // selection is subtracted from: `Σ x̂ − 2·selected`.
+                    let t: Vec<i64> = (0..len)
+                        .map(|j| scales[j / 32] * i64::from(codes[j]))
+                        .collect();
+                    let exact = i128::from(sign_dot!(&t, words, len, i64));
+                    let sum: i128 = t.iter().map(|&v| i128::from(v)).sum();
+                    // SAFETY: AVX2 is detected above; `len == codes.len()`, `words` covers `len`
+                    // bits, and `terms` was admitted by `CodeTerms::new`.
+                    let vector = unsafe {
+                        code_select_avx2(
+                            &codes,
+                            &scales,
+                            &terms.shift_vecs,
+                            terms.e_min,
+                            words,
+                            len,
+                        )
+                        .expect("the admitted plan is in range")
+                    };
+                    assert_eq!(
+                        sum - 2 * selected,
+                        exact,
+                        "len {len} e {e}: selection vs the dequantized dot"
+                    );
+                    assert_eq!(
+                        vector,
+                        i64::try_from(selected).expect("fits"),
+                        "len {len} e {e}: vector"
+                    );
+                };
+                run(&words);
+                if len % 32 != 0 {
+                    *words.last_mut().expect("a partial word") |= !0u32 << (len % 32);
+                }
+                run(&words);
+            }
+        }
+    }
+
+    /// The Q8 projection runs off the exact reader and stays inside [`Q8_REL_BOUND`] on the
+    /// fixture: the q8 route is visible (the deviation is nonzero) and a route mix-up is not.
+    #[test]
+    fn q8_projection_is_within_the_bound_of_exact() {
+        let p = packed(11);
+        let linear = NqLinear::from_packed(p.clone()).expect("decode");
+        let x: Vec<i64> = (0..p.inn)
+            .map(|i| ((i as i64 * 37 + 11) % 101 - 50) << 24)
+            .collect();
+        let exact = linear.project(&x).expect("exact");
+        let q8 = linear.project_q8(&x).expect("q8");
+        let mut max_dev = 0u64;
+        let mut max_abs = 0u64;
+        for (a, b) in exact.iter().zip(&q8) {
+            max_dev = max_dev.max(a.abs_diff(*b));
+            max_abs = max_abs.max(a.unsigned_abs());
+        }
+        assert!(max_dev > 0, "the Q8 reader was bit-identical to exact");
+        assert!(
+            max_dev.saturating_mul(Q8_REL_BOUND) <= max_abs,
+            "max deviation {max_dev} words against |y| {max_abs}, bound 1/{Q8_REL_BOUND}"
+        );
+    }
+
+    /// The 64-term ternary twin against the term-by-term sum over the boundary lengths. `p` and
+    /// `n` are disjoint and masked to `len`; `w` keeps arbitrary padding above `len`, which the
+    /// masks make irrelevant. The lengths land on the word and block boundaries and on the
+    /// multiword tail.
+    #[test]
+    fn the_ternary_block_equals_the_term_sum() {
+        let mut state = 0x5eed_7e12_0f17_9abcu64;
+        for len in [
+            0usize, 1, 7, 8, 9, 31, 32, 33, 63, 64, 65, 127, 128, 129, 1000, 1023,
+        ] {
+            let blocks = len.div_ceil(64);
+            let mut p = vec![0u64; blocks];
+            let mut n = vec![0u64; blocks];
+            let mut w = vec![0u64; blocks];
+            for b in 0..blocks {
+                for j in 0..64 {
+                    match next_u32(&mut state) % 3 {
+                        1 => p[b] |= 1u64 << j,
+                        2 => n[b] |= 1u64 << j,
+                        _ => {}
+                    }
+                }
+                w[b] = u64::from(next_u32(&mut state)) | (u64::from(next_u32(&mut state)) << 32);
+            }
+            if len % 64 != 0 {
+                let keep = (1u64 << (len % 64)) - 1;
+                let last = blocks - 1;
+                p[last] &= keep;
+                n[last] &= keep;
+            }
+            let mut got = 0i128;
+            let mut b = 0usize;
+            while b < blocks {
+                got += i128::from(ternary_block(w[b], p[b], n[b]));
+                b += 1;
+            }
+            let mut want = 0i128;
+            let mut i = 0usize;
+            while i < len {
+                let (b, j) = (i / 64, i % 64);
+                let trit = i128::from((p[b] >> j) & 1) - i128::from((n[b] >> j) & 1);
+                let sign = 1 - 2 * i128::from((w[b] >> j) & 1);
+                want += sign * trit;
+                i += 1;
+            }
+            assert_eq!(got, want, "len {len}");
+        }
+    }
+
+    /// A trit-exact activation through the whole staged product: unit scales, every `V`/`U` row a
+    /// single sign bit, one `x` word `+2^26` and the rest zero. Its ternary code is `±64` at
+    /// `S = 2^20`, so the dropped residual is zero; every `V` output is that one word with a sign,
+    /// so the second stage's activation is trit-exact too. Both readers must agree word for word.
+    /// This checks the masks, the level shift, the block and tail boundaries, and the wiring of
+    /// both dot stages.
+    #[test]
+    fn the_ternary_projection_equals_the_exact_reader_on_trit_exact_words() {
+        let (out, inn, rank) = (8usize, 130usize, 9usize);
+        let mut state = 0x5eed_7e12_0f17_c0deu64;
+        let v_words = inn.div_ceil(32);
+        let u_words = rank.div_ceil(32);
+        let mut v = vec![0u32; rank * v_words];
+        for k in 0..rank {
+            let j = (next_u32(&mut state) as usize) % inn;
+            v[k * v_words + j / 32] |= 1u32 << (j % 32);
+        }
+        let mut u = vec![0u32; out * u_words];
+        for i in 0..out {
+            let k = (next_u32(&mut state) as usize) % rank;
+            u[i * u_words + k / 32] |= 1u32 << (k % 32);
+        }
+        let p = PackedLinear {
+            layer: 0,
+            kind: 0,
+            out,
+            inn,
+            rank,
+            u: u.into(),
+            v: v.into(),
+            s_pre: vec![bf16_bits(1.0); inn].into(),
+            s_mid: vec![bf16_bits(1.0); rank].into(),
+            s_post: vec![bf16_bits(1.0); out].into(),
+            salient_idx: Vec::<u32>::new().into(),
+            salient: Vec::<u16>::new().into(),
+            res_layers: 0,
+            shared: false,
+            res: Vec::<u32>::new().into(),
+            s_res: Vec::<u16>::new().into(),
+        };
+        let linear = NqLinear::from_packed(p).expect("decode");
+        // One nonzero input word: every `V` row then reads `±a` (one term, so no residual), and
+        // every entry of the second stage's activation `z` is one of those `V` outputs, so the
+        // sign-only reader is exact there too. A dense `x` breaks the premise: stage 2's
+        // activation is `Σx − 2x_j` (3–7 words here), whose ternary code carries a nonzero
+        // residual that this reader deliberately drops.
+        let a = 1i64 << 26;
+        let mut x = vec![0i64; inn];
+        x[(next_u32(&mut state) as usize) % inn] = a;
+        let exact = linear.project(&x).expect("exact");
+        let ternary = linear.project_ternary(&x).expect("ternary");
+        assert!(
+            exact.iter().any(|&v| v != 0),
+            "the fixture must exercise a nonzero output"
+        );
+        assert_eq!(exact, ternary);
+    }
+
+    /// The four-digit split is exact up to `2,139,062,143` and down to `−2,155,905,152`, refuses
+    /// the next value, and a refused split leaves the dispatch on the `i64`-lane source, which
+    /// still equals the macro.
+    #[test]
+    fn the_four_digit_split_refuses_a_fifth_digit() {
+        for v in [
+            0i64,
+            1,
+            -1,
+            127,
+            128,
+            255,
+            256,
+            -255,
+            -256,
+            -(1 << 24),
+            1 << 30,
+            -(1 << 30),
+            2_139_062_143,
+            -2_155_905_152,
+            i64::from(i32::MIN),
+        ] {
+            let planes = BytePlanes::of(&[v]).expect("four digits");
+            let mut term = 0i64;
+            for (b, plane) in planes.plane.iter().enumerate() {
+                term += i64::from(plane[0] as i8) << (8 * b);
+            }
+            assert_eq!(term, v, "digits of {v}");
+        }
+        for v in [
+            2_139_062_144i64,
+            -2_155_905_153,
+            i64::from(i32::MAX),
+            1 << 40,
+        ] {
+            assert!(BytePlanes::of(&[v]).is_none(), "{v} split into four digits");
+        }
+        let t = [
+            2_139_062_144i64,
+            -1,
+            5,
+            2_139_062_143,
+            -2_155_905_152,
+            7,
+            1 << 30,
+            -8,
+        ];
+        let words = [0b1010_1010u32];
+        let terms = Terms::new(&t);
+        assert!(terms.planes.is_none());
+        assert_eq!(terms.sum, t.iter().copied().sum());
+        assert_eq!(
+            terms.dot(&words, t.len()),
+            sign_dot!(&t, &words, t.len(), i64)
+        );
+    }
+
+    /// Reports scalar and AVX2 nanoseconds for one `V` stage of a 4096-wide linear over three
+    /// interleaved runs; the speedup and its spread are printed, not asserted.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    #[ignore = "reports timing; run in release with --ignored --nocapture"]
+    fn sign_dot_microbenchmark() {
+        const RANK: usize = 1024;
+        const INN: usize = 4096;
+        if !std::arch::is_x86_feature_detected!("avx2")
+            || !std::arch::is_x86_feature_detected!("popcnt")
+        {
+            println!("avx2 or popcnt unavailable; there is no vector source to time");
+            return;
+        }
+        let words_per_row = INN.div_ceil(32);
+        let mut state = 0x00c0_ffee_0bad_f00du64;
+        let t: Vec<i64> = (0..INN)
+            .map(|_| i64::from(next_u32(&mut state) as i32))
+            .collect();
+        let planes: Vec<u32> = (0..RANK * words_per_row)
+            .map(|_| next_u32(&mut state))
+            .collect();
+        let pass = |vector: bool| -> i64 {
+            let mut acc = 0i64;
+            let mut row = 0usize;
+            while row < RANK {
+                let w = &planes[row * words_per_row..(row + 1) * words_per_row];
+                let dot = if vector {
+                    // SAFETY: AVX2 is detected above and the plane and `t` cover `INN`.
+                    unsafe { sign_dot_avx2(&t, w, INN) }
+                } else {
+                    sign_dot!(&t, w, INN, i64)
+                };
+                acc = acc.wrapping_add(dot);
+                row += 1;
+            }
+            acc
+        };
+        // One untimed pass each, so both timed sources see warm caches.
+        std::hint::black_box(pass(false));
+        std::hint::black_box(pass(true));
+        let mut scalar_ns = [0u128; 3];
+        let mut vector_ns = [0u128; 3];
+        for run in 0..3 {
+            let start = std::time::Instant::now();
+            std::hint::black_box(pass(false));
+            scalar_ns[run] = start.elapsed().as_nanos();
+            let start = std::time::Instant::now();
+            std::hint::black_box(pass(true));
+            vector_ns[run] = start.elapsed().as_nanos();
+        }
+        println!(
+            "sign dot microbenchmark: rank {RANK} x inn {INN}, {words_per_row} words/row, {RANK} rows"
+        );
+        println!("run  scalar ns  avx2 ns  ratio");
+        for run in 0..3 {
+            println!(
+                "{run}  {}  {}  {:.2}",
+                scalar_ns[run],
+                vector_ns[run],
+                scalar_ns[run] as f64 / vector_ns[run] as f64
+            );
+        }
+        let mean = |v: &[u128; 3]| v.iter().map(|&n| n as f64).sum::<f64>() / 3.0;
+        let spread = |v: &[u128; 3]| {
+            let min = *v.iter().min().expect("three runs");
+            let max = *v.iter().max().expect("three runs");
+            (max - min) as f64 / mean(v) * 100.0
+        };
+        println!(
+            "mean  scalar {:.0} ns  avx2 {:.0} ns  ratio {:.2}",
+            mean(&scalar_ns),
+            mean(&vector_ns),
+            mean(&scalar_ns) / mean(&vector_ns)
+        );
+        println!(
+            "spread  scalar {:.1}%  avx2 {:.1}%",
+            spread(&scalar_ns),
+            spread(&vector_ns)
+        );
+    }
+
+    /// The mean of three runs, in the runs' own unit.
+    fn mean3(v: &[u128; 3]) -> f64 {
+        v.iter().map(|&n| n as f64).sum::<f64>() / 3.0
+    }
+
+    /// The `(max − min)/mean` spread of three runs, in percent.
+    fn spread3(v: &[u128; 3]) -> f64 {
+        let min = *v.iter().min().expect("three runs");
+        let max = *v.iter().max().expect("three runs");
+        (max - min) as f64 / mean3(v) * 100.0
+    }
+
+    /// The 7B pack's four linear geometries, `(kind, out, inn, rank, per_token)`, and how many of
+    /// each the 28 layers hold (`bench/cpu/1794781140-nq7b-118-full-pack.md`).
+    const PRODUCTION: [(&str, usize, usize, usize, usize); 4] = [
+        ("q,o", 3584, 3584, 2080, 56),
+        ("k,v", 512, 3584, 512, 56),
+        ("gate,up", 18944, 3584, 3520, 56),
+        ("down", 3584, 18944, 3520, 28),
+    ];
+
+    /// A production-shaped packed linear: random sign planes, the staged test's scale pattern, no
+    /// sparse column and no dense residual. The 1.174 b/w pack stores neither: its bit count is
+    /// `32·(o·⌈r/32⌉ + r·⌈n/32⌉) + 16·(n + r + o)`, with no `salient` or `res` term.
+    fn production_packed(out: usize, inn: usize, rank: usize, seed: u64) -> PackedLinear {
+        let u_words = rank.div_ceil(32);
+        let v_words = inn.div_ceil(32);
+        let mut state = 0x9e37_79b9_7f4a_7c15u64 ^ seed;
+        let u: Vec<u32> = (0..out * u_words).map(|_| next_u32(&mut state)).collect();
+        let v: Vec<u32> = (0..rank * v_words).map(|_| next_u32(&mut state)).collect();
+        PackedLinear {
+            layer: 0,
+            kind: 0,
+            out,
+            inn,
+            rank,
+            u: u.into(),
+            v: v.into(),
+            s_pre: (0..inn)
+                .map(|i| bf16_bits(0.01 + 0.001 * (i % 7) as f32))
+                .collect::<Vec<u16>>()
+                .into(),
+            s_mid: (0..rank)
+                .map(|i| bf16_bits(0.5 + 0.01 * (i % 3) as f32))
+                .collect::<Vec<u16>>()
+                .into(),
+            s_post: (0..out)
+                .map(|i| bf16_bits(0.02 + 0.002 * (i % 5) as f32))
+                .collect::<Vec<u16>>()
+                .into(),
+            salient_idx: Vec::new().into(),
+            salient: Vec::new().into(),
+            res_layers: 0,
+            shared: false,
+            res: Vec::new().into(),
+            s_res: Vec::new().into(),
+        }
+    }
+
+    /// Reports the production geometries: the `project` cost in ms, sign terms/s and replaced
+    /// weights/s over three runs, the term magnitudes and whether the byte source is admitted, and
+    /// the paired `i64`-lane / byte-plane throughput with the arms alternating order. The per-token
+    /// totals close with the one-core rate each arm implies. Prints; the only assertion is that
+    /// the two arms agree.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    #[ignore = "reports timing; run in release with --ignored --nocapture"]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one reporting body: the geometry table, the paired arms and the closure totals \
+                  share the fixture and are printed together"
+    )]
+    fn nq_production_shape_throughput() {
+        if !std::arch::is_x86_feature_detected!("avx2")
+            || !std::arch::is_x86_feature_detected!("popcnt")
+        {
+            println!("avx2 or popcnt unavailable; there is no vector source to time");
+            return;
+        }
+        println!(
+            "nq production shapes; pool width {}",
+            Pool::global().width()
+        );
+        let mut token_terms = 0f64;
+        let mut token_weights = 0f64;
+        let mut token_project_ns = 0f64;
+        let mut token_lane_ns = 0f64;
+        let mut token_byte_ns = 0f64;
+        let mut token_code_ns = 0f64;
+        let mut token_q8_ns = 0f64;
+        for &(name, out, inn, rank, per_token) in &PRODUCTION {
+            let seed = (out as u64) << 20 ^ (inn as u64) << 8 ^ rank as u64;
+            let linear =
+                NqLinear::from_packed(production_packed(out, inn, rank, seed)).expect("decode");
+            let v_words = inn.div_ceil(32);
+            let u_words = rank.div_ceil(32);
+            // A Q32.32 activation of magnitude ~2^24, the staged test's pattern.
+            let x: Vec<i64> = (0..inn)
+                .map(|i| ((i as i64 * 37 + 11) % 101 - 50) << 24)
+                .collect();
+            let t: Vec<i64> = (0..inn)
+                .map(|j| mul_q32(x[j], linear.s_pre[j]).expect("t"))
+                .collect();
+            let t_terms = Terms::new(&t);
+            let z: Vec<i64> = (0..rank)
+                .map(|k| {
+                    let w = &linear.v[k * v_words..(k + 1) * v_words];
+                    mul_q32(t_terms.dot(w, inn), linear.s_mid[k]).expect("z")
+                })
+                .collect();
+            let z_terms = Terms::new(&z);
+            let t_q = quant_act(&t);
+            let z_q = quant_act(&z);
+            let t_code = t_q.as_ref().and_then(CodeTerms::new).expect("t code plan");
+            let z_code = z_q.as_ref().and_then(CodeTerms::new).expect("z code plan");
+            let max_t = t.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);
+            let max_z = z.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);
+            let terms = (rank * inn + out * rank) as f64;
+            let weights = (out * inn) as f64;
+            // One full `V` + `U` sign-dot pass through one arm, both over the same planes.
+            let pass = |byte: bool| -> i64 {
+                let mut acc = 0i64;
+                let mut row = 0usize;
+                while row < rank {
+                    let w = &linear.v[row * v_words..(row + 1) * v_words];
+                    let dot = if byte {
+                        // SAFETY: AVX2 is detected above; `t` and its planes cover `inn` terms.
+                        unsafe {
+                            sign_dot_planes_avx2(
+                                &t,
+                                t_terms.planes.as_ref().expect("t planes"),
+                                t_terms.sum,
+                                w,
+                                inn,
+                            )
+                        }
+                    } else {
+                        // SAFETY: as above, for the `i64`-lane source.
+                        unsafe { sign_dot_avx2(&t, w, inn) }
+                    };
+                    acc = acc.wrapping_add(dot);
+                    row += 1;
+                }
+                let mut row = 0usize;
+                while row < out {
+                    let w = &linear.u[row * u_words..(row + 1) * u_words];
+                    let dot = if byte {
+                        // SAFETY: as above, over `rank` terms.
+                        unsafe {
+                            sign_dot_planes_avx2(
+                                &z,
+                                z_terms.planes.as_ref().expect("z planes"),
+                                z_terms.sum,
+                                w,
+                                rank,
+                            )
+                        }
+                    } else {
+                        // SAFETY: as above.
+                        unsafe { sign_dot_avx2(&z, w, rank) }
+                    };
+                    acc = acc.wrapping_add(dot);
+                    row += 1;
+                }
+                acc
+            };
+            std::hint::black_box(pass(false));
+            std::hint::black_box(pass(true));
+            let pass_codes = || -> i64 {
+                let mut acc = 0i64;
+                let mut row = 0usize;
+                while row < rank {
+                    let w = &linear.v[row * v_words..(row + 1) * v_words];
+                    acc = acc.wrapping_add(t_code.selected(w, inn).expect("t selection"));
+                    row += 1;
+                }
+                let mut row = 0usize;
+                while row < out {
+                    let w = &linear.u[row * u_words..(row + 1) * u_words];
+                    acc = acc.wrapping_add(z_code.selected(w, rank).expect("z selection"));
+                    row += 1;
+                }
+                acc
+            };
+            std::hint::black_box(pass_codes());
+            let mut lane_ns = [0u128; 3];
+            let mut byte_ns = [0u128; 3];
+            for run in 0..3 {
+                // Alternate the arm order: even runs time the `i64` lanes first.
+                let first = run % 2 == 0;
+                let start = std::time::Instant::now();
+                let a = std::hint::black_box(pass(!first));
+                let mid = start.elapsed().as_nanos();
+                let b = std::hint::black_box(pass(first));
+                let end = start.elapsed().as_nanos();
+                assert_eq!(a, b, "{name}: the two arms disagree");
+                let (lane, byte) = if first {
+                    (mid, end - mid)
+                } else {
+                    (end - mid, mid)
+                };
+                lane_ns[run] = lane;
+                byte_ns[run] = byte;
+            }
+            let mut code_ns = [0u128; 3];
+            for ns in &mut code_ns {
+                let start = std::time::Instant::now();
+                std::hint::black_box(pass_codes());
+                *ns = start.elapsed().as_nanos();
+            }
+            let mut q8_ns = [0u128; 3];
+            for ns in &mut q8_ns {
+                let start = std::time::Instant::now();
+                std::hint::black_box(linear.project_q8(&x).expect("project_q8"));
+                *ns = start.elapsed().as_nanos();
+            }
+            let exact_out = linear.project(&x).expect("exact");
+            let q8_out = linear.project_q8(&x).expect("q8");
+            let mut max_dev = 0u64;
+            let mut max_abs = 0u64;
+            for (a, b) in exact_out.iter().zip(&q8_out) {
+                max_dev = max_dev.max(a.abs_diff(*b));
+                max_abs = max_abs.max(a.unsigned_abs());
+            }
+            let mut project_ns = [0u128; 3];
+            for ns in &mut project_ns {
+                let start = std::time::Instant::now();
+                std::hint::black_box(linear.project(&x).expect("project"));
+                *ns = start.elapsed().as_nanos();
+            }
+            println!(
+                "{name:8} {out:5}x{inn:5} r{rank:4}: project {:8.2} ms (spread {:4.1}%)  {:6.2} G terms/s  {:6.2} G weight/s",
+                mean3(&project_ns) / 1e6,
+                spread3(&project_ns),
+                terms / mean3(&project_ns),
+                weights / mean3(&project_ns),
+            );
+            println!(
+                "         max|t| {max_t} (2^{:.1}) byte {}  max|z| {max_z} (2^{:.1}) byte {}  four-digit z headroom {:.2}x  | lanes {:8.2} ms {:6.2} G terms/s | bytes {:8.2} ms {:6.2} G terms/s | ratio {:.2} (spread {:4.1}% / {:4.1}%)",
+                (max_t as f64).log2(),
+                t_terms.planes.is_some(),
+                (max_z as f64).log2(),
+                z_terms.planes.is_some(),
+                2_139_062_143.0 / max_z.max(1) as f64,
+                mean3(&lane_ns) / 1e6,
+                terms / mean3(&lane_ns),
+                mean3(&byte_ns) / 1e6,
+                terms / mean3(&byte_ns),
+                mean3(&lane_ns) / mean3(&byte_ns),
+                spread3(&lane_ns),
+                spread3(&byte_ns),
+            );
+            println!(
+                "         q8 codes {:8.2} ms {:6.2} G terms/s | project_q8 {:8.2} ms | byte/q8 {:.2}x | deviation {max_dev} words of |y| {max_abs}",
+                mean3(&code_ns) / 1e6,
+                terms / mean3(&code_ns),
+                mean3(&q8_ns) / 1e6,
+                mean3(&byte_ns) / mean3(&code_ns),
+            );
+            let per_token = per_token as f64;
+            token_terms += terms * per_token;
+            token_weights += weights * per_token;
+            token_project_ns += mean3(&project_ns) * per_token;
+            token_lane_ns += mean3(&lane_ns) * per_token;
+            token_byte_ns += mean3(&byte_ns) * per_token;
+            token_code_ns += mean3(&code_ns) * per_token;
+            token_q8_ns += mean3(&q8_ns) * per_token;
+        }
+        println!(
+            "\nper token: {:.3} G sign terms, {:.3} G replaced weights",
+            token_terms / 1e9,
+            token_weights / 1e9
+        );
+        for (arm, ns, one_core) in [
+            ("project, pool", token_project_ns, false),
+            ("project_q8", token_q8_ns, false),
+            ("i64 lanes", token_lane_ns, true),
+            ("byte planes", token_byte_ns, true),
+            ("q8 codes", token_code_ns, true),
+        ] {
+            println!(
+                "{arm:14} {:8.2} ms/token  {:6.2} G terms/s  {:6.2} G weights/s  {:.2} tok/s{}",
+                ns / 1e6,
+                token_terms / ns,
+                token_weights / ns,
+                1e9 / ns,
+                if one_core {
+                    format!(" on one core ({:.2} tok/s at four cores)", 4e9 / ns)
+                } else {
+                    format!(" as run (pool width {})", Pool::global().width())
+                },
+            );
+        }
+    }
+
+    /// The reference's own served factors through the served kernel.
+    ///
+    /// `APEIRON_NQ_OP_DIR` is `export_op.py`'s directory: `dims.txt`, `U.i8`, `V.i8`,
+    /// `s_pre.u16`, `s_mid.u16`, `s_post.u16`, `x.f32`, `y_f64.f64`, `y_torch.f32`. The assertion
+    /// is against the exact product over the reference's bf16 words, so it isolates this kernel
+    /// from the reference's bf16 matmul; `y_torch`'s gap is printed for the bf16 part.
+    #[test]
+    #[ignore = "reads the reference trace at $APEIRON_NQ_OP_DIR; run with --ignored"]
+    fn the_reference_factors_product_exactly() {
+        let dir = std::env::var("APEIRON_NQ_OP_DIR").expect("APEIRON_NQ_OP_DIR");
+        let dims = std::fs::read_to_string(format!("{dir}/dims.txt")).expect("dims.txt");
+        let d: Vec<usize> = dims
+            .split_whitespace()
+            .map(|s| s.parse().expect("dimension"))
+            .collect();
+        let (out, inn, rank) = (d[0], d[1], d[2]);
+        let read = |name: &str| std::fs::read(format!("{dir}/{name}")).expect(name);
+        let u8s = read("U.i8");
+        let v8s = read("V.i8");
+        let u16s = |b: &[u8]| -> Vec<u16> {
+            b.chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect()
+        };
+        let f32s = |b: &[u8]| -> Vec<f32> {
+            b.chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect()
+        };
+        let f64s = |b: &[u8]| -> Vec<f64> {
+            b.chunks_exact(8)
+                .map(|c| f64::from_le_bytes(c.try_into().expect("8 bytes")))
+                .collect()
+        };
+        let (u_words, v_words) = (rank.div_ceil(32), inn.div_ceil(32));
+        assert_eq!(u8s.len(), out * rank, "U bytes");
+        assert_eq!(v8s.len(), rank * inn, "V bytes");
+        let mut up = vec![0u32; out * u_words];
+        for i in 0..out {
+            for k in 0..rank {
+                if (u8s[i * rank + k] as i8) > 0 {
+                    up[i * u_words + k / 32] |= 1 << (k % 32);
+                }
+            }
+        }
+        let mut vp = vec![0u32; rank * v_words];
+        for k in 0..rank {
+            for j in 0..inn {
+                if (v8s[k * inn + j] as i8) > 0 {
+                    vp[k * v_words + j / 32] |= 1 << (j % 32);
+                }
+            }
+        }
+        let p = PackedLinear {
+            layer: 0,
+            kind: 0,
+            out,
+            inn,
+            rank,
+            u: up.into(),
+            v: vp.into(),
+            s_pre: u16s(&read("s_pre.u16")).into(),
+            s_mid: u16s(&read("s_mid.u16")).into(),
+            s_post: u16s(&read("s_post.u16")).into(),
+            salient_idx: Vec::new().into(),
+            salient: Vec::new().into(),
+            res_layers: 0,
+            shared: false,
+            res: Vec::new().into(),
+            s_res: Vec::new().into(),
+        };
+        let lin = NqLinear::from_packed(p).expect("decode reference factors");
+        let xf = f32s(&read("x.f32"));
+        assert_eq!(xf.len(), inn, "x bytes");
+        let x: Vec<i64> = xf
+            .iter()
+            .map(|&v| (f64::from(v) * 4_294_967_296.0).round() as i64)
+            .collect();
+        let y = lin.project(&x).expect("project");
+        let y64 = f64s(&read("y_f64.f64"));
+        let yt = f32s(&read("y_torch.f32"));
+        assert_eq!(y.len(), out, "output rows");
+        let (mut max_exact, mut max_torch, mut max_plus) = (0.0f64, 0.0f64, 0.0f64);
+        for i in 0..out {
+            let yr = y[i] as f64 / 4_294_967_296.0;
+            max_exact = max_exact.max((yr - y64[i]).abs());
+            max_torch = max_torch.max((f64::from(yt[i]) - y64[i]).abs());
+            max_plus = max_plus.max((yr + y64[i]).abs());
+        }
+        println!(
+            "reference operator: max|rust-f64| {max_exact:.3e}  max|torch-f64| {max_torch:.3e}  max|rust+f64| {max_plus:.3e}"
+        );
+        for i in 0..4 {
+            let yr = y[i] as f64 / 4_294_967_296.0;
+            println!(
+                "  y[{i}] rust {yr:.8e} f64 {:.8e} torch {:.8e}",
+                y64[i], yt[i]
+            );
+        }
+        assert!(
+            max_exact < 1e-6,
+            "the kernel misses the reference product by {max_exact:.3e}"
+        );
     }
 }

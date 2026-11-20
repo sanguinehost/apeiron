@@ -1,0 +1,5 @@
+head 151936 words 0.443 s
+head 151936 words 0.426 s
+head 151936 words 0.408 s
+head best 0.408 s, 1.53 G weight/s
+Error: "Pack(BadVersion { version: 4 })"

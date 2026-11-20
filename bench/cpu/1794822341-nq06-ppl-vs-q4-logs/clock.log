@@ -1,0 +1,10 @@
+== q4 start 2026-11-16T08:55:49Z ==
+clock after q4:  2900.230  2899.979 
+== nq-q8act start 2026-11-16T08:57:10Z ==
+clock after nq-q8act:  3397.264  3388.962 
+== nq-exact start 2026-11-16T08:59:17Z ==
+clock after nq-exact:  3499.949  3494.721 
+== q4-8192 start 2026-11-16T09:10:50Z ==
+clock after q4-8192:  3200.041  3199.998 
+== nq-q8act-8192 start 2026-11-16T09:16:03Z ==
+clock after nq-q8act-8192:  700.015  699.986 

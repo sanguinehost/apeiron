@@ -1,0 +1,76 @@
+agent-guard: waiting for another guarded job to finish...
+agent-guard: available=2543MiB cap=1519MiB jobs=2
+warning: unused import: `place::pin_beside_worker`
+  --> src/engine/chart/pool.rs:70:16
+   |
+70 | pub(crate) use place::pin_beside_worker;
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `super::super::*`
+  --> src/gpu/nn/fwd/lin.rs:19:5
+   |
+19 | use super::super::*;
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `lin::*`
+  --> src/gpu/nn/fwd/mod.rs:11:9
+   |
+11 | pub use lin::*;
+   |         ^^^^^^
+
+warning: struct `Inline` is never constructed
+   --> src/engine/chart/pool.rs:830:19
+    |
+830 | pub(crate) struct Inline(bool);
+    |                   ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `inline` is never used
+   --> src/engine/chart/pool.rs:833:15
+    |
+833 | pub(crate) fn inline() -> Inline {
+    |               ^^^^^^
+
+warning: function `pin_beside_worker` is never used
+  --> src/engine/chart/pool/place.rs:23:15
+   |
+23 | pub(crate) fn pin_beside_worker() {
+   |               ^^^^^^^^^^^^^^^^^
+
+warning: function `beside_worker` is never used
+  --> src/engine/chart/pool/place.rs:45:4
+   |
+45 | fn beside_worker(p_cpus: &[usize], siblings: impl Fn(usize) -> Option<String>) -> Option<usize> {
+   |    ^^^^^^^^^^^^^
+
+warning: `apeiron` (lib) generated 7 warnings (run `cargo fix --lib -p apeiron` to apply 3 suggestions)
+    Finished `release` profile [optimized] target(s) in 0.03s
+     Running `target/release/examples/act_dump --model /home/lucas/models/qwen3-0.6b-base-f16/Qwen3-0.6B-Base-Q4_K_M.gguf --tokenizer /home/lucas/models/qwen3-0.6b-base-e8/tokenizer.json --data /home/lucas/models/wikitext2/wikitext-2-raw/wiki.test.raw --tokens 512 --chunk 32 --out /home/lucas/Workspace/apeiron-nq/target/act-dump`
+model: 28 layers, width 1024, n_ff 3072, chunk 32, tokens 512
+block 0: 32/512 columns
+block 1: 64/512 columns
+block 2: 96/512 columns
+block 3: 128/512 columns
+block 4: 160/512 columns
+block 5: 192/512 columns
+block 6: 224/512 columns
+block 7: 256/512 columns
+block 8: 288/512 columns
+block 9: 320/512 columns
+block 10: 352/512 columns
+block 11: 384/512 columns
+block 12: 416/512 columns
+block 13: 448/512 columns
+block 14: 480/512 columns
+block 15: 512/512 columns
+wrote /home/lucas/Workspace/apeiron-nq/target/act-dump/layer0-attn_norm.i64: 512 columns of 1024 i64
+wrote /home/lucas/Workspace/apeiron-nq/target/act-dump/layer0-ffn_norm.i64: 512 columns of 1024 i64
+wrote /home/lucas/Workspace/apeiron-nq/target/act-dump/layer13-attn_norm.i64: 512 columns of 1024 i64
+wrote /home/lucas/Workspace/apeiron-nq/target/act-dump/layer13-ffn_norm.i64: 512 columns of 1024 i64
+wrote /home/lucas/Workspace/apeiron-nq/target/act-dump/layer27-attn_norm.i64: 512 columns of 1024 i64
+wrote /home/lucas/Workspace/apeiron-nq/target/act-dump/layer27-ffn_norm.i64: 512 columns of 1024 i64
+capture: 11.1 s, 45.99 tok/s
+peak rss 723.8 MiB

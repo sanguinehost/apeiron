@@ -1,0 +1,10 @@
+agent-guard: waiting for another guarded job to finish...
+agent-guard: available=2632MiB cap=1608MiB jobs=2
+checks 1188 mismatches 0
+layer 0 q/k/v V sha256 ['9497d1392a999830cf55149162d16d5270a28ed5a4bbe2f6bb7259dadfca64e7', '9497d1392a999830cf55149162d16d5270a28ed5a4bbe2f6bb7259dadfca64e7', '9497d1392a999830cf55149162d16d5270a28ed5a4bbe2f6bb7259dadfca64e7']
+  identical True
+layer 35 q/k/v V sha256 ['cc62a8751e7879702f3f394feda16fe85bf570ff018e24506108495f3f61c33c', 'cc62a8751e7879702f3f394feda16fe85bf570ff018e24506108495f3f61c33c', 'cc62a8751e7879702f3f394feda16fe85bf570ff018e24506108495f3f61c33c']
+  identical True
+source fused layer0 V sha256 9497d1392a999830cf55149162d16d5270a28ed5a4bbe2f6bb7259dadfca64e7
+source fused layer0 U sha256 3afe61dfab892b6ac4d66c36a5908c45ef7e4f7ee5e1ab3a5b03c12e11d7baf5
+source file bytes 2214297824

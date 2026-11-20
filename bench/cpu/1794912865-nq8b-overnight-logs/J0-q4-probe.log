@@ -1,0 +1,5 @@
+/dev/nvme0n1p2  233G  220G  1.7G 100% /
+-rw-rw-r-- 1 lucas lucas 374206464 Nov 17 10:06 /home/lucas/models/qwen3-8b/Qwen3-8B-Q4_K_M.gguf
+[93;48;2;0;0;0m│[0m[48;2;0;0;0m [0m[1;93;48;2;0;0;0mTotal: [0m[1;97;48;2;0;0;0m0 instances[0m[48;2;0;0;0m [0m[93;48;2;0;0;0m│[0m
+[93;48;2;0;0;0m╰────────────────────╯[0m
+[97mNo instances found.[0m

@@ -1581,9 +1581,10 @@ impl Plane {
         while i < ra && err2.is_none() {
             let mut j = 0usize;
             while j < rb && err2.is_none() {
-                match i64::try_from(acc[j * ra + i]) {
-                    Ok(v) => out[i * rb + j] = v,
-                    Err(_) => err2 = Some(LimbError::Range),
+                if let Ok(v) = i64::try_from(acc[j * ra + i]) {
+                    out[i * rb + j] = v;
+                } else {
+                    err2 = Some(LimbError::Range);
                 }
                 j += 1;
             }
@@ -2141,7 +2142,7 @@ mod tests {
         let n = 18_944usize;
         let a = vec![1i64 << 32; 2 * n];
         let b = vec![1i64 << 32; 3 * n];
-        let want = (n as i64) << 32;
+        let want = i64::try_from(n).expect("n fits i64") << 32;
         let g = gemm_q32(&a, 2, &b, 3, n, 3).expect("wide contraction");
         assert!(g.iter().all(|&x| x == want), "gemm {g:?}");
         let s = syrk_q32(&a, 2, n, 3).expect("wide half Gram");

@@ -1,0 +1,393 @@
+l00 q    3584x3584 r 1952 b/w 1.10065 15.08 s admm_loss 605.35116 precond diag
+pack /workspace/nq7b-t2.nqp 1767296 B, 1 sections, 1.100646 b/w
+l00 k    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 955.48351 precond diag
+pack /workspace/nq7b-t2.nqp 2005792 B, 2 sections, 1.093018 b/w
+l00 v    512x3584 r 448 b/w 1.03962 0.57 s admm_loss 9094.45757 precond diag
+pack /workspace/nq7b-t2.nqp 2244288 B, 3 sections, 1.087085 b/w
+l00 o    3584x3584 r 1952 b/w 1.10065 15.17 s admm_loss 10546.14903 precond diag
+pack /workspace/nq7b-t2.nqp 4011552 B, 4 sections, 1.093018 b/w
+l00 gate 18944x3584 r 3296 b/w 1.09971 241.01 s admm_loss 45.95153 precond diag
+pack /workspace/nq7b-t2.nqp 13344768 B, 5 sections, 1.097693 b/w
+l00 up   18944x3584 r 3296 b/w 1.09971 276.63 s admm_loss 10796.71512 precond diag
+pack /workspace/nq7b-t2.nqp 22677984 B, 6 sections, 1.098524 b/w
+l00 down 3584x18944 r 3296 b/w 1.09971 262.43 s admm_loss 91969.61549 precond diag
+pack /workspace/nq7b-t2.nqp 32011200 B, 7 sections, 1.098871 b/w
+l01 q    3584x3584 r 1952 b/w 1.10065 24.27 s admm_loss 884.24075 precond diag
+pack /workspace/nq7b-t2.nqp 33778464 B, 8 sections, 1.098964 b/w
+l01 k    512x3584 r 448 b/w 1.03962 0.78 s admm_loss 1161.80035 precond diag
+pack /workspace/nq7b-t2.nqp 34016960 B, 9 sections, 1.098524 b/w
+l01 v    512x3584 r 448 b/w 1.03962 0.80 s admm_loss 14407.46388 precond diag
+pack /workspace/nq7b-t2.nqp 34255456 B, 10 sections, 1.098091 b/w
+l01 o    3584x3584 r 1952 b/w 1.10065 24.71 s admm_loss 28479.53504 precond diag
+pack /workspace/nq7b-t2.nqp 36022720 B, 11 sections, 1.098216 b/w
+l01 gate 18944x3584 r 3296 b/w 1.09971 264.52 s admm_loss 15.63742 precond diag
+pack /workspace/nq7b-t2.nqp 45355936 B, 12 sections, 1.098524 b/w
+l01 up   18944x3584 r 3296 b/w 1.09971 270.90 s admm_loss 301.40758 precond diag
+pack /workspace/nq7b-t2.nqp 54689152 B, 13 sections, 1.098727 b/w
+l01 down 3584x18944 r 3296 b/w 1.09971 281.16 s admm_loss 98815.11229 precond diag
+pack /workspace/nq7b-t2.nqp 64022368 B, 14 sections, 1.098871 b/w
+l02 q    3584x3584 r 1952 b/w 1.10065 16.10 s admm_loss 529.73267 precond diag
+pack /workspace/nq7b-t2.nqp 65789632 B, 15 sections, 1.098919 b/w
+l02 k    512x3584 r 448 b/w 1.03962 0.59 s admm_loss 487.14528 precond diag
+pack /workspace/nq7b-t2.nqp 66028128 B, 16 sections, 1.098692 b/w
+l02 v    512x3584 r 448 b/w 1.03962 0.59 s admm_loss 4483.75516 precond diag
+pack /workspace/nq7b-t2.nqp 66266624 B, 17 sections, 1.098468 b/w
+l02 o    3584x3584 r 1952 b/w 1.10065 15.82 s admm_loss 15532.10057 precond diag
+pack /workspace/nq7b-t2.nqp 68033888 B, 18 sections, 1.098524 b/w
+l02 gate 18944x3584 r 3296 b/w 1.09971 279.96 s admm_loss 21.87794 precond diag
+pack /workspace/nq7b-t2.nqp 77367104 B, 19 sections, 1.098668 b/w
+l02 up   18944x3584 r 3296 b/w 1.09971 283.08 s admm_loss 491.55426 precond diag
+pack /workspace/nq7b-t2.nqp 86700320 B, 20 sections, 1.098780 b/w
+l02 down 3584x18944 r 3296 b/w 1.09971 268.69 s admm_loss 44602.85516 precond diag
+pack /workspace/nq7b-t2.nqp 96033536 B, 21 sections, 1.098871 b/w
+l03 q    3584x3584 r 1952 b/w 1.10065 27.02 s admm_loss 503.95419 precond diag
+pack /workspace/nq7b-t2.nqp 97800800 B, 22 sections, 1.098903 b/w
+l03 k    512x3584 r 448 b/w 1.03962 0.82 s admm_loss 412.06818 precond diag
+pack /workspace/nq7b-t2.nqp 98039296 B, 23 sections, 1.098751 b/w
+l03 v    512x3584 r 448 b/w 1.03962 0.84 s admm_loss 2659.18157 precond diag
+pack /workspace/nq7b-t2.nqp 98277792 B, 24 sections, 1.098599 b/w
+l03 o    3584x3584 r 1952 b/w 1.10065 27.09 s admm_loss 8110.62034 precond diag
+pack /workspace/nq7b-t2.nqp 100045056 B, 25 sections, 1.098635 b/w
+l03 gate 18944x3584 r 3296 b/w 1.09971 285.80 s admm_loss 61.23056 precond diag
+pack /workspace/nq7b-t2.nqp 109378272 B, 26 sections, 1.098727 b/w
+l03 up   18944x3584 r 3296 b/w 1.09971 271.77 s admm_loss 253.47936 precond diag
+pack /workspace/nq7b-t2.nqp 118711488 B, 27 sections, 1.098805 b/w
+l03 down 3584x18944 r 3296 b/w 1.09971 285.46 s admm_loss 2325.14269 precond diag
+pack /workspace/nq7b-t2.nqp 128044704 B, 28 sections, 1.098871 b/w
+l04 q    3584x3584 r 1952 b/w 1.10065 15.77 s admm_loss 277.08887 precond diag
+pack /workspace/nq7b-t2.nqp 129811968 B, 29 sections, 1.098895 b/w
+l04 k    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 269.58282 precond diag
+pack /workspace/nq7b-t2.nqp 130050464 B, 30 sections, 1.098780 b/w
+l04 v    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 1661.41350 precond diag
+pack /workspace/nq7b-t2.nqp 130288960 B, 31 sections, 1.098666 b/w
+l04 o    3584x3584 r 1952 b/w 1.10065 15.89 s admm_loss 8785.08729 precond diag
+pack /workspace/nq7b-t2.nqp 132056224 B, 32 sections, 1.098692 b/w
+l04 gate 18944x3584 r 3296 b/w 1.09971 292.33 s admm_loss 68.65482 precond diag
+pack /workspace/nq7b-t2.nqp 141389440 B, 33 sections, 1.098760 b/w
+l04 up   18944x3584 r 3296 b/w 1.09971 286.62 s admm_loss 318.46857 precond diag
+pack /workspace/nq7b-t2.nqp 150722656 B, 34 sections, 1.098819 b/w
+l04 down 3584x18944 r 3296 b/w 1.09971 264.70 s admm_loss 3264.81437 precond diag
+pack /workspace/nq7b-t2.nqp 160055872 B, 35 sections, 1.098871 b/w
+l05 q    3584x3584 r 1952 b/w 1.10065 24.16 s admm_loss 241.52399 precond diag
+pack /workspace/nq7b-t2.nqp 161823136 B, 36 sections, 1.098891 b/w
+l05 k    512x3584 r 448 b/w 1.03962 0.73 s admm_loss 292.76856 precond diag
+pack /workspace/nq7b-t2.nqp 162061632 B, 37 sections, 1.098798 b/w
+l05 v    512x3584 r 448 b/w 1.03962 0.75 s admm_loss 1076.67056 precond diag
+pack /workspace/nq7b-t2.nqp 162300128 B, 38 sections, 1.098706 b/w
+l05 o    3584x3584 r 1952 b/w 1.10065 25.24 s admm_loss 7477.89422 precond diag
+pack /workspace/nq7b-t2.nqp 164067392 B, 39 sections, 1.098727 b/w
+l05 gate 18944x3584 r 3296 b/w 1.09971 289.95 s admm_loss 53.44285 precond diag
+pack /workspace/nq7b-t2.nqp 173400608 B, 40 sections, 1.098780 b/w
+l05 up   18944x3584 r 3296 b/w 1.09971 272.55 s admm_loss 207.92815 precond diag
+pack /workspace/nq7b-t2.nqp 182733824 B, 41 sections, 1.098828 b/w
+l05 down 3584x18944 r 3296 b/w 1.09971 287.02 s admm_loss 23810.30680 precond diag
+pack /workspace/nq7b-t2.nqp 192067040 B, 42 sections, 1.098871 b/w
+l06 q    3584x3584 r 1952 b/w 1.10065 15.87 s admm_loss 277.05969 precond diag
+pack /workspace/nq7b-t2.nqp 193834304 B, 43 sections, 1.098887 b/w
+l06 k    512x3584 r 448 b/w 1.03962 0.59 s admm_loss 344.55240 precond diag
+pack /workspace/nq7b-t2.nqp 194072800 B, 44 sections, 1.098810 b/w
+l06 v    512x3584 r 448 b/w 1.03962 0.61 s admm_loss 1269.94402 precond diag
+pack /workspace/nq7b-t2.nqp 194311296 B, 45 sections, 1.098734 b/w
+l06 o    3584x3584 r 1952 b/w 1.10065 15.79 s admm_loss 5035.60688 precond diag
+pack /workspace/nq7b-t2.nqp 196078560 B, 46 sections, 1.098751 b/w
+l06 gate 18944x3584 r 3296 b/w 1.09971 290.26 s admm_loss 101.54577 precond diag
+pack /workspace/nq7b-t2.nqp 205411776 B, 47 sections, 1.098795 b/w
+l06 up   18944x3584 r 3296 b/w 1.09971 273.03 s admm_loss 969.28631 precond diag
+pack /workspace/nq7b-t2.nqp 214744992 B, 48 sections, 1.098835 b/w
+l06 down 3584x18944 r 3296 b/w 1.09971 273.97 s admm_loss 13395.16272 precond diag
+pack /workspace/nq7b-t2.nqp 224078208 B, 49 sections, 1.098871 b/w
+l07 q    3584x3584 r 1952 b/w 1.10065 20.09 s admm_loss 268.98720 precond diag
+pack /workspace/nq7b-t2.nqp 225845472 B, 50 sections, 1.098885 b/w
+l07 k    512x3584 r 448 b/w 1.03962 0.74 s admm_loss 307.91963 precond diag
+pack /workspace/nq7b-t2.nqp 226083968 B, 51 sections, 1.098819 b/w
+l07 v    512x3584 r 448 b/w 1.03962 0.75 s admm_loss 792.33618 precond diag
+pack /workspace/nq7b-t2.nqp 226322464 B, 52 sections, 1.098753 b/w
+l07 o    3584x3584 r 1952 b/w 1.10065 24.10 s admm_loss 2711.37778 precond diag
+pack /workspace/nq7b-t2.nqp 228089728 B, 53 sections, 1.098768 b/w
+l07 gate 18944x3584 r 3296 b/w 1.09971 276.04 s admm_loss 654.86157 precond diag
+pack /workspace/nq7b-t2.nqp 237422944 B, 54 sections, 1.098805 b/w
+l07 up   18944x3584 r 3296 b/w 1.09971 287.28 s admm_loss 1003.30702 precond diag
+pack /workspace/nq7b-t2.nqp 246756160 B, 55 sections, 1.098839 b/w
+l07 down 3584x18944 r 3296 b/w 1.09971 286.78 s admm_loss 9814.21776 precond diag
+pack /workspace/nq7b-t2.nqp 256089376 B, 56 sections, 1.098871 b/w
+l08 q    3584x3584 r 1952 b/w 1.10065 19.40 s admm_loss 219.31942 precond diag
+pack /workspace/nq7b-t2.nqp 257856640 B, 57 sections, 1.098883 b/w
+l08 k    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 240.98096 precond diag
+pack /workspace/nq7b-t2.nqp 258095136 B, 58 sections, 1.098825 b/w
+l08 v    512x3584 r 448 b/w 1.03962 0.59 s admm_loss 877.09302 precond diag
+pack /workspace/nq7b-t2.nqp 258333632 B, 59 sections, 1.098768 b/w
+l08 o    3584x3584 r 1952 b/w 1.10065 15.67 s admm_loss 2430.79771 precond diag
+pack /workspace/nq7b-t2.nqp 260100896 B, 60 sections, 1.098780 b/w
+l08 gate 18944x3584 r 3296 b/w 1.09971 293.35 s admm_loss 645.45183 precond diag
+pack /workspace/nq7b-t2.nqp 269434112 B, 61 sections, 1.098813 b/w
+l08 up   18944x3584 r 3296 b/w 1.09971 273.23 s admm_loss 890.11269 precond diag
+pack /workspace/nq7b-t2.nqp 278767328 B, 62 sections, 1.098843 b/w
+l08 down 3584x18944 r 3296 b/w 1.09971 271.09 s admm_loss 9036.51266 precond diag
+pack /workspace/nq7b-t2.nqp 288100544 B, 63 sections, 1.098871 b/w
+l09 q    3584x3584 r 1952 b/w 1.10065 21.46 s admm_loss 218.00540 precond diag
+pack /workspace/nq7b-t2.nqp 289867808 B, 64 sections, 1.098882 b/w
+l09 k    512x3584 r 448 b/w 1.03962 0.68 s admm_loss 277.96126 precond diag
+pack /workspace/nq7b-t2.nqp 290106304 B, 65 sections, 1.098831 b/w
+l09 v    512x3584 r 448 b/w 1.03962 0.72 s admm_loss 615.55550 precond diag
+pack /workspace/nq7b-t2.nqp 290344800 B, 66 sections, 1.098779 b/w
+l09 o    3584x3584 r 1952 b/w 1.10065 24.20 s admm_loss 1702.01949 precond diag
+pack /workspace/nq7b-t2.nqp 292112064 B, 67 sections, 1.098790 b/w
+l09 gate 18944x3584 r 3296 b/w 1.09971 268.91 s admm_loss 131.08576 precond diag
+pack /workspace/nq7b-t2.nqp 301445280 B, 68 sections, 1.098819 b/w
+l09 up   18944x3584 r 3296 b/w 1.09971 283.84 s admm_loss 486.02905 precond diag
+pack /workspace/nq7b-t2.nqp 310778496 B, 69 sections, 1.098846 b/w
+l09 down 3584x18944 r 3296 b/w 1.09971 282.67 s admm_loss 7692.95279 precond diag
+pack /workspace/nq7b-t2.nqp 320111712 B, 70 sections, 1.098871 b/w
+l10 q    3584x3584 r 1952 b/w 1.10065 21.31 s admm_loss 232.55788 precond diag
+pack /workspace/nq7b-t2.nqp 321878976 B, 71 sections, 1.098881 b/w
+l10 k    512x3584 r 448 b/w 1.03962 0.60 s admm_loss 290.31573 precond diag
+pack /workspace/nq7b-t2.nqp 322117472 B, 72 sections, 1.098835 b/w
+l10 v    512x3584 r 448 b/w 1.03962 0.59 s admm_loss 911.22512 precond diag
+pack /workspace/nq7b-t2.nqp 322355968 B, 73 sections, 1.098788 b/w
+l10 o    3584x3584 r 1952 b/w 1.10065 15.61 s admm_loss 2123.21873 precond diag
+pack /workspace/nq7b-t2.nqp 324123232 B, 74 sections, 1.098798 b/w
+l10 gate 18944x3584 r 3296 b/w 1.09971 282.02 s admm_loss 543.09605 precond diag
+pack /workspace/nq7b-t2.nqp 333456448 B, 75 sections, 1.098824 b/w
+l10 up   18944x3584 r 3296 b/w 1.09971 277.47 s admm_loss 826.43605 precond diag
+pack /workspace/nq7b-t2.nqp 342789664 B, 76 sections, 1.098848 b/w
+l10 down 3584x18944 r 3296 b/w 1.09971 287.58 s admm_loss 8902.86198 precond diag
+pack /workspace/nq7b-t2.nqp 352122880 B, 77 sections, 1.098871 b/w
+l11 q    3584x3584 r 1952 b/w 1.10065 18.98 s admm_loss 232.34280 precond diag
+pack /workspace/nq7b-t2.nqp 353890144 B, 78 sections, 1.098880 b/w
+l11 k    512x3584 r 448 b/w 1.03962 0.66 s admm_loss 245.07709 precond diag
+pack /workspace/nq7b-t2.nqp 354128640 B, 79 sections, 1.098838 b/w
+l11 v    512x3584 r 448 b/w 1.03962 0.70 s admm_loss 956.33856 precond diag
+pack /workspace/nq7b-t2.nqp 354367136 B, 80 sections, 1.098796 b/w
+l11 o    3584x3584 r 1952 b/w 1.10065 24.39 s admm_loss 1888.15493 precond diag
+pack /workspace/nq7b-t2.nqp 356134400 B, 81 sections, 1.098805 b/w
+l11 gate 18944x3584 r 3296 b/w 1.09971 276.34 s admm_loss 711.47279 precond diag
+pack /workspace/nq7b-t2.nqp 365467616 B, 82 sections, 1.098828 b/w
+l11 up   18944x3584 r 3296 b/w 1.09971 286.98 s admm_loss 896.35419 precond diag
+pack /workspace/nq7b-t2.nqp 374800832 B, 83 sections, 1.098850 b/w
+l11 down 3584x18944 r 3296 b/w 1.09971 285.62 s admm_loss 9363.39740 precond diag
+pack /workspace/nq7b-t2.nqp 384134048 B, 84 sections, 1.098871 b/w
+l12 q    3584x3584 r 1952 b/w 1.10065 15.83 s admm_loss 223.09972 precond diag
+pack /workspace/nq7b-t2.nqp 385901312 B, 85 sections, 1.098879 b/w
+l12 k    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 265.59781 precond diag
+pack /workspace/nq7b-t2.nqp 386139808 B, 86 sections, 1.098841 b/w
+l12 v    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 782.42831 precond diag
+pack /workspace/nq7b-t2.nqp 386378304 B, 87 sections, 1.098802 b/w
+l12 o    3584x3584 r 1952 b/w 1.10065 15.64 s admm_loss 1800.90124 precond diag
+pack /workspace/nq7b-t2.nqp 388145568 B, 88 sections, 1.098810 b/w
+l12 gate 18944x3584 r 3296 b/w 1.09971 284.16 s admm_loss 787.28408 precond diag
+pack /workspace/nq7b-t2.nqp 397478784 B, 89 sections, 1.098832 b/w
+l12 up   18944x3584 r 3296 b/w 1.09971 273.49 s admm_loss 946.90776 precond diag
+pack /workspace/nq7b-t2.nqp 406812000 B, 90 sections, 1.098852 b/w
+l12 down 3584x18944 r 3296 b/w 1.09971 273.55 s admm_loss 11202.59927 precond diag
+pack /workspace/nq7b-t2.nqp 416145216 B, 91 sections, 1.098871 b/w
+l13 q    3584x3584 r 1952 b/w 1.10065 21.37 s admm_loss 226.19187 precond diag
+pack /workspace/nq7b-t2.nqp 417912480 B, 92 sections, 1.098879 b/w
+l13 k    512x3584 r 448 b/w 1.03962 0.66 s admm_loss 261.47826 precond diag
+pack /workspace/nq7b-t2.nqp 418150976 B, 93 sections, 1.098843 b/w
+l13 v    512x3584 r 448 b/w 1.03962 0.72 s admm_loss 698.34355 precond diag
+pack /workspace/nq7b-t2.nqp 418389472 B, 94 sections, 1.098807 b/w
+l13 o    3584x3584 r 1952 b/w 1.10065 24.55 s admm_loss 1258.50918 precond diag
+pack /workspace/nq7b-t2.nqp 420156736 B, 95 sections, 1.098815 b/w
+l13 gate 18944x3584 r 3296 b/w 1.09971 271.80 s admm_loss 703.73306 precond diag
+pack /workspace/nq7b-t2.nqp 429489952 B, 96 sections, 1.098835 b/w
+l13 up   18944x3584 r 3296 b/w 1.09971 287.36 s admm_loss 951.49031 precond diag
+pack /workspace/nq7b-t2.nqp 438823168 B, 97 sections, 1.098853 b/w
+l13 down 3584x18944 r 3296 b/w 1.09971 284.38 s admm_loss 10897.68789 precond diag
+pack /workspace/nq7b-t2.nqp 448156384 B, 98 sections, 1.098871 b/w
+l14 q    3584x3584 r 1952 b/w 1.10065 22.17 s admm_loss 170.69049 precond diag
+pack /workspace/nq7b-t2.nqp 449923648 B, 99 sections, 1.098878 b/w
+l14 k    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 189.78533 precond diag
+pack /workspace/nq7b-t2.nqp 450162144 B, 100 sections, 1.098845 b/w
+l14 v    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 642.06403 precond diag
+pack /workspace/nq7b-t2.nqp 450400640 B, 101 sections, 1.098812 b/w
+l14 o    3584x3584 r 1952 b/w 1.10065 15.70 s admm_loss 1420.89940 precond diag
+pack /workspace/nq7b-t2.nqp 452167904 B, 102 sections, 1.098819 b/w
+l14 gate 18944x3584 r 3296 b/w 1.09971 280.81 s admm_loss 717.40416 precond diag
+pack /workspace/nq7b-t2.nqp 461501120 B, 103 sections, 1.098837 b/w
+l14 up   18944x3584 r 3296 b/w 1.09971 273.14 s admm_loss 914.36598 precond diag
+pack /workspace/nq7b-t2.nqp 470834336 B, 104 sections, 1.098854 b/w
+l14 down 3584x18944 r 3296 b/w 1.09971 283.61 s admm_loss 10658.22370 precond diag
+pack /workspace/nq7b-t2.nqp 480167552 B, 105 sections, 1.098871 b/w
+l15 q    3584x3584 r 1952 b/w 1.10065 15.92 s admm_loss 216.95958 precond diag
+pack /workspace/nq7b-t2.nqp 481934816 B, 106 sections, 1.098878 b/w
+l15 k    512x3584 r 448 b/w 1.03962 0.59 s admm_loss 238.39340 precond diag
+pack /workspace/nq7b-t2.nqp 482173312 B, 107 sections, 1.098847 b/w
+l15 v    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 772.93607 precond diag
+pack /workspace/nq7b-t2.nqp 482411808 B, 108 sections, 1.098816 b/w
+l15 o    3584x3584 r 1952 b/w 1.10065 15.85 s admm_loss 1443.88695 precond diag
+pack /workspace/nq7b-t2.nqp 484179072 B, 109 sections, 1.098822 b/w
+l15 gate 18944x3584 r 3296 b/w 1.09971 288.01 s admm_loss 802.34959 precond diag
+pack /workspace/nq7b-t2.nqp 493512288 B, 110 sections, 1.098839 b/w
+l15 up   18944x3584 r 3296 b/w 1.09971 284.75 s admm_loss 954.21358 precond diag
+pack /workspace/nq7b-t2.nqp 502845504 B, 111 sections, 1.098856 b/w
+l15 down 3584x18944 r 3296 b/w 1.09971 267.10 s admm_loss 11227.25601 precond diag
+pack /workspace/nq7b-t2.nqp 512178720 B, 112 sections, 1.098871 b/w
+l16 q    3584x3584 r 1952 b/w 1.10065 24.20 s admm_loss 174.83245 precond diag
+pack /workspace/nq7b-t2.nqp 513945984 B, 113 sections, 1.098877 b/w
+l16 k    512x3584 r 448 b/w 1.03962 0.64 s admm_loss 166.26854 precond diag
+pack /workspace/nq7b-t2.nqp 514184480 B, 114 sections, 1.098848 b/w
+l16 v    512x3584 r 448 b/w 1.03962 0.66 s admm_loss 616.64825 precond diag
+pack /workspace/nq7b-t2.nqp 514422976 B, 115 sections, 1.098819 b/w
+l16 o    3584x3584 r 1952 b/w 1.10065 24.38 s admm_loss 1281.06023 precond diag
+pack /workspace/nq7b-t2.nqp 516190240 B, 116 sections, 1.098825 b/w
+l16 gate 18944x3584 r 3296 b/w 1.09971 272.09 s admm_loss 793.92028 precond diag
+pack /workspace/nq7b-t2.nqp 525523456 B, 117 sections, 1.098841 b/w
+l16 up   18944x3584 r 3296 b/w 1.09971 270.10 s admm_loss 947.26153 precond diag
+pack /workspace/nq7b-t2.nqp 534856672 B, 118 sections, 1.098856 b/w
+l16 down 3584x18944 r 3296 b/w 1.09971 285.33 s admm_loss 11533.27025 precond diag
+pack /workspace/nq7b-t2.nqp 544189888 B, 119 sections, 1.098871 b/w
+l17 q    3584x3584 r 1952 b/w 1.10065 15.89 s admm_loss 173.05530 precond diag
+pack /workspace/nq7b-t2.nqp 545957152 B, 120 sections, 1.098877 b/w
+l17 k    512x3584 r 448 b/w 1.03962 0.59 s admm_loss 208.91158 precond diag
+pack /workspace/nq7b-t2.nqp 546195648 B, 121 sections, 1.098850 b/w
+l17 v    512x3584 r 448 b/w 1.03962 0.59 s admm_loss 550.64801 precond diag
+pack /workspace/nq7b-t2.nqp 546434144 B, 122 sections, 1.098822 b/w
+l17 o    3584x3584 r 1952 b/w 1.10065 15.93 s admm_loss 1750.72049 precond diag
+pack /workspace/nq7b-t2.nqp 548201408 B, 123 sections, 1.098828 b/w
+l17 gate 18944x3584 r 3296 b/w 1.09971 284.00 s admm_loss 697.35701 precond diag
+pack /workspace/nq7b-t2.nqp 557534624 B, 124 sections, 1.098843 b/w
+l17 up   18944x3584 r 3296 b/w 1.09971 284.54 s admm_loss 842.64499 precond diag
+pack /workspace/nq7b-t2.nqp 566867840 B, 125 sections, 1.098857 b/w
+l17 down 3584x18944 r 3296 b/w 1.09971 269.77 s admm_loss 9219.77353 precond diag
+pack /workspace/nq7b-t2.nqp 576201056 B, 126 sections, 1.098871 b/w
+l18 q    3584x3584 r 1952 b/w 1.10065 23.90 s admm_loss 196.61504 precond diag
+pack /workspace/nq7b-t2.nqp 577968320 B, 127 sections, 1.098877 b/w
+l18 k    512x3584 r 448 b/w 1.03962 0.60 s admm_loss 257.99166 precond diag
+pack /workspace/nq7b-t2.nqp 578206816 B, 128 sections, 1.098851 b/w
+l18 v    512x3584 r 448 b/w 1.03962 0.61 s admm_loss 482.15571 precond diag
+pack /workspace/nq7b-t2.nqp 578445312 B, 129 sections, 1.098825 b/w
+l18 o    3584x3584 r 1952 b/w 1.10065 22.82 s admm_loss 921.82460 precond diag
+pack /workspace/nq7b-t2.nqp 580212576 B, 130 sections, 1.098831 b/w
+l18 gate 18944x3584 r 3296 b/w 1.09971 268.05 s admm_loss 618.54939 precond diag
+pack /workspace/nq7b-t2.nqp 589545792 B, 131 sections, 1.098844 b/w
+l18 up   18944x3584 r 3296 b/w 1.09971 273.51 s admm_loss 771.30295 precond diag
+pack /workspace/nq7b-t2.nqp 598879008 B, 132 sections, 1.098858 b/w
+l18 down 3584x18944 r 3296 b/w 1.09971 282.91 s admm_loss 7132.34904 precond diag
+pack /workspace/nq7b-t2.nqp 608212224 B, 133 sections, 1.098871 b/w
+l19 q    3584x3584 r 1952 b/w 1.10065 15.70 s admm_loss 159.61458 precond diag
+pack /workspace/nq7b-t2.nqp 609979488 B, 134 sections, 1.098876 b/w
+l19 k    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 186.47242 precond diag
+pack /workspace/nq7b-t2.nqp 610217984 B, 135 sections, 1.098852 b/w
+l19 v    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 389.89165 precond diag
+pack /workspace/nq7b-t2.nqp 610456480 B, 136 sections, 1.098827 b/w
+l19 o    3584x3584 r 1952 b/w 1.10065 15.84 s admm_loss 651.09297 precond diag
+pack /workspace/nq7b-t2.nqp 612223744 B, 137 sections, 1.098833 b/w
+l19 gate 18944x3584 r 3296 b/w 1.09971 285.40 s admm_loss 489.78995 precond diag
+pack /workspace/nq7b-t2.nqp 621556960 B, 138 sections, 1.098846 b/w
+l19 up   18944x3584 r 3296 b/w 1.09971 287.18 s admm_loss 630.15459 precond diag
+pack /workspace/nq7b-t2.nqp 630890176 B, 139 sections, 1.098859 b/w
+l19 down 3584x18944 r 3296 b/w 1.09971 269.58 s admm_loss 4975.67992 precond diag
+pack /workspace/nq7b-t2.nqp 640223392 B, 140 sections, 1.098871 b/w
+l20 q    3584x3584 r 1952 b/w 1.10065 24.27 s admm_loss 183.02444 precond diag
+pack /workspace/nq7b-t2.nqp 641990656 B, 141 sections, 1.098876 b/w
+l20 k    512x3584 r 448 b/w 1.03962 0.60 s admm_loss 209.00761 precond diag
+pack /workspace/nq7b-t2.nqp 642229152 B, 142 sections, 1.098853 b/w
+l20 v    512x3584 r 448 b/w 1.03962 0.60 s admm_loss 352.39460 precond diag
+pack /workspace/nq7b-t2.nqp 642467648 B, 143 sections, 1.098830 b/w
+l20 o    3584x3584 r 1952 b/w 1.10065 21.50 s admm_loss 848.40661 precond diag
+pack /workspace/nq7b-t2.nqp 644234912 B, 144 sections, 1.098835 b/w
+l20 gate 18944x3584 r 3296 b/w 1.09971 269.88 s admm_loss 409.63979 precond diag
+pack /workspace/nq7b-t2.nqp 653568128 B, 145 sections, 1.098847 b/w
+l20 up   18944x3584 r 3296 b/w 1.09971 271.48 s admm_loss 501.17386 precond diag
+pack /workspace/nq7b-t2.nqp 662901344 B, 146 sections, 1.098859 b/w
+l20 down 3584x18944 r 3296 b/w 1.09971 281.17 s admm_loss 3017.02079 precond diag
+pack /workspace/nq7b-t2.nqp 672234560 B, 147 sections, 1.098871 b/w
+l21 q    3584x3584 r 1952 b/w 1.10065 15.84 s admm_loss 171.05920 precond diag
+pack /workspace/nq7b-t2.nqp 674001824 B, 148 sections, 1.098876 b/w
+l21 k    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 180.17846 precond diag
+pack /workspace/nq7b-t2.nqp 674240320 B, 149 sections, 1.098854 b/w
+l21 v    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 244.87002 precond diag
+pack /workspace/nq7b-t2.nqp 674478816 B, 150 sections, 1.098832 b/w
+l21 o    3584x3584 r 1952 b/w 1.10065 15.67 s admm_loss 517.21649 precond diag
+pack /workspace/nq7b-t2.nqp 676246080 B, 151 sections, 1.098836 b/w
+l21 gate 18944x3584 r 3296 b/w 1.09971 283.00 s admm_loss 277.31091 precond diag
+pack /workspace/nq7b-t2.nqp 685579296 B, 152 sections, 1.098848 b/w
+l21 up   18944x3584 r 3296 b/w 1.09971 284.80 s admm_loss 365.54445 precond diag
+pack /workspace/nq7b-t2.nqp 694912512 B, 153 sections, 1.098860 b/w
+l21 down 3584x18944 r 3296 b/w 1.09971 267.53 s admm_loss 1890.55280 precond diag
+pack /workspace/nq7b-t2.nqp 704245728 B, 154 sections, 1.098871 b/w
+l22 q    3584x3584 r 1952 b/w 1.10065 24.14 s admm_loss 139.80726 precond diag
+pack /workspace/nq7b-t2.nqp 706012992 B, 155 sections, 1.098876 b/w
+l22 k    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 147.37393 precond diag
+pack /workspace/nq7b-t2.nqp 706251488 B, 156 sections, 1.098854 b/w
+l22 v    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 161.69461 precond diag
+pack /workspace/nq7b-t2.nqp 706489984 B, 157 sections, 1.098833 b/w
+l22 o    3584x3584 r 1952 b/w 1.10065 23.02 s admm_loss 698.15226 precond diag
+pack /workspace/nq7b-t2.nqp 708257248 B, 158 sections, 1.098838 b/w
+l22 gate 18944x3584 r 3296 b/w 1.09971 267.13 s admm_loss 195.88183 precond diag
+pack /workspace/nq7b-t2.nqp 717590464 B, 159 sections, 1.098849 b/w
+l22 up   18944x3584 r 3296 b/w 1.09971 271.67 s admm_loss 254.74927 precond diag
+pack /workspace/nq7b-t2.nqp 726923680 B, 160 sections, 1.098860 b/w
+l22 down 3584x18944 r 3296 b/w 1.09971 283.76 s admm_loss 1052.10259 precond diag
+pack /workspace/nq7b-t2.nqp 736256896 B, 161 sections, 1.098871 b/w
+l23 q    3584x3584 r 1952 b/w 1.10065 15.80 s admm_loss 140.74497 precond diag
+pack /workspace/nq7b-t2.nqp 738024160 B, 162 sections, 1.098875 b/w
+l23 k    512x3584 r 448 b/w 1.03962 0.59 s admm_loss 154.89273 precond diag
+pack /workspace/nq7b-t2.nqp 738262656 B, 163 sections, 1.098855 b/w
+l23 v    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 94.11108 precond diag
+pack /workspace/nq7b-t2.nqp 738501152 B, 164 sections, 1.098835 b/w
+l23 o    3584x3584 r 1952 b/w 1.10065 15.84 s admm_loss 379.29305 precond diag
+pack /workspace/nq7b-t2.nqp 740268416 B, 165 sections, 1.098839 b/w
+l23 gate 18944x3584 r 3296 b/w 1.09971 284.14 s admm_loss 135.51293 precond diag
+pack /workspace/nq7b-t2.nqp 749601632 B, 166 sections, 1.098850 b/w
+l23 up   18944x3584 r 3296 b/w 1.09971 283.32 s admm_loss 182.15071 precond diag
+pack /workspace/nq7b-t2.nqp 758934848 B, 167 sections, 1.098861 b/w
+l23 down 3584x18944 r 3296 b/w 1.09971 271.70 s admm_loss 696.41232 precond diag
+pack /workspace/nq7b-t2.nqp 768268064 B, 168 sections, 1.098871 b/w
+l24 q    3584x3584 r 1952 b/w 1.10065 24.70 s admm_loss 126.46756 precond diag
+pack /workspace/nq7b-t2.nqp 770035328 B, 169 sections, 1.098875 b/w
+l24 k    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 181.42747 precond diag
+pack /workspace/nq7b-t2.nqp 770273824 B, 170 sections, 1.098856 b/w
+l24 v    512x3584 r 448 b/w 1.03962 0.60 s admm_loss 90.69648 precond diag
+pack /workspace/nq7b-t2.nqp 770512320 B, 171 sections, 1.098836 b/w
+l24 o    3584x3584 r 1952 b/w 1.10065 21.84 s admm_loss 286.84097 precond diag
+pack /workspace/nq7b-t2.nqp 772279584 B, 172 sections, 1.098841 b/w
+l24 gate 18944x3584 r 3296 b/w 1.09971 269.86 s admm_loss 130.86680 precond diag
+pack /workspace/nq7b-t2.nqp 781612800 B, 173 sections, 1.098851 b/w
+l24 up   18944x3584 r 3296 b/w 1.09971 270.23 s admm_loss 156.66511 precond diag
+pack /workspace/nq7b-t2.nqp 790946016 B, 174 sections, 1.098861 b/w
+l24 down 3584x18944 r 3296 b/w 1.09971 283.15 s admm_loss 444.90830 precond diag
+pack /workspace/nq7b-t2.nqp 800279232 B, 175 sections, 1.098871 b/w
+l25 q    3584x3584 r 1952 b/w 1.10065 15.63 s admm_loss 135.11843 precond diag
+pack /workspace/nq7b-t2.nqp 802046496 B, 176 sections, 1.098875 b/w
+l25 k    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 196.73807 precond diag
+pack /workspace/nq7b-t2.nqp 802284992 B, 177 sections, 1.098856 b/w
+l25 v    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 53.21114 precond diag
+pack /workspace/nq7b-t2.nqp 802523488 B, 178 sections, 1.098838 b/w
+l25 o    3584x3584 r 1952 b/w 1.10065 16.08 s admm_loss 284.22708 precond diag
+pack /workspace/nq7b-t2.nqp 804290752 B, 179 sections, 1.098842 b/w
+l25 gate 18944x3584 r 3296 b/w 1.09971 288.28 s admm_loss 114.46387 precond diag
+pack /workspace/nq7b-t2.nqp 813623968 B, 180 sections, 1.098852 b/w
+l25 up   18944x3584 r 3296 b/w 1.09971 273.54 s admm_loss 126.58985 precond diag
+pack /workspace/nq7b-t2.nqp 822957184 B, 181 sections, 1.098862 b/w
+l25 down 3584x18944 r 3296 b/w 1.09971 264.89 s admm_loss 305.73761 precond diag
+pack /workspace/nq7b-t2.nqp 832290400 B, 182 sections, 1.098871 b/w
+l26 q    3584x3584 r 1952 b/w 1.10065 23.79 s admm_loss 115.36469 precond diag
+pack /workspace/nq7b-t2.nqp 834057664 B, 183 sections, 1.098875 b/w
+l26 k    512x3584 r 448 b/w 1.03962 0.59 s admm_loss 193.49367 precond diag
+pack /workspace/nq7b-t2.nqp 834296160 B, 184 sections, 1.098857 b/w
+l26 v    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 22.69552 precond diag
+pack /workspace/nq7b-t2.nqp 834534656 B, 185 sections, 1.098839 b/w
+l26 o    3584x3584 r 1952 b/w 1.10065 24.10 s admm_loss 110.38517 precond diag
+pack /workspace/nq7b-t2.nqp 836301920 B, 186 sections, 1.098843 b/w
+l26 gate 18944x3584 r 3296 b/w 1.09971 267.37 s admm_loss 119.69399 precond diag
+pack /workspace/nq7b-t2.nqp 845635136 B, 187 sections, 1.098853 b/w
+l26 up   18944x3584 r 3296 b/w 1.09971 274.48 s admm_loss 118.02479 precond diag
+pack /workspace/nq7b-t2.nqp 854968352 B, 188 sections, 1.098862 b/w
+l26 down 3584x18944 r 3296 b/w 1.09971 280.94 s admm_loss 37.22994 precond diag
+pack /workspace/nq7b-t2.nqp 864301568 B, 189 sections, 1.098871 b/w
+l27 q    3584x3584 r 1952 b/w 1.10065 15.95 s admm_loss 65.01915 precond diag
+pack /workspace/nq7b-t2.nqp 866068832 B, 190 sections, 1.098875 b/w
+l27 k    512x3584 r 448 b/w 1.03962 0.59 s admm_loss 187.90189 precond diag
+pack /workspace/nq7b-t2.nqp 866307328 B, 191 sections, 1.098858 b/w
+l27 v    512x3584 r 448 b/w 1.03962 0.58 s admm_loss 15.64032 precond diag
+pack /workspace/nq7b-t2.nqp 866545824 B, 192 sections, 1.098840 b/w
+l27 o    3584x3584 r 1952 b/w 1.10065 15.81 s admm_loss 78.18289 precond diag
+pack /workspace/nq7b-t2.nqp 868313088 B, 193 sections, 1.098844 b/w
+l27 gate 18944x3584 r 3296 b/w 1.09971 282.11 s admm_loss 67.13217 precond diag
+pack /workspace/nq7b-t2.nqp 877646304 B, 194 sections, 1.098853 b/w
+l27 up   18944x3584 r 3296 b/w 1.09971 273.97 s admm_loss 95.92274 precond diag
+pack /workspace/nq7b-t2.nqp 886979520 B, 195 sections, 1.098862 b/w
+l27 down 3584x18944 r 3296 b/w 1.09971 266.66 s admm_loss 58.59863 precond diag
+pack /workspace/nq7b-t2.nqp 896312736 B, 196 sections, 1.098871 b/w
+fit 196 linears in 24675.4 s

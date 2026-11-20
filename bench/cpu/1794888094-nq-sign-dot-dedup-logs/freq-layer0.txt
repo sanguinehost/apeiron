@@ -1,0 +1,16 @@
+
+== layer 0, kind v: out 1024 inn 4096 rank 2528
+V: 2528 rows x 4096 bits; nearest-neighbour Hamming over 256 queries
+  min 1921  p5 1935  median 1950  mean 1949.5  random-expectation 2048  min/expected 0.938
+U: 1024 rows x 2528 bits; nearest-neighbour Hamming over 256 queries
+  min 741  p5 1148  median 1200  mean 1188.3  random-expectation 1264  min/expected 0.586
+V: GF(2) rank 2528 of 2528 rows (1.0000); deficiency 0
+U: GF(2) rank 1024 of 1024 rows (1.0000); deficiency 0
+
+== layer 0, kind q: out 4096 inn 4096 rank 2528
+V: 2528 rows x 4096 bits; nearest-neighbour Hamming over 256 queries
+  min 1921  p5 1935  median 1950  mean 1949.5  random-expectation 2048  min/expected 0.938
+U: 4096 rows x 2528 bits; nearest-neighbour Hamming over 256 queries
+  min 15  p5 658  median 1112  mean 1055.8  random-expectation 1264  min/expected 0.012
+V: GF(2) rank 2528 of 2528 rows (1.0000); deficiency 0
+U: GF(2) rank 2528 of 4096 rows (0.6172); deficiency 1568

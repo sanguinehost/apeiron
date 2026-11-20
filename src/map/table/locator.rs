@@ -1317,7 +1317,7 @@ mod locator_tests {
             reserved.locator.links.is_empty(),
             "the merge path writes no reverse link; assembly builds the registry"
         );
-        assert!(*reserved.get_at(Sigma::Parabolic, &7) == 41);
+        assert_eq!(*reserved.get_at(Sigma::Parabolic, &7), 41);
 
         // The same entry with no batch reservation: the admitted slot has nowhere to go, so the
         // merge refuses and no payload, count or link is committed.

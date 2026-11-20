@@ -1,0 +1,6 @@
+l19 q    3584x3584 r 1952 b/w 1.10065 326.17 s admm_loss 159.61458
+pack /workspace/nq7b-t2-c.nqp 1767296 B, 1 sections, 1.100646 b/w
+l19 k    512x3584 r 448 b/w 1.03962 28.38 s admm_loss 186.47242
+pack /workspace/nq7b-t2-c.nqp 2005792 B, 2 sections, 1.093018 b/w
+l19 v    512x3584 r 448 b/w 1.03962 28.85 s admm_loss 389.89165
+pack /workspace/nq7b-t2-c.nqp 2244288 B, 3 sections, 1.087085 b/w

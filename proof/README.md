@@ -579,6 +579,17 @@ The opaque boundary item is admitted in `proof/boundary-axioms.txt`.
 The audit admitted 159 items and rejected 13 unlisted intrinsics before the entry was added.
 Board .
 
+The `Q8_0`/`Q5_0`/`Q4_K`/`Q6_K` AVX2 row cores of `chart::kcols` and `kern::matmat`, and
+`kern::nq::sign_dot_avx2`, have no extracted body: Charon has no translation for `core::arch`
+intrinsics, so the bodies that call them are outside the translation unit. What is extracted is the
+caller's control flow (`matmat::pooled_rows`, `matmat_q8act`), not the arithmetic of a core. The
+equality of each core to a safe definition is a Rust test, not a refinement theorem:
+`the_vector_source_equals_the_scalar_source` for `sign_dot_avx2` against `sign_dot_i64`, and
+`pooled_q4_k_matches_per_column` for the `Q4_K` lane against the per-column `matvec_q8act` oracle.
+`sign_dot_i64` is a safe twin but is not a root of `proof/extract/lib.rs`, so no refinement theorem
+covers it yet; the `Q4_K` lane has no safe twin at all, only the oracle equality. Both are unverified
+debt under the `## Unsafe` rule in `AGENTS.md`.
+
 Board .
 
 A fresh clone `git clone`d from the published repository, with the changed `proof/` files added, ran

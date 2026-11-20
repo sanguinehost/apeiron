@@ -3,7 +3,7 @@
 //! Run:
 //! `cargo run --release --locked --example generate -- --model <gguf> --tokenizer <tokenizer.json>
 //!  [--pack <model.nqp>] [--prompt TEXT | stdin] [--n 64] [--chat] [--system TEXT]
-//!  [--kernel q8act|exact]`
+//!  [--kernel q8act|ternary|exact] [--kv-file PATH] [--kv-block N]`
 //!
 //! `--pack` installs the `NanoQuant` factors over the GGUF skeleton (`Engine::open_with_nq`); the
 //! replaced linears then read the pack and the rest of the model runs from the GGUF.
@@ -12,7 +12,12 @@
 //! - With `--chat` the prompt is wrapped as one `ChatML` user turn (the `qwen2` and `qwen35` template:
 //!   `<|im_start|>role\n…<|im_end|>\n`) and the model's end-of-turn token stops generation.
 //! - `--kernel q8act` (default) is the int8-activation path every throughput receipt measures;
-//!   `exact` is the i128 reference path, about an order of magnitude slower.
+//!   `ternary` is the trit-activation reader over the pack; `exact` is the i128 reference path,
+//!   about an order of magnitude slower.
+//! - `--kv-file` keeps the KV planes in one writable cache file instead of anonymous memory; the
+//!   file is created and allocated to the full prompt-plus-`n` capacity before the prefill, so a
+//!   capacity the filesystem cannot hold is refused up front. `--kv-block N` installs the
+//!   exact-on-certificate block index over `N`-position blocks; the read is bit-identical.
 //! - Sampling is greedy (`argmax_fixed` inside `next_token_state`); there is no temperature.
 //! - The completion goes to stdout as it is produced. Prompt ids, throughput and the stop reason go
 //!   to stderr, so `generate … > out.txt` captures the text alone.
@@ -43,6 +48,8 @@ struct Args {
     chat: bool,
     system: String,
     mode: KernelMode,
+    kv_file: Option<String>,
+    kv_block: usize,
 }
 
 fn parse_args() -> Result<Args, Box<dyn Error>> {
@@ -55,6 +62,8 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         chat: false,
         system: "You are a helpful assistant.".to_string(),
         mode: KernelMode::Q8Act,
+        kv_file: None,
+        kv_block: 0,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -66,11 +75,16 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--prompt" => a.prompt = Some(val()?),
             "--n" => a.n = val()?.parse()?,
             "--system" => a.system = val()?,
+            "--kv-file" => a.kv_file = Some(val()?),
+            "--kv-block" => a.kv_block = val()?.parse()?,
             "--kernel" => {
                 a.mode = match val()?.as_str() {
                     "exact" => KernelMode::Exact,
                     "q8act" => KernelMode::Q8Act,
-                    other => return Err(format!("--kernel is q8act|exact, got {other:?}").into()),
+                    "ternary" => KernelMode::Ternary,
+                    other => {
+                        return Err(format!("--kernel is q8act|ternary|exact, got {other:?}").into())
+                    }
                 }
             }
             "--chat" => a.chat = true,
@@ -83,6 +97,11 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
     Ok(a)
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the example keeps argument, prompt, generation and print in one ordered run so the \
+              file reads top to bottom"
+)]
 fn run(a: &Args) -> Result<(), Box<dyn Error>> {
     let user = if let Some(p) = &a.prompt {
         p.clone()
@@ -127,7 +146,20 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
     let stop = if a.chat { bpe.eos_id() } else { None };
     eprintln!("prompt_ids    {} tokens", ids.len());
 
-    let mut st = engine.state(ids.len() + a.n)?;
+    let cap = ids.len() + a.n;
+    let mut st = match &a.kv_file {
+        Some(path) => engine.state_with_file(cap, path)?,
+        None => engine.state(cap)?,
+    };
+    if let Some(bytes) = st.kv.file_bytes() {
+        eprintln!("kv_file       {bytes} bytes");
+    }
+    if a.kv_block > 0 {
+        st.kv
+            .enable_block_index(a.kv_block)
+            .map_err(|e| format!("kv block index: {e:?}"))?;
+        eprintln!("kv_block      {} positions", a.kv_block);
+    }
     let t0 = Instant::now();
     let mut next = engine.prefill_state(&mut st, &ids, a.mode)?;
     let prefill = t0.elapsed().as_secs_f64();
@@ -171,6 +203,16 @@ fn run(a: &Args) -> Result<(), Box<dyn Error>> {
         eprintln!(
             "decode        {decode:.3} s, {:.2} tok/s ({produced} tokens, stop: {reason})",
             produced as f64 / decode
+        );
+    }
+    if let Some(c) = st.kv.cert_stats() {
+        eprintln!(
+            "certified     blocks {} (scanned {}, skipped {}), skipped positions {} of about {}",
+            c.blocks,
+            c.scanned,
+            c.skipped,
+            c.skipped_positions,
+            c.blocks.saturating_mul(a.kv_block as u64)
         );
     }
     Ok(())

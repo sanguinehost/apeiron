@@ -1,0 +1,5 @@
+Running as unit: run-p306965-i308279.scope; invocation ID: b23636da7f46484d8dda62e96c241897
+pack: 252 linears, 1.284116 b/w, 1114895984 factor bytes
+pack factors: 1114895984 stored bytes for 6945767424 weights, 1.284116 b/w
+ppl 12.142202 on 1023 tokens (1 windows of <= 2048, kernel Q8Act): mean nll 2.496687, 1.4 tok/s in 737.4 s
+peak rss 2402.1 MiB

@@ -1,0 +1,9 @@
+order,arm,layers,kinds,planes,energy_share,nats,ppl,bw,grade,artifact,note
+1,v2 base,none,none,0,0,0.000000,12.189530,1.124186,measured,bench/cpu/1794893449-nq8b-targeted-ppl-logs/ppl-v2-ctx2048.log,no residual
+2,full two-plane,0-35,all,2,1.000000,0.409444,8.094085,3.130640,measured,bench/cpu/1794893449-nq8b-targeted-ppl-logs/ppl-r2-ctx2048.log,the calibration point; 3.13 b/w
+3,targeted 19,0-16,sal-mass,2,0.066203,0.005345,12.124565,1.178909,measured,bench/cpu/1794893449-nq8b-targeted-ppl-logs/ppl-targeted-ctx2048.log,the sal ranker picked early layers; 0.197x the average sensitivity
+4,late 33-35,33-35,q+o+gate+up+down,2,0.088977,0.076220,11.294969,1.178785,measured,bench/cpu/1794896874-nq8b-depth-logs/ppl-late-ctx2048.log,Q2 pass on this window; 0.76% margin
+5,early 0-2,0-2,q+o+gate+up+down,2,0.040528,0.003890,12.142202,1.178785,measured,bench/cpu/1794896874-nq8b-depth-logs/ppl-early-ctx2048.log,the depth control; 0.234x
+6,r1late 37,30-35,q+k+v+o+gate+up+down,1,0.177027,-0.040080,12.687998,1.179391,measured,bench/cpu/1794896874-nq8b-depth-logs/ppl-r1late-ctx2048.log,one plane on the 37-section energy ranking; changes the section set and the plane count; refuted
+7,late1 33-35 one plane,33-35,q+o+gate+up+down,1,0.088977,0.028850,11.842884,1.098820,measured,bench/cpu/1794896874-nq8b-depth-logs/ppl-late1-ctx2048.log,plane 0 alone at the measured late sections; 0.52x the pair's sensitivity; 1.561x Q4 not a pass
+8,r1late2 37,30-35,q+k+v+o+gate+up+down,2,0.177027,0.095387,11.080537,1.339927,measured,bench/cpu/1794896874-nq8b-depth-logs/ppl-r1late2-ctx2048.log,two planes on the same 37 sections; 1.460x Q4; 0.159927 b/w over the cap; control

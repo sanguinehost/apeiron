@@ -1,0 +1,4 @@
+agent-guard: waiting for another guarded job to finish...
+agent-guard: available=2870MiB cap=1846MiB jobs=2
+1f4cc4b43cd60f70cf52e110884f96e6a2eb2539cd0add5b353cc699cd8d0bac  /home/lucas/models/arelath/nq8b/model.nqp
+75d3f4f150195e0c6a7ccd2ce3372f919534fb7ec609f6b9ba52eb71af194253  /home/lucas/models/arelath/qwen3-8b-nanoquant.gguf

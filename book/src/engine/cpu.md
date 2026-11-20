@@ -20,9 +20,14 @@ A product or sum outside the `i64` range returns an error. Nothing clamps and no
 
 ## Kernels
 
+The projection has one path: `matmat_q8act` walks the weight rows once and folds each decoded group
+against every activation column. The carrier, column count, dot core and accumulator are dials on
+that loop; see [One path](onepath.md). The table below lists the operations around it.
+
 | operation | function | semantics |
 |---|---|---|
-| projection | `matvec_fixed` | exact `i128` row dot, one rounding per output |
+| projection | `matmat_q8act` | one row loop, `k` columns, carrier dial |
+| exact projection (oracle) | `matvec_fixed` | exact `i128` row dot, one rounding per output |
 | int8-activation projection | `KernelMode::Q8Act` | defined as `matvec_fixed` on the quantised activation, bit for bit |
 | RMS norm | `rms_norm_fixed` | fixed-point `rsqrt` |
 | rotary embedding | `RopeTable::rotate` | fixed-point sin and cos, angle window `[-4096, 4096]` rad |

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A large language model on an ordinary laptop</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; max-width: 52rem; padding: 2.2rem 2rem 2rem;
+    font: 11pt/1.45 "Source Serif 4", Georgia, "Times New Roman", serif;
+    color: #1a1a1a; background: #fff;
+  }
+  h1 { font-size: 20pt; line-height: 1.15; margin: 0 0 .2rem; letter-spacing: -.01em; }
+  .sub { font-size: 11pt; color: #555; margin: 0 0 1.1rem; }
+  h2 { font-size: 12.5pt; margin: 1.25rem 0 .35rem; padding-bottom: .15rem;
+       border-bottom: 1px solid #d8d8d8; }
+  p { margin: .35rem 0 .55rem; }
+  ul { margin: .3rem 0 .55rem; padding-left: 1.15rem; }
+  li { margin: .18rem 0; }
+  strong { font-weight: 650; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0 .3rem; font-size: 9.8pt; }
+  th, td { text-align: left; padding: .28rem .4rem; border-bottom: 1px solid #e2e2e2; vertical-align: top; }
+  th { font-weight: 650; color: #333; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .note { font-size: 9.5pt; color: #555; }
+  .box { border-left: 3px solid #333; padding: .1rem 0 .1rem .7rem; margin: .6rem 0; }
+  .terms { font-size: 9.6pt; }
+  .terms li { margin: .1rem 0; }
+  footer { margin-top: 1.2rem; font-size: 8.8pt; color: #666; border-top: 1px solid #e2e2e2; padding-top: .4rem; }
+  @media print {
+    body { padding: 1.1rem 1.2rem; font-size: 10pt; }
+    h1 { font-size: 17pt; }
+    h2 { font-size: 11.5pt; margin-top: .8rem; }
+    a { color: inherit; text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+
+<h1>A language model on an ordinary laptop</h1>
+<p class="sub">What it is, why the industry cares, and where the work leads.</p>
+
+<div class="box">
+<p><strong>The demonstration.</strong> A 2019 laptop with 6.7 GiB of RAM and no discrete graphics card
+runs a 491 MB language model on its CPU. The Wi-Fi is off. A question is typed; the answer is
+computed on the machine. Nothing leaves the room. Measured today: 0.29–0.42 s to the first token,
+then 35–41 tokens per second on the <em>performance</em> power profile; 1.2–1.9 s and 10.0–10.3
+tokens per second on <em>power-saver</em>; 600 MB resident. (The larger benchmark numbers below come
+from the project's receipts, not from the live model.)</p>
+</div>
+
+<h2>Why it matters</h2>
+<ul>
+  <li><strong>Privacy.</strong> A clinic's patient text stays in the clinic. There is no upload, no
+      vendor and no third-party terms.</li>
+  <li><strong>Cost.</strong> After the laptop, each question is free at the margin. A clinic with no
+      cloud budget can still use it.</li>
+  <li><strong>Access.</strong> It works offline: a rural clinic, a plane, a room with no reliable
+      network.</li>
+  <li><strong>Control.</strong> The code is open and the low-level kernels are being proved correct,
+      so the behaviour can be inspected rather than trusted.</li>
+</ul>
+<p>The industry is moving this way. Phones and laptops ship neural hardware (Apple Intelligence,
+Copilot+ PCs, Snapdragon X, RTX AI PCs), and the competitive question is no longer only "who has the
+biggest model" but "who can make a useful model fit and run fast on the device the person already
+owns". The bottleneck is memory: a 7B model at 4 bits is about 4 GB and needs a new machine; at 1.17
+bits it is under 1 GB and fits the one already in the clinic.</p>
+
+<p>For a clinician, the near-term uses are administrative: drafting a letter, summarising an intake
+note, turning bullet points into plain language. The clinician edits and signs; the model never
+decides. The reason to run it locally is that the draft contains patient text.</p>
+
+<h2>The numbers the project is chasing</h2>
+<table>
+  <thead><tr><th>Property</th><th class="n">Target</th><th>Status</th></tr></thead>
+  <tbody>
+    <tr><td>Weight storage, 7B model</td><td class="n">1.10–1.18 bits / weight</td><td>7B geometry: 1.174 bits, 957.6 MB. Measured 0.6B pack: 0.978 bits, 53.8 MB; the 7B pack is not built (T=200 fit is 504 h; a T=2 screen stopped at 12 of 196 sections for cost)</td></tr>
+    <tr><td>200k-token context</td><td class="n">1.4976 bits / value</td><td>Budget derived (≈1 GiB all-in); compressed carrier not yet implemented</td></tr>
+    <tr><td>Decode rate</td><td class="n">20 tok/s</td><td>7B q8 reader 11.0 tok/s; int4 selector 14–18; the GPU/Vulkan kernel is the open route. 30 tok/s is the stretch goal</td></tr>
+    <tr><td>Quality</td><td class="n">≤1.5× Q4_K_M</td><td>0.6B v3 at 0.978 b/w: 2.52× at 8,176 tokens (4.10× at 2,044); 8B at 1.124: 1.755×; 8B at 3.13: 1.011×</td></tr>
+  </tbody>
+</table>
+<p class="note">A pack, a benchmark row or a speedup is an artifact of the goal, not the goal. The
+live demo uses a 0.5B demonstrator at 35–41 tokens/second in <em>performance</em>; the 7B target is
+the work in progress.</p>
+
+<h2>Plain terms</h2>
+<ul class="terms">
+  <li><strong>Parameter.</strong> A number the model learned. "7B" means seven billion of them.</li>
+  <li><strong>Bit.</strong> One eighth of a byte. Fewer bits per parameter means a smaller model;
+      1.17 bits per parameter is the project's compression target.</li>
+  <li><strong>Token.</strong> A word piece; roughly 0.75 words. "20 tokens per second" is about
+      15 words per second, faster than most people read aloud.</li>
+  <li><strong>Context.</strong> The text the model can hold in view at once. 200,000 tokens is
+      roughly a 500-page book.</li>
+  <li><strong>Q4_K_M.</strong> A standard 4-bit compression used by most local models. The quality
+      bar is to stay within 15% of it.</li>
+  <li><strong>Lean.</strong> A proof assistant. The low-level arithmetic is checked by a machine,
+      not by eye.</li>
+</ul>
+
+<h2>Why it is a career</h2>
+<p>Three scarce skills meet in this work:</p>
+<ul>
+  <li><strong>Machine-learning systems</strong> — making a model fit and run fast, not training
+      another one.</li>
+  <li><strong>Performance engineering</strong> — memory bandwidth, quantisation, CPU/GPU kernels,
+      measurement.</li>
+  <li><strong>Formal verification</strong> — proving the low-level code does what it claims, in Lean.</li>
+</ul>
+<p>Most candidates have one. The combination is the differentiator, and this repository is the
+portfolio: code, measurements, receipts and proofs that a hiring manager can run. The roles are
+inference and ML-systems engineer, performance engineer, kernel or compiler engineer, research
+engineer for efficient ML, quant developer, and edge or privacy-preserving AI. Employers include
+chip companies, labs, cloud providers, inference startups, finance and health technology.</p>
+<p>Indicative senior compensation is roughly A$180k–300k in Australia and US$200k–400k+ total
+compensation in the United States. It varies with company, level and location; it is not a promise.</p>
+<p>The next steps are concrete: finish and publish the 1.15–1.18 b/w pack; write the "1.17 bits per
+weight" report; give a talk; contribute a kernel or benchmark to an open-source inference project;
+apply to teams that measure tokens per second and bytes per weight.</p>
+
+<h2>What it is not</h2>
+<p>It is not a therapist, a diagnosis or a medical device. A clinician stays in the loop: the model
+drafts, the human decides. The value is privacy, cost, access and control — not replacing judgment.</p>
+
+<footer>
+apeiron — CPU and Vulkan inference with Lean-checked word arithmetic.
+Repository: <span class="mono">/home/lucas/Workspace/apeiron-nq</span>.
+Prepared 16 November 2026. The status rows cite the receipts in <span class="mono">bench/cpu/</span>.
+</footer>
+
+</body>
+</html>

@@ -416,7 +416,7 @@ fn save_factor(path: &str, f: &NqFactor) {
         b.extend_from_slice(&(x as u64).to_le_bytes());
     }
     b.extend_from_slice(&f.admm_loss.to_le_bytes());
-    for v in [&f.s_post, &f.s_pre, &f.u_latent, &f.v_latent] {
+    for v in [&f.s_post, &f.s_pre, &f.s_mid, &f.u_latent, &f.v_latent] {
         for x in v {
             b.extend_from_slice(&x.to_le_bytes());
         }
@@ -435,8 +435,9 @@ fn load_factor(path: &str) -> NqFactor {
         at += len;
         v
     };
-    let (s_post, s_pre, u_latent, v_latent) = (take(o), take(n), take(o * r), take(r * n));
-    let signs = &b[8 * (4 + o + n + o * r + r * n)..];
+    let (s_post, s_pre, s_mid, u_latent, v_latent) =
+        (take(o), take(n), take(r), take(o * r), take(r * n));
+    let signs = &b[8 * (4 + o + n + r + o * r + r * n)..];
     assert_eq!(signs.len(), o * r + r * n, "{path}: sign bytes");
     NqFactor {
         out: o,
@@ -445,6 +446,7 @@ fn load_factor(path: &str) -> NqFactor {
         u: signs[..o * r].iter().map(|&s| s.cast_signed()).collect(),
         v: signs[o * r..].iter().map(|&s| s.cast_signed()).collect(),
         s_pre,
+        s_mid,
         s_post,
         admm_loss: f64::from_bits(word(3)),
         u_latent,
@@ -480,8 +482,10 @@ fn loop_words(path: &str) -> (usize, usize, Vec<i64>) {
     let (out, inn, r, kind) = (word(0), word(1), word(2), word(3));
     let f = |at: usize, n: usize| -> Vec<f32> {
         b[32 + 4 * at..32 + 4 * (at + n)]
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes(c.try_into().expect("f32")))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_le_bytes(*c))
             .collect()
     };
     let q32 = |v: f64| (v * 4_294_967_296.0).round() as i64;
@@ -593,8 +597,10 @@ fn read_words(path: &str) -> (usize, usize, Vec<i64>) {
     let o = u64::from_le_bytes(b[0..8].try_into().expect("o")) as usize;
     let n = u64::from_le_bytes(b[8..16].try_into().expect("n")) as usize;
     let w = b[16..]
-        .chunks_exact(8)
-        .map(|c| i64::from_le_bytes(c.try_into().expect("word")))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| i64::from_le_bytes(*c))
         .collect();
     (o, n, w)
 }
@@ -740,7 +746,7 @@ fn nq_fit() {
             // layer, so `calib_diag_write` writes that diagonal alone. A full `g{l}...i64`, when
             // present, still feeds the optional relH screen and the tune.
             let diag_path = format!("{cache}/g{l}.{gtag}.{gram}.diag.i64");
-            let (i_norm, hw_full, h_full) = if std::path::Path::new(&diag_path).exists() {
+            let (i_norm, gram_words, gram_dense) = if std::path::Path::new(&diag_path).exists() {
                 let (ho, hn, dw) = read_words(&diag_path);
                 assert_eq!((ho, hn), (1, n), "layer {l} {kind}: diagonal Gram");
                 (
@@ -790,18 +796,18 @@ fn nq_fit() {
                 let fit_s = t.elapsed().as_secs_f64();
                 let mut tune_line = String::new();
                 if tc.steps > 0 {
-                    let hw = hw_full
+                    let gram = gram_words
                         .as_ref()
                         .expect("APEIRON_NQ_TUNE_STEPS needs the full Gram, not its diagonal");
                     let mut sk_s = 0.0;
                     let t = Instant::now();
                     let tr = match env_usize("APEIRON_NQ_TUNE_SKETCH", 0) {
-                        0 => tune(&mut f, &lin.w, hw, &tc).expect("tune"),
+                        0 => tune(&mut f, &lin.w, gram, &tc).expect("tune"),
                         s => {
-                            let sk = h_sketch(hw, n, s, env_usize("APEIRON_NQ_PASSES", 3), 0)
+                            let sk = h_sketch(gram, n, s, env_usize("APEIRON_NQ_PASSES", 3), 0)
                                 .expect("sketch");
                             sk_s = t.elapsed().as_secs_f64();
-                            tune_sketch(&mut f, &lin.w, hw, &sk, &tc).expect("tune_sketch")
+                            tune_sketch(&mut f, &lin.w, gram, &sk, &tc).expect("tune_sketch")
                         }
                     };
                     let _ = write!(
@@ -838,7 +844,7 @@ fn nq_fit() {
                 f.admm_loss
             );
                 if relh_enabled() {
-                    if let Some(h) = &h_full {
+                    if let Some(h) = &gram_dense {
                         let wq = wq.as_ref().expect("relH needs the dense reconstruction");
                         let w: Vec<f64> = lin.w.iter().map(|&x| from_grid(x)).collect();
                         let base = energy(h, &w, o, n);
@@ -1027,4 +1033,93 @@ fn nq_student() {
         bytes.len(),
         t.elapsed().as_secs_f64()
     );
+}
+
+/// Every stage of the tiny reference trace through this crate's factorizer.
+///
+/// `APEIRON_NQ_TINY` is `trace_tiny.py`'s output. `stages.txt` lists one line per reference call,
+/// `call block slot rank`; `blocks/b{block}/{slot}/call{call:02}.w_in.f32` is the dense weight the
+/// reference's ADMM receives (the pretrained weight on the first call of a slot, its own
+/// `tune_nonfact` output after), `admm.W_final.f32` the reference's reconstruction, and
+/// `i_norm`/`o_norm` the preconditioner it used. Each is factorized at the reference's rank with
+/// the reference's outer/inner/reg, and the served relative Frobenius error is compared beside the
+/// reference's. The initialisation is this crate's splitmix64, not torch's RNG, so the comparison is
+/// the objective, not element identity.
+#[test]
+#[ignore = "reads the tiny trace at $APEIRON_NQ_TINY; run with --ignored"]
+fn the_tiny_reference_stages_are_reproduced() {
+    let dir = std::env::var("APEIRON_NQ_TINY").expect("APEIRON_NQ_TINY");
+    let manifest = std::fs::read_to_string(format!("{dir}/stages.txt")).expect("stages.txt");
+    let read_f32 = |p: &str| -> Vec<f64> {
+        let b = std::fs::read(p).unwrap_or_else(|e| panic!("{p}: {e}"));
+        b.as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f64::from(f32::from_le_bytes(*c)))
+            .collect()
+    };
+    let rel = |a: &[f64], b: &[f64]| -> f64 {
+        let (mut num, mut den) = (0.0, 0.0);
+        for (&x, &y) in a.iter().zip(b) {
+            num += (x - y).powi(2);
+            den += y.powi(2);
+        }
+        (num / den).sqrt()
+    };
+    println!("tiny stages: call block slot out inn rank rel_ref rel_ours gap");
+    let mut worst = 0.0f64;
+    let mut stages = 0usize;
+    for line in manifest.lines().filter(|l| !l.trim().is_empty()) {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let (call, block, slot, rank): (usize, usize, &str, usize) = (
+            f[0].parse().expect("call"),
+            f[1].parse().expect("block"),
+            f[2],
+            f[3].parse().expect("rank"),
+        );
+        let base = format!("{dir}/blocks/b{block}/{slot}/call{call:02}");
+        let w = read_f32(&format!("{base}.w_in.f32"));
+        let w_ref = read_f32(&format!("{base}.admm.W_final.f32"));
+        let i_norm = read_f32(&format!("{base}.i_norm.f32"));
+        let o_norm = read_f32(&format!("{base}.o_norm.f32"));
+        let (out, inn) = (o_norm.len(), i_norm.len());
+        assert_eq!(w.len(), out * inn, "{slot}: w_in shape");
+        assert_eq!(w_ref.len(), out * inn, "{slot}: W_final shape");
+        let wq: Vec<i64> = w
+            .iter()
+            .map(|&v| (v * 4_294_967_296.0).round() as i64)
+            .collect();
+        let f = factorize_floor(
+            &wq,
+            out,
+            inn,
+            &i_norm,
+            &o_norm,
+            &NqConfig::reference(rank),
+            0.0,
+        )
+        .unwrap_or_else(|e| panic!("{slot}: {e:?}"));
+        let mut wh = vec![0.0f64; out * inn];
+        for i in 0..out {
+            for j in 0..inn {
+                let mut acc = 0.0;
+                for k in 0..rank {
+                    acc += f64::from(f.u[i * rank + k]) * f.s_mid[k] * f64::from(f.v[k * inn + j]);
+                }
+                wh[i * inn + j] = f.s_post[i] * acc * f.s_pre[j];
+            }
+        }
+        let (rel_ref, rel_ours) = (rel(&w_ref, &w), rel(&wh, &w));
+        let gap = rel(&wh, &w_ref);
+        println!(
+            "{call:4} b{block} {slot:9} {out:4} {inn:4} {rank:4} {rel_ref:.5} {rel_ours:.5} {gap:.5}"
+        );
+        assert!(
+            rel_ours <= rel_ref + 0.002,
+            "call {call} b{block} {slot}: our relF {rel_ours:.5} against the reference's {rel_ref:.5}"
+        );
+        worst = worst.max(rel_ours - rel_ref);
+        stages += 1;
+    }
+    println!("tiny stages: {stages} compared, worst (ours - reference) {worst:+.5}");
 }

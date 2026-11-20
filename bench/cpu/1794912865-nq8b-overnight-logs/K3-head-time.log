@@ -1,0 +1,10 @@
+head 151936 words 0.549 s
+head 151936 words 0.549 s
+head 151936 words 0.534 s
+head best 0.534 s, 1.17 G weight/s
+head Q8Act words 151936 0.050 s
+head Q8Act words 151936 0.041 s
+head Q8Act words 151936 0.036 s
+head Q8Act best 0.036 s, 17.32 G weight/s
+step Exact best 1.058 s, 0.94 tok/s
+step Q8Act best 0.280 s, 3.58 tok/s

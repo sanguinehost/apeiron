@@ -1,7 +1,7 @@
 //! The ADMM outer step of `factorize`: each side's step on its resident frame or the CPU, and the
 //! outer iterations on the device-resident iterate (`crate::gpu::limb::commit`).
 
-use super::{rank1, x_update, NqConfig, NqError, Rng};
+use super::{normalized_plane, rank1, x_update, NqConfig, NqError, Rng, INV_LIMBS};
 #[cfg(feature = "gpu")]
 use super::{spd_inverse, LIMBS};
 
@@ -36,23 +36,24 @@ const _: () = assert!(DEV_INV_CUT >= super::INV_BASE);
 pub(super) fn resident(w: &[i64], k: usize, n: usize, r: usize) -> Option<Side> {
     #[cfg(feature = "gpu")]
     if crate::gpu::limb::takes(k, r, n) {
-        return Side::new(w, k, n, r, LIMBS, DEV_INV_CUT);
+        return Side::new(w, k, n, r, LIMBS, INV_LIMBS, DEV_INV_CUT);
     }
     let _ = (w, k, n, r);
     None
 }
 
 /// [`x_update`] on the side's resident frame when it holds one and the device completes the step,
-/// the CPU otherwise; the two are equal in every bit (`gpu::limb::admm`).
+/// the CPU otherwise; the two are equal in every bit (`gpu::limb::admm`). The rank normalisation
+/// ([`normalized_plane`]) runs once, on the host, and both paths read its words.
 ///
 /// # Complexity
 ///
-/// As [`x_update`].
+/// As [`x_update`] plus `O(n·r)` for the plane.
 #[allow(
     clippy::too_many_arguments,
     reason = "the ADMM step's operands are distinct matrices"
 )]
-fn x_step(
+pub(super) fn x_step(
     side: &mut Option<Side>,
     zx: &[f64],
     n: usize,
@@ -64,16 +65,17 @@ fn x_step(
     rho: f64,
     reg: f64,
 ) -> Result<Vec<f64>, NqError> {
+    let za = normalized_plane(zx, n, r);
     #[cfg(feature = "gpu")]
-    if let Some(done) = side
+    if let Some(out) = side
         .as_mut()
-        .and_then(|s| s.x_update(zx, z, du, rho, reg, spd_inverse))
+        .and_then(|s| s.x_update(&za, z, du, rho, reg, spd_inverse))
     {
-        return done;
+        return out;
     }
     #[cfg(not(feature = "gpu"))]
     let _ = side;
-    x_update(zx, n, r, wp, k, z, du, rho, reg)
+    x_update(&za, n, r, wp, k, z, du, rho, reg)
 }
 
 /// `len` Gaussian draws from `rng`, a [`rank1`] start. `O(len)` draws.

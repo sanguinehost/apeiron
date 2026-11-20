@@ -1,0 +1,2 @@
+ppl 7.587145 on 1023 tokens (1 windows of <= 2048, kernel Q8Act): mean nll 2.026455, 2.4 tok/s in 434.1 s
+peak rss 3736.8 MiB

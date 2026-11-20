@@ -308,20 +308,35 @@ fn changing_a_later_token_leaves_earlier_rows_bitwise_unchanged() {
 
     // Every part's rows `0..T-1` are unchanged. Rows <= i < T-1 depend only on tokens <= i.
     for i in 0..T - 1 {
-        assert!(p0.xa[i * HID..(i + 1) * HID] == p1.xa[i * HID..(i + 1) * HID]);
-        assert!(p0.q[i * HID..(i + 1) * HID] == p1.q[i * HID..(i + 1) * HID]);
-        assert!(p0.k[i * 16..(i + 1) * 16] == p1.k[i * 16..(i + 1) * 16]);
-        assert!(p0.v[i * 16..(i + 1) * 16] == p1.v[i * 16..(i + 1) * 16]);
-        assert!(p0.a[i * HID..(i + 1) * HID] == p1.a[i * HID..(i + 1) * HID]);
-        assert!(p0.mid[i * HID..(i + 1) * HID] == p1.mid[i * HID..(i + 1) * HID]);
-        assert!(p0.xf[i * HID..(i + 1) * HID] == p1.xf[i * HID..(i + 1) * HID]);
-        assert!(p0.g[i * INTER..(i + 1) * INTER] == p1.g[i * INTER..(i + 1) * INTER]);
-        assert!(p0.u[i * INTER..(i + 1) * INTER] == p1.u[i * INTER..(i + 1) * INTER]);
-        assert!(p0.m[i * INTER..(i + 1) * INTER] == p1.m[i * INTER..(i + 1) * INTER]);
-        assert!(p0.out[i * HID..(i + 1) * HID] == p1.out[i * HID..(i + 1) * HID]);
+        assert_eq!(p0.xa[i * HID..(i + 1) * HID], p1.xa[i * HID..(i + 1) * HID]);
+        assert_eq!(p0.q[i * HID..(i + 1) * HID], p1.q[i * HID..(i + 1) * HID]);
+        assert_eq!(p0.k[i * 16..(i + 1) * 16], p1.k[i * 16..(i + 1) * 16]);
+        assert_eq!(p0.v[i * 16..(i + 1) * 16], p1.v[i * 16..(i + 1) * 16]);
+        assert_eq!(p0.a[i * HID..(i + 1) * HID], p1.a[i * HID..(i + 1) * HID]);
+        assert_eq!(
+            p0.mid[i * HID..(i + 1) * HID],
+            p1.mid[i * HID..(i + 1) * HID]
+        );
+        assert_eq!(p0.xf[i * HID..(i + 1) * HID], p1.xf[i * HID..(i + 1) * HID]);
+        assert_eq!(
+            p0.g[i * INTER..(i + 1) * INTER],
+            p1.g[i * INTER..(i + 1) * INTER]
+        );
+        assert_eq!(
+            p0.u[i * INTER..(i + 1) * INTER],
+            p1.u[i * INTER..(i + 1) * INTER]
+        );
+        assert_eq!(
+            p0.m[i * INTER..(i + 1) * INTER],
+            p1.m[i * INTER..(i + 1) * INTER]
+        );
+        assert_eq!(
+            p0.out[i * HID..(i + 1) * HID],
+            p1.out[i * HID..(i + 1) * HID]
+        );
     }
     // Non-vacuous: the last output row did change.
-    assert!(p0.out[(T - 1) * HID..] != p1.out[(T - 1) * HID..]);
+    assert_ne!(p0.out[(T - 1) * HID..], p1.out[(T - 1) * HID..]);
     // The multi-token prefix helper agrees with the manual loop above.
     assert!(prefix_eq(&p0.out, &p1.out, T - 1, HID));
 }

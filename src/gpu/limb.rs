@@ -129,6 +129,15 @@ unsafe impl Send for Device {}
 
 static DEVICE: OnceLock<Option<Mutex<Device>>> = OnceLock::new();
 
+/// Whether a device with cooperative matrices loads for the limb path.
+///
+/// # Complexity
+///
+/// `O(1)` after the first call; the first loads the Vulkan instance and device.
+pub(crate) fn available() -> bool {
+    device().is_some()
+}
+
 /// The device, loading it on the first call.
 ///
 /// # Complexity

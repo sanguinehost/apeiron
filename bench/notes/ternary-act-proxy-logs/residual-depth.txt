@@ -1,0 +1,11 @@
+optimal ternary, exact top-k by |x| per 64-term block, re-optimized power-of-two scale
+pooled over the six stage dumps (layers 0, 13, 27; attn_norm, ffn_norm; 512 columns)
+k= 4 (  6% of terms): rel RMS 0.2916
+k= 8 ( 12% of terms): rel RMS 0.2258
+k=16 ( 25% of terms): rel RMS 0.1451
+k=24 ( 38% of terms): rel RMS 0.0988
+k=32 ( 50% of terms): rel RMS 0.0670
+k=48 ( 75% of terms): rel RMS 0.0225
+k=52 ( 81% of terms): rel RMS 0.0147
+k=56 ( 88% of terms): rel RMS 0.0082
+k=60 ( 94% of terms): rel RMS 0.0031

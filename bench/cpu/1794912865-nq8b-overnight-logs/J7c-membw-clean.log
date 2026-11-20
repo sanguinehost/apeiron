@@ -1,0 +1,10 @@
+== 4 threads, 256 MiB, 100 passes ==
+agent-guard: available=3692MiB cap=2048MiB jobs=2
+thread 0: mean 5.64 GB/s  best 5.86 GB/s
+thread 1: mean 5.55 GB/s  best 8.12 GB/s
+thread 2: mean 5.58 GB/s  best 6.70 GB/s
+thread 3: mean 5.56 GB/s  best 11.38 GB/s
+aggregate: mean 22.33 GB/s  best-pass 32.06 GB/s  (chunk 256 MiB, 100 passes, sink 18446744068877713408)
+== 8 threads, 256 MiB, 100 passes ==
+agent-guard: available=3894MiB cap=2048MiB jobs=2
+/home/lucas/Workspace/tools/agent-guard: line 148: 252798 Killed                     systemd-run --user --scope --quiet --collect --unit="$UNIT" --nice=10 --property="MemoryMax=${cap}M" --property=MemorySwapMax=0 --property="CPUQuota=${CPU_QUOTA}" --setenv=AGENT_GUARD_ACTIVE=1 --setenv="AGENT_GUARD_CAP_MIB=$cap" --setenv="CARGO_BUILD_JOBS=$jobs" --setenv=RUST_TEST_THREADS=1 --setenv="MAKEFLAGS=-j${make_jobs}" --setenv="RAYON_NUM_THREADS=$rayon" --setenv="TOKIO_WORKER_THREADS=$tokio" --setenv="OMP_NUM_THREADS=$omp" --setenv="NUM_JOBS=$make_jobs" --setenv="CMAKE_BUILD_PARALLEL_LEVEL=$cmake_jobs" --setenv="UV_THREADPOOL_SIZE=$uv" --setenv=LEAN_NUM_THREADS=1 --setenv="NODE_OPTIONS=$node_options" -- "${cmd[@]}"

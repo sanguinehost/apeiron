@@ -57,6 +57,13 @@ struct Args {
     /// counterpart of `--drop-system`: the model still gets an instruction, not
     /// Intent's 2.6k-token assembled prompt.
     system: Option<String>,
+    /// Keep the KV planes in one writable cache file instead of anonymous memory.
+    /// The file is recreated at each request's capacity; the kernel page cache is
+    /// the hot pool, so resident anonymous memory no longer scales with context.
+    kv_file: Option<String>,
+    /// Enable the exact-on-certificate block index over blocks of this many
+    /// positions. 0 (the default) keeps the full-scan read.
+    kv_block: usize,
 }
 
 fn parse_args() -> Result<Args, Box<dyn Error>> {
@@ -73,6 +80,8 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         drop_system: false,
         stop_at_sentence: false,
         system: None,
+        kv_file: None,
+        kv_block: 0,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -96,12 +105,15 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--drop-system" => a.drop_system = true,
             "--stop-at-sentence" => a.stop_at_sentence = true,
             "--system" => a.system = Some(val()?),
+            "--kv-file" => a.kv_file = Some(val()?),
+            "--kv-block" => a.kv_block = val()?.parse()?,
             "-h" | "--help" => {
                 println!(
                     "nq-serve --model <gguf> [--pack <nqp>] --tokenizer <json> \
                      [--bind 127.0.0.1:8080] [--model-name nq-qwen3] \
                      [--max-tokens 256] [--kernel q8act|exact] [--think] [--no-warmup] \
-                     [--drop-system] [--stop-at-sentence] [--system TEXT]"
+                     [--drop-system] [--stop-at-sentence] [--system TEXT] \
+                     [--kv-file PATH] [--kv-block N]"
                 );
                 std::process::exit(0);
             }
@@ -150,7 +162,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         t0.elapsed().as_secs_f64()
     );
     if args.warmup {
-        warm(&engine, &bpe, args.kernel)?;
+        warm(&engine, &bpe, args.kernel, args.kv_file.as_deref())?;
     }
     let listener = TcpListener::bind(&args.bind)?;
     eprintln!(
@@ -173,12 +185,20 @@ fn run() -> Result<(), Box<dyn Error>> {
 
 /// Read every projection once so the first real request finds the pack in page
 /// cache; `--no-warmup` leaves that cost on the first request.
-fn warm(engine: &Engine, bpe: &Bpe, mode: KernelMode) -> Result<(), Box<dyn Error>> {
+fn warm(
+    engine: &Engine,
+    bpe: &Bpe,
+    mode: KernelMode,
+    kv_file: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
     // More than one token so the multi-column projections and their F16 tile
     // builds are paid before the first client request, not inside it.
     let ids = bpe.encode("Hello, how are you today?")?;
     let t0 = Instant::now();
-    let mut st = engine.state(ids.len() + 1)?;
+    let mut st = match kv_file {
+        Some(path) => engine.state_with_file(ids.len() + 1, path)?,
+        None => engine.state(ids.len() + 1)?,
+    };
     let _ = engine.prefill_state(&mut st, &ids, mode)?;
     eprintln!("warmup        {:.3} s", t0.elapsed().as_secs_f64());
     Ok(())
@@ -276,6 +296,14 @@ fn chat(
         });
         messages.insert(0, json!({"role": "system", "content": system}));
     }
+    // Intent sends the tool registry beside the messages. A text-only model
+    // sees a schema only if the listener renders it into the prompt; the
+    // compact demo (`--drop-system`) keeps its one-line request.
+    if !args.drop_system {
+        if let Some(tools) = v.get("tools").and_then(Value::as_array) {
+            messages = with_tool_definitions(&messages, tools)?;
+        }
+    }
     let want_stream = v.get("stream").and_then(Value::as_bool).unwrap_or(false);
     let requested = v
         .get("max_tokens")
@@ -314,10 +342,20 @@ fn chat(
 
     // The KV state is allocated for prompt + output up front, so the served
     // ceiling is the smaller of the client's and `--max-tokens`.
-    let mut st = match engine.state(ids.len() + max_new + 8) {
+    let cap = ids.len() + max_new + 8;
+    let st = match &args.kv_file {
+        Some(path) => engine.state_with_file(cap, path),
+        None => engine.state(cap),
+    };
+    let mut st = match st {
         Ok(st) => st,
         Err(e) => return write_error(stream, 500, &format!("state: {e}")),
     };
+    if args.kv_block > 0 {
+        if let Err(e) = st.kv.enable_block_index(args.kv_block) {
+            return write_error(stream, 500, &format!("kv block index: {e:?}"));
+        }
+    }
 
     let id = format!("chatcmpl-{}-{}", epoch_secs(), std::process::id());
     let created = epoch_secs();
@@ -458,7 +496,42 @@ fn chat(
         finish,
         produced as f64 / (ttft + decode).max(1e-9),
     );
+    if let Some(c) = st.kv.cert_stats() {
+        eprintln!(
+            "certified     blocks {} (scanned {}, skipped {}), skipped positions {}",
+            c.blocks, c.scanned, c.skipped, c.skipped_positions
+        );
+    }
     Ok(())
+}
+
+/// Insert the request's `tools` array as a system block after the leading
+/// system message (or at the front when there is none). The block is the
+/// canonical JSON the client sent, so the argument names and types the model
+/// reads are the ones the loop will validate. Empty `tools` leaves the
+/// messages untouched.
+fn with_tool_definitions(messages: &[Value], tools: &[Value]) -> Result<Vec<Value>, String> {
+    if tools.is_empty() {
+        return Ok(messages.to_vec());
+    }
+    let defs = serde_json::to_string(tools).map_err(|e| format!("tools: {e}"))?;
+    let content = format!(
+        "Tool definitions (JSON Schema), verbatim from the request. Each call is one \
+         <tool_call name=\"...\">...</tool_call> block:\n{defs}"
+    );
+    let at = if messages
+        .first()
+        .and_then(|m| m.get("role"))
+        .and_then(Value::as_str)
+        == Some("system")
+    {
+        1
+    } else {
+        0
+    };
+    let mut out = messages.to_vec();
+    out.insert(at, json!({"role": "system", "content": content}));
+    Ok(out)
 }
 
 /// ChatML for the Qwen3 template. With thinking off, the generation prompt ends
@@ -683,5 +756,31 @@ mod tests {
         let messages = vec![json!({"role": "developer", "content": "be brief"})];
         let prompt = render_chatml(&messages, false).unwrap();
         assert!(prompt.starts_with("<|im_start|>system\nbe brief<|im_end|>\n"));
+    }
+
+    #[test]
+    fn tool_definitions_follow_the_leading_system_message() {
+        let messages = vec![
+            json!({"role": "system", "content": "sys"}),
+            json!({"role": "user", "content": "add median"}),
+        ];
+        let tools = vec![json!({
+            "type": "function",
+            "function": {"name": "read", "parameters": {"type": "object"}}
+        })];
+        let out = with_tool_definitions(&messages, &tools).unwrap();
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0]["content"], "sys");
+        assert_eq!(out[1]["role"], "system");
+        assert!(out[1]["content"].as_str().unwrap().contains("\"name\":\"read\""));
+        assert_eq!(out[2]["content"], "add median");
+        let prompt = render_chatml(&out, true).unwrap();
+        assert!(prompt.contains("<|im_start|>system\nTool definitions"));
+    }
+
+    #[test]
+    fn no_tools_leaves_the_messages_alone() {
+        let messages = vec![json!({"role": "user", "content": "Hi"})];
+        assert_eq!(with_tool_definitions(&messages, &[]).unwrap(), messages);
     }
 }

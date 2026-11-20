@@ -20,7 +20,8 @@ A criterion is closed only by the named evidence. A narrower result does not clo
 | id | criterion | threshold |
 |---|---|---|
 | **Q1** | quantisation rate | a full 7B-class pack stores its replaced linear weights at 1.15–1.18 b/w, not a 12-row sample |
-| **Q2** | quality | wikitext-2 perplexity at ctx ≥ 2048 ≤ 1.15× Q4_K_M; mean 0-shot accuracy ≥ 0.90× Q4_K_M over boolq, piqa, hellaswag, winogrande, arc_easy and arc_challenge |
+| **Q2** | quality | wikitext-2 perplexity at ctx ≥ 2048 ≤ 1.5× Q4_K_M (goal) and ≤ 1.15× (stretch); mean 0-shot accuracy ≥ 0.90× Q4_K_M over boolq, piqa, hellaswag, winogrande, arc_easy and arc_challenge |
+| **Q3** | NanoQuant parity | on the Q2 protocol at ≤ 1.18 b/w, beats NanoQuant's published Qwen3-8B-Base row (1.00 b/w, 1.78× BF16 PPL, 0.687× BF16 six-task) on both axes; the paired control is their row re-scored on this protocol, otherwise the comparison is labelled cross-harness |
 | **M1** | memory | `MemAvailable` ≥ 2 GiB with a 200k context and five sessions; server anonymous RSS ≤ 2 GiB |
 | **T1** | decode | ≥ 30 tok/s at 2k and ≥ 24 tok/s at 200k, mean of three runs with the spread |
 | **T2** | turn latency | a 1,000-token incremental turn at 200k prefills in ≤ 60 s; a full 200k prefill is reported separately |

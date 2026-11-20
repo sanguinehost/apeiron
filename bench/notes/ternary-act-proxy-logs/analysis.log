@@ -1,0 +1,8 @@
+target/act-dump/layer0-attn_norm.i64: apeiron-act-dump v1 stage=attn_norm layer=0 width=1024 columns=512 dtype=i64le
+target/act-dump/layer0-ffn_norm.i64: apeiron-act-dump v1 stage=ffn_norm layer=0 width=1024 columns=512 dtype=i64le
+target/act-dump/layer13-attn_norm.i64: apeiron-act-dump v1 stage=attn_norm layer=13 width=1024 columns=512 dtype=i64le
+target/act-dump/layer13-ffn_norm.i64: apeiron-act-dump v1 stage=ffn_norm layer=13 width=1024 columns=512 dtype=i64le
+target/act-dump/layer27-attn_norm.i64: apeiron-act-dump v1 stage=attn_norm layer=27 width=1024 columns=512 dtype=i64le
+target/act-dump/layer27-ffn_norm.i64: apeiron-act-dump v1 stage=ffn_norm layer=27 width=1024 columns=512 dtype=i64le
+
+wrote target/act-dump/summary.json

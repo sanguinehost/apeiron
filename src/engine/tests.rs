@@ -1088,9 +1088,11 @@ fn lm_head_and_argmax_through_the_real_tensor_table() {
         return;
     };
     let engine = Engine::open(&path).expect("load qwen05b");
-    // The model has no `output.weight`; the head is tied to the embedding.
+    // This fixture is the untied Qwen2.5-0.5B-Instruct export (sha256
+    // 74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db), so the loader
+    // prefers `output.weight` over the embedding. The tied fallback is the loader's other branch.
     let head = engine.lm_head();
-    assert_eq!(head.name, "token_embd.weight");
+    assert_eq!(head.name, "output.weight");
 
     let x = engine.token_embedding(0).expect("token 0 embedding");
     let logits = engine.lm_head_fixed(&x).expect("token 0 logits");
@@ -1099,7 +1101,7 @@ fn lm_head_and_argmax_through_the_real_tensor_table() {
     let c0 = fixed_vector_checksum(&logits);
     // Recorded from this model/source identity: token 0's own embedding row is the argmax.
     assert_eq!(a0, 0, "recorded argmax for token 0");
-    assert_eq!(c0, 0x4b39_186d_63e8_1773, "recorded token 0 logit checksum");
+    assert_eq!(c0, 0xa8cd_ee90_a4e2_faad, "recorded token 0 logit checksum");
 
     // A short activation is refused before any read.
     assert_eq!(

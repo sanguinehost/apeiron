@@ -1,0 +1,39 @@
+Transcribed from the campaign console; the originals lived on instance 60924353 and were lost when
+that host was destroyed after its second reboot. The 60919640 originals are fit.log, fit-b.log and
+fit-c.log in this directory.
+
+# 60919640, i7-13700, cgroup quota 7.68 CPUs, APEIRON_THREADS=16, serial attempt
+l00 q    3584x3584 r 1952 b/w 1.10065 56.92 s admm_loss 605.35116
+l00 k    512x3584 r 448 b/w 1.03962 0.56 s admm_loss 955.48351
+l00 v    512x3584 r 448 b/w 1.03962 0.55 s admm_loss 9094.45757
+l00 o    3584x3584 r 1952 b/w 1.10065 34.50 s admm_loss 10546.14903
+l00 gate 18944x3584 r 3296 b/w 1.09971 443.33 s admm_loss 45.95153
+pack /workspace/nq7b-t2.nqp 13344768 B, 5 sections, 1.097693 b/w
+
+# 60919640, same box, three shards x APEIRON_THREADS=16 (oversubscribed)
+l10 q    3584x3584 r 1952 b/w 1.10065 236.56 s admm_loss 232.55788
+l10 k    512x3584 r 448 b/w 1.03962 31.08 s admm_loss 290.31573
+l10 v    512x3584 r 448 b/w 1.03962 29.72 s admm_loss 911.22512
+l10 o    3584x3584 r 1952 b/w 1.10065 303.55 s admm_loss 2123.21873
+l19 q    3584x3584 r 1952 b/w 1.10065 326.17 s admm_loss 159.61458
+l19 k    512x3584 r 448 b/w 1.03962 28.38 s admm_loss 186.47242
+l19 v    512x3584 r 448 b/w 1.03962 28.85 s admm_loss 389.89165
+
+# 60924353, 9900X, cgroup quota 23.04 CPUs, single fit, APEIRON_THREADS=23
+l00 gate 18944x3584 r 3296 b/w 1.09971 245.23 s admm_loss 45.95153
+pack /workspace/probe-gate.nqp 9333248 B, 1 sections, 1.099715 b/w
+
+# 60924353, same box, three shards x APEIRON_THREADS=7, after the first reboot
+l00 q    3584x3584 r 1952 b/w 1.10065 46.60 s admm_loss 10546.14903
+l10 q    3584x3584 r 1952 b/w 1.10065 46.54 s admm_loss 2123.21873
+l19 q    3584x3584 r 1952 b/w 1.10065 45.87 s admm_loss 651.09297
+l00 v    512x3584 r 448 b/w 1.03962 1.01 s admm_loss 9094.45757
+l10 v    512x3584 r 448 b/w 1.03962 0.69 s admm_loss 911.22512
+l19 v    512x3584 r 448 b/w 1.03962 0.89 s admm_loss 389.89165
+l00 o    3584x3584 r 1952 b/w 1.10065 46.08 s admm_loss 10546.14903
+l10 o    3584x3584 r 1952 b/w 1.10065 46.12 s admm_loss 2123.21873
+l19 o    3584x3584 r 1952 b/w 1.10065 51.40 s admm_loss 651.09297
+Uptime reset at 12:53 and again at 13:04; both times the gate stage was killed.
+
+# 60928180, i9-12950HX: ssh publickey denied on every attempt, including detach+attach of the
+# existing account key. No fit was launched on it.

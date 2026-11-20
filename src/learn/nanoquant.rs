@@ -42,6 +42,18 @@ use crate::learn::solve::q32::{from_grid, to_grid, GRID_BOUND};
 /// Limb count of every kernel call here: 3, the fp32-reference precision (AGENTS.md §0 K3).
 pub(crate) const LIMBS: u32 = 3;
 
+/// Limbs of the block-Schur inverse's four products ([`spd_inverse_at`]), against [`LIMBS`] for
+/// the products that consume `H⁻¹`.
+///
+/// The recursion cancels: `S = C − BᵀA⁻¹B` subtracts two matrices of the parent's norm to leave a
+/// block whose eigenvalues sit at the stabiliser, so each level spends relative precision and five
+/// levels spend it five times. Measured on `Qwen3-8B` `l06 down` (`r = 3040`, `h = XᵀX + 0.42·I`,
+/// eigenvalues `3.50e-1..2.81e3`, `f64` Cholesky min pivot `4.27e-1`): at [`LIMBS`] = 3 the
+/// recursion refuses `NotPositiveDefinite` on a matrix that is SPD, at 4 it completes with
+/// `|H·X − I| = 9.9e-6`, at 5 `4.1e-7`, at 6 `1.0e-7`; the device and the CPU limb products agree
+/// in every reported digit at each count.
+pub(crate) const INV_LIMBS: u32 = 6;
+
 /// The reference's `eps` clamp on norms (`admm_nq.py`, `eps=1e-12`).
 const EPS: f64 = 1e-12;
 
@@ -162,7 +174,7 @@ impl NqConfig {
     }
 }
 
-/// The deployed factor: `Ŵ[i][j] = s_post[i]·Σ_k U[i][k]·V[k][j]·s_pre[j]`.
+/// The deployed factor: `Ŵ[i][j] = s_post[i]·Σ_k U[i][k]·s_mid[k]·V[k][j]·s_pre[j]`.
 #[derive(Debug, Clone)]
 pub struct NqFactor {
     /// Output rows `out`.
@@ -177,6 +189,9 @@ pub struct NqFactor {
     pub v: Vec<i8>,
     /// `s_pre`, length `in`.
     pub s_pre: Vec<f64>,
+    /// `s_mid`, length `r`: the per-rank weight of the sign product. [`export`] writes ones (the
+    /// reference's two-scale form, `admm_nq.py:233-252`); [`tune`] holds it fixed.
+    pub s_mid: Vec<f64>,
     /// `s_post`, length `out`.
     pub s_post: Vec<f64>,
     /// The ADMM's own normalised loss `‖W_n − (A_z/m)·B_z‖²/‖W_n‖²` at exit (`admm_nq.py`'s
@@ -279,12 +294,47 @@ fn transpose<T: Copy + Default + Send + Sync>(m: &[T], rows: usize, cols: usize)
     t
 }
 
-/// `‖m‖_F²` of a row-major `rows × cols` matrix: one `rowdot_q32` of `m` with itself, summed.
-/// `O(rows·cols·limbs²)` kernel byte products.
+/// `‖m‖_F²` over the kernel at [`LIMBS`], the rows' squares summed.
+///
+/// A row's squared norm can leave the Q32.32 word range even though every entry is on the grid
+/// (7B `ffn_down` after `export`'s `1/no` row scale: one row is 1.9e3 wide over 3424 columns, so
+/// `2³²·Σx² = 5.6·i64::MAX`). The matrix is scaled by the exact power of two that brings its
+/// largest entry into `(0.5, 1]`; a row sum is then at most `cols`, and the power is squared back
+/// in `f64`. A power-of-two scale is exact, so this is the plain `f64` sum of squares.
+///
+/// # Errors
+///
+/// [`NqError::Range`] on a non-finite entry or a sum that leaves `f64`; [`NqError::Kernel`] as
+/// the grid or the row dot refuses.
+///
+/// # Complexity
+///
+/// `O(rows·cols)` grid words and kernel multiply-adds, `O(rows)` sums.
 fn fro2(m: &[f64], rows: usize, cols: usize) -> Result<f64, NqError> {
-    let q = grid(m)?;
+    let max = m.iter().fold(0.0f64, |a, &x| a.max(x.abs()));
+    if !max.is_finite() {
+        return Err(NqError::Range);
+    }
+    if max == 0.0 {
+        return Ok(0.0);
+    }
+    // `max·2^-e ∈ (0.5, 1]`, and `e` is an integer so both scales are exact powers of two.
+    let e = max.log2().ceil();
+    let back = (2.0 * e).exp2();
+    if !back.is_finite() || back == 0.0 {
+        return Ok(m.iter().map(|x| x * x).sum());
+    }
+    let inv = (-e).exp2();
+    let scaled: Vec<f64> = m.iter().map(|&x| x * inv).collect();
+    let q = grid(&scaled)?;
     let d = rowdot_q32(&q, &q, rows, cols, LIMBS)?;
-    Ok(d.iter().map(|&w| from_grid(w)).sum())
+    let sum: f64 = d.iter().map(|&w| from_grid(w)).sum();
+    let out = sum * back;
+    if out.is_finite() {
+        Ok(out)
+    } else {
+        Err(NqError::Range)
+    }
 }
 
 /// The reference's `rank1_approx`: `sign(M) ⊙ (σu)vᵀ` with `(u, σ, v)` the top singular triplet
@@ -321,7 +371,14 @@ pub(crate) fn rank1(
             .collect())
     };
     let unit = |x: Vec<f64>| -> Result<Vec<f64>, NqError> {
-        let n = fro2(&x, 1, x.len())?.sqrt().max(EPS);
+        // The device's norm is the limb product of the plane of `x` at its own scale
+        // (`rank1_map.comp` mode 2), not [`fro2`]'s `2^-e` pre-scaled form: the plane's per-block
+        // exponent floors at 1, so the two truncate different low-order limb terms and diverge by
+        // ~2^-27 once a power iteration feeds one back in. `rowdot_q32` of the grid words is the
+        // same product the device takes, and `rank1` stays bit-identical across the two.
+        let q = grid(&x)?;
+        let d = rowdot_q32(&q, &q, 1, x.len(), LIMBS)?;
+        let n = from_grid(d[0]).sqrt().max(EPS);
         Ok(x.into_iter().map(|e| e / n).collect())
     };
     let (u, v) = if start_rows {
@@ -364,14 +421,14 @@ const INV_BASE: usize = 32;
 /// X = A⁻¹B,  S = C − BᵀX,  Y = X·S⁻¹,  H⁻¹ = [A⁻¹ + Y·Xᵀ, −Y; −Yᵀ, S⁻¹],
 /// ```
 ///
-/// the four products on the kernel at [`LIMBS`] (the fp32-reference precision of the products
-/// that consume `H⁻¹`), `A⁻¹` and `S⁻¹` by recursion; at order `≤ INV_BASE` the base is `UᵀU` with
-/// `U` from [`inv_factor_upper`]. `S` is SPD whenever `H` is (Schur complement of an SPD matrix).
+/// the four products on the kernel at [`INV_LIMBS`], `A⁻¹` and `S⁻¹` by recursion; at order
+/// `≤ INV_BASE` the base is `UᵀU` with `U` from [`inv_factor_upper`]. `S` is SPD whenever `H` is
+/// (Schur complement of an SPD matrix).
 ///
 /// # Errors
 ///
-/// [`NqError::Solve`] as [`inv_factor_upper`] refuses a base block (a computed `S` that is not SPD
-/// lands here); [`NqError::Kernel`] as a product refuses; [`NqError::Range`] if a sum leaves `i64`.
+/// [`NqError::Kernel`] as a product refuses; [`NqError::Solve`] and [`NqError::Range`] from a base
+/// block of order `≤ INV_BASE`.
 ///
 /// # Complexity
 ///
@@ -381,24 +438,32 @@ const INV_BASE: usize = 32;
 /// `O(n²)` words live per level; the block reads, `S` and the assembly write `p² + q·p + q² + n²`
 /// words per level through [`par_fill`], each entry alone, so the pooled result is the serial one.
 pub(crate) fn spd_inverse(h: &[i64], n: usize) -> Result<Vec<i64>, NqError> {
-    spd_inverse_at(h, n, INV_BASE)
+    spd_inverse_at(h, n, INV_BASE, INV_LIMBS)
+}
+
+/// The base case: `H⁻¹` of an SPD block, `UᵀU` with `U` from [`inv_factor_upper`]. A lost pivot is
+/// the block's own refusal, not a reason to change arithmetic.
+fn base_inverse(h: &[i64], n: usize, limbs: u32) -> Result<Vec<i64>, NqError> {
+    match inv_factor_upper(h, n) {
+        Ok(u) => Ok(syrk_q32(&transpose(&u, n, n), n, n, limbs)?),
+        Err(e) => Err(NqError::Solve(e)),
+    }
 }
 
 /// [`spd_inverse`] with the recursion base order `base` as an argument.
-fn spd_inverse_at(h: &[i64], n: usize, base: usize) -> Result<Vec<i64>, NqError> {
+fn spd_inverse_at(h: &[i64], n: usize, base: usize, limbs: u32) -> Result<Vec<i64>, NqError> {
     if n <= base {
-        let u = inv_factor_upper(h, n)?;
-        return Ok(syrk_q32(&transpose(&u, n, n), n, n, LIMBS)?);
+        return base_inverse(h, n, limbs);
     }
     let (p, q) = (n / 2, n - n / 2);
     let mut a = vec![0i64; p * p];
     par_fill(&mut a, &|c, o| *o = h[(c / p) * n + c % p]);
-    let ai = spd_inverse_at(&a, p, base)?;
+    let ai = spd_inverse_at(&a, p, base, limbs)?;
     // `Bᵀ` (`q × p`) read out of `h` directly: entry `(i, j)` is `h[j, p + i]`.
     let mut bt = vec![0i64; q * p];
     par_fill(&mut bt, &|c, o| *o = h[(c % p) * n + p + c / p]);
-    let x = gemm_q32(&ai, p, &bt, q, p, LIMBS)?;
-    let btx = gemm_q32(&bt, q, &transpose(&x, p, q), q, p, LIMBS)?;
+    let x = gemm_q32(&ai, p, &bt, q, p, limbs)?;
+    let btx = gemm_q32(&bt, q, &transpose(&x, p, q), q, p, limbs)?;
     let bad = AtomicBool::new(false);
     let mut s = vec![0i64; q * q];
     par_fill(&mut s, &|c, o| {
@@ -413,9 +478,9 @@ fn spd_inverse_at(h: &[i64], n: usize, base: usize) -> Result<Vec<i64>, NqError>
     if bad.load(Ordering::Relaxed) {
         return Err(NqError::Range);
     }
-    let si = spd_inverse_at(&s, q, base)?;
-    let y = gemm_q32(&x, p, &si, q, q, LIMBS)?;
-    let yx = gemm_q32(&y, p, &x, p, q, LIMBS)?;
+    let si = spd_inverse_at(&s, q, base, limbs)?;
+    let y = gemm_q32(&x, p, &si, q, q, limbs)?;
+    let yx = gemm_q32(&y, p, &x, p, q, limbs)?;
     let mut out = vec![0i64; n * n];
     par_fill(&mut out, &|c, o| {
         let (i, j) = (c / n, c % n);
@@ -439,11 +504,41 @@ fn spd_inverse_at(h: &[i64], n: usize, base: usize) -> Result<Vec<i64>, NqError>
     Ok(out)
 }
 
+/// `Z` with every rank divided by its own norm: `out[j·r + i] = zx[j·r + i]/d_i`, the `n × r`
+/// layout of `zx` kept, with `d_i = ‖Z_i‖₂ = sqrt(Σ_j zx[j·r + i]²)` floored at [`EPS`].
+///
+/// The kernel's block exponent is shared by every row of one plane, so a product on the raw `Z`
+/// resolves a quiet rank's digits against the loudest rank of its 32-lane block: at [`LIMBS`] = 3
+/// a rank `2²¹` below the loudest keeps none of them. Measured on `Qwen3-8B` `l06 down`
+/// (`r = 3040`, `n = 4096`): six ranks returned a zero Gram diagonal against a true `‖Z_i‖²` of
+/// `4.97e-3`, and the worst diagonal was off by 1.9×. The reference divides before the Gram on
+/// the same norm (`admm_nq.py:172-178`).
+///
+/// # Complexity
+///
+/// `O(n·r)` squares, sums and quotients, `O(r)` words of norms live besides the result.
+fn normalized_plane(zx: &[f64], n: usize, r: usize) -> Vec<f64> {
+    let mut d = vec![0.0f64; r];
+    par_fill(&mut d, &|i, o| {
+        *o = (0..n)
+            .map(|j| zx[j * r + i])
+            .map(|x| x * x)
+            .sum::<f64>()
+            .sqrt()
+            .max(EPS);
+    });
+    let mut out = vec![0.0f64; n * r];
+    par_fill(&mut out, &|c, o| *o = zx[c] / d[c % r]);
+    out
+}
+
 /// One ridge `X`-update in the transposed frame: returns `Fᵀ` (`k × r`) with
 /// `F = (XᵀX + (ρ·mean diag + reg)·I)⁻¹ (XᵀY + ρ(Z − U))`, `X = Z_x/‖·‖` column-normalised.
 ///
-/// `zx` is the `n × r` normalising factor (`Bᵀ_z` or `A_z`), `wp` the prepared `k × n` target
-/// (`W_n` for `A`, `W_nᵀ` for `B`), `z`/`du` the `k × r` consensus and dual.
+/// `zx` is `Z_x` with every rank already divided by its own norm ([`normalized_plane`]), the
+/// `n × r` consensus factor (`Bᵀ_z` or `A_z`) in the layout the device map reads, `wp` the
+/// prepared `k × n` target (`W_n` for `A`, `W_nᵀ` for `B`), `z`/`du` the `k × r` consensus and
+/// dual.
 ///
 /// `O(r²·n + r·n·k + 2r³/3 + r²·k)` multiply-adds: the full-square Gram, the right-hand side, the
 /// inverse ([`spd_inverse`]) and `Rᵀ·H⁻¹`, all on the kernel but the inverse's order-32 bases.
@@ -462,13 +557,19 @@ pub(crate) fn x_update(
     rho: f64,
     reg: f64,
 ) -> Result<Vec<f64>, NqError> {
-    // `Z_xᵀ` on the grid in one pass: entry `(i, j)` of the `r × n` result is `zx[j·r + i]`.
+    // `A_zᵀ` on the grid in one pass: entry `(i, j)` of the `r × n` result is `zx[j·r + i]`.
+    // The plane arrives row-normalised ([`normalized_plane`]): the kernel's block exponent is
+    // shared by every row of a plane, so a product on the raw `Z` would resolve a quiet rank's
+    // digits against the loudest rank of its 32-lane block.
     let zt = grid_map(r * n, &|c| zx[(c % n) * r + c / n])?;
     // `Z·Zᵀ` is symmetric, so the upper triangle and its mirror are the whole square:
     // `syrk_q32` tiles `SYRK_COLS = 16` columns per kernel call and mirrors, which is half the
     // kernel work of `gemm` on the same plane and bit-identical (`syrk`'s doc: the same pair
     // grouping, the mirror is exact).
     let g = syrk_q32(&zt, r, n, LIMBS)?;
+    // The reference divides by the exact rank norm before the Gram; on the normalised plane the
+    // kernel's own diagonal is that norm to its rounding, and the device map forms the same `d`
+    // from the same Gram (`admm_map.comp` modes 1/3/4), so both paths take this word.
     let d: Vec<f64> = (0..r)
         .map(|i| from_grid(g[i * r + i]).sqrt().max(EPS))
         .collect();
@@ -486,7 +587,7 @@ pub(crate) fn x_update(
         }
     })?;
     let hi = spd_inverse(&hw, r)?;
-    // Rᵀ = Y_x·Z_x·D⁻¹ + ρ(Z − U), `k × r`.
+    // Rᵀ = Y_x·A_zᵀ + ρ(Z − U), `k × r`.
     let wz = wp.gemm(&zt, r)?;
     let rt = grid_map(k * r, &|c| {
         from_grid(wz[c]) / d[c % r] + rho * (z[c] - du[c])
@@ -509,6 +610,7 @@ fn transposed(f: NqFactor, out: usize, inn: usize) -> NqFactor {
         v: transpose(&f.u, inn, f.rank),
         s_pre: f.s_post,
         s_post: f.s_pre,
+        s_mid: f.s_mid,
         admm_loss: f.admm_loss,
         u_latent: transpose(&f.v_latent, f.rank, out),
         v_latent: transpose(&f.u_latent, inn, f.rank),
@@ -766,11 +868,17 @@ fn export(
     let na = fro2(&a, o, r)?.sqrt().max(EPS);
     let nb = fro2(&b, n, r)?.sqrt().max(EPS);
     let bf = (nb / na).sqrt();
-    // The column norms are a norm, not a product: sum them in f64 so the export does not depend
-    // on the limb placement's exponent range for a wide `o` (7B `ffn_down`'s 18,944).
+    // The B-step fits `W_n = (A_z·diag(1/c_k))·B_z` (`admm_nq.py:172-177`); the reference puts
+    // `1/c_k` into `A_final` (`:235`) and serves two scales. `c_k` must be the norm of `A_z`, not
+    // of the preconditioned `a = A_z/no`: `no` is a row scale and cannot enter a column norm.
     let col: Vec<f64> = (0..r)
-        .map(|k| (0..o).map(|i| a_z[i * r + k] * a_z[i * r + k]).sum())
+        .map(|k| (0..o).map(|i| a_z[i * r + k] * a_z[i * r + k]).sum::<f64>())
         .collect();
+    // The reference's served form is two-scale: `factorize_admm_nanoquant` returns no
+    // `scale_mid` (`admm_nq.py:233-252`) and `init_for_inference(has_scale_mid=False)` deletes
+    // the attribute (`linear.py:86-99`). Rank `k`'s whole weight is carried by `1/c_k` inside
+    // `A_final`, so `s_mid = 1` is the reference's matrix, not an approximation of it.
+    let s_mid: Vec<f64> = vec![1.0; r];
     for i in 0..o {
         for k in 0..r {
             a[i * r + k] *= bf / col[k].sqrt().max(EPS);
@@ -811,6 +919,7 @@ fn export(
         u: a.iter().map(|&x| sign(x)).collect(),
         v: transpose(&b.iter().map(|&x| sign(x)).collect::<Vec<i8>>(), n, r),
         s_pre,
+        s_mid,
         s_post,
         admm_loss,
         u_latent: ul,
@@ -894,9 +1003,11 @@ fn sign_words(x: &[f64]) -> Vec<i64> {
     out
 }
 
-/// The four gradients of [`tune`]'s loss from `(EH)ᵀ = pt` (`n × o`), `M` and the signs:
-/// `[∂U (o × r), ∂Vᵀ (n × r), ∂s_post, ∂s_pre]`. Two `o·n·r` kernel products and two
-/// `rowdot_q32`s of `o·n`, plus `O(o·n)` element maps and transposes.
+/// The four gradients of [`tune`]'s loss from `(EH)ᵀ = pt` (`n × o`), the deployed `M` and the
+/// signs: `[∂U (o × r), ∂Vᵀ (n × r), ∂s_post, ∂s_pre]`. `M = U·diag(s_mid)·V` already carries the
+/// rank weight, and `∂U`/`∂Vᵀ` carry the same `s_mid[k]` because the latent's sign enters with it.
+/// Two `o·n·r` kernel products and two `rowdot_q32`s of `o·n`, plus `O(o·n)` element maps and
+/// transposes.
 fn grads(
     pt: &[f64],
     m: &[f64],
@@ -904,6 +1015,7 @@ fn grads(
     vst: &[i64],
     sp: &[f64],
     sq: &[f64],
+    mid: &[f64],
     (o, n, r): (usize, usize, usize),
 ) -> Result<[Vec<f64>; 4], NqError> {
     // `Gᵀ = 2·H·Eᵀ` (`n × o`) and `G`.
@@ -928,7 +1040,7 @@ fn grads(
         .collect();
     for i in 0..o {
         for k in 0..r {
-            ga[i * r + k] *= sp[i];
+            ga[i * r + k] *= sp[i] * mid[k];
         }
     }
     // ∂Vᵀ = diag(sq)·(Gᵀ·diag(sp))·U: `a·bᵀ` with `b = Uᵀ` (`r × o`).
@@ -939,7 +1051,7 @@ fn grads(
         .collect();
     for j in 0..n {
         for k in 0..r {
-            gb[j * r + k] *= sq[j];
+            gb[j * r + k] *= sq[j] * mid[k];
         }
     }
     // ∂sp = rows of `G·diag(sq)` dotted with `M`; ∂sq = rows of `Gᵀ·diag(sp)` with `Mᵀ`.
@@ -959,9 +1071,10 @@ fn grads(
 /// `L = tr((Ŵ − W)·H·(Ŵ − W)ᵀ)`, the squared output error of the layer over the calibration
 /// tokens whose Gram is `h` (`in × in`, Q32.32, per token), then the signs of the latents.
 ///
-/// With `G = 2(Ŵ − W)H`, `M = U·V`: `∂L/∂U = diag(s_post)·G·diag(s_pre)·Vᵀ`,
-/// `∂L/∂V = Uᵀ·diag(s_post)·G·diag(s_pre)`, `∂L/∂s_post[i] = Σ_j G_ij·M_ij·s_pre[j]`,
-/// `∂L/∂s_pre[j] = Σ_i G_ij·M_ij·s_post[i]`.
+/// With `G = 2(Ŵ − W)H`, `M = U·diag(s_mid)·V`: `∂L/∂U = diag(s_post)·G·diag(s_pre)·Vᵀ·diag(s_mid)`,
+/// `∂L/∂V = diag(s_mid)·Uᵀ·diag(s_post)·G·diag(s_pre)`, `∂L/∂s_post[i] = Σ_j G_ij·M_ij·s_pre[j]`,
+/// `∂L/∂s_pre[j] = Σ_i G_ij·M_ij·s_post[i]`. `s_mid` is held fixed at the export's value (one
+/// in the two-scale form), not fitted.
 ///
 /// # Errors
 ///
@@ -984,6 +1097,7 @@ pub fn tune(
         || h.len() != n * n
         || f.u_latent.len() != o * r
         || f.v_latent.len() != r * n
+        || f.s_mid.len() != r
     {
         return Err(NqError::Shape);
     }
@@ -1011,10 +1125,20 @@ pub fn tune(
         vec![[0.0; 2]; o],
         vec![[0.0; 2]; n],
     ];
-    // `Ŵ = diag(sp)·M·diag(sq)`, `M = sign(ul)·sign(vlt)ᵀ` exact on the kernel.
+    // `Ŵ = diag(sp)·M·diag(sq)`, `M = sign(ul)·diag(s_mid)·sign(vlt)ᵀ`: the per-rank weight the
+    // export publishes is a fixed diagonal here, folded into `U`'s words before the product. The
+    // gradients below carry the same `mid[k]`, so `ul`/`vlt` descend on the served factor.
+    let mid = f.s_mid.clone();
     let forward = |ul: &[f64], vlt: &[f64], sp: &[f64], sq: &[f64]| {
         let (us, vst) = (sign_words(ul), sign_words(vlt));
-        let m: Vec<f64> = gemm_q32(&us, o, &vst, n, r, LIMBS)?
+        let usw = grid_map(o * r, &|c| {
+            if ul[c] < 0.0 {
+                -mid[c % r]
+            } else {
+                mid[c % r]
+            }
+        })?;
+        let m: Vec<f64> = gemm_q32(&usw, o, &vst, n, r, LIMBS)?
             .iter()
             .map(|&e| from_grid(e))
             .collect();
@@ -1036,7 +1160,7 @@ pub fn tune(
         if en / base < rel_best.0 {
             rel_best = (en / base, t);
         }
-        let [ga, gb, grad_post, grad_pre] = grads(&pt, &m, &us, &vst, &sp, &sq, (o, n, r))?;
+        let [ga, gb, grad_post, grad_pre] = grads(&pt, &m, &us, &vst, &sp, &sq, &mid, (o, n, r))?;
         let cos = f64::midpoint(
             1.0,
             (std::f64::consts::PI * t as f64 / cfg.steps as f64).cos(),
@@ -1283,6 +1407,8 @@ struct SkFrame {
     qw: crate::engine::kern::limb::Prepared,
     c: Vec<i64>,
     wq: Vec<f64>,
+    /// The fixed per-rank weight `s_mid`, length `r`.
+    mid: Vec<f64>,
 }
 
 /// One forward of [`tune_sketch`]: the sign words of `U`, `P`, `U·P`, `E_Q·C` and the
@@ -1313,6 +1439,9 @@ impl SkFrame {
             }
         })?;
         let p = gemm_q32(&vsq, r, &self.qt, s, n, LIMBS)?;
+        // `P' = diag(s_mid)·P`: the served product is `U·diag(s_mid)·P`, so `U·P'` below is the
+        // deployed one and `∂U = sp·G·P'ᵀ` in `grads` is its gradient.
+        let p = grid_map(r * s, &|c| from_grid(p[c]) * self.mid[c / s])?;
         let upw = gemm_q32(&us, o, &transpose(&p, r, s), s, r, LIMBS)?;
         let eqw = grid_map(o * s, &|c| sp[c / s] * from_grid(upw[c]) - self.wq[c])?;
         let eqc = gemm_q32(&eqw, o, &self.c, s, s, LIMBS)?;
@@ -1349,6 +1478,9 @@ impl SkFrame {
             o,
             LIMBS,
         )?;
+        // `∂L/∂U` carries `s_mid[k]`, and `∂Vᵀ`/`∂s_pre` read it through `A·Qᵀ`, so folding it
+        // into `A`'s rows makes `col_grads` return both with the rank weight already in place.
+        let a = grid_map(r * s, &|c| from_grid(a[c]) * self.mid[c / s])?;
         // `∂V = A·Qᵀ·diag(sq)` (`r × n`); `∂s_pre[j] = ⟨Q_j, (VᵀA)_j⟩ = Σ_i sign(V_ij)·(A·Qᵀ)_ij`,
         // exact on the words of `A·Qᵀ`, so `VᵀA` is never formed. The kernel takes `Q` as its
         // prepared operand and returns `(A·Qᵀ)ᵀ` (`n × r`); `col_grads` reads it transposed.
@@ -1392,6 +1524,7 @@ pub fn tune_sketch(
         || sk.hs.len() != s * s
         || f.u_latent.len() != o * r
         || f.v_latent.len() != r * n
+        || f.s_mid.len() != r
     {
         return Err(NqError::Shape);
     }
@@ -1410,6 +1543,7 @@ pub fn tune_sketch(
         qw,
         c,
         wq,
+        mid: f.s_mid.clone(),
     };
     let hp = prepare(h, n, n, LIMBS)?;
     let full = |x: &[i64]| -> Result<f64, NqError> {
@@ -1482,17 +1616,41 @@ pub fn tune_sketch(
 }
 
 impl NqFactor {
-    /// The dense `Ŵ` (`out × in`, Q32.32): `U·V` on the kernel (exact: `±1` words), then the two
-    /// diagonal scales. `O(out·in·r)` kernel products plus `O(out·in)`.
+    /// The dense `Ŵ` (`out × in`, Q32.32): `U·diag(s_mid)·V` on the kernel, then the two
+    /// diagonal scales. `O(out·in·r)` kernel products plus `O(out·in + out·r)`.
     ///
     /// # Errors
     ///
-    /// [`NqError::Kernel`] if the product refuses; [`NqError::Range`] off the grid.
+    /// [`NqError::Shape`] when `s_mid` is not `rank` long; [`NqError::Kernel`] if the product
+    /// refuses; [`NqError::Range`] off the grid.
     pub fn weight(&self) -> Result<Vec<i64>, NqError> {
+        self.weight_with_mid(&self.s_mid)
+    }
+
+    /// The same product with an explicit per-rank weight `m`, so an export arm can be measured
+    /// against another on one fit's signs and scales. `O(out·in·r)` kernel products plus
+    /// `O(out·in + out·r)`.
+    ///
+    /// # Errors
+    ///
+    /// [`NqError::Shape`] when `m` is not `rank` long; [`NqError::Kernel`] if the product refuses;
+    /// [`NqError::Range`] off the grid.
+    pub fn weight_with_mid(&self, mid: &[f64]) -> Result<Vec<i64>, NqError> {
         let (o, n, r) = (self.out, self.inn, self.rank);
-        let one = |s: i8| i64::from(s) << 32;
-        let u: Vec<i64> = self.u.iter().map(|&s| one(s)).collect();
-        let vt: Vec<i64> = transpose(&self.v, r, n).iter().map(|&s| one(s)).collect();
+        if mid.len() != r {
+            return Err(NqError::Shape);
+        }
+        let mut u = vec![0.0f64; o * r];
+        for i in 0..o {
+            for k in 0..r {
+                u[i * r + k] = f64::from(self.u[i * r + k]) * mid[k];
+            }
+        }
+        let u = grid(&u)?;
+        let vt: Vec<i64> = transpose(&self.v, r, n)
+            .iter()
+            .map(|&s| i64::from(s) << 32)
+            .collect();
         let uv = gemm_q32(&u, o, &vt, n, r, LIMBS)?;
         let mut w = vec![0.0f64; o * n];
         for i in 0..o {

@@ -1,0 +1,27 @@
+== 1 threads ==
+agent-guard: available=3299MiB cap=2048MiB jobs=2
+thread 0: mean 16.69 GB/s  best 18.21 GB/s
+aggregate: mean 16.69 GB/s  best-pass 18.21 GB/s  (chunk 128 MiB, 60 passes, sink 16276538888200126464)
+== 2 threads ==
+agent-guard: available=3402MiB cap=2048MiB jobs=2
+thread 0: mean 8.48 GB/s  best 12.32 GB/s
+thread 1: mean 8.48 GB/s  best 11.64 GB/s
+aggregate: mean 16.96 GB/s  best-pass 23.96 GB/s  (chunk 128 MiB, 60 passes, sink 14106333702690701312)
+== 4 threads ==
+agent-guard: available=3383MiB cap=2048MiB jobs=2
+thread 0: mean 5.40 GB/s  best 5.84 GB/s
+thread 1: mean 5.26 GB/s  best 6.04 GB/s
+thread 2: mean 5.22 GB/s  best 7.99 GB/s
+thread 3: mean 5.23 GB/s  best 9.61 GB/s
+aggregate: mean 21.11 GB/s  best-pass 29.47 GB/s  (chunk 128 MiB, 60 passes, sink 9765923331671851008)
+== 8 threads ==
+agent-guard: available=3395MiB cap=2048MiB jobs=2
+thread 0: mean 2.14 GB/s  best 6.33 GB/s
+thread 1: mean 2.11 GB/s  best 4.00 GB/s
+thread 2: mean 2.57 GB/s  best 15.62 GB/s
+thread 3: mean 2.24 GB/s  best 6.08 GB/s
+thread 4: mean 2.14 GB/s  best 4.45 GB/s
+thread 5: mean 2.13 GB/s  best 5.14 GB/s
+thread 6: mean 2.18 GB/s  best 4.69 GB/s
+thread 7: mean 2.12 GB/s  best 4.20 GB/s
+aggregate: mean 17.62 GB/s  best-pass 50.51 GB/s  (chunk 128 MiB, 60 passes, sink 1085102589634150400)
