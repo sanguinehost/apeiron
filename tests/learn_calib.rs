@@ -664,7 +664,9 @@ fn onorm_pass(
 ///
 /// The value is the reference's (`importance.py:65-140`): the mean squared output gradient over the
 /// calibration samples, multiplied by `GRAD_SCALE_FACTOR = 1e6`, robust-clipped per sample under
-/// [`Strategy`] and shrunk by `0.4`. The `1e6` is the reference's saved unit: its hooks scale the
+/// [`Strategy`] and shrunk by `0.4`. The mean is over each sample's [`SEQ`] rows, as the hook's
+/// `.mean(dim=0)` over `T` rows, and the last row's gradient is zero; the final division is
+/// `samples × SEQ`. The `1e6` is the reference's saved unit: its hooks scale the
 /// gradient by `1e6` before the norm and divide the squared update by `1e6`, so the stored statistic
 /// is `1e6 ×` the mean square (`importance.py:16,86-99`). The clip is homogeneous, so computing it
 /// on the unscaled gradient and multiplying the mean by `1e6` is the same statistic.
@@ -727,7 +729,7 @@ fn calib_onorm_write() {
             );
         }
     }
-    let mut seen_valid = 0usize;
+    let mut seen_rows = 0usize;
     for (c, tokens) in set.iter().enumerate() {
         onorm_pass(&engine, &cfg, &w, tokens, |l, k, g| {
             let i = k.index();
@@ -765,15 +767,16 @@ fn calib_onorm_write() {
                 clip.add_row(d, row);
             }
         });
-        seen_valid += tokens.len() - 1;
+        seen_rows += tokens.len();
         println!("ONORM sample {c} at {:.1} s", t0.elapsed().as_secs_f64());
     }
     for (l, layer) in sums.iter_mut().enumerate() {
         for k in Kind::ALL {
             let v = &mut layer[k.index()];
             for x in v.iter_mut() {
-                // Mean over the valid next-token rows, in the reference's `1e6` unit.
-                *x = *x / seen_valid as f64 * 1e6;
+                // Mean over the sample's rows in the reference's `1e6` unit: the hook's
+                // `.mean(dim=0)` divides by all `SEQ` rows, and the last row's gradient is zero.
+                *x = *x / seen_rows as f64 * 1e6;
             }
             shrink(v, shrink_to);
             let words: Vec<i64> = v
@@ -792,7 +795,7 @@ fn calib_onorm_write() {
     println!(
         "ONORM {tag}: {} layers, {} samples x {SEQ} tokens, shrink {shrink_to}, written to {cache}",
         cfg.n_layer,
-        seen_valid / (SEQ - 1)
+        seen_rows / SEQ
     );
 }
 
