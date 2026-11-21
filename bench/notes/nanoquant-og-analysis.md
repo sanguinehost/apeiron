@@ -7,11 +7,11 @@ Grades: `model` / source audit for the code comparison, `measured` for the Phase
 
 - **Original reference clone:** `/home/lucas/Workspace/NanoQuant` (`https://github.com/SamsungLabs/NanoQuant`, `HEAD` at `a9e0a43`, Apache-2.0) — the exact commit cited throughout `apeiron-nq`. Ships full PyTorch/CUDA PTQ source and custom CUDA kernels; ships no pre-quantized weights.
 - **Provenance of the benchmarked 8B packs:** The 1.124 b/w and 1.1788 b/w packs scored in `GOAL.md` (v1 five-window screen: `1.462553×` official Q4_K_M PPL, `1.525440×` Q8_0 PPL, v0 0-shot `0.7534×` Q4_K_M) come from converting the third-party `arelath/Qwen3-8B-nanoquant-GGUF` via `tools/nq_convert.py`. That upstream file carries fused `attn_qkv`, `nq_scale_mid`, and sparse salient columns (`nq_salient_idx` / `nq_salient_weight`). None of those scored packs came from `SamsungLabs/NanoQuant` directly or from `apeiron-nq`'s `examples/nq_fit.rs`.
-- **Four fragmented pack producers currently exist:**
+- **Pack production today:**
   1. Third-party `arelath` GGUFs via `tools/nq_convert.py`.
   2. Standalone CLI `examples/nq_fit.rs` + `src/learn/nanoquant.rs`: ADMM, independent per linear, on the reference's `i_norm`/`o_norm` (clipped and shrunk), `--residual` in the same call; no block tuning or model KD.
-  3. Vulkan GPU training tests `tests/learn_block_tune.rs` + `tests/learn_kd.rs` (`src/gpu/nn/train/{front,block,chain,head,kd}.rs`): port OG's `compress_block_recon` and `compress_model_recon` and export through `pack::write_pack`; `#[ignore]` 0.6B-only tests. The arms print the measured `ours`/`theirs` norms (the hardcoded `run4` labels are removed); `tests/learn_block_tune.rs:29-30`'s `0.3–3.9%` parity claim still has no receipt in `bench/`.
-  4. Untouched original `SamsungLabs/NanoQuant` (`/home/lucas/Workspace/NanoQuant`, Apache-2.0).
+  3. `tools/nq_campaign.sh` over `tests/learn_block_tune.rs` + `tests/learn_kd.rs` (`src/gpu/nn/train/{front,block,chain,head,kd}.rs`): ports OG's `compress_block_recon` and `compress_model_recon` and exports through `pack::write_pack`; `#[ignore]` 0.6B-only tests. The arms print the measured `ours`/`theirs` norms (the hardcoded `run4` labels are removed); `tests/learn_block_tune.rs:29-30`'s `0.3–3.9%` parity claim still has no receipt in `bench/`.
+  4. Untouched original `SamsungLabs/NanoQuant` (`/home/lucas/Workspace/NanoQuant`, Apache-2.0), the authoritative source for this audit, not a producer in this tree.
 
 ---
 
@@ -186,7 +186,7 @@ criterion and the served `rel < 0.50` beside it.
 | **2a** | Local (L13 Yoga) | `examples/phase_split --steps 24` + 3-run decode at ctx 2048 on Phase 0 OG pack | Measured post-consolidation baseline on L13 Yoga naming the dominant term and its `1/(1−s)` ceiling. |
 | **2b** | Local / Box | **Improve from OG's frontier (only after 0d + 1c + 2a):** (1) Quality: verify if OG 1.18 b/w clears Q2 (`≤1.5×` PPL, `≥0.90×` 0-shot); if not, iterate *inside* OG's 4-stage pipeline (shared-`qkv` v4 freeing ~0.105 b/w for sensitive layers, 3-scale `s_mid`, broader calib). (2) CPU speed (T1) & mobile: fit LM head onto `Sign1` (1.406→0.998 GB/tok, bytes ceiling 19.9→28.0 tok/s); replace 12-instr `code_select_avx2` dot dial with a **quality-exact 4-term LUT (`vpshufb` AVX2 / `vtbl` ARM64 NEON)** tested equal to `code_select_twin` (0% quality loss vs `q8act`). (3) 200k KV (C1/C2) and Vulkan `Carrier::Sign1` (V1–V4). | Every change backed by `phase_split --target`, 3-run L13 Yoga spread, and PROTOCOL v1 PPL + 6-task 0-shot record. |
 
-*(The in-tree fitter keeps `spd_inverse` for the bulk, falls back to `f64` at the Schur leaf, and falls back to a direct factor of the whole matrix when the recursion refuses at all (§3.2). Remaining parity work is the calibration statistic set (`o_norm` backward hook, 99.9% clip, `0.4` shrinkage) and the two tuning stages, not the linear algebra: do not block Phase 0–2 on `learn_block_tune`/`learn_kd`.)*
+*(The in-tree fitter keeps `spd_inverse` for the bulk, falls back to `f64` at the Schur leaf, and falls back to a direct factor of the whole matrix when the recursion refuses at all (§3.2). The calibration statistics are now the reference's: the `s128` tape, the `online` `99.9`th-percentile clip, the `0.4` shrinkage on both `i_norm` and `o_norm`, the `1e6` output-gradient unit, and whole-window PPL. Remaining parity work is executing `learn_block_tune` and `learn_kd` end to end on a Vulkan host, and the precision deviations in §6: Q8Act instead of bf16 forward, f32/Q32.32 instead of bf16/Kahan, xorshift draws instead of MT19937/RandomState, and recomputed teacher logits instead of a cached-logit pass. Do not block Phase 0–2 on the two tuning stages.)*
 
 **Blocker (measured, owner action).** Instance `61176577` (RTX 4090, `ssh3.vast.ai:10194`) is
 `exited` with `intended_status: stopped`; `vastai show user` reports `balance = -0.011056`, below
@@ -200,5 +200,16 @@ measured-before-the-last-edit, and says which.
 
 ## 6. Non-Coverage
 
-- Does not execute `cargo test`, `clippy`, `fmt`, `lake build`, or `SamsungLabs/NanoQuant` on a GPU (`agent-guard` refused local cargo at 850 MiB < 1024 MiB available).
+- Does not execute `cargo test --lib`, the workspace test build, or `lake build`: the lib-test link
+  and the workspace build exceed the 500 MiB `agent-guard` cap on this host (`MemAvailable`
+  0.8–1.1 GiB), and no Lean toolchain is installed. Does not execute `SamsungLabs/NanoQuant` on a
+  GPU: the box is stopped (§5, blocker).
+- Precision deviations from the reference, not shape: the calibration forward is the engine's
+  `Q8Act` prefill, not the reference's bf16 `nn.Linear`; the device arithmetic is f32 with Q32.32
+  solves, not bf16 with Kahan summation; the draws are xorshift64\*, not Python's MT19937 or
+  NumPy's `RandomState`; the model KD recomputes the teacher's logits from its final residual
+  instead of caching all 128 × 2048 × vocabulary tensors (same student gradient, less memory); the
+  optimizer is the reference's `optimi` betas `(0.9, 0.99)` with an `eps` placement documented on
+  `AdamHyper`; and the residual/salient planes are extensions the reference does not have, off at
+  their defaults.
 - Does not cover rustc/LLVM code generation, the kernel ABI, Vulkan drivers, or `unsafe` containers.
