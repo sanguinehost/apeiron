@@ -1,0 +1,3 @@
+missing ['model.layers.0.self_attn.q_proj.weight', 'model.layers.0.self_attn.k_proj.weight', 'model.layers.0.self_attn.v_proj.weight', 'model.layers.0.self_attn.o_proj.weight', 'model.layers.0.mlp.gate_proj.weight', 'model.layers.0.mlp.up_proj.weight'] unexpected []
+torch folded: 2048 ids, mean nll 3.192483, ppl 24.348809
+torch base f32: mean nll 2.194782, ppl 8.978046

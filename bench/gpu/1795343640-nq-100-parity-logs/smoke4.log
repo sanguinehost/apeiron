@@ -1,0 +1,20 @@
+   Compiling apeiron v0.1.0 (/workspace/apeiron-nq)
+    Finished `release` profile [optimized] target(s) in 17.96s
+     Running tests/learn_block_tune.rs (target/release/build/apeiron/80e090f69ac3763f/out/learn_block_tune-80e090f69ac3763f)
+
+running 1 test
+BT "smoke4" dump 128 samples x 2048 tokens, d 1024 f 3072, T 8192, 4 chunks, 112 draws loaded 0.2 s
+BT streams rounded to bf16
+BT l00 teacher 5.4 s
+BT l00 self_attn.q_proj nonfact (Epoch 01/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 02/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 03/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 04/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 05/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 06/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 07/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 08/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact 256 steps 7.5 s
+BT l00 not advanced: slots [0] of the reference's seven are not all factors
+BT l00 round total 14.5 s
+BT pack not written: only 0 of 28 blocks have their done marker

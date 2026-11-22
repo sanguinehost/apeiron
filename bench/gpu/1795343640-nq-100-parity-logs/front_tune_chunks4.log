@@ -1,0 +1,38 @@
+    Finished `release` profile [optimized] target(s) in 0.02s
+     Running unittests src/lib.rs (target/release/build/apeiron/042e29fa1aee40ea/out/apeiron-042e29fa1aee40ea)
+
+running 1 test
+fd worst relative error 4.98e-6
+ao vs host 9.388e-3
+COS dW q : cos 0.999965 (|dev| 1.279e2 |host| 1.287e2)
+COS q j 0: cos 0.999977 (|dev| 1.945e0 |host| 1.959e0)
+COS q j 1: cos 0.999952 (|dev| 2.368e0 |host| 2.386e0)
+COS q j 2: cos 0.999979 (|dev| 1.817e1 |host| 1.823e1)
+COS q j 3: cos 0.999976 (|dev| 2.140e1 |host| 2.150e1)
+COS dW k : cos 0.999967 (|dev| 1.148e2 |host| 1.154e2)
+COS k j 0: cos 0.999978 (|dev| 1.926e0 |host| 1.939e0)
+COS k j 1: cos 0.999964 (|dev| 2.171e0 |host| 2.186e0)
+COS k j 2: cos 0.999985 (|dev| 1.974e1 |host| 1.983e1)
+COS k j 3: cos 0.999957 (|dev| 1.857e1 |host| 1.866e1)
+COS dW v : cos 0.999992 (|dev| 1.554e2 |host| 1.563e2)
+COS v j 0: cos 0.999991 (|dev| 3.687e0 |host| 3.720e0)
+COS v j 1: cos 0.999990 (|dev| 3.349e0 |host| 3.379e0)
+COS v j 2: cos 0.999994 (|dev| 3.592e1 |host| 3.613e1)
+COS v j 3: cos 0.999994 (|dev| 3.414e1 |host| 3.436e1)
+qkv grad q j 0: 1.02e-2 / bound 4.13e-2 = 0.246 (at 686, M 6.329e-1, cos 0.999977)
+qkv grad q j 1: 9.43e-3 / bound 1.07e-1 = 0.088 (at 40, M 5.244e0, cos 0.999952)
+qkv grad q j 2: 6.80e-3 / bound 3.14e-2 = 0.216 (at 191, M 7.131e0, cos 0.999979)
+qkv grad q j 3: 1.22e-2 / bound 2.34e-1 = 0.052 (at 9, M 9.437e1, cos 0.999976)
+qkv grad k j 0: 9.07e-3 / bound 3.00e-2 = 0.303 (at 307, M 5.741e-1, cos 0.999978)
+qkv grad k j 1: 1.59e-2 / bound 1.02e-1 = 0.155 (at 58, M 3.332e0, cos 0.999964)
+qkv grad k j 2: 5.34e-3 / bound 1.73e-2 = 0.308 (at 101, M 6.284e0, cos 0.999985)
+qkv grad k j 3: 1.09e-2 / bound 9.62e-2 = 0.113 (at 14, M 4.150e1, cos 0.999957)
+qkv grad v j 0: 1.17e-2 / bound 3.54e-2 = 0.331 (at 442, M 1.049e0, cos 0.999991)
+qkv grad v j 1: 1.01e-2 / bound 7.44e-2 = 0.135 (at 57, M 4.671e0, cos 0.999990)
+qkv grad v j 2: 5.88e-3 / bound 2.09e-2 = 0.281 (at 135, M 1.064e1, cos 0.999994)
+qkv grad v j 3: 7.91e-3 / bound 7.07e-2 = 0.112 (at 7, M 6.808e1, cos 0.999994)
+adam: loss 2.094257 -> -64.536978
+test gpu::nn::train::front::tests::front_tune_matches_host ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 768 filtered out; finished in 2.24s
+

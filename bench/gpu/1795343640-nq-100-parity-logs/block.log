@@ -1,0 +1,32 @@
+== block_loop 05:54:48
+    Finished `release` profile [optimized] target(s) in 0.02s
+     Running tests/learn_block_tune.rs (target/release/build/apeiron/80e090f69ac3763f/out/learn_block_tune-80e090f69ac3763f)
+
+running 1 test
+BT "nq-100" dump 128 samples x 2048 tokens, d 1024 f 3072, T 2048, 1 chunks, 112 draws loaded 0.2 s
+BT streams rounded to bf16
+BT l00 teacher 5.6 s
+BT l00 self_attn.q_proj nonfact (Epoch 01/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 02/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 03/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 04/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 05/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 06/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 07/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact (Epoch 08/08) Block Loss: NaN
+BT l00 self_attn.q_proj nonfact 1024 steps 7.7 s
+
+thread 'block_loop' (70203) panicked at tests/learn_block_tune.rs:1297:30:
+factorize: Kernel(Range)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test block_loop ... FAILED
+
+failures:
+
+failures:
+    block_loop
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.75s
+
+error: test failed, to rerun pass `--test learn_block_tune`
+== block_loop rc=101 05:55:16

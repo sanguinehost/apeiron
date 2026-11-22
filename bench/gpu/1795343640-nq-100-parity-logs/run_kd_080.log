@@ -1,0 +1,33 @@
+== kd_fit 080 19:49:02
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running tests/learn_kd.rs (target/release/build/apeiron/08a672ac91beaa3d/out/learn_kd-08a672ac91beaa3d)
+
+running 1 test
+KD prep 28 layers, 128 samples x 2048 tokens, d 1024, vocab 151936, ranks [512, 384, 512, 384, 576, 576, 576]
+KD checkpoint at step 64
+test kd_fit has been running for over 60 seconds
+KD checkpoint at step 128
+KD epoch 1/8: loss 3.07891, 128 steps
+KD checkpoint at step 192
+KD checkpoint at step 256
+KD epoch 2/8: loss 3.02040, 256 steps
+KD checkpoint at step 320
+KD checkpoint at step 384
+KD epoch 3/8: loss 2.99466, 384 steps
+KD checkpoint at step 448
+KD checkpoint at step 512
+KD epoch 4/8: loss 2.97919, 512 steps
+KD checkpoint at step 576
+KD checkpoint at step 640
+KD epoch 5/8: loss 2.96828, 640 steps
+KD checkpoint at step 704
+KD checkpoint at step 768
+KD epoch 6/8: loss 2.96119, 768 steps
+KD checkpoint at step 832
+KD checkpoint at step 896
+KD epoch 7/8: loss 2.95705, 896 steps
+KD checkpoint at step 960
+KD checkpoint at step 1024
+KD epoch 8/8: loss 2.95523, 1024 steps
+KD pack /workspace/loop-080/nq-080/pack.nqp: 28 layers, 196 sections, 0.776497 b/w
+== kd_fit 080 rc=0 20:00:25

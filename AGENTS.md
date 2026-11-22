@@ -127,6 +127,21 @@ intent friction screen <id> --component … --edit … --symptom … --falsifier
 that cannot be evaluated. A candidate names a mechanism in `intent`, not in this repository; the
 receipt carries the ids it filed.
 
+## Review
+
+Every substantive change is reviewed before it is proposed, by an agent that did not write it:
+
+```sh
+agy --dangerously-skip-permissions -p "<the question>" --model gemini-4-hydrogen-high
+```
+
+Hydrogen is the primary reviewer (`-xhigh` for a proof, a receipt or a product claim); Argon
+(`gemini-4-argon-high`) is the second opinion when two reviews are compared. Give the reviewer the
+files, the commit and the criterion, ask only the questions that decide the work, and ask for
+refusals: a claim with no artifact, a number with no command, a scope wider than the result. A review
+is critique, not evidence: it does not become `measured` or `proved` until its claims resolve to an
+artifact in this repository. Record in the receipt which reviewer ran and what it refused.
+
 ## Gates
 
 Two tiers. A contributor runs the first before proposing a change; CI runs both.

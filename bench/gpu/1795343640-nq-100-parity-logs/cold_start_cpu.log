@@ -1,0 +1,5 @@
+Token indices sequence length is longer than the specified maximum sequence length for this model (299078 > 131072). Running this sequence through the model will result in indexing errors
+bos id 151643 token '<|endoftext|>'
+window 6: plain 2.9526  bos 3.1253  ctx6 3.1807
+window 10: plain 2.9974  bos 2.9593  ctx10 3.1715
+window 139: plain 3.0966  bos 3.3218  ctx139 3.1957

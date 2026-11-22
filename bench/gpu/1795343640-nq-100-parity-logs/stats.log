@@ -1,0 +1,146 @@
+== calib_diag_write 04:06:47
+    Finished `release` profile [optimized] target(s) in 0.05s
+     Running tests/learn_calib.rs (target/release/build/apeiron/765fe3af15019f10/out/learn_calib-765fe3af15019f10)
+
+running 1 test
+DIAG sample 0 at 28.8 s
+DIAG sample 1 at 53.5 s
+test calib_diag_write has been running for over 60 seconds
+DIAG sample 2 at 77.2 s
+DIAG sample 3 at 101.6 s
+DIAG sample 4 at 270.6 s
+DIAG sample 5 at 304.4 s
+DIAG sample 6 at 404.5 s
+DIAG sample 7 at 504.2 s
+DIAG sample 8 at 527.2 s
+DIAG sample 9 at 553.1 s
+DIAG sample 10 at 576.2 s
+DIAG sample 11 at 598.9 s
+DIAG sample 12 at 625.3 s
+DIAG sample 13 at 649.1 s
+DIAG sample 14 at 672.2 s
+DIAG sample 15 at 698.2 s
+DIAG sample 16 at 721.2 s
+DIAG sample 17 at 747.8 s
+DIAG sample 18 at 772.2 s
+DIAG sample 19 at 795.0 s
+DIAG sample 20 at 822.1 s
+DIAG sample 21 at 845.9 s
+DIAG sample 22 at 868.5 s
+DIAG sample 23 at 895.3 s
+DIAG sample 24 at 918.4 s
+DIAG sample 25 at 945.0 s
+DIAG sample 26 at 968.3 s
+DIAG sample 27 at 993.1 s
+DIAG sample 28 at 1020.4 s
+DIAG sample 29 at 1045.4 s
+DIAG sample 30 at 1069.3 s
+DIAG sample 31 at 1096.1 s
+DIAG sample 32 at 1120.5 s
+DIAG sample 33 at 1146.7 s
+DIAG sample 34 at 1170.8 s
+DIAG sample 35 at 1193.9 s
+DIAG sample 36 at 1220.8 s
+DIAG sample 37 at 1243.6 s
+DIAG sample 38 at 1267.5 s
+DIAG sample 39 at 1294.0 s
+DIAG sample 40 at 1316.6 s
+DIAG sample 41 at 1341.7 s
+DIAG sample 42 at 1367.3 s
+DIAG sample 43 at 1391.1 s
+DIAG sample 44 at 1419.0 s
+DIAG sample 45 at 1442.4 s
+DIAG sample 46 at 1464.9 s
+DIAG sample 47 at 1491.8 s
+DIAG sample 48 at 1514.9 s
+DIAG sample 49 at 1538.0 s
+DIAG sample 50 at 1565.6 s
+DIAG sample 51 at 1588.7 s
+DIAG sample 52 at 1617.1 s
+DIAG sample 53 at 1641.1 s
+DIAG sample 54 at 1663.8 s
+DIAG sample 55 at 1693.3 s
+DIAG sample 56 at 1717.4 s
+DIAG sample 57 at 1740.9 s
+DIAG sample 58 at 1770.2 s
+DIAG sample 59 at 1795.1 s
+DIAG sample 60 at 1823.3 s
+DIAG sample 61 at 1847.8 s
+DIAG sample 62 at 1871.6 s
+DIAG sample 63 at 1900.0 s
+DIAG sample 64 at 1923.5 s
+DIAG sample 65 at 1947.0 s
+DIAG sample 66 at 1975.1 s
+DIAG sample 67 at 1997.8 s
+DIAG sample 68 at 2020.8 s
+DIAG sample 69 at 2052.4 s
+DIAG sample 70 at 2077.1 s
+DIAG sample 71 at 2101.4 s
+DIAG sample 72 at 2124.6 s
+DIAG sample 73 at 2147.6 s
+DIAG sample 74 at 2170.7 s
+DIAG sample 75 at 2193.6 s
+DIAG sample 76 at 2218.3 s
+DIAG sample 77 at 2241.9 s
+DIAG sample 78 at 2266.0 s
+DIAG sample 79 at 2290.6 s
+DIAG sample 80 at 2313.0 s
+DIAG sample 81 at 2333.8 s
+DIAG sample 82 at 2354.8 s
+DIAG sample 83 at 2375.2 s
+DIAG sample 84 at 2396.2 s
+DIAG sample 85 at 2417.3 s
+DIAG sample 86 at 2438.4 s
+DIAG sample 87 at 2464.7 s
+DIAG sample 88 at 2487.1 s
+DIAG sample 89 at 2508.4 s
+DIAG sample 90 at 2529.4 s
+DIAG sample 91 at 2550.5 s
+DIAG sample 92 at 2571.6 s
+DIAG sample 93 at 2592.6 s
+DIAG sample 94 at 2613.8 s
+DIAG sample 95 at 2634.9 s
+DIAG sample 96 at 2662.1 s
+DIAG sample 97 at 2683.3 s
+DIAG sample 98 at 2704.3 s
+DIAG sample 99 at 2725.4 s
+DIAG sample 100 at 2746.5 s
+DIAG sample 101 at 2766.0 s
+DIAG sample 102 at 2785.6 s
+DIAG sample 103 at 2805.1 s
+DIAG sample 104 at 2824.7 s
+DIAG sample 105 at 2844.5 s
+DIAG sample 106 at 2864.0 s
+DIAG sample 107 at 2883.5 s
+DIAG sample 108 at 2903.5 s
+DIAG sample 109 at 2923.1 s
+DIAG sample 110 at 2942.7 s
+DIAG sample 111 at 2963.2 s
+DIAG sample 112 at 2985.5 s
+DIAG sample 113 at 3006.9 s
+DIAG sample 114 at 3029.6 s
+DIAG sample 115 at 3051.2 s
+DIAG sample 116 at 3074.6 s
+DIAG sample 117 at 3096.4 s
+DIAG sample 118 at 3117.5 s
+DIAG sample 119 at 3141.0 s
+DIAG sample 120 at 3162.6 s
+DIAG sample 121 at 3184.7 s
+DIAG sample 122 at 3208.5 s
+DIAG sample 123 at 3230.1 s
+DIAG sample 124 at 3251.7 s
+DIAG sample 125 at 3276.2 s
+DIAG sample 126 at 3298.6 s
+DIAG sample 127 at 3321.2 s
+DIAG s128: 28 layers, 128 samples x 2048 tokens, shrink 0.4, written to /workspace/stats-ref
+test calib_diag_write ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 3321.35s
+
+== calib_diag_write rc=0 05:02:09
+== calib_onorm_write 05:02:09
+    Finished `release` profile [optimized] target(s) in 0.01s
+     Running tests/learn_calib.rs (target/release/build/apeiron/765fe3af15019f10/out/learn_calib-765fe3af15019f10)
+
+running 1 test
+test calib_onorm_write has been running for over 60 seconds

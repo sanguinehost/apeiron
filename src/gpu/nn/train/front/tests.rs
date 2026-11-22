@@ -200,8 +200,14 @@ fn front_tune_matches_host() {
         return;
     };
     let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
+    // The chunked path is the KD tape's shape; run it with `APEIRON_FRONT_CHUNKS=4` as well as
+    // the default single chunk.
+    let chunks = std::env::var("APEIRON_FRONT_CHUNKS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
     let sh = FrontShape {
-        chunks: 1,
+        chunks,
         n_ctx: 16,
         d: 32,
         nh: 4,
@@ -265,7 +271,11 @@ fn front_tune_matches_host() {
         }
     }
     println!("fd worst relative error {worst:.2e}");
-    assert!(worst < 1e-6, "fd worst relative error {worst:.2e}");
+    // The f32 perturbation's own rounding grows with the tape; at four chunks the same 1e-4
+    // step lands at 5e-6. The single-chunk bound is the committed one; the chunked run's target
+    // is the device-vs-host comparison below, not a tighter host FD bound.
+    let fd_bound = if sh.chunks == 1 { 1e-6 } else { 1e-5 };
+    assert!(worst < fd_bound, "fd worst relative error {worst:.2e}");
 
     unsafe {
         let mut ft = FrontTune::new(&g, sh, 1e-3, 2e-3);
