@@ -1492,9 +1492,30 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
         }
     }
     // The campaign's export: every layer's seven checkpoints become the pack. A partial round
-    // writes no pack, so a resumed run cannot ship a mixed dense/factor model.
+    // writes no pack, so a resumed run cannot ship a mixed dense/factor model. The preflight
+    // writes one layer over the full header (`APEIRON_NQ_PACK_ONLY`); its other layers stay dense.
     let all_done = (0..cfg.n_layer).all(|l| Path::new(&format!("{dir}/l{l}/done")).exists());
-    if all_done {
+    let only: Option<usize> = env("APEIRON_NQ_PACK_ONLY", "").parse().ok();
+    if let Some(l) = only {
+        if Path::new(&format!("{dir}/l{l}/done")).exists() {
+            let out = env("APEIRON_NQ_PACK", &format!("{dir}/pack-l{l}.nqp"));
+            match apeiron::gpu::nn::train::pack::write_pack_layers(
+                engine,
+                cfg,
+                &dir,
+                &out,
+                l..l + 1,
+            ) {
+                Ok(pack) => println!(
+                    "BT pack {out}: {} layers, {} sections, {:.6} b/w",
+                    pack.layers,
+                    pack.linears.len(),
+                    pack.bits_per_weight().unwrap_or(0.0)
+                ),
+                Err(e) => println!("BT pack refused: {e}"),
+            }
+        }
+    } else if all_done {
         let out = env("APEIRON_NQ_PACK", &format!("{dir}/pack.nqp"));
         match apeiron::gpu::nn::train::pack::write_pack(engine, cfg, &dir, &out) {
             Ok(pack) => println!(

@@ -97,8 +97,30 @@ fn packed(layer: usize, kind: usize, f: &HostFactor) -> PackedLinear {
 /// `O(n_layer · Σ(out·rank + rank·inn))` words read and packed; the file is that many bytes plus
 /// the header. One layer's factors are resident at a time.
 pub fn write_pack(engine: &Engine, cfg: &Config, root: &str, out: &str) -> Result<NqPack, String> {
-    let mut linears = Vec::with_capacity(cfg.n_layer * 7);
-    for l in 0..cfg.n_layer {
+    write_pack_layers(engine, cfg, root, out, 0..cfg.n_layer)
+}
+
+/// [`write_pack`] over a layer range. The header still covers every layer of the model, so the
+/// dense skeleton serves the layers outside the range; a single layer is the preflight form
+/// (fit layer 0 at the campaign's T, score it before the full wall), not a product pack.
+///
+/// # Errors
+///
+/// [`write_pack`]'s: a missing checkpoint, a layer that is not a softmax block, or a
+/// [`NqPack::new`] refusal.
+pub fn write_pack_layers(
+    engine: &Engine,
+    cfg: &Config,
+    root: &str,
+    out: &str,
+    layers: std::ops::Range<usize>,
+) -> Result<NqPack, String> {
+    assert!(
+        layers.start <= layers.end && layers.end <= cfg.n_layer,
+        "layer range"
+    );
+    let mut linears = Vec::with_capacity((layers.end - layers.start) * 7);
+    for l in layers {
         let host =
             LayerHost::from_engine(engine, cfg, l).map_err(|e| format!("layer {l}: {e:?}"))?;
         let gains = match &host.mixer {
