@@ -2,7 +2,7 @@
 # Fetch the 8B campaign's inputs: the HF checkpoint and tokenizer, the reference's calibration
 # text, and a bf16 GGUF for the teacher. Idempotent; status and log go to the bucket.
 exec >> /workspace/fetch.log 2>&1
-set -x
+set -ex
 ROOT=/workspace
 GCS=gs://sanguine-checkpoints-scribe-461316/nq/l4
 BUCKET=gs://sanguine-checkpoints-scribe-461316/nq
@@ -12,7 +12,8 @@ status() { echo "$*" > $ROOT/fetch.status; gcloud storage cp $ROOT/fetch.status 
 mkdir -p $MODEL $ROOT/wikitext2
 status "start $(date -u)"
 
-if [ ! -x $ROOT/venv/bin/python ]; then
+if [ ! -x $ROOT/venv/bin/pip ]; then
+  rm -rf $ROOT/venv
   python3 -m venv $ROOT/venv
 fi
 . $ROOT/venv/bin/activate

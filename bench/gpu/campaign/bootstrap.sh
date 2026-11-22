@@ -6,7 +6,8 @@ exec >> /var/log/nq-bootstrap.log 2>&1
 set -x
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y build-essential pkg-config libvulkan1 vulkan-tools unzip curl git tmux
+apt-get install -y build-essential pkg-config libvulkan1 vulkan-tools unzip curl git tmux \
+  python3-pip python3-venv
 
 # The DL image ships nvidia-utils but not the full driver, so the ICD loads llvmpipe alone.
 if ! dpkg -s nvidia-driver-580-server >/dev/null 2>&1; then
@@ -25,7 +26,9 @@ cd /workspace
 vulkaninfo --summary 2>&1 | grep -E "deviceName|deviceType|driverName" | head -6
 cargo build --release --locked --features gpu --tests
 echo "bootstrap rc=$? $(date -u)" > /workspace/bootstrap.status
-gcloud storage cp /workspace/bootstrap.status /workspace/nq-bootstrap.log \
+gcloud storage cp /workspace/bootstrap.status \
+  gs://sanguine-checkpoints-scribe-461316/nq/l4/ 2>&1 | tail -2
+gcloud storage cp /var/log/nq-bootstrap.log \
   gs://sanguine-checkpoints-scribe-461316/nq/l4/ 2>&1 | tail -2
 
 # The inputs are the long pole; run them detached so a preemption does not lose the tree.
