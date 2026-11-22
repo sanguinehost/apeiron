@@ -22,7 +22,7 @@ pip -q install --upgrade pip
 if ! python -c 'import torch' 2>/dev/null; then
   pip -q install torch --index-url https://download.pytorch.org/whl/cpu
 fi
-pip -q install "huggingface_hub[cli]" safetensors numpy sentencepiece
+pip -q install "huggingface_hub[cli]" safetensors numpy sentencepiece transformers
 status "pip done $(date -u)"
 
 if [ ! -f $MODEL/model.safetensors.index.json ]; then
