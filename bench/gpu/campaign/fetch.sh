@@ -26,7 +26,8 @@ pip -q install "huggingface_hub[cli]" safetensors numpy sentencepiece
 status "pip done $(date -u)"
 
 if [ ! -f $MODEL/model.safetensors.index.json ]; then
-  huggingface-cli download Qwen/Qwen3-8B-Base --local-dir $MODEL
+  # The console script is `hf` on current huggingface_hub; the module call covers both.
+  python -c "from huggingface_hub import snapshot_download as d; d('Qwen/Qwen3-8B-Base', local_dir='$MODEL')"
 fi
 if [ ! -f $ROOT/wikitext2/wiki.train.raw ]; then
   curl -sSfL https://huggingface.co/datasets/ggml-org/ci/resolve/main/wikitext-2-raw-v1.zip \
