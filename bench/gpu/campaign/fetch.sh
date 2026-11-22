@@ -33,6 +33,9 @@ if [ ! -f $ROOT/wikitext2/wiki.train.raw ]; then
   curl -sSfL https://huggingface.co/datasets/ggml-org/ci/resolve/main/wikitext-2-raw-v1.zip \
     -o $ROOT/wikitext2.zip
   unzip -oq $ROOT/wikitext2.zip -d $ROOT/wikitext2
+  # The zip expands one directory deep; the campaign paths are flat.
+  mv $ROOT/wikitext2/wikitext-2-raw/*.raw $ROOT/wikitext2/
+  rmdir $ROOT/wikitext2/wikitext-2-raw
 fi
 status "model and text done $(date -u)"
 
