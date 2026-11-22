@@ -147,14 +147,35 @@ pub struct Stream {
 }
 
 impl Stream {
-    /// Allocate `n_all` chunks of `n_ctx × w` on the device.
+    /// Allocate `n_all` chunks of `n_ctx × w` on the device, or in host memory under
+    /// `APEIRON_NQ_HOST_STREAMS`.
+    ///
+    /// The four calibration streams of a full campaign are larger than a small card's device heap
+    /// (`4 · n_samples · seq · d · 4` B: 17.2 GiB at the 8B's 128 samples against a 23 GiB L4).
+    /// They are read once per step through `chunk_into`'s buffer copies, so a host-visible stream
+    /// costs one PCIe read per step and leaves the device heap to the tape. A card with room
+    /// keeps them on the device; the bytes and the arithmetic are the same either way.
     ///
     /// # Safety
     ///
     /// `g` outlives the value.
     pub unsafe fn new(g: &GpuCtx, n_ctx: usize, w: usize, n_all: usize) -> Self {
+        let words = n_ctx * w * n_all;
+        let props = if std::env::var_os("APEIRON_NQ_HOST_STREAMS").is_some() {
+            MEMORY_HOST_VISIBLE
+        } else {
+            MEMORY_DEVICE_LOCAL
+        };
+        let buf =
+            g.vk.buffer(
+                words.max(1) as u64 * 4,
+                BUFFER_USAGE_STORAGE | BUFFER_USAGE_TRANSFER_SRC | BUFFER_USAGE_TRANSFER_DST,
+                props,
+            )
+            .expect("stream buffer")
+            .0;
         Self {
-            buf: stream_buffer(g, n_ctx * w * n_all),
+            buf,
             n_ctx,
             w,
             n_all,
