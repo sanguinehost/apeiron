@@ -2283,6 +2283,18 @@ impl Vk {
     /// One descriptor set binding `buffers[i]` at (set 0, binding i), all storage buffers.
     /// Returns `(pipeline_layout, descriptor_set)`.
     pub unsafe fn ssbo_set(&self, buffers: &[Handle]) -> (Handle, Handle) {
+        let at: Vec<(Handle, u64)> = buffers.iter().map(|&b| (b, 0)).collect();
+        self.ssbo_set_at(&at)
+    }
+
+    /// [`Self::ssbo_set`] with a byte offset per buffer: the descriptor points `offset` bytes into
+    /// the buffer, so one allocation can serve several chunk-local views (the KD attention face's
+    /// per-chunk dispatch).
+    ///
+    /// # Safety
+    ///
+    /// Every `(buffer, offset)` is a live SSBO with at least the referenced range in bounds.
+    pub unsafe fn ssbo_set_at(&self, buffers: &[(Handle, u64)]) -> (Handle, Handle) {
         let n = buffers.len() as u32;
         let bindings: Vec<DescriptorSetLayoutBinding> = (0..n)
             .map(|i| DescriptorSetLayoutBinding {
@@ -2350,9 +2362,9 @@ impl Vk {
         );
         let infos: Vec<DescriptorBufferInfo> = buffers
             .iter()
-            .map(|&b| DescriptorBufferInfo {
+            .map(|&(b, offset)| DescriptorBufferInfo {
                 buffer: b,
-                offset: 0,
+                offset,
                 range: WHOLE_SIZE,
             })
             .collect();

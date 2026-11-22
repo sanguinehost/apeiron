@@ -407,7 +407,25 @@ pub unsafe fn make_step_named(
     gy: u32,
     name: &'static str,
 ) -> Step {
-    let (layout, dset) = g.vk.ssbo_set(bufs);
+    let at: Vec<(Handle, u64)> = bufs.iter().map(|&b| (b, 0)).collect();
+    make_step_at(g, spv, &at, gx, gy, name)
+}
+
+/// [`make_step_named`] with a byte offset per binding: the descriptor reads from `offset` into its
+/// buffer, so a chunked tape can bind one allocation's successive regions without a copy.
+///
+/// # Safety
+///
+/// Every bound range is live and in bounds; `spv` is a compute module with one binding per entry.
+pub unsafe fn make_step_at(
+    g: &GpuCtx,
+    spv: &[u8],
+    bufs: &[(Handle, u64)],
+    gx: u32,
+    gy: u32,
+    name: &'static str,
+) -> Step {
+    let (layout, dset) = g.vk.ssbo_set_at(bufs);
     Step {
         pipe: g.vk.pipeline(spv, layout),
         layout,

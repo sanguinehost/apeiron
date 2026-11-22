@@ -42,8 +42,13 @@ use apeiron::gpu::vulkan::Vk;
 use apeiron::learn::grad::load::load_rows;
 use apeiron::learn::grad::model::Config;
 
-/// The teacher, `Qwen3-0.6B-Base` in f16.
+/// The teacher, `Qwen3-0.6B-Base` in f16, overridden by `APEIRON_NQ_MODEL`.
 const MODEL: &str = "~/nq-ref/q3-0p6b-f16.gguf";
+
+/// The teacher path: `APEIRON_NQ_MODEL`, else [`MODEL`].
+fn model() -> String {
+    env("APEIRON_NQ_MODEL", MODEL)
+}
 /// The reference's dumps: `ranks.json`, `calib_ids.i32`, `perm.json`.
 const DUMP: &str = "~/nq-ref/dump";
 /// The block loop's input streams: `s-0.xs.f32` (the embedding) and `s-28.xt.f32` (the teacher's
@@ -293,7 +298,7 @@ fn scale_keys() -> Vec<(&'static str, bool)> {
 fn kd_memory() {
     let vk = unsafe { Vk::load() }.expect("vulkan");
     let (g, _mem) = GpuCtx::new(&vk).expect("gpu ctx");
-    let engine = Engine::open(MODEL).expect("open teacher");
+    let engine = Engine::open(&model()).expect("open teacher");
     let cfg = Config::from_engine(&engine).expect("config");
     let rk = ranks(DUMP);
     let host = LayerHost::from_engine(&engine, &cfg, 0).expect("layer host");
@@ -343,7 +348,7 @@ fn kd_memory() {
 #[test]
 #[ignore = "measurement: opens the device, the teacher and the trace"]
 fn kd_step0_golden() {
-    let engine = Engine::open(MODEL).expect("open teacher");
+    let engine = Engine::open(&model()).expect("open teacher");
     let cfg = Config::from_engine(&engine).expect("config");
     let t = 2048;
     let d = cfg.n_embd;
@@ -711,7 +716,7 @@ fn perm_draw(n: usize, seed: u64) -> Vec<usize> {
     reason = "one campaign stage: the geometry, the checkpoint load, the epoch loop and the pack"
 )]
 fn kd_fit() {
-    let engine = Engine::open(MODEL).expect("open teacher");
+    let engine = Engine::open(&model()).expect("open teacher");
     let cfg = Config::from_engine(&engine).expect("config");
     let student = env("APEIRON_KD_STUDENT", LOOP);
     let dump = env("APEIRON_NQ_DUMP", DUMP);
@@ -800,7 +805,7 @@ fn kd_fit() {
 #[test]
 #[ignore = "measurement: opens the device and the teacher"]
 fn kd_layer_wall() {
-    let engine = Engine::open(MODEL).expect("open teacher");
+    let engine = Engine::open(&model()).expect("open teacher");
     let cfg = Config::from_engine(&engine).expect("config");
     let (t, d) = (2048, cfg.n_embd);
     let rk = ranks(DUMP);
@@ -857,7 +862,7 @@ fn kd_layer_wall() {
 #[test]
 #[ignore = "measurement: opens the device and the teacher"]
 fn kd_wall() {
-    let engine = Engine::open(MODEL).expect("open teacher");
+    let engine = Engine::open(&model()).expect("open teacher");
     let cfg = Config::from_engine(&engine).expect("config");
     let t = 2048;
     let d = cfg.n_embd;
@@ -949,7 +954,7 @@ fn kd_wall() {
 #[test]
 #[ignore = "measurement: opens the device and the teacher"]
 fn kd_kernel_profile() {
-    let engine = Engine::open(MODEL).expect("open teacher");
+    let engine = Engine::open(&model()).expect("open teacher");
     let cfg = Config::from_engine(&engine).expect("config");
     let t = 2048;
     let d = cfg.n_embd;

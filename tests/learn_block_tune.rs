@@ -1466,6 +1466,13 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                 save_stream(&g, cb, &stage, &xt, &format!("{dir}/s-{}.xt.f32", l + 1));
                 save_stream(&g, cb, &stage, &xs, &format!("{dir}/s-{}.xs.f32", l + 1));
             }
+            // The saved pair is the resume point for block `l + 1`; block `l`'s pair is consumed,
+            // and a restart at block 0 regenerates `s-0` from the embedding. Keeping every pair
+            // would put 2 GiB per layer of dead intermediates on disk (56 GiB over 28 layers).
+            if l > 0 {
+                let _ = std::fs::remove_file(format!("{dir}/s-{l}.xt.f32"));
+                let _ = std::fs::remove_file(format!("{dir}/s-{l}.xs.f32"));
+            }
             std::fs::write(format!("{dir_l}/done"), b"1\n").expect("done");
             println!("BT l{l:02} advanced {adv_s:.1} s");
         } else {

@@ -35,7 +35,7 @@ use crate::engine::{Engine, MixerKind};
 use crate::gpu::decode::{make_step_named, rec_step, GpuCtx, Step};
 use crate::gpu::nn::act::swiglu_fwd_dispatch;
 use crate::gpu::nn::add_inplace_bytes;
-use crate::gpu::nn::attn::{attn_kd_dispatch, ATTN_KD_HD};
+use crate::gpu::nn::attn::{attn_kd_dispatch_at, ATTN_KD_HD};
 use crate::gpu::nn::fwd::{linear_fwd_dispatch, rmsnorm_fwd_dispatch};
 use crate::gpu::vulkan::*;
 use crate::learn::grad::load::{layer_from_engine, load_matrix};
@@ -395,11 +395,12 @@ impl LayerFwd {
                 gated,
                 ..
             } => {
-                // The face is hd 128 over one causal sequence: a multi-chunk tape would attend
-                // across chunk boundaries. Refused, not computed differently.
+                // The face is hd 128 over one causal sequence per dispatch: a multi-chunk tape runs
+                // the KD face once per `n_ctx` chunk over that chunk's rows, so the chunks stay
+                // independent. The prep and the dense projections already read whole T.
                 assert!(
-                    *hd == ATTN_KD_HD as usize && chunks == 1 && nh % nkv == 0,
-                    "LayerFwd: the attention face is hd {}, one chunk and an integral GQA ratio; \
+                    *hd == ATTN_KD_HD as usize && nh % nkv == 0,
+                    "LayerFwd: the attention face is hd {} and an integral GQA ratio; \
                      got hd {} chunks {} nh {} nkv {}",
                     ATTN_KD_HD,
                     hd,
@@ -435,20 +436,30 @@ impl LayerFwd {
                     fold(t * (nh + nkv)),
                     "attn_prep",
                 ));
-                steps.push(attn_kd_dispatch(
-                    g,
-                    q,
-                    k,
-                    pb[2],
-                    gate,
-                    ao,
-                    dev(t * nh),
-                    *nh as u32,
-                    *nkv as u32,
-                    t as u32,
-                    1.0 / (*hd as f32).sqrt(),
-                    *gated,
-                ));
+                // `lse` is chunk-major `[chunk][NH][n_ctx]`, the face's `[NH][T]` at `T = n_ctx`.
+                let lse = dev(t * nh);
+                let q_row = (n_ctx * nh * hd * 4) as u64;
+                let kv_row = (n_ctx * nkv * hd * 4) as u64;
+                let lse_row = (nh * n_ctx * 4) as u64;
+                for c in 0..chunks {
+                    let at = |stride: u64| c as u64 * stride;
+                    steps.push(attn_kd_dispatch_at(
+                        g,
+                        &[
+                            (q, at(q_row)),
+                            (k, at(kv_row)),
+                            (pb[2], at(kv_row)),
+                            (gate, if *gated { at(q_row) } else { 0 }),
+                            (ao, at(q_row)),
+                            (lse, at(lse_row)),
+                        ],
+                        *nh as u32,
+                        *nkv as u32,
+                        n_ctx as u32,
+                        1.0 / (*hd as f32).sqrt(),
+                        *gated,
+                    ));
+                }
             }
         }
         steps.extend([

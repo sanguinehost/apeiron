@@ -15,7 +15,7 @@
 //! and are rounded once at the shared store, so both MMAs see the same bf16 operands.
 
 use super::prefill::attn_coop_specialize;
-use crate::gpu::decode::{make_step_named, GpuCtx, Step};
+use crate::gpu::decode::{GpuCtx, Step};
 use crate::gpu::nn::bytes;
 use crate::gpu::vulkan::Handle;
 
@@ -147,6 +147,35 @@ pub unsafe fn attn_kd_dispatch(
     scale: f32,
     gated: bool,
 ) -> Step {
+    attn_kd_dispatch_at(
+        g,
+        &[(q, 0), (k, 0), (v, 0), (gate, 0), (out, 0), (lse, 0)],
+        nh,
+        nkv,
+        t,
+        scale,
+        gated,
+    )
+}
+
+/// [`attn_kd_dispatch`] with a byte offset per binding: the six buffers in the same order, each
+/// read from its offset. A chunked tape binds `chunk·n_ctx` rows of its `[T][·]` buffers and the
+/// chunk's `[NH][n_ctx]` log-sum-exp slice, and dispatches with `t = n_ctx`.
+///
+/// # Safety
+///
+/// Every bound range is live and holds `t` rows from its offset.
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn attn_kd_dispatch_at(
+    g: &GpuCtx,
+    bufs: &[(Handle, u64)],
+    nh: u32,
+    nkv: u32,
+    t: u32,
+    scale: f32,
+    gated: bool,
+) -> Step {
+    assert_eq!(bufs.len(), 6, "attn_kd: six buffers");
     // The face is compiled for a fixed shared footprint; a device under it is refused here rather
     // than on the first `vkCreateComputePipelines` error.
     let shared = attn_kd_shared(ATTN_KD_KEYS, ATTN_KD_ROWS);
@@ -157,7 +186,7 @@ pub unsafe fn attn_kd_dispatch(
     );
     let spv = attn_coopmat_kd_bytes(nh, nkv, t, scale, gated);
     let tiles = t.div_ceil(ATTN_KD_ROWS);
-    make_step_named(g, &spv, &[q, k, v, gate, out, lse], nh, tiles, "attn_kd")
+    crate::gpu::decode::make_step_at(g, &spv, bufs, nh, tiles, "attn_kd")
 }
 
 /// The KD backward face: `src/gpu/spirv/attn_coopmat.comp` compiled with `-DKDB=1`, the second face
@@ -295,6 +324,50 @@ pub unsafe fn attn_kd_bwd_dispatch(
     scale: f32,
     gated: bool,
 ) -> Step {
+    attn_kd_bwd_dispatch_at(
+        g,
+        &[
+            (q, 0),
+            (k, 0),
+            (v, 0),
+            (dy, 0),
+            (out, 0),
+            (gate, 0),
+            (lse, 0),
+            (dq, 0),
+            (dk, 0),
+            (dv, 0),
+            (dgate, 0),
+            (qlock, 0),
+            (qcnt, 0),
+            (qtmp, 0),
+        ],
+        nh,
+        nkv,
+        t,
+        scale,
+        gated,
+    )
+}
+
+/// [`attn_kd_bwd_dispatch`] with a byte offset per binding: the fourteen buffers in the same order,
+/// each read or written from its offset. The per-chunk `qlock`/`qcnt`/`qtmp` scratch and the
+/// chunk's `[NH][n_ctx]` log-sum-exp slice are bound at their chunk offsets, and `t = n_ctx`.
+///
+/// # Safety
+///
+/// Every bound range is live and holds `t` rows (or its chunk-sized scratch) from its offset.
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn attn_kd_bwd_dispatch_at(
+    g: &GpuCtx,
+    bufs: &[(Handle, u64)],
+    nh: u32,
+    nkv: u32,
+    t: u32,
+    scale: f32,
+    gated: bool,
+) -> Step {
+    assert_eq!(bufs.len(), 14, "attn_kd_bwd: fourteen buffers");
     let shared = attn_kd_bwd_shared(ATTN_KDB_KEYS);
     assert!(
         g.vk.max_shared >= shared,
@@ -303,16 +376,7 @@ pub unsafe fn attn_kd_bwd_dispatch(
     );
     let spv = attn_kd_bwd_bytes(nh, nkv, t, scale, gated);
     let blocks = t.div_ceil(ATTN_KDB_KEYS);
-    make_step_named(
-        g,
-        &spv,
-        &[
-            q, k, v, dy, out, gate, lse, dq, dk, dv, dgate, qlock, qcnt, qtmp,
-        ],
-        nkv,
-        blocks,
-        "attn_kd_bwd",
-    )
+    crate::gpu::decode::make_step_at(g, &spv, bufs, nkv, blocks, "attn_kd_bwd")
 }
 
 #[cfg(test)]
