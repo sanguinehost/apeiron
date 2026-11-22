@@ -200,8 +200,9 @@ fn ranks(dump: &str) -> Vec<[usize; 7]> {
 /// `perm.json`'s draws in call order, each with the calling function's name. The reference replays
 /// the same eight `randperm(128)` draws in every `tune_nonfact` / `tune_fact` call (`set_seed(0)`
 /// at `compress_block.py:53,161`); the writer emits that pattern with our xorshift Fisher–Yates
-/// instead of torch's CPU MT19937.
-fn perms(dump: &str) -> Vec<(String, Vec<usize>)> {
+/// instead of torch's CPU MT19937. A fit over the first `n` samples restricts each draw to those
+/// samples, which keeps the reference's order among the samples it keeps.
+fn perms(dump: &str, n: usize) -> Vec<(String, Vec<usize>)> {
     let s = std::fs::read_to_string(format!("{dump}/perm.json")).expect("perm.json");
     let mut out = Vec::new();
     let mut at = 0;
@@ -224,6 +225,16 @@ fn perms(dump: &str) -> Vec<(String, Vec<usize>)> {
             .and_then(|t| t.split('"').nth(2))
             .unwrap_or("")
             .to_owned();
+        let idx: Vec<usize> = idx.into_iter().filter(|&i| i < n).collect();
+        let mut seen = vec![false; n];
+        for &i in &idx {
+            assert!(!seen[i], "perm.json: duplicate sample {i}");
+            seen[i] = true;
+        }
+        assert!(
+            seen.iter().all(|&b| b),
+            "perm.json: draw does not cover {n} samples"
+        );
         out.push((caller, idx));
         at = begin + open + close;
     }
@@ -958,16 +969,26 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
          fixed T has no masked columns, so the sample count must divide the nonfact batch size \
          (the reference default 128 over 4 does)"
     );
-    let seq = ids.len() / n_samples;
+    let seq = 2048usize;
     assert_eq!(
-        seq, 2048,
-        "calibration sample width: the reference's `seqlen` is 2048 (`quant_config.py:16`)"
+        ids.len() % seq,
+        0,
+        "calib_ids.i32: whole samples of the reference's `seqlen` 2048 (`quant_config.py:16`)"
     );
+    assert!(
+        ids.len() >= n_samples * seq,
+        "calib_ids.i32 holds {} samples, {n_samples} requested",
+        ids.len() / seq
+    );
+    // The statistics keep every sample; the device streams may use a prefix of the table when the
+    // full set does not fit the card. The prefix is a fixed set, and the reference's draws are
+    // restricted to it below.
+    let ids = &ids[..n_samples * seq];
     let t = o.per_step * seq;
     let chunks = t / o.nctx;
     let numel = (n_samples * seq * d) as f64;
     let rk = ranks(&o.dump);
-    let pm = perms(&o.dump);
+    let pm = perms(&o.dump, n_samples);
     let lag = t_all.elapsed().as_secs_f64();
     println!(
         "BT {:?} dump {n_samples} samples x {seq} tokens, d {d} f {f}, T {t}, {chunks} chunks, \
