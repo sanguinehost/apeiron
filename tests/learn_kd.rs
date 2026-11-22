@@ -131,7 +131,7 @@ impl Floor {
 /// (`tests/learn_block_tune.rs:159-190`).
 fn ranks(dump: &str) -> Vec<[usize; 7]> {
     let s = std::fs::read_to_string(format!("{dump}/ranks.json")).expect("ranks.json");
-    let mut out = vec![[0usize; 7]; 28];
+    let mut out: Vec<[usize; 7]> = Vec::new();
     for kv in s
         .trim()
         .trim_start_matches('{')
@@ -146,8 +146,12 @@ fn ranks(dump: &str) -> Vec<[usize; 7]> {
             .iter()
             .position(|x| *x == name)
             .unwrap_or_else(|| panic!("{key}"));
+        if out.len() <= l {
+            out.resize(l + 1, [0; 7]);
+        }
         out[l][slot] = v.trim().parse().expect("rank");
     }
+    assert!(!out.is_empty(), "ranks.json: no rows");
     out
 }
 

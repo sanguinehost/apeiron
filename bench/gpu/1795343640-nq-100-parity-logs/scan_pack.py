@@ -1,7 +1,12 @@
 """Per-window NLL of an APNQPK01 (version 2) pack, folded dense in PyTorch.
 
-usage: scan_pack.py <pack.nqp>
+usage: scan_pack.py <pack.nqp> [--base NAME_OR_DIR] [--dtype f32|bfloat16] [--windows a:b]
+
+The 0.6B parity scan ran with the defaults (Qwen/Qwen3-0.6B-Base, f32, every window). An 8B
+model does not fit f32 on a 24 GB card, so the 8B screen runs bfloat16, which is the teacher's
+own precision; the CPU pack path stays the product measurement.
 """
+import argparse
 import sys
 
 import numpy as np
@@ -50,25 +55,33 @@ NAMES = ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.
 
 
 def main():
-    layers, ws = read_pack(sys.argv[1])
-    model = Qwen3ForCausalLM.from_pretrained(BASE, torch_dtype=torch.float32)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("pack")
+    ap.add_argument("--base", default=BASE, help="HF name or a local snapshot directory")
+    ap.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
+    ap.add_argument("--windows", default="0:146", help="first:last of the 2048-token windows")
+    args = ap.parse_args()
+    first, last = (int(v) for v in args.windows.split(":"))
+    layers, ws = read_pack(args.pack)
+    dtype = getattr(torch, args.dtype)
+    model = Qwen3ForCausalLM.from_pretrained(args.base, torch_dtype=dtype)
     for l in range(layers):
         for k, name in enumerate(NAMES):
             mod = model.model.layers[l].self_attn if k < 4 else model.model.layers[l].mlp
-            getattr(mod, name.split(".")[1]).weight.data = torch.from_numpy(ws[(l, k)])
+            getattr(mod, name.split(".")[1]).weight.data = torch.from_numpy(ws[(l, k)]).to(dtype)
     model.eval().cuda()
     sys.path.insert(0, "/workspace/NanoQuant/src")
     from nanoquant.utils.data_utils import get_test_loaders
-    _, tl = get_test_loaders("wikitext2", seqlen=2048, model_name=BASE)
+    _, tl = get_test_loaders("wikitext2", seqlen=2048, model_name=args.base)
     ids = tl.input_ids[0][:299008].numpy()
     nlls = []
     with torch.inference_mode():
-        for i0 in range(0, len(ids) - 2047, 2048):
+        for i0 in range(first * 2048, min(last * 2048, len(ids) - 2047), 2048):
             x = torch.from_numpy(ids[i0:i0 + 2048].astype(np.int64)).cuda().unsqueeze(0)
             lp = torch.log_softmax(model(x).logits[0, :-1].float(), -1)
             nlls.append(float(-lp.gather(1, x[0, 1:].unsqueeze(1)).mean()))
     a = np.array(nlls)
-    print(f"{sys.argv[1]}: {len(a)} windows, mean nll {a.mean():.4f}, ppl {np.exp(a.mean()):.4f}, "
+    print(f"{args.pack}: {len(a)} windows, mean nll {a.mean():.4f}, ppl {np.exp(a.mean()):.4f}, "
           f"median {np.median(a):.4f}, max {a.max():.4f}, windows>8: {(a > 8).sum()}")
     print("windows", " ".join(f"{v:.2f}" for v in a))
 

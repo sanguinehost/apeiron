@@ -42,7 +42,9 @@ The order is the dependency order. A step may run in parallel only where it does
 same measured resource.
 
 1. **Freeze the checkpoint and the harness.** Name the 7B-class checkpoint (primary:
-   Qwen2.5-7B-Instruct, with Qwen3-8B v3 as the measured comparison), its tokenizer, its Q4_K_M
+   Qwen3-8B-Base, the checkpoint of NanoQuant's published 1.00 b/w row and the architecture the
+   training path carries; Qwen2.5-7B-Instruct is the comparison once the forward carries QKV bias),
+   its tokenizer, its Q4_K_M
    reference file and sha256, its KV geometry and the evaluation harness. Rebuild the calibration
    Grams and fix the pack recipe before measuring anything else.
 2. **Build and measure the full pack.** Produce the full 1.00 b/w pack (0.80 b/w for the sub-1-bit
@@ -171,8 +173,10 @@ The plugin is local to the owner's machine and is not part of this repository.
 
 ## Definitions
 
-- **7B-class**: 6.5–8.5 billion parameters. Primary checkpoint: Qwen2.5-7B-Instruct. Comparison:
-  Qwen3-8B v3, which is measured at 3.13 b/w and does not meet Q1.
+- **7B-class**: 6.5–8.5 billion parameters. Primary checkpoint: Qwen3-8B-Base, the checkpoint of
+  NanoQuant's published 1.00 b/w row (Q3) and the architecture the training path carries
+  (`LayerHost::from_engine`). Qwen2.5-7B-Instruct is the comparison; the training forward refuses
+  its QKV bias today, so it needs a bias path before it can be a primary.
 - **b/w**: bits per weight, computed over the replaced linear weights; the whole-payload rate is
   reported separately and never substituted.
 - **resident**: `RssAnon` plus the mapped file pages that are resident; file-backed pages that can be
