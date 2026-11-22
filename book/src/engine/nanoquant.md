@@ -60,8 +60,8 @@ rate below the sign-factor cap asks for them.
 
 One linear therefore stores `r(out + inn) + 16(inn + r + out)` bits when `inn` and `r` are
 multiples of 32, plus `32k + 16·out·k` for the sparse columns. The rate is a property of the rank: a
-1.174 b/w plan on a 7B (q/o rank 2080, k/v 512, gate/up/down 3520) stores 0.958 GB over 6.525 G
-replaced weights, and computes `r·(out + inn)` sign terms — 7.613 G per token. **Bits and terms move
+1.003 b/w plan on a 7B (q/o rank 1776, k/v 432, gate/up/down 2998) stores 0.818 GB over 6.525 G
+replaced weights, and computes `r·(out + inn)` sign terms — 6.485 G per token. **Bits and terms move
 together**: lowering the rank lowers both the bytes and the multiply count, which is why the rate
 target and the speed target are one decision, not two.
 
@@ -126,8 +126,8 @@ refinement theorem covers the twin and the integer arithmetic around it.
 
 - The sign-rank factor's approximation error against the dense `W`. That is a property of the fit,
   not of the kernel, and it is measured as perplexity, not proved.
-- The 1.174 b/w point: no full pack at that rate exists. The 0.6B sample is 53,815,472 B over
-  440,401,920 replaced weights, **0.978 b/w**, and the 8B residual pack is 3.13 b/w; neither is the
-  production pack.
+- The 1.00 b/w point: no full 7B pack at that rate exists. The 0.6B v3 sample is 53,815,472 B over
+  440,401,920 replaced weights, **0.978 b/w**; the 7B ranks above are arithmetic, and the 8B
+  residual pack is 3.13 b/w. Neither is the production pack.
 - Any GPU carrier for the sign planes: the Vulkan path serves `F16`/`F32`/`Q8`/`Q4`/`Q2`/`Q3`/`Q5`
   and has no 1-bit variant.

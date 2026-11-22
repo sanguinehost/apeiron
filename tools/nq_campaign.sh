@@ -37,7 +37,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 model=""; skeleton=""; base=""; cache=""; dump=""; loop=""; tokenizer=""; data=""
-tag="loop"; samples=128; strategy=online; shrink=0.4; ppm=1174000; iters=400; epochs=8
+tag="loop"; samples=128; strategy=online; shrink=0.4; ppm=1000000; iters=400; epochs=8
 iteration_seconds=""; cap_hours=24; stages="stats,dump,block,kd,ppl"; nctx=2048; ctx=2048
 tokens=0; head_batch=16; threads=0
 

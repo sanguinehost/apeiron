@@ -177,7 +177,7 @@ mostly the tokenizer. In those runs, which read both files into memory, the resi
 2,299,725,424 B (skeleton payload plus the
 pack's stored factors); the peak resident set is 2399.2 MiB at ctx 128 and 2567.1 MiB at ctx 512.
 
-The bar is 7B-class at 1.18 b/w on the replaced linears within 2 GB resident, wikitext-2 perplexity
+The bar is 7B-class at 1.00 b/w on the replaced linears within 2 GB resident, wikitext-2 perplexity
 at most 1.15× Q4_K_M and mean 0-shot accuracy at least 0.90× of it. The v2 pack misses it on both
 bits and quality: 1.12 b/w on the replaced linears but 1.756× Q4_K_M. The earlier receipt compared
 the instruct-derived pack to `Qwen3-8B-Base`, which is a different checkpoint. Official
@@ -193,7 +193,7 @@ A version-3 pack adds per-linear dense sign-residual layers. Two refit layers me
 the v2 pack is 28.307562 (1.756×). One refit layer is 51.153269 (3.172×), and one layer without
 the sparse refit is catastrophic (1.38M on the first window), so the refit and the second bit are
 both required. The receipt is `bench/cpu/1794653685-nq8b-residual-ppl.md`. V3 therefore meets the
-perplexity half of the bar at 80.5% of Q4_K_M's bytes, not the 1.18 b/w rate (it is 3.13 b/w on the
+perplexity half of the bar at 80.5% of Q4_K_M's bytes, not the 1.00 b/w rate (it is 3.13 b/w on the
 replaced linears), and the 0-shot half of the bar was not re-measured.
 
 The same pair serves end-to-end from the laptop through `examples/generate --pack`, which installs

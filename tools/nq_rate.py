@@ -17,7 +17,7 @@ steps per kind for the table that makes the whole pack `--ppm` within `--tol` of
 
 Usage:
   nq_rate.py                 # the tables below
-  nq_rate.py --fit 1174000   # the 1.174 table within 0.002
+  nq_rate.py --fit 1000000   # the 1.000 table within 0.002
 """
 
 import argparse
@@ -105,25 +105,25 @@ def fit(ppm, tol):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--fit", type=int, default=0, help="ppm to solve for (e.g. 1174000)")
+    ap.add_argument("--fit", type=int, default=0, help="ppm to solve for (e.g. 1000000)")
     ap.add_argument("--tol", type=float, default=0.002)
     args = ap.parse_args()
     if args.fit:
         fit(args.fit, args.tol)
         return
     report("v3 (served)", V3, header=36)
-    ranks = {k[0]: rank_for_bits(k, 1_174_000) for k in KINDS}
-    report("rank_for_bits at 1.174", ranks)
+    ranks = {k[0]: rank_for_bits(k, 1_000_000) for k in KINDS}
+    report("rank_for_bits at 1.000", ranks)
     print(f"  rank_for_bits reports {total(ranks)[0] / total(ranks)[1]:.6f} b/w, not the budget")
-    # The note's table: one more 32-block on each attention kind, FFN at its per-kind budget.
-    chosen = {"q": 800, "k": 608, "v": 608, "o": 800, "gate": 864, "up": 864, "down": 864}
-    report("chosen 1.174 (attention +32)", chosen)
+    # The fit at 1.000 (`--fit 1000000`'s first table): the current target.
+    chosen = {"q": 640, "k": 480, "v": 480, "o": 672, "gate": 736, "up": 736, "down": 800}
+    report("fit at 1.000", chosen)
     payload, weights, _ = total(V3)
     residual = sum(residual_bits(k) for k in KINDS) * LAYERS
     print(
         f"one residual layer on all 196 linears: {residual} bits = "
         f"{residual / weights:.6f} b/w; "
-        f"affordable above v3 at 1.174 b/w: {(1.174 * weights - payload) / residual:.4f} layers"
+        f"affordable above v3 at 1.000 b/w: {(1.00 * weights - payload) / residual:.4f} layers"
     )
 
 

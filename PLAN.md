@@ -5,7 +5,8 @@ This file tracks state. It is not a receipt. Every number names the artifact beh
 CPU-only on the ThinkPad L13 Yoga 20R6 (i5-10210U, 4 cores / 8 threads, 6.6 GiB); no GPU path is
 planned, built or measured here. Mobile and training from scratch are later horizons.
 
-The target is **20 tok/s at 2k and at 1M**, decode, with context state near-flat. `GOAL.md` T1's
+The rate target is **1.00 b/w**, with **0.80 b/w** as the sub-1-bit point — the two rows NanoQuant
+publishes. The target is **20 tok/s at 2k and at 1M**, decode, with context state near-flat. `GOAL.md` T1's
 30 tok/s at 2k and 24 at 200k stay the formal thresholds; this plan reaches 20 first and states
 which of T1's rows the result closes.
 
@@ -15,7 +16,7 @@ which of T1's rows the result closes.
 |---|---:|---:|---|
 | pack, all linears | 53.8 MB | 1,023.5 MB | `nq::open`; pack parse |
 | head, shipped | 165.3 MB Q8_0 | 510.5 MB Q6_K | GGUF tensor table |
-| head, NQ at 1.18 b/w | 23.0 MB (rank 1,200) | 91.7 MB (rank 4,702) | arithmetic |
+| head, NQ at 1.00 b/w | 19.3 MB (rank 992) | 77.4 MB (rank 4,032) | arithmetic |
 | fixed: norm, residual, embed, untraced | 1.1 ms | 3.7 ms | `1795170568`, `1794919269` |
 | KV per position, F32 | 229,376 B | 294,912 B | `KvState` geometry |
 | KV per position, int8 + scale | 59,136 B | 76,032 B | `L·8·(2d+8)` |

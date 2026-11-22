@@ -258,9 +258,10 @@ still duplicated rather than expressed by a safe twin.
 
 ## The product line
 
-The target is one product: a 7B pack at **≤1.18 b/w average**, **≤1.5× Q4_K_M PPL** on the same head
-and token stream, and **≥20 tok/s** decode at 2k as the working target (`GOAL.md` T1 is 30 tok/s at
-2k and 24 at 200k). Each number is checked by an artifact, not inferred from a smaller model or a
+The target is one product: a 7B pack at **≤1.00 b/w average** — NanoQuant's published 1.00-bit
+point, with 0.80 b/w as the sub-1-bit point — **≤1.5× Q4_K_M PPL** on the same head and token
+stream, and **≥20 tok/s** decode at 2k as the working target (`GOAL.md` T1 is 30 tok/s at 2k and 24
+at 200k). Each number is checked by an artifact, not inferred from a smaller model or a
 single layer.
 
 - **Compression.** The pack header is the rate. A per-layer allocation states every layer's rate and
@@ -309,6 +310,44 @@ fit at a smaller T is a shape test, not a preflight: the 7B T=2 campaign ran **6
 fit whose forward cannot run is not an upper bound. The campaign runs `nq_fit --require-device`;
 the flag exits 1 when the binary was built without `--features gpu` or no cooperative-matrix device
 loads.
+
+## Context is two tiers
+
+Long context is bounded hot state plus a cold tier read by selection, not a larger dense cache. The
+design is settled and the 1M path is only through the second tier; the port is the open half.
+
+- **Hot.** The dense `KvState` ring holds the most recent positions and is read every token. It is
+  bounded by the position budget, not by the context length: a few thousand positions at 4 bit. At
+  1,827 positions the 0.6B reads 229,376 B/position of F32 KV and `attn.core` owns 49.8% of the
+  token — the replacement targets attention, not the head (`bench/cpu/1795170568-nq06-context-split.md`).
+- **Cold.** Sealed block rows live outside the dense plane, one record per `(layer, kv-head, block)`,
+  in the canonical flat/spill `Table` (`src/engine/step/cold_store.rs`), and are gathered by block. A
+  block the store does not hold is a refusal, never a read of the plane the rows came from. The
+  record format exists and is re-exported; it is **not** wired into the step path and has no test
+  yet. PLAN S5 is that wiring plus the file tier, S8 repeats it on the 8B. Do not report C1 from the
+  component's existence.
+- **Selection.** Past the hot ring a token attends to the blocks selection keeps plus the ring. The
+  hot path is O(1) or O(log n); a cold gather is O(blocks kept) and the store payload is O(tokens).
+  The 512 MB block cache, not a larger ring, is what makes 1M reachable at the byte budget
+  (PLAN §1, S5, S8).
+
+Two cold objects exist in the lineage and are not interchangeable. `FinderRecall.ColdStore`
+(`AC2-MEM`, 9 B/token) stores token ids and a hash chain and recalls a token by exact recompute; it
+holds no KV vectors and cannot serve a row gather. `ColdStore` here holds Q32.32 rows and returns
+them bit-for-bit at 8 B/word, so its payload is O(tokens) and is **not** 9 B/token. The long-context
+solution already found is the pair: recall/selection chooses positions, the block store reads the
+chosen rows. It was built in the `fold`/bedrock line (`ColdDecode`, `ColdTier`, `FinderRecall`,
+cited in `cold_store.rs`), which is not in this repository; this repository has the record format and
+the plan, not the serving path. Do not re-derive either, and do not quote one at the other's byte
+count.
+
+Accounting: C1's 1 GiB at 200k is **1.4976 bits/value** over the 7B geometry, so the cold carrier is
+sign or 1.25 bit; a 4-bit cold store is 3.23 GB and is a disk figure. Report resident (hot ring,
+index, block cache) and cold payload/disk separately, never summed into a flat claim. The
+file-backed plane (`KvState::with_file`) is M1's mechanism, not C1's. Open: C2 quality at 200k —
+a sign-only carrier changes every score, and the certificate proves which blocks contribute exactly
+zero, not that a sign-only block is exact — plus the 200k/1M NIAH gate
+(`bench/notes/context-budget.md`, `GOAL.md` C1/C2).
 
 ## Definition of done
 

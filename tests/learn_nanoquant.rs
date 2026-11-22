@@ -112,7 +112,7 @@ fn dense(f: &NqFactor) -> Vec<f64> {
 
 #[test]
 fn rank_fits_budget_and_is_maximal() {
-    // Qwen3-0.6B projections and the 0.8B proxy's, at 1.00 and 1.18 bits per weight.
+    // Qwen3-0.6B projections and the 0.8B proxy's, at 1.00 and 0.80 bits per weight.
     for &(a, b) in &[
         (2048, 1024),
         (1024, 2048),
@@ -121,7 +121,7 @@ fn rank_fits_budget_and_is_maximal() {
         (1024, 3584),
         (3584, 1024),
     ] {
-        for &ppm in &[1_000_000u64, 1_180_000] {
+        for &ppm in &[1_000_000u64, 800_000] {
             let r = rank_for_bits(a, b, ppm, 32);
             assert_eq!(r % 32, 0);
             let budget = (a * b) as u128 * u128::from(ppm);

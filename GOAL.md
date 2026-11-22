@@ -16,9 +16,9 @@ A criterion is closed only by the named evidence. A narrower result does not clo
 
 | id | criterion | threshold | evidence |
 |---|---|---|---|
-| **Q1** | quantisation rate | a full 7B-class pack stores its replaced linear weights at **1.15–1.18 b/w** (bits per weight), not a 12-row sample and not a single projection kind | pack file, weight count, byte count and the command that produced them in a receipt |
-| **Q2** | quality | wikitext-2 perplexity at ctx ≥ 2048 is **≤ 1.5×** the same checkpoint's Q4_K_M (goal) and **≤ 1.15×** (stretch, the north star: 1.15× PPL at 1.15 b/w); mean 0-shot accuracy over boolq, piqa, hellaswag, winogrande, arc_easy and arc_challenge is **≥ 0.90×** Q4_K_M | PPL and 0-shot receipt against a named Q4_K_M file with its sha256 |
-| **Q3** | NanoQuant parity | on the Q2 protocol at **≤ 1.18 b/w**, the pack beats `SamsungLabs/NanoQuant`'s published Qwen3-8B-Base row (**1.00 b/w**, **1.78×** BF16 PPL, **0.687×** BF16 six-task) on both PPL and 0-shot, with the rate and the embedding/head precision named; the paired control is their 1.00 b/w row re-scored on this protocol when their code or weights permit, otherwise the published row is labelled cross-harness | one v1 result record (`bench/PROTOCOL.md`) with a near-lossless arm and the OG row |
+| **Q1** | quantisation rate | a full 7B-class pack stores its replaced linear weights at **1.00 b/w** (bits per weight), NanoQuant's published 1.00-bit point, with **0.80 b/w** as the sub-1-bit point, not a 12-row sample and not a single projection kind | pack file, weight count, byte count and the command that produced them in a receipt |
+| **Q2** | quality | wikitext-2 perplexity at ctx ≥ 2048 is **≤ 1.5×** the same checkpoint's Q4_K_M (goal) and **≤ 1.15×** (stretch, the north star: 1.15× PPL at 1.00 b/w); mean 0-shot accuracy over boolq, piqa, hellaswag, winogrande, arc_easy and arc_challenge is **≥ 0.90×** Q4_K_M | PPL and 0-shot receipt against a named Q4_K_M file with its sha256 |
+| **Q3** | NanoQuant parity | on the Q2 protocol at **≤ 1.00 b/w**, the pack beats `SamsungLabs/NanoQuant`'s published Qwen3-8B-Base row (**1.00 b/w**, **1.78×** BF16 PPL, **0.687×** BF16 six-task) on both PPL and 0-shot, with the rate and the embedding/head precision named; the paired control is their 1.00 b/w row re-scored on this protocol when their code or weights permit, otherwise the published row is labelled cross-harness | one v1 result record (`bench/PROTOCOL.md`) with a near-lossless arm and the OG row |
 | **M1** | memory | on the 6.6 GiB laptop, with the server loaded and a 200,000-token context allocated, `MemAvailable` stays **≥ 2 GiB** and the server's anonymous resident set is **≤ 2 GiB** | `/proc/meminfo`, `smem`/`status` samples and a five-session soak in a receipt |
 | **T1** | decode throughput | **≥ 30 tok/s** at 2k context and **≥ 24 tok/s** at 200k context (at least 0.8× the 2k rate), mean of at least three runs with the observed spread. The 30 is **98.8 % of the laptop's 42.656 GB/s spec peak** on the 1.174 b/w 7B path (`bench/cpu/1794793277-kernel-asm.md` §6); the measured-bandwidth ceiling is **19.9 tok/s**, and the 24 at 200k needs 127.9 % of peak (`bench/cpu/1794799742-decode-ceiling.md` §5) | timed decode on a named CPU, command and interval in a receipt |
 | **T2** | turn latency | a 1,000-token incremental turn at 200k context prefills in **≤ 60 s**; a full 200k prefill is measured and reported separately | prefill and decode timings at 2k, 32k, 128k and 200k |
@@ -45,15 +45,16 @@ same measured resource.
    Qwen2.5-7B-Instruct, with Qwen3-8B v3 as the measured comparison), its tokenizer, its Q4_K_M
    reference file and sha256, its KV geometry and the evaluation harness. Rebuild the calibration
    Grams and fix the pack recipe before measuring anything else.
-2. **Build and measure the full pack.** Produce the full 1.15–1.18 b/w pack on a rented box, not the
-   laptop. Measure Q1 and Q2, then peak RSS and tok/s at 2k, 32k, 128k and 200k. Publish the pack
+2. **Build and measure the full pack.** Produce the full 1.00 b/w pack (0.80 b/w for the sub-1-bit
+   point) on a rented box, not the laptop. Measure Q1 and Q2, then peak RSS and tok/s at 2k, 32k, 128k and 200k. Publish the pack
    hash, the weight count and the exact commands.
-3. **Replace the context path.** Evaluate the candidates against C1 and C2: a ColdKV-class cold tier,
-   a quantised KV cache, a linear/state-space attention, and a hybrid. ColdKV's full-KV cold store is
-   not sufficient at 200k: the 8B f16 KV is about 28.8 GB and Qwen2.5-7B f16 KV is about 11.5 GB, so
-   a cold tier must be quantised or bounded to fit the 1 GiB cap. Port the chosen method into the
-   engine, remove the classic f16 KV from the serving path, and measure the 200k memory and speed
-   curve.
+3. **Replace the context path.** The design is settled: a bounded hot `KvState` ring plus sealed
+   cold block rows gathered by selection, with a 512 MB block cache. The record format
+   (`src/engine/step/cold_store.rs`) exists and is re-exported but is not wired into the step path;
+   PLAN S5 is that wiring plus the file tier. Remove the classic f16 KV from the serving path and
+   measure the 200k memory and speed curve. ColdKV's full-KV cold store alone does not fit 200k: the
+   8B f16 KV is about 28.8 GB and Qwen2.5-7B f16 KV is about 11.5 GB, so the cold tier is quantised
+   and bounded to fit the 1 GiB cap.
 4. **Serve and integrate.** Expose the pack through `serve/` (the only listener; `src/` and
    `examples/` stay socket-free), drive it from `../intent`'s `local` provider with the full assembled
    prompt, and run the 20-task suite. Measure the local/DeepSeek split, completion rate, latency and

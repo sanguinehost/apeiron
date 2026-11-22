@@ -19,9 +19,9 @@ A criterion is closed only by the named evidence. A narrower result does not clo
 
 | id | criterion | threshold |
 |---|---|---|
-| **Q1** | quantisation rate | a full 7B-class pack stores its replaced linear weights at 1.15–1.18 b/w, not a 12-row sample |
+| **Q1** | quantisation rate | a full 7B-class pack stores its replaced linear weights at 1.00 b/w, NanoQuant's published 1.00-bit point, with 0.80 b/w as the sub-1-bit point; not a 12-row sample |
 | **Q2** | quality | wikitext-2 perplexity at ctx ≥ 2048 ≤ 1.5× Q4_K_M (goal) and ≤ 1.15× (stretch); mean 0-shot accuracy ≥ 0.90× Q4_K_M over boolq, piqa, hellaswag, winogrande, arc_easy and arc_challenge |
-| **Q3** | NanoQuant parity | on the Q2 protocol at ≤ 1.18 b/w, beats NanoQuant's published Qwen3-8B-Base row (1.00 b/w, 1.78× BF16 PPL, 0.687× BF16 six-task) on both axes; the paired control is their row re-scored on this protocol, otherwise the comparison is labelled cross-harness |
+| **Q3** | NanoQuant parity | on the Q2 protocol at ≤ 1.00 b/w, beats NanoQuant's published Qwen3-8B-Base row (1.00 b/w, 1.78× BF16 PPL, 0.687× BF16 six-task) on both axes; the paired control is their row re-scored on this protocol, otherwise the comparison is labelled cross-harness |
 | **M1** | memory | `MemAvailable` ≥ 2 GiB with a 200k context and five sessions; server anonymous RSS ≤ 2 GiB |
 | **T1** | decode | ≥ 30 tok/s at 2k and ≥ 24 tok/s at 200k, mean of three runs with the spread |
 | **T2** | turn latency | a 1,000-token incremental turn at 200k prefills in ≤ 60 s; a full 200k prefill is reported separately |
@@ -42,10 +42,13 @@ A criterion is closed only by the named evidence. A narrower result does not clo
 ## Workstreams
 
 1. Freeze the checkpoint, tokenizer, Q4_K_M reference, KV geometry and evaluation harness.
-2. Build the full 1.15–1.18 b/w pack and measure Q1, Q2, M1 and T1 at 2k, 32k, 128k and 200k.
-3. Replace the context path. ColdKV-class, quantised KV, linear/state-space attention and hybrids are
-   candidates. ColdKV's full-KV cold store alone does not fit 200k; the 8B f16 KV is about 28.8 GB
-   and Qwen2.5-7B f16 KV is about 11.5 GB, so the cold tier must be quantised or bounded.
+2. Build the full 1.00 b/w pack (0.80 b/w for the sub-1-bit point) and measure Q1, Q2, M1 and T1
+   at 2k, 32k, 128k and 200k.
+3. Serve long context from two tiers: the bounded hot `KvState` ring plus sealed cold block rows
+   gathered by selection, with a 512 MB block cache. The design is settled; the record format
+   (`src/engine/step/cold_store.rs`) exists but is not wired into the step path (PLAN S5). ColdKV's
+   full-KV cold store alone does not fit 200k; the 8B f16 KV is about 28.8 GB and Qwen2.5-7B f16 KV
+   is about 11.5 GB, so the cold tier is quantised and bounded.
 4. Serve through `serve/`, wire `../intent`, and run the 20-task suite.
 5. Write the kernel source once for both SPIR-V and Aeneas/Charon, prove refinement, and run the
    GPU/CPU agreement and mutation tests.
