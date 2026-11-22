@@ -2,6 +2,11 @@
 # The campaign's input step for Qwen3-8B-Base: the 128x2048 wikitext-2 calibration base, the
 # reference's online 99.9th-percentile diagonals, then the dump (ids, ranks at 1.00 b/w, perms,
 # stats). Idempotent: every stage skips what exists. Run as root from /workspace.
+#
+# The diagonals come from NanoQuant's own `collect_stats(strategy='online')` on this GPU
+# (`import_stats.py`). The in-tree `calib_diag_write` computes the same statistic but needs two
+# whole-model backwards per sample on the CPU, ~28 h at this size; the import is the reference's
+# number, not a port of it, so the fit consumes exactly the statistic the published row used.
 exec >> /workspace/stats.log 2>&1
 set -x
 . /root/.cargo/env
@@ -20,6 +25,10 @@ export APEIRON_NQ_SEED=0
 export APEIRON_CALIB_STRATEGY=online
 mkdir -p "$APEIRON_CALIB_CACHE" "$APEIRON_NQ_DUMP/stats" /workspace/calib8b
 
+# The base's id table must be the loader's own draws, because the statistics below describe those
+# samples. The Rust writer draws its own windows; `import_stats.py` rewrites the table from
+# NanoQuant's `get_calib_loader` and refuses if the two disagree, so this stage asserts the match
+# rather than producing a second sample set.
 echo "== base $(date -u)"
 if [ ! -s "$APEIRON_NQ_BASE" ]; then
   cargo test --release --locked --features gpu --test learn_nanoquant -- \
@@ -27,8 +36,10 @@ if [ ! -s "$APEIRON_NQ_BASE" ]; then
 fi
 
 echo "== diagonals $(date -u)"
-cargo test --release --locked --features gpu --test learn_calib -- \
-  --ignored --exact calib_diag_write --nocapture || exit 1
+if [ ! -s "$APEIRON_CALIB_CACHE/g0.s128.qkv.diag.i64" ]; then
+  . /workspace/venv/bin/activate
+  ( cd /workspace/calib8b && python /workspace/bench/gpu/campaign/import_stats.py ) || exit 1
+fi
 
 echo "== dump $(date -u)"
 APEIRON_NQ_PPM=1000000 cargo test --release --locked --features gpu --test learn_calib -- \

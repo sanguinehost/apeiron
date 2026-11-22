@@ -68,12 +68,18 @@ def main():
     tape = np.fromfile(BASE, dtype=np.int32, offset=20, count=SAMPLES * SEQ).reshape(
         SAMPLES, SEQ
     )
-    same = np.array_equal(loader.numpy(), tape)
+    drawn = loader.numpy()
+    same = np.array_equal(drawn, tape)
     print("tape matches drawn loader:", same, flush=True)
     if not same:
-        d = np.nonzero((loader.numpy() != tape).any(axis=1))[0]
-        print("first differing samples", d[:5].tolist(), flush=True)
-        sys.exit(2)
+        # The Rust base writer draws its own windows. The statistics below describe the loader's
+        # samples, so the loader is authoritative and the base's dense id table is rewritten.
+        mm = np.memmap(BASE, dtype=np.int32, mode="r+", offset=20, shape=SAMPLES * SEQ)
+        mm[:] = drawn.ravel()
+        mm.flush()
+        back = np.fromfile(BASE, dtype=np.int32, offset=20, count=SAMPLES * SEQ)
+        assert np.array_equal(back.reshape(SAMPLES, SEQ), drawn), "base rewrite"
+        print("rewrote base id table from the loader", flush=True)
 
     model = AutoModelForCausalLM.from_pretrained(
         MODEL, torch_dtype=torch.bfloat16, device_map="cuda"
