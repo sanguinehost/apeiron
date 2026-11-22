@@ -9,7 +9,7 @@ cd /workspace
 export APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
 export APEIRON_KD_STUDENT=/workspace/loop-8b/nq-100
 export APEIRON_NQ_DUMP=/workspace/dump-8b
-export APEIRON_NQ_SAMPLES=128
+export APEIRON_NQ_SAMPLES=96
 export APEIRON_KD_EPOCHS=8
 export APEIRON_NQ_PACK=/workspace/loop-8b/nq-100/pack.nqp
 
