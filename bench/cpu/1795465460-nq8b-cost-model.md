@@ -51,6 +51,22 @@ At 0.402 cycles/term the projection stream is arithmetic-bound, not byte-bound: 
 5.4 GB/s where the machine sustains 28.4. A kernel that removed every non-essential operation
 would land at the bandwidth bound, 17.36 tok/s short-context and 14.66 at 2k — still short of 20.
 
+`tools/decode-ceiling.py` is that inequality as a gate. Three passes, all exit 1:
+
+```
+# today's kernel: 0.31 ops/term at the measured 0.77 IPC
+python3 tools/decode-ceiling.py --bytes 1637275152 --terms 6945767424 --bw 28.42 \
+  --ops-per-term 0.31 --cores 4 --ghz 2.3 --ipc 0.77 --target 20
+#   issue ceiling 3.29 tok/s, bandwidth 17.36: refuse
+# the same body at IPC 2
+#   issue ceiling 8.55 tok/s: refuse
+# an ideal 8-term i32 dot, 0.125 ops/term at IPC 2
+#   issue ceiling 21.19, bandwidth 17.36: refuse
+```
+
+The last row is the result: even a perfect kernel clears the issue bound and still fails the byte
+bound. No kernel-only design reaches 20 tok/s on this pack.
+
 ## The readers
 
 `--kernel q8act` against `--kernel exact`, 4 threads, 6 tokens:
