@@ -1,0 +1,34 @@
+    Finished `release` profile [optimized] target(s) in 0.02s
+     Running tests/learn_block_tune.rs (target/release/build/apeiron/80e090f69ac3763f/out/learn_block_tune-80e090f69ac3763f)
+
+running 1 test
+BT "probe4" dump 4 samples x 2048 tokens, d 4096 f 12288, T 8192, 4 chunks, 112 draws loaded 0.3 s
+stream: imported 33554432 words, buf=129521793614720
+stream: imported 33554432 words, buf=129521793616192
+stream: imported 33554432 words, buf=129521793617664
+stream: imported 33554432 words, buf=129521793624224
+BT streams rounded to bf16
+BT l00 teacher 0.3 s
+BT l00 self_attn.q_proj nonfact (Epoch 01/08) Block Loss: 2.7829e-10
+BT l00 self_attn.q_proj nonfact (Epoch 02/08) Block Loss: 1.6561e-7
+BT l00 self_attn.q_proj nonfact (Epoch 03/08) Block Loss: 4.8306e-7
+BT l00 self_attn.q_proj nonfact (Epoch 04/08) Block Loss: 1.2752e-7
+BT l00 self_attn.q_proj nonfact (Epoch 05/08) Block Loss: 1.2675e-7
+BT l00 self_attn.q_proj nonfact (Epoch 06/08) Block Loss: 1.1899e-7
+BT l00 self_attn.q_proj nonfact (Epoch 07/08) Block Loss: 9.5234e-8
+BT l00 self_attn.q_proj nonfact (Epoch 08/08) Block Loss: 7.7755e-8
+BT l00 self_attn.q_proj nonfact 8 steps 10.5 s
+test block_loop has been running for over 60 seconds
+BT l00 self_attn.q_proj ADMM weight recon error: raw=3744.9378, norm=0.3218, per_el=2.2322e-4, ADMM time=122.91s
+BT l00 self_attn.q_proj fact (Epoch 01/08) Block Loss: 1.0644e-6
+BT l00 self_attn.q_proj fact (Epoch 02/08) Block Loss: 8.6176e-7
+BT l00 self_attn.q_proj fact (Epoch 03/08) Block Loss: 7.1533e-7
+BT l00 self_attn.q_proj fact (Epoch 04/08) Block Loss: 6.1723e-7
+BT l00 self_attn.q_proj fact (Epoch 05/08) Block Loss: 5.6067e-7
+BT l00 self_attn.q_proj fact (Epoch 06/08) Block Loss: 5.3107e-7
+BT l00 self_attn.q_proj fact (Epoch 07/08) Block Loss: 5.1705e-7
+BT l00 self_attn.q_proj fact (Epoch 08/08) Block Loss: 5.1266e-7
+BT l00 self_attn.q_proj fact 32 steps 13.0 s
+BT l00 not advanced: slots [0, 1, 2, 3, 4, 5, 6] of the reference's seven are not all factors
+BT l00 round total 155.2 s
+BT pack not written: only 0 of 36 blocks have their done marker

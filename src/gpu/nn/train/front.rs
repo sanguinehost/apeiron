@@ -135,6 +135,113 @@ enum Tape {
     Train,
 }
 
+/// The buffers sized by the tape width `t`. [`FrontTune::release_tape`] frees them;
+/// [`FrontTune::set_t`] allocates a new set at the new width. The factors, Adam moments and the
+/// host staging buffers are `t`-independent and stay.
+#[derive(Clone, Copy)]
+struct TapeBufs {
+    x: Handle,
+    n1: Handle,
+    pq: Handle,
+    pk: Handle,
+    pv: Handle,
+    q: Handle,
+    k: Handle,
+    ao: Handle,
+    klse: Handle,
+    dao: Handle,
+    dqf: Handle,
+    dkf: Handle,
+    dv: Handle,
+    lse: Handle,
+    dsum: Handle,
+    da: Handle,
+    dq_rot: Handle,
+    dk_rot: Handle,
+    amax: Handle,
+    dn1: [Handle; 3],
+    dx: Handle,
+    dres: Handle,
+    dgr: Handle,
+}
+
+impl TapeBufs {
+    /// The `t`-sized buffers of `shape` at `t` columns (`t` a multiple of `n_ctx`).
+    ///
+    /// # Safety
+    ///
+    /// `g` is a live device context; the caller owns the returned handles.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` allocations and `O(t·(d + nh·hd + nkv·hd))` device words.
+    unsafe fn alloc(g: &GpuCtx, shape: FrontShape, t: usize) -> Self {
+        let (d, hd) = (shape.d, shape.hd);
+        let (qw, kw) = (shape.qw(), shape.kw());
+        let dev = |n: usize| g.dev(n * 4);
+        let stream = |n: usize| stream_buffer(g, n);
+        let mut at_t = shape;
+        at_t.chunks = t / shape.n_ctx;
+        let attn = at_t.attn();
+        Self {
+            x: stream(t * d),
+            n1: dev(t * d),
+            pq: dev(t * qw),
+            pk: dev(t * kw),
+            pv: dev(t * kw),
+            q: dev(t * qw),
+            k: dev(t * kw),
+            ao: dev(t * qw),
+            klse: dev(t * shape.nh),
+            dao: stream(t * qw),
+            dqf: dev(t * qw),
+            dkf: dev(t * kw),
+            dv: dev(t * kw),
+            lse: dev(t * shape.nh),
+            dsum: dev(t * shape.nh),
+            da: dev(t * qw),
+            dq_rot: dev(t * qw),
+            dk_rot: dev(t * kw),
+            amax: dev(super::attn_bwd::amax_len(&attn)),
+            dn1: [dev(t * d), dev(t * d), dev(t * d)],
+            dx: stream(t * d),
+            dres: g.dev_zeroed(t * d * 4),
+            dgr: dev(t * d),
+        }
+    }
+
+    /// The handles in allocation order, for [`Vk::free_handles`].
+    fn handles(&self) -> [Handle; 25] {
+        [
+            self.x,
+            self.n1,
+            self.pq,
+            self.pk,
+            self.pv,
+            self.q,
+            self.k,
+            self.ao,
+            self.klse,
+            self.dao,
+            self.dqf,
+            self.dkf,
+            self.dv,
+            self.lse,
+            self.dsum,
+            self.da,
+            self.dq_rot,
+            self.dk_rot,
+            self.amax,
+            self.dn1[0],
+            self.dn1[1],
+            self.dn1[2],
+            self.dx,
+            self.dres,
+            self.dgr,
+        ]
+    }
+}
+
 /// The device attention front: `q`, `k`, `v` as factors and the tapes that train them.
 #[allow(
     dead_code,
@@ -142,6 +249,11 @@ enum Tape {
 )]
 pub struct FrontTune {
     shape: FrontShape,
+    /// The allocation's column count: the largest `t` [`FrontTune::set_t`] may select.
+    max_t: usize,
+    /// The width of the tape buffers currently allocated, and whether they are live.
+    tape_t: usize,
+    tape_live: bool,
     attn: AttnBwdShape,
     /// The three slots in the order `[q, k, v]`.
     factors: [Factor; 3],
@@ -187,6 +299,9 @@ pub struct FrontTune {
     dx: Handle,
     dres: Handle,
     dgr: Handle,
+    /// The `attn_prep` metadata buffers of the committed tapes: one per [`FrontTune::retape`],
+    /// freed when the next tape replaces it, since the shader reads it on every dispatch.
+    meta: Vec<Handle>,
     /// The materialise tape of each slot: the two signs, `M`, then the scales. Recorded only for a
     /// slot whose `W` is held as a factor.
     materialise: [Vec<Step>; 3],
@@ -244,7 +359,12 @@ impl FrontTune {
     /// # Safety
     ///
     /// `g` is a live device context that outlives the value and `like` was built on it; `like`
-    /// outlives the returned value; no tape of either is pending when the other runs.
+    /// outlives the returned value. The value aliases every factor, gradient, work and moment
+    /// handle of `like`; the exclusive-operation list in [`BlockTune::new_sharing`] applies to this
+    /// value's `load`, `load_factor`, `load_dense`, `set_stage`, `batch`, `train`, `forward`,
+    /// `weight` and `factors`.
+    ///
+    /// [`BlockTune::new_sharing`]: super::block::BlockTune::new_sharing
     ///
     /// # Complexity
     ///
@@ -299,8 +419,6 @@ impl FrontTune {
         );
         let attn = shape.attn();
         let (t, d, hd) = (shape.t(), shape.d, shape.hd);
-        let (nh, nkv) = (shape.nh, shape.nkv);
-        let scale = 1.0 / (hd as f32).sqrt();
         let (qw, kw) = (shape.qw(), shape.kw());
         let dev = |n: usize| g.dev(n * 4);
         // The buffers a chained layer copies into or out of (`chain.rs`) carry both transfer bits.
@@ -321,168 +439,10 @@ impl FrontTune {
                 ([fq, fk, fv], [mq, mk, mv])
             }
         };
-        let (x, g1, gn, n1) = (stream(t * d), dev(d), dev(2 * hd), dev(t * d));
-        let (pq, pk, pv) = (dev(t * qw), dev(t * kw), dev(t * kw));
+        let tape = TapeBufs::alloc(g, shape, t);
         // The gate is read and written only when gated; ungated, one word keeps binding 5 valid
         // without a `T·nh·hd` buffer the shaders never touch.
-        let (q, gate, k) = (dev(t * qw), dev(1), dev(t * kw));
-        let (ao, dao) = (stream(t * qw), stream(t * qw));
-        let (dqf, dkf, dv) = (dev(t * qw), dev(t * kw), dev(t * kw));
-        let (lse, dsum) = (dev(t * shape.nh), dev(t * shape.nh));
-        // the face's logsumexp `[nh][T]`: unread here, the backward recomputing its own
-        let klse = dev(t * shape.nh);
-        let (da, dq_rot, dk_rot) = (dev(t * qw), dev(t * qw), dev(t * kw));
-        let amax = dev(super::attn_bwd::amax_len(&attn));
-        // Three buffers, not one: `[dev(n); 3]` evaluates the allocation once and aliases the
-        // three accumulators.
-        let dn1 = [dev(t * d), dev(t * d), dev(t * d)];
-        let (dx, dres, dgr) = (stream(t * d), g.dev_zeroed(t * d * 4), dev(t * d));
-        let (tu, du) = (t as u32, d as u32);
-        let (qu, ku) = (qw as u32, kw as u32);
-        let mut forward = vec![
-            rmsnorm_fwd_dispatch(g, x, g1, n1, tu, du),
-            linear_fwd_dispatch(g, n1, factors[0].w, pq, tu, du, qu),
-            linear_fwd_dispatch(g, n1, factors[1].w, pk, tu, du, ku),
-            linear_fwd_dispatch(g, n1, factors[2].w, pv, tu, du, ku),
-            {
-                // the prep: the per-head norm with its gains and the rope (bit 2: ungated)
-                let wg = t * (nh + nkv);
-                let meta = [
-                    4u32,
-                    shape.n_ctx as u32,
-                    nh as u32,
-                    nkv as u32,
-                    hd as u32,
-                    shape.rot as u32,
-                    shape.theta.to_bits(),
-                    shape.eps.to_bits(),
-                    wg as u32,
-                ];
-                let mut all = vec![g.up_u32(&meta)];
-                all.extend_from_slice(&[pq, pk, gn, q, gate, k, pv, ao]);
-                let gx = wg.clamp(1, MAX_GROUPS_X);
-                let gy = wg.div_ceil(gx).max(1);
-                crate::gpu::decode::make_step_named(
-                    g,
-                    ATTN_MAP_SPV,
-                    &all,
-                    gx as u32,
-                    gy as u32,
-                    "attn_prep",
-                )
-            },
-        ];
-        // The KD face is one causal sequence per dispatch: run it once per `n_ctx` chunk over that
-        // chunk's row range, so the four samples of a `tune_nonfact` batch never attend across
-        // sample boundaries. `lse` is chunk-major `[chunk][NH][n_ctx]`, matching the face's
-        // `[NH][T]` with `T = n_ctx`.
-        let q_row = (shape.n_ctx * qw * 4) as u64;
-        let kv_row = (shape.n_ctx * kw * 4) as u64;
-        let lse_row = (shape.nh * shape.n_ctx * 4) as u64;
-        for c in 0..shape.chunks {
-            let at = |stride: u64| c as u64 * stride;
-            forward.push(attn_kd_dispatch_at(
-                g,
-                &[
-                    (q, at(q_row)),
-                    (k, at(kv_row)),
-                    (pv, at(kv_row)),
-                    (gate, 0),
-                    (ao, at(q_row)),
-                    (klse, at(lse_row)),
-                ],
-                nh as u32,
-                nkv as u32,
-                shape.n_ctx as u32,
-                scale,
-                false,
-            ));
-        }
-        // The backward is the legacy `attn_map_bwd` tape (dq, dk/dv, prep adjoint): it recomputes
-        // its own lse and dsum in mode 0, so the forward's `klse` is not read. The Cutlass KDB face
-        // is not used: on the campaign box (RTX 4090, driver 580.173.02) its cooperative-matrix S
-        // load returns non-finite fragments while the staged operands and the forward face's same
-        // loads are sound, and `attn_kd_bwd_face_matches_f64` fails there on dq, dk and dv.
-        let mut backward = tape(
-            g,
-            attn,
-            false,
-            [
-                pq, pk, gn, q, gate, k, pv, dao, lse, dsum, da, dq_rot, dk_rot, dqf, dkf, dv, amax,
-            ],
-        );
-        backward.push(linear_bwd_weight_dispatch(
-            g,
-            dqf,
-            n1,
-            factors[0].dw,
-            tu,
-            du,
-            qu,
-        ));
-        backward.push(linear_bwd_weight_dispatch(
-            g,
-            dkf,
-            n1,
-            factors[1].dw,
-            tu,
-            du,
-            ku,
-        ));
-        backward.push(linear_bwd_weight_dispatch(
-            g,
-            dv,
-            n1,
-            factors[2].dw,
-            tu,
-            du,
-            ku,
-        ));
-        let add = |dst: Handle, src: Handle| {
-            crate::gpu::decode::make_step_named(
-                g,
-                &add_inplace_bytes((t * d) as u32, 256),
-                &[dst, src],
-                ((t * d) as u32).div_ceil(256),
-                1,
-                "add_inplace",
-            )
-        };
-        // The input adjoint: `dn1 = dqf·Wq + dkf·Wk + dv·Wv` (the block's `da = dh·Wo` shape per
-        // projection), then `dx = rmsnorm_bwd(x, g1, dn1)`, then `dx += dres`.
-        backward.push(linear_bwd_input_dispatch(
-            g,
-            dqf,
-            factors[0].w,
-            dn1[0],
-            tu,
-            du,
-            qu,
-        ));
-        backward.push(linear_bwd_input_dispatch(
-            g,
-            dkf,
-            factors[1].w,
-            dn1[1],
-            tu,
-            du,
-            ku,
-        ));
-        backward.push(linear_bwd_input_dispatch(
-            g,
-            dv,
-            factors[2].w,
-            dn1[2],
-            tu,
-            du,
-            ku,
-        ));
-        backward.push(add(dn1[0], dn1[1]));
-        backward.push(add(dn1[0], dn1[2]));
-        backward.push(rmsnorm_bwd_dispatch(
-            g, x, g1, dn1[0], dx, dgr, tu, du, 1e-6,
-        ));
-        backward.push(add(dx, dres));
+        let (g1, gn, gate) = (dev(d), dev(2 * hd), dev(1));
         let bias_stage = host_buffer(g, 2, BUFFER_USAGE_TRANSFER_SRC);
         let bias_buf = dev(2);
         // One tape per slot, built by name so the field names below shadow nothing.
@@ -554,40 +514,44 @@ impl FrontTune {
             }))
             .max()
             .unwrap_or(1);
-        let s = Self {
+        let mut s = Self {
             shape,
+            max_t: t,
+            tape_t: t,
+            tape_live: true,
             attn,
             factors,
             moments,
-            x,
+            x: tape.x,
             g1,
             gn,
-            n1,
-            pq,
-            pk,
-            pv,
-            q,
+            n1: tape.n1,
+            pq: tape.pq,
+            pk: tape.pk,
+            pv: tape.pv,
+            q: tape.q,
             gate,
-            k,
-            ao,
-            klse,
-            dao,
-            dqf,
-            dkf,
-            dv,
-            lse,
-            dsum,
-            da,
-            dq_rot,
-            dk_rot,
-            amax,
-            dn1,
-            dx,
-            dres,
-            dgr,
+            k: tape.k,
+            ao: tape.ao,
+            klse: tape.klse,
+            dao: tape.dao,
+            dqf: tape.dqf,
+            dkf: tape.dkf,
+            dv: tape.dv,
+            lse: tape.lse,
+            dsum: tape.dsum,
+            da: tape.da,
+            dq_rot: tape.dq_rot,
+            dk_rot: tape.dk_rot,
+            amax: tape.amax,
+            dn1: tape.dn1,
+            dx: tape.dx,
+            dres: tape.dres,
+            dgr: tape.dgr,
+            meta: Vec::new(),
             materialise,
-            forward,
-            backward,
+            forward: Vec::new(),
+            backward: Vec::new(),
             factor_bwd,
             adam_fact,
             dense_moments,
@@ -607,10 +571,341 @@ impl FrontTune {
             cb_train: g.vk.reusable_command_buffer(),
             xfer: g.vk.reusable_command_buffer(),
         };
+        s.retape(g, t);
         for t in [Tape::Fwd, Tape::Bwd, Tape::Train] {
             s.record(g, t);
         }
         s
+    }
+
+    /// Build the forward and backward tapes at `t` columns over the buffers allocated for
+    /// [`FrontTune::max_t`]. `t` is a whole number of `n_ctx` chunks (asserted), so every buffer
+    /// is read and written over a prefix of whole sequences and the causal face never crosses a
+    /// sequence boundary.
+    ///
+    /// # Safety
+    ///
+    /// No tape is pending on the device; `0 < t ≤ max_t` and `t % n_ctx == 0` (asserted).
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` pipelines and descriptor sets; `O(1)` host work plus one KD-face dispatch per chunk.
+    #[allow(
+        clippy::too_many_lines,
+        clippy::cast_possible_truncation,
+        reason = "one tape; the widths index u32 dispatch shapes"
+    )]
+    unsafe fn retape(&mut self, g: &GpuCtx, t: usize) {
+        assert!(
+            self.tape_live,
+            "FrontTune::retape: tape released (call set_t)"
+        );
+        assert!(
+            t > 0 && t <= self.max_t && t % self.shape.n_ctx == 0,
+            "FrontTune::retape: {t} columns not a nonzero multiple of {} below {}",
+            self.shape.n_ctx,
+            self.max_t
+        );
+        let chunks = t / self.shape.n_ctx;
+        self.shape.chunks = chunks;
+        self.attn = self.shape.attn();
+        let old_meta = std::mem::take(&mut self.meta);
+        let (shape, attn) = (self.shape, self.attn);
+        let (d, hd) = (shape.d, shape.hd);
+        let (nh, nkv) = (shape.nh, shape.nkv);
+        let (qw, kw) = (shape.qw(), shape.kw());
+        let (tu, du) = (t as u32, d as u32);
+        let (qu, ku) = (qw as u32, kw as u32);
+        let scale = 1.0 / (hd as f32).sqrt();
+        let mut forward = vec![
+            rmsnorm_fwd_dispatch(g, self.x, self.g1, self.n1, tu, du),
+            linear_fwd_dispatch(g, self.n1, self.factors[0].w, self.pq, tu, du, qu),
+            linear_fwd_dispatch(g, self.n1, self.factors[1].w, self.pk, tu, du, ku),
+            linear_fwd_dispatch(g, self.n1, self.factors[2].w, self.pv, tu, du, ku),
+            {
+                // the prep: the per-head norm with its gains and the rope (bit 2: ungated)
+                let wg = t * (nh + nkv);
+                let meta = [
+                    4u32,
+                    shape.n_ctx as u32,
+                    nh as u32,
+                    nkv as u32,
+                    hd as u32,
+                    shape.rot as u32,
+                    shape.theta.to_bits(),
+                    shape.eps.to_bits(),
+                    wg as u32,
+                ];
+                let mut all = vec![g.up_u32(&meta)];
+                self.meta.push(all[0]);
+                all.extend_from_slice(&[
+                    self.pq, self.pk, self.gn, self.q, self.gate, self.k, self.pv, self.ao,
+                ]);
+                let gx = wg.clamp(1, MAX_GROUPS_X);
+                let gy = wg.div_ceil(gx).max(1);
+                crate::gpu::decode::make_step_named(
+                    g,
+                    ATTN_MAP_SPV,
+                    &all,
+                    gx as u32,
+                    gy as u32,
+                    "attn_prep",
+                )
+            },
+        ];
+        // The KD face is one causal sequence per dispatch: run it once per `n_ctx` chunk over that
+        // chunk's row range, so the samples of a `tune_nonfact` batch never attend across sample
+        // boundaries. `lse` is chunk-major `[chunk][NH][n_ctx]`, matching the face's `[NH][T]` with
+        // `T = n_ctx`.
+        let q_row = (shape.n_ctx * qw * 4) as u64;
+        let kv_row = (shape.n_ctx * kw * 4) as u64;
+        let lse_row = (shape.nh * shape.n_ctx * 4) as u64;
+        for c in 0..chunks {
+            let at = |stride: u64| c as u64 * stride;
+            forward.push(attn_kd_dispatch_at(
+                g,
+                &[
+                    (self.q, at(q_row)),
+                    (self.k, at(kv_row)),
+                    (self.pv, at(kv_row)),
+                    (self.gate, 0),
+                    (self.ao, at(q_row)),
+                    (self.klse, at(lse_row)),
+                ],
+                nh as u32,
+                nkv as u32,
+                shape.n_ctx as u32,
+                scale,
+                false,
+            ));
+        }
+        // The backward is the legacy `attn_map_bwd` tape (dq, dk/dv, prep adjoint): it recomputes
+        // its own lse and dsum in mode 0, so the forward's `klse` is not read. The Cutlass KDB face
+        // is not used: on the campaign box (RTX 4090, driver 580.173.02) its cooperative-matrix S
+        // load returns non-finite fragments while the staged operands and the forward face's same
+        // loads are sound, and `attn_kd_bwd_face_matches_f64` fails there on dq, dk and dv.
+        let mut backward = tape(
+            g,
+            attn,
+            false,
+            [
+                self.pq,
+                self.pk,
+                self.gn,
+                self.q,
+                self.gate,
+                self.k,
+                self.pv,
+                self.dao,
+                self.lse,
+                self.dsum,
+                self.da,
+                self.dq_rot,
+                self.dk_rot,
+                self.dqf,
+                self.dkf,
+                self.dv,
+                self.amax,
+            ],
+        );
+        for k in 0..3 {
+            let (grad, w) = match k {
+                0 => (self.dqf, self.factors[0].dw),
+                1 => (self.dkf, self.factors[1].dw),
+                _ => (self.dv, self.factors[2].dw),
+            };
+            let wq = if k == 0 { qu } else { ku };
+            backward.push(linear_bwd_weight_dispatch(g, grad, self.n1, w, tu, du, wq));
+        }
+        let add = |dst: Handle, src: Handle| {
+            crate::gpu::decode::make_step_named(
+                g,
+                &add_inplace_bytes((t * d) as u32, 256),
+                &[dst, src],
+                ((t * d) as u32).div_ceil(256),
+                1,
+                "add_inplace",
+            )
+        };
+        // The input adjoint: `dn1 = dqf·Wq + dkf·Wk + dv·Wv` (the block's `da = dh·Wo` shape per
+        // projection), then `dx = rmsnorm_bwd(x, g1, dn1)`, then `dx += dres`.
+        for k in 0..3 {
+            let (grad, w) = match k {
+                0 => (self.dqf, self.factors[0].w),
+                1 => (self.dkf, self.factors[1].w),
+                _ => (self.dv, self.factors[2].w),
+            };
+            let wq = if k == 0 { qu } else { ku };
+            backward.push(linear_bwd_input_dispatch(
+                g,
+                grad,
+                w,
+                self.dn1[k],
+                tu,
+                du,
+                wq,
+            ));
+        }
+        backward.push(add(self.dn1[0], self.dn1[1]));
+        backward.push(add(self.dn1[0], self.dn1[2]));
+        backward.push(rmsnorm_bwd_dispatch(
+            g,
+            self.x,
+            self.g1,
+            self.dn1[0],
+            self.dx,
+            self.dgr,
+            tu,
+            du,
+            1e-6,
+        ));
+        backward.push(add(self.dx, self.dres));
+        self.forward = forward;
+        self.backward = backward;
+        // The replaced tapes are the only readers of the previous retape's metadata; their command
+        // buffers are dropped above, so the buffers can go now instead of one per `set_t`.
+        if !old_meta.is_empty() {
+            g.vk.free_handles(&old_meta);
+        }
+    }
+
+    /// The tape's buffers as one value, for [`FrontTune::release_tape`].
+    fn tape_bufs(&self) -> TapeBufs {
+        TapeBufs {
+            x: self.x,
+            n1: self.n1,
+            pq: self.pq,
+            pk: self.pk,
+            pv: self.pv,
+            q: self.q,
+            k: self.k,
+            ao: self.ao,
+            klse: self.klse,
+            dao: self.dao,
+            dqf: self.dqf,
+            dkf: self.dkf,
+            dv: self.dv,
+            lse: self.lse,
+            dsum: self.dsum,
+            da: self.da,
+            dq_rot: self.dq_rot,
+            dk_rot: self.dk_rot,
+            amax: self.amax,
+            dn1: self.dn1,
+            dx: self.dx,
+            dres: self.dres,
+            dgr: self.dgr,
+        }
+    }
+
+    /// Free the `t`-sized tape buffers, keeping the factors, the Adam moments and the host staging
+    /// buffers. A released tuner accepts no [`forward`](FrontTune::forward),
+    /// [`train`](FrontTune::train) or stage change until [`set_t`](FrontTune::set_t) allocates a
+    /// tape again.
+    ///
+    /// # Safety
+    ///
+    /// No tape of this value is pending on the device; a live tape (asserted).
+    ///
+    /// # Complexity
+    ///
+    /// One queue drain and `O(1)` destroys.
+    pub unsafe fn release_tape(&mut self, g: &GpuCtx) {
+        assert!(self.tape_live, "FrontTune::release_tape: no tape");
+        g.vk.free_handles(&self.tape_bufs().handles());
+        self.tape_live = false;
+        self.forward.clear();
+        self.backward.clear();
+    }
+
+    /// Allocate the tape buffers at `t` columns after a release; `set_t` calls it.
+    ///
+    /// # Safety
+    ///
+    /// `g` is a live device context and no tape is live (asserted).
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` allocations and `O(t·(d + nh·hd + nkv·hd))` device words.
+    unsafe fn alloc_tape(&mut self, g: &GpuCtx, t: usize) {
+        assert!(!self.tape_live, "FrontTune::alloc_tape: tape live");
+        assert!(
+            t > 0 && t <= self.max_t && t % self.shape.n_ctx == 0,
+            "FrontTune::alloc_tape: {t} columns not a nonzero multiple of {} below {}",
+            self.shape.n_ctx,
+            self.max_t
+        );
+        let b = TapeBufs::alloc(g, self.shape, t);
+        self.x = b.x;
+        self.n1 = b.n1;
+        self.pq = b.pq;
+        self.pk = b.pk;
+        self.pv = b.pv;
+        self.q = b.q;
+        self.k = b.k;
+        self.ao = b.ao;
+        self.klse = b.klse;
+        self.dao = b.dao;
+        self.dqf = b.dqf;
+        self.dkf = b.dkf;
+        self.dv = b.dv;
+        self.lse = b.lse;
+        self.dsum = b.dsum;
+        self.da = b.da;
+        self.dq_rot = b.dq_rot;
+        self.dk_rot = b.dk_rot;
+        self.amax = b.amax;
+        self.dn1 = b.dn1;
+        self.dx = b.dx;
+        self.dres = b.dres;
+        self.dgr = b.dgr;
+        self.tape_t = t;
+        self.tape_live = true;
+    }
+
+    /// Set the tape width: `t` columns per step, a nonzero multiple of `n_ctx` at most the
+    /// allocation's [`FrontTune::max_t`]. Allocates the tape at the new width when none is live or
+    /// the live one has another width, then rebuilds all three tapes. Every parameter, latent and
+    /// Adam moment is untouched, so one tuner serves a `T = batch·seq` non-fact phase and a
+    /// `T = seq` fact phase.
+    ///
+    /// # Safety
+    ///
+    /// No tape is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` pipelines and descriptor sets; on a width change `O(t·(d + nh·hd + nkv·hd))` device
+    /// words, otherwise no allocation.
+    pub unsafe fn set_t(&mut self, g: &GpuCtx, t: usize) {
+        assert!(
+            t > 0 && t <= self.max_t && t % self.shape.n_ctx == 0,
+            "FrontTune::set_t: {t} columns not a nonzero multiple of {} below {}",
+            self.shape.n_ctx,
+            self.max_t
+        );
+        if !self.tape_live || self.tape_t != t {
+            if self.tape_live {
+                self.release_tape(g);
+            }
+            self.alloc_tape(g, t);
+        }
+        self.retape(g, t);
+        for tape in [Tape::Fwd, Tape::Bwd, Tape::Train] {
+            self.record(g, tape);
+        }
+    }
+
+    /// The tape width in columns.
+    #[must_use]
+    pub fn t(&self) -> usize {
+        self.shape.t()
+    }
+
+    /// The allocation's largest tape width; [`FrontTune::set_t`] refuses above it.
+    #[must_use]
+    pub fn max_t(&self) -> usize {
+        self.max_t
     }
 
     /// Record one of the three tapes; [`FrontTune::run`] resubmits it. The buffer is reset first.
@@ -624,6 +919,7 @@ impl FrontTune {
     /// `O(1)` host work; the recorded tape carries `O(1)` dispatches.
     unsafe fn record(&self, g: &GpuCtx, tape: Tape) {
         let vk = g.vk;
+        assert!(self.tape_live, "FrontTune::record: tape released");
         let cb = match tape {
             Tape::Fwd => self.cb_fwd,
             Tape::Bwd => self.cb_bwd,
@@ -905,6 +1201,7 @@ impl FrontTune {
     ///
     /// `O(T·(d + nh·hd))` words copied, each through one submission.
     pub unsafe fn batch(&mut self, g: &GpuCtx, x: &[f32], dao: &[f32]) {
+        assert!(self.tape_live, "FrontTune::batch: tape released");
         let (t, d, qw) = (self.shape.t(), self.shape.d, self.shape.qw());
         assert_eq!((x.len(), dao.len()), (t * d, t * qw), "front batch");
         self.put(g, self.x, x);
@@ -922,6 +1219,7 @@ impl FrontTune {
     /// One submission of the tape's `O(T·n_ctx·nh·hd + T·d·(nh·hd + nkv·hd) + Σ out·inn·rank)`
     /// multiply-adds.
     unsafe fn run(&mut self, g: &GpuCtx, tape: Tape) {
+        assert!(self.tape_live, "FrontTune::run: tape released");
         if tape == Tape::Train {
             self.step_no += 1;
             let t = self.step_no;
@@ -958,6 +1256,7 @@ impl FrontTune {
     ///
     /// `dao` is `T·nh·hd` words (asserted); no tape is pending.
     pub unsafe fn backward(&mut self, g: &GpuCtx, dao: &[f32]) {
+        assert!(self.tape_live, "FrontTune::backward: tape released");
         assert_eq!(
             dao.len(),
             self.shape.t() * self.shape.qw(),
@@ -1049,6 +1348,7 @@ impl FrontTune {
     /// A pass has completed.
     #[must_use]
     pub unsafe fn output(&self, g: &GpuCtx) -> Vec<f32> {
+        assert!(self.tape_live, "FrontTune::output: tape released");
         self.get(g, self.ao, self.shape.t() * self.shape.qw())
     }
 

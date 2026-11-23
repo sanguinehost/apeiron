@@ -1,0 +1,143 @@
++ . /root/.cargo/env
+++ case ":${PATH}:" in
++ cd /workspace
++ date -u
+Mon Nov 23 07:33:09 UTC 2026
++ rc=0
++ for t in gpu::nn::train::block::tests::release_tape_then_set_t_matches_a_fresh_tuner gpu::nn::train::front::tests::release_tape_then_set_t_matches_a_fresh_front gpu::nn::train::block::tests::set_t_matches_a_fresh_tuner gpu::nn::train::front::tests::set_t_matches_a_fresh_front
+++ cargo test --release --locked --features gpu --lib -- --exact gpu::nn::train::block::tests::release_tape_then_set_t_matches_a_fresh_tuner --nocapture
++ out='   Compiling version_check v0.9.5
+   Compiling typenum v1.20.1
+   Compiling find-msvc-tools v0.1.14
+   Compiling shlex v2.0.1
+   Compiling libc v0.2.190
+   Compiling cfg-if v1.0.5
+   Compiling constant_time_eq v0.4.2
+   Compiling cpufeatures v0.3.1
+   Compiling arrayvec v0.7.8
+   Compiling cpufeatures v0.2.17
+   Compiling cc v1.6.0
+   Compiling generic-array v0.14.7
+   Compiling blake3 v1.8.7
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling apeiron v0.1.0 (/workspace)
+    Finished `release` profile [optimized] target(s) in 52.17s
+     Running unittests src/lib.rs (target/release/deps/apeiron-c5530668b232bb17)
+
+running 1 test
+release_tape: loss wide 2.226209e2 narrow 1.054162e2 fresh 1.054162e2; output rel narrow-vs-fresh 0.00e0
+test gpu::nn::train::block::tests::release_tape_then_set_t_matches_a_fresh_tuner ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 772 filtered out; finished in 6.31s'
++ r=0
++ printf '%s\n' '   Compiling version_check v0.9.5
+   Compiling typenum v1.20.1
+   Compiling find-msvc-tools v0.1.14
+   Compiling shlex v2.0.1
+   Compiling libc v0.2.190
+   Compiling cfg-if v1.0.5
+   Compiling constant_time_eq v0.4.2
+   Compiling cpufeatures v0.3.1
+   Compiling arrayvec v0.7.8
+   Compiling cpufeatures v0.2.17
+   Compiling cc v1.6.0
+   Compiling generic-array v0.14.7
+   Compiling blake3 v1.8.7
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling apeiron v0.1.0 (/workspace)
+    Finished `release` profile [optimized] target(s) in 52.17s
+     Running unittests src/lib.rs (target/release/deps/apeiron-c5530668b232bb17)
+
+running 1 test
+release_tape: loss wide 2.226209e2 narrow 1.054162e2 fresh 1.054162e2; output rel narrow-vs-fresh 0.00e0
+test gpu::nn::train::block::tests::release_tape_then_set_t_matches_a_fresh_tuner ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 772 filtered out; finished in 6.31s'
++ grep -E '^test |^set_t|^release_tape|test result'
+release_tape: loss wide 2.226209e2 narrow 1.054162e2 fresh 1.054162e2; output rel narrow-vs-fresh 0.00e0
+test gpu::nn::train::block::tests::release_tape_then_set_t_matches_a_fresh_tuner ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 772 filtered out; finished in 6.31s
++ '[' 0 -eq 0 ']'
++ for t in gpu::nn::train::block::tests::release_tape_then_set_t_matches_a_fresh_tuner gpu::nn::train::front::tests::release_tape_then_set_t_matches_a_fresh_front gpu::nn::train::block::tests::set_t_matches_a_fresh_tuner gpu::nn::train::front::tests::set_t_matches_a_fresh_front
+++ cargo test --release --locked --features gpu --lib -- --exact gpu::nn::train::front::tests::release_tape_then_set_t_matches_a_fresh_front --nocapture
++ out='    Finished `release` profile [optimized] target(s) in 0.02s
+     Running unittests src/lib.rs (target/release/deps/apeiron-c5530668b232bb17)
+
+running 1 test
+release_tape front: output rel narrow-vs-fresh 0.00e0
+test gpu::nn::train::front::tests::release_tape_then_set_t_matches_a_fresh_front ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 772 filtered out; finished in 11.28s'
++ r=0
++ printf '%s\n' '    Finished `release` profile [optimized] target(s) in 0.02s
+     Running unittests src/lib.rs (target/release/deps/apeiron-c5530668b232bb17)
+
+running 1 test
+release_tape front: output rel narrow-vs-fresh 0.00e0
+test gpu::nn::train::front::tests::release_tape_then_set_t_matches_a_fresh_front ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 772 filtered out; finished in 11.28s'
++ grep -E '^test |^set_t|^release_tape|test result'
+release_tape front: output rel narrow-vs-fresh 0.00e0
+test gpu::nn::train::front::tests::release_tape_then_set_t_matches_a_fresh_front ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 772 filtered out; finished in 11.28s
++ '[' 0 -eq 0 ']'
++ for t in gpu::nn::train::block::tests::release_tape_then_set_t_matches_a_fresh_tuner gpu::nn::train::front::tests::release_tape_then_set_t_matches_a_fresh_front gpu::nn::train::block::tests::set_t_matches_a_fresh_tuner gpu::nn::train::front::tests::set_t_matches_a_fresh_front
+++ cargo test --release --locked --features gpu --lib -- --exact gpu::nn::train::block::tests::set_t_matches_a_fresh_tuner --nocapture
++ out='    Finished `release` profile [optimized] target(s) in 0.02s
+     Running unittests src/lib.rs (target/release/deps/apeiron-c5530668b232bb17)
+
+running 1 test
+set_t: loss wide 2.226209e2 narrow 1.054162e2 fresh 1.054162e2; output rel narrow-vs-fresh 0.00e0 wide-vs-narrow 0.00e0
+test gpu::nn::train::block::tests::set_t_matches_a_fresh_tuner ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 772 filtered out; finished in 0.71s'
++ r=0
++ printf '%s\n' '    Finished `release` profile [optimized] target(s) in 0.02s
+     Running unittests src/lib.rs (target/release/deps/apeiron-c5530668b232bb17)
+
+running 1 test
+set_t: loss wide 2.226209e2 narrow 1.054162e2 fresh 1.054162e2; output rel narrow-vs-fresh 0.00e0 wide-vs-narrow 0.00e0
+test gpu::nn::train::block::tests::set_t_matches_a_fresh_tuner ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 772 filtered out; finished in 0.71s'
++ grep -E '^test |^set_t|^release_tape|test result'
+set_t: loss wide 2.226209e2 narrow 1.054162e2 fresh 1.054162e2; output rel narrow-vs-fresh 0.00e0 wide-vs-narrow 0.00e0
+test gpu::nn::train::block::tests::set_t_matches_a_fresh_tuner ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 772 filtered out; finished in 0.71s
++ '[' 0 -eq 0 ']'
++ for t in gpu::nn::train::block::tests::release_tape_then_set_t_matches_a_fresh_tuner gpu::nn::train::front::tests::release_tape_then_set_t_matches_a_fresh_front gpu::nn::train::block::tests::set_t_matches_a_fresh_tuner gpu::nn::train::front::tests::set_t_matches_a_fresh_front
+++ cargo test --release --locked --features gpu --lib -- --exact gpu::nn::train::front::tests::set_t_matches_a_fresh_front --nocapture
++ out='    Finished `release` profile [optimized] target(s) in 0.02s
+     Running unittests src/lib.rs (target/release/deps/apeiron-c5530668b232bb17)
+
+running 1 test
+set_t front: output rel narrow-vs-fresh 0.00e0 wide-vs-narrow 0.00e0
+test gpu::nn::train::front::tests::set_t_matches_a_fresh_front ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 772 filtered out; finished in 0.61s'
++ r=0
++ printf '%s\n' '    Finished `release` profile [optimized] target(s) in 0.02s
+     Running unittests src/lib.rs (target/release/deps/apeiron-c5530668b232bb17)
+
+running 1 test
+set_t front: output rel narrow-vs-fresh 0.00e0 wide-vs-narrow 0.00e0
+test gpu::nn::train::front::tests::set_t_matches_a_fresh_front ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 772 filtered out; finished in 0.61s'
++ grep -E '^test |^set_t|^release_tape|test result'
+set_t front: output rel narrow-vs-fresh 0.00e0 wide-vs-narrow 0.00e0
+test gpu::nn::train::front::tests::set_t_matches_a_fresh_front ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 772 filtered out; finished in 0.61s
++ '[' 0 -eq 0 ']'
++ date -u
+Mon Nov 23 07:34:21 UTC 2026
++ echo '== release tests rc=0'
+== release tests rc=0
++ exit 0

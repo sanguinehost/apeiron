@@ -1,0 +1,940 @@
++ . /root/.cargo/env
+++ case ":${PATH}:" in
+++ export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+++ PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
++ cd /workspace
++ export VK_ICD_FILENAMES=/nonexistent
++ VK_ICD_FILENAMES=/nonexistent
++ rustc --version
+rustc 1.100.0 (0ef1bc386 2026-11-09)
++ cargo --version
+cargo 1.100.0 (3acc79c0c 2026-11-05)
++ cargo test --workspace --all-features --locked -j 4
+warning: unused dependency `apeiron`
+  --> wasm/Cargo.toml:14:1
+   |
+14 | apeiron = { path = ".." }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cargo::unused_dependencies` is set to `warn` by default
+help: consider removing the dependency on `apeiron`
+help: to still use for development builds, move to `dev-dependencies`
+warning: `apeiron-wasm` (manifest) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/build/apeiron/c764abfc16fb8d05/out/apeiron-c764abfc16fb8d05)
+
+running 774 tests
+test attn_cut::tests::certified_read_matches_inline_rebased_formula ... ok
+test crypto::aes::tests::decryption_inverts_encryption ... ok
+test crypto::aes::tests::sp800_38a_f1_1_decrypts_the_published_block ... ok
+test engine::attn::cert::tests::a_partial_block_has_no_bound ... ok
+test engine::attn::cert::tests::clamp_keeps_bounds_sound_at_the_i64_edges ... ok
+test crypto::aes::tests::sp800_38a_f1_1_encrypts_to_the_published_block ... ok
+test engine::attn::f32_core::tests::attn_f32_vs_q32_timing ... ignored, timing benchmark: run with cargo test --release --lib attn_f32_vs_q32_timing -- --ignored --nocapture
+test engine::attn::cert::tests::truncate_keeps_only_wholly_inside_blocks ... ok
+test engine::attn::f32_core::tests::attn_layer_segments_k200 ... ignored, timing harness: run under the exclusive host lock
+test engine::attn::f32_core::tests::test_attn_core_refusal_on_non_finite ... ok
+test engine::attn::i8::tests::the_quantiser_bounds_the_row_error ... ok
+test engine::attn::cert::tests::every_score_of_a_block_is_inside_its_bound ... ok
+test engine::attn::i8::tests::the_extreme_words_quantise_to_finite_codes ... ok
+test engine::attn::i8::tests::the_zero_row_is_all_zero_codes ... ok
+test engine::attn::kvplane::tests::a_mapped_plane_clone_is_owned_and_independent ... ok
+test engine::attn::kvplane::tests::a_range_outside_the_mapping_is_refused ... ok
+test engine::attn::kvplane::tests::a_zero_length_mapping_is_refused ... ok
+test engine::attn::kvplane::tests::an_owned_plane_is_its_vector ... ok
+test engine::attn::kvplane::tests::two_planes_of_one_mapping_are_disjoint ... ok
+test engine::attn::f32_core::tests::test_attn_core_avx2_equals_scalar ... ok
+test engine::attn::tests::attn_head_f32_carrier_matches_oracle ... ok
+test engine::attn::tests::attn_head_group_refuses_a_bad_group_slice ... ok
+test engine::attn::tests::attn_head_group_matches_the_per_head_read ... ok
+test engine::attn::tests::carrier_explicit_selection ... ok
+test engine::attn::tests::attn_head_key_outer_output_matches_component_oracle ... ok
+test engine::attn::tests::certified_read_after_truncate_and_reappend_equals_full_scan ... ok
+test engine::attn::tests::file_backed_f32_state_matches_owned_f32_state ... ok
+test engine::attn::kvplane::tests::a_mapped_plane_reads_and_writes_the_file ... ok
+test engine::attn::tests::first_refusing_key_matches_weights_vec_shape ... ok
+test engine::attn::i8::tests::the_vector_source_equals_the_scalar_source ... ok
+test engine::attn::tests::hoisted_row_base_matches_plane_index_oracles ... ok
+test engine::attn::tests::i8_group_read_equals_the_per_head_reads ... ok
+test engine::attn::tests::i8_group_read_matches_a_float_oracle ... ok
+test engine::attn::tests::inline_weight_fold_matches_weights_vec_oracle ... ok
+test engine::attn::tests::truncate_and_rollback_hold_for_both_carriers ... ok
+test engine::attn::tests::file_backed_state_matches_owned_state ... ok
+test engine::attn::f32_core::tests::test_attn_core_vs_q32_oracle_deviation ... ok
+test engine::attn::tests::weight_at_recip_matches_weight_at_oracle ... ok
+test engine::attn::tests::mapped_cache_pages_are_file_backed ... ok
+test engine::attn::tests::certified_read_equals_full_scan_and_skips_distant_blocks ... ok
+test engine::attn::f32_core::tests::test_shared_exp_accuracy_in_attention ... ok
+test engine::chart::ffn::tests::q8act_chunked_refuses_a_shape_mismatch ... ok
+test engine::chart::ffn::tests::ffn_q8act_equals_the_dequant_reference ... ok
+test engine::attn::f32_core::tests::test_f32_to_q32_equals_old_f64_formula ... ok
+test engine::chart::ffn::tests::f32_to_q32_checked_equals_the_f64_formula ... ok
+test engine::chart::ffn::tests::q8act_chunked_equals_the_unchunked_kernel ... ok
+test engine::chart::ffn::tests::swiglu_f32_avx2_matches_scalar ... ok
+test engine::chart::ffn::tests::swiglu_f32_tracks_q32_oracle ... ok
+test engine::chart::ffn::tests::projections_q8act_equals_separate_unchunked_calls ... ok
+test engine::chart::ffn::tests::swiglu_f32_vs_q32_timing ... ignored, timing benchmark: run with cargo test --release --lib swiglu_f32_vs_q32_timing -- --ignored --nocapture
+test engine::chart::ffn::tests::quant_acts_pooled_equals_the_per_column_quantizations ... ok
+test engine::chart::pool::chunks::tests::for_pbands_fills_every_row ... ok
+test engine::chart::pool::chunks::tests::for_vec_chunks_splits_within_each_vec ... ok
+test engine::chart::pool::chunks::tests::for_chunks_two_outputs_disjoint ... ok
+test engine::chart::pool::place::tests::beside_worker_takes_the_first_workers_sibling ... ok
+test engine::chart::pool::chunks::tests::pband_underfill_panics - should panic ... ok
+test engine::chart::pool::tests::a_task_panic_is_reraised_after_the_dispatch ... ok
+test engine::chart::pool::tests::a_worker_panic_is_reraised_and_the_pool_survives ... ok
+test engine::chart::pool::tests::ecores_resolution_default_and_overrides ... ok
+test engine::chart::ffn::tests::quant_act_pooled_equals_the_single_quantization ... ok
+test engine::chart::pool::tests::every_task_runs_exactly_once ... ok
+test engine::chart::ffn::tests::ffn_fused_matches_unfused_and_preserves_refusal_order ... ok
+test engine::chart::ffn::tests::quant_acts_pooled_refuses_with_a_refusing_column ... ok
+test engine::chart::pool::tests::zero_workers_is_sequential ... ok
+test engine::chart::pool::weighted_split_tests::bench_pool_dispatch_latency ... ignored, release-only pool microbench: cargo test --release --lib bench_pool_dispatch_latency -- --ignored --nocapture
+test engine::chart::pool::weighted_split_tests::round_robin_count_at_width_24 ... ok
+test engine::chart::pool::weighted_split_tests::table_equals_function_over_n_0_to_1024 ... ok
+test engine::chart::pool::weighted_split_tests::weighted_choice_is_exact_and_preserves_large_n ... ok
+test engine::chart::pool::tests::generic_entry_points_equal_the_erased_body ... ok
+test engine::chart::ffn::tests::swiglu_cols_equals_the_serial_per_column_loop ... ok
+test engine::chart::tests::act_quot_rem_shift_equals_division_for_power_of_two_scales ... ok
+test engine::chart::tests::bench_pooled_shapes ... ignored, benchmark
+test engine::chart::tests::bench_q4_k_kcols ... ignored, microbench: Q4_K n_in 1024 k 256, kcols against single-column ns per row-column
+test engine::chart::tests::bench_qwen_row_kernels ... ignored, microbenchmark for Step 1 profiling
+test engine::chart::tests::chart_agrees_with_fixed_on_every_refusal_class ... ok
+test engine::chart::tests::chart_matches_fixed_on_extreme_codes_and_scales ... ok
+test engine::chart::tests::avx2_group_cores_match_the_portable_loop ... ok
+test engine::chart::tests::chart_matches_fixed_on_ragged_widths ... ok
+test engine::chart::tests::avx2_fast_row_cores_match_the_portable_twins ... ok
+test engine::chart::tests::dequantizes_block_fit_matches_the_per_element_loop ... ok
+test engine::chart::tests::chart_matches_fixed_on_zero_activation_blocks ... ok
+test engine::chart::tests::fast_row_bodies_match_their_portable_twins ... ok
+test engine::chart::tests::fast_f16_decode_matches_reference_for_all_patterns ... ok
+test engine::chart::tests::chart_matches_fixed_on_random_payloads_for_every_family ... ok
+test engine::chart::tests::q4_k_kcols_matches_single_column_calls ... ok
+test engine::chart::tests::q6_k_kcols_matches_single_column_calls ... ok
+test engine::attn::f32_core::tests::test_attn_core_tiled_equals_scalar_on_tile_edges ... ok
+test engine::chart::tests::quant_act_bounds_and_dequant_contract ... ok
+test engine::chart::tests::vnni_and_avx2_cores_match_the_portable_twins ... ok
+test engine::chart::x86::tests::tiled2_equals_scalar ... ok
+test engine::chart::tests::q4_k_matmat_switches_to_the_i128_fold_past_the_lane_bound ... ok
+test engine::kern::bitplane::tests::bench_qwen35_head_64_steps ... ignored, benchmark
+test engine::kern::bitplane::tests::adversarial_near_ties_and_exact_ties ... ok
+test engine::kern::bitplane::tests::duplicate_rows_resolve_to_the_lower_index ... ok
+test engine::chart::pool::chunks::tests::for_chunks_equals_seq ... ok
+test engine::chart::tests::q4_k_matmat_equals_the_per_column_contract ... ok
+test engine::kern::bitplane::tests::test_dense_head_round_trip ... ok
+test engine::kern::gemm::attrib::gemm_attrib_inengine ... ignored, release-only instrument: see the doc comment
+test engine::kern::gemm::attrib::gemm_attrib_real_inputs ... ignored, release-only instrument: APEIRON_F32_CARRIER=1 cargo test --release --lib --locked gemm_attrib -- --ignored --nocapture
+test engine::kern::gemm::attrib::gemm_attrib_shapes ... ignored, release-only instrument: see the doc comment
+test engine::kern::gemm::native_gpu_probe::native_q8_prefill_fixture ... ignored, produces explicit native GPU parity fixtures
+test engine::kern::gemm::native_gpu_probe::native_real_quantizer_q8_fixture ... ignored, produces actual-quantizer native GPU parity fixtures
+test engine::kern::gemm::tests::bench_q8_0_gemm_shapes ... ignored, release-only microbench: cargo test --release --lib bench_q8_0_gemm_shapes -- --ignored --nocapture
+test engine::kern::gemm::tests::exact_dot_avx_matches_the_scalar_oracle ... ok
+test engine::kern::bitplane::tests::test_f16_const_matches_reference ... ok
+test engine::kern::gemm::tests::f16_split_is_f16_to_fixed ... ok
+test engine::kern::gemm::tests::fast_columns_predicate_equals_the_magnitude_form ... ok
+test engine::kern::gemm::tests::finish8_matches_the_scalar_finish ... ok
+test engine::kern::gemm::tests::gemm_equals_the_per_column_contract ... ok
+test engine::kern::gemm::tests::gemm_group_defers_on_a_short_or_non_finite_part ... ok
+test engine::kern::gemm::tests::gemm_group_equals_the_per_part_gemm ... ok
+test engine::kern::gemm::tests::gemm_runs_on_ordinary_inputs ... ok
+test engine::kern::gemm::tests::spread_limit_keeps_the_sum_in_i64 ... ok
+test engine::kern::gemm::tests::swiglu_fused_equals_the_separate_path ... ok
+test engine::kern::gemm::tests::swiglu_fused_f32_tracks_q32_oracle ... ok
+test engine::kern::gemm::tests::swiglu_fused_reports_a_refusing_element ... ok
+test engine::kern::gemm::tests::swiglu_fused_runs_on_ordinary_inputs ... ok
+test engine::kern::gemm::tests::swiglu_off_path_microbench ... ignored, microbench: run explicitly with --ignored --nocapture
+test engine::kern::gemm::tests::swiglu_tape_stores_the_consumed_gate_and_up ... ok
+test engine::kern::gemm_probe::gemm_probe_real_inputs ... ignored, release-only instrument: APEIRON_F32_CARRIER=1 cargo test --release --lib --locked gemm_probe -- --ignored --nocapture
+test engine::kern::gemm::tests::row_scales_simd_matches_the_scalar_oracle ... ok
+test engine::kern::limb::tests::f16_qwen05b_layer0_deviation_and_bound ... ignored, measured report: reads models/gguf/qwen05b-f16.gguf
+test engine::kern::limb::tests::f16_tile_is_within_the_limb_bound_and_a_flipped_digit_breaks_it ... ok
+test engine::chart::tests::q6_k_matmat_equals_the_per_column_contract ... ok
+test engine::kern::bitplane::tests::pooled_argmax_matches_the_serial_scan ... ok
+test engine::chart::pool::tests::chunks_equal_sequential_and_back_to_back_dispatches_do_not_mix ... ok
+test engine::kern::limb::tests::limb_bench ... ignored, measurement: 5 alternating runs at the production shapes
+test engine::kern::limb::tests::limb_phase_profile ... ignored, measurement: the phase table at the production shapes
+test engine::kern::limb::tests::limb_vs_exact_body ... ignored, measurement: 5 alternating runs against the exact solve::gemm body
+test engine::kern::limb::tests::integer_operands_are_bit_exact ... ok
+test engine::kern::limb::tests::range_refusal_on_unplaceable_words ... ok
+test engine::kern::limb::tests::shape_refusals ... ok
+test engine::kern::limb::tests::inner_past_512_blocks_products ... ok
+test engine::kern::lut::tests::avx2_and_portable_lut_agree ... ok
+test engine::kern::lut::tests::build_tables_matches_the_plane_sum_oracle ... ok
+test engine::kern::lut::tests::from_pq2_0_refuses_bad_inputs ... ok
+test engine::kern::lut::tests::matvec_lut_falls_back_when_the_bound_is_exceeded ... ok
+test engine::kern::lut::tests::matvec_lut_matches_fixed_on_extreme_codes_and_scales ... ok
+test engine::kern::lut::tests::matvec_lut_matches_fixed_on_random_payloads ... ok
+test engine::kern::lut::tests::matvec_lut_matches_fixed_on_zero_activations ... ok
+test engine::kern::lut::tests::matvec_lut_row_bound_keeps_i128_on_an_oversized_row ... ok
+test engine::kern::lut::tests::matvec_lut_takes_the_two_i64_row_path_when_the_bound_holds ... ok
+test engine::kern::lut::tests::matvec_lut_wide_path_matches_fixed ... ok
+test engine::kern::limb::tests::syrk_matches_gemm_bit_for_bit ... ok
+test engine::kern::lut::tests::n_projection_dispatch_matches_separate_calls_and_refuses ... ok
+test engine::kern::lut::tests::timing_build_tables_serial_vs_pooled ... ignored, timing measurement; run with --ignored --nocapture
+test engine::kern::lut::tests::timing_lut_vs_fixed_2048 ... ignored, timing measurement; run with --ignored --nocapture
+test engine::kern::matmat::tests::avx2_block_kdots_match_the_portable_twin ... ok
+test engine::kern::limb::tests::outputs_are_pinned_bit_identical ... ok
+test engine::kern::matmat::tests::columns_match_on_extreme_codes_and_scales ... ok
+test engine::kern::matmat::tests::columns_match_matvec_fixed_on_dequantized_activations ... ok
+test engine::kern::lut::tests::pooled_row_chunked_lut_equals_the_unchunked_kernel ... ok
+test engine::kern::matmat::tests::fast_family_predicate_equals_the_magnitude_form ... ok
+test engine::kern::matmat::tests::columns_match_per_column_matvec_q8act ... ok
+test engine::kern::matmat::tests::pooled_against_gemm_q8_0 ... ignored, measurement: release run, three interleaved passes per arm
+test engine::kern::limb::tests::gemv_and_rowdot_agree_with_gemm ... ok
+test engine::kern::matmat::tests::columns_past_max_k_match_per_column ... ok
+test engine::kern::matmat::tests::pooled_rate_at_fit_shape ... ignored, measurement: release run, three timed passes per arm
+test engine::kern::matmat::tests::q4_k_carrier_rate_at_production_shapes ... ignored, measurement: release run, three passes per shape
+test engine::kern::matmat::tests::refusals_match_per_column ... ok
+test engine::kern::matmat::tests::timing_k_scaling ... ignored, timing measurement, not a correctness gate
+test engine::kern::matmat::tests::timing_k_scaling_dram ... ignored, timing measurement, not a correctness gate
+test engine::kern::nq::tests::a_residual_sign_flip_moves_the_output ... ok
+test engine::kern::matmat::tests::pooled_q4_k_matches_per_column ... ok
+test engine::kern::nq::tests::nq_production_shape_throughput ... ignored, reports timing; run in release with --ignored --nocapture
+test engine::kern::nq::tests::a_single_sign_flip_moves_the_output ... ok
+test engine::kern::nq::tests::sign_dot_microbenchmark ... ignored, reports timing; run in release with --ignored --nocapture
+test engine::kern::nq::tests::the_code_source_equals_the_scalar_source ... ok
+test engine::kern::nq::tests::the_four_digit_split_refuses_a_fifth_digit ... ok
+test engine::kern::nq::tests::the_kernel_equals_the_sequential_staged_product ... ok
+test engine::kern::nq::tests::the_plane_source_equals_the_scalar_source ... ok
+test engine::kern::nq::tests::the_reference_factors_product_exactly ... ignored, reads the reference trace at $APEIRON_NQ_OP_DIR; run with --ignored
+test engine::kern::nq::tests::the_ternary_block_equals_the_term_sum ... ok
+test engine::kern::nq::tests::q8_projection_is_within_the_bound_of_exact ... ok
+test engine::kern::nq::tests::the_vector_source_equals_the_scalar_source ... ok
+test engine::kern::nq::tests::the_wide_accumulator_agrees_when_the_bound_leaves_i64 ... ok
+test engine::kern::nq::tests::wrong_width_and_bad_scale_refuse ... ok
+test engine::kern::pow2::tests::act_scale_is_the_least_covering_power_of_two ... ok
+test engine::kern::pow2::tests::finish_is_round_shift_32_of_the_scaled_sum ... ok
+test engine::kern::nq::tests::the_ternary_projection_equals_the_exact_reader_on_trit_exact_words ... ok
+test engine::kern::matmat::tests::kquant_columns_match_per_column_matvec_q8act ... ok
+test engine::kern::matmat::tests::pooled_q6_k_matches_per_column ... ok
+test engine::kern::tp::tests::ffn_tp_timing_qwen_layer0 ... ignored, timing measurement; run with --ignored --nocapture and APEIRON_THREADS=8
+test engine::loader::tests::config_interprets_float_metadata_at_the_boundary ... ok
+test engine::loader::tests::config_refuses_more_layers_than_tensors ... ok
+test engine::loader::tests::config_resolves_from_qwen2_metadata ... ok
+test engine::loader::tests::hadamard_meta_absent_version_leaves_config_unchanged ... ok
+test engine::loader::tests::hadamard_meta_accepts_each_sign_mode ... ok
+test engine::loader::tests::hadamard_meta_refuses_each_fork_rejection ... ok
+test engine::loader::tests::quant_kind_classifies_known_ids ... ok
+test engine::loader::tests::table_records_checked_extent_and_quant_kind ... ok
+test engine::loader::tests::table_records_q5_0_geometry_and_checks_the_extent ... ok
+test engine::loader::tests::table_refuses_a_tensor_past_eof ... ok
+test engine::kern::tp::tests::ffn_tp_refuses_exactly_as_ffn_q8act ... ok
+test engine::mixer::conv_f32::tests::conv_f32_calls_equal_scalar_oracle ... ok
+test engine::mixer::conv_f32::tests::conv_f32_segments ... ignored, release segment attribution: cargo test --release --lib conv_f32_segments -- --ignored --nocapture
+test engine::mixer::conv_f32::tests::conv_f32_refusal_keeps_window ... ok
+test engine::kern::limb::tests::entries_are_inside_the_bound ... ok
+test engine::mixer::f32_carrier::tests::affine_head_f32_state_carrier ... ok
+test engine::mixer::f32_carrier::tests::bench_conv_silu_cols_f32_k200 ... ignored, release microbench of conv_silu_cols_f32 at k=200 with the real shape (6144 channels, 4 taps)
+test engine::mixer::f32_carrier::tests::bench_delta_heads_cols_f32_k200 ... ignored, release microbench of prefill heads call at k=200 with real shape (16 heads, head dim 128), pooled
+test engine::mixer::f32_carrier::tests::bits_equal_original_literals ... ok
+test engine::mixer::f32_carrier::tests::conv_silu_tap4_avx2_equals_scalar ... ok
+test engine::mixer::conv_f32::tests::conv_f32_shared_buffer_tags_layer ... ok
+test engine::mixer::f32_carrier::tests::exp_f32_accuracy_over_domain ... ok
+test engine::mixer::f32_carrier::tests::exp_and_silu_avx2_equals_scalar ... ok
+test engine::mixer::conv_f32::tests::readout8_equals_scalar ... ok
+test engine::kern::tp::tests::ffn_tp_equals_ffn_q8act_on_the_non_sliced_families ... ok
+test engine::mixer::f32_carrier::tests::exp_f32_scalar_equals_native_body ... ok
+test engine::mixer::f32_carrier::tests::f32_readout_to_q32_overflow_and_nan ... ok
+test engine::kern::tp::tests::ffn_tp_equals_ffn_q8act_on_every_fast_down_family ... ok
+test engine::mixer::f32_carrier::tests::f32_vs_q32_timing ... ignored, timing benchmark: run with cargo test --release --lib f32_vs_q32_timing -- --ignored --nocapture
+test engine::mixer::f32_carrier::tests::l2_norm_avx2_equals_scalar ... ok
+test engine::mixer::f32_carrier::tests::f32_readout_to_q32_equals_old_f64_body ... ok
+test engine::mixer::f32_carrier::tests::softplus_f32_new_vs_libm_form ... ok
+test engine::mixer::f32_carrier::tests::stage2_gated_norm_avx2_equals_scalar ... ok
+test engine::mixer::f32_carrier::tests::f32_avx2_equals_scalar ... ok
+test engine::mixer::tests::avx2_write_matches_scalar_across_value_widths ... ok
+test engine::mixer::tests::avx2_write_refuses_exact_negative_bound ... ok
+test engine::mixer::tests::bench_affine_heads_f32_decode ... ignored, timing benchmark: cargo test --release --lib bench_affine_heads_f32_decode -- --ignored --nocapture
+test engine::mixer::tests::bench_conv_silu_f32_prefill_and_decode ... ignored, timing benchmark: cargo test --release --lib bench_conv_silu_f32_prefill_and_decode -- --ignored --nocapture
+test engine::mixer::tests::bench_delta_heads_50_steps ... ignored, microbench: cargo test --release -- --ignored bench_delta_heads_50_steps
+test engine::mixer::tests::bench_delta_heads_cols_f32_vs_q32 ... ignored, timing benchmark: cargo test --release --lib bench_delta_heads_cols_f32_vs_q32 -- --ignored --nocapture
+test engine::mixer::tests::chunk_c1_equals_step ... ok
+test engine::mixer::tests::chunk_is_deterministic ... ok
+test engine::mixer::f32_carrier::tests::stage2_heads_cols_f32_equals_old_oracle ... ok
+test engine::mixer::tests::chunk_refuses_on_width ... ok
+test engine::mixer::tests::conv_silu_cols_k_columns_equal_k_single_column_calls ... ok
+test engine::mixer::tests::conv_silu_cols_refuses_i128_accumulator_overflow ... ok
+test engine::mixer::tests::conv_silu_cols_refuses_rounding_bias_overflow ... ok
+test engine::mixer::tests::exact_scan_chunked_is_slice_separable ... ok
+test engine::mixer::tests::exact_scan_off_is_bit_identical_to_the_per_step_oracle ... ok
+test engine::mixer::f32_carrier::tests::ln_f32_accuracy_vs_libm ... ok
+test engine::mixer::tests::chunk_matches_oracle_within_bound ... ok
+test engine::mixer::tests::f32_carrier_tracks_q32_per_step_oracle ... ok
+test engine::mixer::tests::exact_scan_on_agrees_with_per_step_within_bound ... ok
+test engine::mixer::tests::f32_conv_silu_tracks_q32_oracle ... ok
+test engine::mixer::tests::test_delta_head_step_8_real_steps_drift ... ok
+test engine::mixer::tests::shared_decay_table_equals_per_column_gates ... ok
+test engine::mixer::f32_carrier::tests::f32_readout_equivalence_tests ... ok
+test engine::mixer::tests::test_fused_conv_deltanet_tracks_oracle_at_k1 ... ok
+test engine::mixer::tests::test_renormalisation_preserves_state_within_bound ... ok
+test engine::num::dequant::lowbit::tests::non_finite_scale_is_refused ... ok
+test engine::num::dequant::lowbit::tests::pq2_0_row_codes_cover_every_value ... ok
+test engine::num::dequant::lowbit::tests::ptq1_0_row_trit_order_matches_stages ... ok
+test engine::num::dequant::lowbit::tests::q1_0_row_matches_fork_reference ... ok
+test engine::num::dequant::lowbit::tests::q2_0_row_codes_cover_every_value ... ok
+test engine::num::dequant::lowbit::tests::short_payload_is_refused ... ok
+test engine::num::dequant::lowbit::tests::tq1_0_row_trit_order_matches_stages ... ok
+test engine::num::dequant::lowbit::tests::tq2_0_row_matches_fork_reference ... ok
+test engine::num::dequant::lowbit::tests::trit_decodes_the_fork_quantizer_digits ... ok
+test engine::mixer::tests::test_fused_conv_deltanet_tracks_oracle_at_k5 ... ok
+test engine::num::fp::tests::cpu_oracles_agree_with_std ... ok
+test engine::num::fp::tests::eps_q32_matches_old_step_body ... ok
+test engine::num::f32_convert::tests::f32_to_fixed_equals_the_f64_formula ... ok
+test engine::num::fp::tests::from_q32_is_x_over_2_pow_32 ... ok
+test engine::num::fp::tests::mxcsr_is_default ... ok
+test engine::num::fp::tests::prim_binary_matches_hardware ... ok
+test engine::num::fp::tests::prim_from_i64_rounds_to_nearest_even ... ok
+test engine::num::fp::tests::prim_unary_matches_hardware ... ok
+test engine::num::fp::tests::rope_turn_matches_old_table_body ... ok
+test engine::num::fp::tests::f64_positive_finite_matches_old_guard ... ok
+test engine::num::fp::tests::to_q32_matches_f64_round ... ok
+test engine::ops::fused::tests::fused_affine_q4_k_matches_the_hand_value ... ok
+test engine::ops::fused::tests::fused_agrees_with_fixed_on_every_refusal_class ... ok
+test engine::ops::fused::tests::fused_matches_fixed_on_random_payloads_for_every_supported_type ... ok
+test engine::ops::hadamard::tests::c_table_matches_reference ... ok
+test engine::mixer::tests::test_fast_eq_ref_bit_for_bit_random_and_renorm ... ok
+test engine::ops::hadamard::tests::fwht_fixed_involution_even_k ... ok
+test engine::ops::hadamard::tests::fwht_fixed_matches_naive_signed_sylvester ... ok
+test engine::ops::hadamard::tests::fwht_int_matches_naive_sylvester ... ok
+test engine::ops::hadamard::tests::refusals_leave_input_untouched ... ok
+test engine::ops::hadamard::tests::overflow_refusals ... ok
+test engine::ops::moe::tests::moe_ffn_matches_f64_reference_with_random_f16_experts ... ok
+test engine::ops::moe::tests::moe_gate_weights_full_and_renorm_paths_agree_on_selected_ratios ... ok
+test engine::ops::moe::tests::moe_gate_weights_renorm_sums_to_one_within_k_units ... ok
+test engine::ops::moe::tests::moe_route_topk_is_order_independent ... ok
+test engine::ops::moe::tests::moe_gate_weights_renorm_matches_selected_softmax_reference ... ok
+test engine::ops::moe::tests::moe_route_topk_matches_reference_and_breaks_ties_low ... ok
+test engine::ops::moe::tests::moe_route_topk_matches_reference_over_a_range_of_k ... ok
+test engine::ops::moe::tests::moe_router_refuses_bad_k_shapes_indices_and_kernels ... ok
+test engine::ops::par::cpu_tests::online_cpus_ignores_the_calling_threads_affinity ... ok
+test engine::ops::par::tests::row_chunked_matvec_returns_the_first_chunk_error_in_row_order ... ok
+test engine::ops::par::tests::row_chunked_matvec_equals_the_unchunked_kernel ... ok
+test engine::ops::par::tests::row_chunked_matvec_surfaces_a_defect_in_every_chunk ... ok
+test engine::ops::sampler::tests::top_p_fixed_orders_descending_with_lowest_index_on_ties ... ok
+test engine::prefix::tests::budget_refusal_leaves_cache_unchanged ... ok
+test engine::prefix::tests::eviction_evicts_lru_entry_under_budget ... ok
+test engine::prefix::tests::cache_stores_one_kv_state_per_prompt_o_n_memory ... ok
+test engine::prefix::tests::hash_collision_refusal_via_full_key_confirmation ... ok
+test engine::prefix::tests::oversized_snapshot_refuses_and_leaves_cache_unchanged ... ok
+test engine::prefix::tests::stale_boundary_key_never_returns_reused_slot_state ... ok
+test engine::prefix::tests::truncate_kv_state_resets_occupied_and_resumes_append ... ok
+test engine::prefix::tests::warm_prefill_equals_cold_prefill_bit_for_bit ... ok
+test engine::step::attn_block::tests::rotate_pair_prefixes_equals_two_rotate_head_prefixes ... ok
+test engine::step::attn_block::tests::rotate_pair_prefixes_keeps_the_geometry_and_range_refusals ... ok
+test engine::step::attn_block::tests::sigmoid_gate_equals_the_oracle_loop_and_keeps_its_width_refusal ... ok
+test engine::step::attn_block::tests::sigmoid_gate_micro ... ignored, timing harness: run under the exclusive host lock
+test engine::step::attn_block::tests::sigmoid_q32_equals_fixed_sigmoid_exhaustive ... ignored, exhaustive equivalence over non-saturating domain [-16*ONE, 16*ONE]: run in release
+test engine::step::attn_block::tests::sigmoid_q32_equals_the_oracle_on_a_dense_sweep ... ignored, dense sweep (about 1.7e9 oracle calls): run in release
+test engine::step::attn_block::tests::recip_est_exact_matches_f64_estimate_over_lanes ... ok
+test engine::step::cols::fold_order::first_error_is_by_key_not_by_task ... ok
+test engine::step::cols::fold_order::fold_col_is_a_balanced_bijection ... ok
+test engine::step::attn_block::tests::sigmoid_q32_equals_the_oracle_on_edges_and_samples ... ok
+test engine::step::tests::hadamard_fold_missing_sign_width_refuses ... ok
+test engine::step::tests::hadamard_fold_projection_matches_the_plain_weight ... ok
+test engine::step::tests::hadamard_fold_version2_tied_output_refuses_at_step ... ok
+test engine::step::tests::payload_borrows_the_same_bytes_as_read_range ... ok
+test engine::ops::ffn::tests::ffn_chunked_equals_sequential_on_random_f16_weights ... ok
+test engine::step::tests::q8act_parallel_heads_match_the_serial_head_loop ... ok
+test engine::step::tests::q8act_step_logits_match_the_greedy_token_of_exact ... ok
+test engine::step::tests::q8act_resident_matches_the_name_resolved_sequential_reference ... ok
+test engine::step::tests::step_logits_is_bit_identical_to_the_sequential_reference ... ok
+test engine::tests::argmax_fixed_takes_the_max_and_prefers_the_lowest_tie ... ok
+test engine::tests::attn_fused_den_num_are_independent_of_tile_count ... ok
+test engine::tests::attn_fused_refuses_zero_sum_and_zero_tile ... ok
+test engine::tests::attn_head_causal_mask_hides_later_positions ... ok
+test engine::tests::attn_head_distinct_scores_pin_the_scale ... ok
+test engine::tests::attn_head_fused_matches_per_position_oracle_within_bound ... ok
+test engine::tests::attn_head_fused_refuses_bad_geometry_and_shapes ... ok
+test engine::tests::attn_head_fused_uses_the_global_max_across_tiles ... ok
+test engine::tests::attn_head_gqa_groups_query_heads ... ok
+test engine::tests::attn_head_hand_computed_two_key_softmax ... ok
+test engine::tests::attn_head_is_deterministic_across_calls ... ok
+test engine::tests::attn_refuses_bad_geometry_shapes_positions_and_capacity ... ok
+test engine::tests::attn_saturates_out_of_window_exp_and_refuses_dot_overflow ... ok
+test engine::tests::bench_qwen35_head ... ignored, benchmark
+test engine::tests::bf16_row_agrees_with_the_fold_converter_on_every_pattern ... ok
+test engine::tests::checksum_is_order_sensitive_and_stable ... ok
+test engine::tests::engine_step_greedy_decode_is_deterministic ... ok
+test engine::tests::engine_step_refuses_bad_token_capacity_and_shapes ... ok
+test engine::tests::f16_scale_conversion_is_exact_and_total_on_finite_values ... ok
+test engine::tests::f32_append_index_loop_pins_plane_values_and_writes_nothing_on_err ... ok
+test engine::tests::ffn_fixed_refuses_geometry_shape_type_and_saturates_window ... ok
+test engine::tests::ffn_fixed_swiglu_matches_hand_computed_values ... ok
+test engine::tests::lm_head_and_argmax_through_the_real_tensor_table ... ok
+test engine::tests::matvec_fixed_hand_computed_two_by_two_with_a_rounding_tie ... ok
+test engine::tests::matvec_fixed_refuses_shape_short_payload_and_bad_type ... ok
+test engine::tests::q2_k_block_applies_scale_and_min ... ok
+test engine::tests::q3_k_block_applies_signed_scale ... ok
+test engine::tests::q4_k_block_applies_scale_and_min ... ok
+test engine::tests::q5_0_block_is_scale_times_code ... ok
+test engine::tests::q6_k_block_applies_signed_scale ... ok
+test engine::tests::q8_0_block_is_scale_times_code ... ok
+test engine::tests::qwen25_two_columns_equal_two_single_steps ... ok
+test engine::tests::qwen35_bitplane_head_equals_dense_head_in_lockstep ... ok
+test engine::tests::qwen35_exact_scan_attention_block_matches_baseline_within_bound ... ok
+test engine::tests::qwen35_long_prompt_on_the_one_executor ... ignored, release-only: cargo test --release -- --ignored qwen35_long_prompt
+test engine::tests::qwen35_on_the_one_executor_decodes_llama_cpp_ids ... ok
+test engine::tests::qwen35_speculative_equals_greedy ... ok
+test engine::tests::qwen35_speculative_long_prompt ... ignored, release-only: cargo test --release -- --ignored qwen35_speculative_long
+test engine::tests::qwen35_two_columns_equal_two_single_steps ... ok
+test engine::tests::rms_norm_fixed_has_an_exact_expected_vector ... ok
+test engine::tests::rms_norm_fixed_refuses_empty_and_out_of_window ... ok
+test engine::tests::rope_admits_positions_past_the_old_window ... ok
+test engine::tests::rope_quarter_turn_is_hand_computed ... ok
+test engine::tests::rope_refuses_malformed_tables_and_short_vectors ... ok
+test engine::tests::rope_score_depends_on_the_relative_offset_only ... ok
+test engine::tests::rope_table_matches_the_load_time_boundary ... ok
+test engine::step::tests::q8act_step_logits_match_the_unpooled_quantization ... ok
+test engine::tests::rope_turn_phase_is_additive_mod_2_to_64 ... ok
+test engine::tests::rope_turn_phase_wraps_mod_2_to_64_in_rotate ... ok
+test engine::tests::rope_turn_to_radians_maps_the_named_phases ... ok
+test engine::tests::rope_zero_angle_is_the_identity ... ok
+test engine::tests::row_dot_fixed_rounds_ties_and_refuses_out_of_range ... ok
+test engine::tests::schedule_is_read_from_metadata_not_architecture_name ... ok
+test engine::tests::silu_fixed_matches_hand_computed_values ... ok
+test engine::tests::token_embd_row_dot_through_the_real_tensor_table ... ok
+test engine::tests::top_p_fixed_selects_the_nucleus_prefix_and_refuses_windows ... ok
+test engine::tests::unsupported_embedding_quant_refuses ... ok
+test engine::trace::tests::phases_index_their_table ... ok
+test engine::mixer::tests::sliced_heads_equal_whole_heads ... ok
+test format::bpe::tests::byte_alphabet_is_a_bijection_with_space_as_g ... ok
+test format::bpe::tests::pretokenizer_matches_the_reference_splits ... ok
+test format::bpe::tests::qwen2_5_0_5b_matches_fold_reference ... ok
+test format::bpe::tests::fixture_encode_decode_and_refusals ... ok
+test format::gguf::tests::array_count_past_buffer_is_refused ... ok
+test format::gguf::tests::element_overflow_is_refused ... ok
+test format::gguf::tests::corrupt_length_field_is_refused ... ok
+test format::gguf::tests::float_metadata_keeps_raw_little_endian_bits ... ok
+test format::gguf::tests::oversized_counts_do_not_allocate ... ok
+test format::gguf::tests::too_many_dims_is_refused ... ok
+test format::gguf::tests::truncated_tensor_directory_is_refused ... ok
+test format::gguf::tests::unknown_tensor_type_has_no_byte_size ... ok
+test format::gguf::tests::unsupported_version_is_refused ... ok
+test format::gguf::tests::valid_header_parses_alignment_and_directory ... ok
+test format::gguf::tests::wrong_magic_is_refused ... ok
+test format::nq::tests::a_flipped_scale_word_changes_the_pack ... ok
+test format::nq::tests::a_group_word_above_one_refuses ... ok
+test format::nq::tests::a_mapped_pack_equals_the_owned_parse ... ok
+test format::nq::tests::a_member_without_its_head_refuses ... ok
+test format::nq::tests::a_member_whose_shared_block_differs_refuses ... ok
+test format::nq::tests::a_pack_may_omit_kinds ... ok
+test format::nq::tests::a_pack_without_a_residual_writes_version_two ... ok
+test format::nq::tests::a_residual_pack_without_sharing_writes_version_three ... ok
+test format::nq::tests::a_repeated_or_out_of_order_section_refuses ... ok
+test format::nq::tests::a_salient_index_outside_the_input_refuses ... ok
+test format::nq::tests::a_stride_that_disagrees_with_the_rank_refuses ... ok
+test format::nq::tests::a_short_section_refuses_without_panicking ... ok
+test format::nq::tests::bad_magic_version_and_trailing_bytes_refuse ... ok
+test format::nq::tests::only_k_or_v_may_share ... ok
+test format::nq::tests::a_version_four_pack_round_trips_and_stores_the_shared_block_once ... ok
+test format::nq::tests::round_trip_is_byte_identical_and_keeps_every_bit ... ok
+test format::nq::tests::rate_is_the_stored_bits_over_the_replaced_weights ... ok
+test format::packing::tests::conversion_matches_the_exact_integer_reference_on_the_real_model ... ok
+test format::packing::tests::canonical_round_trip_per_width_and_order ... ok
+test format::packing::tests::f16_and_f32_conversion_matches_the_integer_reference ... ok
+test format::packing::tests::f16_and_pow2_scale_decoding_is_exact ... ok
+test format::packing::tests::f16_terminal_decode_is_exact ... ok
+test format::packing::tests::f32_terminal_decode_rounds_toward_positive_infinity ... ok
+test format::packing::tests::grammar_refuses_bad_width_block_and_geometry ... ok
+test format::packing::tests::q2_k_conversion_matches_the_quant_decoder ... ok
+test format::packing::tests::q3_k_conversion_matches_the_quant_decoder ... ok
+test format::packing::tests::from_gguf_kind_covers_the_eight_packed_kinds ... ok
+test format::packing::tests::q5_0_conversion_matches_the_quant_decoder ... ok
+test format::packing::tests::q4_k_conversion_matches_the_quant_decoder ... ok
+test format::packing::tests::q8_0_conversion_matches_the_quant_decoder ... ok
+test format::packing::tests::q6_k_conversion_matches_the_quant_decoder ... ok
+test format::packing::tests::short_canonical_payload_is_refused ... ok
+test format::quant::tests::dequant_zero_block_is_constant_min ... ok
+test format::quant::tests::f16_roundtrip_known_values ... ok
+test format::quant::tests::geometry_is_consistent ... ok
+test format::quant::tests::k_quant_scale_and_scale_bits_accessors_are_public_and_checked ... ok
+test format::quant::tests::low_bit_geometry_and_names ... ok
+test format::quant::tests::q2_k_codes_are_two_bit_planes ... ok
+test format::quant::tests::q4_k_codes_and_scale_min_unpack ... ok
+test format::quant::tests::q5_0_codes_fold_the_high_plane ... ok
+test format::quant::tests::q6_k_codes_fold_the_high_plane ... ok
+test format::quant::tests::q8_0_dequant_matches_the_reference ... ok
+test format::quant::tests::required_bytes_checks_overflow ... ok
+test format::quant::tests::short_payload_is_refused_not_truncated ... ok
+test gpu::decode::pack::tests::q5_0_chart_is_exact ... ok
+test gpu::decode::pack::tests::q6_k_chart_is_exact ... ok
+test gpu::decode::prefill::tests::prefill_tile_chart_bytes_counts_both_planes ... ok
+test gpu::decode::state::tests::all_q5_0_needs_every_tensor ... ok
+test gpu::decode::state::tests::q5_0_selection_on_qwen05b_blk0 ... ok
+test gpu::decode::state::tests::q6_k_selection_on_qwen05b ... ok
+test gpu::decode::state::tests::qwen05b_upload_bytes_match_inventory ... ignored, reads the 397 MB qwen05b checkpoint; run in release with --ignored
+test gpu::decode::state::tests::all_q6_k_needs_every_tensor ... ok
+test gpu::limb::tests::admm_rank1_matches_cpu ... ok
+test gpu::limb::tests::admm_x_update_matches_cpu ... ok
+test gpu::limb::tests::device_unit_costs ... ignored, microbench
+test gpu::limb::tests::f64_maps_match_cpu ... ok
+test gpu::limb::tests::finish_matches_gemm_and_host ... ok
+test engine::tests::rope_turn_angle_tracks_theta_within_2_to_the_minus_31 ... ok
+test gpu::limb::tests::inv_map_spirv_is_the_glsl ... FAILED
+test gpu::limb::tests::finish_spirv_is_the_glsl ... FAILED
+test gpu::limb::tests::limb_gemm_matches_cpu ... ok
+test gpu::limb::tests::place_matches_host_meta ... ok
+test gpu::limb::tests::admm_map_spirv_is_the_glsl ... FAILED
+test gpu::limb::tests::plane_build_matches_cpu ... ok
+test engine::kern::bitplane::tests::bitplane_argmax_equals_dense_argmax ... ok
+test gpu::limb::tests::place_spirv_is_the_glsl ... FAILED
+test gpu::nn::attn::kd::kdb_fresh::kdb_shared_fits ... ok
+test gpu::limb::tests::limb_spirv_is_the_glsl ... FAILED
+test gpu::limb::tests::plane_spirv_is_the_glsl ... FAILED
+test gpu::limb::tests::rank1_map_spirv_is_the_glsl ... FAILED
+test gpu::nn::attn::kd::tests::attn_kd_bwd_face_matches_f64 ... ok
+test gpu::nn::attn::kd::tests::attn_kd_face_matches_f64 ... ok
+test gpu::nn::attn::kd::tests::attn_kd_face_sass ... ignored, instrument: dumps the pipeline-cache blob
+test gpu::nn::attn::kd::tests::attn_kd_face_speed ... ignored, timed campaign: opens the device and holds the GPU lock
+test gpu::nn::attn::kd::tests::attn_kd_negative_controls ... ignored, negative control: opens the device and runs the f64 oracle
+test gpu::nn::attn::kd::tests::kd_operand_magnitudes ... ignored, measurement: reads the KD student's layer 0
+test gpu::nn::attn::kd::tests::kdb_profile ... ignored, timing campaign: run it alone on a quiet host
+test gpu::nn::attn::prefill::tests::attn_coopmat_dpw2_word_layout_matches_quantize_batch_module ... ok
+test gpu::nn::attn::prefill::tests::attn_coopmat_specialization_dpw ... ok
+test gpu::nn::bwd::opt::tests::adam_optimi_schedule_matches_host ... ok
+test gpu::nn::coopmat_gemm::tests::coopmat_bf16_spirv_is_the_glsl ... ok
+test gpu::nn::coopmat_gemm::tests::coopmat_properties ... ok
+/workspace/src/gpu/spirv/attn_coopmat.comp:5: error: '#extension' : extension not supported: GL_EXT_bfloat16
+/workspace/src/gpu/spirv/attn_coopmat.comp:546: error: '' :  syntax error, unexpected IDENTIFIER, expecting LEFT_BRACE or COMMA or SEMICOLON
+2 errors generated.
+test gpu::nn::attn::kd::tests::attn_coopmat_kd_spirv_is_the_glsl ... FAILED
+test gpu::nn::spec::tests::a_fused_spec_cannot_silently_swallow_its_mapping ... ok
+test gpu::nn::spec::tests::a_moe_spec_names_the_axis_it_cannot_honour ... ok
+test gpu::nn::spec::tests::coop_declares_no_row_staging ... ok
+test gpu::nn::spec::tests::coop_refuses_split_k ... ok
+test gpu::nn::spec::tests::direct_carriers_have_no_scale_face ... ok
+src/gpu/spirv/attn_coopmat.comp:5: error: '#extension' : extension not supported: GL_EXT_bfloat16
+src/gpu/spirv/attn_coopmat.comp:99: error: '' :  syntax error, unexpected IDENTIFIER, expecting LEFT_BRACE or COMMA or SEMICOLON
+2 errors generated.
+test gpu::nn::spec::tests::emit_is_total_wherever_legalize_passes ... ok
+test gpu::nn::spec::tests::q5_needs_a_fused_fold_that_reads_plane_b ... ok
+test gpu::nn::spec::tests::q6_needs_a_fused_fold_that_reads_plane_b ... ok
+test gpu::nn::spec::tests::reduce_faces_agree_on_segs_and_differ_on_stage2 ... ok
+test gpu::nn::spec::tests::routing_moe_through_the_spec_emits_the_same_module ... ok
+test gpu::nn::spec::tests::row_shared_reproduces_the_measured_table ... ok
+test gpu::nn::attn::kd::kdb_fresh::kdb_spv_is_fresh ... FAILED
+test gpu::nn::spec::tests::sbtile_batch_conflicts_with_split_k ... ok
+test gpu::nn::spec::tests::scale_faces_are_mutually_exclusive_by_construction ... ok
+test gpu::nn::spec::tests::spec_bytes_match_the_shipped_formulas ... ok
+test gpu::nn::spec::tests::superblock_is_q2_only ... ok
+test gpu::nn::spec::tests::superblock_and_sbtile_imply_each_other ... ok
+test gpu::nn::tests::modules_walk ... ok
+/workspace/src/gpu/spirv/coopmat_gemm.comp:9: error: '#extension' : extension not supported: GL_EXT_integer_dot_product
+/workspace/src/gpu/spirv/coopmat_gemm.comp:250: error: 'dotPacked4x8EXT' : no matching overloaded function found
+/workspace/src/gpu/spirv/coopmat_gemm.comp:250: error: 'return' : type does not match, or is not convertible to, the function's return type
+3 errors generated.
+test gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl ... FAILED
+test engine::mixer::f32_carrier::tests::f32_tracks_q32_oracle ... ok
+test gpu::nn::train::attn_bwd::tests::attn_bwd_gated_dump ... ignored, writes a gradient dump named by APEIRON_ATTN_DUMP for a cross-build cmp
+test gpu::nn::train::attn_bwd::tests::attn_bwd_ref_matches_fd ... ok
+test engine::step::prefill_tests::prefill_state_matches_two_phase_computation ... ok
+test gpu::nn::train::attn_bwd::tests::attn_bwd_timing ... ignored, needs a Vulkan device; reports the paired walls
+test gpu::nn::train::attn_bwd::tests::attn_bwd_timing_querypool ... ignored, needs a Vulkan device; reports the bwd dispatch wall
+test gpu::nn::train::attn_bwd::tests::attn_map_bwd_spirv_is_the_glsl ... FAILED
+test gpu::nn::train::block::tests::block_dense_matches_host ... ok
+test gpu::nn::train::block::tests::block_tune_matches_host ... ok
+test gpu::nn::train::block::tests::release_tape_then_set_t_matches_a_fresh_tuner ... ok
+test gpu::nn::train::block::tests::set_t_matches_a_fresh_tuner ... ok
+test gpu::nn::train::block::tests::zero_residual_seeds_zero_gradient ... ok
+test gpu::nn::train::block_mask::tests::block_importance_loss_matches_host ... ok
+test gpu::nn::train::attn_bwd::tests::attn_bwd_ref_matches_fd_ungated ... ok
+test gpu::nn::train::block_mask::tests::block_train_mask_isolates_slot ... ok
+test gpu::nn::train::chain::tests::chain_dx_matches_fd ... ok
+test gpu::nn::train::front::tests::front_dense_matches_host ... ok
+test gpu::nn::train::front::tests::front_tune_matches_host ... ok
+test gpu::nn::train::front::tests::release_tape_then_set_t_matches_a_fresh_front ... ok
+test gpu::nn::train::block_mask::tests::block_map_spirv_is_the_glsl ... FAILED
+test gpu::nn::train::head::tests::kd_head_full_vocab_wall ... ok
+test gpu::nn::train::head::tests::kd_head_golden_rows ... ok
+test gpu::nn::train::head::tests::kd_head_matches_f64 ... ok
+test gpu::nn::train::mixer::tests::delta_bwd_device_matches_ref ... FAILED
+test gpu::nn::train::front::tests::set_t_matches_a_fresh_front ... ok
+test gpu::nn::train::mixer::tests::delta_bwd_timing ... ignored, needs a Vulkan device; reports the paired walls
+test gpu::nn::attn::kd::tests::attn_coopmat_spirv_is_the_glsl ... FAILED
+test gpu::simt::superblock::batch_rt_plane_tests::q4_batch_rt_module_still_emits ... ok
+test gpu::simt::superblock::batch_rt_plane_tests::q5_batch_rt_module_is_refused - should panic ... ok
+test gpu::simt::superblock::q3_plane_tests::q3_chart_is_three_bits_per_weight ... ok
+test gpu::simt::superblock::q3_plane_tests::q3_planes_round_trip ... ok
+test gpu::simt::superblock::sb_carrier_tests::q4_and_q8_superblock_modules_emit_and_are_distinct ... ok
+test gpu::simt::superblock::sb_carrier_tests::the_code_geometry_closes_at_one_byte_per_lane ... ok
+test gpu::simt::superblock::two_level_chart_tests::two_level_gpu_chart_is_a_permutation_of_the_row_chart ... ok
+test gpu::simt::superblock::two_level_chart_tests::two_level_gpu_chart_is_dm_over_two_plus_one_word_per_row ... ok
+test gpu::simt::tests::dp4a_module_walks ... ok
+test gpu::simt::tests::gemv_module_walks ... ok
+test gpu::simt::tests::isa_is_twelve ... ok
+test gpu::simt::tests::known_encodings ... ok
+test gpu::simt::tests::module_walks ... ok
+test gpu::simt::tests::reference_points ... ok
+test kepler::tests::error_bound_covers_the_exact_real_quotient ... ok
+test gpu::nn::train::mixer::tests::mixer_spirv_is_the_glsl ... FAILED
+test learn::fold::stats::parts::k5::k5_paired ... ignored, measurement: release run, five alternating arms
+test learn::grad::adam::tests::first_step_moves_by_lr_times_sign ... ok
+test learn::grad::adam::tests::width_disagreement_is_refused ... ok
+test learn::grad::attn::tests::attn_refusals_reached ... ok
+test learn::grad::attn::tests::bwd_output_words_pinned ... ok
+test learn::grad::attn::tests::causal_mask_later_keys_do_not_leak ... ok
+test kepler::tests::service_ceiling_is_exact_real_conservative ... ok
+test learn::grad::attn::tests::exp_saturation_far_entry_is_exact_zero ... ok
+test learn::grad::attn::tests::fd_fixture_mha_t2_hd2 ... ok
+test learn::grad::attn::tests::fd_fixture_two_heads_gqa_t3_hd4 ... ok
+test learn::grad::attn::tests::kern_bench ... ignored, measurement: 5 alternating runs at the production shape
+test learn::grad::attn::tests::fd_fixture_two_heads_gqa_t4_hd8 ... ok
+test learn::grad::attn::tests::kern_one_token_row_is_exact ... ok
+test learn::grad::attn::tests::kern_refusals_map_to_attn_errors ... ok
+test learn::grad::attn::tests::kern_route_error_against_exact_body ... ok
+test learn::grad::attn::tests::one_token_row_is_exact ... ok
+test learn::grad::attn::tests::rope_adjoint_exact_and_rounded_bound ... ok
+test learn::grad::attn::tests::rope_refusals_reached ... ok
+test learn::grad::attn::tests::zero_row_is_uniform ... ok
+test learn::grad::dense::tests::div_round_is_nearest_ties_away_from_zero_for_both_signs ... ok
+test learn::grad::dense::tests::linear_adjoint_identity_exact_in_i128 ... ok
+test learn::grad::dense::tests::linear_public_outputs_are_rounded_raw ... ok
+test learn::grad::dense::tests::linear_refusals_reach_every_arm ... ok
+test learn::grad::dense::tests::rmsnorm_bwd_boundary_rows ... ok
+test learn::grad::dense::tests::rmsnorm_bwd_central_difference_fixtures ... ok
+test learn::grad::dense::tests::rmsnorm_refusals_reach_every_arm ... ok
+test learn::grad::dense::tests::swiglu_bwd_boundary_values ... ok
+test learn::grad::dense::tests::swiglu_bwd_central_difference_fixtures ... ok
+test learn::grad::dense::tests::swiglu_refusals_reach_every_arm ... ok
+test learn::grad::head::tests::head_chunked_is_independent_of_chunk ... ok
+test learn::grad::head::tests::head_chunked_refusals_are_reached ... ok
+test learn::grad::head::tests::head_gradients_are_the_exact_chain_rule ... ok
+test learn::grad::head::tests::head_gradients_match_central_difference ... ok
+test learn::grad::head::tests::kl_and_tv_vanish_at_equal_logits_and_one_element_rows ... ok
+test learn::grad::head::tests::kl_gradient_matches_central_difference ... ok
+test learn::grad::head::tests::kl_is_nonnegative_within_derived_bound ... ok
+test learn::grad::head::tests::row_refusals_are_reached ... ok
+test learn::grad::head::tests::softmax_sums_to_one_within_derived_bound ... ok
+test learn::grad::head::tests::tv_gradient_matches_central_difference ... ok
+test learn::grad::head::tests::tv_lies_in_zero_one ... ok
+test learn::grad::head::tests::underflow_flushes_p_and_keeps_log_p ... ok
+test learn::grad::attn::tests::kern_fd_fixture_gqa_and_mha ... ok
+test gpu::nn::train::attn_bwd::tests::attn_bwd_device_matches_ref_ungated ... FAILED
+test learn::grad::model::tests::zero_discrepancy_gives_zero_gradient ... ok
+test learn::nanoquant::tests::dense_residual_clears_a_sign_target_and_absorbs_the_salient_column ... ok
+test learn::nanoquant::tests::dense_residual_layers_are_sequential ... ok
+test learn::nanoquant::tests::dense_residual_refuses_a_short_matrix ... ok
+test learn::nanoquant::tests::dense_residual_serves_through_the_engine ... ok
+test learn::nanoquant::tests::export_serves_the_b_step_product_not_its_column_rescaling ... ok
+test learn::nanoquant::tests::fro2_carries_a_row_past_the_word_range ... ok
+test learn::nanoquant::tests::limb_refusals_keep_their_reason ... ok
+test learn::nanoquant::tests::normals_match_sequential ... ok
+test learn::nanoquant::tests::spd_inverse_base_wall ... ignored, microbench
+test gpu::nn::train::attn_bwd::tests::attn_bwd_device_matches_ref_ungated_small_dy ... FAILED
+test learn::grad::model::tests::backward_matches_finite_difference ... ok
+test gpu::nn::train::attn_bwd::tests::attn_bwd_device_matches_ref ... FAILED
+test learn::nanoquant::tests::spd_inverse_split_wall ... ignored, microbench
+test learn::nanoquant::tests::the_base_factor_agrees_with_the_recursion ... ok
+test learn::nanoquant::tests::x_step_keeps_a_quiet_rank_across_a_2_pow_16_spread ... ok
+test learn::nanoquant::tests::x_update_phases ... ignored, measurement: release run, three timed passes per side
+test map::coord::locator::locator_core::tests::arc_delegates_the_exact_identity_to_the_pointee ... ok
+test map::coord::locator::locator_core::tests::reserve_or_linked_finds_a_repeat_key_without_creating_anything ... ok
+test map::coord::locator::locator_core::tests::the_staged_path_scratch_is_recycled_after_publication ... ok
+test map::count::tests::construction_refuses_an_unchecked_width ... ok
+test map::count::tests::count_overflow_is_refused_without_committing ... ok
+test map::count::tests::counting_words_are_injective_across_faces ... ok
+test map::count::tests::first_refused_coordinate_is_not_truncated_or_wrapped ... ok
+test map::count::tests::full_key_oracle_agrees_with_the_counting_container ... ok
+test map::count::tests::probe_is_bounded_by_the_region_width ... ok
+test map::count::tests::region_growth_preserves_every_committed_count ... ok
+test map::count::tests::sentinels_table_is_the_executed_one ... ok
+test map::count::tests::sigma_separation_update_leaves_the_other_face_unchanged ... ok
+test map::count::tests::zero_word_is_a_live_coordinate_not_a_vacancy ... ok
+test map::fold::tests::a_pepper_moves_every_address ... ok
+test map::fold::tests::a_short_key_and_the_pepper_are_not_interchangeable ... ok
+test map::fold::tests::a_zeroed_operand_does_not_collapse_the_fold ... ok
+test map::fold::tests::every_input_bit_moves_half_the_output_at_every_length ... ok
+test map::fold::tests::length_is_part_of_the_key ... ok
+test map::fold::tests::no_two_keys_collide_across_the_length_ladder ... ok
+test map::fold::tests::no_two_of_a_hundred_thousand_distinct_strings_share_an_address ... ok
+test map::fold::tests::the_finalizer_is_a_bijection_and_the_rejected_one_is_not ... ok
+test map::fold::tests::the_guard_swaps_only_on_the_two_element_coset ... ok
+test engine::chart::pool::tests::heterogeneous_stress_100k_dispatches_checksum has been running for over 60 seconds
+test engine::chart::pool::tests::stress_100k_random_dispatches_checksum has been running for over 60 seconds
+test learn::nanoquant::tests::spd_inverse_inverts ... ok
+test map::hashtrinity::crypto::argon2::phc_tests::different_salts_produce_different_hashes ... ok
+test map::hashtrinity::crypto::argon2::phc_tests::hash_then_verify_round_trips ... ok
+test map::hashtrinity::crypto::ed25519::ed25519_compact::tests::keypair_sign_verify_round_trips ... ok
+test map::hashtrinity::crypto::ed25519::ed25519_compact::tests::public_key_and_signature_slice_round_trip ... ok
+test map::hashtrinity::crypto::ed25519::ed25519_compact::tests::secret_key_der_round_trips ... ok
+test map::hashtrinity::crypto::argon2::phc_tests::params_roundtrip_through_stored_hash ... ok
+test map::hashtrinity::crypto::ed25519::x25519_tests::basepoint_scalar_mult_matches_independent_implementation ... ok
+test map::hashtrinity::crypto::ed25519::ed25519_compact::tests::tampered_signature_rejected ... ok
+test map::hashtrinity::crypto::ed25519::x25519_tests::dh_agreement_is_commutative ... ok
+test map::hashtrinity::crypto::ed25519::x25519_tests::dh_agreement_holds_for_random_scalars ... ok
+test gpu::nn::train::mixer::tests::delta_bwd_ref_matches_fd has been running for over 60 seconds
+test learn::nanoquant::tests::admm_loss_on_a_sign_factor_matches_the_reference_band has been running for over 60 seconds
+test learn::nanoquant::tests::spd_inverse_inline_matches_pooled has been running for over 60 seconds
+test map::hashtrinity::crypto::rsa::keygen_tests::masquerade_end_to_end ... ok
+test learn::nanoquant::tests::spd_inverse_inline_matches_pooled ... ok
+test learn::nanoquant::tests::spd_inverse_matches_serial has been running for over 60 seconds
+test map::hashtrinity::crypto::rsa::keygen_tests::pkcs8_der_round_trips ... ok
+test gpu::nn::train::mixer::tests::delta_bwd_ref_matches_fd ... ok
+test map::hashtrinity::freq::freqline_flood::multiples_attack_stays_bounded ... ok
+test map::hashtrinity::freq::freqline_flood::pinned_home_window_stays_bounded ... ok
+test map::hashtrinity::freq::freqline_flood::small_sequential_ints_stay_bounded ... ok
+test map::hashtrinity::par::tests::concurrent_dispatchers_do_not_clobber ... ok
+test map::hashtrinity::par::tests::dispatch_runs_each_task_once_into_disjoint_slots ... ok
+test map::hashtrinity::crypto::rsa::keygen_tests::tampered_signature_rejected ... ok
+test map::hashtrinity::par::tests::task_panic_propagates_and_pool_survives ... ok
+test map::hashtrinity::seed::tests::fold_unfold_round_trips ... ok
+test map::hashtrinity::seed::tests::phi_is_a_unit ... ok
+test map::hashtrinity::seed::tests::seed_regrows_the_key ... ok
+test map::hashtrinity::tregex::mem::tests::membership_parity ... ok
+test map::hashtrinity::tregex::mem::tests::overlapping_and_basic ... ok
+test map::merge::tests::every_in_place_merge_agrees_with_its_pure_twin ... ok
+test map::merge::tests::exactly_two_of_the_four_are_fusible ... ok
+test map::merge::tests::monoid_combine_is_associative ... ok
+test map::merge::tests::ordered_combine_is_commutative_but_not_associative ... ok
+test map::merge::tests::the_fusible_merges_are_commutative_and_the_others_are_not ... ok
+test map::table::geteach::tests::a_batch_at_or_below_the_depth_reads_without_staging ... ok
+test map::table::geteach::tests::batched_read_matches_the_serial_read_at_every_face ... ok
+test map::table::geteach::tests::default_face_batch_matches_get_and_preserves_order ... ok
+test map::table::home_census::home_fxhash_high_survives_the_congruence_control ... ok
+test map::table::home_census::home_mirror_agrees_with_the_region ... ok
+test map::table::keyrep::tests::direct_regen_hit_never_materializes_the_stored_key ... ok
+test map::table::locator_tests::a_locator_refusal_is_unreachable_after_a_committed_merge ... ok
+test map::table::locator_tests::batch_reservation_admits_a_fresh_insert_and_its_absence_refuses_one ... ok
+test map::table::locator_tests::elliptic_reserves_an_empty_receipt_and_no_directory ... ok
+test map::table::locator_tests::empty_directory_beside_a_live_payload_is_rejected ... ok
+test map::table::locator_tests::empty_locator_allocates_no_directory ... ok
+test map::table::locator_tests::found_updates_keep_existing_links ... ok
+test map::table::locator_tests::fresh_inserts_maintain_coverage_on_both_carriers_and_faces ... ok
+test map::table::locator_tests::locator_reservation_receipt_observes_every_checked_target ... ok
+test map::table::locator_tests::real_inserts_maintain_coverage_and_the_elliptic_face_has_no_directory ... ok
+test map::table::locator_tests::spill_growth_retargets_existing_links_and_keeps_coverage ... ok
+test map::table::locator_tests::spill_to_flat_relocation_keeps_coverage_on_both_carriers ... ok
+test map::table::locator_tests::unlinked_staging_issues_no_certificate ... ok
+test map::table::partition::tests::every_input_index_appears_exactly_once_in_output ... ok
+test map::table::partition::tests::locator_only_serial_and_parallel_roundtrip_distinguishes_faces ... ok
+test map::table::partition::tests::lpt_is_load_ordered_and_deterministic ... ok
+test map::table::partition::tests::mixed_face_parallel_roundtrip_distinguishes_faces ... ok
+test map::table::partition::tests::mixed_face_serial_roundtrip_distinguishes_faces ... ok
+test map::table::partition::tests::named_test_home_semantic_face_is_not_the_physical_placement ... ok
+test map::table::partition::tests::parallel_scatter_equals_serial_parts_across_worker_counts ... ok
+test map::table::partition::tests::parallel_scatter_matches_serial_for_interleaved_repeated_keys ... ok
+test map::table::partition::tests::parallel_scatter_output_rejects_a_same_shard_reversal ... ok
+test map::table::partition::tests::parallel_scatter_preserves_chunk_order_for_a_single_hot_shard ... ok
+test map::table::partition::tests::partition_integrity_accepts_a_single_shard_load_skew ... ok
+test map::table::partition::tests::partition_integrity_accepts_clustered_repeated_keys ... ok
+test map::table::partition::tests::partition_integrity_rejects_a_duplicate_assignment ... ok
+test map::table::partition::tests::partition_integrity_rejects_a_misrouted_index ... ok
+test map::table::partition::tests::partition_integrity_rejects_a_same_shard_duplicate ... ok
+test map::table::partition::tests::partition_integrity_rejects_a_same_shard_reversal ... ok
+test map::table::partition::tests::partition_integrity_rejects_an_omitted_assignment ... ok
+test map::table::partition::tests::partition_integrity_rejects_nonmonotone_bounds ... ok
+test map::table::partition::tests::partition_integrity_rejects_out_of_range_bounds ... ok
+test map::table::partition::tests::partition_is_one_contiguous_buffer_not_one_allocation_per_element ... ok
+test map::table::partition::tests::runs_preserve_input_order_within_each_shard ... ok
+test map::table::partition::tests::shard_sizes_match_the_loads_and_lpt_bins_partition_the_shards ... ok
+test map::table::prepared_placement_tests::distinct_keys_report_distinct_slots ... ok
+test map::table::prepared_placement_tests::placement_reports_the_slot_for_fresh_and_repeat_entries ... ok
+test map::table::probe::tests::spill_locate_classifies_a_fixed_initialized_region ... ok
+test map::table::probe::tests::spill_read_certifies_absence_on_a_completed_cycle ... ok
+test map::table::probe::tests::spill_read_certifies_absence_on_a_zero_tag ... ok
+test map::table::probe::tests::spill_read_finds_a_match_at_the_last_step_of_the_cycle ... ok
+test map::table::probe::tests::spill_read_reports_absence_without_a_full_key_match ... ok
+test map::table::probe::tests::spill_read_resolves_a_forced_same_fingerprint_collision ... ok
+test map::table::probe::tests::spill_read_returns_the_matching_slot ... ok
+test map::table::tests::a_group_width_shard_region_keeps_a_vacancy_for_an_absent_read ... ok
+test map::table::tests::an_absent_read_is_decided_by_the_vacant_coordinate_at_its_home ... ok
+test map::table::tests::apply_insert_commits_a_flat_vacancy_then_updates_a_flat_found_slot ... ok
+test map::table::tests::apply_insert_updates_a_found_spill_slot ... ok
+test map::table::tests::apply_pending_and_commit_consumes_the_supplied_decision ... ok
+test map::table::tests::counted_identity_is_the_value_not_the_clone_counter ... ok
+test map::table::tests::counted_semantic_map_is_independent_of_the_collision_only_route ... ok
+test map::table::tests::every_live_spill_slot_is_tagged_and_counted_on_the_real_insertion_path ... ok
+test map::table::tests::exhausted_apply_returns_the_prepared_growth_outcome_without_allocating ... ok
+test map::table::tests::final_reservation_refusal_leaves_the_table_unchanged_with_no_clone_or_merge ... ok
+test map::table::tests::flat_found_update_recycles_the_staged_scratch ... ok
+test map::table::tests::flat_index_is_a_bijection_under_the_power_of_two_invariant ... ok
+test map::table::tests::flat_reserve_refuses_a_non_power_of_two_lane_count ... ok
+test map::table::tests::grow_spill_sizes_the_successor_from_the_live_count ... ok
+test map::table::tests::prepared_adapter_materializes_vacant_storage_and_carries_the_pending_held ... ok
+test map::table::tests::prepared_shard_reserves_before_hold_on_sizing_refusal ... ok
+test map::table::tests::prepared_shard_reserves_the_checked_flat_capacity_at_a_real_load ... ok
+test map::table::tests::read_absence_direct_empty_certificate_returns_default ... ok
+test map::table::tests::read_clones_and_merges_nothing_and_leaves_storage_unchanged ... ok
+test map::table::tests::read_found_identity_is_unchanged_for_both_carriers_and_areas ... ok
+test map::table::tests::read_helper_finds_a_late_match_after_same_fingerprint_rejects ... ok
+test map::table::tests::read_path_timing_old_decision_versus_specialized ... ignored, timing diagnostic; run with --ignored --nocapture
+test map::table::tests::resident_index_matches_the_rebuilt_index_for_every_admitted_word ... ok
+test map::table::tests::selected_lanes_admits_the_required_lane_and_refuses_past_the_byte_budget ... ok
+test map::table::tests::selected_resident_reservation_failure_leaves_table_unchanged ... ok
+test map::table::tests::serial_build_branches_maintain_storage_coverage ... ok
+test map::table::tests::spill_cycle_finds_a_match_past_same_fingerprint_rejects ... ok
+test map::table::tests::spill_decision_selects_the_first_vacant_slot ... ok
+test map::table::tests::spill_found_update_recycles_the_staged_scratch ... ok
+test map::table::tests::spill_publication_order_is_payload_then_tag ... ok
+test map::table::tests::table_get_certifies_absence_on_a_completed_spill_cycle ... ok
+test numeric::fixed_exp::tests::accuracy_against_f64_exp ... ok
+test numeric::fixed_exp::tests::monotone_on_a_sample ... ok
+test numeric::fixed_exp::tests::zero_and_boundaries ... ok
+test numeric::fixed_ln::tests::ln_accuracy_dense_sweep ... ok
+test numeric::fixed_ln::tests::ln_exact_and_powers_of_two ... ok
+test numeric::fixed_ln::tests::ln_refusals ... ok
+test numeric::fixed_ln::tests::sigmoid_accuracy_monotonicity_and_symmetry ... ok
+test numeric::fixed_ln::tests::softplus_accuracy_and_monotonicity ... ok
+test numeric::fixed_rsqrt::tests::accuracy_on_a_dense_grid ... ok
+test numeric::fixed_rsqrt::tests::exact_identities_and_boundaries ... ok
+test numeric::fixed_rsqrt::tests::monotone_decreasing_on_a_sample ... ok
+test map::hashtrinity::par::tests::pool_publish_claim_consistency_under_batch_churn ... ok
+test numeric::fixed_trig::tests::atan2_matches_f64_within_the_derived_bound ... ok
+test numeric::fixed_trig::tests::atan2_refuses_only_unrepresentable_magnitudes ... ok
+test numeric::fixed_trig::tests::exact_and_near_values ... ok
+test numeric::fixed_trig::tests::monotone_across_the_base_interval ... ok
+test numeric::fixed_trig::tests::refuses_outside_the_window ... ok
+test numeric::register::tests::checked_mul_agrees_with_cell_mul_without_overflow ... ok
+test numeric::register::tests::checked_mul_refuses_overflow_and_agrees_where_it_fits ... ok
+test numeric::register::tests::elliptic_stage_at_one_one_subtracts_adds ... ok
+test numeric::register::tests::elliptic_stage_scales_the_sum_of_squares_by_the_norm_form ... ok
+test numeric::register::tests::refuses_bad_domain_and_overflow ... ok
+test numeric::register::tests::stage_by_w_then_conj_w_is_the_norm_form ... ok
+test policy::decide::tests::allow_attenuate_ask_deny_are_reachable ... ok
+test policy::decide::tests::ask_precedes_partial_grant ... ok
+test policy::decide::tests::default_deny_names_no_permit ... ok
+test policy::decide::tests::duplicate_rule_ids_are_allowed ... ok
+test policy::decide::tests::forbid_on_disjoint_rights_attenuates ... ok
+test policy::decide::tests::max_rights_and_want ... ok
+test policy::decide::tests::order_independent_with_min_cause ... ok
+test policy::decide::tests::other_actions_are_ignored ... ok
+test policy::decide::tests::out_of_range_atoms_are_unknown_not_panic ... ok
+test policy::decide::tests::slot_63_known_and_slot_64_unknown ... ok
+test policy::decide::tests::unknown_forbid_applies_and_unknown_permit_is_inert ... ok
+test policy::decide::tests::zero_want_is_denied ... ok
+test scalar::tests::a_half_is_exact_and_round_trips ... ok
+test scalar::tests::arithmetic_stays_exact_where_a_float_would_drift ... ok
+test scalar::tests::checked_arithmetic_is_exact_where_it_is_representable ... ok
+test scalar::tests::checked_arithmetic_reports_every_overflow ... ok
+test scalar::tests::equality_is_independent_of_scale ... ok
+test scalar::tests::the_infallible_api_refuses_to_drop_bits - should panic ... ok
+test map::hashtrinity::crypto::rsa::keygen_tests::keygen_sign_verify_round_trips_all_hash_sizes has been running for over 60 seconds
+test learn::nanoquant::tests::admm_loss_on_a_sign_factor_matches_the_reference_band ... ok
+test map::hashtrinity::freq::count_par_regen::regen_count_par_matches_oracle ... ok
+test numeric::fixed_trig::tests::accuracy_against_f64_sin_cos ... ok
+test learn::nanoquant::tests::spd_inverse_matches_serial ... ok
+test engine::chart::pool::tests::heterogeneous_stress_100k_dispatches_checksum ... ok
+test engine::chart::pool::tests::stress_100k_random_dispatches_checksum ... ok
+test map::hashtrinity::crypto::rsa::keygen_tests::keygen_sign_verify_round_trips_all_hash_sizes ... ok
+
+failures:
+
+---- gpu::limb::tests::inv_map_spirv_is_the_glsl stdout ----
+
+thread 'gpu::limb::tests::inv_map_spirv_is_the_glsl' (113670) panicked at src/gpu/limb/tests.rs:904:5:
+inv_map.spv is stale: re-run glslc
+
+---- gpu::limb::tests::finish_spirv_is_the_glsl stdout ----
+
+thread 'gpu::limb::tests::finish_spirv_is_the_glsl' (113660) panicked at src/gpu/limb/tests.rs:345:5:
+limb_finish.spv is stale: re-run glslc
+
+---- gpu::limb::tests::admm_map_spirv_is_the_glsl stdout ----
+
+thread 'gpu::limb::tests::admm_map_spirv_is_the_glsl' (113650) panicked at src/gpu/limb/tests.rs:801:5:
+admm_map.spv is stale: re-run glslc
+
+---- gpu::limb::tests::place_spirv_is_the_glsl stdout ----
+
+thread 'gpu::limb::tests::place_spirv_is_the_glsl' (113830) panicked at src/gpu/limb/tests.rs:160:5:
+limb_place.spv is stale: re-run glslc
+
+---- gpu::limb::tests::limb_spirv_is_the_glsl stdout ----
+
+thread 'gpu::limb::tests::limb_spirv_is_the_glsl' (113825) panicked at src/gpu/limb/tests.rs:35:5:
+limb_gemm.spv is stale: re-run glslc
+
+---- gpu::limb::tests::plane_spirv_is_the_glsl stdout ----
+
+thread 'gpu::limb::tests::plane_spirv_is_the_glsl' (113853) panicked at src/gpu/limb/tests.rs:56:5:
+limb_plane.spv is stale: re-run glslc
+
+---- gpu::limb::tests::rank1_map_spirv_is_the_glsl stdout ----
+
+thread 'gpu::limb::tests::rank1_map_spirv_is_the_glsl' (113939) panicked at src/gpu/limb/tests.rs:925:5:
+rank1_map.spv is stale: re-run glslc
+
+---- gpu::nn::attn::kd::tests::attn_coopmat_kd_spirv_is_the_glsl stdout ----
+
+thread 'gpu::nn::attn::kd::tests::attn_coopmat_kd_spirv_is_the_glsl' (114066) panicked at src/gpu/nn/attn/kd/tests.rs:328:5:
+glslc failed: exit status: 1
+
+---- gpu::nn::attn::kd::kdb_fresh::kdb_spv_is_fresh stdout ----
+
+thread 'gpu::nn::attn::kd::kdb_fresh::kdb_spv_is_fresh' (114062) panicked at src/gpu/nn/attn/kd.rs:399:9:
+glslc failed: exit status: 1
+
+---- gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl stdout ----
+
+thread 'gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl' (114233) panicked at src/gpu/nn/coopmat_gemm.rs:734:9:
+glslc failed: exit status: 1
+
+---- gpu::nn::train::attn_bwd::tests::attn_map_bwd_spirv_is_the_glsl stdout ----
+
+thread 'gpu::nn::train::attn_bwd::tests::attn_map_bwd_spirv_is_the_glsl' (116451) panicked at src/gpu/nn/train/attn_bwd.rs:425:9:
+attn_map_bwd.spv is stale
+
+---- gpu::nn::train::block_mask::tests::block_map_spirv_is_the_glsl stdout ----
+
+thread 'gpu::nn::train::block_mask::tests::block_map_spirv_is_the_glsl' (116459) panicked at src/gpu/nn/train/block_mask.rs:42:9:
+block_map.spv is stale: re-run glslc
+
+---- gpu::nn::train::mixer::tests::delta_bwd_device_matches_ref stdout ----
+
+thread 'gpu::nn::train::mixer::tests::delta_bwd_device_matches_ref' (116470) panicked at src/gpu/nn/train/mixer.rs:1370:40:
+vulkan: "vkCreateInstance failed (no ICD?)"
+
+---- gpu::nn::attn::kd::tests::attn_coopmat_spirv_is_the_glsl stdout ----
+
+thread 'gpu::nn::attn::kd::tests::attn_coopmat_spirv_is_the_glsl' (114178) panicked at src/gpu/nn/attn/kd/tests.rs:350:5:
+glslc failed: signal: 11 (SIGSEGV) (core dumped)
+
+---- gpu::nn::train::mixer::tests::mixer_spirv_is_the_glsl stdout ----
+
+thread 'gpu::nn::train::mixer::tests::mixer_spirv_is_the_glsl' (116472) panicked at src/gpu/nn/train/mixer.rs:882:9:
+delta_scan.spv is stale
+
+---- gpu::nn::train::attn_bwd::tests::attn_bwd_device_matches_ref_ungated stdout ----
+
+thread 'gpu::nn::train::attn_bwd::tests::attn_bwd_device_matches_ref_ungated' (114405) panicked at src/gpu/nn/train/attn_bwd.rs:1423:40:
+vulkan: "vkCreateInstance failed (no ICD?)"
+
+---- gpu::nn::train::attn_bwd::tests::attn_bwd_device_matches_ref_ungated_small_dy stdout ----
+
+thread 'gpu::nn::train::attn_bwd::tests::attn_bwd_device_matches_ref_ungated_small_dy' (114498) panicked at src/gpu/nn/train/attn_bwd.rs:1423:40:
+vulkan: "vkCreateInstance failed (no ICD?)"
+
+---- gpu::nn::train::attn_bwd::tests::attn_bwd_device_matches_ref stdout ----
+
+thread 'gpu::nn::train::attn_bwd::tests::attn_bwd_device_matches_ref' (114388) panicked at src/gpu/nn/train/attn_bwd.rs:1055:40:
+vulkan: "vkCreateInstance failed (no ICD?)"
+
+
+failures:
+    gpu::limb::tests::admm_map_spirv_is_the_glsl
+    gpu::limb::tests::finish_spirv_is_the_glsl
+    gpu::limb::tests::inv_map_spirv_is_the_glsl
+    gpu::limb::tests::limb_spirv_is_the_glsl
+    gpu::limb::tests::place_spirv_is_the_glsl
+    gpu::limb::tests::plane_spirv_is_the_glsl
+    gpu::limb::tests::rank1_map_spirv_is_the_glsl
+    gpu::nn::attn::kd::kdb_fresh::kdb_spv_is_fresh
+    gpu::nn::attn::kd::tests::attn_coopmat_kd_spirv_is_the_glsl
+    gpu::nn::attn::kd::tests::attn_coopmat_spirv_is_the_glsl
+    gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl
+    gpu::nn::train::attn_bwd::tests::attn_bwd_device_matches_ref
+    gpu::nn::train::attn_bwd::tests::attn_bwd_device_matches_ref_ungated
+    gpu::nn::train::attn_bwd::tests::attn_bwd_device_matches_ref_ungated_small_dy
+    gpu::nn::train::attn_bwd::tests::attn_map_bwd_spirv_is_the_glsl
+    gpu::nn::train::block_mask::tests::block_map_spirv_is_the_glsl
+    gpu::nn::train::mixer::tests::delta_bwd_device_matches_ref
+    gpu::nn::train::mixer::tests::mixer_spirv_is_the_glsl
+
+test result: FAILED. 694 passed; 18 failed; 62 ignored; 0 measured; 0 filtered out; finished in 218.88s
+
+error: test failed, to rerun pass `-p apeiron --lib`
++ rc=101
+++ date -u
++ echo '== full tests rc=101 Mon Nov 23 08:02:58 UTC 2026'
+== full tests rc=101 Mon Nov 23 08:02:58 UTC 2026
++ gcloud storage cp /workspace/full-tests.log gs://sanguine-checkpoints-scribe-461316/nq/l4/
++ tail -1

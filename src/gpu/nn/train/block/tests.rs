@@ -1224,3 +1224,168 @@ fn da_matrix(
     );
     let _ = (&m, &dy);
 }
+
+/// [`BlockTune::set_t`] re-tapes the same buffers: a narrow step on a wide allocation equals the
+/// same step on a tuner allocated at that width, in the loss and in the output. The wide tuner's
+/// first run also covers the width the allocation was built at.
+#[test]
+fn set_t_matches_a_fresh_tuner() {
+    let Ok(vk) = (unsafe { Vk::load() }) else {
+        println!("SKIP: no Vulkan device");
+        return;
+    };
+    let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
+    let wide = BlockShape {
+        t: 16,
+        d: 32,
+        a: 48,
+        f: 64,
+        ranks: [8; 4],
+    };
+    let narrow = BlockShape { t: 8, ..wide };
+    let fs: Vec<HostFactor> = (0..4)
+        .map(|k| {
+            let (o, i) = wide.dims(k);
+            factor(o, i, wide.ranks[k], 10 * k as u64 + 1)
+        })
+        .collect();
+    let g2: Vec<f32> = unit(wide.d, 90).iter().map(|v| 1.0 + 0.2 * v).collect();
+    let x = unit(wide.t * wide.d, 91);
+    let a = unit(wide.t * wide.a, 92);
+    let yt: Vec<f32> = unit(wide.t * wide.d, 93).iter().map(|v| 0.5 * v).collect();
+    let n = narrow.t;
+    let (xn, an, ytn) = (&x[..n * wide.d], &a[..n * wide.a], &yt[..n * wide.d]);
+    unsafe {
+        let mut wide_bt = BlockTune::new(&g, wide, 1e-3, 1e-3, 1e-3);
+        wide_bt.load(&g, &fs, &g2);
+        wide_bt.batch(&g, &x, &a, &yt);
+        let loss_wide = wide_bt.run(&g, false);
+        let out_wide = wide_bt.output(&g);
+        wide_bt.set_t(&g, n);
+        wide_bt.batch(&g, xn, an, ytn);
+        let loss_narrow = wide_bt.run(&g, false);
+        let out_narrow = wide_bt.output(&g);
+
+        let mut fresh = BlockTune::new(&g, narrow, 1e-3, 1e-3, 1e-3);
+        fresh.load(&g, &fs, &g2);
+        fresh.batch(&g, xn, an, ytn);
+        let loss_fresh = fresh.run(&g, false);
+        let out_fresh = fresh.output(&g);
+
+        let rel = |got: &[f32], want: &[f32]| {
+            let (mut num, mut den) = (0.0f64, 1e-30f64);
+            for (&p, &q) in got.iter().zip(want) {
+                num = num.max((f64::from(p) - f64::from(q)).abs());
+                den = den.max(f64::from(q).abs());
+            }
+            num / den
+        };
+        println!(
+            "set_t: loss wide {loss_wide:.6e} narrow {loss_narrow:.6e} fresh {loss_fresh:.6e}; \
+             output rel narrow-vs-fresh {:.2e} wide-vs-narrow {:.2e}",
+            rel(&out_narrow, &out_fresh),
+            rel(&out_wide[..n * wide.d], &out_narrow)
+        );
+        let bits = |got: &[f32], want: &[f32]| {
+            got.iter()
+                .zip(want)
+                .position(|(a, b)| a.to_bits() != b.to_bits())
+        };
+        assert_eq!(out_narrow.len(), n * wide.d, "set_t output extent");
+        assert_eq!(out_fresh.len(), n * wide.d, "fresh output extent");
+        assert_eq!(
+            loss_narrow.to_bits(),
+            loss_fresh.to_bits(),
+            "set_t loss {loss_narrow:.6e} vs fresh {loss_fresh:.6e}"
+        );
+        assert_eq!(
+            bits(&out_narrow, &out_fresh),
+            None,
+            "set_t output differs bitwise"
+        );
+        assert_eq!(
+            bits(&out_wide[..n * wide.d], &out_narrow),
+            None,
+            "prefix differs bitwise"
+        );
+    }
+}
+
+/// [`set_t_matches_a_fresh_tuner`] with the wide tape released first: the reallocation at the new
+/// width must reproduce the fresh tuner, which is what the ADMM phase boundary does to free the
+/// non-fact tape before the ADMM frames grow.
+#[test]
+fn release_tape_then_set_t_matches_a_fresh_tuner() {
+    let Ok(vk) = (unsafe { Vk::load() }) else {
+        println!("SKIP: no Vulkan device");
+        return;
+    };
+    let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
+    let wide = BlockShape {
+        t: 16,
+        d: 32,
+        a: 48,
+        f: 64,
+        ranks: [8; 4],
+    };
+    let narrow = BlockShape { t: 8, ..wide };
+    let fs: Vec<HostFactor> = (0..4)
+        .map(|k| {
+            let (o, i) = wide.dims(k);
+            factor(o, i, wide.ranks[k], 10 * k as u64 + 1)
+        })
+        .collect();
+    let g2: Vec<f32> = unit(wide.d, 90).iter().map(|v| 1.0 + 0.2 * v).collect();
+    let x = unit(wide.t * wide.d, 91);
+    let a = unit(wide.t * wide.a, 92);
+    let yt: Vec<f32> = unit(wide.t * wide.d, 93).iter().map(|v| 0.5 * v).collect();
+    let n = narrow.t;
+    let (xn, an, ytn) = (&x[..n * wide.d], &a[..n * wide.a], &yt[..n * wide.d]);
+    unsafe {
+        let mut bt = BlockTune::new(&g, wide, 1e-3, 1e-3, 1e-3);
+        bt.load(&g, &fs, &g2);
+        bt.batch(&g, &x, &a, &yt);
+        let loss_wide = bt.run(&g, false);
+        bt.release_tape(&g);
+        bt.set_t(&g, n);
+        bt.batch(&g, xn, an, ytn);
+        let loss_narrow = bt.run(&g, false);
+        let out_narrow = bt.output(&g);
+
+        let mut fresh = BlockTune::new(&g, narrow, 1e-3, 1e-3, 1e-3);
+        fresh.load(&g, &fs, &g2);
+        fresh.batch(&g, xn, an, ytn);
+        let loss_fresh = fresh.run(&g, false);
+        let out_fresh = fresh.output(&g);
+
+        let rel = |got: &[f32], want: &[f32]| {
+            let (mut num, mut den) = (0.0f64, 1e-30f64);
+            for (&p, &q) in got.iter().zip(want) {
+                num = num.max((f64::from(p) - f64::from(q)).abs());
+                den = den.max(f64::from(q).abs());
+            }
+            num / den
+        };
+        println!(
+            "release_tape: loss wide {loss_wide:.6e} narrow {loss_narrow:.6e} fresh \
+             {loss_fresh:.6e}; output rel narrow-vs-fresh {:.2e}",
+            rel(&out_narrow, &out_fresh)
+        );
+        let bits = |got: &[f32], want: &[f32]| {
+            got.iter()
+                .zip(want)
+                .position(|(a, b)| a.to_bits() != b.to_bits())
+        };
+        assert_eq!(out_narrow.len(), n * wide.d, "set_t output extent");
+        assert_eq!(
+            loss_narrow.to_bits(),
+            loss_fresh.to_bits(),
+            "set_t loss {loss_narrow:.6e} vs fresh {loss_fresh:.6e}"
+        );
+        assert_eq!(
+            bits(&out_narrow, &out_fresh),
+            None,
+            "set_t output differs bitwise"
+        );
+    }
+}

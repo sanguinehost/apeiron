@@ -1,0 +1,59 @@
++ . /root/.cargo/env
+++ case ":${PATH}:" in
++ cd /workspace
++ export APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ export APEIRON_NQ_DUMP=/workspace/dump-8b
++ APEIRON_NQ_DUMP=/workspace/dump-8b
++ export APEIRON_NQ_LOOP=/workspace/loop-8b-trace
++ APEIRON_NQ_LOOP=/workspace/loop-8b-trace
++ export APEIRON_NQ_TAG=nq-100
++ APEIRON_NQ_TAG=nq-100
++ export APEIRON_NQ_BLOCKS=0..1
++ APEIRON_NQ_BLOCKS=0..1
++ export APEIRON_NQ_SAMPLES=128
++ APEIRON_NQ_SAMPLES=128
++ export APEIRON_NQ_NCTX=2048
++ APEIRON_NQ_NCTX=2048
++ export APEIRON_NQ_BATCH=4
++ APEIRON_NQ_BATCH=4
++ export APEIRON_NQ_HOST_STREAMS=1
++ APEIRON_NQ_HOST_STREAMS=1
++ export APEIRON_NQ_PACK_ONLY=0
++ APEIRON_NQ_PACK_ONLY=0
++ export APEIRON_NQ_PHASES=0
++ APEIRON_NQ_PHASES=0
++ export APEIRON_NQ_PACK=/workspace/loop-8b-trace/nq-100/pack-l0.nqp
++ APEIRON_NQ_PACK=/workspace/loop-8b-trace/nq-100/pack-l0.nqp
++ cargo test --release --locked --features gpu --test learn_block_tune -- --ignored --exact block_loop --nocapture
+   Compiling apeiron v0.1.0 (/workspace)
+    Finished `release` profile [optimized] target(s) in 30.66s
+     Running tests/learn_block_tune.rs (target/release/deps/learn_block_tune-d9fdb057721ff4bc)
+
+running 1 test
+BT "nq-100" dump 128 samples x 2048 tokens, d 4096 f 12288, T 8192, 4 chunks, 112 draws loaded 0.3 s
+stream: imported 1073741824 words, buf=136858335944304
+stream: imported 1073741824 words, buf=136858335945776
+stream: imported 1073741824 words, buf=136858335947248
+stream: imported 1073741824 words, buf=136858335953632
+BT streams rounded to bf16
+test block_loop has been running for over 60 seconds
+BT l00 teacher 9.2 s
+BT l00 resume at slot 6 phase 3
+BT l00 advanced 11.7 s
+BT l00 round total 97.2 s
+BT pack /workspace/loop-8b-trace/nq-100/pack-l0.nqp: 36 layers, 7 sections, 0.995619 b/w
++ rc=0
++ ls -l /workspace/loop-8b-trace/nq-100/pack-l0.nqp
+-rw-r--r-- 1 root root 24011840 Nov 23 07:37 /workspace/loop-8b-trace/nq-100/pack-l0.nqp
++ gcloud storage cp /workspace/loop-8b-trace/nq-100/pack-l0.nqp gs://sanguine-checkpoints-scribe-461316/nq/packs/q3-8b-l0-final.nqp
+Copying file:///workspace/loop-8b-trace/nq-100/pack-l0.nqp to gs://sanguine-checkpoints-scribe-461316/nq/packs/q3-8b-l0-final.nqp
+  
+..
+
+Average throughput: 106.4MiB/s
++ cp_rc=0
++ echo 'export rc=0 cp_rc=0'
+export rc=0 cp_rc=0
++ '[' 0 -eq 0 ']'
++ '[' 0 -eq 0 ']'

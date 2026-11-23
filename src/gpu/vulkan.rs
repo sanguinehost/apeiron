@@ -20,6 +20,7 @@
 
 use std::ffi::c_void;
 use std::os::raw::c_char;
+use std::sync::{Mutex, PoisonError};
 
 // ── dlopen/dlsym (glibc; RTLD_NOW = 2, bits/dlfcn.h) ────────────────────────────────────────────
 extern "C" {
@@ -597,6 +598,67 @@ type CreateFence =
 type WaitForFences = unsafe extern "C" fn(Device, u32, *const Handle, u32, u64) -> i32;
 type ResetFences = unsafe extern "C" fn(Device, u32, *const Handle) -> i32;
 type DestroyFence = unsafe extern "C" fn(Device, Handle, *const c_void);
+type DestroyBuffer = unsafe extern "C" fn(Device, Handle, *const c_void);
+type FreeMemory = unsafe extern "C" fn(Device, Handle, *const c_void);
+type UnmapMemory = unsafe extern "C" fn(Device, Handle);
+
+/// One live buffer allocation: the handle, the memory bound to it, and whether [`Vk`] allocated the
+/// memory (an imported host pointer's memory is the host's, so only the buffer is destroyed).
+#[derive(Clone, Copy)]
+struct Alloc {
+    buffer: Handle,
+    memory: Handle,
+    owned: bool,
+    bytes: u64,
+    /// The allocation's requested memory property: `MEMORY_DEVICE_LOCAL` is the device-local pool;
+    /// host-visible staging is accounted separately. This driver still counts unimported
+    /// host-visible buffers in the heap `nvidia-smi` reads (the 4 GiB streams did), so neither
+    /// pool alone is the heap.
+    device_local: bool,
+}
+
+/// Which of the three pools a live allocation belongs to.
+const POOL_DEVICE: usize = 0;
+const POOL_HOST: usize = 1;
+const POOL_IMPORTED: usize = 2;
+
+/// Live bytes of buffer allocations, for `APEIRON_MEM_TRACE`, split by the pool the driver puts
+/// them in; the device pool's peak is kept beside it. One `Vk` per process usually, but the
+/// counters are global so two contexts add.
+static TRACE_LIVE: [std::sync::atomic::AtomicU64; 3] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 3];
+static TRACE_PEAK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The pool a `props` request lands in: `MEMORY_DEVICE_LOCAL` is the heap.
+fn pool_of(props: u32) -> usize {
+    if props & MEMORY_DEVICE_LOCAL != 0 {
+        POOL_DEVICE
+    } else {
+        POOL_HOST
+    }
+}
+
+/// Account one successful allocation and, when `APEIRON_MEM_TRACE` is set, print it when it is
+/// large enough to matter. The counters are kept whether or not the trace prints, so a release
+/// always subtracts a byte count that was added.
+fn trace_alloc(bytes: u64, pool: usize) {
+    use std::sync::atomic::Ordering;
+    TRACE_LIVE[pool].fetch_add(bytes, Ordering::Relaxed);
+    let dev = TRACE_LIVE[POOL_DEVICE].load(Ordering::Relaxed);
+    let peak = TRACE_PEAK.fetch_max(dev, Ordering::Relaxed).max(dev);
+    if std::env::var_os("APEIRON_MEM_TRACE").is_none() || bytes < (16 << 20) {
+        return;
+    }
+    eprintln!(
+        "vk.buffer {:.1} MiB, device-local {:.1} GiB, host-visible {:.1} GiB, imported {:.1} \
+         GiB, peak device-local {:.1} GiB",
+        bytes as f64 / (1u64 << 20) as f64,
+        dev as f64 / (1u64 << 30) as f64,
+        TRACE_LIVE[POOL_HOST].load(Ordering::Relaxed) as f64 / (1u64 << 30) as f64,
+        TRACE_LIVE[POOL_IMPORTED].load(Ordering::Relaxed) as f64 / (1u64 << 30) as f64,
+        peak as f64 / (1u64 << 30) as f64
+    );
+}
 // timestamp query pool: create, reset-in-cb, write-in-cb, read-back (vk.xml core 1.0 signatures)
 type CreateQueryPool =
     unsafe extern "C" fn(Device, *const QueryPoolCreateInfo, *const c_void, *mut Handle) -> i32;
@@ -1062,6 +1124,9 @@ pub struct Vk {
     pub wait_fences: WaitForFences,
     pub reset_fences: ResetFences,
     pub destroy_fence: DestroyFence,
+    pub destroy_buffer: DestroyBuffer,
+    pub free_memory: FreeMemory,
+    unmap: UnmapMemory,
     // GPU timestamps: the tick period (ns) and the compute queue's valid-bit width (0 = unsupported)
     pub timestamp_period: f32,
     pub timestamp_valid_bits: u32,
@@ -1092,6 +1157,12 @@ pub struct Vk {
     pub has_coopmat: bool,
     /// `shaderFloat64` supported and enabled (only on the `has_bda` feature chain).
     pub has_f64: bool,
+    /// Live buffer allocations, in allocation order. [`Vk::free_since`] destroys a suffix; the
+    /// tape and ADMM frame release rely on the suffix being theirs alone.
+    allocs: Mutex<Vec<Alloc>>,
+    /// Every allocation currently mapped through [`Vk::map`]. `vkFreeMemory` requires the memory
+    /// not be mapped, so a release unmaps its entries first.
+    mapped: Mutex<Vec<Handle>>,
 }
 
 impl Vk {
@@ -1688,6 +1759,9 @@ impl Vk {
             wait_fences: vk_fn!(gipa, instance, "vkWaitForFences", WaitForFences),
             reset_fences: vk_fn!(gipa, instance, "vkResetFences", ResetFences),
             destroy_fence: vk_fn!(gipa, instance, "vkDestroyFence", DestroyFence),
+            destroy_buffer: vk_fn!(gipa, instance, "vkDestroyBuffer", DestroyBuffer),
+            free_memory: vk_fn!(gipa, instance, "vkFreeMemory", FreeMemory),
+            unmap: vk_fn!(gipa, instance, "vkUnmapMemory", UnmapMemory),
             timestamp_period,
             timestamp_valid_bits,
             create_query_pool,
@@ -1749,6 +1823,8 @@ impl Vk {
             }),
             has_coopmat,
             has_f64,
+            allocs: Mutex::new(Vec::new()),
+            mapped: Mutex::new(Vec::new()),
         })
     }
 
@@ -1908,6 +1984,94 @@ impl Vk {
         out
     }
 
+    /// The allocation mark: the number of live buffer allocations. A later [`Vk::free_since`]
+    /// destroys every buffer allocated after this point.
+    #[must_use]
+    pub fn alloc_mark(&self) -> usize {
+        self.allocs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
+    }
+
+    /// The buffers allocated at or after `mark`, in allocation order.
+    #[must_use]
+    pub fn handles_since(&self, mark: usize) -> Vec<Handle> {
+        self.allocs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .skip(mark)
+            .map(|a| a.buffer)
+            .collect()
+    }
+
+    /// Destroy `a` and free its memory when this `Vk` allocated it, unmapping first.
+    /// The pool this allocation's bytes are accounted in.
+    fn pool(a: &Alloc) -> usize {
+        if !a.owned {
+            POOL_IMPORTED
+        } else if a.device_local {
+            POOL_DEVICE
+        } else {
+            POOL_HOST
+        }
+    }
+
+    unsafe fn release(&self, a: Alloc, mapped: &mut Vec<Handle>) {
+        TRACE_LIVE[Self::pool(&a)].fetch_sub(a.bytes, std::sync::atomic::Ordering::Relaxed);
+        (self.destroy_buffer)(self.device, a.buffer, std::ptr::null());
+        if !a.owned {
+            return;
+        }
+        if let Some(i) = mapped.iter().position(|&m| m == a.memory) {
+            (self.unmap)(self.device, a.memory);
+            mapped.remove(i);
+        }
+        (self.free_memory)(self.device, a.memory, std::ptr::null());
+    }
+
+    /// Destroy every buffer allocated after `mark`, newest first, and free the memory this `Vk`
+    /// allocated for it. The queue is drained first: no command buffer recorded against those
+    /// buffers may still be pending. Imported host-pointer memory is the host's and is not freed.
+    ///
+    /// # Safety
+    ///
+    /// No recorded command buffer or descriptor set that reads or writes a buffer in the suffix is
+    /// submitted after this call, and `mark` was returned by [`Vk::alloc_mark`] on this `Vk` before
+    /// those buffers were allocated.
+    pub unsafe fn free_since(&self, mark: usize) {
+        check((self.wait_idle)(self.queue), "vkQueueWaitIdle");
+        let mut allocs = self.allocs.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut mapped = self.mapped.lock().unwrap_or_else(PoisonError::into_inner);
+        while allocs.len() > mark {
+            let a = allocs.pop().expect("alloc suffix");
+            self.release(a, &mut mapped);
+        }
+    }
+
+    /// Destroy each buffer of `handles` this `Vk` allocated and free its memory. The queue is
+    /// drained first. Handles that are no longer live are skipped, so a doubly released list
+    /// destroys nothing twice.
+    ///
+    /// # Safety
+    ///
+    /// No recorded command buffer or descriptor set that reads or writes one of these buffers is
+    /// submitted after this call.
+    pub unsafe fn free_handles(&self, handles: &[Handle]) {
+        check((self.wait_idle)(self.queue), "vkQueueWaitIdle");
+        let mut allocs = self.allocs.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut mapped = self.mapped.lock().unwrap_or_else(PoisonError::into_inner);
+        for &h in handles {
+            // `remove`, not `swap_remove`: the registry stays in allocation order so an outstanding
+            // [`Vk::alloc_mark`] keeps naming the same suffix.
+            if let Some(i) = allocs.iter().position(|a| a.buffer == h) {
+                let a = allocs.remove(i);
+                self.release(a, &mut mapped);
+            }
+        }
+    }
+
     /// Create a buffer and bind fresh memory of the first type matching `props`. Returns
     /// `(buffer, memory)`; `None` if no matching memory type exists.
     pub unsafe fn buffer(&self, size: u64, usage: u32, props: u32) -> Option<(Handle, Handle)> {
@@ -1967,6 +2131,17 @@ impl Vk {
             (self.bind_buf)(self.device, buffer, memory, 0),
             "vkBindBufferMemory",
         );
+        self.allocs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Alloc {
+                buffer,
+                memory,
+                owned: true,
+                bytes: req.size,
+                device_local: props & MEMORY_DEVICE_LOCAL != 0,
+            });
+        trace_alloc(req.size, pool_of(props));
         Some((buffer, memory))
     }
 
@@ -2166,6 +2341,17 @@ impl Vk {
             (self.bind_buf)(self.device, buffer, memory, 0),
             "vkBindBufferMemory(host-ptr)",
         );
+        self.allocs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Alloc {
+                buffer,
+                memory,
+                owned: false,
+                bytes,
+                device_local: false,
+            });
+        trace_alloc(bytes, POOL_IMPORTED);
         Some((buffer, memory, ptr))
     }
 
@@ -2277,6 +2463,10 @@ impl Vk {
             (self.map_mem)(self.device, memory, 0, WHOLE_SIZE, 0, &mut p),
             "vkMapMemory",
         );
+        self.mapped
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(memory);
         p
     }
 

@@ -22,8 +22,9 @@
 //! side's new `Z` into its own iterate and its peer's `Z_x`. A refusal reads `Z` and `U` back and
 //! the host loop resumes at that iteration with the same starts.
 //!
-//! **Buffers.** No device buffer is ever freed, so frames are kept in [`FRAMES`] and checked out
-//! by a [`Side`] for one factorisation; two concurrent factorisations of one shape hold two frames.
+//! **Buffers.** Frames are kept in [`FRAMES`] and checked out by a [`Side`] for one factorisation;
+//! two concurrent factorisations of one shape hold two frames. [`release_frames`] destroys every
+//! checked-in frame's buffers, for a caller whose next phase needs the heap more than the reuse.
 
 use std::sync::{Mutex, PoisonError};
 
@@ -346,12 +347,35 @@ pub(crate) struct Frame {
     pub(super) iterate: [Handle; 4],
     cbl: CommandBuffer,
     cbr: [CommandBuffer; 3],
+    /// Every buffer this frame allocated, including a [`Rank1`](super::rank1::Rank1) built on its
+    /// first call and the [`Inverse`](super::inverse::Inverse); [`release_frames`] frees them.
+    pub(super) bufs: Vec<Handle>,
 }
 
 // SAFETY: a frame is reached by one `Side` at a time (checked out of `FRAMES` under its mutex), and
 // every submit of its command buffers holds the device mutex, which is the external synchronisation
 // Vulkan requires; the mapped pointers are written and read only by the frame's holder.
 unsafe impl Send for Frame {}
+
+/// Frees the buffers allocated after `mark` unless the frame finished: [`Frame::build`] has many
+/// refusals after part of the graph exists, and a refused build has no `Frame` to carry the handles
+/// for [`release_frames`]. `build` holds the device mutex, so nothing else allocates on this `Vk`
+/// between the mark and the drop.
+struct PartialFrame<'a> {
+    vk: &'a Vk,
+    mark: usize,
+    keep: bool,
+}
+
+impl Drop for PartialFrame<'_> {
+    fn drop(&mut self) {
+        if !self.keep {
+            // SAFETY: the build owns the device mutex and submits no partial graph; `free_since`
+            // drains the queue before destroying the suffix.
+            unsafe { self.vk.free_since(self.mark) }
+        }
+    }
+}
 
 impl Frame {
     /// Staging byte offsets of `Z_x`, `Z`, `U`, `H⁻¹` (`[rho, reg]` at 0), and the staging size.
@@ -392,6 +416,12 @@ impl Frame {
         inv_limbs: u32,
         cut: usize,
     ) -> Option<Self> {
+        let mark = vk.alloc_mark();
+        let mut cleanup = PartialFrame {
+            vk,
+            mark,
+            keep: false,
+        };
         let (kp, rp) = (k.div_ceil(TILE) * TILE, r.div_ceil(TILE) * TILE);
         let (bn, br) = (n.div_ceil(32), r.div_ceil(32));
         let lb = limbs as usize * 32;
@@ -498,6 +528,7 @@ impl Frame {
             iterate: [zx, z, du, out],
             cbl: std::ptr::null_mut(),
             cbr: [std::ptr::null_mut(); 3],
+            bufs: Vec::new(),
         };
         let off = me.off();
         let stage_bytes = off[4].max(8 * k * n).max(up_bytes);
@@ -644,12 +675,47 @@ impl Frame {
             check((vk.end_cb)(cb), "vkEndCommandBuffer");
             cb
         });
+        me.bufs = vk.handles_since(mark);
+        cleanup.keep = true;
         Some(me)
     }
 }
 
 /// Frames not checked out, by `[k, n, r, limbs, cut]`.
 static FRAMES: Mutex<Vec<([usize; 6], Box<Frame>)>> = Mutex::new(Vec::new());
+
+/// Destroy every checked-in frame's buffers and drop the cache. A checked-out frame is untouched:
+/// its owner returns it to [`FRAMES`] on drop and the next call releases it. The device is drained
+/// before any buffer dies, and a frame's staged pointers are unmapped with its memory.
+///
+/// # Safety
+///
+/// No command buffer or descriptor set recorded from a checked-in frame is submitted after this
+/// call. The frames' command buffers are kept by the frame and dropped with it, so this holds when
+/// no factorisation is in flight on this thread and every submit that used the cache has completed.
+pub(crate) unsafe fn release_frames() {
+    let frames: Vec<([usize; 6], Box<Frame>)> = {
+        let mut fr = FRAMES.lock().unwrap_or_else(PoisonError::into_inner);
+        std::mem::take(&mut *fr)
+    };
+    if frames.is_empty() {
+        return;
+    }
+    let Some(dev) = device() else {
+        return;
+    };
+    let guard = dev.lock().unwrap_or_else(PoisonError::into_inner);
+    for (_, mut f) in frames {
+        // The sub-objects hold only handles and pointers; dropping them before the free keeps
+        // nothing alive that names a dead buffer.
+        f.r1 = None;
+        f.inv = None;
+        guard.vk.free_handles(&f.bufs);
+    }
+    // A survivor's `Rank1::commits` is keyed by peer handle, and this driver reissues handle
+    // integers; the next commit after any release must re-record.
+    super::rank1::note_frame_release();
+}
 
 /// One side of a factorisation (`A` over `W`, or `B` over `Wᵀ`) holding its frame, with the
 /// target's plane built; the frame returns to [`FRAMES`] on drop.
@@ -793,10 +859,12 @@ impl Frame {
         unsafe {
             let st = self.stage;
             std::ptr::copy_nonoverlapping([rho, reg].as_ptr().cast::<u8>(), st, 16);
+            let t = std::time::Instant::now();
             dev.lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .vk
                 .submit_wait(self.cb1[v]);
+            super::trace::add(super::trace::CB1, t);
             let fl = self.flags();
             if [ZT_PLANE, RT_PLANE, GRAM, GRAM + 1, WZ, WZ + 1, MAP1]
                 .iter()
@@ -804,6 +872,7 @@ impl Frame {
             {
                 return None;
             }
+            let t = std::time::Instant::now();
             let on_dev = self.inv.as_deref().is_some_and(|d| d.run(&inv).is_some());
             if !on_dev {
                 let hw = std::slice::from_raw_parts(self.back.add(FLAG_BYTES).cast::<i64>(), r * r);
@@ -820,10 +889,13 @@ impl Frame {
                     8 * hi.len(),
                 );
             }
+            super::trace::add(super::trace::INV, t);
+            let t = std::time::Instant::now();
             dev.lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .vk
                 .submit_wait(self.cb2[v + 2 * usize::from(on_dev)]);
+            super::trace::add(super::trace::CB2, t);
             let fl = self.flags();
             if [HI_PLANE, F, F + 1, MAP2].iter().any(|&s| fl[s] != 0) {
                 return None;

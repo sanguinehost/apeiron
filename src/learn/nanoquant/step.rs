@@ -20,6 +20,26 @@ const DEV_INV_CUT: usize = 96;
 #[cfg(feature = "gpu")]
 const _: () = assert!(DEV_INV_CUT >= super::INV_BASE);
 
+/// The cut a resident frame inverts above: [`DEV_INV_CUT`], or `APEIRON_NQ_INV_CUT` for a sweep.
+/// Read once, because the frame cache keys on the cut and one process is one measurement.
+#[cfg(feature = "gpu")]
+fn dev_inv_cut() -> usize {
+    use std::sync::OnceLock;
+    static CUT: OnceLock<usize> = OnceLock::new();
+    *CUT.get_or_init(|| {
+        let cut = std::env::var("APEIRON_NQ_INV_CUT")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(DEV_INV_CUT);
+        assert!(
+            cut == 0 || cut >= super::INV_BASE,
+            "APEIRON_NQ_INV_CUT {cut} below the base order {} (0 runs the host inverse)",
+            super::INV_BASE
+        );
+        cut
+    })
+}
+
 /// The resident frame of the `k × n` target words `w` at rank `r` when the device takes the
 /// side's products; `None` runs every step on the CPU.
 ///
@@ -36,7 +56,7 @@ const _: () = assert!(DEV_INV_CUT >= super::INV_BASE);
 pub(super) fn resident(w: &[i64], k: usize, n: usize, r: usize) -> Option<Side> {
     #[cfg(feature = "gpu")]
     if crate::gpu::limb::takes(k, r, n) {
-        return Side::new(w, k, n, r, LIMBS, INV_LIMBS, DEV_INV_CUT);
+        return Side::new(w, k, n, r, LIMBS, INV_LIMBS, dev_inv_cut());
     }
     let _ = (w, k, n, r);
     None

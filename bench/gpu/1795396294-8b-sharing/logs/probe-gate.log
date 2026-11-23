@@ -1,0 +1,349 @@
++ . /root/.cargo/env
+++ case ":${PATH}:" in
+++ export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+++ PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
++ cd /workspace
++ export APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ export APEIRON_NQ_DUMP=/workspace/dump-8b
++ APEIRON_NQ_DUMP=/workspace/dump-8b
++ export APEIRON_NQ_LOOP=/workspace/loop-8b
++ APEIRON_NQ_LOOP=/workspace/loop-8b
++ export APEIRON_NQ_TAG=nq-100
++ APEIRON_NQ_TAG=nq-100
++ export APEIRON_NQ_BLOCKS=0..1
++ APEIRON_NQ_BLOCKS=0..1
++ export APEIRON_NQ_SAMPLES=128
++ APEIRON_NQ_SAMPLES=128
++ export APEIRON_NQ_NCTX=2048
++ APEIRON_NQ_NCTX=2048
++ export APEIRON_NQ_BATCH=4
++ APEIRON_NQ_BATCH=4
++ export APEIRON_NQ_HOST_STREAMS=1
++ APEIRON_NQ_HOST_STREAMS=1
++ export APEIRON_NQ_PHASES=2
++ APEIRON_NQ_PHASES=2
++ export APEIRON_MEM_TRACE=1
++ APEIRON_MEM_TRACE=1
+++ date -u
++ echo '== probe gate Mon Nov 23 04:22:23 UTC 2026'
+== probe gate Mon Nov 23 04:22:23 UTC 2026
++ smi=31659
++ trap 'kill "$smi" 2>/dev/null' EXIT
++ cargo test --release --locked --features gpu --test learn_block_tune -- --ignored --exact block_loop --nocapture
+   Compiling apeiron v0.1.0 (/workspace)
+    Finished `release` profile [optimized] target(s) in 27.45s
+     Running tests/learn_block_tune.rs (target/release/build/apeiron/80e090f69ac3763f/out/learn_block_tune-80e090f69ac3763f)
+
+running 1 test
+vk.buffer 256.0 MiB, live 0.2 GiB, peak 0.2 GiB
+BT "nq-100" dump 128 samples x 2048 tokens, d 4096 f 12288, T 8192, 4 chunks, 112 draws loaded 0.3 s
+vk.buffer 16.0 MiB, live 0.3 GiB, peak 0.3 GiB
+vk.buffer 4096.0 MiB, live 4.3 GiB, peak 4.3 GiB
+stream: imported 1073741824 words, buf=127581407921936
+vk.buffer 4096.0 MiB, live 8.3 GiB, peak 8.3 GiB
+stream: imported 1073741824 words, buf=127581407923408
+vk.buffer 4096.0 MiB, live 12.3 GiB, peak 12.3 GiB
+stream: imported 1073741824 words, buf=127581407924880
+vk.buffer 4096.0 MiB, live 16.3 GiB, peak 16.3 GiB
+stream: imported 1073741824 words, buf=127581407931712
+BT streams rounded to bf16
+vk.buffer 192.0 MiB, live 16.5 GiB, peak 16.5 GiB
+vk.buffer 32.0 MiB, live 16.5 GiB, peak 16.5 GiB
+vk.buffer 64.0 MiB, live 16.6 GiB, peak 16.6 GiB
+vk.buffer 16.0 MiB, live 16.6 GiB, peak 16.6 GiB
+vk.buffer 16.0 MiB, live 16.6 GiB, peak 16.6 GiB
+vk.buffer 64.0 MiB, live 16.6 GiB, peak 16.6 GiB
+vk.buffer 192.0 MiB, live 16.8 GiB, peak 16.8 GiB
+vk.buffer 192.0 MiB, live 17.0 GiB, peak 17.0 GiB
+vk.buffer 192.0 MiB, live 17.2 GiB, peak 17.2 GiB
+vk.buffer 32.0 MiB, live 17.2 GiB, peak 17.2 GiB
+vk.buffer 32.0 MiB, live 17.3 GiB, peak 17.3 GiB
+vk.buffer 32.0 MiB, live 17.3 GiB, peak 17.3 GiB
+vk.buffer 32.0 MiB, live 17.3 GiB, peak 17.3 GiB
+vk.buffer 32.0 MiB, live 17.4 GiB, peak 17.4 GiB
+vk.buffer 32.0 MiB, live 17.4 GiB, peak 17.4 GiB
+vk.buffer 96.0 MiB, live 17.5 GiB, peak 17.5 GiB
+vk.buffer 96.0 MiB, live 17.6 GiB, peak 17.6 GiB
+vk.buffer 96.0 MiB, live 17.7 GiB, peak 17.7 GiB
+vk.buffer 32.0 MiB, live 17.7 GiB, peak 17.7 GiB
+vk.buffer 32.0 MiB, live 17.8 GiB, peak 17.8 GiB
+vk.buffer 31.5 MiB, live 17.8 GiB, peak 17.8 GiB
+vk.buffer 31.5 MiB, live 17.8 GiB, peak 17.8 GiB
+vk.buffer 31.5 MiB, live 17.9 GiB, peak 17.9 GiB
+vk.buffer 31.5 MiB, live 17.9 GiB, peak 17.9 GiB
+vk.buffer 31.5 MiB, live 17.9 GiB, peak 17.9 GiB
+vk.buffer 31.5 MiB, live 18.0 GiB, peak 18.0 GiB
+vk.buffer 64.0 MiB, live 18.0 GiB, peak 18.0 GiB
+vk.buffer 64.0 MiB, live 18.1 GiB, peak 18.1 GiB
+vk.buffer 64.0 MiB, live 18.1 GiB, peak 18.1 GiB
+vk.buffer 64.0 MiB, live 18.2 GiB, peak 18.2 GiB
+vk.buffer 31.5 MiB, live 18.2 GiB, peak 18.2 GiB
+vk.buffer 31.5 MiB, live 18.3 GiB, peak 18.3 GiB
+vk.buffer 31.5 MiB, live 18.3 GiB, peak 18.3 GiB
+vk.buffer 31.5 MiB, live 18.3 GiB, peak 18.3 GiB
+vk.buffer 142.5 MiB, live 18.5 GiB, peak 18.5 GiB
+vk.buffer 47.5 MiB, live 18.5 GiB, peak 18.5 GiB
+vk.buffer 142.5 MiB, live 18.6 GiB, peak 18.6 GiB
+vk.buffer 47.5 MiB, live 18.7 GiB, peak 18.7 GiB
+vk.buffer 142.5 MiB, live 18.8 GiB, peak 18.8 GiB
+vk.buffer 47.5 MiB, live 18.9 GiB, peak 18.9 GiB
+vk.buffer 192.0 MiB, live 19.1 GiB, peak 19.1 GiB
+vk.buffer 192.0 MiB, live 19.3 GiB, peak 19.3 GiB
+vk.buffer 192.0 MiB, live 19.4 GiB, peak 19.4 GiB
+vk.buffer 192.0 MiB, live 19.6 GiB, peak 19.6 GiB
+vk.buffer 142.5 MiB, live 19.8 GiB, peak 19.8 GiB
+vk.buffer 142.5 MiB, live 19.9 GiB, peak 19.9 GiB
+vk.buffer 47.5 MiB, live 20.0 GiB, peak 20.0 GiB
+vk.buffer 47.5 MiB, live 20.0 GiB, peak 20.0 GiB
+vk.buffer 142.5 MiB, live 20.1 GiB, peak 20.1 GiB
+vk.buffer 47.5 MiB, live 20.2 GiB, peak 20.2 GiB
+vk.buffer 142.5 MiB, live 20.3 GiB, peak 20.3 GiB
+vk.buffer 47.5 MiB, live 20.4 GiB, peak 20.4 GiB
+vk.buffer 142.5 MiB, live 20.5 GiB, peak 20.5 GiB
+vk.buffer 47.5 MiB, live 20.6 GiB, peak 20.6 GiB
+vk.buffer 192.0 MiB, live 20.7 GiB, peak 20.7 GiB
+vk.buffer 192.0 MiB, live 20.9 GiB, peak 20.9 GiB
+vk.buffer 192.0 MiB, live 21.1 GiB, peak 21.1 GiB
+vk.buffer 192.0 MiB, live 21.3 GiB, peak 21.3 GiB
+vk.buffer 142.5 MiB, live 21.4 GiB, peak 21.4 GiB
+vk.buffer 142.5 MiB, live 21.6 GiB, peak 21.6 GiB
+vk.buffer 47.5 MiB, live 21.6 GiB, peak 21.6 GiB
+vk.buffer 47.5 MiB, live 21.7 GiB, peak 21.7 GiB
+vk.buffer 47.5 MiB, live 21.7 GiB, peak 21.7 GiB
+vk.buffer 142.5 MiB, live 21.9 GiB, peak 21.9 GiB
+vk.buffer 47.5 MiB, live 21.9 GiB, peak 21.9 GiB
+vk.buffer 142.5 MiB, live 22.1 GiB, peak 22.1 GiB
+vk.buffer 47.5 MiB, live 22.1 GiB, peak 22.1 GiB
+vk.buffer 142.5 MiB, live 22.2 GiB, peak 22.2 GiB
+vk.buffer 192.0 MiB, live 22.4 GiB, peak 22.4 GiB
+vk.buffer 192.0 MiB, live 22.6 GiB, peak 22.6 GiB
+vk.buffer 192.0 MiB, live 22.8 GiB, peak 22.8 GiB
+vk.buffer 192.0 MiB, live 23.0 GiB, peak 23.0 GiB
+vk.buffer 47.5 MiB, live 23.0 GiB, peak 23.0 GiB
+vk.buffer 47.5 MiB, live 23.1 GiB, peak 23.1 GiB
+vk.buffer 142.5 MiB, live 23.2 GiB, peak 23.2 GiB
+vk.buffer 142.5 MiB, live 23.4 GiB, peak 23.4 GiB
+vk.buffer 128.0 MiB, live 23.5 GiB, peak 23.5 GiB
+vk.buffer 128.0 MiB, live 23.6 GiB, peak 23.6 GiB
+vk.buffer 128.0 MiB, live 23.7 GiB, peak 23.7 GiB
+vk.buffer 128.0 MiB, live 23.9 GiB, peak 23.9 GiB
+vk.buffer 128.0 MiB, live 24.0 GiB, peak 24.0 GiB
+vk.buffer 128.0 MiB, live 24.1 GiB, peak 24.1 GiB
+vk.buffer 128.0 MiB, live 24.2 GiB, peak 24.2 GiB
+vk.buffer 128.0 MiB, live 24.4 GiB, peak 24.4 GiB
+vk.buffer 128.0 MiB, live 24.5 GiB, peak 24.5 GiB
+vk.buffer 384.0 MiB, live 24.9 GiB, peak 24.9 GiB
+vk.buffer 384.0 MiB, live 25.2 GiB, peak 25.2 GiB
+vk.buffer 384.0 MiB, live 25.6 GiB, peak 25.6 GiB
+vk.buffer 384.0 MiB, live 26.0 GiB, peak 26.0 GiB
+vk.buffer 384.0 MiB, live 26.4 GiB, peak 26.4 GiB
+vk.buffer 384.0 MiB, live 26.7 GiB, peak 26.7 GiB
+vk.buffer 128.0 MiB, live 26.9 GiB, peak 26.9 GiB
+vk.buffer 128.0 MiB, live 27.0 GiB, peak 27.0 GiB
+vk.buffer 128.0 MiB, live 27.1 GiB, peak 27.1 GiB
+vk.buffer 128.0 MiB, live 27.2 GiB, peak 27.2 GiB
+vk.buffer 64.0 MiB, live 27.3 GiB, peak 27.3 GiB
+vk.buffer 64.0 MiB, live 27.4 GiB, peak 27.4 GiB
+vk.buffer 192.0 MiB, live 27.5 GiB, peak 27.5 GiB
+vk.buffer 192.0 MiB, live 27.7 GiB, peak 27.7 GiB
+vk.buffer 192.0 MiB, live 27.9 GiB, peak 27.9 GiB
+vk.buffer 192.0 MiB, live 28.1 GiB, peak 28.1 GiB
+vk.buffer 192.0 MiB, live 28.3 GiB, peak 28.3 GiB
+vk.buffer 192.0 MiB, live 28.5 GiB, peak 28.5 GiB
+vk.buffer 192.0 MiB, live 28.7 GiB, peak 28.7 GiB
+vk.buffer 192.0 MiB, live 28.9 GiB, peak 28.9 GiB
+vk.buffer 31.5 MiB, live 28.9 GiB, peak 28.9 GiB
+vk.buffer 31.5 MiB, live 28.9 GiB, peak 28.9 GiB
+vk.buffer 31.5 MiB, live 29.0 GiB, peak 29.0 GiB
+vk.buffer 31.5 MiB, live 29.0 GiB, peak 29.0 GiB
+vk.buffer 31.5 MiB, live 29.0 GiB, peak 29.0 GiB
+vk.buffer 31.5 MiB, live 29.0 GiB, peak 29.0 GiB
+vk.buffer 64.0 MiB, live 29.1 GiB, peak 29.1 GiB
+vk.buffer 64.0 MiB, live 29.2 GiB, peak 29.2 GiB
+vk.buffer 64.0 MiB, live 29.2 GiB, peak 29.2 GiB
+vk.buffer 64.0 MiB, live 29.3 GiB, peak 29.3 GiB
+vk.buffer 31.5 MiB, live 29.3 GiB, peak 29.3 GiB
+vk.buffer 31.5 MiB, live 29.4 GiB, peak 29.4 GiB
+vk.buffer 31.5 MiB, live 29.4 GiB, peak 29.4 GiB
+vk.buffer 31.5 MiB, live 29.4 GiB, peak 29.4 GiB
+vk.buffer 16.0 MiB, live 29.5 GiB, peak 29.5 GiB
+vk.buffer 16.0 MiB, live 29.5 GiB, peak 29.5 GiB
+vk.buffer 16.0 MiB, live 29.5 GiB, peak 29.5 GiB
+vk.buffer 16.0 MiB, live 29.5 GiB, peak 29.5 GiB
+vk.buffer 16.0 MiB, live 29.6 GiB, peak 29.6 GiB
+vk.buffer 16.0 MiB, live 29.6 GiB, peak 29.6 GiB
+vk.buffer 16.0 MiB, live 29.6 GiB, peak 29.6 GiB
+vk.buffer 16.0 MiB, live 29.7 GiB, peak 29.7 GiB
+vk.buffer 128.0 MiB, live 29.8 GiB, peak 29.8 GiB
+vk.buffer 128.0 MiB, live 29.9 GiB, peak 29.9 GiB
+vk.buffer 128.0 MiB, live 30.1 GiB, peak 30.1 GiB
+vk.buffer 32.0 MiB, live 30.1 GiB, peak 30.1 GiB
+vk.buffer 32.0 MiB, live 30.1 GiB, peak 30.1 GiB
+vk.buffer 128.0 MiB, live 30.3 GiB, peak 30.3 GiB
+vk.buffer 32.0 MiB, live 30.3 GiB, peak 30.3 GiB
+vk.buffer 128.0 MiB, live 30.4 GiB, peak 30.4 GiB
+vk.buffer 128.0 MiB, live 30.5 GiB, peak 30.5 GiB
+vk.buffer 128.0 MiB, live 30.7 GiB, peak 30.7 GiB
+vk.buffer 32.0 MiB, live 30.7 GiB, peak 30.7 GiB
+vk.buffer 32.0 MiB, live 30.7 GiB, peak 30.7 GiB
+vk.buffer 128.0 MiB, live 30.9 GiB, peak 30.9 GiB
+vk.buffer 128.0 MiB, live 31.0 GiB, peak 31.0 GiB
+vk.buffer 32.0 MiB, live 31.0 GiB, peak 31.0 GiB
+vk.buffer 128.0 MiB, live 31.1 GiB, peak 31.1 GiB
+vk.buffer 128.0 MiB, live 31.3 GiB, peak 31.3 GiB
+vk.buffer 128.0 MiB, live 31.4 GiB, peak 31.4 GiB
+vk.buffer 128.0 MiB, live 31.5 GiB, peak 31.5 GiB
+vk.buffer 128.0 MiB, live 31.6 GiB, peak 31.6 GiB
+vk.buffer 128.0 MiB, live 31.8 GiB, peak 31.8 GiB
+vk.buffer 64.0 MiB, live 31.8 GiB, peak 31.8 GiB
+vk.buffer 64.0 MiB, live 31.9 GiB, peak 31.9 GiB
+vk.buffer 16.0 MiB, live 31.9 GiB, peak 31.9 GiB
+vk.buffer 16.0 MiB, live 31.9 GiB, peak 31.9 GiB
+vk.buffer 16.0 MiB, live 31.9 GiB, peak 31.9 GiB
+vk.buffer 16.0 MiB, live 31.9 GiB, peak 31.9 GiB
+vk.buffer 128.0 MiB, live 32.1 GiB, peak 32.1 GiB
+vk.buffer 128.0 MiB, live 32.2 GiB, peak 32.2 GiB
+BT l00 teacher 9.0 s
+BT l00 resume at slot 4 phase 1
+vk.buffer 384.0 MiB, live 26.6 GiB, peak 32.2 GiB
+vk.buffer 144.0 MiB, live 26.8 GiB, peak 32.2 GiB
+vk.buffer 95.0 MiB, live 26.9 GiB, peak 32.2 GiB
+vk.buffer 36.0 MiB, live 26.9 GiB, peak 32.2 GiB
+vk.buffer 285.0 MiB, live 27.2 GiB, peak 32.2 GiB
+vk.buffer 106.9 MiB, live 27.3 GiB, peak 32.2 GiB
+vk.buffer 70.5 MiB, live 27.4 GiB, peak 32.2 GiB
+vk.buffer 26.7 MiB, live 27.4 GiB, peak 32.2 GiB
+vk.buffer 95.0 MiB, live 27.5 GiB, peak 32.2 GiB
+vk.buffer 285.0 MiB, live 27.7 GiB, peak 32.2 GiB
+vk.buffer 285.0 MiB, live 28.0 GiB, peak 32.2 GiB
+vk.buffer 70.5 MiB, live 28.1 GiB, peak 32.2 GiB
+vk.buffer 285.0 MiB, live 28.4 GiB, peak 32.2 GiB
+vk.buffer 72.0 MiB, live 28.4 GiB, peak 32.2 GiB
+vk.buffer 288.0 MiB, live 28.7 GiB, peak 32.2 GiB
+vk.buffer 288.0 MiB, live 29.0 GiB, peak 32.2 GiB
+vk.buffer 735.5 MiB, live 29.7 GiB, peak 32.2 GiB
+vk.buffer 355.5 MiB, live 30.1 GiB, peak 32.2 GiB
+vk.buffer 18.0 MiB, live 30.1 GiB, peak 32.2 GiB
+vk.buffer 17.6 MiB, live 30.1 GiB, peak 32.2 GiB
+vk.buffer 17.6 MiB, live 30.1 GiB, peak 32.2 GiB
+vk.buffer 17.8 MiB, live 30.1 GiB, peak 32.2 GiB
+vk.buffer 17.8 MiB, live 30.2 GiB, peak 32.2 GiB
+vk.buffer 17.8 MiB, live 30.2 GiB, peak 32.2 GiB
+vk.buffer 17.8 MiB, live 30.2 GiB, peak 32.2 GiB
+vk.buffer 17.8 MiB, live 30.3 GiB, peak 32.2 GiB
+vk.buffer 17.8 MiB, live 30.3 GiB, peak 32.2 GiB
+vk.buffer 18.0 MiB, live 30.3 GiB, peak 32.2 GiB
+vk.buffer 18.0 MiB, live 30.3 GiB, peak 32.2 GiB
+vk.buffer 18.0 MiB, live 30.4 GiB, peak 32.2 GiB
+vk.buffer 18.0 MiB, live 30.4 GiB, peak 32.2 GiB
+vk.buffer 384.0 MiB, live 31.0 GiB, peak 32.2 GiB
+vk.buffer 144.0 MiB, live 31.2 GiB, peak 32.2 GiB
+vk.buffer 285.0 MiB, live 31.4 GiB, peak 32.2 GiB
+vk.buffer 108.0 MiB, live 31.6 GiB, peak 32.2 GiB
+vk.buffer 95.0 MiB, live 31.6 GiB, peak 32.2 GiB
+vk.buffer 35.6 MiB, live 31.7 GiB, peak 32.2 GiB
+vk.buffer 70.5 MiB, live 31.7 GiB, peak 32.2 GiB
+vk.buffer 26.7 MiB, live 31.8 GiB, peak 32.2 GiB
+vk.buffer 285.0 MiB, live 32.1 GiB, peak 32.2 GiB
+vk.buffer 95.0 MiB, live 32.1 GiB, peak 32.2 GiB
+vk.buffer 95.0 MiB, live 32.2 GiB, peak 32.2 GiB
+vk.buffer 70.5 MiB, live 32.3 GiB, peak 32.3 GiB
+vk.buffer 95.0 MiB, live 32.4 GiB, peak 32.4 GiB
+vk.buffer 72.0 MiB, live 32.5 GiB, peak 32.5 GiB
+vk.buffer 96.0 MiB, live 32.6 GiB, peak 32.6 GiB
+vk.buffer 288.0 MiB, live 32.8 GiB, peak 32.8 GiB
+vk.buffer 545.5 MiB, live 33.4 GiB, peak 33.4 GiB
+vk.buffer 165.5 MiB, live 33.5 GiB, peak 33.5 GiB
+vk.buffer 18.0 MiB, live 33.6 GiB, peak 33.6 GiB
+vk.buffer 17.6 MiB, live 33.6 GiB, peak 33.6 GiB
+vk.buffer 17.6 MiB, live 33.6 GiB, peak 33.6 GiB
+vk.buffer 17.8 MiB, live 33.6 GiB, peak 33.6 GiB
+vk.buffer 17.8 MiB, live 33.6 GiB, peak 33.6 GiB
+vk.buffer 17.8 MiB, live 33.7 GiB, peak 33.7 GiB
+vk.buffer 17.8 MiB, live 33.7 GiB, peak 33.7 GiB
+vk.buffer 17.8 MiB, live 33.7 GiB, peak 33.7 GiB
+vk.buffer 17.8 MiB, live 33.8 GiB, peak 33.8 GiB
+vk.buffer 18.0 MiB, live 33.8 GiB, peak 33.8 GiB
+vk.buffer 18.0 MiB, live 33.8 GiB, peak 33.8 GiB
+vk.buffer 18.0 MiB, live 33.8 GiB, peak 33.8 GiB
+vk.buffer 18.0 MiB, live 33.8 GiB, peak 33.8 GiB
+vk.buffer 285.0 MiB, live 34.4 GiB, peak 34.4 GiB
+vk.buffer 106.9 MiB, live 34.5 GiB, peak 34.5 GiB
+vk.buffer 285.0 MiB, live 34.8 GiB, peak 34.8 GiB
+vk.buffer 108.0 MiB, live 34.9 GiB, peak 34.9 GiB
+vk.buffer 285.0 MiB, live 35.2 GiB, peak 35.2 GiB
+vk.buffer 285.0 MiB, live 35.4 GiB, peak 35.4 GiB
+vk.buffer 285.1 MiB, live 35.7 GiB, peak 35.7 GiB
+vk.buffer 285.0 MiB, live 36.0 GiB, peak 36.0 GiB
+vk.buffer 95.0 MiB, live 36.1 GiB, peak 36.1 GiB
+vk.buffer 35.6 MiB, live 36.1 GiB, peak 36.1 GiB
+vk.buffer 95.0 MiB, live 36.2 GiB, peak 36.2 GiB
+vk.buffer 36.0 MiB, live 36.3 GiB, peak 36.3 GiB
+vk.buffer 95.0 MiB, live 36.4 GiB, peak 36.4 GiB
+vk.buffer 95.0 MiB, live 36.5 GiB, peak 36.5 GiB
+vk.buffer 95.0 MiB, live 36.6 GiB, peak 36.6 GiB
+vk.buffer 95.0 MiB, live 36.7 GiB, peak 36.7 GiB
+test block_loop has been running for over 60 seconds
+vk.buffer 106.9 MiB, live 36.8 GiB, peak 36.8 GiB
+vk.buffer 35.6 MiB, live 36.8 GiB, peak 36.8 GiB
+vk.buffer 384.0 MiB, live 37.2 GiB, peak 37.2 GiB
+vk.buffer 142.5 MiB, live 37.3 GiB, peak 37.3 GiB
+vk.buffer 384.0 MiB, live 37.7 GiB, peak 37.7 GiB
+BT l00 mlp.gate_proj ADMM weight recon error: raw=7523.1418, norm=0.2209, per_el=1.4947e-4, ADMM time=505.34s
+vk.buffer 32.0 MiB, live 27.3 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.3 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.4 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.4 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.4 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.6 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 27.7 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 27.8 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 27.8 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 27.9 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 28.0 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 28.1 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.2 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.2 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.2 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.3 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.3 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.3 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.3 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.4 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.4 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.6 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.6 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.6 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.7 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.7 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.7 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.8 GiB, peak 37.7 GiB
+BT l00 mlp.gate_proj fact (Epoch 01/08) Block Loss: 9.0144e-7
+BT l00 mlp.gate_proj fact (Epoch 02/08) Block Loss: 8.2147e-7
+BT l00 mlp.gate_proj fact (Epoch 03/08) Block Loss: 9.4795e-7
+BT l00 mlp.gate_proj fact (Epoch 04/08) Block Loss: 8.5691e-7
+BT l00 mlp.gate_proj fact (Epoch 05/08) Block Loss: 9.0747e-7
+BT l00 mlp.gate_proj fact (Epoch 06/08) Block Loss: 8.0091e-7
+BT l00 mlp.gate_proj fact (Epoch 07/08) Block Loss: 7.5054e-7
+BT l00 mlp.gate_proj fact (Epoch 08/08) Block Loss: 6.9567e-7
+BT l00 mlp.gate_proj fact 1024 steps 176.4 s
+BT l00 not advanced: slots [0, 1, 2, 3, 4, 5, 6] of the reference's seven are not all factors
+BT l00 round total 702.5 s
+BT pack not written: only 0 of 36 blocks have their done marker
++ rc=0
++ kill 31659
+++ date -u
++ echo '== probe gate rc=0 Mon Nov 23 04:35:05 UTC 2026'
+== probe gate rc=0 Mon Nov 23 04:35:05 UTC 2026
++ gcloud storage cp /workspace/probe-gate.log gs://sanguine-checkpoints-scribe-461316/nq/l4/
++ tail -1
+.
++ exit 0
++ kill 31659

@@ -570,8 +570,13 @@ mod resident;
 /// `spd_inverse` on the device above a cutoff order, host leaves below it.
 mod inverse;
 
+/// The resident ADMM step's sub-phase timing (`APEIRON_NQ_ADMM_TRACE`).
+mod trace;
+
+pub(crate) use admm::release_frames;
 pub(crate) use admm::Side;
 pub(crate) use resident::commit;
+pub(crate) use trace::{take as take_admm_trace, NAMES as ADMM_TRACE_NAMES};
 
 #[cfg(test)]
 mod tests;

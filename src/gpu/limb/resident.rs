@@ -55,7 +55,9 @@ impl Side {
         }
         f.x_submit(1, rho, reg, inv)?.ok()?;
         // SAFETY: `start`'s length and `iters` are checked above; the resident form uploads no `m`.
+        let t = std::time::Instant::now();
         unsafe { f.rank1_submit(iters, start_rows, None, start) }?;
+        super::trace::add(super::trace::RANK1, t);
         Some(())
     }
 
@@ -85,6 +87,7 @@ pub(crate) fn commit(a: &mut Side, b: &mut Side) -> Option<()> {
     }
     let (za, zb) = (fa.iterate[0], fb.iterate[0]);
     let dev = device()?;
+    let t = std::time::Instant::now();
     let guard = dev.lock().unwrap_or_else(PoisonError::into_inner);
     let vk = &guard.vk;
     // SAFETY: the device mutex is held; each peer `Z_x` is `n × r` = the other side's `k × r`.
@@ -94,5 +97,7 @@ pub(crate) fn commit(a: &mut Side, b: &mut Side) -> Option<()> {
         vk.submit_wait(ca);
         vk.submit_wait(cb);
     }
+    super::trace::add(super::trace::COMMIT, t);
+    super::trace::iter();
     Some(())
 }

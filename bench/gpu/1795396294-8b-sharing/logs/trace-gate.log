@@ -1,0 +1,258 @@
+    Finished `release` profile [optimized] target(s) in 0.09s
+     Running tests/learn_block_tune.rs (target/release/build/apeiron/80e090f69ac3763f/out/learn_block_tune-80e090f69ac3763f)
+
+running 1 test
+vk.buffer 256.0 MiB, total 0.2 GiB
+BT "nq-100" dump 128 samples x 2048 tokens, d 4096 f 12288, T 8192, 4 chunks, 112 draws loaded 0.4 s
+vk.buffer 16.0 MiB, total 0.3 GiB
+stream: imported 1073741824 words, buf=138146423326720
+stream: imported 1073741824 words, buf=138146423328192
+stream: imported 1073741824 words, buf=138146423329664
+stream: imported 1073741824 words, buf=138146423335776
+BT streams rounded to bf16
+vk.buffer 192.0 MiB, total 0.5 GiB
+vk.buffer 32.0 MiB, total 0.5 GiB
+vk.buffer 64.0 MiB, total 0.6 GiB
+vk.buffer 16.0 MiB, total 0.6 GiB
+vk.buffer 16.0 MiB, total 0.6 GiB
+vk.buffer 64.0 MiB, total 0.6 GiB
+vk.buffer 192.0 MiB, total 0.8 GiB
+vk.buffer 192.0 MiB, total 1.0 GiB
+vk.buffer 192.0 MiB, total 1.2 GiB
+vk.buffer 32.0 MiB, total 1.2 GiB
+vk.buffer 32.0 MiB, total 1.3 GiB
+vk.buffer 32.0 MiB, total 1.3 GiB
+vk.buffer 32.0 MiB, total 1.3 GiB
+vk.buffer 32.0 MiB, total 1.4 GiB
+vk.buffer 32.0 MiB, total 1.4 GiB
+vk.buffer 96.0 MiB, total 1.5 GiB
+vk.buffer 96.0 MiB, total 1.6 GiB
+vk.buffer 96.0 MiB, total 1.7 GiB
+vk.buffer 32.0 MiB, total 1.7 GiB
+vk.buffer 32.0 MiB, total 1.8 GiB
+vk.buffer 31.5 MiB, total 1.8 GiB
+vk.buffer 31.5 MiB, total 1.8 GiB
+vk.buffer 31.5 MiB, total 1.9 GiB
+vk.buffer 31.5 MiB, total 1.9 GiB
+vk.buffer 31.5 MiB, total 1.9 GiB
+vk.buffer 31.5 MiB, total 2.0 GiB
+vk.buffer 64.0 MiB, total 2.0 GiB
+vk.buffer 64.0 MiB, total 2.1 GiB
+vk.buffer 64.0 MiB, total 2.1 GiB
+vk.buffer 64.0 MiB, total 2.2 GiB
+vk.buffer 31.5 MiB, total 2.2 GiB
+vk.buffer 31.5 MiB, total 2.3 GiB
+vk.buffer 31.5 MiB, total 2.3 GiB
+vk.buffer 31.5 MiB, total 2.3 GiB
+vk.buffer 142.5 MiB, total 2.5 GiB
+vk.buffer 47.5 MiB, total 2.5 GiB
+vk.buffer 142.5 MiB, total 2.6 GiB
+vk.buffer 47.5 MiB, total 2.7 GiB
+vk.buffer 142.5 MiB, total 2.8 GiB
+vk.buffer 47.5 MiB, total 2.9 GiB
+vk.buffer 192.0 MiB, total 3.1 GiB
+vk.buffer 192.0 MiB, total 3.3 GiB
+vk.buffer 192.0 MiB, total 3.4 GiB
+vk.buffer 192.0 MiB, total 3.6 GiB
+vk.buffer 142.5 MiB, total 3.8 GiB
+vk.buffer 142.5 MiB, total 3.9 GiB
+vk.buffer 47.5 MiB, total 4.0 GiB
+vk.buffer 47.5 MiB, total 4.0 GiB
+vk.buffer 142.5 MiB, total 4.1 GiB
+vk.buffer 47.5 MiB, total 4.2 GiB
+vk.buffer 142.5 MiB, total 4.3 GiB
+vk.buffer 47.5 MiB, total 4.4 GiB
+vk.buffer 142.5 MiB, total 4.5 GiB
+vk.buffer 47.5 MiB, total 4.6 GiB
+vk.buffer 192.0 MiB, total 4.7 GiB
+vk.buffer 192.0 MiB, total 4.9 GiB
+vk.buffer 192.0 MiB, total 5.1 GiB
+vk.buffer 192.0 MiB, total 5.3 GiB
+vk.buffer 142.5 MiB, total 5.4 GiB
+vk.buffer 142.5 MiB, total 5.6 GiB
+vk.buffer 47.5 MiB, total 5.6 GiB
+vk.buffer 47.5 MiB, total 5.7 GiB
+vk.buffer 47.5 MiB, total 5.7 GiB
+vk.buffer 142.5 MiB, total 5.9 GiB
+vk.buffer 47.5 MiB, total 5.9 GiB
+vk.buffer 142.5 MiB, total 6.1 GiB
+vk.buffer 47.5 MiB, total 6.1 GiB
+vk.buffer 142.5 MiB, total 6.2 GiB
+vk.buffer 192.0 MiB, total 6.4 GiB
+vk.buffer 192.0 MiB, total 6.6 GiB
+vk.buffer 192.0 MiB, total 6.8 GiB
+vk.buffer 192.0 MiB, total 7.0 GiB
+vk.buffer 47.5 MiB, total 7.0 GiB
+vk.buffer 47.5 MiB, total 7.1 GiB
+vk.buffer 142.5 MiB, total 7.2 GiB
+vk.buffer 142.5 MiB, total 7.4 GiB
+vk.buffer 128.0 MiB, total 7.5 GiB
+vk.buffer 128.0 MiB, total 7.6 GiB
+vk.buffer 128.0 MiB, total 7.7 GiB
+vk.buffer 128.0 MiB, total 7.9 GiB
+vk.buffer 128.0 MiB, total 8.0 GiB
+vk.buffer 128.0 MiB, total 8.1 GiB
+vk.buffer 128.0 MiB, total 8.2 GiB
+vk.buffer 128.0 MiB, total 8.4 GiB
+vk.buffer 128.0 MiB, total 8.5 GiB
+vk.buffer 384.0 MiB, total 8.9 GiB
+vk.buffer 384.0 MiB, total 9.2 GiB
+vk.buffer 384.0 MiB, total 9.6 GiB
+vk.buffer 384.0 MiB, total 10.0 GiB
+vk.buffer 384.0 MiB, total 10.4 GiB
+vk.buffer 384.0 MiB, total 10.7 GiB
+vk.buffer 128.0 MiB, total 10.9 GiB
+vk.buffer 128.0 MiB, total 11.0 GiB
+vk.buffer 128.0 MiB, total 11.1 GiB
+vk.buffer 128.0 MiB, total 11.2 GiB
+vk.buffer 64.0 MiB, total 11.3 GiB
+vk.buffer 64.0 MiB, total 11.4 GiB
+vk.buffer 192.0 MiB, total 11.5 GiB
+vk.buffer 192.0 MiB, total 11.7 GiB
+vk.buffer 192.0 MiB, total 11.9 GiB
+vk.buffer 192.0 MiB, total 12.1 GiB
+vk.buffer 192.0 MiB, total 12.3 GiB
+vk.buffer 192.0 MiB, total 12.5 GiB
+vk.buffer 192.0 MiB, total 12.7 GiB
+vk.buffer 192.0 MiB, total 12.9 GiB
+vk.buffer 31.5 MiB, total 12.9 GiB
+vk.buffer 31.5 MiB, total 12.9 GiB
+vk.buffer 31.5 MiB, total 13.0 GiB
+vk.buffer 31.5 MiB, total 13.0 GiB
+vk.buffer 31.5 MiB, total 13.0 GiB
+vk.buffer 31.5 MiB, total 13.0 GiB
+vk.buffer 64.0 MiB, total 13.1 GiB
+vk.buffer 64.0 MiB, total 13.2 GiB
+vk.buffer 64.0 MiB, total 13.2 GiB
+vk.buffer 64.0 MiB, total 13.3 GiB
+vk.buffer 31.5 MiB, total 13.3 GiB
+vk.buffer 31.5 MiB, total 13.4 GiB
+vk.buffer 31.5 MiB, total 13.4 GiB
+vk.buffer 31.5 MiB, total 13.4 GiB
+vk.buffer 16.0 MiB, total 13.5 GiB
+vk.buffer 16.0 MiB, total 13.5 GiB
+vk.buffer 16.0 MiB, total 13.5 GiB
+vk.buffer 16.0 MiB, total 13.5 GiB
+vk.buffer 16.0 MiB, total 13.6 GiB
+vk.buffer 16.0 MiB, total 13.6 GiB
+vk.buffer 16.0 MiB, total 13.6 GiB
+vk.buffer 16.0 MiB, total 13.7 GiB
+vk.buffer 128.0 MiB, total 13.8 GiB
+vk.buffer 128.0 MiB, total 13.9 GiB
+vk.buffer 128.0 MiB, total 14.1 GiB
+vk.buffer 32.0 MiB, total 14.1 GiB
+vk.buffer 32.0 MiB, total 14.1 GiB
+vk.buffer 128.0 MiB, total 14.3 GiB
+vk.buffer 32.0 MiB, total 14.3 GiB
+vk.buffer 128.0 MiB, total 14.4 GiB
+vk.buffer 128.0 MiB, total 14.5 GiB
+vk.buffer 128.0 MiB, total 14.7 GiB
+vk.buffer 32.0 MiB, total 14.7 GiB
+vk.buffer 32.0 MiB, total 14.7 GiB
+vk.buffer 128.0 MiB, total 14.9 GiB
+vk.buffer 128.0 MiB, total 15.0 GiB
+vk.buffer 32.0 MiB, total 15.0 GiB
+vk.buffer 128.0 MiB, total 15.1 GiB
+vk.buffer 128.0 MiB, total 15.3 GiB
+vk.buffer 128.0 MiB, total 15.4 GiB
+vk.buffer 128.0 MiB, total 15.5 GiB
+vk.buffer 128.0 MiB, total 15.6 GiB
+vk.buffer 128.0 MiB, total 15.8 GiB
+vk.buffer 64.0 MiB, total 15.8 GiB
+vk.buffer 64.0 MiB, total 15.9 GiB
+vk.buffer 16.0 MiB, total 15.9 GiB
+vk.buffer 16.0 MiB, total 15.9 GiB
+vk.buffer 16.0 MiB, total 15.9 GiB
+vk.buffer 16.0 MiB, total 15.9 GiB
+vk.buffer 128.0 MiB, total 16.1 GiB
+vk.buffer 128.0 MiB, total 16.2 GiB
+BT l00 teacher 9.1 s
+BT l00 resume at slot 4 phase 1
+vk.buffer 384.0 MiB, total 16.6 GiB
+vk.buffer 144.0 MiB, total 16.7 GiB
+vk.buffer 95.0 MiB, total 16.8 GiB
+vk.buffer 36.0 MiB, total 16.8 GiB
+vk.buffer 285.0 MiB, total 17.1 GiB
+vk.buffer 106.9 MiB, total 17.2 GiB
+vk.buffer 70.5 MiB, total 17.3 GiB
+vk.buffer 26.7 MiB, total 17.3 GiB
+vk.buffer 95.0 MiB, total 17.4 GiB
+vk.buffer 285.0 MiB, total 17.7 GiB
+vk.buffer 285.0 MiB, total 18.0 GiB
+vk.buffer 70.5 MiB, total 18.0 GiB
+vk.buffer 285.0 MiB, total 18.3 GiB
+vk.buffer 72.0 MiB, total 18.4 GiB
+vk.buffer 288.0 MiB, total 18.7 GiB
+vk.buffer 288.0 MiB, total 18.9 GiB
+vk.buffer 735.5 MiB, total 19.7 GiB
+vk.buffer 355.5 MiB, total 20.0 GiB
+vk.buffer 18.0 MiB, total 20.0 GiB
+vk.buffer 17.6 MiB, total 20.0 GiB
+vk.buffer 17.6 MiB, total 20.1 GiB
+vk.buffer 17.8 MiB, total 20.1 GiB
+vk.buffer 17.8 MiB, total 20.1 GiB
+vk.buffer 17.8 MiB, total 20.1 GiB
+vk.buffer 17.8 MiB, total 20.2 GiB
+vk.buffer 17.8 MiB, total 20.2 GiB
+vk.buffer 17.8 MiB, total 20.2 GiB
+vk.buffer 18.0 MiB, total 20.3 GiB
+vk.buffer 18.0 MiB, total 20.3 GiB
+vk.buffer 18.0 MiB, total 20.3 GiB
+vk.buffer 18.0 MiB, total 20.3 GiB
+vk.buffer 384.0 MiB, total 21.0 GiB
+vk.buffer 144.0 MiB, total 21.1 GiB
+vk.buffer 285.0 MiB, total 21.4 GiB
+vk.buffer 108.0 MiB, total 21.5 GiB
+vk.buffer 95.0 MiB, total 21.6 GiB
+vk.buffer 35.6 MiB, total 21.6 GiB
+vk.buffer 70.5 MiB, total 21.7 GiB
+vk.buffer 26.7 MiB, total 21.7 GiB
+vk.buffer 285.0 MiB, total 22.0 GiB
+vk.buffer 95.0 MiB, total 22.1 GiB
+vk.buffer 95.0 MiB, total 22.2 GiB
+vk.buffer 70.5 MiB, total 22.2 GiB
+vk.buffer 95.0 MiB, total 22.3 GiB
+vk.buffer 72.0 MiB, total 22.4 GiB
+vk.buffer 96.0 MiB, total 22.5 GiB
+vk.buffer 288.0 MiB, total 22.8 GiB
+vk.buffer 545.5 MiB, total 23.3 GiB
+vk.buffer 165.5 MiB, total 23.5 GiB
+vk.buffer 18.0 MiB, total 23.5 GiB
+vk.buffer 17.6 MiB, total 23.5 GiB
+vk.buffer 17.6 MiB, total 23.5 GiB
+vk.buffer 17.8 MiB, total 23.6 GiB
+vk.buffer 17.8 MiB, total 23.6 GiB
+vk.buffer 17.8 MiB, total 23.6 GiB
+vk.buffer 17.8 MiB, total 23.6 GiB
+vk.buffer 17.8 MiB, total 23.7 GiB
+vk.buffer 17.8 MiB, total 23.7 GiB
+vk.buffer 18.0 MiB, total 23.7 GiB
+vk.buffer 18.0 MiB, total 23.8 GiB
+vk.buffer 18.0 MiB, total 23.8 GiB
+vk.buffer 18.0 MiB, total 23.8 GiB
+vk.buffer 285.0 MiB, total 24.3 GiB
+vk.buffer 106.9 MiB, total 24.4 GiB
+vk.buffer 285.0 MiB, total 24.7 GiB
+
+thread 'block_loop' (27200) panicked at src/gpu/vulkan.rs:1008:5:
+vkAllocateMemory failed: VkResult -2
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: <apeiron::gpu::vulkan::Vk>::buffer
+   3: <apeiron::gpu::limb::admm::Frame>::rank1_submit
+   4: apeiron::learn::nanoquant::step::rank1_step
+   5: apeiron::learn::nanoquant::factorize_floor
+   6: learn_block_tune::drive
+   7: <learn_block_tune::block_loop::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+test block_loop ... FAILED
+
+failures:
+
+failures:
+    block_loop
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 49.42s
+
+error: test failed, to rerun pass `--test learn_block_tune`

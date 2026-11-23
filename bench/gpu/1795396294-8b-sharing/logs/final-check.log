@@ -1,0 +1,45 @@
++ . /root/.cargo/env
+++ case ":${PATH}:" in
+++ export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+++ PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
++ cd /workspace
++ export RUSTUP_TOOLCHAIN=nightly-2026-04-14
++ RUSTUP_TOOLCHAIN=nightly-2026-04-14
++ rustc --version
+rustc 1.97.0-nightly (17584a181 2026-04-13)
++ cargo clippy --version
+clippy 0.1.96 (17584a1819 2026-04-13)
++ trap mirror EXIT
+++ date -u
++ echo '== check Mon Nov 23 07:32:51 UTC 2026'
+== check Mon Nov 23 07:32:51 UTC 2026
++ cargo check --tests --features gpu --locked -j 4
+    Checking apeiron v0.1.0 (/workspace)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.20s
+++ date -u
++ echo '== release tests Mon Nov 23 07:33:09 UTC 2026'
+== release tests Mon Nov 23 07:33:09 UTC 2026
++ bash bench/gpu/campaign/release-tape-tests.sh
+++ date -u
++ echo '== clippy Mon Nov 23 07:34:21 UTC 2026'
+== clippy Mon Nov 23 07:34:21 UTC 2026
++ cargo clippy --workspace --all-features --all-targets --locked -j 4 -- -D warnings
+    Checking apeiron v0.1.0 (/workspace)
+    Checking apeiron-wasm v0.0.0 (/workspace/wasm)
+    Checking apeiron-fold-abi v0.0.0 (/workspace/fold-abi)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.75s
+++ date -u
++ echo '== fmt Mon Nov 23 07:34:39 UTC 2026'
+== fmt Mon Nov 23 07:34:39 UTC 2026
++ cargo fmt --all -- --check
+++ date -u
++ echo '== export Mon Nov 23 07:34:41 UTC 2026'
+== export Mon Nov 23 07:34:41 UTC 2026
++ bash bench/gpu/campaign/export-l0.sh
+++ date -u
++ echo '== final-check rc=0 Mon Nov 23 07:37:31 UTC 2026'
+== final-check rc=0 Mon Nov 23 07:37:31 UTC 2026
++ mirror
++ for f in final-check.log release-tape-tests.log export-l0.log
++ '[' -f /workspace/final-check.log ']'
++ gcloud storage cp /workspace/final-check.log gs://sanguine-checkpoints-scribe-461316/nq/l4/

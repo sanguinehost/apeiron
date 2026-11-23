@@ -78,6 +78,20 @@ pub(crate) struct Rank1 {
     cbs: Vec<(usize, bool, bool, CommandBuffer, usize)>,
     /// The commit (dual, `out → Z`, `out → ` the peer's `Z_x`) by the peer's `Z_x`.
     commits: Vec<(Handle, CommandBuffer)>,
+    /// [`FRAME_EPOCH`] when `commits` was last recorded; a mismatch empties it, because a buffered
+    /// handle may then name a destroyed frame's buffer that the driver reissued.
+    epoch: u64,
+}
+
+/// Bumped by [`note_frame_release`] whenever a checked-in ADMM frame is destroyed. [`Rank1::commit`]
+/// keys its command buffers by the peer's `Z_x` handle alone, and this driver reuses handle
+/// integers, so a cached buffer recorded against a destroyed peer would otherwise be submitted
+/// with the reused handle.
+static FRAME_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Record that a frame was destroyed; see [`FRAME_EPOCH`].
+pub(super) fn note_frame_release() {
+    FRAME_EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// A recording command buffer and the next free readback flag word.
@@ -319,6 +333,7 @@ impl Rank1 {
             dual,
             cbs: Vec::new(),
             commits: Vec::new(),
+            epoch: FRAME_EPOCH.load(std::sync::atomic::Ordering::SeqCst),
         })
     }
 
@@ -425,8 +440,14 @@ impl Rank1 {
     ///
     /// # Complexity
     ///
-    /// One recording on the first call per peer; `rows·cols` map invocations and two copies.
+    /// One recording on the first call per peer and epoch; `rows·cols` map invocations and two
+    /// copies.
     pub(super) unsafe fn commit(&mut self, vk: &Vk, peer: Handle) -> CommandBuffer {
+        let epoch = FRAME_EPOCH.load(std::sync::atomic::Ordering::SeqCst);
+        if self.epoch != epoch {
+            self.commits.clear();
+            self.epoch = epoch;
+        }
         if let Some(c) = self.commits.iter().find(|c| c.0 == peer) {
             return c.1;
         }
@@ -505,7 +526,11 @@ impl super::admm::Frame {
         // buffer reads.
         if self.r1.is_none() {
             let limbs = self.limbs;
-            self.r1 = Some(Box::new(Rank1::build(vk, rows, cols, limbs, it)?));
+            // Track the lazy allocations so `release_frames` can destroy them with the frame's.
+            let mark = vk.alloc_mark();
+            let built = Rank1::build(vk, rows, cols, limbs, it);
+            self.bufs.extend(vk.handles_since(mark));
+            self.r1 = Some(Box::new(built?));
         }
         let r1 = self.r1.as_deref_mut()?;
         let resident = m.is_none();

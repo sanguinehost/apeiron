@@ -748,6 +748,12 @@ pub fn factorize_floor(
     let mut b_u: Vec<f64> = b_ls.iter().zip(&b_z).map(|(x, z)| x - z).collect();
     // Device waits separate the host inverse's dispatches by more than the pool's park delay.
     let _hot = crate::engine::chart::pool::hot();
+    // The two initial `rank1` calls above are the start, not an outer iteration; drain them so a
+    // traced split sums only the loop.
+    #[cfg(feature = "gpu")]
+    let _ = crate::gpu::limb::take_admm_trace();
+    #[cfg(feature = "gpu")]
+    let t_loop = std::time::Instant::now();
     let (t0, mut pending) = device_iters(
         [&mut a_side, &mut b_side],
         [
@@ -797,10 +803,55 @@ pub fn factorize_floor(
         (a_ls, b_ls) = (xa, xb);
         (a_z, b_z) = (za?, zb?);
     }
+    #[cfg(feature = "gpu")]
+    print_admm_split(o, n, r, t_loop);
     let admm_loss = admm_loss(&wn, &a_z, &b_z, o, n, r)?;
     let a_lat: Vec<f64> = a_ls.iter().zip(&a_u).map(|(x, u)| x + u).collect();
     let b_lat: Vec<f64> = b_ls.iter().zip(&b_u).map(|(x, u)| x + u).collect();
     export(&[&a_z, &b_z, &a_lat, &b_lat], &ni, &no, o, n, r, admm_loss)
+}
+
+/// Print the resident ADMM loop's sub-phase split when `APEIRON_NQ_ADMM_TRACE` is on and drains
+/// the counters. `cb1`, `inv`, `cb2` and `rank1` are summed over both sides (each runs once per
+/// side per outer iteration, on two threads); `commit` is summed over the pair. `loop` is the wall
+/// of the device-resident iterations; the test's ADMM time additionally covers the frame build,
+/// the two initial `rank1` calls and the export.
+///
+/// # Complexity
+///
+/// `O(1)`.
+#[cfg(feature = "gpu")]
+fn print_admm_split(o: usize, n: usize, r: usize, since: std::time::Instant) {
+    use std::fmt::Write as _;
+    let Some((ms, iters)) = crate::gpu::limb::take_admm_trace() else {
+        return;
+    };
+    let mut parts = String::new();
+    for (name, m) in crate::gpu::limb::ADMM_TRACE_NAMES.iter().zip(ms) {
+        write!(parts, " {name} {:.1}s", m / 1e3).expect("String write");
+    }
+    eprintln!(
+        "NQ admm {o}x{n} r{r}: {iters} iters, loop {:.1}s;{parts} (two-side sums)",
+        since.elapsed().as_secs_f64()
+    );
+}
+
+/// Destroy every device-resident ADMM frame cached by [`factorize_floor`] and drop the cache. The
+/// 8B block loop calls it after a linear's factorisation, where the frame set of one `gate_proj`
+/// side (about 4 GiB) is larger than the next phase's whole tape; the next fit rebuilds a frame.
+/// A frame checked out by a running factorisation is untouched.
+///
+/// # Safety
+///
+/// No command buffer or descriptor set recorded from a cached frame is submitted after this call;
+/// no factorisation may finish between the call and the next fit on the same thread. It is a
+/// no-op without the `gpu` feature.
+pub fn release_device_frames() {
+    #[cfg(feature = "gpu")]
+    // SAFETY: the caller's contract above; the device mutex serialises the release.
+    unsafe {
+        crate::gpu::limb::release_frames();
+    }
 }
 
 /// `‖W_n − (A_z/m)·B_z‖²/‖W_n‖²`, `m_k = ‖B_z row k‖` (the reference's printed loss).

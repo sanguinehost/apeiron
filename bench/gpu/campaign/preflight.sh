@@ -17,12 +17,18 @@ export APEIRON_NQ_BATCH=4
 export APEIRON_NQ_HOST_STREAMS=1
 export APEIRON_NQ_PACK_ONLY=0
 export APEIRON_NQ_PACK=/workspace/loop-8b/nq-100/pack-l0.nqp
+export APEIRON_MEM_TRACE=1
 mkdir -p "$APEIRON_NQ_LOOP/nq-100"
 
 echo "== preflight layer 0 $(date -u)"
+( while :; do nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits; sleep 0.5; done ) \
+  > /workspace/preflight-gpu.log 2>&1 &
+smi=$!
+trap 'kill "$smi" 2>/dev/null' EXIT
 cargo test --release --locked --features gpu --test learn_block_tune -- \
   --ignored --exact block_loop --nocapture
 fit=$?
+kill "$smi" 2>/dev/null
 echo "== preflight fit rc=$fit $(date -u)"
 [ $fit -eq 0 ] && [ -s "$APEIRON_NQ_PACK" ] || exit 1
 
@@ -36,4 +42,5 @@ ppl=$?
 echo "== preflight ppl rc=$ppl $(date -u)"
 gcloud storage cp "$APEIRON_NQ_PACK" gs://sanguine-checkpoints-scribe-461316/nq/packs/q3-8b-l0.nqp 2>&1 | tail -1
 gcloud storage cp /workspace/preflight-8b.log gs://sanguine-checkpoints-scribe-461316/nq/l4/ 2>&1 | tail -1
+gcloud storage cp /workspace/preflight-gpu.log gs://sanguine-checkpoints-scribe-461316/nq/l4/ 2>&1 | tail -1
 exit $ppl

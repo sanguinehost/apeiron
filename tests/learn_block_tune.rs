@@ -73,7 +73,7 @@ use apeiron::gpu::vulkan::{
 };
 use apeiron::learn::grad::load::load_rows;
 use apeiron::learn::grad::model::Config;
-use apeiron::learn::nanoquant::{factorize_floor, NqConfig, NqFactor};
+use apeiron::learn::nanoquant::{factorize_floor, release_device_frames, NqConfig, NqFactor};
 
 /// The teacher, `Qwen3-0.6B-Base` in f16 (`APEIRON_NQ_MODEL`).
 const MODEL: &str = "~/nq-ref/q3-0p6b-f16.gguf";
@@ -638,7 +638,6 @@ struct Bund<'a, 'b> {
     xs: &'a Stream,
     yt: &'a Stream,
     next: &'a Stream,
-    t: usize,
     a: usize,
     bf16: bool,
 }
@@ -664,13 +663,13 @@ unsafe fn step(
         .collect();
     submit_copies(b.g, b.cb, &pre);
     ft.forward(b.g);
-    submit_copies(b.g, b.cb, &[(ft.ao(), 0, ba, 0, b.t * b.a)]);
+    submit_copies(b.g, b.cb, &[(ft.ao(), 0, ba, 0, bt.t() * b.a)]);
     let pre = vec![chunk_into(b.xs, ids, bx), chunk_into(b.yt, ids, byt)];
     bt.set_cols(b.g, pre, Vec::new(), true);
     let loss = bt.run(b.g, true);
     if front_train {
         let (_, dao) = ft.cols();
-        submit_copies(b.g, b.cb, &[(bt.da(), 0, dao, 0, b.t * b.a)]);
+        submit_copies(b.g, b.cb, &[(bt.da(), 0, dao, 0, bt.t() * b.a)]);
         ft.train(b.g);
     }
     loss
@@ -689,7 +688,7 @@ unsafe fn eval_pass(b: &Bund, bt: &mut BlockTune, ft: &mut FrontTune, ids: &[usi
         .collect();
     submit_copies(b.g, b.cb, &pre);
     ft.forward(b.g);
-    submit_copies(b.g, b.cb, &[(ft.ao(), 0, ba, 0, b.t * b.a)]);
+    submit_copies(b.g, b.cb, &[(ft.ao(), 0, ba, 0, bt.t() * b.a)]);
     let pre = vec![chunk_into(b.xs, ids, bx), chunk_into(b.yt, ids, byt)];
     bt.set_cols(b.g, pre, vec![chunk_from(b.next, ids, bt.out())], false);
     bt.run(b.g, false);
@@ -1076,7 +1075,6 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
     }
     let mut fwd: Option<LayerFwd> = None;
     let mut big: Option<(BlockTune, FrontTune)> = None;
-    let mut small: Option<(BlockTune, FrontTune)> = None;
     let mut round_t = Instant::now();
     for l in o.lo..o.hi {
         let host = LayerHost::from_engine(engine, cfg, l).expect("layer host");
@@ -1110,11 +1108,6 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
             f,
             ranks: [rk[l][2], rk[l][4], rk[l][5], rk[l][6]],
         };
-        let fss = FrontShape {
-            chunks: seq / o.nctx,
-            ..fs
-        };
-        let bss = BlockShape { t: seq, ..bs };
         if fwd.is_none() {
             fwd = Some(unsafe { LayerFwd::new(&g, &host, seq, 1) });
         }
@@ -1123,28 +1116,22 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
         if big.is_none() {
             let b0 = unsafe { BlockTune::new(&g, bs, LR_BASE, LR_BASE, LR_BASE) };
             let f0 = unsafe { FrontTune::new(&g, fs, LR_BASE, LR_BASE) };
-            // The single-sample phase shares the four-sample phase's parameter set: the two tapes
-            // differ only in `T`, and allocating a second factor/moment set is what pushed the 8B
-            // block loop past the L4's heap.
-            let b1 = unsafe { BlockTune::new_sharing(&g, bss, LR_BASE, LR_BASE, LR_BASE, &b0) };
-            let f1 = unsafe { FrontTune::new_sharing(&g, fss, LR_BASE, LR_BASE, &f0) };
-            let (mut b0, mut f0, mut b1, mut f1) = (b0, f0, b1, f1);
+            // One parameter set and one tape per tuner: the two phases differ only in `T`, and the
+            // tape width is a dial (`set_t`), so the fact phase re-tapes the non-fact tuner instead
+            // of allocating a second one. Allocating a second factor/moment set and a second tape
+            // is what pushed the 8B block loop past the L4's heap.
+            let (mut b0, mut f0) = (b0, f0);
             unsafe {
                 b0.set_hyper(&g, AdamHyper::OPTIMI);
                 f0.set_hyper(&g, AdamHyper::OPTIMI);
-                b1.set_hyper(&g, AdamHyper::OPTIMI);
-                f1.set_hyper(&g, AdamHyper::OPTIMI);
             }
             big = Some((b0, f0));
-            small = Some((b1, f1));
         }
-        let (bt, ft) = big.as_mut().expect("big tuners");
-        let (bsm, fsm) = small.as_mut().expect("small tuners");
+        let (bt, ft) = big.as_mut().expect("tuners");
         let imp = stat(&o.dump, l, "mlp.down_proj", "o_norm");
         assert_eq!(imp.len(), d, "block {l}: importance");
         unsafe {
             bt.load_importance(&g, &imp);
-            bsm.load_importance(&g, &imp);
         }
         let bund = Bund {
             g: &g,
@@ -1153,18 +1140,6 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
             xs: &xs,
             yt: &yt,
             next: &next,
-            t,
-            a: host.a,
-            bf16: o.bf16,
-        };
-        let bundsm = Bund {
-            g: &g,
-            cb,
-            st: &stage,
-            xs: &xs,
-            yt: &yt,
-            next: &next,
-            t: seq,
             a: host.a,
             bf16: o.bf16,
         };
@@ -1244,6 +1219,9 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                         let tf = [!p.fd[0], !p.fd[1], !p.fd[2]];
                         let tb = [!p.bd[0], !p.bd[1], !p.bd[2], !p.bd[3]];
                         unsafe {
+                            // The non-fact phase's tape: `t = per_step · n_ctx` columns.
+                            bt.set_t(&g, t);
+                            ft.set_t(&g, t);
                             engage(
                                 &g,
                                 bt,
@@ -1283,14 +1261,34 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                     }
                     1 => {
                         let key = SLOT_KEYS[si];
+                        // The ADMM stage reads no tape. Free the non-fact tape before the frames
+                        // grow, and reallocate at the fact width after the fit: the wide tape and
+                        // a `gate_proj` frame cannot both sit on the 23 GiB L4.
+                        unsafe {
+                            bt.release_tape(&g);
+                            ft.release_tape(&g);
+                        }
+                        // The weight ADMM factors is the slot's dense `W` or its host factor image
+                        // (`modules/linear.py:264-283`), so a resume at this phase reads the
+                        // checkpoint instead of a device `w` that no run has materialised.
                         let (out, inn, rank, w) = match (SLOT_FRONT[si], SLOT_BLOCK[si]) {
                             (Some(k), _) => {
                                 let (oo, ii) = fs.dims(k);
-                                (oo, ii, fs.ranks[k], unsafe { ft.weight(&g, k) })
+                                let w = if p.fd[k] {
+                                    nq_from_host(&p.ff[k], 0.0).weight().expect("weight")
+                                } else {
+                                    p.fw[k].iter().map(|&v| f32_q32(v)).collect()
+                                };
+                                (oo, ii, fs.ranks[k], w)
                             }
                             (_, Some(k)) => {
                                 let (oo, ii) = bs.dims(k);
-                                (oo, ii, bs.ranks[k], unsafe { bt.weight(&g, k) })
+                                let w = if p.bd[k] {
+                                    nq_from_host(&p.bf[k], 0.0).weight().expect("weight")
+                                } else {
+                                    p.bw[k].iter().map(|&v| f32_q32(v)).collect()
+                                };
+                                (oo, ii, bs.ranks[k], w)
                             }
                             _ => unreachable!(),
                         };
@@ -1308,7 +1306,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                             assert_eq!(l, 0, "APEIRON_NQ_ADMM=a: the dump holds block 0");
                             dump_factor(&o.dump, key)
                         } else {
-                            let wa: Vec<i64> = w.iter().map(|&v| f32_q32(v)).collect();
+                            let wa: Vec<i64> = w.clone();
                             let nf = factorize_floor(
                                 &wa,
                                 out,
@@ -1337,7 +1335,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                         };
                         // The injected factor's own reconstruction: the convention check.
                         if o.inject {
-                            let wa: Vec<i64> = w.iter().map(|&v| f32_q32(v)).collect();
+                            let wa: Vec<i64> = w.clone();
                             let nf = nq_from_host(&hf, 0.0);
                             let wh = nf.weight().expect("weight");
                             let mut raw = 0f64;
@@ -1351,6 +1349,12 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                                  ADMM time=0.00s",
                                 raw / orig
                             );
+                        }
+                        // The frames of this fit are dead; the fact phase's tape takes their room.
+                        release_device_frames();
+                        unsafe {
+                            bt.set_t(&g, seq);
+                            ft.set_t(&g, seq);
                         }
                         match (SLOT_FRONT[si], SLOT_BLOCK[si]) {
                             (Some(k), _) => {
@@ -1383,14 +1387,17 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                             tb[k] = true;
                         }
                         unsafe {
-                            engage(&g, bsm, fsm, &p, (&g1, &gn, &g2), &sched, 2.0, (tf, tb));
+                            // The fact phase's tape: one sample, `n_ctx` columns.
+                            bt.set_t(&g, seq);
+                            ft.set_t(&g, seq);
+                            engage(&g, bt, ft, &p, (&g1, &gn, &g2), &sched, 2.0, (tf, tb));
                         }
                         for e in 0..8 {
                             let perm = &pm[(2 * si + 1) * 8 + e].1;
                             let mut sum = 0.0;
                             for i in 0..n_samples {
                                 sum += unsafe {
-                                    step(&bundsm, bsm, fsm, &[perm[i]], tf.iter().any(|x| *x))
+                                    step(&bund, bt, ft, &[perm[i]], tf.iter().any(|x| *x))
                                 };
                             }
                             println!(
@@ -1409,20 +1416,20 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                         };
                         match (SLOT_FRONT[si], SLOT_BLOCK[si]) {
                             (Some(k), _) => {
-                                let mut h = unsafe { fsm.factors(&g)[k].clone() };
+                                let mut h = unsafe { ft.factors(&g)[k].clone() };
                                 hard(&mut h);
                                 p.ff[k] = h.clone();
-                                unsafe { fsm.load_factor(&g, k, &h) };
+                                unsafe { ft.load_factor(&g, k, &h) };
                             }
                             (_, Some(k)) => {
-                                let mut h = unsafe { bsm.factors(&g)[k].clone() };
+                                let mut h = unsafe { bt.factors(&g)[k].clone() };
                                 hard(&mut h);
                                 p.bf[k] = h.clone();
-                                unsafe { bsm.load_factor(&g, k, &h) };
+                                unsafe { bt.load_factor(&g, k, &h) };
                             }
                             _ => unreachable!(),
                         }
-                        unsafe { read_params(&g, &mut p, bsm, fsm) };
+                        unsafe { read_params(&g, &mut p, bt, ft) };
                         save_params(&dir_l, &p);
                         save_state(&dir_l, si, 3, p.fd, p.bd);
                         println!(
@@ -1442,6 +1449,10 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
         if done {
             // The student stream advances through the finished block (`compress_model.py:103-110`).
             unsafe {
+                // The student stream advances through the finished block
+                // (`compress_model.py:103-110`) at the non-fact tape width.
+                bt.set_t(&g, t);
+                ft.set_t(&g, t);
                 engage(
                     &g,
                     bt,

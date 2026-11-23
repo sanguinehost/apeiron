@@ -583,3 +583,168 @@ fn front_dense_matches_host() {
         println!("front optimi + cosine schedule: one step moved slot 0");
     }
 }
+
+/// [`FrontTune::set_t`] re-tapes the same buffers: one `n_ctx` chunk on a two-chunk allocation
+/// equals a front allocated at one chunk, in the output.
+#[test]
+fn set_t_matches_a_fresh_front() {
+    let Ok(vk) = (unsafe { Vk::load() }) else {
+        println!("SKIP: no Vulkan device");
+        return;
+    };
+    let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
+    let wide = FrontShape {
+        chunks: 2,
+        n_ctx: 16,
+        d: 32,
+        nh: 4,
+        nkv: 2,
+        hd: 128,
+        rot: 16,
+        theta: 1e4,
+        eps: 1e-6,
+        ranks: [4; 3],
+    };
+    let narrow = FrontShape { chunks: 1, ..wide };
+    let fs: Vec<HostFactor> = (0..3)
+        .map(|k| {
+            let (o, i) = wide.dims(k);
+            factor(o, i, wide.ranks[k], 10 * k as u64 + 1)
+        })
+        .collect();
+    let (t, d) = (wide.t(), wide.d);
+    let x = unit(t * d, 91);
+    let g1: Vec<f32> = unit(d, 90).iter().map(|v| 1.0 + 0.2 * v).collect();
+    let gn: Vec<f32> = unit(2 * wide.hd, 92)
+        .iter()
+        .map(|v| 1.0 + 0.2 * v)
+        .collect();
+    let r = unit(t * wide.qw(), 93);
+    let n = narrow.t();
+    let rel = |got: &[f32], want: &[f32]| {
+        let (mut num, mut den) = (0.0f64, 1e-30f64);
+        for (&p, &q) in got.iter().zip(want) {
+            num = num.max((f64::from(p) - f64::from(q)).abs());
+            den = den.max(f64::from(q).abs());
+        }
+        num / den
+    };
+    unsafe {
+        let mut wide_ft = FrontTune::new(&g, wide, 1e-3, 2e-3);
+        wide_ft.load(&g, &fs, &g1, &gn);
+        wide_ft.batch(&g, &x, &r);
+        wide_ft.forward(&g);
+        let out_wide = wide_ft.output(&g);
+        wide_ft.set_t(&g, n);
+        wide_ft.batch(&g, &x[..n * d], &r[..n * wide.qw()]);
+        wide_ft.forward(&g);
+        let out_narrow = wide_ft.output(&g);
+
+        let mut fresh = FrontTune::new(&g, narrow, 1e-3, 2e-3);
+        fresh.load(&g, &fs, &g1, &gn);
+        fresh.batch(&g, &x[..n * d], &r[..n * wide.qw()]);
+        fresh.forward(&g);
+        let out_fresh = fresh.output(&g);
+
+        println!(
+            "set_t front: output rel narrow-vs-fresh {:.2e} wide-vs-narrow {:.2e}",
+            rel(&out_narrow, &out_fresh),
+            rel(&out_wide[..n * wide.qw()], &out_narrow)
+        );
+        let bits = |got: &[f32], want: &[f32]| {
+            got.iter()
+                .zip(want)
+                .position(|(a, b)| a.to_bits() != b.to_bits())
+        };
+        assert_eq!(out_narrow.len(), n * wide.qw(), "set_t output extent");
+        assert_eq!(
+            bits(&out_narrow, &out_fresh),
+            None,
+            "set_t output differs bitwise"
+        );
+        assert_eq!(
+            bits(&out_wide[..n * wide.qw()], &out_narrow),
+            None,
+            "prefix differs bitwise"
+        );
+    }
+}
+
+/// [`set_t_matches_a_fresh_front`] with the wide tape released first.
+#[test]
+fn release_tape_then_set_t_matches_a_fresh_front() {
+    let Ok(vk) = (unsafe { Vk::load() }) else {
+        println!("SKIP: no Vulkan device");
+        return;
+    };
+    let (g, _) = GpuCtx::new(&vk).expect("gpu ctx");
+    let wide = FrontShape {
+        chunks: 2,
+        n_ctx: 16,
+        d: 32,
+        nh: 4,
+        nkv: 2,
+        hd: 128,
+        rot: 16,
+        theta: 1e4,
+        eps: 1e-6,
+        ranks: [4; 3],
+    };
+    let narrow = FrontShape { chunks: 1, ..wide };
+    let fs: Vec<HostFactor> = (0..3)
+        .map(|k| {
+            let (o, i) = wide.dims(k);
+            factor(o, i, wide.ranks[k], 10 * k as u64 + 1)
+        })
+        .collect();
+    let (t, d) = (wide.t(), wide.d);
+    let x = unit(t * d, 91);
+    let g1: Vec<f32> = unit(d, 90).iter().map(|v| 1.0 + 0.2 * v).collect();
+    let gn: Vec<f32> = unit(2 * wide.hd, 92)
+        .iter()
+        .map(|v| 1.0 + 0.2 * v)
+        .collect();
+    let r = unit(t * wide.qw(), 93);
+    let n = narrow.t();
+    let rel = |got: &[f32], want: &[f32]| {
+        let (mut num, mut den) = (0.0f64, 1e-30f64);
+        for (&p, &q) in got.iter().zip(want) {
+            num = num.max((f64::from(p) - f64::from(q)).abs());
+            den = den.max(f64::from(q).abs());
+        }
+        num / den
+    };
+    unsafe {
+        let mut ft = FrontTune::new(&g, wide, 1e-3, 2e-3);
+        ft.load(&g, &fs, &g1, &gn);
+        ft.batch(&g, &x, &r);
+        ft.forward(&g);
+        ft.release_tape(&g);
+        ft.set_t(&g, n);
+        ft.batch(&g, &x[..n * d], &r[..n * wide.qw()]);
+        ft.forward(&g);
+        let out_narrow = ft.output(&g);
+
+        let mut fresh = FrontTune::new(&g, narrow, 1e-3, 2e-3);
+        fresh.load(&g, &fs, &g1, &gn);
+        fresh.batch(&g, &x[..n * d], &r[..n * wide.qw()]);
+        fresh.forward(&g);
+        let out_fresh = fresh.output(&g);
+
+        println!(
+            "release_tape front: output rel narrow-vs-fresh {:.2e}",
+            rel(&out_narrow, &out_fresh)
+        );
+        let bits = |got: &[f32], want: &[f32]| {
+            got.iter()
+                .zip(want)
+                .position(|(a, b)| a.to_bits() != b.to_bits())
+        };
+        assert_eq!(out_narrow.len(), n * wide.qw(), "set_t output extent");
+        assert_eq!(
+            bits(&out_narrow, &out_fresh),
+            None,
+            "set_t output differs bitwise"
+        );
+    }
+}

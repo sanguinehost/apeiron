@@ -1,0 +1,196 @@
++ . /root/.cargo/env
+++ case ":${PATH}:" in
+++ export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+++ PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
++ cd /workspace
++ trap mirror EXIT
+++ date -u
++ echo '== check Mon Nov 23 06:53:36 UTC 2026'
+== check Mon Nov 23 06:53:36 UTC 2026
++ cargo check --tests --features gpu --locked -j 4
+    Checking apeiron v0.1.0 (/workspace)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.76s
+++ date -u
++ echo '== release tests Mon Nov 23 06:53:43 UTC 2026'
+== release tests Mon Nov 23 06:53:43 UTC 2026
++ bash bench/gpu/campaign/release-tape-tests.sh
+++ date -u
++ echo '== host-memory probe Mon Nov 23 06:54:35 UTC 2026'
+== host-memory probe Mon Nov 23 06:54:35 UTC 2026
++ bash bench/gpu/campaign/hostmem-probe.sh
+++ date -u
++ echo '== inverse-cut sweep Mon Nov 23 06:55:52 UTC 2026'
+== inverse-cut sweep Mon Nov 23 06:55:52 UTC 2026
++ bash bench/gpu/campaign/inv-cut-sweep.sh
+++ date -u
++ echo '== clippy Mon Nov 23 07:11:48 UTC 2026'
+== clippy Mon Nov 23 07:11:48 UTC 2026
++ cargo clippy --workspace --all-features --all-targets --locked -j 4 -- -D warnings
+    Checking apeiron v0.1.0 (/workspace)
+error: duplicated attribute
+   --> src/engine/loader.rs:490:13
+    |
+490 |             clippy::cast_lossless,
+    |             ^^^^^^^^^^^^^^^^^^^^^
+    |
+note: first defined here
+   --> src/engine/loader.rs:486:13
+    |
+486 |             clippy::cast_lossless,
+    |             ^^^^^^^^^^^^^^^^^^^^^
+help: remove this attribute
+   --> src/engine/loader.rs:490:13
+    |
+490 |             clippy::cast_lossless,
+    |             ^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#duplicated_attributes
+    = note: `-D clippy::duplicated-attributes` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::duplicated_attributes)]`
+
+error: `format!(..)` appended to existing `String`
+   --> src/learn/nanoquant.rs:830:9
+    |
+830 |         parts.push_str(&format!(" {name} {:.1}s", m / 1e3));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: you may need to import the `std::fmt::Write` trait
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#format_push_string
+    = note: `-D clippy::format-push-string` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::format_push_string)]`
+help: consider using `write!` to avoid the extra allocation
+    |
+830 -         parts.push_str(&format!(" {name} {:.1}s", m / 1e3));
+830 +         let _ = write!(parts, " {name} {:.1}s", m / 1e3);
+    |
+
+error: could not compile `apeiron` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: used `assert!` to check that a value is not empty
+   --> src/engine/kern/native_gpu_probe.rs:395:9
+    |
+395 |         assert!(!activations.is_empty());
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#assert_is_empty
+    = note: `-D clippy::assert-is-empty` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::assert_is_empty)]`
+help: use `assert_ne!` to show the value on failure
+    |
+395 -         assert!(!activations.is_empty());
+395 +         assert_ne!(activations, [] as [std::vec::Vec<i64>; 0]);
+    |
+
+error: used `assert!` to check that a value is not empty
+   --> src/engine/ops/sampler.rs:165:9
+    |
+165 |         assert!(!full.is_empty());
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#assert_is_empty
+help: use `assert_ne!` to show the value on failure
+    |
+165 -         assert!(!full.is_empty());
+165 +         assert_ne!(full, [] as [u32; 0]);
+    |
+
+error: used `assert!` to check that a value is empty
+   --> src/map/table/partition.rs:841:13
+    |
+841 |             assert!(parts.run(1, 0).is_empty());
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#assert_is_empty
+help: use `assert_eq!` to show the value on failure
+    |
+841 -             assert!(parts.run(1, 0).is_empty());
+841 +             assert_eq!(parts.run(1, 0), []);
+    |
+
+error: used `assert!` to check that a value is empty
+    --> src/map/table/locator.rs:1239:9
+     |
+1239 |         assert!(table.locator.links.is_empty());
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#assert_is_empty
+help: use `assert_eq!` to show the value on failure
+     |
+1239 -         assert!(table.locator.links.is_empty());
+1239 +         assert_eq!(table.locator.links, [] as [(u32, map::table::PayloadLocation); 0]);
+     |
+
+error: used `assert!` to check that a value is empty
+    --> src/map/table/locator.rs:1294:9
+     |
+1294 |         assert!(elliptic.locator.links.is_empty());
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#assert_is_empty
+help: use `assert_eq!` to show the value on failure
+     |
+1294 -         assert!(elliptic.locator.links.is_empty());
+1294 +         assert_eq!(elliptic.locator.links, [] as [(u32, map::table::PayloadLocation); 0]);
+     |
+
+error: used `assert!` to check that a value is empty
+    --> src/map/table/locator.rs:1332:9
+     |
+1332 |         assert!(unreserved.locator.links.is_empty());
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#assert_is_empty
+help: use `assert_eq!` to show the value on failure
+     |
+1332 -         assert!(unreserved.locator.links.is_empty());
+1332 +         assert_eq!(unreserved.locator.links, [] as [(u32, map::table::PayloadLocation); 0]);
+     |
+
+error: used `assert!` to check that a value is empty
+    --> src/map/table/locator.rs:1575:9
+     |
+1575 |         assert!(table.locator.links.is_empty());
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#assert_is_empty
+help: use `assert_eq!` to show the value on failure
+     |
+1575 -         assert!(table.locator.links.is_empty());
+1575 +         assert_eq!(table.locator.links, [] as [(u32, map::table::PayloadLocation); 0]);
+     |
+
+error: the loop variable `index` is only used to index `region.slots`
+    --> src/map/table/tests.rs:1202:22
+     |
+1202 |         for index in 0..region.slots.len() {
+     |                      ^^^^^^^^^^^^^^^^^^^^^
+     |
+note: for this index operation
+    --> src/map/table/tests.rs:1206:29
+     |
+1206 |                 let slot = &region.slots[index];
+     |                             ^^^^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#needless_range_loop
+     = note: `-D clippy::needless-range-loop` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::needless_range_loop)]`
+help: consider using an iterator
+     |
+1202 -         for index in 0..region.slots.len() {
+1202 +         for <item> in region.slots.iter().take(region.slots.len()) {
+     |
+
+error: this lint expectation is unfulfilled
+   --> src/map/merge.rs:359:9
+    |
+359 |         clippy::float_cmp,
+    |         ^^^^^^^^^^^^^^^^^
+    |
+    = note: the test is about the exact floating-point results, not approximate equality
+    = note: `-D unfulfilled-lint-expectations` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(unfulfilled_lint_expectations)]`
+
+error: could not compile `apeiron` (lib test) due to 11 previous errors
++ exit 1
++ mirror
++ for f in verify-sweep.log release-tape-tests.log hostmem-probe.log hostmem-probe-gpu.log inv-cut-sweep.log
++ '[' -f /workspace/verify-sweep.log ']'
++ gcloud storage cp /workspace/verify-sweep.log gs://sanguine-checkpoints-scribe-461316/nq/l4/

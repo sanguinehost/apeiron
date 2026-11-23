@@ -1,0 +1,161 @@
++ export HOME=/root
++ HOME=/root
++ . /root/.cargo/env
+++ case ":${PATH}:" in
+++ export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+++ PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
++ cd /workspace
++ export APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ export APEIRON_NQ_DUMP=/workspace/dump-8b
++ APEIRON_NQ_DUMP=/workspace/dump-8b
++ export APEIRON_NQ_LOOP=/workspace/loop-8b-share4
++ APEIRON_NQ_LOOP=/workspace/loop-8b-share4
++ export APEIRON_NQ_TAG=probe
++ APEIRON_NQ_TAG=probe
++ export APEIRON_NQ_BLOCKS=0..1
++ APEIRON_NQ_BLOCKS=0..1
++ export APEIRON_NQ_SAMPLES=4
++ APEIRON_NQ_SAMPLES=4
++ export APEIRON_NQ_NCTX=2048
++ APEIRON_NQ_NCTX=2048
++ export APEIRON_NQ_BATCH=4
++ APEIRON_NQ_BATCH=4
++ export APEIRON_NQ_PHASES=1
++ APEIRON_NQ_PHASES=1
++ export APEIRON_NQ_HOST_STREAMS=1
++ APEIRON_NQ_HOST_STREAMS=1
++ mkdir -p /workspace/loop-8b-share4/probe
++ rm -f /workspace/gpu-used4.log
++ sampler=4156
++ cargo test --release --locked --features gpu --test learn_block_tune -- --ignored --exact block_loop --nocapture
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
+    Finished `release` profile [optimized] target(s) in 0.03s
+     Running tests/learn_block_tune.rs (target/release/build/apeiron/80e090f69ac3763f/out/learn_block_tune-80e090f69ac3763f)
+
+running 1 test
+BT "probe" dump 4 samples x 2048 tokens, d 4096 f 12288, T 8192, 4 chunks, 112 draws loaded 0.3 s
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
+BT streams rounded to bf16
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
+BT l00 teacher 0.3 s
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
+BT l00 self_attn.q_proj nonfact (Epoch 01/08) Block Loss: 2.7829e-10
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
+BT l00 self_attn.q_proj nonfact (Epoch 02/08) Block Loss: 1.6561e-7
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
+BT l00 self_attn.q_proj nonfact (Epoch 03/08) Block Loss: 4.8306e-7
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
+BT l00 self_attn.q_proj nonfact (Epoch 04/08) Block Loss: 1.2752e-7
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
+BT l00 self_attn.q_proj nonfact (Epoch 05/08) Block Loss: 1.2675e-7
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
+BT l00 self_attn.q_proj nonfact (Epoch 06/08) Block Loss: 1.1899e-7
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
+BT l00 self_attn.q_proj nonfact (Epoch 07/08) Block Loss: 9.5234e-8
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
+BT l00 self_attn.q_proj nonfact (Epoch 08/08) Block Loss: 7.7755e-8
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ sleep 0.5
+BT l00 self_attn.q_proj nonfact 8 steps 10.4 s
+BT l00 not advanced: slots [0, 1, 2, 3, 4, 5, 6] of the reference's seven are not all factors
+BT l00 round total 15.6 s
+BT pack not written: only 0 of 36 blocks have their done marker
++ true
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
++ rc=0
++ kill 4156
++ sort -n /workspace/gpu-used4.log
++ tail -1
+++ cat /workspace/fit-share4.peak
++ echo 'probe4 rc=0 peak=17122 MiB'
+probe4 rc=0 peak=17122 MiB
++ gcloud storage cp /workspace/fit-share4.log /workspace/gpu-used4.log /workspace/fit-share4.peak gs://sanguine-checkpoints-scribe-461316/nq/l4/
++ tail -3
+.
+
+Average throughput: 146.7kiB/s
++ exit 0

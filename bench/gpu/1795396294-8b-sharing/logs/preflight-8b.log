@@ -1,0 +1,919 @@
++ . /root/.cargo/env
+++ case ":${PATH}:" in
+++ export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+++ PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
++ cd /workspace
++ export APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ export APEIRON_NQ_DUMP=/workspace/dump-8b
++ APEIRON_NQ_DUMP=/workspace/dump-8b
++ export APEIRON_NQ_LOOP=/workspace/loop-8b
++ APEIRON_NQ_LOOP=/workspace/loop-8b
++ export APEIRON_NQ_TAG=nq-100
++ APEIRON_NQ_TAG=nq-100
++ export APEIRON_NQ_BLOCKS=0..1
++ APEIRON_NQ_BLOCKS=0..1
++ export APEIRON_NQ_SAMPLES=128
++ APEIRON_NQ_SAMPLES=128
++ export APEIRON_NQ_NCTX=2048
++ APEIRON_NQ_NCTX=2048
++ export APEIRON_NQ_BATCH=4
++ APEIRON_NQ_BATCH=4
++ export APEIRON_NQ_HOST_STREAMS=1
++ APEIRON_NQ_HOST_STREAMS=1
++ export APEIRON_NQ_PACK_ONLY=0
++ APEIRON_NQ_PACK_ONLY=0
++ export APEIRON_NQ_PACK=/workspace/loop-8b/nq-100/pack-l0.nqp
++ APEIRON_NQ_PACK=/workspace/loop-8b/nq-100/pack-l0.nqp
++ mkdir -p /workspace/loop-8b/nq-100
+++ date -u
++ echo '== preflight layer 0 Mon Nov 23 00:36:31 UTC 2026'
+== preflight layer 0 Mon Nov 23 00:36:31 UTC 2026
++ cargo test --release --locked --features gpu --test learn_block_tune -- --ignored --exact block_loop --nocapture
+   Compiling apeiron v0.1.0 (/workspace)
+    Finished `release` profile [optimized] target(s) in 28.57s
+     Running tests/learn_block_tune.rs (target/release/build/apeiron/80e090f69ac3763f/out/learn_block_tune-80e090f69ac3763f)
+
+running 1 test
+BT "nq-100" dump 128 samples x 2048 tokens, d 4096 f 12288, T 8192, 4 chunks, 112 draws loaded 0.3 s
+BT streams rounded to bf16
+BT l00 teacher 9.1 s
+test block_loop has been running for over 60 seconds
+BT l00 self_attn.q_proj nonfact (Epoch 01/08) Block Loss: 1.8187e-7
+BT l00 self_attn.q_proj nonfact (Epoch 02/08) Block Loss: 2.3675e-7
+BT l00 self_attn.q_proj nonfact (Epoch 03/08) Block Loss: 1.1531e-7
+BT l00 self_attn.q_proj nonfact (Epoch 04/08) Block Loss: 5.7522e-8
+BT l00 self_attn.q_proj nonfact (Epoch 05/08) Block Loss: 3.3453e-8
+BT l00 self_attn.q_proj nonfact (Epoch 06/08) Block Loss: 1.4441e-8
+BT l00 self_attn.q_proj nonfact (Epoch 07/08) Block Loss: 1.0554e-8
+BT l00 self_attn.q_proj nonfact (Epoch 08/08) Block Loss: 9.5786e-9
+BT l00 self_attn.q_proj nonfact 256 steps 203.7 s
+BT l00 self_attn.q_proj ADMM weight recon error: raw=3747.1287, norm=0.3217, per_el=2.2335e-4, ADMM time=148.15s
+BT l00 self_attn.q_proj fact (Epoch 01/08) Block Loss: 3.8834e-7
+BT l00 self_attn.q_proj fact (Epoch 02/08) Block Loss: 2.4209e-7
+BT l00 self_attn.q_proj fact (Epoch 03/08) Block Loss: 1.8985e-7
+BT l00 self_attn.q_proj fact (Epoch 04/08) Block Loss: 1.5989e-7
+BT l00 self_attn.q_proj fact (Epoch 05/08) Block Loss: 1.4242e-7
+BT l00 self_attn.q_proj fact (Epoch 06/08) Block Loss: 1.3042e-7
+BT l00 self_attn.q_proj fact (Epoch 07/08) Block Loss: 1.2361e-7
+BT l00 self_attn.q_proj fact (Epoch 08/08) Block Loss: 1.1825e-7
+BT l00 self_attn.q_proj fact 1024 steps 213.1 s
+BT l00 self_attn.v_proj nonfact (Epoch 01/08) Block Loss: 2.0389e-7
+BT l00 self_attn.v_proj nonfact (Epoch 02/08) Block Loss: 2.3139e-7
+BT l00 self_attn.v_proj nonfact (Epoch 03/08) Block Loss: 1.7532e-7
+BT l00 self_attn.v_proj nonfact (Epoch 04/08) Block Loss: 1.1047e-7
+BT l00 self_attn.v_proj nonfact (Epoch 05/08) Block Loss: 8.6349e-8
+BT l00 self_attn.v_proj nonfact (Epoch 06/08) Block Loss: 7.2004e-8
+BT l00 self_attn.v_proj nonfact (Epoch 07/08) Block Loss: 6.7098e-8
+BT l00 self_attn.v_proj nonfact (Epoch 08/08) Block Loss: 6.5996e-8
+BT l00 self_attn.v_proj nonfact 256 steps 213.4 s
+BT l00 self_attn.v_proj ADMM weight recon error: raw=941.2772, norm=0.3383, per_el=2.2442e-4, ADMM time=24.28s
+BT l00 self_attn.v_proj fact (Epoch 01/08) Block Loss: 1.5175e-6
+BT l00 self_attn.v_proj fact (Epoch 02/08) Block Loss: 1.1980e-6
+BT l00 self_attn.v_proj fact (Epoch 03/08) Block Loss: 1.2214e-6
+BT l00 self_attn.v_proj fact (Epoch 04/08) Block Loss: 1.2410e-6
+BT l00 self_attn.v_proj fact (Epoch 05/08) Block Loss: 1.2342e-6
+BT l00 self_attn.v_proj fact (Epoch 06/08) Block Loss: 1.1642e-6
+BT l00 self_attn.v_proj fact (Epoch 07/08) Block Loss: 1.1283e-6
+BT l00 self_attn.v_proj fact (Epoch 08/08) Block Loss: 9.9887e-7
+BT l00 self_attn.v_proj fact 1024 steps 212.8 s
+BT l00 self_attn.o_proj nonfact (Epoch 01/08) Block Loss: 7.6511e-7
+BT l00 self_attn.o_proj nonfact (Epoch 02/08) Block Loss: 5.6613e-7
+BT l00 self_attn.o_proj nonfact (Epoch 03/08) Block Loss: 4.8149e-7
+BT l00 self_attn.o_proj nonfact (Epoch 04/08) Block Loss: 4.2695e-7
+BT l00 self_attn.o_proj nonfact (Epoch 05/08) Block Loss: 3.9382e-7
+BT l00 self_attn.o_proj nonfact (Epoch 06/08) Block Loss: 3.6884e-7
+BT l00 self_attn.o_proj nonfact (Epoch 07/08) Block Loss: 3.5885e-7
+BT l00 self_attn.o_proj nonfact (Epoch 08/08) Block Loss: 3.5554e-7
+BT l00 self_attn.o_proj nonfact 256 steps 214.2 s
+BT l00 self_attn.o_proj ADMM weight recon error: raw=3006.7186, norm=0.2878, per_el=1.7921e-4, ADMM time=120.63s
+BT l00 self_attn.o_proj fact (Epoch 01/08) Block Loss: 1.0226e-6
+BT l00 self_attn.o_proj fact (Epoch 02/08) Block Loss: 8.8853e-7
+BT l00 self_attn.o_proj fact (Epoch 03/08) Block Loss: 9.8927e-7
+BT l00 self_attn.o_proj fact (Epoch 04/08) Block Loss: 9.6775e-7
+BT l00 self_attn.o_proj fact (Epoch 05/08) Block Loss: 9.8586e-7
+BT l00 self_attn.o_proj fact (Epoch 06/08) Block Loss: 9.2266e-7
+BT l00 self_attn.o_proj fact (Epoch 07/08) Block Loss: 8.7371e-7
+BT l00 self_attn.o_proj fact (Epoch 08/08) Block Loss: 8.0297e-7
+BT l00 self_attn.o_proj fact 1024 steps 142.0 s
+BT l00 self_attn.k_proj nonfact (Epoch 01/08) Block Loss: 6.4729e-7
+BT l00 self_attn.k_proj nonfact (Epoch 02/08) Block Loss: 5.3301e-7
+BT l00 self_attn.k_proj nonfact (Epoch 03/08) Block Loss: 4.8347e-7
+BT l00 self_attn.k_proj nonfact (Epoch 04/08) Block Loss: 4.5093e-7
+BT l00 self_attn.k_proj nonfact (Epoch 05/08) Block Loss: 4.2639e-7
+BT l00 self_attn.k_proj nonfact (Epoch 06/08) Block Loss: 4.0932e-7
+BT l00 self_attn.k_proj nonfact (Epoch 07/08) Block Loss: 4.0211e-7
+BT l00 self_attn.k_proj nonfact (Epoch 08/08) Block Loss: 3.9960e-7
+BT l00 self_attn.k_proj nonfact 256 steps 213.9 s
+BT l00 self_attn.k_proj ADMM weight recon error: raw=1201.7028, norm=0.3364, per_el=2.8651e-4, ADMM time=23.28s
+BT l00 self_attn.k_proj fact (Epoch 01/08) Block Loss: 7.1241e-7
+BT l00 self_attn.k_proj fact (Epoch 02/08) Block Loss: 6.2405e-7
+BT l00 self_attn.k_proj fact (Epoch 03/08) Block Loss: 5.8218e-7
+BT l00 self_attn.k_proj fact (Epoch 04/08) Block Loss: 5.5822e-7
+BT l00 self_attn.k_proj fact (Epoch 05/08) Block Loss: 5.4316e-7
+BT l00 self_attn.k_proj fact (Epoch 06/08) Block Loss: 5.3313e-7
+BT l00 self_attn.k_proj fact (Epoch 07/08) Block Loss: 5.2746e-7
+BT l00 self_attn.k_proj fact (Epoch 08/08) Block Loss: 5.2249e-7
+BT l00 self_attn.k_proj fact 1024 steps 217.9 s
+BT l00 mlp.gate_proj nonfact (Epoch 01/08) Block Loss: 5.2857e-7
+BT l00 mlp.gate_proj nonfact (Epoch 02/08) Block Loss: 5.1347e-7
+BT l00 mlp.gate_proj nonfact (Epoch 03/08) Block Loss: 4.7966e-7
+BT l00 mlp.gate_proj nonfact (Epoch 04/08) Block Loss: 4.5410e-7
+BT l00 mlp.gate_proj nonfact (Epoch 05/08) Block Loss: 4.3694e-7
+BT l00 mlp.gate_proj nonfact (Epoch 06/08) Block Loss: 4.2797e-7
+BT l00 mlp.gate_proj nonfact (Epoch 07/08) Block Loss: 4.2350e-7
+BT l00 mlp.gate_proj nonfact (Epoch 08/08) Block Loss: 4.2174e-7
+BT l00 mlp.gate_proj nonfact 256 steps 150.2 s
+
+thread 'block_loop' (8476) panicked at src/gpu/vulkan.rs:1008:5:
+vkAllocateMemory failed: VkResult -2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test block_loop ... FAILED
+
+failures:
+
+failures:
+    block_loop
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2154.32s
+
+error: test failed, to rerun pass `--test learn_block_tune`
++ fit=101
+++ date -u
++ echo '== preflight fit rc=101 Mon Nov 23 01:12:57 UTC 2026'
+== preflight fit rc=101 Mon Nov 23 01:12:57 UTC 2026
++ '[' 101 -eq 0 ']'
++ exit 1
++ . /root/.cargo/env
+++ case ":${PATH}:" in
+++ export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+++ PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
++ cd /workspace
++ export APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ export APEIRON_NQ_DUMP=/workspace/dump-8b
++ APEIRON_NQ_DUMP=/workspace/dump-8b
++ export APEIRON_NQ_LOOP=/workspace/loop-8b
++ APEIRON_NQ_LOOP=/workspace/loop-8b
++ export APEIRON_NQ_TAG=nq-100
++ APEIRON_NQ_TAG=nq-100
++ export APEIRON_NQ_BLOCKS=0..1
++ APEIRON_NQ_BLOCKS=0..1
++ export APEIRON_NQ_SAMPLES=128
++ APEIRON_NQ_SAMPLES=128
++ export APEIRON_NQ_NCTX=2048
++ APEIRON_NQ_NCTX=2048
++ export APEIRON_NQ_BATCH=4
++ APEIRON_NQ_BATCH=4
++ export APEIRON_NQ_HOST_STREAMS=1
++ APEIRON_NQ_HOST_STREAMS=1
++ export APEIRON_NQ_PACK_ONLY=0
++ APEIRON_NQ_PACK_ONLY=0
++ export APEIRON_NQ_PACK=/workspace/loop-8b/nq-100/pack-l0.nqp
++ APEIRON_NQ_PACK=/workspace/loop-8b/nq-100/pack-l0.nqp
++ mkdir -p /workspace/loop-8b/nq-100
+++ date -u
++ echo '== preflight layer 0 Mon Nov 23 01:26:35 UTC 2026'
+== preflight layer 0 Mon Nov 23 01:26:35 UTC 2026
++ cargo test --release --locked --features gpu --test learn_block_tune -- --ignored --exact block_loop --nocapture
+    Finished `release` profile [optimized] target(s) in 0.02s
+     Running tests/learn_block_tune.rs (target/release/build/apeiron/80e090f69ac3763f/out/learn_block_tune-80e090f69ac3763f)
+
+running 1 test
+BT "nq-100" dump 128 samples x 2048 tokens, d 4096 f 12288, T 8192, 4 chunks, 112 draws loaded 0.3 s
+BT streams rounded to bf16
+BT l00 teacher 9.2 s
+BT l00 resume at slot 4 phase 1
+
+thread 'block_loop' (12574) panicked at src/gpu/vulkan.rs:1008:5:
+vkAllocateMemory failed: VkResult -2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test block_loop ... FAILED
+
+failures:
+
+failures:
+    block_loop
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 43.59s
+
+error: test failed, to rerun pass `--test learn_block_tune`
++ fit=101
+++ date -u
++ echo '== preflight fit rc=101 Mon Nov 23 01:27:23 UTC 2026'
+== preflight fit rc=101 Mon Nov 23 01:27:23 UTC 2026
++ '[' 101 -eq 0 ']'
++ exit 1
++ . /root/.cargo/env
+++ case ":${PATH}:" in
+++ export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+++ PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
++ cd /workspace
++ export APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ export APEIRON_NQ_DUMP=/workspace/dump-8b
++ APEIRON_NQ_DUMP=/workspace/dump-8b
++ export APEIRON_NQ_LOOP=/workspace/loop-8b
++ APEIRON_NQ_LOOP=/workspace/loop-8b
++ export APEIRON_NQ_TAG=nq-100
++ APEIRON_NQ_TAG=nq-100
++ export APEIRON_NQ_BLOCKS=0..1
++ APEIRON_NQ_BLOCKS=0..1
++ export APEIRON_NQ_SAMPLES=128
++ APEIRON_NQ_SAMPLES=128
++ export APEIRON_NQ_NCTX=2048
++ APEIRON_NQ_NCTX=2048
++ export APEIRON_NQ_BATCH=4
++ APEIRON_NQ_BATCH=4
++ export APEIRON_NQ_HOST_STREAMS=1
++ APEIRON_NQ_HOST_STREAMS=1
++ export APEIRON_NQ_PACK_ONLY=0
++ APEIRON_NQ_PACK_ONLY=0
++ export APEIRON_NQ_PACK=/workspace/loop-8b/nq-100/pack-l0.nqp
++ APEIRON_NQ_PACK=/workspace/loop-8b/nq-100/pack-l0.nqp
++ mkdir -p /workspace/loop-8b/nq-100
+++ date -u
++ echo '== preflight layer 0 Mon Nov 23 02:52:15 UTC 2026'
+== preflight layer 0 Mon Nov 23 02:52:15 UTC 2026
++ cargo test --release --locked --features gpu --test learn_block_tune -- --ignored --exact block_loop --nocapture
+    Finished `release` profile [optimized] target(s) in 0.03s
+     Running tests/learn_block_tune.rs (target/release/build/apeiron/80e090f69ac3763f/out/learn_block_tune-80e090f69ac3763f)
+
+running 1 test
+BT "nq-100" dump 128 samples x 2048 tokens, d 4096 f 12288, T 8192, 4 chunks, 112 draws loaded 0.3 s
+stream: imported 1073741824 words, buf=129467234106176
+stream: imported 1073741824 words, buf=129467234107648
+stream: imported 1073741824 words, buf=129467234109120
+stream: imported 1073741824 words, buf=129467234115232
+BT streams rounded to bf16
+BT l00 teacher 9.0 s
+BT l00 resume at slot 4 phase 1
+
+thread 'block_loop' (26871) panicked at src/gpu/vulkan.rs:1008:5:
+vkAllocateMemory failed: VkResult -2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test block_loop ... FAILED
+
+failures:
+
+failures:
+    block_loop
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 45.90s
+
+error: test failed, to rerun pass `--test learn_block_tune`
++ fit=101
+++ date -u
++ echo '== preflight fit rc=101 Mon Nov 23 02:53:05 UTC 2026'
+== preflight fit rc=101 Mon Nov 23 02:53:05 UTC 2026
++ '[' 101 -eq 0 ']'
++ exit 1
++ . /root/.cargo/env
+++ case ":${PATH}:" in
+++ export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+++ PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
++ cd /workspace
++ export APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ APEIRON_NQ_MODEL=/workspace/q3-8b-base-bf16.gguf
++ export APEIRON_NQ_DUMP=/workspace/dump-8b
++ APEIRON_NQ_DUMP=/workspace/dump-8b
++ export APEIRON_NQ_LOOP=/workspace/loop-8b
++ APEIRON_NQ_LOOP=/workspace/loop-8b
++ export APEIRON_NQ_TAG=nq-100
++ APEIRON_NQ_TAG=nq-100
++ export APEIRON_NQ_BLOCKS=0..1
++ APEIRON_NQ_BLOCKS=0..1
++ export APEIRON_NQ_SAMPLES=128
++ APEIRON_NQ_SAMPLES=128
++ export APEIRON_NQ_NCTX=2048
++ APEIRON_NQ_NCTX=2048
++ export APEIRON_NQ_BATCH=4
++ APEIRON_NQ_BATCH=4
++ export APEIRON_NQ_HOST_STREAMS=1
++ APEIRON_NQ_HOST_STREAMS=1
++ export APEIRON_NQ_PACK_ONLY=0
++ APEIRON_NQ_PACK_ONLY=0
++ export APEIRON_NQ_PACK=/workspace/loop-8b/nq-100/pack-l0.nqp
++ APEIRON_NQ_PACK=/workspace/loop-8b/nq-100/pack-l0.nqp
++ export APEIRON_MEM_TRACE=1
++ APEIRON_MEM_TRACE=1
++ mkdir -p /workspace/loop-8b/nq-100
+++ date -u
++ echo '== preflight layer 0 Mon Nov 23 04:38:21 UTC 2026'
+== preflight layer 0 Mon Nov 23 04:38:21 UTC 2026
++ smi=37057
++ trap 'kill "$smi" 2>/dev/null' EXIT
++ cargo test --release --locked --features gpu --test learn_block_tune -- --ignored --exact block_loop --nocapture
+    Finished `release` profile [optimized] target(s) in 0.08s
+     Running tests/learn_block_tune.rs (target/release/build/apeiron/80e090f69ac3763f/out/learn_block_tune-80e090f69ac3763f)
+
+running 1 test
+vk.buffer 256.0 MiB, live 0.2 GiB, peak 0.2 GiB
+BT "nq-100" dump 128 samples x 2048 tokens, d 4096 f 12288, T 8192, 4 chunks, 112 draws loaded 0.5 s
+vk.buffer 16.0 MiB, live 0.3 GiB, peak 0.3 GiB
+vk.buffer 4096.0 MiB, live 4.3 GiB, peak 4.3 GiB
+stream: imported 1073741824 words, buf=137771419154304
+vk.buffer 4096.0 MiB, live 8.3 GiB, peak 8.3 GiB
+stream: imported 1073741824 words, buf=137771419155776
+vk.buffer 4096.0 MiB, live 12.3 GiB, peak 12.3 GiB
+stream: imported 1073741824 words, buf=137771419157248
+vk.buffer 4096.0 MiB, live 16.3 GiB, peak 16.3 GiB
+stream: imported 1073741824 words, buf=137771419163632
+BT streams rounded to bf16
+vk.buffer 192.0 MiB, live 16.5 GiB, peak 16.5 GiB
+vk.buffer 32.0 MiB, live 16.5 GiB, peak 16.5 GiB
+vk.buffer 64.0 MiB, live 16.6 GiB, peak 16.6 GiB
+vk.buffer 16.0 MiB, live 16.6 GiB, peak 16.6 GiB
+vk.buffer 16.0 MiB, live 16.6 GiB, peak 16.6 GiB
+vk.buffer 64.0 MiB, live 16.6 GiB, peak 16.6 GiB
+vk.buffer 192.0 MiB, live 16.8 GiB, peak 16.8 GiB
+vk.buffer 192.0 MiB, live 17.0 GiB, peak 17.0 GiB
+vk.buffer 192.0 MiB, live 17.2 GiB, peak 17.2 GiB
+vk.buffer 32.0 MiB, live 17.2 GiB, peak 17.2 GiB
+vk.buffer 32.0 MiB, live 17.3 GiB, peak 17.3 GiB
+vk.buffer 32.0 MiB, live 17.3 GiB, peak 17.3 GiB
+vk.buffer 32.0 MiB, live 17.3 GiB, peak 17.3 GiB
+vk.buffer 32.0 MiB, live 17.4 GiB, peak 17.4 GiB
+vk.buffer 32.0 MiB, live 17.4 GiB, peak 17.4 GiB
+vk.buffer 96.0 MiB, live 17.5 GiB, peak 17.5 GiB
+vk.buffer 96.0 MiB, live 17.6 GiB, peak 17.6 GiB
+vk.buffer 96.0 MiB, live 17.7 GiB, peak 17.7 GiB
+vk.buffer 32.0 MiB, live 17.7 GiB, peak 17.7 GiB
+vk.buffer 32.0 MiB, live 17.8 GiB, peak 17.8 GiB
+vk.buffer 31.5 MiB, live 17.8 GiB, peak 17.8 GiB
+vk.buffer 31.5 MiB, live 17.8 GiB, peak 17.8 GiB
+vk.buffer 31.5 MiB, live 17.9 GiB, peak 17.9 GiB
+vk.buffer 31.5 MiB, live 17.9 GiB, peak 17.9 GiB
+vk.buffer 31.5 MiB, live 17.9 GiB, peak 17.9 GiB
+vk.buffer 31.5 MiB, live 18.0 GiB, peak 18.0 GiB
+vk.buffer 64.0 MiB, live 18.0 GiB, peak 18.0 GiB
+vk.buffer 64.0 MiB, live 18.1 GiB, peak 18.1 GiB
+vk.buffer 64.0 MiB, live 18.1 GiB, peak 18.1 GiB
+vk.buffer 64.0 MiB, live 18.2 GiB, peak 18.2 GiB
+vk.buffer 31.5 MiB, live 18.2 GiB, peak 18.2 GiB
+vk.buffer 31.5 MiB, live 18.3 GiB, peak 18.3 GiB
+vk.buffer 31.5 MiB, live 18.3 GiB, peak 18.3 GiB
+vk.buffer 31.5 MiB, live 18.3 GiB, peak 18.3 GiB
+vk.buffer 142.5 MiB, live 18.5 GiB, peak 18.5 GiB
+vk.buffer 47.5 MiB, live 18.5 GiB, peak 18.5 GiB
+vk.buffer 142.5 MiB, live 18.6 GiB, peak 18.6 GiB
+vk.buffer 47.5 MiB, live 18.7 GiB, peak 18.7 GiB
+vk.buffer 142.5 MiB, live 18.8 GiB, peak 18.8 GiB
+vk.buffer 47.5 MiB, live 18.9 GiB, peak 18.9 GiB
+vk.buffer 192.0 MiB, live 19.1 GiB, peak 19.1 GiB
+vk.buffer 192.0 MiB, live 19.3 GiB, peak 19.3 GiB
+vk.buffer 192.0 MiB, live 19.4 GiB, peak 19.4 GiB
+vk.buffer 192.0 MiB, live 19.6 GiB, peak 19.6 GiB
+vk.buffer 142.5 MiB, live 19.8 GiB, peak 19.8 GiB
+vk.buffer 142.5 MiB, live 19.9 GiB, peak 19.9 GiB
+vk.buffer 47.5 MiB, live 20.0 GiB, peak 20.0 GiB
+vk.buffer 47.5 MiB, live 20.0 GiB, peak 20.0 GiB
+vk.buffer 142.5 MiB, live 20.1 GiB, peak 20.1 GiB
+vk.buffer 47.5 MiB, live 20.2 GiB, peak 20.2 GiB
+vk.buffer 142.5 MiB, live 20.3 GiB, peak 20.3 GiB
+vk.buffer 47.5 MiB, live 20.4 GiB, peak 20.4 GiB
+vk.buffer 142.5 MiB, live 20.5 GiB, peak 20.5 GiB
+vk.buffer 47.5 MiB, live 20.6 GiB, peak 20.6 GiB
+vk.buffer 192.0 MiB, live 20.7 GiB, peak 20.7 GiB
+vk.buffer 192.0 MiB, live 20.9 GiB, peak 20.9 GiB
+vk.buffer 192.0 MiB, live 21.1 GiB, peak 21.1 GiB
+vk.buffer 192.0 MiB, live 21.3 GiB, peak 21.3 GiB
+vk.buffer 142.5 MiB, live 21.4 GiB, peak 21.4 GiB
+vk.buffer 142.5 MiB, live 21.6 GiB, peak 21.6 GiB
+vk.buffer 47.5 MiB, live 21.6 GiB, peak 21.6 GiB
+vk.buffer 47.5 MiB, live 21.7 GiB, peak 21.7 GiB
+vk.buffer 47.5 MiB, live 21.7 GiB, peak 21.7 GiB
+vk.buffer 142.5 MiB, live 21.9 GiB, peak 21.9 GiB
+vk.buffer 47.5 MiB, live 21.9 GiB, peak 21.9 GiB
+vk.buffer 142.5 MiB, live 22.1 GiB, peak 22.1 GiB
+vk.buffer 47.5 MiB, live 22.1 GiB, peak 22.1 GiB
+vk.buffer 142.5 MiB, live 22.2 GiB, peak 22.2 GiB
+vk.buffer 192.0 MiB, live 22.4 GiB, peak 22.4 GiB
+vk.buffer 192.0 MiB, live 22.6 GiB, peak 22.6 GiB
+vk.buffer 192.0 MiB, live 22.8 GiB, peak 22.8 GiB
+vk.buffer 192.0 MiB, live 23.0 GiB, peak 23.0 GiB
+vk.buffer 47.5 MiB, live 23.0 GiB, peak 23.0 GiB
+vk.buffer 47.5 MiB, live 23.1 GiB, peak 23.1 GiB
+vk.buffer 142.5 MiB, live 23.2 GiB, peak 23.2 GiB
+vk.buffer 142.5 MiB, live 23.4 GiB, peak 23.4 GiB
+vk.buffer 128.0 MiB, live 23.5 GiB, peak 23.5 GiB
+vk.buffer 128.0 MiB, live 23.6 GiB, peak 23.6 GiB
+vk.buffer 128.0 MiB, live 23.7 GiB, peak 23.7 GiB
+vk.buffer 128.0 MiB, live 23.9 GiB, peak 23.9 GiB
+vk.buffer 128.0 MiB, live 24.0 GiB, peak 24.0 GiB
+vk.buffer 128.0 MiB, live 24.1 GiB, peak 24.1 GiB
+vk.buffer 128.0 MiB, live 24.2 GiB, peak 24.2 GiB
+vk.buffer 128.0 MiB, live 24.4 GiB, peak 24.4 GiB
+vk.buffer 128.0 MiB, live 24.5 GiB, peak 24.5 GiB
+vk.buffer 384.0 MiB, live 24.9 GiB, peak 24.9 GiB
+vk.buffer 384.0 MiB, live 25.2 GiB, peak 25.2 GiB
+vk.buffer 384.0 MiB, live 25.6 GiB, peak 25.6 GiB
+vk.buffer 384.0 MiB, live 26.0 GiB, peak 26.0 GiB
+vk.buffer 384.0 MiB, live 26.4 GiB, peak 26.4 GiB
+vk.buffer 384.0 MiB, live 26.7 GiB, peak 26.7 GiB
+vk.buffer 128.0 MiB, live 26.9 GiB, peak 26.9 GiB
+vk.buffer 128.0 MiB, live 27.0 GiB, peak 27.0 GiB
+vk.buffer 128.0 MiB, live 27.1 GiB, peak 27.1 GiB
+vk.buffer 128.0 MiB, live 27.2 GiB, peak 27.2 GiB
+vk.buffer 64.0 MiB, live 27.3 GiB, peak 27.3 GiB
+vk.buffer 64.0 MiB, live 27.4 GiB, peak 27.4 GiB
+vk.buffer 192.0 MiB, live 27.5 GiB, peak 27.5 GiB
+vk.buffer 192.0 MiB, live 27.7 GiB, peak 27.7 GiB
+vk.buffer 192.0 MiB, live 27.9 GiB, peak 27.9 GiB
+vk.buffer 192.0 MiB, live 28.1 GiB, peak 28.1 GiB
+vk.buffer 192.0 MiB, live 28.3 GiB, peak 28.3 GiB
+vk.buffer 192.0 MiB, live 28.5 GiB, peak 28.5 GiB
+vk.buffer 192.0 MiB, live 28.7 GiB, peak 28.7 GiB
+vk.buffer 192.0 MiB, live 28.9 GiB, peak 28.9 GiB
+vk.buffer 31.5 MiB, live 28.9 GiB, peak 28.9 GiB
+vk.buffer 31.5 MiB, live 28.9 GiB, peak 28.9 GiB
+vk.buffer 31.5 MiB, live 29.0 GiB, peak 29.0 GiB
+vk.buffer 31.5 MiB, live 29.0 GiB, peak 29.0 GiB
+vk.buffer 31.5 MiB, live 29.0 GiB, peak 29.0 GiB
+vk.buffer 31.5 MiB, live 29.0 GiB, peak 29.0 GiB
+vk.buffer 64.0 MiB, live 29.1 GiB, peak 29.1 GiB
+vk.buffer 64.0 MiB, live 29.2 GiB, peak 29.2 GiB
+vk.buffer 64.0 MiB, live 29.2 GiB, peak 29.2 GiB
+vk.buffer 64.0 MiB, live 29.3 GiB, peak 29.3 GiB
+vk.buffer 31.5 MiB, live 29.3 GiB, peak 29.3 GiB
+vk.buffer 31.5 MiB, live 29.4 GiB, peak 29.4 GiB
+vk.buffer 31.5 MiB, live 29.4 GiB, peak 29.4 GiB
+vk.buffer 31.5 MiB, live 29.4 GiB, peak 29.4 GiB
+vk.buffer 16.0 MiB, live 29.5 GiB, peak 29.5 GiB
+vk.buffer 16.0 MiB, live 29.5 GiB, peak 29.5 GiB
+vk.buffer 16.0 MiB, live 29.5 GiB, peak 29.5 GiB
+vk.buffer 16.0 MiB, live 29.5 GiB, peak 29.5 GiB
+vk.buffer 16.0 MiB, live 29.6 GiB, peak 29.6 GiB
+vk.buffer 16.0 MiB, live 29.6 GiB, peak 29.6 GiB
+vk.buffer 16.0 MiB, live 29.6 GiB, peak 29.6 GiB
+vk.buffer 16.0 MiB, live 29.7 GiB, peak 29.7 GiB
+vk.buffer 128.0 MiB, live 29.8 GiB, peak 29.8 GiB
+vk.buffer 128.0 MiB, live 29.9 GiB, peak 29.9 GiB
+vk.buffer 128.0 MiB, live 30.1 GiB, peak 30.1 GiB
+vk.buffer 32.0 MiB, live 30.1 GiB, peak 30.1 GiB
+vk.buffer 32.0 MiB, live 30.1 GiB, peak 30.1 GiB
+vk.buffer 128.0 MiB, live 30.3 GiB, peak 30.3 GiB
+vk.buffer 32.0 MiB, live 30.3 GiB, peak 30.3 GiB
+vk.buffer 128.0 MiB, live 30.4 GiB, peak 30.4 GiB
+vk.buffer 128.0 MiB, live 30.5 GiB, peak 30.5 GiB
+vk.buffer 128.0 MiB, live 30.7 GiB, peak 30.7 GiB
+vk.buffer 32.0 MiB, live 30.7 GiB, peak 30.7 GiB
+vk.buffer 32.0 MiB, live 30.7 GiB, peak 30.7 GiB
+vk.buffer 128.0 MiB, live 30.9 GiB, peak 30.9 GiB
+vk.buffer 128.0 MiB, live 31.0 GiB, peak 31.0 GiB
+vk.buffer 32.0 MiB, live 31.0 GiB, peak 31.0 GiB
+vk.buffer 128.0 MiB, live 31.1 GiB, peak 31.1 GiB
+vk.buffer 128.0 MiB, live 31.3 GiB, peak 31.3 GiB
+vk.buffer 128.0 MiB, live 31.4 GiB, peak 31.4 GiB
+vk.buffer 128.0 MiB, live 31.5 GiB, peak 31.5 GiB
+vk.buffer 128.0 MiB, live 31.6 GiB, peak 31.6 GiB
+vk.buffer 128.0 MiB, live 31.8 GiB, peak 31.8 GiB
+vk.buffer 64.0 MiB, live 31.8 GiB, peak 31.8 GiB
+vk.buffer 64.0 MiB, live 31.9 GiB, peak 31.9 GiB
+vk.buffer 16.0 MiB, live 31.9 GiB, peak 31.9 GiB
+vk.buffer 16.0 MiB, live 31.9 GiB, peak 31.9 GiB
+vk.buffer 16.0 MiB, live 31.9 GiB, peak 31.9 GiB
+vk.buffer 16.0 MiB, live 31.9 GiB, peak 31.9 GiB
+vk.buffer 128.0 MiB, live 32.1 GiB, peak 32.1 GiB
+vk.buffer 128.0 MiB, live 32.2 GiB, peak 32.2 GiB
+BT l00 teacher 9.0 s
+BT l00 resume at slot 4 phase 3
+test block_loop has been running for over 60 seconds
+BT l00 mlp.up_proj nonfact (Epoch 01/08) Block Loss: 6.2034e-7
+BT l00 mlp.up_proj nonfact (Epoch 02/08) Block Loss: 5.6177e-7
+BT l00 mlp.up_proj nonfact (Epoch 03/08) Block Loss: 5.3745e-7
+BT l00 mlp.up_proj nonfact (Epoch 04/08) Block Loss: 5.2070e-7
+BT l00 mlp.up_proj nonfact (Epoch 05/08) Block Loss: 5.0860e-7
+BT l00 mlp.up_proj nonfact (Epoch 06/08) Block Loss: 5.0082e-7
+BT l00 mlp.up_proj nonfact (Epoch 07/08) Block Loss: 4.9658e-7
+BT l00 mlp.up_proj nonfact (Epoch 08/08) Block Loss: 4.9490e-7
+BT l00 mlp.up_proj nonfact 256 steps 145.7 s
+vk.buffer 384.0 MiB, live 26.6 GiB, peak 32.2 GiB
+vk.buffer 144.0 MiB, live 26.8 GiB, peak 32.2 GiB
+vk.buffer 95.0 MiB, live 26.9 GiB, peak 32.2 GiB
+vk.buffer 36.0 MiB, live 26.9 GiB, peak 32.2 GiB
+vk.buffer 285.0 MiB, live 27.2 GiB, peak 32.2 GiB
+vk.buffer 106.9 MiB, live 27.3 GiB, peak 32.2 GiB
+vk.buffer 70.5 MiB, live 27.4 GiB, peak 32.2 GiB
+vk.buffer 26.7 MiB, live 27.4 GiB, peak 32.2 GiB
+vk.buffer 95.0 MiB, live 27.5 GiB, peak 32.2 GiB
+vk.buffer 285.0 MiB, live 27.7 GiB, peak 32.2 GiB
+vk.buffer 285.0 MiB, live 28.0 GiB, peak 32.2 GiB
+vk.buffer 70.5 MiB, live 28.1 GiB, peak 32.2 GiB
+vk.buffer 285.0 MiB, live 28.4 GiB, peak 32.2 GiB
+vk.buffer 72.0 MiB, live 28.4 GiB, peak 32.2 GiB
+vk.buffer 288.0 MiB, live 28.7 GiB, peak 32.2 GiB
+vk.buffer 288.0 MiB, live 29.0 GiB, peak 32.2 GiB
+vk.buffer 735.5 MiB, live 29.7 GiB, peak 32.2 GiB
+vk.buffer 355.5 MiB, live 30.1 GiB, peak 32.2 GiB
+vk.buffer 18.0 MiB, live 30.1 GiB, peak 32.2 GiB
+vk.buffer 17.6 MiB, live 30.1 GiB, peak 32.2 GiB
+vk.buffer 17.6 MiB, live 30.1 GiB, peak 32.2 GiB
+vk.buffer 17.8 MiB, live 30.1 GiB, peak 32.2 GiB
+vk.buffer 17.8 MiB, live 30.2 GiB, peak 32.2 GiB
+vk.buffer 17.8 MiB, live 30.2 GiB, peak 32.2 GiB
+vk.buffer 17.8 MiB, live 30.2 GiB, peak 32.2 GiB
+vk.buffer 17.8 MiB, live 30.3 GiB, peak 32.2 GiB
+vk.buffer 17.8 MiB, live 30.3 GiB, peak 32.2 GiB
+vk.buffer 18.0 MiB, live 30.3 GiB, peak 32.2 GiB
+vk.buffer 18.0 MiB, live 30.3 GiB, peak 32.2 GiB
+vk.buffer 18.0 MiB, live 30.4 GiB, peak 32.2 GiB
+vk.buffer 18.0 MiB, live 30.4 GiB, peak 32.2 GiB
+vk.buffer 384.0 MiB, live 31.0 GiB, peak 32.2 GiB
+vk.buffer 144.0 MiB, live 31.2 GiB, peak 32.2 GiB
+vk.buffer 285.0 MiB, live 31.4 GiB, peak 32.2 GiB
+vk.buffer 108.0 MiB, live 31.6 GiB, peak 32.2 GiB
+vk.buffer 95.0 MiB, live 31.6 GiB, peak 32.2 GiB
+vk.buffer 35.6 MiB, live 31.7 GiB, peak 32.2 GiB
+vk.buffer 70.5 MiB, live 31.7 GiB, peak 32.2 GiB
+vk.buffer 26.7 MiB, live 31.8 GiB, peak 32.2 GiB
+vk.buffer 285.0 MiB, live 32.1 GiB, peak 32.2 GiB
+vk.buffer 95.0 MiB, live 32.1 GiB, peak 32.2 GiB
+vk.buffer 95.0 MiB, live 32.2 GiB, peak 32.2 GiB
+vk.buffer 70.5 MiB, live 32.3 GiB, peak 32.3 GiB
+vk.buffer 95.0 MiB, live 32.4 GiB, peak 32.4 GiB
+vk.buffer 72.0 MiB, live 32.5 GiB, peak 32.5 GiB
+vk.buffer 96.0 MiB, live 32.6 GiB, peak 32.6 GiB
+vk.buffer 288.0 MiB, live 32.8 GiB, peak 32.8 GiB
+vk.buffer 545.5 MiB, live 33.4 GiB, peak 33.4 GiB
+vk.buffer 165.5 MiB, live 33.5 GiB, peak 33.5 GiB
+vk.buffer 18.0 MiB, live 33.6 GiB, peak 33.6 GiB
+vk.buffer 17.6 MiB, live 33.6 GiB, peak 33.6 GiB
+vk.buffer 17.6 MiB, live 33.6 GiB, peak 33.6 GiB
+vk.buffer 17.8 MiB, live 33.6 GiB, peak 33.6 GiB
+vk.buffer 17.8 MiB, live 33.6 GiB, peak 33.6 GiB
+vk.buffer 17.8 MiB, live 33.7 GiB, peak 33.7 GiB
+vk.buffer 17.8 MiB, live 33.7 GiB, peak 33.7 GiB
+vk.buffer 17.8 MiB, live 33.7 GiB, peak 33.7 GiB
+vk.buffer 17.8 MiB, live 33.8 GiB, peak 33.8 GiB
+vk.buffer 18.0 MiB, live 33.8 GiB, peak 33.8 GiB
+vk.buffer 18.0 MiB, live 33.8 GiB, peak 33.8 GiB
+vk.buffer 18.0 MiB, live 33.8 GiB, peak 33.8 GiB
+vk.buffer 18.0 MiB, live 33.8 GiB, peak 33.8 GiB
+vk.buffer 285.0 MiB, live 34.4 GiB, peak 34.4 GiB
+vk.buffer 106.9 MiB, live 34.5 GiB, peak 34.5 GiB
+vk.buffer 285.0 MiB, live 34.8 GiB, peak 34.8 GiB
+vk.buffer 108.0 MiB, live 34.9 GiB, peak 34.9 GiB
+vk.buffer 285.0 MiB, live 35.2 GiB, peak 35.2 GiB
+vk.buffer 285.0 MiB, live 35.4 GiB, peak 35.4 GiB
+vk.buffer 285.1 MiB, live 35.7 GiB, peak 35.7 GiB
+vk.buffer 285.0 MiB, live 36.0 GiB, peak 36.0 GiB
+vk.buffer 95.0 MiB, live 36.1 GiB, peak 36.1 GiB
+vk.buffer 35.6 MiB, live 36.1 GiB, peak 36.1 GiB
+vk.buffer 95.0 MiB, live 36.2 GiB, peak 36.2 GiB
+vk.buffer 36.0 MiB, live 36.3 GiB, peak 36.3 GiB
+vk.buffer 95.0 MiB, live 36.4 GiB, peak 36.4 GiB
+vk.buffer 95.0 MiB, live 36.5 GiB, peak 36.5 GiB
+vk.buffer 95.0 MiB, live 36.6 GiB, peak 36.6 GiB
+vk.buffer 95.0 MiB, live 36.7 GiB, peak 36.7 GiB
+vk.buffer 106.9 MiB, live 36.8 GiB, peak 36.8 GiB
+vk.buffer 35.6 MiB, live 36.8 GiB, peak 36.8 GiB
+vk.buffer 384.0 MiB, live 37.2 GiB, peak 37.2 GiB
+vk.buffer 142.5 MiB, live 37.3 GiB, peak 37.3 GiB
+vk.buffer 384.0 MiB, live 37.7 GiB, peak 37.7 GiB
+BT l00 mlp.up_proj ADMM weight recon error: raw=7374.1834, norm=0.2421, per_el=1.4651e-4, ADMM time=510.23s
+vk.buffer 32.0 MiB, live 27.3 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.3 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.4 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.4 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.4 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 27.6 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 27.7 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 27.8 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 27.8 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 27.9 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 28.0 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 28.1 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.2 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.2 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.2 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.3 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.3 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.3 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.3 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.4 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.4 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.6 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.6 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.6 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.7 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.7 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.7 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 28.8 GiB, peak 37.7 GiB
+BT l00 mlp.up_proj fact (Epoch 01/08) Block Loss: 1.0510e-6
+BT l00 mlp.up_proj fact (Epoch 02/08) Block Loss: 9.8895e-7
+BT l00 mlp.up_proj fact (Epoch 03/08) Block Loss: 1.1478e-6
+BT l00 mlp.up_proj fact (Epoch 04/08) Block Loss: 1.0376e-6
+BT l00 mlp.up_proj fact (Epoch 05/08) Block Loss: 1.0729e-6
+BT l00 mlp.up_proj fact (Epoch 06/08) Block Loss: 9.7560e-7
+BT l00 mlp.up_proj fact (Epoch 07/08) Block Loss: 9.1362e-7
+BT l00 mlp.up_proj fact (Epoch 08/08) Block Loss: 8.4600e-7
+BT l00 mlp.up_proj fact 1024 steps 188.7 s
+vk.buffer 128.0 MiB, live 27.9 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 28.1 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 28.2 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 28.3 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 28.4 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 28.6 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 28.7 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 28.8 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 28.9 GiB, peak 37.7 GiB
+vk.buffer 384.0 MiB, live 29.3 GiB, peak 37.7 GiB
+vk.buffer 384.0 MiB, live 29.7 GiB, peak 37.7 GiB
+vk.buffer 384.0 MiB, live 30.1 GiB, peak 37.7 GiB
+vk.buffer 384.0 MiB, live 30.4 GiB, peak 37.7 GiB
+vk.buffer 384.0 MiB, live 30.8 GiB, peak 37.7 GiB
+vk.buffer 384.0 MiB, live 31.2 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 31.3 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 31.4 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 31.6 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 31.7 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 31.3 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 31.4 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 31.5 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 31.6 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 31.6 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 31.7 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 31.8 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 31.9 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 32.0 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 32.1 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 32.2 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 32.2 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 32.3 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 32.4 GiB, peak 37.7 GiB
+vk.buffer 32.0 MiB, live 32.5 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 32.6 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 32.7 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 32.8 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 33.0 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 33.1 GiB, peak 37.7 GiB
+vk.buffer 128.0 MiB, live 33.2 GiB, peak 37.7 GiB
+BT l00 mlp.down_proj nonfact (Epoch 01/08) Block Loss: 7.5512e-7
+BT l00 mlp.down_proj nonfact (Epoch 02/08) Block Loss: 7.0314e-7
+BT l00 mlp.down_proj nonfact (Epoch 03/08) Block Loss: 6.8239e-7
+BT l00 mlp.down_proj nonfact (Epoch 04/08) Block Loss: 6.6865e-7
+BT l00 mlp.down_proj nonfact (Epoch 05/08) Block Loss: 6.6027e-7
+BT l00 mlp.down_proj nonfact (Epoch 06/08) Block Loss: 6.5485e-7
+BT l00 mlp.down_proj nonfact (Epoch 07/08) Block Loss: 6.5166e-7
+BT l00 mlp.down_proj nonfact (Epoch 08/08) Block Loss: 6.5040e-7
+BT l00 mlp.down_proj nonfact 256 steps 153.0 s
+vk.buffer 384.0 MiB, live 27.7 GiB, peak 37.7 GiB
+vk.buffer 144.0 MiB, live 27.8 GiB, peak 37.7 GiB
+vk.buffer 95.0 MiB, live 27.9 GiB, peak 37.7 GiB
+vk.buffer 36.0 MiB, live 27.9 GiB, peak 37.7 GiB
+vk.buffer 285.0 MiB, live 28.2 GiB, peak 37.7 GiB
+vk.buffer 106.9 MiB, live 28.3 GiB, peak 37.7 GiB
+vk.buffer 70.5 MiB, live 28.4 GiB, peak 37.7 GiB
+vk.buffer 26.7 MiB, live 28.4 GiB, peak 37.7 GiB
+vk.buffer 95.0 MiB, live 28.5 GiB, peak 37.7 GiB
+vk.buffer 285.0 MiB, live 28.8 GiB, peak 37.7 GiB
+vk.buffer 285.0 MiB, live 29.1 GiB, peak 37.7 GiB
+vk.buffer 70.5 MiB, live 29.1 GiB, peak 37.7 GiB
+vk.buffer 285.0 MiB, live 29.4 GiB, peak 37.7 GiB
+vk.buffer 72.0 MiB, live 29.5 GiB, peak 37.7 GiB
+vk.buffer 288.0 MiB, live 29.8 GiB, peak 37.7 GiB
+vk.buffer 288.0 MiB, live 30.0 GiB, peak 37.7 GiB
+vk.buffer 735.5 MiB, live 30.8 GiB, peak 37.7 GiB
+vk.buffer 355.5 MiB, live 31.1 GiB, peak 37.7 GiB
+vk.buffer 18.0 MiB, live 31.1 GiB, peak 37.7 GiB
+vk.buffer 17.6 MiB, live 31.1 GiB, peak 37.7 GiB
+vk.buffer 17.6 MiB, live 31.2 GiB, peak 37.7 GiB
+vk.buffer 17.8 MiB, live 31.2 GiB, peak 37.7 GiB
+vk.buffer 17.8 MiB, live 31.2 GiB, peak 37.7 GiB
+vk.buffer 17.8 MiB, live 31.2 GiB, peak 37.7 GiB
+vk.buffer 17.8 MiB, live 31.3 GiB, peak 37.7 GiB
+vk.buffer 17.8 MiB, live 31.3 GiB, peak 37.7 GiB
+vk.buffer 17.8 MiB, live 31.3 GiB, peak 37.7 GiB
+vk.buffer 18.0 MiB, live 31.4 GiB, peak 37.7 GiB
+vk.buffer 18.0 MiB, live 31.4 GiB, peak 37.7 GiB
+vk.buffer 18.0 MiB, live 31.4 GiB, peak 37.7 GiB
+vk.buffer 18.0 MiB, live 31.4 GiB, peak 37.7 GiB
+vk.buffer 384.0 MiB, live 32.1 GiB, peak 37.7 GiB
+vk.buffer 144.0 MiB, live 32.2 GiB, peak 37.7 GiB
+vk.buffer 285.0 MiB, live 32.5 GiB, peak 37.7 GiB
+vk.buffer 108.0 MiB, live 32.6 GiB, peak 37.7 GiB
+vk.buffer 95.0 MiB, live 32.7 GiB, peak 37.7 GiB
+vk.buffer 35.6 MiB, live 32.7 GiB, peak 37.7 GiB
+vk.buffer 70.5 MiB, live 32.8 GiB, peak 37.7 GiB
+vk.buffer 26.7 MiB, live 32.8 GiB, peak 37.7 GiB
+vk.buffer 285.0 MiB, live 33.1 GiB, peak 37.7 GiB
+vk.buffer 95.0 MiB, live 33.2 GiB, peak 37.7 GiB
+vk.buffer 95.0 MiB, live 33.3 GiB, peak 37.7 GiB
+vk.buffer 70.5 MiB, live 33.3 GiB, peak 37.7 GiB
+vk.buffer 95.0 MiB, live 33.4 GiB, peak 37.7 GiB
+vk.buffer 72.0 MiB, live 33.5 GiB, peak 37.7 GiB
+vk.buffer 96.0 MiB, live 33.6 GiB, peak 37.7 GiB
+vk.buffer 288.0 MiB, live 33.9 GiB, peak 37.7 GiB
+vk.buffer 545.5 MiB, live 34.4 GiB, peak 37.7 GiB
+vk.buffer 165.5 MiB, live 34.6 GiB, peak 37.7 GiB
+vk.buffer 18.0 MiB, live 34.6 GiB, peak 37.7 GiB
+vk.buffer 17.6 MiB, live 34.6 GiB, peak 37.7 GiB
+vk.buffer 17.6 MiB, live 34.6 GiB, peak 37.7 GiB
+vk.buffer 17.8 MiB, live 34.6 GiB, peak 37.7 GiB
+vk.buffer 17.8 MiB, live 34.7 GiB, peak 37.7 GiB
+vk.buffer 17.8 MiB, live 34.7 GiB, peak 37.7 GiB
+vk.buffer 17.8 MiB, live 34.7 GiB, peak 37.7 GiB
+vk.buffer 17.8 MiB, live 34.8 GiB, peak 37.7 GiB
+vk.buffer 17.8 MiB, live 34.8 GiB, peak 37.7 GiB
+vk.buffer 18.0 MiB, live 34.8 GiB, peak 37.7 GiB
+vk.buffer 18.0 MiB, live 34.8 GiB, peak 37.7 GiB
+vk.buffer 18.0 MiB, live 34.9 GiB, peak 37.7 GiB
+vk.buffer 18.0 MiB, live 34.9 GiB, peak 37.7 GiB
+vk.buffer 285.0 MiB, live 35.4 GiB, peak 37.7 GiB
+vk.buffer 106.9 MiB, live 35.5 GiB, peak 37.7 GiB
+vk.buffer 285.0 MiB, live 35.8 GiB, peak 37.7 GiB
+vk.buffer 108.0 MiB, live 35.9 GiB, peak 37.7 GiB
+vk.buffer 285.0 MiB, live 36.2 GiB, peak 37.7 GiB
+vk.buffer 285.0 MiB, live 36.5 GiB, peak 37.7 GiB
+vk.buffer 285.1 MiB, live 36.8 GiB, peak 37.7 GiB
+vk.buffer 285.0 MiB, live 37.0 GiB, peak 37.7 GiB
+vk.buffer 95.0 MiB, live 37.1 GiB, peak 37.7 GiB
+vk.buffer 35.6 MiB, live 37.2 GiB, peak 37.7 GiB
+vk.buffer 95.0 MiB, live 37.3 GiB, peak 37.7 GiB
+vk.buffer 36.0 MiB, live 37.3 GiB, peak 37.7 GiB
+vk.buffer 95.0 MiB, live 37.4 GiB, peak 37.7 GiB
+vk.buffer 95.0 MiB, live 37.5 GiB, peak 37.7 GiB
+vk.buffer 95.0 MiB, live 37.6 GiB, peak 37.7 GiB
+vk.buffer 95.0 MiB, live 37.7 GiB, peak 37.7 GiB
+vk.buffer 35.6 MiB, live 37.7 GiB, peak 37.7 GiB
+vk.buffer 106.9 MiB, live 37.8 GiB, peak 37.8 GiB
+vk.buffer 384.0 MiB, live 38.2 GiB, peak 38.2 GiB
+vk.buffer 142.5 MiB, live 38.3 GiB, peak 38.3 GiB
+vk.buffer 384.0 MiB, live 38.7 GiB, peak 38.7 GiB
+BT l00 mlp.down_proj ADMM weight recon error: raw=12403.5118, norm=0.3311, per_el=2.4644e-4, ADMM time=509.32s
+vk.buffer 32.0 MiB, live 28.3 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 28.4 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 28.4 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 28.4 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 28.5 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 28.5 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 28.5 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 28.6 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 28.6 GiB, peak 38.7 GiB
+vk.buffer 96.0 MiB, live 28.7 GiB, peak 38.7 GiB
+vk.buffer 96.0 MiB, live 28.8 GiB, peak 38.7 GiB
+vk.buffer 96.0 MiB, live 28.9 GiB, peak 38.7 GiB
+vk.buffer 96.0 MiB, live 29.0 GiB, peak 38.7 GiB
+vk.buffer 96.0 MiB, live 29.1 GiB, peak 38.7 GiB
+vk.buffer 96.0 MiB, live 29.2 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.2 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.2 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.2 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.3 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.3 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.3 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.4 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.4 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.5 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.5 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.5 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.6 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.6 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.6 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.7 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.7 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.7 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.8 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 29.8 GiB, peak 38.7 GiB
+BT l00 mlp.down_proj fact (Epoch 01/08) Block Loss: 4.3414e-6
+BT l00 mlp.down_proj fact (Epoch 02/08) Block Loss: 4.7726e-6
+BT l00 mlp.down_proj fact (Epoch 03/08) Block Loss: 4.9576e-6
+BT l00 mlp.down_proj fact (Epoch 04/08) Block Loss: 4.9597e-6
+BT l00 mlp.down_proj fact (Epoch 05/08) Block Loss: 5.1853e-6
+BT l00 mlp.down_proj fact (Epoch 06/08) Block Loss: 5.0367e-6
+BT l00 mlp.down_proj fact (Epoch 07/08) Block Loss: 4.8485e-6
+BT l00 mlp.down_proj fact (Epoch 08/08) Block Loss: 4.5413e-6
+BT l00 mlp.down_proj fact 1024 steps 214.0 s
+vk.buffer 128.0 MiB, live 29.0 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 29.1 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 29.2 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 29.3 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 29.5 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 29.6 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 29.7 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 29.8 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 30.0 GiB, peak 38.7 GiB
+vk.buffer 384.0 MiB, live 30.3 GiB, peak 38.7 GiB
+vk.buffer 384.0 MiB, live 30.7 GiB, peak 38.7 GiB
+vk.buffer 384.0 MiB, live 31.1 GiB, peak 38.7 GiB
+vk.buffer 384.0 MiB, live 31.5 GiB, peak 38.7 GiB
+vk.buffer 384.0 MiB, live 31.8 GiB, peak 38.7 GiB
+vk.buffer 384.0 MiB, live 32.2 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 32.3 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 32.5 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 32.6 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 32.7 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 32.3 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 32.4 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 32.6 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 32.6 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 32.6 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 32.7 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 32.8 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 32.9 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 33.0 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 33.2 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 33.2 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 33.2 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 33.3 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 33.5 GiB, peak 38.7 GiB
+vk.buffer 32.0 MiB, live 33.5 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 33.6 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 33.8 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 33.9 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 34.0 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 34.1 GiB, peak 38.7 GiB
+vk.buffer 128.0 MiB, live 34.3 GiB, peak 38.7 GiB
+BT l00 advanced 12.1 s
+BT l00 round total 1796.7 s
+BT pack /workspace/loop-8b/nq-100/pack-l0.nqp: 36 layers, 7 sections, 0.995619 b/w
++ fit=0
++ kill 37057
+++ date -u
++ echo '== preflight fit rc=0 Mon Nov 23 05:08:58 UTC 2026'
+== preflight fit rc=0 Mon Nov 23 05:08:58 UTC 2026
++ '[' 0 -eq 0 ']'
++ '[' -s /workspace/loop-8b/nq-100/pack-l0.nqp ']'
++ cargo build --release --locked --example ppl
+   Compiling apeiron v0.1.0 (/workspace)
+warning: unused import: `place::pin_beside_worker`
+  --> src/engine/chart/pool.rs:70:16
+   |
+70 | pub(crate) use place::pin_beside_worker;
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `super::super::*`
+  --> src/gpu/nn/fwd/lin.rs:19:5
+   |
+19 | use super::super::*;
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `lin::*`
+  --> src/gpu/nn/fwd/mod.rs:11:9
+   |
+11 | pub use lin::*;
+   |         ^^^^^^
+
+warning: unused import: `INV_LIMBS`
+ --> src/learn/nanoquant/step.rs:4:72
+  |
+4 | use super::{normalized_plane, rank1, x_update, NqConfig, NqError, Rng, INV_LIMBS};
+  |                                                                        ^^^^^^^^^
+
+warning: struct `Inline` is never constructed
+   --> src/engine/chart/pool.rs:830:19
+    |
+830 | pub(crate) struct Inline(bool);
+    |                   ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `inline` is never used
+   --> src/engine/chart/pool.rs:833:15
+    |
+833 | pub(crate) fn inline() -> Inline {
+    |               ^^^^^^
+
+warning: function `pin_beside_worker` is never used
+  --> src/engine/chart/pool/place.rs:23:15
+   |
+23 | pub(crate) fn pin_beside_worker() {
+   |               ^^^^^^^^^^^^^^^^^
+
+warning: function `beside_worker` is never used
+  --> src/engine/chart/pool/place.rs:45:4
+   |
+45 | fn beside_worker(p_cpus: &[usize], siblings: impl Fn(usize) -> Option<String>) -> Option<usize> {
+   |    ^^^^^^^^^^^^^
+
+warning: `apeiron` (lib) generated 8 warnings (run `cargo fix --lib -p apeiron` to apply 4 suggestions)
+    Finished `release` profile [optimized] target(s) in 24.73s
++ ./target/release/examples/ppl --model /workspace/q3-8b-base-bf16.gguf --tokenizer /workspace/models/Qwen3-8B-Base/tokenizer.json --data /workspace/wikitext2/wiki.test.raw --pack /workspace/loop-8b/nq-100/pack-l0.nqp --tokens 8 --ctx 8 --partial-window
+pack: 7 linears, 0.995619 b/w, 24011584 factor bytes
+pack factors: 24011584 stored bytes for 192937984 weights, 0.995619 b/w
+ppl 17039.414305 on 7 tokens (1 windows of <= 8, kernel Q8Act): mean nll 9.743284, 0.1 tok/s in 122.7 s
+peak rss 14172.0 MiB
++ ppl=0
+++ date -u
++ echo '== preflight ppl rc=0 Mon Nov 23 05:11:27 UTC 2026'
+== preflight ppl rc=0 Mon Nov 23 05:11:27 UTC 2026
++ gcloud storage cp /workspace/loop-8b/nq-100/pack-l0.nqp gs://sanguine-checkpoints-scribe-461316/nq/packs/q3-8b-l0.nqp
++ tail -1
+Average throughput: 93.6MiB/s
++ gcloud storage cp /workspace/preflight-8b.log gs://sanguine-checkpoints-scribe-461316/nq/l4/
++ tail -1
+
++ gcloud storage cp /workspace/preflight-gpu.log gs://sanguine-checkpoints-scribe-461316/nq/l4/
++ tail -1
+
++ exit 0
++ kill 37057

@@ -1,0 +1,5691 @@
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+611
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+8269
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15219
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11647
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+9531
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+9531
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+9531
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+12375
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+13101
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15852
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+16079
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17460
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+17925
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18452
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+16203
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+12251
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11198
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11731
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11731
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11731
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11731
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11731
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11731
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11731
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11731
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11736
++ sleep 0.5
++ :
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0

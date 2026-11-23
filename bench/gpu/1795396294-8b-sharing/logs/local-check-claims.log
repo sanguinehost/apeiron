@@ -1,0 +1,46 @@
+repo: /home/lucas/Workspace/apeiron-nq
+documents: 29 scanned: README.md, proof/README.md, book/src/SUMMARY.md, book/src/engine/cpu.md, book/src/engine/formats.md, book/src/engine/nanoquant.md, book/src/engine/onepath.md, book/src/engine/results.md, book/src/engine/spirv.md, book/src/goal.md, book/src/introduction.md, book/src/reference/bibliography.md, book/src/reference/glossary.md, book/src/start/cell.md, book/src/start/install.md, book/src/start/model.md, book/src/start/table.md, book/src/start/vulkan.md, book/src/theory/addressing.md, book/src/theory/algebra.md, book/src/theory/faces.md, book/src/theory/scalars.md, book/src/theory/table.md, book/src/verification/controls.md, book/src/verification/evidence.md, book/src/verification/extraction.md, book/src/verification/refinement.md, book/src/verification/song.md, book/src/verification/trust.md
+[claims] 41 graded claims (26 structured, 15 prose); 51735 Lean declarations, 507 namespaces, 1844 #audit names indexed
+  OK   README.md:153 grade=measured kind=prose
+  OK   README.md:240 grade=proved kind=structured
+  OK   README.md:241 grade=proved kind=structured
+  OK   README.md:242 grade=tested kind=structured
+  OK   README.md:243 grade=proved kind=structured
+  OK   README.md:244 grade=tested kind=structured
+  OK   README.md:245 grade=measured kind=structured
+  OK   proof/README.md:45 grade=proved kind=prose
+  OK   proof/README.md:112 grade=proved kind=prose
+  OK   proof/README.md:127 grade=proved kind=prose
+  OK   proof/README.md:151 grade=proved kind=prose
+  OK   proof/README.md:183 grade=proved kind=prose
+  OK   proof/README.md:185 grade=proved kind=prose
+  OK   proof/README.md:219 grade=proved kind=prose
+  OK   proof/README.md:277 grade=proved kind=prose
+  OK   book/src/engine/cpu.md:78 grade=tested kind=structured
+  OK   book/src/engine/cpu.md:79 grade=tested kind=structured
+  OK   book/src/engine/cpu.md:80 grade=tested kind=structured
+  OK   book/src/engine/cpu.md:81 grade=tested kind=structured
+  OK   book/src/engine/cpu.md:82 grade=tested kind=structured
+  OK   book/src/engine/cpu.md:83 grade=tested kind=structured
+  OK   book/src/engine/nanoquant.md:114 grade=tested kind=structured
+  OK   book/src/engine/nanoquant.md:115 grade=tested kind=structured
+  OK   book/src/engine/nanoquant.md:116 grade=tested kind=structured
+  OK   book/src/engine/nanoquant.md:117 grade=tested kind=structured
+  OK   book/src/engine/nanoquant.md:118 grade=tested kind=structured
+  OK   book/src/engine/nanoquant.md:119 grade=tested kind=structured
+  OK   book/src/engine/spirv.md:39 grade=tested kind=structured
+  OK   book/src/engine/spirv.md:41 grade=proved kind=structured
+  OK   book/src/engine/spirv.md:49 grade=proved kind=prose
+  OK   book/src/theory/addressing.md:121 grade=tested kind=structured
+  OK   book/src/theory/addressing.md:123 grade=tested kind=structured
+  OK   book/src/theory/addressing.md:124 grade=proved kind=structured
+  OK   book/src/theory/faces.md:86 grade=proved kind=prose
+  OK   book/src/theory/scalars.md:29 grade=proved kind=prose
+  OK   book/src/theory/table.md:36 grade=tested kind=prose
+  OK   book/src/verification/evidence.md:48 grade=proved kind=structured
+  OK   book/src/verification/evidence.md:49 grade=proved kind=structured
+  OK   book/src/verification/evidence.md:54 grade=measured kind=structured
+  OK   book/src/verification/extraction.md:7 grade=proved kind=prose
+  OK   book/src/verification/refinement.md:9 grade=proved kind=prose
+
+OK: every graded claim names a resolvable artifact

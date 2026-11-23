@@ -1,0 +1,31 @@
++ . /root/.cargo/env
+++ case ":${PATH}:" in
++ cd /workspace
++ smi=83114
++ trap 'kill "$smi" 2>/dev/null' EXIT
++ cargo run --release --locked --features gpu --example nq_hostmem_probe -- copy
+   Compiling apeiron v0.1.0 (/workspace)
+    Finished `release` profile [optimized] target(s) in 26.38s
+     Running `target/release/examples/nq_hostmem_probe copy`
+import 0: 94266465667248 0x726bd8000000
+import 1: 94266467651232 0x726ad8000000
+import 2: 94266467652704 0x7269d8000000
+import 3: 94266467654176 0x7268d8000000
+touched 16 GiB
+copied 4 x 4 GiB both ways
+done
++ rc=0
++ kill 83114
+++ date -u
++ echo '== hostmem probe rc=0 Mon Nov 23 06:55:49 UTC 2026'
+== hostmem probe rc=0 Mon Nov 23 06:55:49 UTC 2026
++ awk 'BEGIN{m=0} {if ($1+0 > m) m=$1+0} END {print "peak " m " MiB over " NR " polls"}' /workspace/hostmem-probe-gpu.log
+peak 4163 MiB over 548 polls
++ gcloud storage cp /workspace/hostmem-probe.log gs://sanguine-checkpoints-scribe-461316/nq/l4/
++ tail -1
+
++ gcloud storage cp /workspace/hostmem-probe-gpu.log gs://sanguine-checkpoints-scribe-461316/nq/l4/
++ tail -1
+
++ exit 0
++ kill 83114

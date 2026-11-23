@@ -1,0 +1,1597 @@
+++ seq 1 1200
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+12
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+34
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+43
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+51
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+59
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+67
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+419
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+803
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+1390
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+1390
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+4442
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+10957
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+11091
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+12372
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+14964
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15546
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+15617
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+16263
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18458
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18458
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+18911
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+19084
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+19171
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+19185
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+21432
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+21841
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+21934
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+22089
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+22162
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+22162
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+22162
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+22162
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+22162
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+22540
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+22540
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+22527
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1
++ for i in $(seq 1 1200)
++ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+0
++ sleep 0.1

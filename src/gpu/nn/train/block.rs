@@ -151,29 +151,45 @@ impl Stream {
     /// `APEIRON_NQ_HOST_STREAMS`.
     ///
     /// The four calibration streams of a full campaign are larger than a small card's device heap
-    /// (`4 · n_samples · seq · d · 4` B: 17.2 GiB at the 8B's 128 samples against a 23 GiB L4).
-    /// They are read once per step through `chunk_into`'s buffer copies, so a host-visible stream
-    /// costs one PCIe read per step and leaves the device heap to the tape. A card with room
-    /// keeps them on the device; the bytes and the arithmetic are the same either way.
+    /// (`4 · n_samples · seq · d · 4` B: 17.2 GB at the 8B's 128 samples against a 23 GiB L4). They
+    /// are read once per step through `chunk_into`'s buffer copies, so a host stream costs one PCIe
+    /// read per step and leaves the device heap to the tape. The host path imports an anonymous
+    /// mapping (`VK_EXT_external_memory_host`) instead of allocating `HOST_VISIBLE` device memory:
+    /// the latter is counted in the card's used memory, so it cannot buy the headroom it exists
+    /// for. Measured on the L4: 8 GiB touched in an imported mapping leaves `nvidia-smi` at 59 MiB.
+    /// A device without the extension falls back to `HOST_VISIBLE`.
     ///
     /// # Safety
     ///
     /// `g` outlives the value.
     pub unsafe fn new(g: &GpuCtx, n_ctx: usize, w: usize, n_all: usize) -> Self {
         let words = n_ctx * w * n_all;
-        let props = if std::env::var_os("APEIRON_NQ_HOST_STREAMS").is_some() {
-            MEMORY_HOST_VISIBLE
+        let host = std::env::var_os("APEIRON_NQ_HOST_STREAMS").is_some();
+        let usage = BUFFER_USAGE_STORAGE | BUFFER_USAGE_TRANSFER_SRC | BUFFER_USAGE_TRANSFER_DST;
+        let buf = if host {
+            match g.vk.buffer_from_anon_ptr(words.max(1) as u64 * 4, usage) {
+                Some((buf, _mem, ptr)) => {
+                    // Commit every page from the host before the GPU writes it. An untouched
+                    // imported mapping that a GPU copy writes migrates into the device heap on
+                    // this driver (16 GiB of streams then reads 17,153 MiB in `nvidia-smi`); a
+                    // host-committed mapping stays host-resident (8 GiB imported and copied both
+                    // ways reads 59 MiB). The memset costs one pass over the bytes.
+                    std::ptr::write_bytes(ptr.cast::<u8>(), 0, words.max(1) * 4);
+                    eprintln!("stream: imported {words} words, buf={buf}");
+                    buf
+                }
+                None => {
+                    eprintln!("stream: import refused, falling back to HOST_VISIBLE");
+                    g.vk.buffer(words.max(1) as u64 * 4, usage, MEMORY_HOST_VISIBLE)
+                        .expect("host stream buffer")
+                        .0
+                }
+            }
         } else {
-            MEMORY_DEVICE_LOCAL
+            g.vk.buffer(words.max(1) as u64 * 4, usage, MEMORY_DEVICE_LOCAL)
+                .expect("stream buffer")
+                .0
         };
-        let buf =
-            g.vk.buffer(
-                words.max(1) as u64 * 4,
-                BUFFER_USAGE_STORAGE | BUFFER_USAGE_TRANSFER_SRC | BUFFER_USAGE_TRANSFER_DST,
-                props,
-            )
-            .expect("stream buffer")
-            .0;
         Self {
             buf,
             n_ctx,
@@ -376,9 +392,94 @@ pub(super) unsafe fn host_buffer(g: &GpuCtx, n: usize, usage: u32) -> HostBuffer
     }
 }
 
+/// The buffers sized by the tape width `t`: the activations a step reads and writes over a
+/// `t`-column prefix. [`BlockTune::release_tape`] frees them; [`BlockTune::set_t`] allocates a new
+/// set at the new width. The parameters, Adam moments and host staging buffers are `t`-independent
+/// and stay.
+#[derive(Clone, Copy)]
+struct TapeBufs {
+    x: Handle,
+    a: Handle,
+    y: Handle,
+    da: Handle,
+    dh: Handle,
+    dy: Handle,
+    yt: Handle,
+    h: Handle,
+    n2: Handle,
+    gt: Handle,
+    up: Handle,
+    mm: Handle,
+    dmm: Handle,
+    dgt: Handle,
+    dup: Handle,
+    dn2: Handle,
+    tmp: Handle,
+    dgr: Handle,
+    zero: Handle,
+    loss: Handle,
+    loss2: Handle,
+}
+
+impl TapeBufs {
+    /// The `t`-sized buffers of `shape` at `t` columns.
+    ///
+    /// # Safety
+    ///
+    /// `g` is a live device context; the caller owns the returned handles.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` allocations and `O(t·(d + a + f))` device words.
+    unsafe fn alloc(g: &GpuCtx, shape: BlockShape, t: usize) -> Self {
+        let (d, a, f) = (shape.d, shape.a, shape.f);
+        let dev = |n: usize| g.dev(n * 4);
+        let stream = |n: usize| stream_buffer(g, n);
+        // The five stream buffers a chained layer copies into or out of (`chain.rs`) carry both
+        // transfer bits.
+        Self {
+            x: stream(t * d),
+            a: stream(t * a),
+            y: stream(t * d),
+            da: stream(t * a),
+            dh: stream(t * d),
+            dy: stream(t * d),
+            yt: dev(t * d),
+            h: dev(t * d),
+            n2: dev(t * d),
+            gt: dev(t * f),
+            up: dev(t * f),
+            mm: dev(t * f),
+            dmm: dev(t * f),
+            dgt: dev(t * f),
+            dup: dev(t * f),
+            dn2: dev(t * d),
+            tmp: dev(t * d),
+            dgr: dev(t * d),
+            zero: g.dev_zeroed(t * d * 4),
+            loss: dev(t),
+            loss2: dev(t),
+        }
+    }
+
+    /// The handles in allocation order, for [`Vk::free_handles`].
+    fn handles(&self) -> [Handle; 21] {
+        [
+            self.x, self.a, self.y, self.da, self.dh, self.dy, self.yt, self.h, self.n2, self.gt,
+            self.up, self.mm, self.dmm, self.dgt, self.dup, self.dn2, self.tmp, self.dgr,
+            self.zero, self.loss, self.loss2,
+        ]
+    }
+}
+
 /// The device block fit: the buffers and the recorded tape of one step.
 pub struct BlockTune {
     shape: BlockShape,
+    /// The allocation's column count: the largest `t` [`BlockTune::set_t`] may select.
+    max_t: usize,
+    /// The width of the tape buffers currently allocated, and whether they are live.
+    tape_t: usize,
+    tape_live: bool,
     factors: Vec<Factor>,
     x: Handle,
     a: Handle,
@@ -393,22 +494,23 @@ pub struct BlockTune {
     yt: Handle,
     y: Handle,
     g2: Handle,
-    /// The tape's intermediate activations, kept alive for the teacher-forced stage checks
-    /// (`#[cfg(test)]` only): `h = x + a·Woᵀ` `[t][d]`, the norm output `n2` `[t][d]`, the gate and up
-    /// projections `[t][f]`, the SwiGLU product `mm` `[t][f]`, and the down projection's cotangent `dmm`
-    /// `[t][f]`. They are the buffers the tape already allocates; a release build carries no field.
-    #[cfg(test)]
+    /// The tape's intermediate activations: `h = x + a·Woᵀ` `[t][d]`, the norm output `n2` `[t][d]`, the
+    /// gate and up projections `[t][f]`, the SwiGLU product `mm` `[t][f]`, the down projection's
+    /// cotangent `dmm` `[t][f]`, and the adjoints `dgt`, `dup`, `dn2`, `tmp`, `dgr`. They are `t`-sized:
+    /// [`BlockTune::release_tape`] frees them and [`BlockTune::set_t`] allocates them at its width.
     h: Handle,
-    #[cfg(test)]
     n2: Handle,
-    #[cfg(test)]
     gt: Handle,
-    #[cfg(test)]
     up: Handle,
-    #[cfg(test)]
     mm: Handle,
-    #[cfg(test)]
     dmm: Handle,
+    dgt: Handle,
+    dup: Handle,
+    dn2: Handle,
+    tmp: Handle,
+    dgr: Handle,
+    /// A zeroed `t × d` buffer for the `norm` map's `yt²` accumulator.
+    zero: Handle,
     loss: Handle,
     /// A zeroed `t × d` buffer and the per-column sums of `yt²` (`norm`), beside `loss`'s rows.
     loss2: Handle,
@@ -500,7 +602,13 @@ impl BlockTune {
     /// # Safety
     ///
     /// `g` is a live device context that outlives the value and `like` was built on it; `like`
-    /// outlives the returned value; no tape of either is pending when the other runs.
+    /// outlives the returned value. The value aliases every parameter, gradient, work and moment
+    /// handle of `like` (`Factor::sharing`), so no write on one value may overlap a read or a write
+    /// on the other: `load`, `load_factor`, `load_dense`, `load_importance`, `set_stage`,
+    /// `record_swap`, `batch` and `run`/`train`/`forward` on either value are exclusive, and
+    /// `weight`/`factors` are exclusive with any of them. The caller runs one tuner at a time and
+    /// re-engages (which uploads the host parameters and zeroes every moment) at each phase
+    /// boundary.
     ///
     /// # Complexity
     ///
@@ -542,9 +650,6 @@ impl BlockTune {
     ) -> Self {
         let BlockShape { t, d, a, f, ranks } = shape;
         let dev = |n: usize| g.dev(n * 4);
-        // A buffer a chained layer reads by `vkCmdCopyBuffer` carries `TRANSFER_SRC` as well; `dev`
-        // allocates `STORAGE | TRANSFER_DST` only.
-        let stream = |n: usize| stream_buffer(g, n);
         let mut factors = Vec::with_capacity(4);
         let mut moments = Vec::with_capacity(4);
         for (k, &rank) in ranks.iter().enumerate() {
@@ -563,80 +668,22 @@ impl BlockTune {
         }
         // The five buffers a chained layer copies into or out of (`chain.rs`) carry both transfer
         // bits: the input `x`, the o-projection input `a`, the output `y` and the two adjoints.
-        let (x, at, y) = (
-            stream_buffer(g, t * d),
-            stream_buffer(g, t * a),
-            stream(t * d),
-        );
-        let (da, dy, dh) = (stream_buffer(g, t * a), stream(t * d), stream(t * d));
-        let (yt, h, n2) = (dev(t * d), dev(t * d), dev(t * d));
-        let (gt, up, mm) = (dev(t * f), dev(t * f), dev(t * f));
-        let (dmm, dgt, dup) = (dev(t * f), dev(t * f), dev(t * f));
-        let (dn2, tmp, dgr) = (dev(t * d), dev(t * d), dev(t * d));
-        let (g2, loss) = (dev(d), dev(t));
-        let (zero, loss2) = (g.dev_zeroed(t * d * 4), dev(t));
-        // The per-output importance of the loss; all ones until `load_importance` writes it.
-        let imp = dev(d);
+        let tape = TapeBufs::alloc(g, shape, t);
+        let (g2, imp) = (dev(d), dev(d));
         let norm = map(
             g,
             5,
             [t, d, t * d],
             0.0,
-            [yt, zero, loss2, imp],
+            [tape.yt, tape.zero, tape.loss2, imp],
             "norm_rows",
         );
-        let (to, tg, tu, td) = (t as u32, d as u32, a as u32, f as u32);
-        let wt = |k: usize| factors[k].w;
-        let dwt = |k: usize| factors[k].dw;
 
         let mut materialise = Vec::with_capacity(4);
         for fa in &factors {
             materialise.push(super::slot::materialise(g, fa));
         }
 
-        let add = |dst: Handle, src: Handle, n: usize| {
-            crate::gpu::decode::make_step_named(
-                g,
-                &add_inplace_bytes(n as u32, 256),
-                &[dst, src],
-                (n as u32).div_ceil(256),
-                1,
-                "add_inplace",
-            )
-        };
-        // The weighted MSE gradient's scale `s` in `dy[r,c] = s·imp[c]·(y−yt)[r,c]`: the mean over
-        // the entries, `2/(t·d)`. The reference's divisor is the batch size (`compress_block.py:88`),
-        // which the caller sets through `set_loss_scale`.
-        let mse = 2.0 / (t * d) as f32;
-        let forward = vec![
-            linear_fwd_dispatch(g, at, wt(0), h, to, tu, tg),
-            add(h, x, t * d),
-            rmsnorm_fwd_dispatch(g, h, g2, n2, to, tg),
-            linear_fwd_dispatch(g, n2, wt(1), gt, to, tg, td),
-            linear_fwd_dispatch(g, n2, wt(2), up, to, tg, td),
-            swiglu_fwd_dispatch(g, gt, up, mm, (t * f) as u32),
-            linear_fwd_dispatch(g, mm, wt(3), y, to, td, tg),
-            add(y, h, t * d),
-            map(g, 5, [t, d, t * d], 0.0, [y, yt, loss, imp], "loss_rows"),
-            map(g, 4, [t, d, t * d], mse, [y, yt, dy, imp], "mse_grad"),
-        ];
-
-        let backward = vec![
-            linear_bwd_weight_dispatch(g, dy, mm, dwt(3), to, td, tg),
-            linear_bwd_input_dispatch(g, dy, wt(3), dmm, to, td, tg),
-            swiglu_bwd_dispatch(g, gt, up, dmm, dgt, dup, (t * f) as u32),
-            linear_bwd_weight_dispatch(g, dgt, n2, dwt(1), to, tg, td),
-            linear_bwd_weight_dispatch(g, dup, n2, dwt(2), to, tg, td),
-            linear_bwd_input_dispatch(g, dgt, wt(1), dn2, to, tg, td),
-            linear_bwd_input_dispatch(g, dup, wt(2), tmp, to, tg, td),
-            add(dn2, tmp, t * d),
-            rmsnorm_bwd_dispatch(g, h, g2, dn2, dh, dgr, to, tg, 1e-6),
-            add(dh, dy, t * d),
-            linear_bwd_weight_dispatch(g, dh, at, dwt(0), to, tu, tg),
-            // The o-projection's input adjoint `da = dh·Wo`, `[t][a]`: the forward's dims
-            // verbatim, `n = t`, `i = a`, `o = d`.
-            linear_bwd_input_dispatch(g, dh, wt(0), da, to, tu, tg),
-        ];
         let mut factor_bwd = Vec::with_capacity(4);
         for fa in &factors {
             factor_bwd.push(super::slot::factor_bwd(g, fa));
@@ -659,29 +706,32 @@ impl BlockTune {
             .unwrap_or(1);
         let mut s = Self {
             shape,
+            max_t: t,
+            tape_t: t,
+            tape_live: true,
             factors,
-            x,
-            a: at,
-            da,
-            dh,
-            dy,
-            yt,
-            y,
+            x: tape.x,
+            a: tape.a,
+            da: tape.da,
+            dh: tape.dh,
+            dy: tape.dy,
+            yt: tape.yt,
+            y: tape.y,
             g2,
-            #[cfg(test)]
-            h,
-            #[cfg(test)]
-            n2,
-            #[cfg(test)]
-            gt,
-            #[cfg(test)]
-            up,
-            #[cfg(test)]
-            mm,
-            #[cfg(test)]
-            dmm,
-            loss,
-            loss2,
+            h: tape.h,
+            n2: tape.n2,
+            gt: tape.gt,
+            up: tape.up,
+            mm: tape.mm,
+            dmm: tape.dmm,
+            dgt: tape.dgt,
+            dup: tape.dup,
+            dn2: tape.dn2,
+            tmp: tape.tmp,
+            dgr: tape.dgr,
+            zero: tape.zero,
+            loss: tape.loss,
+            loss2: tape.loss2,
             norm,
             rb_loss: host_buffer(g, 2 * t, BUFFER_USAGE_TRANSFER_DST),
             rb: host_buffer(g, big, BUFFER_USAGE_TRANSFER_DST),
@@ -689,8 +739,8 @@ impl BlockTune {
             bias_stage,
             bias_buf,
             materialise,
-            forward,
-            backward,
+            forward: Vec::new(),
+            backward: Vec::new(),
             factor_bwd,
             adam_fact: Vec::new(),
             adam_dense: Vec::new(),
@@ -710,6 +760,7 @@ impl BlockTune {
             cb_eval: g.vk.reusable_command_buffer(),
             xfer: g.vk.reusable_command_buffer(),
         };
+        s.retape(g, t);
         s.build_adam(g);
         let ones = vec![1.0f32; d];
         upload(g, s.xfer, &s.stage, s.imp, &ones);
@@ -727,6 +778,7 @@ impl BlockTune {
     /// pending on the device.
     unsafe fn record(&self, g: &GpuCtx, train: bool) {
         let vk = g.vk;
+        assert!(self.tape_live, "BlockTune::record: tape released");
         let cb = if train { self.cb_train } else { self.cb_eval };
         vk.reset_cb(cb);
         vk.begin(cb);
@@ -815,6 +867,249 @@ impl BlockTune {
             ACCESS_HOST_READ,
         );
         check((vk.end_cb)(cb), "vkEndCommandBuffer");
+    }
+
+    /// Build the `norm` reduction and the forward and backward tapes at `t` columns over the
+    /// buffers allocated for [`BlockTune::max_t`]. The steps read and write a `t`-column prefix of
+    /// every activation buffer; the parameter, staging and readback buffers do not depend on `t`.
+    ///
+    /// The loss scale is the default mean `2/(t·d)`; a caller reproducing the reference's
+    /// `(loss/batch_size).backward()` calls [`BlockTune::set_loss_scale`] after the re-tape.
+    ///
+    /// # Safety
+    ///
+    /// No tape is pending on the device; `0 < t ≤ max_t` (asserted).
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` pipelines and descriptor sets; `O(1)` host work.
+    #[allow(
+        clippy::too_many_lines,
+        clippy::cast_possible_truncation,
+        reason = "one tape; the dimensions index u32 dispatch shapes"
+    )]
+    unsafe fn retape(&mut self, g: &GpuCtx, t: usize) {
+        assert!(
+            self.tape_live,
+            "BlockTune::retape: tape released (call set_t)"
+        );
+        assert!(
+            t > 0 && t <= self.max_t,
+            "BlockTune::retape: {t} columns outside 1..={}",
+            self.max_t
+        );
+        let BlockShape { d, a, f, .. } = self.shape;
+        let (to, tg, tu, td) = (t as u32, d as u32, a as u32, f as u32);
+        let wt = |k: usize| self.factors[k].w;
+        let dwt = |k: usize| self.factors[k].dw;
+        let add = |dst: Handle, src: Handle, n: usize| {
+            crate::gpu::decode::make_step_named(
+                g,
+                &add_inplace_bytes(n as u32, 256),
+                &[dst, src],
+                (n as u32).div_ceil(256),
+                1,
+                "add_inplace",
+            )
+        };
+        self.norm = map(
+            g,
+            5,
+            [t, d, t * d],
+            0.0,
+            [self.yt, self.zero, self.loss2, self.imp],
+            "norm_rows",
+        );
+        self.forward = vec![
+            linear_fwd_dispatch(g, self.a, wt(0), self.h, to, tu, tg),
+            add(self.h, self.x, t * d),
+            rmsnorm_fwd_dispatch(g, self.h, self.g2, self.n2, to, tg),
+            linear_fwd_dispatch(g, self.n2, wt(1), self.gt, to, tg, td),
+            linear_fwd_dispatch(g, self.n2, wt(2), self.up, to, tg, td),
+            swiglu_fwd_dispatch(g, self.gt, self.up, self.mm, (t * f) as u32),
+            linear_fwd_dispatch(g, self.mm, wt(3), self.y, to, td, tg),
+            add(self.y, self.h, t * d),
+            map(
+                g,
+                5,
+                [t, d, t * d],
+                0.0,
+                [self.y, self.yt, self.loss, self.imp],
+                "loss_rows",
+            ),
+            map(
+                g,
+                4,
+                [t, d, t * d],
+                2.0 / (t * d) as f32,
+                [self.y, self.yt, self.dy, self.imp],
+                "mse_grad",
+            ),
+        ];
+        self.backward = vec![
+            linear_bwd_weight_dispatch(g, self.dy, self.mm, dwt(3), to, td, tg),
+            linear_bwd_input_dispatch(g, self.dy, wt(3), self.dmm, to, td, tg),
+            swiglu_bwd_dispatch(
+                g,
+                self.gt,
+                self.up,
+                self.dmm,
+                self.dgt,
+                self.dup,
+                (t * f) as u32,
+            ),
+            linear_bwd_weight_dispatch(g, self.dgt, self.n2, dwt(1), to, tg, td),
+            linear_bwd_weight_dispatch(g, self.dup, self.n2, dwt(2), to, tg, td),
+            linear_bwd_input_dispatch(g, self.dgt, wt(1), self.dn2, to, tg, td),
+            linear_bwd_input_dispatch(g, self.dup, wt(2), self.tmp, to, tg, td),
+            add(self.dn2, self.tmp, t * d),
+            rmsnorm_bwd_dispatch(
+                g, self.h, self.g2, self.dn2, self.dh, self.dgr, to, tg, 1e-6,
+            ),
+            add(self.dh, self.dy, t * d),
+            linear_bwd_weight_dispatch(g, self.dh, self.a, dwt(0), to, tu, tg),
+            // The o-projection's input adjoint `da = dh·Wo`, `[t][a]`: the forward's dims
+            // verbatim, `n = t`, `i = a`, `o = d`.
+            linear_bwd_input_dispatch(g, self.dh, wt(0), self.da, to, tu, tg),
+        ];
+    }
+
+    /// The tape's buffers as one value, for [`BlockTune::release_tape`].
+    fn tape_bufs(&self) -> TapeBufs {
+        TapeBufs {
+            x: self.x,
+            a: self.a,
+            y: self.y,
+            da: self.da,
+            dh: self.dh,
+            dy: self.dy,
+            yt: self.yt,
+            h: self.h,
+            n2: self.n2,
+            gt: self.gt,
+            up: self.up,
+            mm: self.mm,
+            dmm: self.dmm,
+            dgt: self.dgt,
+            dup: self.dup,
+            dn2: self.dn2,
+            tmp: self.tmp,
+            dgr: self.dgr,
+            zero: self.zero,
+            loss: self.loss,
+            loss2: self.loss2,
+        }
+    }
+
+    /// Free the `t`-sized tape buffers, keeping the parameters, the Adam moments and the host
+    /// staging buffers. A released tuner accepts no [`run`](BlockTune::run), [`batch`](BlockTune::batch)
+    /// or stage change until [`set_t`](BlockTune::set_t) allocates a tape again. This is the memory
+    /// dial between the non-fact phase's `T = batch·n_ctx` tape and the ADMM phase, which needs no
+    /// tape at all.
+    ///
+    /// # Safety
+    ///
+    /// No tape of this value is pending on the device; a live tape (asserted).
+    ///
+    /// # Complexity
+    ///
+    /// One queue drain and `O(1)` destroys.
+    pub unsafe fn release_tape(&mut self, g: &GpuCtx) {
+        assert!(self.tape_live, "BlockTune::release_tape: no tape");
+        g.vk.free_handles(&self.tape_bufs().handles());
+        self.tape_live = false;
+        self.forward.clear();
+        self.backward.clear();
+        // The step's copy lists name the freed tape buffers; a `set_t` afterward re-records the
+        // tapes, and a copy left here would submit a destroyed handle.
+        self.pre.clear();
+        self.post.clear();
+    }
+
+    /// Allocate the tape buffers at `t` columns, which must not exceed the allocation's
+    /// [`max_t`](BlockTune::max_t). [`set_t`](BlockTune::set_t) calls it after a release.
+    ///
+    /// # Safety
+    ///
+    /// `g` is a live device context and no tape is live (asserted).
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` allocations and `O(t·(d + a + f))` device words.
+    unsafe fn alloc_tape(&mut self, g: &GpuCtx, t: usize) {
+        assert!(!self.tape_live, "BlockTune::alloc_tape: tape live");
+        assert!(
+            t > 0 && t <= self.max_t,
+            "BlockTune::alloc_tape: {t} columns outside 1..={}",
+            self.max_t
+        );
+        let b = TapeBufs::alloc(g, self.shape, t);
+        self.x = b.x;
+        self.a = b.a;
+        self.y = b.y;
+        self.da = b.da;
+        self.dh = b.dh;
+        self.dy = b.dy;
+        self.yt = b.yt;
+        self.h = b.h;
+        self.n2 = b.n2;
+        self.gt = b.gt;
+        self.up = b.up;
+        self.mm = b.mm;
+        self.dmm = b.dmm;
+        self.dgt = b.dgt;
+        self.dup = b.dup;
+        self.dn2 = b.dn2;
+        self.tmp = b.tmp;
+        self.dgr = b.dgr;
+        self.zero = b.zero;
+        self.loss = b.loss;
+        self.loss2 = b.loss2;
+        self.tape_t = t;
+        self.tape_live = true;
+    }
+
+    /// Set the tape width: `t` columns per step, at most the allocation's [`BlockTune::max_t`].
+    /// Allocates the tape at the new width when none is live or the live one has another width,
+    /// then rebuilds both tapes. Every parameter, latent and Adam moment is untouched, so one
+    /// tuner serves a `T = batch·seq` non-fact phase and a `T = seq` fact phase.
+    ///
+    /// # Safety
+    ///
+    /// No tape is pending on the device.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` pipelines and descriptor sets; on a width change `O(t·(d + a + f))` device words,
+    /// otherwise no allocation.
+    pub unsafe fn set_t(&mut self, g: &GpuCtx, t: usize) {
+        assert!(
+            t > 0 && t <= self.max_t,
+            "BlockTune::set_t: {t} columns outside 1..={}",
+            self.max_t
+        );
+        if !self.tape_live || self.tape_t != t {
+            if self.tape_live {
+                self.release_tape(g);
+            }
+            self.alloc_tape(g, t);
+        }
+        self.shape.t = t;
+        self.retape(g, t);
+        self.record(g, true);
+        self.record(g, false);
+    }
+
+    /// The tape width in columns.
+    #[must_use]
+    pub fn t(&self) -> usize {
+        self.shape.t
+    }
+
+    /// The allocation's largest tape width; [`BlockTune::set_t`] refuses above it.
+    #[must_use]
+    pub fn max_t(&self) -> usize {
+        self.max_t
     }
 
     /// Copy `data` into the device buffer `dst` through the staging buffer.
@@ -1012,6 +1307,10 @@ impl BlockTune {
     ///
     /// `O(1)` host work; two tapes re-recorded.
     pub unsafe fn set_loss_scale(&mut self, g: &GpuCtx, scale: f32) {
+        assert!(
+            self.tape_live && !self.forward.is_empty(),
+            "BlockTune::set_loss_scale: no recorded tape"
+        );
         let (t, d) = (self.shape.t, self.shape.d);
         let end = self.forward.len() - 1;
         self.forward[end] = map(
@@ -1095,6 +1394,7 @@ impl BlockTune {
     ///
     /// The slices have the shape's lengths (asserted).
     pub unsafe fn batch(&mut self, g: &GpuCtx, x: &[f32], a: &[f32], yt: &[f32]) {
+        assert!(self.tape_live, "BlockTune::batch: tape released");
         let BlockShape { t, d, a: aw, .. } = self.shape;
         assert_eq!(
             (x.len(), a.len(), yt.len()),
@@ -1160,6 +1460,7 @@ impl BlockTune {
     /// About `2·t·(a·d + 3·d·f)` multiply-adds forward, twice that backward, and
     /// `Σ out·inn·rank` per materialisation and per factor adjoint.
     pub unsafe fn run(&mut self, g: &GpuCtx, train: bool) -> f64 {
+        assert!(self.tape_live, "BlockTune::run: tape released");
         if train {
             self.step_no += 1;
             let t = self.step_no;
@@ -1235,6 +1536,7 @@ impl BlockTune {
     /// A run has completed.
     #[must_use]
     pub unsafe fn output(&self, g: &GpuCtx) -> Vec<f32> {
+        assert!(self.tape_live, "BlockTune::output: tape released");
         self.get(g, self.y, self.shape.t * self.shape.d)
     }
 
@@ -1314,6 +1616,7 @@ impl BlockTune {
 
     /// The weighted gradient `dy` of the last step, `[t][d]`.
     pub(crate) unsafe fn dy(&self, g: &GpuCtx) -> Vec<f32> {
+        assert!(self.tape_live, "BlockTune::dy: tape released");
         self.get(g, self.dy, self.shape.t * self.shape.d)
     }
 
@@ -1328,6 +1631,7 @@ impl BlockTune {
     ///
     /// On a name the tape does not hold.
     pub(crate) unsafe fn stage(&self, g: &GpuCtx, name: &str) -> Vec<f32> {
+        assert!(self.tape_live, "BlockTune::stage: tape released");
         let (t, d, f) = (self.shape.t, self.shape.d, self.shape.f);
         let (buf, n) = match name {
             "h" => (self.h, t * d),

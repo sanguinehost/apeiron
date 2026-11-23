@@ -63,15 +63,11 @@ fn describe(spv: &[u8], label: &str) {
                     .collect();
                 entry = String::from_utf8_lossy(&bytes).into_owned();
             }
-            SPV_EXECUTION_MODE => {
-                if wc >= 6 && words[i + 2] == MODE_LOCAL_SIZE {
-                    local = format!("{}x{}x{}", words[i + 3], words[i + 4], words[i + 5]);
-                }
+            SPV_EXECUTION_MODE if wc >= 6 && words[i + 2] == MODE_LOCAL_SIZE => {
+                local = format!("{}x{}x{}", words[i + 3], words[i + 4], words[i + 5]);
             }
-            SPV_DECORATE => {
-                if wc == 4 && words[i + 2] == DEC_BINDING {
-                    bindings.push((words[i + 1], words[i + 3]));
-                }
+            SPV_DECORATE if wc == 4 && words[i + 2] == DEC_BINDING => {
+                bindings.push((words[i + 1], words[i + 3]));
             }
             SPV_VARIABLE => variables.push(words[i + 2]),
             _ => {}

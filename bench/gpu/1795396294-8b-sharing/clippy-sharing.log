@@ -1,0 +1,81 @@
++ export HOME=/root
++ HOME=/root
++ . /root/.cargo/env
+++ case ":${PATH}:" in
+++ export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+++ PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
++ rustup toolchain install nightly-2026-04-14 --profile minimal --component clippy
+info: syncing channel updates for nightly-2026-04-14-x86_64-unknown-linux-gnu
+info: latest update on 2026-04-14 for version 1.97.0-nightly (17584a181 2026-04-13)
+info: downloading 4 components
+
+  nightly-2026-04-14-x86_64-unknown-linux-gnu installed - rustc 1.97.0-nightly (17584a181 2026-04-13)
+
+info: checking for self-update (current version: 1.29.3)
++ cd /workspace
++ cargo +nightly-2026-04-14 clippy --workspace --all-features --all-targets --locked -j 4 -- -D warnings
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling version_check v0.9.5
+   Compiling libc v0.2.190
+    Checking typenum v1.20.1
+   Compiling generic-array v0.14.7
+   Compiling find-msvc-tools v0.1.14
+   Compiling shlex v2.0.1
+   Compiling syn v2.0.119
+   Compiling cc v1.6.0
+    Checking block-buffer v0.10.4
+    Checking crypto-common v0.1.7
+    Checking cfg-if v1.0.5
+    Checking cpufeatures v0.3.1
+    Checking constant_time_eq v0.4.2
+    Checking digest v0.10.7
+    Checking cpufeatures v0.2.17
+    Checking arrayvec v0.7.8
+    Checking sha2 v0.10.9
+   Compiling blake3 v1.8.7
+   Compiling apeiron-derive v0.1.0 (/workspace/derive)
+    Checking apeiron v0.1.0 (/workspace)
+    Checking apeiron-fold-abi v0.0.0 (/workspace/fold-abi)
+    Checking apeiron-wasm v0.0.0 (/workspace/wasm)
+error: this `if` can be collapsed into the outer `match`
+  --> examples/gpu_gemv_debug.rs:67:17
+   |
+67 | /                 if wc >= 6 && words[i + 2] == MODE_LOCAL_SIZE {
+68 | |                     local = format!("{}x{}x{}", words[i + 3], words[i + 4], words[i + 5]);
+69 | |                 }
+   | |_________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_match
+   = note: `-D clippy::collapsible-match` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::collapsible_match)]`
+help: collapse nested if block
+   |
+66 ~             SPV_EXECUTION_MODE
+67 ~                 if wc >= 6 && words[i + 2] == MODE_LOCAL_SIZE => {
+68 |                     local = format!("{}x{}x{}", words[i + 3], words[i + 4], words[i + 5]);
+69 ~                 }
+   |
+
+error: this `if` can be collapsed into the outer `match`
+  --> examples/gpu_gemv_debug.rs:72:17
+   |
+72 | /                 if wc == 4 && words[i + 2] == DEC_BINDING {
+73 | |                     bindings.push((words[i + 1], words[i + 3]));
+74 | |                 }
+   | |_________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_match
+help: collapse nested if block
+   |
+71 ~             SPV_DECORATE
+72 ~                 if wc == 4 && words[i + 2] == DEC_BINDING => {
+73 |                     bindings.push((words[i + 1], words[i + 3]));
+74 ~                 }
+   |
+
+error: could not compile `apeiron` (example "gpu_gemv_debug") due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
++ echo 'clippy rc=101'
+clippy rc=101

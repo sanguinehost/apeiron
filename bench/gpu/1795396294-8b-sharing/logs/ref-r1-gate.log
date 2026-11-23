@@ -1,0 +1,1 @@
+REF R1 model.layers.0.mlp.gate_proj.weight rank 3040 (12288, 4096): raw=7418.6050, norm=0.2212, per_el=1.4739e-04, ADMM time=47.37s, peak 1915 MiB, NVIDIA L4
