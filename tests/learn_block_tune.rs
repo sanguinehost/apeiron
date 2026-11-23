@@ -121,6 +121,23 @@ fn envf(key: &str, default: f64) -> f64 {
     std::env::var(key).map_or(default, |v| v.parse().expect(key))
 }
 
+/// The ADMM outer iterations the sequential loop runs, `APEIRON_BT_ADMM_ITERS` (default 400).
+///
+/// `I = 100` is licensed by `admm_budget_l23_down` on `blk.23.ffn_down`: after the same 1024 tune
+/// steps the 100-iteration factor ends 0.00118 relH *above* the 400-iteration factor's, in 1/4 the
+/// ADMM wall. The layer wall is the gate this knob moves.
+fn admm_iters() -> usize {
+    envu("APEIRON_BT_ADMM_ITERS", 400)
+}
+
+/// [`NqConfig::reference`] at [`admm_iters`] outer iterations.
+fn admm_config(rank: usize) -> NqConfig {
+    NqConfig {
+        outer_iters: admm_iters(),
+        ..NqConfig::reference(rank)
+    }
+}
+
 /// A path under the dump.
 fn dump_at(root: &str, parts: &str) -> String {
     format!("{root}/{parts}")
@@ -1313,7 +1330,7 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
                                 inn,
                                 &i_norm,
                                 &o_norm,
-                                &NqConfig::reference(rank),
+                                &admm_config(rank),
                                 o.floor,
                             )
                             .expect("factorize");

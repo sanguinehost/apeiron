@@ -300,15 +300,30 @@ impl LimbGemm {
     /// The bound buffers at no less than `need` bytes each, reallocated (all four, with the
     /// staging, readback, descriptor set and pipeline) when any capacity is short.
     ///
+    /// A short capacity releases the old set's six buffers before the new ones are allocated. The
+    /// old command buffers are raw handles with no destructor: they are forgotten with the set and
+    /// never submitted again, and each one's command pool leaks (`Vk::command_buffer` makes a pool
+    /// per buffer). The descriptor set, layout and pipeline also leak; only the six buffers are
+    /// freed. The 8B campaign's layer-2 refusal is attributed to allocator growth across layers
+    /// after a 20.1 GiB peak (`bench/gpu/campaign/campaign-per-layer.sh:3`), so this release is
+    /// necessary, not the whole cause.
+    ///
     /// # Complexity
     ///
-    /// `O(1)` calls when the capacity holds; otherwise six allocations and one pipeline build.
+    /// `O(1)` calls when the capacity holds; otherwise six allocations and one pipeline build,
+    /// plus `O(1)` device waits (the release drains the queue).
     unsafe fn bind(&mut self, vk: &Vk, need: [usize; 4]) -> &mut Bound {
         let fits = self
             .bound
             .as_ref()
             .is_some_and(|b| (0..4).all(|i| b.cap[i] >= need[i]));
         if !fits {
+            if let Some(old) = self.bound.take() {
+                // SAFETY: the old set's command buffers were recorded against exactly these
+                // buffers and are dropped here with `old`; `free_handles` drains the queue before
+                // destroying, so no submission still reads them.
+                vk.free_handles(&[old.a, old.b, old.o, old.meta, old.stage, old.back]);
+            }
             let cap = need.map(|x| x.max(16));
             let dev = |bytes: usize| {
                 vk.buffer(

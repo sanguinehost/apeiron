@@ -1096,3 +1096,40 @@ fn device_unit_costs() {
         }
     }
 }
+
+/// A capacity growth releases the old set's six buffers: the live allocation count after two
+/// bindings is one set, not two. Each growth in the 8B campaign precedes a new linear, so a
+/// retained set is a leak per linear; layer 2 died in `vkAllocateMemory` after five.
+#[test]
+fn rebind_releases_the_old_capacity() {
+    let vk = match unsafe { Vk::load() } {
+        Ok(vk) => vk,
+        Err(e) => {
+            println!("SKIP: No Vulkan device present: {e}");
+            return;
+        }
+    };
+    if !vk.has_coopmat {
+        println!("SKIP: no cooperative matrices");
+        return;
+    }
+    let mut dev = LimbGemm::default();
+    let before = vk.alloc_mark();
+    unsafe {
+        let _ = dev.bind(&vk, [16, 16, 16, 16]);
+    }
+    assert_eq!(vk.alloc_mark() - before, 6, "one set is four device buffers, staging and readback");
+    unsafe {
+        let _ = dev.bind(&vk, [64, 64, 64, 64]);
+    }
+    assert_eq!(
+        vk.alloc_mark() - before,
+        6,
+        "the growth released the first set instead of retaining it"
+    );
+    // A call inside the new capacity allocates nothing.
+    unsafe {
+        let _ = dev.bind(&vk, [32, 32, 32, 32]);
+    }
+    assert_eq!(vk.alloc_mark() - before, 6, "a fitting bind allocates nothing");
+}
