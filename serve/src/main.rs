@@ -27,6 +27,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use apeiron::engine::loader::Engine;
+use apeiron::engine::prefix::{prefill_with_cache_mode, PrefixCache};
 use apeiron::engine::KernelMode;
 use apeiron::format::bpe::Bpe;
 use apeiron::format::nq;
@@ -64,6 +65,14 @@ struct Args {
     /// Enable the exact-on-certificate block index over blocks of this many
     /// positions. 0 (the default) keeps the full-scan read.
     kv_block: usize,
+    /// Byte budget of the solved-prefix table, in MiB; 0 disables storage. The table holds one
+    /// KV snapshot per prompt and resumes the longest matching prefix, so a repeated prompt
+    /// skips its prefill.
+    prefix_mb: usize,
+    /// Pin cached states to this many positions. 0 uses each request's prompt + `max_tokens`.
+    /// A growing session only reuses a snapshot whose capacity covers the new prompt, so a
+    /// pinned capacity is what makes successive turns hit.
+    prefix_ctx: usize,
 }
 
 fn parse_args() -> Result<Args, Box<dyn Error>> {
@@ -82,6 +91,8 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         system: None,
         kv_file: None,
         kv_block: 0,
+        prefix_mb: 256,
+        prefix_ctx: 0,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -107,13 +118,15 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--system" => a.system = Some(val()?),
             "--kv-file" => a.kv_file = Some(val()?),
             "--kv-block" => a.kv_block = val()?.parse()?,
+            "--prefix-mb" => a.prefix_mb = val()?.parse()?,
+            "--prefix-ctx" => a.prefix_ctx = val()?.parse()?,
             "-h" | "--help" => {
                 println!(
                     "nq-serve --model <gguf> [--pack <nqp>] --tokenizer <json> \
                      [--bind 127.0.0.1:8080] [--model-name nq-qwen3] \
                      [--max-tokens 256] [--kernel q8act|exact] [--think] [--no-warmup] \
                      [--drop-system] [--stop-at-sentence] [--system TEXT] \
-                     [--kv-file PATH] [--kv-block N]"
+                     [--kv-file PATH] [--kv-block N] [--prefix-mb N] [--prefix-ctx N]"
                 );
                 std::process::exit(0);
             }
@@ -140,7 +153,7 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let args = parse_args()?;
+    let mut args = parse_args()?;
     let t0 = Instant::now();
     let bpe = Bpe::from_tokenizer_json(&args.tokenizer)?;
     let engine = match &args.pack {
@@ -164,16 +177,27 @@ fn run() -> Result<(), Box<dyn Error>> {
     if args.warmup {
         warm(&engine, &bpe, args.kernel, args.kv_file.as_deref())?;
     }
+    // A `KvState` snapshot carries no affine layer state; refuse the cache once, not per request.
+    if engine.config.affine.is_some() && args.prefix_mb > 0 {
+        eprintln!("prefix        off: the model carries affine layer state");
+        args.prefix_mb = 0;
+    }
     let listener = TcpListener::bind(&args.bind)?;
     eprintln!(
         "listening     http://{}/v1  model={} kernel={:?} max_tokens={} think={}",
         args.bind, args.model_name, args.kernel, args.max_tokens, args.think
     );
     let stop = stop_ids(&bpe);
+    let mut prefix = PrefixCache::new(args.prefix_mb.saturating_mul(1024 * 1024));
+    eprintln!(
+        "prefix        {} MiB, block {} positions",
+        args.prefix_mb,
+        prefix.block_size()
+    );
     for conn in listener.incoming() {
         match conn {
             Ok(mut stream) => {
-                if let Err(e) = serve_one(&engine, &bpe, &args, &stop, &mut stream) {
+                if let Err(e) = serve_one(&engine, &bpe, &args, &stop, &mut prefix, &mut stream) {
                     eprintln!("request       failed: {e}");
                 }
             }
@@ -229,6 +253,7 @@ fn serve_one(
     bpe: &Bpe,
     args: &Args,
     stop: &[u32],
+    prefix: &mut PrefixCache,
     stream: &mut TcpStream,
 ) -> Result<(), Box<dyn Error>> {
     let Some(req) = read_request(stream)? else {
@@ -248,7 +273,9 @@ fn serve_one(
             });
             write_json(stream, 200, &body)
         }
-        ("POST", "/v1/chat/completions") => chat(engine, bpe, args, stop, stream, &req.body),
+        ("POST", "/v1/chat/completions") => {
+            chat(engine, bpe, args, stop, prefix, stream, &req.body)
+        }
         _ => write_plain(stream, 404, "not found\n"),
     }
 }
@@ -258,6 +285,7 @@ fn chat(
     bpe: &Bpe,
     args: &Args,
     stop: &[u32],
+    prefix: &mut PrefixCache,
     stream: &mut TcpStream,
     body: &[u8],
 ) -> Result<(), Box<dyn Error>> {
@@ -343,19 +371,13 @@ fn chat(
     // The KV state is allocated for prompt + output up front, so the served
     // ceiling is the smaller of the client's and `--max-tokens`.
     let cap = ids.len() + max_new + 8;
-    let st = match &args.kv_file {
-        Some(path) => engine.state_with_file(cap, path),
-        None => engine.state(cap),
+    // A pinned prefix context gives every snapshot the capacity a longer turn needs, which is
+    // what lets a growing session hit; 0 keeps the request's own capacity.
+    let ctx = if args.prefix_mb > 0 && args.prefix_ctx > 0 {
+        cap.max(args.prefix_ctx)
+    } else {
+        cap
     };
-    let mut st = match st {
-        Ok(st) => st,
-        Err(e) => return write_error(stream, 500, &format!("state: {e}")),
-    };
-    if args.kv_block > 0 {
-        if let Err(e) = st.kv.enable_block_index(args.kv_block) {
-            return write_error(stream, 500, &format!("kv block index: {e:?}"));
-        }
-    }
 
     let id = format!("chatcmpl-{}-{}", epoch_secs(), std::process::id());
     let created = epoch_secs();
@@ -364,20 +386,68 @@ fn chat(
     }
 
     let t0 = Instant::now();
-    let mut next = match engine.prefill_state(&mut st, &ids, args.kernel) {
-        Ok(t) => t,
-        Err(e) => {
-            if want_stream {
-                let _ = write_sse(
-                    stream,
-                    &json!({"error": {"message": format!("prefill: {e}"), "type": "engine_error"}}),
-                );
-                let _ = stream.write_all(b"data: [DONE]\n\n");
-                return Ok(());
+    // The solved prefix: the table probe resumes the longest matching prompt; the missed tail is
+    // one block pass. Any refusal falls back to the full prefill, so the cache never fails a turn.
+    let mut solved = None;
+    if args.kv_file.is_none() && args.prefix_mb > 0 {
+        match prefill_with_cache_mode(
+            engine,
+            prefix,
+            &ids,
+            ctx.saturating_sub(ids.len()),
+            true,
+            args.kernel,
+        ) {
+            Ok((kv, first)) => {
+                if ids.len() >= prefix.block_size() && prefix.entry_count() == 0 {
+                    eprintln!(
+                        "prefix        not stored ({} MiB budget); a snapshot needs more",
+                        args.prefix_mb
+                    );
+                }
+                solved = Some((engine.state_with_kv(kv), first.token));
             }
-            return write_error(stream, 500, &format!("prefill: {e}"));
+            Err(e) => eprintln!("prefix        cold: {e}"),
+        }
+    }
+    let (mut st, mut next) = match solved {
+        Some(pair) => pair,
+        None => {
+            let st = match &args.kv_file {
+                Some(path) => engine.state_with_file(cap, path),
+                None => engine.state(cap),
+            };
+            let mut st = match st {
+                Ok(st) => st,
+                Err(e) => return write_error(stream, 500, &format!("state: {e}")),
+            };
+            if args.kv_block > 0 {
+                if let Err(e) = st.kv.enable_block_index(args.kv_block) {
+                    return write_error(stream, 500, &format!("kv block index: {e:?}"));
+                }
+            }
+            match engine.prefill_state(&mut st, &ids, args.kernel) {
+                Ok(t) => (st, t),
+                Err(e) => {
+                    if want_stream {
+                        let _ = write_sse(
+                            stream,
+                            &json!({"error": {"message": format!("prefill: {e}"), "type": "engine_error"}}),
+                        );
+                        let _ = stream.write_all(b"data: [DONE]\n\n");
+                        return Ok(());
+                    }
+                    return write_error(stream, 500, &format!("prefill: {e}"));
+                }
+            }
         }
     };
+    // The solved tail ran the full scan; decoding still takes the certificate index.
+    if args.kv_block > 0 && !st.kv.has_block_index() {
+        if let Err(e) = st.kv.enable_block_index(args.kv_block) {
+            return write_error(stream, 500, &format!("kv block index: {e:?}"));
+        }
+    }
     let prefill = t0.elapsed().as_secs_f64();
     let t1 = Instant::now();
     if want_stream {
@@ -772,7 +842,10 @@ mod tests {
         assert_eq!(out.len(), 3);
         assert_eq!(out[0]["content"], "sys");
         assert_eq!(out[1]["role"], "system");
-        assert!(out[1]["content"].as_str().unwrap().contains("\"name\":\"read\""));
+        assert!(out[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("\"name\":\"read\""));
         assert_eq!(out[2]["content"], "add median");
         let prompt = render_chatml(&out, true).unwrap();
         assert!(prompt.contains("<|im_start|>system\nTool definitions"));

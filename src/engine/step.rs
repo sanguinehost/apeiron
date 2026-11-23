@@ -1880,7 +1880,9 @@ impl Engine {
     }
 
     /// Wrap a resolved [`KvState`] with the affine carrier this model's schedule needs.
-    fn state_with_kv(&self, kv: KvState) -> DecodeState {
+    /// A decode state around a caller-supplied [`KvState`]: the affine state, when the model has
+    /// affine mixers, is allocated fresh; the KV planes are the caller's.
+    pub fn state_with_kv(&self, kv: KvState) -> DecodeState {
         let n_affine = count_mixers(&self.config.mixers, MixerKind::Affine);
         let affine = match self.config.affine {
             Some(g) if n_affine > 0 => Some(AffineState::new(&g, n_affine)),

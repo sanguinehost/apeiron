@@ -1118,7 +1118,11 @@ fn rebind_releases_the_old_capacity() {
     unsafe {
         let _ = dev.bind(&vk, [16, 16, 16, 16]);
     }
-    assert_eq!(vk.alloc_mark() - before, 6, "one set is four device buffers, staging and readback");
+    assert_eq!(
+        vk.alloc_mark() - before,
+        6,
+        "one set is four device buffers, staging and readback"
+    );
     unsafe {
         let _ = dev.bind(&vk, [64, 64, 64, 64]);
     }
@@ -1131,5 +1135,9 @@ fn rebind_releases_the_old_capacity() {
     unsafe {
         let _ = dev.bind(&vk, [32, 32, 32, 32]);
     }
-    assert_eq!(vk.alloc_mark() - before, 6, "a fitting bind allocates nothing");
+    assert_eq!(
+        vk.alloc_mark() - before,
+        6,
+        "a fitting bind allocates nothing"
+    );
 }

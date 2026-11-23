@@ -63,12 +63,14 @@
 //! - `PrefixCache::insert`: `O(m)` hashing and token cloning, `O(m / B)` boundary insertions, plus
 //!   eviction: one `O(entries)` LRU scan per evicted entry, so `O(entries²)` when the whole cache is
 //!   recycled.
-//! - `prefill_with_cache`: resumes from prefix `m` (saving `m` steps of `O(n_layer · ...)` compute),
-//!   then steps the remaining `n - m` tokens. Overall speedup is proportional to `m / n`.
+//! - `prefill_with_cache`: resumes from prefix `m` (saving `m` positions of `O(n_layer · ...)`
+//!   compute), then solves the remaining `n - m - 1` positions in block passes and steps only the
+//!   last token. Overall speedup is proportional to `m / n`.
 
 use crate::engine::attn::KvState;
 use crate::engine::loader::Engine;
 use crate::engine::step::{StepError, StepResult};
+use crate::engine::{argmax_fixed, fixed_vector_checksum, KernelMode};
 use crate::map::coord::locator::ExactIdentity;
 use crate::map::freq::{Coord, Table};
 
@@ -476,27 +478,59 @@ pub fn truncate_kv_state(kv: &mut KvState, m: usize) -> bool {
 /// 2. If a prefix of length `m` is found, clones its `KvState` as the starting state,
 ///    and truncates it in-place to `m` positions via [`truncate_kv_state`].
 ///    Otherwise, creates a fresh cold `KvState` with capacity `tokens.len() + extra_capacity`.
-/// 3. Steps through the remaining tokens `tokens[m..]`, advancing the KV state.
+/// 3. Solves the remaining tokens `tokens[m..n-1]` in block passes over the weights, then steps
+///    only the last token for its [`StepResult`].
 /// 4. If `insert_boundaries` is true, stores the completed prompt snapshot into the cache.
 /// 5. Returns the final `KvState` and the last `StepResult`.
+///
+/// This wrapper runs [`KernelMode::Exact`]; [`prefill_with_cache_mode`] selects the reader.
 ///
 /// # Errors
 ///
 /// - Returns [`PrefixCacheError::EmptyPrompt`] if `tokens` is empty.
 /// - Returns [`PrefixCacheError::CapacityExceeded`] if cache snapshot capacity is smaller
 ///   than needed.
-/// - Returns [`PrefixCacheError::Step`] on decode step failure.
+/// - Returns [`PrefixCacheError::Step`] on a projection or decode refusal.
 ///
 /// # Complexity
 ///
-/// `O(n / B)` lookup time + `O((n - m) · cost_per_step)`. When `m == n - 1`, only 1 decode step
-/// is executed.
+/// `O(n / B)` lookup time + `O(⌈(n − m) / w⌉)` block passes over the weights, `w` the engine's
+/// prefill block width, and one single-token step. When `m == n - 1`, only the step runs.
 pub fn prefill_with_cache<H: PrefixHasher>(
     engine: &Engine,
     cache: &mut PrefixCache<H>,
     tokens: &[u32],
     extra_capacity: usize,
     insert_boundaries: bool,
+) -> Result<(KvState, StepResult), PrefixCacheError> {
+    prefill_with_cache_mode(
+        engine,
+        cache,
+        tokens,
+        extra_capacity,
+        insert_boundaries,
+        KernelMode::Exact,
+    )
+}
+
+/// [`prefill_with_cache`] under a projection kernel: the cached prefix is the solved part, and the
+/// missed tail is one block pass, not one step per token.
+///
+/// # Errors
+///
+/// As [`prefill_with_cache`], plus [`PrefixCacheError::Step`] with [`StepError::BadConfig`] when
+/// the model carries affine layer state, which a [`KvState`] snapshot does not represent.
+///
+/// # Complexity
+///
+/// As [`prefill_with_cache`].
+pub fn prefill_with_cache_mode<H: PrefixHasher>(
+    engine: &Engine,
+    cache: &mut PrefixCache<H>,
+    tokens: &[u32],
+    extra_capacity: usize,
+    insert_boundaries: bool,
+    mode: KernelMode,
 ) -> Result<(KvState, StepResult), PrefixCacheError> {
     let n = tokens.len();
     if n == 0 {
@@ -507,10 +541,10 @@ pub fn prefill_with_cache<H: PrefixHasher>(
         .checked_add(extra_capacity)
         .ok_or(PrefixCacheError::Step(StepError::LengthOverflow))?;
 
-    // Step 1: probe cache for longest prefix strictly less than n tokens so that at least
-    // the last token tokens[n - 1] is stepped to produce the step result (logits / prediction).
+    // Probe for a prefix strictly less than `n` so at least the last token is stepped to produce
+    // the step result.
     let prefix_bound = &tokens[..n.saturating_sub(1)];
-    let (start_pos, mut kv) = if let Some((m, cached_state)) = cache.longest_prefix(prefix_bound) {
+    let (start_pos, kv) = if let Some((m, cached_state)) = cache.longest_prefix(prefix_bound) {
         if cached_state.cap() < total_cap {
             return Err(PrefixCacheError::CapacityExceeded);
         }
@@ -530,29 +564,41 @@ pub fn prefill_with_cache<H: PrefixHasher>(
         )
     };
 
-    // Step 2: prefill remaining tokens
-    let mut last_result = None;
-    let mut pos = start_pos;
+    let mut st = engine.state_with_kv(kv);
+    if st.affine.is_some() {
+        return Err(PrefixCacheError::Step(StepError::BadConfig(String::from(
+            "the prefix cache stores softmax KV only; the model has affine layer state",
+        ))));
+    }
 
-    while pos < n {
-        let token_id = tokens[pos];
-        let step_res = engine
-            .step_with_kv(&mut kv, token_id)
+    // The missed tail is one closed pass of the layer stack at the engine's prefill width; only
+    // the last token is a single step, because its logits are the caller's result.
+    if start_pos < n - 1 {
+        engine
+            .prefill_state_with_width(
+                &mut st,
+                &tokens[start_pos..n - 1],
+                mode,
+                crate::engine::step::prefill_block(),
+            )
             .map_err(PrefixCacheError::Step)?;
-        last_result = Some(step_res);
-        pos += 1;
     }
-
-    // Step 3: if insert_boundaries is true, insert the prompt snapshot into cache
-    if insert_boundaries && n >= cache.block_size() && start_pos < n {
-        let _ = cache.insert(tokens, &kv);
-    }
-
-    let Some(result) = last_result else {
-        return Err(PrefixCacheError::EmptyPrompt);
+    let logits = engine
+        .step_logits_with_mode(&mut st.kv, tokens[n - 1], mode)
+        .map_err(PrefixCacheError::Step)?;
+    let token = argmax_fixed(&logits)
+        .map_err(StepError::Sampler)
+        .map_err(PrefixCacheError::Step)?;
+    let result = StepResult {
+        token,
+        logits_checksum: fixed_vector_checksum(&logits),
     };
 
-    Ok((kv, result))
+    if insert_boundaries && n >= cache.block_size() && start_pos < n {
+        let _ = cache.insert(tokens, &st.kv);
+    }
+
+    Ok((st.kv, result))
 }
 
 #[cfg(test)]

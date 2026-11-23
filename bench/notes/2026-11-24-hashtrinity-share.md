@@ -14,7 +14,7 @@ advanced.
 |---|---:|---|
 | 8B fit, 4,587.4 s/layer | **0%** | `Table` is constructed in exactly two files, `src/engine/prefix/mod.rs:227,258` and `src/engine/step/cold_store.rs:77,98`. The campaign trainer (`src/gpu/nn/train/`) and `src/learn/nanoquant.rs` contain no `Table`, no `FreqMap`; `examples/nq_fit.rs` links neither. |
 | 8B decode, 346.8 ms/token | **0%** | `matmat_q8act` reads the mmap'd pack bytes; the weight path touches no table. |
-| 8B prefill, 239 ms/position | **the alternative is on the path** | `serve/src/main.rs:367` prefills the whole prompt per request; `PrefixCache` (`src/engine/prefix/mod.rs`, `prefill_with_cache`) has **zero call sites** in `serve/`. |
+| 8B prefill, 239 ms/position | **the alternative is on the path** | `serve/src/main.rs` prefilled the whole prompt per request and `PrefixCache` had zero call sites. `prefill_with_cache_mode` now wires it: probe the table, solve the missed tail in block passes, step only the last token. |
 
 The fit's 0% is not a container-versus-arithmetic split. `tune` is `o·n²` multiply-adds through
 `gemm_q32`; a table performs a key-to-value probe. A probe is not a MAC, so it is not the same
@@ -23,9 +23,10 @@ the fit performs a gather of packed rows and its rate becomes the phase's rate b
 
 ## Where the table is faster than the alternative, and what that is worth
 
-`PrefixCache` replaces `O(prompt)` prefill with `O(n/B)` probes plus `O(n − m)` steps, where `m` is
-the shared prefix. It is exact by causality: positions `< m` depend only on tokens `< m`, and the
-full-key identity rule confirms the token sequence behind every hash hit.
+`PrefixCache` replaces `O(prompt)` prefill with `O(n/B)` probes plus one block pass over the
+`n − m − 1` missed positions, where `m` is the shared prefix. It is exact by causality: positions
+`< m` depend only on tokens `< m`, and the full-key identity rule confirms the token sequence
+behind every hash hit.
 
 Measured 8B, 2,048-token prompt, four threads (`bench/cpu/1794919269-nq8b-split.md`, K4 log):
 
@@ -61,11 +62,15 @@ the 2 h gate; a table is not in any of those terms.
 
 ## What this does not cover
 
-- No run of `PrefixCache`: it has no test in the tree, and wiring it needs the bit-exact equality
-  test (cached-state resume equals a cold prefill at `m`).
+- The cache has six unit tests on a synthetic GGUF, including warm-vs-cold bit equality at the
+  logits checksum. The new batched-tail equality test (`the_batched_tail_equals_the_per_token_path`)
+  cannot be built on this laptop: the lib test target exceeds the guard's derived cap. It is
+  committed for CI; until it runs, the batched tail is `model`, not `tested`.
+- No 8B run of the wired server. A 2k 8B snapshot is 604 MB, above the 256 MiB default budget, so
+  the served 8B win needs `--prefix-mb 700` (or the I8 carrier); the 0.6B fits at 256 MiB.
 - The 90% hit rate is a coding-agent usage assumption, `model`. A session with no shared prefix
   gets 0% of the win.
 - The 543 MB snapshot is f32. The I8 figure is arithmetic on the carrier width, not a measurement.
 - The 2k prefill is 4.18 tok/s on the `NqLinear` path that re-reads the pack per column
-  (`src/engine/step/cols.rs:503-507`); that defect is separate, and fixing it lowers the prefill term the
-  cache hides.
+  (`src/engine/step/cols.rs:503-507`); that defect is separate, and fixing it lowers the prefill
+  term the cache hides.

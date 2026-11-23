@@ -652,3 +652,63 @@ fn stale_boundary_key_never_returns_reused_slot_state() {
         "stale key must not resolve the reused slot's state for the evicted prompt's tokens"
     );
 }
+
+/// The batched tail is the per-token path's own values: one block pass over the missed positions
+/// plus the last step equals stepping every token, at [`KernelMode::Exact`] and on the Q8 reader.
+#[test]
+fn the_batched_tail_equals_the_per_token_path() {
+    let path = write_synth_gguf("batched_tail.gguf");
+    let engine = Engine::open(&path).expect("open synth engine");
+    let prompt: Vec<u32> = vec![2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31];
+    let cap = 16;
+
+    for mode in [KernelMode::Exact, KernelMode::Q8Act] {
+        // The oracle: one single-token step per position.
+        let mut kv = engine.decode_state(cap).expect("oracle kv");
+        let mut want = None;
+        for &tok in &prompt {
+            let logits = engine
+                .step_logits_with_mode(&mut kv, tok, mode)
+                .expect("oracle step");
+            want = Some(StepResult {
+                token: argmax_fixed(&logits).expect("argmax"),
+                logits_checksum: fixed_vector_checksum(&logits),
+            });
+        }
+        let want = want.expect("a result");
+
+        // Cold: the whole prompt through the cache's batched tail.
+        let mut cold = PrefixCache::with_block_size(10_000_000, 4);
+        let (kv_cold, res_cold) =
+            prefill_with_cache_mode(&engine, &mut cold, &prompt, cap - prompt.len(), true, mode)
+                .expect("cold");
+        assert_eq!(res_cold.token, want.token, "{mode:?}: cold token");
+        assert_eq!(
+            res_cold.logits_checksum, want.logits_checksum,
+            "{mode:?}: cold logits"
+        );
+        for l in 0..kv_cold.n_layer() {
+            assert_eq!(kv_cold.occupied(l).expect("cold"), prompt.len());
+            assert_eq!(
+                kv_cold.occupied(l).expect("cold"),
+                kv.occupied(l).expect("oracle")
+            );
+        }
+
+        // Warm: seed the first 8 tokens, then the same prompt resumes at 8 and solves 8..10.
+        let mut warm = PrefixCache::with_block_size(10_000_000, 4);
+        let seed = step_prompt(&engine, &prompt[..8], cap);
+        warm.insert(&prompt[..8], &seed).expect("seed insert");
+        let (kv_warm, res_warm) =
+            prefill_with_cache_mode(&engine, &mut warm, &prompt, cap - prompt.len(), false, mode)
+                .expect("warm");
+        assert_eq!(res_warm.token, want.token, "{mode:?}: warm token");
+        assert_eq!(
+            res_warm.logits_checksum, want.logits_checksum,
+            "{mode:?}: warm logits"
+        );
+        for l in 0..kv_warm.n_layer() {
+            assert_eq!(kv_warm.occupied(l).expect("warm"), prompt.len());
+        }
+    }
+}
