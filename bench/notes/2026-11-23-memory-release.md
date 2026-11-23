@@ -131,9 +131,10 @@ sha256 `adf8354424f8990e9d013453628fe9b83ce6fa16493a503bb8fe0150e01924a0`, mirro
 `gs://sanguine-checkpoints-scribe-461316/nq/packs/q3-8b-l0-final.nqp`. The hash is identical to the
 earlier export from the same checkpoints; the b/w is the preflight's.
 
-The contributor gate at the CI pin (`nightly-2026-04-14`, `bench/gpu/1795396294-8b-sharing/logs/final-check.log`) is green on the
+The compile, lint and format gate at the CI pin (`nightly-2026-04-14`, `bench/gpu/1795396294-8b-sharing/logs/final-check.log`) is green on the
 final tree: `cargo check --tests`, the four `--exact` release tests, `cargo clippy --workspace
---all-features --all-targets --locked -- -D warnings` and `cargo fmt --all -- --check`, rc 0. The
+--all-features --all-targets --locked -- -D warnings` and `cargo fmt --all -- --check`, rc 0. It is
+not the full contributor gate; that suite is red on this host (below). The
 L4's default stable 1.100 flags pre-existing `src/map`/`src/engine` lints and the 1.89 MSRV cannot
 resolve the source's `clippy::manual_is_multiple_of` expectation, so neither is the gate toolchain;
 the CI file pins the nightly.
@@ -197,4 +198,4 @@ q-only sweep (the split note states the `r = 3040` sweep is open and claims no g
 unguarded raw handle getters, listed in "The change" as debt; the block driver does not call them
 between `release_tape` and `set_t`. It corrected the split note's `commit` division, its rounded
 ceiling and its `inv` lock wait; those are fixed there. The review is a critique, not evidence:
-every number above resolves to a log named beside it.
+every number above resolves to a log or a source file named beside it.
