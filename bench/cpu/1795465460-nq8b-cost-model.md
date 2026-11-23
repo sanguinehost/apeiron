@@ -2,9 +2,14 @@
 
 Criterion: **Q1**. Grade: `measured` for the split, the bandwidth and the byte counts; `model` for
 the projections the two bounds give. The result is a **refusal**: 20 tok/s is above the bandwidth
-ceiling of this pack at 2k context (14.66 tok/s), and above it at short context (17.36 tok/s). A
+ceiling of this pack at 2k context (12.68 tok/s), and above it at short context (17.36 tok/s). A
 perfect kernel lands on that bound, not past it. The kernel is **not** the binding term: the Q8
 selector is live and 4.5× the exact reader, and the token reads 5.4 GB/s of a measured 28.42 GB/s.
+
+Correction: the first issue of this note priced the KV plane at 2 B/value under an "F16 KV" label.
+The engine has no F16 KV carrier — [`KvCarrier`](../../src/engine/attn.rs) is `Q32`, `F32` or `I8`,
+and `F32` is the decode default — so the 2k rows below are re-derived at the carrier's 4 B/value.
+The verdict is unchanged; the gap on the current configuration is larger than first stated.
 
 ## Measured
 
@@ -44,12 +49,12 @@ today            303.75 ms/token → 5.39 GB/s, 0.402 cycles/term
 | bound | value |
 |---|---:|
 | bandwidth ÷ bytes, short context | **17.36 tok/s** |
-| bandwidth ÷ bytes, 2k context (adds 301,989,888 B KV) | **14.66 tok/s** |
+| bandwidth ÷ bytes, 2k context (adds 603,979,776 B f32 KV) | **12.68 tok/s** |
 | measured, mean of three | 3.29 tok/s |
 
 At 0.402 cycles/term the projection stream is arithmetic-bound, not byte-bound: the token reads
 5.4 GB/s where the machine sustains 28.4. A kernel that removed every non-essential operation
-would land at the bandwidth bound, 17.36 tok/s short-context and 14.66 at 2k — still short of 20.
+would land at the bandwidth bound, 17.36 tok/s short-context and 12.68 at 2k — still short of 20.
 
 `tools/decode-ceiling.py` is that inequality as a gate. Three passes, all exit 1:
 
@@ -92,16 +97,17 @@ dispatch cost. `pool.wait` at four threads is 9.7%, not the 49.3% the loaded tra
 
 | configuration | bytes/token | ceiling |
 |---|---:|---:|
-| today (Q8_0 head, F16 KV) | 1.939 GB | 14.66 |
-| Q6_K head | 1.789 GB | 15.89 |
-| Q5_K head | 1.706 GB | 16.66 |
+| today (Q8_0 head, F32 KV) | 2.241 GB | 12.68 |
+| Q6_K head | 2.091 GB | 13.59 |
+| Q5_K head | 2.008 GB | 14.15 |
 | Q5_K head + 4-bit KV | 1.479 GB | 19.21 |
 | 1.00 b/w pack + Q6_K head + 4-bit KV | 1.454 GB | 19.54 |
 | **1.00 b/w pack + Q5_K head + 4-bit KV** | **1.372 GB** | **20.72** |
 
 Only the last row clears 20 at 2k, and by 3.6%. The head alone cannot do it; the rate target and
 the KV width are part of the same inequality. At short context the pack plus a Q5_K head
-(1.404 GB) gives 20.24.
+(1.404 GB) gives 20.24. The 4-bit KV row is a 1.52× on the current row on its own
+(12.68 → 19.21), so the KV carrier is the larger single lever at 2k, ahead of the head.
 
 The 1.00 b/w pack is Q3's target, so the rate work and the speed target are the same work. The
 4-bit KV is C1's carrier.
