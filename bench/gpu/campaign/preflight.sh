@@ -11,9 +11,10 @@ export APEIRON_NQ_DUMP=/workspace/dump-8b
 export APEIRON_NQ_LOOP=/workspace/loop-8b
 export APEIRON_NQ_TAG=nq-100
 export APEIRON_NQ_BLOCKS=0..1
-export APEIRON_NQ_SAMPLES=96
+export APEIRON_NQ_SAMPLES=128
 export APEIRON_NQ_NCTX=2048
 export APEIRON_NQ_BATCH=4
+export APEIRON_NQ_HOST_STREAMS=1
 export APEIRON_NQ_PACK_ONLY=0
 export APEIRON_NQ_PACK=/workspace/loop-8b/nq-100/pack-l0.nqp
 mkdir -p "$APEIRON_NQ_LOOP/nq-100"

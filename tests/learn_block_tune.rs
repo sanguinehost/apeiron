@@ -1123,8 +1123,11 @@ fn drive(engine: &Engine, cfg: &Config, o: &Opt) {
         if big.is_none() {
             let b0 = unsafe { BlockTune::new(&g, bs, LR_BASE, LR_BASE, LR_BASE) };
             let f0 = unsafe { FrontTune::new(&g, fs, LR_BASE, LR_BASE) };
-            let b1 = unsafe { BlockTune::new(&g, bss, LR_BASE, LR_BASE, LR_BASE) };
-            let f1 = unsafe { FrontTune::new(&g, fss, LR_BASE, LR_BASE) };
+            // The single-sample phase shares the four-sample phase's parameter set: the two tapes
+            // differ only in `T`, and allocating a second factor/moment set is what pushed the 8B
+            // block loop past the L4's heap.
+            let b1 = unsafe { BlockTune::new_sharing(&g, bss, LR_BASE, LR_BASE, LR_BASE, &b0) };
+            let f1 = unsafe { FrontTune::new_sharing(&g, fss, LR_BASE, LR_BASE, &f0) };
             let (mut b0, mut f0, mut b1, mut f1) = (b0, f0, b1, f1);
             unsafe {
                 b0.set_hyper(&g, AdamHyper::OPTIMI);

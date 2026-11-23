@@ -476,12 +476,6 @@ impl BlockTune {
     /// # Complexity
     ///
     /// `O(1)` pipelines (about 70) and `O(t·(d + a + f) + Σ out·inn)` device words.
-    #[allow(
-        clippy::too_many_lines,
-        clippy::cast_possible_truncation,
-        clippy::similar_names,
-        reason = "one tape; the dimensions index u32 dispatch shapes"
-    )]
     #[must_use]
     pub unsafe fn new(
         g: &GpuCtx,
@@ -489,6 +483,62 @@ impl BlockTune {
         lr: f64,
         lr_scale: f64,
         lr_dense: f64,
+    ) -> Self {
+        Self::build(g, shape, lr, lr_scale, lr_dense, None)
+    }
+
+    /// [`BlockTune::new`] for a second tape over the same block, sharing `like`'s factors, their
+    /// Adam moments and dense moments instead of allocating a second parameter set. Only the new
+    /// tape's activation buffers and its own step state are allocated; `like` keeps ownership.
+    ///
+    /// The two tapes differ in column count: the campaign's non-fact phases step four samples
+    /// (`T = 4·2048`) and its fact phases one (`T = 2048`). The parameter set is `T`-independent,
+    /// so the sharing tuner reads and writes the same latents, `W` and moments; the caller runs
+    /// one tuner at a time and re-engages (which uploads the host parameters and zeroes every
+    /// moment) at each phase boundary.
+    ///
+    /// # Safety
+    ///
+    /// `g` is a live device context that outlives the value and `like` was built on it; `like`
+    /// outlives the returned value; no tape of either is pending when the other runs.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` pipelines and `O(t·(d + a + f))` device words, no parameter allocation.
+    #[must_use]
+    pub unsafe fn new_sharing(
+        g: &GpuCtx,
+        shape: BlockShape,
+        lr: f64,
+        lr_scale: f64,
+        lr_dense: f64,
+        like: &Self,
+    ) -> Self {
+        for (k, &rank) in shape.ranks.iter().enumerate() {
+            let (out, inn) = shape.dims(k);
+            let fa = &like.factors[k];
+            assert_eq!(
+                (fa.out, fa.inn, fa.rank),
+                (out, inn, rank),
+                "BlockTune::new_sharing: slot {k}"
+            );
+        }
+        Self::build(g, shape, lr, lr_scale, lr_dense, Some(like))
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        clippy::cast_possible_truncation,
+        clippy::similar_names,
+        reason = "one tape; the dimensions index u32 dispatch shapes"
+    )]
+    unsafe fn build(
+        g: &GpuCtx,
+        shape: BlockShape,
+        lr: f64,
+        lr_scale: f64,
+        lr_dense: f64,
+        share: Option<&Self>,
     ) -> Self {
         let BlockShape { t, d, a, f, ranks } = shape;
         let dev = |n: usize| g.dev(n * 4);
@@ -499,9 +549,17 @@ impl BlockTune {
         let mut moments = Vec::with_capacity(4);
         for (k, &rank) in ranks.iter().enumerate() {
             let (out, inn) = shape.dims(k);
-            let (fa, mo) = Factor::new(g, out, inn, rank);
-            factors.push(fa);
-            moments.push(mo);
+            match share {
+                Some(src) => {
+                    factors.push(src.factors[k].sharing());
+                    moments.push(src.moments[k]);
+                }
+                None => {
+                    let (fa, mo) = Factor::new(g, out, inn, rank);
+                    factors.push(fa);
+                    moments.push(mo);
+                }
+            }
         }
         // The five buffers a chained layer copies into or out of (`chain.rs`) carry both transfer
         // bits: the input `x`, the o-projection input `a`, the output `y` and the two adjoints.
@@ -586,10 +644,13 @@ impl BlockTune {
 
         let bias_stage = host_buffer(g, 2, BUFFER_USAGE_TRANSFER_SRC);
         let bias_buf = dev(2);
-        let dense_moments: Vec<[Handle; 2]> = factors
-            .iter()
-            .map(|fa| super::slot::dense_moments(g, fa))
-            .collect();
+        let dense_moments: Vec<[Handle; 2]> = match share {
+            Some(src) => src.dense_moments.clone(),
+            None => factors
+                .iter()
+                .map(|fa| super::slot::dense_moments(g, fa))
+                .collect(),
+        };
         let big = factors
             .iter()
             .map(|fa| fa.out * fa.inn)

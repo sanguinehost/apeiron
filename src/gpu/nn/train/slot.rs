@@ -76,6 +76,30 @@ impl Factor {
             sizes.map(|n| [dev(n), dev(n)]),
         )
     }
+
+    /// A second tape's view of this factor: the same latents, scales, gradients, materialised `W`
+    /// and work buffers, no allocation. A tuner whose tape differs only in its column count shares
+    /// one parameter set with the owner; whoever runs updates that one set. The caller's
+    /// `new_sharing` contract keeps the two tapes on one device and non-concurrent.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)`: fourteen handles copied.
+    pub(super) fn sharing(&self) -> Self {
+        Self {
+            out: self.out,
+            inn: self.inn,
+            rank: self.rank,
+            p: self.p,
+            grad: self.grad,
+            us: self.us,
+            vts: self.vts,
+            m: self.m,
+            w: self.w,
+            dw: self.dw,
+            dm: self.dm,
+        }
+    }
 }
 
 /// Map `mode` of [`BLOCK_MAP_SPV`] over `[rows, cols, total]` with bindings `bufs` (1..=4).

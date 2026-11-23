@@ -231,13 +231,56 @@ impl FrontTune {
     /// # Complexity
     ///
     /// `O(1)` pipelines and `O(T·(d + nh·hd + nkv·hd) + Σ out·inn)` device words.
+    #[must_use]
+    pub unsafe fn new(g: &GpuCtx, shape: FrontShape, lr: f64, lr_scale: f64) -> Self {
+        Self::build(g, shape, lr, lr_scale, None)
+    }
+
+    /// [`FrontTune::new`] for a second tape over the same attention front, sharing `like`'s three
+    /// factors, their Adam moments and dense moments. Only the new tape's activation buffers and
+    /// its own step state are allocated; `like` keeps ownership. See
+    /// [`BlockTune::new_sharing`](super::block::BlockTune::new_sharing) for the phase contract.
+    ///
+    /// # Safety
+    ///
+    /// `g` is a live device context that outlives the value and `like` was built on it; `like`
+    /// outlives the returned value; no tape of either is pending when the other runs.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` pipelines and `O(t·(d + qw + kw))` device words, no parameter allocation.
+    #[must_use]
+    pub unsafe fn new_sharing(
+        g: &GpuCtx,
+        shape: FrontShape,
+        lr: f64,
+        lr_scale: f64,
+        like: &Self,
+    ) -> Self {
+        for (k, &rank) in shape.ranks.iter().enumerate() {
+            let (out, inn) = shape.dims(k);
+            let fa = &like.factors[k];
+            assert_eq!(
+                (fa.out, fa.inn, fa.rank),
+                (out, inn, rank),
+                "FrontTune::new_sharing: slot {k}"
+            );
+        }
+        Self::build(g, shape, lr, lr_scale, Some(like))
+    }
+
     #[allow(
         clippy::too_many_lines,
         clippy::similar_names,
         reason = "one tape; pq/pk/pv and dqf/dkf/dv are the reference's own slot names"
     )]
-    #[must_use]
-    pub unsafe fn new(g: &GpuCtx, shape: FrontShape, lr: f64, lr_scale: f64) -> Self {
+    unsafe fn build(
+        g: &GpuCtx,
+        shape: FrontShape,
+        lr: f64,
+        lr_scale: f64,
+        share: Option<&Self>,
+    ) -> Self {
         // The attention is the engine kernel's KD face: hd 128, one causal sequence per chunk of
         // `n_ctx` columns. The prep and the norm/rope adjoint read `row % n_ctx`, so a multi-chunk
         // tape's chunks stay independent; the KD face itself runs once per chunk over that chunk's
@@ -262,11 +305,22 @@ impl FrontTune {
         let dev = |n: usize| g.dev(n * 4);
         // The buffers a chained layer copies into or out of (`chain.rs`) carry both transfer bits.
         let stream = |n: usize| stream_buffer(g, n);
-        let (fq, mq) = Factor::new(g, qw, d, shape.ranks[0]);
-        let (fk, mk) = Factor::new(g, kw, d, shape.ranks[1]);
-        let (fv, mv) = Factor::new(g, kw, d, shape.ranks[2]);
-        let factors = [fq, fk, fv];
-        let moments = [mq, mk, mv];
+        let (factors, moments) = match share {
+            Some(src) => (
+                [
+                    src.factors[0].sharing(),
+                    src.factors[1].sharing(),
+                    src.factors[2].sharing(),
+                ],
+                src.moments,
+            ),
+            None => {
+                let (fq, mq) = Factor::new(g, qw, d, shape.ranks[0]);
+                let (fk, mk) = Factor::new(g, kw, d, shape.ranks[1]);
+                let (fv, mv) = Factor::new(g, kw, d, shape.ranks[2]);
+                ([fq, fk, fv], [mq, mk, mv])
+            }
+        };
         let (x, g1, gn, n1) = (stream(t * d), dev(d), dev(2 * hd), dev(t * d));
         let (pq, pk, pv) = (dev(t * qw), dev(t * kw), dev(t * kw));
         // The gate is read and written only when gated; ungated, one word keeps binding 5 valid
@@ -354,8 +408,7 @@ impl FrontTune {
             attn,
             false,
             [
-                pq, pk, gn, q, gate, k, pv, dao, lse, dsum, da, dq_rot, dk_rot, dqf, dkf, dv,
-                amax,
+                pq, pk, gn, q, gate, k, pv, dao, lse, dsum, da, dq_rot, dk_rot, dqf, dkf, dv, amax,
             ],
         );
         backward.push(linear_bwd_weight_dispatch(
@@ -474,11 +527,14 @@ impl FrontTune {
                 AdamHyper::ORACLE,
             ),
         ];
-        let dense_moments = [
-            super::slot::dense_moments(g, f0),
-            super::slot::dense_moments(g, f1),
-            super::slot::dense_moments(g, f2),
-        ];
+        let dense_moments = match share {
+            Some(src) => src.dense_moments,
+            None => [
+                super::slot::dense_moments(g, f0),
+                super::slot::dense_moments(g, f1),
+                super::slot::dense_moments(g, f2),
+            ],
+        };
         let adam_dense = std::array::from_fn(|k| {
             super::slot::adam_dense(
                 g,
