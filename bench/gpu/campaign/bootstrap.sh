@@ -4,6 +4,11 @@
 # Started by the instance's startup metadata; the run cap is the instance's max-run-duration.
 exec >> /var/log/nq-bootstrap.log 2>&1
 set -x
+# The startup runner does not guarantee root's HOME; pin the rustup roots so the build finds the
+# toolchain that `sudo -EH` uses (a boot with HOME=/home/lucas exits 127).
+export HOME=/root
+export CARGO_HOME=/root/.cargo
+export RUSTUP_HOME=/root/.rustup
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y build-essential pkg-config libvulkan1 vulkan-tools unzip curl git tmux \
