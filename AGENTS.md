@@ -57,18 +57,41 @@ beside the shared loop. They fold into it next. New work does not copy their sha
 
 ## Resource discipline
 
-Every heavy command runs through [`~/Workspace/tools/agent-guard`](/home/lucas/Workspace/tools/agent-guard).
-The policy is [`~/Workspace/RESOURCE_GUARD.md`](/home/lucas/Workspace/RESOURCE_GUARD.md). One heavy
-job runs at a time across the workspace; a second waits for the first. The guard waits for every
-other `cargo`, `rustc`, `lean`, `lake` or C compiler process, refuses below 1 GiB available, and caps memory at
-`clamp(MemAvailable - 1 GiB, 500 MiB, 2 GiB)`: 3 GiB free permits at most 2 GiB, 1 GiB free permits
-500 MiB. Swap is capped at zero.
+**Heavy jobs run on the OVH box, not here.** `ubuntu@139.99.223.161` (Sydney; 8 vCPU EPYC
+Milan, 32 GiB, 200 GB disk; A$300 trial credit to 2026-12-24) holds a copy of this tree under
+`~/Workspace/apeiron-nq` and runs one heavy job at a time under `~/bin/adg` (16 GiB cap, 8 jobs,
+800% CPU, swap zero):
 
-Use `agent-guard run -- <command>` for a build, test or gate. Do not run `cargo`, `bun`, `npm`,
-`mix`, `make`, `just` or `docker build` outside it. In an OpenCode session the shell shims apply the
-same rule; do not call a real binary by absolute path or reset `PATH`. A command that spawns an
-uncapped build is not admitted and its result is not evidence. On this 6.6 GiB laptop a hardcoded
-`MemoryMax=8G` or `28G` is a bug; use the derived cap.
+```sh
+rsync -az --delete --exclude target/ --exclude .git --exclude .intent/ --exclude .claude/ \
+  --exclude node_modules/ --exclude _build/ --exclude deps/ --exclude dist/ ./ \
+  ubuntu@139.99.223.161:Workspace/apeiron-nq/
+ssh ubuntu@139.99.223.161 'cd ~/Workspace/apeiron-nq && ~/bin/adg run -- <command>'
+```
+
+For an edit, `~/bin/box-push apeiron-nq` sends only the files `git status` reports and
+`~/bin/box-run apeiron-nq <command>` runs one guarded command there; the full-tree rsync above is
+the first sync only. The current uncommitted tree is 524 KB, against 300 MB for the tree.
+
+The box is a copy, not a checkout: it has no `.git`, and `.intent/` and `.claude/` are owner state
+and stay here. Commit here; rsync a file edited there back before committing it. The box serves six
+repositories: one heavy job at a time, and a lane does not rsync into a tree another lane is
+building. A gate result from the box is evidence for the CPU tier and the documentation checks; the
+GPU tier needs the `glslc` pin and a device, neither of which the box has. A **timed** result from
+the box is not evidence for the laptop: the target device is the laptop (i5-10210U, 15 W, 6 MB L3),
+so a speed claim names the laptop and is confirmed here in a quiet window.
+
+When a command must run here it goes through
+[`~/Workspace/tools/agent-guard`](/home/lucas/Workspace/tools/agent-guard) under
+[`~/Workspace/RESOURCE_GUARD.md`](/home/lucas/Workspace/RESOURCE_GUARD.md): one heavy job across the
+workspace, cap `clamp(MemAvailable - 1 GiB, 500 MiB, 2 GiB)`, swap zero, refusal below 1 GiB. Do
+not run `cargo`, `bun`, `npm`, `mix`, `make`, `just` or `docker build` outside it; do not call a
+real binary by absolute path or reset `PATH`. A command that spawns an uncapped build is not
+admitted and its result is not evidence.
+
+**Disk is the binding resource.** The laptop is above 85% used; `intent/target` alone is
+49 GB. `target/`, `_build/`, `node_modules/`, `deps/` and `dist/` are built on the box or not at
+all, are never committed, and are never rsynced. Copy an artifact, not a tree.
 
 ## Orient
 
@@ -161,6 +184,19 @@ On this laptop run clippy with `-j 1` (the derived cap terminates `-j 2`). A mix
 `target/` makes `mdbook test` fail with `E0464` (several `apeiron` rlibs); build once into a clean
 `CARGO_TARGET_DIR` with `cargo build --lib --all-features --locked` and point `-L` at its
 `debug/deps`. Neither is a code defect; a receipt says which directory the result came from.
+
+On the box (§ Resource discipline) the same commands run under `~/bin/adg run --`. The box has no
+GPU and its `glslc` (shaderc 2023.8) does not reproduce the committed SPIR-V, so `--all-features`
+reports the GPU suite red there: 45 tests, 14 comparing `glslc` output byte-for-byte and 31 needing
+a device. The `coopmat` byte check also runs with `gpu` off, so `cargo test --workspace --locked`
+on the box is 668 passed, 1 failed, and the failure is that check. The laptop has no `glslc` at
+all, so this tier runs on neither host; run it where the compiler pin is installed. `mdbook test`
+needs its own target directory on the box, for the reason above:
+
+```sh
+CARGO_TARGET_DIR=$HOME/apeiron-mdbook cargo build --lib --all-features --locked
+mdbook test book -L $HOME/apeiron-mdbook/debug/deps
+```
 
 **Maintainer gate** (a change under `proof/` or to a Rust file the extraction includes; needs the
 pinned Aeneas, Charon and Lean, and a Lean build of several GB):
