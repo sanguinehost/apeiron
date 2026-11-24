@@ -70,11 +70,12 @@ task reads each K and V code row once and folds every query head of the group ag
 `q32` and `f32` it issues the per-head reads in the same order, so the words are the per-head
 words. On a prefill block the `f32` carrier instead dispatches one task per (tile of 32 consecutive
 columns, KV head): `attn_core_f32_tile` loads each K and V row once per tile pass and folds every
-query head of every column in the tile against it, running each column's own online-softmax
-recurrence, so its words equal the per-column read's. `APEIRON_ATTN_TILE=0` selects the per-column
-dispatch for a same-binary A/B. The int8 scalar body and its AVX2 body are bit-identical; the AVX2
-body is opaque to the extraction and `tested` equal to the scalar twin. The block certificate is
-`q32`-only.
+query head of every column in the tile against it. The accumulator is rescaled once per key tile
+(llama.cpp's tiled flash attention) rather than once per position, so its words differ from the
+per-column read's by the per-tile rescale roundoff, and the tests bound them.
+`APEIRON_ATTN_TILE=0` selects the per-column dispatch for a same-binary A/B. The int8 scalar body
+and its AVX2 body are bit-identical; the AVX2 body is opaque to the extraction and `tested` equal
+to the scalar twin. The block certificate is `q32`-only.
 
 ## What is established
 

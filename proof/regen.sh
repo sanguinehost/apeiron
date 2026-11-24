@@ -260,7 +260,8 @@ SERVING_OPAQUE=(
     --opaque 'crate::attn::f32_core::attn_tile8_avx2' # simd-twin: tile of attn_core_f32_strided_scalar
     --opaque 'crate::attn::f32_core::attn_core_f32_strided_avx2_inner' # simd-twin: twin = attn_core_f32_strided_scalar
     --opaque 'crate::attn::f32_core::attn_core_f32_tile_avx2_inner' # simd-twin: twin = attn_core_f32_tile_scalar
-    --opaque 'crate::attn::f32_core::attn_exp_skip_enabled' # process-flag: APEIRON_ATTN_EXP
+    --opaque 'crate::attn::f32_core::gemm_tile' # simd-twin: the tile bodies' 6x2 GEMM, accumulation order = attn_core_f32_tile_scalar
+    --opaque 'crate::attn::f32_core::gemm_ukernel' # simd-twin: const-generic microkernel called only by gemm_tile
     --opaque 'crate::attn::i8::attn_core_i8_group_avx2_inner' # simd-twin: twin = attn_core_i8_group_scalar
     --opaque 'crate::kern::nq::code_select_block_avx2' # simd-twin: twin = code_select_rows_twin
     --opaque 'crate::kern::nq::code_select_rows_avx2' # simd-twin: twin = code_select_rows_twin

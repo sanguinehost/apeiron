@@ -590,17 +590,18 @@ equality of each core to a safe definition is a Rust test, not a refinement theo
 covers it yet; the `Q4_K` lane has no safe twin at all, only the oracle equality. Both are unverified
 debt under the `## Unsafe` rule in `AGENTS.md`.
 
-The F32 prefill tile's AVX2 body (`attn_core_f32_tile_avx2_inner`, twin
-`attn_core_f32_tile_scalar`) and the NQ blocked reader's bodies (`code_select_block_avx2`,
-`code_select_rows_avx2`, `code_select_block2_avx2`, `code_select_rows2_avx2`, the `lane_sum`
-helper, twin `code_select_rows_twin`) are in the same class: opaque in `SERVING_OPAQUE`, twin in
-the crate and equal under the equality tests
-(`test_attn_core_tile_exp_group_edges_equals_the_per_query_core`,
+The F32 prefill tile's AVX2 bodies (`attn_core_f32_tile_avx2_inner`, `gemm_tile`, the
+const-generic `gemm_ukernel`, twin `attn_core_f32_tile_scalar`) and the NQ blocked reader's bodies
+(`code_select_block_avx2`, `code_select_rows_avx2`, `code_select_block2_avx2`,
+`code_select_rows2_avx2`, the `lane_sum` helper, twin `code_select_rows_twin`) are in the same
+class: opaque in `SERVING_OPAQUE`, twin in the crate and equal under the equality tests
+(`test_attn_core_tiled_equals_scalar_on_tile_edges`,
 `the_blocked_code_source_equals_the_per_row_source`,
 `the_two_column_source_equals_two_per_row_sources`), neither twin a `--start-from` root, so no
-refinement theorem. `proof/regen.sh --check` has not run on either host since these changes; the
-extractor's acceptance of the new `--opaque` entries and the two process-flag entries
-(`attn_exp_skip_enabled`, `attn_tile_enabled`) is unverified.
+refinement theorem. The tile's per-tile rescale is deliberately not equal to the per-column oracle;
+that relation is `tested` as a bound, not an equality. `proof/regen.sh --check` has not run on
+either host since these changes; the extractor's acceptance of the new `--opaque` entries, the
+const-generic name, and the remaining process-flag entry (`attn_tile_enabled`) is unverified.
 
 Board .
 

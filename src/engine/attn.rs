@@ -2390,10 +2390,10 @@ impl KvState {
     ///
     /// `queries` holds `nq · group · head_dim` Q32.32 words, column `j`'s `group` query rows in
     /// slot `j`, and `outs` receives the same layout. Column `j`'s last position is `first + j`, so
-    /// the columns are consecutive and the tile's reads of K and V are shared. Every word equals
-    /// the per-column [`KvState::attn_head_group`] call's: the same query conversion, the same
-    /// scale, [`f32_core::attn_core_f32_tile`] running each column's own recurrence, and the same
-    /// readout conversion in the same order.
+    /// the columns are consecutive and the tile's reads of K and V are shared. The same query
+    /// conversion, the same scale, [`f32_core::attn_core_f32_tile`]'s per-tile rescale and the
+    /// same readout conversion produce words within the per-tile-rescale bound of the per-column
+    /// [`KvState::attn_head_group`] call's; the tests assert that bound.
     ///
     /// # Errors
     ///
@@ -3801,16 +3801,19 @@ mod tests {
         (anon, file)
     }
 
-    /// The KV pages of a file-backed state are file-backed: they appear as `RssFile`, never
-    /// `RssAnon`, and the kernel may evict them without swapping.
-    /// The tile read of `group` query heads equals the per-column read head for head, bit for bit,
-    /// across tile boundaries and the last partial tile.
+    /// The tile read of `group` query heads agrees with the per-column read head for head, and
+    /// each word within the per-tile-rescale bound, across tile boundaries and the last partial
+    /// tile.
     #[test]
     #[allow(
         clippy::cast_possible_wrap,
         reason = "fixture words are built from moduli below 1001, far inside i64"
     )]
-    fn the_tile_group_read_equals_the_per_column_group_read() {
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "the test's geometry indices are the call's own (kvh, first, nq, i, m)"
+    )]
+    fn the_tile_group_read_agrees_with_the_per_column_read() {
         let (n_head, n_head_kv, hd, cap) = (4usize, 2usize, 8usize, 300usize);
         let mut kv =
             KvState::with_carrier(1, n_head, n_head_kv, hd, cap, KvCarrier::F32).expect("geometry");
@@ -3835,7 +3838,7 @@ mod tests {
         let width = group * hd;
         let mut kvh = 0usize;
         while kvh < n_head_kv {
-            // `first` 250 with `nq` 50 crosses `KEY_CHUNK = 256` inside one tile.
+            // `first` 250 with `nq` 50 crosses the 64-position key-tile boundary at 256.
             for first in [0usize, 1, 7, 8, 9, 31, 250, 255] {
                 for nq in [1usize, 2, 3, 8, 9, 50] {
                     if first + nq > cap {
@@ -3858,11 +3861,18 @@ mod tests {
                             &mut one,
                         )
                         .expect("per column");
-                        assert_eq!(
-                            &tiled[j * width..(j + 1) * width],
-                            &one[..],
-                            "kvh {kvh} first {first} nq {nq} column {j}"
-                        );
+                        for i in 0..width {
+                            let (x, y) = (tiled[j * width + i], one[i]);
+                            let m = i128::from(x.abs().max(y.abs()));
+                            let prefix = (first + j + 1) as i128;
+                            let tol = 64
+                                + i64::try_from((m * 512 * (prefix + 64)) >> 32)
+                                    .expect("the tile bound fits i64");
+                            assert!(
+                                (x - y).abs() <= tol,
+                                "kvh {kvh} first {first} nq {nq} column {j} word {i}: {x} vs {y} (tol {tol})"
+                            );
+                        }
                     }
                 }
             }
@@ -3870,6 +3880,8 @@ mod tests {
         }
     }
 
+    /// The KV pages of a file-backed state are file-backed: they appear as `RssFile`, never
+    /// `RssAnon`, and the kernel may evict them without swapping.
     #[cfg(target_os = "linux")]
     #[test]
     fn mapped_cache_pages_are_file_backed() {

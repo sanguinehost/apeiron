@@ -32,6 +32,19 @@ fn fo(out: &mut [f32], src: &[F32]) {
     }
 }
 
+fn f(x: F32) -> f32 {
+    f32::from_bits(x.to_bits())
+}
+
+/// The bound between [`attn_core_f32_tile`] and the per-position [`attn_core_f32_strided`]
+/// oracle. The two evaluate the same real recurrence; the tile rescales the accumulator once per
+/// [`KV_TILE`] positions and the oracle once per position, so their words differ by the
+/// roundoff the oracle accumulates over `prefix` rescales of a value of magnitude `|want|`:
+/// `2 · (prefix + KV_TILE) · f32::EPSILON`, with the factor two for the two paths.
+fn tile_gap(prefix: usize, want: f32) -> f32 {
+    2.0 * (prefix + KV_TILE) as f32 * f32::EPSILON * want.abs().max(1.0)
+}
+
 fn scalar_n(
     q: &[f32],
     k: &[f32],
@@ -269,9 +282,9 @@ fn test_attn_core_avx2_equals_scalar() {
 }
 
 #[test]
-fn test_attn_core_query_tile_equals_the_per_query_core() {
+fn test_attn_core_query_tile_agrees_with_the_per_query_core() {
     let mut rng = SimpleRng::new(0x1337_C0DE_5EED_0002);
-    // Last queries at and across the 256-position pass boundary, and short prefixes too.
+    // First queries at and across the 64-position key-tile boundary, and short prefixes too.
     let configs = [
         (8usize, 8usize, 0usize),
         (8, 16, 1),
@@ -347,21 +360,75 @@ fn test_attn_core_query_tile_equals_the_per_query_core() {
                         .expect("single");
                         for i in 0..hd {
                             let at = row * hd + i;
-                            assert_eq!(
-                                tiled[at].to_bits(),
-                                single[i].to_bits(),
-                                "tile hd {hd} stride {stride} heads {query_heads} nq {nq} query {j} head {g} idx {i}"
+                            let (got, want) = (f(tiled[at]), f(single[i]));
+                            assert!(
+                                (got - want).abs() <= tile_gap(positions[j] + 1, want),
+                                "tile hd {hd} stride {stride} heads {query_heads} nq {nq}                                  query {j} head {g} idx {i}: {got:e} vs {want:e}"
                             );
                             assert_eq!(
                                 scalar[at].to_bits(),
-                                single[i].to_bits(),
-                                "scalar hd {hd} stride {stride} heads {query_heads} nq {nq} query {j} head {g} idx {i}"
+                                tiled[at].to_bits(),
+                                "twin hd {hd} stride {stride} heads {query_heads} nq {nq} query {j} head {g} idx {i}"
                             );
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/// Rate of one [`attn_core_f32_tile`] task at the 0.6B geometry: `QUERY_TILE = 32` columns,
+/// `group = 2` query heads per KV head, `head_dim = 128`, eight KV heads, a cold tile at position
+/// zero and a tail tile behind the full 1,827-position prefix.
+/// `cargo test --release --lib --locked attn_tile_rate -- --ignored --nocapture`.
+#[test]
+#[ignore = "timing harness: run under the exclusive host lock"]
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "the timing report is a rate over counts far below 2^53"
+)]
+fn attn_tile_rate() {
+    let (hd, group, n_kv) = (128usize, 2usize, 8usize);
+    let stride = n_kv * hd;
+    let nq = 32usize;
+    let width = group * hd;
+    let scale = F32::from_bits((1.0f32 / (hd as f32).sqrt()).to_bits());
+    for first in [0usize, 1_795] {
+        let total = (first + nq) * stride;
+        let mut rng = SimpleRng::new(0xA77E_1234);
+        let q: Vec<f32> = (0..nq * width)
+            .map(|_| rng.next_f32_range(-1.0, 1.0))
+            .collect();
+        let mut k = vec![0.0f32; total];
+        let mut v = vec![0.0f32; total];
+        for x in &mut k {
+            *x = rng.next_f32_range(-1.0, 1.0);
+        }
+        for x in &mut v {
+            *x = rng.next_f32_range(-4.0, 4.0);
+        }
+        let positions: Vec<usize> = (first..first + nq).collect();
+        let qf = fv(&q);
+        let kf = fv(&k);
+        let vf = fv(&v);
+        let mut out = vec![F32::ZERO; nq * width];
+        attn_core_f32_tile(
+            &qf, &kf, &vf, hd, group, stride, &positions, scale, &mut out,
+        )
+        .expect("warm");
+        let reps = 3u32;
+        let t0 = std::time::Instant::now();
+        for _ in 0..reps {
+            attn_core_f32_tile(
+                &qf, &kf, &vf, hd, group, stride, &positions, scale, &mut out,
+            )
+            .expect("rep");
+        }
+        let dt = t0.elapsed().as_secs_f64() / f64::from(reps);
+        let pairs: u64 = (0..nq).map(|j| ((first + j + 1) * group) as u64).sum();
+        let flops = 4.0 * pairs as f64 * hd as f64;
+        println!("first {first}: {dt:.4} s, {:.3} GFLOP/s", flops / dt / 1e9);
     }
 }
 
@@ -582,12 +649,11 @@ fn attn_f32_vs_q32_timing() {
 }
 
 #[test]
-fn test_attn_core_tile_exp_group_edges_equals_the_per_query_core() {
-    // The value pass takes eight consecutive rows per vector exp. Row counts below, at and
-    // across the group boundary, against a fixture where every position ties the maximum (no
-    // lane moves: `alpha = 1` whole-group), one where every position moves it (every lane's
-    // `alpha` is a nontrivial exp), one where a single group mixes moving, tying and below-max
-    // lanes, and a random fixture in between.
+fn test_attn_core_tile_exp_group_edges_agrees_with_the_per_query_core() {
+    // Row counts below, at and across the six-row microkernel tile and the eight-lane exp group,
+    // against a fixture where every position ties the first maximum (no row rescales after its
+    // first tile), one where every position moves it (every row rescales every tile), one where a
+    // single group mixes moving, tying and below-max rows, and a random fixture in between.
     let scale_of = |hd: usize| F32::from_bits((1.0f32 / (hd as f32).sqrt()).to_bits());
     let mut rng = SimpleRng::new(0x1337_C0DE_5EED_0003);
     for &hd in &[8usize, 128usize] {
@@ -696,16 +762,16 @@ fn test_attn_core_tile_exp_group_edges_equals_the_per_query_core() {
                         )
                         .expect("single");
                         for i in 0..hd {
-                            assert_eq!(
-                                tiled[row * hd + i].to_bits(),
-                                single[i].to_bits(),
+                            let (got, want) = (f(tiled[row * hd + i]), f(single[i]));
+                            assert!(
+                                (got - want).abs() <= tile_gap(positions[j] + 1, want),
                                 "hd {hd} heads {query_heads} nq {nq} fixture {fixture} \
-                                 query {j} head {g} idx {i}"
+                                 query {j} head {g} idx {i}: {got:e} vs {want:e}"
                             );
                         }
                     }
                 }
-                // The scalar twin takes the same one-exp branch; check it against the same words.
+                // The scalar twin and the AVX2 body must agree word for word.
                 let mut twin = vec![F32::ZERO; nq * width];
                 attn_core_f32_tile_scalar(
                     &qf,

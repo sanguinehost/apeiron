@@ -898,8 +898,9 @@ pub fn accumulate_kind(
 /// stacked column-major into its `t × width` row-major buffer. The attention probabilities are not
 /// taped: [`attn::attn_fwd`] — the forward [`attn::attn_bwd`] is written against — recovers them from
 /// the tapped post-`RoPE` `q`, `k` and `v`, so no second softmax body exists. (The engine's own
-/// `KvState::attn_head` over those same rows reproduces the tapped `attn_out` word for word;
-/// `tests/engine_tap.rs:tapped_q_k_v_reproduce_attn_out`.) The logits are
+/// `KvState::attn_head` over those same rows agrees with the tapped `attn_out` within the per-tile
+/// rescale bound — 64 Q32.32 words plus the relative term, equal when the per-column dispatch is
+/// selected; `tests/engine_tap.rs:tapped_q_k_v_agree_with_attn_out`.) The logits are
 /// [`crate::engine::Engine::lm_head_fixed`] over the engine's output-normed final columns, one column
 /// at a time — the head call [`crate::learn::fold::stats::heldout::held_out_kldbase_chunk`] scores.
 ///

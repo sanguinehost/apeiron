@@ -13,6 +13,24 @@ const F_FF: usize = 128;
 const F_Q: usize = 8;
 const F_KO: usize = 4;
 
+/// Bound between the tiled attention and the per-position oracle in Q32.32 words: the tile
+/// rescales the accumulator once per key tile, the oracle once per position, so the two differ by
+/// the f32 roundoff the per-position recurrence accumulates over the prefix. Relative to the
+/// larger word, with a small absolute floor.
+fn assert_words_close(a: &[i64], b: &[i64], prefix: usize, what: &str) {
+    assert_eq!(a.len(), b.len(), "{what}: lengths");
+    for (i, (&x, &y)) in a.iter().zip(b).enumerate() {
+        let m = i128::from(x.abs().max(y.abs()));
+        let tol = 256
+            + i64::try_from((m * 512 * (prefix as i128 + 64)) >> 32)
+                .expect("the tile bound fits i64");
+        assert!(
+            (x - y).abs() <= tol,
+            "{what} word {i}: {x} vs {y} (tol {tol})"
+        );
+    }
+}
+
 fn put_u32(b: &mut Vec<u8>, v: u32) {
     b.extend_from_slice(&v.to_le_bytes());
 }
@@ -294,7 +312,7 @@ fn packed_kind(kind: usize, out: usize, inn: usize) -> crate::format::nq::Packed
 /// token's logits word for word, and the same cached rows. The kernel test owns the projection's
 /// arithmetic; this owns the wiring — the reader choice, the group split and the fallback.
 #[test]
-fn the_nq_prefill_equals_the_per_column_prefill() {
+fn the_nq_prefill_agrees_with_the_per_column_prefill() {
     let (engine, path) = open_bytes("prefill_nq", &build_layer_gguf());
     let c = &engine.config;
     let shapes = [
@@ -333,7 +351,10 @@ fn the_nq_prefill_equals_the_per_column_prefill() {
         let sb = engine
             .prefill_cols_width(&mut block, prompt, mode, prompt.len())
             .expect("prefill block");
-        assert_eq!(sa, sb, "prefill states, {mode:?}");
+        assert_eq!(sa.len(), sb.len(), "prefill state rows, {mode:?}");
+        for (c, (a, b)) in sa.iter().zip(&sb).enumerate() {
+            assert_words_close(a, b, prompt.len(), &format!("prefill column {c}, {mode:?}"));
+        }
         assert_eq!(
             one.kv.occupied(0).expect("occupied"),
             block.kv.occupied(0).expect("occupied"),
@@ -354,7 +375,12 @@ fn the_nq_prefill_equals_the_per_column_prefill() {
         let lb = engine
             .step_logits_with_mode(&mut block.kv, b, mode)
             .expect("logits block");
-        assert_eq!(la, lb, "next-token logits, {mode:?}");
+        assert_words_close(
+            &la,
+            &lb,
+            prompt.len(),
+            &format!("next-token logits, {mode:?}"),
+        );
     }
     let _ = std::fs::remove_file(&path);
 }

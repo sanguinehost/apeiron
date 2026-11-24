@@ -513,12 +513,16 @@ fn tap_out_chains_into_the_next_layer() {
 }
 
 /// The tapped post-`RoPE` query and key and the tapped value reproduce the tapped `attn_out` rows:
-/// the engine's own attention read ([`KvState::attn_head`]: the Q32 score dot, the exact-max
+/// the per-column attention read ([`KvState::attn_head`]: the Q32 score dot, the exact-max
 /// `fixed_exp` softmax and the weight/value fold) over a fresh cache holding exactly the tapped
-/// `k`/`v` rows returns the tapped output word for word. This is the property that lets a backward
-/// pass recompute the attention probabilities from q and k instead of a recorded `p`.
+/// `k`/`v` rows returns the tapped output within the per-tile rescale bound. The forward prefill
+/// rescales the accumulator once per 64-position key tile, the per-column read once per position,
+/// so the two differ by the roundoff the per-position recurrence accumulates over the prefix; the
+/// bound is `64` words plus the relative term, and the words are equal when the per-column dispatch
+/// is selected (`APEIRON_ATTN_TILE=0`). This is the property that lets a backward pass recompute
+/// the attention probabilities from q and k instead of a recorded `p`, to that accuracy.
 #[test]
-fn tapped_q_k_v_reproduce_attn_out() {
+fn tapped_q_k_v_agree_with_attn_out() {
     let (engine, path) = open("qkv");
     let tokens = [1u32, 2, 3, 4];
     let cfg = &engine.config;
@@ -540,6 +544,7 @@ fn tapped_q_k_v_reproduce_attn_out() {
     }
     let mut got: Vec<i64> = vec![0i64; q_out];
     let mut max_abs: i64 = 0;
+    let mut max_tol: i64 = 0;
     for c in 0..tokens.len() {
         let q = &rows[0][STAGE_Q][c];
         for h in 0..n_head {
@@ -553,16 +558,27 @@ fn tapped_q_k_v_reproduce_attn_out() {
             .expect("attention over the tapped rows");
         }
         for i in 0..q_out {
-            let d = (got[i] - rows[0][STAGE_ATTN_OUT][c][i]).abs();
+            let want = rows[0][STAGE_ATTN_OUT][c][i];
+            let d = (got[i] - want).abs();
+            let m = i128::from(got[i].abs().max(want.abs()));
+            // The per-tile rescale bound in Q32.32 words: the floor is the attention tests'
+            // 64 words, and `512/2^32 = 2^-23` turns the relative f32 roundoff into words.
+            let tol = 64
+                + i64::try_from((m * 512 * (c as i128 + 65)) >> 32)
+                    .expect("the tile bound fits i64");
             if d > max_abs {
                 max_abs = d;
             }
+            if tol > max_tol {
+                max_tol = tol;
+            }
         }
     }
-    println!("q/k/v -> attn_out max abs word difference = {max_abs}");
-    assert_eq!(
-        max_abs, 0,
-        "tapped q/k/v do not reproduce attn_out (max abs word difference {max_abs})"
+    println!("q/k/v -> attn_out max abs word difference = {max_abs} (bound {max_tol})");
+    assert!(
+        max_abs <= max_tol,
+        "tapped q/k/v do not reproduce attn_out (max abs word difference {max_abs}, bound \
+         {max_tol})"
     );
 }
 

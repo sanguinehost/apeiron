@@ -35,7 +35,7 @@ const EXACT_SCAN_TILE: usize = 32;
 /// Consecutive columns per attention tile on the [`KvCarrier::F32`] path: the tile reads each K/V
 /// row once and folds it against all of the tile's queries. The cold read falls from
 /// `Σ_c (pos₀ + c + 1)` rows to `Σ_t (pos₀ + t·QUERY_TILE + QUERY_TILE)`, about `1/QUERY_TILE`
-/// of it; 32 keeps the score stage (`nq · KEY_CHUNK` words) inside L2.
+/// of it; 32 keeps the score stage (`rows · 64` words) inside L2.
 const QUERY_TILE: usize = 32;
 
 /// The `APEIRON_ATTN_TILE` flag: the tiled F32 read unless set to `0`. A same-binary A/B switch,
@@ -472,8 +472,9 @@ impl Engine {
         // cache and `last`, so the permutations leave every word bit-identical; the gather after
         // the dispatch restores the tip's block order.
         let fused = exact_scan_enabled();
-        // The tile entry runs `attn_core_f32_strided`'s recurrence per query, so it replaces only
-        // that carrier; the exact-scan fold and the Q32 oracle keep the per-column dispatch.
+        // The tile entry rescales once per key tile (llama.cpp's tiled flash attention), so it
+        // replaces only the F32 carrier's per-column dispatch; the exact-scan fold and the Q32
+        // oracle keep the per-column path.
         let tile_on =
             attn_tile_enabled() && !fused && k > 1 && matches!(kv.carrier(), KvCarrier::F32);
         let kv_ro: &KvState = kv;
@@ -925,11 +926,11 @@ mod tests {
         (((seed.wrapping_mul(2_654_435_761) % 4_001) as i64) - 2_000) << 20
     }
 
-    /// [`attn_tile_task`] equals [`attn_head_task`] on the same block, word for word, with and
-    /// without the gate, across a tile boundary and on the last partial tile; and the gate changes
-    /// the tile's output, so the equality is not a comparison of two ungated paths.
+    /// [`attn_tile_task`] agrees with [`attn_head_task`] on the same block within the per-tile
+    /// rescale bound, with and without the gate, across a tile boundary and on the last partial
+    /// tile; and the gate changes the tile's output, so the comparison is not two ungated paths.
     #[test]
-    fn the_attention_tile_task_equals_the_per_column_task() {
+    fn the_attention_tile_task_agrees_with_the_per_column_task() {
         let (n_head, n_head_kv, hd) = (4usize, 2usize, 8usize);
         let group = n_head / n_head_kv;
         let width = group * hd;
@@ -1004,11 +1005,17 @@ mod tests {
                         let col = t0 + j;
                         let at = col * n_head_kv * width + kvh * width;
                         let got = &tile_buf[src + j * width..src + (j + 1) * width];
-                        assert_eq!(
-                            got,
-                            &by_col[at..at + width],
-                            "gated {gated}, tile {n}, column {col}, kv head {kvh}"
-                        );
+                        for i in 0..width {
+                            let (x, y) = (got[i], by_col[at + i]);
+                            let m = i128::from(x.abs().max(y.abs()));
+                            let tol = 64
+                                + i64::try_from((m * 512 * (col as i128 + 65)) >> 32)
+                                    .expect("the tile bound fits i64");
+                            assert!(
+                                (x - y).abs() <= tol,
+                                "gated {gated}, tile {n}, column {col}, kv head {kvh} word {i}: {x} vs {y} (tol {tol})"
+                            );
+                        }
                         out[at..at + width].copy_from_slice(got);
                     }
                 }
