@@ -32,7 +32,10 @@
 //! **Parallelism.** The `V` rows split across the engine's persistent pool: task `k` owns one
 //! `z_k`, so the `rank × inn` adds are shared. The `U` rows then split the same way over output
 //! rows. Both dispatches write disjoint chunks through [`Pool::chunks_mut`]; the caller is the
-//! step's main thread, never a pool task.
+//! step's main thread, never a pool task. The per-column pack (the `t` build, the `t` and `z`
+//! quantizations and the `rank·max|z|` bound) is a column-band dispatch on the same pool, so a
+//! packed column's cost does not land on the caller while the workers spin. The residual's `x`
+//! reader stays on the caller and is absent from a pack with no residual layer.
 //!
 //! **Cost.** One projection is `O(rank·inn + out·rank + res_layers·out·inn)` additions,
 //! `O(out · inn)` weights replaced, `O(rank)` scratch for `z`, `O(inn)` for `t` and `O(out)`
@@ -43,7 +46,8 @@
     reason = "`x`, `t`, `z`, `y`, `U`, `V` are the derivation's names; the section counters are short"
 )]
 
-use crate::engine::chart::pool::Pool;
+use crate::engine::chart::pool::{for_chunks2, Pool};
+use crate::engine::chart::task::Task2;
 use crate::engine::chart::{quant_act, QuantAct};
 use crate::engine::kern::pow2::act_scale;
 use crate::engine::num::dequant::{bf16_to_fixed, f16_to_fixed};
@@ -1579,29 +1583,21 @@ impl NqLinear {
             }
         }
         // `t_j = round(s_pre_j · x_j / 2^32)` for every column, and each column's `V` bound.
+        let pool = Pool::global();
+        let width = pool.width().max(1);
+        let cols = pack_chunk(k, width);
         let mut t: Vec<i64> = vec![0; k * self.inn];
-        let mut narrow_t: Vec<bool> = Vec::with_capacity(k);
-        for (c, x) in xs.iter().enumerate() {
-            let at = c * self.inn;
-            let mut max_abs_t = 0u64;
-            for j in 0..self.inn {
-                match mul_q32(x[j], self.s_pre[j]) {
-                    Some(v) => {
-                        max_abs_t = max_abs_t.max(v.unsigned_abs());
-                        t[at + j] = v;
-                    }
-                    None => return Err(NqError::Overflow),
-                }
-            }
-            let bound = u128::from(max_abs_t).saturating_mul(self.inn as u128);
-            narrow_t.push(bound <= i64::MAX as u128);
-        }
+        let mut narrow_t: Vec<bool> = vec![false; k];
+        let build = TBuild {
+            xs,
+            s_pre: &self.s_pre,
+            inn: self.inn,
+            cols,
+        };
+        for_chunks2(&mut t, self.inn * cols, &mut narrow_t, cols, &build)?;
         let t_q = quantized_columns(&t, self.inn, reader);
         let mut t_masks = ternary_columns(&t, self.inn, reader);
         let t_stages = build_stages(t.chunks_exact(self.inn), &narrow_t, &t_q, &mut t_masks);
-        let pool = Pool::global();
-        let width = pool.width().max(1);
-        let cols = k.div_ceil(width.saturating_mul(4)).max(1);
         let overflow = std::sync::atomic::AtomicBool::new(false);
         // The `V` stage: a block of rank rows folded against each column the task owns, so the
         // column's codes and shift vectors are read once per block rather than once per row. The
@@ -1643,11 +1639,12 @@ impl NqLinear {
         }
         // The `U` stage's per-column bound: `rank·max|z|` decides the narrow source.
         let mut max_abs_z: Vec<u64> = vec![0; k];
-        for c in 0..k {
-            for &v in &z[c * self.rank..(c + 1) * self.rank] {
-                max_abs_z[c] = max_abs_z[c].max(v.unsigned_abs());
+        pool.chunks_mut(&mut max_abs_z, cols, &|_, c0, ms| {
+            for (j, m) in ms.iter_mut().enumerate() {
+                let col = &z[(c0 + j) * self.rank..(c0 + j + 1) * self.rank];
+                *m = col.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);
             }
-        }
+        });
         let narrow_z: Vec<bool> = max_abs_z
             .iter()
             .map(|&m| u128::from(m).saturating_mul(self.rank as u128) <= i64::MAX as u128)
@@ -1790,18 +1787,85 @@ impl NqLinear {
     }
 }
 
-/// The Q8 reader over `flat`'s columns of `n` words each, or one empty slot per column under a
-/// reader that does not quantize.
+/// The activation-pack band: `k` columns are packed in chunks of `cols`, so one pool task owns a
+/// frame of columns and the dispatch has about `4·width` tasks.
 ///
 /// # Complexity
 ///
-/// `O(k·n)` time and space in the column count `k` and width `n`.
-fn quantized_columns(flat: &[i64], n: usize, reader: Reader) -> Vec<Option<QuantAct>> {
-    if reader == Reader::Q8 {
-        flat.chunks_exact(n).map(quant_act).collect()
-    } else {
-        (0..flat.len() / n).map(|_| None).collect()
+/// `O(1)`.
+fn pack_chunk(k: usize, width: usize) -> usize {
+    k.div_ceil(width.saturating_mul(4)).max(1)
+}
+
+/// The `t` stage's per-column build, one pool task per band of `cols` columns: the flat `t`
+/// buffer's `[c0·inn, (c0 + len)·inn)` piece and the matching `narrow` piece.
+///
+/// # Complexity
+///
+/// `O(cols·inn)` checked products in the task, `O(k·inn)` over the dispatch.
+struct TBuild<'a> {
+    xs: &'a [&'a [i64]],
+    s_pre: &'a [i64],
+    inn: usize,
+    cols: usize,
+}
+
+impl Task2<i64, bool, NqError> for TBuild<'_> {
+    fn run(&self, t: usize, ts: &mut [i64], narrow: &mut [bool]) -> Result<(), NqError> {
+        t_build(self.xs, self.s_pre, self.inn, t * self.cols, ts, narrow)
     }
+}
+
+/// [`TBuild`]'s body: `t_j = round(s_pre_j·x_j / 2^32)` for column `c0 + c`, and the
+/// `inn·max|t| ≤ i64::MAX` bound its `V` stage reads. The per-column order, the checked product and
+/// the rounding are the serial loop's.
+///
+/// # Complexity
+///
+/// `O(narrow.len() · inn)` checked products; `O(1)` space beyond the caller's buffers.
+fn t_build(
+    xs: &[&[i64]],
+    s_pre: &[i64],
+    inn: usize,
+    c0: usize,
+    ts: &mut [i64],
+    narrow: &mut [bool],
+) -> Result<(), NqError> {
+    for (c, slot) in narrow.iter_mut().enumerate() {
+        let x = xs[c0 + c];
+        let at = c * inn;
+        let mut max_abs_t = 0u64;
+        for j in 0..inn {
+            let v = mul_q32(x[j], s_pre[j]).ok_or(NqError::Overflow)?;
+            max_abs_t = max_abs_t.max(v.unsigned_abs());
+            ts[at + j] = v;
+        }
+        let bound = u128::from(max_abs_t).saturating_mul(inn as u128);
+        *slot = bound <= i64::MAX as u128;
+    }
+    Ok(())
+}
+
+/// The Q8 reader over `flat`'s columns of `n` words each, or one empty slot per column under a
+/// reader that does not quantize. Task `t` quantizes columns `t·cols .. (t + 1)·cols` with the
+/// same per-column [`quant_act`] the serial loop calls, so each column's `Option` is unchanged.
+///
+/// # Complexity
+///
+/// `O(k·n)` time and space in the column count `k` and width `n`, split over `⌈k/cols⌉` tasks.
+fn quantized_columns(flat: &[i64], n: usize, reader: Reader) -> Vec<Option<QuantAct>> {
+    let k = flat.len() / n;
+    let mut out: Vec<Option<QuantAct>> = (0..k).map(|_| None).collect();
+    if reader != Reader::Q8 || k == 0 {
+        return out;
+    }
+    let cols = pack_chunk(k, Pool::global().width().max(1));
+    Pool::global().chunks_mut(&mut out, cols, &|_, c0, qs| {
+        for (j, slot) in qs.iter_mut().enumerate() {
+            *slot = quant_act(&flat[(c0 + j) * n..(c0 + j + 1) * n]);
+        }
+    });
+    out
 }
 
 /// The ternary reader over `flat`'s columns of `n` words each, or one empty slot per column under
