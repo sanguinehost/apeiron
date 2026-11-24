@@ -1,18 +1,25 @@
 # NQ projection: decision on the row block and the next lever
 
-Receipt: `bench/cpu/1795518973-nq-blocking.md`. This note is the handoff, not evidence.
+Receipts: `bench/cpu/1795518973-nq-blocking.md` (the row block), `bench/cpu/1795557505-nq-two-column.md`
+(the two-column reader and the new default). This note is the handoff, not evidence.
 
 ## Decision
 
-`NQ_BLOCK = 4` stays the default (`src/engine/kern/nq.rs`). Eight same-binary laptop pairs give
-projection **1.094** [1.029, 1.159] and wall **1.069** [1.006, 1.132]; all 15 pairs, including the
-seven from the build before the `0`-arm fix, give projection **1.119** [1.050, 1.188] and wall
-**1.088** [1.024, 1.152], 12 of 15 above 1. Both reductions are `measured` on the 0.6B cold turn;
-the 7B, the 200k context and the 20 tok/s claim are untouched. `APEIRON_NQ_BLOCK=0` is the
-same-binary control and stays, as do the values the parse clamps.
+`NQ_BLOCK = 8` is the default (`src/engine/kern/nq.rs`). The earlier receipt kept 4 because the
+laptop's single-column block-8 runs were **inside** the block-4 arm's own spread (`1795518973`,
+§ Block 8: 2.3% below the bracketing mean, but the two block-4 runs differ by 2.8% and the sequence
+is not paired). This change moves the default on a paired, same-binary box screen at 8 participants
+with the two-column reader: block 8 13.922 / 14.044 / 14.016 s against block 4 15.542 / 15.704 /
+15.638, pairs 1.157 / 1.118 / 1.098, mean **1.124**. The 0.6B shapes divide by 8 (rank 736, outputs
+1024/2048/3072), so no stage pays a short remainder block. The laptop confirmation of block 8 is
+**open** (AC absent), and the prior laptop evidence does not contradict the direction: it was
+inconclusive, not negative.
 
-Do not add a block size, a second row loop or a `gemm_*` sibling. The row block is a dial on
-`code_select_block_avx2`; `R` is monomorphised 2..8 by `code_select_rows_avx2`.
+The two-column reader (`code_select_block2_avx2`) is the production Q8 path: one weight-word
+expansion against two activation columns. Do not add a second row loop, a `gemm_*` sibling or a
+third column. The pair is 13 vector instructions per `(row, block, 2 columns)`; a third column adds
+four more against the same five-instruction expansion, but `R = 8` already needs sixteen
+accumulators and the five constants, so a triple cannot fit the sixteen YMM registers.
 
 ## Retraction: the pack should not be repacked
 
@@ -35,18 +42,20 @@ next lever. That is wrong for this plane and is withdrawn:
 Run each on the box before touching the laptop. A box ratio is `model` for the laptop; a claim
 needs the laptop pairs.
 
-1. **Confirm block 8 on the laptop.** The box says it leads: two alternating pairs, projection
-   13,505.9 → 12,938.4 ms (1.044) and 13,581.3 → 12,809.5 ms (1.060), wall 1.029 and 1.042, with
-   block 8 winning even when it ran last at load 5.44. The laptop's four-run sequence is block 4
-   40,682 ms, block 8 40,208, block 8 40,394, block 4 41,820 (walls 56.593, 56.056, 56.270,
-   58.205 s): block 8 is 2.3% below the mean of the bracketing block-4 runs, but those two differ
-   from each other by 2.8% and the sequence is not alternating. Run two alternating laptop pairs at
-   1,827 and set `NQ_BLOCK = 8` only if the ratio clears ~1.02 in the same direction. The register
-   budget is 13 of 16 YMM lanes; if it clears, `NQ_BLOCK_MAX = 8` is already the clamp.
+1. **Confirm block 8 on the laptop.** The box with the two-column reader says it leads by 1.124
+   (three alternating pairs above). The earlier single-column laptop sequence is block 4 40,682 ms,
+   block 8 40,208, block 8 40,394, block 4 41,820 (walls 56.593, 56.056, 56.270, 58.205 s): block 8
+   is 2.3% below the bracketing mean, but those two block-4 runs differ by 2.8% and the sequence is
+   not alternating. Run two alternating laptop pairs at 1,827 on this binary; keep 8 if the wall
+   ratio clears 1.02 in the same direction, otherwise revert the constant and keep the pair as the
+   dial. The pair at `R = 8` holds sixteen accumulators plus five constants, so a spill is expected;
+   the box microbench shows block 8 (101.2 G terms/s at width 8) below block 7 (118.7), and the cold
+   turn still wins on the remainder that block 7 pays.
 2. **If block 8 lands, which per-row-block cost binds next?** The inner loop per 32 terms per row is
    `vpsrlvd`, `vpshufb`, `vpshufb`, `vpand`, `vpmaddubsw`, `vpmaddwd`, `vpsllvd`, `vpaddd`, plus
-   one scalar `words[r*stride + b]` load and its address arithmetic. Probe three candidates, one at
-   a time, same binary behind a dial, 2 alternating pairs, projection phase only:
+   one scalar `words[r*stride + b]` load and its address arithmetic; the pair shares the first five
+   across two columns. Probe three candidates, one at a time, same binary behind a dial, 2
+   alternating pairs, projection phase only:
    - **address arithmetic**: four running row pointers instead of `r * stride + b` per row per
      block — removes two scalar ops per row-block;
    - **the nibble spread**: `vpsrlvd` + `vpshufb` turns one `u32` into 32 selector bytes. If a
@@ -57,11 +66,12 @@ needs the laptop pairs.
    at once. `perf stat` on the box is acceptable if it is permitted there — one `instructions` and
    `cycles` count per arm settles which of the three is real before any A/B.
 
-Do not start with the dot's arithmetic. The blocked reader measures 24.76 G terms/s in the early
-1,827 window and 18.14 in the late one; the 229 window reaches 33.60 early and 18.49 late, so the
-absolute rate is a property of the window as much as the kernel. The computed issue bound is 38–40
-G terms/s and the measured kernel sits at 0.45–0.65 of it: the gap is the short linears' per-row
-horizontal fold and epilogue, over 15–32 words per row, not the select.
+Do not start with the dot's arithmetic. The reader measures 24.9 G terms/s on one participant and
+101.2 G/s at eight with the pair at block 8 (`the_pooled_block_rate_by_block`, pack, stages and
+gather included); the single-column count was 10 instructions per 32 terms per row, and the pair's
+13 instructions per two columns put it near 7.5 per column. The bound those counts imply was
+computed against the whole-turn instruction rate in `1795518973`; no `perf` counter was read for
+the pair, so which port binds is open.
 
 ## The box loop
 

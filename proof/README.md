@@ -592,12 +592,14 @@ debt under the `## Unsafe` rule in `AGENTS.md`.
 
 The F32 prefill tile's AVX2 body (`attn_core_f32_tile_avx2_inner`, twin
 `attn_core_f32_tile_scalar`) and the NQ blocked reader's bodies (`code_select_block_avx2`,
-`code_select_rows_avx2`, twin `code_select_rows_twin`) are in the same class: opaque in
-`SERVING_OPAQUE`, twin in the crate and equal under the two equality tests
+`code_select_rows_avx2`, `code_select_block2_avx2`, `code_select_rows2_avx2`, the `lane_sum`
+helper, twin `code_select_rows_twin`) are in the same class: opaque in `SERVING_OPAQUE`, twin in
+the crate and equal under the equality tests
 (`test_attn_core_tile_exp_group_edges_equals_the_per_query_core`,
-`the_blocked_code_source_equals_the_per_row_source`), neither twin a `--start-from` root, so no
-refinement theorem. `proof/regen.sh --check` has not run on either host since the two changes; the
-extractor's acceptance of the three new `--opaque` entries and the two process-flag entries
+`the_blocked_code_source_equals_the_per_row_source`,
+`the_two_column_source_equals_two_per_row_sources`), neither twin a `--start-from` root, so no
+refinement theorem. `proof/regen.sh --check` has not run on either host since these changes; the
+extractor's acceptance of the new `--opaque` entries and the two process-flag entries
 (`attn_exp_skip_enabled`, `attn_tile_enabled`) is unverified.
 
 Board .

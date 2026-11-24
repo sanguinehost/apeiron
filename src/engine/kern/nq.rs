@@ -32,10 +32,12 @@
 //! **Parallelism.** The `V` rows split across the engine's persistent pool: task `k` owns one
 //! `z_k`, so the `rank × inn` adds are shared. The `U` rows then split the same way over output
 //! rows. Both dispatches write disjoint chunks through [`Pool::chunks_mut`]; the caller is the
-//! step's main thread, never a pool task. The per-column pack (the `t` build, the `t` and `z`
-//! quantizations and the `rank·max|z|` bound) is a column-band dispatch on the same pool, so a
-//! packed column's cost does not land on the caller while the workers spin. The residual's `x`
-//! reader stays on the caller and is absent from a pack with no residual layer.
+//! step's main thread, never a pool task. A task folds a row block against two adjacent columns
+//! and decodes the weight word once for both, each column keeping its own codes, shift vectors and
+//! `e_min`. The per-column pack (the `t` build, the `t` and `z` quantizations and the
+//! `rank·max|z|` bound) is a column-band dispatch on the same pool, so a packed column's cost does
+//! not land on the caller while the workers spin. The residual's `x` reader stays on the caller
+//! and is absent from a pack with no residual layer.
 //!
 //! **Cost.** One projection is `O(rank·inn + out·rank + res_layers·out·inn)` additions,
 //! `O(out · inn)` weights replaced, `O(rank)` scratch for `z`, `O(inn)` for `t` and `O(out)`
@@ -663,6 +665,89 @@ impl<'a> CodeTerms<'a> {
         }
         code_select_rows_twin(self.codes, self.scales, words, stride, rows, len, out)
     }
+
+    /// The same domain check as [`CodeTerms::selected_rows`] for `rows` rows written to an output
+    /// of `out_len`; the two-column entry uses it for both stages before it dispatches.
+    fn serves(
+        &self,
+        words: &[u32],
+        stride: usize,
+        rows: usize,
+        len: usize,
+        out_len: usize,
+    ) -> bool {
+        let blocks = len.div_ceil(32);
+        let Some(span) = rows.checked_mul(stride) else {
+            return false;
+        };
+        len <= self.codes.len()
+            && self.shift_vecs.len() >= blocks
+            && stride >= blocks
+            && words.len() >= span
+            && out_len >= rows
+    }
+
+    /// The quantized selection of `rows` rows against **two** activations at once, both readers
+    /// over the same weight words: the bit expansion of a word is shared, so one call costs
+    /// less than two [`CodeTerms::selected_rows`] calls. Every row of each output is the
+    /// single-column entry's value. `false` when either reader cannot serve the domain; on
+    /// `false` a prefix of either output may hold rows already folded, so the caller must not read
+    /// them.
+    ///
+    /// # Complexity
+    ///
+    /// `O(rows·len)` terms for the pair, with one bit expansion per `(row, 32-term block)`
+    /// instead of one per column; `O(1)` space beyond the two outputs.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "two columns' readers and outputs; the arguments are the pair's input"
+    )]
+    fn selected_rows2(
+        &self,
+        other: &Self,
+        words: &[u32],
+        stride: usize,
+        rows: usize,
+        len: usize,
+        out_a: &mut [i64],
+        out_b: &mut [i64],
+    ) -> bool {
+        if !self.serves(words, stride, rows, len, out_a.len())
+            || !other.serves(words, stride, rows, len, out_b.len())
+        {
+            return false;
+        }
+        #[cfg(target_arch = "x86_64")]
+        if self.vector && other.vector {
+            // SAFETY: `vector` names AVX2; both stages passed `serves`, so each has its length,
+            // row span, shift and code bounds; `CodeTerms::new` admitted only a lane sum inside
+            // `i32` and a total inside `i64`, per column and per row.
+            if unsafe {
+                code_select_rows2_avx2(
+                    self.codes,
+                    self.scales,
+                    &self.shift_vecs,
+                    self.e_min,
+                    other.codes,
+                    other.scales,
+                    &other.shift_vecs,
+                    other.e_min,
+                    words,
+                    stride,
+                    rows,
+                    len,
+                    out_a,
+                    out_b,
+                )
+            }
+            .is_some()
+            {
+                return true;
+            }
+        }
+        code_select_rows_twin(self.codes, self.scales, words, stride, rows, len, out_a)
+            && code_select_rows_twin(other.codes, other.scales, words, stride, rows, len, out_b)
+    }
 }
 
 /// One 64-term block of the ternary activation reader: the positive and negative trit masks and
@@ -885,19 +970,28 @@ unsafe fn code_select_avx2(
     i64::try_from(total).ok()
 }
 
-/// The largest factor-row block one column read folds: one `__m256i` accumulator per row, so the
-/// blocked Q8 reader's register budget is this plus its five constants.
+/// The largest factor-row block one column read folds: two `__m256i` accumulators per row (one
+/// per activation column), so the blocked Q8 reader's register budget is twice this plus its five
+/// constants.
 const NQ_BLOCK_MAX: usize = 8;
 
 /// The factor rows folded per column read when `APEIRON_NQ_BLOCK` is absent.
-const NQ_BLOCK: usize = 4;
+///
+/// Eight divides every 0.6B shape (rank 736, output widths 1024/2048/3072), so no stage pays a
+/// short remainder block, and it is the two-column reader's best cold arm on the box:
+/// 13.56–14.23 s at 8 participants against 15.62–15.70 s at 4
+/// (`bench/cpu/1795557505-nq-two-column.md`). The laptop confirmation is open;
+/// `bench/cpu/1795518973-nq-blocking.md` kept 4 because the laptop's single-column block-8
+/// difference was inside the block-4 arm's spread, not because 8 lost.
+const NQ_BLOCK: usize = 8;
 
 /// The factor rows folded per column read: `APEIRON_NQ_BLOCK`, parsed once per process.
 ///
 /// `0` or `1` keeps the per-row order (one row read per dot), a value in `2..=NQ_BLOCK_MAX` folds
 /// that many factor rows against one read of a column's codes and shifts, and an absent or
 /// malformed value is [`NQ_BLOCK`]. Values above [`NQ_BLOCK_MAX`] clamp: the blocked reader holds
-/// one vector accumulator per row, and it needs at least two rows to share a read.
+/// two vector accumulators per row (one per activation column), and it needs at least two rows to
+/// share a read.
 ///
 /// # Complexity
 ///
@@ -1100,6 +1194,188 @@ unsafe fn code_select_rows_avx2(
     dispatch!(2, 3, 4, 5, 6, 7, 8)
 }
 
+/// The horizontal sum of one `i32` lane accumulator, widened to `i64` without an `i32` wrap.
+///
+/// The [`CodeTerms::new`] lane bound makes every lane's sum fit `i32`, so the eight widened
+/// values sum to at most `8·i32::MAX < i64::MAX` in absolute value and the widening is exact.
+///
+/// # Safety
+///
+/// The host CPU supports AVX2.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn lane_sum(lane: std::arch::x86_64::__m256i) -> i64 {
+    use std::arch::x86_64::{
+        _mm256_add_epi64, _mm256_castsi256_si128, _mm256_cvtepi32_epi64, _mm256_extracti128_si256,
+        _mm_add_epi64, _mm_cvtsi128_si64, _mm_unpackhi_epi64,
+    };
+    let lo = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(lane));
+    let hi = _mm256_cvtepi32_epi64(_mm256_extracti128_si256::<1>(lane));
+    let quad = _mm256_add_epi64(lo, hi);
+    let half = _mm_add_epi64(
+        _mm256_castsi256_si128(quad),
+        _mm256_extracti128_si256::<1>(quad),
+    );
+    let half = _mm_add_epi64(half, _mm_unpackhi_epi64(half, half));
+    _mm_cvtsi128_si64(half)
+}
+
+/// Fold one row block's weight words against **two** activation columns: the word's bit
+/// expansion (broadcast, `vpsrlvd`, two `vpshufb`, `vpand`) is shared, and only the two
+/// `vpmaddubsw`/`vpmaddwd`/`vpsllvd`/`vpaddd` chains are per column.
+///
+/// This is the same arithmetic as two [`code_select_block_avx2`] calls: each column's codes,
+/// shift vectors and `e_min` are read independently, and [`CodeTerms::new`]'s per-column bounds
+/// make both lane sums exact. Each column's result therefore equals the single-column kernel's
+/// word for word.
+///
+/// # Safety
+///
+/// The host CPU supports AVX2. For each column: `len <= codes.len()`, `scales.len() >=
+/// len.div_ceil(32)`, `shift_vecs` covers `len.div_ceil(32)` blocks, `e_min` is the smallest
+/// block exponent, `words` covers `rows` rows of `len` terms at `stride >= len.div_ceil(32)`,
+/// `out_a.len() >= R` and `out_b.len() >= R`, and the [`CodeTerms::new`] bounds hold.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(
+    clippy::too_many_arguments,
+    clippy::cast_ptr_alignment,
+    reason = "two columns' readers and their outputs; the arguments are the pair's input, and loadu admits the unaligned block pointer"
+)]
+unsafe fn code_select_block2_avx2<const R: usize>(
+    codes_a: &[i8],
+    scales_a: &[i64],
+    shift_a: &[[i32; 8]],
+    e_min_a: u32,
+    codes_b: &[i8],
+    scales_b: &[i64],
+    shift_b: &[[i32; 8]],
+    e_min_b: u32,
+    words: &[u32],
+    stride: usize,
+    len: usize,
+    out_a: &mut [i64],
+    out_b: &mut [i64],
+) -> Option<()> {
+    use std::arch::x86_64::{
+        __m256i, _mm256_add_epi32, _mm256_and_si256, _mm256_loadu_si256, _mm256_madd_epi16,
+        _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_setr_epi32,
+        _mm256_setr_epi8, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_sllv_epi32,
+        _mm256_srlv_epi32,
+    };
+    let full = len / 32;
+    let digit_mask = _mm256_set1_epi32(0x0804_0201);
+    let bit_at = _mm256_setr_epi32(0, 4, 8, 12, 16, 20, 24, 28);
+    let repeat = _mm256_setr_epi8(
+        0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12, 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12,
+        12, 12, 12,
+    );
+    let select_one = _mm256_setr_epi8(
+        0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+        0, 0,
+    );
+    let ones = _mm256_set1_epi16(1);
+    let mut acc_a = [_mm256_setzero_si256(); R];
+    let mut acc_b = [_mm256_setzero_si256(); R];
+    let mut b = 0usize;
+    while b < full {
+        // SAFETY: `b < full` and the caller's per-column bounds cover both codes arrays and both
+        // shift arrays at this block.
+        let plane_a = unsafe { _mm256_loadu_si256(codes_a.as_ptr().add(b * 32).cast::<__m256i>()) };
+        let plane_b = unsafe { _mm256_loadu_si256(codes_b.as_ptr().add(b * 32).cast::<__m256i>()) };
+        let sv_a = unsafe { _mm256_loadu_si256(shift_a.as_ptr().add(b).cast::<__m256i>()) };
+        let sv_b = unsafe { _mm256_loadu_si256(shift_b.as_ptr().add(b).cast::<__m256i>()) };
+        let mut r = 0usize;
+        while r < R {
+            let word = words[r * stride + b];
+            let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
+            let nibble = _mm256_shuffle_epi8(spread, repeat);
+            let select = _mm256_shuffle_epi8(select_one, _mm256_and_si256(nibble, digit_mask));
+            let pair = _mm256_maddubs_epi16(select, plane_a);
+            let part = _mm256_madd_epi16(pair, ones);
+            acc_a[r] = _mm256_add_epi32(acc_a[r], _mm256_sllv_epi32(part, sv_a));
+            let pair = _mm256_maddubs_epi16(select, plane_b);
+            let part = _mm256_madd_epi16(pair, ones);
+            acc_b[r] = _mm256_add_epi32(acc_b[r], _mm256_sllv_epi32(part, sv_b));
+            r += 1;
+        }
+        b += 1;
+    }
+    let tail = full * 32;
+    let mut r = 0usize;
+    while r < R {
+        // SAFETY: AVX2 is the caller's contract; the lane bound makes each sum exact.
+        let mut total_a = i128::from(unsafe { lane_sum(acc_a[r]) }) << e_min_a;
+        let mut total_b = i128::from(unsafe { lane_sum(acc_b[r]) }) << e_min_b;
+        if tail < len {
+            total_a += code_select_twin(
+                &codes_a[tail..],
+                &scales_a[full..],
+                &words[r * stride + full..],
+                len - tail,
+            );
+            total_b += code_select_twin(
+                &codes_b[tail..],
+                &scales_b[full..],
+                &words[r * stride + full..],
+                len - tail,
+            );
+        }
+        out_a[r] = i64::try_from(total_a).ok()?;
+        out_b[r] = i64::try_from(total_b).ok()?;
+        r += 1;
+    }
+    Some(())
+}
+
+/// Dispatch the two-column blocked reader over a row count this monomorphises for: 2 to
+/// [`NQ_BLOCK_MAX`]. Any other count returns `None` and the caller keeps the per-column entry.
+///
+/// # Safety
+///
+/// As [`code_select_block2_avx2`]: the host supports AVX2 and both readers, `words`, `stride`,
+/// `len` and the two outputs cover `rows` rows of `len` terms.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "two columns' readers and their outputs; see `code_select_block2_avx2`"
+)]
+unsafe fn code_select_rows2_avx2(
+    codes_a: &[i8],
+    scales_a: &[i64],
+    shift_a: &[[i32; 8]],
+    e_min_a: u32,
+    codes_b: &[i8],
+    scales_b: &[i64],
+    shift_b: &[[i32; 8]],
+    e_min_b: u32,
+    words: &[u32],
+    stride: usize,
+    rows: usize,
+    len: usize,
+    out_a: &mut [i64],
+    out_b: &mut [i64],
+) -> Option<()> {
+    macro_rules! dispatch {
+        ($($r:literal),*) => {
+            match rows {
+                $($r => {
+                    // SAFETY: the caller's contract is `rows` rows; the arm fixes `R = rows`.
+                    unsafe {
+                        code_select_block2_avx2::<$r>(
+                            codes_a, scales_a, shift_a, e_min_a, codes_b, scales_b, shift_b,
+                            e_min_b, words, stride, len, out_a, out_b,
+                        )
+                    }
+                })*
+                _ => None,
+            }
+        };
+    }
+    dispatch!(2, 3, 4, 5, 6, 7, 8)
+}
+
 /// One stage's activation in the forms [`NqLinear::project_with`] reads: the exact Q32.32 words,
 /// their four-plane reader when the narrow bound holds, and the Q8 or ternary block reader when
 /// the mode and its bounds admit it.
@@ -1164,6 +1440,59 @@ impl Stage<'_> {
         for r in 0..rows {
             out[r] = self.dot(&words[r * stride..(r + 1) * stride], len);
         }
+    }
+
+    /// The sign dots of `rows` rows against **two** stages at once: the shared weight read and
+    /// bit expansion of [`CodeTerms::selected_rows2`]. `true` when both stages are Q8 readers
+    /// that served every row; `false` when the caller must take [`Stage::dot_rows`] per stage,
+    /// which is the same arithmetic.
+    ///
+    /// # Complexity
+    ///
+    /// `O(rows·len)` terms for the pair; `O(1)` space beyond the two outputs.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "two stages' readers and outputs; the arguments are the pair's input"
+    )]
+    fn dot_rows2(
+        &self,
+        other: &Self,
+        words: &[u32],
+        stride: usize,
+        rows: usize,
+        len: usize,
+        out_a: &mut [i128],
+        out_b: &mut [i128],
+    ) -> bool {
+        if !(2..=NQ_BLOCK_MAX).contains(&rows)
+            || out_a.len() < rows
+            || out_b.len() < rows
+            || self.ternary.is_some()
+            || other.ternary.is_some()
+        {
+            return false;
+        }
+        let (Some(a), Some(b)) = (self.codes.as_ref(), other.codes.as_ref()) else {
+            return false;
+        };
+        let mut sel_a = [0i64; NQ_BLOCK_MAX];
+        let mut sel_b = [0i64; NQ_BLOCK_MAX];
+        if !a.selected_rows2(
+            b,
+            words,
+            stride,
+            rows,
+            len,
+            &mut sel_a[..rows],
+            &mut sel_b[..rows],
+        ) {
+            return false;
+        }
+        for i in 0..rows {
+            out_a[i] = i128::from(a.sum) - 2 * i128::from(sel_a[i]);
+            out_b[i] = i128::from(b.sum) - 2 * i128::from(sel_b[i]);
+        }
+        true
     }
 }
 
@@ -1607,28 +1936,50 @@ impl NqLinear {
             let c0 = at / self.rank;
             let ncols = zs.len() / self.rank;
             let mut dots = [0i128; NQ_BLOCK_MAX];
+            let mut dots2 = [0i128; NQ_BLOCK_MAX];
             let mut r0 = 0usize;
             while r0 < self.rank {
                 let rows = block.max(1).min(self.rank - r0);
                 let plane = &self.v[r0 * self.v_words..];
-                for cc in 0..ncols {
-                    t_stages[c0 + cc].dot_rows(
-                        plane,
-                        self.v_words,
-                        rows,
-                        self.inn,
-                        &mut dots[..rows],
-                    );
-                    for (d, &dot) in dots[..rows].iter().enumerate() {
+                let mut store = |col: usize, ds: &[i128]| {
+                    for (d, &dot) in ds.iter().enumerate() {
                         let r = r0 + d;
                         let Some(dot) = i64::try_from(dot).ok() else {
                             overflow.store(true, std::sync::atomic::Ordering::Relaxed);
                             continue;
                         };
                         match mul_q32(dot, self.s_mid[r]) {
-                            Some(v) => zs[cc * self.rank + r] = v,
+                            Some(v) => zs[col * self.rank + r] = v,
                             None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
                         }
+                    }
+                };
+                let mut cc = 0usize;
+                while cc < ncols {
+                    if cc + 1 < ncols
+                        && t_stages[c0 + cc].dot_rows2(
+                            &t_stages[c0 + cc + 1],
+                            plane,
+                            self.v_words,
+                            rows,
+                            self.inn,
+                            &mut dots[..rows],
+                            &mut dots2[..rows],
+                        )
+                    {
+                        store(cc, &dots[..rows]);
+                        store(cc + 1, &dots2[..rows]);
+                        cc += 2;
+                    } else {
+                        t_stages[c0 + cc].dot_rows(
+                            plane,
+                            self.v_words,
+                            rows,
+                            self.inn,
+                            &mut dots[..rows],
+                        );
+                        store(cc, &dots[..rows]);
+                        cc += 1;
                     }
                 }
                 r0 += rows;
@@ -1671,24 +2022,46 @@ impl NqLinear {
             let c0 = at / self.out;
             let ncols = ys.len() / self.out;
             let mut dots = [0i128; NQ_BLOCK_MAX];
+            let mut dots2 = [0i128; NQ_BLOCK_MAX];
             let mut i0 = 0usize;
             while i0 < self.out {
                 let rows = block.max(1).min(self.out - i0);
                 let plane = &self.u[i0 * self.u_words..];
-                for cc in 0..ncols {
-                    z_stages[c0 + cc].dot_rows(
-                        plane,
-                        self.u_words,
-                        rows,
-                        self.rank,
-                        &mut dots[..rows],
-                    );
-                    let x_stage = &x_stages[c0 + cc];
-                    for (d, &dot) in dots[..rows].iter().enumerate() {
+                let mut store = |col: usize, ds: &[i128]| {
+                    let x_stage = &x_stages[c0 + col];
+                    for (d, &dot) in ds.iter().enumerate() {
                         match self.project_row(i0 + d, dot, x_stage) {
-                            Some(v) => ys[cc * self.out + i0 + d] = v,
+                            Some(v) => ys[col * self.out + i0 + d] = v,
                             None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
                         }
+                    }
+                };
+                let mut cc = 0usize;
+                while cc < ncols {
+                    if cc + 1 < ncols
+                        && z_stages[c0 + cc].dot_rows2(
+                            &z_stages[c0 + cc + 1],
+                            plane,
+                            self.u_words,
+                            rows,
+                            self.rank,
+                            &mut dots[..rows],
+                            &mut dots2[..rows],
+                        )
+                    {
+                        store(cc, &dots[..rows]);
+                        store(cc + 1, &dots2[..rows]);
+                        cc += 2;
+                    } else {
+                        z_stages[c0 + cc].dot_rows(
+                            plane,
+                            self.u_words,
+                            rows,
+                            self.rank,
+                            &mut dots[..rows],
+                        );
+                        store(cc, &dots[..rows]);
+                        cc += 1;
                     }
                 }
                 i0 += rows;
@@ -2087,6 +2460,53 @@ mod tests {
         ((bits.wrapping_add(round)) >> 16) as u16
     }
 
+    /// A random `PackedLinear` at a caller's shape, for the timing harness; [`packed`] is the
+    /// fixed small shape the equality tests use. No residual layer, as the 0.6B pack has none.
+    fn packed_shape(out: usize, inn: usize, rank: usize) -> PackedLinear {
+        let u_words = rank.div_ceil(32);
+        let v_words = inn.div_ceil(32);
+        let mut state =
+            0x9e37_79b9_7f4a_7c15u64 ^ ((out as u64) << 40) ^ ((inn as u64) << 20) ^ rank as u64;
+        let mut u = Vec::with_capacity(out * u_words);
+        let mut v = Vec::with_capacity(rank * v_words);
+        for _ in 0..out * u_words {
+            u.push(next_u32(&mut state));
+        }
+        for _ in 0..rank * v_words {
+            v.push(next_u32(&mut state));
+        }
+        PackedLinear {
+            layer: 0,
+            kind: 0,
+            out,
+            inn,
+            rank,
+            u: u.into(),
+            v: v.into(),
+            s_pre: (0..inn)
+                .map(|i| bf16_bits(0.01 + 0.001 * (i % 7) as f32))
+                .collect::<Vec<u16>>()
+                .into(),
+            s_mid: (0..rank)
+                .map(|i| bf16_bits(0.5 + 0.01 * (i % 3) as f32))
+                .collect::<Vec<u16>>()
+                .into(),
+            s_post: (0..out)
+                .map(|i| bf16_bits(0.02 + 0.002 * (i % 5) as f32))
+                .collect::<Vec<u16>>()
+                .into(),
+            salient_idx: vec![1, 7].into(),
+            salient: (0..out * 2)
+                .map(|i| 0x2400u16 + (i % 9) as u16)
+                .collect::<Vec<u16>>()
+                .into(),
+            res_layers: 0,
+            shared: false,
+            res: Vec::new().into(),
+            s_res: Vec::new().into(),
+        }
+    }
+
     fn packed(reps: u64) -> PackedLinear {
         let (out, inn, rank) = (37usize, 29usize, 23usize);
         let u_words = rank.div_ceil(32);
@@ -2231,6 +2651,135 @@ mod tests {
         assert_eq!(linear.project(&x).expect("project"), sequential(&p, &x));
     }
 
+    /// The two-column Q8 source against its two per-row twins over the whole vector domain: `len`
+    /// covers whole 32-term blocks and a tail, the two activations carry different `e_min`s and
+    /// shift patterns, `stride` is padded past the block count, the tail word's padding bits are
+    /// set, and the row count steps every block size the pair admits. The pair must give each
+    /// column the single-column sum, and the pair entry must refuse a row count outside
+    /// `2..=NQ_BLOCK_MAX` without writing either output.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the lengths, exponents, rows, twin comparisons and the refusal guard are one fixture"
+    )]
+    fn the_two_column_source_equals_two_per_row_sources() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let mut state = 0x2c01_7e57_9d3b_44a1u64;
+        for len in [32usize, 33, 63, 64, 65, 127, 128, 129, 1000, 1023] {
+            let blocks = len.div_ceil(32);
+            for e in [0u32, 20, 40] {
+                let codes_a: Vec<i8> = (0..len)
+                    .map(|_| {
+                        i8::try_from(i32::try_from(next_u32(&mut state) % 255).expect("byte") - 127)
+                            .expect("[-127, 127]")
+                    })
+                    .collect();
+                let codes_b: Vec<i8> = (0..len)
+                    .map(|_| {
+                        i8::try_from(i32::try_from(next_u32(&mut state) % 255).expect("byte") - 127)
+                            .expect("[-127, 127]")
+                    })
+                    .collect();
+                // Blocks alternate their scale height within each activation, and the second
+                // activation's smallest exponent is three above the first's, so the two
+                // `shift_vecs` and `e_min`s differ.
+                let scales_a: Vec<i64> = (0..blocks)
+                    .map(|b| 1i64 << (e + u32::from(b % 2 == 0) * 2))
+                    .collect();
+                let scales_b: Vec<i64> = (0..blocks)
+                    .map(|b| 1i64 << (e + 3 + u32::from(b % 3 == 0)))
+                    .collect();
+                let qa = QuantAct::from_parts(scales_a.clone(), codes_a.clone());
+                let qb = QuantAct::from_parts(scales_b.clone(), codes_b.clone());
+                let a = CodeTerms::new(&qa).expect("a admits the fixture");
+                let b = CodeTerms::new(&qb).expect("b admits the fixture");
+                for rows in 2..=NQ_BLOCK_MAX {
+                    // A stride one word past the block count leaves one word of slack on every
+                    // row, as an `inn` that is not a multiple of 32 does.
+                    let stride = blocks + rows % 2;
+                    let mut words: Vec<u32> =
+                        (0..rows * stride).map(|_| next_u32(&mut state)).collect();
+                    if len % 32 != 0 {
+                        for r in 0..rows {
+                            words[r * stride + blocks - 1] |= !0u32 << (len % 32);
+                        }
+                    }
+                    let mut got_a = vec![0i64; rows];
+                    let mut got_b = vec![0i64; rows];
+                    assert!(
+                        a.selected_rows2(&b, &words, stride, rows, len, &mut got_a, &mut got_b),
+                        "len {len} e {e} rows {rows}: the pair refused"
+                    );
+                    let mut want_a = vec![0i64; rows];
+                    let mut want_b = vec![0i64; rows];
+                    assert!(
+                        code_select_rows_twin(
+                            &codes_a,
+                            &scales_a,
+                            &words,
+                            stride,
+                            rows,
+                            len,
+                            &mut want_a
+                        ),
+                        "len {len} e {e} rows {rows}: the a twin refused"
+                    );
+                    assert!(
+                        code_select_rows_twin(
+                            &codes_b,
+                            &scales_b,
+                            &words,
+                            stride,
+                            rows,
+                            len,
+                            &mut want_b
+                        ),
+                        "len {len} e {e} rows {rows}: the b twin refused"
+                    );
+                    assert_eq!(got_a, want_a, "len {len} e {e} rows {rows}: column a");
+                    assert_eq!(got_b, want_b, "len {len} e {e} rows {rows}: column b");
+                }
+            }
+        }
+        // The pair entry's row-count guard runs before its stack scratch is indexed, so a count
+        // outside the block is a refusal, not a panic, and it leaves both outputs alone.
+        let codes: Vec<i8> = vec![1; 32];
+        let scales: Vec<i64> = vec![1];
+        let q = QuantAct::from_parts(scales, codes);
+        let terms = CodeTerms::new(&q).expect("the fixture admits");
+        let stage_a = Stage {
+            wide: &[],
+            terms: None,
+            codes: Some(terms),
+            ternary: None,
+        };
+        let stage_b = Stage {
+            wide: &[],
+            terms: None,
+            codes: Some(CodeTerms::new(&q).expect("the fixture admits")),
+            ternary: None,
+        };
+        let words = vec![u32::MAX; NQ_BLOCK_MAX + 1];
+        let mut out_a = vec![0i128; NQ_BLOCK_MAX + 1];
+        let mut out_b = vec![0i128; NQ_BLOCK_MAX + 1];
+        assert!(!stage_a.dot_rows2(
+            &stage_b,
+            &words,
+            1,
+            NQ_BLOCK_MAX + 1,
+            32,
+            &mut out_a,
+            &mut out_b
+        ));
+        assert!(!stage_a.dot_rows2(&stage_b, &words, 1, 1, 32, &mut out_a[..1], &mut out_b[..1]));
+        assert!(!stage_a.dot_rows2(&stage_b, &words, 1, 2, 32, &mut out_a[..1], &mut out_b[..2]));
+        assert_eq!(out_a, vec![0i128; NQ_BLOCK_MAX + 1]);
+        assert_eq!(out_b, vec![0i128; NQ_BLOCK_MAX + 1]);
+    }
+
     /// The blocked Q8 reader, its safe twin and the per-row entry must agree for every row count
     /// the block admits, at every word boundary and at two block-scale heights, with a padded
     /// stride and with the tail word's padding bits set. The blocked source shares one code load
@@ -2338,6 +2887,59 @@ mod tests {
                     .expect("pooled ternary"),
                 ternary,
                 "ternary, k {k}"
+            );
+        }
+    }
+
+    /// Reports the pooled block reader's rate by row block on the `ffn` gate shape (3072×1024,
+    /// rank 736) at the prefill block's 228 columns; the rates are printed, not asserted, and
+    /// every arm must agree exactly with block 0.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    #[ignore = "reports timing; run in release with --ignored --nocapture"]
+    fn the_pooled_block_rate_by_block() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            println!("avx2 unavailable; there is no blocked reader to time");
+            return;
+        }
+        let (out, inn, rank, k) = (3072usize, 1024usize, 736usize, 228usize);
+        let linear = NqLinear::from_packed(packed_shape(out, inn, rank)).expect("decode");
+        let xs: Vec<Vec<i64>> = (0..k)
+            .map(|c| {
+                (0..inn)
+                    .map(|j| ((j * 37 + c * 11 + 5) as i64 % 101 - 50) << 24)
+                    .collect()
+            })
+            .collect();
+        let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
+        let terms = (rank * inn + out * rank) as f64 * k as f64;
+        println!(
+            "pool width {}; {k} columns, {out}x{inn} r{rank}, {:.3} G terms/call",
+            Pool::global().width(),
+            terms / 1e9
+        );
+        let mut first: Option<Vec<Vec<i64>>> = None;
+        for block in 0..=NQ_BLOCK_MAX {
+            let mut ns = [0u128; 3];
+            let mut got = Vec::new();
+            for slot in &mut ns {
+                let start = std::time::Instant::now();
+                got = linear
+                    .project_pooled_block(&refs, Reader::Q8, block)
+                    .expect("q8 pooled block");
+                *slot = start.elapsed().as_nanos();
+            }
+            match &first {
+                None => first = Some(got),
+                Some(want) => assert_eq!(&got, want, "block {block} disagrees with block 0"),
+            }
+            let mean = ns.iter().map(|&n| n as f64).sum::<f64>() / 3.0;
+            let min = ns.iter().copied().min().unwrap_or(0) as f64;
+            println!(
+                "block {block}: {:8.2} ms (min {:8.2})  {:6.2} G terms/s",
+                mean / 1e6,
+                min / 1e6,
+                terms / mean
             );
         }
     }

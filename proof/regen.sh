@@ -264,6 +264,9 @@ SERVING_OPAQUE=(
     --opaque 'crate::attn::i8::attn_core_i8_group_avx2_inner' # simd-twin: twin = attn_core_i8_group_scalar
     --opaque 'crate::kern::nq::code_select_block_avx2' # simd-twin: twin = code_select_rows_twin
     --opaque 'crate::kern::nq::code_select_rows_avx2' # simd-twin: twin = code_select_rows_twin
+    --opaque 'crate::kern::nq::code_select_block2_avx2' # simd-twin: twin = code_select_rows_twin, per column
+    --opaque 'crate::kern::nq::code_select_rows2_avx2' # simd-twin: twin = code_select_rows_twin, per column
+    --opaque 'crate::kern::nq::lane_sum' # simd-twin: the lane fold of code_select_twin
     --opaque 'crate::mixer::f32_carrier::delta_step_f32_avx2_inner' # simd-twin: twin = delta_step_f32_scalar
     --opaque 'crate::kern::lut::block_inners_avx2' # simd-twin: scalar block inner of the Pq2 LUT row
     --opaque 'crate::kern::lut::tile_accs_avx2' # simd-twin: scalar tile accumulate of the Pq2 LUT
