@@ -473,8 +473,9 @@ impl Engine {
 
     /// Layer part `part`'s projection of every column: the single-column helpers for one column;
     /// for more, the pooled `matmat_q8act` kernel on a resident `Q8_0`, `Q4_K` or `Q6_K` tensor
-    /// (weights read once per column group), else one single-column projection per column. Every
-    /// column equals the single path's.
+    /// (weights read once per column group), the pooled sign-rank product for a packed `NanoQuant`
+    /// linear, else one single-column projection per column. Every column equals the single
+    /// path's.
     ///
     /// # Complexity
     ///
@@ -497,10 +498,18 @@ impl Engine {
         pre: Option<&[QuantAct]>,
     ) -> Result<Vec<Vec<i64>>, StepError> {
         let key = super::part_key(layer, part);
-        // A packed linear carries no GGUF payload, so it takes the same per-column entry as the
-        // no-index schedule; `step_proj_sched` is the one dispatch that knows the sign-rank face.
-        // The pooled payload kernels below need a directory entry and do not apply.
+        // A packed linear carries no GGUF payload, so it takes the sign-rank entry, not the pooled
+        // payload kernels below. For more than one column the pooled sign-rank product reads each
+        // `V` and `U` row once per group; a refusal reruns the group per column, where each
+        // column keeps the single entry's own reader fallback.
         let Some(li) = li.filter(|_| self.nq_linear(key).is_none()) else {
+            if xs.len() > 1 {
+                match self.nq_proj_pooled(key, n_out, n_in, xs, mode) {
+                    Ok(Some(out)) => return Ok(out),
+                    Ok(None) | Err(StepError::Nq(crate::engine::NqError::Overflow)) => {}
+                    Err(e) => return Err(e),
+                }
+            }
             let mut out = Vec::with_capacity(xs.len());
             let mut i = 0usize;
             while i < xs.len() {

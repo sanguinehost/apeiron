@@ -60,7 +60,8 @@ that needs thousands of tokens runs on a rented host, not on this laptop and not
 | `Q4_K` | yes, packed AVX2 lane | its sibling `gemm_q4_k` deleted; parity or better at `k = 32/128/512` |
 | `Q6_K` | yes, packed AVX2 lane | its sibling `gemm_q6_k` deleted; parity at `k = 32/128/512` |
 | `F16` | limb tile | sibling route; folds or becomes a carrier core |
-| `Q2_K`, `Q3_K`, ternary, packed | per-column oracle | no pooled carrier yet |
+| `Q2_K`, `Q3_K` | per-column oracle | no pooled carrier yet |
+| ternary, packed | column group | `NqLinear::project_*_pooled`; factor rows read once per group |
 
 Each row band writes its values straight into the `k` output columns, so the `n_out × k` result is
 never staged interleaved and transposed. The band is why the 7B FFN up-projection, `18,944 × 3,584`

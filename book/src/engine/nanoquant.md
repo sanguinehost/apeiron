@@ -78,12 +78,20 @@ The reader resolves the binding, so the kernel receives a complete linear and th
 unchanged; `stored_bits` counts the block once. A member must be `k` or `v`, its head must be the
 same layer's `q`, and the shared bytes must be equal, or the pack refuses with `SharedHead`.
 
-## Two readers
+## The readers
 
 | mode | entry | arithmetic |
 |---|---|---|
 | exact | `NqLinear::project` | each sign plane expanded to `i64` `±1`, three-byte-limb products, checked `i128` |
 | q8 activation | `NqLinear::project_q8` | each stage activation quantised to one int8 code per element; the sign dot is `sum − 2·selected` |
+| a column group | `project_pooled`, `project_q8_pooled`, `project_ternary_pooled` | one `V` dispatch and one `U` dispatch for the group; each factor row read once and folded against every column it owns |
+
+The pooled entries take the same pre-scale, quantization, reader and accumulation order per column,
+so each column equals the single-column entry bit for bit; `proj_cols` takes them for `k > 1` and
+reruns the group through the per-column entry on a refusal. Pooling removes the repeated factor
+read, not the per-column sign dot: at 229 positions the same-binary A/B is 1.16× and the ceiling
+from the projection's 51.4% share of a 1,827-position cold turn is 2.06×
+(`bench/cpu/1795498875-nq06-pooled-projection.md`).
 
 `project_q8` quantises the stage activation with the same chart `matmat_q8act` uses: `S_b = 2^e_b`,
 the smallest power of two with `127·S_b ≥ absmax_b`, one code per element. For a sign plane the
@@ -115,6 +123,8 @@ route mix-up would leave it. On the production shapes the measured deviation is 
 | the q8 projection stays within `1/32` of the exact reader on the fixture | tested | `cargo test --lib --locked nq::tests` |
 | a sign flip of one factor moves the output | tested | `cargo test --lib --locked nq::tests` |
 | the staged product equals the sequential product | tested | `cargo test --lib --locked nq::tests` |
+| the pooled entries equal the per-column entries at `k = 1..256` | tested | `cargo test --lib --locked nq::tests` |
+| a packed prefill equals the per-column prefill, logits word for word | tested | `cargo test --lib --locked step::prefill_tests` |
 | the pack's stored bits equal the section payload | tested | `cargo test --lib --locked format::nq` |
 | a version-4 member binds to its layer's `q` and the shared block is stored once | tested | `cargo test --lib --locked format::nq` |
 

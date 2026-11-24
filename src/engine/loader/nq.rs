@@ -208,6 +208,52 @@ impl crate::engine::loader::Engine {
         out.map(Some).map_err(crate::engine::StepError::Nq)
     }
 
+    /// The pooled form of [`EngineLoader::nq_proj`](Self::nq_proj) over `xs`: one `V` dispatch
+    /// and one `U` dispatch for the whole column group, with each column's own reader,
+    /// quantization and accumulation order. Every output column equals the per-column call's.
+    ///
+    /// Unlike [`Self::nq_proj`], a block reader that refuses is returned, not replaced by the
+    /// exact reader: a whole-group fallback would change the columns that did not refuse, so the
+    /// caller reruns the group through the per-column entry, which keeps that entry's per-column
+    /// fallback.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::engine::StepError::BadShape`] when the requested shape is not the factor's, and
+    /// [`crate::engine::StepError::Nq`] for every [`crate::engine::NqError`] the product raises.
+    pub(crate) fn nq_proj_pooled(
+        &self,
+        key: TensorKey,
+        n_out: usize,
+        n_in: usize,
+        xs: &[Vec<i64>],
+        mode: crate::engine::KernelMode,
+    ) -> Result<Option<Vec<Vec<i64>>>, crate::engine::StepError> {
+        let Some(linear) = self.nq_linear(key) else {
+            return Ok(None);
+        };
+        if linear.out() != n_out || linear.inn() != n_in {
+            return Err(crate::engine::StepError::BadShape {
+                tensor: key.to_string(),
+                dims: vec![
+                    u64::try_from(linear.out()).unwrap_or(u64::MAX),
+                    u64::try_from(linear.inn()).unwrap_or(u64::MAX),
+                ],
+                expected: vec![
+                    u64::try_from(n_out).unwrap_or(u64::MAX),
+                    u64::try_from(n_in).unwrap_or(u64::MAX),
+                ],
+            });
+        }
+        let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
+        let out = match mode {
+            crate::engine::KernelMode::Exact => linear.project_pooled(&refs),
+            crate::engine::KernelMode::Q8Act => linear.project_q8_pooled(&refs),
+            crate::engine::KernelMode::Ternary => linear.project_ternary_pooled(&refs),
+        };
+        out.map(Some).map_err(crate::engine::StepError::Nq)
+    }
+
     /// The fitted linears' stored bytes and the dense weights they carry: the two terms of the
     /// pack's bits per weight.
     ///

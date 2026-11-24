@@ -2,12 +2,22 @@
 //! prefix by probe plus the missed tail. Prints both walls, the hit length, and decode.
 //!
 //! `cargo run --release --locked --example prefix_solve -- --model <gguf> --tokenizer <json>
-//!  [--pack <nqp>] [--prompt TEXT] [--len 2048] [--differ 205] [--decode 32] [--mb 512]`
+//!  [--pack <nqp>] [--prompt TEXT] [--len 2048] [--differ 205] [--decode 32] [--mb 512] [--phases]`
 //!
 //! `--len` cycles the prompt's tokens to that many positions; `--differ` replaces that many tail
 //! tokens for the third run, so it shares `len - differ` positions with the first. `--mb` must
 //! cover `bytes_per_position × (len + decode + 8)`; the line it prints states the charge, and a
-//! refusal leaves the cache empty (`0 entries`) rather than failing the turn.
+//! refusal leaves the cache empty (`0 entries`) rather than failing the turn. `--phases` turns on
+//! [`apeiron::engine::trace`] and prints each turn's per-phase split: the ns inside each leaf, its
+//! share of that turn's wall, and its span count. The split resets per turn, so the cold row shows
+//! the prefill and the shared row shows the tail.
+
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    reason = "the printed rates and the vocabulary cast are diagnostics; every count here is below \
+              2^53 and the vocabulary is a `u32` in the GGUF metadata"
+)]
 
 use apeiron::engine::loader::Engine;
 use apeiron::engine::prefix::{prefill_with_cache_mode, FnvPrefixHasher, PrefixCache};
@@ -26,6 +36,7 @@ struct Args {
     differ: usize,
     decode: usize,
     mb: usize,
+    phases: bool,
     mode: KernelMode,
 }
 
@@ -39,6 +50,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         differ: 205,
         decode: 32,
         mb: 512,
+        phases: false,
         mode: KernelMode::Q8Act,
     };
     let mut it = std::env::args().skip(1);
@@ -53,6 +65,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--differ" => a.differ = val()?.parse()?,
             "--decode" => a.decode = val()?.parse()?,
             "--mb" => a.mb = val()?.parse()?,
+            "--phases" => a.phases = true,
             "--kernel" => {
                 a.mode = match val()?.as_str() {
                     "exact" => KernelMode::Exact,
@@ -154,7 +167,27 @@ fn main() -> Result<(), Box<dyn Error>> {
         per_position.saturating_mul(a.len + a.decode + 8)
     );
     for (name, prompt) in [("cold", &ids), ("warm", &ids), ("shared", &other)] {
+        if a.phases {
+            apeiron::engine::trace::set_enabled(true);
+            apeiron::engine::trace::reset();
+        }
         let (prefill, decode_s, hit, first) = turn(&engine, &mut cache, prompt, a.decode, a.mode)?;
+        if a.phases {
+            // The trace covers the probe, the prefill and the decode; the denominator is the
+            // measured wall of both so the shares partition the turn rather than overflow it.
+            let wall = (prefill + decode_s).max(f64::MIN_POSITIVE) * 1e9;
+            for s in apeiron::engine::trace::snapshot() {
+                if s.ns > 0 {
+                    eprintln!(
+                        "  {:12} {:10.3} ms {:6.1}%  calls {}",
+                        s.name,
+                        s.ns as f64 / 1e6,
+                        100.0 * s.ns as f64 / wall,
+                        s.calls
+                    );
+                }
+            }
+        }
         let rate = a.len as f64 / prefill.max(f64::MIN_POSITIVE);
         println!(
             "{name:6} hit {hit:5}  prefill {prefill:8.3} s ({rate:7.2} tok/s)  \

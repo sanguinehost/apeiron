@@ -1192,11 +1192,179 @@ impl NqLinear {
         Ok(y)
     }
 
+    /// The exact product of every column in `xs`: [`NqLinear::project`] on each column, with one
+    /// pooled `V` pass and one pooled `U` pass instead of one dispatch pair per column.
+    ///
+    /// The arithmetic is the single-column kernel's: each column keeps its own pre-scaled words,
+    /// reader and accumulation order, and every output equals the per-column call bit for bit.
+    /// The pooled pass reads each `V` or `U` row once and folds it against every column its task
+    /// owns, so the pack's factor words are read once per column group.
+    ///
+    /// # Errors
+    ///
+    /// As [`NqLinear::project`], for every column. No column is written when any refuses. The group's
+    /// widths are checked before the arithmetic, so a group carrying both a wrong width and an
+    /// overflow reports the width; the per-column entry would report the earlier column's overflow
+    /// first. `proj_cols` never presents columns of differing widths.
+    ///
+    /// # Complexity
+    ///
+    /// `O(k·(rank·inn + out·rank + res_layers·out·inn))` additions and products; scratch
+    /// `O(k·(inn + rank + out))` words. Two pool dispatches per call.
+    pub fn project_pooled(&self, xs: &[&[i64]]) -> Result<Vec<Vec<i64>>, NqError> {
+        self.project_pooled_with(xs, Reader::Exact)
+    }
+
+    /// The Q8 reader over every column in `xs`: [`NqLinear::project_q8`] on each column, pooled
+    /// as [`NqLinear::project_pooled`] pools the exact reader.
+    ///
+    /// # Errors
+    ///
+    /// As [`NqLinear::project_q8`], for every column.
+    ///
+    /// # Complexity
+    ///
+    /// As [`NqLinear::project_pooled`] plus `O(k·(inn + rank))` quantization work.
+    pub fn project_q8_pooled(&self, xs: &[&[i64]]) -> Result<Vec<Vec<i64>>, NqError> {
+        self.project_pooled_with(xs, Reader::Q8)
+    }
+
+    /// The ternary reader over every column in `xs`: [`NqLinear::project_ternary`] on each
+    /// column, pooled as [`NqLinear::project_pooled`] pools the exact reader.
+    ///
+    /// # Errors
+    ///
+    /// As [`NqLinear::project_ternary`], for every column.
+    ///
+    /// # Complexity
+    ///
+    /// As [`NqLinear::project_pooled`] plus `O(k·(inn + rank))` quantization work.
+    pub fn project_ternary_pooled(&self, xs: &[&[i64]]) -> Result<Vec<Vec<i64>>, NqError> {
+        self.project_pooled_with(xs, Reader::Ternary)
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the two stages, their per-column readers and the refusal flag are one protocol"
+    )]
+    fn project_pooled_with(&self, xs: &[&[i64]], reader: Reader) -> Result<Vec<Vec<i64>>, NqError> {
+        let k = xs.len();
+        if k == 0 {
+            return Ok(Vec::new());
+        }
+        for x in xs {
+            if x.len() != self.inn {
+                return Err(NqError::Shape {
+                    x: x.len(),
+                    n_in: self.inn,
+                });
+            }
+        }
+        // `t_j = round(s_pre_j · x_j / 2^32)` for every column, and each column's `V` bound.
+        let mut t: Vec<i64> = vec![0; k * self.inn];
+        let mut narrow_t: Vec<bool> = Vec::with_capacity(k);
+        for (c, x) in xs.iter().enumerate() {
+            let at = c * self.inn;
+            let mut max_abs_t = 0u64;
+            for j in 0..self.inn {
+                match mul_q32(x[j], self.s_pre[j]) {
+                    Some(v) => {
+                        max_abs_t = max_abs_t.max(v.unsigned_abs());
+                        t[at + j] = v;
+                    }
+                    None => return Err(NqError::Overflow),
+                }
+            }
+            let bound = u128::from(max_abs_t).saturating_mul(self.inn as u128);
+            narrow_t.push(bound <= i64::MAX as u128);
+        }
+        let t_q = quantized_columns(&t, self.inn, reader);
+        let mut t_masks = ternary_columns(&t, self.inn, reader);
+        let t_stages = build_stages(t.chunks_exact(self.inn), &narrow_t, &t_q, &mut t_masks);
+        let pool = Pool::global();
+        let width = pool.width().max(1);
+        let cols = k.div_ceil(width.saturating_mul(4)).max(1);
+        let overflow = std::sync::atomic::AtomicBool::new(false);
+        // The `V` stage: one row read per rank row and folded against every column the task owns.
+        let mut z: Vec<i64> = vec![0; k * self.rank];
+        pool.chunks_mut(&mut z, cols * self.rank, &|_, at, zs| {
+            let c0 = at / self.rank;
+            let ncols = zs.len() / self.rank;
+            for r in 0..self.rank {
+                let vrow = &self.v[r * self.v_words..(r + 1) * self.v_words];
+                for cc in 0..ncols {
+                    let Some(dot) = i64::try_from(t_stages[c0 + cc].dot(vrow, self.inn)).ok()
+                    else {
+                        overflow.store(true, std::sync::atomic::Ordering::Relaxed);
+                        continue;
+                    };
+                    match mul_q32(dot, self.s_mid[r]) {
+                        Some(v) => zs[cc * self.rank + r] = v,
+                        None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
+                    }
+                }
+            }
+        });
+        if overflow.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(NqError::Overflow);
+        }
+        // The `U` stage's per-column bound: `rank·max|z|` decides the narrow source.
+        let mut max_abs_z: Vec<u64> = vec![0; k];
+        for c in 0..k {
+            for &v in &z[c * self.rank..(c + 1) * self.rank] {
+                max_abs_z[c] = max_abs_z[c].max(v.unsigned_abs());
+            }
+        }
+        let narrow_z: Vec<bool> = max_abs_z
+            .iter()
+            .map(|&m| u128::from(m).saturating_mul(self.rank as u128) <= i64::MAX as u128)
+            .collect();
+        let z_q = quantized_columns(&z, self.rank, reader);
+        let mut z_masks = ternary_columns(&z, self.rank, reader);
+        let z_stages = build_stages(z.chunks_exact(self.rank), &narrow_z, &z_q, &mut z_masks);
+        // The dense residual reads `x`; a pack without a residual layer skips that stage. The
+        // sparse correction indexes `x` directly and needs no reader at all.
+        let residual = self.res_layers > 0;
+        let mut narrow_x = vec![false; k];
+        if residual {
+            for (c, x) in xs.iter().enumerate() {
+                let max_abs_x = x.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);
+                let bound = u128::from(max_abs_x).saturating_mul(self.inn as u128);
+                narrow_x[c] = residual && bound <= i64::MAX as u128;
+            }
+        }
+        let x_q = quantized_slices(xs, reader, residual);
+        let mut x_masks = ternary_slices(xs, reader, residual);
+        let x_stages = build_stages(xs.iter().copied(), &narrow_x, &x_q, &mut x_masks);
+        let mut y: Vec<i64> = vec![0; k * self.out];
+        pool.chunks_mut(&mut y, cols * self.out, &|_, at, ys| {
+            let c0 = at / self.out;
+            let ncols = ys.len() / self.out;
+            for i in 0..self.out {
+                for cc in 0..ncols {
+                    match self.project_one_row(i, &z_stages[c0 + cc], &x_stages[c0 + cc]) {
+                        Some(v) => ys[cc * self.out + i] = v,
+                        None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
+                    }
+                }
+            }
+        });
+        if overflow.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(NqError::Overflow);
+        }
+        let mut out = Vec::with_capacity(k);
+        for c in 0..k {
+            out.push(y[c * self.out..(c + 1) * self.out].to_vec());
+        }
+        Ok(out)
+    }
+
     /// The `U` stage of [`NqLinear::project_with`]: `round(s_post_i·Σ_k U_ik·z_k / 2^32)` plus
     /// the sparse residual, one row per output element, parallel over `pool` chunks.
     ///
-    /// A refusal sets `overflow` and moves on rather than unwinding, because the body runs on pool
-    /// workers; the first stage shares the flag, so the caller reads it once after both stages.
+    /// A refusal sets `overflow` and leaves the row zero rather than unwinding, because the body
+    /// runs on pool workers; the first stage shares the flag, so the caller reads it once after
+    /// both stages.
     fn project_rows(
         &self,
         pool: &Pool,
@@ -1208,74 +1376,150 @@ impl NqLinear {
         let mut y: Vec<i64> = vec![0; self.out];
         let y_chunk = self.out.div_ceil(width.saturating_mul(4)).max(1);
         pool.chunks_mut(&mut y, y_chunk, &|_, at, ys| {
-            let mut d = 0usize;
-            while d < ys.len() {
-                let i = at + d;
-                let urow = &self.u[i * self.u_words..(i + 1) * self.u_words];
-                // A wide `U` sum is not a refusal by itself: the post-scale can bring it back
-                // into `i64`, so only the scaled output is checked.
-                let acc = z.dot(urow, self.rank);
-                let Some(low) = acc.checked_mul(i128::from(self.s_post[i])) else {
-                    overflow.store(true, std::sync::atomic::Ordering::Relaxed);
-                    d += 1;
-                    continue;
-                };
-                // The sparse residual lives in the weight's units: `Σ_j w_ij·x_idx[j]` is a
-                // Q64.32 sum like `low`, and one rounding decides the output. Both the term
-                // products and the sums are checked: an extreme factor refuses instead of
-                // wrapping in release.
-                let mut corr: i128 = 0;
-                let mut c = 0usize;
-                while c < self.k {
-                    let src = self.salient_idx[c] as usize;
-                    let term = i128::from(self.salient[i * self.k + c])
-                        .checked_mul(i128::from(x.wide[src]));
-                    if let Some(v) = term.and_then(|t| corr.checked_add(t)) {
-                        corr = v;
-                    } else {
-                        overflow.store(true, std::sync::atomic::Ordering::Relaxed);
-                        break;
-                    }
-                    c += 1;
+            for (d, slot) in ys.iter_mut().enumerate() {
+                match self.project_one_row(at + d, z, x) {
+                    Some(v) => *slot = v,
+                    None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
                 }
-                // The dense sign residual: `Σ_l s_res[l,i] · Σ_j sign_lij·x_j` is a Q64.32 sum
-                // like `corr`, so the row keeps one rounding after every term is added.
-                let mut res: i128 = 0;
-                let mut l = 0usize;
-                while l < self.res_layers {
-                    let at = (l * self.out + i) * self.res_words;
-                    let srow = &self.res[at..at + self.res_words];
-                    // The bits in `U` and `V` are consumed as a product, so their shared
-                    // inversion cancels; a residual plane is read once, and the negated stage dot
-                    // restores the format's bit-1-is-`+1` convention.
-                    let dot = -x.dot(srow, self.inn);
-                    let term = dot.checked_mul(i128::from(self.s_res[l * self.out + i]));
-                    let Some(v) = term.and_then(|t| res.checked_add(t)) else {
-                        overflow.store(true, std::sync::atomic::Ordering::Relaxed);
-                        break;
-                    };
-                    res = v;
-                    l += 1;
-                }
-                if l < self.res_layers {
-                    d += 1;
-                    continue;
-                }
-                if let Some(v) = low
-                    .checked_add(corr)
-                    .and_then(|v| v.checked_add(res))
-                    .and_then(|v| v.checked_add(1_i128 << 31))
-                    .and_then(|v| i64::try_from(v >> 32).ok())
-                {
-                    ys[d] = v;
-                } else {
-                    overflow.store(true, std::sync::atomic::Ordering::Relaxed);
-                }
-                d += 1;
             }
         });
         y
     }
+
+    /// Output row `i`: the `U` sign dot, the post-scale, the sparse correction and every dense
+    /// residual, rounded once. `None` is the checked refusal the caller records in its flag.
+    ///
+    /// A wide `U` sum is not a refusal by itself: the post-scale can bring it back into `i64`, so
+    /// only the scaled output is checked. The sparse correction lives in the weight's units:
+    /// `Σ_j w_ij·x_idx[j]` is a Q64.32 sum like the `U` term, and one rounding decides the row.
+    /// Both the term products and the sums are checked, so an extreme factor refuses instead of
+    /// wrapping in release.
+    ///
+    /// # Complexity
+    ///
+    /// `O(rank + k + res_layers·inn)` checked operations; `O(1)` space.
+    fn project_one_row(&self, i: usize, z: &Stage<'_>, x: &Stage<'_>) -> Option<i64> {
+        let urow = &self.u[i * self.u_words..(i + 1) * self.u_words];
+        let low = z
+            .dot(urow, self.rank)
+            .checked_mul(i128::from(self.s_post[i]))?;
+        let mut corr: i128 = 0;
+        let mut c = 0usize;
+        while c < self.k {
+            let src = self.salient_idx[c] as usize;
+            let term =
+                i128::from(self.salient[i * self.k + c]).checked_mul(i128::from(x.wide[src]))?;
+            corr = corr.checked_add(term)?;
+            c += 1;
+        }
+        // The dense sign residual: `Σ_l s_res[l,i] · Σ_j sign_lij·x_j` is a Q64.32 sum like
+        // `corr`, so the row keeps one rounding after every term is added. The bits in `U` and
+        // `V` are consumed as a product, so their shared inversion cancels; a residual plane is
+        // read once, and the negated stage dot restores the format's bit-1-is-`+1` convention.
+        let mut res: i128 = 0;
+        let mut l = 0usize;
+        while l < self.res_layers {
+            let at = (l * self.out + i) * self.res_words;
+            let srow = &self.res[at..at + self.res_words];
+            let dot = -x.dot(srow, self.inn);
+            res = res.checked_add(dot.checked_mul(i128::from(self.s_res[l * self.out + i]))?)?;
+            l += 1;
+        }
+        let v = low
+            .checked_add(corr)?
+            .checked_add(res)?
+            .checked_add(1_i128 << 31)?;
+        i64::try_from(v >> 32).ok()
+    }
+}
+
+/// The Q8 reader over `flat`'s columns of `n` words each, or one empty slot per column under a
+/// reader that does not quantize.
+///
+/// # Complexity
+///
+/// `O(k·n)` time and space in the column count `k` and width `n`.
+fn quantized_columns(flat: &[i64], n: usize, reader: Reader) -> Vec<Option<QuantAct>> {
+    if reader == Reader::Q8 {
+        flat.chunks_exact(n).map(quant_act).collect()
+    } else {
+        (0..flat.len() / n).map(|_| None).collect()
+    }
+}
+
+/// The ternary reader over `flat`'s columns of `n` words each, or one empty slot per column under
+/// a reader that does not quantize.
+///
+/// # Complexity
+///
+/// `O(k·n)` time and `O(k·n/64)` space.
+fn ternary_columns(flat: &[i64], n: usize, reader: Reader) -> Vec<Option<TernaryTerms>> {
+    if reader == Reader::Ternary {
+        flat.chunks_exact(n).map(TernaryTerms::new).collect()
+    } else {
+        (0..flat.len() / n).map(|_| None).collect()
+    }
+}
+
+/// The Q8 reader over separate column slices, or one empty slot per column when the reader does
+/// not quantize or the caller has no residual layer to read.
+///
+/// # Complexity
+///
+/// `O(k·n)` time and space.
+fn quantized_slices(xs: &[&[i64]], reader: Reader, residual: bool) -> Vec<Option<QuantAct>> {
+    if reader == Reader::Q8 && residual {
+        xs.iter().map(|x| quant_act(x)).collect()
+    } else {
+        (0..xs.len()).map(|_| None).collect()
+    }
+}
+
+/// The ternary reader over separate column slices, or one empty slot per column when the reader
+/// does not quantize or the caller has no residual layer to read.
+///
+/// # Complexity
+///
+/// `O(k·n)` time and `O(k·n/64)` space.
+fn ternary_slices(xs: &[&[i64]], reader: Reader, residual: bool) -> Vec<Option<TernaryTerms>> {
+    if reader == Reader::Ternary && residual {
+        xs.iter().map(|x| TernaryTerms::new(x)).collect()
+    } else {
+        (0..xs.len()).map(|_| None).collect()
+    }
+}
+
+/// The readers of a column group: one [`Stage`] per column, its Q8 codes built from `quant`, its
+/// ternary masks taken from `masks`, and its exact planes when no block reader applies and the
+/// column's narrow bound holds. The slices `quant` and `masks` are indexed by column and are
+/// consumed column by column, so the caller keeps owning the quantized words.
+///
+/// # Complexity
+///
+/// `O(k·n)` time for the codes, which is the only reader built here; `O(k·n)` space.
+fn build_stages<'a>(
+    cols: impl Iterator<Item = &'a [i64]>,
+    narrow: &[bool],
+    quant: &'a [Option<QuantAct>],
+    masks: &mut [Option<TernaryTerms>],
+) -> Vec<Stage<'a>> {
+    let mut codes: Vec<Option<CodeTerms<'a>>> = quant
+        .iter()
+        .map(|q| q.as_ref().and_then(CodeTerms::new))
+        .collect();
+    let mut stages = Vec::with_capacity(narrow.len());
+    for (c, wide) in cols.enumerate() {
+        let code = codes[c].take();
+        let ternary = masks[c].take();
+        let terms = (code.is_none() && ternary.is_none() && narrow[c]).then(|| Terms::new(wide));
+        stages.push(Stage {
+            wide,
+            terms,
+            codes: code,
+            ternary,
+        });
+    }
+    stages
 }
 
 /// The decoded geometry of one packed linear: strides, sparse columns and residual planes.
@@ -1566,6 +1810,87 @@ mod tests {
         assert_eq!(linear.project(&x).expect("project"), sequential(&p, &x));
     }
 
+    /// The pooled entries are the single-column entries over a group: same pre-scale, same
+    /// quantization, same reader and the same accumulation order, so every column is equal bit
+    /// for bit at every group width. The fixture carries a sparse correction and a dense
+    /// residual, so both are compared too.
+    #[test]
+    fn the_pooled_readers_equal_the_per_column_readers() {
+        let p = packed(12);
+        let linear = NqLinear::from_packed(p.clone()).expect("decode");
+        for k in [1usize, 2, 3, 7, 32, 33, 256] {
+            let xs: Vec<Vec<i64>> = (0..k)
+                .map(|c| {
+                    (0..p.inn)
+                        .map(|j| ((j * 37 + c * 11 + 5) as i64 % 101 - 50) << 24)
+                        .collect()
+                })
+                .collect();
+            let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
+            let exact: Vec<Vec<i64>> = xs
+                .iter()
+                .map(|x| linear.project(x).expect("exact"))
+                .collect();
+            let q8: Vec<Vec<i64>> = xs
+                .iter()
+                .map(|x| linear.project_q8(x).expect("q8"))
+                .collect();
+            let ternary: Vec<Vec<i64>> = xs
+                .iter()
+                .map(|x| linear.project_ternary(x).expect("ternary"))
+                .collect();
+            assert_eq!(
+                linear.project_pooled(&refs).expect("pooled exact"),
+                exact,
+                "exact, k {k}"
+            );
+            assert_eq!(
+                linear.project_q8_pooled(&refs).expect("pooled q8"),
+                q8,
+                "q8, k {k}"
+            );
+            assert_eq!(
+                linear
+                    .project_ternary_pooled(&refs)
+                    .expect("pooled ternary"),
+                ternary,
+                "ternary, k {k}"
+            );
+        }
+    }
+
+    /// The served pack has no residual layer and no sparse correction: the pooled reader must
+    /// skip the `x` stage and still equal the single-column reader.
+    #[test]
+    fn the_pooled_reader_skips_the_x_stage_without_a_residual() {
+        let mut p = packed(14);
+        p.res_layers = 0;
+        p.res.clear();
+        p.s_res.clear();
+        p.salient_idx.clear();
+        p.salient.clear();
+        let linear = NqLinear::from_packed(p.clone()).expect("decode");
+        let xs: Vec<Vec<i64>> = (0..33)
+            .map(|c| {
+                (0..p.inn)
+                    .map(|j| (((j * 17 + c * 7) % 61) as i64 - 30) << 25)
+                    .collect()
+            })
+            .collect();
+        let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
+        let single: Vec<Vec<i64>> = xs
+            .iter()
+            .map(|x| linear.project_q8(x).expect("q8"))
+            .collect();
+        assert_eq!(linear.project_q8_pooled(&refs).expect("pooled q8"), single);
+        // The group's widths are checked before the arithmetic: the whole call refuses.
+        let short = &xs[0][..p.inn - 1];
+        assert!(matches!(
+            linear.project_q8_pooled(&[refs[0], short]),
+            Err(NqError::Shape { .. })
+        ));
+    }
+
     #[test]
     fn the_wide_accumulator_agrees_when_the_bound_leaves_i64() {
         // Unit scales, sign planes all `-1`, and an alternating activation that cancels inside
@@ -1592,6 +1917,12 @@ mod tests {
             })
             .collect();
         assert_eq!(linear.project(&x).expect("project"), sequential(&p, &x));
+        let refs = [x.as_slice(), x.as_slice()];
+        let want = vec![
+            linear.project(&x).expect("per-column a"),
+            linear.project(&x).expect("per-column b"),
+        ];
+        assert_eq!(linear.project_pooled(&refs).expect("pooled"), want);
     }
 
     #[test]
