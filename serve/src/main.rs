@@ -71,7 +71,8 @@ struct Args {
     prefix_mb: usize,
     /// Pin cached states to this many positions. 0 uses each request's prompt + `max_tokens`.
     /// A growing session only reuses a snapshot whose capacity covers the new prompt, so a
-    /// pinned capacity is what makes successive turns hit.
+    /// pinned capacity is what makes successive turns hit. The default 2,048 covers a 2k
+    /// session; the live state is allocated at this capacity too, so it is the memory dial.
     prefix_ctx: usize,
 }
 
@@ -92,7 +93,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         kv_file: None,
         kv_block: 0,
         prefix_mb: 512,
-        prefix_ctx: 0,
+        prefix_ctx: 2048,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {

@@ -287,8 +287,9 @@ fn write_synth_gguf(name: &str) -> String {
     path.to_str().expect("utf8 path").to_string()
 }
 
-/// Helper: checks whether two `KvStates` match bit for bit in occupied positions.
-fn assert_kv_states_bit_identical(a: &KvState, b: &KvState) {
+/// Helper: checks that two `KvStates` have the same geometry and per-layer occupancy. The value
+/// check is the caller's logits checksum; this helper does not compare plane words.
+fn assert_kv_states_same_geometry_and_occupancy(a: &KvState, b: &KvState) {
     assert_eq!(a.n_layer(), b.n_layer());
     assert_eq!(a.n_head(), b.n_head());
     assert_eq!(a.n_head_kv(), b.n_head_kv());
@@ -348,14 +349,14 @@ fn warm_prefill_equals_cold_prefill_bit_for_bit() {
         "logits checksum mismatch between warm and cold"
     );
 
-    // Verify KvState bit-for-bit equality
-    assert_kv_states_bit_identical(&kv_warm2, &kv_cold2);
+    // The logits checksum above is the value check; these verify the same shape and occupancy.
+    assert_kv_states_same_geometry_and_occupancy(&kv_warm2, &kv_cold2);
 
     // Also verify prompt 1 itself when re-run warm
     let (kv_warm1, res_warm1) =
         prefill_with_cache(&engine, &mut cache, &prompt1, 16, false).expect("warm prefill prompt1");
     assert_eq!(res_warm1, res_cold1);
-    assert_kv_states_bit_identical(&kv_warm1, &kv_cold1);
+    assert_kv_states_same_geometry_and_occupancy(&kv_warm1, &kv_cold1);
 }
 
 #[test]

@@ -31,13 +31,14 @@
 //! - If `m < entry.tokens.len()`, a clone of the prompt's state is truncated in-place to `m`
 //!   positions via [`truncate_kv_state`], which sets the layer occupied counters to `m`.
 //!
-//! Snapshot memory is dominated by the key and value matrices. For a prompt at `n` positions:
-//! - Per position, the KV footprint is `2 · kv_out · 8 · n_layer` bytes, where
-//!   `kv_out = n_head_kv · head_dim`.
-//! - For Qwen2.5-0.5B (`n_layer = 24`, `n_head_kv = 2`, `head_dim = 64`, `kv_out = 128`):
-//!   `2 · 128 · 8 · 24 = 49,152` bytes/position (~49 KB/position).
-//! - For Bonsai-8B (`n_layer = 32`, `n_head_kv = 8`, `head_dim = 128`, `kv_out = 1024`):
-//!   `2 · 1024 · 8 · 32 = 524,288` bytes/position (~512 KB/position, or ~458 KB/position with non-padded layout).
+//! Snapshot memory is dominated by the key and value planes, at the state's carrier width:
+//! - Per position, the footprint is `2 · n_head_kv · head_dim · n_layer` values times the carrier
+//!   width: 4 B for `F32`, 8 B for `Q32`, and 1 B plus one `f32` scale per row per plane for `I8`.
+//! - The charge is that times `cap`, because a clone carries whole planes, not the occupied prefix.
+//! - Qwen3-0.6B (28 layers, 8 kv heads × 128): 57,344 values/position, 229,376 B at `F32`, so
+//!   405 MiB at capacity 1,851.
+//! - The 8B (36 layers, 8 kv heads × 128): 73,728 values/position, 294,912 B at `F32`, so
+//!   580 MiB at capacity 2,064.
 //!
 //! # Eviction
 //!
@@ -385,6 +386,8 @@ impl<H: PrefixHasher> PrefixCache<H> {
     ///
     /// - Returns [`PrefixCacheError::BudgetExceeded`] when the snapshot alone exceeds `byte_budget`,
     ///   leaving the cache completely unchanged.
+    /// - Returns [`PrefixCacheError::Step`] with [`StepError::BadConfig`] when `kv` holds fewer
+    ///   positions than `tokens`.
     /// - Returns [`PrefixCacheError::CapacityExceeded`] if boundary length exceeds `u32::MAX`.
     ///
     /// # Complexity
@@ -396,6 +399,16 @@ impl<H: PrefixHasher> PrefixCache<H> {
         let m = tokens.len();
         if m == 0 {
             return Ok(());
+        }
+
+        // The snapshot must hold the prompt it is filed under; a shorter state would resume at
+        // the wrong offset.
+        if let Ok(occ) = kv.occupied(0) {
+            if occ < m {
+                return Err(PrefixCacheError::Step(StepError::BadConfig(format!(
+                    "the snapshot holds {occ} positions for a {m}-token prompt"
+                ))));
+            }
         }
 
         let needed = Self::estimate_snapshot_bytes(kv);
@@ -547,6 +560,11 @@ pub fn prefill_with_cache_mode<H: PrefixHasher>(
         }
         let mut kv = cached_state.clone();
         if let Ok(occ) = kv.occupied(0) {
+            if occ < m {
+                return Err(PrefixCacheError::Step(StepError::BadConfig(format!(
+                    "the cached state holds {occ} positions, its boundary claims {m}"
+                ))));
+            }
             if occ > m && !truncate_kv_state(&mut kv, m) {
                 return Err(PrefixCacheError::CapacityExceeded);
             }

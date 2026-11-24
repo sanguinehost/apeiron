@@ -1,12 +1,14 @@
 # The table's share of the wall
 
-Criterion: Q3 (fit cost) and T2 (turn latency). The rule is wall seconds: a component that is
+Criterion: **T2** (turn latency); the fit-cost section below measures a share and advances no
+criterion. T2 is a 1,000-token incremental turn at 200k in ≤ 60 s; this note measures the mechanism
+at 1,827 positions on the 0.6B and does not close T2. The rule is wall seconds: a component that is
 faster is cheaper in exact proportion to the share of the phase it owns. The share is the whole
 question; this note measures it in the three places the table could sit.
 
 Grades: `measured` for the 0.6B cold/warm/shared walls, the phase splits and the prefill/decode
 rates (logs named below), `tested` for the batched tail and the snapshot charge, and `model` for
-the 8B turn projection (its hit rate is a usage assumption, not a run). No part of Q3's PPL bar is
+the 8B turn upper bound (its hit rate is a usage assumption, not a run). No part of Q2 or Q3 is
 advanced.
 
 ## The three paths
@@ -33,24 +35,27 @@ behind every hash hit.
 
 Qwen3-0.6B-Base (`skeleton-q8head.gguf`), `nq06-v3.nqp` (196 linears, 0.977441 b/w), tokenizer
 `qwen3-0.6b-base-e8/tokenizer.json`, `APEIRON_THREADS=4`, three runs per row, `--differ 205`.
-The cold row reproduces the published baseline (29.44 tok/s, spread 28.01–31.95):
+Raw lines, host and the discarded repeats: `bench/cpu/1795480700-nq06-prefix-solve.md`. The cold
+row reproduces the published baseline (29.44 tok/s, spread 28.01–31.95):
 
 | turn | prefill s (3 runs) | mean | prefill tok/s | vs cold | decode tok/s |
 |---|---|---:|---:|---:|---:|
 | cold, no hit | 63.166 / 65.138 / 69.577 | 65.96 | 27.7 | 1.00× | 14.53 / 14.30 / 8.93 |
 | warm, hit 1,824 | 0.268 / 0.287 / 0.416 | 0.324 | 5,640 | **203.8×** | 14.46 / 14.31 / 10.87 |
-| shared, hit 1,616, 205-token delta | 11.765 / 12.454 / 13.227 | 12.48 | 146.4 | **5.29×** | 10.81 / 11.03 / 13.53 |
+| shared, hit 1,616, 211-token tail | 11.765 / 12.454 / 13.227 | 12.48 | 146.4 | **5.29×** | 10.81 / 11.03 / 13.53 |
 
-A 16-token turn is 67.2 s cold and 13.7 s on the 205-token delta, **4.9×**. Decode is unchanged:
+A 16-token turn is 67.2 s cold and 13.7 s on the 211-token tail, **4.9×**. Decode is unchanged:
 the cache holds KV, not weights, and `matmat_q8act` reads the pack every token, so the table is 0%
 of decode and this work cannot move decode tok/s.
 
-The hit is 88.5% of the positions but removes 80.9% of the prefill time: the 205 missed queries
-still attend to the 1,616 cached keys. `attn.core` is 49.8% of a token at 1,827
-(`bench/cpu/1795170568-nq06-context-split.md`), and the tail costs 61 ms/position here against
-26 ms/position for the same 205-token tail over a 304-position prefix (512-token run: cold
-13.00 s, warm hit 496 in 0.498 s = 26.1×, shared hit 304 in 5.36 s = 2.4×; one shared run of 11.90 s
-is excluded as an outlier). The remaining cost is the attention of the tail, not the projections.
+The hit is 1,616/1,827 = 88.5% of the positions and removes 81.1% of the wall. The tail is why it is
+not 88.5%: its 211 positions attend to all 1,616 cached keys, so they carry
+`1 − (1,616/1,827)² = 21.8%` of the key reads and cost 59.2 ms/position against 36.1 cold.
+`attn.core` is 49.8% of a token at 1,827 (`bench/cpu/1795170568-nq06-context-split.md`). At a
+304-token prefix the same 208-position tail costs 25.8 ms/position against 25.4 cold (512-token
+run: cold 13.00 s, warm hit 496 in 0.498 s = 26.1×, shared hit 304 in 5.36 s = 2.4×; the third
+shared run of 11.90 s is an outlier, excluded in the receipt). The remaining cost is the tail's
+attention, not its projections.
 
 ### Measured 8B, for comparison
 
@@ -62,24 +67,28 @@ is excluded as an outlier). The remaining cost is the attention of the tail, not
 | decode, 32 tokens | 11.1 s (2.884 tok/s) |
 | turn | 500.9 s, **97.8% prefill** |
 
-At `m = 1,843` (a 90% shared prefix), `model` from that rate:
+At `m = 1,843` (a 90% shared prefix), a *linear* projection from that rate gives 49.0 s and 8.3×
+for the turn. That is an upper bound, not the prediction: it prices the 205 tail positions at the
+cold average, while the 0.6B measurement shows the tail is attention-bound — 211 positions
+attending to 1,616 keys hold the ratio at 5.29×. The 8B tail attends to 1,843 keys, so its ceiling
+is the same 1/(1 − 0.90²) ≈ 5.3×, not 8.3×. Grade: `model`.
 
-| term | model |
+| term | model (upper bound) |
 |---|---:|
 | prefill the remaining 205 positions | 49.0 s |
 | decode 32 | 11.1 s |
 | turn | 60.1 s |
-| ratio | **8.3×**, 88% of the turn removed |
+| ratio | **8.3×** linear; **≤5.3×** with the tail's attention |
 
 The snapshot that makes it work is the cost: 294,912 B/position at F32 (73,728 values × 4 B), so a
 1,843-position prefix is **543 MB** — more than a quarter of the 2 GiB left for agent sessions on
 this laptop. A 2k capacity (2,064 positions) is 580 MiB, so the served 8B needs
 `--prefix-mb 700`; the 0.6B at 1,827 charges **424,574,976 B (405 MiB)** at capacity 1,851
 (229,376 B/position), measured as `cache ... 424574976 bytes stored`, so it needs
-`--prefix-mb 440`, not the 256 MiB default. `KvCarrier::I8` is 1 B/value and would make the 8B
+`--prefix-mb 440`, not the 512 MiB default. `KvCarrier::I8` is 1 B/value and would make the 8B
 snapshot 136 MB; it is a carrier change with its own quality gate, unmeasured here.
 
-The charge was wrong until this run: `estimate_snapshot_bytes` hardcoded 8 B/value and counted the
+The charge was wrong until this turn: `estimate_snapshot_bytes` hardcoded 8 B/value and counted the
 occupied length, so the 1,827 entry was charged 838,139,904 B — twice its F32 footprint and without
 the spare capacity the clone carries. It now charges `cap × bytes_per_position`, the carrier width
 (F32 4 B, Q32 8 B, I8 1 B plus its scales), and
@@ -101,15 +110,21 @@ the 2 h gate; a table is not in any of those terms.
   per-token oracle) and `the_snapshot_charge_follows_the_carrier_and_the_capacity`. All ten pass:
   `cargo test --lib prefix::tests`. The batched tail is `tested`; the measured runs above are on
   the 0.6B only.
+- T2 itself: its target is a 1,000-token incremental turn at 200k in ≤ 60 s. The runs here are a
+  0.6B mechanism measurement at 1,827 positions.
 - No 8B run of the wired server: the 580 MiB 2k snapshot plus the live state does not fit beside
-  the model under the laptop's 2 GiB agent reserve. The 8.3× is `model` from the measured 8B
-  prefill rate.
+  the model under the laptop's 2 GiB agent reserve. The 8B 8.3× is a linear upper bound from the
+  measured prefill rate; the tail's attention caps it at the same ≈5.3× the 0.6B measured.
 - The 90% hit rate is a coding-agent usage assumption, `model`. A session with no shared prefix
   gets 0% of the win. The measured hits are exact-prefix repeats, not a workload.
-- Decode is untouched: 8.9–14.5 tok/s across the 1,827 runs (mean 12.6) against the 13.51
-  baseline with its 11.58–14.64 spread. The dent is prefill and turn latency.
+- Decode is untouched: 8.9–14.5 tok/s across the 1,827 runs (nine values, mean 12.5) against the
+  13.51 baseline with its 11.58–14.64 spread. The dent is prefill and turn latency.
+- The tabulated runs predate the example's warmup pass and charge fix; the timing path is the same
+  code, and the corrected charge is 405 MiB (measured `424574976 bytes stored` in the later run).
+  The later repeats (11:35–11:47) fell to 4.1 tok/s decode under the intent workspace's clippy and
+  are discarded in the receipt.
 - One shared run at 512 positions (11.90 s against 5.23/5.50) is an outlier excluded from the
-  mean; the machine carried load average 7 during the 1,827 runs.
+  mean; the machine carried load average 6–7 during the 1,827 runs.
 - The I8 snapshot figure is arithmetic on the carrier width, not a measurement.
 - The 2k prefill is 4.18 tok/s on the `NqLinear` path that re-reads the pack per column
   (`src/engine/step/cols.rs:503-507`); that defect is separate, and fixing it lowers the prefill

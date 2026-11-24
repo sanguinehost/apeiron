@@ -2,13 +2,15 @@
 //! prefix by probe plus the missed tail. Prints both walls, the hit length, and decode.
 //!
 //! `cargo run --release --locked --example prefix_solve -- --model <gguf> --tokenizer <json>
-//!  [--pack <nqp>] [--prompt TEXT] [--len 2048] [--differ 205] [--decode 32] [--mb 256]`
+//!  [--pack <nqp>] [--prompt TEXT] [--len 2048] [--differ 205] [--decode 32] [--mb 512]`
 //!
 //! `--len` cycles the prompt's tokens to that many positions; `--differ` replaces that many tail
-//! tokens for the third run, so it shares `len - differ` positions with the first.
+//! tokens for the third run, so it shares `len - differ` positions with the first. `--mb` must
+//! cover `bytes_per_position × (len + decode + 8)`; the line it prints states the charge, and a
+//! refusal leaves the cache empty (`0 entries`) rather than failing the turn.
 
 use apeiron::engine::loader::Engine;
-use apeiron::engine::prefix::{prefill_with_cache_mode, PrefixCache};
+use apeiron::engine::prefix::{prefill_with_cache_mode, FnvPrefixHasher, PrefixCache};
 use apeiron::engine::{argmax_fixed, KernelMode};
 use apeiron::format::bpe::Bpe;
 use apeiron::format::nq;
@@ -36,7 +38,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         len: 2048,
         differ: 205,
         decode: 32,
-        mb: 256,
+        mb: 512,
         mode: KernelMode::Q8Act,
     };
     let mut it = std::env::args().skip(1);
@@ -78,10 +80,11 @@ fn turn(
     decode: usize,
     mode: KernelMode,
 ) -> Result<(f64, f64, usize, u32), Box<dyn Error>> {
+    // The probe is part of the prefill the caller pays; it also reports the hit this turn uses.
+    let t0 = Instant::now();
     let hit = cache
         .longest_prefix(&ids[..ids.len() - 1])
         .map_or(0, |(m, _)| m);
-    let t0 = Instant::now();
     let (kv, first) = prefill_with_cache_mode(engine, cache, ids, decode + 8, true, mode)
         .map_err(|e| format!("{e:?}"))?;
     let prefill = t0.elapsed().as_secs_f64();
@@ -120,13 +123,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let c = &engine.config;
     let values = 2 * c.n_head_kv * c.head_dim * c.n_layer;
+    let probe = engine.decode_state(1).map_err(|e| format!("{e:?}"))?;
+    let per_position = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&probe);
     eprintln!(
-        "kv            {} layers, {} kv heads x {}, {} values/position, {} B (i64)",
-        c.n_layer,
-        c.n_head_kv,
-        c.head_dim,
-        values,
-        values * 8
+        "kv            {} layers, {} kv heads x {}, {} values/position, {} B/position charged",
+        c.n_layer, c.n_head_kv, c.head_dim, values, per_position
     );
     let ids: Vec<u32> = (0..a.len).map(|i| seed[i % seed.len()]).collect();
     let vocab = engine.config.vocab_size as u32;
@@ -135,10 +136,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         *id = (*id + 1) % vocab;
     }
 
+    // Page the mapped weights and the pack in before the cold turn, so the cold row is the
+    // steady-state prefill and not the first touch of a 500 MB skeleton.
+    let mut warm_state = engine.state(64).map_err(|e| format!("{e:?}"))?;
+    engine
+        .prefill_state(&mut warm_state, &ids[..ids.len().min(32)], a.mode)
+        .map_err(|e| format!("{e:?}"))?;
+    drop(warm_state);
+
     let mut cache = PrefixCache::new(a.mb.saturating_mul(1024 * 1024));
     println!(
-        "len {} differ {} decode {} cache {} MiB",
-        a.len, a.differ, a.decode, a.mb
+        "len {} differ {} decode {} cache {} MiB, {} B needed",
+        a.len,
+        a.differ,
+        a.decode,
+        a.mb,
+        per_position.saturating_mul(a.len + a.decode + 8)
     );
     for (name, prompt) in [("cold", &ids), ("warm", &ids), ("shared", &other)] {
         let (prefill, decode_s, hit, first) = turn(&engine, &mut cache, prompt, a.decode, a.mode)?;
