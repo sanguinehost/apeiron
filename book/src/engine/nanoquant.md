@@ -93,6 +93,16 @@ read, not the per-column sign dot: at 229 positions the same-binary A/B is 1.16�
 from the projection's 51.4% share of a 1,827-position cold turn is 2.06×
 (`bench/cpu/1795498875-nq06-pooled-projection.md`).
 
+Under `Q8` the pooled reader also folds a block of factor rows against one read of the column's
+code and shift planes. `APEIRON_NQ_BLOCK` selects the block: `0` and `1` are the per-row loop, the
+default is 4, and values above 8 clamp. `code_select_block_avx2` is the body, dispatched from
+`code_select_rows_avx2` over `R = 2..=8`, and `code_select_rows_twin` is its per-row definition.
+At 1,827 positions the 1.09× over eight same-binary pairs and 1.12× over all fifteen is
+`measured` on the 0.6B cold projection sum: `bench/cpu/1795518973-nq-blocking.md` runs
+`examples/prefix_solve.rs` and gates the reader's equality with
+`cargo test --lib --locked engine::kern::nq`. Block 8 is not separated from 4 on the laptop, so 4
+stays the default.
+
 `project_q8` quantises the stage activation with the same chart `matmat_q8act` uses: `S_b = 2^e_b`,
 the smallest power of two with `127·S_b ≥ absmax_b`, one code per element. For a sign plane the
 product collapses to a selection: with `c_i` the code and `b_i` the sign bit,
@@ -104,8 +114,10 @@ product collapses to a selection: with `c_i` the code and `b_i` the sign bit,
 so the kernel keeps the block's code sum and subtracts twice the codes selected by the sign word.
 The selector `code_select_avx2` and its scalar twin `code_select_twin` compute the same integer; the
 test `the_code_source_equals_the_scalar_source` asserts equality over the boundary lengths. The
-`Q8Act` dispatch falls back to `project` when the stage bound refuses, so no activation can overflow
-a code path that the exact reader would accept.
+blocked selector `code_select_block_avx2` runs the same arithmetic block for block over `R` rows,
+and `the_blocked_code_source_equals_the_per_row_source` asserts it equal to `code_select_rows_twin`.
+The `Q8Act` dispatch falls back to `project` when the stage bound refuses, so no activation can
+overflow a code path that the exact reader would accept.
 
 ## The bound
 
@@ -124,12 +136,14 @@ route mix-up would leave it. On the production shapes the measured deviation is 
 | a sign flip of one factor moves the output | tested | `cargo test --lib --locked nq::tests` |
 | the staged product equals the sequential product | tested | `cargo test --lib --locked nq::tests` |
 | the pooled entries equal the per-column entries at `k = 1..256` | tested | `cargo test --lib --locked nq::tests` |
+| the blocked selector equals the per-row source at every block `0, 1…8, 13` | tested | `cargo test --lib --locked nq::tests` |
 | a packed prefill equals the per-column prefill, logits word for word | tested | `cargo test --lib --locked step::prefill_tests` |
 | the pack's stored bits equal the section payload | tested | `cargo test --lib --locked format::nq` |
 | a version-4 member binds to its layer's `q` and the shared block is stored once | tested | `cargo test --lib --locked format::nq` |
 
 The extraction does not include `code_select_avx2` or any AVX2 body: Aeneas does not model
 `core::arch`, so an intrinsic body is `tested` against its safe twin and never `proved`. The
+blocked bodies `code_select_block_avx2` and `code_select_rows_avx2` are in the same class. The
 refinement theorem covers the twin and the integer arithmetic around it.
 
 ## What it does not establish

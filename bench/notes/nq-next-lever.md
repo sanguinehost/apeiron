@@ -1,13 +1,15 @@
 # NQ projection: decision on the row block and the next lever
 
-Receipt: `bench/cpu/1795513383-nq-blocking.md`. This note is the handoff, not evidence.
+Receipt: `bench/cpu/1795518973-nq-blocking.md`. This note is the handoff, not evidence.
 
 ## Decision
 
-`NQ_BLOCK = 4` stays the default (`src/engine/kern/nq.rs`). Eleven laptop pairs, 8 favour block 4,
-projection median **1.081**; the box screen is 1.063. The projection reduction is `measured`. The
-wall reduction holds only in the first series and is not claimed. `APEIRON_NQ_BLOCK=0` is the
-same-binary control and stays.
+`NQ_BLOCK = 4` stays the default (`src/engine/kern/nq.rs`). Eight same-binary laptop pairs give
+projection **1.094** [1.029, 1.159] and wall **1.069** [1.006, 1.132]; all 15 pairs, including the
+seven from the build before the `0`-arm fix, give projection **1.119** [1.050, 1.188] and wall
+**1.088** [1.024, 1.152], 12 of 15 above 1. Both reductions are `measured` on the 0.6B cold turn;
+the 7B, the 200k context and the 20 tok/s claim are untouched. `APEIRON_NQ_BLOCK=0` is the
+same-binary control and stays, as do the values the parse clamps.
 
 Do not add a block size, a second row loop or a `gemm_*` sibling. The row block is a dial on
 `code_select_block_avx2`; `R` is monomorphised 2..8 by `code_select_rows_avx2`.
@@ -35,10 +37,12 @@ needs the laptop pairs.
 
 1. **Confirm block 8 on the laptop.** The box says it leads: two alternating pairs, projection
    13,505.9 → 12,938.4 ms (1.044) and 13,581.3 → 12,809.5 ms (1.060), wall 1.029 and 1.042, with
-   block 8 winning even when it ran last at load 5.44. The laptop's only block-8 run is unpaired,
-   45.009 s inside block 4's 43.752–47.547 s range. Run two alternating laptop pairs at 1,827 and
-   set `NQ_BLOCK = 8` only if the ratio clears ~1.02 in the same direction. The register budget is
-   13 of 16 YMM lanes; if it clears, `NQ_BLOCK_MAX = 8` is already the clamp.
+   block 8 winning even when it ran last at load 5.44. The laptop's four-run sequence is block 4
+   40,682 ms, block 8 40,208, block 8 40,394, block 4 41,820 (walls 56.593, 56.056, 56.270,
+   58.205 s): block 8 is 2.3% below the mean of the bracketing block-4 runs, but those two differ
+   from each other by 2.8% and the sequence is not alternating. Run two alternating laptop pairs at
+   1,827 and set `NQ_BLOCK = 8` only if the ratio clears ~1.02 in the same direction. The register
+   budget is 13 of 16 YMM lanes; if it clears, `NQ_BLOCK_MAX = 8` is already the clamp.
 2. **If block 8 lands, which per-row-block cost binds next?** The inner loop per 32 terms per row is
    `vpsrlvd`, `vpshufb`, `vpshufb`, `vpand`, `vpmaddubsw`, `vpmaddwd`, `vpsllvd`, `vpaddd`, plus
    one scalar `words[r*stride + b]` load and its address arithmetic. Probe three candidates, one at
@@ -53,9 +57,11 @@ needs the laptop pairs.
    at once. `perf stat` on the box is acceptable if it is permitted there — one `instructions` and
    `cycles` count per arm settles which of the three is real before any A/B.
 
-Do not start with the dot's arithmetic: the blocked path is already at 24.76 G/s at 1,827 against
-the 33.60 G/s the 229 window reaches, and the gap is the KV stream and issue headroom, not the
-select.
+Do not start with the dot's arithmetic. The blocked reader measures 24.76 G terms/s in the early
+1,827 window and 18.14 in the late one; the 229 window reaches 33.60 early and 18.49 late, so the
+absolute rate is a property of the window as much as the kernel. The computed issue bound is 38–40
+G terms/s and the measured kernel sits at 0.45–0.65 of it: the gap is the short linears' per-row
+horizontal fold and epilogue, over 15–32 words per row, not the select.
 
 ## The box loop
 

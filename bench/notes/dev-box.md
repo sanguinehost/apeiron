@@ -96,8 +96,8 @@ clamps a count down and never raises the 2-job default, so the box's wrapper als
 
 | step | result |
 |---|---|
-| `cargo test --workspace --all-features --locked` | 680 passed, 45 failed, 62 ignored — all GPU |
-| `cargo test --workspace --locked` (`gpu` off) | 668 passed, 1 failed, 51 ignored |
+| `cargo test --workspace --all-features --locked` | 681 passed, 45 failed, 62 ignored — all GPU |
+| `cargo test --workspace --locked` (`gpu` off) | 669 passed, 1 failed, 51 ignored |
 | `cargo clippy --workspace --all-features --all-targets --locked -- -D warnings` | 0 |
 | `cargo fmt --all -- --check` | 0 |
 | `tools/check-claims.py`, `tools/book-check.py`, `mdbook build book` | 0 |
