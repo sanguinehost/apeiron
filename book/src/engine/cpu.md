@@ -68,8 +68,13 @@ quantises at append to `s = max|x| / 127` and `code = clamp(round_ties_even(x / 
 One pool task owns one KV head and its `group = n_head / n_head_kv` query heads. Under `i8` the
 task reads each K and V code row once and folds every query head of the group against it; under
 `q32` and `f32` it issues the per-head reads in the same order, so the words are the per-head
-words. The int8 scalar body and its AVX2 body are bit-identical; the AVX2 body is opaque to the
-extraction and `tested` equal to the scalar twin. The block certificate is `q32`-only.
+words. On a prefill block the `f32` carrier instead dispatches one task per (tile of 32 consecutive
+columns, KV head): `attn_core_f32_tile` loads each K and V row once per tile pass and folds every
+query head of every column in the tile against it, running each column's own online-softmax
+recurrence, so its words equal the per-column read's. `APEIRON_ATTN_TILE=0` selects the per-column
+dispatch for a same-binary A/B. The int8 scalar body and its AVX2 body are bit-identical; the AVX2
+body is opaque to the extraction and `tested` equal to the scalar twin. The block certificate is
+`q32`-only.
 
 ## What is established
 
@@ -79,6 +84,7 @@ extraction and `tested` equal to the scalar twin. The block certificate is `q32`
 | `Q8Act` equals the exact projection on the quantised activation | tested | `cargo test --workspace --all-features --locked` |
 | AVX2 core equals the portable core | tested | `cargo test --workspace --all-features --locked` |
 | the int8 KV group read equals the per-head read of each slot | tested | `cargo test --workspace --all-features --locked` |
+| the F32 tile read equals the per-column group read, word for word | tested | `cargo test --workspace --all-features --locked` |
 | the int8 KV scalar and AVX2 bodies are bit-identical | tested | `cargo test --workspace --all-features --locked` |
 | the int8 KV read matches an f64 causal-softmax oracle | tested | `cargo test --workspace --all-features --locked` |
 | the executed engine refines a Lean specification | open | none |

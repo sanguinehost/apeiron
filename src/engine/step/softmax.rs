@@ -10,6 +10,7 @@ use super::{
     add_assign_fixed, apply_sigmoid_gate, qk_norm_and_rope, split_query_gate, LayerIndex, Sched,
     StepError,
 };
+use crate::engine::attn::KvCarrier;
 use crate::engine::chart::task::{HeadTask, Task2};
 use crate::engine::loader::{opt_slice, DecodeVectors};
 use crate::engine::trace::{self, Phase};
@@ -30,6 +31,19 @@ fn exact_scan_enabled() -> bool {
 /// re-parenthesise the exact `i128` `den`/`num` sums, so the value changes no result; 32 keys keep
 /// the `head_dim`-wide numerator hot through a tile.
 const EXACT_SCAN_TILE: usize = 32;
+
+/// Consecutive columns per attention tile on the [`KvCarrier::F32`] path: the tile reads each K/V
+/// row once and folds it against all of the tile's queries. The cold read falls from
+/// `Σ_c (pos₀ + c + 1)` rows to `Σ_t (pos₀ + t·QUERY_TILE + QUERY_TILE)`, about `1/QUERY_TILE`
+/// of it; 32 keeps the score stage (`nq · KEY_CHUNK` words) inside L2.
+const QUERY_TILE: usize = 32;
+
+/// The `APEIRON_ATTN_TILE` flag: the tiled F32 read unless set to `0`. A same-binary A/B switch,
+/// parsed once per process like [`exact_scan_enabled`]'s environment fallback.
+fn attn_tile_enabled() -> bool {
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| std::env::var("APEIRON_ATTN_TILE").as_deref() != Ok("0"))
+}
 
 impl Engine {
     /// The `[query | key | value]` projection columns of [`Engine::softmax_cols`]: the single-column
@@ -445,24 +459,102 @@ impl Engine {
         if let Some(e) = err {
             return Err(e);
         }
-        // Stage 3: per (column, head) attention and gate. With `APEIRON_EXACT_SCAN=1` the read is
-        // the fused `(m, den, num)` fold; the flag is resolved here, on the calling thread, so the
-        // pool workers run one path for the whole dispatch.
+        // Stage 3: attention and gate, one pool task per (column, KV head) — or, on the F32
+        // carrier, per (tile of consecutive columns, KV head), where a tile reads each K/V row once
+        // for all of its columns. With `APEIRON_EXACT_SCAN=1` the per-column read is the fused
+        // `(m, den, num)` fold; the flag is resolved here, on the calling thread, so the pool
+        // workers run one path for the whole dispatch.
         //
-        // Pool task `t = n·n_head + h` owns fold position `n`, whose key column is `fold_col(n, k)`.
-        // A contiguous range of the speed-weighted split then alternates cheap and expensive columns
-        // instead of taking a monotone run of the cheapest. Each `(c, h)` reads only `prep`, the
-        // read-only KV cache and `last[c]`, so the permutation leaves every word bit-identical; the
-        // gather after the dispatch restores the tip's block order.
+        // The per-column task `t = n·n_kv + h` owns fold position `n`, whose key column is
+        // `fold_col(n, k)`. A contiguous range of the speed-weighted split then alternates cheap and
+        // expensive columns instead of taking a monotone run of the cheapest. The tile dispatch
+        // applies the same fold at tile granularity. Each task reads only `prep`, the read-only KV
+        // cache and `last`, so the permutations leave every word bit-identical; the gather after
+        // the dispatch restores the tip's block order.
         let fused = exact_scan_enabled();
-        let mut att = vec![0i64; k * q_out];
+        // The tile entry runs `attn_core_f32_strided`'s recurrence per query, so it replaces only
+        // that carrier; the exact-scan fold and the Q32 oracle keep the per-column dispatch.
+        let tile_on =
+            attn_tile_enabled() && !fused && k > 1 && matches!(kv.carrier(), KvCarrier::F32);
         let kv_ro: &KvState = kv;
         let n_kv = kv.n_head_kv();
         let group = n_head / n_kv;
         let width = group * hd;
+        if tile_on {
+            let tiles = k.div_ceil(QUERY_TILE);
+            let tasks = tiles.checked_mul(n_kv).ok_or(StepError::LengthOverflow)?;
+            // One `(fold position, KV head)` task per `QUERY_TILE · width` block. The buffer holds
+            // a full block per task; the last tile writes and gathers only its `len · width`
+            // prefix.
+            let block = QUERY_TILE
+                .checked_mul(width)
+                .ok_or(StepError::LengthOverflow)?;
+            let att_len = tasks.checked_mul(block).ok_or(StepError::LengthOverflow)?;
+            let mut att = vec![0i64; att_len];
+            // One status slot per task, written only by that task; the slots are reduced after the
+            // dispatch (`first_by_key`), so no shared error cell crosses the pool boundary.
+            let mut status: Vec<Option<StepError>> = Vec::with_capacity(tasks);
+            let mut s = 0usize;
+            while s < tasks {
+                status.push(None);
+                s += 1;
+            }
+            let dims = [n_kv, group, hd, kv_out, q_out, stride, k, tiles];
+            let ctx = AttnTileCtx {
+                kv: kv_ro,
+                layer: slot,
+                gated,
+                prep: &prep,
+                last: &last,
+                dims,
+            };
+            let dispatched: Result<(), ()> = crate::engine::chart::pool::for_chunks2(
+                &mut att,
+                QUERY_TILE * width,
+                &mut status,
+                1,
+                &ctx,
+            );
+            if dispatched.is_err() {
+                return Err(StepError::BadConfig(String::from("attention dispatch")));
+            }
+            if let Some(e) = first_by_key(&mut status, tiles, n_kv) {
+                // The reduction orders refusals by fold tile then KV head, not by column: the tile
+                // kernel may reach a different faulting column first. The step discards the block
+                // on any refusal, so the error kind is the observable, not which column raised it.
+                return Err(e);
+            }
+            // Fold position `n` holds tile `fold_col(n, tiles)`, whose column `j` is block `j` of
+            // task `n·n_kv + kvh`; gather it back to column order.
+            let mut atts: Vec<Vec<i64>> = Vec::with_capacity(k);
+            let mut c = 0usize;
+            while c < k {
+                atts.push(vec![0i64; q_out]);
+                c += 1;
+            }
+            for n in 0..tiles {
+                let t0 = fold_col(n, tiles) * QUERY_TILE;
+                let len = (k - t0).min(QUERY_TILE);
+                let mut kvh = 0usize;
+                while kvh < n_kv {
+                    let src = (n * n_kv + kvh) * QUERY_TILE * width;
+                    let mut j = 0usize;
+                    while j < len {
+                        atts[t0 + j][kvh * width..(kvh + 1) * width]
+                            .copy_from_slice(&att[src + j * width..src + (j + 1) * width]);
+                        j += 1;
+                    }
+                    kvh += 1;
+                }
+            }
+            return Ok(atts);
+        }
+        let mut att = vec![0i64; k * q_out];
         // One status slot per task, written only by that task; the slots are reduced after the
         // dispatch (`first_by_key`), so no shared error cell crosses the pool boundary. A task is
-        // one (column, KV head): its `group` query heads share one K/V read.
+        // one (column, KV head): under `i8` one call folds the group's heads, under `q32` and the
+        // untiled `f32` the group's heads are read one at a time, and the words are the per-head
+        // words either way.
         let tasks = att.len().div_ceil(width.max(1));
         let mut status: Vec<Option<StepError>> = Vec::with_capacity(tasks);
         let mut s = 0usize;
@@ -573,6 +665,103 @@ impl Task2<i64, Option<StepError>, ()> for AttnHeadCtx<'_> {
     fn run(&self, t: usize, dst: &mut [i64], st: &mut [Option<StepError>]) -> Result<(), ()> {
         attn_head_task(
             self.kv, self.layer, self.flags, self.prep, self.last, self.dims, t, dst, st,
+        )
+    }
+}
+
+/// Stage-3 pool task `t = n·n_kv + kvh` on the F32 carrier: the `QUERY_TILE` columns of fold
+/// position `n` for KV head `kvh`, each column's `group` query heads gated when `gated` and written
+/// into `dst` (`len · group · hd` words, `len <= QUERY_TILE`).
+/// `dims = [n_kv, group, hd, kv_out, q_out, stride, cols, tiles]`. A refusal goes to `status[0]`
+/// and the task returns `Ok`, so the pool never sees an error and every task runs once.
+///
+/// The columns of one tile are consecutive, so they are also consecutive positions, which is the
+/// tile kernel's precondition: `last[t0 + j] == last[t0] + j`, checked here rather than assumed.
+///
+/// # Complexity
+///
+/// Time `O(len · group · hd · (last[t0] + 1))` words of KV read for the tile plus `O(len · width)`
+/// query words copied; space `O(len · width)` query words.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::unnecessary_wraps,
+    reason = "flat scalar parameters keep the pool closure one call (Aeneas R2) with no nested region; the pool closure type is Result"
+)]
+fn attn_tile_task(
+    kv: &KvState,
+    layer: usize,
+    gated: bool,
+    prep: &[i64],
+    last: &[usize],
+    dims: [usize; 8],
+    task: usize,
+    dst: &mut [i64],
+    status: &mut [Option<StepError>],
+) -> Result<(), ()> {
+    let [n_kv, group, hd, kv_out, q_out, stride, cols, tiles] = dims;
+    let (fold_pos, kvh) = (task / n_kv.max(1), task % n_kv.max(1));
+    let t0 = fold_col(fold_pos, tiles) * QUERY_TILE;
+    let len = (cols - t0).min(QUERY_TILE);
+    let width = group * hd;
+    let lo = kvh * width;
+    let first = last[t0];
+    let mut queries = vec![0i64; len * width];
+    let mut j = 0usize;
+    while j < len {
+        let c = t0 + j;
+        if last[c] != first + j {
+            status[0] = Some(StepError::Kv(AttnError::BadGeometry));
+            return Ok(());
+        }
+        let base = c * stride;
+        queries[j * width..(j + 1) * width].copy_from_slice(&prep[base + lo..base + lo + width]);
+        j += 1;
+    }
+    let done =
+        match kv.attn_head_group_tile_f32(layer, kvh, &queries, first, &mut dst[..len * width]) {
+            Ok(()) if gated => {
+                let g0 = t0 * stride + 2 * kv_out + q_out + lo;
+                let mut res: Result<(), StepError> = Ok(());
+                let mut j = 0usize;
+                while j < len && res.is_ok() {
+                    let gate = &prep[g0 + j * stride..g0 + j * stride + width];
+                    let mut g = 0usize;
+                    while g < group && res.is_ok() {
+                        let off = j * width + g * hd;
+                        res = apply_sigmoid_gate(
+                            &mut dst[off..off + hd],
+                            &gate[g * hd..(g + 1) * hd],
+                        );
+                        g += 1;
+                    }
+                    j += 1;
+                }
+                res
+            }
+            Ok(()) => Ok(()),
+            Err(e) => Err(StepError::Kv(e)),
+        };
+    if let Err(e) = done {
+        status[0] = Some(e);
+    }
+    Ok(())
+}
+
+/// The shared borrows of one tiled attention dispatch; `run` is the single call to
+/// [`attn_tile_task`].
+struct AttnTileCtx<'a> {
+    kv: &'a KvState,
+    layer: usize,
+    gated: bool,
+    prep: &'a [i64],
+    last: &'a [usize],
+    dims: [usize; 8],
+}
+
+impl Task2<i64, Option<StepError>, ()> for AttnTileCtx<'_> {
+    fn run(&self, t: usize, dst: &mut [i64], st: &mut [Option<StepError>]) -> Result<(), ()> {
+        attn_tile_task(
+            self.kv, self.layer, self.gated, self.prep, self.last, self.dims, t, dst, st,
         )
     }
 }
@@ -721,4 +910,114 @@ fn prep_copy_out(
         dg.copy_from_slice(gate);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Deterministic small Q32.32 word: |value| <= 2000/2^12, in range for the gate product.
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "the modulo keeps the value below 4001, far inside i64"
+    )]
+    fn word(seed: usize) -> i64 {
+        (((seed.wrapping_mul(2_654_435_761) % 4_001) as i64) - 2_000) << 20
+    }
+
+    /// [`attn_tile_task`] equals [`attn_head_task`] on the same block, word for word, with and
+    /// without the gate, across a tile boundary and on the last partial tile; and the gate changes
+    /// the tile's output, so the equality is not a comparison of two ungated paths.
+    #[test]
+    fn the_attention_tile_task_equals_the_per_column_task() {
+        let (n_head, n_head_kv, hd) = (4usize, 2usize, 8usize);
+        let group = n_head / n_head_kv;
+        let width = group * hd;
+        let (q_out, kv_out) = (n_head * hd, n_head_kv * hd);
+        let stride = 2 * q_out + 2 * kv_out;
+        let cols = QUERY_TILE + 3;
+        let tiles = cols.div_ceil(QUERY_TILE);
+        assert_eq!(tiles, 2, "the fixture must cross a tile boundary");
+        let cap = cols + 4;
+        let mut kv = KvState::with_carrier(1, n_head, n_head_kv, hd, cap, KvCarrier::F32)
+            .expect("kv geometry");
+        let mut s = 0usize;
+        while s < cap {
+            let k: Vec<i64> = (0..kv_out).map(|i| word(s * kv_out + i)).collect();
+            let v: Vec<i64> = (0..kv_out).map(|i| word(s * kv_out + i + 7)).collect();
+            assert_eq!(kv.append(0, &k, &v), Ok(s));
+            s += 1;
+        }
+        let last: Vec<usize> = (0..cols).collect();
+        let prep: Vec<i64> = (0..cols * stride).map(|i| word(i + 11)).collect();
+        let dims8 = [n_head_kv, group, hd, kv_out, q_out, stride, cols, tiles];
+        let dims7 = [n_head_kv, group, hd, kv_out, q_out, stride, cols];
+        let block = QUERY_TILE * width;
+        let mut gathered: Vec<Vec<i64>> = Vec::new();
+        for gated in [false, true] {
+            let mut tile_buf = vec![0i64; tiles * n_head_kv * block];
+            for task in 0..tiles * n_head_kv {
+                let mut st = [None];
+                attn_tile_task(
+                    &kv,
+                    0,
+                    gated,
+                    &prep,
+                    &last,
+                    dims8,
+                    task,
+                    &mut tile_buf[task * block..(task + 1) * block],
+                    &mut st,
+                )
+                .expect("tile task");
+                assert!(st[0].is_none(), "tile task {task}, gated {gated}");
+            }
+            // The per-column tasks wrote one `width` block per (fold position, KV head). Lay them
+            // out by block column, as the step's gather does.
+            let mut by_col = vec![0i64; cols * n_head_kv * width];
+            for task in 0..cols * n_head_kv {
+                let (fold_pos, kvh) = (task / n_head_kv, task % n_head_kv);
+                let col = fold_col(fold_pos, cols);
+                let dst = &mut by_col[col * n_head_kv * width..(col + 1) * n_head_kv * width];
+                let mut st = [None];
+                attn_head_task(
+                    &kv,
+                    0,
+                    [false, gated],
+                    &prep,
+                    &last,
+                    dims7,
+                    task,
+                    &mut dst[kvh * width..(kvh + 1) * width],
+                    &mut st,
+                )
+                .expect("column task");
+                assert!(st[0].is_none(), "column task {task}, gated {gated}");
+            }
+            let mut out = vec![0i64; cols * n_head_kv * width];
+            for n in 0..tiles {
+                let t0 = fold_col(n, tiles) * QUERY_TILE;
+                let len = (cols - t0).min(QUERY_TILE);
+                for kvh in 0..n_head_kv {
+                    let src = (n * n_head_kv + kvh) * block;
+                    for j in 0..len {
+                        let col = t0 + j;
+                        let at = col * n_head_kv * width + kvh * width;
+                        let got = &tile_buf[src + j * width..src + (j + 1) * width];
+                        assert_eq!(
+                            got,
+                            &by_col[at..at + width],
+                            "gated {gated}, tile {n}, column {col}, kv head {kvh}"
+                        );
+                        out[at..at + width].copy_from_slice(got);
+                    }
+                }
+            }
+            gathered.push(out);
+        }
+        assert!(
+            gathered[0] != gathered[1],
+            "the gate must change the ungated output, or the gated leg proves nothing"
+        );
+    }
 }

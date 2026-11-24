@@ -41,6 +41,8 @@
 )]
 use std::arch::x86_64::*;
 
+use std::sync::OnceLock;
+
 use crate::engine::attn::AttnError;
 #[cfg(target_arch = "x86_64")]
 use crate::engine::mixer::f32_carrier::exp_f32_avx2;
@@ -642,6 +644,551 @@ pub fn attn_core_f32_strided(
         };
     }
     attn_core_f32_strided_scalar(q, k, v, head_dim, stride, pos, scale, out)
+}
+
+/// Key positions scored in one pass of [`attn_core_f32_tile`]: the score stage of a tile holds
+/// `nq · query_heads · KEY_CHUNK` values, so memory stays bounded as the context grows.
+const KEY_CHUNK: usize = 256;
+
+/// The `APEIRON_ATTN_EXP` flag: one `exp` per score unless set to `0`. A same-binary A/B switch
+/// parsed once per process, the shape of `APEIRON_ATTN_TILE` in `step/softmax.rs`.
+fn attn_exp_skip_enabled() -> bool {
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| std::env::var("APEIRON_ATTN_EXP").as_deref() != Ok("0"))
+}
+
+/// The softmax pair `(alpha, w) = (exp(m_prev − m_next), exp(score − m_next))` with
+/// `m_next = max(m_prev, score)`, evaluating the one argument that is not `+0`.
+///
+/// Exactly one of the two differences is `+0.0`: `m_next` is `score` when the maximum moved and
+/// `m_prev` otherwise, and both operands are finite, so the equal pair subtracts to `+0.0`
+/// (`x − x = +0` in round-to-nearest, including `±0` operands). `exp_f32_scalar(+0.0)` returns
+/// `1.0` bit-exactly: `z = +0·log₂e = +0`, `n = round_ties_even(+0) = +0`, `n_int = 0`,
+/// `r = (+0 − +0) − +0 = +0`, `r² = +0`, `y = (1 + +0) + (+0·p) = 1`, `n1 = n2 = 0`, so
+/// `s1 = s2 = 2⁰ = 1` and `(y·s1)·s2 = 1`. Returning [`F32::ONE`] for that argument therefore
+/// feeds the same bit pattern to every consumer as the call it replaces, and the consumers keep
+/// their words: `fma(1, y, a) = fl(1·y + a) = fl(y + a)` because `1·y` is exact, and `1·v = v`
+/// exactly for the finite `v` the value-row check admits (so `w·v` and `fma(acc, alpha, w·v)` are
+/// unchanged too). Source of the branch, not of the arithmetic: llama.cpp `049326a`
+/// `ggml/src/ggml-cpu/ops.cpp:8546-8564`.
+#[inline]
+fn softmax_terms(score: F32, m_prev: F32, m_next: F32, skip: bool) -> (F32, F32) {
+    if skip {
+        if score.gt(m_prev) {
+            (exp_f32_scalar(m_prev - m_next), F32::ONE)
+        } else {
+            (F32::ONE, exp_f32_scalar(score - m_next))
+        }
+    } else {
+        (
+            exp_f32_scalar(m_prev - m_next),
+            exp_f32_scalar(score - m_next),
+        )
+    }
+}
+
+/// Causal scaled dot-product attention for a tile of query positions over one K/V plane: each key
+/// and value row is loaded once per pass and folded against every query head of every position in
+/// the tile.
+///
+/// Query head `g` of position `j` occupies `q[(j·query_heads + g)·head_dim..][..head_dim]`, has
+/// last position `pos[j]` (strictly ascending, as consecutive causal columns are) and writes the
+/// same slot of `out`. Each `(j, g)` runs exactly [`attn_core_f32_strided`]'s recurrence, in the
+/// same order — the same 8-lane score chain, the same running maximum and `exp` values, the same
+/// `mul_add` on the denominator and the same per-lane FMA on the accumulator, over the same
+/// positions ascending — so every output word equals the per-query call's. The one `exp` whose
+/// argument is exactly `+0` is replaced by its result `1` ([`softmax_terms`]). The loop order is
+/// inverted: a key row is dotted against every query in the tile, and the scores of one
+/// [`KEY_CHUNK`]-position pass are staged key-position-major so the value rows are read once too
+/// and eight rows' weights are one 8-lane load.
+///
+/// # Errors
+///
+/// [`AttnError::BadGeometry`] for a shape mismatch or positions that are not strictly ascending,
+/// [`AttnError::Overflow`] for a non-finite score, value or output, and [`AttnError::ZeroSum`] for
+/// a non-positive or non-finite denominator. A refusal on the tile aborts the whole tile. The value
+/// pass tests every row up to the last position, so a non-finite value row at a position no query
+/// in the tile reaches still refuses the tile where those queries' single-query calls would
+/// succeed; where a query does read the row, the tile may report a different query's fault first,
+/// because its score pass covers the whole tile before the per-query denominators are tested. The
+/// step discards the block on any refusal.
+///
+/// # Complexity
+///
+/// `O((pos[nq-1] + 1) · nq · query_heads · head_dim)` floating-point operations for the tile,
+/// against `Σ_j (pos[j] + 1) · query_heads · head_dim` for the per-query calls — the same
+/// arithmetic, with each K and V row read once per tile (`O((pos[nq-1] + 1) · head_dim)` words)
+/// instead of once per query. Scratch `O(nq · query_heads · (KEY_CHUNK + head_dim))` words.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "explicit strided geometry and the four tile operands"
+)]
+pub fn attn_core_f32_tile(
+    q: &[F32],
+    k: &[F32],
+    v: &[F32],
+    head_dim: usize,
+    query_heads: usize,
+    stride: usize,
+    pos: &[usize],
+    scale: F32,
+    out: &mut [F32],
+) -> Result<(), AttnError> {
+    if head_dim == 0 || query_heads == 0 || stride < head_dim || pos.is_empty() {
+        return Err(AttnError::BadGeometry);
+    }
+    #[cfg(target_arch = "x86_64")]
+    if head_dim.is_multiple_of(8) && crate::engine::num::fp::prim::cpu_avx2_fma() {
+        // SAFETY: `cpu_avx2_fma` checked AVX2 and FMA support on this processor; the geometry is
+        // checked again by the body it calls.
+        return unsafe {
+            attn_core_f32_tile_avx2_inner(
+                native(q),
+                native(k),
+                native(v),
+                head_dim,
+                query_heads,
+                stride,
+                pos,
+                nat(scale),
+                native_mut(out),
+            )
+        };
+    }
+    attn_core_f32_tile_scalar(q, k, v, head_dim, query_heads, stride, pos, scale, out)
+}
+
+/// Scalar twin and specification of [`attn_core_f32_tile`]. Performs the same geometry checks.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::needless_range_loop,
+    clippy::similar_names,
+    clippy::many_single_char_names,
+    clippy::too_many_lines,
+    reason = "mathematical recurrence symbols, explicit strided geometry, and the pass structure"
+)]
+pub fn attn_core_f32_tile_scalar(
+    q: &[F32],
+    k: &[F32],
+    v: &[F32],
+    head_dim: usize,
+    query_heads: usize,
+    stride: usize,
+    pos: &[usize],
+    scale: F32,
+    out: &mut [F32],
+) -> Result<(), AttnError> {
+    if head_dim == 0 || query_heads == 0 || stride < head_dim || pos.is_empty() {
+        return Err(AttnError::BadGeometry);
+    }
+    let nq = pos.len();
+    let rows = nq.checked_mul(query_heads).ok_or(AttnError::Overflow)?;
+    let need = rows.checked_mul(head_dim).ok_or(AttnError::Overflow)?;
+    if q.len() != need || out.len() != need {
+        return Err(AttnError::BadGeometry);
+    }
+    let mut j = 1usize;
+    while j < nq {
+        if pos[j] <= pos[j - 1] {
+            return Err(AttnError::BadGeometry);
+        }
+        j += 1;
+    }
+    let required = pos[nq - 1]
+        .checked_mul(stride)
+        .and_then(|b| b.checked_add(head_dim))
+        .ok_or(AttnError::Overflow)?;
+    if k.len() < required || v.len() < required {
+        return Err(AttnError::BadGeometry);
+    }
+
+    let score_len = rows.checked_mul(KEY_CHUNK).ok_or(AttnError::Overflow)?;
+    let mut m = vec![F32::ZERO; rows];
+    let mut den = vec![F32::ONE; rows];
+    let mut acc = vec![F32::ZERO; need];
+    // Staged key-position-major, `(at − s) · rows + row`: one key's scores over consecutive rows
+    // are one contiguous run, which is the 8-lane load the value pass takes. The transpose is
+    // internal to this module; the outputs are unchanged.
+    let mut scores = vec![F32::ZERO; score_len];
+    // Position 0: the first score and the first value row of every query head.
+    let mut r = 0usize;
+    while r < rows {
+        let score = dot_f32_scalar(&q[r * head_dim..(r + 1) * head_dim], &k[..head_dim], scale);
+        if !score.is_finite() {
+            return Err(AttnError::Overflow);
+        }
+        m[r] = score;
+        let mut i = 0usize;
+        while i < head_dim {
+            let vi = v[i];
+            if !vi.is_finite() {
+                return Err(AttnError::Overflow);
+            }
+            acc[r * head_dim + i] = vi;
+            i += 1;
+        }
+        r += 1;
+    }
+
+    let last = pos[nq - 1];
+    let skip = attn_exp_skip_enabled();
+    let mut s = 1usize;
+    while s <= last {
+        let end = s.saturating_add(KEY_CHUNK).min(last + 1);
+        // Queries with `pos < s` are inactive; positions ascend, so the active set is the suffix
+        // `lo..nq` and `lo` only moves forward as `s` grows.
+        let mut lo = 0usize;
+        while lo < nq && pos[lo] < s {
+            lo += 1;
+        }
+        // Score pass: each key row is loaded once and dotted against every active query head.
+        let mut at = s;
+        while at < end {
+            let krow = &k[at * stride..at * stride + head_dim];
+            let mut j = lo;
+            while j < nq && pos[j] < at {
+                j += 1;
+            }
+            while j < nq {
+                let qrow = &q[j * query_heads * head_dim..(j + 1) * query_heads * head_dim];
+                let mut g = 0usize;
+                while g < query_heads {
+                    let row = j * query_heads + g;
+                    let score =
+                        dot_f32_scalar(&qrow[g * head_dim..(g + 1) * head_dim], krow, scale);
+                    if !score.is_finite() {
+                        return Err(AttnError::Overflow);
+                    }
+                    scores[(at - s) * rows + row] = score;
+                    g += 1;
+                }
+                j += 1;
+            }
+            at += 1;
+        }
+        // Value pass: the staged scores drive the same recurrence, one value row read per position.
+        let mut at = s;
+        while at < end {
+            let vrow = &v[at * stride..at * stride + head_dim];
+            let mut i = 0usize;
+            while i < head_dim {
+                if !vrow[i].is_finite() {
+                    return Err(AttnError::Overflow);
+                }
+                i += 1;
+            }
+            let mut j = lo;
+            while j < nq && pos[j] < at {
+                j += 1;
+            }
+            while j < nq {
+                let mut g = 0usize;
+                while g < query_heads {
+                    let row = j * query_heads + g;
+                    let score = scores[(at - s) * rows + row];
+                    let m_prev = m[row];
+                    let m_next = if score.gt(m_prev) { score } else { m_prev };
+                    let (alpha, w) = softmax_terms(score, m_prev, m_next, skip);
+                    den[row] = den[row].fma(alpha, w);
+                    let mut i = 0usize;
+                    while i < head_dim {
+                        let a = &mut acc[row * head_dim + i];
+                        *a = a.fma(alpha, w * vrow[i]);
+                        i += 1;
+                    }
+                    m[row] = m_next;
+                    g += 1;
+                }
+                j += 1;
+            }
+            at += 1;
+        }
+        s = end;
+    }
+
+    let mut row = 0usize;
+    while row < rows {
+        if den[row].le(F32::ZERO) || !den[row].is_finite() {
+            return Err(AttnError::ZeroSum);
+        }
+        let inv_den = F32::ONE / den[row];
+        let mut i = 0usize;
+        while i < head_dim {
+            let res = acc[row * head_dim + i] * inv_den;
+            if !res.is_finite() {
+                return Err(AttnError::Overflow);
+            }
+            out[row * head_dim + i] = res;
+            i += 1;
+        }
+        row += 1;
+    }
+    Ok(())
+}
+
+/// AVX2+FMA body of [`attn_core_f32_tile`]; the caller has checked the geometry and the feature.
+///
+/// Each score is [`dot_f32_avx2`]'s chain, equal to [`dot_f32_scalar`] bit for bit, and each
+/// accumulator lane is the scalar body's `fma(acc, alpha, w·v)` in `_mm256_fmadd_ps`, so the tile's
+/// words equal the scalar twin's and the per-query core's. Eight consecutive rows' `w` arguments
+/// are one contiguous staged run and one [`exp_f32_avx2`] call, which equals eight
+/// [`exp_f32_scalar`] calls lane for lane.
+///
+/// # Safety
+///
+/// Requires AVX2 and FMA; `q`, `k` and `v` hold the geometry the body checks.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+#[allow(
+    clippy::too_many_arguments,
+    clippy::needless_range_loop,
+    clippy::similar_names,
+    clippy::many_single_char_names,
+    clippy::too_many_lines,
+    reason = "mathematical recurrence symbols, explicit strided geometry, and the pass structure"
+)]
+unsafe fn attn_core_f32_tile_avx2_inner(
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    head_dim: usize,
+    query_heads: usize,
+    stride: usize,
+    pos: &[usize],
+    scale: f32,
+    out: &mut [f32],
+) -> Result<(), AttnError> {
+    if head_dim == 0 || query_heads == 0 || stride < head_dim || pos.is_empty() {
+        return Err(AttnError::BadGeometry);
+    }
+    let nq = pos.len();
+    let rows = nq.checked_mul(query_heads).ok_or(AttnError::Overflow)?;
+    let need = rows.checked_mul(head_dim).ok_or(AttnError::Overflow)?;
+    if q.len() != need || out.len() != need {
+        return Err(AttnError::BadGeometry);
+    }
+    let mut j = 1usize;
+    while j < nq {
+        if pos[j] <= pos[j - 1] {
+            return Err(AttnError::BadGeometry);
+        }
+        j += 1;
+    }
+    let required = pos[nq - 1]
+        .checked_mul(stride)
+        .and_then(|b| b.checked_add(head_dim))
+        .ok_or(AttnError::Overflow)?;
+    if k.len() < required || v.len() < required {
+        return Err(AttnError::BadGeometry);
+    }
+
+    let chunks = head_dim / 8;
+    let score_len = rows.checked_mul(KEY_CHUNK).ok_or(AttnError::Overflow)?;
+    let mut m = vec![0.0f32; rows];
+    let mut den = vec![1.0f32; rows];
+    let mut acc = vec![0.0f32; need];
+    let mut scores = vec![0.0f32; score_len];
+    let mut r = 0usize;
+    while r < rows {
+        let score = dot_f32_avx2(&q[r * head_dim..(r + 1) * head_dim], &k[..head_dim], scale);
+        if !score.is_finite() {
+            return Err(AttnError::Overflow);
+        }
+        m[r] = score;
+        // The scalar twin tests every element of position 0; check the row before the vector copy so
+        // the same non-finite value refuses on both bodies.
+        let mut i = 0usize;
+        while i < head_dim {
+            if !v[i].is_finite() {
+                return Err(AttnError::Overflow);
+            }
+            i += 1;
+        }
+        let mut c = 0usize;
+        while c < chunks {
+            let vv = _mm256_loadu_ps(v.as_ptr().add(c * 8));
+            _mm256_storeu_ps(acc.as_mut_ptr().add(r * head_dim + c * 8), vv);
+            c += 1;
+        }
+        let mut i = chunks * 8;
+        while i < head_dim {
+            acc[r * head_dim + i] = v[i];
+            i += 1;
+        }
+        r += 1;
+    }
+
+    let last = pos[nq - 1];
+    let skip = attn_exp_skip_enabled();
+    let mut s = 1usize;
+    while s <= last {
+        let end = s.saturating_add(KEY_CHUNK).min(last + 1);
+        let mut lo = 0usize;
+        while lo < nq && pos[lo] < s {
+            lo += 1;
+        }
+        let mut at = s;
+        while at < end {
+            let krow = &k[at * stride..at * stride + head_dim];
+            let mut j = lo;
+            while j < nq && pos[j] < at {
+                j += 1;
+            }
+            while j < nq {
+                let qrow = &q[j * query_heads * head_dim..(j + 1) * query_heads * head_dim];
+                let mut g = 0usize;
+                while g < query_heads {
+                    let row = j * query_heads + g;
+                    let score = dot_f32_avx2(&qrow[g * head_dim..(g + 1) * head_dim], krow, scale);
+                    if !score.is_finite() {
+                        return Err(AttnError::Overflow);
+                    }
+                    scores[(at - s) * rows + row] = score;
+                    g += 1;
+                }
+                j += 1;
+            }
+            at += 1;
+        }
+        let mut at = s;
+        while at < end {
+            let vrow = &v[at * stride..at * stride + head_dim];
+            let mut i = 0usize;
+            while i < head_dim {
+                if !vrow[i].is_finite() {
+                    return Err(AttnError::Overflow);
+                }
+                i += 1;
+            }
+            let mut j = lo;
+            while j < nq && pos[j] < at {
+                j += 1;
+            }
+            let stage = (at - s) * rows;
+            let mut row = j * query_heads;
+            // With the flag on, eight rows at a time, one 8-lane `exp` for the eight `w`
+            // arguments: the staged scores of one key over consecutive rows are contiguous.
+            // `alpha` is `exp(m_prev − m_next)`, `1.0` on every lane the maximum did not move, so
+            // its vector `exp` is skipped whole-group when no lane moved
+            // (`_mm256_movemask_ps == 0`, the common case) and computed lane-wise otherwise, where
+            // `exp(+0) = 1` gives the unmoved lanes their exact `1.0`. `maxps(a, b) = a > b ? a :
+            // b` is the scalar `if score > m_prev { score } else { m_prev }` for the finite inputs
+            // the score stage admitted, and the stored `m` keeps the same words. With the flag
+            // off, the row loop below runs the old two-`exp_f32_scalar` recurrence for every row.
+            let mut w_lane = [0.0f32; 8];
+            let mut a_lane = [0.0f32; 8];
+            if skip {
+                while row + 8 <= rows {
+                    let v_s = _mm256_loadu_ps(scores.as_ptr().add(stage + row));
+                    let v_prev = _mm256_loadu_ps(m.as_ptr().add(row));
+                    let v_next = _mm256_max_ps(v_s, v_prev);
+                    let v_w = exp_f32_avx2(_mm256_sub_ps(v_s, v_next));
+                    let v_alpha = if _mm256_movemask_ps(_mm256_cmp_ps(v_s, v_prev, _CMP_GT_OQ)) != 0
+                    {
+                        exp_f32_avx2(_mm256_sub_ps(v_prev, v_next))
+                    } else {
+                        _mm256_set1_ps(1.0)
+                    };
+                    _mm256_storeu_ps(w_lane.as_mut_ptr(), v_w);
+                    _mm256_storeu_ps(a_lane.as_mut_ptr(), v_alpha);
+                    _mm256_storeu_ps(m.as_mut_ptr().add(row), v_next);
+                    let mut lane = 0usize;
+                    while lane < 8 {
+                        let r = row + lane;
+                        let alpha = a_lane[lane];
+                        let w = w_lane[lane];
+                        den[r] = den[r].mul_add(alpha, w);
+                        let v_alpha_s = _mm256_set1_ps(alpha);
+                        let v_w_s = _mm256_set1_ps(w);
+                        let mut c = 0usize;
+                        while c < chunks {
+                            let vv = _mm256_loadu_ps(vrow.as_ptr().add(c * 8));
+                            let prod = _mm256_mul_ps(v_w_s, vv);
+                            let a = _mm256_loadu_ps(acc.as_ptr().add(r * head_dim + c * 8));
+                            let next = _mm256_fmadd_ps(a, v_alpha_s, prod);
+                            _mm256_storeu_ps(acc.as_mut_ptr().add(r * head_dim + c * 8), next);
+                            c += 1;
+                        }
+                        let mut i = chunks * 8;
+                        while i < head_dim {
+                            let a = acc[r * head_dim + i];
+                            acc[r * head_dim + i] = a.mul_add(alpha, w * vrow[i]);
+                            i += 1;
+                        }
+                        lane += 1;
+                    }
+                    row += 8;
+                }
+            }
+            while row < rows {
+                let score = scores[stage + row];
+                let m_prev = m[row];
+                let m_next = if score > m_prev { score } else { m_prev };
+                let (alpha, w) = softmax_terms(fp(score), fp(m_prev), fp(m_next), skip);
+                let (alpha, w) = (nat(alpha), nat(w));
+                den[row] = den[row].mul_add(alpha, w);
+                let v_alpha = _mm256_set1_ps(alpha);
+                let v_w = _mm256_set1_ps(w);
+                let mut c = 0usize;
+                while c < chunks {
+                    let vv = _mm256_loadu_ps(vrow.as_ptr().add(c * 8));
+                    let prod = _mm256_mul_ps(v_w, vv);
+                    let a = _mm256_loadu_ps(acc.as_ptr().add(row * head_dim + c * 8));
+                    let next = _mm256_fmadd_ps(a, v_alpha, prod);
+                    _mm256_storeu_ps(acc.as_mut_ptr().add(row * head_dim + c * 8), next);
+                    c += 1;
+                }
+                let mut i = chunks * 8;
+                while i < head_dim {
+                    let a = acc[row * head_dim + i];
+                    acc[row * head_dim + i] = a.mul_add(alpha, w * vrow[i]);
+                    i += 1;
+                }
+                m[row] = m_next;
+                row += 1;
+            }
+            at += 1;
+        }
+        s = end;
+    }
+
+    let mut row = 0usize;
+    while row < rows {
+        if den[row] <= 0.0 || !den[row].is_finite() {
+            return Err(AttnError::ZeroSum);
+        }
+        let inv_den = 1.0f32 / den[row];
+        let v_inv = _mm256_set1_ps(inv_den);
+        let mut c = 0usize;
+        while c < chunks {
+            let a = _mm256_loadu_ps(acc.as_ptr().add(row * head_dim + c * 8));
+            let res = _mm256_mul_ps(a, v_inv);
+            _mm256_storeu_ps(out.as_mut_ptr().add(row * head_dim + c * 8), res);
+            c += 1;
+        }
+        let mut i = chunks * 8;
+        while i < head_dim {
+            let res = acc[row * head_dim + i] * inv_den;
+            if !res.is_finite() {
+                return Err(AttnError::Overflow);
+            }
+            out[row * head_dim + i] = res;
+            i += 1;
+        }
+        // Scan this row before the next: a row with a non-finite output returns `Overflow` here,
+        // and a later row's `ZeroSum` must not pre-empt it. The scalar twin checks each row in
+        // order, so this is the per-column call's first error, not the tile's own preference.
+        let base = row * head_dim;
+        let mut i = 0usize;
+        while i < head_dim {
+            if !out[base + i].is_finite() {
+                return Err(AttnError::Overflow);
+            }
+            i += 1;
+        }
+        row += 1;
+    }
+    Ok(())
 }
 
 /// Dispatches contiguous attention core execution (`stride = head_dim`).

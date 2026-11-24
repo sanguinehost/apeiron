@@ -2385,6 +2385,137 @@ impl KvState {
         Ok(())
     }
 
+    /// The [`KvCarrier::F32`] arm of [`KvState::attn_head_group`]: one K/V row read per tile of
+    /// consecutive causal columns instead of one per column.
+    ///
+    /// `queries` holds `nq · group · head_dim` Q32.32 words, column `j`'s `group` query rows in
+    /// slot `j`, and `outs` receives the same layout. Column `j`'s last position is `first + j`, so
+    /// the columns are consecutive and the tile's reads of K and V are shared. Every word equals
+    /// the per-column [`KvState::attn_head_group`] call's: the same query conversion, the same
+    /// scale, [`f32_core::attn_core_f32_tile`] running each column's own recurrence, and the same
+    /// readout conversion in the same order.
+    ///
+    /// # Errors
+    ///
+    /// [`AttnError::HeadOutOfRange`], [`AttnError::LayerOutOfRange`],
+    /// [`AttnError::PositionOutOfRange`] when `first + nq - 1` is not occupied,
+    /// [`AttnError::RowLength`] when the slices are not a whole number of `group · head_dim` rows,
+    /// [`AttnError::BadGeometry`] under another carrier, and the tile's own read refusals.
+    ///
+    /// # Complexity
+    ///
+    /// `O((first + nq) · nq · group · head_dim)` arithmetic, against `nq` per-column calls' sum;
+    /// the K and V rows are read once each (`O((first + nq) · head_dim)` words), not once per
+    /// column. Scratch `O(nq · group · head_dim)` words plus the tile's score stage.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the layer, KV head, query tile, first position and output are the call"
+    )]
+    pub fn attn_head_group_tile_f32(
+        &self,
+        layer: usize,
+        kv_head: usize,
+        queries: &[i64],
+        first: usize,
+        outs: &mut [i64],
+    ) -> Result<(), AttnError> {
+        let hd = self.head_dim;
+        if layer >= self.n_layer {
+            return Err(AttnError::LayerOutOfRange {
+                layer,
+                n_layer: self.n_layer,
+            });
+        }
+        if kv_head >= self.n_head_kv {
+            return Err(AttnError::HeadOutOfRange {
+                head: kv_head,
+                n_head: self.n_head_kv,
+            });
+        }
+        let group = self.n_head / self.n_head_kv;
+        let width = group.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        if width == 0 || queries.len() != outs.len() || !queries.len().is_multiple_of(width) {
+            return Err(AttnError::RowLength {
+                expected: width,
+                got: queries.len(),
+            });
+        }
+        let nq = queries.len() / width;
+        if nq == 0 {
+            return Err(AttnError::RowLength {
+                expected: width,
+                got: 0,
+            });
+        }
+        let last = first
+            .checked_add(nq)
+            .and_then(|v| v.checked_sub(1))
+            .ok_or(AttnError::Overflow)?;
+        let len = self.occupied[layer];
+        if last >= len {
+            return Err(AttnError::PositionOutOfRange { pos: last, len });
+        }
+        let (kplane, vplane) = match &self.storage {
+            KvStorage::F32 { k, v } => (&k[layer], &v[layer]),
+            KvStorage::Q32 { .. } | KvStorage::I8 { .. } => return Err(AttnError::BadGeometry),
+        };
+        let stride = self.n_head_kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let base = kv_head.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let last_base = base
+            .checked_add(last.checked_mul(stride).ok_or(AttnError::Overflow)?)
+            .ok_or(AttnError::Overflow)?;
+        if last_base > kplane.len().saturating_sub(hd)
+            || last_base > vplane.len().saturating_sub(hd)
+        {
+            return Err(AttnError::Overflow);
+        }
+        let mut qf = vec![F32::ZERO; queries.len()];
+        let mut bad = 0u32;
+        let mut i = 0usize;
+        while i < queries.len() {
+            let f = q32_to_f32(queries[i]);
+            bad += u32::from(!f.is_finite());
+            qf[i] = f;
+            i += 1;
+        }
+        if bad != 0 {
+            return Err(AttnError::Overflow);
+        }
+        let positions: Vec<usize> = (first..=last).collect();
+        let mut of = vec![F32::ZERO; outs.len()];
+        // `hd as i64` is exact: `hd` is a head width, far below 2^53.
+        #[allow(clippy::cast_possible_wrap, reason = "head width < 2^53")]
+        let scale = F32::ONE / F32::from_i64(hd as i64).sqrt();
+        f32_core::attn_core_f32_tile(
+            &qf,
+            &kplane[base..],
+            &vplane[base..],
+            hd,
+            group,
+            stride,
+            &positions,
+            scale,
+            &mut of,
+        )?;
+        let mut i = 0usize;
+        let mut ok = true;
+        let mut err: Option<AttnError> = None;
+        while i < outs.len() && ok {
+            match f32_core::f32_to_q32_checked(of[i]) {
+                Ok(v) => outs[i] = v,
+                Err(e) => {
+                    err = Some(e);
+                    ok = false;
+                }
+            }
+            i += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        Ok(())
+    }
+
     /// The [`KvCarrier::I8`] arm of [`KvState::attn_head_group`]: one pass over KV head
     /// `kv_head`'s code rows, all `group` slots folded against each row.
     ///
@@ -3672,6 +3803,73 @@ mod tests {
 
     /// The KV pages of a file-backed state are file-backed: they appear as `RssFile`, never
     /// `RssAnon`, and the kernel may evict them without swapping.
+    /// The tile read of `group` query heads equals the per-column read head for head, bit for bit,
+    /// across tile boundaries and the last partial tile.
+    #[test]
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "fixture words are built from moduli below 1001, far inside i64"
+    )]
+    fn the_tile_group_read_equals_the_per_column_group_read() {
+        let (n_head, n_head_kv, hd, cap) = (4usize, 2usize, 8usize, 300usize);
+        let mut kv =
+            KvState::with_carrier(1, n_head, n_head_kv, hd, cap, KvCarrier::F32).expect("geometry");
+        let kv_out = n_head_kv * hd;
+        let mut s = 0usize;
+        while s < cap {
+            let mut k = vec![0i64; kv_out];
+            let mut v = vec![0i64; kv_out];
+            let mut i = 0usize;
+            while i < kv_out {
+                // Small Q32.32 words: |value| < 2^31, so every sum and product stays in range.
+                k[i] = ((s * 131 + i * 17) % 257) as i64 - 128;
+                v[i] = ((s * 53 + i * 29) % 193) as i64 - 96;
+                k[i] <<= 23;
+                v[i] <<= 23;
+                i += 1;
+            }
+            assert_eq!(kv.append(0, &k, &v), Ok(s));
+            s += 1;
+        }
+        let group = n_head / n_head_kv;
+        let width = group * hd;
+        let mut kvh = 0usize;
+        while kvh < n_head_kv {
+            // `first` 250 with `nq` 50 crosses `KEY_CHUNK = 256` inside one tile.
+            for first in [0usize, 1, 7, 8, 9, 31, 250, 255] {
+                for nq in [1usize, 2, 3, 8, 9, 50] {
+                    if first + nq > cap {
+                        continue;
+                    }
+                    let q: Vec<i64> = (0..nq * width)
+                        .map(|i| (((i * 37 + kvh * 11) % 1001) as i64 - 500) << 24)
+                        .collect();
+                    let mut tiled = vec![0i64; nq * width];
+                    kv.attn_head_group_tile_f32(0, kvh, &q, first, &mut tiled)
+                        .expect("tile");
+                    for j in 0..nq {
+                        let mut one = vec![0i64; width];
+                        kv.attn_head_group(
+                            0,
+                            kvh,
+                            &q[j * width..(j + 1) * width],
+                            first + j,
+                            0,
+                            &mut one,
+                        )
+                        .expect("per column");
+                        assert_eq!(
+                            &tiled[j * width..(j + 1) * width],
+                            &one[..],
+                            "kvh {kvh} first {first} nq {nq} column {j}"
+                        );
+                    }
+                }
+            }
+            kvh += 1;
+        }
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn mapped_cache_pages_are_file_backed() {

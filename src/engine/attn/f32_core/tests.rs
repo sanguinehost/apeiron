@@ -269,6 +269,103 @@ fn test_attn_core_avx2_equals_scalar() {
 }
 
 #[test]
+fn test_attn_core_query_tile_equals_the_per_query_core() {
+    let mut rng = SimpleRng::new(0x1337_C0DE_5EED_0002);
+    // Last queries at and across the 256-position pass boundary, and short prefixes too.
+    let configs = [
+        (8usize, 8usize, 0usize),
+        (8, 16, 1),
+        (16, 16, 7),
+        (16, 24, 255),
+        (64, 64, 256),
+        (128, 128, 257),
+        (128, 256, 600),
+    ];
+    let scale_of = |hd: usize| F32::from_bits((1.0f32 / (hd as f32).sqrt()).to_bits());
+    for &(hd, stride, first) in &configs {
+        // 1, 2 and 4 query heads share one K/V row: the group sizes the block dispatch uses.
+        for query_heads in [1usize, 2, 4] {
+            for nq in [1usize, 2, 3, 8, 33] {
+                let last = first + nq - 1;
+                let total = last * stride + hd;
+                let width = query_heads * hd;
+                let queries: Vec<f32> = (0..nq * width)
+                    .map(|_| rng.next_f32_range(-1.0, 1.0))
+                    .collect();
+                let mut k = vec![0.0f32; total];
+                let mut v = vec![0.0f32; total];
+                for s in 0..=last {
+                    for i in 0..hd {
+                        k[s * stride + i] = rng.next_f32_range(-1.0, 1.0);
+                        v[s * stride + i] = rng.next_f32_range(-4.0, 4.0);
+                    }
+                }
+                let positions: Vec<usize> = (first..=last).collect();
+                let qf = fv(&queries);
+                let kf = fv(&k);
+                let vf = fv(&v);
+                let mut tiled = vec![F32::ZERO; nq * width];
+                attn_core_f32_tile(
+                    &qf,
+                    &kf,
+                    &vf,
+                    hd,
+                    query_heads,
+                    stride,
+                    &positions,
+                    scale_of(hd),
+                    &mut tiled,
+                )
+                .expect("tile");
+                let mut scalar = vec![F32::ZERO; nq * width];
+                attn_core_f32_tile_scalar(
+                    &qf,
+                    &kf,
+                    &vf,
+                    hd,
+                    query_heads,
+                    stride,
+                    &positions,
+                    scale_of(hd),
+                    &mut scalar,
+                )
+                .expect("tile scalar");
+                for j in 0..nq {
+                    for g in 0..query_heads {
+                        let row = j * query_heads + g;
+                        let mut single = vec![F32::ZERO; hd];
+                        attn_core_f32_strided(
+                            &qf[row * hd..(row + 1) * hd],
+                            &kf,
+                            &vf,
+                            hd,
+                            stride,
+                            positions[j],
+                            scale_of(hd),
+                            &mut single,
+                        )
+                        .expect("single");
+                        for i in 0..hd {
+                            let at = row * hd + i;
+                            assert_eq!(
+                                tiled[at].to_bits(),
+                                single[i].to_bits(),
+                                "tile hd {hd} stride {stride} heads {query_heads} nq {nq} query {j} head {g} idx {i}"
+                            );
+                            assert_eq!(
+                                scalar[at].to_bits(),
+                                single[i].to_bits(),
+                                "scalar hd {hd} stride {stride} heads {query_heads} nq {nq} query {j} head {g} idx {i}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn test_attn_core_refusal_on_non_finite() {
     let hd = 16;
     let pos = 2;
@@ -484,6 +581,156 @@ fn attn_f32_vs_q32_timing() {
     println!("f32 native KV cache:    {best_f32:.4} ns per (pos × hd) (speedup: {speedup:.2}x)");
 }
 
+#[test]
+fn test_attn_core_tile_exp_group_edges_equals_the_per_query_core() {
+    // The value pass takes eight consecutive rows per vector exp. Row counts below, at and
+    // across the group boundary, against a fixture where every position ties the maximum (no
+    // lane moves: `alpha = 1` whole-group), one where every position moves it (every lane's
+    // `alpha` is a nontrivial exp), one where a single group mixes moving, tying and below-max
+    // lanes, and a random fixture in between.
+    let scale_of = |hd: usize| F32::from_bits((1.0f32 / (hd as f32).sqrt()).to_bits());
+    let mut rng = SimpleRng::new(0x1337_C0DE_5EED_0003);
+    for &hd in &[8usize, 128usize] {
+        for &(query_heads, nq) in &[
+            (1usize, 1usize),
+            (1, 7),
+            (1, 8),
+            (1, 9),
+            (1, 10),
+            (2, 3),
+            (2, 4),
+            (2, 9),
+            (4, 2),
+            (4, 3),
+        ] {
+            let first = 3usize;
+            let last = first + nq - 1;
+            for fixture in 0..4 {
+                let width = query_heads * hd;
+                let mut q = vec![0.0f32; nq * width];
+                let mut k = vec![0.0f32; (last + 1) * hd];
+                let mut v = vec![0.0f32; (last + 1) * hd];
+                match fixture {
+                    // Every score is +0: each position ties the start maximum, alpha = 1.
+                    0 => {
+                        for s in 0..=last {
+                            for i in 0..hd {
+                                k[s * hd + i] = rng.next_f32_range(-1.0, 1.0);
+                                v[s * hd + i] = rng.next_f32_range(-1.0, 1.0);
+                            }
+                        }
+                    }
+                    // Positive keys of growing amplitude: each position is a new maximum.
+                    1 => {
+                        q.fill(1.0);
+                        for s in 0..=last {
+                            for i in 0..hd {
+                                k[s * hd + i] = (s as f32 + 1.0) / 64.0;
+                                v[s * hd + i] = rng.next_f32_range(-1.0, 1.0);
+                            }
+                        }
+                    }
+                    // A mixed group at key 1: rows 0/3/6 move the maximum, 1/4/7 tie it and
+                    // 2/5 stay below, so the vector alpha branch runs with unmoved lanes in the
+                    // same group.
+                    2 => {
+                        let pattern = [1.0f32, 0.0, -1.0, 1.0, 0.0, -1.0, 1.0, 0.0];
+                        for j in 0..nq {
+                            for g in 0..query_heads {
+                                let row = j * query_heads + g;
+                                q[row * hd] = pattern[row % 8];
+                            }
+                        }
+                        for s in 1..=last {
+                            k[s * hd] = 1.0;
+                        }
+                        for s in 0..=last {
+                            for i in 0..hd {
+                                v[s * hd + i] = rng.next_f32_range(-1.0, 1.0);
+                            }
+                        }
+                    }
+                    // Both branches, plus magnitudes that make exp underflow.
+                    _ => {
+                        for x in &mut q {
+                            *x = rng.next_f32_range(-2.0, 2.0);
+                        }
+                        for s in 0..=last {
+                            for i in 0..hd {
+                                k[s * hd + i] = rng.next_f32_range(-4.0, 4.0);
+                                v[s * hd + i] = rng.next_f32_range(-4.0, 4.0);
+                            }
+                        }
+                    }
+                }
+                let positions: Vec<usize> = (first..=last).collect();
+                let qf = fv(&q);
+                let kf = fv(&k);
+                let vf = fv(&v);
+                let mut tiled = vec![F32::ZERO; nq * width];
+                attn_core_f32_tile(
+                    &qf,
+                    &kf,
+                    &vf,
+                    hd,
+                    query_heads,
+                    hd,
+                    &positions,
+                    scale_of(hd),
+                    &mut tiled,
+                )
+                .expect("tile");
+                for j in 0..nq {
+                    for g in 0..query_heads {
+                        let row = j * query_heads + g;
+                        let mut single = vec![F32::ZERO; hd];
+                        attn_core_f32_strided(
+                            &qf[row * hd..(row + 1) * hd],
+                            &kf,
+                            &vf,
+                            hd,
+                            hd,
+                            positions[j],
+                            scale_of(hd),
+                            &mut single,
+                        )
+                        .expect("single");
+                        for i in 0..hd {
+                            assert_eq!(
+                                tiled[row * hd + i].to_bits(),
+                                single[i].to_bits(),
+                                "hd {hd} heads {query_heads} nq {nq} fixture {fixture} \
+                                 query {j} head {g} idx {i}"
+                            );
+                        }
+                    }
+                }
+                // The scalar twin takes the same one-exp branch; check it against the same words.
+                let mut twin = vec![F32::ZERO; nq * width];
+                attn_core_f32_tile_scalar(
+                    &qf,
+                    &kf,
+                    &vf,
+                    hd,
+                    query_heads,
+                    hd,
+                    &positions,
+                    scale_of(hd),
+                    &mut twin,
+                )
+                .expect("tile scalar");
+                for at in 0..tiled.len() {
+                    assert_eq!(
+                        tiled[at].to_bits(),
+                        twin[at].to_bits(),
+                        "hd {hd} heads {query_heads} nq {nq} fixture {fixture} idx {at}"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// The tiled AVX2 core equals the scalar twin on every tile boundary, at score magnitudes that
 /// move the running maximum often and underflow `exp`, and refuses a non-finite key at any
 /// position with the scalar twin's error.
@@ -551,6 +798,21 @@ fn test_attn_core_tiled_equals_scalar_on_tile_edges() {
                         assert_eq!(ra, Err(AttnError::Overflow));
                         assert_eq!(rb, Err(AttnError::Overflow), "bad {bad} pos {pos}");
                     }
+                }
+                // A non-finite value refuses on both bodies at position 0 (the first row, copied
+                // before the key loop) and inside the pass. The AVX2 body checks position 0 before
+                // its vector copy, so the refusal is not left to a lane test it does not run.
+                for bad in [0usize, pos / 2, pos] {
+                    let mut v2 = v.clone();
+                    v2[bad * stride + 3] = f32::INFINITY;
+                    let ra = scalar_n(&q, &k, &v2, hd, stride, pos, scale, &mut a);
+                    let rb = unsafe {
+                        attn_core_f32_strided_avx2_inner(
+                            &q, &k, &v2, hd, stride, pos, scale, &mut b,
+                        )
+                    };
+                    assert_eq!(ra, Err(AttnError::Overflow), "value bad {bad} pos {pos}");
+                    assert_eq!(rb, Err(AttnError::Overflow), "value bad {bad} pos {pos}");
                 }
             }
         }

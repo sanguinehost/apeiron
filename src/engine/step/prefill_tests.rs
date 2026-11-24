@@ -322,6 +322,23 @@ fn the_nq_prefill_equals_the_per_column_prefill() {
         6, 2, 1, 4, 0, 7, 5, 6, 8, 9, 3, 4, 7, 1, 8, 0, 9, 2, 6, 5, 3, 8, 1, 6, 0, 4, 9, 7, 2, 5,
     ];
     for mode in [KernelMode::Exact, KernelMode::Q8Act] {
+        // Every prompt column's hidden state: the block path's tiled attention writes each
+        // column's `att` through the fold gather, so this is the comparison that sees it. (The
+        // next-token logits below read only the KV rows, which attention never writes.)
+        let mut one = engine.state(prompt.len() + 2).expect("state one");
+        let mut block = engine.state(prompt.len() + 2).expect("state block");
+        let sa = engine
+            .prefill_cols_width(&mut one, prompt, mode, 1)
+            .expect("prefill one");
+        let sb = engine
+            .prefill_cols_width(&mut block, prompt, mode, prompt.len())
+            .expect("prefill block");
+        assert_eq!(sa, sb, "prefill states, {mode:?}");
+        assert_eq!(
+            one.kv.occupied(0).expect("occupied"),
+            block.kv.occupied(0).expect("occupied"),
+            "cache length, {mode:?}"
+        );
         let mut one = engine.state(prompt.len() + 2).expect("state one");
         let mut block = engine.state(prompt.len() + 2).expect("state block");
         let a = engine
@@ -331,11 +348,6 @@ fn the_nq_prefill_equals_the_per_column_prefill() {
             .prefill_state_with_width(&mut block, prompt, mode, prompt.len())
             .expect("prefill block");
         assert_eq!(a, b, "prefill token, {mode:?}");
-        assert_eq!(
-            one.kv.occupied(0).expect("occupied"),
-            block.kv.occupied(0).expect("occupied"),
-            "cache length, {mode:?}"
-        );
         let la = engine
             .step_logits_with_mode(&mut one.kv, a, mode)
             .expect("logits one");
