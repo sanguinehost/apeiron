@@ -71,10 +71,10 @@ horizontal fold and epilogue, over 15–32 words per row, not the select.
 ~/bin/box-run apeiron-nq bash /tmp/nq-screen.sh
 ```
 
-The screen script lives at `/tmp/opencode/box-nq-screen.sh` locally and `/tmp/nq-screen.sh` on the
-box; it alternates the arms and prints `cold` plus the projection leaves. Copy it with `scp` after
-editing. The box runs one guarded job at a time (16 GiB cap, 8 jobs, 800% CPU); a lane does not
-rsync into a tree another lane is building.
+The screen script is on the box at `/tmp/nq-screen8.sh` (two alternating pairs, 1,827 + 16); the
+local copy is transient, and the receipt's Evidence block is the command to recreate it. The box
+runs one guarded job at a time (16 GiB cap, 8 jobs, 800% CPU); a lane does not rsync into a tree
+another lane is building.
 
 ## Gates for a change here
 
