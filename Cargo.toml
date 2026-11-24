@@ -55,6 +55,10 @@ required-features = ["gpu"]
 name = "gpu_gemv_debug"
 required-features = ["gpu"]
 
+[[example]]
+name = "nq_hostmem_probe"
+required-features = ["gpu"]
+
 [dev-dependencies]
 # The REG-1 comparison dev-dependencies (criterion, hashbrown, foldhash, fxhash, rayon, rustc-hash,
 # twox-hash, wyhash, ahash, fnv), the harness-only `libc` (its consumer `examples/support/counter.rs`
