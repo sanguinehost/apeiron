@@ -1218,12 +1218,20 @@ impl KvState {
 
     /// The numerical carrier for this key/value cache.
     #[must_use]
-    #[allow(
-        dead_code,
-        reason = "public-in-crate accessor for the resolved carrier"
-    )]
     pub(crate) fn carrier(&self) -> KvCarrier {
         self.carrier
+    }
+
+    /// The resident bytes of one position across every layer and both K and V planes, in this
+    /// state's carrier. `I8` adds its one `f32` scale per row per plane.
+    #[must_use]
+    pub(crate) fn bytes_per_position(&self) -> usize {
+        let values = 2 * self.n_head_kv * self.head_dim * self.n_layer;
+        match self.carrier() {
+            KvCarrier::Q32 => values * 8,
+            KvCarrier::F32 => values * 4,
+            KvCarrier::I8 => values + 2 * self.n_head_kv * self.n_layer * 4,
+        }
     }
 
     /// The configured layer count.

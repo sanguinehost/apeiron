@@ -91,7 +91,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         system: None,
         kv_file: None,
         kv_block: 0,
-        prefix_mb: 256,
+        prefix_mb: 512,
         prefix_ctx: 0,
     };
     let mut it = std::env::args().skip(1);
@@ -407,7 +407,7 @@ fn chat(
                 }
                 solved = Some((engine.state_with_kv(kv), first.token));
             }
-            Err(e) => eprintln!("prefix        cold: {e}"),
+            Err(e) => eprintln!("prefix        cold: {e:?}"),
         }
     }
     let (mut st, mut next) = match solved {

@@ -1,6 +1,7 @@
 //! Tests for the prefix cache and warm-vs-cold prefill.
 
 use super::*;
+use crate::engine::attn::KvCarrier;
 use crate::engine::attn::KvState;
 use crate::engine::loader::Engine;
 use crate::format::quant;
@@ -404,7 +405,7 @@ fn budget_refusal_leaves_cache_unchanged() {
         engine.step_with_kv(&mut kv, tok).expect("step");
     }
 
-    let snapshot_size = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv, prefix.len());
+    let snapshot_size = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv);
     assert!(snapshot_size > 0);
 
     // Set budget strictly smaller than needed for 1 snapshot
@@ -444,7 +445,7 @@ fn cache_stores_one_kv_state_per_prompt_o_n_memory() {
 
     // Exactly ONE PromptEntry stored in the arena
     assert_eq!(cache.entry_count(), 1);
-    let expected_bytes = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv, prompt.len());
+    let expected_bytes = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv);
     assert_eq!(cache.current_bytes(), expected_bytes);
 
     // All 4 boundaries hit and resolve to their respective lengths
@@ -514,10 +515,10 @@ fn eviction_evicts_lru_entry_under_budget() {
     let kv_b = step_prompt(&engine, &b_toks, 16);
     let kv_c = step_prompt(&engine, &c, 16);
 
-    let snap = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv_a, a.len());
+    let snap = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv_a);
     assert_eq!(
         snap,
-        PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv_b, b_toks.len())
+        PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv_b)
     );
     let budget = 2 * snap;
     let mut cache = PrefixCache::with_block_size(budget, b);
@@ -564,8 +565,8 @@ fn oversized_snapshot_refuses_and_leaves_cache_unchanged() {
     let a: Vec<u32> = vec![1, 2, 3, 4];
     let kv_a = step_prompt(&engine, &a, 16);
 
-    let snap = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv_a, a.len());
-    let budget = 2 * snap;
+    let snap = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv_a);
+    let budget = 3 * snap / 2;
     let mut cache = PrefixCache::with_block_size(budget, b);
     cache.insert(&a, &kv_a).expect("insert A");
 
@@ -573,10 +574,10 @@ fn oversized_snapshot_refuses_and_leaves_cache_unchanged() {
     let bytes_before = cache.current_bytes();
     assert_eq!(count_before, 1);
 
-    // 16 tokens: 4x the single-snapshot footprint, larger than the whole budget.
+    // 16 tokens at capacity 32: twice the single-snapshot charge, above the whole budget.
     let big: Vec<u32> = (0..16).collect();
     let kv_big = step_prompt(&engine, &big, 32);
-    let big_bytes = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv_big, big.len());
+    let big_bytes = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv_big);
     assert!(big_bytes > budget);
 
     let res = cache.insert(&big, &kv_big);
@@ -616,7 +617,7 @@ fn stale_boundary_key_never_returns_reused_slot_state() {
     let kv_b = step_prompt(&engine, &b_toks, 16);
     let kv_c = step_prompt(&engine, &c, 16);
 
-    let snap = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv_a, a.len());
+    let snap = PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(&kv_a);
     let budget = 2 * snap;
     let mut cache = PrefixCache::with_block_size(budget, b);
 
@@ -659,7 +660,7 @@ fn stale_boundary_key_never_returns_reused_slot_state() {
 fn the_batched_tail_equals_the_per_token_path() {
     let path = write_synth_gguf("batched_tail.gguf");
     let engine = Engine::open(&path).expect("open synth engine");
-    let prompt: Vec<u32> = vec![2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31];
+    let prompt: Vec<u32> = vec![2, 3, 5, 7, 11, 13, 1, 4, 6, 8, 9];
     let cap = 16;
 
     for mode in [KernelMode::Exact, KernelMode::Q8Act] {
@@ -697,7 +698,14 @@ fn the_batched_tail_equals_the_per_token_path() {
 
         // Warm: seed the first 8 tokens, then the same prompt resumes at 8 and solves 8..10.
         let mut warm = PrefixCache::with_block_size(10_000_000, 4);
-        let seed = step_prompt(&engine, &prompt[..8], cap);
+        // The seed must be stepped under the same kernel: the cache resumes whatever state it
+        // stores, and a Q8Act tail over an Exact prefix is a different token stream's state.
+        let mut seed = engine.decode_state(cap).expect("seed kv");
+        for &tok in &prompt[..8] {
+            engine
+                .step_logits_with_mode(&mut seed, tok, mode)
+                .expect("seed step");
+        }
         warm.insert(&prompt[..8], &seed).expect("seed insert");
         let (kv_warm, res_warm) =
             prefill_with_cache_mode(&engine, &mut warm, &prompt, cap - prompt.len(), false, mode)
@@ -711,4 +719,25 @@ fn the_batched_tail_equals_the_per_token_path() {
             assert_eq!(kv_warm.occupied(l).expect("warm"), prompt.len());
         }
     }
+}
+
+/// The snapshot charge is the carrier width times the state's capacity, not a fixed eight bytes
+/// per value at the occupied length: an `F32` default state is half the `Q32` charge, and the
+/// spare capacity the clone carries is paid for.
+#[test]
+fn the_snapshot_charge_follows_the_carrier_and_the_capacity() {
+    let (n_layer, n_head, n_head_kv, head_dim, cap) = (2, 4, 2, 8, 10);
+    let values = 2 * n_head_kv * head_dim * n_layer;
+    let q32 = KvState::with_carrier(n_layer, n_head, n_head_kv, head_dim, cap, KvCarrier::Q32)
+        .expect("q32 state");
+    let f32 = KvState::with_carrier(n_layer, n_head, n_head_kv, head_dim, cap, KvCarrier::F32)
+        .expect("f32 state");
+    let i8 = KvState::with_carrier(n_layer, n_head, n_head_kv, head_dim, cap, KvCarrier::I8)
+        .expect("i8 state");
+
+    let charge = |kv: &KvState| PrefixCache::<FnvPrefixHasher>::estimate_snapshot_bytes(kv);
+    assert_eq!(charge(&q32), values * 8 * cap);
+    assert_eq!(charge(&f32), values * 4 * cap);
+    assert_eq!(charge(&i8), (values + 2 * n_head_kv * n_layer * 4) * cap);
+    assert_eq!(charge(&f32) * 2, charge(&q32));
 }

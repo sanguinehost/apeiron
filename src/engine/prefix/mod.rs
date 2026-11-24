@@ -286,15 +286,12 @@ impl<H: PrefixHasher> PrefixCache<H> {
         self.arena.iter().filter(|e| e.is_some()).count()
     }
 
-    /// Estimates the byte size of a [`KvState`] snapshot at `m` positions.
-    ///
-    /// Per position: `2 · (n_head_kv · head_dim) · 8 · n_layer` bytes.
+    /// The resident bytes of a [`KvState`] snapshot: the clone carries whole planes at `cap`, so
+    /// the charge is the carrier's bytes per position times the capacity, not the occupied prefix.
     /// Temporal: O(1); spatial: O(1).
     #[must_use]
-    pub fn estimate_snapshot_bytes(kv: &KvState, m: usize) -> usize {
-        let kv_out = kv.n_head_kv() * kv.head_dim();
-        // 2 (k and v) * kv_out elements * 8 bytes (i64) * n_layer * m positions
-        2 * kv_out * 8 * kv.n_layer() * m
+    pub fn estimate_snapshot_bytes(kv: &KvState) -> usize {
+        kv.bytes_per_position().saturating_mul(kv.cap())
     }
 
     /// Probes for the longest cached prefix matching `tokens`.
@@ -401,7 +398,7 @@ impl<H: PrefixHasher> PrefixCache<H> {
             return Ok(());
         }
 
-        let needed = Self::estimate_snapshot_bytes(kv, m);
+        let needed = Self::estimate_snapshot_bytes(kv);
 
         // A snapshot that cannot fit even in an empty cache is refused before any mutation.
         if needed > self.byte_budget {
