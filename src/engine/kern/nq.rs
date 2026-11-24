@@ -608,8 +608,9 @@ impl<'a> CodeTerms<'a> {
     }
 
     /// The quantized selection of `rows` factor rows against this activation: row `r` reads
-    /// `words[r·stride..]`. `true` when every row is served, `false` (with `out` untouched) when
-    /// the reader cannot serve `len`, which leaves the caller on its per-row entry.
+    /// `words[r·stride..]`. `true` when every row is served; `false` when the reader cannot serve
+    /// `len`, which leaves the caller on its per-row entry. On `false` a prefix of `out` may hold
+    /// rows already folded, so the caller must not read `out`.
     ///
     /// # Complexity
     ///
@@ -889,9 +890,10 @@ const NQ_BLOCK: usize = 4;
 
 /// The factor rows folded per column read: `APEIRON_NQ_BLOCK`, parsed once per process.
 ///
-/// `0` keeps the per-row order (one row read per dot), `n` folds `n` factor rows against one read
-/// of a column's codes and shifts, and an absent or malformed value is [`NQ_BLOCK`]. Values above
-/// [`NQ_BLOCK_MAX`] clamp: the blocked reader holds one vector accumulator per row.
+/// `0` or `1` keeps the per-row order (one row read per dot), a value in `2..=NQ_BLOCK_MAX` folds
+/// that many factor rows against one read of a column's codes and shifts, and an absent or
+/// malformed value is [`NQ_BLOCK`]. Values above [`NQ_BLOCK_MAX`] clamp: the blocked reader holds
+/// one vector accumulator per row, and it needs at least two rows to share a read.
 ///
 /// # Complexity
 ///
@@ -902,8 +904,8 @@ fn nq_block() -> usize {
 }
 
 /// [`nq_block`]'s parse, separate so a test can cover every value without the process cache: `0`
-/// is the per-row loop, `1..=NQ_BLOCK_MAX` the block, malformed or absent [`NQ_BLOCK`], and a value
-/// above the register budget clamps.
+/// and `1` are the per-row loop, `2..=NQ_BLOCK_MAX` the block, malformed or absent [`NQ_BLOCK`],
+/// and a value above the register budget clamps.
 ///
 /// # Complexity
 ///
@@ -916,8 +918,8 @@ fn parse_block(value: Option<&str>) -> usize {
 
 /// The blocked Q8 reader's safe twin: the per-row selection of [`code_select_twin`], one row at a
 /// time, over `words[r·stride..]`. This is the definition the vector block implements; `false`
-/// when the reader cannot serve `len` or a row's total leaves `i64`, which leaves `out` untouched
-/// for the caller's per-row entry.
+/// when the reader cannot serve `len` or a row's total leaves `i64`. On `false` a prefix of `out`
+/// may hold rows already folded, so the caller stays on its per-row entry and does not read it.
 ///
 /// # Complexity
 ///
