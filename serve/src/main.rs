@@ -69,10 +69,11 @@ struct Args {
     /// KV snapshot per prompt and resumes the longest matching prefix, so a repeated prompt
     /// skips its prefill.
     prefix_mb: usize,
-    /// Pin cached states to this many positions. 0 uses each request's prompt + `max_tokens`.
-    /// A growing session only reuses a snapshot whose capacity covers the new prompt, so a
-    /// pinned capacity is what makes successive turns hit. The default 2,048 covers a 2k
-    /// session; the live state is allocated at this capacity too, so it is the memory dial.
+    /// Pin cached states to this many positions. 0 leaves the choice to startup: it pins 2,048
+    /// when `--prefix-mb` holds that snapshot, otherwise it keeps each request's own capacity and
+    /// warns. A growing session only reuses a snapshot whose capacity covers the new prompt, so a
+    /// pinned capacity is what makes successive turns hit. The live state is allocated at this
+    /// capacity too, so this is the memory dial.
     prefix_ctx: usize,
 }
 
@@ -93,7 +94,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         kv_file: None,
         kv_block: 0,
         prefix_mb: 512,
-        prefix_ctx: 2048,
+        prefix_ctx: 0,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -182,6 +183,26 @@ fn run() -> Result<(), Box<dyn Error>> {
     if engine.config.affine.is_some() && args.prefix_mb > 0 {
         eprintln!("prefix        off: the model carries affine layer state");
         args.prefix_mb = 0;
+    }
+    // Pin 2k positions when the budget holds that snapshot. Without a pinned capacity every
+    // growing turn allocates at its own length and the next, longer turn cannot reuse the
+    // snapshot; pinning costs the live state the same capacity, so it is only taken when it fits.
+    if args.prefix_mb > 0 && args.prefix_ctx == 0 {
+        if let Ok(kv) = engine.decode_state(1) {
+            let pin = 2_048usize;
+            let budget = args.prefix_mb.saturating_mul(1024 * 1024);
+            let need = kv.bytes_per_position().saturating_mul(pin);
+            if need <= budget {
+                args.prefix_ctx = pin;
+                eprintln!("prefix        pinned {pin} positions ({need} B)");
+            } else {
+                eprintln!(
+                    "prefix        not pinned: {pin} positions need {need} B of {} B; growing \
+                     turns miss (raise --prefix-mb or pass --prefix-ctx)",
+                    args.prefix_mb
+                );
+            }
+        }
     }
     let listener = TcpListener::bind(&args.bind)?;
     eprintln!(

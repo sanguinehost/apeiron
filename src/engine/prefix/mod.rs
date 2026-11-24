@@ -403,12 +403,13 @@ impl<H: PrefixHasher> PrefixCache<H> {
 
         // The snapshot must hold the prompt it is filed under; a shorter state would resume at
         // the wrong offset.
-        if let Ok(occ) = kv.occupied(0) {
-            if occ < m {
-                return Err(PrefixCacheError::Step(StepError::BadConfig(format!(
-                    "the snapshot holds {occ} positions for a {m}-token prompt"
-                ))));
-            }
+        let occ = kv
+            .min_occupied()
+            .map_err(|e| PrefixCacheError::Step(StepError::Kv(e)))?;
+        if occ < m {
+            return Err(PrefixCacheError::Step(StepError::BadConfig(format!(
+                "the snapshot holds {occ} positions for a {m}-token prompt"
+            ))));
         }
 
         let needed = Self::estimate_snapshot_bytes(kv);
@@ -559,15 +560,16 @@ pub fn prefill_with_cache_mode<H: PrefixHasher>(
             return Err(PrefixCacheError::CapacityExceeded);
         }
         let mut kv = cached_state.clone();
-        if let Ok(occ) = kv.occupied(0) {
-            if occ < m {
-                return Err(PrefixCacheError::Step(StepError::BadConfig(format!(
-                    "the cached state holds {occ} positions, its boundary claims {m}"
-                ))));
-            }
-            if occ > m && !truncate_kv_state(&mut kv, m) {
-                return Err(PrefixCacheError::CapacityExceeded);
-            }
+        let occ = kv
+            .min_occupied()
+            .map_err(|e| PrefixCacheError::Step(StepError::Kv(e)))?;
+        if occ < m {
+            return Err(PrefixCacheError::Step(StepError::BadConfig(format!(
+                "the cached state holds {occ} positions, its boundary claims {m}"
+            ))));
+        }
+        if occ > m && !truncate_kv_state(&mut kv, m) {
+            return Err(PrefixCacheError::CapacityExceeded);
         }
         (m, kv)
     } else {

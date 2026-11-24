@@ -15,7 +15,7 @@ advanced.
 
 | path | the table's share | why |
 |---|---:|---|
-| 8B fit, 4,587.4 s/layer | **0%** | `Table` is constructed in exactly two files, `src/engine/prefix/mod.rs:227,258` and `src/engine/step/cold_store.rs:77,98`. The campaign trainer (`src/gpu/nn/train/`) and `src/learn/nanoquant.rs` contain no `Table`, no `FreqMap`; `examples/nq_fit.rs` links neither. |
+| 8B fit, 4,587.4 s/layer | **0%** | `Table` is constructed only by the prefix cache (`src/engine/prefix/mod.rs`) and the cold store (`src/engine/step/cold_store.rs`). The campaign trainer (`src/gpu/nn/train/`) and `src/learn/nanoquant.rs` contain no `Table`, no `FreqMap`; `examples/nq_fit.rs` links neither. |
 | 8B decode, 346.8 ms/token | **0%** | `matmat_q8act` reads the mmap'd pack bytes; the weight path touches no table. |
 | 8B prefill, 239 ms/position | **the alternative is on the path** | `serve/src/main.rs` prefilled the whole prompt per request and `PrefixCache` had zero call sites. `prefill_with_cache_mode` now wires it: probe the table, solve the missed tail in block passes, step only the last token. |
 
@@ -44,9 +44,9 @@ row reproduces the published baseline (29.44 tok/s, spread 28.01–31.95):
 | warm, hit 1,824 | 0.268 / 0.287 / 0.416 | 0.324 | 5,640 | **203.8×** | 14.46 / 14.31 / 10.87 |
 | shared, hit 1,616, 211-token tail | 11.765 / 12.454 / 13.227 | 12.48 | 146.4 | **5.29×** | 10.81 / 11.03 / 13.53 |
 
-A 16-token turn is 67.2 s cold and 13.7 s on the 211-token tail, **4.9×**. Decode is unchanged:
-the cache holds KV, not weights, and `matmat_q8act` reads the pack every token, so the table is 0%
-of decode and this work cannot move decode tok/s.
+A 16-token turn is `65.96 + 16/12.59 = 67.2 s` cold and `12.48 + 16/12.59 = 13.7 s` shared, **4.9×**.
+Decode is unchanged: the cache holds KV, not weights, and `matmat_q8act` reads the pack every token,
+so the table is 0% of decode and this work cannot move decode tok/s.
 
 The hit is 1,616/1,827 = 88.5% of the positions and removes 81.1% of the wall. The tail is why it is
 not 88.5%: its 211 positions attend to all 1,616 cached keys, so they carry
@@ -84,9 +84,9 @@ The snapshot that makes it work is the cost: 294,912 B/position at F32 (73,728 v
 1,843-position prefix is **543 MB** — more than a quarter of the 2 GiB left for agent sessions on
 this laptop. A 2k capacity (2,064 positions) is 580 MiB, so the served 8B needs
 `--prefix-mb 700`; the 0.6B at 1,827 charges **424,574,976 B (405 MiB)** at capacity 1,851
-(229,376 B/position), measured as `cache ... 424574976 bytes stored`, so it needs
-`--prefix-mb 440`, not the 512 MiB default. `KvCarrier::I8` is 1 B/value and would make the 8B
-snapshot 136 MB; it is a carrier change with its own quality gate, unmeasured here.
+(229,376 B/position), measured as `cache ... 424574976 bytes stored`, so the 512 MiB default holds
+it. `KvCarrier::I8` is 1 B/value and would make the 8B snapshot 136 MB; it is a carrier change with
+its own quality gate, unmeasured here.
 
 The charge was wrong until this turn: `estimate_snapshot_bytes` hardcoded 8 B/value and counted the
 occupied length, so the 1,827 entry was charged 838,139,904 B — twice its F32 footprint and without

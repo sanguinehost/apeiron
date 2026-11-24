@@ -742,3 +742,26 @@ fn the_snapshot_charge_follows_the_carrier_and_the_capacity() {
     assert_eq!(charge(&i8), (values + 2 * n_head_kv * n_layer * 4) * cap);
     assert_eq!(charge(&f32) * 2, charge(&q32));
 }
+
+/// A snapshot shorter than the prompt it is filed under is refused before any mutation: resuming
+/// it would append at a layer's short offset.
+#[test]
+fn a_snapshot_short_of_its_prompt_is_refused() {
+    let path = write_synth_gguf("short_snapshot.gguf");
+    let engine = Engine::open(&path).expect("open synth engine");
+    let prompt: Vec<u32> = vec![1, 2, 3, 4, 5, 6, 7, 8];
+
+    let mut kv = engine.decode_state(16).expect("kv");
+    for &tok in &prompt[..4] {
+        engine.step_with_kv(&mut kv, tok).expect("step");
+    }
+
+    let mut cache = PrefixCache::with_block_size(10_000_000, 4);
+    let err = cache.insert(&prompt, &kv).expect_err("short snapshot");
+    assert!(
+        matches!(err, PrefixCacheError::Step(StepError::BadConfig(_))),
+        "unexpected refusal: {err:?}"
+    );
+    assert_eq!(cache.entry_count(), 0);
+    assert_eq!(cache.current_bytes(), 0);
+}

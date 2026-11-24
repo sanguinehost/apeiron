@@ -1216,6 +1216,16 @@ impl KvState {
         self.map.as_ref().map(|m| m.len())
     }
 
+    /// The fewest occupied positions across the store's layers. A snapshot may be filed under a
+    /// prompt of this length or shorter; a longer prompt would resume at a layer's short offset.
+    pub(crate) fn min_occupied(&self) -> Result<usize, AttnError> {
+        let mut m = usize::MAX;
+        for l in 0..self.n_layer {
+            m = m.min(self.occupied(l)?);
+        }
+        Ok(m)
+    }
+
     /// The numerical carrier for this key/value cache.
     #[must_use]
     pub(crate) fn carrier(&self) -> KvCarrier {
@@ -1223,9 +1233,11 @@ impl KvState {
     }
 
     /// The resident bytes of one position across every layer and both K and V planes, in this
-    /// state's carrier. `I8` adds its one `f32` scale per row per plane.
+    /// state's carrier. `I8` adds its one `f32` scale per row per plane. The prefix cache charges
+    /// `bytes_per_position() × cap()` per snapshot, and `serve` uses it to decide whether a pinned
+    /// capacity fits a byte budget.
     #[must_use]
-    pub(crate) fn bytes_per_position(&self) -> usize {
+    pub fn bytes_per_position(&self) -> usize {
         let values = 2 * self.n_head_kv * self.head_dim * self.n_layer;
         match self.carrier() {
             KvCarrier::Q32 => values * 8,

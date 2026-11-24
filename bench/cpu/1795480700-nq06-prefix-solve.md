@@ -1,4 +1,4 @@
-# The 0.6B prefill cache: cold, warm and 205-token-delta turns
+# The 0.6B prefill cache: cold, warm and a 205-token delta (211-position tail)
 
 Criterion: **T2** (turn latency). Grade: `measured`. Machine: ThinkPad L13 Yoga 20R6, i5-10210U
 (4 cores / 8 threads, AVX2, no AVX-VNNI), 6.6 GiB, Ubuntu 24.04, `APEIRON_THREADS=4`. Load average
@@ -75,6 +75,34 @@ Same model and pack, `--len 512 --differ 205 --decode 16 --mb 320`:
 The third shared run is an outlier (2.2× the other two, decode inside its range); the first two
 give a 2.4× ratio. The 208-token tail costs 25.8 ms/position against 25.4 cold — at a 304-token
 prefix the tail's attention is small, so the tail is priced like the cold average.
+
+Raw (transcribed from the 10:44 runs, same binary and pack):
+
+```
+cold   hit     0  prefill   13.560 s (  37.76 tok/s)  decode 16 in  0.704 s (22.72 tok/s)  first 659
+warm   hit   496  prefill    0.466 s (1098.00 tok/s)  decode 16 in  0.729 s (21.93 tok/s)  first 659
+shared hit   304  prefill    5.226 s (  97.97 tok/s)  decode 16 in  0.807 s (19.82 tok/s)  first 1
+cold   hit     0  prefill   13.408 s (  38.19 tok/s)  decode 16 in  0.841 s (19.02 tok/s)  first 659
+warm   hit   496  prefill    0.488 s (1048.69 tok/s)  decode 16 in  0.769 s (20.81 tok/s)  first 659
+shared hit   304  prefill    5.501 s (  93.08 tok/s)  decode 16 in  0.847 s (18.90 tok/s)  first 1
+cold   hit     0  prefill   12.041 s (  42.52 tok/s)  decode 16 in  0.739 s (21.66 tok/s)  first 659
+warm   hit   496  prefill    0.541 s ( 946.10 tok/s)  decode 16 in  0.762 s (21.00 tok/s)  first 659
+shared hit   304  prefill   11.901 s (  43.02 tok/s)  decode 16 in  0.753 s (21.26 tok/s)  first 1
+```
+
+## The charge, after the fix
+
+The later 11:35 run with `--mb 440` printed the corrected charge and is the raw line behind the
+note's 405 MiB figure:
+
+```
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 205 decode 16 cache 440 MiB, 424574976 B needed
+cache 1 entries, 424574976 bytes stored
+```
+
+That run's timings are discarded (cold 87.8 s, decode 8.2 tok/s against 21 clean); only the charge
+line is used.
 
 ## What this does not cover
 
