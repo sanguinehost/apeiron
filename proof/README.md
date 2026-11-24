@@ -590,6 +590,16 @@ equality of each core to a safe definition is a Rust test, not a refinement theo
 covers it yet; the `Q4_K` lane has no safe twin at all, only the oracle equality. Both are unverified
 debt under the `## Unsafe` rule in `AGENTS.md`.
 
+The F32 prefill tile's AVX2 body (`attn_core_f32_tile_avx2_inner`, twin
+`attn_core_f32_tile_scalar`) and the NQ blocked reader's bodies (`code_select_block_avx2`,
+`code_select_rows_avx2`, twin `code_select_rows_twin`) are in the same class: opaque in
+`SERVING_OPAQUE`, twin in the crate and equal under the two equality tests
+(`test_attn_core_tile_exp_group_edges_equals_the_per_query_core`,
+`the_blocked_code_source_equals_the_per_row_source`), neither twin a `--start-from` root, so no
+refinement theorem. `proof/regen.sh --check` has not run on either host since the two changes; the
+extractor's acceptance of the three new `--opaque` entries and the two process-flag entries
+(`attn_exp_skip_enabled`, `attn_tile_enabled`) is unverified.
+
 Board .
 
 A fresh clone `git clone`d from the published repository, with the changed `proof/` files added, ran
