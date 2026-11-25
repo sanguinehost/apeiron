@@ -95,13 +95,29 @@ from the projection's 51.4% share of a 1,827-position cold turn is 2.06×
 
 Under `Q8` the pooled reader also folds a block of factor rows against one read of the column's
 code and shift planes. `APEIRON_NQ_BLOCK` selects the block: `0` and `1` are the per-row loop, the
-default is 4, and values above 8 clamp. `code_select_block_avx2` is the body, dispatched from
+default is 8, and values above 8 clamp. `code_select_block_avx2` is the body, dispatched from
 `code_select_rows_avx2` over `R = 2..=8`, and `code_select_rows_twin` is its per-row definition.
 At 1,827 positions the 1.09× over eight same-binary pairs and 1.12× over all fifteen is
 `measured` on the 0.6B cold projection sum: `bench/cpu/1795518973-nq-blocking.md` runs
 `examples/prefix_solve.rs` and gates the reader's equality with
-`cargo test --lib --locked engine::kern::nq`. Block 8 is not separated from 4 on the laptop, so 4
-stays the default.
+`cargo test --lib --locked engine::kern::nq`. The default moves 4 → 8 on the paired box screen in
+`bench/cpu/1795557505-nq-two-column.md` (mean 1.124× over three alternating pairs), where 8 is the
+only block with no remainder row on the production shapes; the laptop confirmation of that default
+is open.
+
+The column dial is separate from the row block. `APEIRON_NQ_COLS` sets the columns one weight-word
+pass folds: `8` or more selects the eight-column tile, anything else the two-column pair, and an
+absent value selects the tile at four or more participants and the pair below. The tile's body
+`code_select_row8_avx2` shares one expansion of each weight word across eight activation columns
+and computes each column's sign dot with its own codes, shift vectors and `e_min`;
+`CodeTerms::selected_row_cols` admits it only when all eight stages are Q8 readers, and the caller
+keeps the pair for the leftover columns and on a refusal. Every column's words equal the pair
+entry's, as `the_wide_source_equals_eight_per_column_sources` asserts. The isolated projection rate
+is 1.19× at four participants and 1.22× at eight, but the no-trace cold 1,827-position wall moves
+1.005–1.015× at four (median 1.009, tile 3/3) and 0.992–1.030× at eight (median 1.008, 2/3), at or
+inside the unchanged arm's spread; the traced pairs repeat the sign. The projection dot is not the
+whole of the dominant leaf, so the kernel gain mostly does not reach the wall
+(`bench/cpu/1795569181-nq-eight-column.md`).
 
 `project_q8` quantises the stage activation with the same chart `matmat_q8act` uses: `S_b = 2^e_b`,
 the smallest power of two with `127·S_b ≥ absmax_b`, one code per element. For a sign plane the
@@ -143,8 +159,9 @@ route mix-up would leave it. On the production shapes the measured deviation is 
 
 The extraction does not include `code_select_avx2` or any AVX2 body: Aeneas does not model
 `core::arch`, so an intrinsic body is `tested` against its safe twin and never `proved`. The
-blocked bodies `code_select_block_avx2` and `code_select_rows_avx2` are in the same class. The
-refinement theorem covers the twin and the integer arithmetic around it.
+blocked bodies `code_select_block_avx2`, `code_select_rows_avx2` and the eight-column
+`code_select_row8_avx2` are in the same class. The refinement theorem covers the twin and the
+integer arithmetic around it.
 
 ## What it does not establish
 

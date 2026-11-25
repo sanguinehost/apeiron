@@ -504,6 +504,17 @@ struct CodeTerms<'a> {
     vector: bool,
 }
 
+/// One activation column as the wide column tile reads it: the codes, the verbatim block scales,
+/// the normalized shift vectors, the smallest block exponent and the host's selector flag.
+#[derive(Clone, Copy)]
+struct ColRef<'a> {
+    codes: &'a [i8],
+    scales: &'a [i64],
+    shift_vecs: &'a [[i32; 8]],
+    e_min: u32,
+    vector: bool,
+}
+
 impl<'a> CodeTerms<'a> {
     /// Read `q` into the normalized block form, or `None` when a scale is not a power of two, the
     /// lane sum leaves `i32`, or the total leaves `i64`.
@@ -685,6 +696,58 @@ impl<'a> CodeTerms<'a> {
             && stride >= blocks
             && words.len() >= span
             && out_len >= rows
+    }
+
+    /// This reader as the wide column tile's per-column input.
+    fn col_ref(&self) -> ColRef<'_> {
+        ColRef {
+            codes: self.codes,
+            scales: self.scales,
+            shift_vecs: &self.shift_vecs,
+            e_min: self.e_min,
+            vector: self.vector,
+        }
+    }
+
+    /// The quantized selections of **eight** activations against one factor row's `words`, one
+    /// bit expansion of each 32-term block shared by all eight columns.
+    ///
+    /// `true` when every column's reader served `len`; `false` otherwise, leaving `out` partially
+    /// written, so the caller stays on its blocked loop and does not read it.
+    ///
+    /// # Complexity
+    ///
+    /// `O(8·len)` terms: `len/32` blocks of one word load, one expansion and `8·6` vector
+    /// operations, then one horizontal fold per column. `O(1)` space beyond `out`.
+    fn selected_row_cols(
+        cols: &[ColRef<'_>; 8],
+        words: &[u32],
+        len: usize,
+        out: &mut [i64; 8],
+    ) -> bool {
+        let blocks = len.div_ceil(32);
+        let mut c = 0usize;
+        while c < 8 {
+            let col = &cols[c];
+            if len > col.codes.len()
+                || col.shift_vecs.len() < blocks
+                || col.scales.len() < blocks
+                || words.len() < blocks
+            {
+                return false;
+            }
+            c += 1;
+        }
+        #[cfg(target_arch = "x86_64")]
+        if cols.iter().all(|c| c.vector) {
+            // SAFETY: `vector` names AVX2 on every column; the length, block and word bounds were
+            // checked above, and `CodeTerms::new` admitted only a lane sum inside `i32` and a
+            // total inside `i64`, per column.
+            if unsafe { code_select_row8_avx2(cols, words, len, out) }.is_some() {
+                return true;
+            }
+        }
+        false
     }
 
     /// The quantized selection of `rows` rows against **two** activations at once, both readers
@@ -985,6 +1048,48 @@ const NQ_BLOCK_MAX: usize = 8;
 /// difference was inside the block-4 arm's spread, not because 8 lost.
 const NQ_BLOCK: usize = 8;
 
+/// The activation columns one weight-word pass folds when `APEIRON_NQ_COLS` admits the wide
+/// tile: eight, the register file's limit at one factor row.
+const NQ_TILE_COLS: usize = 8;
+
+/// The columns one weight-word pass folds: `APEIRON_NQ_COLS`, parsed once per process.
+///
+/// A value of `NQ_TILE_COLS` or more enables the eight-column tile; anything else (`0`, `2`, a
+/// malformed value) keeps the two-column pair, which is also what serves a column group the tile
+/// refuses. Absent, the tile is the default at four or more participants and the pair below that:
+/// the tile's one-row, eight-column pass wins 1.19x at four participants and 1.22x at eight in
+/// `1795569181-nq-eight-column.md`, and loses at one and two because its eight accumulators carry
+/// less instruction-level parallelism than the pair's sixteen. A same-binary A/B switch, not a
+/// quality dial: every arm is exact.
+///
+/// # Complexity
+///
+/// `O(1)`: one environment read, one parse and one pool-width read, cached in a `OnceLock`.
+fn nq_cols() -> usize {
+    static COLS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *COLS.get_or_init(|| {
+        parse_cols(
+            std::env::var("APEIRON_NQ_COLS").ok().as_deref(),
+            Pool::global().width(),
+        )
+    })
+}
+
+/// [`nq_cols`]'s parse, separate so a test can cover every value and width without the process
+/// cache: an explicit value at or above [`NQ_TILE_COLS`] is the tile and anything else is the
+/// pair; absent, the tile needs at least four participants.
+///
+/// # Complexity
+///
+/// `O(1)`.
+fn parse_cols(value: Option<&str>, width: usize) -> usize {
+    match value.and_then(|v| v.trim().parse::<usize>().ok()) {
+        Some(n) if n >= NQ_TILE_COLS => NQ_TILE_COLS,
+        None if width >= 4 => NQ_TILE_COLS,
+        Some(_) | None => 2,
+    }
+}
+
 /// The factor rows folded per column read: `APEIRON_NQ_BLOCK`, parsed once per process.
 ///
 /// `0` or `1` keeps the per-row order (one row read per dot), a value in `2..=NQ_BLOCK_MAX` folds
@@ -1218,6 +1323,92 @@ unsafe fn lane_sum(lane: std::arch::x86_64::__m256i) -> i64 {
     );
     let half = _mm_add_epi64(half, _mm_unpackhi_epi64(half, half));
     _mm_cvtsi128_si64(half)
+}
+
+/// Fold one factor row's weight words against **eight** activation columns: the word's bit
+/// expansion (broadcast, `vpsrlvd`, two `vpshufb`, `vpand`) is built once per 32-term block and
+/// folded against all eight columns, and only the `vpmaddubsw`/`vpmaddwd`/`vpsllvd`/`vpaddd`
+/// chains repeat per column.
+///
+/// This is the same arithmetic as eight [`code_select_block_avx2`] calls: each column's codes,
+/// shift vectors and `e_min` are read independently, and [`CodeTerms::new`]'s per-column bounds
+/// make every lane sum exact, so each column's output equals the single-column kernel's word for
+/// word. The row count is one by construction: eight column accumulators plus the five selector
+/// constants and the two per-column loads fill the vector register file, and a second row spills.
+///
+/// # Safety
+///
+/// The host CPU supports AVX2. For each column: `len <= codes.len()`, `scales.len() >=
+/// len.div_ceil(32)`, `shift_vecs` covers `len.div_ceil(32)` blocks, `e_min` is the smallest
+/// block exponent, `words.len() >= len.div_ceil(32)`, and the [`CodeTerms::new`] bounds hold.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(
+    clippy::cast_ptr_alignment,
+    reason = "loadu admits the unaligned block pointer"
+)]
+unsafe fn code_select_row8_avx2(
+    cols: &[ColRef<'_>; 8],
+    words: &[u32],
+    len: usize,
+    out: &mut [i64; 8],
+) -> Option<()> {
+    use std::arch::x86_64::{
+        __m256i, _mm256_add_epi32, _mm256_and_si256, _mm256_loadu_si256, _mm256_madd_epi16,
+        _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_setr_epi32,
+        _mm256_setr_epi8, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_sllv_epi32,
+        _mm256_srlv_epi32,
+    };
+    let full = len / 32;
+    let digit_mask = _mm256_set1_epi32(0x0804_0201);
+    let bit_at = _mm256_setr_epi32(0, 4, 8, 12, 16, 20, 24, 28);
+    let repeat = _mm256_setr_epi8(
+        0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12, 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12,
+        12, 12, 12,
+    );
+    let select_one = _mm256_setr_epi8(
+        0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+        0, 0,
+    );
+    let ones = _mm256_set1_epi16(1);
+    let mut acc = [_mm256_setzero_si256(); 8];
+    let mut b = 0usize;
+    while b < full {
+        let word = words[b];
+        let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
+        let nibble = _mm256_shuffle_epi8(spread, repeat);
+        let select = _mm256_shuffle_epi8(select_one, _mm256_and_si256(nibble, digit_mask));
+        let mut c = 0usize;
+        while c < 8 {
+            // SAFETY: the caller's per-column bounds cover both planes at block `b`.
+            let plane =
+                unsafe { _mm256_loadu_si256(cols[c].codes.as_ptr().add(b * 32).cast::<__m256i>()) };
+            let sv =
+                unsafe { _mm256_loadu_si256(cols[c].shift_vecs.as_ptr().add(b).cast::<__m256i>()) };
+            let pair = _mm256_maddubs_epi16(select, plane);
+            let part = _mm256_madd_epi16(pair, ones);
+            acc[c] = _mm256_add_epi32(acc[c], _mm256_sllv_epi32(part, sv));
+            c += 1;
+        }
+        b += 1;
+    }
+    let tail = full * 32;
+    let mut c = 0usize;
+    while c < 8 {
+        // SAFETY: AVX2 is the caller's contract; the lane bound makes the sum exact.
+        let mut total = i128::from(unsafe { lane_sum(acc[c]) }) << cols[c].e_min;
+        if tail < len {
+            total += code_select_twin(
+                &cols[c].codes[tail..],
+                &cols[c].scales[full..],
+                &words[full..],
+                len - tail,
+            );
+        }
+        out[c] = i64::try_from(total).ok()?;
+        c += 1;
+    }
+    Some(())
 }
 
 /// Fold one row block's weight words against **two** activation columns: the word's bit
@@ -1491,6 +1682,45 @@ impl Stage<'_> {
         for i in 0..rows {
             out_a[i] = i128::from(a.sum) - 2 * i128::from(sel_a[i]);
             out_b[i] = i128::from(b.sum) - 2 * i128::from(sel_b[i]);
+        }
+        true
+    }
+
+    /// The sign dots of one factor row's `words` against eight activation stages in one pass:
+    /// [`CodeTerms::selected_row_cols`] shares the row's bit expansion across all eight columns.
+    /// `true` when every stage is a Q8 reader the vector source serves; `false` leaves `out`
+    /// partially written, and the caller keeps its two-column or per-row loop, which is the same
+    /// arithmetic.
+    ///
+    /// # Complexity
+    ///
+    /// `O(8·len)` terms with one word expansion per 32 terms; `O(1)` space beyond `out`.
+    fn dot_row_cols8(stages: &[&Self; 8], words: &[u32], len: usize, out: &mut [i128; 8]) -> bool {
+        let mut cols = [ColRef {
+            codes: &[],
+            scales: &[],
+            shift_vecs: &[],
+            e_min: 0,
+            vector: false,
+        }; 8];
+        let mut sums = [0i64; 8];
+        let mut c = 0usize;
+        while c < 8 {
+            let Some(codes) = &stages[c].codes else {
+                return false;
+            };
+            cols[c] = codes.col_ref();
+            sums[c] = codes.sum;
+            c += 1;
+        }
+        let mut sel = [0i64; 8];
+        if !CodeTerms::selected_row_cols(&cols, words, len, &mut sel) {
+            return false;
+        }
+        let mut c = 0usize;
+        while c < 8 {
+            out[c] = i128::from(sums[c]) - 2 * i128::from(sel[c]);
+            c += 1;
         }
         true
     }
@@ -1888,17 +2118,33 @@ impl NqLinear {
     /// The block selects the loop nesting only. Each column's reader is read once per block of
     /// factor rows instead of once per row, and every per-(row, column) dot, `mul_q32` epilogue and
     /// output-row sum keeps its own order. A block of `0` or `1` is the per-row loop.
-    #[allow(
-        clippy::too_many_lines,
-        reason = "the two stages, their per-column readers and the refusal flag are one protocol"
-    )]
     fn project_pooled_block(
         &self,
         xs: &[&[i64]],
         reader: Reader,
         block: usize,
     ) -> Result<Vec<Vec<i64>>, NqError> {
+        self.project_pooled_shape(xs, reader, block, nq_cols())
+    }
+
+    /// [`NqLinear::project_pooled_block`] under an explicit column tile: `tile` at or above
+    /// [`NQ_TILE_COLS`] runs the eight-column wide pass on whole groups of eight columns, and
+    /// every remaining column keeps the block's two-column or per-row loop. The tile is a loop
+    /// nesting, not an arithmetic: both arms compute each column's dot exactly, so their words
+    /// are equal, as `the_pooled_block_is_bit_equal_at_every_block` asserts.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the two stages, their per-column readers and the refusal flag are one protocol"
+    )]
+    fn project_pooled_shape(
+        &self,
+        xs: &[&[i64]],
+        reader: Reader,
+        block: usize,
+        tile: usize,
+    ) -> Result<Vec<Vec<i64>>, NqError> {
         let block = block.min(NQ_BLOCK_MAX);
+        let wide = tile >= NQ_TILE_COLS;
         let k = xs.len();
         if k == 0 {
             return Ok(Vec::new());
@@ -1937,6 +2183,48 @@ impl NqLinear {
             let ncols = zs.len() / self.rank;
             let mut dots = [0i128; NQ_BLOCK_MAX];
             let mut dots2 = [0i128; NQ_BLOCK_MAX];
+            let mut dots8 = [0i128; 8];
+            // The wide tile: eight columns per pass, one factor row at a time, so each column's
+            // codes and shift vectors are read once per row and the row's bit expansion is
+            // shared by all eight dots. The pair loop below keeps the leftover columns.
+            let groups = if wide { ncols / NQ_TILE_COLS } else { 0 };
+            let mut wide_from = 0usize;
+            if groups > 0 {
+                let mut r = 0usize;
+                while r < self.rank {
+                    let row = &self.v[r * self.v_words..];
+                    let mut g = 0usize;
+                    while g < groups {
+                        let base = g * NQ_TILE_COLS;
+                        let tiles: [&Stage<'_>; 8] =
+                            std::array::from_fn(|c| &t_stages[c0 + base + c]);
+                        if !Stage::dot_row_cols8(&tiles, row, self.inn, &mut dots8) {
+                            break;
+                        }
+                        let mut c = 0usize;
+                        while c < NQ_TILE_COLS {
+                            match i64::try_from(dots8[c])
+                                .ok()
+                                .and_then(|dot| mul_q32(dot, self.s_mid[r]))
+                            {
+                                Some(v) => zs[(base + c) * self.rank + r] = v,
+                                None => {
+                                    overflow.store(true, std::sync::atomic::Ordering::Relaxed);
+                                }
+                            }
+                            c += 1;
+                        }
+                        g += 1;
+                    }
+                    if g < groups {
+                        break;
+                    }
+                    r += 1;
+                }
+                if r == self.rank {
+                    wide_from = groups * NQ_TILE_COLS;
+                }
+            }
             let mut r0 = 0usize;
             while r0 < self.rank {
                 let rows = block.max(1).min(self.rank - r0);
@@ -1954,7 +2242,7 @@ impl NqLinear {
                         }
                     }
                 };
-                let mut cc = 0usize;
+                let mut cc = wide_from;
                 while cc < ncols {
                     if cc + 1 < ncols
                         && t_stages[c0 + cc].dot_rows2(
@@ -2023,6 +2311,44 @@ impl NqLinear {
             let ncols = ys.len() / self.out;
             let mut dots = [0i128; NQ_BLOCK_MAX];
             let mut dots2 = [0i128; NQ_BLOCK_MAX];
+            let mut dots8 = [0i128; 8];
+            // As in the `V` stage: eight columns per pass on whole groups, leftover columns in
+            // the block's pair loop below.
+            let groups = if wide { ncols / NQ_TILE_COLS } else { 0 };
+            let mut wide_from = 0usize;
+            if groups > 0 {
+                let mut i = 0usize;
+                while i < self.out {
+                    let row = &self.u[i * self.u_words..];
+                    let mut g = 0usize;
+                    while g < groups {
+                        let base = g * NQ_TILE_COLS;
+                        let tiles: [&Stage<'_>; 8] =
+                            std::array::from_fn(|c| &z_stages[c0 + base + c]);
+                        if !Stage::dot_row_cols8(&tiles, row, self.rank, &mut dots8) {
+                            break;
+                        }
+                        let mut c = 0usize;
+                        while c < NQ_TILE_COLS {
+                            match self.project_row(i, dots8[c], &x_stages[c0 + base + c]) {
+                                Some(v) => ys[(base + c) * self.out + i] = v,
+                                None => {
+                                    overflow.store(true, std::sync::atomic::Ordering::Relaxed);
+                                }
+                            }
+                            c += 1;
+                        }
+                        g += 1;
+                    }
+                    if g < groups {
+                        break;
+                    }
+                    i += 1;
+                }
+                if i == self.out {
+                    wide_from = groups * NQ_TILE_COLS;
+                }
+            }
             let mut i0 = 0usize;
             while i0 < self.out {
                 let rows = block.max(1).min(self.out - i0);
@@ -2036,7 +2362,7 @@ impl NqLinear {
                         }
                     }
                 };
-                let mut cc = 0usize;
+                let mut cc = wide_from;
                 while cc < ncols {
                     if cc + 1 < ncols
                         && z_stages[c0 + cc].dot_rows2(
@@ -2651,6 +2977,68 @@ mod tests {
         assert_eq!(linear.project(&x).expect("project"), sequential(&p, &x));
     }
 
+    /// The eight-column source against its per-column twins over the whole vector domain: each
+    /// column carries its own codes, scale heights and `e_min`, `len` covers whole 32-term blocks
+    /// and a tail whose padding bits are set, and the word span leaves slack past the blocks. The
+    /// group must give every column its single-column sum, and must refuse a group whose columns
+    /// cannot serve the length without writing the output.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn the_wide_source_equals_eight_per_column_sources() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let mut state = 0x51c3_9e27_44d1_0b6au64;
+        for len in [32usize, 33, 63, 64, 95, 1000, 1023] {
+            let blocks = len.div_ceil(32);
+            let mut acts: Vec<QuantAct> = Vec::with_capacity(NQ_TILE_COLS);
+            for c in 0..NQ_TILE_COLS {
+                #[allow(clippy::cast_possible_truncation, reason = "column index < 8")]
+                let e = 3 * c as u32;
+                let period = c + 2;
+                let codes: Vec<i8> = (0..len)
+                    .map(|_| {
+                        i8::try_from(i32::try_from(next_u32(&mut state) % 255).expect("byte") - 127)
+                            .expect("[-127, 127]")
+                    })
+                    .collect();
+                let scales: Vec<i64> = (0..blocks)
+                    .map(|b| 1i64 << (e + u32::from(b % period == 0)))
+                    .collect();
+                acts.push(QuantAct::from_parts(scales, codes));
+            }
+            let terms: Vec<CodeTerms<'_>> = acts
+                .iter()
+                .map(|q| CodeTerms::new(q).expect("the fixture admits"))
+                .collect();
+            let cols: [ColRef<'_>; NQ_TILE_COLS] = std::array::from_fn(|c| terms[c].col_ref());
+            let stride = blocks + 1;
+            let mut words: Vec<u32> = (0..stride).map(|_| next_u32(&mut state)).collect();
+            if len % 32 != 0 {
+                words[blocks - 1] |= !0u32 << (len % 32);
+            }
+            let mut got = [0i64; NQ_TILE_COLS];
+            assert!(
+                CodeTerms::selected_row_cols(&cols, &words, len, &mut got),
+                "len {len}: the group refused"
+            );
+            for c in 0..NQ_TILE_COLS {
+                let want = code_select_twin(terms[c].codes, terms[c].scales, &words, len);
+                assert_eq!(i128::from(got[c]), want, "len {len} column {c}");
+            }
+        }
+        // A column shorter than the length refuses the group, and the caller's fallback is what
+        // the domain check protects.
+        let q = QuantAct::from_parts(vec![1], vec![1; 32]);
+        let terms = CodeTerms::new(&q).expect("the fixture admits");
+        let cols: [ColRef<'_>; NQ_TILE_COLS] = std::array::from_fn(|_| terms.col_ref());
+        let mut got = [0i64; NQ_TILE_COLS];
+        assert!(!CodeTerms::selected_row_cols(
+            &cols, &[0u32; 2], 64, &mut got
+        ));
+        assert_eq!(got, [0i64; NQ_TILE_COLS]);
+    }
+
     /// The two-column Q8 source against its two per-row twins over the whole vector domain: `len`
     /// covers whole 32-term blocks and a tail, the two activations carry different `e_min`s and
     /// shift patterns, `stride` is padded past the block count, the tail word's padding bits are
@@ -2919,28 +3307,33 @@ mod tests {
             terms / 1e9
         );
         let mut first: Option<Vec<Vec<i64>>> = None;
-        for block in 0..=NQ_BLOCK_MAX {
-            let mut ns = [0u128; 3];
-            let mut got = Vec::new();
-            for slot in &mut ns {
-                let start = std::time::Instant::now();
-                got = linear
-                    .project_pooled_block(&refs, Reader::Q8, block)
-                    .expect("q8 pooled block");
-                *slot = start.elapsed().as_nanos();
+        for tile in [2usize, NQ_TILE_COLS] {
+            for block in 0..=NQ_BLOCK_MAX {
+                let mut ns = [0u128; 3];
+                let mut got = Vec::new();
+                for slot in &mut ns {
+                    let start = std::time::Instant::now();
+                    got = linear
+                        .project_pooled_shape(&refs, Reader::Q8, block, tile)
+                        .expect("q8 pooled block");
+                    *slot = start.elapsed().as_nanos();
+                }
+                match &first {
+                    None => first = Some(got),
+                    Some(want) => assert_eq!(
+                        &got, want,
+                        "tile {tile} block {block} disagrees with tile 2 block 0"
+                    ),
+                }
+                let mean = ns.iter().map(|&n| n as f64).sum::<f64>() / 3.0;
+                let min = ns.iter().copied().min().unwrap_or(0) as f64;
+                println!(
+                    "tile {tile} block {block}: {:8.2} ms (min {:8.2})  {:6.2} G terms/s",
+                    mean / 1e6,
+                    min / 1e6,
+                    terms / mean
+                );
             }
-            match &first {
-                None => first = Some(got),
-                Some(want) => assert_eq!(&got, want, "block {block} disagrees with block 0"),
-            }
-            let mean = ns.iter().map(|&n| n as f64).sum::<f64>() / 3.0;
-            let min = ns.iter().copied().min().unwrap_or(0) as f64;
-            println!(
-                "block {block}: {:8.2} ms (min {:8.2})  {:6.2} G terms/s",
-                mean / 1e6,
-                min / 1e6,
-                terms / mean
-            );
         }
     }
 
@@ -2975,28 +3368,32 @@ mod tests {
                 .collect();
             // `0` is the per-row loop and a value past the register budget clamps, as the
             // environment switch parses them; every value between is a block of factor rows.
-            for block in [0usize, 1, 2, 3, 4, 5, 6, 7, 8, NQ_BLOCK_MAX + 5] {
-                assert_eq!(
-                    linear
-                        .project_pooled_block(&refs, Reader::Exact, block)
-                        .expect("pooled exact"),
-                    exact,
-                    "exact, k {k}, block {block}"
-                );
-                assert_eq!(
-                    linear
-                        .project_pooled_block(&refs, Reader::Q8, block)
-                        .expect("pooled q8"),
-                    q8,
-                    "q8, k {k}, block {block}"
-                );
-                assert_eq!(
-                    linear
-                        .project_pooled_block(&refs, Reader::Ternary, block)
-                        .expect("pooled ternary"),
-                    ternary,
-                    "ternary, k {k}, block {block}"
-                );
+            // The column tile is a loop nesting like the row block: the eight-column wide pass
+            // and the two-column pair give the same words, alone and together.
+            for tile in [2usize, 5, NQ_TILE_COLS, NQ_TILE_COLS + 1] {
+                for block in [0usize, 1, 2, 3, 4, 5, 6, 7, 8, NQ_BLOCK_MAX + 5] {
+                    assert_eq!(
+                        linear
+                            .project_pooled_shape(&refs, Reader::Exact, block, tile)
+                            .expect("pooled exact"),
+                        exact,
+                        "exact, k {k}, block {block}, tile {tile}"
+                    );
+                    assert_eq!(
+                        linear
+                            .project_pooled_shape(&refs, Reader::Q8, block, tile)
+                            .expect("pooled q8"),
+                        q8,
+                        "q8, k {k}, block {block}, tile {tile}"
+                    );
+                    assert_eq!(
+                        linear
+                            .project_pooled_shape(&refs, Reader::Ternary, block, tile)
+                            .expect("pooled ternary"),
+                        ternary,
+                        "ternary, k {k}, block {block}, tile {tile}"
+                    );
+                }
             }
         }
     }
@@ -3015,6 +3412,24 @@ mod tests {
         assert_eq!(parse_block(Some("8")), NQ_BLOCK_MAX);
         assert_eq!(parse_block(Some("9")), NQ_BLOCK_MAX);
         assert_eq!(parse_block(Some("999999999999999999999")), NQ_BLOCK);
+    }
+
+    /// The column dial: the default is the wide tile, a value at or above it is the tile, and
+    /// everything else keeps the two-column pair.
+    #[test]
+    fn the_column_switch_parses_the_pair_and_the_tile() {
+        assert_eq!(parse_cols(None, 1), 2);
+        assert_eq!(parse_cols(None, 2), 2);
+        assert_eq!(parse_cols(None, 4), NQ_TILE_COLS);
+        assert_eq!(parse_cols(None, 8), NQ_TILE_COLS);
+        assert_eq!(parse_cols(Some(""), 8), NQ_TILE_COLS);
+        assert_eq!(parse_cols(Some("x"), 8), NQ_TILE_COLS);
+        assert_eq!(parse_cols(Some("0"), 8), 2);
+        assert_eq!(parse_cols(Some(" 2 "), 8), 2);
+        assert_eq!(parse_cols(Some("5"), 8), 2);
+        assert_eq!(parse_cols(Some("8"), 2), NQ_TILE_COLS);
+        assert_eq!(parse_cols(Some("64"), 1), NQ_TILE_COLS);
+        assert_eq!(parse_cols(Some("999999999999999999999"), 8), NQ_TILE_COLS);
     }
 
     /// The served pack has no residual layer and no sparse correction: the pooled reader must

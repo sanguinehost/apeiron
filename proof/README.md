@@ -594,11 +594,13 @@ The prefill tile's AVX2 bodies (`attn_core_tile_avx2_inner`, `gemm_tile`, the
 const-generic `gemm_ukernel`, twin `attn_core_tile_scalar` over the `f32` and `i8` row sources) and
 the NQ blocked reader's bodies
 (`code_select_block_avx2`, `code_select_rows_avx2`, `code_select_block2_avx2`,
-`code_select_rows2_avx2`, the `lane_sum` helper, twin `code_select_rows_twin`) are in the same
+`code_select_rows2_avx2`, `code_select_row8_avx2`, the `lane_sum` helper, twins
+`code_select_rows_twin` and `code_select_twin`) are in the same
 class: opaque in `SERVING_OPAQUE`, twin in the crate and equal under the equality tests
 (`test_attn_core_tiled_equals_scalar_on_tile_edges`,
 `the_blocked_code_source_equals_the_per_row_source`,
-`the_two_column_source_equals_two_per_row_sources`), neither twin a `--start-from` root, so no
+`the_two_column_source_equals_two_per_row_sources`,
+`the_wide_source_equals_eight_per_column_sources`), neither twin a `--start-from` root, so no
 refinement theorem. The tile's per-tile rescale is deliberately not equal to the per-column oracle;
 that relation is `tested` as a bound, not an equality. `proof/regen.sh --check` has not run on
 either host since these changes; the extractor's acceptance of the new `--opaque` entries, the
