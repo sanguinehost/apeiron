@@ -127,6 +127,17 @@ participant and 130.8 → 142.4 at eight, and the cold wall at block 256 moves 1
 1.082× at four. Width 1 is not paired; the laptop is not measured
 (`bench/cpu/1795573862-prefill-block-and-group.md`).
 
+The prefill block is the number of activation columns one pass carries; `APEIRON_PREFILL_COLS`
+overrides it. The default is **1024** columns at four or more participants and **256** below. On the
+box, 0.6B, cold 1,827 positions, 1024/256 is 1.17× at eight participants and 1.15× at four, and 0.97×
+at one; at four the gain appears only with the hoist (1.007× before it, and no width-4 phase split
+was run), and the threshold is the lowest measured winning width, not a located crossover. Widths
+2–3 and the laptop are unmeasured. The gain is per-block work — the serial residual add, attention's
+per-pass setup, the norm dispatch and the pool dispatch — measured in the width-8 phase split; `ffn`,
+the dominant phase, is flat across the two block widths. Peak RSS at 1,827 positions at width 8 is
+1.234 GiB, +13.4 MiB for the wider block
+(`bench/cpu/1795573862-prefill-block-and-group.md`).
+
 `project_q8` quantises the stage activation with the same chart `matmat_q8act` uses: `S_b = 2^e_b`,
 the smallest power of two with `127·S_b ≥ absmax_b`, one code per element. For a sign plane the
 product collapses to a selection: with `c_i` the code and `b_i` the sign bit,

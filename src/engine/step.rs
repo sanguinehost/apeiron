@@ -403,10 +403,19 @@ impl Engine {
     }
 }
 
-/// Prefill block width: the columns one pass carries, so the `Q8_0` weights are read once per
-/// block and the power-of-two GEMM (`kern::gemm`) reuses each weight row across them.
-/// `APEIRON_PREFILL_COLS` overrides it (read once). Default 256: a 200-token prompt is one block
-/// (receipts `1790772852-w6-t08-width-after-5arms`, `1790774715-w6-integ-ab1`).
+/// Prefill block width: the columns one pass carries, so the served weights are read once per
+/// block and the column tile folds each read across the block's columns. `APEIRON_PREFILL_COLS`
+/// overrides it (read once).
+///
+/// Default 1024 on a pool of four or more participants and 256 below: the pass pays a per-block
+/// fixed cost (the serial residual add, attention's per-pass setup, the norm and the pool
+/// dispatches), so the wider block pays it once per 1,024 columns instead of once per 256. On the
+/// OVH box, 0.6B pack, 1,827 columns (`bench/cpu/1795573862-prefill-block-and-group.md`):
+/// 1024/256 is 1.17× at eight participants and 1.15× at four; the phase split that locates the
+/// effect was taken at width 8, and width 4 was 1.007 before the group hoist against 1.152 after
+/// it, so the two changes are not separated there. At one participant the pass is instruction-bound
+/// and 1024 is 0.97× of 256. The rows are one model on one host; the threshold is the lowest
+/// measured winning width, not a located crossover, and widths 2–3 and the laptop are unmeasured.
 pub(crate) fn prefill_block() -> usize {
     static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *N.get_or_init(|| {
@@ -414,7 +423,13 @@ pub(crate) fn prefill_block() -> usize {
             .ok()
             .and_then(|v| v.parse().ok())
             .filter(|&n| n > 0)
-            .unwrap_or(256)
+            .unwrap_or_else(|| {
+                if super::chart::pool::width_global() >= 4 {
+                    1024
+                } else {
+                    256
+                }
+            })
     })
 }
 
