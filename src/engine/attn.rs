@@ -2419,42 +2419,7 @@ impl KvState {
         first: usize,
         outs: &mut [i64],
     ) -> Result<(), AttnError> {
-        let hd = self.head_dim;
-        if layer >= self.n_layer {
-            return Err(AttnError::LayerOutOfRange {
-                layer,
-                n_layer: self.n_layer,
-            });
-        }
-        if kv_head >= self.n_head_kv {
-            return Err(AttnError::HeadOutOfRange {
-                head: kv_head,
-                n_head: self.n_head_kv,
-            });
-        }
-        let group = self.n_head / self.n_head_kv;
-        let width = group.checked_mul(hd).ok_or(AttnError::Overflow)?;
-        if width == 0 || queries.len() != outs.len() || !queries.len().is_multiple_of(width) {
-            return Err(AttnError::RowLength {
-                expected: width,
-                got: queries.len(),
-            });
-        }
-        let nq = queries.len() / width;
-        if nq == 0 {
-            return Err(AttnError::RowLength {
-                expected: width,
-                got: 0,
-            });
-        }
-        let last = first
-            .checked_add(nq)
-            .and_then(|v| v.checked_sub(1))
-            .ok_or(AttnError::Overflow)?;
-        let len = self.occupied[layer];
-        if last >= len {
-            return Err(AttnError::PositionOutOfRange { pos: last, len });
-        }
+        let (hd, group, last) = self.tile_group_shape(layer, kv_head, queries, first, outs)?;
         let (kplane, vplane) = match &self.storage {
             KvStorage::F32 { k, v } => (&k[layer], &v[layer]),
             KvStorage::Q32 { .. } | KvStorage::I8 { .. } => return Err(AttnError::BadGeometry),
@@ -2493,6 +2458,155 @@ impl KvState {
             hd,
             group,
             stride,
+            &positions,
+            scale,
+            &mut of,
+        )?;
+        let mut i = 0usize;
+        let mut ok = true;
+        let mut err: Option<AttnError> = None;
+        while i < outs.len() && ok {
+            match f32_core::f32_to_q32_checked(of[i]) {
+                Ok(v) => outs[i] = v,
+                Err(e) => {
+                    err = Some(e);
+                    ok = false;
+                }
+            }
+            i += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    /// The geometry and occupancy checks shared by [`KvState::attn_head_group_tile_f32`] and
+    /// [`KvState::attn_head_group_tile_i8`]: returns `(head_dim, group, last)`.
+    ///
+    /// # Errors
+    ///
+    /// [`AttnError::LayerOutOfRange`], [`AttnError::HeadOutOfRange`],
+    /// [`AttnError::RowLength`] for a query block that is not whole `group · head_dim` rows,
+    /// [`AttnError::PositionOutOfRange`] when the block's last column is not occupied, and
+    /// [`AttnError::Overflow`] for a block whose last column does not fit `usize`.
+    fn tile_group_shape(
+        &self,
+        layer: usize,
+        kv_head: usize,
+        queries: &[i64],
+        first: usize,
+        outs: &[i64],
+    ) -> Result<(usize, usize, usize), AttnError> {
+        let hd = self.head_dim;
+        if layer >= self.n_layer {
+            return Err(AttnError::LayerOutOfRange {
+                layer,
+                n_layer: self.n_layer,
+            });
+        }
+        if kv_head >= self.n_head_kv {
+            return Err(AttnError::HeadOutOfRange {
+                head: kv_head,
+                n_head: self.n_head_kv,
+            });
+        }
+        let group = self.n_head / self.n_head_kv;
+        let width = group.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        if width == 0 || queries.len() != outs.len() || !queries.len().is_multiple_of(width) {
+            return Err(AttnError::RowLength {
+                expected: width,
+                got: queries.len(),
+            });
+        }
+        let nq = queries.len() / width;
+        if nq == 0 {
+            return Err(AttnError::RowLength {
+                expected: width,
+                got: 0,
+            });
+        }
+        let last = first
+            .checked_add(nq)
+            .and_then(|v| v.checked_sub(1))
+            .ok_or(AttnError::Overflow)?;
+        let len = self.occupied[layer];
+        if last >= len {
+            return Err(AttnError::PositionOutOfRange { pos: last, len });
+        }
+        Ok((hd, group, last))
+    }
+
+    /// The [`KvCarrier::I8`] arm of [`KvState::attn_head_group_tile_f32`]: one K/V tile read per
+    /// tile of consecutive causal columns, over signed-8-bit code rows.
+    ///
+    /// The code planes are KV-head-major, so KV head `kv_head`'s rows start at
+    /// `kv_head · cap · head_dim` and row `s` is at `s · head_dim`; the scale planes hold row `s`
+    /// at `kv_head · cap + s`. The query conversion, the scale and the readout conversion match
+    /// the `f32` arm's, and [`f32_core::attn_core_i8_tile`] applies each row's scales in the
+    /// per-column int8 group core's order.
+    ///
+    /// # Errors
+    ///
+    /// As [`KvState::attn_head_group_tile_f32`], and [`AttnError::BadGeometry`] under another
+    /// carrier.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the caller's guards and geometry are the arguments; the arm is one call"
+    )]
+    pub fn attn_head_group_tile_i8(
+        &self,
+        layer: usize,
+        kv_head: usize,
+        queries: &[i64],
+        first: usize,
+        outs: &mut [i64],
+    ) -> Result<(), AttnError> {
+        let (hd, group, last) = self.tile_group_shape(layer, kv_head, queries, first, outs)?;
+        let (k, v, ks, vs) = match &self.storage {
+            KvStorage::I8 { k, v, ks, vs } => (&k[layer], &v[layer], &ks[layer], &vs[layer]),
+            KvStorage::Q32 { .. } | KvStorage::F32 { .. } => return Err(AttnError::BadGeometry),
+        };
+        let cap = self.cap;
+        let head_stride = cap.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let code_first = kv_head
+            .checked_mul(head_stride)
+            .ok_or(AttnError::Overflow)?;
+        let scale_first = kv_head.checked_mul(cap).ok_or(AttnError::Overflow)?;
+        let rows = last.checked_add(1).ok_or(AttnError::Overflow)?;
+        let count = rows.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let code_end = code_first.checked_add(count).ok_or(AttnError::Overflow)?;
+        let scale_end = scale_first.checked_add(rows).ok_or(AttnError::Overflow)?;
+        if code_end > k.len() || code_end > v.len() || scale_end > ks.len() || scale_end > vs.len()
+        {
+            return Err(AttnError::Overflow);
+        }
+        let mut qf = vec![F32::ZERO; queries.len()];
+        let mut bad = 0u32;
+        let mut i = 0usize;
+        while i < queries.len() {
+            let f = q32_to_f32(queries[i]);
+            bad += u32::from(!f.is_finite());
+            qf[i] = f;
+            i += 1;
+        }
+        if bad != 0 {
+            return Err(AttnError::Overflow);
+        }
+        let positions: Vec<usize> = (first..=last).collect();
+        let mut of = vec![F32::ZERO; outs.len()];
+        // `hd as i64` is exact: `hd` is a head width, far below 2^53.
+        #[allow(clippy::cast_possible_wrap, reason = "head width < 2^53")]
+        let scale = F32::ONE / F32::from_i64(hd as i64).sqrt();
+        f32_core::attn_core_i8_tile(
+            &qf,
+            &k[code_first..code_end],
+            &v[code_first..code_end],
+            &ks[scale_first..scale_end],
+            &vs[scale_first..scale_end],
+            hd,
+            group,
+            hd,
             &positions,
             scale,
             &mut of,
@@ -3871,6 +3985,87 @@ mod tests {
                             assert!(
                                 (x - y).abs() <= tol,
                                 "kvh {kvh} first {first} nq {nq} column {j} word {i}: {x} vs {y} (tol {tol})"
+                            );
+                        }
+                    }
+                }
+            }
+            kvh += 1;
+        }
+    }
+
+    /// The int8 tile read agrees with the per-column int8 group read over the same quantised
+    /// rows, within the per-tile rescale bound plus the `head_dim` score-rounding difference; the
+    /// tile's `f32` and AVX2 cores are word-equal by the `f32_core` test.
+    #[test]
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "fixture words are built from moduli below 1001, far inside i64"
+    )]
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "the test's geometry indices are the call's own (kvh, first, nq, i, m)"
+    )]
+    fn the_i8_tile_group_read_agrees_with_the_per_column_read() {
+        let (n_head, n_head_kv, hd, cap) = (4usize, 2usize, 8usize, 300usize);
+        let mut kv =
+            KvState::with_carrier(1, n_head, n_head_kv, hd, cap, KvCarrier::I8).expect("geometry");
+        let kv_out = n_head_kv * hd;
+        let mut s = 0usize;
+        while s < cap {
+            let mut k = vec![0i64; kv_out];
+            let mut v = vec![0i64; kv_out];
+            let mut i = 0usize;
+            while i < kv_out {
+                k[i] = ((s * 137 + i * 19) % 263) as i64 - 131;
+                v[i] = ((s * 59 + i * 31) % 197) as i64 - 98;
+                k[i] <<= 23;
+                v[i] <<= 23;
+                i += 1;
+            }
+            assert_eq!(kv.append(0, &k, &v), Ok(s));
+            s += 1;
+        }
+        let group = n_head / n_head_kv;
+        let width = group * hd;
+        let mut kvh = 0usize;
+        while kvh < n_head_kv {
+            for first in [0usize, 1, 7, 8, 9, 31, 250, 255] {
+                for nq in [1usize, 2, 3, 8, 9, 50] {
+                    if first + nq > cap {
+                        continue;
+                    }
+                    let q: Vec<i64> = (0..nq * width)
+                        .map(|i| (((i * 37 + kvh * 11) % 1001) as i64 - 500) << 24)
+                        .collect();
+                    let mut tiled = vec![0i64; nq * width];
+                    kv.attn_head_group_tile_i8(0, kvh, &q, first, &mut tiled)
+                        .expect("tile");
+                    for j in 0..nq {
+                        let mut one = vec![0i64; width];
+                        kv.attn_head_group(
+                            0,
+                            kvh,
+                            &q[j * width..(j + 1) * width],
+                            first + j,
+                            0,
+                            &mut one,
+                        )
+                        .expect("per column");
+                        for i in 0..width {
+                            let (x, y) = (tiled[j * width + i], one[i]);
+                            let m = i128::from(x.abs().max(y.abs()));
+                            let prefix = (first + j + 1) as i128 + hd as i128;
+                            // The per-tile rescale adds `(prefix + hd)` roundings; the per-column
+                            // core's eight-lane dot adds a 2e-3 relative term the sequential GEMM
+                            // does not share (see the f32_core i8 test).
+                            let tol = 64
+                                + i64::try_from((m * 512 * (prefix + 64)) >> 32)
+                                    .expect("the tile bound fits i64")
+                                + i64::try_from(m / 500).expect("the tile bound fits i64");
+                            assert!(
+                                (x - y).abs() <= tol,
+                                "i8 kvh {kvh} first {first} nq {nq} column {j} word {i}: {x} vs {y} (tol {tol})"
                             );
                         }
                     }

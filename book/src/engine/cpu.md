@@ -68,14 +68,18 @@ quantises at append to `s = max|x| / 127` and `code = clamp(round_ties_even(x / 
 One pool task owns one KV head and its `group = n_head / n_head_kv` query heads. Under `i8` the
 task reads each K and V code row once and folds every query head of the group against it; under
 `q32` and `f32` it issues the per-head reads in the same order, so the words are the per-head
-words. On a prefill block the `f32` carrier instead dispatches one task per (tile of 32 consecutive
-columns, KV head): `attn_core_f32_tile` loads each K and V row once per tile pass and folds every
-query head of every column in the tile against it. The accumulator is rescaled once per key tile
-(llama.cpp's tiled flash attention) rather than once per position, so its words differ from the
-per-column read's by the per-tile rescale roundoff, and the tests bound them.
-`APEIRON_ATTN_TILE=0` selects the per-column dispatch for a same-binary A/B. The int8 scalar body
-and its AVX2 body are bit-identical; the AVX2 body is opaque to the extraction and `tested` equal
-to the scalar twin. The block certificate is `q32`-only.
+words. On a prefill block the `f32` and `i8` carriers instead dispatch one task per (tile of 32
+consecutive columns, KV head): `attn_core_f32_tile` / `attn_core_i8_tile` load each K and V row
+once per tile pass and fold every query head of every column in the tile against it. The
+accumulator is rescaled once per key tile (llama.cpp's tiled flash attention) rather than once per
+position, so its words differ from the per-column read's by the per-tile rescale roundoff, and the
+tests bound them. Under `i8` the tile packs the codes and applies each row's key scale after the
+score dot and its value scale to the probability before the value dot, which is the per-column
+int8 core's product order; the per-column core's eight-lane dot order still makes the two differ
+by a 2e-3 relative term, which the tests carry. `APEIRON_ATTN_TILE=0` selects the per-column
+dispatch for a same-binary A/B. The int8 scalar body and its AVX2 body are bit-identical; the AVX2
+body is opaque to the extraction and `tested` equal to the scalar twin. The block certificate is
+`q32`-only.
 
 ## What is established
 

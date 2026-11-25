@@ -677,6 +677,59 @@ pub fn attn_core_f32_strided(
 /// against `Σ_j (pos[j] + 1) · query_heads · head_dim` for the per-query calls — the same
 /// arithmetic, with each K and V row read once per tile (`O((pos[nq-1] + 1) · head_dim)` words)
 /// instead of once per query. Scratch `O(nq · query_heads · (KV_TILE + head_dim))` words.
+/// The K/V row source of the tiled core: native binary32 rows, or signed-8-bit codes with one
+/// binary32 scale per row (the [`KvCarrier::I8`](crate::engine::attn::KvCarrier) plane).
+///
+/// Both arms place row `s` at `s · stride`. The i8 plane is KV-head-major with contiguous
+/// `head_dim` rows, so it is read with `stride = head_dim` and its scale plane indexed by the same
+/// row number.
+#[derive(Clone, Copy)]
+enum TileRows<'a> {
+    F32 {
+        k: &'a [F32],
+        v: &'a [F32],
+        stride: usize,
+    },
+    I8 {
+        k: &'a [i8],
+        v: &'a [i8],
+        ks: &'a [F32],
+        vs: &'a [F32],
+        stride: usize,
+    },
+}
+
+impl TileRows<'_> {
+    /// The row pitch of both planes.
+    fn stride(&self) -> usize {
+        match self {
+            Self::F32 { stride, .. } | Self::I8 { stride, .. } => *stride,
+        }
+    }
+
+    /// Checks that both planes hold every word of row `last`, and the i8 scale planes row `last`.
+    fn check(&self, last: usize, head_dim: usize) -> Result<(), AttnError> {
+        let required = last
+            .checked_mul(self.stride())
+            .and_then(|b| b.checked_add(head_dim))
+            .ok_or(AttnError::Overflow)?;
+        match self {
+            Self::F32 { k, v, .. } => {
+                if k.len() < required || v.len() < required {
+                    return Err(AttnError::BadGeometry);
+                }
+            }
+            Self::I8 { k, v, ks, vs, .. } => {
+                if k.len() < required || v.len() < required || ks.len() <= last || vs.len() <= last
+                {
+                    return Err(AttnError::BadGeometry);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "explicit strided geometry and the four tile operands"
@@ -692,28 +745,84 @@ pub fn attn_core_f32_tile(
     scale: F32,
     out: &mut [F32],
 ) -> Result<(), AttnError> {
-    if head_dim == 0 || query_heads == 0 || stride < head_dim || pos.is_empty() {
+    attn_core_tile(
+        q,
+        TileRows::F32 { k, v, stride },
+        head_dim,
+        query_heads,
+        pos,
+        scale,
+        out,
+    )
+}
+
+/// [`attn_core_f32_tile`] over signed-8-bit code rows: the int8 carrier's tiled entry.
+///
+/// `k`/`v` hold the code rows at `row · stride` and `ks`/`vs` one binary32 scale per row. The key
+/// scale multiplies the score after the dot (`dot · (ks[row] · scale)`), and the value scale
+/// multiplies the probability before the value dot (`(w · vs[row]) · code`); that is the per-column
+/// int8 group core's product order. The tiled recurrence otherwise matches
+/// [`attn_core_f32_tile`]'s and carries the same bound.
+///
+/// # Errors
+///
+/// [`AttnError::BadGeometry`], [`AttnError::Overflow`] and [`AttnError::ZeroSum`] as
+/// [`attn_core_f32_tile`], plus a refusal for a non-finite scale.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "explicit strided geometry and the four tile operands"
+)]
+pub fn attn_core_i8_tile(
+    q: &[F32],
+    k: &[i8],
+    v: &[i8],
+    ks: &[F32],
+    vs: &[F32],
+    head_dim: usize,
+    query_heads: usize,
+    stride: usize,
+    pos: &[usize],
+    scale: F32,
+    out: &mut [F32],
+) -> Result<(), AttnError> {
+    attn_core_tile(
+        q,
+        TileRows::I8 {
+            k,
+            v,
+            ks,
+            vs,
+            stride,
+        },
+        head_dim,
+        query_heads,
+        pos,
+        scale,
+        out,
+    )
+}
+
+/// Dispatches the tiled core over a row source: the AVX2 body when the host supports it and the
+/// head width is a whole number of vectors, else the scalar twin.
+fn attn_core_tile(
+    q: &[F32],
+    kv: TileRows<'_>,
+    head_dim: usize,
+    query_heads: usize,
+    pos: &[usize],
+    scale: F32,
+    out: &mut [F32],
+) -> Result<(), AttnError> {
+    if head_dim == 0 || query_heads == 0 || kv.stride() < head_dim || pos.is_empty() {
         return Err(AttnError::BadGeometry);
     }
     #[cfg(target_arch = "x86_64")]
     if head_dim.is_multiple_of(8) && crate::engine::num::fp::prim::cpu_avx2_fma() {
-        // SAFETY: `cpu_avx2_fma` checked AVX2 and FMA support on this processor; the geometry is
-        // checked again by the body it calls.
-        return unsafe {
-            attn_core_f32_tile_avx2_inner(
-                native(q),
-                native(k),
-                native(v),
-                head_dim,
-                query_heads,
-                stride,
-                pos,
-                nat(scale),
-                native_mut(out),
-            )
-        };
+        // SAFETY: `cpu_avx2_fma` checked AVX2 and FMA support on this processor; the geometry and
+        // the row planes are checked again by the body it calls.
+        return unsafe { attn_core_tile_avx2_inner(q, kv, head_dim, query_heads, pos, scale, out) };
     }
-    attn_core_f32_tile_scalar(q, k, v, head_dim, query_heads, stride, pos, scale, out)
+    attn_core_tile_scalar(q, kv, head_dim, query_heads, pos, scale, out)
 }
 
 /// Key positions per score/value tile in [`attn_core_f32_tile`]: llama.cpp's `GGML_FA_TILE_KV`
@@ -752,6 +861,7 @@ const KV_TILE: usize = 64;
     clippy::too_many_lines,
     reason = "mathematical recurrence symbols, explicit strided geometry, and the pass structure"
 )]
+#[allow(dead_code, reason = "public scalar twin specification and test target")]
 pub fn attn_core_f32_tile_scalar(
     q: &[F32],
     k: &[F32],
@@ -763,7 +873,72 @@ pub fn attn_core_f32_tile_scalar(
     scale: F32,
     out: &mut [F32],
 ) -> Result<(), AttnError> {
-    if head_dim == 0 || query_heads == 0 || stride < head_dim || pos.is_empty() {
+    attn_core_tile_scalar(
+        q,
+        TileRows::F32 { k, v, stride },
+        head_dim,
+        query_heads,
+        pos,
+        scale,
+        out,
+    )
+}
+
+/// [`attn_core_f32_tile_scalar`] over signed-8-bit code rows; see [`attn_core_i8_tile`].
+#[allow(
+    dead_code,
+    clippy::too_many_arguments,
+    reason = "public scalar twin specification and test target; explicit strided geometry"
+)]
+pub fn attn_core_i8_tile_scalar(
+    q: &[F32],
+    k: &[i8],
+    v: &[i8],
+    ks: &[F32],
+    vs: &[F32],
+    head_dim: usize,
+    query_heads: usize,
+    stride: usize,
+    pos: &[usize],
+    scale: F32,
+    out: &mut [F32],
+) -> Result<(), AttnError> {
+    attn_core_tile_scalar(
+        q,
+        TileRows::I8 {
+            k,
+            v,
+            ks,
+            vs,
+            stride,
+        },
+        head_dim,
+        query_heads,
+        pos,
+        scale,
+        out,
+    )
+}
+
+/// The tiled scalar body, shared by the `f32` and `i8` row sources.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::needless_range_loop,
+    clippy::similar_names,
+    clippy::many_single_char_names,
+    clippy::too_many_lines,
+    reason = "mathematical recurrence symbols, explicit strided geometry, and the pass structure"
+)]
+fn attn_core_tile_scalar(
+    q: &[F32],
+    kv: TileRows<'_>,
+    head_dim: usize,
+    query_heads: usize,
+    pos: &[usize],
+    scale: F32,
+    out: &mut [F32],
+) -> Result<(), AttnError> {
+    if head_dim == 0 || query_heads == 0 || kv.stride() < head_dim || pos.is_empty() {
         return Err(AttnError::BadGeometry);
     }
     let nq = pos.len();
@@ -779,13 +954,7 @@ pub fn attn_core_f32_tile_scalar(
         }
         j += 1;
     }
-    let required = pos[nq - 1]
-        .checked_mul(stride)
-        .and_then(|b| b.checked_add(head_dim))
-        .ok_or(AttnError::Overflow)?;
-    if k.len() < required || v.len() < required {
-        return Err(AttnError::BadGeometry);
-    }
+    kv.check(pos[nq - 1], head_dim)?;
 
     let score_len = rows.checked_mul(KV_TILE).ok_or(AttnError::Overflow)?;
     let tile_len = KV_TILE.checked_mul(head_dim).ok_or(AttnError::Overflow)?;
@@ -795,11 +964,30 @@ pub fn attn_core_f32_tile_scalar(
     let mut kt = vec![F32::ZERO; tile_len];
     let mut vt = vec![F32::ZERO; tile_len];
     let mut p = vec![F32::ZERO; score_len];
+    // The per-row key scale (already times `scale`) and value scale; the f32 arm leaves them at
+    // `scale` and one, so its score and value products are unchanged.
+    let mut kscale = vec![scale; KV_TILE];
+    let mut vscale = vec![F32::ONE; KV_TILE];
+    let scaled_values = matches!(kv, TileRows::I8 { .. });
+    let stride = kv.stride();
 
     let last = pos[nq - 1];
     let mut at0 = 0usize;
     while at0 <= last {
         let kv_tile = (last + 1 - at0).min(KV_TILE);
+        if let TileRows::I8 { ks, vs, .. } = kv {
+            let mut t = 0usize;
+            while t < kv_tile {
+                let kk = ks[at0 + t] * scale;
+                let vv = vs[at0 + t];
+                if !kk.is_finite() || !vv.is_finite() {
+                    return Err(AttnError::Overflow);
+                }
+                kscale[t] = kk;
+                vscale[t] = vv;
+                t += 1;
+            }
+        }
         // Pack K transposed (`kt[d · KV_TILE + t]`) and V row-major. Every V word up to the tile
         // end is checked here, as the per-position tile checked each row it read: a non-finite
         // value refuses the tile even at a position no query in it reaches.
@@ -807,14 +995,26 @@ pub fn attn_core_f32_tile_scalar(
         while t < kv_tile {
             let base = (at0 + t) * stride;
             let mut d = 0usize;
-            while d < head_dim {
-                let vi = v[base + d];
-                if !vi.is_finite() {
-                    return Err(AttnError::Overflow);
+            match kv {
+                TileRows::F32 { k, v, .. } => {
+                    while d < head_dim {
+                        let vi = v[base + d];
+                        if !vi.is_finite() {
+                            return Err(AttnError::Overflow);
+                        }
+                        kt[d * KV_TILE + t] = k[base + d];
+                        vt[t * head_dim + d] = vi;
+                        d += 1;
+                    }
                 }
-                kt[d * KV_TILE + t] = k[base + d];
-                vt[t * head_dim + d] = vi;
-                d += 1;
+                TileRows::I8 { k, v, .. } => {
+                    // Codes are exact in binary32; the per-row scale is checked above.
+                    while d < head_dim {
+                        kt[d * KV_TILE + t] = F32::from_i64(i64::from(k[base + d]));
+                        vt[t * head_dim + d] = F32::from_i64(i64::from(v[base + d]));
+                        d += 1;
+                    }
+                }
             }
             t += 1;
         }
@@ -848,7 +1048,11 @@ pub fn attn_core_f32_tile_scalar(
                     dot = qrow[d].fma(kt[d * KV_TILE + t], dot);
                     d += 1;
                 }
-                let score = dot * scale;
+                let score = if scaled_values {
+                    dot * kscale[t]
+                } else {
+                    dot * scale
+                };
                 if !score.is_finite() {
                     return Err(AttnError::Overflow);
                 }
@@ -890,6 +1094,13 @@ pub fn attn_core_f32_tile_scalar(
                 t += 1;
             }
             den[r] += sum;
+            if scaled_values {
+                let mut t = 0usize;
+                while t < end {
+                    p[pbase + t] *= vscale[t];
+                    t += 1;
+                }
+            }
             m[r] = m_next;
             r += 1;
         }
@@ -1084,18 +1295,19 @@ unsafe fn gemm_tile(c: &mut [f32], a: &[f32], b: &[f32], m: usize, k: usize, n: 
     clippy::too_many_lines,
     reason = "mathematical recurrence symbols, explicit strided geometry, and the pass structure"
 )]
-unsafe fn attn_core_f32_tile_avx2_inner(
-    q: &[f32],
-    k: &[f32],
-    v: &[f32],
+unsafe fn attn_core_tile_avx2_inner(
+    q: &[F32],
+    kv: TileRows<'_>,
     head_dim: usize,
     query_heads: usize,
-    stride: usize,
     pos: &[usize],
-    scale: f32,
-    out: &mut [f32],
+    scale: F32,
+    out: &mut [F32],
 ) -> Result<(), AttnError> {
-    if head_dim == 0 || query_heads == 0 || stride < head_dim || pos.is_empty() {
+    let q = native(q);
+    let scale = nat(scale);
+    let out = native_mut(out);
+    if head_dim == 0 || query_heads == 0 || kv.stride() < head_dim || pos.is_empty() {
         return Err(AttnError::BadGeometry);
     }
     let nq = pos.len();
@@ -1111,13 +1323,7 @@ unsafe fn attn_core_f32_tile_avx2_inner(
         }
         j += 1;
     }
-    let required = pos[nq - 1]
-        .checked_mul(stride)
-        .and_then(|b| b.checked_add(head_dim))
-        .ok_or(AttnError::Overflow)?;
-    if k.len() < required || v.len() < required {
-        return Err(AttnError::BadGeometry);
-    }
+    kv.check(pos[nq - 1], head_dim)?;
 
     let score_len = rows.checked_mul(KV_TILE).ok_or(AttnError::Overflow)?;
     let tile_len = KV_TILE.checked_mul(head_dim).ok_or(AttnError::Overflow)?;
@@ -1127,23 +1333,55 @@ unsafe fn attn_core_f32_tile_avx2_inner(
     let mut kt = vec![0.0f32; tile_len];
     let mut vt = vec![0.0f32; tile_len];
     let mut p = vec![0.0f32; score_len];
+    let mut kscale = vec![scale; KV_TILE];
+    let mut vscale = vec![1.0f32; KV_TILE];
+    let scaled_values = matches!(kv, TileRows::I8 { .. });
+    let stride = kv.stride();
 
     let last = pos[nq - 1];
     let mut at0 = 0usize;
     while at0 <= last {
         let kv_tile = (last + 1 - at0).min(KV_TILE);
+        if let TileRows::I8 { ks, vs, .. } = kv {
+            let ksn = native(ks);
+            let vsn = native(vs);
+            let mut t = 0usize;
+            while t < kv_tile {
+                let kk = ksn[at0 + t] * scale;
+                let vv = vsn[at0 + t];
+                if !kk.is_finite() || !vv.is_finite() {
+                    return Err(AttnError::Overflow);
+                }
+                kscale[t] = kk;
+                vscale[t] = vv;
+                t += 1;
+            }
+        }
         let mut t = 0usize;
         while t < kv_tile {
             let base = (at0 + t) * stride;
             let mut d = 0usize;
-            while d < head_dim {
-                let vi = v[base + d];
-                if !vi.is_finite() {
-                    return Err(AttnError::Overflow);
+            match kv {
+                TileRows::F32 { k, v, .. } => {
+                    let k = native(k);
+                    let v = native(v);
+                    while d < head_dim {
+                        let vi = v[base + d];
+                        if !vi.is_finite() {
+                            return Err(AttnError::Overflow);
+                        }
+                        kt[d * KV_TILE + t] = k[base + d];
+                        vt[t * head_dim + d] = vi;
+                        d += 1;
+                    }
                 }
-                kt[d * KV_TILE + t] = k[base + d];
-                vt[t * head_dim + d] = vi;
-                d += 1;
+                TileRows::I8 { k, v, .. } => {
+                    while d < head_dim {
+                        kt[d * KV_TILE + t] = f32::from(k[base + d]);
+                        vt[t * head_dim + d] = f32::from(v[base + d]);
+                        d += 1;
+                    }
+                }
             }
             t += 1;
         }
@@ -1180,7 +1418,11 @@ unsafe fn attn_core_f32_tile_avx2_inner(
             let mut tmax = f32::NEG_INFINITY;
             let mut t = 0usize;
             while t < end {
-                let score = p[pbase + t] * scale;
+                let score = if scaled_values {
+                    p[pbase + t] * kscale[t]
+                } else {
+                    p[pbase + t] * scale
+                };
                 if !score.is_finite() {
                     return Err(AttnError::Overflow);
                 }
@@ -1242,6 +1484,20 @@ unsafe fn attn_core_f32_tile_avx2_inner(
                 t += 1;
             }
             den[r] += sum;
+            if scaled_values {
+                let vsn: &[f32] = &vscale;
+                let mut t = 0usize;
+                while t + 8 <= end {
+                    let w = _mm256_loadu_ps(p.as_ptr().add(pbase + t));
+                    let s = _mm256_loadu_ps(vsn.as_ptr().add(t));
+                    _mm256_storeu_ps(p.as_mut_ptr().add(pbase + t), _mm256_mul_ps(w, s));
+                    t += 8;
+                }
+                while t < end {
+                    p[pbase + t] *= vsn[t];
+                    t += 1;
+                }
+            }
             m[r] = m_next;
             r += 1;
         }

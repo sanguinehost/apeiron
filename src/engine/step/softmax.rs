@@ -473,10 +473,12 @@ impl Engine {
         // the dispatch restores the tip's block order.
         let fused = exact_scan_enabled();
         // The tile entry rescales once per key tile (llama.cpp's tiled flash attention), so it
-        // replaces only the F32 carrier's per-column dispatch; the exact-scan fold and the Q32
+        // replaces the F32 and I8 carriers' per-column dispatch; the exact-scan fold and the Q32
         // oracle keep the per-column path.
-        let tile_on =
-            attn_tile_enabled() && !fused && k > 1 && matches!(kv.carrier(), KvCarrier::F32);
+        let tile_on = attn_tile_enabled()
+            && !fused
+            && k > 1
+            && matches!(kv.carrier(), KvCarrier::F32 | KvCarrier::I8);
         let kv_ro: &KvState = kv;
         let n_kv = kv.n_head_kv();
         let group = n_head / n_kv;
@@ -718,30 +720,35 @@ fn attn_tile_task(
         queries[j * width..(j + 1) * width].copy_from_slice(&prep[base + lo..base + lo + width]);
         j += 1;
     }
-    let done =
-        match kv.attn_head_group_tile_f32(layer, kvh, &queries, first, &mut dst[..len * width]) {
-            Ok(()) if gated => {
-                let g0 = t0 * stride + 2 * kv_out + q_out + lo;
-                let mut res: Result<(), StepError> = Ok(());
-                let mut j = 0usize;
-                while j < len && res.is_ok() {
-                    let gate = &prep[g0 + j * stride..g0 + j * stride + width];
-                    let mut g = 0usize;
-                    while g < group && res.is_ok() {
-                        let off = j * width + g * hd;
-                        res = apply_sigmoid_gate(
-                            &mut dst[off..off + hd],
-                            &gate[g * hd..(g + 1) * hd],
-                        );
-                        g += 1;
-                    }
-                    j += 1;
+    let read = match kv.carrier() {
+        KvCarrier::F32 => {
+            kv.attn_head_group_tile_f32(layer, kvh, &queries, first, &mut dst[..len * width])
+        }
+        KvCarrier::I8 => {
+            kv.attn_head_group_tile_i8(layer, kvh, &queries, first, &mut dst[..len * width])
+        }
+        KvCarrier::Q32 => Err(AttnError::BadGeometry),
+    };
+    let done = match read {
+        Ok(()) if gated => {
+            let g0 = t0 * stride + 2 * kv_out + q_out + lo;
+            let mut res: Result<(), StepError> = Ok(());
+            let mut j = 0usize;
+            while j < len && res.is_ok() {
+                let gate = &prep[g0 + j * stride..g0 + j * stride + width];
+                let mut g = 0usize;
+                while g < group && res.is_ok() {
+                    let off = j * width + g * hd;
+                    res = apply_sigmoid_gate(&mut dst[off..off + hd], &gate[g * hd..(g + 1) * hd]);
+                    g += 1;
                 }
-                res
+                j += 1;
             }
-            Ok(()) => Ok(()),
-            Err(e) => Err(StepError::Kv(e)),
-        };
+            res
+        }
+        Ok(()) => Ok(()),
+        Err(e) => Err(StepError::Kv(e)),
+    };
     if let Err(e) = done {
         status[0] = Some(e);
     }

@@ -378,6 +378,127 @@ fn test_attn_core_query_tile_agrees_with_the_per_query_core() {
     }
 }
 
+/// The int8 tiled core is its scalar twin's words, and both reproduce the per-column int8 group
+/// core's attention over the same codes and scales.
+///
+/// They are not bit-equal to that core: it accumulates each score dot in eight independent lanes
+/// and the tile's GEMM accumulates `head_dim` terms sequentially, so the scores (and through the
+/// softmax the outputs) differ by the dot-order roundoff. On this fixture the largest relative
+/// output gap is 1.3e-3; the assertion allows 2e-3, which still refuses a wrong scale, index or
+/// dot. The tile-versus-twin comparison is word-exact. The model-level quality check is the PPL
+/// A/B in the receipt, not this bound.
+#[test]
+fn test_attn_core_i8_query_tile_agrees_with_the_per_query_core() {
+    let mut rng = SimpleRng::new(0x1337_C0DE_5EED_0004);
+    let configs = [
+        (8usize, 8usize, 0usize),
+        (8, 16, 1),
+        (16, 16, 7),
+        (16, 24, 255),
+        (64, 64, 256),
+        (128, 128, 257),
+    ];
+    let scale_of = |hd: usize| F32::from_bits((1.0f32 / (hd as f32).sqrt()).to_bits());
+    let scale = |rng: &mut SimpleRng| F32::from_bits(rng.next_f32_range(0.001, 2.0).to_bits());
+    for &(hd, stride, first) in &configs {
+        // 1, 2 and 4 query heads share one K/V row.
+        for query_heads in [1usize, 2, 4] {
+            for nq in [1usize, 3, 8] {
+                let last = first + nq - 1;
+                let total = last * stride + hd;
+                let width = query_heads * hd;
+                let queries: Vec<f32> = (0..nq * width)
+                    .map(|_| rng.next_f32_range(-1.0, 1.0))
+                    .collect();
+                let mut kc = vec![0i8; total];
+                let mut vc = vec![0i8; total];
+                for s in 0..=last {
+                    for i in 0..hd {
+                        kc[s * stride + i] = ((rng.next_u64() % 255) as i16 - 127) as i8;
+                        vc[s * stride + i] = ((rng.next_u64() % 255) as i16 - 127) as i8;
+                    }
+                }
+                let ks: Vec<F32> = (0..=last).map(|_| scale(&mut rng)).collect();
+                let vs: Vec<F32> = (0..=last).map(|_| scale(&mut rng)).collect();
+                // The carrier's rows are contiguous (`stride = head_dim`); the oracle takes that
+                // layout, so compact a padded fixture before calling it.
+                let mut kcompact = vec![0i8; (last + 1) * hd];
+                let mut vcompact = vec![0i8; (last + 1) * hd];
+                for s in 0..=last {
+                    kcompact[s * hd..(s + 1) * hd]
+                        .copy_from_slice(&kc[s * stride..s * stride + hd]);
+                    vcompact[s * hd..(s + 1) * hd]
+                        .copy_from_slice(&vc[s * stride..s * stride + hd]);
+                }
+                let positions: Vec<usize> = (first..=last).collect();
+                let qf = fv(&queries);
+                let mut tiled = vec![F32::ZERO; nq * width];
+                attn_core_i8_tile(
+                    &qf,
+                    &kc,
+                    &vc,
+                    &ks,
+                    &vs,
+                    hd,
+                    query_heads,
+                    stride,
+                    &positions,
+                    scale_of(hd),
+                    &mut tiled,
+                )
+                .expect("tile");
+                let mut scalar = vec![F32::ZERO; nq * width];
+                attn_core_i8_tile_scalar(
+                    &qf,
+                    &kc,
+                    &vc,
+                    &ks,
+                    &vs,
+                    hd,
+                    query_heads,
+                    stride,
+                    &positions,
+                    scale_of(hd),
+                    &mut scalar,
+                )
+                .expect("tile scalar");
+                for j in 0..nq {
+                    for g in 0..query_heads {
+                        let row = j * query_heads + g;
+                        let mut one = vec![F32::ZERO; hd];
+                        crate::engine::attn::i8::attn_core_i8_group(
+                            &qf[row * hd..(row + 1) * hd],
+                            1,
+                            &kcompact,
+                            &vcompact,
+                            &ks,
+                            &vs,
+                            hd,
+                            positions[j] + 1,
+                            scale_of(hd),
+                            &mut one,
+                        )
+                        .expect("per column");
+                        for i in 0..hd {
+                            let at = row * hd + i;
+                            assert_eq!(
+                                scalar[at].to_bits(),
+                                tiled[at].to_bits(),
+                                "i8 twin hd {hd} stride {stride} heads {query_heads} nq {nq}                                  query {j} head {g} idx {i}"
+                            );
+                            let (got, want) = (f(tiled[at]), f(one[i]));
+                            assert!(
+                                (got - want).abs() <= 2.0e-3 * want.abs().max(1.0),
+                                "i8 tile hd {hd} stride {stride} heads {query_heads} nq {nq}                                  query {j} head {g} idx {i}: {got:e} vs {want:e}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Rate of one [`attn_core_f32_tile`] task at the 0.6B geometry: `QUERY_TILE = 32` columns,
 /// `group = 2` query heads per KV head, `head_dim = 128`, eight KV heads, a cold tile at position
 /// zero and a tail tile behind the full 1,827-position prefix.
