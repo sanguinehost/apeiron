@@ -49,7 +49,7 @@
 
 use crate::engine::chart::pool::{for_chunks3, Pool};
 use crate::engine::chart::task::Task3;
-use crate::engine::chart::{quant_act, QuantAct};
+use crate::engine::chart::{quant_act_grouped, QuantAct};
 use crate::engine::kern::pow2::act_scale;
 use crate::engine::num::dequant::{bf16_to_fixed, f16_to_fixed};
 use crate::engine::num::value::mul_q32;
@@ -501,10 +501,50 @@ struct CodeTerms<'a> {
     /// Whether the host runs the AVX2 selector: detected once per activation instead of once per
     /// output row, where the same cached load competed with the row's own work.
     vector: bool,
+    /// The consecutive 32-wide blocks with one scale the row tile folds behind one pair
+    /// accumulator and one shift; `1` when the scales are not aligned runs of equal values.
+    group: usize,
+}
+
+/// The largest leading run of equal block scales, clamped to [`NQ_GROUP_MAX`], when every aligned
+/// run of that length holds one scale; `1` otherwise. [`quant_act_grouped`] emits such runs (one
+/// scale per [`NQ_ACT_GROUP`] blocks). A `QuantAct` built block by block usually fails the
+/// alignment and keeps the per-block chain, which is the same arithmetic.
+///
+/// # Complexity
+///
+/// `O(blocks)`.
+fn uniform_group(scales: &[i64], blocks: usize) -> usize {
+    if blocks < 2 {
+        return 1;
+    }
+    let mut first = 0usize;
+    while first < blocks && scales[first] == scales[0] {
+        first += 1;
+    }
+    let group = first.min(NQ_GROUP_MAX);
+    if group < 2 || 254 * group > 32767 {
+        return 1;
+    }
+    let mut b = 0usize;
+    while b < blocks {
+        let end = (b + group).min(blocks);
+        let scale = scales[b];
+        let mut i = b + 1;
+        while i < end {
+            if scales[i] != scale {
+                return 1;
+            }
+            i += 1;
+        }
+        b = end;
+    }
+    group
 }
 
 /// One activation column as the wide column tile reads it: the codes, the verbatim block scales,
-/// the normalized shift vectors, the smallest block exponent and the host's selector flag.
+/// the normalized shift vectors, the smallest block exponent, the host's selector flag and the
+/// equal-scale run the tile may fold behind one shift.
 #[derive(Clone, Copy)]
 struct ColRef<'a> {
     codes: &'a [i8],
@@ -512,6 +552,7 @@ struct ColRef<'a> {
     shift_vecs: &'a [[i32; 8]],
     e_min: u32,
     vector: bool,
+    group: usize,
 }
 
 impl<'a> CodeTerms<'a> {
@@ -568,6 +609,7 @@ impl<'a> CodeTerms<'a> {
         if scale_sum.saturating_mul(4064) > i64::MAX as u128 {
             return None;
         }
+        let group = uniform_group(scales, blocks);
         #[cfg(target_arch = "x86_64")]
         let vector = std::arch::is_x86_feature_detected!("avx2");
         #[cfg(not(target_arch = "x86_64"))]
@@ -594,6 +636,7 @@ impl<'a> CodeTerms<'a> {
             e_min,
             sum,
             vector,
+            group,
         })
     }
 
@@ -705,6 +748,7 @@ impl<'a> CodeTerms<'a> {
             shift_vecs: &self.shift_vecs,
             e_min: self.e_min,
             vector: self.vector,
+            group: self.group,
         }
     }
 
@@ -739,10 +783,18 @@ impl<'a> CodeTerms<'a> {
         }
         #[cfg(target_arch = "x86_64")]
         if cols.iter().all(|c| c.vector) {
+            // The tile folds one equal-scale run at a time, so every column must see the same
+            // run; a mixed group falls back to the per-block chain inside the same kernel.
+            let group = if cols.iter().all(|c| c.group == cols[0].group) {
+                cols[0].group
+            } else {
+                1
+            };
             // SAFETY: `vector` names AVX2 on every column; the length, block and word bounds were
             // checked above, and `CodeTerms::new` admitted only a lane sum inside `i32` and a
-            // total inside `i64`, per column.
-            if unsafe { code_select_row8_avx2(cols, words, len, out) }.is_some() {
+            // total inside `i64`, per column. `group` is either `1` or a run the same admission
+            // bounded at `2·127·group ≤ 32767`.
+            if unsafe { code_select_row8_avx2(cols, words, len, group, out) }.is_some() {
                 return true;
             }
         }
@@ -1051,6 +1103,29 @@ const NQ_BLOCK: usize = 8;
 /// tile: eight, the register file's limit at one factor row.
 const NQ_TILE_COLS: usize = 8;
 
+/// The 32-wide activation blocks one NQ quantizer scale covers: 1,024 elements. The row tile
+/// folds such a run behind one `i16` pair accumulator and one shift, instead of one shift per
+/// block. The coarser scale is no worse on the 0.6B v3 pack over the first 8,176 tokens of
+/// wikitext-2: 53.991898 against the per-block reader's 54.797134 on the same harness and stream
+/// (receipt `bench/cpu/1795617000-nq-grouped-scale.md`); the reader detects the runs, so a
+/// `QuantAct` with per-block scales keeps the per-block chain.
+const NQ_ACT_GROUP: usize = 32;
+
+/// The largest block run the grouped row tile folds: the `i16` pair accumulator holds
+/// `2·127·G ≤ 32767`, so `G ≤ 129`; 32 also bounds the run the NQ quantizer emits.
+const NQ_GROUP_MAX: usize = NQ_ACT_GROUP;
+
+/// The NQ Q8 activation quantization: [`quant_act_grouped`] at [`NQ_ACT_GROUP`], the shape the
+/// row tile folds. The reader keeps the per-block chain for a `QuantAct` that is not an aligned
+/// run of equal scales, so this is the only NQ quantizer call site.
+///
+/// # Complexity
+///
+/// `O(x.len())`, as [`quant_act_grouped`].
+fn nq_act(x: &[i64]) -> Option<QuantAct> {
+    quant_act_grouped(x, NQ_ACT_GROUP)
+}
+
 /// The columns one weight-word pass folds: `APEIRON_NQ_COLS`, parsed once per process.
 ///
 /// A value of `NQ_TILE_COLS` or more enables the eight-column tile; anything else (`0`, `2`, a
@@ -1327,7 +1402,9 @@ unsafe fn lane_sum(lane: std::arch::x86_64::__m256i) -> i64 {
 /// Fold one factor row's weight words against **eight** activation columns: the word's bit
 /// expansion (broadcast, `vpsrlvd`, two `vpshufb`, `vpand`) is built once per 32-term block and
 /// folded against all eight columns, and only the `vpmaddubsw`/`vpmaddwd`/`vpsllvd`/`vpaddd`
-/// chains repeat per column.
+/// chains repeat per column. A run of `group` blocks with one scale (the NQ quantizer's shape)
+/// folds its pair sums in `i16` and pays one `vpmaddwd`/`vpsllvd`/`vpaddd` per run instead of one
+/// per block.
 ///
 /// This is the same arithmetic as eight [`code_select_block_avx2`] calls: each column's codes,
 /// shift vectors and `e_min` are read independently, and [`CodeTerms::new`]'s per-column bounds
@@ -1340,6 +1417,7 @@ unsafe fn lane_sum(lane: std::arch::x86_64::__m256i) -> i64 {
 /// The host CPU supports AVX2. For each column: `len <= codes.len()`, `scales.len() >=
 /// len.div_ceil(32)`, `shift_vecs` covers `len.div_ceil(32)` blocks, `e_min` is the smallest
 /// block exponent, `words.len() >= len.div_ceil(32)`, and the [`CodeTerms::new`] bounds hold.
+/// `group` is `1` or a run of equal scales with `2·127·group ≤ 32767`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[allow(
@@ -1350,13 +1428,14 @@ unsafe fn code_select_row8_avx2(
     cols: &[ColRef<'_>; 8],
     words: &[u32],
     len: usize,
+    group: usize,
     out: &mut [i64; 8],
 ) -> Option<()> {
     use std::arch::x86_64::{
-        __m256i, _mm256_add_epi32, _mm256_and_si256, _mm256_loadu_si256, _mm256_madd_epi16,
-        _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_setr_epi32,
-        _mm256_setr_epi8, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_sllv_epi32,
-        _mm256_srlv_epi32,
+        __m256i, _mm256_add_epi16, _mm256_add_epi32, _mm256_and_si256, _mm256_loadu_si256,
+        _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi32,
+        _mm256_setr_epi32, _mm256_setr_epi8, _mm256_setzero_si256, _mm256_shuffle_epi8,
+        _mm256_sllv_epi32, _mm256_srlv_epi32,
     };
     let full = len / 32;
     let digit_mask = _mm256_set1_epi32(0x0804_0201);
@@ -1371,7 +1450,51 @@ unsafe fn code_select_row8_avx2(
     );
     let ones = _mm256_set1_epi16(1);
     let mut acc = [_mm256_setzero_si256(); 8];
+    // A run of equal scales: fold its block pair sums in `i16` and shift once. `uniform_group`
+    // gave every column the same run and `2·127·group ≤ 32767`; a `group` of one leaves the
+    // per-block loop below untouched.
+    let run = if group >= 2 && group <= full {
+        group
+    } else {
+        1
+    };
     let mut b = 0usize;
+    if run >= 2 {
+        while b + run <= full {
+            let mut pair = [_mm256_setzero_si256(); 8];
+            let mut k = 0usize;
+            while k < run {
+                let word = words[b + k];
+                let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
+                let nibble = _mm256_shuffle_epi8(spread, repeat);
+                let select = _mm256_shuffle_epi8(select_one, _mm256_and_si256(nibble, digit_mask));
+                let mut c = 0usize;
+                while c < 8 {
+                    // SAFETY: the caller's per-column bounds cover the plane at `b + k`.
+                    let plane = unsafe {
+                        _mm256_loadu_si256(
+                            cols[c].codes.as_ptr().add((b + k) * 32).cast::<__m256i>(),
+                        )
+                    };
+                    pair[c] = _mm256_add_epi16(pair[c], _mm256_maddubs_epi16(select, plane));
+                    c += 1;
+                }
+                k += 1;
+            }
+            let mut c = 0usize;
+            while c < 8 {
+                let part = _mm256_madd_epi16(pair[c], ones);
+                // SAFETY: the run's blocks share one scale, so the first block's shift vector is
+                // the run's, and the caller's bounds cover it.
+                let sv = unsafe {
+                    _mm256_loadu_si256(cols[c].shift_vecs.as_ptr().add(b).cast::<__m256i>())
+                };
+                acc[c] = _mm256_add_epi32(acc[c], _mm256_sllv_epi32(part, sv));
+                c += 1;
+            }
+            b += run;
+        }
+    }
     while b < full {
         let word = words[b];
         let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
@@ -1703,6 +1826,7 @@ impl Stage<'_> {
             shift_vecs: &[],
             e_min: 0,
             vector: false,
+            group: 1,
         }; 8];
         let mut sums = [0i64; 8];
         let mut c = 0usize;
@@ -2050,7 +2174,7 @@ impl NqLinear {
         let q8 = reader == Reader::Q8;
         let ternary = reader == Reader::Ternary;
         let t_ternary = if ternary { TernaryTerms::new(&t) } else { None };
-        let t_q = if q8 { quant_act(&t) } else { None };
+        let t_q = if q8 { nq_act(&t) } else { None };
         let t_codes = t_q.as_ref().and_then(CodeTerms::new);
         let t_stage = Stage {
             wide: &t,
@@ -2093,7 +2217,7 @@ impl NqLinear {
         let bound_u = u128::from(max_abs_z).saturating_mul(self.rank as u128);
         let narrow_u = bound_u <= i64::MAX as u128;
         let z_ternary = if ternary { TernaryTerms::new(&z) } else { None };
-        let z_q = if q8 { quant_act(&z) } else { None };
+        let z_q = if q8 { nq_act(&z) } else { None };
         let z_codes = z_q.as_ref().and_then(CodeTerms::new);
         let z_stage = Stage {
             wide: &z,
@@ -2118,7 +2242,7 @@ impl NqLinear {
         } else {
             None
         };
-        let x_q = if q8 && residual { quant_act(x) } else { None };
+        let x_q = if q8 && residual { nq_act(x) } else { None };
         let x_codes = x_q.as_ref().and_then(CodeTerms::new);
         let x_stage = Stage {
             wide: x,
@@ -2704,7 +2828,7 @@ fn t_build(
 /// `O(k·n)` time and space in the column count `k` and width `n`.
 fn quantized_band(flat: &[i64], n: usize, reader: Reader) -> Vec<Option<QuantAct>> {
     if reader == Reader::Q8 {
-        flat.chunks_exact(n).map(quant_act).collect()
+        flat.chunks_exact(n).map(nq_act).collect()
     } else {
         (0..flat.len() / n).map(|_| None).collect()
     }
@@ -2732,7 +2856,7 @@ fn ternary_columns(flat: &[i64], n: usize, reader: Reader) -> Vec<Option<Ternary
 /// `O(k·n)` time and space.
 fn quantized_slices(xs: &[&[i64]], reader: Reader, residual: bool) -> Vec<Option<QuantAct>> {
     if reader == Reader::Q8 && residual {
-        xs.iter().map(|x| quant_act(x)).collect()
+        xs.iter().map(|x| nq_act(x)).collect()
     } else {
         (0..xs.len()).map(|_| None).collect()
     }
@@ -3180,6 +3304,153 @@ mod tests {
             &cols, &[0u32; 2], 64, &mut got
         ));
         assert_eq!(got, [0i64; NQ_TILE_COLS]);
+    }
+
+    /// The wide source's grouped dial: with the NQ quantizer's aligned runs of one scale, the
+    /// tile folds a run behind one pair accumulator and one shift. Every column must still equal
+    /// its per-block twin, and a fixture whose runs do not align must fall back to the per-block
+    /// chain rather than read a wrong run.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn the_wide_source_folds_equal_block_runs() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let mut state = 0x9d2c_5680_3f41_7a6bu64;
+        for len in [64usize, 480, 736, 1000, 1024, 1025, 1056, 1827, 2048] {
+            let blocks = len.div_ceil(32);
+            let run = NQ_ACT_GROUP.min(blocks);
+            let mut acts: Vec<QuantAct> = Vec::with_capacity(NQ_TILE_COLS);
+            for c in 0..NQ_TILE_COLS {
+                let codes: Vec<i8> = (0..len)
+                    .map(|_| {
+                        i8::try_from(i32::try_from(next_u32(&mut state) % 255).expect("byte") - 127)
+                            .expect("[-127, 127]")
+                    })
+                    .collect();
+                // One scale per aligned run, the shape `quant_act_grouped` emits.
+                #[allow(clippy::cast_possible_truncation, reason = "run index < blocks")]
+                let scales: Vec<i64> = (0..blocks)
+                    .map(|b| 1i64 << ((b / run) as u32 + 2 + c as u32))
+                    .collect();
+                acts.push(QuantAct::from_parts(scales, codes));
+            }
+            let terms: Vec<CodeTerms<'_>> = acts
+                .iter()
+                .map(|q| CodeTerms::new(q).expect("the fixture admits"))
+                .collect();
+            assert!(terms.iter().all(|t| t.group == run), "len {len}: group");
+            let cols: [ColRef<'_>; NQ_TILE_COLS] = std::array::from_fn(|c| terms[c].col_ref());
+            let mut words: Vec<u32> = (0..blocks).map(|_| next_u32(&mut state)).collect();
+            if len % 32 != 0 {
+                words[blocks - 1] |= !0u32 << (len % 32);
+            }
+            let mut got = [0i64; NQ_TILE_COLS];
+            assert!(
+                CodeTerms::selected_row_cols(&cols, &words, len, &mut got),
+                "len {len}: the group refused"
+            );
+            for c in 0..NQ_TILE_COLS {
+                let want = code_select_twin(terms[c].codes, terms[c].scales, &words, len);
+                assert_eq!(i128::from(got[c]), want, "len {len} column {c}");
+            }
+        }
+        // A per-block fixture and an unaligned mix keep `group == 1`.
+        let per_block = QuantAct::from_parts(vec![1, 2, 4], vec![1; 96]);
+        assert_eq!(CodeTerms::new(&per_block).expect("admits").group, 1);
+        let mixed = QuantAct::from_parts(vec![1, 1, 2, 4], vec![1; 128]);
+        assert_eq!(CodeTerms::new(&mixed).expect("admits").group, 1);
+
+        // Mixed column groups: column 0 carries 32-block runs, columns 1–7 per-block scales.
+        // The tile must take the per-block chain for all eight, because one column's run is not
+        // every column's run, and each column must still equal its twin.
+        let len = 1056usize;
+        let blocks = len.div_ceil(32);
+        let mut acts: Vec<QuantAct> = Vec::with_capacity(NQ_TILE_COLS);
+        for c in 0..NQ_TILE_COLS {
+            let codes: Vec<i8> = (0..len)
+                .map(|_| {
+                    i8::try_from(i32::try_from(next_u32(&mut state) % 255).expect("byte") - 127)
+                        .expect("[-127, 127]")
+                })
+                .collect();
+            #[allow(clippy::cast_possible_truncation, reason = "block index < 33")]
+            let scales: Vec<i64> = (0..blocks)
+                .map(|b| {
+                    if c == 0 {
+                        1i64 << ((b / NQ_ACT_GROUP) as u32 + 2)
+                    } else {
+                        1i64 << ((b % 5) as u32 + 2)
+                    }
+                })
+                .collect();
+            acts.push(QuantAct::from_parts(scales, codes));
+        }
+        let terms: Vec<CodeTerms<'_>> = acts
+            .iter()
+            .map(|q| CodeTerms::new(q).expect("the fixture admits"))
+            .collect();
+        assert_eq!(terms[0].group, NQ_ACT_GROUP, "column 0 carries a run");
+        assert!(
+            terms[1..].iter().all(|t| t.group == 1),
+            "columns 1-7 are per-block"
+        );
+        let cols: [ColRef<'_>; NQ_TILE_COLS] = std::array::from_fn(|c| terms[c].col_ref());
+        let mut words: Vec<u32> = (0..blocks).map(|_| next_u32(&mut state)).collect();
+        let mut got = [0i64; NQ_TILE_COLS];
+        assert!(
+            CodeTerms::selected_row_cols(&cols, &words, len, &mut got),
+            "the mixed tile refused"
+        );
+        for c in 0..NQ_TILE_COLS {
+            let want = code_select_twin(terms[c].codes, terms[c].scales, &words, len);
+            assert_eq!(i128::from(got[c]), want, "mixed tile column {c}");
+        }
+        // The words span has no slack, so the admission above is the reader's whole bound.
+        words.truncate(blocks - 1);
+        assert!(!CodeTerms::selected_row_cols(&cols, &words, len, &mut got));
+    }
+
+    /// The group dial reaches the real dispatch: a 1,056-element Q8 activation (33 blocks) is
+    /// quantized as one 32-block run, the wide tile folds that run, and every column equals the
+    /// per-column reader, which takes the per-block chain.
+    ///
+    /// The column count is one band per participant (`NQ_TILE_COLS × width`), because
+    /// `project_pooled_body` gives a participant `ceil(k/width)` columns and runs the wide tile
+    /// only when that band holds a full eight. `0..=NQ_TILE_COLS` is below one tile on every pool
+    /// wider than one and would exercise only the per-column fallback.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn the_grouped_scale_reaches_the_pooled_reader() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let (out, inn, rank) = (16usize, 1056usize, 16usize);
+        let linear = NqLinear::from_packed(packed_shape(out, inn, rank)).expect("decode");
+        let k = NQ_TILE_COLS * Pool::global().width().max(1);
+        let xs: Vec<Vec<i64>> = (0..k)
+            .map(|c| {
+                (0..inn)
+                    .map(|j| ((j * 37 + c * 11 + 5) as i64 % 101 - 50) << 24)
+                    .collect()
+            })
+            .collect();
+        let q = quant_act_grouped(&xs[0], NQ_ACT_GROUP).expect("quantizes");
+        assert_eq!(CodeTerms::new(&q).expect("admits").group, NQ_ACT_GROUP);
+        assert_eq!(
+            nq_act(&xs[0]).expect("quantizes").scales(),
+            q.scales(),
+            "the NQ call site must pass NQ_ACT_GROUP"
+        );
+        let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
+        let per_column: Vec<Vec<i64>> = xs
+            .iter()
+            .map(|x| linear.project_q8(x).expect("q8"))
+            .collect();
+        let pooled = linear
+            .project_pooled_shape(&refs, Reader::Q8, 0, NQ_TILE_COLS)
+            .expect("pooled q8");
+        assert_eq!(pooled, per_column);
     }
 
     /// The two-column Q8 source against its two per-row twins over the whole vector domain: `len`
@@ -4345,8 +4616,8 @@ mod tests {
                 })
                 .collect();
             let z_terms = Terms::new(&z);
-            let t_q = quant_act(&t);
-            let z_q = quant_act(&z);
+            let t_q = quant_act_grouped(&t, NQ_ACT_GROUP);
+            let z_q = quant_act_grouped(&z, NQ_ACT_GROUP);
             let t_code = t_q.as_ref().and_then(CodeTerms::new).expect("t code plan");
             let z_code = z_q.as_ref().and_then(CodeTerms::new).expect("z code plan");
             let max_t = t.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);

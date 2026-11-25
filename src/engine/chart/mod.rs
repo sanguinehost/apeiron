@@ -235,20 +235,36 @@ fn act_quot_rem(m: u64, s: u64, pow2: bool, shift: u32, mask: u64) -> (u64, u64)
     }
 }
 
-/// Quantize a Q32.32 activation vector to one scale per 32-wide block and int8 codes.
+/// Quantize a Q32.32 activation vector to one scale per 32-wide block and int8 codes: the
+/// canonical per-block form, exactly [`quant_act_grouped`] with `group == 1`.
 ///
-/// Per block `b` (the last block may be ragged): `absmax_b = max_j |x_j|`,
-/// `S_b = 2^⌈log₂ ⌈absmax_b / 127⌉⌉`, the smallest power of two with `127·S_b ≥ absmax_b`
-/// (`0` when `absmax_b = 0`), and
-/// `xq_j = 0` when `S_b = 0`, else `sign(x_j)·((2|x_j| + S_b) / (2·S_b))` with integer division
-/// (round to nearest, ties away from zero). The result satisfies `xq_j ∈ [−127, 127]`.
+/// # Complexity
+///
+/// `O(n)` time and `O(n)` space in the activation length `n`; two passes over each block.
+pub(crate) fn quant_act(x: &[i64]) -> Option<QuantAct> {
+    quant_act_grouped(x, 1)
+}
+
+/// Quantize a Q32.32 activation vector to one scale per `group` consecutive 32-wide blocks and
+/// int8 codes, with the scale repeated on every block the group covers.
+///
+/// Per group `g` (the last group and last block may be ragged): `absmax_g = max_j |x_j|` over the
+/// group, `S_g = 2^⌈log₂ ⌈absmax_g / 127⌉⌉` (`0` when `absmax_g = 0`), and
+/// `xq_j = 0` when `S_g = 0`, else `sign(x_j)·((2|x_j| + S_g) / (2·S_g))` with integer division
+/// (round to nearest, ties away from zero). The result satisfies `xq_j ∈ [−127, 127]`, and the
+/// per-block scale vector repeats `S_g` on each block of the group, so it holds the [`QuantAct`]
+/// invariant for every `group`.
+///
+/// The NQ reader's `NQ_ACT_GROUP` is the caller. A coarser scale lets the row tile fold a run of
+/// blocks behind one `i16` pair accumulator and one shift.
 ///
 /// Returns `None` exactly when [`QuantAct::dequant`] would return `None`; the final
 /// [`QuantAct::dequantizes`] check is that contract, not a second rounding.
 ///
 /// # Complexity
 ///
-/// `O(n)` time and `O(n)` space in the activation length `n`; two passes over each block.
+/// `O(x.len())` time in one magnitude pass per group and one code pass per element; `O(x.len())`
+/// output.
 ///
 /// The loops are single `while` loops carrying their counters and the current block's `take`, so
 /// the body can be extracted later without an early `return` inside a loop.
@@ -258,19 +274,21 @@ fn act_quot_rem(m: u64, s: u64, pow2: bool, shift: u32, mask: u64) -> (u64, u64)
               each checked in `i128` immediately before the cast; `TryFrom` emits an unmodeled \
               external the pinned fail-closed extraction audit rejects"
 )]
-pub(crate) fn quant_act(x: &[i64]) -> Option<QuantAct> {
+pub(crate) fn quant_act_grouped(x: &[i64], group: usize) -> Option<QuantAct> {
     let blocks = x.len().div_ceil(ACT_QK);
+    let group = group.max(1);
     let mut scales: Vec<i64> = Vec::with_capacity(blocks);
     let mut codes: Vec<i8> = Vec::with_capacity(x.len());
     let mut block = 0usize;
     let mut ok = true;
     while block < blocks && ok {
+        let run = group.min(blocks - block);
         let base = block * ACT_QK;
-        let take = ACT_QK.min(x.len() - base);
+        let end = ((block + run) * ACT_QK).min(x.len());
         let mut absmax: u64 = 0;
-        let mut lane = 0usize;
-        while lane < take {
-            let mag = x[base + lane].unsigned_abs();
+        let mut lane = base;
+        while lane < end {
+            let mag = x[lane].unsigned_abs();
             if mag > absmax {
                 absmax = mag;
             }
@@ -285,7 +303,6 @@ pub(crate) fn quant_act(x: &[i64]) -> Option<QuantAct> {
             ok = false;
         } else {
             let scale = scale_wide.cast_signed();
-            scales.push(scale);
             let s = scale.unsigned_abs();
             // `act_scale` returns only `0` or a power of two, so for `s != 0` `m / s` and `m % s`
             // are a shift and a mask, hoisted per block; the guard at `scale_wide` above already
@@ -294,37 +311,44 @@ pub(crate) fn quant_act(x: &[i64]) -> Option<QuantAct> {
             let pow2 = s.is_power_of_two();
             let shift = s.trailing_zeros();
             let mask = s.wrapping_sub(1);
-            let mut lane = 0usize;
-            while lane < take && ok {
-                let value = x[base + lane];
-                let code: i8 = if s == 0 {
-                    0
-                } else {
-                    // `floor((2|v| + S) / (2S))` by `u64` quotient/remainder: with
-                    // `|v| = q·S + r`, `0 ≤ r < S`, the result is `q + [2r ≥ S]`; `2r < 2S ≤
-                    // 2·2^57` and `|v| ≤ 2^63`, so no `u64` step leaves range and the `i128`
-                    // division is not needed. For the power-of-two `S` `act_scale` returns, the
-                    // quotient and remainder are exact shifts of the same integer values.
-                    let m = value.unsigned_abs();
-                    let (quotient, remainder) = act_quot_rem(m, s, pow2, shift, mask);
-                    let magnitude = quotient + u64::from(2 * remainder >= s);
-                    let signed = if value < 0 {
-                        -i128::from(magnitude)
-                    } else {
-                        i128::from(magnitude)
-                    };
-                    if (-127..=127).contains(&signed) {
-                        signed as i8
-                    } else {
-                        ok = false;
+            let mut part = 0usize;
+            while part < run && ok {
+                let block_base = (block + part) * ACT_QK;
+                let take = ACT_QK.min(x.len() - block_base);
+                scales.push(scale);
+                let mut lane = 0usize;
+                while lane < take && ok {
+                    let value = x[block_base + lane];
+                    let code: i8 = if s == 0 {
                         0
-                    }
-                };
-                codes.push(code);
-                lane += 1;
+                    } else {
+                        // `floor((2|v| + S) / (2S))` by `u64` quotient/remainder: with
+                        // `|v| = q·S + r`, `0 ≤ r < S`, the result is `q + [2r ≥ S]`; `2r < 2S ≤
+                        // 2·2^57` and `|v| ≤ 2^63`, so no `u64` step leaves range and the `i128`
+                        // division is not needed. For the power-of-two `S` `act_scale` returns,
+                        // the quotient and remainder are exact shifts of the same integer values.
+                        let m = value.unsigned_abs();
+                        let (quotient, remainder) = act_quot_rem(m, s, pow2, shift, mask);
+                        let magnitude = quotient + u64::from(2 * remainder >= s);
+                        let signed = if value < 0 {
+                            -i128::from(magnitude)
+                        } else {
+                            i128::from(magnitude)
+                        };
+                        if (-127..=127).contains(&signed) {
+                            signed as i8
+                        } else {
+                            ok = false;
+                            0
+                        }
+                    };
+                    codes.push(code);
+                    lane += 1;
+                }
+                part += 1;
             }
         }
-        block += 1;
+        block += run;
     }
     if !ok {
         return None;

@@ -415,6 +415,53 @@ fn quant_act_bounds_and_dequant_contract() {
     assert_eq!(huge.dequant(), Some(vec![127i64 << 56; 32]));
 }
 
+/// `quant_act_grouped` repeats one scale per group, keeps every code in range and the `S/2`
+/// rounding bound, and its `group = 1` arm is exactly `quant_act`.
+#[test]
+fn quant_act_grouped_repeats_the_scale_and_keeps_the_contract() {
+    for len in [200usize, 2200] {
+        for group in [1usize, 2, 4, 32] {
+            for seed in 0..4u64 {
+                let x: Vec<i64> = random_x(len, 0x9e37_0000 + seed)
+                    .into_iter()
+                    .map(|v| v * 1_000_003)
+                    .collect();
+                let grouped = quant_act_grouped(&x, group).expect("quantizes");
+                assert_eq!(grouped.codes.len(), x.len());
+                assert_eq!(grouped.scales.len(), x.len().div_ceil(ACT_QK));
+                let run = group.min(grouped.scales.len());
+                for (b, &scale) in grouped.scales.iter().enumerate() {
+                    assert_eq!(
+                        scale,
+                        grouped.scales[b / run * run],
+                        "group {group} block {b}"
+                    );
+                }
+                let deq = grouped.dequant().expect("grouped guarantees dequant");
+                for (j, &xv) in x.iter().enumerate() {
+                    let s = grouped.scales[j / ACT_QK];
+                    let code = i64::from(grouped.codes[j]);
+                    assert!(code.abs() <= 127, "group {group}: code {code}");
+                    let err = (i128::from(xv) - i128::from(deq[j])).abs();
+                    assert!(2 * err <= i128::from(s), "group {group} rounding at {j}");
+                }
+                if group == 1 {
+                    let plain = quant_act(&x).expect("quantizes");
+                    assert_eq!(grouped.scales, plain.scales);
+                    assert_eq!(grouped.codes, plain.codes);
+                }
+            }
+        }
+    }
+    // The group's scale is its largest block's, not its first block's: a spike in the second
+    // block sets the scale for both. A first-block scale would refuse this input.
+    let mut x = vec![1i64; 2 * ACT_QK];
+    x[ACT_QK] = 1 << 40;
+    let grouped = quant_act_grouped(&x, 2).expect("quantizes");
+    assert_eq!(grouped.scales[0], grouped.scales[1]);
+    assert!(grouped.scales[0] >= 1 << 33);
+}
+
 /// The integer identity behind the power-of-two scale: for `s = 2^e` the shift/mask quotient and
 /// remainder equal `m / s` and `m % s` at the boundary magnitudes a `u64` activation can reach.
 /// A zero and a non-power-of-two scale keep the checked-division fallback.
