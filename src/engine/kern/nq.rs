@@ -491,10 +491,10 @@ struct CodeTerms<'a> {
     codes: &'a [i8],
     /// The verbatim per-block scale, the scalar dispatch's input.
     scales: &'a [i64],
-    /// `e_b − e_min`, one `i32` per 32-term block. The body broadcasts it with one `vpbroadcastd`
-    /// from memory; an eight-lane copy per block is four times the activation reader's bytes and
-    /// does not fit the L1 working set of a wide tile.
-    shift_vecs: Vec<i32>,
+    /// `e_b − e_min` broadcast to eight lanes per block: the vector body loads this once per block
+    /// instead of rebuilding it from a scalar, which keeps the per-block work off the shuffle
+    /// port.
+    shift_vecs: Vec<[i32; 8]>,
     /// The smallest block exponent; the row's lane sum shifts left by it once.
     e_min: u32,
     /// `Σ_b S_b·Σ_j codes[j]`, the dequantized activation's total, the sign dot's `Σ x̂` term.
@@ -510,7 +510,7 @@ struct CodeTerms<'a> {
 struct ColRef<'a> {
     codes: &'a [i8],
     scales: &'a [i64],
-    shift_vecs: &'a [i32],
+    shift_vecs: &'a [[i32; 8]],
     e_min: u32,
     vector: bool,
 }
@@ -544,7 +544,7 @@ impl<'a> CodeTerms<'a> {
             b += 1;
         }
         let e_min = if e_min == u32::MAX { 0 } else { e_min };
-        let mut shift_vecs: Vec<i32> = Vec::with_capacity(blocks);
+        let mut shift_vecs: Vec<[i32; 8]> = Vec::with_capacity(blocks);
         let mut norm: u64 = 0;
         let mut scale_sum: u128 = 0;
         b = 0;
@@ -555,7 +555,7 @@ impl<'a> CodeTerms<'a> {
             } else {
                 s.trailing_zeros() - e_min
             };
-            shift_vecs.push(i32::try_from(sh).ok()?);
+            shift_vecs.push([i32::try_from(sh).ok()?; 8]);
             norm = norm.saturating_add(1u64.checked_shl(sh).unwrap_or(u64::MAX));
             scale_sum = scale_sum.saturating_add(u128::from(s));
             b += 1;
@@ -719,15 +719,15 @@ impl<'a> CodeTerms<'a> {
     ///
     /// `O(8·len)` terms: `len/32` blocks of one word load, one expansion and `8·6` vector
     /// operations, then one horizontal fold per column. `O(1)` space beyond `out`.
-    fn selected_row_cols<const N: usize>(
-        cols: &[ColRef<'_>; N],
+    fn selected_row_cols(
+        cols: &[ColRef<'_>; 8],
         words: &[u32],
         len: usize,
-        out: &mut [i64; N],
+        out: &mut [i64; 8],
     ) -> bool {
         let blocks = len.div_ceil(32);
         let mut c = 0usize;
-        while c < N {
+        while c < 8 {
             let col = &cols[c];
             if len > col.codes.len()
                 || col.shift_vecs.len() < blocks
@@ -743,7 +743,7 @@ impl<'a> CodeTerms<'a> {
             // SAFETY: `vector` names AVX2 on every column; the length, block and word bounds were
             // checked above, and `CodeTerms::new` admitted only a lane sum inside `i32` and a
             // total inside `i64`, per column.
-            if unsafe { code_select_rowN_avx2(cols, words, len, out) }.is_some() {
+            if unsafe { code_select_row8_avx2(cols, words, len, out) }.is_some() {
                 return true;
             }
         }
@@ -966,7 +966,7 @@ impl TernaryTerms {
 unsafe fn code_select_avx2(
     codes: &[i8],
     scales: &[i64],
-    shift_vecs: &[i32],
+    shift_vecs: &[[i32; 8]],
     e_min: u32,
     words: &[u32],
     len: usize,
@@ -1010,7 +1010,8 @@ unsafe fn code_select_avx2(
         let plane = unsafe { _mm256_loadu_si256(chunk.as_ptr().cast::<__m256i>()) };
         let pair = _mm256_maddubs_epi16(select, plane);
         let part = _mm256_madd_epi16(pair, ones);
-        let sv = _mm256_set1_epi32(*shift);
+        // SAFETY: `shift` is one `[i32; 8]`, exactly the 32 bytes the load reads.
+        let sv = unsafe { _mm256_loadu_si256(shift.as_ptr().cast::<__m256i>()) };
         acc = _mm256_add_epi32(acc, _mm256_sllv_epi32(part, sv));
     }
     let lo = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(acc));
@@ -1181,7 +1182,7 @@ fn code_select_rows_twin(
 unsafe fn code_select_block_avx2<const R: usize>(
     codes: &[i8],
     scales: &[i64],
-    shift_vecs: &[i32],
+    shift_vecs: &[[i32; 8]],
     e_min: u32,
     words: &[u32],
     stride: usize,
@@ -1210,9 +1211,10 @@ unsafe fn code_select_block_avx2<const R: usize>(
     let mut acc = [_mm256_setzero_si256(); R];
     let mut b = 0usize;
     while b < full {
-        // SAFETY: `b < full <= codes.len()/32`, so the load reads inside the codes array.
+        // SAFETY: `b < full <= codes.len()/32` and `b < full <= shift_vecs.len()`, so both loads
+        // read inside their own block.
         let plane = unsafe { _mm256_loadu_si256(codes.as_ptr().add(b * 32).cast::<__m256i>()) };
-        let sv = _mm256_set1_epi32(shift_vecs[b]);
+        let sv = unsafe { _mm256_loadu_si256(shift_vecs.as_ptr().add(b).cast::<__m256i>()) };
         let mut r = 0usize;
         while r < R {
             let word = words[r * stride + b];
@@ -1271,7 +1273,7 @@ unsafe fn code_select_block_avx2<const R: usize>(
 unsafe fn code_select_rows_avx2(
     codes: &[i8],
     scales: &[i64],
-    shift_vecs: &[i32],
+    shift_vecs: &[[i32; 8]],
     e_min: u32,
     words: &[u32],
     stride: usize,
@@ -1345,11 +1347,11 @@ unsafe fn lane_sum(lane: std::arch::x86_64::__m256i) -> i64 {
     clippy::cast_ptr_alignment,
     reason = "loadu admits the unaligned block pointer"
 )]
-unsafe fn code_select_rowN_avx2<const N: usize>(
-    cols: &[ColRef<'_>; N],
+unsafe fn code_select_row8_avx2(
+    cols: &[ColRef<'_>; 8],
     words: &[u32],
     len: usize,
-    out: &mut [i64; N],
+    out: &mut [i64; 8],
 ) -> Option<()> {
     use std::arch::x86_64::{
         __m256i, _mm256_add_epi32, _mm256_and_si256, _mm256_loadu_si256, _mm256_madd_epi16,
@@ -1369,7 +1371,7 @@ unsafe fn code_select_rowN_avx2<const N: usize>(
         0, 0,
     );
     let ones = _mm256_set1_epi16(1);
-    let mut acc = [_mm256_setzero_si256(); N];
+    let mut acc = [_mm256_setzero_si256(); 8];
     let mut b = 0usize;
     while b < full {
         let word = words[b];
@@ -1377,11 +1379,12 @@ unsafe fn code_select_rowN_avx2<const N: usize>(
         let nibble = _mm256_shuffle_epi8(spread, repeat);
         let select = _mm256_shuffle_epi8(select_one, _mm256_and_si256(nibble, digit_mask));
         let mut c = 0usize;
-        while c < N {
+        while c < 8 {
             // SAFETY: the caller's per-column bounds cover both planes at block `b`.
             let plane =
                 unsafe { _mm256_loadu_si256(cols[c].codes.as_ptr().add(b * 32).cast::<__m256i>()) };
-            let sv = _mm256_set1_epi32(cols[c].shift_vecs[b]);
+            let sv =
+                unsafe { _mm256_loadu_si256(cols[c].shift_vecs.as_ptr().add(b).cast::<__m256i>()) };
             let pair = _mm256_maddubs_epi16(select, plane);
             let part = _mm256_madd_epi16(pair, ones);
             acc[c] = _mm256_add_epi32(acc[c], _mm256_sllv_epi32(part, sv));
@@ -1391,7 +1394,7 @@ unsafe fn code_select_rowN_avx2<const N: usize>(
     }
     let tail = full * 32;
     let mut c = 0usize;
-    while c < N {
+    while c < 8 {
         // SAFETY: AVX2 is the caller's contract; the lane bound makes the sum exact.
         let mut total = i128::from(unsafe { lane_sum(acc[c]) }) << cols[c].e_min;
         if tail < len {
@@ -1433,11 +1436,11 @@ unsafe fn code_select_rowN_avx2<const N: usize>(
 unsafe fn code_select_block2_avx2<const R: usize>(
     codes_a: &[i8],
     scales_a: &[i64],
-    shift_a: &[i32],
+    shift_a: &[[i32; 8]],
     e_min_a: u32,
     codes_b: &[i8],
     scales_b: &[i64],
-    shift_b: &[i32],
+    shift_b: &[[i32; 8]],
     e_min_b: u32,
     words: &[u32],
     stride: usize,
@@ -1467,12 +1470,12 @@ unsafe fn code_select_block2_avx2<const R: usize>(
     let mut acc_b = [_mm256_setzero_si256(); R];
     let mut b = 0usize;
     while b < full {
-        // SAFETY: `b < full` and the caller's per-column bounds cover both codes arrays at this
-        // block.
+        // SAFETY: `b < full` and the caller's per-column bounds cover both codes arrays and both
+        // shift arrays at this block.
         let plane_a = unsafe { _mm256_loadu_si256(codes_a.as_ptr().add(b * 32).cast::<__m256i>()) };
         let plane_b = unsafe { _mm256_loadu_si256(codes_b.as_ptr().add(b * 32).cast::<__m256i>()) };
-        let sv_a = _mm256_set1_epi32(shift_a[b]);
-        let sv_b = _mm256_set1_epi32(shift_b[b]);
+        let sv_a = unsafe { _mm256_loadu_si256(shift_a.as_ptr().add(b).cast::<__m256i>()) };
+        let sv_b = unsafe { _mm256_loadu_si256(shift_b.as_ptr().add(b).cast::<__m256i>()) };
         let mut r = 0usize;
         while r < R {
             let word = words[r * stride + b];
@@ -1532,11 +1535,11 @@ unsafe fn code_select_block2_avx2<const R: usize>(
 unsafe fn code_select_rows2_avx2(
     codes_a: &[i8],
     scales_a: &[i64],
-    shift_a: &[i32],
+    shift_a: &[[i32; 8]],
     e_min_a: u32,
     codes_b: &[i8],
     scales_b: &[i64],
-    shift_b: &[i32],
+    shift_b: &[[i32; 8]],
     e_min_b: u32,
     words: &[u32],
     stride: usize,
@@ -1694,17 +1697,17 @@ impl Stage<'_> {
     /// # Complexity
     ///
     /// `O(1)`: eight view reads and no work in `len`.
-    fn cols<'s, const N: usize>(stages: &[&'s Self; N]) -> Option<StageCols<'s, N>> {
+    fn cols8<'s>(stages: &[&'s Self; 8]) -> Option<StageCols<'s>> {
         let mut cols = [ColRef {
             codes: &[],
             scales: &[],
             shift_vecs: &[],
             e_min: 0,
             vector: false,
-        }; N];
-        let mut sums = [0i64; N];
+        }; 8];
+        let mut sums = [0i64; 8];
         let mut c = 0usize;
-        while c < N {
+        while c < 8 {
             let Some(codes) = &stages[c].codes else {
                 return None;
             };
@@ -1716,29 +1719,29 @@ impl Stage<'_> {
     }
 }
 
-/// `N` adjacent activation readers of a column group, assembled once for all of a row band's
-/// output rows; see [`Stage::cols`].
-struct StageCols<'a, const N: usize> {
-    cols: [ColRef<'a>; N],
-    sums: [i64; N],
+/// Eight adjacent activation readers of the wide tile, assembled once for all of a column
+/// group's output rows; see [`Stage::cols8`].
+struct StageCols<'a> {
+    cols: [ColRef<'a>; 8],
+    sums: [i64; 8],
 }
 
-impl<const N: usize> StageCols<'_, N> {
-    /// The sign dots of one factor row's `words` against the group's `N` columns, one bit
+impl StageCols<'_> {
+    /// The sign dots of one factor row's `words` against the group's eight columns, one bit
     /// expansion of each 32-term block shared by all of them. `false` leaves `out` partially
     /// written, and the caller keeps its two-column or per-row loop, which is the same
     /// arithmetic.
     ///
     /// # Complexity
     ///
-    /// `O(N·len)` terms with one word expansion per 32 terms; `O(1)` space beyond `out`.
-    fn dot_row(&self, words: &[u32], len: usize, out: &mut [i128; N]) -> bool {
-        let mut sel = [0i64; N];
+    /// `O(8·len)` terms with one word expansion per 32 terms; `O(1)` space beyond `out`.
+    fn dot_row(&self, words: &[u32], len: usize, out: &mut [i128; 8]) -> bool {
+        let mut sel = [0i64; 8];
         if !CodeTerms::selected_row_cols(&self.cols, words, len, &mut sel) {
             return false;
         }
         let mut c = 0usize;
-        while c < N {
+        while c < 8 {
             out[c] = i128::from(self.sums[c]) - 2 * i128::from(sel[c]);
             c += 1;
         }
@@ -2194,49 +2197,44 @@ impl NqLinear {
         let mut t_masks = ternary_columns(&t, self.inn, reader);
         let t_stages = build_stages(t.chunks_exact(self.inn), &narrow_t, &t_q, &mut t_masks);
         let overflow = std::sync::atomic::AtomicBool::new(false);
-        // The `V` stage: every factor row is read once and folded against all `k` activation
-        // columns. A task owns a contiguous row band and writes its columns into a row-major
-        // buffer; `z` below is the reader's column-major form of it. llama.cpp's
-        // `ggml_compute_forward_mul_mat` takes the same partition when `nr0 > nr1`
-        // (`nchunk0 = nth`, every column inside a task), and it is what keeps one weight-word
-        // read shared by every column. The column-partitioned loop re-read the whole stage once
-        // per column, so at width `k` it paid `k` times the weight bytes.
-        let row_task = self.rank.div_ceil(width.saturating_mul(2)).max(1);
-        let mut zr: Vec<i64> = vec![0; self.rank * k];
-        pool.chunks_mut(&mut zr, row_task * k, &|_, at, zs| {
-            let r0 = at / k;
-            let rows = zs.len() / k;
+        // The `V` stage: a block of rank rows folded against each column the task owns, so the
+        // column's codes and shift vectors are read once per block rather than once per row. The
+        // `mul_q32` epilogue is per `(row, column)` and keeps its order.
+        let mut z: Vec<i64> = vec![0; k * self.rank];
+        pool.chunks_mut(&mut z, cols * self.rank, &|_, at, zs| {
+            let c0 = at / self.rank;
+            let ncols = zs.len() / self.rank;
             let mut dots = [0i128; NQ_BLOCK_MAX];
             let mut dots2 = [0i128; NQ_BLOCK_MAX];
             let mut dots8 = [0i128; 8];
-            // Group outer, row inner: a group's readers are assembled once for the band, and a
-            // group that refuses leaves the previous groups complete. The pair loop below redoes
-            // the refused columns for the band; its stores are assignments, so a re-run is the
-            // same value.
-            let mut wide_to = 0usize;
-            if wide {
-                while wide_to + NQ_TILE_COLS <= k {
-                    let base = wide_to;
-                    let tiles: [&Stage<'_>; NQ_TILE_COLS] =
-                        std::array::from_fn(|c| &t_stages[base + c]);
-                    let Some(group) = Stage::cols(&tiles) else {
+            // The wide tile: eight columns per pass, one factor row at a time, so each column's
+            // codes and shift vectors are read once per row and the row's bit expansion is
+            // shared by all eight dots. The pair loop below keeps the leftover columns.
+            let groups = if wide { ncols / NQ_TILE_COLS } else { 0 };
+            let mut wide_from = 0usize;
+            if groups > 0 {
+                // Group outer, row inner: a group's readers are assembled once for its rank
+                // rows, and a group that refuses leaves the previous groups complete.
+                let mut g = 0usize;
+                while g < groups {
+                    let base = g * NQ_TILE_COLS;
+                    let tiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &t_stages[c0 + base + c]);
+                    let Some(group) = Stage::cols8(&tiles) else {
                         break;
                     };
                     let mut r = 0usize;
-                    let mut served = true;
-                    while r < rows {
-                        let row = &self.v[(r0 + r) * self.v_words..];
+                    while r < self.rank {
+                        let row = &self.v[r * self.v_words..];
                         if !group.dot_row(row, self.inn, &mut dots8) {
-                            served = false;
                             break;
                         }
                         let mut c = 0usize;
                         while c < NQ_TILE_COLS {
                             match i64::try_from(dots8[c])
                                 .ok()
-                                .and_then(|dot| mul_q32(dot, self.s_mid[r0 + r]))
+                                .and_then(|dot| mul_q32(dot, self.s_mid[r]))
                             {
-                                Some(v) => zs[r * k + base + c] = v,
+                                Some(v) => zs[(base + c) * self.rank + r] = v,
                                 None => {
                                     overflow.store(true, std::sync::atomic::Ordering::Relaxed);
                                 }
@@ -2245,69 +2243,64 @@ impl NqLinear {
                         }
                         r += 1;
                     }
-                    if !served {
+                    if r < self.rank {
                         break;
                     }
-                    wide_to = base + NQ_TILE_COLS;
+                    wide_from = base + NQ_TILE_COLS;
+                    g += 1;
                 }
             }
-            let mut i0 = 0usize;
-            while i0 < rows {
-                let n = block.max(1).min(rows - i0);
-                let plane = &self.v[(r0 + i0) * self.v_words..];
+            let mut r0 = 0usize;
+            while r0 < self.rank {
+                let rows = block.max(1).min(self.rank - r0);
+                let plane = &self.v[r0 * self.v_words..];
                 let mut store = |col: usize, ds: &[i128]| {
                     for (d, &dot) in ds.iter().enumerate() {
-                        let r = r0 + i0 + d;
+                        let r = r0 + d;
                         let Some(dot) = i64::try_from(dot).ok() else {
                             overflow.store(true, std::sync::atomic::Ordering::Relaxed);
                             continue;
                         };
                         match mul_q32(dot, self.s_mid[r]) {
-                            Some(v) => zs[(i0 + d) * k + col] = v,
+                            Some(v) => zs[col * self.rank + r] = v,
                             None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
                         }
                     }
                 };
-                let mut cc = wide_to;
-                while cc < k {
-                    if cc + 1 < k
-                        && t_stages[cc].dot_rows2(
-                            &t_stages[cc + 1],
+                let mut cc = wide_from;
+                while cc < ncols {
+                    if cc + 1 < ncols
+                        && t_stages[c0 + cc].dot_rows2(
+                            &t_stages[c0 + cc + 1],
                             plane,
                             self.v_words,
-                            n,
+                            rows,
                             self.inn,
-                            &mut dots[..n],
-                            &mut dots2[..n],
+                            &mut dots[..rows],
+                            &mut dots2[..rows],
                         )
                     {
-                        store(cc, &dots[..n]);
-                        store(cc + 1, &dots2[..n]);
+                        store(cc, &dots[..rows]);
+                        store(cc + 1, &dots2[..rows]);
                         cc += 2;
                     } else {
-                        t_stages[cc].dot_rows(plane, self.v_words, n, self.inn, &mut dots[..n]);
-                        store(cc, &dots[..n]);
+                        t_stages[c0 + cc].dot_rows(
+                            plane,
+                            self.v_words,
+                            rows,
+                            self.inn,
+                            &mut dots[..rows],
+                        );
+                        store(cc, &dots[..rows]);
                         cc += 1;
                     }
                 }
-                i0 += n;
+                r0 += rows;
             }
         });
         if overflow.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(NqError::Overflow);
         }
-        // The readers take a column as one slice, so the band buffer is transposed once per
-        // stage. Parallel over columns: each task reads one strided column and writes it
-        // contiguously.
-        let mut z: Vec<i64> = vec![0; k * self.rank];
-        pool.chunks_mut(&mut z, self.rank, &|_, at, zs| {
-            let c = at / self.rank;
-            let mut r = 0usize;
-            for slot in zs.iter_mut() {
-                *slot = zr[r * k + c];
-                r += 1;
-            }
-        });
         // The `U` stage's per-column bound: `rank·max|z|` decides the narrow source.
         let mut max_abs_z: Vec<u64> = vec![0; k];
         pool.chunks_mut(&mut max_abs_z, cols, &|_, c0, ms| {
@@ -2337,38 +2330,36 @@ impl NqLinear {
         let x_q = quantized_slices(xs, reader, residual);
         let mut x_masks = ternary_slices(xs, reader, residual);
         let x_stages = build_stages(xs.iter().copied(), &narrow_x, &x_q, &mut x_masks);
-        // The `U` stage: as in `V`, a task owns a contiguous band of output rows and folds every
-        // column inside it, so each factor row is read once for all `k` columns. `yr` is
-        // row-major; the gather below writes the per-column outputs.
-        let row_task = self.out.div_ceil(width.saturating_mul(2)).max(1);
-        let mut yr: Vec<i64> = vec![0; self.out * k];
-        pool.chunks_mut(&mut yr, row_task * k, &|_, at, ys| {
-            let r0 = at / k;
-            let rows = ys.len() / k;
+        let mut y: Vec<i64> = vec![0; k * self.out];
+        pool.chunks_mut(&mut y, cols * self.out, &|_, at, ys| {
+            let c0 = at / self.out;
+            let ncols = ys.len() / self.out;
             let mut dots = [0i128; NQ_BLOCK_MAX];
             let mut dots2 = [0i128; NQ_BLOCK_MAX];
             let mut dots8 = [0i128; 8];
-            let mut wide_to = 0usize;
-            if wide {
-                while wide_to + NQ_TILE_COLS <= k {
-                    let base = wide_to;
-                    let tiles: [&Stage<'_>; NQ_TILE_COLS] =
-                        std::array::from_fn(|c| &z_stages[base + c]);
-                    let Some(group) = Stage::cols(&tiles) else {
+            // As in the `V` stage: eight columns per pass on whole groups, leftover columns in
+            // the block's pair loop below.
+            let groups = if wide { ncols / NQ_TILE_COLS } else { 0 };
+            let mut wide_from = 0usize;
+            if groups > 0 {
+                // As in the `V` stage: a group's readers are assembled once for its `out` rows.
+                let mut g = 0usize;
+                while g < groups {
+                    let base = g * NQ_TILE_COLS;
+                    let tiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &z_stages[c0 + base + c]);
+                    let Some(group) = Stage::cols8(&tiles) else {
                         break;
                     };
                     let mut i = 0usize;
-                    let mut served = true;
-                    while i < rows {
-                        let row = &self.u[(r0 + i) * self.u_words..];
+                    while i < self.out {
+                        let row = &self.u[i * self.u_words..];
                         if !group.dot_row(row, self.rank, &mut dots8) {
-                            served = false;
                             break;
                         }
                         let mut c = 0usize;
                         while c < NQ_TILE_COLS {
-                            match self.project_row(r0 + i, dots8[c], &x_stages[base + c]) {
-                                Some(v) => ys[i * k + base + c] = v,
+                            match self.project_row(i, dots8[c], &x_stages[c0 + base + c]) {
+                                Some(v) => ys[(base + c) * self.out + i] = v,
                                 None => {
                                     overflow.store(true, std::sync::atomic::Ordering::Relaxed);
                                 }
@@ -2377,48 +2368,55 @@ impl NqLinear {
                         }
                         i += 1;
                     }
-                    if !served {
+                    if i < self.out {
                         break;
                     }
-                    wide_to = base + NQ_TILE_COLS;
+                    wide_from = base + NQ_TILE_COLS;
+                    g += 1;
                 }
             }
             let mut i0 = 0usize;
-            while i0 < rows {
-                let n = block.max(1).min(rows - i0);
-                let plane = &self.u[(r0 + i0) * self.u_words..];
+            while i0 < self.out {
+                let rows = block.max(1).min(self.out - i0);
+                let plane = &self.u[i0 * self.u_words..];
                 let mut store = |col: usize, ds: &[i128]| {
-                    let x_stage = &x_stages[col];
+                    let x_stage = &x_stages[c0 + col];
                     for (d, &dot) in ds.iter().enumerate() {
-                        match self.project_row(r0 + i0 + d, dot, x_stage) {
-                            Some(v) => ys[(i0 + d) * k + col] = v,
+                        match self.project_row(i0 + d, dot, x_stage) {
+                            Some(v) => ys[col * self.out + i0 + d] = v,
                             None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
                         }
                     }
                 };
-                let mut cc = wide_to;
-                while cc < k {
-                    if cc + 1 < k
-                        && z_stages[cc].dot_rows2(
-                            &z_stages[cc + 1],
+                let mut cc = wide_from;
+                while cc < ncols {
+                    if cc + 1 < ncols
+                        && z_stages[c0 + cc].dot_rows2(
+                            &z_stages[c0 + cc + 1],
                             plane,
                             self.u_words,
-                            n,
+                            rows,
                             self.rank,
-                            &mut dots[..n],
-                            &mut dots2[..n],
+                            &mut dots[..rows],
+                            &mut dots2[..rows],
                         )
                     {
-                        store(cc, &dots[..n]);
-                        store(cc + 1, &dots2[..n]);
+                        store(cc, &dots[..rows]);
+                        store(cc + 1, &dots2[..rows]);
                         cc += 2;
                     } else {
-                        z_stages[cc].dot_rows(plane, self.u_words, n, self.rank, &mut dots[..n]);
-                        store(cc, &dots[..n]);
+                        z_stages[c0 + cc].dot_rows(
+                            plane,
+                            self.u_words,
+                            rows,
+                            self.rank,
+                            &mut dots[..rows],
+                        );
+                        store(cc, &dots[..rows]);
                         cc += 1;
                     }
                 }
-                i0 += n;
+                i0 += rows;
             }
         });
         if overflow.load(std::sync::atomic::Ordering::Relaxed) {
@@ -2426,8 +2424,7 @@ impl NqLinear {
         }
         let mut out = Vec::with_capacity(k);
         for c in 0..k {
-            let col: Vec<i64> = (0..self.out).map(|r| yr[r * k + c]).collect();
-            out.push(col);
+            out.push(y[c * self.out..(c + 1) * self.out].to_vec());
         }
         Ok(out)
     }
