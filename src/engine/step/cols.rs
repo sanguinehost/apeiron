@@ -18,7 +18,8 @@ use super::{
     Sched, StepError,
 };
 use crate::engine::chart::ffn::{quant_acts_pooled, swiglu_cols};
-use crate::engine::chart::task::HeadTask;
+use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
+use crate::engine::chart::task::{ChunkTask, HeadTask};
 use crate::engine::chart::QuantAct;
 use crate::engine::error::{
     TensorKey, PART_ATTN_NORM, PART_FFN_NORM, PART_OUTPUT_NORM, PART_SSM_CONV1D,
@@ -1371,16 +1372,52 @@ fn norm_gain(
     }
 }
 
-/// `hidden[i] += delta[i]` for the columns both hold, stopping at the first refusal.
+/// `hidden[i] += delta[i]` for the columns both hold, refusing at the lowest failing column.
+///
+/// On success every word is the serial column-order add's, bit for bit: each column's
+/// [`add_assign_fixed`] reads and writes only that column. A refusal reports the error of the
+/// lowest failing column. With more than one column the adds run on the pool, so the contents of
+/// `hidden` after a refusal are unspecified. One column, or a single-worker pool, runs on the
+/// calling thread.
+///
+/// The residual is the epilogue of `attn.proj_out` and the FFN `down` projection: it streams two
+/// `k × n` planes per layer, which is bandwidth-bound, and the pool's workers are otherwise idle
+/// while the calling thread streams them.
 ///
 /// # Complexity
 ///
-/// `O(k·n)` fixed-point additions, `O(1)` space: one loop over the `k` columns, one `n`-wide
-/// [`add_assign_fixed`] each.
+/// `O(k·n)` checked additions, `O(1)` space: one `n`-wide [`add_assign_fixed`] per column, split
+/// into `⌈k / (4·width)⌉` pool tasks.
 fn add_cols(hidden: &mut [Vec<i64>], delta: &[Vec<i64>]) -> Result<(), StepError> {
+    let k = hidden.len().min(delta.len());
+    let width = width_global();
+    if k < 2 || width < 2 {
+        return add_cols_serial(&mut hidden[..k], &delta[..k]);
+    }
+    let first: FirstErr<usize, StepError> = FirstErr::new();
+    let ctx = AddColsCtx {
+        delta: &delta[..k],
+        first: &first,
+    };
+    // Four tasks per worker: enough that one late task does not own the tail, few enough that the
+    // dispatch is one round of the pool.
+    let chunk = k.div_ceil(width * 4).max(1);
+    chunks_mut_global(&mut hidden[..k], chunk, &ctx);
+    match first.take() {
+        Some((_, e)) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// [`add_cols`] on the calling thread, stopping at the first refusal.
+///
+/// # Complexity
+///
+/// `O(k·n)` checked additions, `O(1)` space.
+fn add_cols_serial(hidden: &mut [Vec<i64>], delta: &[Vec<i64>]) -> Result<(), StepError> {
     let mut err: Option<StepError> = None;
     let mut i = 0usize;
-    while i < hidden.len() && i < delta.len() && err.is_none() {
+    while i < hidden.len() && err.is_none() {
         if let Err(e) = add_assign_fixed(&mut hidden[i], &delta[i]) {
             err = Some(e);
         }
@@ -1389,6 +1426,24 @@ fn add_cols(hidden: &mut [Vec<i64>], delta: &[Vec<i64>]) -> Result<(), StepError
     match err {
         Some(e) => Err(e),
         None => Ok(()),
+    }
+}
+
+/// One pool task of [`add_cols`]: a piece's columns are consecutive, so returning after the first
+/// refusal leaves no lower column in the piece unrecorded and the key is the column index.
+struct AddColsCtx<'a> {
+    delta: &'a [Vec<i64>],
+    first: &'a FirstErr<usize, StepError>,
+}
+
+impl ChunkTask<Vec<i64>> for AddColsCtx<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [Vec<i64>]) {
+        for (i, dst) in piece.iter_mut().enumerate() {
+            if let Err(e) = add_assign_fixed(dst, &self.delta[start + i]) {
+                self.first.record(start + i, e);
+                return;
+            }
+        }
     }
 }
 
@@ -1501,5 +1556,83 @@ mod fold_order {
                 assert_eq!(cost, k + 1, "k={k} pair {j}: key count");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod add_cols_order {
+    use super::{add_assign_fixed, add_cols, StepError};
+
+    /// `k` columns of `n` Q32.32 words; the addend magnitudes differ from the augend's so a
+    /// swapped or dropped column changes the sum.
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "fixture magnitudes are below 211"
+    )]
+    fn columns(k: usize, n: usize) -> (Vec<Vec<i64>>, Vec<Vec<i64>>) {
+        let hidden = (0..k)
+            .map(|c| {
+                (0..n)
+                    .map(|j| ((c * 17 + j * 31 + 7) as i64 % 211 - 105) << 24)
+                    .collect()
+            })
+            .collect();
+        let delta = (0..k)
+            .map(|c| {
+                (0..n)
+                    .map(|j| ((c * 29 + j * 13 + 3) as i64 % 197 - 98) << 20)
+                    .collect()
+            })
+            .collect();
+        (hidden, delta)
+    }
+
+    /// The pooled add is the serial column-order add, bit for bit, at the serial arm and at three
+    /// pool widths; the common-prefix domain when the two column lists differ is the serial
+    /// loop's, too.
+    #[test]
+    fn the_residual_add_is_the_column_order() {
+        for k in [1usize, 2, 9, 40] {
+            let (mut hidden, delta) = columns(k, 64);
+            let mut want = hidden.clone();
+            for c in 0..k {
+                add_assign_fixed(&mut want[c], &delta[c]).expect("reference add");
+            }
+            add_cols(&mut hidden, &delta).expect("pooled add");
+            assert_eq!(hidden, want, "k {k}");
+        }
+        let (mut hidden, delta) = columns(5, 16);
+        let delta = &delta[..3];
+        let mut want = hidden.clone();
+        for c in 0..3 {
+            add_assign_fixed(&mut want[c], &delta[c]).expect("reference add");
+        }
+        add_cols(&mut hidden, delta).expect("pooled add");
+        assert_eq!(hidden, want, "common prefix");
+    }
+
+    /// The refusal is the error of the lowest failing column, not the first task to finish: an
+    /// overflow at column 3 outranks a row-width mismatch at column 20, and the same failures with
+    /// the keys exchanged report the mismatch at 3. Reducing in completion order fails this.
+    #[test]
+    fn the_residual_refusal_is_the_lowest_column() {
+        let (mut hidden, mut delta) = columns(24, 8);
+        hidden[3][0] = i64::MAX;
+        delta[3][0] = 1;
+        delta[20].pop();
+        assert_eq!(
+            add_cols(&mut hidden, &delta),
+            Err(StepError::Overflow),
+            "overflow at 3 outranks the mismatch at 20"
+        );
+        let (mut hidden, mut delta) = columns(24, 8);
+        hidden[20][0] = i64::MAX;
+        delta[20][0] = 1;
+        delta[3].pop();
+        assert_eq!(
+            add_cols(&mut hidden, &delta),
+            Err(StepError::BadConfig(String::from("residual row width"))),
+            "the mismatch at 3 outranks the overflow at 20"
+        );
     }
 }
