@@ -1629,3 +1629,33 @@ fn bench_q4_k_kcols() {
         single_ns / q4k_ns
     );
 }
+
+/// `quant_act`'s cost on one token's pre-scaled `t` array: the packed 0.6B model's 196 linears sum
+/// 286,720 in-features per token (28 layers × 10,240: 1,024 each for q, k, v, gate and up, 2,048 for
+/// o, 3,072 for down). The projection also quantizes each linear's `z` (124,544 rank words per
+/// token); both sums are read from the pack header by the command in
+/// `bench/cpu/1795573862-prefill-block-and-group.md`. When the pack carries dense residuals the
+/// projection quantizes `x` too; this probe covers `t` only. Timed with `perf stat -e instructions`
+/// when the instruction side is wanted; ignored because it is a probe, not an equality.
+#[test]
+#[ignore = "timing probe: run with --ignored --exact --nocapture"]
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "`reps` and `n` are far below 2^53, so both to-`f64` casts are exact"
+)]
+fn probe_quant_act_rate() {
+    let n = 286_720usize;
+    let x: Vec<i64> = (0..n).map(|i| ((i % 101) as i64 - 50) << 22).collect();
+    let reps = 5usize;
+    let t0 = std::time::Instant::now();
+    for _ in 0..reps {
+        let q = quant_act(&x).expect("quantizes");
+        std::hint::black_box(&q);
+    }
+    let secs = t0.elapsed().as_secs_f64() / reps as f64;
+    println!(
+        "quant_act {:.3} ms for {n} elements, {:.2} ns/elem",
+        secs * 1e3,
+        secs * 1e9 / n as f64
+    );
+}
