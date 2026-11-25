@@ -1686,16 +1686,18 @@ impl Stage<'_> {
         true
     }
 
-    /// The sign dots of one factor row's `words` against eight activation stages in one pass:
-    /// [`CodeTerms::selected_row_cols`] shares the row's bit expansion across all eight columns.
-    /// `true` when every stage is a Q8 reader the vector source serves; `false` leaves `out`
-    /// partially written, and the caller keeps its two-column or per-row loop, which is the same
-    /// arithmetic.
+    /// Assemble the wide tile's eight readers once per column group: the stages, the views and
+    /// the dequantized totals are group properties, and rebuilding them for every output row was
+    /// 10.3% of the `apeiron-q8act` worker's instruction stream on the box at width 8, block 256
+    /// (`bench/cpu/1795573862-prefill-block-and-group.md`). `None` when a stage is not a Q8
+    /// reader; the caller then keeps its pair loop, which is the same arithmetic. The assembly
+    /// copies views; the reader's length and block bounds are [`CodeTerms::selected_row_cols`]'s
+    /// admission, re-checked on every [`StageCols::dot_row`] call.
     ///
     /// # Complexity
     ///
-    /// `O(8·len)` terms with one word expansion per 32 terms; `O(1)` space beyond `out`.
-    fn dot_row_cols8(stages: &[&Self; 8], words: &[u32], len: usize, out: &mut [i128; 8]) -> bool {
+    /// `O(1)`: eight view reads and no work in `len`.
+    fn cols8<'s>(stages: &[&'s Self; 8]) -> Option<StageCols<'s>> {
         let mut cols = [ColRef {
             codes: &[],
             scales: &[],
@@ -1707,19 +1709,40 @@ impl Stage<'_> {
         let mut c = 0usize;
         while c < 8 {
             let Some(codes) = &stages[c].codes else {
-                return false;
+                return None;
             };
             cols[c] = codes.col_ref();
             sums[c] = codes.sum;
             c += 1;
         }
+        Some(StageCols { cols, sums })
+    }
+}
+
+/// Eight adjacent activation readers of the wide tile, assembled once for all of a column
+/// group's output rows; see [`Stage::cols8`].
+struct StageCols<'a> {
+    cols: [ColRef<'a>; 8],
+    sums: [i64; 8],
+}
+
+impl StageCols<'_> {
+    /// The sign dots of one factor row's `words` against the group's eight columns, one bit
+    /// expansion of each 32-term block shared by all of them. `false` leaves `out` partially
+    /// written, and the caller keeps its two-column or per-row loop, which is the same
+    /// arithmetic.
+    ///
+    /// # Complexity
+    ///
+    /// `O(8·len)` terms with one word expansion per 32 terms; `O(1)` space beyond `out`.
+    fn dot_row(&self, words: &[u32], len: usize, out: &mut [i128; 8]) -> bool {
         let mut sel = [0i64; 8];
-        if !CodeTerms::selected_row_cols(&cols, words, len, &mut sel) {
+        if !CodeTerms::selected_row_cols(&self.cols, words, len, &mut sel) {
             return false;
         }
         let mut c = 0usize;
         while c < 8 {
-            out[c] = i128::from(sums[c]) - 2 * i128::from(sel[c]);
+            out[c] = i128::from(self.sums[c]) - 2 * i128::from(sel[c]);
             c += 1;
         }
         true
@@ -2190,15 +2213,19 @@ impl NqLinear {
             let groups = if wide { ncols / NQ_TILE_COLS } else { 0 };
             let mut wide_from = 0usize;
             if groups > 0 {
-                let mut r = 0usize;
-                while r < self.rank {
-                    let row = &self.v[r * self.v_words..];
-                    let mut g = 0usize;
-                    while g < groups {
-                        let base = g * NQ_TILE_COLS;
-                        let tiles: [&Stage<'_>; 8] =
-                            std::array::from_fn(|c| &t_stages[c0 + base + c]);
-                        if !Stage::dot_row_cols8(&tiles, row, self.inn, &mut dots8) {
+                // Group outer, row inner: a group's readers are assembled once for its rank
+                // rows, and a group that refuses leaves the previous groups complete.
+                let mut g = 0usize;
+                while g < groups {
+                    let base = g * NQ_TILE_COLS;
+                    let tiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &t_stages[c0 + base + c]);
+                    let Some(group) = Stage::cols8(&tiles) else {
+                        break;
+                    };
+                    let mut r = 0usize;
+                    while r < self.rank {
+                        let row = &self.v[r * self.v_words..];
+                        if !group.dot_row(row, self.inn, &mut dots8) {
                             break;
                         }
                         let mut c = 0usize;
@@ -2214,15 +2241,13 @@ impl NqLinear {
                             }
                             c += 1;
                         }
-                        g += 1;
+                        r += 1;
                     }
-                    if g < groups {
+                    if r < self.rank {
                         break;
                     }
-                    r += 1;
-                }
-                if r == self.rank {
-                    wide_from = groups * NQ_TILE_COLS;
+                    wide_from = base + NQ_TILE_COLS;
+                    g += 1;
                 }
             }
             let mut r0 = 0usize;
@@ -2317,15 +2342,18 @@ impl NqLinear {
             let groups = if wide { ncols / NQ_TILE_COLS } else { 0 };
             let mut wide_from = 0usize;
             if groups > 0 {
-                let mut i = 0usize;
-                while i < self.out {
-                    let row = &self.u[i * self.u_words..];
-                    let mut g = 0usize;
-                    while g < groups {
-                        let base = g * NQ_TILE_COLS;
-                        let tiles: [&Stage<'_>; 8] =
-                            std::array::from_fn(|c| &z_stages[c0 + base + c]);
-                        if !Stage::dot_row_cols8(&tiles, row, self.rank, &mut dots8) {
+                // As in the `V` stage: a group's readers are assembled once for its `out` rows.
+                let mut g = 0usize;
+                while g < groups {
+                    let base = g * NQ_TILE_COLS;
+                    let tiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &z_stages[c0 + base + c]);
+                    let Some(group) = Stage::cols8(&tiles) else {
+                        break;
+                    };
+                    let mut i = 0usize;
+                    while i < self.out {
+                        let row = &self.u[i * self.u_words..];
+                        if !group.dot_row(row, self.rank, &mut dots8) {
                             break;
                         }
                         let mut c = 0usize;
@@ -2338,15 +2366,13 @@ impl NqLinear {
                             }
                             c += 1;
                         }
-                        g += 1;
+                        i += 1;
                     }
-                    if g < groups {
+                    if i < self.out {
                         break;
                     }
-                    i += 1;
-                }
-                if i == self.out {
-                    wide_from = groups * NQ_TILE_COLS;
+                    wide_from = base + NQ_TILE_COLS;
+                    g += 1;
                 }
             }
             let mut i0 = 0usize;

@@ -119,6 +119,14 @@ inside the unchanged arm's spread; the traced pairs repeat the sign. The project
 whole of the dominant leaf, so the kernel gain mostly does not reach the wall
 (`bench/cpu/1795569181-nq-eight-column.md`).
 
+The tile's readers are assembled once per column group (`Stage::cols8`) and every row of the group
+runs against that assembly (`StageCols::dot_row`). On the box at block 256 the per-row admission was
+10.3% of the width-8 `apeiron-q8act` worker's instruction stream and 1.6% of the caller's; after the
+hoist it is 1.6% and below 0.5%. The isolated tile rate moves 21.97 → 28.30 G terms/s at one
+participant and 130.8 → 142.4 at eight, and the cold wall at block 256 moves 1.085× at eight and
+1.082× at four. Width 1 is not paired; the laptop is not measured
+(`bench/cpu/1795573862-prefill-block-and-group.md`).
+
 `project_q8` quantises the stage activation with the same chart `matmat_q8act` uses: `S_b = 2^e_b`,
 the smallest power of two with `127·S_b ≥ absmax_b`, one code per element. For a sign plane the
 product collapses to a selection: with `c_i` the code and `b_i` the sign bit,
