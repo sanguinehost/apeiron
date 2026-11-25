@@ -2509,12 +2509,16 @@ impl NqLinear {
     /// only the scaled output is checked. The sparse correction lives in the weight's units:
     /// `Σ_j w_ij·x_idx[j]` is a Q64.32 sum like the `U` term, and one rounding decides the row.
     /// Both the term products and the sums are checked, so an extreme factor refuses instead of
-    /// wrapping in release.
+    /// wrapping in release. A linear with no salient column and no residual layer has no
+    /// correction, so its row is [`project_scaled`]'s one product and rounding.
     ///
     /// # Complexity
     ///
     /// `O(1 + k + res_layers·inn)` checked operations; `O(1)` space.
     fn project_row(&self, i: usize, dot: i128, x: &Stage<'_>) -> Option<i64> {
+        if self.k == 0 && self.res_layers == 0 {
+            return project_scaled(dot, self.s_post[i]);
+        }
         let low = dot.checked_mul(i128::from(self.s_post[i]))?;
         let mut corr: i128 = 0;
         let mut c = 0usize;
@@ -2544,6 +2548,20 @@ impl NqLinear {
             .checked_add(1_i128 << 31)?;
         i64::try_from(v >> 32).ok()
     }
+}
+
+/// `round(dot·s / 2^32)` for one output row: the dense branch of [`NqLinear::project_row`]
+/// (`k == 0`, `res_layers == 0`), with the same checked product, rounding term and `i64` result.
+/// The pooled wide tile calls it eight times per output row, so it is inlined there instead of
+/// keeping the shared entry's sparse and residual loops in the hot loop.
+///
+/// # Complexity
+///
+/// `O(1)` checked operations; `O(1)` space.
+#[inline]
+fn project_scaled(dot: i128, s: i64) -> Option<i64> {
+    let low = dot.checked_mul(i128::from(s))?;
+    i64::try_from(low.checked_add(1_i128 << 31)? >> 32).ok()
 }
 
 /// One pooled linear's whole column pipeline as one pool task: the band's `t` words and their
@@ -2707,6 +2725,11 @@ impl Task3<i64, i64, Vec<i64>, NqError> for ColPipeline<'_> {
         for col in os.iter_mut() {
             col.resize(me.out, 0);
         }
+        // A linear with no salient column and no residual layer has no per-row correction, so the
+        // wide loop hoists that test and the row's scale out of the eight-column inner loop and
+        // takes [`project_scaled`] directly; the general arm keeps [`NqLinear::project_row`],
+        // which is the same arithmetic.
+        let dense = me.k == 0 && me.res_layers == 0;
         // As in the `V` stage: eight columns per pass on whole groups, leftover columns in the
         // block's pair loop below.
         let groups = if self.wide { ncols / NQ_TILE_COLS } else { 0 };
@@ -2726,9 +2749,15 @@ impl Task3<i64, i64, Vec<i64>, NqError> for ColPipeline<'_> {
                     if !group.dot_row(row, me.rank, &mut dots8) {
                         break;
                     }
+                    let s_post = me.s_post[i];
                     let mut c = 0usize;
                     while c < NQ_TILE_COLS {
-                        match me.project_row(i, dots8[c], &x_stages[base + c]) {
+                        let v = if dense {
+                            project_scaled(dots8[c], s_post)
+                        } else {
+                            me.project_row(i, dots8[c], &x_stages[base + c])
+                        };
+                        match v {
                             Some(v) => os[base + c][i] = v,
                             None => {
                                 self.overflow
@@ -3098,6 +3127,15 @@ mod tests {
             res: Vec::new().into(),
             s_res: Vec::new().into(),
         }
+    }
+
+    /// [`packed_shape`] with no salient column and no residual layer: the dense epilogue every
+    /// linear of the 0.6B pack takes (`k = 0`, `res_layers = 0`).
+    fn packed_dense(out: usize, inn: usize, rank: usize) -> PackedLinear {
+        let mut p = packed_shape(out, inn, rank);
+        p.salient_idx = Vec::new().into();
+        p.salient = Vec::new().into();
+        p
     }
 
     fn packed(reps: u64) -> PackedLinear {
@@ -3806,6 +3844,58 @@ mod tests {
                             .expect("pooled ternary"),
                         ternary,
                         "ternary, k {k}, block {block}, tile {tile}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The dense epilogue's arithmetic, written out in the test rather than called, and the
+    /// pooled wide tile's equality with the per-column entry on a linear with no salient column
+    /// and no residual layer. The `packed` fixture carries both corrections, so this is the only
+    /// test of the `k = 0`, `res_layers = 0` branch the 0.6B pack takes.
+    #[test]
+    fn the_dense_epilogue_rounds_the_scaled_dot() {
+        for &dot in &[0i128, 1, -1, 3, -3, 1 << 40, -(1 << 40), (1 << 62) - 1] {
+            for &s in &[0i64, 1, -1, 1 << 32, 3 << 30, -(5 << 28)] {
+                let want = i64::try_from((dot * i128::from(s) + (1_i128 << 31)) >> 32).ok();
+                assert_eq!(project_scaled(dot, s), want, "dot {dot}, s {s}");
+            }
+        }
+        assert_eq!(project_scaled(i128::MAX, 3), None, "product refuses");
+        assert_eq!(
+            project_scaled(i128::MAX >> 1, 2),
+            None,
+            "rounding term refuses"
+        );
+        let dense = packed_dense(37, 29, 23);
+        let linear = NqLinear::from_packed(dense.clone()).expect("decode");
+        // The pooled body gives each participant `ceil(k / width)` columns and takes the wide U
+        // loop only when a band holds eight, so `NQ_TILE_COLS × width` is the first count that
+        // reaches the hoisted dense branch; 1, 7 and 33 exercise the per-column fallback's early
+        // return.
+        let wide = NQ_TILE_COLS * crate::engine::chart::pool::width_global().max(1);
+        for k in [1usize, 7, 33, wide] {
+            let xs: Vec<Vec<i64>> = (0..k)
+                .map(|c| {
+                    (0..dense.inn)
+                        .map(|j| ((j * 37 + c * 11 + 5) as i64 % 101 - 50) << 24)
+                        .collect()
+                })
+                .collect();
+            let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
+            let q8: Vec<Vec<i64>> = xs
+                .iter()
+                .map(|x| linear.project_q8(x).expect("q8"))
+                .collect();
+            for tile in [2usize, NQ_TILE_COLS] {
+                for block in [0usize, 3, 8] {
+                    assert_eq!(
+                        linear
+                            .project_pooled_shape(&refs, Reader::Q8, block, tile)
+                            .expect("pooled q8"),
+                        q8,
+                        "dense, k {k}, block {block}, tile {tile}"
                     );
                 }
             }
