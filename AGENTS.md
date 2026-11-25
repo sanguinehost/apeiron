@@ -55,6 +55,37 @@ laptop runs on a rented host (vast.ai or GCP), not on the laptop and not as a se
 Debt, not precedent: the pooled `Q8_0` VNNI entry and the pooled `Q4_K`/`Q6_K` entries still sit
 beside the shared loop. They fold into it next. New work does not copy their shape.
 
+## Porting the CPU fast paths from llama.cpp
+
+The CPU baseline is llama.cpp, and the target is parity and then a win on every CPU workload:
+prefill at each participant count, decode at each context, and the turn. The mechanism is its source
+and the code its compiler emits, read together. A ratio copied from a table is not the mechanism,
+and an estimate from the C is a `model` until the emitted code is on disk.
+
+1. **Pin the source.** `~/llama.cpp` is a clone at the commit the comparison receipt names
+   (`049326a` today); `git -C ~/llama.cpp log -1` is the provenance line. Read the kernel that owns
+   the phase: `ggml/src/ggml-cpu/arch/x86/repack.cpp` (the repacked GEMM,
+   `ggml_gemm_q8_0_4x8_q8_0`, `ggml_gemm_q4_K_8x8_q8_K`), `ggml/src/ggml-cpu/arch/x86/quants.c`
+   (the vector dots), `ggml/src/ggml-cpu/vec.cpp`, `ggml/src/ggml-cpu/ops.cpp`.
+2. **Emit the LLVM and the assembly.** Build that commit with the comparison's flags
+   (`-DGGML_NATIVE=ON -DGGML_LTO=OFF`); compile the hot translation unit with
+   `clang -O3 -march=native -S -emit-llvm` and disassemble the linked symbol with `objdump -d`.
+   Keep both files beside the receipt. The block geometry, register tile, unpack, loop order,
+   prefetch and tail are read from that output, not inferred.
+3. **Port the loop, not the API.** The repack, the block layout, the row tile and the dot enter the
+   one `matmat_q8act` path as a carrier or dot dial: a weight repack at load, a wider row block, a
+   different 32-lane core, a different loop order. A second projection function, a `gemm_*` sibling
+   or a copy of llama.cpp's call graph is not a port. An `unsafe` core carries its safe twin and
+   equality test; an extracted body changes only through the maintainer gate.
+4. **Measure paired.** Same host, same model class, same prompt and token counts, both binaries
+   interleaved, three runs with the spread. A kernel-rate gain whose wall does not move is a
+   kernel-rate step and says so. Parity, then a win, on the named workload is the closure; the
+   receipt names the phase share and the `1/(1 − s)` ceiling like any other speed change.
+
+The analysis is part of the change: the receipt carries the source lines, the IR and assembly paths,
+the instruction and cycle counts for both sides on the same function, and the loop difference the
+port removes.
+
 ## Resource discipline
 
 **Heavy jobs run on the OVH box, not here.** `ubuntu@139.99.223.161` (Sydney; 8 vCPU EPYC
