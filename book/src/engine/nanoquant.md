@@ -84,17 +84,46 @@ same layer's `q`, and the shared bytes must be equal, or the pack refuses with `
 |---|---|---|
 | exact | `NqLinear::project` | each sign plane expanded to `i64` `±1`, three-byte-limb products, checked `i128` |
 | q8 activation | `NqLinear::project_q8` | each stage activation quantised to one int8 code per element; the sign dot is `sum − 2·selected` |
-| a column group | `project_pooled`, `project_q8_pooled`, `project_ternary_pooled` | one `V` dispatch and one `U` dispatch for the group; each factor row read once and folded against every column it owns |
+| a column group | `project_pooled`, `project_q8_pooled`, `project_ternary_pooled` | one dispatch per linear; a task owns up to a band of columns, rounded up to a multiple of eight when it holds a group, and runs that band's `t` build, quantization, `V` fold, `z` bound and quantization, reader build and `U` fold before the pass's barrier; each factor row read once and folded against every column it owns |
 
 The pooled entries take the same pre-scale, quantization, reader and accumulation order per column,
 so each column equals the single-column entry bit for bit; `proj_cols` takes them for `k > 1` and
 reruns the group through the per-column entry on a refusal. Pooling removes the repeated factor
-read, not the per-column sign dot: at 229 positions the same-binary A/B is 1.16× and the ceiling
-from the projection's 51.4% share of a 1,827-position cold turn is 2.06×
+read, not the per-column sign dot: at 229 positions the same-binary A/B is 1.16×
 (`bench/cpu/1795498875-nq06-pooled-projection.md`). The pooled body retains its two scratch planes
 on the calling thread across calls and writes the `U` stage's output straight into each column's
 vector, so a thread allocates a plane only when a call is wider than every earlier one, with no
 flat output plane or copy; a plane larger than 32 MiB is allocated for the call instead.
+
+A pooled linear is one parallel region. A task owns up to a contiguous band of columns, rounded up to a
+multiple of eight when it holds a group, and runs the band's whole pipeline — `t` build, activation
+quantization, `V` fold, `z` bound and quantization, residual readers, `U` fold — and the linear ends
+on one barrier. No column's reader is built on the dispatching thread between stages, so under the
+`Q8` reader the six dispatches the staged body took are one and the per-column work is spread with
+the arithmetic. This
+is `ggml_compute_forward_mul_mat`'s shape at `049326a00`
+(`ggml/src/ggml-cpu/ggml-cpu.c:1254`): each thread gets a row chunk, converts its `src1` rows inside
+that chunk, calls `llama_sgemm` for it, and the pass ends on one `ggml_barrier`;
+`tinyBLAS::gemm` (`ggml/src/ggml-cpu/llamafile/sgemm.cpp:583`) likewise dispatches tiles from one
+region. At 1,827 positions on the 0.6B pack the box A/B is 1.13× at eight
+participants (7.854 → 6.957 s, three pairs), 1.07× at four (12.090 → 11.256 s, two pairs) and
+0.936× at one, a 6.8% regression (42.086 → 44.955 s, two pairs); the three projection leaves fall
+0.831 while
+`attn.core` is 0.981, and they remain 57.3% of the wall, so the ceiling a further projection change
+can reach is `1/(1 − 0.573) = 2.34×`. Against llama.cpp in the same window the engine is 1.74× behind
+at eight (262.6 against 456.8 tok/s); parity sits inside that ceiling but would take about 3.6× on
+the projection leaves themselves, and half of llama is below the 2.91 s floor left when projection
+cost is zero. The turn is 9.596 → 8.826 s (0.920×): its prefill falls 0.882× (7.652 → 6.753 s)
+while its 64 decode tokens cost 6.6% more after a packed prefill, a measured cost whose cause is not
+isolated. A shared tile counter was measured and lost at eight (6.74–6.92 s against 6.63–6.70 s)
+while winning at one, so the band stays static
+(`bench/cpu/1795601655-prefill-onedispatch.md`; the band's per-column equality is gated by
+`cargo test --lib --locked kern::nq` and the pooled path's end-to-end equality by
+`cargo test --lib --locked engine::step`). The residual add stays serial: a band-parallel version
+bought 0.335 s at eight in the same window, but it changes `step::cols::add_cols`, whose extracted
+body is refined in `proof/corpus/Serve/Block/Cols2.lean`: the loop stops at the first refusing
+column and leaves the rest untouched — a post-state a pool of bands cannot
+reproduce. Each column's add is column-local, so the serial loop is the whole of that stage.
 
 Under `Q8` the pooled reader also folds a block of factor rows against one read of the column's
 code and shift planes. `APEIRON_NQ_BLOCK` selects the block: `0` and `1` are the per-row loop, the

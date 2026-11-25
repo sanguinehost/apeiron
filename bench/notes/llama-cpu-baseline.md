@@ -8,10 +8,12 @@ engine position table is a snapshot, updated by the receipt that measures it.
 
 Every row here is **Qwen3-0.6B-Base F16** (596 M params); none is a 7B or a `Q4_K_M` row.
 
-At this note: box cold 1,827-token prefill is **1.72–2.04× behind** llama.cpp at 1/4/8 threads;
-the laptop's last paired cold turn is **3.04–4.01× behind** in a loaded window; laptop decode is
-**1.22× ahead in that loaded window** (1.47× in the clean one). The tables below carry the rows,
-the windows and the commands.
+At this note: box cold 1,827-token prefill is **1.59–1.82× behind** llama.cpp at 1/4/8 threads for
+the shipped one-dispatch build; its HEAD (`bd5e02dd`) measures **1.70–2.04× behind** across the
+windows in this note, and width 1 is the one shipped row that regresses. The laptop's last paired
+cold turn is **3.04–4.01× behind** in a loaded window; laptop decode is **1.22× ahead in that
+loaded window** (1.47× in the clean one). The tables below carry the rows, the windows and the
+commands.
 
 ## Pin and artifacts
 
@@ -150,3 +152,81 @@ comparison.
   and the hour's condition, so the old row stays legible.
 - The engine row is same-host; same-hour interleaving is required for a ratio, and a cross-host or
   cross-build ratio is labeled as such.
+
+## The one-dispatch prefill window
+
+The engine's pooled projection loop changed, so llama.cpp was re-run in the same window for a paired
+ratio: same pin (`049326a00`), host (8 vCPU EPYC Milan), model (F16 `Qwen3-0.6B-Base.f16.gguf`) and
+tuple (`-p 1827 -n 0 -r 1`). Another repository's `cargo` build shared the box (load 4.4–7.6);
+2026-11-25 10:14–10:44 UTC (`/tmp/opencode/final-gate.log`, `/tmp/opencode/final-rows.log`).
+
+| threads | llama.cpp tok/s, six or three reps | mean | this note's pinned row |
+|:---:|---|---:|---:|
+| 1 | 74.86, 74.53, 74.78 | 74.72 | 74.93 |
+| 4 | 266.59, 268.19, 262.19 | 265.66 | 262.90 |
+| 8 | 471.29, 466.48, 467.28, 463.82, 460.23, 463.56 | 465.45 | 460.26 |
+
+The means sit inside 1.8% of the pinned rows and the six width-8 reps span 2.4% (460.23–471.29);
+the pinned rows are not superseded, they are bracketed.
+
+| threads | llama.cpp tok/s | engine HEAD `bd5e02dd` tok/s | ratio | engine + one dispatch + parallel add `84a9a772` | ratio |
+|:---:|---:|---:|---:|---:|---:|
+| 1 | 74.72 | 43.59 | 1.71× behind | 41.25 | 1.81× behind |
+| 4 | 265.66 | 150.72 | 1.76× behind | 164.53 | 1.61× behind |
+| 8 | 465.45 | 229.39 | 2.03× behind | 276.23 | **1.69× behind** |
+
+The engine rows are the `/tmp/opencode/final-attr.log` window — two interleaved pairs at width 1 and
+three at widths 4 and 8 — and the right-hand column is the `84a9a772` build (one dispatch plus the
+parallel residual add), not the shipped `merge4` rows below. The width-8 llama wall is 3.88–3.97 s
+against the engine's 7.965 s (HEAD) and 6.614 s (change). The number is 1.69× inside 1.67–1.71× as
+the llama band moves.
+
+Provenance note: `~/bin/prefix_solve.head` (`3886b48e…`, `nq.rs` `b9a1004f…`) is commit
+`0f65d137`, one commit before the committed planes change (`bd5e02dd…`, `final5` `d62ad6d4…`).
+A screen that quotes 10.45 s as "HEAD" at 1,827 is quoting the older commit; HEAD's wall is
+7.965 s in this window.
+
+## The same comparison in the quiet window, with the parallel add
+
+The window above was shared with another repository's `cargo` build. The box went quiet (load 0.34
+with no other job) and the change was timed there with the parallel residual add: same pin, host,
+model and tuple,
+2026-11-25 10:50–11:10 UTC (`/tmp/opencode/ship3-timed.log`). llama.cpp was interleaved between the
+engine pairs, so this is a paired row for the add arm, not a replacement for the pinned rows.
+
+| threads | llama.cpp tok/s | mean | engine HEAD `bd5e02dd` tok/s | ratio | engine + one dispatch + parallel add `aa1a6448` tok/s | ratio |
+|:---:|---|---:|---:|---:|---:|---:|
+| 1 | 74.10, 74.12 | 74.11 | 43.39 | 1.71× behind | 40.58 | 1.83× behind |
+| 4 | 258.40, 262.24, 261.12 | 260.59 | 150.67 | 1.73× behind | 164.66 | 1.58× behind |
+| 8 | 456.73, 455.53, 466.91 | 459.72 | 227.94 | 2.02× behind | 276.41 | **1.66× behind** |
+
+The quiet llama rows are 0.8–1.9% below the window above, so the ratio moves 1.69× → 1.66× on the
+llama row alone, the engine's width-8 rate being unchanged (276.23 → 276.41 tok/s) while its own
+HEAD row moves 7.965 → 8.015 s. The width-8 llama wall is 3.91–4.01 s against the engine's 8.015 s
+(HEAD) and 6.610 s (change).
+
+The provenance note above stands: `~/bin/prefix_solve.head` is not HEAD. The quiet-window binary,
+`merge3`, is the one-dispatch change **with** a parallel `add_cols` (`cols.rs` `653a594f…`); it is
+not shipped, and its rows are kept here as the measured size of that deferred change. The shipped
+rows are in the next section.
+
+## After the parallel add was reverted
+
+The band-parallel residual add above changes `step::cols::add_cols`, which the extraction carries
+and `proof/corpus/Serve/Block/Cols2.lean` proves it stops at the first refusing column
+(`word_add_cols_refuses`); a pool of bands runs every band, so the `Err` post-state is not the proved
+one. It is not shipped. The shipped binary is the one-dispatch change alone, re-timed in a third
+window with the same pin, host, model and tuple, 2026-11-25 11:20–11:45 UTC
+(`/tmp/opencode/final2-timed.log`).
+
+| threads | llama.cpp tok/s | mean | engine HEAD `bd5e02dd` tok/s | ratio | engine one dispatch `eae8ce74` tok/s | ratio | + parallel add `aa1a6448` tok/s | ratio |
+|:---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 73.59, 74.40 | 73.99 | 43.42 | 1.70× behind | 40.64 | 1.82× behind | 40.92 | 1.81× behind |
+| 4 | 259.79, 257.87 | 258.83 | 151.11 | 1.71× behind | 162.32 | 1.59× behind | 165.65 | 1.56× behind |
+| 8 | 449.56, 464.31, 456.63 | 456.83 | 232.62 | 1.96× behind | 262.61 | **1.74× behind** | 275.91 | 1.66× behind |
+
+The width-8 llama wall is 3.94–4.06 s against the engine's 7.854 s (HEAD), 6.957 s (shipped) and
+6.622 s (with the add). The llama means drift 0.6–1.9% between the three windows of this note, so a
+cross-engine ratio is quoted inside the llama band: 1.74× is 1.71–1.77× as the width-8 reps move.
+The shipped change is 1.13× at eight, 1.07× at four and 0.936× at one; the parallel add would have
+been another 0.335 s at eight and does not fix width 1 (44.96 → 44.65 s).

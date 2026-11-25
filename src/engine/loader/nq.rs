@@ -208,8 +208,8 @@ impl crate::engine::loader::Engine {
         out.map(Some).map_err(crate::engine::StepError::Nq)
     }
 
-    /// The pooled form of [`EngineLoader::nq_proj`](Self::nq_proj) over `xs`: one `V` dispatch
-    /// and one `U` dispatch for the whole column group, with each column's own reader,
+    /// The pooled form of [`EngineLoader::nq_proj`](Self::nq_proj) over `xs`: one dispatch
+    /// for the whole column group, with each column's own reader,
     /// quantization and accumulation order. Every output column equals the per-column call's.
     ///
     /// Unlike [`Self::nq_proj`], a block reader that refuses is returned, not replaced by the
