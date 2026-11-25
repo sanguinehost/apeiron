@@ -91,7 +91,10 @@ so each column equals the single-column entry bit for bit; `proj_cols` takes the
 reruns the group through the per-column entry on a refusal. Pooling removes the repeated factor
 read, not the per-column sign dot: at 229 positions the same-binary A/B is 1.16× and the ceiling
 from the projection's 51.4% share of a 1,827-position cold turn is 2.06×
-(`bench/cpu/1795498875-nq06-pooled-projection.md`).
+(`bench/cpu/1795498875-nq06-pooled-projection.md`). The pooled body retains its two scratch planes
+on the calling thread across calls and writes the `U` stage's output straight into each column's
+vector, so a thread allocates a plane only when a call is wider than every earlier one, with no
+flat output plane or copy; a plane larger than 32 MiB is allocated for the call instead.
 
 Under `Q8` the pooled reader also folds a block of factor rows against one read of the column's
 code and shift planes. `APEIRON_NQ_BLOCK` selects the block: `0` and `1` are the per-row loop, the

@@ -1761,6 +1761,67 @@ enum Reader {
     Ternary,
 }
 
+/// The pooled projection's two scratch planes, retained on the calling thread across calls: `t`
+/// holds one call's `k · inn` pre-scaled activation words and `z` its `k · rank` intermediate
+/// column words. Both are written in full by the stage that owns them before any later stage reads
+/// them, so a retained plane needs no zeroing; a call extends a plane only when its shape is larger
+/// than every earlier call's.
+///
+/// The allocation this replaces was three fresh `vec![0; …]` planes per linear, the third of them
+/// a flat output that was then copied column by column into the returned vectors, all on the
+/// dispatching thread while every pool worker spun. The retained planes remove the per-call
+/// allocation of `t` and `z`; the in-place `U` stage removes the flat output and its copy.
+struct Planes {
+    t: Vec<i64>,
+    z: Vec<i64>,
+}
+
+/// The largest single plane [`PLANES`] retains, in `i64` words (32 MiB). A larger shape takes
+/// [`NqLinear::project_pooled_shape`]'s allocating path, so the retained set stays bounded: the
+/// 0.6B
+/// pack's widest plane (`down`, 1,024 columns × 3,072 inputs) is 24 MiB and fits, while the 7B
+/// pack's `down` plane at the same band is 148 MiB (155 MB) and is refused rather than kept
+/// resident.
+const PLANE_CAP: usize = 4 << 20;
+
+thread_local! {
+    /// The calling thread's retained planes; see [`Planes`]. A borrow spans one
+    /// [`NqLinear::project_pooled_shape`] call, which never nests on a thread.
+    static PLANES: std::cell::RefCell<Planes> = const {
+        std::cell::RefCell::new(Planes {
+            t: Vec::new(),
+            z: Vec::new(),
+        })
+    };
+}
+
+/// Extend `v` to `len` words, reserving exactly the shortfall first so the capacity does not
+/// double past `len`.
+fn grow_to(v: &mut Vec<i64>, len: usize) {
+    if v.len() < len {
+        v.reserve_exact(len - v.len());
+        v.resize(len, 0);
+    }
+}
+
+impl Planes {
+    /// The two planes, each exactly `t_len` and `z_len` words. Grows a plane only when the call
+    /// needs more words than the retained length; the caller writes every word of both before
+    /// reading one, so the retained contents are dead. The growth reserves the exact shortfall
+    /// before extending, so a doubling `resize` cannot leave a plane's capacity above the length
+    /// this call asked for and the retention bound stays the cap, not twice it.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` when both planes already cover the call, `O(words grown)` otherwise.
+    fn cover(&mut self, t_len: usize, z_len: usize) -> (&mut [i64], &mut [i64]) {
+        let Self { t, z } = self;
+        grow_to(t, t_len);
+        grow_to(z, z_len);
+        (&mut t[..t_len], &mut z[..z_len])
+    }
+}
+
 /// One fitted linear in the form the kernel executes: bits, Q32.32 scales, the sparse residual and
 /// the dense sign-residual layers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2155,16 +2216,71 @@ impl NqLinear {
     /// every remaining column keeps the block's two-column or per-row loop. The tile is a loop
     /// nesting, not an arithmetic: both arms compute each column's dot exactly, so their words
     /// are equal, as `the_pooled_block_is_bit_equal_at_every_block` asserts.
-    #[allow(
-        clippy::too_many_lines,
-        reason = "the two stages, their per-column readers and the refusal flag are one protocol"
-    )]
+    ///
+    /// The two scratch planes are the calling thread's retained [`Planes`] when the call fits
+    /// [`PLANE_CAP`], and are allocated for the call otherwise. The body writes every word of
+    /// both before a stage reads it, so a retained plane needs no zeroing.
     fn project_pooled_shape(
         &self,
         xs: &[&[i64]],
         reader: Reader,
         block: usize,
         tile: usize,
+    ) -> Result<Vec<Vec<i64>>, NqError> {
+        self.project_pooled_capped(xs, reader, block, tile, PLANE_CAP)
+    }
+
+    /// [`NqLinear::project_pooled_shape`] with the retention cap as a parameter: a call whose `t`
+    /// or `z` plane exceeds `cap` words allocates that pair for the call instead of taking the
+    /// thread's retained planes. Production passes [`PLANE_CAP`]; the equality test passes `0` so
+    /// that the allocating arm runs the same body as the retained one.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` to choose the arm; the body carries [`NqLinear::project_pooled_body`]'s cost.
+    fn project_pooled_capped(
+        &self,
+        xs: &[&[i64]],
+        reader: Reader,
+        block: usize,
+        tile: usize,
+        cap: usize,
+    ) -> Result<Vec<Vec<i64>>, NqError> {
+        let k = xs.len();
+        let (t_len, z_len) = (k * self.inn, k * self.rank);
+        if t_len <= cap && z_len <= cap {
+            return PLANES.with(|planes| {
+                let mut planes = planes.borrow_mut();
+                let (t, z) = planes.cover(t_len, z_len);
+                self.project_pooled_body(xs, reader, block, tile, t, z)
+            });
+        }
+        let mut t: Vec<i64> = vec![0; t_len];
+        let mut z: Vec<i64> = vec![0; z_len];
+        self.project_pooled_body(xs, reader, block, tile, &mut t, &mut z)
+    }
+
+    /// [`NqLinear::project_pooled_shape`]'s body over caller-owned scratch: `t` is `k · inn`
+    /// pre-scaled activation words and `z` is `k · rank` intermediate column words, both fully
+    /// written here before any stage reads them. The `U` stage writes each output column's words
+    /// straight into its `Vec`, so no column is copied after the stage.
+    ///
+    /// # Complexity
+    ///
+    /// `O(k · (inn · rank + rank · out))` sign terms with `O(k · (inn + rank + out))` words of
+    /// scratch, output and per-column readers; every loop is one pass over its plane per stage.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the two stages, their per-column readers and the refusal flag are one protocol"
+    )]
+    fn project_pooled_body(
+        &self,
+        xs: &[&[i64]],
+        reader: Reader,
+        block: usize,
+        tile: usize,
+        t: &mut [i64],
+        z: &mut [i64],
     ) -> Result<Vec<Vec<i64>>, NqError> {
         let block = block.min(NQ_BLOCK_MAX);
         let wide = tile >= NQ_TILE_COLS;
@@ -2184,7 +2300,6 @@ impl NqLinear {
         let pool = Pool::global();
         let width = pool.width().max(1);
         let cols = pack_chunk(k, width);
-        let mut t: Vec<i64> = vec![0; k * self.inn];
         let mut narrow_t: Vec<bool> = vec![false; k];
         let build = TBuild {
             xs,
@@ -2192,16 +2307,15 @@ impl NqLinear {
             inn: self.inn,
             cols,
         };
-        for_chunks2(&mut t, self.inn * cols, &mut narrow_t, cols, &build)?;
-        let t_q = quantized_columns(&t, self.inn, reader);
-        let mut t_masks = ternary_columns(&t, self.inn, reader);
+        for_chunks2(&mut t[..], self.inn * cols, &mut narrow_t, cols, &build)?;
+        let t_q = quantized_columns(&t[..], self.inn, reader);
+        let mut t_masks = ternary_columns(&t[..], self.inn, reader);
         let t_stages = build_stages(t.chunks_exact(self.inn), &narrow_t, &t_q, &mut t_masks);
         let overflow = std::sync::atomic::AtomicBool::new(false);
         // The `V` stage: a block of rank rows folded against each column the task owns, so the
         // column's codes and shift vectors are read once per block rather than once per row. The
         // `mul_q32` epilogue is per `(row, column)` and keeps its order.
-        let mut z: Vec<i64> = vec![0; k * self.rank];
-        pool.chunks_mut(&mut z, cols * self.rank, &|_, at, zs| {
+        pool.chunks_mut(&mut z[..], cols * self.rank, &|_, at, zs| {
             let c0 = at / self.rank;
             let ncols = zs.len() / self.rank;
             let mut dots = [0i128; NQ_BLOCK_MAX];
@@ -2313,8 +2427,8 @@ impl NqLinear {
             .iter()
             .map(|&m| u128::from(m).saturating_mul(self.rank as u128) <= i64::MAX as u128)
             .collect();
-        let z_q = quantized_columns(&z, self.rank, reader);
-        let mut z_masks = ternary_columns(&z, self.rank, reader);
+        let z_q = quantized_columns(&z[..], self.rank, reader);
+        let mut z_masks = ternary_columns(&z[..], self.rank, reader);
         let z_stages = build_stages(z.chunks_exact(self.rank), &narrow_z, &z_q, &mut z_masks);
         // The dense residual reads `x`; a pack without a residual layer skips that stage. The
         // sparse correction indexes `x` directly and needs no reader at all.
@@ -2330,10 +2444,16 @@ impl NqLinear {
         let x_q = quantized_slices(xs, reader, residual);
         let mut x_masks = ternary_slices(xs, reader, residual);
         let x_stages = build_stages(xs.iter().copied(), &narrow_x, &x_q, &mut x_masks);
-        let mut y: Vec<i64> = vec![0; k * self.out];
-        pool.chunks_mut(&mut y, cols * self.out, &|_, at, ys| {
-            let c0 = at / self.out;
-            let ncols = ys.len() / self.out;
+        // The `U` stage writes each column's `out` words straight into that column's `Vec`, in the
+        // same order the flat buffer took them, so the readout needs no copy. A column's buffer is
+        // sized inside its task, which keeps the zeroing of `k · out` words off the dispatching
+        // thread; the task then rewrites every word of it.
+        let mut out: Vec<Vec<i64>> = (0..k).map(|_| Vec::new()).collect();
+        pool.chunks_mut(&mut out, cols, &|_, c0, os| {
+            let ncols = os.len();
+            for col in os.iter_mut() {
+                col.resize(self.out, 0);
+            }
             let mut dots = [0i128; NQ_BLOCK_MAX];
             let mut dots2 = [0i128; NQ_BLOCK_MAX];
             let mut dots8 = [0i128; 8];
@@ -2359,7 +2479,7 @@ impl NqLinear {
                         let mut c = 0usize;
                         while c < NQ_TILE_COLS {
                             match self.project_row(i, dots8[c], &x_stages[c0 + base + c]) {
-                                Some(v) => ys[(base + c) * self.out + i] = v,
+                                Some(v) => os[base + c][i] = v,
                                 None => {
                                     overflow.store(true, std::sync::atomic::Ordering::Relaxed);
                                 }
@@ -2383,7 +2503,7 @@ impl NqLinear {
                     let x_stage = &x_stages[c0 + col];
                     for (d, &dot) in ds.iter().enumerate() {
                         match self.project_row(i0 + d, dot, x_stage) {
-                            Some(v) => ys[col * self.out + i0 + d] = v,
+                            Some(v) => os[col][i0 + d] = v,
                             None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
                         }
                     }
@@ -2421,10 +2541,6 @@ impl NqLinear {
         });
         if overflow.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(NqError::Overflow);
-        }
-        let mut out = Vec::with_capacity(k);
-        for c in 0..k {
-            out.push(y[c * self.out..(c + 1) * self.out].to_vec());
         }
         Ok(out)
     }
@@ -3422,6 +3538,107 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The scratch arm that allocates is the same body as the one that retains: a cap of zero
+    /// refuses the thread's planes for every width, and the output equals the retained arm's and
+    /// the single-column oracle's. The retained arm's reuse across calls (and its growth from
+    /// `k = 1` to `k = 33`) is `the_pooled_block_is_bit_equal_at_every_block`'s.
+    #[test]
+    fn the_allocating_arm_matches_the_retained_arm() {
+        let p = packed(12);
+        let linear = NqLinear::from_packed(p.clone()).expect("decode");
+        // Empty this thread's planes first, so the first cap-0 call is the only writer: a cap-0
+        // call that took the retained arm would grow them to k = 33's shape and fail the length
+        // assertion, whatever ran on this thread before. Descending widths then leave the k = 33
+        // words in place for the k = 7 and k = 1 calls, so a word inside the call's prefix that a
+        // stage fails to overwrite shows as a difference from the oracle.
+        PLANES.with(|planes| {
+            let mut planes = planes.borrow_mut();
+            planes.t.clear();
+            planes.z.clear();
+        });
+        for k in [33usize, 7, 1] {
+            // The words depend on `k` as well as on `(c, j)`: when the k = 33 call leaves its
+            // words in the retained planes, a k = 7 or k = 1 stage that skips a write reads a
+            // different word than its own oracle, not the same word the larger call wrote.
+            let xs: Vec<Vec<i64>> = (0..k)
+                .map(|c| {
+                    (0..p.inn)
+                        .map(|j| ((j * 37 + c * 11 + k * 13 + 5) as i64 % 101 - 50) << 24)
+                        .collect()
+                })
+                .collect();
+            let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
+            let exact: Vec<Vec<i64>> = xs
+                .iter()
+                .map(|x| linear.project(x).expect("exact"))
+                .collect();
+            for reader in [Reader::Exact, Reader::Q8, Reader::Ternary] {
+                // Cap 0 first: at k = 33 the planes are still empty, so taking the retained arm
+                // would grow them and fail the assertion.
+                let before = PLANES.with(|p| (p.borrow().t.len(), p.borrow().z.len()));
+                let allocated = linear
+                    .project_pooled_capped(&refs, reader, 8, NQ_TILE_COLS, 0)
+                    .expect("allocated");
+                let after = PLANES.with(|p| (p.borrow().t.len(), p.borrow().z.len()));
+                assert_eq!(before, after, "cap 0 must not grow the thread's planes");
+                // A cap that straddles the two planes (`z_len <= cap < t_len`) must still
+                // allocate: a `||` in the cap test takes the retained arm here, and the planes
+                // are still empty at k = 33. The 0.6B shapes have `inn > rank`, so the straddle
+                // exists.
+                let z_len = k * p.rank;
+                let straddle_before = PLANES.with(|p| (p.borrow().t.len(), p.borrow().z.len()));
+                let straddled = linear
+                    .project_pooled_capped(&refs, reader, 8, NQ_TILE_COLS, z_len)
+                    .expect("straddled");
+                let straddle_after = PLANES.with(|p| (p.borrow().t.len(), p.borrow().z.len()));
+                assert_eq!(
+                    straddle_before, straddle_after,
+                    "a cap between z_len and t_len must allocate"
+                );
+                assert_eq!(straddled, allocated, "k {k}, {reader:?}, straddled cap");
+                let retained = linear
+                    .project_pooled_capped(&refs, reader, 8, NQ_TILE_COLS, PLANE_CAP)
+                    .expect("retained");
+                assert_eq!(retained, allocated, "k {k}, {reader:?}");
+                if reader == Reader::Exact {
+                    assert_eq!(allocated, exact, "k {k}, exact");
+                }
+            }
+            // `project_pooled_shape` must pass `PLANE_CAP`, not a hardcoded cap: with the thread's
+            // planes emptied, the production entry has to grow them to this call's shape.
+            if k == 33 {
+                PLANES.with(|planes| {
+                    let mut planes = planes.borrow_mut();
+                    planes.t.clear();
+                    planes.z.clear();
+                });
+                let pooled = linear
+                    .project_pooled_shape(&refs, Reader::Exact, 8, NQ_TILE_COLS)
+                    .expect("shape");
+                assert_eq!(pooled, exact, "k {k}, shape");
+                let (t_len, z_len) = PLANES.with(|p| (p.borrow().t.len(), p.borrow().z.len()));
+                assert_eq!(
+                    (t_len, z_len),
+                    (k * p.inn, k * p.rank),
+                    "the production cap retains this shape"
+                );
+            }
+        }
+    }
+
+    /// `grow_to` reserves the exact shortfall, so a plane's capacity is the length it was grown
+    /// to, not twice it: the retention bound is the cap, not the allocator's doubling.
+    #[test]
+    fn grow_to_reserves_exactly_the_length() {
+        let mut v: Vec<i64> = Vec::new();
+        grow_to(&mut v, 10);
+        assert_eq!((v.len(), v.capacity()), (10, 10));
+        grow_to(&mut v, 4);
+        assert_eq!((v.len(), v.capacity()), (10, 10));
+        grow_to(&mut v, 20);
+        assert_eq!((v.len(), v.capacity()), (20, 20));
     }
 
     /// The environment switch's parse: `0` is the per-row order, a block up to the register budget
