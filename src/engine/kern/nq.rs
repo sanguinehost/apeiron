@@ -1138,6 +1138,12 @@ unsafe fn code_select_avx2(
 /// constants.
 const NQ_BLOCK_MAX: usize = 8;
 
+/// Output and rank rows folded per pass by the single-column entry: the blocked Q8 reader's
+/// register tile. Eight is the reader's own row maximum and measured 2% faster than four on the
+/// decode wall (3.679 s against 3.751 s, three rounds), so the eight accumulators do not spill
+/// past the five selector constants.
+const NQ_ROW_BLOCK: usize = 8;
+
 /// The factor rows folded per column read when `APEIRON_NQ_BLOCK` is absent.
 ///
 /// Eight divides every 0.6B shape (rank 736, output widths 1024/2048/3072), so no stage pays a
@@ -2353,6 +2359,11 @@ impl NqLinear {
         self.project_with(x, Reader::Ternary)
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the pre-scale, the two blocked stages, their readers and the refusal flag are \
+                  one protocol"
+    )]
     fn project_with(&self, x: &[i64], reader: Reader) -> Result<Vec<i64>, NqError> {
         if x.len() != self.inn {
             return Err(NqError::Shape {
@@ -2397,20 +2408,35 @@ impl NqLinear {
         let z_chunk = self.rank.div_ceil(width.saturating_mul(4)).max(1);
         let overflow = std::sync::atomic::AtomicBool::new(false);
         pool.chunks_mut(&mut z, z_chunk, &|_, at, zs| {
+            let mut dots = [0i128; NQ_BLOCK_MAX];
             let mut d = 0usize;
             while d < zs.len() {
-                let k = at + d;
-                let vrow = &self.v[k * self.v_words..(k + 1) * self.v_words];
-                let Some(dot) = i64::try_from(t_stage.dot(vrow, self.inn)).ok() else {
-                    overflow.store(true, std::sync::atomic::Ordering::Relaxed);
-                    d += 1;
-                    continue;
-                };
-                match mul_q32(dot, self.s_mid[k]) {
-                    Some(v) => zs[d] = v,
-                    None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
+                // A blocked run of `V` rows shares one code plane and one shift vector per
+                // 32-term block; each row keeps its own accumulator and the same arithmetic as
+                // the per-row entry, which is the fallback `dot_rows` takes off the Q8 reader.
+                let rows = NQ_ROW_BLOCK.min(zs.len() - d);
+                t_stage.dot_rows(
+                    &self.v[(at + d) * self.v_words..],
+                    self.v_words,
+                    rows,
+                    self.inn,
+                    &mut dots[..rows],
+                );
+                let mut r = 0usize;
+                while r < rows {
+                    let k = at + d + r;
+                    let Some(dot) = i64::try_from(dots[r]).ok() else {
+                        overflow.store(true, std::sync::atomic::Ordering::Relaxed);
+                        r += 1;
+                        continue;
+                    };
+                    match mul_q32(dot, self.s_mid[k]) {
+                        Some(v) => zs[d + r] = v,
+                        None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
+                    }
+                    r += 1;
                 }
-                d += 1;
+                d += rows;
             }
         });
         if overflow.load(std::sync::atomic::Ordering::Relaxed) {
@@ -2817,25 +2843,31 @@ impl NqLinear {
         let mut y: Vec<i64> = vec![0; self.out];
         let y_chunk = self.out.div_ceil(width.saturating_mul(4)).max(1);
         pool.chunks_mut(&mut y, y_chunk, &|_, at, ys| {
-            for (d, slot) in ys.iter_mut().enumerate() {
-                match self.project_one_row(at + d, z, x) {
-                    Some(v) => *slot = v,
-                    None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
+            let mut dots = [0i128; NQ_BLOCK_MAX];
+            let mut d = 0usize;
+            while d < ys.len() {
+                // A blocked run of output rows shares one code plane and one shift vector per
+                // 32-term block, as the `V` stage does; the per-row epilogue keeps its order.
+                let rows = NQ_ROW_BLOCK.min(ys.len() - d);
+                z.dot_rows(
+                    &self.u[(at + d) * self.u_words..],
+                    self.u_words,
+                    rows,
+                    self.rank,
+                    &mut dots[..rows],
+                );
+                let mut r = 0usize;
+                while r < rows {
+                    match self.project_row(at + d + r, dots[r], x) {
+                        Some(v) => ys[d + r] = v,
+                        None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
+                    }
+                    r += 1;
                 }
+                d += rows;
             }
         });
         y
-    }
-
-    /// Output row `i`: the `U` sign dot, the post-scale, the sparse correction and every dense
-    /// residual, rounded once. `None` is the checked refusal the caller records in its flag.
-    ///
-    /// # Complexity
-    ///
-    /// `O(rank + k + res_layers·inn)` checked operations; `O(1)` space.
-    fn project_one_row(&self, i: usize, z: &Stage<'_>, x: &Stage<'_>) -> Option<i64> {
-        let urow = &self.u[i * self.u_words..(i + 1) * self.u_words];
-        self.project_row(i, z.dot(urow, self.rank), x)
     }
 
     /// Output row `i` from its `U` sign dot: the post-scale, the sparse correction and every dense

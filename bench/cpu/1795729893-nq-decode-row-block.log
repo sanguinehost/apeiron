@@ -1,0 +1,125 @@
+# nq decode: eight-row projection blocks
+
+Box: ubuntu@139.99.223.161, 8 vCPU EPYC Milan, 32 GiB, ~/bin/adg. CPU-tier evidence;
+the laptop (i5-10210U) is the timed target and this run is not it.
+
+Model: ~/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf
+Pack: ~/models/nq-scratch/nq06-v3.nqp (196 linears, version 3, 0.977441 b/w, 53,808,384 B)
+Tokenizer: ~/models/qwen3-0.6b-base-e8/tokenizer.json
+Harness: examples/prefix_solve --len 1827 --differ 0 --decode 128 --mb 512
+Env: APEIRON_THREADS=8, APEIRON_KV_CARRIER as named.
+
+Binaries (sha256):
+  8a740f0fee047101e1aebf96fd344b7c6bd171309053acb788ae66b7c31518ad  prefix_solve.unified2
+  6605f74c8b53e2fdb5ee29959edd89bfcdca0f9f9f228c2b1cc6d84e2fa4c4a6  prefix_solve.rows
+  8aeaa17341316ac3f2054acdde569ee42f55b6273a0000ffc4a253becb9f41f5  prefix_solve.rows4
+
+O = prefix_solve.unified2 (committed 0a81876b tree)
+N = prefix_solve.rows     (this change, NQ_ROW_BLOCK = 8)
+N4 = prefix_solve.rows4   (NQ_ROW_BLOCK = 4 trial)
+
+## Paired decode, interleaved, 128 tokens after a 1,827-token prefix
+
+O f32 1: cold   hit     0  prefill    3.937 s ( 464.08 tok/s)  decode 128 in  4.233 s (30.24 tok/s)  first 315
+N f32 1: cold   hit     0  prefill    3.905 s ( 467.85 tok/s)  decode 128 in  3.649 s (35.08 tok/s)  first 315
+O i8  1: cold   hit     0  prefill    4.805 s ( 380.26 tok/s)  decode 128 in  2.333 s (54.87 tok/s)  first 3845
+N i8  1: cold   hit     0  prefill    4.816 s ( 379.33 tok/s)  decode 128 in  2.385 s (53.66 tok/s)  first 3845
+N f32 2: cold   hit     0  prefill    3.926 s ( 465.40 tok/s)  decode 128 in  3.692 s (34.67 tok/s)  first 315
+O f32 2: cold   hit     0  prefill    3.929 s ( 465.04 tok/s)  decode 128 in  4.183 s (30.60 tok/s)  first 315
+N i8  2: cold   hit     0  prefill    4.810 s ( 379.83 tok/s)  decode 128 in  2.343 s (54.62 tok/s)  first 3845
+O i8  2: cold   hit     0  prefill    4.788 s ( 381.61 tok/s)  decode 128 in  2.334 s (54.85 tok/s)  first 3845
+O f32 3: cold   hit     0  prefill    3.908 s ( 467.45 tok/s)  decode 128 in  4.108 s (31.16 tok/s)  first 315
+N f32 3: cold   hit     0  prefill    3.986 s ( 458.35 tok/s)  decode 128 in  3.695 s (34.64 tok/s)  first 315
+O i8  3: cold   hit     0  prefill    4.789 s ( 381.51 tok/s)  decode 128 in  2.361 s (54.23 tok/s)  first 3845
+N i8  3: cold   hit     0  prefill    4.788 s ( 381.60 tok/s)  decode 128 in  2.305 s (55.54 tok/s)  first 3845
+
+f32 means: O 4.1747 s (30.67 tok/s), N 3.6787 s (34.80 tok/s), ratio 1.1349, N wins 3/3.
+i8  means: O 2.3427 s (54.65 tok/s), N 2.3443 s (54.60 tok/s), ratio 0.9993, neutral.
+The first decoded token is unchanged on both carriers (315 f32, 3845 i8): the row tile changes
+how the same arithmetic is scheduled, not what it computes.
+
+## Trial: four-row tile
+
+rows4 f32: cold   hit     0  prefill    3.931 s ( 464.82 tok/s)  decode 128 in  3.792 s (33.75 tok/s)  first 315
+rows4 f32: cold   hit     0  prefill    3.911 s ( 467.20 tok/s)  decode 128 in  3.712 s (34.48 tok/s)  first 315
+rows4 f32: cold   hit     0  prefill    4.070 s ( 448.90 tok/s)  decode 128 in  3.702 s (34.58 tok/s)  first 315
+
+mean 3.7353 s (34.27 tok/s) against N's 3.6787 s: four rows is 1.5% slower, so the tile stays 8.
+
+## Traced split, examples/phase_split --steps 32 --prefix 1795
+
+Before (bench/cpu/1795727609-nq-05-baseline.log, unified2, steps 32):
+  wall 29.05 ms/token; attn.core 12.497 (43.0%), ffn 7.320 (25.2%), head 3.139 (10.8%),
+  proj_in 3.045 (10.5%), proj_out 2.160 (7.4%).
+
+After, f32:
+decode split: 32 steps after a 1795 token prefix, 0.876 s wall, 27.37 ms/token
+| embed | 0.006 | 0.0% | 32 |
+| norm | 0.634 | 2.3% | 1824 |
+| residual | 0.127 | 0.5% | 1792 |
+| attn.proj_in | 2.920 | 10.7% | 896 |
+| attn.core | 12.198 | 44.6% | 896 |
+| attn.proj_out | 1.842 | 6.7% | 896 |
+| ffn | 6.286 | 23.0% | 896 |
+| head | 3.256 | 11.9% | 32 |
+| pass (encloses) | 24.109 | 88.1% | 32 |
+| pool.wait (overlay) | 4.659 | 17.0% | 16224 |
+| untraced | 0.096 | 0.4% | |
+dominant term: attn.core at 44.6%, ceiling 1.80x
+
+After, i8:
+decode split: 32 steps after a 1795 token prefix, 0.611 s wall, 19.10 ms/token
+| attn.proj_in | 2.665 | 14.0% | 896 |
+| attn.core | 5.072 | 26.5% | 896 |
+| attn.proj_out | 1.717 | 9.0% | 896 |
+| ffn | 5.778 | 30.2% | 896 |
+| head | 3.169 | 16.6% | 32 |
+| pool.wait (overlay) | 1.012 | 5.3% | 16224 |
+dominant term: ffn at 30.2%, ceiling 1.43x
+
+The three rank-projection leaves fall 3.045+7.320+2.160 = 12.525 to 2.920+6.286+1.842 = 11.048
+ms (-1.477, -11.8%) in the f32 trace; the untraced wall moves -1.68 ms/token (29.05 to 27.37),
+consistent with the paired 1.68 ms difference (4.1747-3.6787)/128 per token.
+
+## Dominant-term gate (unmodified tree, f32)
+
+  $ env APEIRON_THREADS=8 APEIRON_KV_CARRIER=f32 phase_split --model ... --pack ... \
+      --steps 32 --prefix 1795 --target ffn
+  | ffn | 6.286 | 23.0% | 896 |
+  | attn.core | 12.198 | 44.6% | 896 |
+  REFUSED: target ffn holds 23.0% (ceiling 1.30x); the dominant term is attn.core at 44.6%
+  (ceiling 1.81x). Target the dominant term, or instrument it if it is the untraced remainder.
+  exit 1
+
+target `ffn` is not the dominant term, so the gate refuses: this change is a kernel step on the
+rank-stage reader, not a campaign speedup. The next lever is attn.core (44.6%, ceiling 1.81x).
+
+## Gate
+
+## gate: cargo test --workspace --locked, three glslc checks skipped
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 7 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.54s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit 0
+
+## Kernel tests
+
+cargo test --lib --locked engine::kern::nq::tests
+test result: ok. 29 passed; 0 failed; 4 ignored; 0 measured; 720 filtered out; finished in 0.21s
+
+## Assembly note
+
+`code_select_avx2` (per-row entry) is one serial 5-op select chain per 32-term block with a
+`call` and seven `push`es per output row; `code_select_block_avx2` (the reader behind
+`Stage::dot_rows`) hoists the code load, the shift load and the selector constants once per block
+and gives each row its own accumulator chain. `/tmp/llvm/ours-decode.s` on the box holds the
+disassembly; the blocked entry is `code_select_block_avx2::<8>`.
