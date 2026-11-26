@@ -1,0 +1,55 @@
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 1 cache 512 MiB, 421134336 B needed
+  embed            12.437 ms    0.3%  calls 3
+  norm            150.202 ms    3.8%  calls 171
+  residual         90.772 ms    2.3%  calls 168
+  attn.proj_in    558.974 ms   14.2%  calls 84
+  attn.core      1360.103 ms   34.6%  calls 84
+  attn.proj_out    247.766 ms    6.3%  calls 84
+  ffn            1242.828 ms   31.6%  calls 84
+  head              5.611 ms    0.1%  calls 1
+  pass           3698.086 ms   94.1%  calls 3
+  pool.wait       190.931 ms    4.9%  calls 1352
+  outside.alloc   183.085 ms    4.7%  calls 1
+  outside.insert   32.881 ms    0.8%  calls 1
+  pool.wait n=5-8     282 calls  p50 < 131072 ns  p95 < 2097152 ns  max 4071165 ns
+  pool.wait n=9-16    174 calls  p50 < 4096 ns  p95 < 1048576 ns  max 1435220 ns
+  pool.wait n=17-32   840 calls  p50 < 2048 ns  p95 < 524288 ns  max 1464110 ns
+  pool.wait n=65+      56 calls  p50 < 262144 ns  p95 < 2097152 ns  max 3067277 ns
+cold   hit     0  prefill    3.903 s ( 468.10 tok/s)  decode 1 in  0.026 s (38.36 tok/s)  first 315
+  embed             0.026 ms    0.0%  calls 3
+  norm              1.845 ms    0.9%  calls 171
+  residual          0.670 ms    0.3%  calls 168
+  attn.proj_in     10.871 ms    5.4%  calls 84
+  attn.core        39.754 ms   19.6%  calls 84
+  attn.proj_out      5.588 ms    2.8%  calls 84
+  ffn              24.862 ms   12.3%  calls 84
+  head              5.316 ms    2.6%  calls 1
+  pass             84.027 ms   41.4%  calls 3
+  pool.wait         4.619 ms    2.3%  calls 1352
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   10.330 ms    5.1%  calls 1
+  pool.wait n=2       309 calls  p50 < 4096 ns  p95 < 8192 ns  max 68998 ns
+  pool.wait n=5-8     142 calls  p50 < 2048 ns  p95 < 65536 ns  max 81488 ns
+  pool.wait n=9-16    117 calls  p50 < 2048 ns  p95 < 8192 ns  max 62388 ns
+  pool.wait n=17-32   784 calls  p50 < 2048 ns  p95 < 16384 ns  max 32869 ns
+warm   hit  1824  prefill    0.176 s (10382.09 tok/s)  decode 1 in  0.027 s (37.09 tok/s)  first 315
+  embed             0.028 ms    0.0%  calls 3
+  norm              1.864 ms    0.9%  calls 171
+  residual          0.678 ms    0.3%  calls 168
+  attn.proj_in     10.834 ms    5.3%  calls 84
+  attn.core        39.707 ms   19.5%  calls 84
+  attn.proj_out      5.576 ms    2.7%  calls 84
+  ffn              24.754 ms   12.2%  calls 84
+  head              5.453 ms    2.7%  calls 1
+  pass             83.841 ms   41.2%  calls 3
+  pool.wait         4.513 ms    2.2%  calls 1352
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert    9.887 ms    4.9%  calls 1
+  pool.wait n=2       309 calls  p50 < 4096 ns  p95 < 8192 ns  max 54189 ns
+  pool.wait n=5-8     142 calls  p50 < 2048 ns  p95 < 65536 ns  max 160067 ns
+  pool.wait n=9-16    117 calls  p50 < 2048 ns  p95 < 8192 ns  max 27549 ns
+  pool.wait n=17-32   784 calls  p50 < 2048 ns  p95 < 8192 ns  max 116258 ns
+shared hit  1824  prefill    0.177 s (10318.38 tok/s)  decode 1 in  0.027 s (37.53 tok/s)  first 315
+cache 1 entries, 421134336 bytes stored
