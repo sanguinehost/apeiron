@@ -1,0 +1,899 @@
+# nq SwiGLU Q32 branch receipt: raw lines
+# machine: OVH box ubuntu@139.99.223.161, 8 vCPU EPYC Milan, 2.4 GHz, no AVX-512/VNNI
+
+### provenance
+# committed HEAD 0b294ba7
+7f44838624528061d2ba6d6f5619ef8b8b50c30a3c2039524111b61571dd0db5  HEAD:src/engine/chart/ffn.rs
+95679bce2b7bf4dbd766f517a0ad01b325304b4fdb466d8f0a2c924d85b42e12  src/engine/chart/ffn.rs (working tree)
+# clean base: the two files the shared box tree carried at other hashes, restored to HEAD
+1fe984e0fc016782ebdfda8a50b13609d908c4815096f44c28138564c0f9b775  src/engine/num/value.rs (HEAD)
+d3af6a12e3088ea847850a0bbf938fb46f7f42ee9c4a9d74dbb3fd48efd364c6  src/learn/nanoquant.rs (HEAD)
+51de84e30b5fb9189217b0f4c54f47bc1bdeb2f4996ebd8ac7cfe18e54fa8895  src/engine/num/value.rs (shared box tree, not used)
+9afecaac0754b086f095ff8d25c6880518c19c05ab031ebb97639799f0ed3f2e  src/learn/nanoquant.rs (shared box tree, not used)
+# uncompiled files removed from the clean copy: src/engine/ffn.rs, src/engine/nq.rs
+
+### clean binary hashes
+2998343b79834b4a89fec3095250d3172bd720393cd34872e90ef14382a715ce  /home/ubuntu/bin/prefix_solve.cleanctl
+57476450f79a8aae1cb2106749a90552ef754f90daaae4835d3f0e78690ea3fa  /home/ubuntu/bin/prefix_solve.cleanfin
+0c7c99136c6e3f0b50969d5aa61090651600702ffd1a5450008a7b9e573fc15e  /home/ubuntu/bin/ppl.cleanctl
+5612d8552de730d9a2f99752afcbf952173df05b358cea053a502dd57199a41a  /home/ubuntu/bin/ppl.cleanfin
+### pack header
+$ python3 - <<'PY'
+import struct
+p = "/home/lucas/models/nq-scratch/nq06-v3.nqp"
+f = open(p, "rb")
+magic, version, at, layers, kinds, linears, extra = struct.unpack("<8sIIIIII", f.read(32))
+hist, fulls = {}, {}
+for _ in range(linears):
+    f.seek(at)
+    raw = f.read(36)
+    layer, kind, out, inn, rank, u_words, v_words, k = struct.unpack_from("<IIIIIIII", raw)
+    res_layers = struct.unpack_from("<I", raw, 32)[0]
+    hist[(k, res_layers)] = hist.get((k, res_layers), 0) + 1
+    fulls[(inn // 32, kind)] = fulls.get((inn // 32, kind), 0) + 1
+    payload = (out*u_words*4 + rank*v_words*4 + inn*2 + rank*2 + out*2
+               + k*4 + out*k*2 + res_layers*out*v_words*4 + res_layers*out*2)
+    at += 36 + payload
+print(f"pack {p}")
+print(f"magic {magic.decode()} version {version} layers {layers} kinds {kinds} linears {linears}")
+print("k,res_layers histogram:", hist)
+print("full=inn/32 by kind:", dict(sorted(fulls.items())))
+print("end offset", at)
+PY
+pack /home/lucas/models/nq-scratch/nq06-v3.nqp
+magic APNQPK01 version 3 layers 28 kinds 7 linears 196
+k,res_layers histogram: {(0, 0): 196}
+full=inn/32 by kind: {(32, 0): 28, (32, 1): 28, (32, 2): 28, (32, 4): 28, (32, 5): 28, (64, 3): 28, (96, 6): 28}
+end offset 53815472
+
+### windows: 13 interleaved pairs, perf stat -x, -e branches,branch-misses,instructions,cycles
+- cleanctl 1: cold 4.769 s  branches=35844356219  branch-misses=344812175  instructions=330404361081  cycles=138425776985
+- cleanfin 1: cold 4.804 s  branches=34651934321  branch-misses=265253938  instructions=324975041597  cycles=138877308823
+- cleanfin 2: cold 4.783 s  branches=34664598695  branch-misses=265136709  instructions=325026616361  cycles=138796996555
+- cleanctl 2: cold 5.038 s  branches=35995693813  branch-misses=346129971  instructions=331021609509  cycles=143198328389
+- cleanctl 3: cold 4.831 s  branches=35880854742  branch-misses=345286800  instructions=330552788221  cycles=140073498555
+- cleanfin 3: cold 4.788 s  branches=34649998265  branch-misses=264572067  instructions=324967490873  cycles=138190586981
+- cleanfin 4: cold 4.761 s  branches=34638052020  branch-misses=265817909  instructions=324920063787  cycles=137976142037
+- cleanctl 4: cold 4.852 s  branches=35893810318  branch-misses=344875997  instructions=330605228356  cycles=140692811087
+- cleanctl 5: cold 4.855 s  branches=35894429055  branch-misses=344654218  instructions=330605573622  cycles=140572326292
+- cleanfin 5: cold 4.755 s  branches=34632593149  branch-misses=265781066  instructions=324895597053  cycles=137976697894
+- cleanfin 6: cold 4.786 s  branches=34644991656  branch-misses=265380361  instructions=324946665060  cycles=138793866993
+- cleanctl 6: cold 4.763 s  branches=35825150996  branch-misses=344493273  instructions=330325835133  cycles=138516591551
+- cleanctl 7: cold 4.811 s  branches=35851649577  branch-misses=344822385  instructions=330432759786  cycles=139440425282
+- cleanfin 7: cold 4.803 s  branches=34651679754  branch-misses=265778689  instructions=324975085040  cycles=138893322585
+- cleanfin 8: cold 4.800 s  branches=34685357351  branch-misses=265730852  instructions=325109456327  cycles=139620458727
+- cleanctl 8: cold 4.720 s  branches=35840152434  branch-misses=343722079  instructions=330387561135  cycles=138078284185
+- cleanctl 9: cold 4.822 s  branches=35865199252  branch-misses=344290458  instructions=330488857613  cycles=139855365121
+- cleanfin 9: cold 4.739 s  branches=34598558052  branch-misses=265466980  instructions=324760438009  cycles=137281975535
+- cleanfin 10: cold 4.770 s  branches=34624402537  branch-misses=265792608  instructions=324866057477  cycles=138008198780
+- cleanctl 10: cold 4.826 s  branches=35900720309  branch-misses=344271466  instructions=330630681546  cycles=140148875623
+- cleanctl 11: cold 4.838 s  branches=35882830264  branch-misses=344756803  instructions=330558170961  cycles=139941032964
+- cleanfin 11: cold 4.710 s  branches=34603289647  branch-misses=265374354  instructions=324775473921  cycles=136764454572
+- cleanfin 12: cold 4.759 s  branches=34647471141  branch-misses=265500712  instructions=324956518183  cycles=138032288675
+- cleanctl 12: cold 4.844 s  branches=35871959325  branch-misses=344148883  instructions=330517717255  cycles=140287733678
+- cleanctl 13: cold 4.793 s  branches=35861144265  branch-misses=344231481  instructions=330473057013  cycles=139473384402
+- cleanfin 13: cold 4.746 s  branches=34631491868  branch-misses=265534749  instructions=324891102247  cycles=137551438546
+
+### llama.cpp 049326a00 before the pairs
+| model                          |       size |     params | backend    | threads |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | ------: | --------------: | -------------------: |
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |       454.10 ± 11.65 |
+
+build: 049326a00 (9949)
+
+### llama.cpp 049326a00 after the pairs
+| model                          |       size |     params | backend    | threads |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | ------: | --------------: | -------------------: |
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        463.15 ± 1.15 |
+
+build: 049326a00 (9949)
+
+### PPL
+cleanctl: ppl 53.991898 on 8176 tokens (16 windows of <= 512, kernel Q8Act): mean nll 3.988834, 202.1 tok/s in 40.4 s
+cleanfin: ppl 53.991898 on 8176 tokens (16 windows of <= 512, kernel Q8Act): mean nll 3.988834, 206.2 tok/s in 39.6 s
+
+### symbols clean
+cleanctl   swiglu_f32_avx2_8_into     201 instrs 14 cond
+cleanctl   swiglu_slice               491 instrs 46 cond
+cleanctl   code_select_row8_avx2      610 instrs 35 cond
+cleanctl   code_select_row8_avx2      0xbee B
+cleanfin   swiglu_f32_avx2_8_into     358 instrs 15 cond
+cleanfin   swiglu_slice               520 instrs 51 cond
+cleanfin   code_select_row8_avx2      610 instrs 35 cond
+cleanfin   code_select_row8_avx2      0xbee B
+
+### swiglu key lines
+-- cleanctl
+  1697f9:	je     16980c <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x21c>
+  16980a:	jne    169822 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x232>
+  169852:	jbe    169890 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x2a0>
+-- cleanfin
+  110c52:	je     110c8f <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x52f>
+  110c6b:	je     110c7e <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x51e>
+  110c7c:	jne    110cd9 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x579>
+  1109d3:	vpcmpgtq %ymm8,%ymm2,%ymm5
+  1109f8:	vpcmpgtq %ymm6,%ymm1,%ymm6
+  110a06:	vblendvpd %ymm6,%ymm3,%ymm7,%ymm3
+  110a10:	vpcmpgtq %ymm11,%ymm6,%ymm13
+  110a19:	vpcmpgtq %ymm6,%ymm7,%ymm13
+  110a1e:	vblendvpd %ymm13,%ymm6,%ymm7,%ymm6
+  110a29:	vpsllvq %ymm3,%ymm1,%ymm3
+  110a51:	vpsllvq %ymm2,%ymm15,%ymm2
+  110aab:	vpcmpgtq %ymm3,%ymm0,%ymm0
+  110ac0:	vpcmpgtq %ymm6,%ymm3,%ymm1
+  110b3e:	vpcmpgtq %ymm8,%ymm3,%ymm12
+  110b51:	vpcmpgtq %ymm12,%ymm13,%ymm12
+  110b56:	vblendvpd %ymm12,%ymm0,%ymm7,%ymm0
+  110b68:	vpcmpgtq %ymm4,%ymm8,%ymm4
+  110b71:	vpcmpgtq %ymm4,%ymm7,%ymm8
+  110b76:	vblendvpd %ymm8,%ymm4,%ymm7,%ymm4
+  110b80:	vpsllvq %ymm3,%ymm15,%ymm3
+  110b8a:	vpsllvq %ymm0,%ymm1,%ymm0
+  110bcd:	vpcmpgtq %ymm3,%ymm0,%ymm0
+  110bdc:	vpcmpgtq %ymm2,%ymm3,%ymm1
+
+### swiglu full disassembly
+-- cleanctl
+
+/home/ubuntu/bin/prefix_solve.cleanctl:     file format elf64-x86-64
+
+
+Disassembly of section .text:
+
+00000000001695f0 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into>:
+  1695f0:	push   %r14
+  1695f2:	push   %rbx
+  1695f3:	vcvtsi2ssq 0x28(%rsi),%xmm15,%xmm0
+  1695f9:	vcvtsi2ssq 0x20(%rsi),%xmm15,%xmm1
+  1695ff:	vcvtsi2ssq 0x30(%rsi),%xmm15,%xmm2
+  169605:	mov    %rcx,%r8
+  169608:	vcvtsi2ssq 0x38(%rsi),%xmm15,%xmm3
+  16960e:	vcvtsi2ssq 0x8(%rsi),%xmm15,%xmm4
+  169614:	mov    %rdi,%rax
+  169617:	vcvtsi2ssq (%rsi),%xmm15,%xmm5
+  16961c:	vinsertps $0x10,%xmm0,%xmm1,%xmm0
+  169622:	vcvtsi2ssq 0x10(%rsi),%xmm15,%xmm1
+  169628:	vinsertps $0x20,%xmm2,%xmm0,%xmm0
+  16962e:	vcvtsi2ssq 0x18(%rsi),%xmm15,%xmm2
+  169634:	vinsertps $0x30,%xmm3,%xmm0,%xmm3
+  16963a:	vinsertps $0x10,%xmm4,%xmm5,%xmm4
+  169640:	vbroadcastss -0x144a45(%rip),%ymm0        # 24c04 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x2a6>
+  169649:	vinsertps $0x20,%xmm1,%xmm4,%xmm1
+  16964f:	vcvtsi2ssq 0x28(%rdx),%xmm15,%xmm4
+  169655:	vinsertps $0x30,%xmm2,%xmm1,%xmm1
+  16965b:	vcvtsi2ssq 0x20(%rdx),%xmm15,%xmm2
+  169661:	vinsertf128 $0x1,%xmm3,%ymm1,%ymm1
+  169667:	vcvtsi2ssq 0x30(%rdx),%xmm15,%xmm3
+  16966d:	vmulps %ymm0,%ymm1,%ymm1
+  169671:	vcvtsi2ssq 0x38(%rdx),%xmm15,%xmm5
+  169677:	vinsertps $0x10,%xmm4,%xmm2,%xmm2
+  16967d:	vcvtsi2ssq 0x8(%rdx),%xmm15,%xmm4
+  169683:	vinsertps $0x20,%xmm3,%xmm2,%xmm2
+  169689:	vcvtsi2ssq (%rdx),%xmm15,%xmm3
+  16968e:	vinsertps $0x30,%xmm5,%xmm2,%xmm2
+  169694:	vcvtsi2ssq 0x10(%rdx),%xmm15,%xmm5
+  16969a:	vinsertps $0x10,%xmm4,%xmm3,%xmm3
+  1696a0:	vcvtsi2ssq 0x18(%rdx),%xmm15,%xmm4
+  1696a6:	vinsertps $0x20,%xmm5,%xmm3,%xmm3
+  1696ac:	vinsertps $0x30,%xmm4,%xmm3,%xmm3
+  1696b2:	vxorps %xmm4,%xmm4,%xmm4
+  1696b6:	vsubps %ymm1,%ymm4,%ymm4
+  1696ba:	vbroadcastss -0x1449ab(%rip),%ymm5        # 24d18 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x3ba>
+  1696c3:	vmulps %ymm5,%ymm4,%ymm5
+  1696c7:	vroundps $0x8,%ymm5,%ymm5
+  1696cd:	vcvtps2dq %ymm5,%ymm6
+  1696d1:	vbroadcastss -0x1449de(%rip),%ymm7        # 24cfc <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x39e>
+  1696da:	vmulps %ymm7,%ymm5,%ymm7
+  1696de:	vbroadcastss -0x1449df(%rip),%ymm8        # 24d08 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x3aa>
+  1696e7:	vmulps %ymm5,%ymm8,%ymm5
+  1696eb:	vaddps %ymm7,%ymm4,%ymm7
+  1696ef:	vaddps %ymm7,%ymm5,%ymm5
+  1696f3:	vmulps %ymm5,%ymm5,%ymm7
+  1696f7:	vbroadcastss -0x1449b4(%rip),%ymm8        # 24d4c <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x3ee>
+  169700:	vmulps %ymm5,%ymm8,%ymm8
+  169704:	vbroadcastss -0x144afd(%rip),%ymm9        # 24c10 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x2b2>
+  16970d:	vaddps %ymm9,%ymm8,%ymm8
+  169712:	vmulps %ymm5,%ymm8,%ymm8
+  169716:	vbroadcastss -0x144a7f(%rip),%ymm9        # 24ca0 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x342>
+  16971f:	vaddps %ymm9,%ymm8,%ymm8
+  169724:	vmulps %ymm5,%ymm8,%ymm8
+  169728:	vbroadcastss -0x144a05(%rip),%ymm9        # 24d2c <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x3ce>
+  169731:	vaddps %ymm9,%ymm8,%ymm8
+  169736:	vmulps %ymm5,%ymm8,%ymm8
+  16973a:	vbroadcastss -0x144a1b(%rip),%ymm9        # 24d28 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x3ca>
+  169743:	vaddps %ymm9,%ymm8,%ymm8
+  169748:	vmulps %ymm5,%ymm8,%ymm8
+  16974c:	vbroadcastss -0x144aed(%rip),%ymm9        # 24c68 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x30a>
+  169755:	vaddps %ymm9,%ymm8,%ymm8
+  16975a:	vmulps %ymm7,%ymm8,%ymm7
+  16975e:	vbroadcastss -0x144b6b(%rip),%ymm8        # 24bfc <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x29e>
+  169767:	vaddps %ymm5,%ymm8,%ymm5
+  16976b:	vaddps %ymm7,%ymm5,%ymm5
+  16976f:	vpsrad $0x1,%ymm6,%ymm7
+  169774:	vpsubd %ymm7,%ymm6,%ymm6
+  169778:	vpslld $0x17,%ymm7,%ymm7
+  16977d:	vpbroadcastd -0x144b8a(%rip),%ymm9        # 24bfc <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x29e>
+  169786:	vpaddd %ymm7,%ymm9,%ymm7
+  16978a:	vmulps %ymm7,%ymm5,%ymm5
+  16978e:	vpslld $0x17,%ymm6,%ymm6
+  169793:	vpaddd %ymm6,%ymm9,%ymm6
+  169797:	vbroadcastss -0x144b7c(%rip),%ymm7        # 24c24 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x2c6>
+  1697a0:	vmulps %ymm6,%ymm5,%ymm5
+  1697a4:	vcmplt_oqps %ymm7,%ymm4,%ymm6
+  1697a9:	vbroadcastss -0x144aca(%rip),%ymm7        # 24ce8 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x38a>
+  1697b2:	vcmpgt_oqps %ymm7,%ymm4,%ymm4
+  1697b7:	vaddps %ymm5,%ymm8,%ymm5
+  1697bb:	vblendvps %ymm6,%ymm8,%ymm5,%ymm5
+  1697c1:	vbroadcastss -0x144b2e(%rip),%ymm6        # 24c9c <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x33e>
+  1697ca:	vblendvps %ymm4,%ymm6,%ymm5,%ymm4
+  1697d0:	vinsertf128 $0x1,%xmm2,%ymm3,%ymm2
+  1697d6:	vdivps %ymm4,%ymm1,%ymm1
+  1697da:	vmulps %ymm0,%ymm2,%ymm0
+  1697de:	vmulps %ymm1,%ymm0,%ymm0
+  1697e2:	vextractps $0x0,%xmm0,%r11d
+  1697e8:	vmovups %ymm0,-0x20(%rsp)
+  1697ee:	mov    %r11d,%ecx
+  1697f1:	not    %ecx
+  1697f3:	test   $0x7f800000,%ecx
+  1697f9:	je     16980c <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x21c>
+  1697fb:	mov    %r11d,%ecx
+  1697fe:	shr    $0x17,%ecx
+  169801:	movzbl %cl,%ebx
+  169804:	cmp    $0xff,%ebx
+  16980a:	jne    169822 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x232>
+  16980c:	xor    %esi,%esi
+  16980e:	mov    %rsi,(%rax)
+  169811:	movw   $0x1c,0x8(%rax)
+  169817:	mov    %rcx,0x10(%rax)
+  16981b:	pop    %rbx
+  16981c:	pop    %r14
+  16981e:	vzeroupper
+  169821:	ret
+  169822:	xor    %edi,%edi
+  169824:	movabs $0x8000000000000000,%r9
+  16982e:	xor    %esi,%esi
+  169830:	mov    %r11d,%r14d
+  169833:	and    $0x7fffff,%r14d
+  16983a:	lea    0x800000(%r14),%ecx
+  169841:	test   %ebx,%ebx
+  169843:	cmovne %ecx,%r14d
+  169847:	cmp    $0x1,%ebx
+  16984a:	mov    %ebx,%edx
+  16984c:	adc    $0x0,%edx
+  16984f:	cmp    $0x75,%ebx
+  169852:	jbe    169890 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x2a0>
+  169854:	cmp    $0x9e,%ebx
+  16985a:	ja     16993c <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x34c>
+  169860:	mov    %ecx,%ebx
+  169862:	add    $0x8a,%dl
+  169865:	xor    %r14d,%r14d
+  169868:	mov    %edx,%ecx
+  16986a:	shld   %cl,%rbx,%r14
+  16986e:	shl    %cl,%rbx
+  169871:	test   $0x40,%dl
+  169874:	cmovne %rbx,%r14
+  169878:	cmovne %rdi,%rbx
+  16987c:	test   %r11d,%r11d
+  16987f:	jns    1698be <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x2ce>
+  169881:	jmp    1698d1 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x2e1>
+  169883:	data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+  169890:	cmp    $0x5e,%ebx
+  169893:	jae    1698a0 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x2b0>
+  169895:	test   %r11d,%r11d
+  169898:	js     1698cc <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x2dc>
+  16989a:	xor    %ecx,%ecx
+  16989c:	jmp    169900 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x310>
+  16989e:	xchg   %ax,%ax
+  1698a0:	mov    $0x75,%cl
+  1698a2:	sub    %dl,%cl
+  1698a4:	mov    $0x1,%ebx
+  1698a9:	shl    %cl,%rbx
+  1698ac:	add    %r14,%rbx
+  1698af:	mov    $0x76,%cl
+  1698b1:	sub    %dl,%cl
+  1698b3:	shr    %cl,%rbx
+  1698b6:	xor    %r14d,%r14d
+  1698b9:	test   %r11d,%r11d
+  1698bc:	js     1698d1 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x2e1>
+  1698be:	cmp    %r9,%rbx
+  1698c1:	sbb    $0x0,%r14
+  1698c5:	mov    %rbx,%rcx
+  1698c8:	jb     169900 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x310>
+  1698ca:	jmp    16993c <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x34c>
+  1698cc:	xor    %ebx,%ebx
+  1698ce:	xor    %r14d,%r14d
+  1698d1:	cmp    %rbx,%r9
+  1698d4:	mov    $0x0,%ecx
+  1698d9:	sbb    %r14,%rcx
+  1698dc:	setb   %dl
+  1698df:	cmp    %r9,%rbx
+  1698e2:	sbb    $0x0,%r14
+  1698e6:	sbb    $0x0,%dl
+  1698e9:	mov    %r9,%rcx
+  1698ec:	je     169900 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x310>
+  1698ee:	movzbl %dl,%ecx
+  1698f1:	cmp    $0xff,%ecx
+  1698f7:	jne    16993c <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x34c>
+  1698f9:	neg    %rbx
+  1698fc:	mov    %rbx,%rcx
+  1698ff:	nop
+  169900:	mov    %rcx,(%r8,%rsi,8)
+  169904:	cmp    $0x7,%rsi
+  169908:	je     169944 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x354>
+  16990a:	mov    -0x1c(%rsp,%rsi,4),%r11d
+  16990f:	mov    %r11d,%edx
+  169912:	not    %edx
+  169914:	test   $0x7f800000,%edx
+  16991a:	je     169951 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x361>
+  16991c:	mov    %r11d,%edx
+  16991f:	shr    $0x17,%edx
+  169922:	movzbl %dl,%ebx
+  169925:	inc    %rsi
+  169928:	mov    %rcx,%r10
+  16992b:	cmp    $0xff,%ebx
+  169931:	jne    169830 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x240>
+  169937:	jmp    16980e <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x21e>
+  16993c:	mov    %r10,%rcx
+  16993f:	jmp    16980e <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x21e>
+  169944:	movw   $0xffff,0x8(%rax)
+  16994a:	pop    %rbx
+  16994b:	pop    %r14
+  16994d:	vzeroupper
+  169950:	ret
+  169951:	inc    %rsi
+  169954:	jmp    16980e <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x21e>
+
+Disassembly of section .init:
+
+Disassembly of section .fini:
+
+Disassembly of section .plt:
+-- cleanfin
+
+/home/ubuntu/bin/prefix_solve.cleanfin:     file format elf64-x86-64
+
+
+Disassembly of section .text:
+
+0000000000110760 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into>:
+  110760:	push   %r14
+  110762:	push   %rbx
+  110763:	sub    $0x78,%rsp
+  110767:	vcvtsi2ssq 0x28(%rsi),%xmm15,%xmm0
+  11076d:	vcvtsi2ssq 0x20(%rsi),%xmm15,%xmm1
+  110773:	vcvtsi2ssq 0x30(%rsi),%xmm15,%xmm2
+  110779:	vcvtsi2ssq 0x38(%rsi),%xmm15,%xmm3
+  11077f:	vcvtsi2ssq 0x8(%rsi),%xmm15,%xmm4
+  110785:	mov    %rcx,%rax
+  110788:	vcvtsi2ssq (%rsi),%xmm15,%xmm5
+  11078d:	vcvtsi2ssq 0x10(%rsi),%xmm15,%xmm6
+  110793:	vinsertps $0x10,%xmm0,%xmm1,%xmm0
+  110799:	vcvtsi2ssq 0x18(%rsi),%xmm15,%xmm7
+  11079f:	vinsertps $0x20,%xmm2,%xmm0,%xmm0
+  1107a5:	vinsertps $0x30,%xmm3,%xmm0,%xmm0
+  1107ab:	vbroadcastss -0xebacc(%rip),%ymm1        # 24ce8 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x2b3>
+  1107b4:	vinsertps $0x10,%xmm4,%xmm5,%xmm2
+  1107ba:	vcvtsi2ssq 0x28(%rdx),%xmm15,%xmm3
+  1107c0:	vinsertps $0x20,%xmm6,%xmm2,%xmm2
+  1107c6:	vcvtsi2ssq 0x20(%rdx),%xmm15,%xmm4
+  1107cc:	vinsertps $0x30,%xmm7,%xmm2,%xmm2
+  1107d2:	vcvtsi2ssq 0x30(%rdx),%xmm15,%xmm5
+  1107d8:	vinsertf128 $0x1,%xmm0,%ymm2,%ymm0
+  1107de:	vcvtsi2ssq 0x38(%rdx),%xmm15,%xmm6
+  1107e4:	vmulps %ymm1,%ymm0,%ymm2
+  1107e8:	vcvtsi2ssq 0x8(%rdx),%xmm15,%xmm7
+  1107ee:	vinsertps $0x10,%xmm3,%xmm4,%xmm0
+  1107f4:	vcvtsi2ssq (%rdx),%xmm15,%xmm4
+  1107f9:	vinsertps $0x20,%xmm5,%xmm0,%xmm0
+  1107ff:	vcvtsi2ssq 0x10(%rdx),%xmm15,%xmm5
+  110805:	vinsertps $0x30,%xmm6,%xmm0,%xmm0
+  11080b:	vcvtsi2ssq 0x18(%rdx),%xmm15,%xmm3
+  110811:	vinsertps $0x10,%xmm7,%xmm4,%xmm4
+  110817:	vinsertps $0x20,%xmm5,%xmm4,%xmm4
+  11081d:	vxorps %xmm11,%xmm11,%xmm11
+  110822:	vsubps %ymm2,%ymm11,%ymm5
+  110826:	vbroadcastss -0xeba2b(%rip),%ymm6        # 24e04 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x3cf>
+  11082f:	vmulps %ymm6,%ymm5,%ymm6
+  110833:	vroundps $0x8,%ymm6,%ymm6
+  110839:	vcvtps2dq %ymm6,%ymm7
+  11083d:	vbroadcastss -0xeba66(%rip),%ymm8        # 24de0 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x3ab>
+  110846:	vmulps %ymm6,%ymm8,%ymm8
+  11084a:	vbroadcastss -0xeba5f(%rip),%ymm9        # 24df4 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x3bf>
+  110853:	vmulps %ymm6,%ymm9,%ymm6
+  110857:	vaddps %ymm5,%ymm8,%ymm8
+  11085b:	vaddps %ymm6,%ymm8,%ymm6
+  11085f:	vmulps %ymm6,%ymm6,%ymm8
+  110863:	vbroadcastss -0xeba2c(%rip),%ymm9        # 24e40 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x40b>
+  11086c:	vmulps %ymm6,%ymm9,%ymm9
+  110870:	vbroadcastss -0xebb85(%rip),%ymm10        # 24cf4 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x2bf>
+  110879:	vaddps %ymm10,%ymm9,%ymm9
+  11087e:	vmulps %ymm6,%ymm9,%ymm9
+  110882:	vbroadcastss -0xebb03(%rip),%ymm10        # 24d88 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x353>
+  11088b:	vaddps %ymm10,%ymm9,%ymm9
+  110890:	vmulps %ymm6,%ymm9,%ymm9
+  110894:	vbroadcastss -0xeba81(%rip),%ymm10        # 24e1c <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x3e7>
+  11089d:	vaddps %ymm10,%ymm9,%ymm9
+  1108a2:	vmulps %ymm6,%ymm9,%ymm9
+  1108a6:	vbroadcastss -0xeba97(%rip),%ymm10        # 24e18 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x3e3>
+  1108af:	vaddps %ymm10,%ymm9,%ymm9
+  1108b4:	vmulps %ymm6,%ymm9,%ymm9
+  1108b8:	vbroadcastss -0xebb75(%rip),%ymm10        # 24d4c <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x317>
+  1108c1:	vaddps %ymm10,%ymm9,%ymm9
+  1108c6:	vmulps %ymm9,%ymm8,%ymm8
+  1108cb:	vbroadcastss -0xebbf4(%rip),%ymm9        # 24ce0 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x2ab>
+  1108d4:	vaddps %ymm6,%ymm9,%ymm6
+  1108d8:	vaddps %ymm6,%ymm8,%ymm6
+  1108dc:	vpsrad $0x1,%ymm7,%ymm8
+  1108e1:	vpsubd %ymm8,%ymm7,%ymm7
+  1108e6:	vpslld $0x17,%ymm8,%ymm8
+  1108ec:	vpbroadcastd -0xebc15(%rip),%ymm10        # 24ce0 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x2ab>
+  1108f5:	vpaddd %ymm10,%ymm8,%ymm8
+  1108fa:	vmulps %ymm6,%ymm8,%ymm6
+  1108fe:	vpslld $0x17,%ymm7,%ymm7
+  110903:	vpaddd %ymm7,%ymm10,%ymm7
+  110907:	vbroadcastss -0xebc04(%rip),%ymm8        # 24d0c <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x2d7>
+  110910:	vmulps %ymm7,%ymm6,%ymm6
+  110914:	vcmplt_oqps %ymm8,%ymm5,%ymm7
+  11091a:	vbroadcastss -0xebb53(%rip),%ymm8        # 24dd0 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x39b>
+  110923:	vcmpgt_oqps %ymm8,%ymm5,%ymm5
+  110929:	vaddps %ymm6,%ymm9,%ymm6
+  11092d:	vblendvps %ymm7,%ymm9,%ymm6,%ymm6
+  110933:	vbroadcastss -0xebbb8(%rip),%ymm7        # 24d84 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x34f>
+  11093c:	vblendvps %ymm5,%ymm7,%ymm6,%ymm5
+  110942:	vinsertps $0x30,%xmm3,%xmm4,%xmm3
+  110948:	vdivps %ymm5,%ymm2,%ymm2
+  11094c:	vinsertf128 $0x1,%xmm0,%ymm3,%ymm0
+  110952:	vmulps %ymm1,%ymm0,%ymm0
+  110956:	vmulps %ymm2,%ymm0,%ymm0
+  11095a:	vmovups %ymm0,0x30(%rsp)
+  110960:	vmovups %ymm0,-0x10(%rsp)
+  110966:	vmovdqa -0x10(%rsp),%xmm12
+  11096c:	vpsrld $0x17,%xmm12,%xmm0
+  110972:	vpbroadcastd -0xebc9f(%rip),%xmm1        # 24cdc <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x2a7>
+  11097b:	vmovdqa %xmm1,-0x80(%rsp)
+  110981:	vpand  %xmm1,%xmm0,%xmm9
+  110985:	vpbroadcastd -0xebcc6(%rip),%xmm0        # 24cc8 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x293>
+  11098e:	vmovdqa %xmm0,-0x20(%rsp)
+  110994:	vpand  %xmm0,%xmm12,%xmm0
+  110998:	vpxor  %xmm1,%xmm1,%xmm1
+  11099c:	vpbroadcastd -0xebb81(%rip),%xmm2        # 24e24 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x3ef>
+  1109a5:	vmovdqa %xmm2,-0x30(%rsp)
+  1109ab:	vpcmpeqd %xmm1,%xmm9,%xmm1
+  1109af:	vpandn %xmm2,%xmm1,%xmm2
+  1109b3:	vpor   %xmm0,%xmm2,%xmm0
+  1109b7:	vpsrld $0x1f,%xmm1,%xmm1
+  1109bc:	vpor   %xmm1,%xmm9,%xmm10
+  1109c0:	vpmovzxdq %xmm10,%ymm2
+  1109c5:	vpbroadcastq -0xef19e(%rip),%ymm8        # 21830 <GCC_except_table0+0xdd4>
+  1109ce:	vpsubq %ymm8,%ymm2,%ymm3
+  1109d3:	vpcmpgtq %ymm8,%ymm2,%ymm5
+  1109d8:	vpand  %ymm3,%ymm5,%ymm3
+  1109dc:	vpbroadcastq -0xef10d(%rip),%ymm5        # 218d8 <GCC_except_table0+0xe7c>
+  1109e5:	vpxor  %ymm5,%ymm3,%ymm6
+  1109e9:	vpbroadcastq -0xef082(%rip),%ymm1        # 21970 <GCC_except_table0+0xf14>
+  1109f2:	vmovdqu %ymm1,0x50(%rsp)
+  1109f8:	vpcmpgtq %ymm6,%ymm1,%ymm6
+  1109fd:	vbroadcastsd -0xef106(%rip),%ymm7        # 21900 <GCC_except_table0+0xea4>
+  110a06:	vblendvpd %ymm6,%ymm3,%ymm7,%ymm3
+  110a0c:	vpsubq %ymm2,%ymm8,%ymm6
+  110a10:	vpcmpgtq %ymm11,%ymm6,%ymm13
+  110a15:	vpand  %ymm6,%ymm13,%ymm6
+  110a19:	vpcmpgtq %ymm6,%ymm7,%ymm13
+  110a1e:	vblendvpd %ymm13,%ymm6,%ymm7,%ymm6
+  110a24:	vpmovzxdq %xmm0,%ymm1
+  110a29:	vpsllvq %ymm3,%ymm1,%ymm3
+  110a2e:	vpbroadcastq -0xef07f(%rip),%ymm4        # 219b8 <GCC_except_table0+0xf5c>
+  110a37:	vpsubq %ymm2,%ymm4,%ymm2
+  110a3b:	vpand  %ymm7,%ymm2,%ymm2
+  110a3f:	vpbroadcastq -0xef1c0(%rip),%ymm15        # 21888 <GCC_except_table0+0xe2c>
+  110a48:	vpbroadcastd -0xebd59(%rip),%xmm14        # 24cf8 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x2c3>
+  110a51:	vpsllvq %ymm2,%ymm15,%ymm2
+  110a56:	vpcmpgtd %xmm9,%xmm14,%xmm13
+  110a5b:	vpmovsxdq %xmm13,%ymm0
+  110a60:	vpand  %ymm2,%ymm0,%ymm2
+  110a64:	vpaddq %ymm1,%ymm2,%ymm1
+  110a68:	vpsrlvq %ymm6,%ymm1,%ymm1
+  110a6d:	vpbroadcastd -0xebcde(%rip),%xmm6        # 24d98 <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x363>
+  110a76:	vmovdqa %xmm6,-0x50(%rsp)
+  110a7c:	vpandn %ymm3,%ymm0,%ymm0
+  110a80:	vpbroadcastd -0xebdbd(%rip),%xmm2        # 24ccc <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x297>
+  110a89:	vpaddd %xmm2,%xmm9,%xmm3
+  110a8d:	vpminud %xmm6,%xmm3,%xmm6
+  110a92:	vpcmpeqd %xmm6,%xmm3,%xmm3
+  110a96:	vpmovsxdq %xmm3,%ymm3
+  110a9b:	vpand  %ymm1,%ymm3,%ymm1
+  110a9f:	vpor   %ymm0,%ymm1,%ymm6
+  110aa3:	vpxor  %ymm5,%ymm6,%ymm0
+  110aa7:	vpxor  %xmm3,%xmm3,%xmm3
+  110aab:	vpcmpgtq %ymm3,%ymm0,%ymm0
+  110ab0:	vextracti128 $0x1,%ymm0,%xmm1
+  110ab6:	vpackssdw %xmm1,%xmm0,%xmm0
+  110aba:	vmovdqu %ymm6,0x10(%rsp)
+  110ac0:	vpcmpgtq %ymm6,%ymm3,%ymm1
+  110ac5:	vextracti128 $0x1,%ymm1,%xmm3
+  110acb:	vpackssdw %xmm3,%xmm1,%xmm1
+  110acf:	vmovdqa %xmm12,-0x70(%rsp)
+  110ad5:	vblendvps %xmm12,%xmm0,%xmm1,%xmm0
+  110adb:	vmovaps %xmm0,-0x40(%rsp)
+  110ae1:	vpbroadcastd -0xebcde(%rip),%xmm11        # 24e0c <anon.f7cf31c838997622f5af1efb3220822e.0.llvm.11822430256438140027+0x3d7>
+  110aea:	vmovdqa -0x80(%rsp),%xmm0
+  110af0:	vpcmpeqd %xmm0,%xmm9,%xmm1
+  110af4:	vpcmpgtd %xmm11,%xmm10,%xmm3
+  110af9:	vpor   %xmm3,%xmm1,%xmm1
+  110afd:	vmovdqa %xmm1,-0x60(%rsp)
+  110b03:	vmovdqa (%rsp),%xmm9
+  110b08:	vpsrld $0x17,%xmm9,%xmm3
+  110b0e:	vpand  %xmm0,%xmm3,%xmm6
+  110b12:	vpand  -0x20(%rsp),%xmm9,%xmm3
+  110b18:	vpxor  %xmm0,%xmm0,%xmm0
+  110b1c:	vpcmpeqd %xmm0,%xmm6,%xmm10
+  110b20:	vpandn -0x30(%rsp),%xmm10,%xmm1
+  110b26:	vpor   %xmm3,%xmm1,%xmm1
+  110b2a:	vpsrld $0x1f,%xmm10,%xmm3
+  110b30:	vpor   %xmm3,%xmm6,%xmm10
+  110b34:	vpmovzxdq %xmm10,%ymm3
+  110b39:	vpsubq %ymm8,%ymm3,%ymm0
+  110b3e:	vpcmpgtq %ymm8,%ymm3,%ymm12
+  110b43:	vpand  %ymm0,%ymm12,%ymm0
+  110b47:	vpxor  %ymm5,%ymm0,%ymm12
+  110b4b:	vmovdqu 0x50(%rsp),%ymm13
+  110b51:	vpcmpgtq %ymm12,%ymm13,%ymm12
+  110b56:	vblendvpd %ymm12,%ymm0,%ymm7,%ymm0
+  110b5c:	vpsubq %ymm3,%ymm8,%ymm8
+  110b60:	vpsubq %ymm3,%ymm4,%ymm3
+  110b64:	vpxor  %xmm4,%xmm4,%xmm4
+  110b68:	vpcmpgtq %ymm4,%ymm8,%ymm4
+  110b6d:	vpand  %ymm4,%ymm8,%ymm4
+  110b71:	vpcmpgtq %ymm4,%ymm7,%ymm8
+  110b76:	vblendvpd %ymm8,%ymm4,%ymm7,%ymm4
+  110b7c:	vpand  %ymm7,%ymm3,%ymm3
+  110b80:	vpsllvq %ymm3,%ymm15,%ymm3
+  110b85:	vpmovzxdq %xmm1,%ymm1
+  110b8a:	vpsllvq %ymm0,%ymm1,%ymm0
+  110b8f:	vpcmpgtd %xmm6,%xmm14,%xmm7
+  110b93:	vpmovsxdq %xmm7,%ymm7
+  110b98:	vpand  %ymm3,%ymm7,%ymm3
+  110b9c:	vpaddq %ymm1,%ymm3,%ymm1
+  110ba0:	vpsrlvq %ymm4,%ymm1,%ymm1
+  110ba5:	vpandn %ymm0,%ymm7,%ymm0
+  110ba9:	vpaddd %xmm2,%xmm6,%xmm2
+  110bad:	vpminud -0x50(%rsp),%xmm2,%xmm3
+  110bb4:	vpcmpeqd %xmm3,%xmm2,%xmm2
+  110bb8:	vpmovsxdq %xmm2,%ymm2
+  110bbd:	vpand  %ymm1,%ymm2,%ymm1
+  110bc1:	vpor   %ymm0,%ymm1,%ymm2
+  110bc5:	vpxor  %ymm5,%ymm2,%ymm0
+  110bc9:	vpxor  %xmm3,%xmm3,%xmm3
+  110bcd:	vpcmpgtq %ymm3,%ymm0,%ymm0
+  110bd2:	vextracti128 $0x1,%ymm0,%xmm1
+  110bd8:	vpackssdw %xmm1,%xmm0,%xmm0
+  110bdc:	vpcmpgtq %ymm2,%ymm3,%ymm1
+  110be1:	vextracti128 $0x1,%ymm1,%xmm3
+  110be7:	vpackssdw %xmm3,%xmm1,%xmm1
+  110beb:	vblendvps %xmm9,%xmm0,%xmm1,%xmm0
+  110bf1:	vmovdqa -0x60(%rsp),%xmm1
+  110bf7:	vpor   -0x40(%rsp),%xmm1,%xmm1
+  110bfd:	vpcmpeqd -0x80(%rsp),%xmm6,%xmm3
+  110c03:	vpcmpgtd %xmm11,%xmm10,%xmm4
+  110c08:	vpor   %xmm4,%xmm3,%xmm3
+  110c0c:	vpor   %xmm0,%xmm3,%xmm0
+  110c10:	vmovd  -0xefb48(%rip),%xmm3        # 210d0 <GCC_except_table0+0x674>
+  110c18:	vpshufb %xmm3,%xmm1,%xmm1
+  110c1d:	vpshufb %xmm3,%xmm0,%xmm0
+  110c22:	vpsllw $0x7,%xmm1,%xmm1
+  110c27:	vpxor  %xmm3,%xmm3,%xmm3
+  110c2b:	vpcmpgtb %xmm1,%xmm3,%xmm1
+  110c2f:	vpsllw $0x7,%xmm0,%xmm0
+  110c34:	vpcmpgtb %xmm0,%xmm3,%xmm0
+  110c38:	vpand  -0xef5c0(%rip),%xmm1,%xmm1        # 21680 <GCC_except_table0+0xc24>
+  110c40:	vpand  -0xef598(%rip),%xmm0,%xmm0        # 216b0 <GCC_except_table0+0xc54>
+  110c48:	vpor   %xmm1,%xmm0,%xmm0
+  110c4c:	vmovd  %xmm0,%ecx
+  110c50:	test   %ecx,%ecx
+  110c52:	je     110c8f <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x52f>
+  110c54:	vmovdqu 0x30(%rsp),%ymm0
+  110c5a:	vpextrd $0x0,%xmm0,%r11d
+  110c60:	mov    %r11d,%ecx
+  110c63:	not    %ecx
+  110c65:	test   $0x7f800000,%ecx
+  110c6b:	je     110c7e <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x51e>
+  110c6d:	mov    %r11d,%ecx
+  110c70:	shr    $0x17,%ecx
+  110c73:	movzbl %cl,%ebx
+  110c76:	cmp    $0xff,%ebx
+  110c7c:	jne    110cd9 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x579>
+  110c7e:	xor    %esi,%esi
+  110c80:	mov    %rsi,(%rdi)
+  110c83:	movw   $0x1c,0x8(%rdi)
+  110c89:	mov    %rcx,0x10(%rdi)
+  110c8d:	jmp    110ccb <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x56b>
+  110c8f:	vpsrad $0x1f,%xmm9,%xmm0
+  110c95:	vpmovsxdq %xmm0,%ymm0
+  110c9a:	vpxor  %ymm0,%ymm2,%ymm1
+  110c9e:	vpsubq %ymm0,%ymm1,%ymm0
+  110ca2:	vmovdqa -0x70(%rsp),%xmm1
+  110ca8:	vpsrad $0x1f,%xmm1,%xmm1
+  110cad:	vpmovsxdq %xmm1,%ymm1
+  110cb2:	vpxor  0x10(%rsp),%ymm1,%ymm2
+  110cb8:	vpsubq %ymm1,%ymm2,%ymm1
+  110cbc:	vmovdqu %ymm1,(%rax)
+  110cc0:	vmovdqu %ymm0,0x20(%rax)
+  110cc5:	movw   $0xffff,0x8(%rdi)
+  110ccb:	mov    %rdi,%rax
+  110cce:	add    $0x78,%rsp
+  110cd2:	pop    %rbx
+  110cd3:	pop    %r14
+  110cd5:	vzeroupper
+  110cd8:	ret
+  110cd9:	xor    %r8d,%r8d
+  110cdc:	movabs $0x8000000000000000,%r9
+  110ce6:	xor    %esi,%esi
+  110ce8:	nopl   0x0(%rax,%rax,1)
+  110cf0:	mov    %r11d,%r14d
+  110cf3:	and    $0x7fffff,%r14d
+  110cfa:	lea    0x800000(%r14),%ecx
+  110d01:	test   %ebx,%ebx
+  110d03:	cmovne %ecx,%r14d
+  110d07:	cmp    $0x1,%ebx
+  110d0a:	mov    %ebx,%edx
+  110d0c:	adc    $0x0,%edx
+  110d0f:	cmp    $0x75,%ebx
+  110d12:	jbe    110d50 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x5f0>
+  110d14:	cmp    $0x9e,%ebx
+  110d1a:	ja     110e00 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x6a0>
+  110d20:	mov    %ecx,%ebx
+  110d22:	add    $0x8a,%dl
+  110d25:	xor    %r14d,%r14d
+  110d28:	mov    %edx,%ecx
+  110d2a:	shld   %cl,%rbx,%r14
+  110d2e:	shl    %cl,%rbx
+  110d31:	test   $0x40,%dl
+  110d34:	cmovne %rbx,%r14
+  110d38:	cmovne %r8,%rbx
+  110d3c:	test   %r11d,%r11d
+  110d3f:	jns    110d7e <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x61e>
+  110d41:	jmp    110d91 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x631>
+  110d43:	data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+  110d50:	cmp    $0x5e,%ebx
+  110d53:	jae    110d60 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x600>
+  110d55:	test   %r11d,%r11d
+  110d58:	js     110d8c <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x62c>
+  110d5a:	xor    %ecx,%ecx
+  110d5c:	jmp    110dc0 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x660>
+  110d5e:	xchg   %ax,%ax
+  110d60:	mov    $0x75,%cl
+  110d62:	sub    %dl,%cl
+  110d64:	mov    $0x1,%ebx
+  110d69:	shl    %cl,%rbx
+  110d6c:	add    %r14,%rbx
+  110d6f:	mov    $0x76,%cl
+  110d71:	sub    %dl,%cl
+  110d73:	shr    %cl,%rbx
+  110d76:	xor    %r14d,%r14d
+  110d79:	test   %r11d,%r11d
+  110d7c:	js     110d91 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x631>
+  110d7e:	cmp    %r9,%rbx
+  110d81:	sbb    $0x0,%r14
+  110d85:	mov    %rbx,%rcx
+  110d88:	jb     110dc0 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x660>
+  110d8a:	jmp    110e00 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x6a0>
+  110d8c:	xor    %ebx,%ebx
+  110d8e:	xor    %r14d,%r14d
+  110d91:	cmp    %rbx,%r9
+  110d94:	mov    $0x0,%ecx
+  110d99:	sbb    %r14,%rcx
+  110d9c:	setb   %dl
+  110d9f:	cmp    %r9,%rbx
+  110da2:	sbb    $0x0,%r14
+  110da6:	sbb    $0x0,%dl
+  110da9:	mov    %r9,%rcx
+  110dac:	je     110dc0 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x660>
+  110dae:	movzbl %dl,%ecx
+  110db1:	cmp    $0xff,%ecx
+  110db7:	jne    110e00 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x6a0>
+  110db9:	neg    %rbx
+  110dbc:	mov    %rbx,%rcx
+  110dbf:	nop
+  110dc0:	mov    %rcx,(%rax,%rsi,8)
+  110dc4:	cmp    $0x7,%rsi
+  110dc8:	je     110cc5 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x565>
+  110dce:	mov    -0xc(%rsp,%rsi,4),%r11d
+  110dd3:	mov    %r11d,%edx
+  110dd6:	not    %edx
+  110dd8:	test   $0x7f800000,%edx
+  110dde:	je     110e08 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x6a8>
+  110de0:	mov    %r11d,%edx
+  110de3:	shr    $0x17,%edx
+  110de6:	movzbl %dl,%ebx
+  110de9:	inc    %rsi
+  110dec:	mov    %rcx,%r10
+  110def:	cmp    $0xff,%ebx
+  110df5:	jne    110cf0 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x590>
+  110dfb:	jmp    110c80 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x520>
+  110e00:	mov    %r10,%rcx
+  110e03:	jmp    110c80 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x520>
+  110e08:	inc    %rsi
+  110e0b:	jmp    110c80 <_RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into+0x520>
+
+Disassembly of section .init:
+
+Disassembly of section .fini:
+
+Disassembly of section .plt:
+
+### phases: cold pass
+-- cleanctl
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+  embed            10.187 ms    0.2%  calls 3
+  norm            156.076 ms    3.3%  calls 171
+  residual        142.237 ms    3.0%  calls 168
+  attn.proj_in    619.864 ms   13.0%  calls 84
+  attn.core      1514.089 ms   31.8%  calls 84
+  attn.proj_out    243.860 ms    5.1%  calls 84
+  ffn            1643.267 ms   34.5%  calls 84
+  head              5.452 ms    0.1%  calls 1
+  pass           4374.711 ms   91.9%  calls 3
+  pool.wait       257.381 ms    5.4%  calls 1295
+cold   hit     0  prefill    4.762 s ( 383.69 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+-- cleanfin
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+  embed            10.249 ms    0.2%  calls 3
+  norm            154.132 ms    3.3%  calls 171
+  residual        134.858 ms    2.9%  calls 168
+  attn.proj_in    609.367 ms   13.0%  calls 84
+  attn.core      1506.892 ms   32.3%  calls 84
+  attn.proj_out    240.446 ms    5.1%  calls 84
+  ffn            1587.014 ms   34.0%  calls 84
+  head              5.500 ms    0.1%  calls 1
+  pass           4286.462 ms   91.7%  calls 3
+  pool.wait       276.159 ms    5.9%  calls 1295
+cold   hit     0  prefill    4.672 s ( 391.06 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+### branch-miss profiles (sampled shares; F 4000)
+-- cleanctl
+    40.55%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine4kern2nq21code_select_row8_avx2                                                                                                                                                                                                                                                                                -      -
+    22.69%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into                                                                                                                                                                                                                                                                             -      -
+    10.27%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine3ops4norm14rms_norm_fixed                                                                                                                                                                                                                                                                                      -      -
+     3.28%  [.] _RNvXs8_NtNtNtCs7rPN1reWdmT_7apeiron6engine4kern2nqNtB5_11ColPipelineINtNtNtB9_5chart4task5Task3xxINtNtCsdTJjNnUQND0_5alloc3vec3VecxENtB5_7NqErrorE3run                                                                                                                                                                                               -      -
+     3.24%  [.] _RNvNtNtCs7rPN1reWdmT_7apeiron7numeric10fixed_trig5q_mul                                                                                                                                                                                                                                                                                              -      -
+     3.16%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn12swiglu_slice.llvm.9346088845210795322                                                                                                                                                                                                                                                              -      -
+     3.00%  [.] _RNvMs3_NtNtCs7rPN1reWdmT_7apeiron6engine4attnNtB5_7KvState24attn_head_group_tile_f32                                                                                                                                                                                                                                                                 -      -
+     2.30%  [.] _RNvNtNtCs7rPN1reWdmT_7apeiron7numeric10fixed_trig13fixed_sin_cos                                                                                                                                                                                                                                                                                     -      -
+     2.24%  [.] _RNvNtNtCs7rPN1reWdmT_7apeiron7numeric10fixed_trig7div_fac                                                                                                                                                                                                                                                                                            -      -
+     1.16%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine4attn8f32_core25attn_core_tile_avx2_inner                                                                                                                                                                                                                                                                      -      -
+-- cleanfin
+    54.17%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine4kern2nq21code_select_row8_avx2                                                                                                                                                                                                                                                                                -      -
+    13.80%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine3ops4norm14rms_norm_fixed                                                                                                                                                                                                                                                                                      -      -
+     4.50%  [.] _RNvNtNtCs7rPN1reWdmT_7apeiron7numeric10fixed_trig5q_mul                                                                                                                                                                                                                                                                                              -      -
+     4.43%  [.] _RNvXs8_NtNtNtCs7rPN1reWdmT_7apeiron6engine4kern2nqNtB5_11ColPipelineINtNtNtB9_5chart4task5Task3xxINtNtCsdTJjNnUQND0_5alloc3vec3VecxENtB5_7NqErrorE3run                                                                                                                                                                                               -      -
+     4.43%  [.] _RNvMs3_NtNtCs7rPN1reWdmT_7apeiron6engine4attnNtB5_7KvState24attn_head_group_tile_f32                                                                                                                                                                                                                                                                 -      -
+     3.29%  [.] _RNvNtNtCs7rPN1reWdmT_7apeiron7numeric10fixed_trig7div_fac                                                                                                                                                                                                                                                                                            -      -
+     3.12%  [.] _RNvNtNtCs7rPN1reWdmT_7apeiron7numeric10fixed_trig13fixed_sin_cos                                                                                                                                                                                                                                                                                     -      -
+     1.61%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine4attn8f32_core25attn_core_tile_avx2_inner                                                                                                                                                                                                                                                                      -      -
+     1.00%  [.] _RNvNtNtCs7rPN1reWdmT_7apeiron6engine4step19rms_with_gain_slice                                                                                                                                                                                                                                                                                       -      -
+
+### cycle profiles (sampled shares; F 4000)
+-- cleanctl
+    22.82%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine4kern2nq21code_select_row8_avx2                                                                                                                                                                                                                                                                                -      -
+    21.87%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart4pool6worker                                                                                                                                                                                                                                                                                             -      -
+    10.41%  [.] _RNvXs8_NtNtNtCs7rPN1reWdmT_7apeiron6engine4kern2nqNtB5_11ColPipelineINtNtNtB9_5chart4task5Task3xxINtNtCsdTJjNnUQND0_5alloc3vec3VecxENtB5_7NqErrorE3run                                                                                                                                                                                               -      -
+     5.04%  [.] _RINvNtNtNtCs7rPN1reWdmT_7apeiron6engine4attn8f32_core9gemm_tileKb0_EB8_                                                                                                                                                                                                                                                                              -      -
+     5.00%  [.] _RINvNtNtNtCs7rPN1reWdmT_7apeiron6engine4attn8f32_core9gemm_tileKb1_EB8_                                                                                                                                                                                                                                                                              -      -
+     3.88%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into                                                                                                                                                                                                                                                                             -      -
+     3.84%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine4attn8f32_core25attn_core_tile_avx2_inner                                                                                                                                                                                                                                                                      -      -
+     3.36%  [.] 0x000000000018984a                                                                                                                                                                                                                                                                                                                                    -      -
+     2.84%  [.] _RINvNtCsk6kCoK1GpKd_4core3ptr9drop_glueNtNtNtCs7rPN1reWdmT_7apeiron6engine4step9StepErrorEBH_.llvm.5469488168326238426                                                                                                                                                                                                                               -      -
+     2.06%  [.] _RNvNtNtCs7rPN1reWdmT_7apeiron6engine4step19rms_with_gain_slice                                                                                                                                                                                                                                                                                       -      -
+     2.01%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine3ops4norm14rms_norm_fixed                                                                                                                                                                                                                                                                                      -      -
+     1.79%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine4kern2nq22quant_act_grouped_avx2.llvm.3446231672978460632                                                                                                                                                                                                                                                      -      -
+-- cleanfin
+    23.72%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine4kern2nq21code_select_row8_avx2                                                                                                                                                                                                                                                                                -      -
+    22.48%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart4pool6worker                                                                                                                                                                                                                                                                                             -      -
+     9.48%  [.] _RNvXs8_NtNtNtCs7rPN1reWdmT_7apeiron6engine4kern2nqNtB5_11ColPipelineINtNtNtB9_5chart4task5Task3xxINtNtCsdTJjNnUQND0_5alloc3vec3VecxENtB5_7NqErrorE3run                                                                                                                                                                                               -      -
+     5.10%  [.] _RINvNtNtNtCs7rPN1reWdmT_7apeiron6engine4attn8f32_core9gemm_tileKb0_EB8_                                                                                                                                                                                                                                                                              -      -
+     5.07%  [.] _RINvNtNtNtCs7rPN1reWdmT_7apeiron6engine4attn8f32_core9gemm_tileKb1_EB8_                                                                                                                                                                                                                                                                              -      -
+     3.93%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine4attn8f32_core25attn_core_tile_avx2_inner                                                                                                                                                                                                                                                                      -      -
+     3.46%  [.] 0x000000000018984a                                                                                                                                                                                                                                                                                                                                    -      -
+     2.79%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart3ffn22swiglu_f32_avx2_8_into                                                                                                                                                                                                                                                                             -      -
+     2.10%  [.] _RNvNtNtCs7rPN1reWdmT_7apeiron6engine4step19rms_with_gain_slice                                                                                                                                                                                                                                                                                       -      -
+     2.01%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine3ops4norm14rms_norm_fixed                                                                                                                                                                                                                                                                                      -      -
+     1.83%  [.] _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine4kern2nq22quant_act_grouped_avx2.llvm.15071870311101924000                                                                                                                                                                                                                                                     -      -
+     1.66%  [.] _RNvXs0_NtNtNtCs7rPN1reWdmT_7apeiron6engine4step4colsNtB5_10AddColsCtxINtNtNtB9_5chart4task9ChunkTaskINtNtCsdTJjNnUQND0_5alloc3vec3VecxEE3run                                                                                                                                                                                                         -      -
+     1.60%  [.] _RINvNtCsk6kCoK1GpKd_4core3ptr9drop_glueNtNtNtCs7rPN1reWdmT_7apeiron6engine4step9StepErrorEBH_.llvm.16912580968856104911                                                                                                                                                                                                                              -      -
+
+### mutation on the exact final source
+== unmutated
+95679bce2b7bf4dbd766f517a0ad01b325304b4fdb466d8f0a2c924d85b42e12  src/engine/chart/ffn.rs
+== mutated
+243951a14611b490dd683cfc365d146e43dd63f06d640c9decef479e55281b47  src/engine/chart/ffn.rs
+== scalar test on mutated
+
+---- engine::chart::ffn::tests::q32_from_f32_bits_equals_to_q32 stdout ----
+
+thread 'engine::chart::ffn::tests::q32_from_f32_bits_equals_to_q32' (2683881) panicked at src/engine/chart/ffn.rs:2405:13:
+assertion `left == right` failed: bits 0xaf000000
+  left: Some(-1)
+ right: Some(1)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::chart::ffn::tests::q32_from_f32_bits_equals_to_q32
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 746 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+== avx2 test on mutated
+
+---- engine::chart::ffn::tests::swiglu_f32_avx2_matches_scalar stdout ----
+
+thread 'engine::chart::ffn::tests::swiglu_f32_avx2_matches_scalar' (2683895) panicked at src/engine/chart/ffn.rs:2550:17:
+assertion `left == right` failed: AVX2 kernel must equal scalar twin bit for bit
+  left: [-34230138880, 6772797952, 65987, 51563597824, -539844544, 1125530075136, -1081980485632, 120904032256]
+ right: [34230138880, 6772797952, 65987, 51563597824, 539844544, 1125530075136, 1081980485632, 120904032256]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::chart::ffn::tests::swiglu_f32_avx2_matches_scalar
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 746 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+== restored
+95679bce2b7bf4dbd766f517a0ad01b325304b4fdb466d8f0a2c924d85b42e12  src/engine/chart/ffn.rs
+== scalar test restored
+running 1 test
+test engine::chart::ffn::tests::q32_from_f32_bits_equals_to_q32 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 746 filtered out; finished in 0.00s
+
+== avx2 test restored
+running 1 test
+test engine::chart::ffn::tests::swiglu_f32_avx2_matches_scalar ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 746 filtered out; finished in 0.00s
+
+DONE
+
+### gate on the clean tree
+full lib suite:
+test gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl ... /home/ubuntu/Workspace/apeiron-nq-clean/src/gpu/spirv/coopmat_gemm.comp:9: error: '#extension' : extension not supported: GL_EXT_integer_dot_product
+failures:
+---- gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl stdout ----
+thread 'gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl' (2691834) panicked at src/gpu/nn/coopmat_gemm.rs:734:9:
+failures:
+    gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl
+test result: FAILED. 691 passed; 1 failed; 55 ignored; 0 measured; 0 filtered out; finished in 13.48s
+exhaustive sweep:
+test engine::chart::ffn::tests::q32_from_f32_bits_is_total ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 746 filtered out; finished in 19.23s
+clippy --locked --lib --tests: exit 0, zero chart/ffn.rs diagnostics
+warning: `apeiron` (lib) generated 8 warnings (run `cargo clippy --fix --lib -p apeiron -- ` to apply 4 suggestions)
+warning: `apeiron` (test "gpu_rope") generated 1 warning (run `cargo clippy --fix --test "gpu_rope" -p apeiron -- ` to apply 1 suggestion)
+warning: `apeiron` (test "gpu_norm_fwd") generated 1 warning (run `cargo clippy --fix --test "gpu_norm_fwd" -p apeiron -- ` to apply 1 suggestion)
+warning: `apeiron` (test "gpu_swiglu") generated 1 warning (run `cargo clippy --fix --test "gpu_swiglu" -p apeiron -- ` to apply 1 suggestion)
+warning: `apeiron` (test "gpu_train_step") generated 1 warning (run `cargo clippy --fix --test "gpu_train_step" -p apeiron -- ` to apply 1 suggestion)
+warning: `apeiron` (test "gpu_norm_backward") generated 1 warning (run `cargo clippy --fix --test "gpu_norm_backward" -p apeiron -- ` to apply 1 suggestion)
+warning: `apeiron` (lib test) generated 5 warnings (4 duplicates)
+fmt-exit=0
+
+### refused arms (shared-tree base: it carried the other lane's mul_q32 path)
+q32mask 33d30bab3b1392a76b20e8846e868142ccf8f5daec11f87e6e28e8e4bd6fef85
+brmask  6e114a52aea04884fa87eb9ee884791233e3576b8ffaba8de0746d3a07ffbc2a
+unroll  569a66b294cb718043ad108b40a0e2b63a59db25524c1f82b305f3c79f924a38
+q32mask   code_select_row8_avx2  610 instrs 35 cond
+brmask    code_select_row8_avx2  586 instrs 33 cond
+unroll    code_select_row8_avx2  2021 instrs 67 cond
+q32mask  code_select_row8_avx2  0xbee B  16 vpmaddubsw
+unroll   code_select_row8_avx2  0x2c10 B  272 vpmaddubsw
+- q32mask: cold 4.662 s  branches=34943631902  branch-misses=242364174  instructions=322004356960  cycles=132582859115
+- unroll:  cold 4.858 s  branches=33944803627  branch-misses=243342255  instructions=340618408539  cycles=138588902416
+- brmask:  cold 4.578 s  branches=35013708796  branch-misses=242907879  instructions=322074825900  cycles=130643659825
+brmask select exits:
+  1a4dbf: jne 1a4c20
+  1a4e51: jae 1a4e5a

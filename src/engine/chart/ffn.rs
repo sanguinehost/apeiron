@@ -287,6 +287,54 @@ pub(crate) fn swiglu_one_carrier(gate: i64, up: i64, carrier: Carrier) -> Result
     }
 }
 
+/// The branchless lane core of [`F32::to_q32`]: `(value, valid)` instead of `Option`, so eight
+/// lanes form one validity mask and the refusal costs one branch per eight lanes. The sign is a
+/// mask (`(mag ^ s) - s`), not the 50/50 `if neg` branch: that shape is the one
+/// `src/map/hashtrinity/face.rs`'s live-lane scan removes from a table drain, applied here to the
+/// eight Q32 decodes of one `SwiGLU` group. [`F32::to_q32`] remains the oracle and the refusal
+/// path; this is O(1) time and space (a fixed number of integer operations).
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::needless_bitwise_bool,
+    reason = "the `as i64` is two's-complement; `valid` admits only mag < 2^63, or mag == 2^63 \
+              negative, and shifts are clamped to 0..=63 before the `as u32`. The `&`/`|` are not \
+              lazy on purpose: a short-circuit is a branch, and fusing the two sign arms into a \
+              mask is the point; both operands are pure, so order is irrelevant"
+)]
+fn q32_from_f32_bits(bits: u32) -> (i64, bool) {
+    const SIGN: u32 = 0x8000_0000;
+    let e = (bits >> 23) & 0xff;
+    let frac = bits & 0x007f_ffff;
+    let normal = u32::from(e != 0);
+    let m = u64::from(frac | (normal << 23));
+    // `ee` is 1 for a subnormal and `e` otherwise; k = ee - 118 is the left shift, so -k is the
+    // right shift. The two arms are selected by a mask rather than a branch.
+    let ee = e | u32::from(e == 0);
+    let k = i64::from(ee) - 118;
+    let sh = -k;
+    let left = m.wrapping_shl(k.clamp(0, 63) as u32);
+    let round = (1u64 << ((sh - 1) & 63)) & u64::from(sh > 0).wrapping_neg();
+    // A right shift past 24 bits is below the Q32.32 grid and must read zero, not the wrap of a
+    // clamped 64-bit shift; the mask states that for every sh in 25..=117.
+    let right = m.wrapping_add(round).wrapping_shr(sh.clamp(0, 63) as u32)
+        & u64::from(sh <= 24).wrapping_neg();
+    let right_mask = u64::from(k < 0).wrapping_neg();
+    let mag = (left & !right_mask) | (right & right_mask);
+    let neg = (bits & SIGN) != 0;
+    let neg_mask = u64::from(neg).wrapping_neg();
+    let value = (mag ^ neg_mask).wrapping_sub(neg_mask) as i64;
+    let lim = 1u64 << 63;
+    // A negative magnitude of exactly 2^63 is i64::MIN; a positive one is refused, as is any
+    // value whose shift leaves the u64 mantissa (k > 40) or whose exponent is NaN/infinity.
+    let mag_ok = (neg & (mag <= lim)) | (!neg & (mag < lim));
+    let valid = (e != 0xff) & (k <= 40) & mag_ok;
+    (value, valid)
+}
+
 /// AVX2 implementation of 8-lane `SwiGLU` in binary32.
 /// Matches `swiglu_one_f32_scalar` bit for bit.
 #[cfg(target_arch = "x86_64")]
@@ -311,6 +359,19 @@ pub(crate) unsafe fn swiglu_f32_avx2_8_into(
     let vp = _mm256_mul_ps(vs, vu);
     let mut prod_f = [F32::ZERO; 8];
     _mm256_storeu_ps(prod_f.as_mut_ptr().cast::<f32>(), vp);
+    let mut vals = [0i64; 8];
+    let mut invalid = 0u8;
+    let mut l = 0usize;
+    while l < 8 {
+        let (v, valid) = q32_from_f32_bits(prod_f[l].to_bits());
+        vals[l] = v;
+        invalid |= u8::from(!valid) << l;
+        l += 1;
+    }
+    if invalid == 0 {
+        *out = vals;
+        return Ok(());
+    }
     let mut l = 0usize;
     while l < 8 {
         match f32_to_q32_checked(prod_f[l]) {
@@ -2332,6 +2393,126 @@ mod tests {
                 "bits {ranged:#010x}"
             );
             i += 1;
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn q32_from_f32_bits_equals_to_q32() {
+        let check = |bits: u32| {
+            let oracle = f32_to_q32_checked(F32::from_bits(bits)).ok();
+            let (value, valid) = q32_from_f32_bits(bits);
+            assert_eq!(
+                oracle,
+                if valid { Some(value) } else { None },
+                "bits {bits:#010x}"
+            );
+        };
+        // Every exponent (zero, subnormal, every normal, NaN/infinity); the mantissas cover the
+        // hidden bit, the rounding boundary, the extremes and one past the i64 boundary.
+        let mut e = 0u32;
+        while e < 256 {
+            for frac in [0u32, 1, 2, 0x3f_ffff, 0x40_0000, 0x7f_fffe, 0x7f_ffff] {
+                let b = (e << 23) | frac;
+                check(b);
+                check(b | 0x8000_0000);
+            }
+            e += 1;
+        }
+        let mut seed = 0x51f0_0d5e_ed00_0002u64;
+        let mut i = 0usize;
+        while i < 100_000 {
+            check((lcg(&mut seed) >> 32) as u32);
+            i += 1;
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    #[ignore = "exhaustive 2^32 sweep; run in release on the box"]
+    fn q32_from_f32_bits_is_total() {
+        let mut bits = 0u32;
+        loop {
+            let oracle = f32_to_q32_checked(F32::from_bits(bits)).ok();
+            let (value, valid) = q32_from_f32_bits(bits);
+            assert_eq!(
+                oracle,
+                if valid { Some(value) } else { None },
+                "bits {bits:#010x}"
+            );
+            if bits == u32::MAX {
+                break;
+            }
+            bits += 1;
+        }
+    }
+
+    #[test]
+    fn swiglu_f32_avx2_refuses_like_scalar() {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if !std::is_x86_feature_detected!("avx2") {
+                return;
+            }
+            let one = 1i64 << 32;
+            // A product of two Q32.32 values near 2^31 leaves Q32.32; `to_q32` refuses it.
+            let big = i64::MAX;
+            for fail in [1usize, 7] {
+                let mut gate = [one; 8];
+                let mut up = [one; 8];
+                gate[fail] = big;
+                up[fail] = big;
+                let mut want = Ok(());
+                let mut oracle = [0i64; 8];
+                for l in 0..8 {
+                    match swiglu_one_f32_scalar(gate[l], up[l]) {
+                        Ok(v) => oracle[l] = v,
+                        Err(e) => {
+                            want = Err((l, e));
+                            break;
+                        }
+                    }
+                }
+                let mut got = [0i64; 8];
+                let res = unsafe { swiglu_f32_avx2_8_into(&gate, &up, &mut got) };
+                assert_eq!(res, want, "refusal lane {fail}");
+                if let Err((lane, _)) = want {
+                    assert_eq!(got[..lane], oracle[..lane], "prefix before lane {fail}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn swiglu_slice_refuses_at_the_same_lane() {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if !std::is_x86_feature_detected!("avx2") {
+                return;
+            }
+            let one = 1i64 << 32;
+            let big = i64::MAX;
+            let mut gate = [one; 16];
+            let mut up = [one; 16];
+            gate[10] = big;
+            up[10] = big;
+            let mut want = Ok(());
+            let mut oracle = [0i64; 16];
+            for l in 0..16 {
+                match swiglu_one_f32_scalar(gate[l], up[l]) {
+                    Ok(v) => oracle[l] = v,
+                    Err(e) => {
+                        want = Err((l, e));
+                        break;
+                    }
+                }
+            }
+            let mut got = [0i64; 16];
+            let res = swiglu_slice(&gate, &up, &mut got, Carrier::F32);
+            assert_eq!(res, want, "slice refusal lane");
+            if let Err((lane, _)) = want {
+                assert_eq!(got[..lane], oracle[..lane], "slice prefix before the lane");
+            }
         }
     }
 
