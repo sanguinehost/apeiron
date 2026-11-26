@@ -1,0 +1,573 @@
+# nq: one 1,826-column prefill pass against two 913-column passes — raw lines
+# Host: OVH box ubuntu@139.99.223.161 (Sydney); 8 vCPU EPYC Milan, 8 sockets x 1 core x 1
+#       thread, 31.3 GiB, 256 MiB L3, AVX2+FMA, no AVX-512, no VNNI, no GPU; 8 participants.
+# HEAD 1a4df32f + the 2,048 default, the pool.wait histogram and the reset integration test.
+# Binary a63b7220 from the 09:46:29Z gate rebuild; the 09:52 invocation recompiled nothing.
+# Traced window: 09:52:20-09:55:13Z. Untraced window: 09:56:39-09:57:11Z.
+# 3,000-column pair: 09:58:09-09:59:03Z.
+# Every job under ~/bin/adg run --; prefix_solve --len 1827 --differ 0 --decode 0 --mb 440.
+
+## a2b: build, provenance, script output
+build start 2026-11-26T09:52:20Z  09:52:20 up 2 days, 55 min,  1 user,  load average: 0.93, 2.68, 2.87
+warning: unused import: `place::pin_beside_worker`
+  --> src/engine/chart/pool.rs:70:16
+   |
+70 | pub(crate) use place::pin_beside_worker;
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `super::super::*`
+  --> src/gpu/nn/fwd/lin.rs:19:5
+   |
+19 | use super::super::*;
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `lin::*`
+  --> src/gpu/nn/fwd/mod.rs:11:9
+   |
+11 | pub use lin::*;
+   |         ^^^^^^
+
+warning: unused import: `INV_LIMBS`
+ --> src/learn/nanoquant/step.rs:4:72
+  |
+4 | use super::{normalized_plane, rank1, x_update, NqConfig, NqError, Rng, INV_LIMBS};
+  |                                                                        ^^^^^^^^^
+
+warning: struct `Inline` is never constructed
+   --> src/engine/chart/pool.rs:830:19
+    |
+830 | pub(crate) struct Inline(bool);
+    |                   ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `inline` is never used
+   --> src/engine/chart/pool.rs:833:15
+    |
+833 | pub(crate) fn inline() -> Inline {
+    |               ^^^^^^
+
+warning: function `pin_beside_worker` is never used
+  --> src/engine/chart/pool/place.rs:23:15
+   |
+23 | pub(crate) fn pin_beside_worker() {
+   |               ^^^^^^^^^^^^^^^^^
+
+warning: function `beside_worker` is never used
+  --> src/engine/chart/pool/place.rs:45:4
+   |
+45 | fn beside_worker(p_cpus: &[usize], siblings: impl Fn(usize) -> Option<String>) -> Option<usize> {
+   |    ^^^^^^^^^^^^^
+
+warning: `apeiron` (lib) generated 8 warnings (run `cargo fix --lib -p apeiron` to apply 4 suggestions)
+    Finished `release` profile [optimized] target(s) in 0.02s
+a63b72208f1936758b9a44be999665f2ee60bde2adaf68623a1560a65015599d  /home/ubuntu/bin/prefix_solve.area2b
+start 2026-11-26T09:52:20Z  09:52:20 up 2 days, 55 min,  1 user,  load average: 0.93, 2.68, 2.87
+--- l1 | qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        462.93 ± 0.00 |
+round 1 2026-11-26T09:52:28Z
+--- w8d1 cold   hit     0  prefill    4.266 s ( 428.26 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- w8c1 cold   hit     0  prefill    4.790 s ( 381.44 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- u8d1 cold   hit     0  prefill    4.267 s ( 428.18 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- w4d1 cold   hit     0  prefill    6.893 s ( 265.05 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- w4c1 cold   hit     0  prefill    7.261 s ( 251.62 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- l3d1 cold   hit     0  prefill    7.852 s ( 382.05 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+--- l3c1 cold   hit     0  prefill    8.189 s ( 366.32 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+--- l2 | qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        463.37 ± 0.00 |
+round 2 2026-11-26T09:53:26Z
+--- w8c2 cold   hit     0  prefill    4.788 s ( 381.59 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- w8d2 cold   hit     0  prefill    4.299 s ( 425.02 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- u8d2 cold   hit     0  prefill    4.232 s ( 431.70 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- w4c2 cold   hit     0  prefill    7.221 s ( 253.01 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- w4d2 cold   hit     0  prefill    6.839 s ( 267.13 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- l3c2 cold   hit     0  prefill    7.959 s ( 376.92 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+--- l3d2 cold   hit     0  prefill    7.767 s ( 386.25 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+--- l3 | qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        462.55 ± 0.00 |
+round 3 2026-11-26T09:54:24Z
+--- w8d3 cold   hit     0  prefill    4.249 s ( 429.94 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- w8c3 cold   hit     0  prefill    4.716 s ( 387.43 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- u8d3 cold   hit     0  prefill    4.278 s ( 427.09 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- w4d3 cold   hit     0  prefill    6.876 s ( 265.71 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- w4c3 cold   hit     0  prefill    7.237 s ( 252.45 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- l3d3 cold   hit     0  prefill    8.117 s ( 369.61 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+--- l3c3 cold   hit     0  prefill    8.148 s ( 368.18 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+end 2026-11-26T09:55:13Z  09:55:13 up 2 days, 57 min,  2 users,  load average: 5.49, 4.22, 3.45
+
+## a2c: untraced pair, script output
+agent-guard: available=30289MiB cap=16384MiB jobs=8
+start 2026-11-26T09:56:39Z  09:56:39 up 2 days, 59 min,  1 user,  load average: 1.40, 3.21, 3.16
+a63b72208f1936758b9a44be999665f2ee60bde2adaf68623a1560a65015599d  /home/ubuntu/bin/prefix_solve.area2b
+round 1 2026-11-26T09:56:39Z
+--- d1 cold   hit     0  prefill    4.264 s ( 428.46 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- c1 cold   hit     0  prefill    4.810 s ( 379.80 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+round 2 2026-11-26T09:56:50Z
+--- c2 cold   hit     0  prefill    4.796 s ( 380.97 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- d2 cold   hit     0  prefill    4.265 s ( 428.32 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+round 3 2026-11-26T09:57:01Z
+--- d3 cold   hit     0  prefill    4.327 s ( 422.23 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- c3 cold   hit     0  prefill    4.799 s ( 380.74 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+end 2026-11-26T09:57:11Z  09:57:11 up 2 days, 59 min,  1 user,  load average: 3.21, 3.42, 3.23
+
+## a2l3: the 3,000-column pair alone, script output
+agent-guard: available=30264MiB cap=16384MiB jobs=8
+start 2026-11-26T09:58:09Z  09:58:09 up 2 days,  1:00,  1 user,  load average: 1.28, 2.84, 3.04
+a63b72208f1936758b9a44be999665f2ee60bde2adaf68623a1560a65015599d  /home/ubuntu/bin/prefix_solve.area2b
+round 1 2026-11-26T09:58:09Z
+--- c1 cold   hit     0  prefill    8.160 s ( 367.64 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+--- d1 cold   hit     0  prefill    7.859 s ( 381.74 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+round 2 2026-11-26T09:58:27Z
+--- d2 cold   hit     0  prefill    7.910 s ( 379.26 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+--- c2 cold   hit     0  prefill    8.107 s ( 370.06 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+round 3 2026-11-26T09:58:45Z
+--- c3 cold   hit     0  prefill    8.056 s ( 372.39 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+--- d3 cold   hit     0  prefill    7.737 s ( 387.73 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+end 2026-11-26T09:59:03Z  09:59:03 up 2 days,  1:01,  2 users,  load average: 4.88, 3.60, 3.29
+
+## Cold blocks (phase lines are the cold turn; the block after the cold line is the
+## generated-token step and is not used)
+
+### w8d1
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+  embed             6.107 ms    0.1%  calls 2
+  norm            131.125 ms    3.1%  calls 114
+  residual         59.553 ms    1.4%  calls 112
+  attn.proj_in    583.554 ms   13.7%  calls 56
+  attn.core      1425.149 ms   33.4%  calls 56
+  attn.proj_out    241.483 ms    5.7%  calls 56
+  ffn            1433.162 ms   33.6%  calls 56
+  head              6.752 ms    0.2%  calls 1
+  pass           3912.887 ms   91.7%  calls 2
+  pool.wait       180.235 ms    4.2%  calls 902
+  pool.wait n=5-8     254 calls  p50 < 262144 ns  p95 < 2097152 ns  max 5136520 ns
+  pool.wait n=9-16    116 calls  p50 < 8192 ns  p95 < 1048576 ns  max 723375 ns
+  pool.wait n=17-32   448 calls  p50 < 8192 ns  p95 < 524288 ns  max 936032 ns
+  pool.wait n=65+      84 calls  p50 < 262144 ns  p95 < 2097152 ns  max 1721667 ns
+cold   hit     0  prefill    4.266 s ( 428.26 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+	Maximum resident set size (kbytes): 1429288
+
+### w8c1
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+  embed            10.056 ms    0.2%  calls 3
+  norm            178.252 ms    3.7%  calls 171
+  residual        132.708 ms    2.8%  calls 168
+  attn.proj_in    613.776 ms   12.8%  calls 84
+  attn.core      1535.336 ms   32.1%  calls 84
+  attn.proj_out    250.484 ms    5.2%  calls 84
+  ffn            1639.824 ms   34.2%  calls 84
+  head              6.671 ms    0.1%  calls 1
+  pass           4405.801 ms   92.0%  calls 3
+  pool.wait       318.124 ms    6.6%  calls 1295
+  pool.wait n=5-8     450 calls  p50 < 131072 ns  p95 < 1048576 ns  max 2715467 ns
+  pool.wait n=9-16    173 calls  p50 < 524288 ns  p95 < 1048576 ns  max 2086879 ns
+  pool.wait n=17-32   504 calls  p50 < 4096 ns  p95 < 1048576 ns  max 964482 ns
+  pool.wait n=65+     168 calls  p50 < 524288 ns  p95 < 1048576 ns  max 2037370 ns
+cold   hit     0  prefill    4.790 s ( 381.44 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+	Maximum resident set size (kbytes): 1362668
+
+### u8d1
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    4.267 s ( 428.18 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+### w4d1
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    6.893 s ( 265.05 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+### w4c1
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    7.261 s ( 251.62 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+### l3d1
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 3000 differ 0 decode 0 cache 700 MiB, 689963008 B needed
+cold   hit     0  prefill    7.852 s ( 382.05 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+
+### l3c1
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 3000 differ 0 decode 0 cache 700 MiB, 689963008 B needed
+cold   hit     0  prefill    8.189 s ( 366.32 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+
+### w8d2
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+  embed             6.117 ms    0.1%  calls 2
+  norm            138.128 ms    3.2%  calls 114
+  residual         73.103 ms    1.7%  calls 112
+  attn.proj_in    586.573 ms   13.6%  calls 56
+  attn.core      1410.389 ms   32.8%  calls 56
+  attn.proj_out    240.105 ms    5.6%  calls 56
+  ffn            1460.656 ms   34.0%  calls 56
+  head              5.483 ms    0.1%  calls 1
+  pass           3954.119 ms   92.0%  calls 2
+  pool.wait       254.369 ms    5.9%  calls 902
+  pool.wait n=5-8     254 calls  p50 < 262144 ns  p95 < 2097152 ns  max 4999472 ns
+  pool.wait n=9-16    116 calls  p50 < 8192 ns  p95 < 1048576 ns  max 3060521 ns
+  pool.wait n=17-32   448 calls  p50 < 4096 ns  p95 < 1048576 ns  max 1327324 ns
+  pool.wait n=65+      84 calls  p50 < 524288 ns  p95 < 2097152 ns  max 3871144 ns
+cold   hit     0  prefill    4.299 s ( 425.02 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+	Maximum resident set size (kbytes): 1429424
+
+### w8c2
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+  embed            10.063 ms    0.2%  calls 3
+  norm            162.899 ms    3.4%  calls 171
+  residual        131.020 ms    2.7%  calls 168
+  attn.proj_in    612.543 ms   12.8%  calls 84
+  attn.core      1525.038 ms   31.9%  calls 84
+  attn.proj_out    250.513 ms    5.2%  calls 84
+  ffn            1670.048 ms   34.9%  calls 84
+  head              5.396 ms    0.1%  calls 1
+  pass           4406.554 ms   92.0%  calls 3
+  pool.wait       352.169 ms    7.4%  calls 1295
+  pool.wait n=5-8     450 calls  p50 < 131072 ns  p95 < 1048576 ns  max 13995906 ns
+  pool.wait n=9-16    173 calls  p50 < 524288 ns  p95 < 1048576 ns  max 900113 ns
+  pool.wait n=17-32   504 calls  p50 < 4096 ns  p95 < 1048576 ns  max 853093 ns
+  pool.wait n=65+     168 calls  p50 < 1048576 ns  p95 < 2097152 ns  max 29431193 ns
+cold   hit     0  prefill    4.788 s ( 381.59 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+	Maximum resident set size (kbytes): 1362544
+
+### u8d2
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    4.232 s ( 431.70 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+### w4d2
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    6.839 s ( 267.13 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+### w4c2
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    7.221 s ( 253.01 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+### l3d2
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 3000 differ 0 decode 0 cache 700 MiB, 689963008 B needed
+cold   hit     0  prefill    7.767 s ( 386.25 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+
+### l3c2
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 3000 differ 0 decode 0 cache 700 MiB, 689963008 B needed
+cold   hit     0  prefill    7.959 s ( 376.92 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+
+### w8d3
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+  embed             6.157 ms    0.1%  calls 2
+  norm            130.178 ms    3.1%  calls 114
+  residual         60.623 ms    1.4%  calls 112
+  attn.proj_in    585.300 ms   13.8%  calls 56
+  attn.core      1427.727 ms   33.6%  calls 56
+  attn.proj_out    237.940 ms    5.6%  calls 56
+  ffn            1428.564 ms   33.6%  calls 56
+  head              6.599 ms    0.2%  calls 1
+  pass           3908.890 ms   92.0%  calls 2
+  pool.wait       197.393 ms    4.6%  calls 902
+  pool.wait n=5-8     254 calls  p50 < 262144 ns  p95 < 2097152 ns  max 5748006 ns
+  pool.wait n=9-16    116 calls  p50 < 8192 ns  p95 < 524288 ns  max 1388392 ns
+  pool.wait n=17-32   448 calls  p50 < 4096 ns  p95 < 1048576 ns  max 1027410 ns
+  pool.wait n=65+      84 calls  p50 < 262144 ns  p95 < 2097152 ns  max 2425532 ns
+cold   hit     0  prefill    4.249 s ( 429.94 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+	Maximum resident set size (kbytes): 1429544
+
+### w8c3
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+  embed             9.874 ms    0.2%  calls 3
+  norm            184.972 ms    3.9%  calls 171
+  residual        133.637 ms    2.8%  calls 168
+  attn.proj_in    617.410 ms   13.1%  calls 84
+  attn.core      1514.670 ms   32.1%  calls 84
+  attn.proj_out    245.744 ms    5.2%  calls 84
+  ffn            1600.467 ms   33.9%  calls 84
+  head              5.554 ms    0.1%  calls 1
+  pass           4351.997 ms   92.3%  calls 3
+  pool.wait       323.310 ms    6.9%  calls 1295
+  pool.wait n=5-8     450 calls  p50 < 131072 ns  p95 < 1048576 ns  max 2539690 ns
+  pool.wait n=9-16    173 calls  p50 < 524288 ns  p95 < 1048576 ns  max 1930462 ns
+  pool.wait n=17-32   504 calls  p50 < 4096 ns  p95 < 1048576 ns  max 780885 ns
+  pool.wait n=65+     168 calls  p50 < 524288 ns  p95 < 1048576 ns  max 8793716 ns
+cold   hit     0  prefill    4.716 s ( 387.43 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+	Maximum resident set size (kbytes): 1362536
+
+### u8d3
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    4.278 s ( 427.09 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+### w4d3
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    6.876 s ( 265.71 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+### w4c3
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    7.237 s ( 252.45 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+### l3d3
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 3000 differ 0 decode 0 cache 700 MiB, 689963008 B needed
+cold   hit     0  prefill    8.117 s ( 369.61 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+
+### l3c3
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 3000 differ 0 decode 0 cache 700 MiB, 689963008 B needed
+cold   hit     0  prefill    8.148 s ( 368.18 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 646
+
+## llama-bench pp1827
+### l1
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        462.93 ± 0.00 |
+### l2
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        463.37 ± 0.00 |
+### l3
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        462.55 ± 0.00 |
+
+## Derived tables (the receipt's arithmetic, from the blocks above)
+== wall
+split    runs 4.790 4.788 4.716  mean 4.765  median 4.788  spread 1.57%
+default  runs 4.266 4.299 4.249  mean 4.271  median 4.266  spread 1.18%
+split/default paired 1.1228 1.1137 1.1099  mean 1.1155  median 1.1137  ratio_of_means 1.1155  ratio_of_medians 1.1224
+
+== leaves (mean of 3)
+| leaf | split 2x913 | default 1 pass | delta |
+|---|---:|---:|---:|
+| `embed` | 9.998 | 6.127 | -3.871 |
+| `norm` | 175.374 | 133.144 | -42.231 |
+| `residual` | 132.455 | 64.426 | -68.029 |
+| `attn.proj_in` | 614.576 | 585.142 | -29.434 |
+| `attn.core` | 1,525.015 | 1,421.088 | -103.926 |
+| `attn.proj_out` | 248.914 | 239.843 | -9.071 |
+| `ffn` | 1,636.780 | 1,440.794 | -195.986 |
+| `pass` | 4,388.117 | 3,925.299 | -462.819 |
+| `pool.wait` | 331.201 | 210.666 | -120.535 |
+| leaves, sum | 4,343.111 | 3,890.564 | -452.547 |
+| untraced (`pass - leaves`) | 45.006 | 34.734 | -10.272 |
+| `head` (outside `pass`) | 5.874 | 6.278 | +0.404 |
+| `pass` | 4,388.117 | 3,925.299 | -462.819 |
+
+== pass - wait per run
+split    4087.677 4054.385 4028.687  mean 4056.916  median 4054.385
+default  3732.652 3699.750 3711.497  mean 3714.633  median 3711.497
+
+== calls
+split pass calls [3, 3, 3] wait calls [1295, 1295, 1295]
+default pass calls [2, 2, 2] wait calls [902, 902, 902]
+
+== wait classes
+split
+  w[5-8]: calls [450, 450, 450]  p50 131072 ns  p95 1048576 ns  max 2715467 ns
+  w[9-16]: calls [173, 173, 173]  p50 524288 ns  p95 1048576 ns  max 2086879 ns
+  w[17-32]: calls [504, 504, 504]  p50 4096 ns  p95 1048576 ns  max 964482 ns
+  w[65+]: calls [168, 168, 168]  p50 524288 ns  p95 1048576 ns  max 2037370 ns
+default
+  w[5-8]: calls [254, 254, 254]  p50 262144 ns  p95 2097152 ns  max 5136520 ns
+  w[9-16]: calls [116, 116, 116]  p50 8192 ns  p95 1048576 ns  max 723375 ns
+  w[17-32]: calls [448, 448, 448]  p50 8192 ns  p95 524288 ns  max 936032 ns
+  w[65+]: calls [84, 84, 84]  p50 262144 ns  p95 2097152 ns  max 1721667 ns
+
+== RSS
+split    1,362,668 1,362,544 1,362,536  median 1,362,544 KiB = 1.299 GiB
+default  1,429,288 1,429,424 1,429,544  median 1,429,424 KiB = 1.363 GiB
+delta +66,880 KiB
+
+== trace overhead
+r1: traced 4.266 untraced 4.267 delta -0.001 (-0.02%)
+r2: traced 4.299 untraced 4.232 delta +0.067 (+1.58%)
+r3: traced 4.249 untraced 4.278 delta -0.029 (-0.68%)
+
+## 3,000-column pair, derived (from the a2l3 script lines above)
+c 8.160 8.107 8.056 s (mean 8.108); d 7.859 7.910 7.737 s (mean 7.835)
+paired c/d: 1.038 1.025 1.041; mean 1.035, median 1.038
+
+## Untraced a2c walls
+default: 4.264 4.265 4.327 s;  1024: 4.810 4.796 4.799 s
+paired 1024/default: 1.1280 1.1245 1.1091; mean 1.1205, median 1.1245
+pooled six: mean 1.1180, median 1.1183, range 1.1091-1.1280
+RSS: 1024 1,362,536-1,362,668 KiB; 2048 1,429,288-1,429,544 KiB; delta +66,880 KiB
+
+## Gate: cargo results (full output /tmp/opencode/area2-gate-final5.log)
+== rebuild check 2026-11-26T09:46:29Z
+EXIT_BUILD=0
+== fmt
+EXIT_FMT=0
+== clippy --all-features
+EXIT_CLIPPY=0
+== test --workspace
+test result: FAILED. 694 passed; 1 failed; 55 ignored; 0 measured; 0 filtered out; finished in 125.18s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.38s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.11s
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+test result: ok     Running tests/hashdos_count.rs (target/debug/deps/hashdos_count-18715ea348d33884)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 5 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 22.19s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 2 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 11 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.64s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 11 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 10 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.23s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 7 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 22.31s
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.90s
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.39s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.06s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 66.94s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s
+test result: ok. 59 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.74s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 7 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.54s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EXIT_TEST=101
+== check-claims
+== book-check
+== end 2026-11-26T09:51:33Z
+
+## Gate: documentation checks on the final tree (/tmp/opencode/area2-doc-final6.log)
+== check-claims
+EXIT_CLAIMS=0
+== book-check
+EXIT_BOOK=0
+== mdbook lib
+EXIT_MDLIB=0
+== mdbook build
+EXIT_MDBUILD=0
+== mdbook test
+EXIT_MDTEST=0
+== end 2026-11-26T09:59:37Z
+
+## Histogram tests (lib and integration)
+test engine::trace::tests::a_pool_wait_span_reaches_the_histogram ... ok
+test engine::trace::tests::dispatch_sizes_class_by_width ... ok
+test engine::trace::tests::waits_bucket_by_floor_log2 ... ok
+test reset_zeroes_the_wait_table ... ok
+     Running tests/trace_wait_reset.rs (target/debug/deps/trace_wait_reset-285d4a96a68bd91d)
+
+## Failing test blocks
+---- gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl stdout ----
+
+thread 'gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl' (2889703) panicked at src/gpu/nn/coopmat_gemm.rs:734:9:
+glslc failed: exit status: 1
+
+
+failures:
+# glslc stderr for that failure, from the full gate log:
+test gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl ... /home/ubuntu/Workspace/apeiron-nq-area2/src/gpu/spirv/coopmat_gemm.comp:9: error: '#extension' : extension not supported: GL_EXT_integer_dot_product
+/home/ubuntu/Workspace/apeiron-nq-area2/src/gpu/spirv/coopmat_gemm.comp:250: error: 'dotPacked4x8EXT' : no matching overloaded function found
+/home/ubuntu/Workspace/apeiron-nq-area2/src/gpu/spirv/coopmat_gemm.comp:250: error: 'return' : type does not match, or is not convertible to, the function's return type
+---- attn_coopmat_spirv_is_the_glsl stdout ----
+
+thread 'attn_coopmat_spirv_is_the_glsl' (2900557) panicked at tests/spirv_storage_race.rs:625:5:
+glslc failed: signal: 11 (SIGSEGV) (core dumped)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- splitk_reduce_spirv_is_the_glsl stdout ----
+
+thread 'splitk_reduce_spirv_is_the_glsl' (2900567) panicked at tests/spirv_storage_race.rs:651:5:
+src/gpu/spirv/splitk_reduce.spv is stale: recompile with glslc ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute"]
+
+
+failures:
+---- splitk_reduce_spirv_is_the_glsl stdout ----
+
+thread 'splitk_reduce_spirv_is_the_glsl' (2900567) panicked at tests/spirv_storage_race.rs:651:5:
+src/gpu/spirv/splitk_reduce.spv is stale: recompile with glslc ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute"]
+
+
+failures:

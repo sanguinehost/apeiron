@@ -119,11 +119,12 @@ isolated. A shared tile counter was measured and lost at eight (6.74–6.92 s ag
 while winning at one, so the band stays static
 (`bench/cpu/1795601655-prefill-onedispatch.md`; the band's per-column equality is gated by
 `cargo test --lib --locked kern::nq` and the pooled path's end-to-end equality by
-`cargo test --lib --locked engine::step`). The residual add stays serial: a band-parallel version
-bought 0.335 s at eight in the same window, but it changes `step::cols::add_cols`, whose extracted
-body is refined in `proof/corpus/Serve/Block/Cols2.lean`: the loop stops at the first refusing
-column and leaves the rest untouched — a post-state a pool of bands cannot
-reproduce. Each column's add is column-local, so the serial loop is the whole of that stage.
+`cargo test --lib --locked engine::step`). The residual add is serial within a column: a
+band-parallel version bought 0.335 s at eight in the same window, but it splits
+`step::cols::add_cols`, whose extracted body is refined in
+`proof/corpus/Serve/Block/Cols2.lean`: the loop stops at the first refusing column and leaves the
+rest untouched — a post-state a pool of bands within a column cannot reproduce. Each column's add is
+column-local, so the pooled path splits columns, never a column's add.
 
 Under `Q8` the pooled reader also folds a block of factor rows against one read of the column's
 code and shift planes. `APEIRON_NQ_BLOCK` selects the block: `0` and `1` are the per-row loop, the
@@ -160,15 +161,24 @@ participant and 130.8 → 142.4 at eight, and the cold wall at block 256 moves 1
 (`bench/cpu/1795573862-prefill-block-and-group.md`).
 
 The prefill block is the number of activation columns one pass carries; `APEIRON_PREFILL_COLS`
-overrides it. The default is **1024** columns at four or more participants and **256** below. On the
+overrides it. The default is **2048** columns at four or more participants and **256** below. On the
 box, 0.6B, cold 1,827 positions, 1024/256 is 1.17× at eight participants and 1.15× at four, and 0.97×
 at one; at four the gain appears only with the hoist (1.007× before it, and no width-4 phase split
-was run), and the threshold is the lowest measured winning width, not a located crossover. Widths
-2–3 and the laptop are unmeasured. The gain is per-block work — the serial residual add, attention's
-per-pass setup, the norm dispatch and the pool dispatch — measured in the width-8 phase split; `ffn`,
-the dominant phase, is flat across the two block widths. Peak RSS at 1,827 positions at width 8 is
-1.234 GiB, +13.4 MiB for the wider block
-(`bench/cpu/1795573862-prefill-block-and-group.md`).
+was run), and the threshold is the lowest measured winning width, not a located crossover. One
+1,826-column pass is 1.12× of the two 913-column passes the 1,024 default produces (mean of six
+paired rounds in two windows, 1.109–1.128×, every round winning); the removed pass costs 462.8 ms of
+pass wall, 393 of 1,295 dispatches and 120.5 ms of caller wait, while `attn.core` moves −103.9 ms
+with its score and causal-softmax counts split-invariant
+(`bench/cpu/1795683267-nq-prefill-one-pass.md`). Width 4 is 1.054× and 3,000 columns 1.035×
+(untraced); widths 2–3, 5–7 at 2,048, prompts past 3,000 columns, the 7B and the laptop are
+unmeasured. The gain is per-block work — the pooled residual add, attention's per-pass setup, the
+norm dispatch and the pool dispatch — measured in the width-8 phase split; `ffn`, the dominant
+phase, is flat across 1024/256 (`1795573862`), while removing the 913-column pass drops it by
+196.0 ms (`1795683267`). Median peak RSS over three runs at 1,827 positions at width 8 is
+1,362,544 KiB = 1.299 GiB at
+block 1,024 and 1,429,424 KiB = 1.363 GiB at 2,048 (+65.3 MiB, +4.9%,
+`bench/cpu/1795683267-nq-prefill-one-pass.md`); the earlier 1,294,188 KiB row used a different
+harness invocation (`1795573862`).
 
 `project_q8` quantises the stage activation with the same chart `matmat_q8act` uses: `S_b = 2^e_b`,
 the smallest power of two with `127·S_b ≥ absmax_b`, one code per element. For a sign plane the

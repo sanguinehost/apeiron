@@ -100,6 +100,94 @@ static COUNTERS: Counters = Counters {
     macs: [ZERO; N],
 };
 
+/// Wait-histogram buckets: bucket `i` counts `Phase::PoolWait` spans in
+/// `[2^i, 2^(i+1))` nanoseconds. Forty-eight buckets cover 1 ns to about 6.5 days.
+const WAIT_BUCKETS: usize = 48;
+
+/// The dispatch-size classes the wait is split by: `1`, `2`, `3-4`, `5-8`, `9-16`,
+/// `17-32`, `33-64`, `65+` tasks. The `PoolWait` span carries the dispatch's task count in
+/// its `cols`, so the class is the pool width the wait was paid on.
+const WAIT_CLASSES: usize = 8;
+
+/// The labels of [`WAIT_CLASSES`], in class order.
+pub const WAIT_CLASS_LABELS: [&str; WAIT_CLASSES] =
+    ["1", "2", "3-4", "5-8", "9-16", "17-32", "33-64", "65+"];
+
+#[allow(
+    clippy::declare_interior_mutable_const,
+    reason = "array-repeat initializer for the wait-histogram table"
+)]
+const ZERO_WAIT: AtomicU64 = AtomicU64::new(0);
+
+/// One class's zeroed bucket row; a const item, so the outer repeat below may copy a non-`Copy`
+/// array.
+#[allow(
+    clippy::declare_interior_mutable_const,
+    reason = "array-repeat initializer for the wait-histogram table"
+)]
+const ZERO_ROW: [AtomicU64; WAIT_BUCKETS] = [ZERO_WAIT; WAIT_BUCKETS];
+
+static WAIT_HIST: [[AtomicU64; WAIT_BUCKETS]; WAIT_CLASSES] = [ZERO_ROW; WAIT_CLASSES];
+static WAIT_MAX_NS: [AtomicU64; WAIT_CLASSES] = [ZERO_WAIT; WAIT_CLASSES];
+
+/// The per-dispatch `Phase::PoolWait` distribution, as power-of-two buckets by dispatch size.
+///
+/// `buckets[c][i]` counts class-`c` waits in `[2^i, 2^(i+1))` nanoseconds; `max_ns[c]` is the
+/// longest class-`c` wait. The total over a class is the same count as the `pool.wait` phase's
+/// `calls` for the dispatches of that size, so a distribution and a total are read from one
+/// reset epoch.
+#[derive(Clone, Copy, Debug)]
+pub struct WaitHistogram {
+    /// Counts per dispatch-size class and power-of-two nanosecond bucket.
+    pub buckets: [[u64; WAIT_BUCKETS]; WAIT_CLASSES],
+    /// The longest observed wait per class.
+    pub max_ns: [u64; WAIT_CLASSES],
+}
+
+/// The `PoolWait` histogram since the last [`reset`].
+#[must_use]
+pub fn pool_wait_histogram() -> WaitHistogram {
+    let mut buckets = [[0u64; WAIT_BUCKETS]; WAIT_CLASSES];
+    let mut max_ns = [0u64; WAIT_CLASSES];
+    for c in 0..WAIT_CLASSES {
+        for (dst, src) in buckets[c].iter_mut().zip(WAIT_HIST[c].iter()) {
+            *dst = src.load(Ordering::Relaxed);
+        }
+        max_ns[c] = WAIT_MAX_NS[c].load(Ordering::Relaxed);
+    }
+    WaitHistogram { buckets, max_ns }
+}
+
+/// The bucket a wait of `ns` nanoseconds falls in. A zero-length wait is bucket 0.
+fn wait_bucket(ns: u64) -> usize {
+    let e = usize::try_from(ns.max(1).ilog2()).unwrap_or(WAIT_BUCKETS - 1);
+    if e < WAIT_BUCKETS {
+        e
+    } else {
+        WAIT_BUCKETS - 1
+    }
+}
+
+/// The class a dispatch of `n` tasks falls in; `0` and `1` share the single-task class.
+fn wait_class(n: u64) -> usize {
+    match n {
+        0 | 1 => 0,
+        2 => 1,
+        3..=4 => 2,
+        5..=8 => 3,
+        9..=16 => 4,
+        17..=32 => 5,
+        33..=64 => 6,
+        _ => 7,
+    }
+}
+
+fn record_wait(ns: u64, n: u64) {
+    let c = wait_class(n);
+    WAIT_HIST[c][wait_bucket(ns)].fetch_add(1, Ordering::Relaxed);
+    WAIT_MAX_NS[c].fetch_max(ns, Ordering::Relaxed);
+}
+
 /// 0 unresolved, 1 off, 2 on.
 static STATE: AtomicU8 = AtomicU8::new(0);
 
@@ -131,6 +219,19 @@ pub fn reset() {
         COUNTERS.cols[i].store(0, Ordering::Relaxed);
         COUNTERS.bytes[i].store(0, Ordering::Relaxed);
         COUNTERS.macs[i].store(0, Ordering::Relaxed);
+    }
+    clear_wait_table(&WAIT_HIST, &WAIT_MAX_NS);
+}
+
+/// Zero a wait-histogram table; [`reset`] and the table's test share this loop.
+fn clear_wait_table(hist: &[[AtomicU64; WAIT_BUCKETS]], max: &[AtomicU64]) {
+    for class in hist {
+        for bucket in class {
+            bucket.store(0, Ordering::Relaxed);
+        }
+    }
+    for m in max {
+        m.store(0, Ordering::Relaxed);
     }
 }
 
@@ -171,6 +272,9 @@ impl Drop for Span {
         COUNTERS.cols[i].fetch_add(self.cols, Ordering::Relaxed);
         COUNTERS.bytes[i].fetch_add(self.bytes, Ordering::Relaxed);
         COUNTERS.macs[i].fetch_add(self.macs, Ordering::Relaxed);
+        if self.phase == Phase::PoolWait {
+            record_wait(ns, self.cols);
+        }
     }
 }
 
@@ -240,5 +344,58 @@ mod tests {
         for (i, p) in PHASES.iter().enumerate() {
             assert_eq!(p.index(), i, "{}", p.name());
         }
+    }
+
+    /// A wait falls in the bucket whose range contains it; the bucket is its floor log2.
+    #[test]
+    fn waits_bucket_by_floor_log2() {
+        assert_eq!(wait_bucket(0), 0);
+        assert_eq!(wait_bucket(1), 0);
+        assert_eq!(wait_bucket(2), 1);
+        assert_eq!(wait_bucket(1023), 9);
+        assert_eq!(wait_bucket(1024), 10);
+        assert_eq!(wait_bucket(235_000), 17);
+        assert_eq!(wait_bucket(u64::MAX), WAIT_BUCKETS - 1);
+    }
+
+    /// Dispatch sizes map to the eight class labels without a gap.
+    #[test]
+    fn dispatch_sizes_class_by_width() {
+        assert_eq!(wait_class(0), 0);
+        assert_eq!(wait_class(1), 0);
+        assert_eq!(wait_class(2), 1);
+        assert_eq!(wait_class(3), 2);
+        assert_eq!(wait_class(4), 2);
+        assert_eq!(wait_class(5), 3);
+        assert_eq!(wait_class(8), 3);
+        assert_eq!(wait_class(9), 4);
+        assert_eq!(wait_class(16), 4);
+        assert_eq!(wait_class(17), 5);
+        assert_eq!(wait_class(32), 5);
+        assert_eq!(wait_class(33), 6);
+        assert_eq!(wait_class(64), 6);
+        assert_eq!(wait_class(65), 7);
+        assert_eq!(wait_class(1_295), 7);
+    }
+
+    /// A dropped `PoolWait` span reaches the class table through the real recording path.
+    #[test]
+    fn a_pool_wait_span_reaches_the_histogram() {
+        set_enabled(true);
+        reset();
+        for _ in 0..3 {
+            let s = span(Phase::PoolWait, 8, 0, 0);
+            std::thread::sleep(std::time::Duration::from_micros(200));
+            drop(s);
+        }
+        let h = pool_wait_histogram();
+        let counted: u64 = h.buckets[3].iter().sum();
+        assert!(counted >= 3, "class 5-8 counted {counted}");
+        assert!(h.max_ns[3] >= 1, "class 5-8 max {}", h.max_ns[3]);
+        let stat = snapshot()[Phase::PoolWait.index()];
+        assert_eq!(stat.name, "pool.wait");
+        assert!(stat.calls >= 3, "phase counted {}", stat.calls);
+        reset();
+        set_enabled(false);
     }
 }

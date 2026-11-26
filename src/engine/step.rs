@@ -460,15 +460,21 @@ impl Engine {
 /// block and the column tile folds each read across the block's columns. `APEIRON_PREFILL_COLS`
 /// overrides it (read once).
 ///
-/// Default 1024 on a pool of four or more participants and 256 below: the pass pays a per-block
-/// fixed cost (the serial residual add, attention's per-pass setup, the norm and the pool
-/// dispatches), so the wider block pays it once per 1,024 columns instead of once per 256. On the
-/// OVH box, 0.6B pack, 1,827 columns (`bench/cpu/1795573862-prefill-block-and-group.md`):
-/// 1024/256 is 1.17× at eight participants and 1.15× at four; the phase split that locates the
-/// effect was taken at width 8, and width 4 was 1.007 before the group hoist against 1.152 after
-/// it, so the two changes are not separated there. At one participant the pass is instruction-bound
-/// and 1024 is 0.97× of 256. The rows are one model on one host; the threshold is the lowest
-/// measured winning width, not a located crossover, and widths 2–3 and the laptop are unmeasured.
+/// Default 2048 on a pool of four or more participants and 256 below: the pass pays a per-block
+/// fixed cost (the pooled residual add, attention's per-pass setup, the norm and the pool
+/// dispatches), so the wider block pays it once per 2,048 columns instead of once per 1,024. On the
+/// OVH box, 0.6B pack, 1,827 columns: 1024/256 is 1.17× at eight participants and 1.15× at four
+/// (`bench/cpu/1795573862-prefill-block-and-group.md`), and the 2,048 block folds a 1,826-column
+/// prompt into one pass instead of two, about 1.1× at eight participants
+/// (`bench/cpu/1795683267-nq-prefill-one-pass.md`); the removed pass costs pass wall, dispatches
+/// and caller wait, while `attn.core`'s scores are split-invariant because each query row reads
+/// only its causal prefix (`attn/f32_core.rs:1563,1574`) and only the per-pass KV pack repeats.
+/// The phase split that locates the 256 effect was taken at width 8, and width 4 was 1.007 before
+/// the group hoist against 1.152 after it, so the two changes are not separated there. At one
+/// participant the pass is instruction-bound and 1024 is 0.97× of 256. The rows are one model on one
+/// host; the threshold is the lowest measured winning width, not a located crossover, and widths
+/// 2–3 and 5–7 at 2,048 (width 4 is measured: 1.052× untraced), prompts past 3,000 columns, the
+/// 7B and the laptop are unmeasured.
 pub(crate) fn prefill_block() -> usize {
     static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *N.get_or_init(|| {
@@ -478,7 +484,7 @@ pub(crate) fn prefill_block() -> usize {
             .filter(|&n| n > 0)
             .unwrap_or_else(|| {
                 if super::chart::pool::width_global() >= 4 {
-                    1024
+                    2048
                 } else {
                     256
                 }

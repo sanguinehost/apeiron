@@ -187,6 +187,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     );
                 }
             }
+            print_wait_histogram();
         }
         let rate = a.len as f64 / prefill.max(f64::MIN_POSITIVE);
         println!(
@@ -202,4 +203,33 @@ fn main() -> Result<(), Box<dyn Error>> {
         cache.current_bytes()
     );
     Ok(())
+}
+
+/// The per-class `pool.wait` distribution: one line per class with at least one dispatch, each
+/// percentile printed as its bucket's upper edge.
+fn print_wait_histogram() {
+    let h = apeiron::engine::trace::pool_wait_histogram();
+    for (class, label) in apeiron::engine::trace::WAIT_CLASS_LABELS.iter().enumerate() {
+        let total: u64 = h.buckets[class].iter().sum();
+        if total == 0 {
+            continue;
+        }
+        let mut cum = 0u64;
+        let mut p50 = 0u64;
+        let mut p95 = 0u64;
+        for (i, &c) in h.buckets[class].iter().enumerate() {
+            cum += c;
+            let upper = 1u64 << (i + 1);
+            if p50 == 0 && cum * 2 >= total {
+                p50 = upper;
+            }
+            if p95 == 0 && cum * 20 >= total * 19 {
+                p95 = upper;
+            }
+        }
+        eprintln!(
+            "  pool.wait n={label:5} {total:5} calls  p50 < {p50} ns  p95 < {p95} ns  max {} ns",
+            h.max_ns[class]
+        );
+    }
 }

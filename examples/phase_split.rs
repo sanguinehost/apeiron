@@ -209,6 +209,30 @@ fn run(a: &Args) -> Result<bool, String> {
             100.0 * top.ns as f64 / wall_ns,
             1.0 / (1.0 - top.ns as f64 / wall_ns).max(1e-9)
         );
+        let h = trace::pool_wait_histogram();
+        for (class, label) in trace::WAIT_CLASS_LABELS.iter().enumerate() {
+            let total: u64 = h.buckets[class].iter().sum();
+            if total == 0 {
+                continue;
+            }
+            let mut cum = 0u64;
+            let mut p50 = 0u64;
+            let mut p95 = 0u64;
+            for (i, &c) in h.buckets[class].iter().enumerate() {
+                cum += c;
+                let upper = 1u64 << (i + 1);
+                if p50 == 0 && cum * 2 >= total {
+                    p50 = upper;
+                }
+                if p95 == 0 && cum * 20 >= total * 19 {
+                    p95 = upper;
+                }
+            }
+            println!(
+                "pool.wait n={label:5} {total:5} calls  p50 < {p50} ns  p95 < {p95} ns  max {} ns",
+                h.max_ns[class]
+            );
+        }
     }
 
     let Some(target) = &a.target else {
