@@ -259,6 +259,7 @@ SERVING_OPAQUE=(
     --opaque 'crate::mixer::conv_f32::range_avx2' # simd-twin: twin = range_scalar
     --opaque 'crate::attn::f32_core::attn_tile8_avx2' # simd-twin: tile of attn_core_f32_strided_scalar
     --opaque 'crate::attn::f32_core::attn_core_f32_strided_avx2_inner' # simd-twin: twin = attn_core_f32_strided_scalar
+    --opaque 'crate::attn::f32_core::attn_group_avx2_inner' # simd-twin: twin = the group core's per-head attn_core_f32_strided_scalar loop
     --opaque 'crate::attn::f32_core::attn_core_tile_avx2_inner' # simd-twin: twin = attn_core_tile_scalar (f32 and i8 rows)
     --opaque 'crate::attn::f32_core::gemm_tile' # simd-twin: the tile bodies' 6x2 GEMM, accumulation order = attn_core_tile_scalar
     --opaque 'crate::attn::f32_core::gemm_ukernel' # simd-twin: const-generic microkernel called only by gemm_tile

@@ -281,6 +281,137 @@ fn test_attn_core_avx2_equals_scalar() {
     }
 }
 
+/// [`attn_core_f32_group`] is the per-head [`attn_core_f32_strided`] calls' words, bit for bit:
+/// the group's tile pass shares the K/V row read and changes no head's arithmetic. Covers a
+/// non-multiple of the tile with a partial tail, a single position, and the 128-wide head at the
+/// real stride.
+#[test]
+fn test_attn_core_group_equals_the_per_head_calls() {
+    let mut rng = SimpleRng::new(0x1337_C0DE_5EED_0003);
+    let configs = [
+        (16usize, 5 * 16, 21usize, 3usize),
+        (64, 64, 0, 4),
+        (128, 1024, 31, 4),
+        (128, 1024, 71, 1),
+    ];
+    for &(hd, stride, pos, group) in &configs {
+        let count = pos + 1;
+        let total_len = pos * stride + hd;
+        let mut k = vec![0.0f32; total_len];
+        let mut v = vec![0.0f32; total_len];
+        for s in 0..count {
+            let base = s * stride;
+            for i in 0..hd {
+                k[base + i] = rng.next_f32_range(-1.0, 1.0);
+                v[base + i] = rng.next_f32_range(-4.0, 4.0);
+            }
+        }
+        let mut q = vec![0.0f32; group * hd];
+        for item in &mut q {
+            *item = rng.next_f32_range(-1.0, 1.0);
+        }
+        let scale = F32::from_bits((1.0f32 / (hd as f32).sqrt()).to_bits());
+        let width = group * hd;
+
+        let mut per_head = vec![F32::ZERO; width];
+        for g in 0..group {
+            let lo = g * hd;
+            let hi = lo + hd;
+            attn_core_f32_strided(
+                &fv(&q[lo..hi]),
+                &fv(&k),
+                &fv(&v),
+                hd,
+                stride,
+                pos,
+                scale,
+                &mut per_head[lo..hi],
+            )
+            .expect("per-head");
+        }
+        let mut grouped = vec![F32::ZERO; width];
+        attn_core_f32_group(
+            &fv(&q),
+            &fv(&k),
+            &fv(&v),
+            group,
+            hd,
+            stride,
+            pos,
+            scale,
+            &mut grouped,
+        )
+        .expect("group");
+
+        for i in 0..width {
+            assert_eq!(
+                per_head[i].to_bits(),
+                grouped[i].to_bits(),
+                "hd {hd} stride {stride} pos {pos} group {group} idx {i}: per-head={:e} ({:08x}) vs group={:e} ({:08x})",
+                f(per_head[i]),
+                per_head[i].to_bits(),
+                f(grouped[i]),
+                grouped[i].to_bits()
+            );
+        }
+    }
+}
+
+/// A wrong-width query or output, a zero group, a short stride or a plane that does not reach
+/// `pos` refuses with `BadGeometry`; a non-finite query refuses with `Overflow`.
+#[test]
+fn test_attn_core_group_refuses_bad_geometry() {
+    let hd = 16usize;
+    let group = 2usize;
+    let stride = 32usize;
+    let pos = 3usize;
+    let len = pos * stride + hd;
+    let k = vec![F32::ZERO; len];
+    let v = vec![F32::ZERO; len];
+    let q = vec![F32::ZERO; group * hd];
+    let scale = F32::from_bits(1.0f32.to_bits());
+    let mut out = vec![F32::ZERO; group * hd];
+
+    let short_q = vec![F32::ZERO; group * hd - 1];
+    assert_eq!(
+        attn_core_f32_group(&short_q, &k, &v, group, hd, stride, pos, scale, &mut out),
+        Err(AttnError::BadGeometry)
+    );
+    let mut short_out = vec![F32::ZERO; group * hd - 1];
+    assert_eq!(
+        attn_core_f32_group(&q, &k, &v, group, hd, stride, pos, scale, &mut short_out),
+        Err(AttnError::BadGeometry)
+    );
+    assert_eq!(
+        attn_core_f32_group(&[], &k, &v, 0, hd, stride, pos, scale, &mut []),
+        Err(AttnError::BadGeometry)
+    );
+    assert_eq!(
+        attn_core_f32_group(&q, &k, &v, group, hd, hd - 1, pos, scale, &mut out),
+        Err(AttnError::BadGeometry)
+    );
+    assert_eq!(
+        attn_core_f32_group(
+            &q,
+            &k[..len - 1],
+            &v,
+            group,
+            hd,
+            stride,
+            pos,
+            scale,
+            &mut out
+        ),
+        Err(AttnError::BadGeometry)
+    );
+    let mut bad_q = q.clone();
+    bad_q[0] = F32::from_bits(f32::NAN.to_bits());
+    assert_eq!(
+        attn_core_f32_group(&bad_q, &k, &v, group, hd, stride, pos, scale, &mut out),
+        Err(AttnError::Overflow)
+    );
+}
+
 #[test]
 fn test_attn_core_query_tile_agrees_with_the_per_query_core() {
     let mut rng = SimpleRng::new(0x1337_C0DE_5EED_0002);

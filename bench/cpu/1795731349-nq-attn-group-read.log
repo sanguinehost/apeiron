@@ -1,0 +1,108 @@
+# nq decode: one K/V row read per attention tile for the group
+
+Box: ubuntu@139.99.223.161, 8 vCPU EPYC Milan, 32 GiB, ~/bin/adg. CPU-tier evidence;
+the laptop (i5-10210U) is the timed target and this run is not it.
+
+Model: ~/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf
+Pack: ~/models/nq-scratch/nq06-v3.nqp (196 linears, version 3, 0.977441 b/w, 53,808,384 B)
+Tokenizer: ~/models/qwen3-0.6b-base-e8/tokenizer.json
+Harness: examples/prefix_solve --len 1827 --differ 0 --decode 128 --mb 512
+Env: APEIRON_THREADS=8, APEIRON_KV_CARRIER as named.
+
+Binaries (sha256):
+  6605f74c8b53e2fdb5ee29959edd89bfcdca0f9f9f228c2b1cc6d84e2fa4c4a6  prefix_solve.rows  (O, committed e058890d)
+  da44f38b9ba51d43aa85f80d2ded3696627f3d1f03f37a1550745f72c62529c4  prefix_solve.group (N, this change)
+
+O = committed tree, N = grouped F32 decode core (`attn_core_f32_group`). Three rounds interleaved.
+
+## Paired decode, 128 tokens after a 1,827-token prefix
+
+O f32 1: cold   hit     0  prefill    3.851 s ( 474.43 tok/s)  decode 128 in  3.624 s (35.32 tok/s)  first 315
+N f32 1: cold   hit     0  prefill    3.858 s ( 473.52 tok/s)  decode 128 in  3.058 s (41.86 tok/s)  first 315
+O i8  1: cold   hit     0  prefill    4.790 s ( 381.41 tok/s)  decode 128 in  2.327 s (55.01 tok/s)  first 3845
+N i8  1: cold   hit     0  prefill    4.750 s ( 384.66 tok/s)  decode 128 in  2.371 s (53.98 tok/s)  first 3845
+N f32 2: cold   hit     0  prefill    3.871 s ( 471.91 tok/s)  decode 128 in  3.083 s (41.52 tok/s)  first 315
+O f32 2: cold   hit     0  prefill    3.924 s ( 465.63 tok/s)  decode 128 in  3.662 s (34.96 tok/s)  first 315
+N i8  2: cold   hit     0  prefill    4.797 s ( 380.83 tok/s)  decode 128 in  2.331 s (54.92 tok/s)  first 3845
+O i8  2: cold   hit     0  prefill    4.769 s ( 383.09 tok/s)  decode 128 in  2.346 s (54.56 tok/s)  first 3845
+O f32 3: cold   hit     0  prefill    3.965 s ( 460.76 tok/s)  decode 128 in  3.666 s (34.91 tok/s)  first 315
+N f32 3: cold   hit     0  prefill    3.929 s ( 464.97 tok/s)  decode 128 in  3.067 s (41.73 tok/s)  first 315
+O i8  3: cold   hit     0  prefill    4.754 s ( 384.30 tok/s)  decode 128 in  2.334 s (54.85 tok/s)  first 3845
+N i8  3: cold   hit     0  prefill    4.740 s ( 385.48 tok/s)  decode 128 in  2.326 s (55.04 tok/s)  first 3845
+
+f32 means: O 3.6507 s (35.06 tok/s), N 3.0693 s (41.70 tok/s), ratio 1.1894, N wins 3/3.
+i8  means: O 2.3357 s (54.80 tok/s), N 2.3427 s (54.64 tok/s), ratio 0.9970, neutral.
+First token unchanged: 315 f32, 3845 i8. Prefill unchanged (inside spread).
+
+## Traced split, examples/phase_split --steps 32 --prefix 1795, f32
+
+Before (committed e058890d):
+decode split: 32 steps after a 1795 token prefix, 0.876 s wall, 27.37 ms/token
+| attn.core | 12.198 | 44.6% | 896 |
+| ffn | 6.286 | 23.0% | 896 |
+| head | 3.256 | 11.9% | 32 |
+| attn.proj_in | 2.920 | 10.7% | 896 |
+| attn.proj_out | 1.842 | 6.7% | 896 |
+
+After:
+decode split: 32 steps after a 1795 token prefix, 0.739 s wall, 23.11 ms/token
+| phase | ms/token | share | calls |
+| embed | 0.006 | 0.0% | 32 |
+| norm | 0.575 | 2.5% | 1824 |
+| residual | 0.138 | 0.6% | 1792 |
+| attn.proj_in | 2.729 | 11.8% | 896 |
+| attn.core | 9.679 | 41.9% | 896 |
+| attn.proj_out | 1.595 | 6.9% | 896 |
+| ffn | 5.207 | 22.5% | 896 |
+| head | 3.076 | 13.3% | 32 |
+| pass (encloses) | 20.032 | 86.7% | 32 |
+| pool.wait (overlay) | 1.706 | 7.4% | 16224 |
+| untraced | 0.102 | 0.4% | |
+dominant term: attn.core at 41.9%, ceiling 1.72x
+
+attn.core: 12.198 -> 9.679 ms (-2.519, -20.7%). The untraced wall falls 4.26 ms/token, more than
+the traced attention delta because the trace's per-call overhead inflates the attribution; the
+paired untraced delta is (3.6507-3.0693)/128 = 4.54 ms/token.
+
+## Dominant-term gate
+
+  $ env APEIRON_THREADS=8 APEIRON_KV_CARRIER=f32 phase_split --model ... --pack ... \
+      --steps 32 --prefix 1795 --target attn.core
+  TARGET attn.core: share 43.2%, ceiling 1.76x
+  exit 0
+
+## Probe: the same arithmetic, tile-outer vs head-outer
+
+/tmp/attn_group_probe.rs (standalone, not in the tree): one layer's K/V plane, 8 KV heads,
+4 q heads, head_dim 128, stride 1024, 1,828 positions, single thread, best of 40:
+
+head (per-head calls, current shape): 34.237 ns/head-position, 7.5 GB/s once-read
+group (tile-outer, heads-inner):     23.432 ns/head-position, 10.9 GB/s once-read
+max|a-b| = 0 (bit-identical outputs)
+
+The probe's ratio 1.46 isolates the locality effect; in the engine the tile's second-order
+effects (pool dispatch, trace) put the wall ratio at 1.19.
+
+## Gate
+
+fmt 0, clippy 0 (--workspace --all-features --all-targets -D warnings)
+cargo test --lib --locked attn::f32_core::tests: 13 passed, 3 ignored
+cargo test --lib --locked attn::tests: 35 passed, 1 ignored
+test_attn_core_group_equals_the_per_head_calls: ok (bit equality, hd 16/64/128, group 1/3/4)
+test_attn_core_group_refuses_bad_geometry: ok
+
+## gate: cargo test --workspace --locked, three glslc checks skipped
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 7 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.50s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit 0
+(the lib result line and the other integration lines were cut by the tail -6 filter; the run
+exited 0)
+
+## Maintainer gate
+
+Not run: the pinned Aeneas/Charon/Lean toolchain is not bootstrapped on either host. This change
+adds `attn_group_avx2_inner` to the opaque list (`proof/regen.sh`) and a translated call site in
+`attn_head_group`; `proof/regen.sh --check` was already failing on the committed extraction before
+this change and remains for the owner to regenerate.

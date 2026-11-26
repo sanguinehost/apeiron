@@ -2367,6 +2367,11 @@ impl KvState {
         if matches!(self.storage, KvStorage::I8 { .. }) {
             return self.attn_head_group_i8(layer, kv_head, queries, pos, outs, group, width);
         }
+        // Decode reads one column, and the group's heads share the KV head's K/V rows: one pass
+        // over them serves every head. The exact scan (`tile != 0`) keeps the per-head fused call.
+        if tile == 0 && group > 1 && matches!(self.storage, KvStorage::F32 { .. }) {
+            return self.attn_group_f32(layer, kv_head, queries, pos, outs);
+        }
         let first_head = kv_head.checked_mul(group).ok_or(AttnError::Overflow)?;
         let mut g = 0usize;
         while g < group {
@@ -2381,6 +2386,174 @@ impl KvState {
                 self.attn_head_fused(layer, head, query, pos, tile, out)?;
             }
             g += 1;
+        }
+        Ok(())
+    }
+
+    /// The [`KvCarrier::F32`] decode arm of [`KvState::attn_head_group`]: every query head of
+    /// `kv_head` folded against one pass over the KV head's K/V rows.
+    ///
+    /// `queries` holds the group's `group · head_dim` Q32.32 words, query head `g` in slot `g`,
+    /// and `outs` receives the same layout. [`f32_core::attn_core_f32_group`] runs the per-head
+    /// tile body for each head at each tile, so the words are the per-head
+    /// [`KvState::attn_head_f32`] calls' bit for bit; only the tile's K and V row read is shared.
+    ///
+    /// # Errors
+    ///
+    /// [`AttnError::LayerOutOfRange`], [`AttnError::HeadOutOfRange`],
+    /// [`AttnError::PositionOutOfRange`], [`AttnError::RowLength`] for a query or output slice
+    /// that is not `group · head_dim` wide, [`AttnError::BadGeometry`] under another carrier,
+    /// [`AttnError::Overflow`] for a read outside the plane, and the core's own refusals.
+    ///
+    /// # Complexity
+    ///
+    /// `O(group · (pos + 1) · head_dim)` arithmetic, the per-head calls' sum, with each K and V row
+    /// read `O(1)` times instead of `O(group)`; scratch `O(group · head_dim)` words.
+    fn attn_group_f32(
+        &self,
+        layer: usize,
+        kv_head: usize,
+        queries: &[i64],
+        pos: usize,
+        outs: &mut [i64],
+    ) -> Result<(), AttnError> {
+        let hd = self.head_dim;
+        if layer >= self.n_layer {
+            return Err(AttnError::LayerOutOfRange {
+                layer,
+                n_layer: self.n_layer,
+            });
+        }
+        if kv_head >= self.n_head_kv {
+            return Err(AttnError::HeadOutOfRange {
+                head: kv_head,
+                n_head: self.n_head_kv,
+            });
+        }
+        let group = self.n_head / self.n_head_kv;
+        let width = group.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        if queries.len() != width {
+            return Err(AttnError::RowLength {
+                expected: width,
+                got: queries.len(),
+            });
+        }
+        if outs.len() != width {
+            return Err(AttnError::RowLength {
+                expected: width,
+                got: outs.len(),
+            });
+        }
+        let len = self.occupied[layer];
+        if pos >= len {
+            return Err(AttnError::PositionOutOfRange { pos, len });
+        }
+        let stride = self.n_head_kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let first = kv_head.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let (kplane, vplane) = match &self.storage {
+            KvStorage::F32 { k, v } => (&k[layer], &v[layer]),
+            KvStorage::Q32 { .. } | KvStorage::I8 { .. } => return Err(AttnError::BadGeometry),
+        };
+        let last_base = first
+            .checked_add(pos.checked_mul(stride).ok_or(AttnError::Overflow)?)
+            .ok_or(AttnError::Overflow)?;
+        if last_base > kplane.len().saturating_sub(hd)
+            || last_base > vplane.len().saturating_sub(hd)
+        {
+            return Err(AttnError::Overflow);
+        }
+
+        // Each branch lends its scratch buffers to `attn_group_f32_rows`: a join of a stack and a
+        // heap `&mut` is refused by the pinned Aeneas model. Stack for group · head_dim <= 256,
+        // heap otherwise.
+        if width <= 256 {
+            let mut q_stack = [F32::ZERO; 256];
+            let mut out_stack = [F32::ZERO; 256];
+            Self::attn_group_f32_rows(
+                &kplane[first..],
+                &vplane[first..],
+                queries,
+                group,
+                hd,
+                stride,
+                pos,
+                outs,
+                &mut q_stack[..width],
+                &mut out_stack[..width],
+            )
+        } else {
+            let mut q_heap = vec![F32::ZERO; width];
+            let mut out_heap = vec![F32::ZERO; width];
+            Self::attn_group_f32_rows(
+                &kplane[first..],
+                &vplane[first..],
+                queries,
+                group,
+                hd,
+                stride,
+                pos,
+                outs,
+                &mut q_heap[..],
+                &mut out_heap[..],
+            )
+        }
+    }
+
+    /// Q32.32 queries to f32, the grouped f32 core over `kx`/`vx`, and the f32 results back to
+    /// Q32.32, with the two scratch buffers supplied by the caller (`q_f32`, `out_f32`, each of
+    /// length `group · head_dim`).
+    ///
+    /// Same conversion, scale and ascending index range as [`KvState::attn_head_f32_rows`], over
+    /// the whole group width instead of one head.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one scratch buffer per caller branch keeps the Aeneas-visible borrows single-level"
+    )]
+    fn attn_group_f32_rows(
+        kx: &[F32],
+        vx: &[F32],
+        q: &[i64],
+        group: usize,
+        hd: usize,
+        stride: usize,
+        pos: usize,
+        out: &mut [i64],
+        q_f32: &mut [F32],
+        out_f32: &mut [F32],
+    ) -> Result<(), AttnError> {
+        let mut bad = 0u32;
+        let mut i = 0usize;
+        while i < q.len() {
+            let f = q32_to_f32(q[i]);
+            bad += u32::from(!f.is_finite());
+            q_f32[i] = f;
+            i += 1;
+        }
+        if bad != 0 {
+            return Err(AttnError::Overflow);
+        }
+
+        // `hd as i64` is exact: `hd` is a head width, far below 2^53.
+        #[allow(clippy::cast_possible_wrap, reason = "head width < 2^53")]
+        let scale = F32::ONE / F32::from_i64(hd as i64).sqrt();
+
+        f32_core::attn_core_f32_group(q_f32, kx, vx, group, hd, stride, pos, scale, out_f32)?;
+
+        let mut i = 0usize;
+        let mut ok = true;
+        let mut err: Option<AttnError> = None;
+        while i < out.len() && ok {
+            match f32_core::f32_to_q32_checked(out_f32[i]) {
+                Ok(v) => out[i] = v,
+                Err(e) => {
+                    err = Some(e);
+                    ok = false;
+                }
+            }
+            i += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
         }
         Ok(())
     }

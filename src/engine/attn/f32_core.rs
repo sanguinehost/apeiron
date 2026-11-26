@@ -644,6 +644,267 @@ pub fn attn_core_f32_strided(
     attn_core_f32_strided_scalar(q, k, v, head_dim, stride, pos, scale, out)
 }
 
+/// Query heads folded by one [`attn_core_f32_group`] tile pass, and the bound on its stack
+/// accumulator when `head_dim / 8` chunks fit: `8 · 32` vectors, the per-head core's own
+/// `head_dim <= 256` stack bound times the group.
+const GROUP_MAX: usize = 8;
+
+/// Causal scaled dot-product attention for the `group` query heads of one KV head over positions
+/// `0..=pos`, with each K and V row read once per [`TILE`] for every head in the group.
+///
+/// Query head `g` occupies `q[g·head_dim..][..head_dim]` and writes the same slot of `out`. The
+/// per-head arithmetic, order and words are [`attn_core_f32_strided`]'s: the tile body is
+/// [`attn_tile8_avx2`] run for each head at each tile, and heads do not share state, so interleaving
+/// them across tiles changes no head's sequence. On success every word is bit-identical to the
+/// `group` per-head calls. The saving is locality: tile `s`'s K and V rows are loaded by head 0 and
+/// are in L1 for heads `1..group`, where the per-head calls re-read the plane `group` times.
+/// On a refusal the whole call refuses and the step discards the block, which is the per-head
+/// dispatch's observable; a tile refusal stops every head at that tile, so a later head may not be
+/// computed where the per-head dispatch would have computed it before the faulting one.
+///
+/// # Errors
+///
+/// [`AttnError::BadGeometry`] for a shape mismatch, [`AttnError::Overflow`] for a non-finite score
+/// or output, and [`AttnError::ZeroSum`] for a non-positive or non-finite denominator, raised from
+/// the head being read.
+///
+/// # Complexity
+///
+/// `O(group · (pos + 1) · head_dim)` floating-point operations — the per-head calls' sum — and the
+/// same `O(pos + 1)` exponentials per head; each K and V row is read `O(1)` times per tile instead
+/// of `O(group)`. Scratch `O(group · head_dim)` accumulator words plus `O(group)` softmax state,
+/// stack while `group · head_dim ≤ 8 · 256` and heap otherwise.
+pub fn attn_core_f32_group(
+    q: &[F32],
+    k: &[F32],
+    v: &[F32],
+    group: usize,
+    head_dim: usize,
+    stride: usize,
+    pos: usize,
+    scale: F32,
+    out: &mut [F32],
+) -> Result<(), AttnError> {
+    let width = group.checked_mul(head_dim).ok_or(AttnError::Overflow)?;
+    if head_dim == 0 || group == 0 || q.len() != width || out.len() != width || stride < head_dim {
+        return Err(AttnError::BadGeometry);
+    }
+    let required_len = pos
+        .checked_mul(stride)
+        .and_then(|p| p.checked_add(head_dim))
+        .ok_or(AttnError::Overflow)?;
+    if k.len() < required_len || v.len() < required_len {
+        return Err(AttnError::BadGeometry);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    if head_dim.is_multiple_of(8)
+        && group <= GROUP_MAX
+        && crate::engine::num::fp::prim::cpu_avx2_fma()
+    {
+        // SAFETY: `cpu_avx2_fma` checked AVX2 and FMA support on this processor.
+        return unsafe {
+            attn_group_avx2_inner(
+                native(q),
+                native(k),
+                native(v),
+                group,
+                head_dim,
+                stride,
+                pos,
+                nat(scale),
+                native_mut(out),
+            )
+        };
+    }
+
+    let mut g = 0usize;
+    while g < group {
+        let lo = g * head_dim;
+        let hi = lo + head_dim;
+        attn_core_f32_strided_scalar(
+            &q[lo..hi],
+            k,
+            v,
+            head_dim,
+            stride,
+            pos,
+            scale,
+            &mut out[lo..hi],
+        )?;
+        g += 1;
+    }
+    Ok(())
+}
+
+/// AVX2+FMA body of [`attn_core_f32_group`], bit-identical to it: the per-head tile body of
+/// [`attn_core_f32_strided_avx2_inner`] with the tile loop outside the head loop.
+///
+/// # Safety
+///
+/// Requires AVX2 and FMA; every slice must satisfy the group core's length contract and
+/// `head_dim` must be a multiple of eight.
+///
+/// # Complexity
+///
+/// The per-head body's arithmetic once per head, with each tile's K and V rows loaded once.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+#[allow(
+    clippy::needless_range_loop,
+    clippy::too_many_lines,
+    clippy::many_single_char_names,
+    reason = "the group's heads and the per-head recurrence symbols are the loop variables"
+)]
+unsafe fn attn_group_avx2_inner(
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    group: usize,
+    head_dim: usize,
+    stride: usize,
+    pos: usize,
+    scale: f32,
+    out: &mut [f32],
+) -> Result<(), AttnError> {
+    let count = pos.checked_add(1).ok_or(AttnError::Overflow)?;
+    let chunks = head_dim / 8;
+    let width = group * head_dim;
+
+    let mut m = [0.0f32; GROUP_MAX];
+    let mut den = [1.0f32; GROUP_MAX];
+    let mut acc_stack = [_mm256_setzero_ps(); GROUP_MAX * 32];
+    let mut acc_heap;
+    let acc_vec: &mut [__m256] = if group * chunks <= GROUP_MAX * 32 {
+        &mut acc_stack[..group * chunks]
+    } else {
+        acc_heap = vec![_mm256_setzero_ps(); group * chunks];
+        &mut acc_heap[..]
+    };
+
+    // Position 0 seeds every head: `m = score`, `den = 1`, `acc = v_row`, in the per-head body's
+    // order and with its arithmetic.
+    let mut g = 0usize;
+    while g < group {
+        let lo = g * head_dim;
+        let score0 = dot_f32_avx2(&q[lo..lo + head_dim], &k[..head_dim], scale);
+        if !score0.is_finite() {
+            return Err(AttnError::Overflow);
+        }
+        m[g] = score0;
+        den[g] = 1.0;
+        let mut c = 0usize;
+        while c < chunks {
+            acc_vec[g * chunks + c] = _mm256_loadu_ps(v.as_ptr().add(c * 8));
+            c += 1;
+        }
+        g += 1;
+    }
+
+    let mut ok = true;
+    let mut err: Option<AttnError> = None;
+
+    let mut s = 1usize;
+    while s + TILE <= count && ok {
+        let mut g = 0usize;
+        while g < group && ok {
+            let lo = g * head_dim;
+            match attn_tile8_avx2(
+                &q[lo..],
+                k,
+                v,
+                head_dim,
+                stride,
+                s,
+                scale,
+                &mut m[g],
+                &mut den[g],
+                &mut acc_vec[g * chunks..(g + 1) * chunks],
+            ) {
+                Ok(()) => {}
+                Err(e) => {
+                    err = Some(e);
+                    ok = false;
+                }
+            }
+            g += 1;
+        }
+        if ok {
+            s += TILE;
+        }
+    }
+    while s < count && ok {
+        let mut g = 0usize;
+        while g < group && ok {
+            let lo = g * head_dim;
+            let base = s * stride;
+            let k_row = &k[base..base + head_dim];
+            let v_ptr = v.as_ptr().add(base);
+            let score_s = dot_f32_avx2(&q[lo..lo + head_dim], k_row, scale);
+            if score_s.is_finite() {
+                let m_prev = m[g];
+                let m_next = if score_s > m_prev { score_s } else { m_prev };
+                let alpha = nat(exp_f32_scalar(fp(m_prev - m_next)));
+                let w = nat(exp_f32_scalar(fp(score_s - m_next)));
+                let mut d = den[g];
+                d = d.mul_add(alpha, w);
+                let v_alpha = _mm256_set1_ps(alpha);
+                let v_w = _mm256_set1_ps(w);
+                let mut c = 0usize;
+                while c < chunks {
+                    let vv = _mm256_loadu_ps(v_ptr.add(c * 8));
+                    let prod = _mm256_mul_ps(v_w, vv);
+                    let slot = g * chunks + c;
+                    acc_vec[slot] = _mm256_fmadd_ps(acc_vec[slot], v_alpha, prod);
+                    c += 1;
+                }
+                m[g] = m_next;
+                den[g] = d;
+            } else {
+                ok = false;
+            }
+            g += 1;
+        }
+        if ok {
+            s += 1;
+        }
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    if !ok {
+        return Err(AttnError::Overflow);
+    }
+
+    let mut g = 0usize;
+    while g < group {
+        let d = den[g];
+        if d <= 0.0 || !d.is_finite() {
+            return Err(AttnError::ZeroSum);
+        }
+        let inv = 1.0f32 / d;
+        let v_inv = _mm256_set1_ps(inv);
+        let mut c = 0usize;
+        while c < chunks {
+            let res = _mm256_mul_ps(acc_vec[g * chunks + c], v_inv);
+            _mm256_storeu_ps(out.as_mut_ptr().add(g * head_dim + c * 8), res);
+            c += 1;
+        }
+        g += 1;
+    }
+
+    let mut bad = 0u32;
+    let mut i = 0usize;
+    while i < width {
+        bad += u32::from(!out[i].is_finite());
+        i += 1;
+    }
+    if bad != 0 {
+        return Err(AttnError::Overflow);
+    }
+    Ok(())
+}
+
 /// Causal scaled dot-product attention for a tile of query positions over one K/V plane: each key
 /// and value row is loaded once per tile and folded against every query head of every position in
 /// the tile.
