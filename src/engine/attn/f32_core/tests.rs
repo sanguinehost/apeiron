@@ -921,6 +921,84 @@ fn test_attn_core_tile_exp_group_edges_agrees_with_the_per_query_core() {
 /// The tiled AVX2 core equals the scalar twin on every tile boundary, at score magnitudes that
 /// move the running maximum often and underflow `exp`, and refuses a non-finite key at any
 /// position with the scalar twin's error.
+/// The tiled core's refusals are the scalar twin's on the same input: a non-finite key, value or
+/// score is `Overflow` from both bodies, and the eight-lane finiteness tests that refuse it are
+/// reached. `head_dim = 16` and ten query positions put the value pack on one eight-row transpose
+/// block plus a two-row tail, and the row whose key count reaches eight on the vector scale/max
+/// path; the scalar twin is `attn_core_f32_tile_scalar`.
+#[test]
+fn test_attn_core_tile_refuses_what_the_scalar_refuses() {
+    let hd = 16usize;
+    let nq = 10usize;
+    let scale = F32::from_bits((1.0f32 / (hd as f32).sqrt()).to_bits());
+    let pos: Vec<usize> = (0..nq).collect();
+    let q: Vec<f32> = (0..nq * hd)
+        .map(|i| 0.25 + (i % 5) as f32 * 0.125)
+        .collect();
+    let k0: Vec<f32> = (0..nq * hd)
+        .map(|i| 0.5 - (i % 7) as f32 * 0.0625)
+        .collect();
+    let v0: Vec<f32> = (0..nq * hd).map(|i| 0.75 - (i % 3) as f32 * 0.25).collect();
+    let run = |k: &[f32], v: &[f32]| -> (Result<(), AttnError>, Result<(), AttnError>) {
+        let (q, kk, vv) = (fv(&q), fv(k), fv(v));
+        let mut tiled = vec![F32::ZERO; nq * hd];
+        let mut twin = vec![F32::ZERO; nq * hd];
+        let got = attn_core_f32_tile(&q, &kk, &vv, hd, 1, hd, &pos, scale, &mut tiled);
+        let want = attn_core_f32_tile_scalar(&q, &kk, &vv, hd, 1, hd, &pos, scale, &mut twin);
+        (got, want)
+    };
+    for (label, row, col, bad, in_value) in [
+        ("nan in key", 4usize, 7usize, f32::NAN, false),
+        ("inf in key", 9, 12, f32::INFINITY, false),
+        ("nan in value", 3, 5, f32::NAN, true),
+        ("inf in value", 9, 14, f32::INFINITY, true),
+    ] {
+        let mut k = k0.clone();
+        let mut v = v0.clone();
+        if in_value {
+            v[row * hd + col] = bad;
+        } else {
+            k[row * hd + col] = bad;
+        }
+        let (got, want) = run(&k, &v);
+        assert_eq!(got, Err(AttnError::Overflow), "{label}");
+        assert_eq!(got, want, "{label}");
+    }
+    // Finite operands whose product leaves the f32 range: the score is non-finite after the
+    // GEMM, so the refusal is the vector scale-and-max's `finite8`, not the pack's.
+    let huge = vec![f32::MAX; nq * hd];
+    let (got, want) = run(&huge, &v0);
+    assert_eq!(got, Err(AttnError::Overflow), "score overflow");
+    assert_eq!(got, want, "score overflow");
+}
+
+/// [`copy_finite`]'s two bodies over a length that is not a whole number of vectors: the eight-lane
+/// run copies, and a non-finite word is refused from the run and from the scalar tail. The scalar
+/// twin is the per-word `is_finite` check plus assignment in `attn_core_f32_tile_scalar`'s pack.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn test_copy_finite_refuses_from_the_run_and_the_tail() {
+    if !crate::engine::num::fp::prim::cpu_avx2() {
+        return;
+    }
+    let mut src: Vec<f32> = (0..13).map(|i| i as f32 + 0.5).collect();
+    let mut dst = vec![0.0f32; 13];
+    // SAFETY: the AVX2 feature test above names the instruction set; the slices are 13 words each.
+    assert!(unsafe { copy_finite(&src, &mut dst) });
+    assert_eq!(dst, src);
+    src[3] = f32::INFINITY; // the eight-word run
+                            // SAFETY: as above.
+    assert!(!unsafe { copy_finite(&src, &mut dst) });
+    src[3] = 1.5;
+    src[9] = f32::NAN; // the five-word scalar tail
+                       // SAFETY: as above.
+    assert!(!unsafe { copy_finite(&src, &mut dst) });
+    src[9] = 9.5;
+    // SAFETY: as above.
+    assert!(unsafe { copy_finite(&src, &mut dst) });
+    assert_eq!(dst, src);
+}
+
 #[test]
 fn test_attn_core_tiled_equals_scalar_on_tile_edges() {
     #[cfg(target_arch = "x86_64")]

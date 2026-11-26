@@ -6,18 +6,33 @@ not a 7B result, not a 200k turn and not a decode result.
 
 Grades: `measured` for every wall, paired ratio, PPL and phase split; `tested` for the equality
 tests and the mutation falsifiers. No `proved` claim: the changed bodies sit in the extraction
-closure (`cols.rs`, `step.rs`, `nq.rs`), but the committed extraction predates them and the Lean
-bridge did not run here (Omissions). Machine: OVH box `ubuntu@139.99.223.161` (Sydney; 8 vCPU EPYC
-Milan, 8 sockets × 1 core × 1 thread, 31.3 GiB, 256 MiB L3, 2.4 GHz base, no AVX-512, no VNNI), no
-GPU. The laptop — the only device a timed claim may name — is **not measured**. Times UTC; every
-job under `~/bin/adg run --` (16 GiB cap, 8 jobs, swap zero).
+closure (`cols.rs`, `step.rs`, `nq.rs`), the committed extraction predates them and the Lean bridge
+did not run here (Omissions). Machine: OVH box `ubuntu@139.99.223.161` (Sydney; 8 vCPU EPYC Milan,
+8 sockets × 1 core × 1 thread, 31.3 GiB, 256 MiB L3, 2.4 GHz base, no AVX-512, no VNNI), no GPU.
+The laptop — the only device a timed claim may name — is **not measured**. Times UTC; every job
+under `~/bin/adg run --` (16 GiB cap, 8 jobs, swap zero).
 
-Model: `~/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf`; pack
-`~/models/nq-scratch/nq06-v3.nqp` (196 linears, 28 layers, 0.977441 b/w, `k = 0` salient,
-`res_layers = 0`); harness `examples/prefix_solve.rs`, `--len 1827 --differ 205 --decode 0 --mb
-440`, width 8, `APEIRON_PREFILL_COLS=1024`. PPL: `examples/ppl`, 8,176 tokens of
-`~/models/wiki.test.raw`, 16 windows of ≤ 512, `--kernel q8act --head-batch 16`. Every timed build
-follows `touch src/lib.rs`.
+## Commands
+
+```sh
+# cold prefill, width 8, block 1024
+APEIRON_THREADS=8 APEIRON_PREFILL_COLS=1024 \
+  ~/bin/prefix_solve.<arm> --model ~/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf \
+  --pack ~/models/nq-scratch/nq06-v3.nqp --tokenizer ~/models/qwen3-0.6b-base-e8/tokenizer.json \
+  --len 1827 --differ 205 --decode 0 --mb 440
+# the same line plus --phases for the split
+# PPL, same stream and window for every arm
+~/bin/ppl.<arm> --model <same gguf> --pack <same nqp> --tokenizer <same json> \
+  --data ~/models/wiki.test.raw --tokens 8192 --ctx 512 --head-batch 16 --kernel q8act
+# llama.cpp at 049326a00, same host and window
+~/llama.cpp/build/bin/llama-bench -m ~/models/qwen3-0.6b-base-f16/Qwen3-0.6B-Base.f16.gguf \
+  -p 1827 -n 0 -t 8 -r 3
+```
+
+Model: `skeleton-q8head.gguf`; pack `nq06-v3.nqp` (196 linears, 28 layers, 0.977441 b/w, `k = 0`
+salient, `res_layers = 0`). Every timed build follows `touch src/lib.rs`. The `prefix_solve` arms are
+`final2` (`18fe984d…`, HEAD `bcefc8ef`), `qavx6` (`bb5da211…`), `qavx5` (`3a4bc66e…`), `qavx4`
+(`ae85163b…`) and the committed-source rebuild `qavx7` (`e26e47a6…`).
 
 ## What changed
 
@@ -34,13 +49,15 @@ domain returns `None` from both. `the_vector_quantizer_equals_the_scalar_quantiz
 and scales word for word on the pack's lengths and magnitudes, group boundaries at 32 blocks, a
 ragged tail, zero groups, ties at the rounding edge, negative extrema and both `i64` end points.
 Mutating the vector shift by one reddens it and restoring the source turns it green.
+`proof/regen.sh` lists `quant_act_grouped_avx2` as `--opaque` beside the other `kern::nq` simd
+twins, so the extracted `nq_act` keeps `quant_act_grouped` as its body.
 
 ### `swiglu_piece`: the pooled FFN piece onto the slice path
 
 `swiglu_piece` (`src/engine/chart/ffn.rs`) called `swiglu_one_carrier` once per element. It now
 calls `swiglu_slice`, the eight-lane AVX2 carrier loop with its scalar twin, which `ffn_q8act_step`
-already used. `swiglu_one_carrier` stays as the test oracle and is `#[cfg(test)]`. The slice body's
-equality test and mutation control are the ones committed with `swiglu_slice`.
+already used. `swiglu_one_carrier` stays as the test oracle and is `#[cfg(test)]`. That kernel's
+twin, equality test and mutation control are the ones committed with `swiglu_slice`.
 
 ### `QUERY_TILE`: 32 → 64
 
@@ -55,17 +72,24 @@ now 64, llama.cpp's `GGML_FA_TILE_Q`. The cold read is
 per element (`kt[d·KV_TILE + t]`) and checked V's finiteness one word at a time — four bounds checks
 and a scattered store per element. Eight consecutive K rows now go through one 8×8 transpose
 (`transpose8_store`), whose store side is eight contiguous eight-lane runs; V is copied by
-`copy_finite`, whose finiteness refusal is `finite8`. Both are `unsafe` AVX2 bodies with the scalar
-twin named in their docs — `attn_core_f32_tile_scalar`'s per-element pack — and
-`test_attn_core_tiled_equals_scalar_on_tile_edges` and
-`test_attn_core_query_tile_agrees_with_the_per_query_core` compare the two bodies word for word at
-`hd = 8, 16, 64, 128`, strides across the tile edge and 1, 2 and 4 query heads per KV row.
-Changing one `permute2f128` lane selector in `transpose8_store` from `0x31` to `0x20` reddens the
-second; restoring the source turns it green.
+`copy_finite`, whose finiteness refusal is `finite8`. Both are `unsafe` AVX2 bodies whose scalar
+twin is named in their docs, `attn_core_f32_tile_scalar`'s per-element pack.
 
 The padded-key zero fill also narrowed: only the last tile's padded columns are written. A full
 tile leaves the previous tile's finite words in place, and the score of a padded column is zeroed
 before it is read.
+
+`test_attn_core_query_tile_agrees_with_the_per_query_core` and
+`test_attn_core_i8_query_tile_agrees_with_the_per_query_core` compare the tiled core with the
+scalar twin word for word at `hd = 8, 16, 64, 128`, strides across the tile edge and 1, 2 and 4
+query heads per KV row.
+`test_attn_core_tile_refuses_what_the_scalar_refuses` puts a `NaN` and an `Inf` in K and in V and a
+finite operand pair whose score leaves the `f32` range through the same ten-position tile: both
+bodies return `Overflow` for every case, which is `copy_finite`'s refusal and the vector
+scale-and-max's. `test_copy_finite_refuses_from_the_run_and_the_tail` covers the eight-lane run and
+the scalar tail of the copy on a 13-word slice. Mutations: one `permute2f128` lane selector in
+`transpose8_store` `0x31 → 0x20` reddens the tile equality test, and removing the `finite8` check
+from `copy_finite`'s run reddens the copy test; restoring each turns it green.
 
 ### The score stage and `gemm_tile::<INIT>`
 
@@ -83,7 +107,7 @@ value GEMM stays `::<false>`. This is a const dial on one kernel, not a sibling.
 `src/engine/step.rs` and `src/engine/step/cols.rs`. `rms_with_gain_slice` was
 `rms_norm_fixed` (a fresh normalized `Vec`) then a gain multiply into a second `Vec`;
 `norm_cols` then ran that per column, wrote the results into one shared `k × n` zeroed plane and
-copied each column out. That is four passes over every column the pool already owned.
+copied each column out. That is four writes of every column the pool already owned.
 
 The body is now `rms_root` (the `i128` sum of squares, rounded mean, `eps` add and `fixed_rsqrt`,
 the same checks as `rms_norm_fixed`) plus `rms_gain_word` per element, which applies the two
@@ -116,38 +140,39 @@ writing the plane in place.
 
 ## Result
 
-### Cold prefill: HEAD against the batch, five interleaved rounds
+### Against HEAD: five interleaved rounds in one window
 
-| round | final2 (HEAD) s | batch s | pair |
+| round | final2 (HEAD) s | batch (`qavx6`) s | pair |
 |:---:|---:|---:|---:|
 | 1 | 5.807 | 5.178 | 0.892 |
 | 2 | 5.949 | 5.197 | 0.874 |
-| 3 | 5.809 | 5.266 | 0.906 |
+| 3 | 5.809 | 5.266 | 0.907 |
 | 4 | 5.839 | 5.149 | 0.882 |
 | 5 | 5.862 | 5.207 | 0.888 |
 | mean | **5.853** | **5.199** | **0.888** |
 
-Binary md5s: `final2` `18fe984d…`, batch `bb5da211…` (`prefix_solve.qavx6`). The control's spread
-is 5.807–5.949 (2.4% of its mean), the batch's 5.149–5.266 (2.3%). Every one of the five pairs
-moves the same way and the ratio is outside both spreads. The rate is **314 → 351 tok/s** at width
-8.
+The control's spread is 5.807–5.949 (2.4% of its mean), the batch's 5.149–5.266 (2.3%). Every one
+of the five pairs moves the same way and the mean ratio is outside both spreads. The rate is
+**312 → 351 tok/s** at width 8.
 
 The committed source, rebuilt after the gate's doc and visibility edits, is md5 `e26e47a6…`
-(`prefix_solve.qavx7`) and reads **5.782 → 5.159 s** over three further rounds (pairs 0.894, 0.894,
-0.889; mean **0.892**), PPL 53.991898. The ratio reproduces on the exact committed binary; two
-earlier windows read 0.888 on `3a4bc66e…` and `bb5da211…`, so the pair is 0.888–0.892 across three
-windows while the absolute walls are not.
+(`qavx7`) and reads **5.782 → 5.159 s** over three further rounds (5.788/5.175, 5.749/5.140,
+5.808/5.163; pairs 0.894, 0.894, 0.889; mean **0.892**), PPL 53.991898. The ratio reproduces on the
+exact committed binary; a third window on `3a4bc66e…` read 0.888, so the pair is 0.888–0.892 across
+three windows while the absolute walls are not.
 
-The sub-arms, each in its own window, pair as:
+### The sub-arms, each paired in its own window
 
-| arm | control s | change s | pair |
-|---|---:|---:|---:|
-| quantizer + `swiglu_piece` + `QUERY_TILE` | 5.838 | 5.612 | 0.961 |
-| attention pack + score | 5.473 | 5.283 | 0.965 |
-| fused norm | 5.362 | 5.137 | 0.958 |
-| batch vs HEAD (table above) | 5.710 | 5.071 | 0.888 |
+| arm | rounds | control s | change s | pair | binaries |
+|---|---:|---:|---:|---:|---|
+| quantizer + `swiglu_piece` + `QUERY_TILE` | 3 | 5.838 | 5.612 | 0.961 | `final2` → `qavx` |
+| attention pack + score | 3 | 5.473 | 5.283 | 0.965 | `qavx2` → `qavx3` |
+| fused norm | 3 | 5.362 | 5.137 | 0.958 | `qavx4` → `qavx5` |
+| batch vs HEAD (table above) | 5 | 5.853 | 5.199 | 0.888 | `final2` → `qavx6` |
 
-The sub-arm windows are different windows and are not summed; the batch row is the graded number.
+The three dials of the first row were built together and are not separated; the row's 0.961 is the
+three of them. Each window has its own absolute walls and they are not summed or compared across
+rows. The batch row is the graded number.
 
 ### Quality
 
@@ -155,14 +180,15 @@ The sub-arm windows are different windows and are not summed; the batch row is t
 |---|---:|---:|---:|
 | final2 (HEAD) | 53.991898 | 3.988834 | 8,176 |
 | batch | **53.991898** | **3.988834** | 8,176 |
+| committed rebuild (`qavx7`) | **53.991898** | **3.988834** | 8,176 |
 
 Same stream, same 16 windows of ≤ 512, `--kernel q8act`. Every change is word-exact on the values
 it touches, so the batch reproduces the PPL exactly rather than approximately. No PPL movement is
 claimed or observed.
 
-### Phase split
+### Phase split, and the pre-change split
 
-`--phases`, one cold run of the batch binary, same window.
+`--phases`, one cold run of the batch binary (`qavx6`), 5.152 s.
 
 | phase | ms | share |
 |---|---:|---:|
@@ -172,51 +198,65 @@ claimed or observed.
 | `attn.proj_out` | 294.457 | 5.7% |
 | `norm` | **160.906** | **3.1%** |
 | `residual` | 144.366 | 2.8% |
-| `pool.wait` | 276.530 | 5.4% |
+| `embed` | 10.221 | 0.2% |
 | `head` | 5.854 | 0.1% |
+| leaves | 4745.065 | 92.1% |
+| `pool.wait` | 276.530 | 5.4% |
 | `pass` | 4780.856 | 92.8% |
 | cold wall | 5.152 s | |
 
-The leaves sum to 4,779.8 ms. The three projection leaves are 2,937.2 ms (57.0% of the wall), so a
-further projection change inherits **`1/(1 − 0.570) = 2.33×`**; `attn.core` is 28.9% and inherits
-**`1.41×`**. The norm leaf moved **498.5 → 149.0 ms** in the window that paired the norm change
-(the qavx4 split, 5.417 s); the committed split reads 160.9 ms for the same leaf, and at 3.1% it is
-no longer a target.
+The pre-change split is `bcefc8ef`'s own, from `1795646114-nq-prefill-epilogues.md` (5.723 s):
+`ffn` 1884.056 (32.9%), `attn.proj_in` 813.642 (14.2%), `attn.proj_out` 327.529 (5.7%) — projection
+leaves 3025.227 (52.9%, **`1/(1 − 0.529) = 2.12×`**) — `attn.core` 1807.743 (31.6%, **1.46×**),
+`norm` 362.930 (6.3%, **1.07×**), `residual` 113.173 (2.0%), `pool.wait` 124.959 (2.2%).
+
+The batch's target was the two terms that own the token: the projection leaves (52.9%, 2.12×) and
+`attn.core` (31.6%, 1.46×). The norm is 6.3% and inherits 1.07× on its own, so it is not presented
+as a standalone target; it is one dial of the batch and its own paired arm (0.958, 5.362 → 5.137 s)
+is what the table above grades. After the batch the projection leaves are 2937.213 ms (57.0%,
+**2.33×**) and `attn.core` 28.9% (**1.41×**); the norm leaf is 160.906 ms (3.1%) against the
+pre-change 362.930 ms (6.3%).
 
 ### Against llama.cpp
 
-llama.cpp at `049326a00`, same host and window, `llama-bench -m Qwen3-0.6B-Base.f16.gguf -p 1827
--n 0 -t 8 -r 3`:
+llama.cpp at `049326a00`, same host, `-p 1827 -n 0 -t 8 -r 3`:
 
-| arm | tok/s | wall s |
-|---|---:|---:|
-| llama.cpp F16 | **463.49 ± 0.67** | **3.942** |
-| batch (q8 pack), `qavx6` | 351.5 | 5.199 |
-| batch (q8 pack), committed `qavx7` | 354.2 | 5.159 |
+| window | llama tok/s | llama s | batch s | ratio |
+|---|---|---:|---:|---:|
+| `qavx6` (5 rounds) | 463.49 ± 0.67 | 3.942 | 5.199 | 1.32× |
+| committed `qavx7` (3 rounds) | 463.49 ± 0.67 | 3.942 | 5.159 | 1.31× |
 
-The in-window ratio is `5.159 / 3.942 = 1.31×` behind (`5.199 / 3.942 = 1.32×` on the pre-lint
-binary). The target is 1×–0.5× (3.942–1.971 s): parity needs the wall to fall a further **1.31×**
-(1.22 s) and half a further **2.62×**. An earlier window read 1.30× against llama's 3.894 s. The
-batch moved 0.888–0.892 from 1.36×; the remainder is the projection staging (57.0% leaves, of which
-the dot family is about a third) and `attn.core` (28.9%), not the norm or the residual.
+The target is 1×–0.5× (3.942–1.971 s): parity needs the wall to fall a further **1.31×** (1.22 s)
+and half a further **2.62×**. A second window read llama 469.11 ± 0.94 tok/s (3.895 s) against the
+same batch (`qavx5`) at 5.071 s, 1.30×; the three windows put the factor at 1.30–1.32×. The last
+committed receipt read 1.39× clean-equivalent (its in-window ratio was 1.44×), and the batch moved
+0.888–0.892 from there.
+
+The remainder is the projection staging (57.0% leaves, of which the dot family is about a third by
+self time) and `attn.core` (28.9%), not the norm or the residual.
 
 ## Omissions
 
 - The laptop is not measured. The box is shared and its absolute walls are window-specific; the
   interleaved pair is the graded number.
 - The extraction and bridge are stale: `proof/regen.sh --check` has not run since `57b4352d`, no
-  pinned Aeneas/Charon/Lean is installed on either host, and `norm_cols`' pooled error shape and the
-  new AVX2 bodies are in the Charon closure. The changed bodies are therefore `tested`, not
-  `proved`; the maintainer gate inherits them.
+  pinned Aeneas/Charon/Lean is installed on either host, and the new bodies are in the Charon
+  closure. `quant_act_grouped_avx2` is declared `--opaque` beside the other `kern::nq` simd twins;
+  `finite8`, `copy_finite` and `transpose8_store` are reachable only from
+  `attn_core_tile_avx2_inner`, which is already `--opaque`, so they cannot enter the translation.
+  The changed bodies are therefore `tested`, not `proved`; the maintainer gate inherits them.
 - `cargo test --workspace --all-features` needs the `glslc` pin and a GPU device; neither host has
   them. On the box, the committed source is green on `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-features --all-targets --locked -- -D warnings`,
   `tools/check-claims.py`, `tools/book-check.py`, `mdbook build book` and `mdbook test book`;
-  `cargo test --workspace --locked` is **684 passed, 1 failed, 54 ignored**, and the failure is the
+  `cargo test --workspace --locked` is **686 passed, 1 failed, 54 ignored**, and the failure is the
   documented `gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl` byte check, which needs
   `glslc`.
-- The phase split is a single run; the batch wall in the split (5.090 s) is a different run from
-  the paired mean (5.071 s). No unchanged leaf's movement is attributed.
-- The sub-arm rows are four windows; only the batch row is interleaved against HEAD in the graded
+- The phase splits are single runs; the batch wall in the split (5.152 s) is a different run from
+  the paired mean (5.199 s). No unchanged leaf's movement is attributed.
+- The sub-arm rows are four windows; only the batch row is interleaved against HEAD in its graded
   window.
+- The batch's parallel efficiency is not a claim here: the width-1/2/4/8 curve was measured on
+  `qavx7` (38.795 / 19.079 / 8.036 / 5.046 s) but that run is not part of this receipt's graded
+  rows.
 - No decode, turn, 7B, context or GPU claim.
