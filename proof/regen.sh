@@ -267,7 +267,7 @@ SERVING_OPAQUE=(
     --opaque 'crate::kern::nq::code_select_rows_avx2' # simd-twin: twin = code_select_rows_twin
     --opaque 'crate::kern::nq::code_select_block2_avx2' # simd-twin: twin = code_select_rows_twin, per column
     --opaque 'crate::kern::nq::code_select_rows2_avx2' # simd-twin: twin = code_select_rows_twin, per column
-    --opaque 'crate::kern::nq::code_select_row8_avx2' # simd-twin: twin = code_select_twin, per column
+    --opaque 'crate::kern::nq::code_select_row8_avx2' # simd-twin: twin = code_sign_dot_twin (selection via code_select_twin), per column
     --opaque 'crate::kern::nq::quant_act_grouped_avx2' # simd-twin: twin = quant_act_grouped
     --opaque 'crate::kern::nq::lane_sum' # simd-twin: the lane fold of code_select_twin
     --opaque 'crate::mixer::f32_carrier::delta_step_f32_avx2_inner' # simd-twin: twin = delta_step_f32_scalar

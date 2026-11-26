@@ -476,6 +476,30 @@ fn code_select_twin(codes: &[i8], scales: &[i64], words: &[u32], len: usize) -> 
     acc
 }
 
+/// The Q8 block reader's safe twin: `sum - 2·selected` with the selection taken from
+/// [`code_select_twin`] and narrowed exactly as the kernel narrows it. `None` is the kernel's
+/// refusal: a selection that leaves `i64`, or a sign dot that leaves it, is the caller's exact
+/// `i128` path. The kernel ([`code_select_row8_avx2`]) is the intrinsic body and this is the
+/// specification it is checked against, not a production route.
+///
+/// # Complexity
+///
+/// `O(len)` time; `O(len/32)` space for the words the caller already holds.
+#[allow(
+    dead_code,
+    reason = "the kernel's safe twin: the equality tests' specification, extracted with the crate"
+)]
+fn code_sign_dot_twin(
+    codes: &[i8],
+    scales: &[i64],
+    words: &[u32],
+    len: usize,
+    sum: i64,
+) -> Option<i64> {
+    let selected = i64::try_from(code_select_twin(codes, scales, words, len)).ok()?;
+    sum.checked_sub(selected.checked_mul(2)?)
+}
+
 /// One activation in the Q8 block reader: the int8 codes, their per-32 block scales, and the
 /// exponent shifts that let one `i32` lane accumulator add every block's selected sum before a
 /// single `e_min` shift at the row's end.
@@ -543,8 +567,9 @@ fn uniform_group(scales: &[i64], blocks: usize) -> usize {
 }
 
 /// One activation column as the wide column tile reads it: the codes, the verbatim block scales,
-/// the normalized shift vectors, the smallest block exponent, the host's selector flag and the
-/// equal-scale run the tile may fold behind one shift.
+/// the normalized shift vectors, the smallest block exponent, the host's selector flag, the
+/// equal-scale run the tile may fold behind one shift, and the dequantized total the sign dot
+/// subtracts twice the selection from.
 #[derive(Clone, Copy)]
 struct ColRef<'a> {
     codes: &'a [i8],
@@ -553,6 +578,7 @@ struct ColRef<'a> {
     e_min: u32,
     vector: bool,
     group: usize,
+    sum: i64,
 }
 
 impl<'a> CodeTerms<'a> {
@@ -600,10 +626,12 @@ impl<'a> CodeTerms<'a> {
             scale_sum = scale_sum.saturating_add(u128::from(s));
             b += 1;
         }
-        // A `vpmaddwd` lane sums four selected codes of at most 127, so `508` bounds it before the
-        // block shift; `4064` bounds one block's selected sum before its scale. Both are the
-        // reader's whole domain check, not padding: outside them the caller keeps the exact path.
-        if norm.saturating_mul(508) > u64::from(i32::MAX.cast_unsigned()) {
+        // A `vpmaddwd` lane sums four selected codes of at most 127 (`508` per block before the
+        // shift), and the horizontal fold adds the eight lanes, so `4064·Σ 2^{shifts}` bounds both
+        // one lane and the fold's total; `4064` also bounds one block's selected sum before its
+        // scale, but that one is compared against `i64`. Both are the reader's whole domain check,
+        // not padding: outside them the caller keeps the exact path, which is the same arithmetic.
+        if norm.saturating_mul(4064) > u64::from(i32::MAX.cast_unsigned()) {
             return None;
         }
         if scale_sum.saturating_mul(4064) > i64::MAX as u128 {
@@ -749,11 +777,12 @@ impl<'a> CodeTerms<'a> {
             e_min: self.e_min,
             vector: self.vector,
             group: self.group,
+            sum: self.sum,
         }
     }
 
-    /// The quantized selections of **eight** activations against one factor row's `words`, one
-    /// bit expansion of each 32-term block shared by all eight columns.
+    /// The **sign dots** of eight activations against one factor row's `words`, one bit expansion
+    /// of each 32-term block shared by all eight columns: `out[c] = sum_c − 2·selected_c`.
     ///
     /// `true` when every column's reader served `len`; `false` otherwise, leaving `out` partially
     /// written, so the caller stays on its blocked loop and does not read it.
@@ -762,6 +791,7 @@ impl<'a> CodeTerms<'a> {
     ///
     /// `O(8·len)` terms: `len/32` blocks of one word load, one expansion and `8·6` vector
     /// operations, then one horizontal fold per column. `O(1)` space beyond `out`.
+    #[cfg(test)]
     fn selected_row_cols(
         cols: &[ColRef<'_>; 8],
         words: &[u32],
@@ -772,14 +802,31 @@ impl<'a> CodeTerms<'a> {
         let mut c = 0usize;
         while c < 8 {
             let col = &cols[c];
-            if len > col.codes.len()
-                || col.shift_vecs.len() < blocks
-                || col.scales.len() < blocks
-                || words.len() < blocks
-            {
+            if len > col.codes.len() || col.shift_vecs.len() < blocks || col.scales.len() < blocks {
                 return false;
             }
             c += 1;
+        }
+        Self::selected_row_cols_ready(cols, words, len, out)
+    }
+
+    /// The wide tile's entry, with the columns' admission already established by its caller: the
+    /// caller checked `len <= codes.len()`, `shift_vecs.len() >= ⌈len/32⌉` and `scales.len() >=
+    /// ⌈len/32⌉` for every column when it assembled the group. The word span is the one bound
+    /// that changes from row to row, so it stays here.
+    ///
+    /// The wide tile calls this once per output row; re-checking eight columns' three fixed
+    /// lengths there cost 8.3 G instructions over the 1,827-token prefill (380.2 → 371.9 G),
+    /// measured on the box (`bench/cpu/1795660694-nq-select-sign-dot.md`).
+    fn selected_row_cols_ready(
+        cols: &[ColRef<'_>; 8],
+        words: &[u32],
+        len: usize,
+        out: &mut [i64; 8],
+    ) -> bool {
+        let blocks = len.div_ceil(32);
+        if words.len() < blocks {
+            return false;
         }
         #[cfg(target_arch = "x86_64")]
         if cols.iter().all(|c| c.vector) {
@@ -1005,7 +1052,7 @@ impl TernaryTerms {
 ///
 /// The host CPU supports AVX2; `len <= codes.len()`; `words` covers `len` bits; `shift_vecs` and
 /// `scales` cover `len.div_ceil(32)` blocks; `e_min` is the smallest block exponent; every scale is
-/// a non-negative power of two; and the [`CodeTerms::new`] bounds hold (`508·Σ 2^{shifts} ≤
+/// a non-negative power of two; and the [`CodeTerms::new`] bounds hold (`4064·Σ 2^{shifts} ≤
 /// i32::MAX`, `4064·Σ scales ≤ i64::MAX`), so every lane shift and the final total are exact.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
@@ -1500,10 +1547,14 @@ unsafe fn code_select_rows_avx2(
     dispatch!(2, 3, 4, 5, 6, 7, 8)
 }
 
-/// The horizontal sum of one `i32` lane accumulator, widened to `i64` without an `i32` wrap.
+/// The horizontal sum of one `i32` lane accumulator as `i64`.
 ///
-/// The [`CodeTerms::new`] lane bound makes every lane's sum fit `i32`, so the eight widened
-/// values sum to at most `8·i32::MAX < i64::MAX` in absolute value and the widening is exact.
+/// [`CodeTerms::new`] admits only activations whose eight shifted lane sums total at most
+/// `i32::MAX` (`norm·4064 ≤ i32::MAX`), which bounds each lane as well: every partial sum here —
+/// each lane, the halves' add, each adjacent pair, and the total — is bounded by that total in
+/// absolute value and stays inside `i32`, so the wrapping adds are exact. That is why the fold is
+/// two `vphaddd` on a four-lane vector instead of a widening to `i64` before every add: the bound
+/// already rules out the wrap the wide form was guarding against.
 ///
 /// # Safety
 ///
@@ -1512,39 +1563,46 @@ unsafe fn code_select_rows_avx2(
 #[target_feature(enable = "avx2")]
 unsafe fn lane_sum(lane: std::arch::x86_64::__m256i) -> i64 {
     use std::arch::x86_64::{
-        _mm256_add_epi64, _mm256_castsi256_si128, _mm256_cvtepi32_epi64, _mm256_extracti128_si256,
-        _mm_add_epi64, _mm_cvtsi128_si64, _mm_unpackhi_epi64,
+        _mm256_castsi256_si128, _mm256_extracti128_si256, _mm_add_epi32, _mm_cvtsi128_si32,
+        _mm_hadd_epi32,
     };
-    let lo = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(lane));
-    let hi = _mm256_cvtepi32_epi64(_mm256_extracti128_si256::<1>(lane));
-    let quad = _mm256_add_epi64(lo, hi);
-    let half = _mm_add_epi64(
-        _mm256_castsi256_si128(quad),
-        _mm256_extracti128_si256::<1>(quad),
+    // SAFETY: the caller names AVX2.
+    let quarters = _mm_add_epi32(
+        _mm256_castsi256_si128(lane),
+        _mm256_extracti128_si256::<1>(lane),
     );
-    let half = _mm_add_epi64(half, _mm_unpackhi_epi64(half, half));
-    _mm_cvtsi128_si64(half)
+    let pairs = _mm_hadd_epi32(quarters, quarters);
+    let total = _mm_hadd_epi32(pairs, pairs);
+    i64::from(_mm_cvtsi128_si32(total))
 }
 
 /// Fold one factor row's weight words against **eight** activation columns: the word's bit
 /// expansion (broadcast, `vpsrlvd`, two `vpshufb`, `vpand`) is built once per 32-term block and
-/// folded against all eight columns, and only the `vpmaddubsw`/`vpmaddwd`/`vpsllvd`/`vpaddd`
-/// chains repeat per column. A run of `group` blocks with one scale (the NQ quantizer's shape)
-/// folds its pair sums in `i16` and pays one `vpmaddwd`/`vpsllvd`/`vpaddd` per run instead of one
-/// per block.
+/// folded against all eight columns, and only the `vpmaddubsw`/`vpaddw` chains repeat per column.
+/// A run of `group` blocks with one scale (the NQ quantizer's shape) folds its pair sums in `i16`
+/// and pays one `vpmaddwd`/`vpsllvd`/`vpaddd` per run instead of one per block.
+///
+/// `out` receives each column's **sign dot** `sum − 2·selected`, not just the selection: the fold
+/// and the shift run once per column per row here, where the caller's separate pass over the
+/// eight results would reload them, re-check the same bounds and pay a second call. A fold that
+/// would leave `i64` returns `None`, so the caller's exact per-row loop forms the same value in
+/// `i128` instead of this loop wrapping one.
 ///
 /// This is the same arithmetic as eight [`code_select_block_avx2`] calls: each column's codes,
-/// shift vectors and `e_min` are read independently, and [`CodeTerms::new`]'s per-column bounds
-/// make every lane sum exact, so each column's output equals the single-column kernel's word for
-/// word. The row count is one by construction: eight column accumulators plus the five selector
-/// constants and the two per-column loads fill the vector register file, and a second row spills.
+/// shift vectors, `e_min` and `sum` are read independently, and [`CodeTerms::new`]'s per-column
+/// bounds make every lane sum exact, so each column's output equals the single-column kernel's
+/// selection folded with `sum − 2·selected`. Its safe twin is [`code_sign_dot_twin`], which the
+/// equality tests take as the specification. The row count is one by construction: eight column
+/// accumulators plus the five selector constants and the two per-column loads fill the vector
+/// register file, and a second row spills.
 ///
 /// # Safety
 ///
 /// The host CPU supports AVX2. For each column: `len <= codes.len()`, `scales.len() >=
 /// len.div_ceil(32)`, `shift_vecs` covers `len.div_ceil(32)` blocks, `e_min` is the smallest
-/// block exponent, `words.len() >= len.div_ceil(32)`, and the [`CodeTerms::new`] bounds hold.
-/// `group` is `1` or a run of equal scales with `2·127·group ≤ 32767`.
+/// block exponent, `sum` is that column's dequantized total, `words.len() >= len.div_ceil(32)`,
+/// and the [`CodeTerms::new`] bounds hold. `group` is `1` or a run of equal scales with
+/// `2·127·group ≤ 32767`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[allow(
@@ -1644,17 +1702,25 @@ unsafe fn code_select_row8_avx2(
     let tail = full * 32;
     let mut c = 0usize;
     while c < 8 {
-        // SAFETY: AVX2 is the caller's contract; the lane bound makes the sum exact.
-        let mut total = i128::from(unsafe { lane_sum(acc[c]) }) << cols[c].e_min;
+        // SAFETY: AVX2 is the caller's contract; the lane bound makes the fold exact.
+        let lanes = unsafe { lane_sum(acc[c]) };
+        // `lanes · 2^e_min` is the column's selection over the full blocks in dequantized units.
+        // `CodeTerms::new` bounded one column's whole dequantized total by `i64`
+        // (`scale_sum·4064 ≤ i64::MAX`), so `e_min < 64` and the shift is exact; the tail keeps
+        // its own scales and is added after it.
+        let mut selected = lanes.wrapping_shl(cols[c].e_min);
         if tail < len {
-            total += code_select_twin(
-                &cols[c].codes[tail..],
-                &cols[c].scales[full..],
-                &words[full..],
-                len - tail,
-            );
+            selected = selected.checked_add(
+                i64::try_from(code_select_twin(
+                    &cols[c].codes[tail..],
+                    &cols[c].scales[full..],
+                    &words[full..],
+                    len - tail,
+                ))
+                .ok()?,
+            )?;
         }
-        out[c] = i64::try_from(total).ok()?;
+        out[c] = cols[c].sum.checked_sub(selected.checked_mul(2)?)?;
         c += 1;
     }
     Some(())
@@ -1940,13 +2006,15 @@ impl Stage<'_> {
     /// 10.3% of the `apeiron-q8act` worker's instruction stream on the box at width 8, block 256
     /// (`bench/cpu/1795573862-prefill-block-and-group.md`). `None` when a stage is not a Q8
     /// reader; the caller then keeps its pair loop, which is the same arithmetic. The assembly
-    /// copies views; the reader's length and block bounds are [`CodeTerms::selected_row_cols`]'s
-    /// admission, re-checked on every [`StageCols::dot_row`] call.
+    /// copies views and checks each reader's length and block bounds once; the admitted `len` is
+    /// stored on the group, so [`StageCols::dot_row`] cannot be called with a length the columns
+    /// were not checked against.
     ///
     /// # Complexity
     ///
     /// `O(1)`: eight view reads and no work in `len`.
-    fn cols8<'s>(stages: &[&'s Self; 8]) -> Option<StageCols<'s>> {
+    fn cols8<'s>(stages: &[&'s Self; 8], len: usize) -> Option<StageCols<'s>> {
+        let blocks = len.div_ceil(32);
         let mut cols = [ColRef {
             codes: &[],
             scales: &[],
@@ -1954,18 +2022,21 @@ impl Stage<'_> {
             e_min: 0,
             vector: false,
             group: 1,
+            sum: 0,
         }; 8];
-        let mut sums = [0i64; 8];
         let mut c = 0usize;
         while c < 8 {
             let Some(codes) = &stages[c].codes else {
                 return None;
             };
-            cols[c] = codes.col_ref();
-            sums[c] = codes.sum;
+            let col = codes.col_ref();
+            if len > col.codes.len() || col.shift_vecs.len() < blocks || col.scales.len() < blocks {
+                return None;
+            }
+            cols[c] = col;
             c += 1;
         }
-        Some(StageCols { cols, sums })
+        Some(StageCols { cols, len })
     }
 }
 
@@ -1973,7 +2044,7 @@ impl Stage<'_> {
 /// group's output rows; see [`Stage::cols8`].
 struct StageCols<'a> {
     cols: [ColRef<'a>; 8],
-    sums: [i64; 8],
+    len: usize,
 }
 
 impl StageCols<'_> {
@@ -1982,20 +2053,15 @@ impl StageCols<'_> {
     /// written, and the caller keeps its two-column or per-row loop, which is the same
     /// arithmetic.
     ///
+    /// Each column's `sum - 2·selected` is formed in the narrow word inside the kernel, where the
+    /// fold already holds both terms: a subtraction that would leave `i64` returns `false`, so the
+    /// caller's exact loop forms the same value in `i128` rather than this loop wrapping one.
+    ///
     /// # Complexity
     ///
     /// `O(8·len)` terms with one word expansion per 32 terms; `O(1)` space beyond `out`.
-    fn dot_row(&self, words: &[u32], len: usize, out: &mut [i128; 8]) -> bool {
-        let mut sel = [0i64; 8];
-        if !CodeTerms::selected_row_cols(&self.cols, words, len, &mut sel) {
-            return false;
-        }
-        let mut c = 0usize;
-        while c < 8 {
-            out[c] = i128::from(self.sums[c]) - 2 * i128::from(sel[c]);
-            c += 1;
-        }
-        true
+    fn dot_row(&self, words: &[u32], out: &mut [i64; 8]) -> bool {
+        CodeTerms::selected_row_cols_ready(&self.cols, words, self.len, out)
     }
 }
 
@@ -2682,11 +2748,24 @@ impl NqLinear {
 /// The pooled wide tile calls it eight times per output row, so it is inlined there instead of
 /// keeping the shared entry's sparse and residual loops in the hot loop.
 ///
+/// A dot that fits `i64` takes one 64-bit product and one 64-bit rounding addition; whenever both
+/// stay inside `i64` the shifted value is word for word the wide body's, so the narrow arm can
+/// only shorten the path, never the domain. Everything else — a dot outside `i64`, a product or a
+/// rounding term that leaves it — falls through to the wide body, which is the referee for the
+/// whole `i128` domain.
+///
 /// # Complexity
 ///
 /// `O(1)` checked operations; `O(1)` space.
 #[inline]
 fn project_scaled(dot: i128, s: i64) -> Option<i64> {
+    if let Ok(narrow) = i64::try_from(dot) {
+        if let Some(low) = narrow.checked_mul(s) {
+            if let Some(rounded) = low.checked_add(1_i64 << 31) {
+                return Some(rounded >> 32);
+            }
+        }
+    }
     let low = dot.checked_mul(i128::from(s))?;
     i64::try_from(low.checked_add(1_i128 << 31)? >> 32).ok()
 }
@@ -2734,7 +2813,7 @@ impl Task3<i64, i64, Vec<i64>, NqError> for ColPipeline<'_> {
         // `mul_q32` epilogue is per `(row, column)` and keeps its order.
         let mut dots = [0i128; NQ_BLOCK_MAX];
         let mut dots2 = [0i128; NQ_BLOCK_MAX];
-        let mut dots8 = [0i128; 8];
+        let mut dots8 = [0i64; 8];
         // The wide tile: eight columns per pass, one factor row at a time, so each column's codes
         // and shift vectors are read once per row and the row's bit expansion is shared by all
         // eight dots. The pair loop below keeps the leftover columns.
@@ -2747,21 +2826,18 @@ impl Task3<i64, i64, Vec<i64>, NqError> for ColPipeline<'_> {
             while g < groups {
                 let base = g * NQ_TILE_COLS;
                 let tiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &t_stages[base + c]);
-                let Some(group) = Stage::cols8(&tiles) else {
+                let Some(group) = Stage::cols8(&tiles, me.inn) else {
                     break;
                 };
                 let mut r = 0usize;
                 while r < me.rank {
                     let row = &me.v[r * me.v_words..];
-                    if !group.dot_row(row, me.inn, &mut dots8) {
+                    if !group.dot_row(row, &mut dots8) {
                         break;
                     }
                     let mut c = 0usize;
                     while c < NQ_TILE_COLS {
-                        match i64::try_from(dots8[c])
-                            .ok()
-                            .and_then(|dot| mul_q32(dot, me.s_mid[r]))
-                        {
+                        match mul_q32(dots8[c], me.s_mid[r]) {
                             Some(v) => zs[(base + c) * me.rank + r] = v,
                             None => {
                                 self.overflow
@@ -2823,28 +2899,40 @@ impl Task3<i64, i64, Vec<i64>, NqError> for ColPipeline<'_> {
             }
             r0 += rows;
         }
-        // The `U` stage's per-column bound: `rank·max|z|` decides the narrow source.
+        let z_q = quantized_band(zs, me.rank, self.reader);
+        // The `U` stage's per-column bound: `rank·max|z|` decides the narrow source. The
+        // quantizer's group scale is the least power of two covering `absmax/127`, so
+        // `127·max S` bounds `max|z|` and the admission costs `O(blocks)` instead of a second
+        // pass over every word; a column whose quantization refused has no scales and keeps the
+        // exact scan.
         let mut narrow_z: Vec<bool> = vec![false; ncols];
         for (c, slot) in narrow_z.iter_mut().enumerate() {
-            let col = &zs[c * me.rank..(c + 1) * me.rank];
-            let m = col.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);
-            *slot = u128::from(m).saturating_mul(me.rank as u128) <= i64::MAX as u128;
+            let bound = if let Some(q) = &z_q[c] {
+                scale_bound(q)
+            } else {
+                let col = &zs[c * me.rank..(c + 1) * me.rank];
+                col.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0)
+            };
+            *slot = u128::from(bound).saturating_mul(me.rank as u128) <= i64::MAX as u128;
         }
-        let z_q = quantized_band(zs, me.rank, self.reader);
         let mut z_masks = ternary_columns(zs, me.rank, self.reader);
         let z_stages = build_stages(zs.chunks_exact(me.rank), &narrow_z, &z_q, &mut z_masks);
         // The dense residual reads `x`; a pack without a residual layer skips that stage. The
         // sparse correction indexes `x` directly and needs no reader at all.
         let band = &self.xs[c0..c0 + ncols];
+        let x_q = quantized_slices(band, self.reader, self.residual);
         let mut narrow_x: Vec<bool> = vec![false; ncols];
         if self.residual {
             for (c, x) in band.iter().enumerate() {
-                let max_abs_x = x.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);
+                let max_abs_x = if let Some(q) = &x_q[c] {
+                    scale_bound(q)
+                } else {
+                    x.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0)
+                };
                 let bound = u128::from(max_abs_x).saturating_mul(me.inn as u128);
                 narrow_x[c] = bound <= i64::MAX as u128;
             }
         }
-        let x_q = quantized_slices(band, self.reader, self.residual);
         let mut x_masks = ternary_slices(band, self.reader, self.residual);
         let x_stages = build_stages(band.iter().copied(), &narrow_x, &x_q, &mut x_masks);
         // The `U` stage writes each column's `out` words straight into that column's `Vec`, in the
@@ -2867,22 +2955,23 @@ impl Task3<i64, i64, Vec<i64>, NqError> for ColPipeline<'_> {
             while g < groups {
                 let base = g * NQ_TILE_COLS;
                 let tiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &z_stages[base + c]);
-                let Some(group) = Stage::cols8(&tiles) else {
+                let Some(group) = Stage::cols8(&tiles, me.rank) else {
                     break;
                 };
                 let mut i = 0usize;
                 while i < me.out {
                     let row = &me.u[i * me.u_words..];
-                    if !group.dot_row(row, me.rank, &mut dots8) {
+                    if !group.dot_row(row, &mut dots8) {
                         break;
                     }
                     let s_post = me.s_post[i];
                     let mut c = 0usize;
                     while c < NQ_TILE_COLS {
+                        let dot = i128::from(dots8[c]);
                         let v = if dense {
-                            project_scaled(dots8[c], s_post)
+                            project_scaled(dot, s_post)
                         } else {
-                            me.project_row(i, dots8[c], &x_stages[base + c])
+                            me.project_row(i, dot, &x_stages[base + c])
                         };
                         match v {
                             Some(v) => os[base + c][i] = v,
@@ -2943,6 +3032,24 @@ impl Task3<i64, i64, Vec<i64>, NqError> for ColPipeline<'_> {
         }
         Ok(())
     }
+}
+
+/// The largest magnitude a quantized column's words can hold, from its block scales: the
+/// quantizer's `S_b` is the least power of two covering `absmax_b/127`, so `127·max S_b` bounds
+/// every word of the column and is at most twice its true maximum. An over-estimate can only send
+/// the column to the exact reader, which is the same arithmetic, so the bound is safe to admit
+/// with; it costs `O(blocks)` where the exact maximum costs a pass over the column.
+///
+/// # Complexity
+///
+/// `O(blocks)`.
+fn scale_bound(q: &QuantAct) -> u64 {
+    q.scales()
+        .iter()
+        .map(|s| s.unsigned_abs())
+        .max()
+        .unwrap_or(0)
+        .saturating_mul(127)
 }
 
 /// The `t` stage over one task's band: `t_j = round(s_pre_j·x_j / 2^32)` for column `c0 + c`, and
@@ -3409,6 +3516,12 @@ mod tests {
         assert_eq!(linear.project(&x).expect("project"), sequential(&p, &x));
     }
 
+    /// The value the wide tile returns for one column, from the kernel's safe twin.
+    fn sign_dot_of(terms: &CodeTerms<'_>, words: &[u32], len: usize) -> i64 {
+        code_sign_dot_twin(terms.codes, terms.scales, words, len, terms.sum)
+            .expect("the fixture's sign dot fits i64")
+    }
+
     /// The eight-column source against its per-column twins over the whole vector domain: each
     /// column carries its own codes, scale heights and `e_min`, `len` covers whole 32-term blocks
     /// and a tail whose padding bits are set, and the word span leaves slack past the blocks. The
@@ -3455,8 +3568,11 @@ mod tests {
                 "len {len}: the group refused"
             );
             for c in 0..NQ_TILE_COLS {
-                let want = code_select_twin(terms[c].codes, terms[c].scales, &words, len);
-                assert_eq!(i128::from(got[c]), want, "len {len} column {c}");
+                assert_eq!(
+                    got[c],
+                    sign_dot_of(&terms[c], &words, len),
+                    "len {len} column {c}"
+                );
             }
         }
         // A column shorter than the length refuses the group, and the caller's fallback is what
@@ -3469,6 +3585,48 @@ mod tests {
             &cols, &[0u32; 2], 64, &mut got
         ));
         assert_eq!(got, [0i64; NQ_TILE_COLS]);
+    }
+
+    /// The reader's total bound: the eight-lane fold sums `4064·Σ 2^{shifts}`, and one block at
+    /// `2^20` beside one at `2^0` leaves `i32`, so the reader refuses and the caller keeps the
+    /// exact path rather than the fold wrapping.
+    #[test]
+    fn the_reader_refuses_a_lane_total_that_leaves_i32() {
+        let q = QuantAct::from_parts(vec![1, 1 << 20], vec![1; 64]);
+        assert!(CodeTerms::new(&q).is_none());
+    }
+
+    /// The wide tile's refusal boundary: a sign dot outside `i64` is `None` from the kernel and
+    /// from the twin, never a wrapped value. The fixture's selection is `-1`, so
+    /// `sum - 2·selected` is `i64::MAX + 2`; the group must stay unwritten and the caller's exact
+    /// `i128` loop remains the referee.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn the_wide_source_refuses_a_sign_dot_that_leaves_i64() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let codes = [-1i8];
+        let scales = [1i64];
+        let shift_vecs = [[0i32; 8]];
+        let words = [1u32];
+        let col = ColRef {
+            codes: &codes,
+            scales: &scales,
+            shift_vecs: &shift_vecs,
+            e_min: 0,
+            vector: true,
+            group: 1,
+            sum: i64::MAX,
+        };
+        let cols = [col; NQ_TILE_COLS];
+        let mut out = [0i64; NQ_TILE_COLS];
+        assert!(!CodeTerms::selected_row_cols(&cols, &words, 1, &mut out));
+        assert_eq!(out, [0i64; NQ_TILE_COLS]);
+        assert_eq!(
+            code_sign_dot_twin(&codes, &scales, &words, 1, i64::MAX),
+            None
+        );
     }
 
     /// The wide source's grouped dial: with the NQ quantizer's aligned runs of one scale, the
@@ -3516,8 +3674,11 @@ mod tests {
                 "len {len}: the group refused"
             );
             for c in 0..NQ_TILE_COLS {
-                let want = code_select_twin(terms[c].codes, terms[c].scales, &words, len);
-                assert_eq!(i128::from(got[c]), want, "len {len} column {c}");
+                assert_eq!(
+                    got[c],
+                    sign_dot_of(&terms[c], &words, len),
+                    "len {len} column {c}"
+                );
             }
         }
         // A per-block fixture and an unaligned mix keep `group == 1`.
@@ -3568,8 +3729,11 @@ mod tests {
             "the mixed tile refused"
         );
         for c in 0..NQ_TILE_COLS {
-            let want = code_select_twin(terms[c].codes, terms[c].scales, &words, len);
-            assert_eq!(i128::from(got[c]), want, "mixed tile column {c}");
+            assert_eq!(
+                got[c],
+                sign_dot_of(&terms[c], &words, len),
+                "mixed tile column {c}"
+            );
         }
         // The words span has no slack, so the admission above is the reader's whole bound.
         words.truncate(blocks - 1);
@@ -4041,7 +4205,18 @@ mod tests {
     /// test of the `k = 0`, `res_layers = 0` branch the 0.6B pack takes.
     #[test]
     fn the_dense_epilogue_rounds_the_scaled_dot() {
-        for &dot in &[0i128, 1, -1, 3, -3, 1 << 40, -(1 << 40), (1 << 62) - 1] {
+        for &dot in &[
+            0i128,
+            1,
+            -1,
+            3,
+            -3,
+            1 << 40,
+            -(1 << 40),
+            (1 << 62) - 1,
+            i128::from(i64::MAX),
+            i128::from(i64::MIN),
+        ] {
             for &s in &[0i64, 1, -1, 1 << 32, 3 << 30, -(5 << 28)] {
                 let want = i64::try_from((dot * i128::from(s) + (1_i128 << 31)) >> 32).ok();
                 assert_eq!(project_scaled(dot, s), want, "dot {dot}, s {s}");
