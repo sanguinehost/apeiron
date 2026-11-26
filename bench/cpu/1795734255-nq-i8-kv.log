@@ -1,0 +1,101 @@
+# i8 KV: int8 dot is 2.27x on attention; per-row scale refuses (+48.9% PPL)
+# OVH box ubuntu@139.99.223.161, 8 vCPU EPYC Milan, APEIRON_THREADS=8, ~/bin/adg
+# Model ~/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf
+# Pack ~/models/nq-scratch/nq06-v3.nqp (196 linears, 0.977441 b/w, 53,808,384 B)
+# Tokenizer ~/models/qwen3-0.6b-base-e8/tokenizer.json
+
+## phase_split --steps 32 --prefix 1795 --target attn.core, APEIRON_KV_CARRIER=i8
+# exit 1: attn.core is 23.1%, ffn is dominant at 31.7%
+decode split: 32 steps after a 1795 token prefix, 0.591 s wall, 18.46 ms/token
+| phase | ms/token | share | calls |
+|---|---:|---:|---:|
+| embed | 0.005 | 0.0% | 32 |
+| norm | 0.510 | 2.8% | 1824 |
+| residual | 0.139 | 0.8% | 1792 |
+| attn.proj_in | 2.723 | 14.8% | 896 |
+| attn.core | 4.271 | 23.1% | 896 |
+| attn.proj_out | 1.719 | 9.3% | 896 |
+| ffn | 5.856 | 31.7% | 896 |
+| head | 3.153 | 17.1% | 32 |
+| pass (encloses) | 15.307 | 82.9% | 32 |
+| pool.wait (overlay) | 1.118 | 6.1% | 16224 |
+| untraced | 0.084 | 0.5% | |
+dominant term: ffn at 31.7%, ceiling 1.46x
+pool.wait n=5-8    1856 calls  p50 < 4096 ns  p95 < 32768 ns  max 1189344 ns
+pool.wait n=9-16   1824 calls  p50 < 4096 ns  p95 < 8192 ns  max 52638 ns
+pool.wait n=17-32 12544 calls  p50 < 2048 ns  p95 < 4096 ns  max 72299 ns
+REFUSED: target attn.core holds 23.1% (ceiling 1.30x); the dominant term is ffn at 31.7% (ceiling 1.46x). Target the dominant term, or instrument it if it is the untraced remainder.
+
+## prefix_solve --len 1827 --differ 0 --decode 1 --mb 512 --phases, APEIRON_KV_CARRIER=i8
+# after the tile-pack vectorisation (this change)
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 59136 B/position charged
+len 1827 differ 0 decode 1 cache 512 MiB, 108573696 B needed
+  embed            13.391 ms    0.3%  calls 3
+  norm            122.655 ms    2.7%  calls 171
+  residual         72.086 ms    1.6%  calls 168
+  attn.proj_in    555.080 ms   12.0%  calls 84
+  attn.core      2327.337 ms   50.4%  calls 84
+  attn.proj_out    232.192 ms    5.0%  calls 84
+  ffn            1200.812 ms   26.0%  calls 84
+  head              6.812 ms    0.1%  calls 1
+  pass           4548.937 ms   98.5%  calls 3
+  pool.wait       137.952 ms    3.0%  calls 1352
+  outside.alloc    43.116 ms    0.9%  calls 1
+  outside.insert   12.062 ms    0.3%  calls 1
+  pool.wait n=5-8     282 calls  p50 < 8192 ns  p95 < 1048576 ns  max 4425475 ns
+  pool.wait n=9-16    174 calls  p50 < 4096 ns  p95 < 524288 ns  max 988959 ns
+  pool.wait n=17-32   840 calls  p50 < 4096 ns  p95 < 262144 ns  max 986879 ns
+  pool.wait n=65+      56 calls  p50 < 262144 ns  p95 < 2097152 ns  max 5843705 ns
+cold   hit     0  prefill    4.602 s ( 397.01 tok/s)  decode 1 in  0.018 s (55.01 tok/s)  first 3845
+  embed             0.022 ms    0.0%  calls 3
+  norm              1.858 ms    1.8%  calls 171
+  residual          0.496 ms    0.5%  calls 168
+  attn.proj_in     10.356 ms   10.2%  calls 84
+  attn.core        16.744 ms   16.5%  calls 84
+  attn.proj_out      4.869 ms    4.8%  calls 84
+  ffn              23.614 ms   23.2%  calls 84
+  head              5.458 ms    5.4%  calls 1
+  pass             58.290 ms   57.3%  calls 3
+  pool.wait         3.161 ms    3.1%  calls 1352
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   11.396 ms   11.2%  calls 1
+  pool.wait n=2       309 calls  p50 < 2048 ns  p95 < 8192 ns  max 26550 ns
+  pool.wait n=5-8     142 calls  p50 < 2048 ns  p95 < 8192 ns  max 28740 ns
+  pool.wait n=9-16    117 calls  p50 < 4096 ns  p95 < 8192 ns  max 50579 ns
+  pool.wait n=17-32   784 calls  p50 < 4096 ns  p95 < 8192 ns  max 49839 ns
+warm   hit  1824  prefill    0.084 s (21804.85 tok/s)  decode 1 in  0.018 s (55.95 tok/s)  first 3845
+  embed             0.037 ms    0.0%  calls 3
+  norm              1.773 ms    1.6%  calls 171
+  residual          0.493 ms    0.5%  calls 168
+  attn.proj_in     10.307 ms    9.5%  calls 84
+  attn.core        16.644 ms   15.4%  calls 84
+  attn.proj_out      5.522 ms    5.1%  calls 84
+  ffn              23.888 ms   22.1%  calls 84
+  head              5.611 ms    5.2%  calls 1
+  pass             59.011 ms   54.5%  calls 3
+  pool.wait         3.399 ms    3.1%  calls 1352
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   11.708 ms   10.8%  calls 1
+  pool.wait n=2       309 calls  p50 < 2048 ns  p95 < 8192 ns  max 28079 ns
+  pool.wait n=5-8     142 calls  p50 < 2048 ns  p95 < 4096 ns  max 45059 ns
+  pool.wait n=9-16    117 calls  p50 < 4096 ns  p95 < 8192 ns  max 141577 ns
+  pool.wait n=17-32   784 calls  p50 < 4096 ns  p95 < 8192 ns  max 36519 ns
+shared hit  1824  prefill    0.090 s (20315.95 tok/s)  decode 1 in  0.018 s (54.68 tok/s)  first 3845
+cache 3 entries, 325721088 bytes stored
+
+## i8 prefill split before the tile-pack vectorisation (recorded on the box)
+  attn.core      2457.999 ms   51.1%  calls 84
+  ffn            1232.497 ms   25.6%  calls 84
+  attn.proj_in    562.365 ms   11.7%  calls 84
+  attn.proj_out   242.386 ms    5.0%  calls 84
+cold   hit     0  prefill    4.792 s ( 381.25 tok/s)  decode 1 in  0.019 s (52.33 tok/s)  first 3845
+
+## ppl --tokens 2048 --ctx 512 --data wiki.test.raw, kernel Q8Act
+carrier f32:
+agent-guard: available=30116MiB cap=16384MiB jobs=8
+ppl 67.257790 on 2044 tokens (4 windows of <= 512, kernel Q8Act): mean nll 4.208533, 222.2 tok/s in 9.2 s
+carrier f16:
+ppl 71.612941 on 2044 tokens (4 windows of <= 512, kernel Q8Act): mean nll 4.271276, 215.8 tok/s in 9.5 s
+carrier i8:
+ppl 100.115240 on 2044 tokens (4 windows of <= 512, kernel Q8Act): mean nll 4.606322, 196.9 tok/s in 10.4 s

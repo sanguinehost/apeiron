@@ -2334,6 +2334,38 @@ unsafe fn attn_core_tile_avx2_inner(
                 }
             }
             TileRows::I8 { k, v, .. } => {
+                // Codes are exact in binary32, so the pack is one sign-extend and one convert
+                // per eight lanes; the per-row scales are applied to the tile's scores and
+                // weights, not here. This is the F16 arm's transpose with a different load.
+                while t + 8 <= kv_tile {
+                    let mut d = 0usize;
+                    while d < head_dim {
+                        let mut rows = [_mm256_setzero_ps(); 8];
+                        let mut r = 0usize;
+                        while r < 8 {
+                            let src = _mm_loadl_epi64(
+                                k.as_ptr().add((at0 + t + r) * stride + d).cast::<__m128i>(),
+                            );
+                            rows[r] = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(src));
+                            r += 1;
+                        }
+                        transpose8_store(&mut kt, t, d, rows);
+                        d += 8;
+                    }
+                    let mut r = 0usize;
+                    while r < 8 {
+                        let base = (at0 + t + r) * stride;
+                        let mut d = 0usize;
+                        while d < head_dim {
+                            let src = _mm_loadl_epi64(v.as_ptr().add(base + d).cast::<__m128i>());
+                            let vv = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(src));
+                            _mm256_storeu_ps(vt.as_mut_ptr().add((t + r) * head_dim + d), vv);
+                            d += 8;
+                        }
+                        r += 1;
+                    }
+                    t += 8;
+                }
                 while t < kv_tile {
                     let base = (at0 + t) * stride;
                     let mut d = 0usize;
