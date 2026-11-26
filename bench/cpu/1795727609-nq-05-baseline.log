@@ -1,0 +1,59 @@
+## P1
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 128 cache 512 MiB, 450265088 B needed
+cold   hit     0  prefill    3.939 s ( 463.88 tok/s)  decode 128 in  4.019 s (31.85 tok/s)  first 315
+warm   hit  1824  prefill    0.153 s (11952.74 tok/s)  decode 128 in  3.967 s (32.27 tok/s)  first 315
+shared hit  1824  prefill    0.154 s (11875.53 tok/s)  decode 128 in  3.982 s (32.14 tok/s)  first 315
+cache 1 entries, 450265088 bytes stored
+	Maximum resident set size (kbytes): 1614704
+	Minor (reclaiming a frame) page faults: 357554
+## P2
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 128 cache 512 MiB, 450265088 B needed
+cold   hit     0  prefill    3.899 s ( 468.58 tok/s)  decode 128 in  4.083 s (31.35 tok/s)  first 315
+warm   hit  1824  prefill    0.159 s (11485.60 tok/s)  decode 128 in  4.112 s (31.13 tok/s)  first 315
+shared hit  1824  prefill    0.161 s (11377.65 tok/s)  decode 128 in  4.115 s (31.10 tok/s)  first 315
+cache 1 entries, 450265088 bytes stored
+	Maximum resident set size (kbytes): 1614576
+	Minor (reclaiming a frame) page faults: 357575
+## P3
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 128 cache 512 MiB, 450265088 B needed
+cold   hit     0  prefill    3.870 s ( 472.13 tok/s)  decode 128 in  4.047 s (31.63 tok/s)  first 315
+warm   hit  1824  prefill    0.158 s (11558.32 tok/s)  decode 128 in  4.027 s (31.79 tok/s)  first 315
+shared hit  1824  prefill    0.159 s (11497.05 tok/s)  decode 128 in  4.032 s (31.75 tok/s)  first 315
+cache 1 entries, 450265088 bytes stored
+	Maximum resident set size (kbytes): 1614704
+	Minor (reclaiming a frame) page faults: 357684
+## ll1
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        462.26 ± 0.00 |
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |           tg128 |         93.56 ± 0.00 |
+## ll2
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        457.22 ± 0.00 |
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |           tg128 |         93.52 ± 0.00 |
+## ll3
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        462.96 ± 0.00 |
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |           tg128 |         87.58 ± 0.00 |
+## phase_split
+decode split: 32 steps after a 1795 token prefix, 0.930 s wall, 29.05 ms/token
+| phase | ms/token | share | calls |
+|---|---:|---:|---:|
+| embed | 0.005 | 0.0% | 32 |
+| norm | 0.632 | 2.2% | 1824 |
+| residual | 0.155 | 0.5% | 1792 |
+| attn.proj_in | 3.045 | 10.5% | 896 |
+| attn.core | 12.497 | 43.0% | 896 |
+| attn.proj_out | 2.160 | 7.4% | 896 |
+| ffn | 7.320 | 25.2% | 896 |
+| head | 3.139 | 10.8% | 32 |
+| pass (encloses) | 25.910 | 89.2% | 32 |
+| pool.wait (overlay) | 5.704 | 19.6% | 16224 |
+| untraced | 0.095 | 0.3% | |
+dominant term: attn.core at 43.0%, ceiling 1.75x
+pool.wait n=5-8    1856 calls  p50 < 8192 ns  p95 < 131072 ns  max 544468 ns
+pool.wait n=9-16   1824 calls  p50 < 4096 ns  p95 < 8192 ns  max 34169 ns
+pool.wait n=17-32 12544 calls  p50 < 4096 ns  p95 < 65536 ns  max 577268 ns
+TARGET attn.core: share 43.0%, ceiling 1.75x
