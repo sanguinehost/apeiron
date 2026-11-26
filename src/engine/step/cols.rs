@@ -19,7 +19,7 @@ use super::{
 };
 use crate::engine::chart::ffn::{quant_acts_pooled, swiglu_cols};
 use crate::engine::chart::pool::{chunks_mut_global, width_global, FirstErr};
-use crate::engine::chart::task::{ChunkTask, HeadTask};
+use crate::engine::chart::task::ChunkTask;
 use crate::engine::chart::QuantAct;
 use crate::engine::error::{
     TensorKey, PART_ATTN_NORM, PART_FFN_NORM, PART_OUTPUT_NORM, PART_SSM_CONV1D,
@@ -1234,29 +1234,27 @@ pub(super) fn fold_col(n: usize, k: usize) -> usize {
     }
 }
 
-/// The shared borrows of one column's RMS norm; `run` is the single call to [`norm_col`].
-struct NormColCtx<'a> {
+/// One pool task of [`norm_cols`]: a piece's columns are consecutive, each output vector is
+/// replaced whole, and the lowest failing column is the error.
+struct NormColsCtx<'a> {
     gain: &'a [i64],
     xs: &'a [Vec<i64>],
     eps: i64,
+    first: &'a FirstErr<usize, StepError>,
 }
 
-impl HeadTask<i64, StepError> for NormColCtx<'_> {
-    fn run(&self, c: usize, dst: &mut [i64]) -> Result<(), StepError> {
-        norm_col(self.gain, self.xs, self.eps, c, dst)
+impl ChunkTask<Vec<i64>> for NormColsCtx<'_> {
+    fn run(&self, _c: usize, start: usize, piece: &mut [Vec<i64>]) {
+        for (i, dst) in piece.iter_mut().enumerate() {
+            match rms_with_gain_slice(self.gain, &self.xs[start + i], self.eps) {
+                Ok(v) => *dst = v,
+                Err(e) => {
+                    self.first.record(start + i, e);
+                    return;
+                }
+            }
+        }
     }
-}
-
-/// One column of [`norm_cols`]: `rms_with_gain_slice` of `xs[c]` copied into `dst`.
-fn norm_col(
-    gain: &[i64],
-    xs: &[Vec<i64>],
-    eps: i64,
-    c: usize,
-    dst: &mut [i64],
-) -> Result<(), StepError> {
-    dst.copy_from_slice(&rms_with_gain_slice(gain, &xs[c], eps)?);
-    Ok(())
 }
 
 /// The error of the task with the lowest refusal key, taken out of `status`. The key of task `t` is
@@ -1447,12 +1445,15 @@ impl ChunkTask<Vec<i64>> for AddColsCtx<'_> {
     }
 }
 
-/// Each column's `RMSNorm` with gain: serial for one column, one pool task per column for more
-/// (each column's norm is column-local, so the split is bit-identical).
+/// Each column's `RMSNorm` with gain: serial for one column or a ragged list, a contiguous band of
+/// columns per pool task otherwise (each column's norm is column-local, so the split is
+/// bit-identical). Every column's output vector is allocated and written by the participant that
+/// owns it, so the two intermediate vectors, the shared plane and the copy out of it are gone:
+/// four writes of every column where one now suffices.
 ///
 /// # Complexity
 ///
-/// `O(k·n)` over the pool.
+/// `O(k·n)` over the pool; `O(k·n)` space, one exactly sized vector per column.
 fn norm_cols(gain: &[i64], xs: &[Vec<i64>], eps: i64) -> Result<Vec<Vec<i64>>, StepError> {
     let k = xs.len();
     let n = if k == 0 { 0 } else { xs[0].len() };
@@ -1464,7 +1465,8 @@ fn norm_cols(gain: &[i64], xs: &[Vec<i64>], eps: i64) -> Result<Vec<Vec<i64>>, S
         }
         c += 1;
     }
-    if k < 2 || ragged {
+    let width = width_global();
+    if k < 2 || ragged || width < 2 {
         let mut rows = Vec::with_capacity(k);
         let mut err: Option<StepError> = None;
         let mut c = 0usize;
@@ -1480,18 +1482,21 @@ fn norm_cols(gain: &[i64], xs: &[Vec<i64>], eps: i64) -> Result<Vec<Vec<i64>>, S
             None => Ok(rows),
         };
     }
-    let mut out = vec![0i64; k * n];
-    let one = NormColCtx { gain, xs, eps };
-    if let Some((_, e)) = crate::engine::chart::ffn::attn_heads(k, n, &mut out, true, &one) {
-        return Err(e);
+    let mut cols: Vec<Vec<i64>> = vec![Vec::new(); k];
+    let first: FirstErr<usize, StepError> = FirstErr::new();
+    let ctx = NormColsCtx {
+        gain,
+        xs,
+        eps,
+        first: &first,
+    };
+    // Two tasks per worker: one band's early finish does not leave the tail to one task.
+    let chunk = k.div_ceil(width * 2).max(1);
+    chunks_mut_global(&mut cols, chunk, &ctx);
+    match first.take() {
+        Some((_, e)) => Err(e),
+        None => Ok(cols),
     }
-    let mut cols: Vec<Vec<i64>> = Vec::with_capacity(k);
-    let mut c = 0usize;
-    while c < k {
-        cols.push(out[c * n..(c + 1) * n].to_vec());
-        c += 1;
-    }
-    Ok(cols)
 }
 
 /// The pooled int8 quantization of every column ([`quant_acts_pooled`], one dispatch over the `k`

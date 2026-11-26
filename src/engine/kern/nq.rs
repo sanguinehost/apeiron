@@ -1119,11 +1119,138 @@ const NQ_GROUP_MAX: usize = NQ_ACT_GROUP;
 /// row tile folds. The reader keeps the per-block chain for a `QuantAct` that is not an aligned
 /// run of equal scales, so this is the only NQ quantizer call site.
 ///
+/// The AVX2 body is the same quantization over four `i64` lanes: the group's magnitude maximum
+/// decides the scale, and each code is `sign(x)·floor((2|x| + S)/(2S))`, which for the
+/// power-of-two `S = 2^e` is `sign(x)·((|x| + S/2) >> e)`. `quant_act_grouped` is the scalar twin
+/// and the fallback: the vector body writes exactly its codes and scales, and a value whose scale
+/// or code would leave the twin's domain returns `None` from both.
+///
 /// # Complexity
 ///
-/// `O(x.len())`, as [`quant_act_grouped`].
+/// `O(x.len())` time and space, as [`quant_act_grouped`]; the vector path retires four elements
+/// per magnitude load and four per code load instead of one.
 fn nq_act(x: &[i64]) -> Option<QuantAct> {
+    #[cfg(target_arch = "x86_64")]
+    if std::arch::is_x86_feature_detected!("avx2") {
+        // SAFETY: the feature test above names AVX2; the body reads and writes only `x.len()`
+        // elements and returns `None` outside the twin's domain.
+        return unsafe { quant_act_grouped_avx2(x, NQ_ACT_GROUP) };
+    }
     quant_act_grouped(x, NQ_ACT_GROUP)
+}
+
+/// AVX2 body of [`nq_act`]: [`quant_act_grouped`]'s exact codes and scales over four `i64` lanes.
+///
+/// # Safety
+///
+/// The host CPU supports AVX2.
+///
+/// # Complexity
+///
+/// `O(x.len())` time and space; one magnitude pass and one code pass per group.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(
+    clippy::cast_ptr_alignment,
+    clippy::cast_possible_truncation,
+    reason = "loadu/storeu admit the i64 pointer's alignment and each code is range-checked \
+              against [-127, 127] before the i8 cast"
+)]
+unsafe fn quant_act_grouped_avx2(x: &[i64], group: usize) -> Option<QuantAct> {
+    use std::arch::x86_64::{
+        __m256i, _mm256_add_epi64, _mm256_blendv_epi8, _mm256_cmpgt_epi64, _mm256_loadu_si256,
+        _mm256_set1_epi64x, _mm256_setzero_si256, _mm256_srlv_epi64, _mm256_storeu_si256,
+        _mm256_sub_epi64, _mm256_xor_si256,
+    };
+    let n = x.len();
+    let blocks = n.div_ceil(32);
+    let group = group.max(1);
+    let mut scales: Vec<i64> = Vec::with_capacity(blocks);
+    // A zero code is the `S = 0` group's whole output, and every other lane is overwritten below.
+    let mut codes: Vec<i8> = vec![0; n];
+    let zero = _mm256_setzero_si256();
+    let min = _mm256_set1_epi64x(i64::MIN);
+    let mut block = 0usize;
+    while block < blocks {
+        let run = group.min(blocks - block);
+        let base = block * 32;
+        let end = ((block + run) * 32).min(n);
+        // The group's `absmax`: `abs = (x ^ sign) - sign` is the unsigned magnitude, and the
+        // sign bit flip makes the signed `i64` comparison order the full unsigned range,
+        // including `i64::MIN`'s `2^63`.
+        let mut vmax = min;
+        let mut i = base;
+        while i + 4 <= end {
+            let v = unsafe { _mm256_loadu_si256(x.as_ptr().add(i).cast::<__m256i>()) };
+            let sign = _mm256_cmpgt_epi64(zero, v);
+            let abs = _mm256_sub_epi64(_mm256_xor_si256(v, sign), sign);
+            let gt = _mm256_cmpgt_epi64(_mm256_xor_si256(abs, min), vmax);
+            vmax = _mm256_blendv_epi8(vmax, _mm256_xor_si256(abs, min), gt);
+            i += 4;
+        }
+        let mut lanes = [0i64; 4];
+        unsafe { _mm256_storeu_si256(lanes.as_mut_ptr().cast::<__m256i>(), vmax) };
+        let mut absmax = 0u64;
+        for &a in &lanes {
+            absmax = absmax.max((a ^ i64::MIN).cast_unsigned());
+        }
+        while i < end {
+            absmax = absmax.max(x[i].unsigned_abs());
+            i += 1;
+        }
+        let scale_wide = act_scale(absmax).unwrap_or(u64::MAX);
+        if scale_wide > i64::MAX.unsigned_abs() {
+            return None;
+        }
+        let scale = scale_wide.cast_signed();
+        let s = scale.unsigned_abs();
+        if s == 0 {
+            scales.extend(std::iter::repeat_n(scale, run));
+        } else {
+            // `S` is a power of two by `act_scale`'s contract, so the scalar twin's
+            // `q + [2r ≥ S]` is `(m + S/2) >> e` for `m = |x|`.
+            let shift = _mm256_set1_epi64x(i64::from(s.trailing_zeros()));
+            let half = _mm256_set1_epi64x(s.wrapping_shr(1).cast_signed());
+            let mut i = base;
+            while i + 4 <= end {
+                let v = unsafe { _mm256_loadu_si256(x.as_ptr().add(i).cast::<__m256i>()) };
+                let sign = _mm256_cmpgt_epi64(zero, v);
+                let abs = _mm256_sub_epi64(_mm256_xor_si256(v, sign), sign);
+                let mag = _mm256_srlv_epi64(_mm256_add_epi64(abs, half), shift);
+                let signed = _mm256_sub_epi64(_mm256_xor_si256(mag, sign), sign);
+                unsafe { _mm256_storeu_si256(lanes.as_mut_ptr().cast::<__m256i>(), signed) };
+                let mut lane = 0usize;
+                while lane < 4 {
+                    let code = lanes[lane];
+                    if !(-127..=127).contains(&code) {
+                        return None;
+                    }
+                    codes[i + lane] = code as i8;
+                    lane += 1;
+                }
+                i += 4;
+            }
+            while i < end {
+                let value = x[i];
+                let m = value.unsigned_abs();
+                let magnitude = m.wrapping_add(s >> 1) >> s.trailing_zeros();
+                let signed = if value < 0 {
+                    -i128::from(magnitude)
+                } else {
+                    i128::from(magnitude)
+                };
+                if !(-127..=127).contains(&signed) {
+                    return None;
+                }
+                codes[i] = signed as i8;
+                i += 1;
+            }
+            scales.extend(std::iter::repeat_n(scale, run));
+        }
+        block += run;
+    }
+    let quant = QuantAct::from_parts(scales, codes);
+    quant.dequantizes().then_some(quant)
 }
 
 /// The columns one weight-word pass folds: `APEIRON_NQ_COLS`, parsed once per process.
@@ -3489,6 +3616,64 @@ mod tests {
             .project_pooled_shape(&refs, Reader::Q8, 0, NQ_TILE_COLS)
             .expect("pooled q8");
         assert_eq!(pooled, per_column);
+    }
+
+    /// The AVX2 quantizer against its scalar twin over the lengths and magnitudes the NQ pack
+    /// reaches: group boundaries at 32 blocks, a ragged tail, zero groups, ties at the rounding
+    /// edge, negative extrema and the two `i64` end points. Codes and scales must agree word for
+    /// word, and both must refuse the same inputs.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn the_vector_quantizer_equals_the_scalar_quantizer() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let mut state = 0x5eed_1234_9abc_def1u64;
+        let mut patterns: Vec<Vec<i64>> = Vec::new();
+        for &shift in &[0u32, 4, 24, 40] {
+            for &len in &[0usize, 1, 31, 32, 33, 63, 64, 1023, 1024, 1025, 3071, 3072] {
+                let mut v: Vec<i64> = (0..len)
+                    .map(|_| (i64::from(next_u32(&mut state) % 401) - 200) << shift)
+                    .collect();
+                if len > 0 {
+                    v[len / 2] = (127i64 << shift) * if len % 2 == 0 { 1 } else { -1 };
+                }
+                patterns.push(v);
+            }
+        }
+        // Rounding ties: `|x|` exactly `S/2` and `S/2 - 1` for the scale the group picks.
+        patterns.push((0..1024).map(|j| if j % 2 == 0 { 1 } else { -1 }).collect());
+        patterns.push((0..1024).map(|j| (i64::from(j) % 3) - 1).collect());
+        patterns.push(vec![i64::MIN; 33]);
+        patterns.push(vec![i64::MAX; 33]);
+        patterns.push(vec![i64::MIN; 1]);
+        for (which, x) in patterns.iter().enumerate() {
+            let fast = nq_act(x);
+            let twin = quant_act_grouped(x, NQ_ACT_GROUP);
+            match (&fast, &twin) {
+                (Some(a), Some(b)) => {
+                    assert_eq!(
+                        a.scales(),
+                        b.scales(),
+                        "scales at pattern {which} len {}",
+                        x.len()
+                    );
+                    assert_eq!(
+                        a.codes(),
+                        b.codes(),
+                        "codes at pattern {which} len {}",
+                        x.len()
+                    );
+                }
+                (None, None) => {}
+                _ => panic!(
+                    "pattern {which} len {} fast {:?} vs twin {:?}",
+                    x.len(),
+                    fast.is_some(),
+                    twin.is_some()
+                ),
+            }
+        }
     }
 
     /// The two-column Q8 source against its two per-row twins over the whole vector domain: `len`

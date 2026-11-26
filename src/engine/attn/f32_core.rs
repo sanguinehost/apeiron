@@ -1145,6 +1145,111 @@ fn attn_core_tile_scalar(
     Ok(())
 }
 
+/// Whether all eight lanes of `x` are finite: `|x| <= f32::MAX` bit for bit, which is
+/// `is_finite` on each lane and false for a NaN or an infinity. The scalar twin is
+/// [`attn_core_f32_tile_scalar`]'s `is_finite` per element; the tiled equality test compares the
+/// two bodies lane for lane.
+///
+/// # Safety
+///
+/// Requires AVX2.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn finite8(x: std::arch::x86_64::__m256) -> bool {
+    use std::arch::x86_64::{
+        _mm256_and_si256, _mm256_castps_si256, _mm256_cmpgt_epi32, _mm256_movemask_epi8,
+        _mm256_set1_epi32,
+    };
+    let bits = _mm256_and_si256(_mm256_castps_si256(x), _mm256_set1_epi32(0x7fff_ffff));
+    _mm256_movemask_epi8(_mm256_cmpgt_epi32(bits, _mm256_set1_epi32(0x7f7f_ffff))) == 0
+}
+
+/// Copies `src` into `dst`, `false` when any word is not finite. Eight lanes at a time: the
+/// refusal is [`finite8`]'s and the copy is one aligned-agnostic store. The scalar twin is
+/// [`attn_core_f32_tile_scalar`]'s per-element `is_finite` check plus assignment.
+///
+/// # Safety
+///
+/// Requires AVX2; `src` and `dst` have the same length.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn copy_finite(src: &[f32], dst: &mut [f32]) -> bool {
+    use std::arch::x86_64::{_mm256_loadu_ps, _mm256_storeu_ps};
+    debug_assert_eq!(src.len(), dst.len());
+    let n = src.len();
+    let mut i = 0usize;
+    while i + 8 <= n {
+        let v = _mm256_loadu_ps(src.as_ptr().add(i));
+        if !finite8(v) {
+            return false;
+        }
+        _mm256_storeu_ps(dst.as_mut_ptr().add(i), v);
+        i += 8;
+    }
+    while i < n {
+        if !src[i].is_finite() {
+            return false;
+        }
+        dst[i] = src[i];
+        i += 1;
+    }
+    true
+}
+
+/// The transpose of eight consecutive K rows, stored as the eight columns of the transposed tile:
+/// `kt[d0 + j][t0..t0 + 8]` for `j` in `0..8`. The lane order is the identity transpose the
+/// scalar twin's element-wise pack writes; the tiled equality test compares the two.
+///
+/// # Safety
+///
+/// Requires AVX2; `kt` holds `KV_TILE · head_dim` words with `d0 + 8 <= head_dim` and
+/// `t0 + 8 <= KV_TILE`.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn transpose8_store(
+    kt: &mut [f32],
+    t0: usize,
+    d0: usize,
+    r: [std::arch::x86_64::__m256; 8],
+) {
+    use std::arch::x86_64::{
+        _mm256_permute2f128_ps, _mm256_shuffle_ps, _mm256_storeu_ps, _mm256_unpackhi_ps,
+        _mm256_unpacklo_ps,
+    };
+    let a0 = _mm256_unpacklo_ps(r[0], r[1]);
+    let a1 = _mm256_unpackhi_ps(r[0], r[1]);
+    let a2 = _mm256_unpacklo_ps(r[2], r[3]);
+    let a3 = _mm256_unpackhi_ps(r[2], r[3]);
+    let a4 = _mm256_unpacklo_ps(r[4], r[5]);
+    let a5 = _mm256_unpackhi_ps(r[4], r[5]);
+    let a6 = _mm256_unpacklo_ps(r[6], r[7]);
+    let a7 = _mm256_unpackhi_ps(r[6], r[7]);
+    let b0 = _mm256_shuffle_ps::<0x44>(a0, a2);
+    let b1 = _mm256_shuffle_ps::<0xee>(a0, a2);
+    let b2 = _mm256_shuffle_ps::<0x44>(a1, a3);
+    let b3 = _mm256_shuffle_ps::<0xee>(a1, a3);
+    let b4 = _mm256_shuffle_ps::<0x44>(a4, a6);
+    let b5 = _mm256_shuffle_ps::<0xee>(a4, a6);
+    let b6 = _mm256_shuffle_ps::<0x44>(a5, a7);
+    let b7 = _mm256_shuffle_ps::<0xee>(a5, a7);
+    let c = [
+        _mm256_permute2f128_ps::<0x20>(b0, b4),
+        _mm256_permute2f128_ps::<0x20>(b1, b5),
+        _mm256_permute2f128_ps::<0x20>(b2, b6),
+        _mm256_permute2f128_ps::<0x20>(b3, b7),
+        _mm256_permute2f128_ps::<0x31>(b0, b4),
+        _mm256_permute2f128_ps::<0x31>(b1, b5),
+        _mm256_permute2f128_ps::<0x31>(b2, b6),
+        _mm256_permute2f128_ps::<0x31>(b3, b7),
+    ];
+    let base = kt.as_mut_ptr();
+    let mut j = 0usize;
+    while j < 8 {
+        _mm256_storeu_ps(base.add((d0 + j) * KV_TILE + t0), c[j]);
+        j += 1;
+    }
+}
+
 /// `C[RM][RN·8] += A[RM][K] · B[K][RN·8]` for one register tile: llama.cpp's `simd_gemm_ukernel`
 /// (`ggml/src/ggml-cpu/simd-gemm.h`) with `GEMM_RM`/`GEMM_RN` as const parameters.
 ///
@@ -1158,7 +1263,7 @@ fn attn_core_tile_scalar(
     clippy::many_single_char_names,
     reason = "the microkernel's register-tile indices are RM, RN, K, N, i, r and kk"
 )]
-unsafe fn gemm_ukernel<const RM: usize, const RN: usize>(
+unsafe fn gemm_ukernel<const RM: usize, const RN: usize, const INIT: bool>(
     c: *mut f32,
     a: *const f32,
     b: *const f32,
@@ -1166,14 +1271,16 @@ unsafe fn gemm_ukernel<const RM: usize, const RN: usize>(
     n: usize,
 ) {
     let mut acc = [[_mm256_setzero_ps(); RN]; RM];
-    let mut i = 0usize;
-    while i < RM {
-        let mut r = 0usize;
-        while r < RN {
-            acc[i][r] = _mm256_loadu_ps(c.add(i * n + r * 8));
-            r += 1;
+    if !INIT {
+        let mut i = 0usize;
+        while i < RM {
+            let mut r = 0usize;
+            while r < RN {
+                acc[i][r] = _mm256_loadu_ps(c.add(i * n + r * 8));
+                r += 1;
+            }
+            i += 1;
         }
-        i += 1;
     }
     let mut kk = 0usize;
     while kk < k {
@@ -1220,7 +1327,14 @@ unsafe fn gemm_ukernel<const RM: usize, const RN: usize>(
     clippy::many_single_char_names,
     reason = "the microkernel's register-tile indices are M, N, K, i, r and kk"
 )]
-unsafe fn gemm_tile(c: &mut [f32], a: &[f32], b: &[f32], m: usize, k: usize, n: usize) {
+unsafe fn gemm_tile<const INIT: bool>(
+    c: &mut [f32],
+    a: &[f32],
+    b: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+) {
     let cp = c.as_mut_ptr();
     let ap = a.as_ptr();
     let bp = b.as_ptr();
@@ -1228,17 +1342,21 @@ unsafe fn gemm_tile(c: &mut [f32], a: &[f32], b: &[f32], m: usize, k: usize, n: 
     while ii + 6 <= m {
         let mut jj = 0usize;
         while jj + 16 <= n {
-            gemm_ukernel::<6, 2>(cp.add(ii * n + jj), ap.add(ii * k), bp.add(jj), k, n);
+            gemm_ukernel::<6, 2, INIT>(cp.add(ii * n + jj), ap.add(ii * k), bp.add(jj), k, n);
             jj += 16;
         }
         while jj + 8 <= n {
-            gemm_ukernel::<6, 1>(cp.add(ii * n + jj), ap.add(ii * k), bp.add(jj), k, n);
+            gemm_ukernel::<6, 1, INIT>(cp.add(ii * n + jj), ap.add(ii * k), bp.add(jj), k, n);
             jj += 8;
         }
         while jj < n {
             let mut i = 0usize;
             while i < 6 {
-                let mut acc = *cp.add((ii + i) * n + jj);
+                let mut acc = if INIT {
+                    0.0
+                } else {
+                    *cp.add((ii + i) * n + jj)
+                };
                 let mut kk = 0usize;
                 while kk < k {
                     acc = (*bp.add(kk * n + jj)).mul_add(*ap.add((ii + i) * k + kk), acc);
@@ -1254,15 +1372,15 @@ unsafe fn gemm_tile(c: &mut [f32], a: &[f32], b: &[f32], m: usize, k: usize, n: 
     while ii < m {
         let mut jj = 0usize;
         while jj + 16 <= n {
-            gemm_ukernel::<1, 2>(cp.add(ii * n + jj), ap.add(ii * k), bp.add(jj), k, n);
+            gemm_ukernel::<1, 2, INIT>(cp.add(ii * n + jj), ap.add(ii * k), bp.add(jj), k, n);
             jj += 16;
         }
         while jj + 8 <= n {
-            gemm_ukernel::<1, 1>(cp.add(ii * n + jj), ap.add(ii * k), bp.add(jj), k, n);
+            gemm_ukernel::<1, 1, INIT>(cp.add(ii * n + jj), ap.add(ii * k), bp.add(jj), k, n);
             jj += 8;
         }
         while jj < n {
-            let mut acc = *cp.add(ii * n + jj);
+            let mut acc = if INIT { 0.0 } else { *cp.add(ii * n + jj) };
             let mut kk = 0usize;
             while kk < k {
                 acc = (*bp.add(kk * n + jj)).mul_add(*ap.add(ii * k + kk), acc);
@@ -1357,42 +1475,82 @@ unsafe fn attn_core_tile_avx2_inner(
                 t += 1;
             }
         }
+        // K is packed transposed (`kt[d · KV_TILE + t]`) because the score GEMM's B row is a
+        // column of K. Eight consecutive rows go through one 8×8 transpose, so the pack's store
+        // side is eight contiguous 8-lane runs instead of one scalar store per element; V is
+        // row-major and its finiteness is refused eight lanes at a time.
         let mut t = 0usize;
-        while t < kv_tile {
-            let base = (at0 + t) * stride;
-            let mut d = 0usize;
-            match kv {
-                TileRows::F32 { k, v, .. } => {
-                    let k = native(k);
-                    let v = native(v);
+        match kv {
+            TileRows::F32 { k, v, .. } => {
+                let k = native(k);
+                let v = native(v);
+                while t + 8 <= kv_tile {
+                    let mut d = 0usize;
                     while d < head_dim {
-                        let vi = v[base + d];
-                        if !vi.is_finite() {
+                        let mut rows = [_mm256_setzero_ps(); 8];
+                        let mut r = 0usize;
+                        while r < 8 {
+                            rows[r] = _mm256_loadu_ps(k.as_ptr().add((at0 + t + r) * stride + d));
+                            r += 1;
+                        }
+                        transpose8_store(&mut kt, t, d, rows);
+                        d += 8;
+                    }
+                    let mut r = 0usize;
+                    while r < 8 {
+                        let base = (at0 + t + r) * stride;
+                        if !copy_finite(
+                            &v[base..base + head_dim],
+                            &mut vt[(t + r) * head_dim..(t + r + 1) * head_dim],
+                        ) {
                             return Err(AttnError::Overflow);
                         }
+                        r += 1;
+                    }
+                    t += 8;
+                }
+                while t < kv_tile {
+                    let base = (at0 + t) * stride;
+                    if !copy_finite(
+                        &v[base..base + head_dim],
+                        &mut vt[t * head_dim..(t + 1) * head_dim],
+                    ) {
+                        return Err(AttnError::Overflow);
+                    }
+                    let mut d = 0usize;
+                    while d < head_dim {
                         kt[d * KV_TILE + t] = k[base + d];
-                        vt[t * head_dim + d] = vi;
                         d += 1;
                     }
+                    t += 1;
                 }
-                TileRows::I8 { k, v, .. } => {
+            }
+            TileRows::I8 { k, v, .. } => {
+                while t < kv_tile {
+                    let base = (at0 + t) * stride;
+                    let mut d = 0usize;
                     while d < head_dim {
                         kt[d * KV_TILE + t] = f32::from(k[base + d]);
                         vt[t * head_dim + d] = f32::from(v[base + d]);
                         d += 1;
                     }
+                    t += 1;
                 }
             }
-            t += 1;
         }
-        while t < KV_TILE {
+        if t < KV_TILE {
+            // Only the last tile's padded key columns are written here; a full tile leaves the
+            // previous tile's finite words in place, which the score of a padded column (zeroed
+            // before it is read) never observes.
             let mut d = 0usize;
             while d < head_dim {
-                kt[d * KV_TILE + t] = 0.0;
-                vt[t * head_dim + d] = 0.0;
+                kt[d * KV_TILE + t..d * KV_TILE + KV_TILE].fill(0.0);
                 d += 1;
             }
-            t += 1;
+            while t < KV_TILE {
+                vt[t * head_dim..(t + 1) * head_dim].fill(0.0);
+                t += 1;
+            }
         }
 
         let mut lo = 0usize;
@@ -1400,9 +1558,9 @@ unsafe fn attn_core_tile_avx2_inner(
             lo += 1;
         }
         let active = rows - lo;
-        // Scores: `p = q · kt`, then scale and the per-row causal maximum, in the twin's order.
-        p[lo * KV_TILE..rows * KV_TILE].fill(0.0);
-        gemm_tile(
+        // Scores: `p = q · kt` over the row-major K tile, then scale and the per-row causal
+        // maximum, in the twin's order.
+        gemm_tile::<true>(
             &mut p[lo * KV_TILE..rows * KV_TILE],
             &q[lo * head_dim..rows * head_dim],
             &kt,
@@ -1415,8 +1573,42 @@ unsafe fn attn_core_tile_avx2_inner(
             let cut = pos[r / query_heads];
             let end = kv_tile.min(cut + 1 - at0);
             let pbase = r * KV_TILE;
-            let mut tmax = f32::NEG_INFINITY;
+            let pptr = p.as_mut_ptr().add(pbase);
+            let mut vmax = _mm256_set1_ps(f32::NEG_INFINITY);
             let mut t = 0usize;
+            if scaled_values {
+                while t + 8 <= end {
+                    let vv = _mm256_loadu_ps(pptr.add(t));
+                    let s = _mm256_mul_ps(vv, _mm256_loadu_ps(kscale.as_ptr().add(t)));
+                    if !finite8(s) {
+                        return Err(AttnError::Overflow);
+                    }
+                    _mm256_storeu_ps(pptr.add(t), s);
+                    vmax = _mm256_max_ps(vmax, s);
+                    t += 8;
+                }
+            } else {
+                let vscale = _mm256_set1_ps(scale);
+                while t + 8 <= end {
+                    let vv = _mm256_loadu_ps(pptr.add(t));
+                    let s = _mm256_mul_ps(vv, vscale);
+                    if !finite8(s) {
+                        return Err(AttnError::Overflow);
+                    }
+                    _mm256_storeu_ps(pptr.add(t), s);
+                    vmax = _mm256_max_ps(vmax, s);
+                    t += 8;
+                }
+            }
+            // The row's maximum over the vector body and the scalar tail. Only finite scores are
+            // maxed, so lane order does not change the value (a `+0.0`/`-0.0` tie reaches `exp`
+            // as the same argument).
+            let hi = _mm256_extractf128_ps(vmax, 1);
+            let lo = _mm256_castps256_ps128(vmax);
+            let m4 = _mm_max_ps(lo, hi);
+            let m2 = _mm_max_ps(m4, _mm_movehl_ps(m4, m4));
+            let m1 = _mm_max_ss(m2, _mm_shuffle_ps(m2, m2, 0x55));
+            let mut tmax = _mm_cvtss_f32(m1);
             while t < end {
                 let score = if scaled_values {
                     p[pbase + t] * kscale[t]
@@ -1502,7 +1694,7 @@ unsafe fn attn_core_tile_avx2_inner(
             r += 1;
         }
         // Values: `acc += p · vt`, one accumulator read and write per tile.
-        gemm_tile(
+        gemm_tile::<false>(
             &mut acc[lo * head_dim..rows * head_dim],
             &p[lo * KV_TILE..rows * KV_TILE],
             &vt,

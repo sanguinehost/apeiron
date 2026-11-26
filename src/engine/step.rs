@@ -23,13 +23,14 @@ use super::kern::nq::NqError;
 use super::loader::{opt_slice, HadamardMeta, PayloadRef};
 use super::mixer::AffineState;
 use super::{
-    argmax_fixed, fixed_vector_checksum, fwht_fixed, rms_norm_fixed, AttnError, Engine,
-    EngineError, F32Error, FfnError, HadamardError, KvState, LmHeadError, MatvecError, MixerKind,
-    NormError, RopeError, RopeTable, SamplerError, TensorEntry,
+    argmax_fixed, fixed_vector_checksum, fwht_fixed, AttnError, Engine, EngineError, F32Error,
+    FfnError, HadamardError, KvState, LmHeadError, MatvecError, MixerKind, NormError, RopeError,
+    RopeTable, SamplerError, TensorEntry, FIXED_FRAC_BITS,
 };
 use crate::engine::num::dequant::dequant_row_fixed;
-use crate::engine::num::value::round_shift_32;
+use crate::engine::num::value::{div_round_nearest, round_shift_32};
 use crate::engine::ops::lm_head;
+use crate::numeric::fixed_rsqrt::fixed_rsqrt;
 
 // Unchunked kernel: the `Sched::Sequential` oracle (tests and the wasm32 build); executing
 // `Sched::Resident` is `par::matvec_rows_chunked`.
@@ -266,28 +267,80 @@ fn add_assign_fixed(x: &mut [i64], y: &[i64]) -> Result<(), StepError> {
     Ok(())
 }
 
-/// [`rms_norm_fixed`] followed by the per-channel Q32.32 gain, the fold `cpu_rms` order. A width
-/// mismatch refuses with [`StepError::BadConfig`].
-fn rms_with_gain_slice(gain: &[i64], x: &[i64], eps: i64) -> Result<Vec<i64>, StepError> {
+/// [`super::rms_norm_fixed`]'s `r` for `x`: the Q32.32 `fixed_rsqrt(mean(x²) + eps)` after the
+/// same checked `i128` sum of squares, the same round-to-nearest mean and the same range checks.
+///
+/// [`super::rms_norm_fixed`] is the twin this body repeats word for word; it exists here so the
+/// norm can apply the gain without materializing the normalized row.
+///
+/// # Complexity
+///
+/// `O(x.len())` time, `O(1)` space.
+fn rms_root(x: &[i64], eps: i64) -> Result<i64, StepError> {
+    let n = x.len();
+    if n == 0 {
+        return Err(StepError::Norm(NormError::EmptyRow));
+    }
+    let mut sum_sq: i128 = 0;
+    let mut i = 0usize;
+    while i < n {
+        let v = i128::from(x[i]);
+        let sq = v
+            .checked_mul(v)
+            .ok_or(StepError::Norm(NormError::OutOfRange))?;
+        sum_sq = sum_sq
+            .checked_add(sq)
+            .ok_or(StepError::Norm(NormError::OutOfRange))?;
+        i += 1;
+    }
+    let den = (n as i128) * (1_i128 << FIXED_FRAC_BITS);
+    let mean = div_round_nearest(sum_sq, den);
+    let arg = mean
+        .checked_add(i128::from(eps))
+        .ok_or(StepError::Norm(NormError::OutOfRange))?;
+    let arg = i64::try_from(arg).map_err(|_| StepError::Norm(NormError::OutOfRange))?;
+    fixed_rsqrt(arg).map_err(|_| StepError::Norm(NormError::OutOfRange))
+}
+
+/// One output word of [`rms_with_gain_slice`]: `round(round(x·r / 2^32)·g / 2^32)`, the two
+/// roundings `rms_norm_fixed` then the gain apply, in that order.
+///
+/// # Complexity
+///
+/// `O(1)`.
+fn rms_gain_word(x: i64, root: i64, g: i64) -> Result<i64, StepError> {
+    let normed = round_shift_32(i128::from(x) * i128::from(root));
+    let base = i64::try_from(normed).map_err(|_| StepError::Norm(NormError::OutOfRange))?;
+    let prod = i128::from(base) * i128::from(g);
+    i64::try_from(round_shift_32(prod)).map_err(|_| StepError::Overflow)
+}
+
+/// [`super::rms_norm_fixed`] followed by the per-channel Q32.32 gain, the fold `cpu_rms` order,
+/// over a fresh, exactly sized vector: one allocation and one write of the column's final words.
+///
+/// The fused form exists because the pooled norm path runs it once per column; the allocating
+/// pair wrote the normalized row to one fresh `Vec` and multiplied it into a second. The two
+/// roundings are `rms_norm_fixed`'s per-element `round(x_i·r / 2^32)` and the gain's
+/// `round(·g_i / 2^32)`, in that order, and a width mismatch refuses with
+/// [`StepError::BadConfig`].
+///
+/// # Complexity
+///
+/// `O(x.len())` time and space.
+pub(crate) fn rms_with_gain_slice(
+    gain: &[i64],
+    x: &[i64],
+    eps: i64,
+) -> Result<Vec<i64>, StepError> {
     if gain.len() != x.len() {
         return Err(StepError::BadConfig(String::from("norm gain width")));
     }
-    let base = rms_norm_fixed(x, eps).map_err(StepError::Norm)?;
-    let mut out: Vec<i64> = Vec::with_capacity(base.len());
+    let root = rms_root(x, eps)?;
+    let mut out: Vec<i64> = Vec::with_capacity(x.len());
     let mut i = 0usize;
-    let mut err: Option<StepError> = None;
-    while i < base.len() && err.is_none() {
-        match i128::from(base[i]).checked_mul(i128::from(gain[i])) {
-            None => err = Some(StepError::Overflow),
-            Some(prod) => match i64::try_from(round_shift_32(prod)) {
-                Ok(v) => out.push(v),
-                Err(_) => err = Some(StepError::Overflow),
-            },
-        }
+    while i < x.len() {
+        out.push(rms_gain_word(x[i], root, gain[i])?);
         i += 1;
-    }
-    if let Some(e) = err {
-        return Err(e);
     }
     Ok(out)
 }

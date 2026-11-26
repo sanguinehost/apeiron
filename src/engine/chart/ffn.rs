@@ -275,6 +275,10 @@ pub(crate) fn swiglu_one_f32_scalar(gate: i64, up: i64) -> Result<i64, FfnError>
 }
 
 /// Evaluate one `SwiGLU` element under the selected carrier.
+///
+/// The production path evaluates a slice ([`swiglu_slice`]); this is the test oracle that names
+/// one element's arithmetic.
+#[cfg(test)]
 #[inline]
 pub(crate) fn swiglu_one_carrier(gate: i64, up: i64, carrier: Carrier) -> Result<i64, FfnError> {
     match carrier {
@@ -473,19 +477,13 @@ fn swiglu_piece(
     offset: usize,
     carrier: Carrier,
 ) -> Result<(), FfnError> {
-    let mut err: Option<FfnError> = None;
-    let mut j = 0usize;
-    while j < out.len() && err.is_none() {
-        match swiglu_one_carrier(gate[offset + j], up[offset + j], carrier) {
-            Ok(v) => out[j] = v,
-            Err(e) => err = Some(e),
-        }
-        j += 1;
-    }
-    match err {
-        Some(e) => Err(e),
-        None => Ok(()),
-    }
+    swiglu_slice(
+        &gate[offset..offset + out.len()],
+        &up[offset..offset + out.len()],
+        out,
+        carrier,
+    )
+    .map_err(|(_, e)| e)
 }
 
 /// `out[c][j] = round(silu(gate[c][j])·up[c][j] / 2^32)` for every column `c` and every `j`: one

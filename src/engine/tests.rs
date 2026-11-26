@@ -173,6 +173,57 @@ fn rms_norm_fixed_refuses_empty_and_out_of_window() {
     assert_eq!(rms_norm_fixed(&[ONE << 11], 0), Err(NormError::OutOfRange));
 }
 
+/// The fused norm-and-gain pass against the pair it replaces: `rms_norm_fixed` into a vector,
+/// then the gain multiply with the same rounding. Rows cover a single word, an odd width, a full
+/// 1,024-word activation and negative gains; the refusals are the pair's.
+#[test]
+fn the_fused_norm_gain_equals_the_norm_then_gain_pair() {
+    use crate::engine::num::value::round_shift_32;
+    let idx = |n: usize| -> Vec<i64> { (0..n).map(|i| i64::try_from(i).expect("index")).collect() };
+    let gain_of = |n: usize, k: i64| -> Vec<i64> {
+        idx(n)
+            .iter()
+            .map(|i| ((i % 7) - 3) * (ONE / 8) + k)
+            .collect()
+    };
+    let rows: Vec<Vec<i64>> = vec![
+        vec![ONE, -ONE, ONE, -ONE],
+        vec![ONE],
+        idx(1024)
+            .iter()
+            .map(|i| ((i % 97) - 48) * (ONE / 64))
+            .collect(),
+        idx(33).iter().map(|i| (i - 16) * (ONE / 32)).collect(),
+    ];
+    for x in &rows {
+        let gain = gain_of(x.len(), ONE / 4);
+        let got = step::rms_with_gain_slice(&gain, x, 3 * ONE).expect("in window");
+        let base = rms_norm_fixed(x, 3 * ONE).expect("in window");
+        let want: Vec<i64> = base
+            .iter()
+            .zip(&gain)
+            .map(|(b, g)| {
+                i64::try_from(round_shift_32(i128::from(*b) * i128::from(*g))).expect("in range")
+            })
+            .collect();
+        assert_eq!(got, want, "row of {}", x.len());
+    }
+    // Both refuse the same domain: an empty row, a zero mean with zero eps, and a width
+    // mismatch.
+    assert_eq!(
+        step::rms_with_gain_slice(&[], &[], ONE),
+        Err(StepError::Norm(NormError::EmptyRow))
+    );
+    assert_eq!(
+        step::rms_with_gain_slice(&[ONE, ONE], &[0, 0], 0),
+        Err(StepError::Norm(NormError::OutOfRange))
+    );
+    assert_eq!(
+        step::rms_with_gain_slice(&[ONE], &[ONE, ONE], 3 * ONE),
+        Err(StepError::BadConfig(String::from("norm gain width")))
+    );
+}
+
 #[test]
 fn rope_table_matches_the_load_time_boundary() {
     // theta = 4: turn_0 = round(2^64 / 2pi) and turn_1 = round((1/2) * 2^64 / 2pi).

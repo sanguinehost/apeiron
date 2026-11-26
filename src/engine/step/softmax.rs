@@ -35,8 +35,9 @@ const EXACT_SCAN_TILE: usize = 32;
 /// Consecutive columns per attention tile on the [`KvCarrier::F32`] path: the tile reads each K/V
 /// row once and folds it against all of the tile's queries. The cold read falls from
 /// `Σ_c (pos₀ + c + 1)` rows to `Σ_t (pos₀ + t·QUERY_TILE + QUERY_TILE)`, about `1/QUERY_TILE`
-/// of it; 32 keeps the score stage (`rows · 64` words) inside L2.
-const QUERY_TILE: usize = 32;
+/// of it; 64 is llama.cpp's `GGML_FA_TILE_Q` and keeps the score stage (`rows · 64` words) inside
+/// L2.
+const QUERY_TILE: usize = 64;
 
 /// The `APEIRON_ATTN_TILE` flag: the tiled F32 read unless set to `0`. A same-binary A/B switch,
 /// parsed once per process like [`exact_scan_enabled`]'s environment fallback.
