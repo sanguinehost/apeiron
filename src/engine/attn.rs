@@ -26,19 +26,23 @@ use self::kvplane::{KvFileError, KvMap, KvPlane};
 /// The numerical carrier of the key/value cache: the dial `APEIRON_KV_CARRIER` selects.
 ///
 /// [`KvCarrier::Q32`] is the exact fixed-point oracle and the only carrier the block certificate
-/// reads; [`KvCarrier::F32`] is the measured decode default; [`KvCarrier::I8`] stores one signed
-/// code per component with one binary32 scale per `(kv_head, position, K|V)`.
+/// reads; [`KvCarrier::F32`] is the measured decode default; [`KvCarrier::F16`] stores one binary16
+/// word per component, the 2 B/value carrier llama.cpp serves and the width that makes the 0.5×
+/// decode target bandwidth-reachable; [`KvCarrier::I8`] stores one signed code per component with
+/// one binary32 scale per `(kv_head, position, K|V)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KvCarrier {
     /// Q32.32 fixed-point planes.
     Q32,
     /// Native binary32 planes.
     F32,
+    /// Binary16 planes: one half word per component, converted exactly on the read.
+    F16,
     /// Signed 8-bit codes with one binary32 scale per row.
     I8,
 }
 
-/// The cache carrier from `APEIRON_KV_CARRIER` (`q32` | `f32` | `i8`), falling back to
+/// The cache carrier from `APEIRON_KV_CARRIER` (`q32` | `f32` | `f16` | `i8`), falling back to
 /// [`carrier_from_env`] when unset or unrecognised.
 ///
 /// `APEIRON_F32_CARRIER=0` still selects Q32 and every other value F32, so a run that sets only
@@ -52,6 +56,7 @@ pub(crate) fn kv_carrier_from_env() -> KvCarrier {
     *CARRIER.get_or_init(|| match std::env::var("APEIRON_KV_CARRIER").as_deref() {
         Ok(v) if v.eq_ignore_ascii_case("i8") => KvCarrier::I8,
         Ok(v) if v.eq_ignore_ascii_case("f32") => KvCarrier::F32,
+        Ok(v) if v.eq_ignore_ascii_case("f16") => KvCarrier::F16,
         Ok(v) if v.eq_ignore_ascii_case("q32") => KvCarrier::Q32,
         _ => match carrier_from_env() {
             Carrier::Q32 => KvCarrier::Q32,
@@ -151,6 +156,14 @@ pub enum KvStorage {
         /// Position-major value planes, one per layer.
         v: Vec<KvPlane<F32>>,
     },
+    /// Binary16 key and value planes: one half word per component, position-major like the
+    /// binary32 planes and read through an exact conversion.
+    F16 {
+        /// Position-major key planes, one per layer.
+        k: Vec<KvPlane<u16>>,
+        /// Position-major value planes, one per layer.
+        v: Vec<KvPlane<u16>>,
+    },
     /// Signed 8-bit key and value codes, KV-head-major, with one binary32 scale per
     /// `(kv_head, position)` in `ks`/`vs`. Component `i` of position `s` of KV head `kvh` is at
     /// `((kvh · cap) + s) · head_dim + i`: one KV head's positions are contiguous, so the group
@@ -186,6 +199,23 @@ fn alloc_f32_storage(plane: usize, n_layer: usize) -> KvStorage {
     let k = vec![blank.clone(); n_layer];
     let v = vec![blank; n_layer];
     KvStorage::F32 { k, v }
+}
+
+/// Allocate the zeroed binary16 key and value planes for `n_layer` layers of `plane` values.
+///
+/// The plane is `n_head_kv · cap · head_dim` half words; the zero bit pattern is `+0`, so a
+/// partly written position reads as a zero row. The geometry guards and the checked product are
+/// [`KvState::with_carrier`]'s, as for the binary32 allocation.
+///
+/// # Complexity
+///
+/// `O(n_layer · plane)` time and space in `u16` words: one zeroed plane cloned into the key
+/// planes and moved into the value plane, so `2 · n_layer · plane` writes.
+fn alloc_f16_storage(plane: usize, n_layer: usize) -> KvStorage {
+    let blank = KvPlane::owned(vec![0u16; plane]);
+    let k = vec![blank.clone(); n_layer];
+    let v = vec![blank; n_layer];
+    KvStorage::F16 { k, v }
 }
 
 /// Allocate the zeroed int8 code planes and their per-row scales.
@@ -789,7 +819,9 @@ impl KvState {
         let mut scores: Vec<i64> = Vec::with_capacity(slots);
         let kplane = match &self.storage {
             KvStorage::Q32 { k, .. } => &k[layer],
-            KvStorage::F32 { .. } | KvStorage::I8 { .. } => return Err(AttnError::BadGeometry),
+            KvStorage::F32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => {
+                return Err(AttnError::BadGeometry)
+            }
         };
         let mut s = 0usize;
         let mut ok = true;
@@ -832,7 +864,9 @@ impl KvState {
         let kv = self.n_head_kv;
         let vplane = match &self.storage {
             KvStorage::Q32 { v, .. } => &v[layer],
-            KvStorage::F32 { .. } | KvStorage::I8 { .. } => return Err(AttnError::BadGeometry),
+            KvStorage::F32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => {
+                return Err(AttnError::BadGeometry)
+            }
         };
         let mut den: i128 = 0;
         let mut num: Vec<i128> = vec![0i128; hd];
@@ -942,6 +976,10 @@ impl KvState {
         if self.carrier == KvCarrier::F32 {
             return self.attn_head_f32(layer, q_head, q, pos, out);
         }
+        if self.carrier == KvCarrier::F16 {
+            // The binary16 carrier has one read and no tile; the per-head call is its one-slot case.
+            return self.attn_head_f16(layer, q_head, q, pos, out);
+        }
         if out.len() != self.head_dim {
             return Err(AttnError::RowLength {
                 expected: self.head_dim,
@@ -1035,6 +1073,7 @@ impl KvState {
                 KvStorage::Q32 { k, v }
             }
             KvCarrier::F32 => alloc_f32_storage(plane, n_layer),
+            KvCarrier::F16 => alloc_f16_storage(plane, n_layer),
             KvCarrier::I8 => {
                 let rows = n_head_kv.checked_mul(cap).ok_or(AttnError::Overflow)?;
                 alloc_i8_storage(plane, rows, n_layer)
@@ -1242,6 +1281,7 @@ impl KvState {
         match self.carrier() {
             KvCarrier::Q32 => values * 8,
             KvCarrier::F32 => values * 4,
+            KvCarrier::F16 => values * 2,
             KvCarrier::I8 => values + 2 * self.n_head_kv * self.n_layer * 4,
         }
     }
@@ -1320,6 +1360,10 @@ impl KvState {
     ///
     /// `O(n_head_kv · head_dim)` time and no allocation: the two row blocks are copied into the
     /// layer planes.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one arm per KV carrier; each arm is the carrier's whole write path"
+    )]
     pub fn append(
         &mut self,
         layer: usize,
@@ -1395,6 +1439,34 @@ impl KvState {
                     return Err(AttnError::Overflow);
                 }
             }
+            // The binary16 carrier: the same `q32_to_f32` conversion as the binary32 arm, then one
+            // round-to-nearest-even narrowing per word. A word whose rounding leaves the largest
+            // finite half refuses with the binary32 arm's `Overflow`; the store before that word is
+            // the F32 arm's documented partial-row behaviour.
+            KvStorage::F16 { k, v } => {
+                let mut bad = 0u32;
+                let k_dst = &mut k[layer][base..end];
+                let mut i = 0usize;
+                while i < width {
+                    match f32_core::f32_to_f16_bits(q32_to_f32(k_rows[i])) {
+                        Some(h) => k_dst[i] = h,
+                        None => bad += 1,
+                    }
+                    i += 1;
+                }
+                let v_dst = &mut v[layer][base..end];
+                let mut i = 0usize;
+                while i < width {
+                    match f32_core::f32_to_f16_bits(q32_to_f32(v_rows[i])) {
+                        Some(h) => v_dst[i] = h,
+                        None => bad += 1,
+                    }
+                    i += 1;
+                }
+                if bad != 0 {
+                    return Err(AttnError::Overflow);
+                }
+            }
             // One quantisation per KV head and per K/V row: each row has its own scale, and the
             // codes are written KV-head-major so the group read sees one contiguous run. The
             // cursors advance by whole-head strides, so the loop body holds no checked index
@@ -1464,7 +1536,7 @@ impl KvState {
             KvStorage::Q32 { k, .. } => &k[layer],
             // The block index is Q32-only (`enable_block_index` refuses the other carriers), so
             // neither arm is reachable with `blocks` set.
-            KvStorage::F32 { .. } | KvStorage::I8 { .. } => return Ok(()),
+            KvStorage::F32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => return Ok(()),
         };
         if let Some(idx) = self.blocks.as_mut() {
             idx.seal(
@@ -1508,7 +1580,9 @@ impl KvState {
                     layer += 1;
                 }
             }
-            KvStorage::F32 { .. } | KvStorage::I8 { .. } => return Err(AttnError::BadGeometry),
+            KvStorage::F32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => {
+                return Err(AttnError::BadGeometry)
+            }
         }
         self.blocks = Some(index);
         Ok(())
@@ -1588,6 +1662,9 @@ impl KvState {
         if self.carrier == KvCarrier::F32 {
             return self.attn_head_f32(layer, q_head, q, pos, out);
         }
+        if self.carrier == KvCarrier::F16 {
+            return self.attn_head_f16(layer, q_head, q, pos, out);
+        }
         if self.blocks.is_some() {
             // The certified read returns the same words as the full scan below (the skipped
             // blocks' `fixed_exp` words are exactly zero), so the caller sees one read.
@@ -1631,7 +1708,9 @@ impl KvState {
         }
         let (kplane, vplane) = match &self.storage {
             KvStorage::Q32 { k, v } => (&k[layer], &v[layer]),
-            KvStorage::F32 { .. } | KvStorage::I8 { .. } => return Err(AttnError::BadGeometry),
+            KvStorage::F32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => {
+                return Err(AttnError::BadGeometry)
+            }
         };
         let kv = self.n_head_kv;
         let slots = pos.checked_add(1).ok_or(AttnError::Overflow)?;
@@ -1883,7 +1962,9 @@ impl KvState {
         }
         let (kplane, vplane) = match &self.storage {
             KvStorage::Q32 { k, v } => (&k[layer], &v[layer]),
-            KvStorage::F32 { .. } | KvStorage::I8 { .. } => return Err(AttnError::BadGeometry),
+            KvStorage::F32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => {
+                return Err(AttnError::BadGeometry)
+            }
         };
         let index = match &self.blocks {
             Some(i) => i,
@@ -2195,7 +2276,7 @@ impl KvState {
 
         let (kplane, vplane) = match &self.storage {
             KvStorage::F32 { k, v } => (&k[layer], &v[layer]),
-            KvStorage::Q32 { .. } | KvStorage::I8 { .. } => {
+            KvStorage::Q32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => {
                 return Err(AttnError::BadGeometry);
             }
         };
@@ -2372,6 +2453,9 @@ impl KvState {
         if tile == 0 && group > 1 && matches!(self.storage, KvStorage::F32 { .. }) {
             return self.attn_group_f32(layer, kv_head, queries, pos, outs);
         }
+        if tile == 0 && group > 1 && matches!(self.storage, KvStorage::F16 { .. }) {
+            return self.attn_group_f16(layer, kv_head, queries, pos, outs);
+        }
         let first_head = kv_head.checked_mul(group).ok_or(AttnError::Overflow)?;
         let mut g = 0usize;
         while g < group {
@@ -2452,7 +2536,9 @@ impl KvState {
         let first = kv_head.checked_mul(hd).ok_or(AttnError::Overflow)?;
         let (kplane, vplane) = match &self.storage {
             KvStorage::F32 { k, v } => (&k[layer], &v[layer]),
-            KvStorage::Q32 { .. } | KvStorage::I8 { .. } => return Err(AttnError::BadGeometry),
+            KvStorage::Q32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => {
+                return Err(AttnError::BadGeometry)
+            }
         };
         let last_base = first
             .checked_add(pos.checked_mul(stride).ok_or(AttnError::Overflow)?)
@@ -2558,6 +2644,313 @@ impl KvState {
         Ok(())
     }
 
+    /// The [`KvCarrier::F16`] decode arm of [`KvState::attn_head_group`]: one K/V row read and one
+    /// half-to-float conversion per tile for every head of the group.
+    ///
+    /// [`f32_core::attn_core_f16_group`] converts each packed tile once and runs the committed
+    /// group arithmetic over the converted words, so the result is the F32 group core's over the
+    /// same rows materialised in binary32, bit for bit.
+    ///
+    /// # Errors
+    ///
+    /// As [`KvState::attn_group_f32`], and [`AttnError::BadGeometry`] under another carrier.
+    ///
+    /// # Complexity
+    ///
+    /// `O(group · (pos + 1) · head_dim)` arithmetic plus one exact conversion per K/V word per
+    /// tile; scratch `O(group · head_dim)` Q32.32 words.
+    fn attn_group_f16(
+        &self,
+        layer: usize,
+        kv_head: usize,
+        queries: &[i64],
+        pos: usize,
+        outs: &mut [i64],
+    ) -> Result<(), AttnError> {
+        let hd = self.head_dim;
+        if layer >= self.n_layer {
+            return Err(AttnError::LayerOutOfRange {
+                layer,
+                n_layer: self.n_layer,
+            });
+        }
+        if kv_head >= self.n_head_kv {
+            return Err(AttnError::HeadOutOfRange {
+                head: kv_head,
+                n_head: self.n_head_kv,
+            });
+        }
+        let group = self.n_head / self.n_head_kv;
+        let width = group.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        if queries.len() != width {
+            return Err(AttnError::RowLength {
+                expected: width,
+                got: queries.len(),
+            });
+        }
+        if outs.len() != width {
+            return Err(AttnError::RowLength {
+                expected: width,
+                got: outs.len(),
+            });
+        }
+        let len = self.occupied[layer];
+        if pos >= len {
+            return Err(AttnError::PositionOutOfRange { pos, len });
+        }
+        let stride = self.n_head_kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let first = kv_head.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let (kplane, vplane) = match &self.storage {
+            KvStorage::F16 { k, v } => (&k[layer], &v[layer]),
+            KvStorage::Q32 { .. } | KvStorage::F32 { .. } | KvStorage::I8 { .. } => {
+                return Err(AttnError::BadGeometry)
+            }
+        };
+        let last_base = first
+            .checked_add(pos.checked_mul(stride).ok_or(AttnError::Overflow)?)
+            .ok_or(AttnError::Overflow)?;
+        if last_base > kplane.len().saturating_sub(hd)
+            || last_base > vplane.len().saturating_sub(hd)
+        {
+            return Err(AttnError::Overflow);
+        }
+
+        // Each branch lends its scratch buffers to `attn_group_f16_rows`: a join of a stack and a
+        // heap `&mut` is refused by the pinned Aeneas model. Stack for group · head_dim <= 256,
+        // heap otherwise.
+        if width <= 256 {
+            let mut q_stack = [F32::ZERO; 256];
+            let mut out_stack = [F32::ZERO; 256];
+            Self::attn_group_f16_rows(
+                &kplane[first..],
+                &vplane[first..],
+                queries,
+                group,
+                hd,
+                stride,
+                pos,
+                outs,
+                &mut q_stack[..width],
+                &mut out_stack[..width],
+            )
+        } else {
+            let mut q_heap = vec![F32::ZERO; width];
+            let mut out_heap = vec![F32::ZERO; width];
+            Self::attn_group_f16_rows(
+                &kplane[first..],
+                &vplane[first..],
+                queries,
+                group,
+                hd,
+                stride,
+                pos,
+                outs,
+                &mut q_heap[..],
+                &mut out_heap[..],
+            )
+        }
+    }
+
+    /// Q32.32 queries to f32, the grouped binary16 core over `k`/`v`, and the f32 results back to
+    /// Q32.32, with the two scratch buffers supplied by the caller (`q_f32`, `out_f32`, each of
+    /// length `group · head_dim`).
+    ///
+    /// Same conversion, scale and ascending index range as [`KvState::attn_group_f32_rows`]; the
+    /// core converts the half rows exactly before the same arithmetic.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one scratch buffer per caller branch keeps the Aeneas-visible borrows single-level"
+    )]
+    fn attn_group_f16_rows(
+        kx: &[u16],
+        vx: &[u16],
+        q: &[i64],
+        group: usize,
+        hd: usize,
+        stride: usize,
+        pos: usize,
+        out: &mut [i64],
+        q_f32: &mut [F32],
+        out_f32: &mut [F32],
+    ) -> Result<(), AttnError> {
+        let mut bad = 0u32;
+        let mut i = 0usize;
+        while i < q.len() {
+            let f = q32_to_f32(q[i]);
+            bad += u32::from(!f.is_finite());
+            q_f32[i] = f;
+            i += 1;
+        }
+        if bad != 0 {
+            return Err(AttnError::Overflow);
+        }
+
+        // `hd as i64` is exact: `hd` is a head width, far below 2^53.
+        #[allow(clippy::cast_possible_wrap, reason = "head width < 2^53")]
+        let scale = F32::ONE / F32::from_i64(hd as i64).sqrt();
+
+        f32_core::attn_core_f16_group(q_f32, kx, vx, group, hd, stride, pos, scale, out_f32)?;
+
+        let mut i = 0usize;
+        let mut ok = true;
+        let mut err: Option<AttnError> = None;
+        while i < out.len() && ok {
+            match f32_core::f32_to_q32_checked(out_f32[i]) {
+                Ok(v) => out[i] = v,
+                Err(e) => {
+                    err = Some(e);
+                    ok = false;
+                }
+            }
+            i += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    /// The [`KvCarrier::F16`] per-head read of [`KvState::attn_head`], the one-slot case of
+    /// [`KvState::attn_group_f16`].
+    ///
+    /// # Errors
+    ///
+    /// [`AttnError::LayerOutOfRange`], [`AttnError::HeadOutOfRange`],
+    /// [`AttnError::PositionOutOfRange`], [`AttnError::RowLength`], and the core's own refusals.
+    fn attn_head_f16(
+        &self,
+        layer: usize,
+        q_head: usize,
+        q: &[i64],
+        pos: usize,
+        out: &mut [i64],
+    ) -> Result<(), AttnError> {
+        let hd = self.head_dim;
+        if layer >= self.n_layer {
+            return Err(AttnError::LayerOutOfRange {
+                layer,
+                n_layer: self.n_layer,
+            });
+        }
+        if q_head >= self.n_head {
+            return Err(AttnError::HeadOutOfRange {
+                head: q_head,
+                n_head: self.n_head,
+            });
+        }
+        if q.len() != hd {
+            return Err(AttnError::RowLength {
+                expected: hd,
+                got: q.len(),
+            });
+        }
+        if out.len() != hd {
+            return Err(AttnError::RowLength {
+                expected: hd,
+                got: out.len(),
+            });
+        }
+        let len = self.occupied[layer];
+        if pos >= len {
+            return Err(AttnError::PositionOutOfRange { pos, len });
+        }
+        let group = self.n_head / self.n_head_kv;
+        let kvh = q_head / group;
+        self.attn_group_f16(layer, kvh, q, pos, out)
+    }
+
+    /// The [`KvCarrier::F16`] arm of [`KvState::attn_head_group_tile_f32`]: one K/V tile read per
+    /// tile of consecutive causal columns, over binary16 rows.
+    ///
+    /// The query conversion, the scale and the readout conversion match the `f32` arm's, and
+    /// [`f32_core::attn_core_f16_tile`] converts each packed row exactly before the tile's
+    /// arithmetic, so the words are the `f32` arm's over the same rows materialised in binary32.
+    ///
+    /// # Errors
+    ///
+    /// As [`KvState::attn_head_group_tile_f32`], and [`AttnError::BadGeometry`] under another
+    /// carrier.
+    ///
+    /// # Complexity
+    ///
+    /// As [`KvState::attn_head_group_tile_f32`], plus one exact conversion per K/V word packed
+    /// into a tile (amortised over the tile's columns).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the layer, KV head, query tile, first position and output are the call"
+    )]
+    pub fn attn_head_group_tile_f16(
+        &self,
+        layer: usize,
+        kv_head: usize,
+        queries: &[i64],
+        first: usize,
+        outs: &mut [i64],
+    ) -> Result<(), AttnError> {
+        let (hd, group, last) = self.tile_group_shape(layer, kv_head, queries, first, outs)?;
+        let (kplane, vplane) = match &self.storage {
+            KvStorage::F16 { k, v } => (&k[layer], &v[layer]),
+            KvStorage::Q32 { .. } | KvStorage::F32 { .. } | KvStorage::I8 { .. } => {
+                return Err(AttnError::BadGeometry)
+            }
+        };
+        let stride = self.n_head_kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let base = kv_head.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let last_base = base
+            .checked_add(last.checked_mul(stride).ok_or(AttnError::Overflow)?)
+            .ok_or(AttnError::Overflow)?;
+        if last_base > kplane.len().saturating_sub(hd)
+            || last_base > vplane.len().saturating_sub(hd)
+        {
+            return Err(AttnError::Overflow);
+        }
+        let mut qf = vec![F32::ZERO; queries.len()];
+        let mut bad = 0u32;
+        let mut i = 0usize;
+        while i < queries.len() {
+            let f = q32_to_f32(queries[i]);
+            bad += u32::from(!f.is_finite());
+            qf[i] = f;
+            i += 1;
+        }
+        if bad != 0 {
+            return Err(AttnError::Overflow);
+        }
+        let positions: Vec<usize> = (first..=last).collect();
+        let mut of = vec![F32::ZERO; outs.len()];
+        // `hd as i64` is exact: `hd` is a head width, far below 2^53.
+        #[allow(clippy::cast_possible_wrap, reason = "head width < 2^53")]
+        let scale = F32::ONE / F32::from_i64(hd as i64).sqrt();
+        f32_core::attn_core_f16_tile(
+            &qf,
+            &kplane[base..],
+            &vplane[base..],
+            hd,
+            group,
+            stride,
+            &positions,
+            scale,
+            &mut of,
+        )?;
+        let mut i = 0usize;
+        let mut ok = true;
+        let mut err: Option<AttnError> = None;
+        while i < outs.len() && ok {
+            match f32_core::f32_to_q32_checked(of[i]) {
+                Ok(v) => outs[i] = v,
+                Err(e) => {
+                    err = Some(e);
+                    ok = false;
+                }
+            }
+            i += 1;
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        Ok(())
+    }
+
     /// The [`KvCarrier::F32`] arm of [`KvState::attn_head_group`]: one K/V row read per tile of
     /// consecutive causal columns instead of one per column.
     ///
@@ -2595,7 +2988,9 @@ impl KvState {
         let (hd, group, last) = self.tile_group_shape(layer, kv_head, queries, first, outs)?;
         let (kplane, vplane) = match &self.storage {
             KvStorage::F32 { k, v } => (&k[layer], &v[layer]),
-            KvStorage::Q32 { .. } | KvStorage::I8 { .. } => return Err(AttnError::BadGeometry),
+            KvStorage::Q32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => {
+                return Err(AttnError::BadGeometry)
+            }
         };
         let stride = self.n_head_kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
         let base = kv_head.checked_mul(hd).ok_or(AttnError::Overflow)?;
@@ -2738,7 +3133,9 @@ impl KvState {
         let (hd, group, last) = self.tile_group_shape(layer, kv_head, queries, first, outs)?;
         let (k, v, ks, vs) = match &self.storage {
             KvStorage::I8 { k, v, ks, vs } => (&k[layer], &v[layer], &ks[layer], &vs[layer]),
-            KvStorage::Q32 { .. } | KvStorage::F32 { .. } => return Err(AttnError::BadGeometry),
+            KvStorage::Q32 { .. } | KvStorage::F16 { .. } | KvStorage::F32 { .. } => {
+                return Err(AttnError::BadGeometry)
+            }
         };
         let cap = self.cap;
         let head_stride = cap.checked_mul(hd).ok_or(AttnError::Overflow)?;
@@ -2943,6 +3340,7 @@ impl KvState {
         let plane_count = match &self.storage {
             KvStorage::Q32 { k, v } => k.len() + v.len(),
             KvStorage::F32 { k, v } => k.len() + v.len(),
+            KvStorage::F16 { k, v } => k.len() + v.len(),
             KvStorage::I8 { k, v, .. } => k.len() + v.len(),
         };
         let workers = std::thread::available_parallelism()
@@ -2959,6 +3357,10 @@ impl KvState {
             KvStorage::F32 { k, v } => {
                 let (k, v) = clone_plane_pair_parallel(k, v, workers);
                 KvStorage::F32 { k, v }
+            }
+            KvStorage::F16 { k, v } => {
+                let (k, v) = clone_plane_pair_parallel(k, v, workers);
+                KvStorage::F16 { k, v }
             }
             KvStorage::I8 { k, v, ks, vs } => {
                 let (k, v) = clone_plane_pair_parallel(k, v, workers);
@@ -3078,7 +3480,7 @@ mod tests {
         let kvh = q_head / (kv.n_head / kv_n);
         let (kplane, vplane) = match &kv.storage {
             KvStorage::Q32 { k, v } => (&k[layer], &v[layer]),
-            KvStorage::F32 { .. } | KvStorage::I8 { .. } => {
+            KvStorage::F32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => {
                 return Err(AttnError::BadGeometry);
             }
         };

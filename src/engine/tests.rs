@@ -1539,7 +1539,9 @@ fn engine_step_greedy_decode_is_deterministic() {
         match ka.carrier() {
             super::attn::KvCarrier::Q32 => 0x483c_6d3e_ce96_8247,
             super::attn::KvCarrier::F32 => 12_301_219_398_411_439_768,
-            super::attn::KvCarrier::I8 => panic!("this test builds an F32 or Q32 cache"),
+            super::attn::KvCarrier::F16 | super::attn::KvCarrier::I8 => {
+                panic!("this test builds an F32 or Q32 cache")
+            }
         },
         "recorded first-step logits checksum"
     );

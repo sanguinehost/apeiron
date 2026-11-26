@@ -177,22 +177,22 @@ fn test_f32_to_q32_equals_old_f64_formula() {
     }
 }
 
-struct SimpleRng(u64);
+pub(crate) struct SimpleRng(u64);
 impl SimpleRng {
-    fn new(seed: u64) -> Self {
+    pub(crate) fn new(seed: u64) -> Self {
         Self(seed)
     }
-    fn next_u64(&mut self) -> u64 {
+    pub(crate) fn next_u64(&mut self) -> u64 {
         self.0 = self
             .0
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
         self.0
     }
-    fn next_f32(&mut self) -> f32 {
+    pub(crate) fn next_f32(&mut self) -> f32 {
         ((self.next_u64() >> 40) as f32) / ((1u32 << 24) as f32)
     }
-    fn next_f32_range(&mut self, low: f32, high: f32) -> f32 {
+    pub(crate) fn next_f32_range(&mut self, low: f32, high: f32) -> f32 {
         low + self.next_f32() * (high - low)
     }
 }
@@ -1502,6 +1502,7 @@ fn attn_layer_segments_k200() {
         let (kp, vp) = match &kv.storage {
             crate::engine::attn::KvStorage::F32 { k, v } => (&k[0][..], &v[0][..]),
             crate::engine::attn::KvStorage::Q32 { .. }
+            | crate::engine::attn::KvStorage::F16 { .. }
             | crate::engine::attn::KvStorage::I8 { .. } => unreachable!(),
         };
         crate::engine::chart::pool::chunks_mut_global(

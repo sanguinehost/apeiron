@@ -77,6 +77,104 @@ fn native_mut(s: &mut [F32]) -> &mut [f32] {
     unsafe { std::slice::from_raw_parts_mut(s.as_mut_ptr().cast::<f32>(), s.len()) }
 }
 
+/// The exact binary32 value of one binary16 bit pattern.
+///
+/// Every finite binary16 is a binary32 value with an 11-bit significand and an exponent binary32
+/// represents, so the conversion rounds nothing; subnormals are `man · 2^-24` and are exact for
+/// the same reason. `exp == 31` carries the infinity/NaN payload through, which the carrier refuses
+/// at [`KvState::append`](crate::engine::attn::KvState::append) and the test may still hand in.
+///
+/// # Complexity
+///
+/// `O(1)`: field extraction and one exact multiply for a subnormal.
+#[inline]
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "a binary16 significand is below 2^11, exact in binary32"
+)]
+pub fn f16_to_f32(bits: u16) -> F32 {
+    let sign = u32::from(bits & 0x8000) << 16;
+    let exp = u32::from(bits & 0x7c00) >> 10;
+    let man = u32::from(bits & 0x03ff);
+    if exp == 0x1f {
+        return F32::from_bits(sign | 0x7f80_0000 | (man << 13));
+    }
+    if exp == 0 {
+        if man == 0 {
+            return F32::from_bits(sign);
+        }
+        // Subnormal: `man · 2^-24`, with `man` exact and the scale a power of two.
+        let m = f32::from_bits((man as f32).to_bits() | sign);
+        return fp(m * f32::from_bits(103u32 << 23));
+    }
+    F32::from_bits(sign | ((exp + 112) << 23) | (man << 13))
+}
+
+/// Round a finite binary32 to the nearest binary16 (ties to even), returning the half's bits.
+///
+/// `None` for a non-finite input or for a magnitude whose rounding lands above the largest finite
+/// binary16 (`65504`), which is the `Inf` the carrier refuses: [`KvState::append`] never stores a
+/// non-finite word. This is the scalar twin of `vcvtps2ph` with the round-to-nearest-even
+/// immediate; the conversion test compares the two over random bit patterns.
+///
+/// # Complexity
+///
+/// `O(1)`: field extraction, one rounding decision and one add.
+#[inline]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the sign is masked to 16 bits and the exponent field to the half's 5 bits"
+)]
+pub fn f32_to_f16_bits(x: F32) -> Option<u16> {
+    let bits = x.to_bits();
+    let sign = ((bits >> 16) & 0x8000) as u16;
+    let exp = (bits >> 23) & 0xff;
+    let man = bits & 0x7f_ffff;
+    if exp == 0xff {
+        return None;
+    }
+    if exp == 0 {
+        // A binary32 subnormal is below 2^-126, far below half the smallest binary16 subnormal.
+        return Some(sign);
+    }
+    let e = exp.cast_signed() - 127;
+    if e > 15 {
+        return None;
+    }
+    if e >= -14 {
+        // Normal binary16: keep ten explicit significand bits, round the dropped thirteen.
+        let he = (e + 15) as u32;
+        let hm = man >> 13;
+        let rem = man & 0x1fff;
+        let mut rounded = (he << 10) | hm;
+        if rem > 0x1000 || (rem == 0x1000 && (hm & 1) == 1) {
+            rounded += 1;
+        }
+        if (rounded >> 10) >= 0x1f {
+            // The rounding carried past the largest finite half into infinity.
+            return None;
+        }
+        return Some(sign | (rounded as u16));
+    }
+    if e >= -25 {
+        // Binary16 subnormal: `m = (2^23 + man) >> shift`, `shift = -e - 1` in 14..=24.
+        let shift = (-e - 1) as u32;
+        let m24 = 0x80_0000u32 | man;
+        let hm = m24 >> shift;
+        let rem = m24 & (u32::MAX >> (32 - shift));
+        let half = 1u32 << (shift - 1);
+        let mut rounded = hm;
+        if rem > half || (rem == half && (hm & 1) == 1) {
+            rounded += 1;
+        }
+        // `rounded == 1024` is the smallest normal, which the field layout already encodes.
+        return Some(sign | (rounded as u16));
+    }
+    // Below half the smallest subnormal: rounds to signed zero.
+    Some(sign)
+}
+
 /// Convert a binary32 float back to Q32.32 fixed-point `i64` using round-to-nearest.
 ///
 /// Refuses non-finite floats (NaN, ±Inf) and values outside the representable `i64` Q32.32 range
@@ -905,7 +1003,341 @@ unsafe fn attn_group_avx2_inner(
     Ok(())
 }
 
-/// Causal scaled dot-product attention for a tile of query positions over one K/V plane: each key
+/// Load eight binary16 words as eight binary32 lanes; exact for every half value.
+///
+/// # Safety
+///
+/// Requires F16C and AVX2; `p` reads eight half words.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma,f16c")]
+#[allow(
+    clippy::cast_ptr_alignment,
+    reason = "the load is `_mm_loadu_si128`, explicitly unaligned; the half plane is 2-byte aligned"
+)]
+unsafe fn load_f16_8(p: *const u16) -> __m256 {
+    _mm256_cvtph_ps(_mm_loadu_si128(p.cast::<__m128i>()))
+}
+
+/// Scaled dot product `(q · k) · scale` against a binary16 key row, with [`dot_f32_avx2`]'s lane
+/// FMA chain and ascending lane sum; the halves convert exactly before the product.
+///
+/// # Safety
+///
+/// Requires AVX2, FMA and F16C; `q.len() == k.len()` is a multiple of eight and both read it.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma,f16c")]
+unsafe fn dot_f16_avx2(q: &[f32], k: &[u16], scale: f32) -> f32 {
+    let chunks = q.len() / 8;
+    let mut v_dot = _mm256_setzero_ps();
+    let mut c = 0usize;
+    while c < chunks {
+        let v_q = _mm256_loadu_ps(q.as_ptr().add(c * 8));
+        let v_k = load_f16_8(k.as_ptr().add(c * 8));
+        v_dot = _mm256_fmadd_ps(v_q, v_k, v_dot);
+        c += 1;
+    }
+    let mut lanes = [0.0f32; 8];
+    _mm256_storeu_ps(lanes.as_mut_ptr(), v_dot);
+    let raw = lanes[0] + lanes[1] + lanes[2] + lanes[3] + lanes[4] + lanes[5] + lanes[6] + lanes[7];
+    raw * scale
+}
+
+/// Convert row `at` of a binary16 plane into `dst` (row-major binary32).
+///
+/// # Safety
+///
+/// Requires AVX2 and F16C; `src` covers `at · stride + head_dim` words and `dst` holds `head_dim`.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma,f16c")]
+unsafe fn pack_f16_row(src: &[u16], stride: usize, at: usize, head_dim: usize, dst: &mut [f32]) {
+    let base = at * stride;
+    let mut c = 0usize;
+    while c + 8 <= head_dim {
+        let vv = load_f16_8(src.as_ptr().add(base + c));
+        _mm256_storeu_ps(dst.as_mut_ptr().add(c), vv);
+        c += 8;
+    }
+    while c < head_dim {
+        dst[c] = nat(f16_to_f32(src[base + c]));
+        c += 1;
+    }
+}
+
+/// Convert the [`TILE`] rows starting at `at` into `dst`; the group core's tile read.
+///
+/// # Safety
+///
+/// Requires AVX2 and F16C; `src` covers `(at + TILE - 1) · stride + head_dim` words and `dst`
+/// holds `TILE · head_dim`.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma,f16c")]
+unsafe fn pack_f16_tile(src: &[u16], stride: usize, at: usize, head_dim: usize, dst: &mut [f32]) {
+    let mut r = 0usize;
+    while r < TILE {
+        pack_f16_row(
+            src,
+            stride,
+            at + r,
+            head_dim,
+            &mut dst[r * head_dim..(r + 1) * head_dim],
+        );
+        r += 1;
+    }
+}
+
+/// Causal scaled dot-product attention for the `group` query heads of one KV head over a binary16
+/// K/V plane, with each row converted once per [`TILE`] for the whole group.
+///
+/// The conversion is exact, and the converted tile is the input [`attn_tile8_avx2`] reads, so every
+/// head's words equal [`attn_core_f32_group`]'s over the same plane materialised in binary32: the
+/// carrier changes the stored width, not the recurrence. On a host without F16C, or a head width
+/// above the core's stack bound, the plane is materialised in binary32 and read by
+/// [`attn_core_f32_group`], which produces the same words.
+///
+/// # Errors
+///
+/// As [`attn_core_f32_group`].
+///
+/// # Complexity
+///
+/// As [`attn_core_f32_group`], plus one exact half-to-float conversion per K/V word per tile
+/// (`O((pos + 1) · head_dim)` conversions, each amortised over the group's heads).
+pub fn attn_core_f16_group(
+    q: &[F32],
+    k: &[u16],
+    v: &[u16],
+    group: usize,
+    head_dim: usize,
+    stride: usize,
+    pos: usize,
+    scale: F32,
+    out: &mut [F32],
+) -> Result<(), AttnError> {
+    let width = group.checked_mul(head_dim).ok_or(AttnError::Overflow)?;
+    if head_dim == 0 || group == 0 || q.len() != width || out.len() != width || stride < head_dim {
+        return Err(AttnError::BadGeometry);
+    }
+    let required_len = pos
+        .checked_mul(stride)
+        .and_then(|p| p.checked_add(head_dim))
+        .ok_or(AttnError::Overflow)?;
+    if k.len() < required_len || v.len() < required_len {
+        return Err(AttnError::BadGeometry);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    if head_dim.is_multiple_of(8)
+        && head_dim <= 256
+        && group <= GROUP_MAX
+        && crate::engine::num::fp::prim::cpu_avx2_fma()
+        && std::arch::is_x86_feature_detected!("f16c")
+    {
+        // SAFETY: the features were checked on this processor; the lengths were checked above and
+        // the body rechecks the geometry it indexes.
+        return unsafe {
+            attn_group_f16_avx2_inner(
+                native(q),
+                k,
+                v,
+                group,
+                head_dim,
+                stride,
+                pos,
+                nat(scale),
+                native_mut(out),
+            )
+        };
+    }
+
+    // Fallback: materialise the plane in binary32, then the committed F32 group core. The words
+    // are the same because the conversion is exact.
+    let mut kf = vec![F32::ZERO; required_len];
+    let mut vf = vec![F32::ZERO; required_len];
+    let mut i = 0usize;
+    while i < required_len {
+        kf[i] = f16_to_f32(k[i]);
+        vf[i] = f16_to_f32(v[i]);
+        i += 1;
+    }
+    attn_core_f32_group(q, &kf, &vf, group, head_dim, stride, pos, scale, out)
+}
+
+/// AVX2+FMA+F16C body of [`attn_core_f16_group`]: the committed group recurrence with each tile's
+/// rows converted once and shared by the whole group.
+///
+/// # Safety
+///
+/// Requires AVX2, FMA and F16C; every slice satisfies the group core's length contract,
+/// `head_dim` is a multiple of eight and at most 256, and `group <= GROUP_MAX`.
+///
+/// # Complexity
+///
+/// The group core's arithmetic once per head, plus the tile pack; stack scratch
+/// `O(TILE · head_dim)` words for the pack.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma,f16c")]
+#[allow(
+    clippy::needless_range_loop,
+    clippy::too_many_lines,
+    clippy::many_single_char_names,
+    reason = "the group's heads and the per-head recurrence symbols are the loop variables"
+)]
+unsafe fn attn_group_f16_avx2_inner(
+    q: &[f32],
+    k: &[u16],
+    v: &[u16],
+    group: usize,
+    head_dim: usize,
+    stride: usize,
+    pos: usize,
+    scale: f32,
+    out: &mut [f32],
+) -> Result<(), AttnError> {
+    let count = pos.checked_add(1).ok_or(AttnError::Overflow)?;
+    let chunks = head_dim / 8;
+    let width = group * head_dim;
+
+    let mut m = [0.0f32; GROUP_MAX];
+    let mut den = [1.0f32; GROUP_MAX];
+    let mut acc_stack = [_mm256_setzero_ps(); GROUP_MAX * 32];
+    let mut acc_heap;
+    let acc_vec: &mut [__m256] = if group * chunks <= GROUP_MAX * 32 {
+        &mut acc_stack[..group * chunks]
+    } else {
+        acc_heap = vec![_mm256_setzero_ps(); group * chunks];
+        &mut acc_heap[..]
+    };
+
+    // Position 0 seeds every head, as in the F32 group core.
+    let mut g = 0usize;
+    while g < group {
+        let lo = g * head_dim;
+        let score0 = dot_f16_avx2(&q[lo..lo + head_dim], &k[..head_dim], scale);
+        if !score0.is_finite() {
+            return Err(AttnError::Overflow);
+        }
+        m[g] = score0;
+        den[g] = 1.0;
+        let mut c = 0usize;
+        while c < chunks {
+            acc_vec[g * chunks + c] = load_f16_8(v.as_ptr().add(c * 8));
+            c += 1;
+        }
+        g += 1;
+    }
+
+    let mut ok = true;
+    let mut err: Option<AttnError> = None;
+    let mut kt = [0.0f32; TILE * 256];
+    let mut vt = [0.0f32; TILE * 256];
+
+    let mut s = 1usize;
+    while s + TILE <= count && ok {
+        pack_f16_tile(k, stride, s, head_dim, &mut kt[..TILE * head_dim]);
+        pack_f16_tile(v, stride, s, head_dim, &mut vt[..TILE * head_dim]);
+        let mut g = 0usize;
+        while g < group && ok {
+            let lo = g * head_dim;
+            // The packed rows are contiguous (`stride = head_dim`), so the tile body's own read is
+            // the F32 group core's, word for word.
+            match attn_tile8_avx2(
+                &q[lo..],
+                &kt[..TILE * head_dim],
+                &vt[..TILE * head_dim],
+                head_dim,
+                head_dim,
+                0,
+                scale,
+                &mut m[g],
+                &mut den[g],
+                &mut acc_vec[g * chunks..(g + 1) * chunks],
+            ) {
+                Ok(()) => {}
+                Err(e) => {
+                    err = Some(e);
+                    ok = false;
+                }
+            }
+            g += 1;
+        }
+        if ok {
+            s += TILE;
+        }
+    }
+
+    let mut krow = [0.0f32; 256];
+    let mut vrow = [0.0f32; 256];
+    while s < count && ok {
+        pack_f16_row(k, stride, s, head_dim, &mut krow[..head_dim]);
+        pack_f16_row(v, stride, s, head_dim, &mut vrow[..head_dim]);
+        let mut g = 0usize;
+        while g < group && ok {
+            let lo = g * head_dim;
+            let score_s = dot_f32_avx2(&q[lo..lo + head_dim], &krow[..head_dim], scale);
+            if score_s.is_finite() {
+                let m_prev = m[g];
+                let m_next = if score_s > m_prev { score_s } else { m_prev };
+                let alpha = nat(exp_f32_scalar(fp(m_prev - m_next)));
+                let w = nat(exp_f32_scalar(fp(score_s - m_next)));
+                let mut d = den[g];
+                d = d.mul_add(alpha, w);
+                let v_alpha = _mm256_set1_ps(alpha);
+                let v_w = _mm256_set1_ps(w);
+                let mut c = 0usize;
+                while c < chunks {
+                    let vv = _mm256_loadu_ps(vrow.as_ptr().add(c * 8));
+                    let prod = _mm256_mul_ps(v_w, vv);
+                    let slot = g * chunks + c;
+                    acc_vec[slot] = _mm256_fmadd_ps(acc_vec[slot], v_alpha, prod);
+                    c += 1;
+                }
+                m[g] = m_next;
+                den[g] = d;
+            } else {
+                ok = false;
+            }
+            g += 1;
+        }
+        if ok {
+            s += 1;
+        }
+    }
+    if let Some(e) = err {
+        return Err(e);
+    }
+    if !ok {
+        return Err(AttnError::Overflow);
+    }
+
+    let mut g = 0usize;
+    while g < group {
+        let d = den[g];
+        if d <= 0.0 || !d.is_finite() {
+            return Err(AttnError::ZeroSum);
+        }
+        let inv = 1.0f32 / d;
+        let v_inv = _mm256_set1_ps(inv);
+        let mut c = 0usize;
+        while c < chunks {
+            let res = _mm256_mul_ps(acc_vec[g * chunks + c], v_inv);
+            _mm256_storeu_ps(out.as_mut_ptr().add(g * head_dim + c * 8), res);
+            c += 1;
+        }
+        g += 1;
+    }
+
+    let mut bad = 0u32;
+    let mut i = 0usize;
+    while i < width {
+        bad += u32::from(!out[i].is_finite());
+        i += 1;
+    }
+    if bad != 0 {
+        return Err(AttnError::Overflow);
+    }
+    Ok(())
+}
+
 /// and value row is loaded once per tile and folded against every query head of every position in
 /// the tile.
 ///
@@ -951,6 +1383,11 @@ enum TileRows<'a> {
         v: &'a [F32],
         stride: usize,
     },
+    F16 {
+        k: &'a [u16],
+        v: &'a [u16],
+        stride: usize,
+    },
     I8 {
         k: &'a [i8],
         v: &'a [i8],
@@ -964,7 +1401,9 @@ impl TileRows<'_> {
     /// The row pitch of both planes.
     fn stride(&self) -> usize {
         match self {
-            Self::F32 { stride, .. } | Self::I8 { stride, .. } => *stride,
+            Self::F32 { stride, .. } | Self::F16 { stride, .. } | Self::I8 { stride, .. } => {
+                *stride
+            }
         }
     }
 
@@ -976,6 +1415,11 @@ impl TileRows<'_> {
             .ok_or(AttnError::Overflow)?;
         match self {
             Self::F32 { k, v, .. } => {
+                if k.len() < required || v.len() < required {
+                    return Err(AttnError::BadGeometry);
+                }
+            }
+            Self::F16 { k, v, .. } => {
                 if k.len() < required || v.len() < required {
                     return Err(AttnError::BadGeometry);
                 }
@@ -1063,8 +1507,48 @@ pub fn attn_core_i8_tile(
     )
 }
 
+/// [`attn_core_f32_tile`] over binary16 key/value rows: the F16 carrier's tiled entry.
+///
+/// Each row is `head_dim` half words at `row · stride`; the pack converts each to binary32
+/// exactly, then the tile's arithmetic is [`attn_core_f32_tile`]'s over those words. The carrier
+/// changes the stored width, not the recurrence or the score.
+///
+/// # Errors
+///
+/// As [`attn_core_f32_tile`], plus a non-finite value row that the half plane may hold from a
+/// hand-built test plane (an appended plane refuses one).
+#[allow(
+    clippy::too_many_arguments,
+    reason = "explicit strided geometry and the four tile operands"
+)]
+pub fn attn_core_f16_tile(
+    q: &[F32],
+    k: &[u16],
+    v: &[u16],
+    head_dim: usize,
+    query_heads: usize,
+    stride: usize,
+    pos: &[usize],
+    scale: F32,
+    out: &mut [F32],
+) -> Result<(), AttnError> {
+    attn_core_tile(
+        q,
+        TileRows::F16 { k, v, stride },
+        head_dim,
+        query_heads,
+        pos,
+        scale,
+        out,
+    )
+}
+
 /// Dispatches the tiled core over a row source: the AVX2 body when the host supports it and the
 /// head width is a whole number of vectors, else the scalar twin.
+///
+/// The AVX2 body is compiled with F16C because the F16 row arm converts halves at the pack, so the
+/// dispatch requires it for every row source: every x86-64 part with AVX2 and FMA has F16C, and a
+/// host without it takes the scalar twin instead.
 fn attn_core_tile(
     q: &[F32],
     kv: TileRows<'_>,
@@ -1078,9 +1562,12 @@ fn attn_core_tile(
         return Err(AttnError::BadGeometry);
     }
     #[cfg(target_arch = "x86_64")]
-    if head_dim.is_multiple_of(8) && crate::engine::num::fp::prim::cpu_avx2_fma() {
-        // SAFETY: `cpu_avx2_fma` checked AVX2 and FMA support on this processor; the geometry and
-        // the row planes are checked again by the body it calls.
+    if head_dim.is_multiple_of(8)
+        && crate::engine::num::fp::prim::cpu_avx2_fma()
+        && std::arch::is_x86_feature_detected!("f16c")
+    {
+        // SAFETY: the features were checked on this processor; the geometry and the row planes
+        // are checked again by the body it calls.
         return unsafe { attn_core_tile_avx2_inner(q, kv, head_dim, query_heads, pos, scale, out) };
     }
     attn_core_tile_scalar(q, kv, head_dim, query_heads, pos, scale, out)
@@ -1264,6 +1751,18 @@ fn attn_core_tile_scalar(
                             return Err(AttnError::Overflow);
                         }
                         kt[d * KV_TILE + t] = k[base + d];
+                        vt[t * head_dim + d] = vi;
+                        d += 1;
+                    }
+                }
+                TileRows::F16 { k, v, .. } => {
+                    // Halves convert to binary32 exactly; the value's finiteness is the F32 arm's.
+                    while d < head_dim {
+                        let vi = f16_to_f32(v[base + d]);
+                        if !vi.is_finite() {
+                            return Err(AttnError::Overflow);
+                        }
+                        kt[d * KV_TILE + t] = f16_to_f32(k[base + d]);
                         vt[t * head_dim + d] = vi;
                         d += 1;
                     }
@@ -1663,16 +2162,18 @@ unsafe fn gemm_tile<const INIT: bool>(
 ///
 /// # Safety
 ///
-/// Requires AVX2 and FMA; `q`, `k` and `v` hold the geometry the body checks.
+/// Requires AVX2, FMA and F16C; `q`, `k` and `v` hold the geometry the body checks.
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2,fma")]
+#[target_feature(enable = "avx2,fma,f16c")]
 #[allow(
     clippy::too_many_arguments,
     clippy::needless_range_loop,
     clippy::similar_names,
     clippy::many_single_char_names,
     clippy::too_many_lines,
-    reason = "mathematical recurrence symbols, explicit strided geometry, and the pass structure"
+    clippy::cast_ptr_alignment,
+    reason = "mathematical recurrence symbols, explicit strided geometry, the pass structure, and \
+              `_mm_loadu_si128` on the 2-byte-aligned half plane"
 )]
 unsafe fn attn_core_tile_avx2_inner(
     q: &[F32],
@@ -1781,6 +2282,52 @@ unsafe fn attn_core_tile_avx2_inner(
                     let mut d = 0usize;
                     while d < head_dim {
                         kt[d * KV_TILE + t] = k[base + d];
+                        d += 1;
+                    }
+                    t += 1;
+                }
+            }
+            TileRows::F16 { k, v, .. } => {
+                while t + 8 <= kv_tile {
+                    let mut d = 0usize;
+                    while d < head_dim {
+                        let mut rows = [_mm256_setzero_ps(); 8];
+                        let mut r = 0usize;
+                        while r < 8 {
+                            let src = k.as_ptr().add((at0 + t + r) * stride + d).cast::<__m128i>();
+                            rows[r] = _mm256_cvtph_ps(_mm_loadu_si128(src));
+                            r += 1;
+                        }
+                        transpose8_store(&mut kt, t, d, rows);
+                        d += 8;
+                    }
+                    let mut r = 0usize;
+                    while r < 8 {
+                        let base = (at0 + t + r) * stride;
+                        let mut d = 0usize;
+                        while d < head_dim {
+                            let src = v.as_ptr().add(base + d).cast::<__m128i>();
+                            let vv = _mm256_cvtph_ps(_mm_loadu_si128(src));
+                            if !finite8(vv) {
+                                return Err(AttnError::Overflow);
+                            }
+                            _mm256_storeu_ps(vt.as_mut_ptr().add((t + r) * head_dim + d), vv);
+                            d += 8;
+                        }
+                        r += 1;
+                    }
+                    t += 8;
+                }
+                while t < kv_tile {
+                    let base = (at0 + t) * stride;
+                    let mut d = 0usize;
+                    while d < head_dim {
+                        let vf = f16_to_f32(v[base + d]);
+                        if !vf.is_finite() {
+                            return Err(AttnError::Overflow);
+                        }
+                        kt[d * KV_TILE + t] = nat(f16_to_f32(k[base + d]));
+                        vt[t * head_dim + d] = nat(vf);
                         d += 1;
                     }
                     t += 1;
@@ -2040,3 +2587,6 @@ pub fn attn_core_f32_scalar(
 #[cfg(test)]
 #[path = "f32_core/tests.rs"]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod f16_tests;

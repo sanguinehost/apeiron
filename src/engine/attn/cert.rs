@@ -446,7 +446,7 @@ mod tests {
         let mut index = KvBlockIndex::new(1, n_head_kv, hd, block);
         let kplane = match &kv.storage {
             KvStorage::Q32 { k, .. } => &k[0],
-            KvStorage::F32 { .. } | KvStorage::I8 { .. } => unreachable!(),
+            KvStorage::F32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => unreachable!(),
         };
         index.rebuild_layer(0, kplane, keys);
 

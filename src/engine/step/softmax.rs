@@ -515,7 +515,10 @@ impl Engine {
         let tile_on = attn_tile_enabled()
             && !fused
             && k > 1
-            && matches!(kv.carrier(), KvCarrier::F32 | KvCarrier::I8);
+            && matches!(
+                kv.carrier(),
+                KvCarrier::F32 | KvCarrier::F16 | KvCarrier::I8
+            );
         let kv_ro: &KvState = kv;
         let n_kv = kv.n_head_kv();
         let group = n_head / n_kv;
@@ -763,6 +766,9 @@ fn attn_tile_task(
     let read = match kv.carrier() {
         KvCarrier::F32 => {
             kv.attn_head_group_tile_f32(layer, kvh, &queries, first, &mut dst[..len * width])
+        }
+        KvCarrier::F16 => {
+            kv.attn_head_group_tile_f16(layer, kvh, &queries, first, &mut dst[..len * width])
         }
         KvCarrier::I8 => {
             kv.attn_head_group_tile_i8(layer, kvh, &queries, first, &mut dst[..len * width])

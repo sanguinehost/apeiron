@@ -261,6 +261,7 @@ SERVING_OPAQUE=(
     --opaque 'crate::attn::f32_core::attn_core_f32_strided_avx2_inner' # simd-twin: twin = attn_core_f32_strided_scalar
     --opaque 'crate::attn::f32_core::attn_group_avx2_inner' # simd-twin: twin = the group core's per-head attn_core_f32_strided_scalar loop
     --opaque 'crate::attn::f32_core::attn_core_tile_avx2_inner' # simd-twin: twin = attn_core_tile_scalar (f32 and i8 rows)
+    --opaque 'crate::attn::f32_core::attn_group_f16_avx2_inner' # simd-twin: twin = attn_core_f16_group's materialised-plane fallback into attn_core_f32_group
     --opaque 'crate::attn::f32_core::gemm_tile' # simd-twin: the tile bodies' 6x2 GEMM, accumulation order = attn_core_tile_scalar
     --opaque 'crate::attn::f32_core::gemm_ukernel' # simd-twin: const-generic microkernel called only by gemm_tile
     --opaque 'crate::attn::i8::attn_core_i8_group_avx2_inner' # simd-twin: twin = attn_core_i8_group_scalar

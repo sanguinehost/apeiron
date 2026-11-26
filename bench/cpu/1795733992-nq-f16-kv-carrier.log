@@ -1,0 +1,28 @@
+# F16 KV carrier, OVH box ubuntu@139.99.223.161, APEIRON_THREADS=8
+# prefix_solve --len 1827 --differ 0 --decode 128 --mb 512, three rounds interleaved
+f32 1: cold   hit     0  prefill    3.917 s ( 466.46 tok/s)  decode 128 in  3.189 s (40.14 tok/s)  first 315
+f16 1: cold   hit     0  prefill    4.014 s ( 455.15 tok/s)  decode 128 in  3.109 s (41.17 tok/s)  first 3845
+f32 2: cold   hit     0  prefill    3.923 s ( 465.76 tok/s)  decode 128 in  3.131 s (40.88 tok/s)  first 315
+f16 2: cold   hit     0  prefill    3.941 s ( 463.58 tok/s)  decode 128 in  3.138 s (40.78 tok/s)  first 3845
+f32 3: cold   hit     0  prefill    3.918 s ( 466.29 tok/s)  decode 128 in  3.109 s (41.17 tok/s)  first 315
+f16 3: cold   hit     0  prefill    4.170 s ( 438.17 tok/s)  decode 128 in  3.212 s (39.86 tok/s)  first 3845
+# phase_split --steps 32 --prefix 1795 --target attn.core, APEIRON_KV_CARRIER=f16
+decode split: 32 steps after a 1795 token prefix, 0.740 s wall, 23.13 ms/token
+| phase | ms/token | share | calls |
+|---|---:|---:|---:|
+| embed | 0.005 | 0.0% | 32 |
+| norm | 0.603 | 2.6% | 1824 |
+| residual | 0.146 | 0.6% | 1792 |
+| attn.proj_in | 2.587 | 11.2% | 896 |
+| attn.core | 9.895 | 42.8% | 896 |
+| attn.proj_out | 1.567 | 6.8% | 896 |
+| ffn | 5.159 | 22.3% | 896 |
+| head | 3.079 | 13.3% | 32 |
+| pass (encloses) | 20.051 | 86.7% | 32 |
+| pool.wait (overlay) | 1.041 | 4.5% | 16224 |
+| untraced | 0.090 | 0.4% | |
+dominant term: attn.core at 42.8%, ceiling 1.75x
+pool.wait n=5-8    1856 calls  p50 < 4096 ns  p95 < 32768 ns  max 258915 ns
+pool.wait n=9-16   1824 calls  p50 < 4096 ns  p95 < 8192 ns  max 60609 ns
+pool.wait n=17-32 12544 calls  p50 < 2048 ns  p95 < 4096 ns  max 288373 ns
+TARGET attn.core: share 42.8%, ceiling 1.75x
