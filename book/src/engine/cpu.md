@@ -57,8 +57,8 @@ The cache has its own carrier dial, `APEIRON_KV_CARRIER`:
 
 | value | plane | bytes per element |
 |---|---|---:|
-| `q32` | Q32.32 `i64`, position-major | 8 |
-| `f32` | binary32, position-major | 4 |
+| `q32` | Q32.32 `i64`, KV-head-major | 8 |
+| `f32` | binary32, KV-head-major | 4 |
 | `i8` | signed code plus one binary32 scale per `(kv_head, position, K or V)`, KV-head-major | 1 + 4/head_dim |
 
 Unset falls back to `APEIRON_F32_CARRIER`: `0` selects `q32`, every other value `f32`. An int8 row

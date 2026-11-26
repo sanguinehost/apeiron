@@ -1619,3 +1619,105 @@ fn attn_layer_segments_k200() {
         println!("{ms:8.3} ms  {:5.1}%  {n}", 100.0 * ms / total);
     }
 }
+
+/// A/B of the decode KV plane layout against the same group core: position-major
+/// `[pos][kv_head][head_dim]` (the tree's plane) against head-major `[kv_head][pos][head_dim]`
+/// (llama.cpp's K tensor layout). The core is one function; only `stride` and the base slice
+/// change, so the difference is the address pattern.
+#[test]
+#[ignore = "timing harness: run with --release --ignored --nocapture"]
+fn kv_layout_ab_bench() {
+    use crate::engine::num::fp::F32;
+    use std::time::Instant;
+    const LAYERS: usize = 28;
+    const N_KV: usize = 8;
+    const GROUP: usize = 2;
+    const HD: usize = 128;
+    let pos = std::env::var("APEIRON_AB_POS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1826usize);
+    let rows = pos + 1;
+    let fill = |n: usize, seed: u64| -> Vec<F32> {
+        let mut s = seed;
+        let mut v = Vec::with_capacity(n);
+        for _ in 0..n {
+            s = s.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            let x = ((s >> 40) as f32) / ((1u32 << 24) as f32) * 2.0 - 1.0;
+            v.push(F32::from_bits(x.to_bits()));
+        }
+        v
+    };
+    let total = LAYERS * N_KV * rows * HD;
+    let (k_pos, v_pos) = (
+        fill(total, 0x1234_5678_9abc_def0),
+        fill(total, 0x0fed_cba9_8765_4321),
+    );
+    let (k_head, v_head) = (k_pos.clone(), v_pos.clone());
+    let seqs = |major: &str| -> Vec<(usize, usize)> {
+        let mut out = Vec::with_capacity(LAYERS * N_KV);
+        for l in 0..LAYERS {
+            for h in 0..N_KV {
+                if major == "pos" {
+                    out.push((l * rows * N_KV * HD + h * HD, N_KV * HD));
+                } else {
+                    out.push(((l * N_KV + h) * rows * HD, HD));
+                }
+            }
+        }
+        out
+    };
+    let mut q = Vec::with_capacity(GROUP * HD);
+    for i in 0..GROUP * HD {
+        let x = ((i % 7) as f32) * 0.05 - 0.15;
+        q.push(F32::from_bits(x.to_bits()));
+    }
+    let scale = F32::from_bits((1.0f32 / (HD as f32).sqrt()).to_bits());
+    let run = |k: &[F32], v: &[F32], seqs: &[(usize, usize)], threads: usize| -> f64 {
+        let work = |lo: usize, hi: usize| {
+            let mut out = vec![F32::ZERO; GROUP * HD];
+            for &(base, stride) in &seqs[lo..hi] {
+                attn_core_f32_group(
+                    &q,
+                    &k[base..],
+                    &v[base..],
+                    GROUP,
+                    HD,
+                    stride,
+                    pos,
+                    scale,
+                    &mut out,
+                )
+                .expect("group core");
+            }
+        };
+        let work_ref = &work;
+        let t0 = Instant::now();
+        if threads <= 1 {
+            work_ref(0, seqs.len());
+        } else {
+            let per = seqs.len().div_ceil(threads);
+            std::thread::scope(|s| {
+                for t in 0..threads {
+                    let lo = (t * per).min(seqs.len());
+                    let hi = ((t + 1) * per).min(seqs.len());
+                    let task = work_ref;
+                    s.spawn(move || task(lo, hi));
+                }
+            });
+        }
+        t0.elapsed().as_secs_f64() * 1e3
+    };
+    let layouts = [
+        ("pos", &k_pos[..], &v_pos[..], seqs("pos")),
+        ("head", &k_head[..], &v_head[..], seqs("head")),
+    ];
+    println!("pos {pos}, {LAYERS} layers x {N_KV} KV heads x group {GROUP}, head_dim {HD}");
+    for &threads in &[1usize, 8] {
+        for (name, k, v, s) in &layouts {
+            let mut ts: Vec<f64> = (0..3).map(|_| run(k, v, s, threads)).collect();
+            ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!("{threads} thread(s) {name:>4}: {:8.3} ms/token", ts[1]);
+        }
+    }
+}

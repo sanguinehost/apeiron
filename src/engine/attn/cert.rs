@@ -101,6 +101,8 @@ pub(crate) struct KvBlockIndex {
     block: usize,
     n_layer: usize,
     n_head_kv: usize,
+    /// The head-major plane's per-head capacity; head `h`'s row `p` is at `(h·cap + p)·head_dim`.
+    cap: usize,
     head_dim: usize,
     /// `summaries[layer][kv_head][block]`, pushed in block order.
     summaries: Vec<Vec<Vec<BlockSummary>>>,
@@ -121,6 +123,7 @@ impl PartialEq for KvBlockIndex {
         self.block == other.block
             && self.n_layer == other.n_layer
             && self.n_head_kv == other.n_head_kv
+            && self.cap == other.cap
             && self.head_dim == other.head_dim
             && self.summaries == other.summaries
             && self.totals == other.totals
@@ -133,11 +136,18 @@ impl KvBlockIndex {
     /// # Complexity
     ///
     /// `O(n_layer · n_head_kv)` empty vectors; no summary is allocated until a block seals.
-    pub(crate) fn new(n_layer: usize, n_head_kv: usize, head_dim: usize, block: usize) -> Self {
+    pub(crate) fn new(
+        n_layer: usize,
+        n_head_kv: usize,
+        cap: usize,
+        head_dim: usize,
+        block: usize,
+    ) -> Self {
         Self {
             block,
             n_layer,
             n_head_kv,
+            cap,
             head_dim,
             summaries: vec![vec![Vec::new(); n_head_kv]; n_layer],
             totals: CertTotals::default(),
@@ -178,7 +188,7 @@ impl KvBlockIndex {
             let mut summaries: Vec<BlockSummary> = Vec::with_capacity(full);
             let mut b = 0usize;
             while b < full {
-                match summarise(kplane, self.n_head_kv, kvh, self.head_dim, self.block, b) {
+                match summarise(kplane, self.cap, kvh, self.head_dim, self.block, b) {
                     Some(s) => summaries.push(s),
                     None => break,
                 }
@@ -201,7 +211,7 @@ impl KvBlockIndex {
         let mut kvh = 0usize;
         while kvh < self.n_head_kv {
             let slot = &mut self.summaries[layer][kvh];
-            match summarise(kplane, self.n_head_kv, kvh, self.head_dim, self.block, b) {
+            match summarise(kplane, self.cap, kvh, self.head_dim, self.block, b) {
                 Some(s) => {
                     // Blocks seal in order; a re-seal after truncation may replace the slot.
                     if b < slot.len() {
@@ -281,26 +291,26 @@ impl KvBlockIndex {
 /// `O(block · head_dim)` additions and comparisons: one sum pass, then one deviation pass.
 fn summarise(
     kplane: &[i64],
-    n_head_kv: usize,
+    cap: usize,
     kvh: usize,
     head_dim: usize,
     block: usize,
     block_index: usize,
 ) -> Option<BlockSummary> {
-    if block == 0 || head_dim == 0 || kvh >= n_head_kv {
+    if block == 0 || head_dim == 0 || cap == 0 {
         return None;
     }
-    let width = n_head_kv.checked_mul(head_dim)?;
-    let first = kvh.checked_mul(head_dim)?;
+    let head = cap.checked_mul(head_dim)?;
+    let first = kvh.checked_mul(head)?;
     let start = block_index.checked_mul(block)?;
     let end = start.checked_add(block)?;
-    if end.checked_mul(width)? > kplane.len() {
+    if end > cap || end.checked_mul(head_dim)?.checked_add(first)? > kplane.len() {
         return None;
     }
     let mut sum: Vec<i128> = vec![0i128; head_dim];
     let mut pos = start;
     while pos < end {
-        let base = pos.checked_mul(width)?.checked_add(first)?;
+        let base = first.checked_add(pos.checked_mul(head_dim)?)?;
         let mut col = 0usize;
         while col < head_dim {
             let word = i128::from(*kplane.get(base.checked_add(col)?)?);
@@ -319,7 +329,7 @@ fn summarise(
     let mut radius: i128 = 0;
     pos = start;
     while pos < end {
-        let base = pos.checked_mul(width)?.checked_add(first)?;
+        let base = first.checked_add(pos.checked_mul(head_dim)?)?;
         let mut dev: i128 = 0;
         let mut col = 0usize;
         while col < head_dim {
@@ -443,7 +453,7 @@ mod tests {
             assert_eq!(kv.append(0, &k, &v), Ok(s));
             s += 1;
         }
-        let mut index = KvBlockIndex::new(1, n_head_kv, hd, block);
+        let mut index = KvBlockIndex::new(1, n_head_kv, keys, hd, block);
         let kplane = match &kv.storage {
             KvStorage::Q32 { k, .. } => &k[0],
             KvStorage::F32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => unreachable!(),
@@ -469,7 +479,7 @@ mod tests {
                     let mut s = b * block;
                     while s < (b + 1) * block {
                         let score =
-                            score_at(kplane, &q, kv.scale, n_head_kv, kvh, hd, s).expect("score");
+                            score_at(kplane, &q, kv.scale, keys, kvh, hd, s).expect("score");
                         assert!(
                             lb <= score && score <= ub,
                             "draw {draw} kvh {kvh} block {b} s {s}: score {score} outside [{lb}, {ub}]"
@@ -486,7 +496,7 @@ mod tests {
 
     #[test]
     fn a_partial_block_has_no_bound() {
-        let mut index = KvBlockIndex::new(1, 1, 2, 4);
+        let mut index = KvBlockIndex::new(1, 1, 8, 2, 4);
         let plane = vec![0i64; 4 * 2 * 2];
         index.rebuild_layer(0, &plane, 6); // one full block and a partial one
         let q = [0i64; 2];
@@ -496,7 +506,7 @@ mod tests {
 
     #[test]
     fn truncate_keeps_only_wholly_inside_blocks() {
-        let mut index = KvBlockIndex::new(1, 1, 2, 4);
+        let mut index = KvBlockIndex::new(1, 1, 8, 2, 4);
         let plane = vec![0i64; 8 * 2];
         index.rebuild_layer(0, &plane, 8);
         index.truncate(6);

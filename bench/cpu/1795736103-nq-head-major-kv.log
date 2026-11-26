@@ -1,0 +1,72 @@
+== round 1 base decode
+decode split: 32 steps after a 1795 token prefix, 0.744 s wall, 23.26 ms/token
+| attn.proj_in | 2.697 | 11.6% | 896 |
+| attn.core | 9.849 | 42.4% | 896 |
+| attn.proj_out | 1.537 | 6.6% | 896 |
+| ffn | 5.149 | 22.1% | 896 |
+| head | 3.168 | 13.6% | 32 |
+| untraced | 0.103 | 0.4% | |
+dominant term: attn.core at 42.4%, ceiling 1.73x
+TARGET attn.core: share 42.4%, ceiling 1.73x
+== round 1 base prefill
+cold   hit     0  prefill    3.861 s ( 473.18 tok/s)  decode 1 in  0.025 s (39.59 tok/s)  first 315
+== round 1 new decode
+decode split: 32 steps after a 1795 token prefix, 0.559 s wall, 17.45 ms/token
+| attn.proj_in | 2.647 | 15.2% | 896 |
+| attn.core | 3.965 | 22.7% | 896 |
+| attn.proj_out | 1.637 | 9.4% | 896 |
+| ffn | 5.218 | 29.9% | 896 |
+| head | 3.116 | 17.9% | 32 |
+| untraced | 0.091 | 0.5% | |
+dominant term: ffn at 29.9%, ceiling 1.43x
+REFUSED: target attn.core holds 22.7% (ceiling 1.29x); the dominant term is ffn at 29.9% (ceiling 1.43x). Target the dominant term, or instrument it if it is the untraced remainder.
+== round 1 new prefill
+cold   hit     0  prefill    3.836 s ( 476.25 tok/s)  decode 1 in  0.020 s (49.79 tok/s)  first 315
+== round 2 base decode
+decode split: 32 steps after a 1795 token prefix, 0.777 s wall, 24.27 ms/token
+| attn.proj_in | 2.663 | 11.0% | 896 |
+| attn.core | 10.706 | 44.1% | 896 |
+| attn.proj_out | 1.673 | 6.9% | 896 |
+| ffn | 5.146 | 21.2% | 896 |
+| head | 3.109 | 12.8% | 32 |
+| untraced | 0.100 | 0.4% | |
+dominant term: attn.core at 44.1%, ceiling 1.79x
+TARGET attn.core: share 44.1%, ceiling 1.79x
+== round 2 base prefill
+cold   hit     0  prefill    3.809 s ( 479.71 tok/s)  decode 1 in  0.025 s (40.11 tok/s)  first 315
+== round 2 new decode
+decode split: 32 steps after a 1795 token prefix, 0.559 s wall, 17.48 ms/token
+| attn.proj_in | 2.637 | 15.1% | 896 |
+| attn.core | 4.076 | 23.3% | 896 |
+| attn.proj_out | 1.612 | 9.2% | 896 |
+| ffn | 5.174 | 29.6% | 896 |
+| head | 3.075 | 17.6% | 32 |
+| untraced | 0.086 | 0.5% | |
+dominant term: ffn at 29.6%, ceiling 1.42x
+REFUSED: target attn.core holds 23.3% (ceiling 1.30x); the dominant term is ffn at 29.6% (ceiling 1.42x). Target the dominant term, or instrument it if it is the untraced remainder.
+== round 2 new prefill
+cold   hit     0  prefill    3.815 s ( 478.86 tok/s)  decode 1 in  0.020 s (50.06 tok/s)  first 315
+== round 3 base decode
+decode split: 32 steps after a 1795 token prefix, 0.738 s wall, 23.05 ms/token
+| attn.proj_in | 2.672 | 11.6% | 896 |
+| attn.core | 9.777 | 42.4% | 896 |
+| attn.proj_out | 1.543 | 6.7% | 896 |
+| ffn | 5.128 | 22.2% | 896 |
+| head | 3.083 | 13.4% | 32 |
+| untraced | 0.105 | 0.5% | |
+dominant term: attn.core at 42.4%, ceiling 1.74x
+TARGET attn.core: share 42.4%, ceiling 1.74x
+== round 3 base prefill
+cold   hit     0  prefill    3.841 s ( 475.62 tok/s)  decode 1 in  0.025 s (39.78 tok/s)  first 315
+== round 3 new decode
+decode split: 32 steps after a 1795 token prefix, 0.564 s wall, 17.63 ms/token
+| attn.proj_in | 2.676 | 15.2% | 896 |
+| attn.core | 4.116 | 23.4% | 896 |
+| attn.proj_out | 1.658 | 9.4% | 896 |
+| ffn | 5.241 | 29.7% | 896 |
+| head | 3.069 | 17.4% | 32 |
+| untraced | 0.090 | 0.5% | |
+dominant term: ffn at 29.7%, ceiling 1.42x
+REFUSED: target attn.core holds 23.4% (ceiling 1.30x); the dominant term is ffn at 29.7% (ceiling 1.42x). Target the dominant term, or instrument it if it is the untraced remainder.
+== round 3 new prefill
+cold   hit     0  prefill    3.814 s ( 479.04 tok/s)  decode 1 in  0.039 s (25.32 tok/s)  first 315

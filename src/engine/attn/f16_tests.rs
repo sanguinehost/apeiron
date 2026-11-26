@@ -66,6 +66,34 @@ fn test_f16_to_f32_handles_infinity_and_nan_by_payload() {
     assert_eq!(f16_to_f32(0xfe01).to_bits(), 0xffc0_2000);
 }
 
+/// One value checked against the hardware rounding: the conversion and the comparison both live
+/// in this `#[target_feature]` body, so release codegen cannot emit the intrinsic from a caller
+/// compiled for a narrower feature set (which loses the sign of zero and the subnormal bit).
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,f16c")]
+#[inline(never)]
+unsafe fn check_hardware_half(x: f32) {
+    use std::arch::x86_64::{_mm256_cvtps_ph, _mm256_set1_ps, _mm_storeu_si128};
+    let v = _mm256_cvtps_ph(_mm256_set1_ps(x), 0);
+    let mut lanes = [0u16; 8];
+    _mm_storeu_si128(lanes.as_mut_ptr().cast(), v);
+    let want = lanes[0];
+    let got = f32_to_f16_bits(F32::from_bits(x.to_bits()));
+    let hw_special = want & 0x7c00 == 0x7c00;
+    let hw_nan = hw_special && want.trailing_zeros() < 10;
+    let hw_infinite = hw_special && !hw_nan;
+    if hw_infinite || hw_nan {
+        assert_eq!(got, None, "{x} ({:#010x}) must refuse", x.to_bits());
+    } else {
+        assert_eq!(
+            got,
+            Some(want),
+            "{x} ({:#010x}): got {got:x?}, want {want:#06x}",
+            x.to_bits()
+        );
+    }
+}
+
 #[test]
 fn test_f32_to_f16_bits_equals_the_hardware_rounding() {
     #[cfg(target_arch = "x86_64")]
@@ -88,41 +116,20 @@ fn test_f32_to_f16_bits_equals_the_hardware_rounding() {
         0x477f_f000, // 65520: rounds to infinity, refused
         0x4780_0000, // 65536, refused
     ];
-    let check = |x: f32| {
-        let want = {
-            #[cfg(target_arch = "x86_64")]
-            // SAFETY: F16C and AVX2 were detected on this processor.
-            unsafe {
-                use std::arch::x86_64::{_mm256_cvtps_ph, _mm256_set1_ps, _mm_storeu_si128};
-                let v = _mm256_cvtps_ph(_mm256_set1_ps(x), 0);
-                let lanes = [0u16; 8];
-                _mm_storeu_si128(lanes.as_ptr().cast_mut().cast(), v);
-                lanes[0]
-            }
-        };
-        let got = f32_to_f16_bits(F32::from_bits(x.to_bits()));
-        let hw_special = want & 0x7c00 == 0x7c00;
-        let hw_nan = hw_special && want.trailing_zeros() < 10;
-        let hw_infinite = hw_special && !hw_nan;
-        if hw_infinite || hw_nan {
-            assert_eq!(got, None, "{x} ({:#010x}) must refuse", x.to_bits());
-        } else {
-            assert_eq!(
-                got,
-                Some(want),
-                "{x} ({:#010x}): got {got:x?}, want {want:#06x}",
-                x.to_bits()
-            );
-        }
-    };
+    #[cfg(target_arch = "x86_64")]
     for &bits in &fixed {
-        check(f32::from_bits(bits));
+        // SAFETY: F16C and AVX2 were detected on this processor.
+        unsafe { check_hardware_half(f32::from_bits(bits)) };
     }
     let mut i = 0usize;
     while i < 200_000 {
         // Uniform random binary32 bit patterns cover normals, subnormals, NaN and infinity.
         let bits = (rng.next_u64() >> 32) as u32;
-        check(f32::from_bits(bits));
+        #[cfg(target_arch = "x86_64")]
+        // SAFETY: F16C and AVX2 were detected on this processor.
+        unsafe {
+            check_hardware_half(f32::from_bits(bits));
+        };
         i += 1;
     }
 }

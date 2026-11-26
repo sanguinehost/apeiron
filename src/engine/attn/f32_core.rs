@@ -482,10 +482,11 @@ unsafe fn attn_tile8_avx2(
     let vp = v.as_ptr().add(s * stride);
     let qp = q.as_ptr();
     let mut dots = [_mm256_setzero_ps(); TILE];
-    for c in 0..chunks {
-        let vq = _mm256_loadu_ps(qp.add(c * 8));
-        for j in 0..TILE {
-            let vk = _mm256_loadu_ps(kp.add(j * stride + c * 8));
+    for j in 0..TILE {
+        let row = kp.add(j * stride);
+        for c in 0..chunks {
+            let vq = _mm256_loadu_ps(qp.add(c * 8));
+            let vk = _mm256_loadu_ps(row.add(c * 8));
             dots[j] = _mm256_fmadd_ps(vq, vk, dots[j]);
         }
     }
@@ -521,14 +522,15 @@ unsafe fn attn_tile8_avx2(
     for j in 0..TILE {
         d = d.mul_add(alpha[j], w[j]);
     }
-    for c in 0..chunks {
-        let mut a = acc_vec[c];
-        for j in 0..TILE {
-            let vv = _mm256_loadu_ps(vp.add(j * stride + c * 8));
-            let prod = _mm256_mul_ps(_mm256_set1_ps(w[j]), vv);
-            a = _mm256_fmadd_ps(a, _mm256_set1_ps(alpha[j]), prod);
+    for j in 0..TILE {
+        let row = vp.add(j * stride);
+        let vw = _mm256_set1_ps(w[j]);
+        let va = _mm256_set1_ps(alpha[j]);
+        for c in 0..chunks {
+            let vv = _mm256_loadu_ps(row.add(c * 8));
+            let prod = _mm256_mul_ps(vw, vv);
+            acc_vec[c] = _mm256_fmadd_ps(acc_vec[c], va, prod);
         }
-        acc_vec[c] = a;
     }
     *m = run;
     *den = d;

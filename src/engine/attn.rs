@@ -151,17 +151,17 @@ pub enum KvStorage {
     },
     /// Native binary32 floating-point key and value planes.
     F32 {
-        /// Position-major key planes, one per layer.
+        /// KV-head-major key planes, one per layer.
         k: Vec<KvPlane<F32>>,
-        /// Position-major value planes, one per layer.
+        /// KV-head-major value planes, one per layer.
         v: Vec<KvPlane<F32>>,
     },
-    /// Binary16 key and value planes: one half word per component, position-major like the
+    /// Binary16 key and value planes: one half word per component, KV-head-major like the
     /// binary32 planes and read through an exact conversion.
     F16 {
-        /// Position-major key planes, one per layer.
+        /// KV-head-major key planes, one per layer.
         k: Vec<KvPlane<u16>>,
-        /// Position-major value planes, one per layer.
+        /// KV-head-major value planes, one per layer.
         v: Vec<KvPlane<u16>>,
     },
     /// Signed 8-bit key and value codes, KV-head-major, with one binary32 scale per
@@ -343,9 +343,9 @@ fn plane_offsets(plane_bytes: usize, layer: usize) -> Option<(usize, usize)> {
 
 /// The single-token key/value cache of port-map row 5: one flat Q32.32 or binary32 plane per layer.
 ///
-/// Keys and values are stored position-major, so position `p` carries all `n_head_kv` rows
-/// contiguously and the row for `(p, kv_head)` is the `head_dim` values at
-/// `(p * n_head_kv + kv_head) * head_dim`. One KV head serves `n_head / n_head_kv` query heads
+/// Keys and values are stored KV-head-major, so one head's causal history is one contiguous run
+/// and the row for `(p, kv_head)` is the `head_dim` values at
+/// `(kv_head * cap + p) * head_dim`. One KV head serves `n_head / n_head_kv` query heads
 /// (GQA). [`KvState::append`] writes a whole token's KV rows at the next position of a layer and
 /// returns that position; [`KvState::attn_head`] reads one query head over the causal prefix
 /// `0..=pos`.
@@ -394,14 +394,14 @@ impl Clone for KvState {
     }
 }
 
-/// The Q32.32 position-major value of `(s, kvh, i)` in a layer's key or value plane.
+/// The Q32.32 KV-head-major value of `(s, kvh, i)` in a layer's key or value plane.
 ///
 /// The checked index product is the one the pinned Charon preset keeps as `checked.*` (it cannot
-/// prove the bound), so the real `(s · n_head_kv + kvh) · head_dim + i` arithmetic appears here as
+/// prove the bound), so the real `(kvh · cap + s) · head_dim + i` arithmetic appears here as
 /// checked steps. The guards in [`KvState::attn_head`] admit only in-range positions.
-fn plane_at(kv: usize, kvh: usize, hd: usize, s: usize, i: usize) -> Result<usize, AttnError> {
-    let base = s.checked_mul(kv).ok_or(AttnError::Overflow)?;
-    let base = base.checked_add(kvh).ok_or(AttnError::Overflow)?;
+fn plane_at(cap: usize, kvh: usize, hd: usize, s: usize, i: usize) -> Result<usize, AttnError> {
+    let base = kvh.checked_mul(cap).ok_or(AttnError::Overflow)?;
+    let base = base.checked_add(s).ok_or(AttnError::Overflow)?;
     let base = base.checked_mul(hd).ok_or(AttnError::Overflow)?;
     base.checked_add(i).ok_or(AttnError::Overflow)
 }
@@ -418,7 +418,7 @@ fn fold_key(
     score: i64,
     m: i64,
     vplane: &[i64],
-    kv: usize,
+    cap: usize,
     kvh: usize,
     hd: usize,
     key: usize,
@@ -433,7 +433,7 @@ fn fold_key(
     let mut comp = 0usize;
     let mut res: Result<(), AttnError> = Ok(());
     while comp < hd && res.is_ok() {
-        res = fold_comp(exp_word, vplane, kv, kvh, hd, key, comp, num);
+        res = fold_comp(exp_word, vplane, cap, kvh, hd, key, comp, num);
         comp += 1;
     }
     res
@@ -449,7 +449,7 @@ fn fold_keys(
     scores: &[i64],
     m: i64,
     vplane: &[i64],
-    kv: usize,
+    cap: usize,
     kvh: usize,
     hd: usize,
     den: &mut i128,
@@ -459,7 +459,7 @@ fn fold_keys(
     let mut key = 0usize;
     let mut res: Result<(), AttnError> = Ok(());
     while key < count && res.is_ok() {
-        res = fold_key(scores[key], m, vplane, kv, kvh, hd, key, den, num);
+        res = fold_key(scores[key], m, vplane, cap, kvh, hd, key, den, num);
         key += 1;
     }
     res
@@ -474,14 +474,14 @@ fn fold_keys(
 fn fold_comp(
     exp_word: i64,
     vplane: &[i64],
-    kv: usize,
+    cap: usize,
     kvh: usize,
     hd: usize,
     key: usize,
     comp: usize,
     num: &mut [i128],
 ) -> Result<(), AttnError> {
-    let at = plane_at(kv, kvh, hd, key, comp)?;
+    let at = plane_at(cap, kvh, hd, key, comp)?;
     let vb = *vplane.get(at).ok_or(AttnError::Overflow)?;
     let term = i128::from(exp_word)
         .checked_mul(i128::from(vb))
@@ -492,14 +492,14 @@ fn fold_comp(
 }
 
 /// The checked `[base, base + head_dim)` bounds of the `head_dim`-wide row of key `s` in a
-/// position-major plane: the same three `checked.*` index steps as [`plane_at`], with the row end
+/// KV-head-major plane: the same three `checked.*` index steps as [`plane_at`], with the row end
 /// as one more. Test-only: the index oracle the hoisted `first + s·stride` base in
 /// [`KvState::attn_head`] is pinned against, so the checked chain and the product stay the same
 /// integer.
 #[cfg(test)]
-fn row_bounds(kv: usize, kvh: usize, hd: usize, s: usize) -> Result<(usize, usize), AttnError> {
-    let base = s.checked_mul(kv).ok_or(AttnError::Overflow)?;
-    let base = base.checked_add(kvh).ok_or(AttnError::Overflow)?;
+fn row_bounds(cap: usize, kvh: usize, hd: usize, s: usize) -> Result<(usize, usize), AttnError> {
+    let base = kvh.checked_mul(cap).ok_or(AttnError::Overflow)?;
+    let base = base.checked_add(s).ok_or(AttnError::Overflow)?;
     let base = base.checked_mul(hd).ok_or(AttnError::Overflow)?;
     let end = base.checked_add(hd).ok_or(AttnError::Overflow)?;
     Ok((base, end))
@@ -517,13 +517,13 @@ fn score_at(
     kplane: &[i64],
     q: &[i64],
     scale: i64,
-    kv: usize,
+    cap: usize,
     kvh: usize,
     hd: usize,
     s: usize,
 ) -> Result<i64, AttnError> {
-    let base = s.checked_mul(kv).ok_or(AttnError::Overflow)?;
-    let base = base.checked_add(kvh).ok_or(AttnError::Overflow)?;
+    let base = kvh.checked_mul(cap).ok_or(AttnError::Overflow)?;
+    let base = base.checked_add(s).ok_or(AttnError::Overflow)?;
     let base = base.checked_mul(hd).ok_or(AttnError::Overflow)?;
     let end = base.checked_add(hd).ok_or(AttnError::Overflow)?;
     let raw = row_dot_fixed(&kplane[base..end], q).map_err(|_| AttnError::Overflow)?;
@@ -657,13 +657,13 @@ fn weight_at_recip(e: i64, total: i128, recip: u64) -> Result<i64, AttnError> {
 fn value_term(
     vplane: &[i64],
     weights: &[i64],
-    kv: usize,
+    cap: usize,
     kvh: usize,
     hd: usize,
     s: usize,
     i: usize,
 ) -> Result<i128, AttnError> {
-    let at = plane_at(kv, kvh, hd, s, i)?;
+    let at = plane_at(cap, kvh, hd, s, i)?;
     let vb = *vplane.get(at).ok_or(AttnError::Overflow)?;
     i128::from(weights[s])
         .checked_mul(i128::from(vb))
@@ -685,7 +685,7 @@ fn value_term(
 fn value_component(
     vplane: &[i64],
     weights: &[i64],
-    kv: usize,
+    cap: usize,
     kvh: usize,
     hd: usize,
     pos: usize,
@@ -696,7 +696,7 @@ fn value_component(
     let mut ok = true;
     let mut err: Option<AttnError> = None;
     while s <= pos && ok {
-        match value_term(vplane, weights, kv, kvh, hd, s, i) {
+        match value_term(vplane, weights, cap, kvh, hd, s, i) {
             Ok(term) => {
                 if let Some(a) = acc.checked_add(term) {
                     acc = a;
@@ -814,7 +814,7 @@ impl KvState {
     ) -> Result<(usize, Vec<i64>), AttnError> {
         let kvh = self.fused_kvh(layer, q_head, q, pos)?;
         let hd = self.head_dim;
-        let kv = self.n_head_kv;
+        let cap = self.cap;
         let slots = pos.checked_add(1).ok_or(AttnError::Overflow)?;
         let mut scores: Vec<i64> = Vec::with_capacity(slots);
         let kplane = match &self.storage {
@@ -827,7 +827,7 @@ impl KvState {
         let mut ok = true;
         let mut err: Option<AttnError> = None;
         while s <= pos && ok {
-            match score_at(kplane, q, self.scale, kv, kvh, hd, s) {
+            match score_at(kplane, q, self.scale, cap, kvh, hd, s) {
                 Ok(score) => scores.push(score),
                 Err(e) => {
                     err = Some(e);
@@ -861,7 +861,7 @@ impl KvState {
         _tile: usize,
     ) -> Result<AttnFusedState, AttnError> {
         let hd = self.head_dim;
-        let kv = self.n_head_kv;
+        let cap = self.cap;
         let vplane = match &self.storage {
             KvStorage::Q32 { v, .. } => &v[layer],
             KvStorage::F32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => {
@@ -870,7 +870,7 @@ impl KvState {
         };
         let mut den: i128 = 0;
         let mut num: Vec<i128> = vec![0i128; hd];
-        fold_keys(scores, m, &vplane[..], kv, kvh, hd, &mut den, &mut num[..])?;
+        fold_keys(scores, m, &vplane[..], cap, kvh, hd, &mut den, &mut num[..])?;
         if den <= 0 {
             return Err(AttnError::ZeroSum);
         }
@@ -1096,7 +1096,7 @@ impl KvState {
 
     /// Allocate a cache whose planes are disjoint ranges of one writable `MAP_SHARED` cache file.
     ///
-    /// The file holds the same words an owned cache would: `2 · n_layer` position-major planes of
+    /// The file holds the same words an owned cache would: `2 · n_layer` KV-head-major planes of
     /// `n_head_kv · cap · head_dim` elements, the key plane of layer `0`, its value plane, then
     /// layer `1`, and so on. It is allocated to its full extent with `posix_fallocate` at creation,
     /// so a capacity the filesystem cannot hold is refused here with [`KvInitError::File`] instead
@@ -1400,111 +1400,108 @@ impl KvState {
         // preset to `checked.*` with an overflow assert, which the Aeneas fragment rejects as an
         // unimplemented binary operation. Each product is bounded by the checked `width` and the
         // admitted `pos < cap`, so no reachable input changes branch.
-        let base = pos.checked_mul(width).ok_or(AttnError::Overflow)?;
-        let end = base.checked_add(width).ok_or(AttnError::Overflow)?;
-        match &mut self.storage {
-            KvStorage::Q32 { k, v } => {
-                k[layer][base..end].copy_from_slice(k_rows);
-                v[layer][base..end].copy_from_slice(v_rows);
-            }
-            // Index `while` loops, not `iter_mut().zip`, and one `Err` after the loops. Both
-            // removals are forced by the pinned Aeneas model, and neither is a change of shape
-            // choice: the model has no field for `Iterator::zip` (prepass reports `Could not
-            // find the information for item 'zip'`), and a `return` whose target is the function
-            // boundary crossed from inside a loop nest is refused outright (`Returns inside of
-            // nested loops are not supported yet`). Arithmetic is unchanged: the same
-            // `q32_to_f32` on the same element in the same order, the same store to the same
-            // slot, and the same `is_finite` test on the same value, over the index range
-            // `0..width` that the two length checks above have already made equal to
-            // `k_dst.len() == v_dst.len()`.
-            KvStorage::F32 { k, v } => {
-                let mut bad = 0u32;
-                let k_dst = &mut k[layer][base..end];
-                let mut i = 0usize;
-                while i < width {
-                    let f = q32_to_f32(k_rows[i]);
-                    bad += u32::from(!f.is_finite());
-                    k_dst[i] = f;
-                    i += 1;
+        //
+        // Every carrier writes KV-head-major: head `h`'s row for this position is
+        // `(h · cap + pos) · head_dim`, one contiguous `head_dim` run. The loop advances the
+        // destination by one whole head and the source by one row, so the body holds one add per
+        // head rather than a per-element index product.
+        let hd = self.head_dim;
+        let cap = self.cap;
+        let head = cap.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let mut at = pos.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let mut s_at = pos;
+        let mut row = 0usize;
+        let mut bad = 0u32;
+        let mut err: Option<AttnError> = None;
+        let mut h = 0usize;
+        while h < self.n_head_kv && err.is_none() {
+            let row_end = row + hd;
+            let at_end = at + hd;
+            let k_src = &k_rows[row..row_end];
+            let v_src = &v_rows[row..row_end];
+            match &mut self.storage {
+                KvStorage::Q32 { k, v } => {
+                    k[layer][at..at_end].copy_from_slice(k_src);
+                    v[layer][at..at_end].copy_from_slice(v_src);
                 }
-                let v_dst = &mut v[layer][base..end];
-                let mut i = 0usize;
-                while i < width {
-                    let f = q32_to_f32(v_rows[i]);
-                    bad += u32::from(!f.is_finite());
-                    v_dst[i] = f;
-                    i += 1;
-                }
-                if bad != 0 {
-                    return Err(AttnError::Overflow);
-                }
-            }
-            // The binary16 carrier: the same `q32_to_f32` conversion as the binary32 arm, then one
-            // round-to-nearest-even narrowing per word. A word whose rounding leaves the largest
-            // finite half refuses with the binary32 arm's `Overflow`; the store before that word is
-            // the F32 arm's documented partial-row behaviour.
-            KvStorage::F16 { k, v } => {
-                let mut bad = 0u32;
-                let k_dst = &mut k[layer][base..end];
-                let mut i = 0usize;
-                while i < width {
-                    match f32_core::f32_to_f16_bits(q32_to_f32(k_rows[i])) {
-                        Some(h) => k_dst[i] = h,
-                        None => bad += 1,
+                // Index `while` loops, not `iter_mut().zip`, and one `Err` after the loops. Both
+                // removals are forced by the pinned Aeneas model, and neither is a change of shape
+                // choice: the model has no field for `Iterator::zip` (prepass reports `Could not
+                // find the information for item 'zip'`), and a `return` whose target is the
+                // function boundary crossed from inside a loop nest is refused outright (`Returns
+                // inside of nested loops are not supported yet`). Arithmetic is unchanged: the
+                // same `q32_to_f32` on the same element in the same order, the same store to the
+                // same slot, and the same `is_finite` test on the same value, over the index range
+                // `0..head_dim` of each head's row.
+                KvStorage::F32 { k, v } => {
+                    let k_dst = &mut k[layer][at..at_end];
+                    let mut i = 0usize;
+                    while i < hd {
+                        let f = q32_to_f32(k_src[i]);
+                        bad += u32::from(!f.is_finite());
+                        k_dst[i] = f;
+                        i += 1;
                     }
-                    i += 1;
-                }
-                let v_dst = &mut v[layer][base..end];
-                let mut i = 0usize;
-                while i < width {
-                    match f32_core::f32_to_f16_bits(q32_to_f32(v_rows[i])) {
-                        Some(h) => v_dst[i] = h,
-                        None => bad += 1,
+                    let v_dst = &mut v[layer][at..at_end];
+                    let mut i = 0usize;
+                    while i < hd {
+                        let f = q32_to_f32(v_src[i]);
+                        bad += u32::from(!f.is_finite());
+                        v_dst[i] = f;
+                        i += 1;
                     }
-                    i += 1;
                 }
-                if bad != 0 {
-                    return Err(AttnError::Overflow);
+                // The binary16 carrier: the same `q32_to_f32` conversion as the binary32 arm,
+                // then one round-to-nearest-even narrowing per word. A word whose rounding leaves
+                // the largest finite half refuses with the binary32 arm's `Overflow`; the store
+                // before that word is the F32 arm's documented partial-row behaviour.
+                KvStorage::F16 { k, v } => {
+                    let k_dst = &mut k[layer][at..at_end];
+                    let mut i = 0usize;
+                    while i < hd {
+                        match f32_core::f32_to_f16_bits(q32_to_f32(k_src[i])) {
+                            Some(half) => k_dst[i] = half,
+                            None => bad += 1,
+                        }
+                        i += 1;
+                    }
+                    let v_dst = &mut v[layer][at..at_end];
+                    let mut i = 0usize;
+                    while i < hd {
+                        match f32_core::f32_to_f16_bits(q32_to_f32(v_src[i])) {
+                            Some(half) => v_dst[i] = half,
+                            None => bad += 1,
+                        }
+                        i += 1;
+                    }
                 }
-            }
-            // One quantisation per KV head and per K/V row: each row has its own scale, and the
-            // codes are written KV-head-major so the group read sees one contiguous run. The
-            // cursors advance by whole-head strides, so the loop body holds no checked index
-            // product and no early return.
-            KvStorage::I8 { k, v, ks, vs } => {
-                let hd = self.head_dim;
-                let cap = self.cap;
-                let kv = self.n_head_kv;
-                let head_stride = cap.checked_mul(hd).ok_or(AttnError::Overflow)?;
-                let mut at = pos.checked_mul(hd).ok_or(AttnError::Overflow)?;
-                let mut s_at = pos;
-                let (k_plane, v_plane) = (&mut k[layer], &mut v[layer]);
-                let (k_scales, v_scales) = (&mut ks[layer], &mut vs[layer]);
-                let mut row = 0usize;
-                let mut h = 0usize;
-                let mut err: Option<AttnError> = None;
-                while h < kv && err.is_none() {
-                    let row_end = row + hd;
-                    let at_end = at + hd;
-                    match i8::quantise_row(&k_rows[row..row_end], &mut k_plane[at..at_end]) {
+                // One quantisation per KV head and per K/V row: each row has its own scale, and
+                // the codes are written KV-head-major so the group read sees one contiguous run.
+                KvStorage::I8 { k, v, ks, vs } => {
+                    let (k_plane, v_plane) = (&mut k[layer], &mut v[layer]);
+                    let (k_scales, v_scales) = (&mut ks[layer], &mut vs[layer]);
+                    match i8::quantise_row(k_src, &mut k_plane[at..at_end]) {
                         Ok(s) => k_scales[s_at] = s,
                         Err(e) => err = Some(e),
                     }
                     if err.is_none() {
-                        match i8::quantise_row(&v_rows[row..row_end], &mut v_plane[at..at_end]) {
+                        match i8::quantise_row(v_src, &mut v_plane[at..at_end]) {
                             Ok(s) => v_scales[s_at] = s,
                             Err(e) => err = Some(e),
                         }
                     }
-                    row += hd;
-                    at += head_stride;
-                    s_at += cap;
-                    h += 1;
-                }
-                if let Some(e) = err {
-                    return Err(e);
                 }
             }
+            at += head;
+            s_at += cap;
+            row = row_end;
+            h += 1;
+        }
+        if bad != 0 {
+            return Err(AttnError::Overflow);
+        }
+        if let Some(e) = err {
+            return Err(e);
         }
         self.occupied[layer] = pos.checked_add(1).ok_or(AttnError::Overflow)?;
         let len = self.occupied[layer];
@@ -1571,7 +1568,8 @@ impl KvState {
         if block == 0 || self.carrier != KvCarrier::Q32 {
             return Err(AttnError::BadGeometry);
         }
-        let mut index = cert::KvBlockIndex::new(self.n_layer, self.n_head_kv, self.head_dim, block);
+        let mut index =
+            cert::KvBlockIndex::new(self.n_layer, self.n_head_kv, self.cap, self.head_dim, block);
         match &self.storage {
             KvStorage::Q32 { k, .. } => {
                 let mut layer = 0usize;
@@ -1712,14 +1710,15 @@ impl KvState {
                 return Err(AttnError::BadGeometry)
             }
         };
-        let kv = self.n_head_kv;
+        let cap = self.cap;
         let slots = pos.checked_add(1).ok_or(AttnError::Overflow)?;
-        // The position-major row `(s·kv + kvh)·hd` is the hoisted `first + s·stride`; the guards
+        // The KV-head-major row `(kvh·cap + s)·hd` is the hoisted `first + s·stride`; the guards
         // admit only `s <= pos < occupied <= cap`, so `base + hd <= plane.len()` and the product is
         // exact without a per-key checked chain. One bound check per key is the same refusal the
         // checked index chain produced.
-        let stride = kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
-        let first = kvh.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let head = cap.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let stride = hd;
+        let first = kvh.checked_mul(head).ok_or(AttnError::Overflow)?;
 
         // Scores: one Q32.32 dot per causal key, then one epilogue against the load-time scale.
         // Each loop carries a `bool` failure flag and stops on the first refusal, so no early
@@ -1972,9 +1971,10 @@ impl KvState {
         };
         let group = self.n_head / self.n_head_kv;
         let kvh = q_head / group;
-        let kv = self.n_head_kv;
-        let stride = kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
-        let first = kvh.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let cap = self.cap;
+        let head = cap.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let stride = hd;
+        let first = kvh.checked_mul(head).ok_or(AttnError::Overflow)?;
         let block = index.block();
         if block == 0 {
             return Err(AttnError::BadGeometry);
@@ -2269,10 +2269,11 @@ impl KvState {
         }
         let group = self.n_head / self.n_head_kv;
         let kvh = q_head / group;
-        let kv = self.n_head_kv;
+        let cap = self.cap;
 
-        let stride = kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
-        let first = kvh.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let head = cap.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let stride = hd;
+        let first = kvh.checked_mul(head).ok_or(AttnError::Overflow)?;
 
         let (kplane, vplane) = match &self.storage {
             KvStorage::F32 { k, v } => (&k[layer], &v[layer]),
@@ -2532,8 +2533,9 @@ impl KvState {
         if pos >= len {
             return Err(AttnError::PositionOutOfRange { pos, len });
         }
-        let stride = self.n_head_kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
-        let first = kv_head.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let head = self.cap.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let stride = hd;
+        let first = kv_head.checked_mul(head).ok_or(AttnError::Overflow)?;
         let (kplane, vplane) = match &self.storage {
             KvStorage::F32 { k, v } => (&k[layer], &v[layer]),
             KvStorage::Q32 { .. } | KvStorage::F16 { .. } | KvStorage::I8 { .. } => {
@@ -2698,8 +2700,9 @@ impl KvState {
         if pos >= len {
             return Err(AttnError::PositionOutOfRange { pos, len });
         }
-        let stride = self.n_head_kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
-        let first = kv_head.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let head = self.cap.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let stride = hd;
+        let first = kv_head.checked_mul(head).ok_or(AttnError::Overflow)?;
         let (kplane, vplane) = match &self.storage {
             KvStorage::F16 { k, v } => (&k[layer], &v[layer]),
             KvStorage::Q32 { .. } | KvStorage::F32 { .. } | KvStorage::I8 { .. } => {
@@ -2894,8 +2897,9 @@ impl KvState {
                 return Err(AttnError::BadGeometry)
             }
         };
-        let stride = self.n_head_kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
-        let base = kv_head.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let head = self.cap.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let stride = hd;
+        let base = kv_head.checked_mul(head).ok_or(AttnError::Overflow)?;
         let last_base = base
             .checked_add(last.checked_mul(stride).ok_or(AttnError::Overflow)?)
             .ok_or(AttnError::Overflow)?;
@@ -2992,8 +2996,9 @@ impl KvState {
                 return Err(AttnError::BadGeometry)
             }
         };
-        let stride = self.n_head_kv.checked_mul(hd).ok_or(AttnError::Overflow)?;
-        let base = kv_head.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let head = self.cap.checked_mul(hd).ok_or(AttnError::Overflow)?;
+        let stride = hd;
+        let base = kv_head.checked_mul(head).ok_or(AttnError::Overflow)?;
         let last_base = base
             .checked_add(last.checked_mul(stride).ok_or(AttnError::Overflow)?)
             .ok_or(AttnError::Overflow)?;
@@ -3476,6 +3481,7 @@ mod tests {
         pos: usize,
     ) -> Result<Vec<i64>, AttnError> {
         let hd = kv.head_dim;
+        let cap = kv.cap;
         let kv_n = kv.n_head_kv;
         let kvh = q_head / (kv.n_head / kv_n);
         let (kplane, vplane) = match &kv.storage {
@@ -3489,7 +3495,7 @@ mod tests {
         let mut mx = i64::MIN;
         let mut s = 0usize;
         while s <= pos {
-            let sc = score_at(kplane, q, kv.scale, kv_n, kvh, hd, s)?;
+            let sc = score_at(kplane, q, kv.scale, cap, kvh, hd, s)?;
             if sc > mx {
                 mx = sc;
             }
@@ -3519,7 +3525,7 @@ mod tests {
         let mut out: Vec<i64> = Vec::with_capacity(hd);
         let mut i = 0usize;
         while i < hd {
-            out.push(value_component(vplane, &weights, kv_n, kvh, hd, pos, i)?);
+            out.push(value_component(vplane, &weights, cap, kvh, hd, pos, i)?);
             i += 1;
         }
         Ok(out)
@@ -3913,22 +3919,23 @@ mod tests {
     /// [`plane_at`] on the rows the output test reads.
     #[test]
     fn hoisted_row_base_matches_plane_index_oracles() {
-        let kv = 2usize;
+        let cap = 2usize;
         let hd = 3usize;
-        let stride = kv.checked_mul(hd).expect("stride");
+        let head = cap.checked_mul(hd).expect("head stride");
+        let stride = hd;
         let mut kvh = 0usize;
-        while kvh < kv {
-            let first = kvh.checked_mul(hd).expect("first");
+        while kvh < cap {
+            let first = kvh.checked_mul(head).expect("first");
             let mut s = 0usize;
             while s < 6 {
                 let base = first + s * stride;
-                let (rb_base, rb_end) = row_bounds(kv, kvh, hd, s).expect("row_bounds");
+                let (rb_base, rb_end) = row_bounds(cap, kvh, hd, s).expect("row_bounds");
                 assert_eq!(rb_base, base, "kvh {kvh} s {s}");
                 assert_eq!(rb_end, base + hd, "kvh {kvh} s {s}");
                 let mut i = 0usize;
                 while i < hd {
                     assert_eq!(
-                        plane_at(kv, kvh, hd, s, i).expect("plane_at"),
+                        plane_at(cap, kvh, hd, s, i).expect("plane_at"),
                         base + i,
                         "kvh {kvh} s {s} i {i}"
                     );
@@ -3976,7 +3983,7 @@ mod tests {
         vplane: &[i64],
         exps: &[i64],
         total: i128,
-        kv: usize,
+        cap: usize,
         kvh: usize,
         hd: usize,
     ) -> Result<Vec<i64>, AttnError> {
@@ -3994,7 +4001,7 @@ mod tests {
         let mut acc: Vec<i128> = vec![0i128; hd];
         let mut s = 0usize;
         while s < exps.len() {
-            let base = plane_at(kv, kvh, hd, s, 0)?;
+            let base = plane_at(cap, kvh, hd, s, 0)?;
             if base > vplane.len().saturating_sub(hd) {
                 return Err(AttnError::Overflow);
             }
@@ -4026,7 +4033,7 @@ mod tests {
         vplane: &[i64],
         exps: &[i64],
         total: i128,
-        kv: usize,
+        cap: usize,
         kvh: usize,
         hd: usize,
     ) -> Result<Vec<i64>, AttnError> {
@@ -4038,7 +4045,7 @@ mod tests {
                 Some(r) => weight_at_recip(exps[s], total, r)?,
                 None => weight_at(exps[s], total)?,
             };
-            let base = plane_at(kv, kvh, hd, s, 0)?;
+            let base = plane_at(cap, kvh, hd, s, 0)?;
             if base > vplane.len().saturating_sub(hd) {
                 return Err(AttnError::Overflow);
             }
@@ -4068,8 +4075,8 @@ mod tests {
     fn inline_weight_fold_matches_weights_vec_oracle() {
         // hd 3, kv 2, kvh 1: row `s` starts at `(2·s + 1)·3`, so the two shapes cannot share a
         // trivial base. Three keys fit the 18-word plane.
-        let (kv, kvh, hd) = (2usize, 1usize, 3usize);
-        let mut vplane = vec![0i64; 3 * kv * hd];
+        let (cap, kvh, hd) = (3usize, 1usize, 3usize);
+        let mut vplane = vec![0i64; 3 * cap * hd];
         let mut seed = 0xDEAD_BEEF_1234_5678_u64;
         let mut at = 0usize;
         while at < vplane.len() {
@@ -4085,8 +4092,8 @@ mod tests {
             (&[3, 5, 8], 16),
         ];
         for (exps, total) in cases {
-            let expected = weights_vec_fold(&vplane, exps, total, kv, kvh, hd);
-            let got = inline_fold(&vplane, exps, total, kv, kvh, hd);
+            let expected = weights_vec_fold(&vplane, exps, total, cap, kvh, hd);
+            let got = inline_fold(&vplane, exps, total, cap, kvh, hd);
             assert_eq!(got, expected, "exps {exps:?} total {total}");
             if total < 2 {
                 assert!(
@@ -4102,8 +4109,8 @@ mod tests {
     /// one-row-short plane. Both shapes scan keys ascending, so both stop at the same key.
     #[test]
     fn first_refusing_key_matches_weights_vec_shape() {
-        let (kv, kvh, hd) = (2usize, 1usize, 3usize);
-        let mut vplane = vec![0i64; 3 * kv * hd];
+        let (cap, kvh, hd) = (3usize, 1usize, 3usize);
+        let mut vplane = vec![0i64; 3 * cap * hd];
         let mut seed = 0x0F1E_2D3C_4B5A_6978_u64;
         let mut at = 0usize;
         while at < vplane.len() {
@@ -4116,24 +4123,24 @@ mod tests {
         assert_eq!(weight_at(exps[0], total), Ok(1i64 << 31));
         assert_eq!(weight_at(exps[1], total), Err(AttnError::Overflow));
         assert_eq!(
-            weights_vec_fold(&vplane, &exps, total, kv, kvh, hd),
+            weights_vec_fold(&vplane, &exps, total, cap, kvh, hd),
             Err(AttnError::Overflow)
         );
         assert_eq!(
-            inline_fold(&vplane, &exps, total, kv, kvh, hd),
+            inline_fold(&vplane, &exps, total, cap, kvh, hd),
             Err(AttnError::Overflow)
         );
 
         // Bound refusal at key 1: `short` holds key 0's row but cuts key 1's.
-        let short = &vplane[..kvh * hd + hd];
+        let short = &vplane[..(kvh * cap + 1) * hd];
         let exps = [ONE, ONE];
         let total = 2 * i128::from(ONE);
         assert_eq!(
-            weights_vec_fold(short, &exps, total, kv, kvh, hd),
+            weights_vec_fold(short, &exps, total, cap, kvh, hd),
             Err(AttnError::Overflow)
         );
         assert_eq!(
-            inline_fold(short, &exps, total, kv, kvh, hd),
+            inline_fold(short, &exps, total, cap, kvh, hd),
             Err(AttnError::Overflow)
         );
     }
