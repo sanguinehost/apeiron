@@ -254,6 +254,56 @@ impl crate::engine::loader::Engine {
         out.map(Some).map_err(crate::engine::StepError::Nq)
     }
 
+    /// The fused gate/up `SwiGLU` projection of `xs` through the layer's fitted parts 4 and 5:
+    /// [`NqLinear::project_gate_up_swiglu_pooled`] over the pair, or `Ok(None)` when either linear
+    /// is not fitted or the fused pass refuses. `None` is the separate gate, up and `swiglu_cols`
+    /// path's cue to own the call, so its values and refusal order are unchanged.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::engine::StepError::BadShape`] when a fitted linear's shape is not
+    /// `n_ff × n_embd`, as [`Self::nq_proj_pooled`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(k·(inn·(rank_g + rank_u) + n_ff·(rank_g + rank_u)))` sign terms in one dispatch, as
+    /// [`NqLinear::project_gate_up_swiglu_pooled`].
+    pub(crate) fn nq_ffn_swiglu_pooled(
+        &self,
+        layer: usize,
+        n_ff: usize,
+        n_embd: usize,
+        xs: &[Vec<i64>],
+        mode: crate::engine::KernelMode,
+    ) -> Result<Option<Vec<Vec<i64>>>, crate::engine::StepError> {
+        let (gkey, ukey) = (TensorKey::blk(layer, 4), TensorKey::blk(layer, 5));
+        let (Some(gate), Some(up)) = (self.nq_linear(gkey), self.nq_linear(ukey)) else {
+            return Ok(None);
+        };
+        for (key, linear) in [(gkey, gate), (ukey, up)] {
+            if linear.out() != n_ff || linear.inn() != n_embd {
+                return Err(crate::engine::StepError::BadShape {
+                    tensor: key.to_string(),
+                    dims: vec![
+                        u64::try_from(linear.out()).unwrap_or(u64::MAX),
+                        u64::try_from(linear.inn()).unwrap_or(u64::MAX),
+                    ],
+                    expected: vec![
+                        u64::try_from(n_ff).unwrap_or(u64::MAX),
+                        u64::try_from(n_embd).unwrap_or(u64::MAX),
+                    ],
+                });
+            }
+        }
+        let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
+        Ok(gate.project_gate_up_swiglu_pooled(
+            up,
+            &refs,
+            mode,
+            crate::engine::mixer::carrier_from_env(),
+        ))
+    }
+
     /// The fitted linears' stored bytes and the dense weights they carry: the two terms of the
     /// pack's bits per weight.
     ///

@@ -1024,6 +1024,19 @@ impl Engine {
             }
             return Ok(out);
         }
+        // The fitted FFN's gate and up share one `SwiGLU` pass when both linears are fitted and the
+        // tap is off: one dispatch folds both projections over the same column band and writes `h`
+        // once, instead of gate, up and `swiglu_cols` over two full planes. Any refusal falls
+        // through to the separate path below, which owns its values, order and errors.
+        if nq_ffn && tap.is_none() && xs.len() > 1 {
+            match self.nq_ffn_swiglu_pooled(layer, n_ff, n_embd, xs, mode) {
+                Ok(Some(hs)) => {
+                    return self.proj_cols(li, layer, 6, n_embd, n_ff, &hs, sched, mode, None);
+                }
+                Ok(None) => {}
+                Err(e) => return Err(e),
+            }
+        }
         let qs = if nq_ffn { None } else { Some(quant_cols(xs)?) };
         // The tap's gate/up buffers, `k·n_ff` column-major words each, exist only when recording:
         // the fused epilogue stores into them and the separate path's gate/up projections are

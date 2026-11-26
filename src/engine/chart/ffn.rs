@@ -274,17 +274,63 @@ pub(crate) fn swiglu_one_f32_scalar(gate: i64, up: i64) -> Result<i64, FfnError>
     f32_to_q32_checked(prod)
 }
 
-/// Evaluate one `SwiGLU` element under the selected carrier.
-///
-/// The production path evaluates a slice ([`swiglu_slice`]); this is the test oracle that names
-/// one element's arithmetic.
-#[cfg(test)]
+/// Evaluate one `SwiGLU` element under the selected carrier. [`swiglu_slice`] evaluates a column
+/// with the same arithmetic: its `F32` eight-lane groups are bit-equal to
+/// [`swiglu_one_f32_scalar`] (`swiglu_f32_avx2_matches_scalar`). The fused NQ gate/up `U` stage
+/// names one element here because it produces one `(output row, column)` pair at a time.
 #[inline]
 pub(crate) fn swiglu_one_carrier(gate: i64, up: i64, carrier: Carrier) -> Result<i64, FfnError> {
     match carrier {
         Carrier::Q32 => swiglu_one(gate, up),
         Carrier::F32 => swiglu_one_f32_scalar(gate, up),
     }
+}
+
+/// Whether [`swiglu_lanes8`] may take the AVX2 kernel: the `F32` carrier on an AVX2 host. Resolve
+/// once per dispatch; the detection is too expensive to repeat per output row.
+#[must_use]
+pub(crate) fn swiglu_lanes8_avx2(carrier: Carrier) -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        carrier == Carrier::F32 && std::is_x86_feature_detected!("avx2")
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = carrier;
+        false
+    }
+}
+
+/// Eight independent lanes of [`swiglu_one_carrier`] in one call. The `F32` carrier on an AVX2
+/// host takes the AVX2 kernel, which is bit-equal to eight scalar calls; the predicate is resolved
+/// inside this call from `carrier`, so no caller can pass a `true` the host does not support.
+/// Without it the scalar form runs lane by lane. The lanes are the eight columns of one output
+/// row, not the row indices the slice form groups, and the element arithmetic is the same either
+/// way.
+///
+/// # Errors
+///
+/// The first lane's [`FfnError`] in index order, as [`swiglu_one_carrier`].
+pub(crate) fn swiglu_lanes8(
+    gate: &[i64; 8],
+    up: &[i64; 8],
+    out: &mut [i64; 8],
+    carrier: Carrier,
+) -> Result<(), FfnError> {
+    let fast = swiglu_lanes8_avx2(carrier);
+    #[cfg(target_arch = "x86_64")]
+    if fast {
+        // SAFETY: `fast` is [`swiglu_lanes8_avx2`]'s predicate, resolved here from the carrier and
+        // the host's AVX2 support, so the kernel's precondition holds.
+        return unsafe { swiglu_f32_avx2_8_into(gate, up, out) }.map_err(|(_, e)| e);
+    }
+    let _ = fast;
+    let mut l = 0usize;
+    while l < 8 {
+        out[l] = swiglu_one_carrier(gate[l], up[l], carrier)?;
+        l += 1;
+    }
+    Ok(())
 }
 
 /// The branchless lane core of [`F32::to_q32`]: `(value, valid)` instead of `Option`, so eight
@@ -2445,6 +2491,64 @@ mod tests {
             }
             bits += 1;
         }
+    }
+
+    #[test]
+    fn swiglu_lanes8_equals_eight_scalar_calls() {
+        // The entry resolves the AVX2 predicate itself; on a host without AVX2 both arms are the
+        // scalar loop, and with AVX2 the `F32` arm must still equal the per-lane oracle.
+        let mut seed = 0x5eed_u64;
+        let mut next = || {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            i64::try_from((seed >> 33) & 0xffff_ffff).expect("32-bit draw") - (1_i64 << 30)
+        };
+        let mut checked = 0usize;
+        let mut refused = 0usize;
+        for carrier in [Carrier::Q32, Carrier::F32] {
+            for i in 0..256usize {
+                let mut gate = [0i64; 8];
+                let mut up = [0i64; 8];
+                for l in 0..8 {
+                    gate[l] = next() << 8;
+                    up[l] = next() << 8;
+                }
+                // Every fourth pass saturates one lane to exercise the refusal path through the
+                // entry; the others must agree word for word.
+                if i % 4 == 0 {
+                    gate[3] = i64::MAX;
+                    up[3] = i64::MAX;
+                }
+                let mut oracle = Ok([0i64; 8]);
+                for l in 0..8 {
+                    match swiglu_one_carrier(gate[l], up[l], carrier) {
+                        Ok(v) => {
+                            if let Ok(words) = oracle.as_mut() {
+                                words[l] = v;
+                            }
+                        }
+                        Err(e) => {
+                            oracle = Err((l, e));
+                            break;
+                        }
+                    }
+                }
+                let mut got = [0i64; 8];
+                let res = swiglu_lanes8(&gate, &up, &mut got, carrier);
+                match (res, oracle) {
+                    (Ok(()), Ok(words)) => assert_eq!(got, words, "{carrier:?}"),
+                    (Err(e), Err((_, want))) => {
+                        assert_eq!(e, want, "{carrier:?}");
+                        refused += 1;
+                    }
+                    (a, b) => panic!("{carrier:?}: lanes8 {a:?} against oracle {b:?}"),
+                }
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 512);
+        assert!(refused >= 2, "the saturated lanes must refuse: {refused}");
     }
 
     #[test]

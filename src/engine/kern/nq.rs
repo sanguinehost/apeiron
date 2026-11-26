@@ -47,10 +47,12 @@
     reason = "`x`, `t`, `z`, `y`, `U`, `V` are the derivation's names; the section counters are short"
 )]
 
+use crate::engine::chart::ffn::{swiglu_lanes8, swiglu_one_carrier};
 use crate::engine::chart::pool::{for_chunks3, Pool};
 use crate::engine::chart::task::Task3;
 use crate::engine::chart::{quant_act_grouped, QuantAct};
 use crate::engine::kern::pow2::act_scale;
+use crate::engine::mixer::Carrier;
 use crate::engine::num::dequant::{bf16_to_fixed, f16_to_fixed};
 use crate::engine::num::value::mul_q32;
 use crate::format::nq::{PackedLinear, Plane};
@@ -2077,6 +2079,20 @@ enum Reader {
     Ternary,
 }
 
+/// The activation reader a [`crate::engine::KernelMode`] selects over a fitted linear, matching
+/// the reader each single-linear pooled entry passes.
+///
+/// # Complexity
+///
+/// `O(1)`.
+fn reader_for(mode: crate::engine::KernelMode) -> Reader {
+    match mode {
+        crate::engine::KernelMode::Exact => Reader::Exact,
+        crate::engine::KernelMode::Q8Act => Reader::Q8,
+        crate::engine::KernelMode::Ternary => Reader::Ternary,
+    }
+}
+
 /// The pooled projection's two scratch planes, retained on the calling thread across calls: `t`
 /// holds one call's `k · inn` pre-scaled activation words and `z` its `k · rank` intermediate
 /// column words. Both are written in full by the stage that owns them before any later stage reads
@@ -2568,18 +2584,20 @@ impl NqLinear {
             return PLANES.with(|planes| {
                 let mut planes = planes.borrow_mut();
                 let (t, z) = planes.cover(t_len, z_len);
-                self.project_pooled_body(xs, reader, block, tile, t, z)
+                self.project_pooled_body(xs, reader, block, tile, t, z, None)
             });
         }
         let mut t: Vec<i64> = vec![0; t_len];
         let mut z: Vec<i64> = vec![0; z_len];
-        self.project_pooled_body(xs, reader, block, tile, &mut t, &mut z)
+        self.project_pooled_body(xs, reader, block, tile, &mut t, &mut z, None)
     }
 
     /// [`NqLinear::project_pooled_shape`]'s body over caller-owned scratch: `t` is `k · inn`
     /// pre-scaled activation words and `z` is `k · rank` intermediate column words, both fully
     /// written here before a stage reads them. The `U` stage writes each output column's words
-    /// straight into its `Vec`, so no column is copied after the stage.
+    /// straight into its `Vec`, so no column is copied after the stage. With `pair`, the band's
+    /// `z` half is `rank_g + rank_u` words per column — each task's gate half followed by its up
+    /// half — and the pipeline writes the pair's `SwiGLU` product instead.
     ///
     /// **One dispatch per linear.** A task owns up to a band of columns, rounded up to a multiple
     /// of eight when it holds a group, and runs that band's whole pipeline: it builds the band's
@@ -2596,6 +2614,10 @@ impl NqLinear {
     /// `O(k · (inn · rank + rank · out))` sign terms with `O(k · (inn + rank + out))` words of
     /// scratch, output and per-column readers; every loop is one pass over its plane per stage,
     /// and a task's plane pieces are its own columns' so no two tasks touch the same word.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the columns, reader, block, tile, both scratch planes and the optional pair are the call's input"
+    )]
     fn project_pooled_body(
         &self,
         xs: &[&[i64]],
@@ -2604,6 +2626,7 @@ impl NqLinear {
         tile: usize,
         t: &mut [i64],
         z: &mut [i64],
+        pair: Option<PairArgs<'_>>,
     ) -> Result<Vec<Vec<i64>>, NqError> {
         let k = xs.len();
         if k == 0 {
@@ -2629,23 +2652,26 @@ impl NqLinear {
         } else {
             band
         };
+        let z_cols = pair
+            .as_ref()
+            .map_or(self.rank, |p| 2 * self.rank.max(p.up.rank));
         let mut out: Vec<Vec<i64>> = (0..k).map(|_| Vec::new()).collect();
         let overflow = std::sync::atomic::AtomicBool::new(false);
         let body = ColPipeline {
             me: self,
+            pair,
             xs,
             reader,
             block: block.min(NQ_BLOCK_MAX),
             wide: tile >= NQ_TILE_COLS,
             cols,
-            residual: self.res_layers > 0,
             overflow: &overflow,
         };
         for_chunks3(
             &mut t[..],
             self.inn * cols,
             &mut z[..],
-            self.rank * cols,
+            z_cols * cols,
             &mut out[..],
             cols,
             &body,
@@ -2654,6 +2680,124 @@ impl NqLinear {
             return Err(NqError::Overflow);
         }
         Ok(out)
+    }
+
+    /// The fused gate/up `SwiGLU` projection over every column in `xs`: `h[c] = SwiGLU(gate·x_c,
+    /// up·x_c)` for each column `c`, with the two linears folded inside one pool dispatch and one
+    /// band of columns per task. Neither projection's full plane is materialized: a task builds
+    /// its band's `t` for gate and then for up (their `s_pre` vectors differ, so the words are not
+    /// shared), folds both `V` stages into its two `z` halves, and runs one `U` loop over the gate
+    /// and up rows that applies the carrier's [`swiglu_one_carrier`] to the pair and writes `h`
+    /// once.
+    ///
+    /// `None` when the pair is not eligible (different `(out, inn)` or a column of the wrong
+    /// width) or when the pass refuses (an `NqError::Overflow` from either stage, or a `SwiGLU`
+    /// overflow). The caller then runs the separate gate, up and `swiglu_cols` path, which owns
+    /// the refusal and produces the same words when it does not refuse.
+    ///
+    /// # Complexity
+    ///
+    /// `O(k·(inn·(rank_g + rank_u) + out·(rank_g + rank_u)))` sign terms in one dispatch, the same
+    /// total as the two projections plus the epilogue; scratch `O(k·(inn + rank_g + rank_u))`
+    /// words and `O(k·out)` output.
+    pub fn project_gate_up_swiglu_pooled(
+        &self,
+        up: &NqLinear,
+        xs: &[&[i64]],
+        mode: crate::engine::KernelMode,
+        carrier: Carrier,
+    ) -> Option<Vec<Vec<i64>>> {
+        self.project_gate_up_swiglu_capped(
+            up,
+            xs,
+            reader_for(mode),
+            nq_block(),
+            nq_cols(),
+            PLANE_CAP,
+            carrier,
+        )
+    }
+
+    /// [`NqLinear::project_gate_up_swiglu_pooled`] under an explicit factor-row block, column tile
+    /// and retention cap: module-private so the equality test steps the allocating plane arm
+    /// (`cap = 0`), the wide tile and the block sizes in one process.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` to choose the arm; the body carries [`NqLinear::project_pooled_body`]'s cost for both
+    /// linears plus the `O(k·out)` epilogue.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the paired linear, columns, reader, block, tile, retention cap and carrier are the call's input"
+    )]
+    fn project_gate_up_swiglu_capped(
+        &self,
+        up: &NqLinear,
+        xs: &[&[i64]],
+        reader: Reader,
+        block: usize,
+        tile: usize,
+        cap: usize,
+        carrier: Carrier,
+    ) -> Option<Vec<Vec<i64>>> {
+        if self.out != up.out || self.inn != up.inn {
+            return None;
+        }
+        for x in xs {
+            if x.len() != self.inn {
+                return None;
+            }
+        }
+        let k = xs.len();
+        let max_rank = self.rank.max(up.rank);
+        let (t_len, z_len) = (k * self.inn, 2 * k * max_rank);
+        if t_len <= cap && z_len <= cap {
+            return PLANES.with(|planes| {
+                let mut planes = planes.borrow_mut();
+                let (t, z) = planes.cover(t_len, z_len);
+                self.project_gate_up_swiglu_body(up, xs, reader, block, tile, carrier, t, z)
+            });
+        }
+        let mut t: Vec<i64> = vec![0; t_len];
+        let mut z: Vec<i64> = vec![0; z_len];
+        self.project_gate_up_swiglu_body(up, xs, reader, block, tile, carrier, &mut t, &mut z)
+    }
+
+    /// [`NqLinear::project_gate_up_swiglu_capped`]'s body over caller-owned scratch: the paired
+    /// [`ColPipeline`], with the `SwiGLU` refusal flag the epilogue writes and the projection's own
+    /// overflow flag read after the barrier.
+    ///
+    /// # Complexity
+    ///
+    /// The one dispatch's cost as [`NqLinear::project_pooled_body`], doubled for the two linears.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the paired linear, columns, reader, block, tile, carrier and both scratch planes are the call's input"
+    )]
+    fn project_gate_up_swiglu_body(
+        &self,
+        up: &NqLinear,
+        xs: &[&[i64]],
+        reader: Reader,
+        block: usize,
+        tile: usize,
+        carrier: Carrier,
+        t: &mut [i64],
+        z: &mut [i64],
+    ) -> Option<Vec<Vec<i64>>> {
+        let refused = std::sync::atomic::AtomicBool::new(false);
+        let pair = PairArgs {
+            up,
+            refused: &refused,
+            carrier,
+        };
+        let out = self
+            .project_pooled_body(xs, reader, block, tile, t, z, Some(pair))
+            .ok()?;
+        if refused.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        Some(out)
     }
 
     /// The `U` stage of [`NqLinear::project_with`]: `round(s_post_i·Σ_k U_ik·z_k / 2^32)` plus
@@ -2770,27 +2914,36 @@ fn project_scaled(dot: i128, s: i64) -> Option<i64> {
     i64::try_from(low.checked_add(1_i128 << 31)? >> 32).ok()
 }
 
+/// The paired linear of the fused gate/up pipeline: `up` is the second linear, `refused` records
+/// a `SwiGLU` refusal, and `carrier` selects the epilogue's arithmetic.
+struct PairArgs<'a> {
+    up: &'a NqLinear,
+    refused: &'a std::sync::atomic::AtomicBool,
+    carrier: Carrier,
+}
+
 /// One pooled linear's whole column pipeline as one pool task: the band's `t` words and their
 /// readers, the `V` fold into the band's `z` words and their readers, and the `U` fold into the
 /// band's output vectors. The three bands are the task's disjoint pieces of `t`, `z` and `out`,
 /// so a task reads and writes only its own columns and the stages of one linear need no barrier
 /// between them.
+///
+/// With [`PairArgs`], the same task also owns the second linear of a fused gate/up pair: the `z`
+/// piece is two halves (gate, then up), the `V` stage runs once per half, and the `U` stage folds
+/// both rank rows against each output row and writes the `SwiGLU` product, so neither projection's
+/// full plane is materialized.
 struct ColPipeline<'a> {
     me: &'a NqLinear,
+    pair: Option<PairArgs<'a>>,
     xs: &'a [&'a [i64]],
     reader: Reader,
     block: usize,
     wide: bool,
     cols: usize,
-    residual: bool,
     overflow: &'a std::sync::atomic::AtomicBool,
 }
 
 impl Task3<i64, i64, Vec<i64>, NqError> for ColPipeline<'_> {
-    #[allow(
-        clippy::too_many_lines,
-        reason = "the band's four stages, their readers and the refusal flag are one pipeline"
-    )]
     fn run(
         &self,
         task: usize,
@@ -2798,240 +2951,539 @@ impl Task3<i64, i64, Vec<i64>, NqError> for ColPipeline<'_> {
         zs: &mut [i64],
         os: &mut [Vec<i64>],
     ) -> Result<(), NqError> {
-        let me = self.me;
         let c0 = task * self.cols;
         let ncols = os.len();
-        // The `t` stage: `t_j = round(s_pre_j · x_j / 2^32)` for every column of the band, and each
-        // column's `V` bound.
-        let mut narrow_t: Vec<bool> = vec![false; ncols];
-        t_build(self.xs, &me.s_pre, me.inn, c0, ts, &mut narrow_t)?;
-        let t_q = quantized_band(ts, me.inn, self.reader);
-        let mut t_masks = ternary_columns(ts, me.inn, self.reader);
-        let t_stages = build_stages(ts.chunks_exact(me.inn), &narrow_t, &t_q, &mut t_masks);
-        // The `V` stage: a block of rank rows folded against each column the task owns, so the
-        // column's codes and shift vectors are read once per block rather than once per row. The
-        // `mul_q32` epilogue is per `(row, column)` and keeps its order.
-        let mut dots = [0i128; NQ_BLOCK_MAX];
-        let mut dots2 = [0i128; NQ_BLOCK_MAX];
-        let mut dots8 = [0i64; 8];
-        // The wide tile: eight columns per pass, one factor row at a time, so each column's codes
-        // and shift vectors are read once per row and the row's bit expansion is shared by all
-        // eight dots. The pair loop below keeps the leftover columns.
-        let groups = if self.wide { ncols / NQ_TILE_COLS } else { 0 };
-        let mut wide_from = 0usize;
-        if groups > 0 {
-            // Group outer, row inner: a group's readers are assembled once for its rank rows, and
-            // a group that refuses leaves the previous groups complete.
-            let mut g = 0usize;
-            while g < groups {
-                let base = g * NQ_TILE_COLS;
-                let tiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &t_stages[base + c]);
-                let Some(group) = Stage::cols8(&tiles, me.inn) else {
-                    break;
-                };
-                let mut r = 0usize;
-                while r < me.rank {
-                    let row = &me.v[r * me.v_words..];
-                    if !group.dot_row(row, &mut dots8) {
-                        break;
-                    }
-                    let mut c = 0usize;
-                    while c < NQ_TILE_COLS {
-                        match mul_q32(dots8[c], me.s_mid[r]) {
-                            Some(v) => zs[(base + c) * me.rank + r] = v,
-                            None => {
-                                self.overflow
-                                    .store(true, std::sync::atomic::Ordering::Relaxed);
-                            }
-                        }
-                        c += 1;
-                    }
-                    r += 1;
-                }
-                if r < me.rank {
-                    break;
-                }
-                wide_from = base + NQ_TILE_COLS;
-                g += 1;
+        match &self.pair {
+            None => {
+                v_stage(
+                    self.me,
+                    self.xs,
+                    self.reader,
+                    self.block,
+                    self.wide,
+                    c0,
+                    ts,
+                    zs,
+                    ncols,
+                    self.overflow,
+                )?;
+                u_stage::<false>(
+                    self.me,
+                    None,
+                    self.overflow,
+                    Carrier::Q32,
+                    self.xs,
+                    self.reader,
+                    self.block,
+                    self.wide,
+                    c0,
+                    zs,
+                    &[],
+                    os,
+                    self.overflow,
+                );
             }
-        }
-        let mut r0 = 0usize;
-        while r0 < me.rank {
-            let rows = self.block.max(1).min(me.rank - r0);
-            let plane = &me.v[r0 * me.v_words..];
-            let mut store = |col: usize, ds: &[i128]| {
-                for (d, &dot) in ds.iter().enumerate() {
-                    let r = r0 + d;
-                    let Some(dot) = i64::try_from(dot).ok() else {
-                        self.overflow
-                            .store(true, std::sync::atomic::Ordering::Relaxed);
-                        continue;
-                    };
-                    match mul_q32(dot, me.s_mid[r]) {
-                        Some(v) => zs[col * me.rank + r] = v,
-                        None => self
-                            .overflow
-                            .store(true, std::sync::atomic::Ordering::Relaxed),
-                    }
-                }
-            };
-            let mut cc = wide_from;
-            while cc < ncols {
-                if cc + 1 < ncols
-                    && t_stages[cc].dot_rows2(
-                        &t_stages[cc + 1],
-                        plane,
-                        me.v_words,
-                        rows,
-                        me.inn,
-                        &mut dots[..rows],
-                        &mut dots2[..rows],
-                    )
-                {
-                    store(cc, &dots[..rows]);
-                    store(cc + 1, &dots2[..rows]);
-                    cc += 2;
-                } else {
-                    t_stages[cc].dot_rows(plane, me.v_words, rows, me.inn, &mut dots[..rows]);
-                    store(cc, &dots[..rows]);
-                    cc += 1;
-                }
+            Some(pair) => {
+                // Each task's `z` piece is whole columns, so its two halves are the gate and up
+                // bands. The up pass rebuilds `t` in place: the two `s_pre` vectors differ, so the
+                // words cannot be shared, and the gate `V` fold has already consumed its readers.
+                let (zg, zu) = zs.split_at_mut(zs.len() / 2);
+                v_stage(
+                    self.me,
+                    self.xs,
+                    self.reader,
+                    self.block,
+                    self.wide,
+                    c0,
+                    ts,
+                    zg,
+                    ncols,
+                    self.overflow,
+                )?;
+                v_stage(
+                    pair.up,
+                    self.xs,
+                    self.reader,
+                    self.block,
+                    self.wide,
+                    c0,
+                    ts,
+                    zu,
+                    ncols,
+                    self.overflow,
+                )?;
+                u_stage::<true>(
+                    self.me,
+                    Some(pair.up),
+                    pair.refused,
+                    pair.carrier,
+                    self.xs,
+                    self.reader,
+                    self.block,
+                    self.wide,
+                    c0,
+                    zg,
+                    zu,
+                    os,
+                    self.overflow,
+                );
             }
-            r0 += rows;
-        }
-        let z_q = quantized_band(zs, me.rank, self.reader);
-        // The `U` stage's per-column bound: `rank·max|z|` decides the narrow source. The
-        // quantizer's group scale is the least power of two covering `absmax/127`, so
-        // `127·max S` bounds `max|z|` and the admission costs `O(blocks)` instead of a second
-        // pass over every word; a column whose quantization refused has no scales and keeps the
-        // exact scan.
-        let mut narrow_z: Vec<bool> = vec![false; ncols];
-        for (c, slot) in narrow_z.iter_mut().enumerate() {
-            let bound = if let Some(q) = &z_q[c] {
-                scale_bound(q)
-            } else {
-                let col = &zs[c * me.rank..(c + 1) * me.rank];
-                col.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0)
-            };
-            *slot = u128::from(bound).saturating_mul(me.rank as u128) <= i64::MAX as u128;
-        }
-        let mut z_masks = ternary_columns(zs, me.rank, self.reader);
-        let z_stages = build_stages(zs.chunks_exact(me.rank), &narrow_z, &z_q, &mut z_masks);
-        // The dense residual reads `x`; a pack without a residual layer skips that stage. The
-        // sparse correction indexes `x` directly and needs no reader at all.
-        let band = &self.xs[c0..c0 + ncols];
-        let x_q = quantized_slices(band, self.reader, self.residual);
-        let mut narrow_x: Vec<bool> = vec![false; ncols];
-        if self.residual {
-            for (c, x) in band.iter().enumerate() {
-                let max_abs_x = if let Some(q) = &x_q[c] {
-                    scale_bound(q)
-                } else {
-                    x.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0)
-                };
-                let bound = u128::from(max_abs_x).saturating_mul(me.inn as u128);
-                narrow_x[c] = bound <= i64::MAX as u128;
-            }
-        }
-        let mut x_masks = ternary_slices(band, self.reader, self.residual);
-        let x_stages = build_stages(band.iter().copied(), &narrow_x, &x_q, &mut x_masks);
-        // The `U` stage writes each column's `out` words straight into that column's `Vec`, in the
-        // same order the flat buffer took them, so the readout needs no copy.
-        for col in os.iter_mut() {
-            col.resize(me.out, 0);
-        }
-        // A linear with no salient column and no residual layer has no per-row correction, so the
-        // wide loop hoists that test and the row's scale out of the eight-column inner loop and
-        // takes [`project_scaled`] directly; the general arm keeps [`NqLinear::project_row`],
-        // which is the same arithmetic.
-        let dense = me.k == 0 && me.res_layers == 0;
-        // As in the `V` stage: eight columns per pass on whole groups, leftover columns in the
-        // block's pair loop below.
-        let groups = if self.wide { ncols / NQ_TILE_COLS } else { 0 };
-        let mut wide_from = 0usize;
-        if groups > 0 {
-            // As in the `V` stage: a group's readers are assembled once for its `out` rows.
-            let mut g = 0usize;
-            while g < groups {
-                let base = g * NQ_TILE_COLS;
-                let tiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &z_stages[base + c]);
-                let Some(group) = Stage::cols8(&tiles, me.rank) else {
-                    break;
-                };
-                let mut i = 0usize;
-                while i < me.out {
-                    let row = &me.u[i * me.u_words..];
-                    if !group.dot_row(row, &mut dots8) {
-                        break;
-                    }
-                    let s_post = me.s_post[i];
-                    let mut c = 0usize;
-                    while c < NQ_TILE_COLS {
-                        let dot = i128::from(dots8[c]);
-                        let v = if dense {
-                            project_scaled(dot, s_post)
-                        } else {
-                            me.project_row(i, dot, &x_stages[base + c])
-                        };
-                        match v {
-                            Some(v) => os[base + c][i] = v,
-                            None => {
-                                self.overflow
-                                    .store(true, std::sync::atomic::Ordering::Relaxed);
-                            }
-                        }
-                        c += 1;
-                    }
-                    i += 1;
-                }
-                if i < me.out {
-                    break;
-                }
-                wide_from = base + NQ_TILE_COLS;
-                g += 1;
-            }
-        }
-        let mut i0 = 0usize;
-        while i0 < me.out {
-            let rows = self.block.max(1).min(me.out - i0);
-            let plane = &me.u[i0 * me.u_words..];
-            let mut store = |col: usize, ds: &[i128]| {
-                let x_stage = &x_stages[col];
-                for (d, &dot) in ds.iter().enumerate() {
-                    match me.project_row(i0 + d, dot, x_stage) {
-                        Some(v) => os[col][i0 + d] = v,
-                        None => self
-                            .overflow
-                            .store(true, std::sync::atomic::Ordering::Relaxed),
-                    }
-                }
-            };
-            let mut cc = wide_from;
-            while cc < ncols {
-                if cc + 1 < ncols
-                    && z_stages[cc].dot_rows2(
-                        &z_stages[cc + 1],
-                        plane,
-                        me.u_words,
-                        rows,
-                        me.rank,
-                        &mut dots[..rows],
-                        &mut dots2[..rows],
-                    )
-                {
-                    store(cc, &dots[..rows]);
-                    store(cc + 1, &dots2[..rows]);
-                    cc += 2;
-                } else {
-                    z_stages[cc].dot_rows(plane, me.u_words, rows, me.rank, &mut dots[..rows]);
-                    store(cc, &dots[..rows]);
-                    cc += 1;
-                }
-            }
-            i0 += rows;
         }
         Ok(())
     }
+}
+
+/// One linear's `t` build and `V` fold over one task's column band: `t_j = round(s_pre_j·x_j/2^32)`
+/// for every column, then `z = s_mid ⊙ (V·t)` with the eight-column tile on whole groups and the
+/// pair/per-row loop on the leftover columns. `zs` holds `rank·cols` words and the band's `ncols`
+/// columns are written.
+///
+/// # Complexity
+///
+/// `O(ncols·(inn + rank·inn))` checked terms; `O(1)` space beyond the caller's `t` and `z`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the linear, columns, band, scratch planes and refusal flag are the stage's input"
+)]
+fn v_stage(
+    me: &NqLinear,
+    xs: &[&[i64]],
+    reader: Reader,
+    block: usize,
+    wide: bool,
+    c0: usize,
+    ts: &mut [i64],
+    zs: &mut [i64],
+    ncols: usize,
+    overflow: &std::sync::atomic::AtomicBool,
+) -> Result<(), NqError> {
+    // The `t` stage: `t_j = round(s_pre_j · x_j / 2^32)` for every column of the band, and each
+    // column's `V` bound.
+    let mut narrow_t: Vec<bool> = vec![false; ncols];
+    t_build(xs, &me.s_pre, me.inn, c0, ts, &mut narrow_t)?;
+    let t_q = quantized_band(ts, me.inn, reader);
+    let mut t_masks = ternary_columns(ts, me.inn, reader);
+    let t_stages = build_stages(ts.chunks_exact(me.inn), &narrow_t, &t_q, &mut t_masks);
+    // The `V` stage: a block of rank rows folded against each column the task owns, so the
+    // column's codes and shift vectors are read once per block rather than once per row. The
+    // `mul_q32` epilogue is per `(row, column)` and keeps its order.
+    let mut dots = [0i128; NQ_BLOCK_MAX];
+    let mut dots2 = [0i128; NQ_BLOCK_MAX];
+    let mut dots8 = [0i64; 8];
+    // The wide tile: eight columns per pass, one factor row at a time, so each column's codes
+    // and shift vectors are read once per row and the row's bit expansion is shared by all
+    // eight dots. The pair loop below keeps the leftover columns.
+    let groups = if wide { ncols / NQ_TILE_COLS } else { 0 };
+    let mut wide_from = 0usize;
+    if groups > 0 {
+        // Group outer, row inner: a group's readers are assembled once for its rank rows, and
+        // a group that refuses leaves the previous groups complete.
+        let mut g = 0usize;
+        while g < groups {
+            let base = g * NQ_TILE_COLS;
+            let tiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &t_stages[base + c]);
+            let Some(group) = Stage::cols8(&tiles, me.inn) else {
+                break;
+            };
+            let mut r = 0usize;
+            while r < me.rank {
+                let row = &me.v[r * me.v_words..];
+                if !group.dot_row(row, &mut dots8) {
+                    break;
+                }
+                let mut c = 0usize;
+                while c < NQ_TILE_COLS {
+                    match mul_q32(dots8[c], me.s_mid[r]) {
+                        Some(v) => zs[(base + c) * me.rank + r] = v,
+                        None => {
+                            overflow.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                    c += 1;
+                }
+                r += 1;
+            }
+            if r < me.rank {
+                break;
+            }
+            wide_from = base + NQ_TILE_COLS;
+            g += 1;
+        }
+    }
+    let mut r0 = 0usize;
+    while r0 < me.rank {
+        let rows = block.max(1).min(me.rank - r0);
+        let plane = &me.v[r0 * me.v_words..];
+        let mut store = |col: usize, ds: &[i128]| {
+            for (d, &dot) in ds.iter().enumerate() {
+                let r = r0 + d;
+                let Some(dot) = i64::try_from(dot).ok() else {
+                    overflow.store(true, std::sync::atomic::Ordering::Relaxed);
+                    continue;
+                };
+                match mul_q32(dot, me.s_mid[r]) {
+                    Some(v) => zs[col * me.rank + r] = v,
+                    None => overflow.store(true, std::sync::atomic::Ordering::Relaxed),
+                }
+            }
+        };
+        let mut cc = wide_from;
+        while cc < ncols {
+            if cc + 1 < ncols
+                && t_stages[cc].dot_rows2(
+                    &t_stages[cc + 1],
+                    plane,
+                    me.v_words,
+                    rows,
+                    me.inn,
+                    &mut dots[..rows],
+                    &mut dots2[..rows],
+                )
+            {
+                store(cc, &dots[..rows]);
+                store(cc + 1, &dots2[..rows]);
+                cc += 2;
+            } else {
+                t_stages[cc].dot_rows(plane, me.v_words, rows, me.inn, &mut dots[..rows]);
+                store(cc, &dots[..rows]);
+                cc += 1;
+            }
+        }
+        r0 += rows;
+    }
+    Ok(())
+}
+
+/// One linear's `U` fold over one task's column band, with an optional paired gate/up `SwiGLU`
+/// epilogue: the band's `z` and `x` readers, then the `z` sign dots into each column's output
+/// vector. `zg` holds `rank·cols` words and `hs` the band's columns; only the band's `ncols`
+/// columns are read and written. With `PAIRED`, `up`/`zu` hold the second linear and the same row
+/// loop folds both linears' rows and writes `SwiGLU(gate, up)` once, so neither projection's full
+/// plane is materialized; without it the loop writes the one linear's words. The const parameter
+/// specializes the one source loop, so neither arm carries the other's branch.
+///
+/// A refusal records into `overflow` (a projection product) or `refused` (the epilogue) and may
+/// leave the affected words unwritten; a paired caller discards the whole result and reruns the
+/// separate path, so no partial word is observed.
+///
+/// # Complexity
+///
+/// `O(out·(rank_g + rank_u)·ncols + ncols·(inn + rank_g + rank_u))` terms with `PAIRED` (the
+/// second rank is zero without it); `O(1)` space beyond the caller's planes and reader buffers.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    clippy::similar_names,
+    reason = "the linear pair, columns, band, scratch planes and refusal flags are the stage's \
+              input; the four reader buffers are its gate/up × z/x axes and are named for those \
+              axes"
+)]
+fn u_stage<const PAIRED: bool>(
+    gate: &NqLinear,
+    up: Option<&NqLinear>,
+    refused: &std::sync::atomic::AtomicBool,
+    carrier: Carrier,
+    xs: &[&[i64]],
+    reader: Reader,
+    block: usize,
+    wide: bool,
+    c0: usize,
+    zg: &[i64],
+    zu: &[i64],
+    hs: &mut [Vec<i64>],
+    overflow: &std::sync::atomic::AtomicBool,
+) {
+    let ncols = hs.len();
+    let band = &xs[c0..c0 + ncols];
+    let mut g_z_q: Vec<Option<QuantAct>> = Vec::new();
+    let mut g_x_q: Vec<Option<QuantAct>> = Vec::new();
+    let (gz, gx) = u_readers(gate, band, zg, reader, &mut g_z_q, &mut g_x_q);
+    let mut u_z_q: Vec<Option<QuantAct>> = Vec::new();
+    let mut u_x_q: Vec<Option<QuantAct>> = Vec::new();
+    let (uz, ux) = if PAIRED {
+        u_readers(
+            up.expect("a paired stage has its second linear"),
+            band,
+            zu,
+            reader,
+            &mut u_z_q,
+            &mut u_x_q,
+        )
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let mut gdots = [0i128; NQ_BLOCK_MAX];
+    let mut gdots2 = [0i128; NQ_BLOCK_MAX];
+    let mut udots = [0i128; NQ_BLOCK_MAX];
+    let mut udots2 = [0i128; NQ_BLOCK_MAX];
+    let mut g8 = [0i64; 8];
+    let mut u8 = [0i64; 8];
+
+    // The `U` stage writes each column's `out` words straight into that column's `Vec`, in the
+    // same order the flat buffer took them, so the readout needs no copy.
+    for col in hs.iter_mut() {
+        col.resize(gate.out, 0);
+    }
+    // A linear with no salient column and no residual layer has no per-row correction, so the
+    // wide loop hoists that test and the row's scale out of the eight-column inner loop and
+    // takes [`project_scaled`] directly; the general arm keeps [`NqLinear::project_row`],
+    // which is the same arithmetic.
+    let gdense = gate.k == 0 && gate.res_layers == 0;
+    let udense = up.is_some_and(|u| u.k == 0 && u.res_layers == 0);
+    // As in the `V` stage: eight columns per pass on whole groups, leftover columns in the
+    // block's pair loop below.
+    let groups = if wide { ncols / NQ_TILE_COLS } else { 0 };
+    let mut wide_from = 0usize;
+    if groups > 0 {
+        // As in the `V` stage: a group's readers are assembled once for its `out` rows, and the
+        // pair's two group readers are assembled together so one row loop folds both.
+        let mut g = 0usize;
+        while g < groups {
+            let base = g * NQ_TILE_COLS;
+            let gtiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &gz[base + c]);
+            let Some(gcols) = Stage::cols8(&gtiles, gate.rank) else {
+                break;
+            };
+            let ucols = if PAIRED {
+                let u = up.expect("a paired stage has its second linear");
+                let utiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &uz[base + c]);
+                match Stage::cols8(&utiles, u.rank) {
+                    Some(cols) => Some(cols),
+                    None => break,
+                }
+            } else {
+                None
+            };
+            let mut i = 0usize;
+            while i < gate.out {
+                if !gcols.dot_row(&gate.u[i * gate.u_words..], &mut g8) {
+                    break;
+                }
+                if PAIRED {
+                    let u = up.expect("a paired stage has its second linear");
+                    let cols = ucols.as_ref().expect("the paired group has its readers");
+                    if !cols.dot_row(&u.u[i * u.u_words..], &mut u8) {
+                        break;
+                    }
+                }
+                let mut gv = [0i64; 8];
+                let mut uv = [0i64; 8];
+                let mut full = true;
+                let mut c = 0usize;
+                while c < NQ_TILE_COLS {
+                    let gdot = i128::from(g8[c]);
+                    let gval = if gdense {
+                        project_scaled(gdot, gate.s_post[i])
+                    } else {
+                        gate.project_row(i, gdot, &gx[base + c])
+                    };
+                    if let Some(v) = gval {
+                        gv[c] = v;
+                    } else {
+                        overflow.store(true, std::sync::atomic::Ordering::Relaxed);
+                        full = false;
+                    }
+                    c += 1;
+                }
+                if PAIRED {
+                    let u = up.expect("a paired stage has its second linear");
+                    let mut c = 0usize;
+                    while c < NQ_TILE_COLS {
+                        let udot = i128::from(u8[c]);
+                        let uval = if udense {
+                            project_scaled(udot, u.s_post[i])
+                        } else {
+                            u.project_row(i, udot, &ux[base + c])
+                        };
+                        if let Some(v) = uval {
+                            uv[c] = v;
+                        } else {
+                            overflow.store(true, std::sync::atomic::Ordering::Relaxed);
+                            full = false;
+                        }
+                        c += 1;
+                    }
+                }
+                if full {
+                    let mut word = gv;
+                    if PAIRED {
+                        let mut hv = [0i64; 8];
+                        if swiglu_lanes8(&gv, &uv, &mut hv, carrier).is_ok() {
+                            word = hv;
+                        } else {
+                            refused.store(true, std::sync::atomic::Ordering::Relaxed);
+                            return;
+                        }
+                    }
+                    let mut c = 0usize;
+                    while c < NQ_TILE_COLS {
+                        hs[base + c][i] = word[c];
+                        c += 1;
+                    }
+                }
+                i += 1;
+            }
+            if i < gate.out {
+                break;
+            }
+            wide_from = base + NQ_TILE_COLS;
+            g += 1;
+        }
+    }
+    let mut i0 = 0usize;
+    while i0 < gate.out {
+        let rows = block.max(1).min(gate.out - i0);
+        let gplane = &gate.u[i0 * gate.u_words..];
+        let uplane = if PAIRED {
+            up.map(|u| &u.u[i0 * u.u_words..])
+        } else {
+            None
+        };
+        let mut store = |col: usize, gds: &[i128], uds: &[i128]| {
+            for d in 0..rows {
+                let i = i0 + d;
+                let gdot = gds[d];
+                let gval = if gdense {
+                    project_scaled(gdot, gate.s_post[i])
+                } else {
+                    gate.project_row(i, gdot, &gx[col])
+                };
+                if PAIRED {
+                    let u = up.expect("a paired stage has its second linear");
+                    let uval = if udense {
+                        project_scaled(uds[d], u.s_post[i])
+                    } else {
+                        u.project_row(i, uds[d], &ux[col])
+                    };
+                    match (gval, uval) {
+                        (Some(a), Some(b)) => match swiglu_one_carrier(a, b, carrier) {
+                            Ok(v) => hs[col][i] = v,
+                            Err(_) => refused.store(true, std::sync::atomic::Ordering::Relaxed),
+                        },
+                        _ => {
+                            overflow.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                } else {
+                    match gval {
+                        Some(v) => hs[col][i] = v,
+                        None => {
+                            overflow.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                }
+            }
+        };
+        let mut cc = wide_from;
+        while cc < ncols {
+            let paired = cc + 1 < ncols
+                && gz[cc].dot_rows2(
+                    &gz[cc + 1],
+                    gplane,
+                    gate.u_words,
+                    rows,
+                    gate.rank,
+                    &mut gdots[..rows],
+                    &mut gdots2[..rows],
+                )
+                && if PAIRED {
+                    let u = up.expect("a paired stage has its second linear");
+                    uz[cc].dot_rows2(
+                        &uz[cc + 1],
+                        uplane.expect("a paired stage has its plane"),
+                        u.u_words,
+                        rows,
+                        u.rank,
+                        &mut udots[..rows],
+                        &mut udots2[..rows],
+                    )
+                } else {
+                    true
+                };
+            if paired {
+                store(cc, &gdots[..rows], &udots[..rows]);
+                store(cc + 1, &gdots2[..rows], &udots2[..rows]);
+                cc += 2;
+            } else {
+                gz[cc].dot_rows(gplane, gate.u_words, rows, gate.rank, &mut gdots[..rows]);
+                if PAIRED {
+                    let u = up.expect("a paired stage has its second linear");
+                    uz[cc].dot_rows(
+                        uplane.expect("a paired stage has its plane"),
+                        u.u_words,
+                        rows,
+                        u.rank,
+                        &mut udots[..rows],
+                    );
+                }
+                store(cc, &gdots[..rows], &udots[..rows]);
+                cc += 1;
+            }
+        }
+        i0 += rows;
+    }
+}
+
+/// The `z` and `x` readers one linear's `U` stage reads, per column of the band. `zs` is the
+/// band's `rank·ncols` words; `z_q` and `x_q` are the caller's buffers and outlive the returned
+/// stages, which borrow them. A column's `z` reader takes the Q8 or ternary form when the mode's
+/// quantizer admits it, and its exact planes only under a residual layer that reads them, exactly
+/// as the single-linear stage built them.
+///
+/// # Complexity
+///
+/// `O(ncols·(rank + inn))` time and space for the readers.
+fn u_readers<'a>(
+    me: &NqLinear,
+    xs: &'a [&'a [i64]],
+    zs: &'a [i64],
+    reader: Reader,
+    z_q: &'a mut Vec<Option<QuantAct>>,
+    x_q: &'a mut Vec<Option<QuantAct>>,
+) -> (Vec<Stage<'a>>, Vec<Stage<'a>>) {
+    let ncols = xs.len();
+    let zs = &zs[..ncols * me.rank];
+    *z_q = quantized_band(zs, me.rank, reader);
+    // The `U` stage's per-column bound: `rank·max|z|` decides the narrow source. The quantizer's
+    // group scale is the least power of two covering `absmax/127`, so `127·max S` bounds `max|z|`
+    // and the admission costs `O(blocks)` instead of a second pass over every word; a column whose
+    // quantization refused has no scales and keeps the exact scan.
+    let mut narrow_z: Vec<bool> = vec![false; ncols];
+    for (c, slot) in narrow_z.iter_mut().enumerate() {
+        let bound = if let Some(q) = &z_q[c] {
+            scale_bound(q)
+        } else {
+            let col = &zs[c * me.rank..(c + 1) * me.rank];
+            col.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0)
+        };
+        *slot = u128::from(bound).saturating_mul(me.rank as u128) <= i64::MAX as u128;
+    }
+    let mut z_masks = ternary_columns(zs, me.rank, reader);
+    let z_stages = build_stages(
+        zs.chunks_exact(me.rank),
+        &narrow_z,
+        z_q.as_slice(),
+        &mut z_masks,
+    );
+    // The dense residual reads `x`; a pack without a residual layer skips that stage. The sparse
+    // correction indexes `x` directly and needs no reader at all.
+    let residual = me.res_layers > 0;
+    *x_q = quantized_slices(xs, reader, residual);
+    let mut narrow_x: Vec<bool> = vec![false; ncols];
+    if residual {
+        for (c, x) in xs.iter().enumerate() {
+            let max_abs_x = if let Some(q) = &x_q[c] {
+                scale_bound(q)
+            } else {
+                x.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0)
+            };
+            let bound = u128::from(max_abs_x).saturating_mul(me.inn as u128);
+            narrow_x[c] = bound <= i64::MAX as u128;
+        }
+    }
+    let mut x_masks = ternary_slices(xs, reader, residual);
+    let x_stages = build_stages(xs.iter().copied(), &narrow_x, x_q.as_slice(), &mut x_masks);
+    (z_stages, x_stages)
 }
 
 /// The largest magnitude a quantized column's words can hold, from its block scales: the
@@ -3369,6 +3821,24 @@ mod tests {
         let mut p = packed_shape(out, inn, rank);
         p.salient_idx = Vec::new().into();
         p.salient = Vec::new().into();
+        p
+    }
+
+    /// [`packed_dense`] under a caller's seed: the sign planes and the pre-scale pattern are drawn
+    /// from the seed, so a gate and its up have different weights and different `s_pre`.
+    fn packed_dense_seeded(out: usize, inn: usize, rank: usize, seed: u64) -> PackedLinear {
+        let mut p = packed_dense(out, inn, rank);
+        let mut state = 0x51ed_270b_9e37_79b9u64 ^ seed;
+        for w in p.u.iter_mut() {
+            *w = next_u32(&mut state);
+        }
+        for w in p.v.iter_mut() {
+            *w = next_u32(&mut state);
+        }
+        let shift = usize::try_from(seed).expect("small seed");
+        for (i, b) in p.s_pre.iter_mut().enumerate() {
+            *b = bf16_bits(0.003 + 0.0007 * ((i + shift) % 11) as f32);
+        }
         p
     }
 
@@ -3780,6 +4250,64 @@ mod tests {
             .project_pooled_shape(&refs, Reader::Q8, 0, NQ_TILE_COLS)
             .expect("pooled q8");
         assert_eq!(pooled, per_column);
+    }
+
+    /// The fused gate/up `SwiGLU` pass against the path it replaces: the two separate pooled
+    /// projections and `swiglu_cols_carrier` must equal the one-dispatch pair word for word, at
+    /// the column counts around the band and eight-column tile boundaries and under both carriers.
+    /// The gate and up linears carry different sign words and different `s_pre`, so a stage that
+    /// read the wrong linear's factors or pre-scale would diverge.
+    #[test]
+    fn the_fused_gate_up_swiglu_equals_the_separate_path() {
+        let (out, inn, rank) = (16usize, 24usize, 12usize);
+        let gate = NqLinear::from_packed(packed_dense_seeded(out, inn, rank, 1)).expect("gate");
+        let up = NqLinear::from_packed(packed_dense_seeded(out, inn, rank, 2)).expect("up");
+        assert_ne!(gate.s_pre, up.s_pre, "the pair must not share s_pre");
+        assert_ne!(gate.u, up.u, "the pair must not share the U plane");
+        let width = Pool::global().width().max(1);
+        for k in [
+            1usize,
+            2,
+            NQ_TILE_COLS,
+            NQ_TILE_COLS + 1,
+            NQ_TILE_COLS * width,
+            NQ_TILE_COLS * width + 1,
+        ] {
+            let xs: Vec<Vec<i64>> = (0..k)
+                .map(|c| {
+                    (0..inn)
+                        .map(|j| ((j * 37 + c * 11 + 5) as i64 % 101 - 50) << 24)
+                        .collect()
+                })
+                .collect();
+            let refs: Vec<&[i64]> = xs.iter().map(Vec::as_slice).collect();
+            for carrier in [Carrier::Q32, Carrier::F32] {
+                let g = gate.project_q8_pooled(&refs).expect("gate q8");
+                let u = up.project_q8_pooled(&refs).expect("up q8");
+                let mut want: Vec<Vec<i64>> = (0..k).map(|_| vec![0i64; out]).collect();
+                crate::engine::chart::ffn::swiglu_cols_carrier(&g, &u, &mut want, carrier)
+                    .expect("separate swiglu");
+                for block in [0usize, NQ_BLOCK] {
+                    for cap in [0usize, PLANE_CAP] {
+                        let got = gate
+                            .project_gate_up_swiglu_capped(
+                                &up,
+                                &refs,
+                                Reader::Q8,
+                                block,
+                                NQ_TILE_COLS,
+                                cap,
+                                carrier,
+                            )
+                            .expect("fused");
+                        assert_eq!(
+                            got, want,
+                            "k {k}, carrier {carrier:?}, block {block}, cap {cap}, width {width}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /// The AVX2 quantizer against its scalar twin over the lengths and magnitudes the NQ pack

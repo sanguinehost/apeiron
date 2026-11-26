@@ -15,7 +15,42 @@ use crate::engine::chart::task::{HeadTask, Task2};
 use crate::engine::loader::{opt_slice, DecodeVectors};
 use crate::engine::trace::{self, Phase};
 use crate::engine::{AttnError, Engine, KernelMode, KvState};
+use std::cell::RefCell;
 use std::sync::OnceLock;
+
+thread_local! {
+    /// The stage-1 slot and the tile readout, retained across layers. Both are written in full
+    /// before any word is read: stage 1 writes every column's `[query | key | value]` (and the
+    /// gate quarter on a gated layer) before stage 2 reads it, and the tile gather reads only the
+    /// prefix its task wrote. A later layer therefore overwrites the previous words, and the
+    /// zeroing that `vec![0; n]` performs on every layer is paid once per process. On the 0.6B
+    /// prefill the two buffers are 90 MB and 30 MB per layer.
+    static PREP_SCRATCH: RefCell<Vec<i64>> = const { RefCell::new(Vec::new()) };
+    static TILE_SCRATCH: RefCell<Vec<i64>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Take the thread's retained buffer, grown to at least `need` words. The returned words are
+/// unspecified: the caller overwrites every word it reads, so no zeroing is required.
+///
+/// # Complexity
+///
+/// `O(1)` when the buffer already holds `need` words, `O(need)` on the first call that grows it.
+fn take_scratch(cell: &'static std::thread::LocalKey<RefCell<Vec<i64>>>, need: usize) -> Vec<i64> {
+    let mut buf = cell.with(|s| std::mem::take(&mut *s.borrow_mut()));
+    if buf.len() < need {
+        buf.resize(need, 0);
+    }
+    buf
+}
+
+/// Return a [`take_scratch`] buffer to its thread slot for the next layer.
+///
+/// # Complexity
+///
+/// `O(1)`: the buffer moves, no word is touched.
+fn put_scratch(cell: &'static std::thread::LocalKey<RefCell<Vec<i64>>>, buf: Vec<i64>) {
+    cell.with(|s| *s.borrow_mut() = buf);
+}
 
 /// The `APEIRON_EXACT_SCAN` flag: the per-thread test override, else the process value parsed once
 /// (`OnceLock`) and defaulting to off. [`Engine::softmax_core_block`] reads it on the calling
@@ -412,7 +447,8 @@ impl Engine {
         let pos0 = kv.occupied(slot).map_err(StepError::Kv)?;
         // Stage 1: per column `[query | key | value | gate]`.
         let stride = 2 * q_out + 2 * kv_out;
-        let mut prep = vec![0i64; k * stride];
+        let need = k.checked_mul(stride).ok_or(StepError::LengthOverflow)?;
+        let mut prep = take_scratch(&PREP_SCRATCH, need);
         let one = PrepColCtx {
             qkv,
             vectors,
@@ -423,7 +459,7 @@ impl Engine {
             table,
         };
         if let Some((_, e)) =
-            crate::engine::chart::ffn::attn_heads(k, stride, &mut prep, true, &one)
+            crate::engine::chart::ffn::attn_heads(k, stride, &mut prep[..need], true, &one)
         {
             return Err(e);
         }
@@ -494,7 +530,7 @@ impl Engine {
                 .checked_mul(width)
                 .ok_or(StepError::LengthOverflow)?;
             let att_len = tasks.checked_mul(block).ok_or(StepError::LengthOverflow)?;
-            let mut att = vec![0i64; att_len];
+            let mut att = take_scratch(&TILE_SCRATCH, att_len);
             // One status slot per task, written only by that task; the slots are reduced after the
             // dispatch (`first_by_key`), so no shared error cell crosses the pool boundary.
             let mut status: Vec<Option<StepError>> = Vec::with_capacity(tasks);
@@ -508,12 +544,12 @@ impl Engine {
                 kv: kv_ro,
                 layer: slot,
                 gated,
-                prep: &prep,
+                prep: &prep[..need],
                 last: &last,
                 dims,
             };
             let dispatched: Result<(), ()> = crate::engine::chart::pool::for_chunks2(
-                &mut att,
+                &mut att[..att_len],
                 QUERY_TILE * width,
                 &mut status,
                 1,
@@ -551,6 +587,8 @@ impl Engine {
                     kvh += 1;
                 }
             }
+            put_scratch(&TILE_SCRATCH, att);
+            put_scratch(&PREP_SCRATCH, prep);
             return Ok(atts);
         }
         let mut att = vec![0i64; k * q_out];
@@ -571,7 +609,7 @@ impl Engine {
             kv: kv_ro,
             layer: slot,
             flags: [fused, gated],
-            prep: &prep,
+            prep: &prep[..need],
             last: &last,
             dims,
         };
@@ -594,6 +632,7 @@ impl Engine {
         for n in 0..k {
             atts[fold_col(n, k)] = att[n * q_out..(n + 1) * q_out].to_vec();
         }
+        put_scratch(&PREP_SCRATCH, prep);
         Ok(atts)
     }
 }
