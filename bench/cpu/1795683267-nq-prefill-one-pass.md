@@ -5,7 +5,8 @@ width 8 on the OVH box: the 1,024-column default splits a 1,826-column prompt in
 passes, and this receipt measures that split against one 1,826-column pass, changes the default block
 to 2,048, and records the per-dispatch `pool.wait` distribution that locates the per-pass cost. It
 does not close T2: the laptop, the 7B and the outside-pass allocation/insert (the area-1 lane) are
-not measured here.
+not measured here. On the merged tree (this change plus the area-1 parallel snapshot clone) the same
+cold turn is **4.078 s** against llama's **3.958 s**, 1.030× (`## The merged tree`).
 
 Grades: `measured` for every wall, phase mean, wait, class count, percentile bound, RSS and the
 traced-vs-untraced check; `model` for the 115-column row-pass count, the attention pack count, the
@@ -219,6 +220,35 @@ way in both arms.
 (`src/engine/step.rs`). On this prompt `ceil(1826/2048) = 1`, the measured arm exactly; the override
 `APEIRON_PREFILL_COLS` is unchanged. The doc comment carries the pair by pointer. This makes the
 measured arm the default; it does not re-measure a 2,048-column prompt, the 7B, or the laptop.
+
+## The merged tree
+
+The two lanes are separate binaries: every number above is `a63b7220`, area 2 alone. The merged tree
+is area-2 `0b61fcbb` plus the area-1 cherry-pick `678b9e97` (parallel snapshot clone), rebuilt on the
+box at 10:12:47Z to sha256
+`d1b02e32452d19fcc69c604e247d5a10f1001de602fed94d38ee60196937f60a`. Only markdown changed after
+that build. Workload, host, width and cache are the same as the untraced window; `--phases` is off.
+llama is interleaved.
+
+| | run 1 | run 2 | run 3 | mean | median | spread |
+|---|---:|---:|---:|---:|---:|---:|
+| llama `pp1827`, t/s | 459.53 | 460.87 | 464.52 | 461.64 | 460.87 | 1.09% |
+| llama, s | 3.976 | 3.964 | 3.933 | 3.958 | 3.964 | 1.09% |
+| merged cold, s | 4.158 | 3.990 | 4.085 | **4.078** | **4.085** | 4.21% |
+| merged / llama | 1.046 | 1.007 | 1.039 | **1.030** | **1.039** | 3.90% |
+
+The merged turn is 1.047× the area-2 2,048 mean (4.271 → 4.078 s, −193.7 ms) and 1.169× the 1,024
+arm (4.765 s) (`model`: ratios of the measured means); it closes 85.1% of the 1,024-to-llama gap
+(`model` on the means) and remains **3.0% (120 ms) slower than llama**. The remaining outside-pass `decode_state` allocation, 207 ms on the
+area-1 binary, is 5.1% of this turn and is untouched; a single-term ceiling there is
+`1/(1 − 207/4078) = 1.054×` (`model`: the alloc is not measured on the merged binary, and removing all
+of it is not claimed). Peak RSS median over the three merged runs is 1,532,916 KiB = 1.462 GiB,
+**+103,492 KiB = +101.1 MiB (+7.24%)** over the area-2 2,048 row; the delta is not isolated (the
+parallel clone's worker stacks and allocator arenas are candidates), and it is not a C1 figure.
+The merged tree passes the contributor gate with the three known `glslc` failures: the build
+reproduces `d1b02e32…`, fmt and clippy `--all-features` exit 0, lib **695 passed, 1 failed,
+55 ignored**, `spirv_storage_race` 2 passed and 2 failed, and every doc check exits 0 (the `.log`,
+merged gate section).
 
 ## The gates
 

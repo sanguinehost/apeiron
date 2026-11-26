@@ -178,7 +178,10 @@ phase, is flat across 1024/256 (`1795573862`), while removing the 913-column pas
 1,362,544 KiB = 1.299 GiB at
 block 1,024 and 1,429,424 KiB = 1.363 GiB at 2,048 (+65.3 MiB, +4.9%,
 `bench/cpu/1795683267-nq-prefill-one-pass.md`); the earlier 1,294,188 KiB row used a different
-harness invocation (`1795573862`).
+harness invocation (`1795573862`). Merged with the area-1 parallel snapshot clone, the same cold turn
+is 4.078 s against llama's 3.958 s in the same window (1.030×, three interleaved rounds), 3.0%
+slower; its median peak RSS is 1,532,916 KiB = 1.462 GiB, +101.1 MiB over the 2,048 row, a delta
+whose cause is not isolated (`bench/cpu/1795683267-nq-prefill-one-pass.md`).
 
 `project_q8` quantises the stage activation with the same chart `matmat_q8act` uses: `S_b = 2^e_b`,
 the smallest power of two with `127·S_b ≥ absmax_b`, one code per element. For a sign plane the

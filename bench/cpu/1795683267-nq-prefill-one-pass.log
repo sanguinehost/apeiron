@@ -571,3 +571,206 @@ src/gpu/spirv/splitk_reduce.spv is stale: recompile with glslc ["--target-env=vu
 
 
 failures:
+
+## Merged tree: area-2 0b61fcbb + area-1 678b9e97 (parallel snapshot clone)
+# Built on the box 10:12:47Z; binary d1b02e32. Only markdown changed after the build.
+# Script body (merged-final.sh):
+#   #!/usr/bin/env bash
+#   # Merged-tree final turn: the 2,048 default (one 1,826-column pass) against llama-bench pp1827,
+#   # three interleaved rounds, untraced, plus RSS.
+#   set -u
+#   cd "$HOME/Workspace/apeiron-nq-merged"
+#   OUT=/tmp/merged
+#   BIN=$HOME/bin/prefix_solve.merged
+#   mkdir -p "$OUT"
+#   GGUF=$HOME/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf
+#   NQP=$HOME/models/nq-scratch/nq06-v3.nqp
+#   TOK=$HOME/models/qwen3-0.6b-base-e8/tokenizer.json
+#   LLAMA=$HOME/models/qwen3-0.6b-base-f16/Qwen3-0.6B-Base.f16.gguf
+#   LLB=$HOME/llama.cpp/build/bin/llama-bench
+#   
+#   for _ in $(seq 1 120); do
+#     load=$(awk '{print $1}' /proc/loadavg)
+#     if awk -v l="$load" 'BEGIN{exit !(l<1.5)}' &&
+#        ! pgrep -x cargo >/dev/null && ! pgrep -x rustc >/dev/null; then
+#       break
+#     fi
+#     sleep 10
+#   done
+#   echo "build start $(date -u +%FT%TZ) $(uptime)"
+#   cargo build --release --locked --example prefix_solve || exit 1
+#   cp target/release/examples/prefix_solve "$BIN"
+#   sha256sum "$BIN"
+#   echo "start $(date -u +%FT%TZ) $(uptime)"
+#   
+#   run() { # tag
+#     local tag=$1
+#     /usr/bin/time -v -o "$OUT/$tag.time" env APEIRON_THREADS=8 "$BIN" \
+#       --model "$GGUF" --pack "$NQP" --tokenizer "$TOK" \
+#       --len 1827 --differ 0 --decode 0 --mb 440 >"$OUT/$tag.txt" 2>&1
+#     echo "--- $tag $(grep -E '^cold ' "$OUT/$tag.txt" | tail -1)"
+#   }
+#   
+#   for i in 1 2 3; do
+#     if [ "$i" = 2 ]; then
+#       run "d$i"
+#       "$LLB" -m "$LLAMA" -p 1827 -n 0 -t 8 -r 1 >"$OUT/l$i.txt" 2>&1
+#     else
+#       "$LLB" -m "$LLAMA" -p 1827 -n 0 -t 8 -r 1 >"$OUT/l$i.txt" 2>&1
+#       run "d$i"
+#     fi
+#     echo "--- l$i $(grep -E 'pp1827' "$OUT/l$i.txt" | tail -1)"
+#     echo "round $i $(date -u +%FT%TZ)"
+#   done
+#   echo "end $(date -u +%FT%TZ) $(uptime)"
+
+# Script output:
+agent-guard: available=30302MiB cap=16384MiB jobs=8
+build start 2026-11-26T10:12:34Z  10:12:34 up 2 days,  1:15,  1 user,  load average: 0.14, 0.82, 1.98
+   Compiling version_check v0.9.5
+   Compiling typenum v1.20.1
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.14
+   Compiling libc v0.2.190
+   Compiling cfg-if v1.0.5
+   Compiling arrayvec v0.7.8
+   Compiling cpufeatures v0.3.1
+   Compiling cpufeatures v0.2.17
+   Compiling constant_time_eq v0.4.2
+   Compiling cc v1.6.0
+   Compiling generic-array v0.14.7
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling blake3 v1.8.7
+   Compiling digest v0.10.7
+   Compiling apeiron v0.1.0 (/home/ubuntu/Workspace/apeiron-nq-merged)
+   Compiling sha2 v0.10.9
+warning: unused import: `place::pin_beside_worker`
+  --> src/engine/chart/pool.rs:70:16
+   |
+70 | pub(crate) use place::pin_beside_worker;
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `super::super::*`
+  --> src/gpu/nn/fwd/lin.rs:19:5
+   |
+19 | use super::super::*;
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `lin::*`
+  --> src/gpu/nn/fwd/mod.rs:11:9
+   |
+11 | pub use lin::*;
+   |         ^^^^^^
+
+warning: unused import: `INV_LIMBS`
+ --> src/learn/nanoquant/step.rs:4:72
+  |
+4 | use super::{normalized_plane, rank1, x_update, NqConfig, NqError, Rng, INV_LIMBS};
+  |                                                                        ^^^^^^^^^
+
+warning: struct `Inline` is never constructed
+   --> src/engine/chart/pool.rs:830:19
+    |
+830 | pub(crate) struct Inline(bool);
+    |                   ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `inline` is never used
+   --> src/engine/chart/pool.rs:833:15
+    |
+833 | pub(crate) fn inline() -> Inline {
+    |               ^^^^^^
+
+warning: function `pin_beside_worker` is never used
+  --> src/engine/chart/pool/place.rs:23:15
+   |
+23 | pub(crate) fn pin_beside_worker() {
+   |               ^^^^^^^^^^^^^^^^^
+
+warning: function `beside_worker` is never used
+  --> src/engine/chart/pool/place.rs:45:4
+   |
+45 | fn beside_worker(p_cpus: &[usize], siblings: impl Fn(usize) -> Option<String>) -> Option<usize> {
+   |    ^^^^^^^^^^^^^
+
+warning: `apeiron` (lib) generated 8 warnings (run `cargo fix --lib -p apeiron` to apply 4 suggestions)
+d1b02e32452d19fcc69c604e247d5a10f1001de602fed94d38ee60196937f60a  /home/ubuntu/bin/prefix_solve.merged
+start 2026-11-26T10:12:47Z  10:12:47 up 2 days,  1:15,  1 user,  load average: 0.90, 0.95, 2.00
+    Finished `release` profile [optimized] target(s) in 13.67s
+--- d1 cold   hit     0  prefill    4.158 s ( 439.40 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- l1 | qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        459.53 ± 0.00 |
+round 1 2026-11-26T10:13:01Z
+--- d2 cold   hit     0  prefill    3.990 s ( 457.93 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- l2 | qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        460.87 ± 0.00 |
+round 2 2026-11-26T10:13:14Z
+--- d3 cold   hit     0  prefill    4.085 s ( 447.29 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+--- l3 | qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        464.52 ± 0.00 |
+round 3 2026-11-26T10:13:28Z
+end 2026-11-26T10:13:28Z  10:13:28 up 2 days,  1:16,  1 user,  load average: 4.36, 1.83, 2.25
+
+# Peak RSS (/usr/bin/time -v) from d1/d2/d3:
+# d1:	Maximum resident set size (kbytes): 1532916
+# d2:	Maximum resident set size (kbytes): 1533008
+# d3:	Maximum resident set size (kbytes): 1532904
+
+## Merged tree, derived
+merged 4.158 3.990 4.085 s; mean 4.0777 median 4.0850 spread 4.21%
+llama 459.53 460.87 464.52 t/s -> 3.9758 3.9642 3.9331 s; mean 3.9577 median 3.9642
+merged/llama paired 1.0458 1.0065 1.0386; mean 1.0303 median 1.0386 range 1.0065-1.0458
+vs area-2 2048 mean 4.2713: 1.0475x (-193.7 ms); vs 1024 mean 4.7647: 1.1685x
+gap closed vs 1024 to llama: 85.1%; merged is 3.0% (120 ms) slower than llama
+RSS median 1,532,916 KiB = 1.462 GiB; +103,492 KiB = +101.1 MiB (+7.24%) over 1,429,424 KiB
+
+## Merged tree gate (2026-11-26T10:14:57Z-10:20:11Z)
+== build 2026-11-26T10:14:57Z
+EXIT_BUILD=0
+d1b02e32452d19fcc69c604e247d5a10f1001de602fed94d38ee60196937f60a  target/release/examples/prefix_solve
+== fmt
+EXIT_FMT=0
+== clippy --all-features
+EXIT_CLIPPY=0
+== test --workspace
+test result: FAILED. 695 passed; 1 failed; 55 ignored; 0 measured; 0 filtered out; finished in 104.71s
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.36s
+EXIT_TEST=101
+== check-claims
+EXIT_CLAIMS=0
+== book-check
+EXIT_BOOK=0
+== mdbook lib
+EXIT_MDLIB=0
+== mdbook build
+EXIT_MDBUILD=0
+== mdbook test
+EXIT_MDTEST=0
+== end 2026-11-26T10:20:11Z
+# failing blocks
+---- gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl stdout ----
+
+thread 'gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl' (2942776) panicked at src/gpu/nn/coopmat_gemm.rs:734:9:
+glslc failed: exit status: 1
+
+
+failures:
+
+---- attn_coopmat_spirv_is_the_glsl stdout ----
+
+thread 'attn_coopmat_spirv_is_the_glsl' (2953806) panicked at tests/spirv_storage_race.rs:625:5:
+glslc failed: signal: 11 (SIGSEGV) (core dumped)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- splitk_reduce_spirv_is_the_glsl stdout ----
+
+thread 'splitk_reduce_spirv_is_the_glsl' (2953816) panicked at tests/spirv_storage_race.rs:651:5:
+src/gpu/spirv/splitk_reduce.spv is stale: recompile with glslc ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute"]
+
+
+failures:
+    attn_coopmat_spirv_is_the_glsl
+    splitk_reduce_spirv_is_the_glsl
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.36s

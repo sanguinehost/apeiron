@@ -226,4 +226,19 @@ Two structural refusals from Pass 1 (re-confirmed in Pass 2) remain open:
   span drift until regenerated; new `KvState` methods sit after extracted `attn.rs` methods and
   are called only from unextracted `src/engine/prefix/mod.rs`, and `cert.rs` edits are test-only.
 - **GPU / `--all-features` / book build**: `--all-features` and GPU device tests were not run (no
-  GPU and mismatched `glslc` 2023.8 on the box); `mdbook build`/`test` did not run (no book edit).
+  GPU and mismatched `glslc` 2023.8 on the box); the final gate ran `mdbook build`/`test` on the
+  unmodified book (exit 0, §4).
+
+## 7. Merged with area 2
+
+The two lanes are separate binaries, and every number above is from `prefix_solve.after`
+(`c962b582…`) on the area-1 tree. On the merged tree — this commit `678b9e97` on top of area-2
+`0b61fcbb` (the 2,048 default) — the cold 1,827-token turn at width 8 is mean **4.078 s**
+(4.158 / 3.990 / 4.085) against llama's interleaved **3.958 s** (459.53 / 460.87 / 464.52 t/s),
+**1.030×** (paired 1.046 / 1.007 / 1.039; median 1.039), 3.0% slower, closing 85.1% of the
+1,024-arm gap (`model` on the means). The merged binary is `d1b02e32…`; peak RSS median is
+1,532,916 KiB = 1.462 GiB, +101.1 MiB over the area-2 2,048 row, a delta whose cause is not
+isolated. The untouched `decode_state` allocation (`outside.alloc`, 207 ms) is 5.1% of the merged
+turn; its single-term ceiling is `1/(1 − 207/4078) = 1.054×` (`model`). Table and raw lines:
+`bench/cpu/1795683267-nq-prefill-one-pass.md`, `## The merged tree`. The merged change is not
+re-measured on the laptop.
