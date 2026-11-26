@@ -87,6 +87,7 @@ impl CertTotals {
 
 /// One block's sound summary: the component mean of its keys and the largest 1-norm deviation.
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 struct BlockSummary {
     /// Truncating component mean of the block's keys, one word per head component.
     mu: Vec<i64>,
@@ -105,6 +106,25 @@ pub(crate) struct KvBlockIndex {
     summaries: Vec<Vec<Vec<BlockSummary>>>,
     /// Accumulated over every certified read; relaxed loads and adds (the counters order no data).
     totals: CertTotals,
+}
+
+#[cfg(test)]
+impl PartialEq for CertTotals {
+    fn eq(&self, other: &Self) -> bool {
+        self.get() == other.get()
+    }
+}
+
+#[cfg(test)]
+impl PartialEq for KvBlockIndex {
+    fn eq(&self, other: &Self) -> bool {
+        self.block == other.block
+            && self.n_layer == other.n_layer
+            && self.n_head_kv == other.n_head_kv
+            && self.head_dim == other.head_dim
+            && self.summaries == other.summaries
+            && self.totals == other.totals
+    }
 }
 
 impl KvBlockIndex {

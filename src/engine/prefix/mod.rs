@@ -445,7 +445,7 @@ impl<H: PrefixHasher> PrefixCache<H> {
         let tick = self.tick.wrapping_add(1);
         let entry = PromptEntry {
             tokens: tokens.to_vec(),
-            state: kv.clone(),
+            state: kv.clone_for_snapshot(),
             byte_size: needed,
             last_used: tick,
         };
@@ -573,12 +573,15 @@ pub fn prefill_with_cache_mode<H: PrefixHasher>(
         }
         (m, kv)
     } else {
-        (
-            0,
-            engine
-                .decode_state(total_cap)
-                .map_err(PrefixCacheError::Step)?,
-        )
+        let t_alloc = crate::engine::trace::enabled().then(std::time::Instant::now);
+        let kv = engine
+            .decode_state(total_cap)
+            .map_err(PrefixCacheError::Step)?;
+        if let Some(t) = t_alloc {
+            let ns = u64::try_from(t.elapsed().as_nanos()).unwrap_or(u64::MAX);
+            crate::engine::trace::record_alloc(ns);
+        }
+        (0, kv)
     };
 
     let mut st = engine.state_with_kv(kv);
@@ -612,7 +615,12 @@ pub fn prefill_with_cache_mode<H: PrefixHasher>(
     };
 
     if insert_boundaries && n >= cache.block_size() && start_pos < n {
+        let t_insert = crate::engine::trace::enabled().then(std::time::Instant::now);
         let _ = cache.insert(tokens, &st.kv);
+        if let Some(t) = t_insert {
+            let ns = u64::try_from(t.elapsed().as_nanos()).unwrap_or(u64::MAX);
+            crate::engine::trace::record_insert(ns);
+        }
     }
 
     Ok((st.kv, result))

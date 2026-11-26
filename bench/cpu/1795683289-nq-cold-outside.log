@@ -1,0 +1,968 @@
+# nq cold outside-pass split and parallel snapshot clone: raw lines
+# receipt: bench/cpu/1795683289-nq-cold-outside.md
+# machine: OVH box ubuntu@139.99.223.161 (Sydney); 8 vCPU EPYC Milan,
+#          8 sockets x 1 core x 1 thread, 31.3 GiB, 256 MiB L3, no AVX-512, no VNNI, no GPU
+# date: 2026-11-26 UTC
+# every box job under ~/bin/adg run -- (16 GiB cap, 8 jobs, swap zero)
+
+### provenance
+$ git -C /tmp/opencode/area1-cold-outside rev-parse HEAD
+1a4df32f6cd6b9bb0be7487dbac143f23b5f5e29
+$ git -C /tmp/opencode/area1-cold-outside log -1 --format='%H %s'
+1a4df32f6cd6b9bb0be7487dbac143f23b5f5e29 bench: split the 0.6B cold prefill gap into 0.421 s outside the pass, 0.341 s inside, 0.304 s caller wait
+
+$ sha256sum examples/prefix_solve.rs src/engine/trace.rs src/engine/prefix/mod.rs src/engine/attn.rs src/engine/attn/cert.rs
+bff0e46d77b65c4e8825fc23b53c11c442b3b5c54b5eedefeea2960679f8371e  examples/prefix_solve.rs
+3ee5c83fff056d83ebd87e3644ca6c38ab9f68524f7b026547a1f096a1df9775  src/engine/trace.rs
+873799bed7bfc2f0d838b5fbc2c4006182815de1a67b625af14db38e66e4b93d  src/engine/prefix/mod.rs
+f5b9cc62271f2eb72a7da0dec7a72f19c69e97e7fb6299d6fe3e20f22ef1c31f  src/engine/attn.rs
+0dba341d85dff928206c3c26902f9299906b4112286a24a059eb33e133a1e62c  src/engine/attn/cert.rs
+
+$ ssh ubuntu@139.99.223.161 'cd ~/Workspace/apeiron-nq-area1 && sha256sum examples/prefix_solve.rs src/engine/trace.rs src/engine/prefix/mod.rs src/engine/attn.rs src/engine/attn/cert.rs'
+bff0e46d77b65c4e8825fc23b53c11c442b3b5c54b5eedefeea2960679f8371e  examples/prefix_solve.rs
+3ee5c83fff056d83ebd87e3644ca6c38ab9f68524f7b026547a1f096a1df9775  src/engine/trace.rs
+873799bed7bfc2f0d838b5fbc2c4006182815de1a67b625af14db38e66e4b93d  src/engine/prefix/mod.rs
+f5b9cc62271f2eb72a7da0dec7a72f19c69e97e7fb6299d6fe3e20f22ef1c31f  src/engine/attn.rs
+0dba341d85dff928206c3c26902f9299906b4112286a24a059eb33e133a1e62c  src/engine/attn/cert.rs
+
+$ sha256sum /tmp/area1/prefix_solve.before /tmp/area1/prefix_solve.after "$GGUF" "$NQP" "$TOK" "$LLAMA" "$LLAMA_BIN"
+a3039f27deb896459fbfb7cba2e0f3421a35d126ba56e7c4d3b248cdfcc9c45a  /tmp/area1/prefix_solve.before
+c962b582ec32aa27a12fecc00d1c5ab1e2e1651a253aec78921b84eadcb72704  /tmp/area1/prefix_solve.after
+107c8edde5125ff7bbcfa6d9e0b65f7b43adbd08938109fc4b1a166049a9531f  /home/ubuntu/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf
+2e4670a4351fe0ad210c19e1ffd62123762bd2e01c0135de5fd96d58f7bc36e6  /home/ubuntu/models/nq-scratch/nq06-v3.nqp
+c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539  /home/ubuntu/models/qwen3-0.6b-base-e8/tokenizer.json
+a33dce6906fe21b08592902555da7b2100c3bb2271bab7966d4b6bf4d1a9c39d  /home/ubuntu/models/qwen3-0.6b-base-f16/Qwen3-0.6B-Base.f16.gguf
+3305fbed362be680ff52efaa0b5e6107409a5121c9ed194dbf6ac64b4dae77e3  /home/ubuntu/llama.cpp/build/bin/llama-bench
+
+# llama.cpp build 049326a00 (9949).
+
+$ uname -a && lscpu | grep -E "Model name|CPU\(s\)|Socket|Thread|Core|L3"
+Linux indra-dev-1 6.8.0-136-generic #136-Ubuntu SMP PREEMPT_DYNAMIC Wed Jul  1 21:53:05 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+CPU(s):                                  8
+On-line CPU(s) list:                     0-7
+Model name:                              AMD EPYC-Milan Processor
+Thread(s) per core:                      1
+Core(s) per socket:                      1
+Socket(s):                               8
+L3 cache:                                256 MiB (8 instances)
+NUMA node0 CPU(s):                       0-7
+
+### build 1: prefix_solve.before (fresh target/ on box, instrumentation-only diff)
+$ git diff
+diff --git a/examples/prefix_solve.rs b/examples/prefix_solve.rs
+index 2294475d..0824ca5b 100644
+--- a/examples/prefix_solve.rs
++++ b/examples/prefix_solve.rs
+@@ -187,6 +187,22 @@ fn main() -> Result<(), Box<dyn Error>> {
+                     );
+                 }
+             }
++            let (alloc_ns, alloc_calls, insert_ns, insert_calls) =
++                apeiron::engine::trace::outside_split();
++            eprintln!(
++                "  {:14} {:8.3} ms {:6.1}%  calls {}",
++                "outside.alloc",
++                alloc_ns as f64 / 1e6,
++                100.0 * alloc_ns as f64 / wall,
++                alloc_calls
++            );
++            eprintln!(
++                "  {:14} {:8.3} ms {:6.1}%  calls {}",
++                "outside.insert",
++                insert_ns as f64 / 1e6,
++                100.0 * insert_ns as f64 / wall,
++                insert_calls
++            );
+         }
+         let rate = a.len as f64 / prefill.max(f64::MIN_POSITIVE);
+         println!(
+diff --git a/src/engine/prefix/mod.rs b/src/engine/prefix/mod.rs
+index cbc8628f..b4c415ef 100644
+--- a/src/engine/prefix/mod.rs
++++ b/src/engine/prefix/mod.rs
+@@ -573,12 +573,15 @@ pub fn prefill_with_cache_mode<H: PrefixHasher>(
+         }
+         (m, kv)
+     } else {
+-        (
+-            0,
+-            engine
+-                .decode_state(total_cap)
+-                .map_err(PrefixCacheError::Step)?,
+-        )
++        let t_alloc = crate::engine::trace::enabled().then(std::time::Instant::now);
++        let kv = engine
++            .decode_state(total_cap)
++            .map_err(PrefixCacheError::Step)?;
++        if let Some(t) = t_alloc {
++            let ns = u64::try_from(t.elapsed().as_nanos()).unwrap_or(u64::MAX);
++            crate::engine::trace::record_alloc(ns);
++        }
++        (0, kv)
+     };
+ 
+     let mut st = engine.state_with_kv(kv);
+@@ -612,7 +615,12 @@ pub fn prefill_with_cache_mode<H: PrefixHasher>(
+     };
+ 
+     if insert_boundaries && n >= cache.block_size() && start_pos < n {
++        let t_insert = crate::engine::trace::enabled().then(std::time::Instant::now);
+         let _ = cache.insert(tokens, &st.kv);
++        if let Some(t) = t_insert {
++            let ns = u64::try_from(t.elapsed().as_nanos()).unwrap_or(u64::MAX);
++            crate::engine::trace::record_insert(ns);
++        }
+     }
+ 
+     Ok((st.kv, result))
+diff --git a/src/engine/trace.rs b/src/engine/trace.rs
+index f6438314..6d2dd6d6 100644
+--- a/src/engine/trace.rs
++++ b/src/engine/trace.rs
+@@ -77,13 +77,18 @@ impl Phase {
+ 
+ const N: usize = PHASES.len();
+ 
+-/// Per-phase counters: nanoseconds, spans, columns, weight bytes, multiply-adds.
++/// Per-phase counters: nanoseconds, spans, columns, weight bytes, multiply-adds, plus the
++/// outside-pass KV allocation and prefix-cache insert timers.
+ struct Counters {
+     ns: [AtomicU64; N],
+     calls: [AtomicU64; N],
+     cols: [AtomicU64; N],
+     bytes: [AtomicU64; N],
+     macs: [AtomicU64; N],
++    alloc_ns: AtomicU64,
++    alloc_calls: AtomicU64,
++    insert_ns: AtomicU64,
++    insert_calls: AtomicU64,
+ }
+ 
+ #[allow(
+@@ -98,6 +103,10 @@ static COUNTERS: Counters = Counters {
+     cols: [ZERO; N],
+     bytes: [ZERO; N],
+     macs: [ZERO; N],
++    alloc_ns: ZERO,
++    alloc_calls: ZERO,
++    insert_ns: ZERO,
++    insert_calls: ZERO,
+ };
+ 
+ /// 0 unresolved, 1 off, 2 on.
+@@ -132,6 +141,35 @@ pub fn reset() {
+         COUNTERS.bytes[i].store(0, Ordering::Relaxed);
+         COUNTERS.macs[i].store(0, Ordering::Relaxed);
+     }
++    COUNTERS.alloc_ns.store(0, Ordering::Relaxed);
++    COUNTERS.alloc_calls.store(0, Ordering::Relaxed);
++    COUNTERS.insert_ns.store(0, Ordering::Relaxed);
++    COUNTERS.insert_calls.store(0, Ordering::Relaxed);
++}
++
++/// Records one outside-pass KV allocation duration in nanoseconds.
++#[inline]
++pub fn record_alloc(ns: u64) {
++    COUNTERS.alloc_ns.fetch_add(ns, Ordering::Relaxed);
++    COUNTERS.alloc_calls.fetch_add(1, Ordering::Relaxed);
++}
++
++/// Records one outside-pass prefix-cache insert duration in nanoseconds.
++#[inline]
++pub fn record_insert(ns: u64) {
++    COUNTERS.insert_ns.fetch_add(ns, Ordering::Relaxed);
++    COUNTERS.insert_calls.fetch_add(1, Ordering::Relaxed);
++}
++
++/// Returns `(alloc_ns, alloc_calls, insert_ns, insert_calls)` accumulated since [`reset`].
++#[must_use]
++pub fn outside_split() -> (u64, u64, u64, u64) {
++    (
++        COUNTERS.alloc_ns.load(Ordering::Relaxed),
++        COUNTERS.alloc_calls.load(Ordering::Relaxed),
++        COUNTERS.insert_ns.load(Ordering::Relaxed),
++        COUNTERS.insert_calls.load(Ordering::Relaxed),
++    )
+ }
+ 
+ /// A running span; its drop adds the elapsed time and its work to the phase.
+
+$ cd ~/Workspace/apeiron-nq-area1 && ~/bin/adg run -- cargo fmt --all -- --check && ~/bin/adg run -- cargo build --release --locked --example prefix_solve && mkdir -p /tmp/area1 && cp target/release/examples/prefix_solve /tmp/area1/prefix_solve.before && sha256sum /tmp/area1/prefix_solve.before
+agent-guard: available=30169MiB cap=16384MiB jobs=8
+agent-guard: available=30049MiB cap=16384MiB jobs=8
+   Compiling version_check v0.9.5
+   Compiling typenum v1.20.1
+   Compiling find-msvc-tools v0.1.14
+   Compiling shlex v2.0.1
+   Compiling libc v0.2.190
+   Compiling cfg-if v1.0.5
+   Compiling cpufeatures v0.3.1
+   Compiling constant_time_eq v0.4.2
+   Compiling arrayvec v0.7.8
+   Compiling cpufeatures v0.2.17
+   Compiling cc v1.6.0
+   Compiling generic-array v0.14.7
+   Compiling blake3 v1.8.7
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling apeiron v0.1.0 (/home/ubuntu/Workspace/apeiron-nq-area1)
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+warning: unused import: `place::pin_beside_worker`
+  --> src/engine/chart/pool.rs:70:16
+warning: unused import: `super::super::*`
+  --> src/gpu/nn/fwd/lin.rs:19:5
+warning: unused import: `lin::*`
+  --> src/gpu/nn/fwd/mod.rs:11:9
+warning: unused import: `INV_LIMBS`
+ --> src/learn/nanoquant/step.rs:4:72
+warning: struct `Inline` is never constructed
+   --> src/engine/chart/pool.rs:830:19
+warning: function `inline` is never used
+   --> src/engine/chart/pool.rs:833:15
+warning: function `pin_beside_worker` is never used
+  --> src/engine/chart/pool/place.rs:23:15
+warning: function `beside_worker` is never used
+  --> src/engine/chart/pool/place.rs:45:4
+warning: `apeiron` (lib) generated 8 warnings (run `cargo fix --lib -p apeiron` to apply 4 suggestions)
+    Finished `release` profile [optimized] target(s) in 13.60s
+
+### build 2: prefix_solve.after + parallel-clone equality test
+$ cd ~/Workspace/apeiron-nq-area1 && ~/bin/adg run -- cargo fmt --all -- --check && ~/bin/adg run -- cargo test --lib --locked the_parallel_clone_equals_the_serial_clone && ~/bin/adg run -- cargo build --release --locked --example prefix_solve && cp target/release/examples/prefix_solve /tmp/area1/prefix_solve.after && sha256sum /tmp/area1/prefix_solve.before /tmp/area1/prefix_solve.after
+agent-guard: available=29997MiB cap=16384MiB jobs=8
+agent-guard: available=29909MiB cap=16384MiB jobs=8
+   Compiling apeiron v0.1.0 (/home/ubuntu/Workspace/apeiron-nq-area1)
+warning: `apeiron` (lib test) generated 5 warnings (run `cargo fix --lib -p apeiron --tests` to apply 4 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.04s
+     Running unittests src/lib.rs (target/debug/deps/apeiron-cc42742f65d5a476)
+
+running 1 test
+test engine::attn::tests::the_parallel_clone_equals_the_serial_clone ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 747 filtered out; finished in 0.00s
+
+agent-guard: available=29667MiB cap=16384MiB jobs=8
+   Compiling apeiron v0.1.0 (/home/ubuntu/Workspace/apeiron-nq-area1)
+warning: `apeiron` (lib) generated 8 warnings (run `cargo fix --lib -p apeiron` to apply 4 suggestions)
+    Finished `release` profile [optimized] target(s) in 12.78s
+a3039f27deb896459fbfb7cba2e0f3421a35d126ba56e7c4d3b248cdfcc9c45a  /tmp/area1/prefix_solve.before
+c962b582ec32aa27a12fecc00d1c5ab1e2e1651a253aec78921b84eadcb72704  /tmp/area1/prefix_solve.after
+
+### step 2: initial 3-run split on prefix_solve.before (--phases)
+# command (3 runs after load < 1.5, each under ~/bin/adg run --):
+#   /tmp/area1/prefix_solve.before --model "$GGUF" --pack "$NQP" --tokenizer "$TOK" \
+#     --len 1827 --differ 0 --decode 0 --mb 440 --phases
+start  08:38:02 up 1 day, 23:40,  1 user,  load average: 0.63, 0.18, 0.06
+
+=== /tmp/area1/split-1.txt ===
+agent-guard: available=29969MiB cap=16384MiB jobs=8
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+  embed             9.836 ms    0.2%  calls 3
+  norm            159.647 ms    3.4%  calls 171
+  residual        132.393 ms    2.8%  calls 168
+  attn.proj_in    606.155 ms   13.0%  calls 84
+  attn.core      1470.525 ms   31.7%  calls 84
+  attn.proj_out    247.583 ms    5.3%  calls 84
+  ffn            1551.781 ms   33.4%  calls 84
+  head              5.489 ms    0.1%  calls 1
+  pass           4218.888 ms   90.8%  calls 3
+  pool.wait       276.813 ms    6.0%  calls 1295
+  outside.alloc   203.849 ms    4.4%  calls 1
+  outside.insert  211.270 ms    4.5%  calls 1
+cold   hit     0  prefill    4.646 s ( 393.28 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  embed             0.012 ms    0.0%  calls 2
+  norm              1.258 ms    1.0%  calls 114
+  residual          0.284 ms    0.2%  calls 112
+  attn.proj_in     10.106 ms    7.9%  calls 56
+  attn.core        29.782 ms   23.2%  calls 56
+  attn.proj_out      4.892 ms    3.8%  calls 56
+  ffn              20.257 ms   15.8%  calls 56
+  head              5.773 ms    4.5%  calls 1
+  pass             66.860 ms   52.0%  calls 2
+  pool.wait         7.365 ms    5.7%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   26.656 ms   20.7%  calls 1
+warm   hit  1824  prefill    0.129 s (14213.78 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  embed             0.011 ms    0.0%  calls 2
+  norm              1.259 ms    0.9%  calls 114
+  residual          0.293 ms    0.2%  calls 112
+  attn.proj_in      9.004 ms    6.1%  calls 56
+  attn.core        30.102 ms   20.5%  calls 56
+  attn.proj_out      4.939 ms    3.4%  calls 56
+  ffn              19.693 ms   13.4%  calls 56
+  head              5.526 ms    3.8%  calls 1
+  pass             65.568 ms   44.6%  calls 2
+  pool.wait         6.854 ms    4.7%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   25.652 ms   17.5%  calls 1
+shared hit  1824  prefill    0.147 s (12429.64 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+
+=== /tmp/area1/split-2.txt ===
+agent-guard: available=29929MiB cap=16384MiB jobs=8
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+  embed            10.348 ms    0.2%  calls 3
+  norm            162.928 ms    3.5%  calls 171
+  residual        131.090 ms    2.8%  calls 168
+  attn.proj_in    613.582 ms   13.0%  calls 84
+  attn.core      1497.659 ms   31.8%  calls 84
+  attn.proj_out    245.338 ms    5.2%  calls 84
+  ffn            1588.770 ms   33.7%  calls 84
+  head              5.445 ms    0.1%  calls 1
+  pass           4293.514 ms   91.1%  calls 3
+  pool.wait       288.671 ms    6.1%  calls 1295
+  outside.alloc   207.366 ms    4.4%  calls 1
+  outside.insert  200.168 ms    4.2%  calls 1
+cold   hit     0  prefill    4.712 s ( 387.69 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  embed             0.010 ms    0.0%  calls 2
+  norm              1.217 ms    1.0%  calls 114
+  residual          0.287 ms    0.2%  calls 112
+  attn.proj_in      9.151 ms    7.2%  calls 56
+  attn.core        30.038 ms   23.8%  calls 56
+  attn.proj_out      4.451 ms    3.5%  calls 56
+  ffn              20.117 ms   15.9%  calls 56
+  head              5.494 ms    4.3%  calls 1
+  pass             65.548 ms   51.8%  calls 2
+  pool.wait         7.563 ms    6.0%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   26.123 ms   20.7%  calls 1
+warm   hit  1824  prefill    0.126 s (14450.03 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  embed             0.011 ms    0.0%  calls 2
+  norm              1.330 ms    0.9%  calls 114
+  residual          0.292 ms    0.2%  calls 112
+  attn.proj_in     10.300 ms    6.9%  calls 56
+  attn.core        31.596 ms   21.2%  calls 56
+  attn.proj_out      4.979 ms    3.3%  calls 56
+  ffn              21.913 ms   14.7%  calls 56
+  head              5.499 ms    3.7%  calls 1
+  pass             70.721 ms   47.5%  calls 2
+  pool.wait         4.913 ms    3.3%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   25.761 ms   17.3%  calls 1
+shared hit  1824  prefill    0.149 s (12264.36 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+
+=== /tmp/area1/split-3.txt ===
+agent-guard: available=29606MiB cap=16384MiB jobs=8
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+  embed             8.924 ms    0.2%  calls 3
+  norm            158.523 ms    3.3%  calls 171
+  residual        132.477 ms    2.8%  calls 168
+  attn.proj_in    624.798 ms   13.0%  calls 84
+  attn.core      1551.641 ms   32.2%  calls 84
+  attn.proj_out    250.205 ms    5.2%  calls 84
+  ffn            1610.494 ms   33.5%  calls 84
+  head              5.573 ms    0.1%  calls 1
+  pass           4380.701 ms   91.0%  calls 3
+  pool.wait       288.959 ms    6.0%  calls 1295
+  outside.alloc   209.785 ms    4.4%  calls 1
+  outside.insert  210.259 ms    4.4%  calls 1
+cold   hit     0  prefill    4.812 s ( 379.65 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  embed             0.012 ms    0.0%  calls 2
+  norm              1.294 ms    1.0%  calls 114
+  residual          0.322 ms    0.3%  calls 112
+  attn.proj_in      8.961 ms    7.0%  calls 56
+  attn.core        30.007 ms   23.5%  calls 56
+  attn.proj_out      5.010 ms    3.9%  calls 56
+  ffn              20.035 ms   15.7%  calls 56
+  head              5.477 ms    4.3%  calls 1
+  pass             65.920 ms   51.7%  calls 2
+  pool.wait         6.598 ms    5.2%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   27.123 ms   21.3%  calls 1
+warm   hit  1824  prefill    0.127 s (14334.68 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  embed             0.009 ms    0.0%  calls 2
+  norm              1.274 ms    0.8%  calls 114
+  residual          0.326 ms    0.2%  calls 112
+  attn.proj_in      9.242 ms    6.1%  calls 56
+  attn.core        30.099 ms   19.8%  calls 56
+  attn.proj_out      5.411 ms    3.6%  calls 56
+  ffn              21.189 ms   14.0%  calls 56
+  head              5.971 ms    3.9%  calls 1
+  pass             67.822 ms   44.7%  calls 2
+  pool.wait        10.127 ms    6.7%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   26.332 ms   17.4%  calls 1
+shared hit  1824  prefill    0.152 s (12040.77 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+end  08:38:19 up 1 day, 23:41,  1 user,  load average: 1.64, 0.46, 0.15
+
+### step 4: paired before/after script /tmp/area1/pair.sh
+$ cat /tmp/area1/pair.sh
+#!/usr/bin/env bash
+set -u
+OUT=/tmp/area1/pair
+mkdir -p "$OUT"
+GGUF=$HOME/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf
+NQP=$HOME/models/nq-scratch/nq06-v3.nqp
+TOK=$HOME/models/qwen3-0.6b-base-e8/tokenizer.json
+LLAMA=$HOME/models/qwen3-0.6b-base-f16/Qwen3-0.6B-Base.f16.gguf
+LLAMA_BIN=$HOME/llama.cpp/build/bin/llama-bench
+BEFORE=/tmp/area1/prefix_solve.before
+AFTER=/tmp/area1/prefix_solve.after
+
+wait_quiet() {
+  for _ in $(seq 1 90); do
+    load=$(awk "{print \$1}" /proc/loadavg)
+    if awk -v l="$load" "BEGIN{exit !(l<1.5)}"; then break; fi
+    sleep 5
+  done
+}
+
+echo "### provenance"
+date -u
+uname -a
+lscpu | grep -E "Model name|CPU\(s\)|Socket|Thread|Core|L3" || true
+sha256sum "$BEFORE" "$AFTER" "$GGUF" "$NQP" "$TOK" "$LLAMA" "$LLAMA_BIN"
+
+run_llama() {
+  local tag=$1
+  "$LLAMA_BIN" -m "$LLAMA" -p 1827 -n 0 -t 8 -r 1 > "$OUT/llama-$tag.wall" 2>&1
+  echo "[$tag llama]"
+  grep -E "pp1827" "$OUT/llama-$tag.wall" | tail -1
+}
+
+run_ours() {
+  local tag=$1 bin=$2 extra=${3:-}
+  "$bin" --model "$GGUF" --pack "$NQP" --tokenizer "$TOK" --len 1827 --differ 0 --decode 0 --mb 440 $extra > "$OUT/$tag.wall" 2>&1
+  echo "[$tag]"
+  if [ -n "$extra" ]; then
+    grep -E "head |pass |pool\.wait|outside\." "$OUT/$tag.wall" | head -n 10
+  fi
+  grep "cold " "$OUT/$tag.wall"
+}
+
+wait_quiet
+echo "### untraced paired start $(uptime)"
+# Round 1: llama, before, after
+run_llama r1
+run_ours before-r1 "$BEFORE"
+run_ours after-r1 "$AFTER"
+# Round 2: before, after, llama
+run_ours before-r2 "$BEFORE"
+run_ours after-r2 "$AFTER"
+run_llama r2
+# Round 3: after, llama, before
+run_ours after-r3 "$AFTER"
+run_llama r3
+run_ours before-r3 "$BEFORE"
+echo "### untraced paired end $(uptime)"
+
+wait_quiet
+echo "### traced paired start $(uptime)"
+run_ours before-p1 "$BEFORE" "--phases"
+run_ours after-p1 "$AFTER" "--phases"
+run_ours after-p2 "$AFTER" "--phases"
+run_ours before-p2 "$BEFORE" "--phases"
+run_ours before-p3 "$BEFORE" "--phases"
+run_ours after-p3 "$AFTER" "--phases"
+echo "### traced paired end $(uptime)"
+
+# combined output from /tmp/area1/pair/*.wall (generated by ~/bin/adg run -- bash /tmp/area1/pair.sh;
+# pair.log stdout also printed ### provenance and filtered cold/summary lines)
+### untraced paired start  08:43:32 up 1 day, 23:46,  1 user,  load average: 0.57, 0.36, 0.17
+[r1 llama]
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        469.62 ± 0.00 |
+build: 049326a00 (9949)
+[before-r1]
+cold   hit     0  prefill    4.639 s ( 393.80 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+warm   hit  1824  prefill    0.125 s (14594.15 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+shared hit  1824  prefill    0.145 s (12574.28 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+[after-r1]
+cold   hit     0  prefill    4.513 s ( 404.82 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+warm   hit  1824  prefill    0.151 s (12069.24 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+shared hit  1824  prefill    0.154 s (11839.15 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+[before-r2]
+cold   hit     0  prefill    4.675 s ( 390.77 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+warm   hit  1824  prefill    0.125 s (14629.92 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+shared hit  1824  prefill    0.147 s (12439.17 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+[after-r2]
+cold   hit     0  prefill    4.497 s ( 406.23 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+warm   hit  1824  prefill    0.133 s (13775.94 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+shared hit  1824  prefill    0.151 s (12071.26 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+[r2 llama]
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        473.29 ± 0.00 |
+build: 049326a00 (9949)
+[after-r3]
+cold   hit     0  prefill    4.498 s ( 406.14 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+warm   hit  1824  prefill    0.145 s (12603.49 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+shared hit  1824  prefill    0.160 s (11441.58 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+[r3 llama]
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        470.54 ± 0.00 |
+build: 049326a00 (9949)
+[before-r3]
+cold   hit     0  prefill    4.726 s ( 386.55 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+warm   hit  1824  prefill    0.124 s (14706.31 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+shared hit  1824  prefill    0.145 s (12611.89 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+### untraced paired end  08:44:29 up 1 day, 23:47,  1 user,  load average: 4.20, 1.52, 0.59
+
+### traced paired start  08:45:34 up 1 day, 23:48,  1 user,  load average: 1.42, 1.22, 0.55
+[before-p1]
+  embed             9.856 ms    0.2%  calls 3
+  norm            158.053 ms    3.4%  calls 171
+  residual        123.336 ms    2.7%  calls 168
+  attn.proj_in    613.515 ms   13.2%  calls 84
+  attn.core      1499.875 ms   32.3%  calls 84
+  attn.proj_out    243.413 ms    5.2%  calls 84
+  ffn            1545.245 ms   33.2%  calls 84
+  head              5.355 ms    0.1%  calls 1
+  pass           4234.596 ms   91.1%  calls 3
+  pool.wait       279.011 ms    6.0%  calls 1295
+  outside.alloc   195.886 ms    4.2%  calls 1
+  outside.insert  206.795 ms    4.4%  calls 1
+cold   hit     0  prefill    4.649 s ( 392.95 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  head              5.518 ms    4.3%  calls 1
+  pass             65.011 ms   50.6%  calls 2
+  pool.wait         7.330 ms    5.7%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   27.269 ms   21.2%  calls 1
+warm   hit  1824  prefill    0.128 s (14224.97 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  head              5.503 ms    3.7%  calls 1
+  pass             66.356 ms   44.3%  calls 2
+  pool.wait         8.757 ms    5.8%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   26.212 ms   17.5%  calls 1
+shared hit  1824  prefill    0.150 s (12184.38 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+[after-p1]
+  embed             9.525 ms    0.2%  calls 3
+  norm            171.139 ms    3.7%  calls 171
+  residual        138.218 ms    3.0%  calls 168
+  attn.proj_in    617.153 ms   13.3%  calls 84
+  attn.core      1550.157 ms   33.3%  calls 84
+  attn.proj_out    252.574 ms    5.4%  calls 84
+  ffn            1602.879 ms   34.5%  calls 84
+  head              5.839 ms    0.1%  calls 1
+  pass           4384.063 ms   94.3%  calls 3
+  pool.wait       298.096 ms    6.4%  calls 1295
+  outside.alloc   211.535 ms    4.5%  calls 1
+  outside.insert   42.571 ms    0.9%  calls 1
+cold   hit     0  prefill    4.650 s ( 392.90 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  head              5.695 ms    4.0%  calls 1
+  pass             65.544 ms   45.5%  calls 2
+  pool.wait         8.165 ms    5.7%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert    9.397 ms    6.5%  calls 1
+warm   hit  1824  prefill    0.144 s (12694.42 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  head              5.587 ms    3.5%  calls 1
+  pass             65.580 ms   40.8%  calls 2
+  pool.wait         7.446 ms    4.6%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert    8.424 ms    5.2%  calls 1
+shared hit  1824  prefill    0.161 s (11355.06 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+[after-p2]
+  embed            10.227 ms    0.2%  calls 3
+  norm            185.982 ms    4.0%  calls 171
+  residual        137.166 ms    2.9%  calls 168
+  attn.proj_in    618.743 ms   13.2%  calls 84
+  attn.core      1520.870 ms   32.5%  calls 84
+  attn.proj_out    251.416 ms    5.4%  calls 84
+  ffn            1645.049 ms   35.2%  calls 84
+  head              5.536 ms    0.1%  calls 1
+  pass           4414.657 ms   94.4%  calls 3
+  pool.wait       300.800 ms    6.4%  calls 1295
+  outside.alloc   206.043 ms    4.4%  calls 1
+  outside.insert   42.041 ms    0.9%  calls 1
+cold   hit     0  prefill    4.675 s ( 390.82 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  head              5.734 ms    3.2%  calls 1
+  pass             69.421 ms   38.8%  calls 2
+  pool.wait        10.873 ms    6.1%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert    8.836 ms    4.9%  calls 1
+warm   hit  1824  prefill    0.179 s (10207.85 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  head              5.531 ms    3.1%  calls 1
+  pass             67.769 ms   37.4%  calls 2
+  pool.wait         8.963 ms    4.9%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert    8.503 ms    4.7%  calls 1
+shared hit  1824  prefill    0.181 s (10087.74 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+[before-p2]
+  embed            10.123 ms    0.2%  calls 3
+  norm            162.390 ms    3.4%  calls 171
+  residual        135.048 ms    2.8%  calls 168
+  attn.proj_in    612.223 ms   12.8%  calls 84
+  attn.core      1526.081 ms   32.0%  calls 84
+  attn.proj_out    247.502 ms    5.2%  calls 84
+  ffn            1614.067 ms   33.8%  calls 84
+  head              5.618 ms    0.1%  calls 1
+  pass           4350.551 ms   91.2%  calls 3
+  pool.wait       275.467 ms    5.8%  calls 1295
+  outside.alloc   208.992 ms    4.4%  calls 1
+  outside.insert  200.889 ms    4.2%  calls 1
+cold   hit     0  prefill    4.772 s ( 382.85 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  head              5.697 ms    4.5%  calls 1
+  pass             64.575 ms   51.3%  calls 2
+  pool.wait         6.567 ms    5.2%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   26.246 ms   20.8%  calls 1
+warm   hit  1824  prefill    0.126 s (14511.05 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  head              5.489 ms    3.8%  calls 1
+  pass             64.500 ms   44.2%  calls 2
+  pool.wait         7.282 ms    5.0%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   26.040 ms   17.9%  calls 1
+shared hit  1824  prefill    0.146 s (12529.91 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+[before-p3]
+  embed            10.154 ms    0.2%  calls 3
+  norm            165.488 ms    3.5%  calls 171
+  residual        121.457 ms    2.5%  calls 168
+  attn.proj_in    612.508 ms   12.8%  calls 84
+  attn.core      1529.578 ms   32.0%  calls 84
+  attn.proj_out    249.561 ms    5.2%  calls 84
+  ffn            1613.156 ms   33.8%  calls 84
+  head              5.707 ms    0.1%  calls 1
+  pass           4345.609 ms   91.0%  calls 3
+  pool.wait       256.210 ms    5.4%  calls 1295
+  outside.alloc   206.446 ms    4.3%  calls 1
+  outside.insert  210.339 ms    4.4%  calls 1
+cold   hit     0  prefill    4.774 s ( 382.69 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  head              5.505 ms    4.1%  calls 1
+  pass             70.536 ms   52.3%  calls 2
+  pool.wait        11.547 ms    8.6%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   26.718 ms   19.8%  calls 1
+warm   hit  1824  prefill    0.135 s (13557.18 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  head              5.663 ms    3.0%  calls 1
+  pass             67.279 ms   35.9%  calls 2
+  pool.wait         8.991 ms    4.8%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert   27.493 ms   14.7%  calls 1
+shared hit  1824  prefill    0.187 s (9754.29 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+[after-p3]
+  embed             9.334 ms    0.2%  calls 3
+  norm            177.864 ms    3.9%  calls 171
+  residual        129.860 ms    2.8%  calls 168
+  attn.proj_in    616.499 ms   13.5%  calls 84
+  attn.core      1502.659 ms   32.9%  calls 84
+  attn.proj_out    249.668 ms    5.5%  calls 84
+  ffn            1580.361 ms   34.6%  calls 84
+  head              5.798 ms    0.1%  calls 1
+  pass           4306.665 ms   94.3%  calls 3
+  pool.wait       299.256 ms    6.6%  calls 1295
+  outside.alloc   210.744 ms    4.6%  calls 1
+  outside.insert   35.790 ms    0.8%  calls 1
+cold   hit     0  prefill    4.565 s ( 400.22 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  head              5.485 ms    3.5%  calls 1
+  pass             64.931 ms   41.3%  calls 2
+  pool.wait         6.563 ms    4.2%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert    9.666 ms    6.2%  calls 1
+warm   hit  1824  prefill    0.157 s (11628.90 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  head              5.697 ms    3.6%  calls 1
+  pass             66.386 ms   41.6%  calls 2
+  pool.wait         6.798 ms    4.3%  calls 902
+  outside.alloc     0.000 ms    0.0%  calls 0
+  outside.insert    9.858 ms    6.2%  calls 1
+shared hit  1824  prefill    0.160 s (11449.42 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+### traced paired end  08:46:07 up 1 day, 23:48,  1 user,  load average: 3.64, 1.76, 0.75
+
+### gates on box (~/Workspace/apeiron-nq-area1, under ~/bin/adg run --)
+# Run A:
+$ ~/bin/adg run -- cargo fmt --all -- --check; echo "EXIT_FMT=$?"
+$ ~/bin/adg run -- cargo test --workspace --locked; echo "EXIT_TEST=$?"
+$ ~/bin/adg run -- cargo clippy --workspace --all-targets --locked -- -D warnings -j 1; echo "EXIT_CLIPPY=$?"
+agent-guard: available=29844MiB cap=16384MiB jobs=8
+EXIT_FMT=0
+agent-guard: available=29786MiB cap=16384MiB jobs=8
+     Running unittests src/lib.rs (target/debug/deps/apeiron-cc42742f65d5a476)
+running 748 tests
+...
+failures:
+
+---- gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl stdout ----
+
+thread 'gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl' (2763631) panicked at src/gpu/nn/coopmat_gemm.rs:734:9:
+glslc failed: exit status: 1
+
+
+failures:
+    gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl
+
+test result: FAILED. 692 passed; 1 failed; 55 ignored; 0 measured; 0 filtered out; finished in 126.11s
+
+EXIT_TEST=101
+error: test failed, to rerun pass `-p apeiron --lib`
+agent-guard: available=30262MiB cap=16384MiB jobs=8
+    Checking apeiron v0.1.0 (/home/ubuntu/Workspace/apeiron-nq-area1)
+error: Unrecognized option: 'j'
+
+error: could not compile `apeiron` (lib) due to 1 previous error
+EXIT_CLIPPY=101
+
+# Run B (with -j 1 before `--`, and --no-fail-fast across every workspace test target):
+$ ~/bin/adg run -- cargo fmt --all -- --check; echo "EXIT_FMT=$?"
+$ ~/bin/adg run -- cargo clippy --workspace --all-targets --locked -j 1 -- -D warnings; echo "EXIT_CLIPPY=$?"
+$ ~/bin/adg run -- cargo test --workspace --locked --no-fail-fast; echo "EXIT_TEST_NOFF=$?"
+agent-guard: available=30130MiB cap=16384MiB jobs=8
+EXIT_FMT=0
+agent-guard: available=30027MiB cap=16384MiB jobs=8
+    Checking apeiron v0.1.0 (/home/ubuntu/Workspace/apeiron-nq-area1)
+error: unused import: `place::pin_beside_worker`
+  --> src/engine/chart/pool.rs:70:16
+error: unused import: `super::super::*`
+  --> src/gpu/nn/fwd/lin.rs:19:5
+error: unused import: `lin::*`
+  --> src/gpu/nn/fwd/mod.rs:11:9
+error: unused import: `INV_LIMBS`
+ --> src/learn/nanoquant/step.rs:4:72
+error: struct `Inline` is never constructed
+   --> src/engine/chart/pool.rs:830:19
+error: function `inline` is never used
+   --> src/engine/chart/pool.rs:833:15
+error: function `pin_beside_worker` is never used
+  --> src/engine/chart/pool/place.rs:23:15
+error: function `beside_worker` is never used
+  --> src/engine/chart/pool/place.rs:45:4
+error: could not compile `apeiron` (lib) due to 8 previous errors
+EXIT_CLIPPY=101
+agent-guard: available=29864MiB cap=16384MiB jobs=8
+     Running unittests src/lib.rs (target/debug/deps/apeiron-cc42742f65d5a476)
+running 748 tests
+test engine::attn::tests::the_parallel_clone_equals_the_serial_clone ... ok
+test engine::prefix::tests::a_snapshot_short_of_its_prompt_is_refused ... ok
+test engine::prefix::tests::budget_refusal_leaves_cache_unchanged ... ok
+test engine::prefix::tests::cache_stores_one_kv_state_per_prompt_o_n_memory ... ok
+test engine::prefix::tests::eviction_evicts_lru_entry_under_budget ... ok
+test engine::prefix::tests::hash_collision_refusal_via_full_key_confirmation ... ok
+test engine::prefix::tests::oversized_snapshot_refuses_and_leaves_cache_unchanged ... ok
+test engine::prefix::tests::stale_boundary_key_never_returns_reused_slot_state ... ok
+test engine::prefix::tests::the_batched_tail_equals_the_per_token_path ... ok
+test engine::prefix::tests::the_snapshot_charge_follows_the_carrier_and_the_capacity ... ok
+test engine::prefix::tests::truncate_kv_state_resets_occupied_and_resumes_append ... ok
+test engine::prefix::tests::warm_prefill_equals_cold_prefill_bit_for_bit ... ok
+test gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl ... /home/ubuntu/Workspace/apeiron-nq-area1/src/gpu/spirv/coopmat_gemm.comp:9: error: '#extension' : extension not supported: GL_EXT_integer_dot_product
+/home/ubuntu/Workspace/apeiron-nq-area1/src/gpu/spirv/coopmat_gemm.comp:250: error: 'dotPacked4x8EXT' : no matching overloaded function found
+/home/ubuntu/Workspace/apeiron-nq-area1/src/gpu/spirv/coopmat_gemm.comp:250: error: 'return' : type does not match, or is not convertible to, the function's return type
+FAILED
+test result: FAILED. 692 passed; 1 failed; 55 ignored; 0 measured; 0 filtered out; finished in 111.31s
+error: test failed, to rerun pass `-p apeiron --lib`
+     Running tests/attn_cut.rs ... test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+     Running tests/chacha.rs ... test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/coord_is_injective.rs ... test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+     Running tests/count_seq.rs ... test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.31s
+     Running tests/each_face_gets_the_fold_it_needs.rs ... test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+     Running tests/engine_cold_store.rs ... test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/engine_f16_limb.rs ... test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.11s
+     Running tests/engine_nq.rs ... test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/engine_tap.rs ... test result: ok. 8 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests/gpu_*.rs (25 binaries with gpu feature off) ... test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/gpu_spv_check.rs ... test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/hashdos.rs ... test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+     Running tests/hashdos_count.rs ... test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/ht_identity.rs ... test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/ht_panic.rs ... test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests/idempotents_over_a_ring_with_halves.rs ... test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/keccak.rs ... test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/kepler.rs ... test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/learn_block_tune.rs ... test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/learn_calib.rs ... test result: ok. 5 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/learn_fold_attn_speed.rs ... test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 23.28s
+     Running tests/learn_fold_capture.rs ... test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/learn_fold_capture_engine.rs ... test result: ok. 2 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests/learn_fold_corrector.rs ... test result: ok. 11 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.63s
+     Running tests/learn_fold_eigh.rs ... test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/learn_fold_heldout.rs ... test result: ok. 11 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests/learn_fold_hocapture.rs ... test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests/learn_fold_parts.rs ... test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/learn_fold_quant.rs ... test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/learn_fold_run_convert.rs ... test result: ok. 10 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.23s
+     Running tests/learn_gguf.rs ... test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/learn_hyb_load.rs ... test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/learn_kd.rs ... test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/learn_nanoquant.rs ... test result: ok. 7 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 21.96s
+     Running tests/learn_solve_chol.rs ... test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s
+     Running tests/learn_solve_eig.rs ... test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.79s
+     Running tests/learn_solve_gemm.rs ... test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests/learn_solve_inv.rs ... test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.39s
+     Running tests/learn_solve_q32.rs ... test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/learn_solve_syrk.rs ... test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/learn_solve_xref_chol.rs ... test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+     Running tests/learn_solve_xref_eig.rs ... test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+     Running tests/learn_solve_xref_gemm.rs ... test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests/learn_solve_xref_inv.rs ... test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+     Running tests/learn_solve_xref_syrk.rs ... test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests/native_address/main.rs ... test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/native_locator/main.rs ... test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/parallel/main.rs ... test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 66.10s
+     Running tests/sha256.rs ... test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests/simt_spirv_val.rs ... test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/spirv_storage_race.rs
+running 4 tests
+test attn_coopmat_spirv_is_the_glsl ... FAILED
+test detector_flags_the_known_race ... ok
+test no_unexpected_cross_invocation_storage_race ... ok
+test splitk_reduce_spirv_is_the_glsl ... FAILED
+thread 'attn_coopmat_spirv_is_the_glsl' (2786146) panicked at tests/spirv_storage_race.rs:625:5:
+glslc failed: signal: 11 (SIGSEGV) (core dumped)
+thread 'splitk_reduce_spirv_is_the_glsl' (2786156) panicked at tests/spirv_storage_race.rs:651:5:
+src/gpu/spirv/splitk_reduce.spv is stale: recompile with glslc ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute"]
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
+     Running tests/table.rs ... test result: ok. 59 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.74s
+     Running tests/the_address_is_the_pair.rs ... test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+     Running tests/the_carrier_readout_is_generic.rs ... test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/the_carrier_step_is_conservative.rs ... test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/the_dial_is_real.rs ... test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/the_diffusive_line3_step_is_exact.rs ... test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/the_exchange_is_a_swap.rs ... test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/the_ring_laws.rs ... test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+     Running tests/three_and_one.rs ... test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (apeiron_derive) ... test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (apeiron_fold_abi) ... test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (apeiron_wasm) ... test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+   Doc-tests apeiron ... test result: ok. 7 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.52s
+   Doc-tests apeiron_derive ... test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+   Doc-tests apeiron_wasm ... test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+error: 2 targets failed:
+    `-p apeiron --lib`
+    `-p apeiron --test spirv_storage_race`
+EXIT_TEST_NOFF=101
+
+# Run C (clippy across all targets without -D warnings):
+$ ~/bin/adg run -- cargo clippy --workspace --all-targets --locked -j 1
+agent-guard: available=29711MiB cap=16384MiB jobs=8
+    Checking apeiron v0.1.0 (/home/ubuntu/Workspace/apeiron-nq-area1)
+warning: unused import: `place::pin_beside_worker` (src/engine/chart/pool.rs:70:16)
+warning: unused import: `super::super::*` (src/gpu/nn/fwd/lin.rs:19:5)
+warning: unused import: `lin::*` (src/gpu/nn/fwd/mod.rs:11:9)
+warning: unused import: `INV_LIMBS` (src/learn/nanoquant/step.rs:4:72)
+warning: struct `Inline` is never constructed (src/engine/chart/pool.rs:830:19)
+warning: function `inline` is never used (src/engine/chart/pool.rs:833:15)
+warning: function `pin_beside_worker` is never used (src/engine/chart/pool/place.rs:23:15)
+warning: function `beside_worker` is never used (src/engine/chart/pool/place.rs:45:4)
+warning: `apeiron` (lib) generated 8 warnings (run `cargo clippy --fix --lib -p apeiron -- ` to apply 4 suggestions)
+warning: item in documentation is missing backticks (tests/gpu_swiglu.rs:1:9)
+warning: `apeiron` (test "gpu_swiglu") generated 1 warning
+warning: item in documentation is missing backticks (tests/gpu_train_step.rs:1:25)
+warning: `apeiron` (test "gpu_train_step") generated 1 warning
+warning: function `pin_beside_worker` is never used (src/engine/chart/pool/place.rs:23:15)
+warning: `apeiron` (lib test) generated 5 warnings (4 duplicates)
+warning: item in documentation is missing backticks (tests/gpu_norm_fwd.rs:1:21)
+warning: `apeiron` (test "gpu_norm_fwd") generated 1 warning
+warning: item in documentation is missing backticks (tests/gpu_norm_backward.rs:1:9)
+warning: `apeiron` (test "gpu_norm_backward") generated 1 warning
+warning: item in documentation is missing backticks (tests/gpu_rope.rs:1:9)
+warning: `apeiron` (test "gpu_rope") generated 1 warning
+    Checking apeiron-wasm v0.0.0 (/home/ubuntu/Workspace/apeiron-nq-area1/wasm)
+    Checking apeiron-fold-abi v0.0.0 (/home/ubuntu/Workspace/apeiron-nq-area1/fold-abi)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 24.52s
+CLIPPY_ALL_EXIT=0
+
+### local checks (worktree /tmp/opencode/area1-cold-outside)
+$ python3 tools/check-claims.py
+[claims] 45 graded claims (29 structured, 16 prose); 51735 Lean declarations, 507 namespaces, 1844 #audit names indexed
+OK: every graded claim names a resolvable artifact
+
+$ python3 tools/book-check.py
+20 glossary entries, 0 findings
+
+$ ls -la target/aeneas /home/lucas/Workspace/apeiron-nq/target/aeneas ~/.elan/toolchains 2>&1 || true
+ls: cannot access 'target/aeneas': No such file or directory
+ls: cannot access '/home/lucas/Workspace/apeiron-nq/target/aeneas': No such file or directory
+/home/lucas/.elan/toolchains:
+total 16
+drwxrwxr-x 4 lucas lucas 4096 Nov 24 12:53 .
+drwxrwxr-x 5 lucas lucas 4096 Jul 23 03:14 ..
+drwxr-xr-x 7 lucas lucas 4096 Sep 14 14:34 leanprover--lean4---v4.31.0
+drwxr-xr-x 7 lucas lucas 4096 Nov 24 12:53 leanprover--lean4---v4.36.0
+
+# ---------------------------------------------------------------------------
+# Final contributor gate on the final area-1 tree (box copy), 2026-11-26T10:00:33Z-10:06:07Z.
+# Tree synced from the worktree; binary c962b582 reproduced from source.
+# Script body:
+#   #!/usr/bin/env bash
+#   # Contributor gate on the area-1 tree, box copy, exact commands from AGENTS.md
+#   # (test without --all-features, which needs the glslc pin and a device on this host).
+#   set -u
+#   cd "$HOME/Workspace/apeiron-nq-area1"
+#   echo "== build $(date -u +%FT%TZ)"
+#   cargo build --release --locked --example prefix_solve; echo "EXIT_BUILD=$?"
+#   sha256sum target/release/examples/prefix_solve
+#   echo "== fmt"
+#   cargo fmt --all -- --check; echo "EXIT_FMT=$?"
+#   echo "== clippy --all-features"
+#   cargo clippy --workspace --all-features --all-targets --locked -j 1 -- -D warnings; echo "EXIT_CLIPPY=$?"
+#   echo "== test --workspace"
+#   cargo test --workspace --locked --no-fail-fast; echo "EXIT_TEST=$?"
+#   echo "== check-claims"
+#   python3 tools/check-claims.py; echo "EXIT_CLAIMS=$?"
+#   echo "== book-check"
+#   python3 tools/book-check.py; echo "EXIT_BOOK=$?"
+#   echo "== mdbook lib"
+#   CARGO_TARGET_DIR="$HOME/apeiron-mdbook1" cargo build --lib --all-features --locked; echo "EXIT_MDLIB=$?"
+#   echo "== mdbook build"
+#   "$HOME/.cargo/bin/mdbook" build book; echo "EXIT_MDBUILD=$?"
+#   echo "== mdbook test"
+#   "$HOME/.cargo/bin/mdbook" test book -L "$HOME/apeiron-mdbook1/debug/deps"; echo "EXIT_MDTEST=$?"
+#   echo "== end $(date -u +%FT%TZ)"
+
+== build 2026-11-26T10:00:33Z
+EXIT_BUILD=0
+c962b582ec32aa27a12fecc00d1c5ab1e2e1651a253aec78921b84eadcb72704  target/release/examples/prefix_solve
+== fmt
+EXIT_FMT=0
+== clippy --all-features
+EXIT_CLIPPY=0
+== test --workspace
+EXIT_TEST=101
+== check-claims
+EXIT_CLAIMS=0
+== book-check
+EXIT_BOOK=0
+== mdbook lib
+EXIT_MDLIB=0
+== mdbook build
+EXIT_MDBUILD=0
+== mdbook test
+EXIT_MDTEST=0
+== end 2026-11-26T10:06:07Z
+
+# claims/book detail
+[claims] 45 graded claims (29 structured, 16 prose); 51735 Lean declarations, 507 namespaces, 1844 #audit names indexed
+OK: every graded claim names a resolvable artifact
+20 glossary entries, 0 findings
+
+# failing test blocks
+
+---- gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl stdout ----
+
+thread 'gpu::nn::coopmat_gemm::tests::coopmat_spirv_is_the_glsl' (2913242) panicked at src/gpu/nn/coopmat_gemm.rs:734:9:
+glslc failed: exit status: 1
+
+
+failures:
+
+---- attn_coopmat_spirv_is_the_glsl stdout ----
+
+thread 'attn_coopmat_spirv_is_the_glsl' (2924275) panicked at tests/spirv_storage_race.rs:625:5:
+glslc failed: signal: 11 (SIGSEGV) (core dumped)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- splitk_reduce_spirv_is_the_glsl stdout ----
+
+thread 'splitk_reduce_spirv_is_the_glsl' (2924285) panicked at tests/spirv_storage_race.rs:651:5:
+src/gpu/spirv/splitk_reduce.spv is stale: recompile with glslc ["--target-env=vulkan1.1", "--target-spv=spv1.3", "-O", "-fshader-stage=compute"]
+
+
+failures:
+    attn_coopmat_spirv_is_the_glsl
+    splitk_reduce_spirv_is_the_glsl
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.38s
+
+# end final gate

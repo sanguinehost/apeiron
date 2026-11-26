@@ -2755,6 +2755,121 @@ impl KvState {
         }
         Ok(())
     }
+
+    /// Clone this state into an owned snapshot, splitting owned planes across worker threads when
+    /// there are at least 8 KV planes.
+    ///
+    /// Mapped states, states with fewer than 8 KV planes, and single-threaded hosts fall back to
+    /// serial [`Clone`], which produces an identical [`KvState`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(n_layer · plane / workers)` parallel work over `workers = min(online, 8)` threads for
+    /// owned states with at least 8 KV planes, and `O(n_layer · plane)` otherwise.
+    pub(crate) fn clone_planes_parallel(&self) -> Self {
+        let plane_count = match &self.storage {
+            KvStorage::Q32 { k, v } => k.len() + v.len(),
+            KvStorage::F32 { k, v } => k.len() + v.len(),
+            KvStorage::I8 { k, v, .. } => k.len() + v.len(),
+        };
+        let workers = std::thread::available_parallelism()
+            .map_or(1, usize::from)
+            .min(8);
+        if self.map.is_some() || plane_count < 8 || workers <= 1 {
+            return self.clone();
+        }
+        let storage = match &self.storage {
+            KvStorage::Q32 { k, v } => {
+                let (k, v) = clone_plane_pair_parallel(k, v, workers);
+                KvStorage::Q32 { k, v }
+            }
+            KvStorage::F32 { k, v } => {
+                let (k, v) = clone_plane_pair_parallel(k, v, workers);
+                KvStorage::F32 { k, v }
+            }
+            KvStorage::I8 { k, v, ks, vs } => {
+                let (k, v) = clone_plane_pair_parallel(k, v, workers);
+                let (ks, vs) = clone_plane_pair_parallel(ks, vs, workers);
+                KvStorage::I8 { k, v, ks, vs }
+            }
+        };
+        Self {
+            carrier: self.carrier,
+            n_layer: self.n_layer,
+            n_head: self.n_head,
+            n_head_kv: self.n_head_kv,
+            head_dim: self.head_dim,
+            cap: self.cap,
+            scale: self.scale,
+            occupied: self.occupied.clone(),
+            storage,
+            map: None,
+            blocks: self.blocks.clone(),
+        }
+    }
+
+    /// Clone this state for a [`PrefixCache`](crate::engine::prefix::PrefixCache) snapshot.
+    ///
+    /// Falls back to serial [`Clone`] under `#[cfg(test)]` (and inside
+    /// [`KvState::clone_planes_parallel`] for mapped states or fewer than 8 planes); the parallel
+    /// equality test exercises [`KvState::clone_planes_parallel`] directly.
+    #[must_use]
+    pub(crate) fn clone_for_snapshot(&self) -> Self {
+        if cfg!(test) {
+            self.clone()
+        } else {
+            self.clone_planes_parallel()
+        }
+    }
+}
+
+/// Copy one disjoint worker slice `[base..base + out_chunk.len())` of `(k, v)` planes into
+/// `out_chunk`.
+fn clone_plane_pair_chunk<T: Clone>(
+    k: &[KvPlane<T>],
+    v: &[KvPlane<T>],
+    base: usize,
+    out_chunk: &mut [KvPlane<T>],
+) {
+    let k_len = k.len();
+    for (offset, slot) in out_chunk.iter_mut().enumerate() {
+        let idx = base + offset;
+        *slot = if idx < k_len {
+            k[idx].clone()
+        } else {
+            v[idx - k_len].clone()
+        };
+    }
+}
+
+/// Clone `(k, v)` planes across up to `workers` scoped threads, each thread writing only its own
+/// disjoint destination chunk.
+fn clone_plane_pair_parallel<T: Clone + Send + Sync>(
+    k: &[KvPlane<T>],
+    v: &[KvPlane<T>],
+    workers: usize,
+) -> (Vec<KvPlane<T>>, Vec<KvPlane<T>>) {
+    let k_len = k.len();
+    let total = k_len + v.len();
+    if total == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let threads = workers.clamp(1, total);
+    let chunk = total.div_ceil(threads);
+    let mut dst: Vec<KvPlane<T>> = (0..total).map(|_| KvPlane::owned(Vec::new())).collect();
+    std::thread::scope(|scope| {
+        let mut chunks = dst.chunks_mut(chunk).enumerate();
+        let first = chunks.next();
+        for (worker_idx, out_chunk) in chunks {
+            let base = worker_idx * chunk;
+            scope.spawn(move || clone_plane_pair_chunk(k, v, base, out_chunk));
+        }
+        if let Some((worker_idx, out_chunk)) = first {
+            clone_plane_pair_chunk(k, v, worker_idx * chunk, out_chunk);
+        }
+    });
+    let dst_v = dst.split_off(k_len);
+    (dst, dst_v)
 }
 
 #[cfg(test)]
@@ -4101,5 +4216,133 @@ mod tests {
             file_kb >= 64,
             "the touched 128 KiB cache file shows {file_kb} KiB of file-backed pages"
         );
+    }
+
+    fn assert_kv_clone_eq(serial: &KvState, parallel: &KvState) {
+        assert_eq!(parallel.carrier(), serial.carrier());
+        assert_eq!(parallel.n_layer(), serial.n_layer());
+        assert_eq!(parallel.n_head(), serial.n_head());
+        assert_eq!(parallel.n_head_kv(), serial.n_head_kv());
+        assert_eq!(parallel.head_dim(), serial.head_dim());
+        assert_eq!(parallel.cap(), serial.cap());
+        assert_eq!(parallel.scale(), serial.scale());
+        assert_eq!(parallel.file_bytes(), serial.file_bytes());
+        assert_eq!(parallel.occupied, serial.occupied);
+        assert_eq!(parallel.blocks, serial.blocks);
+        match (&serial.storage, &parallel.storage) {
+            (KvStorage::Q32 { k: sk, v: sv }, KvStorage::Q32 { k: pk, v: pv }) => {
+                assert_eq!(pk.len(), sk.len());
+                assert_eq!(pv.len(), sv.len());
+                for l in 0..sk.len() {
+                    assert_eq!(&pk[l][..], &sk[l][..], "q32 k layer {l}");
+                    assert_eq!(&pv[l][..], &sv[l][..], "q32 v layer {l}");
+                }
+            }
+            (KvStorage::F32 { k: sk, v: sv }, KvStorage::F32 { k: pk, v: pv }) => {
+                assert_eq!(pk.len(), sk.len());
+                assert_eq!(pv.len(), sv.len());
+                for l in 0..sk.len() {
+                    let pk_bits: Vec<u32> = pk[l].iter().map(|x| x.to_bits()).collect();
+                    let sk_bits: Vec<u32> = sk[l].iter().map(|x| x.to_bits()).collect();
+                    let pv_bits: Vec<u32> = pv[l].iter().map(|x| x.to_bits()).collect();
+                    let sv_bits: Vec<u32> = sv[l].iter().map(|x| x.to_bits()).collect();
+                    assert_eq!(pk_bits, sk_bits, "f32 k layer {l}");
+                    assert_eq!(pv_bits, sv_bits, "f32 v layer {l}");
+                }
+            }
+            (
+                KvStorage::I8 {
+                    k: sk,
+                    v: sv,
+                    ks: sks,
+                    vs: svs,
+                },
+                KvStorage::I8 {
+                    k: pk,
+                    v: pv,
+                    ks: pks,
+                    vs: pvs,
+                },
+            ) => {
+                assert_eq!(pk.len(), sk.len());
+                assert_eq!(pv.len(), sv.len());
+                assert_eq!(pks.len(), sks.len());
+                assert_eq!(pvs.len(), svs.len());
+                for l in 0..sk.len() {
+                    assert_eq!(&pk[l][..], &sk[l][..], "i8 k layer {l}");
+                    assert_eq!(&pv[l][..], &sv[l][..], "i8 v layer {l}");
+                    let pks_bits: Vec<u32> = pks[l].iter().map(|x| x.to_bits()).collect();
+                    let sks_bits: Vec<u32> = sks[l].iter().map(|x| x.to_bits()).collect();
+                    let pvs_bits: Vec<u32> = pvs[l].iter().map(|x| x.to_bits()).collect();
+                    let svs_bits: Vec<u32> = svs[l].iter().map(|x| x.to_bits()).collect();
+                    assert_eq!(pks_bits, sks_bits, "i8 ks layer {l}");
+                    assert_eq!(pvs_bits, svs_bits, "i8 vs layer {l}");
+                }
+            }
+            _ => panic!("storage carrier mismatch between serial and parallel clones"),
+        }
+    }
+
+    #[test]
+    fn the_parallel_clone_equals_the_serial_clone() {
+        let (n_head, n_head_kv, hd, cap) = (4usize, 2usize, 8usize, 16usize);
+        let row_len = n_head_kv * hd;
+        for n_layer in [2usize, 5usize] {
+            for carrier in [KvCarrier::Q32, KvCarrier::F32, KvCarrier::I8] {
+                let mut kv = KvState::with_carrier(n_layer, n_head, n_head_kv, hd, cap, carrier)
+                    .expect("geometry");
+                let mut seed = 0x517C_C1B7_2722_0A95_u64 ^ (n_layer as u64);
+                for layer in 0..n_layer {
+                    let count = (6 + layer).min(cap);
+                    for s in 0..count {
+                        let k: Vec<i64> = (0..row_len).map(|_| word(&mut seed)).collect();
+                        let v: Vec<i64> = (0..row_len).map(|_| word(&mut seed)).collect();
+                        assert_eq!(kv.append(layer, &k, &v), Ok(s));
+                    }
+                }
+                if carrier == KvCarrier::Q32 {
+                    kv.enable_block_index(4).expect("enable block index");
+                    let q: Vec<i64> = (0..hd).map(|_| word(&mut seed)).collect();
+                    let mut out = vec![0i64; hd];
+                    kv.attn_head(0, 0, &q, 5, &mut out).expect("certified read");
+                }
+                let serial = kv.clone();
+                let parallel = kv.clone_planes_parallel();
+                assert_kv_clone_eq(&serial, &parallel);
+                // Snapshot helper falls back in tests, still producing an identical clone.
+                let snapshot = kv.clone_for_snapshot();
+                assert_kv_clone_eq(&serial, &snapshot);
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            let path = temp_path("par_clone_mapped");
+            let path_s = path.to_str().expect("utf-8 temp path");
+            let n_layer = 5usize;
+            let mut kv = KvState::with_file_carrier(
+                path_s,
+                n_layer,
+                n_head,
+                n_head_kv,
+                hd,
+                cap,
+                Carrier::F32,
+            )
+            .expect("file");
+            let mut seed = 0xA5A5_5A5A_1234_5678_u64;
+            for layer in 0..n_layer {
+                for s in 0..4 {
+                    let k: Vec<i64> = (0..row_len).map(|_| word(&mut seed)).collect();
+                    let v: Vec<i64> = (0..row_len).map(|_| word(&mut seed)).collect();
+                    assert_eq!(kv.append(layer, &k, &v), Ok(s));
+                }
+            }
+            let serial = kv.clone();
+            let parallel = kv.clone_planes_parallel();
+            assert_kv_clone_eq(&serial, &parallel);
+            drop(kv);
+            std::fs::remove_file(&path).expect("remove mapped test file");
+        }
     }
 }

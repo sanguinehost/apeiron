@@ -187,6 +187,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                     );
                 }
             }
+            let (alloc_ns, alloc_calls, insert_ns, insert_calls) =
+                apeiron::engine::trace::outside_split();
+            eprintln!(
+                "  {:14} {:8.3} ms {:6.1}%  calls {}",
+                "outside.alloc",
+                alloc_ns as f64 / 1e6,
+                100.0 * alloc_ns as f64 / wall,
+                alloc_calls
+            );
+            eprintln!(
+                "  {:14} {:8.3} ms {:6.1}%  calls {}",
+                "outside.insert",
+                insert_ns as f64 / 1e6,
+                100.0 * insert_ns as f64 / wall,
+                insert_calls
+            );
             print_wait_histogram();
         }
         let rate = a.len as f64 / prefill.max(f64::MIN_POSITIVE);

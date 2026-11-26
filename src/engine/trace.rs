@@ -77,13 +77,18 @@ impl Phase {
 
 const N: usize = PHASES.len();
 
-/// Per-phase counters: nanoseconds, spans, columns, weight bytes, multiply-adds.
+/// Per-phase counters: nanoseconds, spans, columns, weight bytes, multiply-adds, plus the
+/// outside-pass KV allocation and prefix-cache insert timers.
 struct Counters {
     ns: [AtomicU64; N],
     calls: [AtomicU64; N],
     cols: [AtomicU64; N],
     bytes: [AtomicU64; N],
     macs: [AtomicU64; N],
+    alloc_ns: AtomicU64,
+    alloc_calls: AtomicU64,
+    insert_ns: AtomicU64,
+    insert_calls: AtomicU64,
 }
 
 #[allow(
@@ -98,6 +103,10 @@ static COUNTERS: Counters = Counters {
     cols: [ZERO; N],
     bytes: [ZERO; N],
     macs: [ZERO; N],
+    alloc_ns: ZERO,
+    alloc_calls: ZERO,
+    insert_ns: ZERO,
+    insert_calls: ZERO,
 };
 
 /// Wait-histogram buckets: bucket `i` counts `Phase::PoolWait` spans in
@@ -220,10 +229,14 @@ pub fn reset() {
         COUNTERS.bytes[i].store(0, Ordering::Relaxed);
         COUNTERS.macs[i].store(0, Ordering::Relaxed);
     }
+    COUNTERS.alloc_ns.store(0, Ordering::Relaxed);
+    COUNTERS.alloc_calls.store(0, Ordering::Relaxed);
+    COUNTERS.insert_ns.store(0, Ordering::Relaxed);
+    COUNTERS.insert_calls.store(0, Ordering::Relaxed);
     clear_wait_table(&WAIT_HIST, &WAIT_MAX_NS);
 }
 
-/// Zero a wait-histogram table; [`reset`] and the table's test share this loop.
+/// Zero a wait-histogram table; [`reset`] calls this loop.
 fn clear_wait_table(hist: &[[AtomicU64; WAIT_BUCKETS]], max: &[AtomicU64]) {
     for class in hist {
         for bucket in class {
@@ -233,6 +246,31 @@ fn clear_wait_table(hist: &[[AtomicU64; WAIT_BUCKETS]], max: &[AtomicU64]) {
     for m in max {
         m.store(0, Ordering::Relaxed);
     }
+}
+
+/// Records one outside-pass KV allocation duration in nanoseconds.
+#[inline]
+pub fn record_alloc(ns: u64) {
+    COUNTERS.alloc_ns.fetch_add(ns, Ordering::Relaxed);
+    COUNTERS.alloc_calls.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Records one outside-pass prefix-cache insert duration in nanoseconds.
+#[inline]
+pub fn record_insert(ns: u64) {
+    COUNTERS.insert_ns.fetch_add(ns, Ordering::Relaxed);
+    COUNTERS.insert_calls.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Returns `(alloc_ns, alloc_calls, insert_ns, insert_calls)` accumulated since [`reset`].
+#[must_use]
+pub fn outside_split() -> (u64, u64, u64, u64) {
+    (
+        COUNTERS.alloc_ns.load(Ordering::Relaxed),
+        COUNTERS.alloc_calls.load(Ordering::Relaxed),
+        COUNTERS.insert_ns.load(Ordering::Relaxed),
+        COUNTERS.insert_calls.load(Ordering::Relaxed),
+    )
 }
 
 /// A running span; its drop adds the elapsed time and its work to the phase.
