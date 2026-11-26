@@ -1,0 +1,543 @@
+# nq cold prefill gap: raw lines
+# receipt: bench/cpu/1795674629-nq-prefill-serial.md
+# machine: OVH box ubuntu@139.99.223.161 (Sydney); 8 vCPU EPYC Milan,
+#          8 sockets x 1 core x 1 thread, 31.3 GiB, 256 MiB L3, no AVX-512, no VNNI, no GPU
+# date: 2026-11-26 UTC
+# every job under ~/bin/adg run -- (16 GiB cap, 8 jobs, swap zero)
+
+### provenance
+$ git -C /home/lucas/Workspace/apeiron-nq log -1 --format='%H %s'
+f736877a16bf5690006a1f35568e698d34f45cd6 engine/chart: one mask per eight lanes in the SwiGLU Q32 conversion
+
+$ sha256sum
+57476450f79a8aae1cb2106749a90552ef754f90daaae4835d3f0e78690ea3fa  /home/ubuntu/bin/prefix_solve.cleanfin
+2e4670a4351fe0ad210c19e1ffd62123762bd2e01c0135de5fd96d58f7bc36e6  /home/ubuntu/models/nq-scratch/nq06-v3.nqp
+107c8edde5125ff7bbcfa6d9e0b65f7b43adbd08938109fc4b1a166049a9531f  /home/ubuntu/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf
+a33dce6906fe21b08592902555da7b2100c3bb2271bab7966d4b6bf4d1a9c39d  /home/ubuntu/models/qwen3-0.6b-base-f16/Qwen3-0.6B-Base.f16.gguf
+
+# prefix_solve.cleanfin is 1795667807's treatment binary, built from a private clean
+# copy of HEAD 0b294ba7 with f736877a's diff; repo HEAD is f736877a.
+# llama.cpp build 049326a00 (9949).
+
+### the quiet-window pair
+# script /tmp/gap8-pair.sh (run under ~/bin/adg run -- bash /tmp/gap8-pair.sh)
+# start: 06:45:23 up 1 day 21:48, load average: 1.31, 1.18, 0.82
+# the script waits for load < 1.5, then runs llama and ours three times, interleaved,
+# then one --phases run. The six runs use the same binaries, model, pack and width.
+
+#!/usr/bin/env bash
+set -u
+cd "$HOME/Workspace/apeiron-nq-clean"
+OUT=/tmp/gap8; mkdir -p "$OUT"
+GGUF=$HOME/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf
+NQP=$HOME/models/nq-scratch/nq06-v3.nqp
+TOK=$HOME/models/qwen3-0.6b-base-e8/tokenizer.json
+LLAMA=$HOME/models/qwen3-0.6b-base-f16/Qwen3-0.6B-Base.f16.gguf
+BIN=$HOME/bin/prefix_solve.cleanfin
+
+for _ in $(seq 1 90); do
+  load=$(awk '{print $1}' /proc/loadavg)
+  if awk -v l="$load" 'BEGIN{exit !(l<1.5)}'; then break; fi
+  sleep 10
+done
+echo "start $(uptime)"
+
+for i in 1 2 3; do
+  "$HOME/llama.cpp/build/bin/llama-bench" -m "$LLAMA" -p 1827 -n 0 -t 8 -r 1 \
+    > "$OUT/l$i.wall" 2>&1
+  grep -E 'pp1827' "$OUT/l$i.wall" | tail -1
+  "$BIN" --model "$GGUF" --pack "$NQP" --tokenizer "$TOK" --len 1827 --differ 0 \
+    --decode 0 --mb 440 > "$OUT/o$i.wall" 2>&1
+  grep cold "$OUT/o$i.wall"
+done
+
+"$BIN" --model "$GGUF" --pack "$NQP" --tokenizer "$TOK" --len 1827 --differ 0 \
+  --decode 0 --mb 440 --phases > "$OUT/phases.txt" 2>&1
+grep -E 'pass |pool.wait|cold ' "$OUT/phases.txt"
+echo "end $(uptime)"
+
+# output
+start  06:45:23 up 1 day, 21:48,  1 user,  load average: 1.31, 1.18, 0.82
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        462.30 ± 0.00 |
+cold   hit     0  prefill    4.639 s ( 393.80 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        458.86 ± 0.00 |
+cold   hit     0  prefill    4.706 s ( 388.26 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        459.43 ± 0.00 |
+cold   hit     0  prefill    4.691 s ( 389.45 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  pass           4317.241 ms   91.1%  calls 3
+  pool.wait       304.154 ms    6.4%  calls 1295
+cold   hit     0  prefill    4.738 s ( 385.63 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+end  06:46:11 up 1 day, 21:48,  1 user,  load average: 4.84, 2.13, 1.1
+# the end 1-min load is the seven 8-thread runs themselves (six pair runs + one --phases);
+# the 5-min average is 2.13, the 15-min is 1.1.
+
+### raw llama walls
+== /tmp/gap8/l1.wall
+| model                          |       size |     params | backend    | threads |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | ------: | --------------: | -------------------: |
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        462.30 ± 0.00 |
+
+build: 049326a00 (9949)
+
+== /tmp/gap8/l2.wall
+| model                          |       size |     params | backend    | threads |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | ------: | --------------: | -------------------: |
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        458.86 ± 0.00 |
+
+build: 049326a00 (9949)
+
+== /tmp/gap8/l3.wall
+| model                          |       size |     params | backend    | threads |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | ------: | --------------: | -------------------: |
+| qwen3 0.6B F16                 |   1.11 GiB |   596.05 M | CPU        |       8 |          pp1827 |        459.43 ± 0.00 |
+
+build: 049326a00 (9949)
+
+### raw ours walls
+== /tmp/gap8/o1.wall
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    4.639 s ( 393.80 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+warm   hit  1824  prefill    0.129 s (14206.65 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+shared hit  1824  prefill    0.144 s (12721.30 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+
+== /tmp/gap8/o2.wall
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    4.706 s ( 388.26 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+warm   hit  1824  prefill    0.130 s (14086.26 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+shared hit  1824  prefill    0.144 s (12651.67 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+
+== /tmp/gap8/o3.wall
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    4.691 s ( 389.45 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+warm   hit  1824  prefill    0.124 s (14698.93 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+shared hit  1824  prefill    0.143 s (12752.90 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+
+### the phase table, cold turn (verbatim /tmp/gap8/phases.txt, first block)
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+  embed             9.973 ms    0.2%  calls 3
+  norm            156.770 ms    3.3%  calls 171
+  residual        135.071 ms    2.9%  calls 168
+  attn.proj_in    611.349 ms   12.9%  calls 84
+  attn.core      1508.851 ms   31.8%  calls 84
+  attn.proj_out   243.869 ms    5.1%  calls 84
+  ffn            1605.962 ms   33.9%  calls 84
+  head              5.886 ms    0.1%  calls 1
+  pass           4317.241 ms   91.1%  calls 3
+  pool.wait       304.154 ms    6.4%  calls 1295
+cold   hit     0  prefill    4.738 s ( 385.63 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+### the phase table, warm and shared turns (verbatim /tmp/gap8/phases.txt, next two blocks)
+  embed             0.012 ms    0.0%  calls 2
+  norm              1.394 ms    1.1%  calls 114
+  residual          0.347 ms    0.3%  calls 112
+  attn.proj_in      8.874 ms    6.9%  calls 56
+  attn.core        31.338 ms   24.5%  calls 56
+  attn.proj_out      4.647 ms    3.6%  calls 56
+  ffn              20.086 ms   15.7%  calls 56
+  head              5.561 ms    4.4%  calls 1
+  pass             66.976 ms   52.4%  calls 2
+  pool.wait         7.220 ms    5.7%  calls 902
+warm   hit  1824  prefill    0.128 s (14304.75 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+  embed             0.011 ms    0.0%  calls 2
+  norm              1.291 ms    0.8%  calls 114
+  residual          0.346 ms    0.2%  calls 112
+  attn.proj_in      8.902 ms    5.8%  calls 56
+  attn.core        31.338 ms   20.6%  calls 56
+  attn.proj_out      4.429 ms    2.9%  calls 56
+  ffn              20.101 ms   13.2%  calls 56
+  head              5.499 ms    3.6%  calls 1
+  pass             66.698 ms   43.8%  calls 2
+  pool.wait         6.993 ms    4.6%  calls 902
+shared hit  1824  prefill    0.152 s (11988.98 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+
+# Warm outside = 128 - 66.976 = 61.0 ms; shared outside = 152 - 66.698 = 85.3 ms.
+# Each warm/shared turn runs 2 KvState clones (prefix load + cache insert), 2 heads
+# (traced head 5.561/5.499 ms + untraced dense lm_head_fixed_sched) and 1 eviction of the
+# prior 421 MB entry. This does not isolate decode_state from cache.insert on the cold turn;
+# the receipt does not split the 420.759 ms.
+
+### derived pair and phase arithmetic
+$ python3
+llama walls = 1827 / [462.30, 458.86, 459.43] = [3.9520, 3.9816, 3.9767] s; median 3.9767
+ours walls = [4.639, 4.706, 4.691] s; median 4.691
+gaps = [0.6870, 0.7244, 0.7143] s; median 0.7143
+ratios = [1.1738, 1.1819, 1.1796]; median-of-medians 1.1796
+
+cold (traced)          4738.000 ms
+pass                   4317.241 ms  91.1% of cold
+outside pass            420.759 ms   8.9% of cold, 55.3% of the traced gap
+llama pp1827 (median)  3976.667 ms
+traced gap             761.333 ms  (4.738 - 3.976667)
+pass gap               340.574 ms  (4.317241 - 3.976667)
+wait                   304.154 ms  <=7.05% of pass (6.42% of turn), <=89.3% of pass gap
+                                   (turn-wide: 1290 in pass + 5 heads)
+pass - wait           4013.087 ms  +36.420 ms vs llama (+0.916%)
+in-pass untraced        45.396 ms  1.05% of pass
+leaves ex head        4271.845 ms  98.95% of pass
+head (traced)            5.886 ms  0.14% of pass, outside pass (span is in head_greedy_state)
+
+# leaves: 9.973 + 156.770 + 135.071 + 611.349 + 1508.851 + 243.869 + 1605.962 = 4271.845
+# untraced = 4317.241 - 4271.845 = 45.396; the traced head 5.886 is not inside a pass span.
+# projection-bearing leaves = 611.349 + 243.869 + 1605.962 = 2461.180 = 57.01% of pass
+# attention leaf = 1508.851 = 34.95% of pass
+# norm+residual+embed = 301.814 = 6.99% of pass
+
+### NQ band: k = 913, width = 8, NQ_TILE_COLS = 8
+# src/engine/kern/nq.rs:2626-2631
+band = ceil(913/8) = 115
+cols = ceil(115/8)*8 = 120
+for_chunks3 over 913 with chunk 120 -> 7 x 120 + 1 x 73
+fair share = 913/8 = 114.125
+heavy-task excess = 120 - 114.125 = 5.875 columns = 4.896% of 120
+band bound on the projection leaves = 4.896% * 2461.180 ms = 120.5 ms (upper bound: the
+  leaves also contain SwiGLU, the k = 1 pass, and fixed dispatch overhead/wait; a perfectly
+  balanced integer 7 x 114 + 115 split leaves 115 as the longest band, so the saving is
+  (120 - 115)/120 * 2461.180 = 102.55 ms; the 0.875-column excess over 114.125 is unavoidable)
+tail unused share = (120 - 73)/120 = 39.17%
+tail spin (r1)    = 39.16% of its own cycles  (see the idle-loop table below)
+
+### per-thread counters, t1: cycles, instructions, task-clock
+# attach: launch, wait for the "len 1827" banner, SIGSTOP, attach perf, SIGCONT.
+# The window is the post-banner process lifetime, not the cold pass. Printed turn walls
+# cold 4.862 + warm 0.127 + shared 0.143 = 5.132 s, against caller task-clock 5.015 s; the
+# 0.117 s difference is caller off-CPU (cause not measured); >= 0.117 s is a lower bound because
+# task-clock also spans post-turn drops. t1.csv's 0.831 CPUs utilized puts perf's attach-to-exit
+# wall at 5.0146 / 0.831 = 6.03 s.
+# command (under ~/bin/adg run --):
+#   perf stat -p $pid --per-thread -e cycles,instructions,task-clock -x, -o t1.csv
+== /tmp/gap6/t1.wall
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    4.862 s ( 375.81 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+warm   hit  1824  prefill    0.127 s (14355.13 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+shared hit  1824  prefill    0.143 s (12797.02 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+
+== /tmp/gap6/t1.csv
+# started on Thu Nov 26 06:28:13 2026
+
+prefix_solve.cl-2703989,18301919812,,cycles,5014602250,100.00,3.650,GHz
+apeiron-q8act-2704049,16340201162,,cycles,4470241559,100.00,3.655,GHz
+apeiron-q8act-2704050,16306330582,,cycles,4466876781,100.00,3.650,GHz
+apeiron-q8act-2704051,16260787398,,cycles,4450681695,100.00,3.654,GHz
+apeiron-q8act-2704052,16262958246,,cycles,4450340979,100.00,3.654,GHz
+apeiron-q8act-2704053,16295738692,,cycles,4461893362,100.00,3.652,GHz
+apeiron-q8act-2704054,16278597127,,cycles,4461844171,100.00,3.648,GHz
+apeiron-q8act-2704055,15793027021,,cycles,4325269420,100.00,3.651,GHz
+prefix_solve.cl-2703989,42351031938,,instructions,5014602250,100.00,2.31,insn per cycle
+apeiron-q8act-2704049,40392615635,,instructions,4470241559,100.00,2.47,insn per cycle
+apeiron-q8act-2704050,39809845230,,instructions,4466876781,100.00,2.44,insn per cycle
+apeiron-q8act-2704051,39829112259,,instructions,4450681695,100.00,2.45,insn per cycle
+apeiron-q8act-2704052,39806399251,,instructions,4450340979,100.00,2.45,insn per cycle
+apeiron-q8act-2704053,39802289237,,instructions,4461893362,100.00,2.44,insn per cycle
+apeiron-q8act-2704054,39813285942,,instructions,4461844171,100.00,2.45,insn per cycle
+apeiron-q8act-2704055,30971887906,,instructions,4325269420,100.00,1.96,insn per cycle
+prefix_solve.cl-2703989,5014.60,msec,task-clock,5014602250,100.00,0.831,CPUs utilized
+apeiron-q8act-2704049,4470.24,msec,task-clock,4470241559,100.00,0.741,CPUs utilized
+apeiron-q8act-2704050,4466.88,msec,task-clock,4466876781,100.00,0.741,CPUs utilized
+apeiron-q8act-2704051,4450.68,msec,task-clock,4450681695,100.00,0.738,CPUs utilized
+apeiron-q8act-2704052,4450.34,msec,task-clock,4450340979,100.00,0.738,CPUs utilized
+apeiron-q8act-2704053,4461.89,msec,task-clock,4461893362,100.00,0.740,CPUs utilized
+apeiron-q8act-2704054,4461.84,msec,task-clock,4461844171,100.00,0.740,CPUs utilized
+apeiron-q8act-2704055,4325.27,msec,task-clock,4325269420,100.00,0.717,CPUs utilized
+
+### t2 repeats the same counts
+== /tmp/gap6/t2.wall
+pack          196 linears, 0.977441 b/w
+kv            28 layers, 8 kv heads x 128, 57344 values/position, 229376 B/position charged
+len 1827 differ 0 decode 0 cache 440 MiB, 420904960 B needed
+cold   hit     0  prefill    4.852 s ( 376.51 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+warm   hit  1824  prefill    0.122 s (14937.45 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+shared hit  1824  prefill    0.144 s (12688.15 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+cache 1 entries, 420904960 bytes stored
+
+== /tmp/gap6/t2.csv
+# started on Thu Nov 26 06:28:20 2026
+
+prefix_solve.cl-2704186,18272410300,,cycles,5006687893,100.00,3.650,GHz
+apeiron-q8act-2704249,16225498456,,cycles,4443741350,100.00,3.651,GHz
+apeiron-q8act-2704250,16306206795,,cycles,4463699100,100.00,3.653,GHz
+apeiron-q8act-2704251,16320430133,,cycles,4466478976,100.00,3.654,GHz
+apeiron-q8act-2704252,16269760446,,cycles,4458168633,100.00,3.649,GHz
+apeiron-q8act-2704253,16309491597,,cycles,4463272159,100.00,3.654,GHz
+apeiron-q8act-2704254,16316175139,,cycles,4466001736,100.00,3.653,GHz
+apeiron-q8act-2704255,15726385421,,cycles,4307182439,100.00,3.651,GHz
+prefix_solve.cl-2704186,42348717341,,instructions,5006687893,100.00,2.32,insn per cycle
+apeiron-q8act-2704249,40384022883,,instructions,4443741350,100.00,2.49,insn per cycle
+apeiron-q8act-2704250,39831181384,,instructions,4463699100,100.00,2.44,insn per cycle
+apeiron-q8act-2704251,39826736731,,instructions,4466478976,100.00,2.44,insn per cycle
+apeiron-q8act-2704252,39816831602,,instructions,4458168633,100.00,2.45,insn per cycle
+apeiron-q8act-2704253,39798322375,,instructions,4463272159,100.00,2.44,insn per cycle
+apeiron-q8act-2704254,39800200501,,instructions,4466001736,100.00,2.44,insn per cycle
+apeiron-q8act-2704255,30962268166,,instructions,4307182439,100.00,1.97,insn per cycle
+prefix_solve.cl-2704186,5006.69,msec,task-clock,5006687893,100.00,0.830,CPUs utilized
+apeiron-q8act-2704249,4443.74,msec,task-clock,4443741350,100.00,0.737,CPUs utilized
+apeiron-q8act-2704250,4463.70,msec,task-clock,4463699100,100.00,0.740,CPUs utilized
+apeiron-q8act-2704251,4466.48,msec,task-clock,4466478976,100.00,0.740,CPUs utilized
+apeiron-q8act-2704252,4458.17,msec,task-clock,4458168633,100.00,0.739,CPUs utilized
+apeiron-q8act-2704253,4463.27,msec,task-clock,4463272159,100.00,0.740,CPUs utilized
+apeiron-q8act-2704254,4466.00,msec,task-clock,4466001736,100.00,0.740,CPUs utilized
+apeiron-q8act-2704255,4307.18,msec,task-clock,4307182439,100.00,0.714,CPUs utilized
+
+### derived t1: the cycle excess is off-CPU, not serial work
+participant  cycles G  instr G  IPC   task s  GHz    off-CPU vs caller s
+caller       18.302    42.351   2.31  5.0146  3.650  0
+worker 1     16.340    40.393   2.47  4.4702  3.655  0.544
+worker 2     16.306    39.810   2.44  4.4669  3.650  0.548
+worker 3     16.261    39.829   2.45  4.4507  3.654  0.564
+worker 4     16.263    39.806   2.45  4.4503  3.654  0.564
+worker 5     16.296    39.802   2.44  4.4619  3.652  0.553
+worker 6     16.279    39.813   2.45  4.4618  3.648  0.553
+tail         15.793    30.972   1.96  4.3253  3.651  0.689
+total       131.840   312.776   2.37
+
+# cycles/task-clock = 3.648-3.655 GHz on all eight. The caller's excess over the six-worker mean
+# is 18.302 - 16.291 = 2.011 G; /3.651 GHz = 0.551 s; the six off-CPU is 5.0146 - 4.4603 = 0.554 s.
+# The tail excess 18.302 - 15.793 = 2.509 G; /3.651 = 0.687 s; off-CPU 5.0146 - 4.3253 = 0.689 s.
+# At a uniform clock, cycles = clock * on-CPU seconds, so a spinning worker accrues cycles at the
+# caller's rate and caller-serial wall cancels in the difference. The cycle excess is the workers'
+# off-CPU time by construction; it cannot price serial glue.
+
+### branches and misses, s1 (separate run, same attach method)
+== /tmp/gap5/s1.wall
+cold   hit     0  prefill    4.869 s ( 375.25 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+== /tmp/opencode/gap5/s1.pt.csv
+# started on Thu Nov 26 06:27:28 2026
+
+prefix_solve.cl-2703156,18320674167,,cycles,5024570546,100.00,,
+apeiron-q8act-2703217,16338319431,,cycles,4480626985,100.00,,
+apeiron-q8act-2703218,16249812539,,cycles,4471075536,100.00,,
+apeiron-q8act-2703219,16360265124,,cycles,4485425123,100.00,,
+apeiron-q8act-2703220,16307322295,,cycles,4479851353,100.00,,
+apeiron-q8act-2703221,16343476067,,cycles,4482614283,100.00,,
+apeiron-q8act-2703222,16307134484,,cycles,4476782827,100.00,,
+apeiron-q8act-2703223,15786530468,,cycles,4334217073,100.00,,
+prefix_solve.cl-2703156,42349149049,,instructions,5024570546,100.00,2.31,insn per cycle
+apeiron-q8act-2703217,40419815105,,instructions,4480626985,100.00,2.47,insn per cycle
+apeiron-q8act-2703218,39804731100,,instructions,4471075536,100.00,2.45,insn per cycle
+apeiron-q8act-2703219,39849359756,,instructions,4485425123,100.00,2.44,insn per cycle
+apeiron-q8act-2703220,39825026938,,instructions,4479851353,100.00,2.44,insn per cycle
+apeiron-q8act-2703221,39816007650,,instructions,4482614283,100.00,2.44,insn per cycle
+apeiron-q8act-2703222,39808659139,,instructions,4476782827,100.00,2.44,insn per cycle
+apeiron-q8act-2703223,30963258998,,instructions,4334217073,100.00,1.96,insn per cycle
+prefix_solve.cl-2703156,4533193564,,branches,5024570546,100.00,,
+apeiron-q8act-2703217,4305305851,,branches,4480626985,100.00,,
+apeiron-q8act-2703218,4245027100,,branches,4471075536,100.00,,
+apeiron-q8act-2703219,4253721413,,branches,4485425123,100.00,,
+apeiron-q8act-2703220,4249560635,,branches,4479851353,100.00,,
+apeiron-q8act-2703221,4250132087,,branches,4482614283,100.00,,
+apeiron-q8act-2703222,4246774845,,branches,4476782827,100.00,,
+apeiron-q8act-2703223,3290345309,,branches,4334217073,100.00,,
+prefix_solve.cl-2703156,54412968,,branch-misses,5024570546,100.00,1.20,of all branches
+apeiron-q8act-2703217,29068696,,branch-misses,4480626985,100.00,0.68,of all branches
+apeiron-q8act-2703218,28813142,,branch-misses,4471075536,100.00,0.68,of all branches
+apeiron-q8act-2703219,28790692,,branch-misses,4485425123,100.00,0.68,of all branches
+apeiron-q8act-2703220,28751297,,branch-misses,4479851353,100.00,0.68,of all branches
+apeiron-q8act-2703221,28527307,,branch-misses,4482614283,100.00,0.67,of all branches
+apeiron-q8act-2703222,28488792,,branch-misses,4476782827,100.00,0.67,of all branches
+apeiron-q8act-2703223,21413225,,branch-misses,4334217073,100.00,0.65,of all branches
+
+== /tmp/gap5/s2.wall
+cold   hit     0  prefill    4.882 s ( 374.21 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+== /tmp/opencode/gap5/s2.pt.csv
+# started on Thu Nov 26 06:27:35 2026
+
+prefix_solve.cl-2703359,18319932522,,cycles,5036809614,100.00,,
+apeiron-q8act-2703419,16380819264,,cycles,4495036345,100.00,,
+apeiron-q8act-2703420,16346830010,,cycles,4492681827,100.00,,
+apeiron-q8act-2703421,16307108220,,cycles,4474952892,100.00,,
+apeiron-q8act-2703422,16363866333,,cycles,4489637858,100.00,,
+apeiron-q8act-2703423,16307257472,,cycles,4475799723,100.00,,
+apeiron-q8act-2703424,16386284135,,cycles,4494569335,100.00,,
+apeiron-q8act-2703425,15835135021,,cycles,4348328107,100.00,,
+prefix_solve.cl-2703359,42348070916,,instructions,5036809614,100.00,2.31,insn per cycle
+apeiron-q8act-2703419,40416730382,,instructions,4495036345,100.00,2.47,insn per cycle
+apeiron-q8act-2703420,39836227902,,instructions,4492681827,100.00,2.44,insn per cycle
+apeiron-q8act-2703421,39832487102,,instructions,4474952892,100.00,2.44,insn per cycle
+apeiron-q8act-2703422,39822689902,,instructions,4489637858,100.00,2.43,insn per cycle
+apeiron-q8act-2703423,39804367708,,instructions,4475799723,100.00,2.44,insn per cycle
+apeiron-q8act-2703424,39816714598,,instructions,4494569335,100.00,2.43,insn per cycle
+apeiron-q8act-2703425,30981811487,,instructions,4348328107,100.00,1.96,insn per cycle
+prefix_solve.cl-2703359,4532955097,,branches,5036809614,100.00,,
+apeiron-q8act-2703419,4304442062,,branches,4495036345,100.00,,
+apeiron-q8act-2703420,4252797103,,branches,4492681827,100.00,,
+apeiron-q8act-2703421,4249416125,,branches,4474952892,100.00,,
+apeiron-q8act-2703422,4249009051,,branches,4489637858,100.00,,
+apeiron-q8act-2703423,4247123997,,branches,4475799723,100.00,,
+apeiron-q8act-2703424,4248698958,,branches,4494569335,100.00,,
+apeiron-q8act-2703425,3295028084,,branches,4348328107,100.00,,
+prefix_solve.cl-2703359,54511130,,branch-misses,5036809614,100.00,1.20,of all branches
+apeiron-q8act-2703419,29108259,,branch-misses,4495036345,100.00,0.68,of all branches
+apeiron-q8act-2703420,28885008,,branch-misses,4492681827,100.00,0.68,of all branches
+apeiron-q8act-2703421,28718407,,branch-misses,4474952892,100.00,0.68,of all branches
+apeiron-q8act-2703422,28689389,,branch-misses,4489637858,100.00,0.68,of all branches
+apeiron-q8act-2703423,28524053,,branch-misses,4475799723,100.00,0.67,of all branches
+apeiron-q8act-2703424,28554678,,branch-misses,4494569335,100.00,0.67,of all branches
+apeiron-q8act-2703425,21439740,,branch-misses,4348328107,100.00,0.65,of all branches
+
+# s2 repeats: caller 54.511 M (1.20%), six 28.5-29.1 M (0.67-0.68%), tail 21.440 M (0.65%).
+# Total s1 misses = 54.413 + 29.069 + 28.813 + 28.791 + 28.751 + 28.527 + 28.489 + 21.413
+#                   = 248.266 M; total branches 33.374 G; rate 0.744%.
+# These are per-thread counts, not a per-symbol profile; the f736877a miss profile is in
+# 1795667807-nq-swiglu-q32-branch.md.
+
+### the idle loop, r1
+# attach: SIGSTOP at the banner, perf record -q -F 4000 -e cycles:u -p $pid -o r1.data,
+# SIGCONT, run to exit, SIGINT. Window: post-banner lifetime, cold 5.084 s.
+== /tmp/gap5/r1.wall
+cold   hit     0  prefill    5.084 s ( 359.37 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+$ perf report -i /tmp/gap5/r1.data --stdio
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 151K of event 'cycles:u'
+# Event count (approx.): 127549487483
+#
+# Overhead  Command          Shared Object          Symbol
+# ........  ...............  ...................  ...................................
+
+$ perf report -i /tmp/gap5/r1.data --no-children --stdio --sort symbol --percent-limit 0.5
+    24.57%  _RNvNtNtNt...engine4kern2nq21code_select_row8_avx2
+    21.67%  _RNvNtNtNt...engine5chart4pool6worker
+    10.00%  _RNvXs8_...kern2nq...ColPipeline...run
+     5.36%  _RINvNtNtNt...attn8f32_core9gemm_tileKb0_EB8_
+     5.31%  _RINvNtNtNt...attn8f32_core9gemm_tileKb1_EB8_
+     4.13%  _RNvNtNtNt...attn8f32_core25attn_core_tile_avx2_inner
+     3.49%  0x000000000018984a
+     2.74%  _RNvNtNtNt...chart3ffn22swiglu_f32_avx2_8_into
+     2.21%  _RNvNtNtNt...step19rms_with_gain_slice
+     2.14%  _RNvNtNtNt...ops4norm14rms_norm_fixed
+     1.85%  _RNvNtNtNt...kern2nq22quant_act_grouped_avx2.llvm.15071870311101924000
+     1.62%  _RNvXs0_...step4cols...AddColsCtx...run
+     1.58%  _RINvNtCsk6kCoK1GpKd_4core3ptr9drop_glue...StepError...
+     0.96%  _RNvNtNtNt...step10attn_block20rotate_pair_prefixes
+
+$ perf report -i /tmp/gap5/r1.data --no-children --stdio --sort pid
+    13.06%  2702954:prefix_solve.cl
+    12.49%  2703018:apeiron-q8act
+    12.48%  2703016:apeiron-q8act
+    12.48%  2703020:apeiron-q8act
+    12.48%  2703019:apeiron-q8act
+    12.48%  2703017:apeiron-q8act
+    12.46%  2703021:apeiron-q8act
+    12.08%  2703022:apeiron-q8act
+
+$ perf report -i /tmp/gap5/r1.data --no-children --stdio --sort pid,symbol --percent-limit 0.35
+# pool::worker share of the whole run, by thread (the caller is not in the list: < 0.35%)
+     2.72%  2703016:apeiron-q8act
+     2.75%  2703017:apeiron-q8act
+     2.86%  2703018:apeiron-q8act
+     2.81%  2703019:apeiron-q8act
+     2.90%  2703020:apeiron-q8act
+     2.89%  2703021:apeiron-q8act
+     4.73%  2703022:apeiron-q8act   <- last participant (73-column band)
+# own share = pool::worker share / thread share:
+# 21.79, 22.04, 22.90, 22.52, 23.24, 23.19 % (six-worker mean 22.61%), tail 39.16%.
+# pool::worker share of total cycles per worker: 2.72, 2.75, 2.86, 2.81, 2.90, 2.89;
+# mean 2.82% each, sum 16.93% across all six; tail 4.73%.
+# (120 - 73)/120 = 39.17%.
+
+$ perf annotate -i /tmp/gap5/r1.data -s '...chart4pool6worker' --stdio
+ Percent |  Source code & Disassembly of prefix_solve.cleanfin for cycles:u (32537 samples)
+    99.50 :   1807ce: test   $0x3ff,%ebx
+     0.23 :   180789: cmp    %rsi,%rdi
+     0.13 :   1807a0: shr    $0x14,%r13
+     0.07 :   18079d: mov    %r15,%r13
+# 1807ce is the `spins % 1024` check in front of spin_loop(); 99.5% of the symbol's samples.
+# PMU skid: pause/rep-nop in the loop can retire the sample on the following test, so the
+# instruction share is a location for the loop, not a cycle count of the test itself.
+
+# r2 repeats the profile window: cold 5.180 s.
+== /tmp/gap5/r2.wall
+cold   hit     0  prefill    5.180 s ( 352.67 tok/s)  decode 0 in  0.000 s (0.00 tok/s)  first 315
+
+### cycle shares applied to their own totals (model)
+# ours: r1 event count 127.549 G (not the 131.840 G of the t1 window). Shares are of 127.549 G.
+# llama: 116.6 G is 1795664197's two-point slope (model); shares are of 116.6 G.
+# ours
+24.57% * 127.549 = 31.34 G  code_select_row8_avx2
+10.00% * 127.549 = 12.75 G  ColPipeline::run
+               -> projection symbols 44.09 G
+21.67% * 127.549 = 27.64 G  pool::worker
+10.67% * 127.549 = 13.61 G  gemm_tile <0> + <1>
+ 4.13% * 127.549 =  5.27 G  attn_core_tile_avx2_inner
+12.14% * 127.549 = 15.48 G  swiglu + rms_gain + rms_fixed + quant_act + addcols + drop
+ 3.49% * 127.549 =  4.45 G  0x18984a (unresolved, libc-shaped)
+# llama
+50.63% * 116.6 = 59.03 G  gemm_bloc<4,3>
+ 7.57% * 116.6 =  8.83 G  ggml_fp16_to_fp32_row
+               -> projection bucket 67.86 G
+27.17% * 116.6 = 31.68 G  flash_attn_ext_tiled
+ 1.75% * 116.6 =  2.04 G  ggml_vec_soft_max_f32
+ 1.46% * 116.6 =  1.70 G  rms_norm_mul_fused
+# The two totals are different windows and definitions; the difference is a share model,
+# not a paired cycle count. No llama cycles:u data file was retained.
+
+### llama symbol table (captured for 1795664197; raw perf.data not retained)
+# GRADE: model. The event (cycles vs cycles:u), the perf record command and the data file were
+# not retained, and the table is absent from 1795664197-nq-prefill-gap.md. The shares are used
+# only as a share model against the 116.6 G two-point slope.
+# perf report -i cy.llama.data --no-children --stdio --sort symbol
+    50.63%  tinyBLAS<8,...>::gemm_bloc<4, 3>(long, long)
+    27.17%  ggml_compute_forward_flash_attn_ext_tiled(...)
+     7.57%  ggml_fp16_to_fp32_row
+     5.65%  0x00000000000258a2
+     1.75%  ggml_vec_soft_max_f32
+     1.57%  ggml_cpu_fp32_to_fp16
+     1.46%  ggml_compute_forward_rms_norm_mul_fused
+# remainder 4.20% unattributed.
+
+### outside pass: contents, unsplit
+# src/engine/prefix/mod.rs:538-618 prefill_with_cache_mode; examples/prefix_solve.rs:97-103
+#   prefix probe (prefix_solve.rs:98, then prefix/mod.rs:558)  -> before the allocation
+#   decode_state(total_cap)          -> 421 MB KV state: 1 zeroed plane + 55 KvPlane::clone()s
+#                                       = 56 planes (28 K + 28 V); attn.rs:184-189, 988-1056
+#   prefill_state_with_width(1826)   -> 2 pass calls of 913 columns
+#   step_logits_with_mode(last)      -> 1 pass call + untraced lm_head_fixed_sched
+#   cache.insert(tokens, &st.kv)     -> KvState::clone() of 421 MB (56 plane clones)
+# The 420.759 ms interval therefore contains:
+#   the probes, cold decode_state allocation, the traced greedy head (5.886 ms), the untraced
+#   dense lm_head_fixed_sched, the cache insert clone, argmax, checksum and drops.
+# Measured: 420.759 ms total, 5.886 ms traced head (1.40%), 414.873 ms unsplit.
+# Warm/shared outside = 128 - 66.976 = 61.0 ms and 152 - 66.698 = 85.3 ms, each with 2 clones
+# (prefix load + insert), 2 heads (5.561/5.499 ms traced + untraced dense) and 1 eviction.
+# Cold decode_state (1 allocation + 55 clones) and cold cache.insert (56 clones) run the same
+# 421 MB clone loop before any free, so these turns cannot separate them. The dense head is
+# unmeasured and is not bounded by the bitplane head's 5.886 ms. No split is claimed.
+
+### llama-bench timed region
+# ~/llama.cpp at 049326a00, tools/llama-bench/llama-bench.cpp
+# :2093-2120  test_prompt() calls llama_decode + llama_synchronize; this is the pp path.
+# :2399-2429  get_time_ns() brackets the timed run (t_start, t_end).
+# :2293       the context is created before the timed path; the KV cache is allocated there.
+# So the pp1827 row excludes the context/KV allocation and includes the KV writes.
+
+### rejected windows
+# gap7 cold-only attach (06:44): six rustc processes, load 4.39; cold walls 5.472-5.792 s
+# against 4.862 s earlier. Not used.
+# the timestamp join (worker-idle sample vs nearest caller sample): 59.1% of the worker-idle
+# samples paired with an unresolved caller address, and 53% of the resolved pairs were
+# in-dispatch parallel skew. Withdrawn as evidence; `pool.wait` replaces it.
+
+### gates
+$ python3 tools/check-claims.py   # OK, governing docs only; does not scan bench/cpu/*.md
+$ python3 tools/book-check.py     # OK
+# no code changed in this receipt; the code gates are 1795667807's.
