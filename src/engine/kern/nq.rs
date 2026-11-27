@@ -1621,6 +1621,12 @@ unsafe fn lane_sum(lane: std::arch::x86_64::__m256i) -> i64 {
     clippy::cast_ptr_alignment,
     reason = "loadu admits the unaligned block pointer"
 )]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the one-run whole-row body and the general run loop share every load, shuffle \
+              and accumulator declaration; factoring one out would duplicate the plane decode \
+              the function exists to keep in registers"
+)]
 unsafe fn code_select_row8_avx2(
     cols: &[ColRef<'_>; 8],
     words: &[u32],
@@ -1653,6 +1659,40 @@ unsafe fn code_select_row8_avx2(
         1
     };
     let mut b = 0usize;
+    if run >= 2 && run == full {
+        // One run covers the whole row: every `len` term shares one scale, so eight `i16` pair
+        // accumulators carry the row and one shift per column lands it in `acc`. That is the whole
+        // register file the row needs, so nothing spills; the two-set form below (a `pair` set and
+        // the `acc` set live together) costs a store and a load per column and block when the run
+        // does not cover the row, which is what the widths past 1,024 pay.
+        let mut pair = [_mm256_setzero_si256(); 8];
+        while b < full {
+            let word = words[b];
+            let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
+            let nibble = _mm256_shuffle_epi8(spread, repeat);
+            // The masked byte is one of `1, 2, 4, 8` (or zero): `min(x, 1)` is the selector.
+            let select = _mm256_min_epu8(_mm256_and_si256(nibble, digit_mask), one);
+            let mut c = 0usize;
+            while c < 8 {
+                // SAFETY: the caller's per-column bounds cover the plane at `b`.
+                let plane = unsafe {
+                    _mm256_loadu_si256(cols[c].codes.as_ptr().add(b * 32).cast::<__m256i>())
+                };
+                pair[c] = _mm256_add_epi16(pair[c], _mm256_maddubs_epi16(select, plane));
+                c += 1;
+            }
+            b += 1;
+        }
+        let mut c = 0usize;
+        while c < 8 {
+            let part = _mm256_madd_epi16(pair[c], ones);
+            // SAFETY: the row is one run, so its shift vector is block 0's and the caller's bounds
+            // cover it.
+            let sv = unsafe { _mm256_loadu_si256(cols[c].shift_vecs.as_ptr().cast::<__m256i>()) };
+            acc[c] = _mm256_sllv_epi32(part, sv);
+            c += 1;
+        }
+    }
     if run >= 2 {
         while b + run <= full {
             let mut pair = [_mm256_setzero_si256(); 8];
