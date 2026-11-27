@@ -1,0 +1,38 @@
+binary 887cbce6c1509596b9fbeda6ff9fc32e29ef2be41bc99c60dcb05ca5b136574c  target/release/examples/lookup_accept
+model ~/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf
+pack ~/models/nq-scratch/nq06-v3.nqp
+APEIRON_THREADS=8
+== paired, ngram 2 draft 8, three runs
+greedy wall 2.054 s = 16.045 ms/token
+lookup wall 0.827 s = 6.460 ms/token; rounds 28 accepted 102 drafted 102; exact
+greedy wall 2.050 s = 16.014 ms/token
+lookup wall 0.823 s = 6.431 ms/token; rounds 28 accepted 102 drafted 102; exact
+greedy wall 2.068 s = 16.160 ms/token
+lookup wall 0.825 s = 6.444 ms/token; rounds 28 accepted 102 drafted 102; exact
+== acceptance sweep (causal replay)
+stream 128 ids; rounds 29; mean 4.448 ids/round; drafts 100; accepted 100 (100.0% per draft); accepted/round 3.448  [ngram 2 draft 8]
+accepted-run histogram (0..=8): [12, 0, 0, 0, 1, 0, 16, 0, 0]
+stream 128 ids; rounds 30; mean 4.300 ids/round; drafts 99; accepted 99 (100.0% per draft); accepted/round 3.300  [ngram 3 draft 8]
+accepted-run histogram (0..=8): [13, 0, 0, 1, 0, 0, 16, 0, 0]
+stream 128 ids; rounds 31; mean 4.161 ids/round; drafts 98; accepted 98 (100.0% per draft); accepted/round 3.161  [ngram 4 draft 8]
+accepted-run histogram (0..=8): [14, 0, 1, 0, 0, 0, 16, 0, 0]
+stream 128 ids; rounds 29; mean 4.448 ids/round; drafts 100; accepted 100 (100.0% per draft); accepted/round 3.448  [ngram 2 draft 16]
+accepted-run histogram (0..=16): [12, 0, 0, 0, 1, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+== trace, ngram 2 draft 8
+stream 128 ids; rounds 29; mean 4.448 ids/round; drafts 100; accepted 100 (100.0% per draft); accepted/round 3.448
+accepted-run histogram (0..=8): [12, 0, 0, 0, 1, 0, 16, 0, 0]
+first ids: [42, 15, 88, 11, 323, 279, 220, 16, 15, 339, 315, 279, 220, 16, 15, 339, 315, 279, 220, 16, 15, 339, 315, 279, 220, 16, 15, 339, 315, 279, 220, 16, 15, 339, 315, 279, 220, 16, 15, 339, 315, 279, 220, 16, 15, 339, 315, 279, 220, 16, 15, 339, 315, 279, 220, 16, 15, 339, 315, 279, 220, 16, 15, 339, 315, 279, 220, 16, 15, 339, 315, 279, 220, 16, 15, 339, 315, 279, 220, 16]
+greedy wall 2.054 s = 16.045 ms/token
+lookup wall 0.833 s = 6.509 ms/token; rounds 28 accepted 102 drafted 102; exact
+phase split of the lookup decode, ms/token and share of wall:
+  embed               0.004 ms/token    0.1% calls 29
+  norm                0.175 ms/token    2.7% calls 1653
+  residual            0.089 ms/token    1.4% calls 1624
+  attn.proj_in        0.953 ms/token   14.6% calls 812
+  attn.core           0.648 ms/token   10.0% calls 812
+  attn.proj_out       0.450 ms/token    6.9% calls 812
+  ffn                 2.201 ms/token   33.8% calls 812
+  head                1.806 ms/token   27.7% calls 29
+  pass                4.570 ms/token   70.2% calls 29
+  pool.wait           0.382 ms/token    5.9% calls 11948
+  untraced            0.050 ms/token    0.8%

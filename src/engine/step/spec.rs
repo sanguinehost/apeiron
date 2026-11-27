@@ -20,6 +20,8 @@
 //! The MTP block's own cache never needs rollback: its entry at position `p` reads only the
 //! verified `x` and the verified `h`.
 
+use std::collections::HashMap;
+
 use super::{add_assign_fixed, rms_with_gain_slice, LayerIndex, Sched, StepError};
 use crate::engine::chart::ffn::{matvec_q8act_quant_chunked, quant_act_pooled};
 use crate::engine::error::{
@@ -76,8 +78,22 @@ fn argmax_push(logits: &[i64], out: &mut Vec<u32>) -> Result<(), StepError> {
 pub struct SpecStats {
     /// Draft-and-verify rounds.
     pub rounds: usize,
-    /// Drafts the verifier accepted.
+    /// Draft tokens the verifier accepted.
     pub accepted: usize,
+    /// Draft tokens proposed; `accepted / drafted` is the per-draft acceptance rate.
+    pub drafted: usize,
+}
+
+/// One verification pass's result: the ids it emitted, whether the whole draft matched, and every
+/// column's output-normed state.
+struct VerifyRound {
+    /// On a full accept, the draft plus the free token the verifier produced after it; on a
+    /// reject, column 0's token alone.
+    emitted: Vec<u32>,
+    /// Whether every draft token equalled the verifier's own greedy token at that position.
+    accepted: bool,
+    /// The columns' output-normed final states, in column order.
+    states: Vec<Vec<i64>>,
 }
 
 /// The MTP block's own key/value cache (one softmax layer).
@@ -331,6 +347,91 @@ impl Engine {
         Ok(out)
     }
 
+    /// Verify one draft round: one trunk pass over `[x, drafts...]`, one head pass over every
+    /// column, and the exact accept-or-reject decision. A full accept keeps every column and
+    /// emits the draft plus the free token the verifier produced after it; any mismatch rejects
+    /// the whole draft, keeps column 0 (the verifier's own greedy token), truncates the cache to
+    /// that column and restores every affine layer to its after-column-0 state. Emitting only
+    /// column 0 on a partial match is exact; it forgoes the matched prefix and its speed.
+    ///
+    /// # Errors
+    ///
+    /// The compose, head and cache refusals; [`StepError::BadConfig`] for an empty draft.
+    ///
+    /// # Complexity
+    ///
+    /// One `drafts.len() + 1`-column trunk pass, one head pass over the same columns, and on a
+    /// reject one `O(affine state)` restore.
+    fn verify_round(
+        &self,
+        st: &mut super::DecodeState,
+        x: u32,
+        drafts: &[u32],
+        snap: &mut [AffineLayer],
+    ) -> Result<VerifyRound, StepError> {
+        if drafts.is_empty() {
+            return Err(StepError::BadConfig(String::from("empty draft")));
+        }
+        let vocab = self.config.vocab_size;
+        let pos = st.kv.occupied(0).map_err(StepError::Kv)?;
+        let mut tokens = Vec::with_capacity(drafts.len() + 1);
+        tokens.push(x);
+        tokens.extend_from_slice(drafts);
+        let states = self.compose_cols(
+            &mut st.kv,
+            st.affine.as_mut(),
+            &tokens,
+            Sched::Resident,
+            KernelMode::Q8Act,
+            true,
+            Some(snap),
+        )?;
+        let t = self.head_argmax_cols(&states, vocab)?;
+        let mut accepted = t.len() == drafts.len() + 1;
+        let mut i = 0usize;
+        while accepted && i < drafts.len() {
+            accepted = t[i] == drafts[i];
+            i += 1;
+        }
+        if !accepted && std::env::var_os("APEIRON_LOOKUP_DEBUG").is_some() {
+            let mut bad = 0usize;
+            while bad < drafts.len() && t[bad] == drafts[bad] {
+                bad += 1;
+            }
+            eprintln!("verify reject at {bad}: x={x} drafts={drafts:?} t={t:?}");
+        }
+        if accepted {
+            let mut emitted = Vec::with_capacity(drafts.len() + 1);
+            emitted.extend_from_slice(drafts);
+            emitted.push(t[drafts.len()]);
+            Ok(VerifyRound {
+                emitted,
+                accepted,
+                states,
+            })
+        } else {
+            let _restore = trace::span(Phase::Restore, 1, 0, 0);
+            st.kv.truncate(pos + 1).map_err(StepError::Kv)?;
+            if let Some(aff) = st.affine.as_mut() {
+                let mut j = 0usize;
+                while j < snap.len() {
+                    match aff.layer_mut(j) {
+                        Some(dst) => dst.clone_from(&snap[j]),
+                        None => {
+                            return Err(StepError::BadConfig(String::from("affine rollback slot")));
+                        }
+                    }
+                    j += 1;
+                }
+            }
+            Ok(VerifyRound {
+                emitted: vec![t[0]],
+                accepted: false,
+                states,
+            })
+        }
+    }
+
     /// Greedy decoding of `n` tokens after `prompt`, drafted by the MTP block and verified two
     /// tokens per trunk pass. The ids are exactly [`Engine::next_token_state`]'s greedy ids.
     /// `draft_rows` bounds the draft head's vocabulary scan.
@@ -358,7 +459,7 @@ impl Engine {
         if prompt.is_empty() {
             return Err(StepError::BadConfig(String::from("empty prompt")));
         }
-        let (sched, mode) = (Sched::Resident, KernelMode::Q8Act);
+        let mode = KernelMode::Q8Act;
         let cap = prompt.len() + n + 4;
         let mut st = self.state(cap)?;
         let mut mtp = self.mtp_state(cap)?;
@@ -429,91 +530,43 @@ impl Engine {
                     break;
                 }
             };
-            // Verify [x, d] in one trunk pass.
-            let pos = match st.kv.occupied(0) {
-                Ok(pos) => pos,
-                Err(e) => {
-                    err = Some(StepError::Kv(e));
-                    break;
-                }
-            };
-            let xf = match self.compose_cols(
-                &mut st.kv,
-                st.affine.as_mut(),
-                &[x, d],
-                sched,
-                mode,
-                true,
-                Some(&mut snap[..]),
-            ) {
-                Ok(xf) => xf,
+            // Verify [x, d] in one two-column trunk pass.
+            let round = match self.verify_round(&mut st, x, std::slice::from_ref(&d), &mut snap) {
+                Ok(r) => r,
                 Err(e) => {
                     err = Some(e);
                     break;
                 }
             };
-            let t = match self.head_argmax_cols(&xf, vocab) {
-                Ok(t) => t,
-                Err(e) => {
-                    err = Some(e);
+            stats.drafted += 1;
+            let mut col_states = round.states.into_iter();
+            let s0 = match col_states.next() {
+                Some(s) => s,
+                None => {
+                    err = Some(StepError::BadConfig(String::from("verify column 0 state")));
                     break;
                 }
             };
-            let mut xf = xf.into_iter();
-            let xf0 = match xf
-                .next()
-                .ok_or(StepError::BadConfig(String::from("verify column 0")))
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    err = Some(e);
-                    break;
-                }
-            };
-            if t[0] == d {
+            if round.accepted {
                 stats.accepted += 1;
                 out.push(d);
                 if out.len() < n {
-                    out.push(t[1]);
+                    out.push(round.emitted[1]);
                 }
-                fill = Some((d, xf0));
-                x = t[1];
-                h_prev = match xf
-                    .next()
-                    .ok_or(StepError::BadConfig(String::from("verify column 1")))
-                {
-                    Ok(v) => v,
-                    Err(e) => {
-                        err = Some(e);
+                let s1 = match col_states.next() {
+                    Some(s) => s,
+                    None => {
+                        err = Some(StepError::BadConfig(String::from("verify column 1 state")));
                         break;
                     }
                 };
+                fill = Some((d, s0));
+                x = round.emitted[1];
+                h_prev = s1;
             } else {
-                out.push(t[0]);
-                let _restore = trace::span(Phase::Restore, 1, 0, 0);
-                if let Err(e) = st.kv.truncate(pos + 1) {
-                    err = Some(StepError::Kv(e));
-                    break;
-                }
-                if let Some(aff) = st.affine.as_mut() {
-                    let mut j = 0usize;
-                    while j < snap.len() && err.is_none() {
-                        match aff.layer_mut(j) {
-                            Some(dst) => dst.clone_from(&snap[j]),
-                            None => {
-                                err = Some(StepError::BadConfig(String::from(
-                                    "affine rollback slot",
-                                )));
-                            }
-                        }
-                        j += 1;
-                    }
-                }
-                if err.is_some() {
-                    break;
-                }
-                x = t[0];
-                h_prev = xf0;
+                out.push(round.emitted[0]);
+                x = round.emitted[0];
+                h_prev = s0;
             }
         }
         if let Some(e) = err {
@@ -522,4 +575,160 @@ impl Engine {
         out.truncate(n);
         Ok((out, stats))
     }
+
+    /// Greedy decoding of `n` tokens after `prompt`, drafted by an exact prompt-lookup n-gram
+    /// drafter and verified in one trunk pass over every proposed column. The ids are exactly
+    /// [`Engine::next_token_state`]'s greedy ids.
+    ///
+    /// At each round the drafter takes the last `ngram` ids of the causal stream, finds the latest
+    /// earlier occurrence that ends before them, and proposes up to `draft` ids that followed it.
+    /// `[x, proposals...]` go through [`Engine::verify_round`]: a full match keeps every column
+    /// and emits the proposals plus the verifier's free token after them; any mismatch keeps only
+    /// column 0. A round with no match is one ordinary greedy step, so the emitted ids do not
+    /// depend on the drafter.
+    ///
+    /// # Errors
+    ///
+    /// The step, head and cache refusals; [`StepError::BadConfig`] for an empty prompt or a zero
+    /// `ngram`/`draft`.
+    ///
+    /// # Complexity
+    ///
+    /// Prefill plus, per round, one `m + 1`-column trunk and head pass for a draft of `m`, or one
+    /// greedy step; the n-gram index is `O(stream)` entries and `O(stream · ngram)` hash work.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "prefill, index, draft, verify and emit in one round loop"
+    )]
+    pub fn generate_lookup(
+        &self,
+        prompt: &[u32],
+        n: usize,
+        ngram: usize,
+        draft: usize,
+    ) -> Result<(Vec<u32>, SpecStats), StepError> {
+        if prompt.is_empty() {
+            return Err(StepError::BadConfig(String::from("empty prompt")));
+        }
+        if ngram == 0 || draft == 0 {
+            return Err(StepError::BadConfig(String::from(
+                "lookup needs a positive n-gram and draft length",
+            )));
+        }
+        let mode = KernelMode::Q8Act;
+        let cap = prompt.len() + n + draft + 4;
+        let mut st = self.state(cap)?;
+        let mut hs = self.prefill_cols(&mut st, prompt, mode)?;
+        let last = hs
+            .pop()
+            .ok_or(StepError::BadConfig(String::from("empty prompt")))?;
+        let vocab = self.config.vocab_size;
+        let mut x = self.head_argmax_cols(std::slice::from_ref(&last), vocab)?[0];
+        let mut out = vec![x];
+        let mut ctx: Vec<u32> = Vec::with_capacity(prompt.len() + n + 1);
+        ctx.extend_from_slice(prompt);
+        ctx.push(x);
+        let mut index: HashMap<u64, usize> = HashMap::new();
+        let mut upto = 0usize;
+        index_ngrams(&ctx, ngram, &mut index, &mut upto);
+        let mut stats = SpecStats::default();
+        let mut snap: Vec<AffineLayer> = st
+            .affine
+            .as_ref()
+            .map(|a| a.layers().to_vec())
+            .unwrap_or_default();
+        let mut err: Option<StepError> = None;
+        while out.len() < n {
+            stats.rounds += 1;
+            let proposals = lookup_draft(&ctx, ngram, draft, &index);
+            if proposals.is_empty() {
+                match self.next_token_state(&mut st, x, mode) {
+                    Ok(y) => {
+                        out.push(y);
+                        ctx.push(y);
+                        x = y;
+                    }
+                    Err(e) => {
+                        err = Some(e);
+                        break;
+                    }
+                }
+            } else {
+                stats.drafted += proposals.len();
+                match self.verify_round(&mut st, x, &proposals, &mut snap) {
+                    Ok(round) => {
+                        if round.accepted {
+                            stats.accepted += proposals.len();
+                            out.extend_from_slice(&round.emitted);
+                        } else {
+                            out.push(round.emitted[0]);
+                        }
+                        x = match round.emitted.last() {
+                            Some(&t) => t,
+                            None => {
+                                err = Some(StepError::BadConfig(String::from("verify emit")));
+                                break;
+                            }
+                        };
+                        ctx.extend_from_slice(&round.emitted);
+                    }
+                    Err(e) => {
+                        err = Some(e);
+                        break;
+                    }
+                }
+            }
+            index_ngrams(&ctx, ngram, &mut index, &mut upto);
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        out.truncate(n);
+        Ok((out, stats))
+    }
+}
+
+/// FNV-1a over an id n-gram; a hash collision only lowers a draft, never an emitted id.
+fn ngram_hash(ids: &[u32]) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for &id in ids {
+        h ^= u64::from(id);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Insert every n-gram start that cannot overlap the trailing `ngram` ids: `start ≤ len − 2·ngram`.
+/// `upto` is the next start to insert, so one stream appends work over a growing context.
+fn index_ngrams(ctx: &[u32], ngram: usize, map: &mut HashMap<u64, usize>, upto: &mut usize) {
+    let Some(span) = ngram.checked_mul(2) else {
+        return;
+    };
+    let Some(last) = ctx.len().checked_sub(span) else {
+        return;
+    };
+    let mut start = *upto;
+    while start <= last {
+        map.insert(ngram_hash(&ctx[start..start + ngram]), start);
+        start += 1;
+    }
+    *upto = start;
+}
+
+/// The ids that followed the latest indexed occurrence of the trailing `ngram` ids, up to `draft`.
+/// Empty when no non-overlapping occurrence is indexed; the proposal never reads past `ctx`.
+fn lookup_draft(ctx: &[u32], ngram: usize, draft: usize, index: &HashMap<u64, usize>) -> Vec<u32> {
+    let Some(suffix_start) = ctx.len().checked_sub(ngram) else {
+        return Vec::new();
+    };
+    let suffix = &ctx[suffix_start..];
+    let Some(&start) = index.get(&ngram_hash(suffix)) else {
+        return Vec::new();
+    };
+    if start + ngram > suffix_start || ctx[start..start + ngram] != *suffix {
+        return Vec::new();
+    }
+    let from = start + ngram;
+    let take = draft.min(ctx.len() - from);
+    ctx[from..from + take].to_vec()
 }
