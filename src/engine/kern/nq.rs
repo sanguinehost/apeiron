@@ -356,9 +356,10 @@ unsafe fn sign_dot_planes_avx2(
     use std::arch::x86_64::{
         __m256i, _mm256_add_epi32, _mm256_add_epi64, _mm256_and_si256, _mm256_castsi256_si128,
         _mm256_cvtepi32_epi64, _mm256_extracti128_si256, _mm256_loadu_si256, _mm256_madd_epi16,
-        _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_setr_epi32,
-        _mm256_setr_epi8, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_srlv_epi32,
-        _mm_add_epi64, _mm_cvtsi128_si64, _mm_unpackhi_epi64,
+        _mm256_maddubs_epi16, _mm256_min_epu8, _mm256_set1_epi16, _mm256_set1_epi32,
+        _mm256_set1_epi8, _mm256_setr_epi32, _mm256_setr_epi8, _mm256_setzero_si256,
+        _mm256_shuffle_epi8, _mm256_srlv_epi32, _mm_add_epi64, _mm_cvtsi128_si64,
+        _mm_unpackhi_epi64,
     };
     // `[1,2,4,8]` in each dword: byte `j` of dword `k` tests bit `4k + j` of the word.
     let digit_mask = _mm256_set1_epi32(0x0804_0201);
@@ -369,11 +370,7 @@ unsafe fn sign_dot_planes_avx2(
         0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12, 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12,
         12, 12, 12,
     );
-    // The byte `2^j` maps to `1`; every other byte maps to `0`.
-    let select_one = _mm256_setr_epi8(
-        0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
-        0, 0,
-    );
+    let one = _mm256_set1_epi8(1);
     let ones = _mm256_set1_epi16(1);
     let mut acc = [_mm256_setzero_si256(); 4];
     let mut i = 0usize;
@@ -383,7 +380,9 @@ unsafe fn sign_dot_planes_avx2(
         }
         let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
         let nibble = _mm256_shuffle_epi8(spread, repeat);
-        let select = _mm256_shuffle_epi8(select_one, _mm256_and_si256(nibble, digit_mask));
+        // The masked byte is one of `1, 2, 4, 8` (or zero), so `min(x, 1)` is the same selector
+        // as the table it replaces, on an ALU port instead of a shuffle port.
+        let select = _mm256_min_epu8(_mm256_and_si256(nibble, digit_mask), one);
         let mut b = 0usize;
         while b < 4 {
             // SAFETY: `i + 32 <= len <= planes.plane[b].len()`, so the load reads inside it.
@@ -1074,9 +1073,10 @@ unsafe fn code_select_avx2(
     use std::arch::x86_64::{
         __m256i, _mm256_add_epi32, _mm256_add_epi64, _mm256_and_si256, _mm256_castsi256_si128,
         _mm256_cvtepi32_epi64, _mm256_extracti128_si256, _mm256_loadu_si256, _mm256_madd_epi16,
-        _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_setr_epi32,
-        _mm256_setr_epi8, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_sllv_epi32,
-        _mm256_srlv_epi32, _mm_add_epi64, _mm_cvtsi128_si64, _mm_unpackhi_epi64,
+        _mm256_maddubs_epi16, _mm256_min_epu8, _mm256_set1_epi16, _mm256_set1_epi32,
+        _mm256_set1_epi8, _mm256_setr_epi32, _mm256_setr_epi8, _mm256_setzero_si256,
+        _mm256_shuffle_epi8, _mm256_sllv_epi32, _mm256_srlv_epi32, _mm_add_epi64,
+        _mm_cvtsi128_si64, _mm_unpackhi_epi64,
     };
     let full = len / 32;
     if words.len() < full || shift_vecs.len() < full {
@@ -1088,10 +1088,7 @@ unsafe fn code_select_avx2(
         0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12, 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12,
         12, 12, 12,
     );
-    let select_one = _mm256_setr_epi8(
-        0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
-        0, 0,
-    );
+    let one = _mm256_set1_epi8(1);
     let ones = _mm256_set1_epi16(1);
     let mut acc = _mm256_setzero_si256();
     // The full blocks iterate as three exact-length zips: no per-block bounds check, no `Option`,
@@ -1105,7 +1102,8 @@ unsafe fn code_select_avx2(
     {
         let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
         let nibble = _mm256_shuffle_epi8(spread, repeat);
-        let select = _mm256_shuffle_epi8(select_one, _mm256_and_si256(nibble, digit_mask));
+        // The masked byte is one of `1, 2, 4, 8` (or zero): `min(x, 1)` is the selector.
+        let select = _mm256_min_epu8(_mm256_and_si256(nibble, digit_mask), one);
         // SAFETY: `chunk` is one 32-byte block of `codes`.
         let plane = unsafe { _mm256_loadu_si256(chunk.as_ptr().cast::<__m256i>()) };
         let pair = _mm256_maddubs_epi16(select, plane);
@@ -1448,21 +1446,23 @@ unsafe fn code_select_block_avx2<const R: usize>(
     use std::arch::x86_64::{
         __m256i, _mm256_add_epi32, _mm256_add_epi64, _mm256_and_si256, _mm256_castsi256_si128,
         _mm256_cvtepi32_epi64, _mm256_extracti128_si256, _mm256_loadu_si256, _mm256_madd_epi16,
-        _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_setr_epi32,
-        _mm256_setr_epi8, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_sllv_epi32,
-        _mm256_srlv_epi32, _mm_add_epi64, _mm_cvtsi128_si64, _mm_unpackhi_epi64,
+        _mm256_maddubs_epi16, _mm256_min_epu8, _mm256_set1_epi16, _mm256_set1_epi32,
+        _mm256_set1_epi8, _mm256_setr_epi32, _mm256_setr_epi8, _mm256_setzero_si256,
+        _mm256_shuffle_epi8, _mm256_sllv_epi32, _mm256_srlv_epi32, _mm_add_epi64,
+        _mm_cvtsi128_si64, _mm_unpackhi_epi64,
     };
     let full = len / 32;
+    // The caller's span check, repeated so the row loads below need no per-block bounds test.
+    if R.checked_mul(stride)? > words.len() || out.len() < R {
+        return None;
+    }
     let digit_mask = _mm256_set1_epi32(0x0804_0201);
     let bit_at = _mm256_setr_epi32(0, 4, 8, 12, 16, 20, 24, 28);
     let repeat = _mm256_setr_epi8(
         0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12, 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12,
         12, 12, 12,
     );
-    let select_one = _mm256_setr_epi8(
-        0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
-        0, 0,
-    );
+    let one = _mm256_set1_epi8(1);
     let ones = _mm256_set1_epi16(1);
     let mut acc = [_mm256_setzero_si256(); R];
     let mut b = 0usize;
@@ -1473,10 +1473,14 @@ unsafe fn code_select_block_avx2<const R: usize>(
         let sv = unsafe { _mm256_loadu_si256(shift_vecs.as_ptr().add(b).cast::<__m256i>()) };
         let mut r = 0usize;
         while r < R {
-            let word = words[r * stride + b];
+            // SAFETY: the span check above covers every `r·stride + b` with `r < R` and
+            // `b < full <= stride`.
+            let word = unsafe { *words.get_unchecked(r * stride + b) };
             let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
             let nibble = _mm256_shuffle_epi8(spread, repeat);
-            let select = _mm256_shuffle_epi8(select_one, _mm256_and_si256(nibble, digit_mask));
+            // The masked byte holds exactly one of `1, 2, 4, 8` (or zero), so `min(x, 1)` is the
+            // same selector as the table it replaces, on an ALU port instead of a shuffle port.
+            let select = _mm256_min_epu8(_mm256_and_si256(nibble, digit_mask), one);
             let pair = _mm256_maddubs_epi16(select, plane);
             let part = _mm256_madd_epi16(pair, ones);
             acc[r] = _mm256_add_epi32(acc[r], _mm256_sllv_epi32(part, sv));
@@ -1626,9 +1630,9 @@ unsafe fn code_select_row8_avx2(
 ) -> Option<()> {
     use std::arch::x86_64::{
         __m256i, _mm256_add_epi16, _mm256_add_epi32, _mm256_and_si256, _mm256_loadu_si256,
-        _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi32,
-        _mm256_setr_epi32, _mm256_setr_epi8, _mm256_setzero_si256, _mm256_shuffle_epi8,
-        _mm256_sllv_epi32, _mm256_srlv_epi32,
+        _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_min_epu8, _mm256_set1_epi16,
+        _mm256_set1_epi32, _mm256_set1_epi8, _mm256_setr_epi32, _mm256_setr_epi8,
+        _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_sllv_epi32, _mm256_srlv_epi32,
     };
     let full = len / 32;
     let digit_mask = _mm256_set1_epi32(0x0804_0201);
@@ -1637,10 +1641,7 @@ unsafe fn code_select_row8_avx2(
         0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12, 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12,
         12, 12, 12,
     );
-    let select_one = _mm256_setr_epi8(
-        0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
-        0, 0,
-    );
+    let one = _mm256_set1_epi8(1);
     let ones = _mm256_set1_epi16(1);
     let mut acc = [_mm256_setzero_si256(); 8];
     // A run of equal scales: fold its block pair sums in `i16` and shift once. `uniform_group`
@@ -1660,7 +1661,8 @@ unsafe fn code_select_row8_avx2(
                 let word = words[b + k];
                 let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
                 let nibble = _mm256_shuffle_epi8(spread, repeat);
-                let select = _mm256_shuffle_epi8(select_one, _mm256_and_si256(nibble, digit_mask));
+                // The masked byte is one of `1, 2, 4, 8` (or zero): `min(x, 1)` is the selector.
+                let select = _mm256_min_epu8(_mm256_and_si256(nibble, digit_mask), one);
                 let mut c = 0usize;
                 while c < 8 {
                     // SAFETY: the caller's per-column bounds cover the plane at `b + k`.
@@ -1692,7 +1694,8 @@ unsafe fn code_select_row8_avx2(
         let word = words[b];
         let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
         let nibble = _mm256_shuffle_epi8(spread, repeat);
-        let select = _mm256_shuffle_epi8(select_one, _mm256_and_si256(nibble, digit_mask));
+        // The masked byte is one of `1, 2, 4, 8` (or zero): `min(x, 1)` is the selector.
+        let select = _mm256_min_epu8(_mm256_and_si256(nibble, digit_mask), one);
         let mut c = 0usize;
         while c < 8 {
             // SAFETY: the caller's per-column bounds cover both planes at block `b`.
@@ -1773,9 +1776,9 @@ unsafe fn code_select_block2_avx2<const R: usize>(
 ) -> Option<()> {
     use std::arch::x86_64::{
         __m256i, _mm256_add_epi32, _mm256_and_si256, _mm256_loadu_si256, _mm256_madd_epi16,
-        _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_setr_epi32,
-        _mm256_setr_epi8, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_sllv_epi32,
-        _mm256_srlv_epi32,
+        _mm256_maddubs_epi16, _mm256_min_epu8, _mm256_set1_epi16, _mm256_set1_epi32,
+        _mm256_set1_epi8, _mm256_setr_epi32, _mm256_setr_epi8, _mm256_setzero_si256,
+        _mm256_shuffle_epi8, _mm256_sllv_epi32, _mm256_srlv_epi32,
     };
     let full = len / 32;
     let digit_mask = _mm256_set1_epi32(0x0804_0201);
@@ -1784,10 +1787,7 @@ unsafe fn code_select_block2_avx2<const R: usize>(
         0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12, 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12,
         12, 12, 12,
     );
-    let select_one = _mm256_setr_epi8(
-        0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
-        0, 0,
-    );
+    let one = _mm256_set1_epi8(1);
     let ones = _mm256_set1_epi16(1);
     let mut acc_a = [_mm256_setzero_si256(); R];
     let mut acc_b = [_mm256_setzero_si256(); R];
@@ -1804,7 +1804,8 @@ unsafe fn code_select_block2_avx2<const R: usize>(
             let word = words[r * stride + b];
             let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
             let nibble = _mm256_shuffle_epi8(spread, repeat);
-            let select = _mm256_shuffle_epi8(select_one, _mm256_and_si256(nibble, digit_mask));
+            // The masked byte is one of `1, 2, 4, 8` (or zero): `min(x, 1)` is the selector.
+            let select = _mm256_min_epu8(_mm256_and_si256(nibble, digit_mask), one);
             let pair = _mm256_maddubs_epi16(select, plane_a);
             let part = _mm256_madd_epi16(pair, ones);
             acc_a[r] = _mm256_add_epi32(acc_a[r], _mm256_sllv_epi32(part, sv_a));
@@ -2405,7 +2406,7 @@ impl NqLinear {
         let pool = Pool::global();
         let width = pool.width().max(1);
         let mut z: Vec<i64> = vec![0; self.rank];
-        let z_chunk = self.rank.div_ceil(width.saturating_mul(4)).max(1);
+        let z_chunk = self.rank.div_ceil(width).max(1);
         let overflow = std::sync::atomic::AtomicBool::new(false);
         pool.chunks_mut(&mut z, z_chunk, &|_, at, zs| {
             let mut dots = [0i128; NQ_BLOCK_MAX];
@@ -2841,7 +2842,7 @@ impl NqLinear {
     ) -> Vec<i64> {
         let width = pool.width().max(1);
         let mut y: Vec<i64> = vec![0; self.out];
-        let y_chunk = self.out.div_ceil(width.saturating_mul(4)).max(1);
+        let y_chunk = self.out.div_ceil(width).max(1);
         pool.chunks_mut(&mut y, y_chunk, &|_, at, ys| {
             let mut dots = [0i128; NQ_BLOCK_MAX];
             let mut d = 0usize;
