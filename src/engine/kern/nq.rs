@@ -1355,26 +1355,25 @@ unsafe fn quant_act_grouped_avx2(x: &[i64], group: usize) -> Option<QuantAct> {
 /// `O(1)`: one environment read, one parse and one pool-width read, cached in a `OnceLock`.
 fn nq_cols() -> usize {
     static COLS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *COLS.get_or_init(|| {
-        parse_cols(
-            std::env::var("APEIRON_NQ_COLS").ok().as_deref(),
-            Pool::global().width(),
-        )
-    })
+    *COLS.get_or_init(|| parse_cols(std::env::var("APEIRON_NQ_COLS").ok().as_deref()))
 }
 
-/// [`nq_cols`]'s parse, separate so a test can cover every value and width without the process
-/// cache: an explicit value at or above [`NQ_TILE_COLS`] is the tile and anything else is the
-/// pair; absent, the tile needs at least four participants.
+/// [`nq_cols`]'s parse, separate so a test can cover every value without the process cache: an
+/// explicit value at or above [`NQ_TILE_COLS`] is the tile and anything else is the pair; absent,
+/// the tile. The tile was once gated to four or more participants because a band below eight
+/// columns sent its leftover to the pair kernel, which measured 0.867× at one participant; the
+/// partial group now serves 2..=7 columns on the tile (`the_tile_beats_the_pair_kernel_at_a_verify_width`),
+/// so the gate only cost the low-width runs: 1.29× at one participant and 1.22–1.30× at two on
+/// `lookup_accept`, 1.54× prefill at width 2 (`bench/cpu/1795774700-nq-tile-all-widths.md`).
 ///
 /// # Complexity
 ///
 /// `O(1)`.
-fn parse_cols(value: Option<&str>, width: usize) -> usize {
+fn parse_cols(value: Option<&str>) -> usize {
     match value.and_then(|v| v.trim().parse::<usize>().ok()) {
         Some(n) if n >= NQ_TILE_COLS => NQ_TILE_COLS,
-        None if width >= 4 => NQ_TILE_COLS,
-        Some(_) | None => 2,
+        Some(_) => 2,
+        None => NQ_TILE_COLS,
     }
 }
 
@@ -5117,18 +5116,15 @@ mod tests {
     /// everything else keeps the two-column pair.
     #[test]
     fn the_column_switch_parses_the_pair_and_the_tile() {
-        assert_eq!(parse_cols(None, 1), 2);
-        assert_eq!(parse_cols(None, 2), 2);
-        assert_eq!(parse_cols(None, 4), NQ_TILE_COLS);
-        assert_eq!(parse_cols(None, 8), NQ_TILE_COLS);
-        assert_eq!(parse_cols(Some(""), 8), NQ_TILE_COLS);
-        assert_eq!(parse_cols(Some("x"), 8), NQ_TILE_COLS);
-        assert_eq!(parse_cols(Some("0"), 8), 2);
-        assert_eq!(parse_cols(Some(" 2 "), 8), 2);
-        assert_eq!(parse_cols(Some("5"), 8), 2);
-        assert_eq!(parse_cols(Some("8"), 2), NQ_TILE_COLS);
-        assert_eq!(parse_cols(Some("64"), 1), NQ_TILE_COLS);
-        assert_eq!(parse_cols(Some("999999999999999999999"), 8), NQ_TILE_COLS);
+        assert_eq!(parse_cols(None), NQ_TILE_COLS);
+        assert_eq!(parse_cols(Some("")), NQ_TILE_COLS);
+        assert_eq!(parse_cols(Some("x")), NQ_TILE_COLS);
+        assert_eq!(parse_cols(Some("0")), 2);
+        assert_eq!(parse_cols(Some(" 2 ")), 2);
+        assert_eq!(parse_cols(Some("5")), 2);
+        assert_eq!(parse_cols(Some("8")), NQ_TILE_COLS);
+        assert_eq!(parse_cols(Some("64")), NQ_TILE_COLS);
+        assert_eq!(parse_cols(Some("999999999999999999999")), NQ_TILE_COLS);
     }
 
     /// The served pack has no residual layer and no sparse correction: the pooled reader must
