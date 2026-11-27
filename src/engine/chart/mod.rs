@@ -458,9 +458,23 @@ pub(crate) unsafe fn q8_0_row_kcols_avx2(
     row: &[u8],
     blocks: usize,
     qs: &[QuantAct],
+    plan: Option<&ShiftPlan>,
     acc: &mut [i128],
 ) -> Option<()> {
     let k = acc.len();
+    // The shift lane path: `quant_act` scales are powers of two and a finite `f16` weight scale
+    // is `m·2^k`, so each block term is `(m·dot) << (k_b + e_b)` — a per-lane shift in `i64`,
+    // with the `A_b` multiply gone from the column loop. It refuses a row whose scale spread
+    // leaves the lane domain, and the per-block path below then carries that row exactly.
+    if let Some(plan) = plan {
+        if k <= LANE_COLS {
+            // SAFETY: `k <= LANE_COLS`; the plan holds one entry per column and block; the
+            // caller's row geometry is `q8_0_row_kcols_avx2`'s.
+            if unsafe { q8_0_row_kcols_lanes(row, blocks, qs, plan, acc) } {
+                return Some(());
+            }
+        }
+    }
     // One feature decision per row: the column loop below must not re-read the atomic.
     let vnni = x86::avxvnni();
     let mut blk = 0usize;
@@ -483,13 +497,17 @@ pub(crate) unsafe fn q8_0_row_kcols_avx2(
             // SAFETY: four blocks of lanes are in range by the caller's geometry.
             let dots =
                 unsafe { x86::dot32x4_codes(&codes, q.codes.as_ptr().add(blk * ACT_QK), vnni) };
-            let mut i = 0usize;
-            while i < 4 {
-                // SAFETY: `q.scales.len() == blocks >= blk + 4`.
-                let scaled_dot = unsafe { *q.scales.get_unchecked(blk + i) } * i64::from(dots[i]);
-                acc[c] += i128::from(ds[i]) * i128::from(scaled_dot);
-                i += 1;
-            }
+            // The four block terms are independent, so they are formed in parallel and summed as
+            // a tree: integer addition is associative, so the value is the serial chain's, and the
+            // accumulator's dependency distance is one add per group instead of four per group.
+            // SAFETY: `q.scales.len() == blocks >= blk + 4`.
+            let t0 = unsafe { *q.scales.get_unchecked(blk) } * i64::from(dots[0]);
+            let t1 = unsafe { *q.scales.get_unchecked(blk + 1) } * i64::from(dots[1]);
+            let t2 = unsafe { *q.scales.get_unchecked(blk + 2) } * i64::from(dots[2]);
+            let t3 = unsafe { *q.scales.get_unchecked(blk + 3) } * i64::from(dots[3]);
+            let lo = i128::from(ds[0]) * i128::from(t0) + i128::from(ds[1]) * i128::from(t1);
+            let hi = i128::from(ds[2]) * i128::from(t2) + i128::from(ds[3]) * i128::from(t3);
+            acc[c] += lo + hi;
             c += 1;
         }
         blk += 4;
@@ -517,6 +535,311 @@ pub(crate) unsafe fn q8_0_row_kcols_avx2(
         blk += 1;
     }
     Some(())
+}
+
+/// The widest column count the shift lane body instantiates.
+const LANE_COLS: usize = 8;
+
+/// The widest block count the shift lane body keeps its scale split in registers for: one
+/// `i32` mantissa and one `u32` exponent per block on the stack.
+const SHIFT_MAX_BLOCKS: usize = 128;
+
+/// The per-column shift plan of [`q8_0_row_kcols_lanes`]: `quant_act`'s block scale is a power of
+/// two, `S_{c,b} = 2^{e_{c,b}}`, so a block term is `(m_b·dot) << (k_b − k_min + e_{c,b} − e_min)`
+/// and the per-column part of that shift is fixed per call.
+pub(crate) struct ShiftPlan {
+    /// `[c·stride + b]`: `e_{c,b} − e_min(c)`; zero past `blocks` and on a zero-scale block.
+    shift: Vec<i64>,
+    /// `e_min(c)`: the column's smallest activation exponent.
+    emin: Vec<u32>,
+    /// The column's largest `e_{c,b} − e_min(c)`.
+    spread: Vec<u32>,
+    /// Blocks per column, rounded up to four (the lane group's width).
+    stride: usize,
+    /// The largest row-plus-column shift the `i64` lanes admit.
+    limit: u32,
+}
+
+impl ShiftPlan {
+    /// The plan for `qs`, or `None` when a column's scales are not powers of two, a scale vector
+    /// is the wrong length, or the block count leaves [`SHIFT_MAX_BLOCKS`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(k·blocks)` time and `O(k·blocks)` words.
+    pub(crate) fn new(qs: &[QuantAct], blocks: usize) -> Option<Self> {
+        if blocks == 0 || blocks > SHIFT_MAX_BLOCKS {
+            return None;
+        }
+        let stride = blocks.div_ceil(4) * 4;
+        let mut shift = vec![0i64; qs.len() * stride];
+        let mut emin = vec![0u32; qs.len()];
+        let mut spread = vec![0u32; qs.len()];
+        let mut col = 0usize;
+        while col < qs.len() {
+            let quant = &qs[col];
+            if quant.scales.len() != blocks {
+                return None;
+            }
+            // A zero scale means the block quantized to zero codes, so its dot is zero and its
+            // exponent is free; any other value must be a power of two.
+            let mut lo = u32::MAX;
+            let mut blk = 0usize;
+            while blk < blocks {
+                let scale = quant.scales[blk];
+                if scale != 0 {
+                    if scale < 0 || scale & (scale - 1) != 0 {
+                        return None;
+                    }
+                    let expo = scale.trailing_zeros();
+                    if expo < lo {
+                        lo = expo;
+                    }
+                }
+                blk += 1;
+            }
+            if lo == u32::MAX {
+                lo = 0;
+            }
+            let mut hi = 0u32;
+            let mut blk = 0usize;
+            while blk < blocks {
+                let scale = quant.scales[blk];
+                if scale != 0 {
+                    let delta = scale.trailing_zeros() - lo;
+                    shift[col * stride + blk] = i64::from(delta);
+                    if delta > hi {
+                        hi = delta;
+                    }
+                }
+                blk += 1;
+            }
+            emin[col] = lo;
+            spread[col] = hi;
+            col += 1;
+        }
+        Some(Self {
+            shift,
+            emin,
+            spread,
+            stride,
+            // `30` bits of mantissa-times-dot, the block count's carry (at most `log₂ blocks`)
+            // and the spread must stay inside the `i64` lane: the same limit the power-of-two
+            // GEMM uses.
+            limit: 33u32.saturating_sub(usize::BITS - blocks.saturating_sub(1).leading_zeros()),
+        })
+    }
+
+    /// The `i64` lanes' bound check for one row's exponent span.
+    fn admits(&self, col: usize, row_span: u32) -> bool {
+        row_span + self.spread[col] <= self.limit
+    }
+}
+
+/// [`q8_0_row_kcols_avx2`]'s shift lane body: the row's `f16` block scales split as `m·2^k`, the
+/// activation scale `2^e`, and every block term accumulated as `(m·dot) << (k − k_min + e − e_min)`
+/// in four `i64` lanes, with one shift by `k_min + e_min` per column at the end.
+///
+/// The reduce's four sums sign-extend to four `i64` lanes, `vpmuldq` forms the four `m·dot` at
+/// once, `vpsllvq` applies the four per-block shifts, and `vpaddq` accumulates: the block loop
+/// carries no scalar multiply, no store-forwarded reduce and no `adc` chain.
+///
+/// Returns `false` without writing `acc` when a block scale is not finite or the row's exponent
+/// span leaves the lane domain; the caller then runs the per-block path.
+///
+/// # Safety
+///
+/// AVX2 must be present, and the caller established `row.len() == blocks·Q8_0_BLOCK_BYTES`, every
+/// `qs[c]` geometry exactly as for [`q8_0_row_kcols_avx2`], and `plan` built from `qs` at these
+/// `blocks`.
+///
+/// # Complexity
+///
+/// `O(blocks·k)` time, `O(k)` lane accumulators and `O(blocks)` stack words.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn q8_0_row_kcols_lanes(
+    row: &[u8],
+    blocks: usize,
+    qs: &[QuantAct],
+    plan: &ShiftPlan,
+    acc: &mut [i128],
+) -> bool {
+    macro_rules! dispatch {
+        ($($k:literal),*) => {
+            match acc.len() {
+                $($k => {
+                    // SAFETY: the arm fixes `K = acc.len()`; the caller's contract covers the
+                    // row geometry and the plan.
+                    unsafe { q8_0_row_kcols_lanes_k::<$k>(row, blocks, qs, plan, acc) }
+                })*
+                _ => false,
+            }
+        };
+    }
+    dispatch!(1, 2, 3, 4, 5, 6, 7, 8)
+}
+
+/// [`q8_0_row_kcols_lanes`] at `K` columns: the const width keeps each column's lane accumulator
+/// in a register across the block loop instead of a dynamically indexed stack slot.
+///
+/// # Safety
+///
+/// As [`q8_0_row_kcols_lanes`], with `acc.len() == K`.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the row scale split, the four-block lane loop, the ragged tail and the final \
+              per-column shift are one scale-domain proof: each stage feeds the next, and \
+              splitting them would move a bound away from the shift it guards"
+)]
+unsafe fn q8_0_row_kcols_lanes_k<const K: usize>(
+    row: &[u8],
+    blocks: usize,
+    qs: &[QuantAct],
+    plan: &ShiftPlan,
+    acc: &mut [i128],
+) -> bool {
+    use std::arch::x86_64::{
+        _mm256_abs_epi8, _mm256_add_epi64, _mm256_castsi256_si128, _mm256_cvtepi32_epi64,
+        _mm256_extracti128_si256, _mm256_loadu_si256, _mm256_mul_epi32, _mm256_setzero_si256,
+        _mm256_sllv_epi64, _mm_add_epi64, _mm_cvtsi128_si64, _mm_set_epi32, _mm_unpackhi_epi64,
+    };
+    let vnni = x86::avxvnni();
+    // The row's block scale split: `mant` and `expo`. `mant·dot` is at most `2047·2^19 < 2^30`,
+    // which is what the plan's `limit` bounds against the block count and the shift.
+    let mut mant = [0i32; SHIFT_MAX_BLOCKS];
+    let mut expo = [0u32; SHIFT_MAX_BLOCKS];
+    let mut k_min = u32::MAX;
+    let mut blk = 0usize;
+    while blk < blocks {
+        // SAFETY: `blk < blocks`, so the block's scale word is in range.
+        let word = unsafe { scale_word(row.as_ptr(), blk * Q8_0_BLOCK_BYTES) };
+        let Some((mant_b, expo_b)) = crate::engine::kern::pow2::f16_split(word) else {
+            return false;
+        };
+        mant[blk] = mant_b;
+        expo[blk] = expo_b;
+        if expo_b < k_min {
+            k_min = expo_b;
+        }
+        blk += 1;
+    }
+    let mut k_max = k_min;
+    let mut blk = 0usize;
+    while blk < blocks {
+        if expo[blk] > k_max {
+            k_max = expo[blk];
+        }
+        blk += 1;
+    }
+    let row_span = k_max - k_min;
+    let mut col = 0usize;
+    while col < K {
+        if !plan.admits(col, row_span) {
+            return false;
+        }
+        col += 1;
+    }
+    let mut lane_acc = [_mm256_setzero_si256(); K];
+    // The tail (a block count that is not a multiple of four) stays exact in `i128`, in lane
+    // units, so the single final shift carries it with the lanes.
+    let mut tail = [0i128; K];
+    let mut blk = 0usize;
+    while blk + 4 <= blocks {
+        let off = blk * Q8_0_BLOCK_BYTES;
+        // SAFETY: four code vectors are in range by the caller's geometry.
+        let codes = unsafe { x86::q8_0_codes4(row.as_ptr().add(off + 2), Q8_0_BLOCK_BYTES) };
+        let abs_codes = [
+            _mm256_abs_epi8(codes[0]),
+            _mm256_abs_epi8(codes[1]),
+            _mm256_abs_epi8(codes[2]),
+            _mm256_abs_epi8(codes[3]),
+        ];
+        let mant_vec = _mm256_cvtepi32_epi64(_mm_set_epi32(
+            mant[blk + 3],
+            mant[blk + 2],
+            mant[blk + 1],
+            mant[blk],
+        ));
+        let expo_vec = _mm256_cvtepi32_epi64(_mm_set_epi32(
+            (expo[blk + 3] - k_min).cast_signed(),
+            (expo[blk + 2] - k_min).cast_signed(),
+            (expo[blk + 1] - k_min).cast_signed(),
+            (expo[blk] - k_min).cast_signed(),
+        ));
+        let mut col = 0usize;
+        while col < K {
+            let quant = &qs[col];
+            // SAFETY: the caller's per-column bounds cover the plane at `blk`, and the four
+            // blocks' dots are in range.
+            let dots = unsafe {
+                x86::dot32x4_signed(
+                    &abs_codes,
+                    &codes,
+                    quant.codes.as_ptr().add(blk * ACT_QK),
+                    vnni,
+                )
+            };
+            let dots_vec = _mm256_cvtepi32_epi64(dots);
+            let product = _mm256_mul_epi32(dots_vec, mant_vec);
+            // SAFETY: the plan holds `stride >= blocks` shifts per column.
+            let col_shift = unsafe {
+                _mm256_loadu_si256(plan.shift.as_ptr().add(col * plan.stride + blk).cast())
+            };
+            let shift = _mm256_add_epi64(expo_vec, col_shift);
+            lane_acc[col] = _mm256_add_epi64(lane_acc[col], _mm256_sllv_epi64(product, shift));
+            col += 1;
+        }
+        blk += 4;
+    }
+    while blk < blocks {
+        let off = blk * Q8_0_BLOCK_BYTES;
+        let mut col = 0usize;
+        while col < K {
+            let quant = &qs[col];
+            // SAFETY: the block's 32 code bytes and 32 lanes are in range.
+            let dot = unsafe {
+                x86::dot32_ptr_vnni(
+                    row.as_ptr().add(off + 2),
+                    quant.codes.as_ptr().add(blk * ACT_QK),
+                    vnni,
+                )
+            };
+            let shift = (expo[blk] - k_min)
+                + u32::try_from(plan.shift[col * plan.stride + blk]).unwrap_or(0);
+            let term = i128::from(mant[blk]) * i128::from(dot);
+            tail[col] += term << shift;
+            col += 1;
+        }
+        blk += 1;
+    }
+    // Every column is formed before any is written: a refusal here must leave `acc` as the
+    // caller's zeroed buffer, because the per-block fallback accumulates into it.
+    let mut out = [0i128; K];
+    let mut col = 0usize;
+    while col < K {
+        let lo = _mm256_castsi256_si128(lane_acc[col]);
+        let hi = _mm256_extracti128_si256::<1>(lane_acc[col]);
+        let sum = _mm_add_epi64(lo, hi);
+        let sum = _mm_add_epi64(sum, _mm_unpackhi_epi64(sum, sum));
+        let lanes = i128::from(_mm_cvtsi128_si64(sum)) + tail[col];
+        let up_shift = k_min + plan.emin[col];
+        // The reference sum is `lanes·2^up_shift` and fits `i128` by the call-level bound; a
+        // shift of `128` or more cannot be a nonzero `i128`, so only a zero sum reaches it.
+        if up_shift >= 128 {
+            if lanes != 0 {
+                return false;
+            }
+            out[col] = 0;
+        } else {
+            out[col] = lanes << up_shift;
+        }
+        col += 1;
+    }
+    acc.copy_from_slice(&out);
+    true
 }
 
 /// The `Q5_0` twin of [`q8_0_row_kcols_avx2`]: one weight row's 5-bit blocks decoded once and

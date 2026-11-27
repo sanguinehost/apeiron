@@ -304,6 +304,7 @@ fn pooled_rows(
     raw: &[u8],
     geom: Geom,
     qs: &[QuantAct],
+    plan: Option<&crate::engine::chart::ShiftPlan>,
     packed: Option<&PackedCols>,
     limit: u32,
     r0: usize,
@@ -389,7 +390,7 @@ fn pooled_rows(
         // `fast_family` checked every column's geometry and the call-level bound.
         let ok = match family {
             Family::Q8_0 => unsafe {
-                crate::engine::chart::q8_0_row_kcols_avx2(row, geom.blocks, qs, &mut acc)
+                crate::engine::chart::q8_0_row_kcols_avx2(row, geom.blocks, qs, plan, &mut acc)
             },
             Family::Q5_0 => unsafe {
                 crate::engine::chart::q5_0_row_kcols_avx2(row, geom.blocks, qs, &mut acc)
@@ -425,6 +426,8 @@ struct PooledRowsCtx<'a> {
     raw: &'a [u8],
     geom: Geom,
     qs: &'a [QuantAct],
+    /// The `Q8_0` row kernel's per-column exponent shifts, when the scales admit them.
+    plan: Option<crate::engine::chart::ShiftPlan>,
     packed: Option<&'a PackedCols>,
     limit: u32,
 }
@@ -437,6 +440,7 @@ impl BandTask<i64, ()> for PooledRowsCtx<'_> {
             self.raw,
             self.geom,
             self.qs,
+            self.plan.as_ref(),
             self.packed,
             self.limit,
             first_row,
@@ -504,11 +508,16 @@ fn pooled(
     let rows_per = n_out
         .div_ceil(crate::engine::ops::par::row_chunk_budget(n_out))
         .max(1);
+    // The per-column exponent shifts the `Q8_0` row kernel folds a block's activation scale into:
+    // `quant_act` scales are powers of two, so `S_{c,b}·dot` is a shift. A column whose scales are
+    // not powers of two, or whose spread leaves the lane domain, keeps the per-block path.
+    let plan = crate::engine::chart::ShiftPlan::new(qs, geom.blocks);
     let rows_ctx = PooledRowsCtx {
         family,
         raw,
         geom,
         qs,
+        plan,
         packed: packed.as_ref(),
         limit,
     };

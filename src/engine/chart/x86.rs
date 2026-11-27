@@ -452,8 +452,12 @@ pub(super) unsafe fn q8_0_codes4(codes: *const u8, stride: usize) -> [__m256i; 4
 }
 
 /// Four exact 32-lane code dots against one activation column group, from codes already decoded
-/// by the caller. `vnni` selects the `vpdpbusd` core; it is hoisted out of the column loop so the
-/// feature check runs once per row, not once per column.
+/// by the caller, with the four sums left in one 128-bit register: lanes 0..4 are
+/// `[dot0, dot1, dot2, dot3]`. A vector epilogue reads them as four `i32` lanes and sign-extends
+/// them once; [`dot32x4_codes`] is the scalar-lane form of the same value.
+///
+/// `vnni` selects the `vpdpbusd` core; it is hoisted out of the column loop so the feature check
+/// runs once per row, not once per column.
 ///
 /// # Safety
 ///
@@ -461,7 +465,11 @@ pub(super) unsafe fn q8_0_codes4(codes: *const u8, stride: usize) -> [__m256i; 4
 /// actual AVX-VNNI state.
 #[target_feature(enable = "avx2")]
 #[inline]
-pub(super) unsafe fn dot32x4_codes(codes: &[__m256i; 4], xq: *const i8, vnni: bool) -> [i32; 4] {
+pub(super) unsafe fn dot32x4_codes_packed(
+    codes: &[__m256i; 4],
+    xq: *const i8,
+    vnni: bool,
+) -> __m128i {
     // SAFETY: the caller guarantees the 128-lane read and AVX2.
     let (x0, x1, x2, x3) = unsafe {
         (
@@ -471,7 +479,7 @@ pub(super) unsafe fn dot32x4_codes(codes: &[__m256i; 4], xq: *const i8, vnni: bo
             _mm256_loadu_si256(xq.add(96).cast()),
         )
     };
-    let r = if vnni {
+    if vnni {
         reduce4(
             dot32_lanes_vnni(codes[0], x0),
             dot32_lanes_vnni(codes[1], x1),
@@ -485,11 +493,72 @@ pub(super) unsafe fn dot32x4_codes(codes: &[__m256i; 4], xq: *const i8, vnni: bo
             dot32_lanes_avx2(codes[2], x2),
             dot32_lanes_avx2(codes[3], x3),
         )
-    };
+    }
+}
+
+/// [`dot32x4_codes_packed`] as four `i32` scalars.
+///
+/// # Safety
+///
+/// As [`dot32x4_codes_packed`].
+#[target_feature(enable = "avx2")]
+#[inline]
+pub(super) unsafe fn dot32x4_codes(codes: &[__m256i; 4], xq: *const i8, vnni: bool) -> [i32; 4] {
+    // SAFETY: the caller's 128-lane read and AVX2.
+    let r = unsafe { dot32x4_codes_packed(codes, xq, vnni) };
     let mut out = [0i32; 4];
     // SAFETY: `out` is four `i32` = 16 bytes, exactly one 128-bit store.
     unsafe { _mm_storeu_si128(out.as_mut_ptr().cast(), r) };
     out
+}
+
+/// [`dot32x4_codes_packed`] with the weight codes' magnitudes supplied by the caller: the same
+/// four dots, but `|c|` is read from `abs_codes` instead of recomputed, so a row loop that folds
+/// one weight group against several activation columns computes the magnitude once per group.
+///
+/// # Safety
+///
+/// As [`dot32x4_codes_packed`], with `abs_codes[i] == |codes[i]|` lane for lane.
+#[target_feature(enable = "avx2")]
+#[inline]
+pub(super) unsafe fn dot32x4_signed(
+    abs_codes: &[__m256i; 4],
+    codes: &[__m256i; 4],
+    xq: *const i8,
+    vnni: bool,
+) -> __m128i {
+    // SAFETY: the caller guarantees the 128-lane read and AVX2.
+    let (x0, x1, x2, x3) = unsafe {
+        (
+            _mm256_loadu_si256(xq.cast()),
+            _mm256_loadu_si256(xq.add(32).cast()),
+            _mm256_loadu_si256(xq.add(64).cast()),
+            _mm256_loadu_si256(xq.add(96).cast()),
+        )
+    };
+    reduce4(
+        dot32_lanes_from_abs(abs_codes[0], codes[0], x0, vnni),
+        dot32_lanes_from_abs(abs_codes[1], codes[1], x1, vnni),
+        dot32_lanes_from_abs(abs_codes[2], codes[2], x2, vnni),
+        dot32_lanes_from_abs(abs_codes[3], codes[3], x3, vnni),
+    )
+}
+
+/// The eight lane-pair sums of one `c·x` block with `|c|` supplied: `a == |c|`, so the multiply
+/// is the [`dot32_lanes`] one with the magnitude already decoded.
+///
+/// # Safety
+///
+/// Register arithmetic only; the caller must have AVX2 and pass the host's AVX-VNNI state.
+#[target_feature(enable = "avx2")]
+#[inline]
+unsafe fn dot32_lanes_from_abs(a: __m256i, c: __m256i, x: __m256i, vnni: bool) -> __m256i {
+    let signed = _mm256_sign_epi8(x, c);
+    if vnni {
+        dpbusd_vex(_mm256_setzero_si256(), a, signed)
+    } else {
+        _mm256_madd_epi16(_mm256_maddubs_epi16(a, signed), _mm256_set1_epi16(1))
+    }
 }
 
 /// One exact 32-lane code dot from a code vector already decoded by the caller.
