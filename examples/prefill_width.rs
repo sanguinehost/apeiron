@@ -122,5 +122,22 @@ fn run() -> Result<(), String> {
         mean / tokens.len() as f64,
         tokens.len() as f64 / (mean / 1e3),
     );
+    if apeiron::engine::trace::enabled() {
+        let wall_ns = best * 1e6;
+        println!("prefill phase split of the best rep, ms and share of wall:");
+        for s in apeiron::engine::trace::snapshot() {
+            if s.ns == 0 {
+                continue;
+            }
+            let ms = s.ns as f64 / 1e6;
+            println!(
+                "  {:<18} {:9.3} ms {:6.1}% calls {}",
+                s.name,
+                ms,
+                100.0 * s.ns as f64 / wall_ns,
+                s.calls
+            );
+        }
+    }
     Ok(())
 }
