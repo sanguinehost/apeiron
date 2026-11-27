@@ -577,6 +577,11 @@ impl NqPack {
         Some(self.stored_bits() as f64 / weights as f64)
     }
 
+    /// Every section, in layer-major kind order.
+    pub fn linears(&self) -> impl Iterator<Item = &PackedLinear> {
+        self.linears.iter()
+    }
+
     /// The linear at `layer`, `kind`.
     #[must_use]
     pub fn linear(&self, layer: usize, kind: usize) -> Option<&PackedLinear> {

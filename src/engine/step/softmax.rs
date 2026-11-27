@@ -74,6 +74,21 @@ const EXACT_SCAN_TILE: usize = 32;
 /// L2.
 const QUERY_TILE: usize = 64;
 
+/// Consecutive columns per attention tile: `APEIRON_QUERY_TILE`, else 64. Every K/V row the tile
+/// reads is folded against this many queries, so the read and the K/V pack both fall as
+/// `1/tile`; the score plane (`rows · 64` words) is what bounds it from above. Parsed once per
+/// process so every worker of a dispatch sees one value.
+fn query_tile() -> usize {
+    static TILE: OnceLock<usize> = OnceLock::new();
+    *TILE.get_or_init(|| {
+        std::env::var("APEIRON_QUERY_TILE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(QUERY_TILE)
+    })
+}
+
 /// The `APEIRON_ATTN_TILE` flag: the tiled F32 read unless set to `0`. A same-binary A/B switch,
 /// parsed once per process like [`exact_scan_enabled`]'s environment fallback.
 fn attn_tile_enabled() -> bool {
@@ -524,14 +539,13 @@ impl Engine {
         let group = n_head / n_kv;
         let width = group * hd;
         if tile_on {
-            let tiles = k.div_ceil(QUERY_TILE);
+            let qt = query_tile();
+            let tiles = k.div_ceil(qt);
             let tasks = tiles.checked_mul(n_kv).ok_or(StepError::LengthOverflow)?;
             // One `(fold position, KV head)` task per `QUERY_TILE · width` block. The buffer holds
             // a full block per task; the last tile writes and gathers only its `len · width`
             // prefix.
-            let block = QUERY_TILE
-                .checked_mul(width)
-                .ok_or(StepError::LengthOverflow)?;
+            let block = qt.checked_mul(width).ok_or(StepError::LengthOverflow)?;
             let att_len = tasks.checked_mul(block).ok_or(StepError::LengthOverflow)?;
             let mut att = take_scratch(&TILE_SCRATCH, att_len);
             // One status slot per task, written only by that task; the slots are reduced after the
@@ -550,10 +564,11 @@ impl Engine {
                 prep: &prep[..need],
                 last: &last,
                 dims,
+                qt,
             };
             let dispatched: Result<(), ()> = crate::engine::chart::pool::for_chunks2(
                 &mut att[..att_len],
-                QUERY_TILE * width,
+                qt * width,
                 &mut status,
                 1,
                 &ctx,
@@ -576,11 +591,11 @@ impl Engine {
                 c += 1;
             }
             for n in 0..tiles {
-                let t0 = fold_col(n, tiles) * QUERY_TILE;
-                let len = (k - t0).min(QUERY_TILE);
+                let t0 = fold_col(n, tiles) * qt;
+                let len = (k - t0).min(qt);
                 let mut kvh = 0usize;
                 while kvh < n_kv {
-                    let src = (n * n_kv + kvh) * QUERY_TILE * width;
+                    let src = (n * n_kv + kvh) * qt * width;
                     let mut j = 0usize;
                     while j < len {
                         atts[t0 + j][kvh * width..(kvh + 1) * width]
@@ -740,14 +755,15 @@ fn attn_tile_task(
     prep: &[i64],
     last: &[usize],
     dims: [usize; 8],
+    qt: usize,
     task: usize,
     dst: &mut [i64],
     status: &mut [Option<StepError>],
 ) -> Result<(), ()> {
     let [n_kv, group, hd, kv_out, q_out, stride, cols, tiles] = dims;
     let (fold_pos, kvh) = (task / n_kv.max(1), task % n_kv.max(1));
-    let t0 = fold_col(fold_pos, tiles) * QUERY_TILE;
-    let len = (cols - t0).min(QUERY_TILE);
+    let t0 = fold_col(fold_pos, tiles) * qt;
+    let len = (cols - t0).min(qt);
     let width = group * hd;
     let lo = kvh * width;
     let first = last[t0];
@@ -810,12 +826,13 @@ struct AttnTileCtx<'a> {
     prep: &'a [i64],
     last: &'a [usize],
     dims: [usize; 8],
+    qt: usize,
 }
 
 impl Task2<i64, Option<StepError>, ()> for AttnTileCtx<'_> {
     fn run(&self, t: usize, dst: &mut [i64], st: &mut [Option<StepError>]) -> Result<(), ()> {
         attn_tile_task(
-            self.kv, self.layer, self.gated, self.prep, self.last, self.dims, t, dst, st,
+            self.kv, self.layer, self.gated, self.prep, self.last, self.dims, self.qt, t, dst, st,
         )
     }
 }
@@ -1019,6 +1036,7 @@ mod tests {
                     &prep,
                     &last,
                     dims8,
+                    QUERY_TILE,
                     task,
                     &mut tile_buf[task * block..(task + 1) * block],
                     &mut st,
