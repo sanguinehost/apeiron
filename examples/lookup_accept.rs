@@ -24,6 +24,7 @@ struct Args {
     ngram: usize,
     draft: usize,
     trace: bool,
+    lookup_only: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -35,6 +36,7 @@ fn parse_args() -> Result<Args, String> {
         ngram: 3,
         draft: 8,
         trace: false,
+        lookup_only: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -47,6 +49,7 @@ fn parse_args() -> Result<Args, String> {
             "--ngram" => a.ngram = val()?.parse().map_err(|e| format!("--ngram: {e}"))?,
             "--draft" => a.draft = val()?.parse().map_err(|e| format!("--draft: {e}"))?,
             "--trace" => a.trace = true,
+            "--lookup-only" => a.lookup_only = true,
             other => return Err(format!("unknown flag {other}")),
         }
     }
@@ -159,11 +162,15 @@ fn run() -> Result<(), String> {
     stream.push(a.first);
     let mut t = a.first;
     let g0 = Instant::now();
-    for _ in 0..a.n {
-        t = e
-            .next_token_state(&mut st, t, KernelMode::Q8Act)
-            .map_err(|e| format!("{e:?}"))?;
-        stream.push(t);
+    // The greedy arm is the exactness reference and the wall's comparison; `--lookup-only` drops
+    // it so a profiler sees the decode pass alone.
+    if !a.lookup_only {
+        for _ in 0..a.n {
+            t = e
+                .next_token_state(&mut st, t, KernelMode::Q8Act)
+                .map_err(|e| format!("{e:?}"))?;
+            stream.push(t);
+        }
     }
     let greedy = g0.elapsed().as_secs_f64();
     let sim = simulate(&stream, a.ngram, a.draft);
@@ -209,7 +216,7 @@ fn decode(e: &Engine, a: &Args, stream: &[u32]) -> Result<(), String> {
     if a.trace {
         trace::set_enabled(false);
     }
-    if ids.as_slice() != &stream[1..] {
+    if !a.lookup_only && ids.as_slice() != &stream[1..] {
         return Err(format!(
             "lookup ids differ from greedy: {} ids, first mismatch at {:?}",
             ids.len(),

@@ -2841,6 +2841,14 @@ impl NqLinear {
             }
         }
         let k = xs.len();
+        // A verify pass folds at most eight columns, one per column-band task, so the pair's
+        // single dispatch reads both linears' factor planes once per column and leaves the
+        // SwiGLU epilogue on the column's critical path. The separate gate, up and SwiGLU path
+        // measured faster at those widths (5.71-5.85 ms/token against 5.94-6.04 on the box);
+        // prefill's hundreds of columns keeps the fused pair, where neither cost applies.
+        if k <= NQ_TILE_COLS {
+            return None;
+        }
         let max_rank = self.rank.max(up.rank);
         let (t_len, z_len) = (k * self.inn, 2 * k * max_rank);
         if t_len <= cap && z_len <= cap {
@@ -3564,7 +3572,26 @@ fn u_readers<'a>(
     // correction indexes `x` directly and needs no reader at all.
     let residual = me.res_layers > 0;
     *x_q = quantized_slices(xs, reader, residual);
-    let mut narrow_x: Vec<bool> = vec![false; ncols];
+    let x_stages = x_stages(me, xs, x_q.as_slice(), reader);
+    (z_stages, x_stages)
+}
+
+/// The `x` readers one linear's `U` epilogue reads, from the input quantization the caller already
+/// holds. The narrow bound is `inn·max|x| ≤ i64::MAX`, taken from the quantizer's scale when it
+/// admitted the column and from the exact scan otherwise; a pack without a dense residual layer
+/// reads no `x` and keeps every column exact-empty.
+///
+/// # Complexity
+///
+/// `O(ncols·inn)` time and space for the readers.
+fn x_stages<'a>(
+    me: &NqLinear,
+    xs: &'a [&'a [i64]],
+    x_q: &'a [Option<QuantAct>],
+    reader: Reader,
+) -> Vec<Stage<'a>> {
+    let residual = me.res_layers > 0;
+    let mut narrow_x: Vec<bool> = vec![false; xs.len()];
     if residual {
         for (c, x) in xs.iter().enumerate() {
             let max_abs_x = if let Some(q) = &x_q[c] {
@@ -3577,8 +3604,7 @@ fn u_readers<'a>(
         }
     }
     let mut x_masks = ternary_slices(xs, reader, residual);
-    let x_stages = build_stages(xs.iter().copied(), &narrow_x, x_q.as_slice(), &mut x_masks);
-    (z_stages, x_stages)
+    build_stages(xs.iter().copied(), &narrow_x, x_q, &mut x_masks)
 }
 
 /// The largest magnitude a quantized column's words can hold, from its block scales: the
