@@ -9,6 +9,10 @@ use std::time::Instant;
 use apeiron::engine::loader::Engine;
 use apeiron::engine::KernelMode;
 
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "measurement harness: the column count is far below 2^53, and the ratio is display only"
+)]
 fn main() -> Result<(), String> {
     let mut a = std::env::args().skip(1);
     let path = a.next().ok_or("model")?;
@@ -21,14 +25,14 @@ fn main() -> Result<(), String> {
                     .next()
                     .ok_or("--cols value")?
                     .parse()
-                    .map_err(|e| format!("{e}"))?
+                    .map_err(|e| format!("{e}"))?;
             }
             "--reps" => {
                 reps = a
                     .next()
                     .ok_or("--reps value")?
                     .parse()
-                    .map_err(|e| format!("{e}"))?
+                    .map_err(|e| format!("{e}"))?;
             }
             other => return Err(format!("unknown argument {other}")),
         }
