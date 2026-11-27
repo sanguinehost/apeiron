@@ -4,6 +4,19 @@
 //! blocks. Forming `Σ_b A·D_b·dot_b` as `A·Σ_b D_b·dot_b` removes one of the two multiplies per
 //! block and keeps the `i128` accumulator bit-identical (integer multiplication is associative).
 //! `abs` of the four weight code vectors is hoisted out of the column loop as well.
+//!
+//! Refused variants, `k = 8` on the box (the shipped `shlane` row is the reference):
+//!
+//! | body | ms | cycles/unit |
+//! |---|---|---|
+//! | `shlane` (shipped) | 37.76 | 14.0 |
+//! | `shlane2` (per-group scale split) | 39.78 | 14.7 |
+//! | `shlane42` (two four-column passes) | 39.56 | 14.6 |
+//!
+//! Both alternatives move work out of the per-row scalar pre-split or cut the live lane set to
+//! four, and both lose: the scalar pre-split is not the cost, and the second pass re-reads the
+//! row from L1 rather than keeping the eight accumulators live. `afold`/`afold64` are exact only
+//! with one activation scale per row, which the head's per-block quantizer does not give.
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -16,7 +29,7 @@ use std::time::Instant;
 const N_OUT: usize = 151936;
 const N_IN: usize = 1024;
 const BLOCKS: usize = N_IN / 32;
-const K: usize = 7;
+const K: usize = 8;
 
 struct Q {
     codes: Vec<i8>,
@@ -116,9 +129,15 @@ unsafe fn dyn_k(w: &[u8], qs: &[Q], k: usize, acc: &mut [i128]) {
             let off = blk * 34;
             let ds = [
                 f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off).cast()), 0) as u16),
-                f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off + 34).cast()), 0) as u16),
-                f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off + 68).cast()), 0) as u16),
-                f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off + 102).cast()), 0) as u16),
+                f16_to_fixed(
+                    _mm_extract_epi16(_mm_loadu_si128(row.add(off + 34).cast()), 0) as u16,
+                ),
+                f16_to_fixed(
+                    _mm_extract_epi16(_mm_loadu_si128(row.add(off + 68).cast()), 0) as u16,
+                ),
+                f16_to_fixed(
+                    _mm_extract_epi16(_mm_loadu_si128(row.add(off + 102).cast()), 0) as u16,
+                ),
             ];
             let w0 = _mm256_loadu_si256(row.add(off + 2).cast());
             let w1 = _mm256_loadu_si256(row.add(off + 36).cast());
@@ -134,31 +153,19 @@ unsafe fn dyn_k(w: &[u8], qs: &[Q], k: usize, acc: &mut [i128]) {
                 let x3 = _mm256_loadu_si256(x.add(96).cast());
                 let d = reduce4(
                     _mm256_madd_epi16(
-                        _mm256_maddubs_epi16(
-                            _mm256_abs_epi8(w0),
-                            _mm256_sign_epi8(x0, w0),
-                        ),
+                        _mm256_maddubs_epi16(_mm256_abs_epi8(w0), _mm256_sign_epi8(x0, w0)),
                         ones,
                     ),
                     _mm256_madd_epi16(
-                        _mm256_maddubs_epi16(
-                            _mm256_abs_epi8(w1),
-                            _mm256_sign_epi8(x1, w1),
-                        ),
+                        _mm256_maddubs_epi16(_mm256_abs_epi8(w1), _mm256_sign_epi8(x1, w1)),
                         ones,
                     ),
                     _mm256_madd_epi16(
-                        _mm256_maddubs_epi16(
-                            _mm256_abs_epi8(w2),
-                            _mm256_sign_epi8(x2, w2),
-                        ),
+                        _mm256_maddubs_epi16(_mm256_abs_epi8(w2), _mm256_sign_epi8(x2, w2)),
                         ones,
                     ),
                     _mm256_madd_epi16(
-                        _mm256_maddubs_epi16(
-                            _mm256_abs_epi8(w3),
-                            _mm256_sign_epi8(x3, w3),
-                        ),
+                        _mm256_maddubs_epi16(_mm256_abs_epi8(w3), _mm256_sign_epi8(x3, w3)),
                         ones,
                     ),
                 );
@@ -189,9 +196,15 @@ unsafe fn afold(w: &[u8], qs: &[Q], a: &[i64; K], acc: &mut [i128]) {
             let off = blk * 34;
             let ds = [
                 f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off).cast()), 0) as u16),
-                f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off + 34).cast()), 0) as u16),
-                f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off + 68).cast()), 0) as u16),
-                f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off + 102).cast()), 0) as u16),
+                f16_to_fixed(
+                    _mm_extract_epi16(_mm_loadu_si128(row.add(off + 34).cast()), 0) as u16,
+                ),
+                f16_to_fixed(
+                    _mm_extract_epi16(_mm_loadu_si128(row.add(off + 68).cast()), 0) as u16,
+                ),
+                f16_to_fixed(
+                    _mm_extract_epi16(_mm_loadu_si128(row.add(off + 102).cast()), 0) as u16,
+                ),
             ];
             let w0 = _mm256_loadu_si256(row.add(off + 2).cast());
             let w1 = _mm256_loadu_si256(row.add(off + 36).cast());
@@ -229,7 +242,6 @@ unsafe fn afold(w: &[u8], qs: &[Q], a: &[i64; K], acc: &mut [i128]) {
     }
 }
 
-
 /// Per-block activation scale applied as a shift: `quant_act`'s scale is `2^k` by construction, so
 /// `S_b·dot_b` is the dot shifted and the multiplier port carries only the `D_b` product.
 #[target_feature(enable = "avx2")]
@@ -245,9 +257,15 @@ unsafe fn shift_k(w: &[u8], qs: &[Q], sh: &[[u32; BLOCKS]; K], acc: &mut [i128])
             let off = blk * 34;
             let ds = [
                 f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off).cast()), 0) as u16),
-                f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off + 34).cast()), 0) as u16),
-                f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off + 68).cast()), 0) as u16),
-                f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off + 102).cast()), 0) as u16),
+                f16_to_fixed(
+                    _mm_extract_epi16(_mm_loadu_si128(row.add(off + 34).cast()), 0) as u16,
+                ),
+                f16_to_fixed(
+                    _mm_extract_epi16(_mm_loadu_si128(row.add(off + 68).cast()), 0) as u16,
+                ),
+                f16_to_fixed(
+                    _mm_extract_epi16(_mm_loadu_si128(row.add(off + 102).cast()), 0) as u16,
+                ),
             ];
             let w0 = _mm256_loadu_si256(row.add(off + 2).cast());
             let w1 = _mm256_loadu_si256(row.add(off + 36).cast());
@@ -272,10 +290,7 @@ unsafe fn shift_k(w: &[u8], qs: &[Q], sh: &[[u32; BLOCKS]; K], acc: &mut [i128])
                     _mm256_madd_epi16(_mm256_maddubs_epi16(a3, _mm256_sign_epi8(x3, w3)), ones),
                 );
                 let h = _mm256_hadd_epi32(h01, h23);
-                let d = _mm_add_epi32(
-                    _mm256_castsi256_si128(h),
-                    _mm256_extracti128_si256::<1>(h),
-                );
+                let d = _mm_add_epi32(_mm256_castsi256_si128(h), _mm256_extracti128_si256::<1>(h));
                 let mut q = [0i32; 4];
                 _mm_storeu_si128(q.as_mut_ptr().cast(), d);
                 let s = sh[c].as_ptr().add(blk);
@@ -290,7 +305,6 @@ unsafe fn shift_k(w: &[u8], qs: &[Q], sh: &[[u32; BLOCKS]; K], acc: &mut [i128])
         acc[..K].copy_from_slice(&v);
     }
 }
-
 
 fn f16_split(h: u16) -> Option<(i32, u32)> {
     let e = u32::from((h >> 10) & 0x1f);
@@ -370,10 +384,7 @@ unsafe fn shiftlane(
                     _mm256_madd_epi16(_mm256_maddubs_epi16(a3, _mm256_sign_epi8(x3, w3)), ones),
                 );
                 let h = _mm256_hadd_epi32(h01, h23);
-                let d = _mm_add_epi32(
-                    _mm256_castsi256_si128(h),
-                    _mm256_extracti128_si256::<1>(h),
-                );
+                let d = _mm_add_epi32(_mm256_castsi256_si128(h), _mm256_extracti128_si256::<1>(h));
                 let dv = _mm256_cvtepi32_epi64(d);
                 let p = _mm256_mul_epi32(dv, mvv);
                 let cs = _mm256_loadu_si256(col_shift[c].as_ptr().add(blk).cast());
@@ -382,6 +393,229 @@ unsafe fn shiftlane(
                 c += 1;
             }
             blk += 4;
+        }
+        let mut c = 0usize;
+        while c < K {
+            let lo = _mm256_castsi256_si128(v[c]);
+            let hi = _mm256_extracti128_si256::<1>(v[c]);
+            let s = _mm_add_epi64(lo, hi);
+            let s = _mm_add_epi64(s, _mm_unpackhi_epi64(s, s));
+            acc[c] = i128::from(_mm_cvtsi128_si64(s)) << (kmin + emin[c]);
+            c += 1;
+        }
+    }
+}
+
+/// The per-group split: only the row's smallest exponent is pre-scanned, and each four-block
+/// group derives its four mantissas and exponents in one 128-bit register before `vpmuldq`.
+/// The four strided scale words are loaded once per group; the split loop's 32 scalar calls and
+/// its two 32-entry stack arrays are gone.
+#[target_feature(enable = "avx2")]
+unsafe fn shiftlane2(
+    w: &[u8],
+    qs: &[Q],
+    col_shift: &[[i64; BLOCKS]; K],
+    emin: &[u32; K],
+    acc: &mut [i128],
+) {
+    let row_bytes = BLOCKS * 34;
+    let ones = _mm256_set1_epi16(1);
+    let codes: [*const i8; K] = std::array::from_fn(|c| qs[c].codes.as_ptr());
+    let e31 = _mm_set1_epi32(31);
+    let zero = _mm_setzero_si128();
+    let c400 = _mm_set1_epi32(0x400);
+    let c3ff = _mm_set1_epi32(0x3ff);
+    let c1f = _mm_set1_epi32(0x1f);
+    let c7 = _mm_set1_epi32(7);
+    let c8 = _mm_set1_epi32(8);
+    for r in 0..N_OUT {
+        let row = w.as_ptr().add(r * row_bytes);
+        // Only the exponent is needed before the groups: `k_min`.
+        let mut kmin = u32::MAX;
+        let mut b = 0usize;
+        while b < BLOCKS {
+            let word = u16::from_le_bytes([*row.add(b * 34), *row.add(b * 34 + 1)]);
+            let e = u32::from((word >> 10) & 0x1f);
+            let k = if e == 0 { 8 } else { e + 7 };
+            if k < kmin {
+                kmin = k;
+            }
+            b += 1;
+        }
+        let mut v = [_mm256_setzero_si256(); K];
+        let mut blk = 0usize;
+        while blk + 4 <= BLOCKS {
+            let off = blk * 34;
+            let words = _mm_set_epi32(
+                i32::from(u16::from_le_bytes([
+                    *row.add(off + 102),
+                    *row.add(off + 103),
+                ])),
+                i32::from(u16::from_le_bytes([*row.add(off + 68), *row.add(off + 69)])),
+                i32::from(u16::from_le_bytes([*row.add(off + 34), *row.add(off + 35)])),
+                i32::from(u16::from_le_bytes([*row.add(off), *row.add(off + 1)])),
+            );
+            let exp = _mm_and_si128(_mm_srli_epi32(words, 10), c1f);
+            let mant = _mm_and_si128(words, c3ff);
+            let sub = _mm_cmpeq_epi32(exp, zero);
+            let m = _mm_blendv_epi8(_mm_or_si128(mant, c400), mant, sub);
+            let k = _mm_blendv_epi8(_mm_add_epi32(exp, c7), c8, sub);
+            let sign = _mm_srai_epi32(_mm_slli_epi32(words, 16), 31);
+            let m = _mm_sub_epi32(_mm_xor_si128(m, sign), sign);
+            let mvv = _mm256_cvtepi32_epi64(m);
+            let rv = _mm256_cvtepi32_epi64(_mm_sub_epi32(k, _mm_set1_epi32(kmin as i32)));
+            let w0 = _mm256_loadu_si256(row.add(off + 2).cast());
+            let w1 = _mm256_loadu_si256(row.add(off + 36).cast());
+            let w2 = _mm256_loadu_si256(row.add(off + 70).cast());
+            let w3 = _mm256_loadu_si256(row.add(off + 104).cast());
+            let a0 = _mm256_abs_epi8(w0);
+            let a1 = _mm256_abs_epi8(w1);
+            let a2 = _mm256_abs_epi8(w2);
+            let a3 = _mm256_abs_epi8(w3);
+            let mut c = 0usize;
+            while c < K {
+                let x0 = _mm256_loadu_si256(codes[c].add(blk * 32).cast());
+                let x1 = _mm256_loadu_si256(codes[c].add(blk * 32 + 32).cast());
+                let x2 = _mm256_loadu_si256(codes[c].add(blk * 32 + 64).cast());
+                let x3 = _mm256_loadu_si256(codes[c].add(blk * 32 + 96).cast());
+                let h01 = _mm256_hadd_epi32(
+                    _mm256_madd_epi16(_mm256_maddubs_epi16(a0, _mm256_sign_epi8(x0, w0)), ones),
+                    _mm256_madd_epi16(_mm256_maddubs_epi16(a1, _mm256_sign_epi8(x1, w1)), ones),
+                );
+                let h23 = _mm256_hadd_epi32(
+                    _mm256_madd_epi16(_mm256_maddubs_epi16(a2, _mm256_sign_epi8(x2, w2)), ones),
+                    _mm256_madd_epi16(_mm256_maddubs_epi16(a3, _mm256_sign_epi8(x3, w3)), ones),
+                );
+                let h = _mm256_hadd_epi32(h01, h23);
+                let d = _mm_add_epi32(_mm256_castsi256_si128(h), _mm256_extracti128_si256::<1>(h));
+                let dv = _mm256_cvtepi32_epi64(d);
+                let p = _mm256_mul_epi32(dv, mvv);
+                let cs = _mm256_loadu_si256(col_shift[c].as_ptr().add(blk).cast());
+                let s = _mm256_add_epi64(rv, cs);
+                v[c] = _mm256_add_epi64(v[c], _mm256_sllv_epi64(p, s));
+                c += 1;
+            }
+            blk += 4;
+        }
+        let mut tail = [0i128; K];
+        while blk < BLOCKS {
+            let word = u16::from_le_bytes([*row.add(blk * 34), *row.add(blk * 34 + 1)]);
+            let (m, k) = f16_split(word).unwrap();
+            let mut c = 0usize;
+            while c < K {
+                let dot = hsum8(dot32(
+                    _mm256_loadu_si256(row.add(blk * 34 + 2).cast()),
+                    _mm256_loadu_si256(codes[c].add(blk * 32).cast()),
+                ));
+                let sh = (k - kmin) as u32 + u32::try_from(col_shift[c][blk]).unwrap();
+                tail[c] += i128::from(m) * i128::from(dot) << sh;
+                c += 1;
+            }
+            blk += 1;
+        }
+        let mut c = 0usize;
+        while c < K {
+            let lo = _mm256_castsi256_si128(v[c]);
+            let hi = _mm256_extracti128_si256::<1>(v[c]);
+            let s = _mm_add_epi64(lo, hi);
+            let s = _mm_add_epi64(s, _mm_unpackhi_epi64(s, s));
+            let lanes = i128::from(_mm_cvtsi128_si64(s)) + tail[c];
+            acc[c] = lanes << (kmin + emin[c]);
+            c += 1;
+        }
+    }
+}
+
+#[target_feature(enable = "avx2")]
+unsafe fn hsum8(v: __m256i) -> i32 {
+    let lo = _mm256_castsi256_si128(v);
+    let hi = _mm256_extracti128_si256::<1>(v);
+    let s = _mm_add_epi32(lo, hi);
+    let s = _mm_add_epi32(s, _mm_shuffle_epi32::<0x4e>(s));
+    let s = _mm_add_epi32(s, _mm_shuffle_epi32::<0xb1>(s));
+    _mm_cvtsi128_si32(s)
+}
+
+/// Eight columns as two four-column passes over the same row: four lane accumulators instead
+/// of eight, so the weight group, its abs vectors and the scale split fit the register file.
+/// The row stays in L1 between the passes, so the second pass costs L1 loads, not DRAM.
+#[target_feature(enable = "avx2")]
+unsafe fn shiftlane42(
+    w: &[u8],
+    qs: &[Q],
+    col_shift: &[[i64; BLOCKS]; K],
+    emin: &[u32; K],
+    acc: &mut [i128],
+) {
+    let row_bytes = BLOCKS * 34;
+    let ones = _mm256_set1_epi16(1);
+    let codes: [*const i8; K] = std::array::from_fn(|c| qs[c].codes.as_ptr());
+    for r in 0..N_OUT {
+        let row = w.as_ptr().add(r * row_bytes);
+        let mut mv = [0i32; BLOCKS];
+        let mut kk = [0u32; BLOCKS];
+        for b in 0..BLOCKS {
+            let word = u16::from_le_bytes([*row.add(b * 34), *row.add(b * 34 + 1)]);
+            let (m, k) = f16_split(word).unwrap();
+            mv[b] = m;
+            kk[b] = k;
+        }
+        let kmin = *kk.iter().min().unwrap();
+        let mut v = [_mm256_setzero_si256(); K];
+        let mut half = 0usize;
+        while half < 2 {
+            let lo = half * 4;
+            let hi = lo + 4;
+            let mut blk = 0usize;
+            while blk + 4 <= BLOCKS {
+                let off = blk * 34;
+                let w0 = _mm256_loadu_si256(row.add(off + 2).cast());
+                let w1 = _mm256_loadu_si256(row.add(off + 36).cast());
+                let w2 = _mm256_loadu_si256(row.add(off + 70).cast());
+                let w3 = _mm256_loadu_si256(row.add(off + 104).cast());
+                let a0 = _mm256_abs_epi8(w0);
+                let a1 = _mm256_abs_epi8(w1);
+                let a2 = _mm256_abs_epi8(w2);
+                let a3 = _mm256_abs_epi8(w3);
+                let mvv = _mm256_cvtepi32_epi64(_mm_set_epi32(
+                    mv[blk + 3],
+                    mv[blk + 2],
+                    mv[blk + 1],
+                    mv[blk],
+                ));
+                let rv = _mm256_cvtepi32_epi64(_mm_set_epi32(
+                    (kk[blk + 3] - kmin) as i32,
+                    (kk[blk + 2] - kmin) as i32,
+                    (kk[blk + 1] - kmin) as i32,
+                    (kk[blk] - kmin) as i32,
+                ));
+                let mut c = lo;
+                while c < hi {
+                    let x0 = _mm256_loadu_si256(codes[c].add(blk * 32).cast());
+                    let x1 = _mm256_loadu_si256(codes[c].add(blk * 32 + 32).cast());
+                    let x2 = _mm256_loadu_si256(codes[c].add(blk * 32 + 64).cast());
+                    let x3 = _mm256_loadu_si256(codes[c].add(blk * 32 + 96).cast());
+                    let h01 = _mm256_hadd_epi32(
+                        _mm256_madd_epi16(_mm256_maddubs_epi16(a0, _mm256_sign_epi8(x0, w0)), ones),
+                        _mm256_madd_epi16(_mm256_maddubs_epi16(a1, _mm256_sign_epi8(x1, w1)), ones),
+                    );
+                    let h23 = _mm256_hadd_epi32(
+                        _mm256_madd_epi16(_mm256_maddubs_epi16(a2, _mm256_sign_epi8(x2, w2)), ones),
+                        _mm256_madd_epi16(_mm256_maddubs_epi16(a3, _mm256_sign_epi8(x3, w3)), ones),
+                    );
+                    let h = _mm256_hadd_epi32(h01, h23);
+                    let d =
+                        _mm_add_epi32(_mm256_castsi256_si128(h), _mm256_extracti128_si256::<1>(h));
+                    let dv = _mm256_cvtepi32_epi64(d);
+                    let p = _mm256_mul_epi32(dv, mvv);
+                    let cs = _mm256_loadu_si256(col_shift[c].as_ptr().add(blk).cast());
+                    let s = _mm256_add_epi64(rv, cs);
+                    v[c] = _mm256_add_epi64(v[c], _mm256_sllv_epi64(p, s));
+                    c += 1;
+                }
+                blk += 4;
+            }
+            half += 1;
         }
         let mut c = 0usize;
         while c < K {
@@ -455,7 +689,11 @@ fn main() {
     let mut col_shift = [[0i64; BLOCKS]; K];
     let mut emin = [0u32; K];
     for c in 0..K {
-        let e: Vec<u32> = qs[c].scales.iter().map(|s| u64::from(*s as u64).trailing_zeros()).collect();
+        let e: Vec<u32> = qs[c]
+            .scales
+            .iter()
+            .map(|s| u64::from(*s as u64).trailing_zeros())
+            .collect();
         let m = *e.iter().min().unwrap();
         emin[c] = m;
         for b in 0..BLOCKS {
@@ -464,6 +702,14 @@ fn main() {
     }
     let (f4, c4) = run("shlane", |acc| unsafe {
         shiftlane(&w, &qs, &col_shift, &emin, acc);
+        checksum(acc)
+    });
+    let (f5, c5) = run("shlane2", |acc| unsafe {
+        shiftlane2(&w, &qs, &col_shift, &emin, acc);
+        checksum(acc)
+    });
+    let (f6, c6) = run("shlane42", |acc| unsafe {
+        shiftlane42(&w, &qs, &col_shift, &emin, acc);
         checksum(acc)
     });
     let (f3, c3) = run("shift", |acc| unsafe {
@@ -475,22 +721,20 @@ fn main() {
         checksum(acc)
     });
     eprintln!(
-        "exact: dyn={} afold={} afold64={} shift={} shlane={}",
+        "exact: dyn={} afold={} afold64={} shift={} shlane={} shlane2={} shlane42={}",
         c0 == ref_cs,
         c1 == ref_cs,
         c2 == ref_cs,
         c3 == ref_cs,
-        c4 == ref_cs
+        c4 == ref_cs,
+        c5 == ref_cs,
+        c6 == ref_cs
     );
     let (dd, _) = run("dyn1", |acc| unsafe {
         dyn_k(&w, &qs, 1, &mut acc[..1]);
         checksum(&acc[..1])
     });
-    eprintln!(
-        "afold speedup {:.2}x; k=1 floor {:.3} ms",
-        d / f,
-        dd
-    );
+    eprintln!("afold speedup {:.2}x; k=1 floor {:.3} ms", d / f, dd);
 }
 
 /// Vector epilogue: the four block dots sign-extend to i64 lanes, one `vpmuldq` forms the four
@@ -513,9 +757,15 @@ unsafe fn afold64(w: &[u8], qs: &[Q], a: &[i64; K], acc: &mut [i128]) {
             let off = blk * 34;
             let ds = [
                 f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off).cast()), 0) as u16),
-                f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off + 34).cast()), 0) as u16),
-                f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off + 68).cast()), 0) as u16),
-                f16_to_fixed(_mm_extract_epi16(_mm_loadu_si128(row.add(off + 102).cast()), 0) as u16),
+                f16_to_fixed(
+                    _mm_extract_epi16(_mm_loadu_si128(row.add(off + 34).cast()), 0) as u16,
+                ),
+                f16_to_fixed(
+                    _mm_extract_epi16(_mm_loadu_si128(row.add(off + 68).cast()), 0) as u16,
+                ),
+                f16_to_fixed(
+                    _mm_extract_epi16(_mm_loadu_si128(row.add(off + 102).cast()), 0) as u16,
+                ),
             ];
             let sv = _mm256_cvtepi32_epi64(_mm_set_epi32(
                 ds[3] as i32,
@@ -546,10 +796,7 @@ unsafe fn afold64(w: &[u8], qs: &[Q], a: &[i64; K], acc: &mut [i128]) {
                     _mm256_madd_epi16(_mm256_maddubs_epi16(a3, _mm256_sign_epi8(x3, w3)), ones),
                 );
                 let h = _mm256_hadd_epi32(h01, h23);
-                let d = _mm_add_epi32(
-                    _mm256_castsi256_si128(h),
-                    _mm256_extracti128_si256::<1>(h),
-                );
+                let d = _mm_add_epi32(_mm256_castsi256_si128(h), _mm256_extracti128_si256::<1>(h));
                 let dv = _mm256_cvtepi32_epi64(d);
                 v[c] = _mm256_add_epi64(v[c], _mm256_mul_epi32(dv, sv));
                 c += 1;
