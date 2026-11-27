@@ -511,8 +511,11 @@ fn code_sign_dot_twin(
 /// `i32` and whose total fits `i64`, and refuses the rest, so the reader is exact over its whole
 /// domain rather than truncated.
 struct CodeTerms<'a> {
-    /// The int8 codes, one per activation element.
-    codes: &'a [i8],
+    /// The int8 codes, one per activation element, zero-padded to a whole 32-wide block so the
+    /// vector bodies fold the final partial block instead of a scalar tail on every row.
+    codes: Vec<i8>,
+    /// The unpadded activation length.
+    n: usize,
     /// The verbatim per-block scale, the scalar dispatch's input.
     scales: &'a [i64],
     /// `e_b − e_min` broadcast to eight lanes per block: the vector body loads this once per block
@@ -592,12 +595,18 @@ impl<'a> CodeTerms<'a> {
     /// smallest exponent, then the shifts and the two lane bounds) and one vector pass over the
     /// codes for the total.
     fn new(q: &'a QuantAct) -> Option<Self> {
-        let codes = q.codes();
+        let raw = q.codes();
         let scales = q.scales();
-        let blocks = codes.len().div_ceil(32);
+        let blocks = raw.len().div_ceil(32);
         if scales.len() < blocks {
             return None;
         }
+        // The last block is zero-padded past the activation length: the selector over its padding
+        // bits then multiplies zero, so the vector body's block count is `ceil(n/32)` and no row
+        // pays a scalar tail.
+        let mut codes: Vec<i8> = Vec::with_capacity(blocks * 32);
+        codes.extend_from_slice(raw);
+        codes.resize(blocks * 32, 0);
         let mut e_min = u32::MAX;
         let mut b = 0usize;
         while b < blocks {
@@ -645,21 +654,24 @@ impl<'a> CodeTerms<'a> {
         let vector = false;
         // The dequantized total is the selector over every bit set: one vector pass over the codes
         // rather than a scalar walk, and exactly the body each output row then runs. The bounds
-        // above make it exact, so its own tail and shift agree with the twin.
+        // above make it exact, so its own shift agrees with the twin.
         let ones = vec![u32::MAX; blocks];
         #[cfg(target_arch = "x86_64")]
         let sum = if vector {
-            // SAFETY: `vector` names AVX2; `codes.len()` covers the terms, `ones` covers every
-            // block bit, `shift_vecs` covers `blocks` (checked above), and the lane bound above
-            // keeps every lane sum inside `i32` with the total inside `i64`.
-            unsafe { code_select_avx2(codes, scales, &shift_vecs, e_min, &ones, codes.len())? }
+            // SAFETY: `vector` names AVX2; `codes` covers `blocks·32 = ceil(n/32)·32` bytes with
+            // zeros past `raw.len()`, `ones` covers every block bit, `shift_vecs` covers `blocks`
+            // (checked above), and the lane bound above keeps every lane sum inside `i32` with the
+            // total inside `i64`.
+            unsafe { code_select_avx2(&codes, scales, &shift_vecs, e_min, &ones, raw.len())? }
         } else {
-            i64::try_from(code_select_twin(codes, scales, &ones, codes.len())).ok()?
+            i64::try_from(code_select_twin(codes.as_slice(), scales, &ones, raw.len())).ok()?
         };
         #[cfg(not(target_arch = "x86_64"))]
-        let sum = i64::try_from(code_select_twin(codes, scales, &ones, codes.len())).ok()?;
+        let sum =
+            i64::try_from(code_select_twin(codes.as_slice(), scales, &ones, raw.len())).ok()?;
         Some(Self {
             codes,
+            n: raw.len(),
             scales,
             shift_vecs,
             e_min,
@@ -673,7 +685,7 @@ impl<'a> CodeTerms<'a> {
     /// `None` when a caller's length is outside this reader (the caller then keeps the exact
     /// form). The sign dot is `sum − 2·selected`.
     fn selected(&self, words: &[u32], len: usize) -> Option<i64> {
-        if len > self.codes.len() || words.len() < len.div_ceil(32) {
+        if len > self.n || words.len() < len.div_ceil(32) {
             return None;
         }
         #[cfg(target_arch = "x86_64")]
@@ -683,7 +695,7 @@ impl<'a> CodeTerms<'a> {
             // `CodeTerms::new` admitted only a lane sum inside `i32` and a total inside `i64`.
             return unsafe {
                 code_select_avx2(
-                    self.codes,
+                    &self.codes,
                     self.scales,
                     &self.shift_vecs,
                     self.e_min,
@@ -692,7 +704,13 @@ impl<'a> CodeTerms<'a> {
                 )
             };
         }
-        i64::try_from(code_select_twin(self.codes, self.scales, words, len)).ok()
+        i64::try_from(code_select_twin(
+            &self.codes[..self.n],
+            self.scales,
+            words,
+            len,
+        ))
+        .ok()
     }
 
     /// The quantized selection of `rows` factor rows against this activation: row `r` reads
@@ -713,7 +731,10 @@ impl<'a> CodeTerms<'a> {
         out: &mut [i64],
     ) -> bool {
         let blocks = len.div_ceil(32);
-        if len > self.codes.len() || self.shift_vecs.len() < blocks || stride < blocks {
+        if self.codes.len() < blocks.saturating_mul(32)
+            || self.shift_vecs.len() < blocks
+            || stride < blocks
+        {
             return false;
         }
         let Some(span) = rows.checked_mul(stride) else {
@@ -729,7 +750,7 @@ impl<'a> CodeTerms<'a> {
             // admitted only a lane sum inside `i32` and a total inside `i64`, per row.
             if unsafe {
                 code_select_rows_avx2(
-                    self.codes,
+                    &self.codes,
                     self.scales,
                     &self.shift_vecs,
                     self.e_min,
@@ -745,7 +766,7 @@ impl<'a> CodeTerms<'a> {
                 return true;
             }
         }
-        code_select_rows_twin(self.codes, self.scales, words, stride, rows, len, out)
+        code_select_rows_twin(&self.codes, self.scales, words, stride, rows, len, out)
     }
 
     /// The same domain check as [`CodeTerms::selected_rows`] for `rows` rows written to an output
@@ -772,7 +793,7 @@ impl<'a> CodeTerms<'a> {
     /// This reader as the wide column tile's per-column input.
     fn col_ref(&self) -> ColRef<'_> {
         ColRef {
-            codes: self.codes,
+            codes: &self.codes,
             scales: self.scales,
             shift_vecs: &self.shift_vecs,
             e_min: self.e_min,
@@ -803,7 +824,10 @@ impl<'a> CodeTerms<'a> {
         let mut c = 0usize;
         while c < 8 {
             let col = &cols[c];
-            if len > col.codes.len() || col.shift_vecs.len() < blocks || col.scales.len() < blocks {
+            if col.codes.len() < blocks.saturating_mul(32)
+                || col.shift_vecs.len() < blocks
+                || col.scales.len() < blocks
+            {
                 return false;
             }
             c += 1;
@@ -812,9 +836,11 @@ impl<'a> CodeTerms<'a> {
     }
 
     /// The wide tile's entry, with the columns' admission already established by its caller: the
-    /// caller checked `len <= codes.len()`, `shift_vecs.len() >= ⌈len/32⌉` and `scales.len() >=
-    /// ⌈len/32⌉` for every column when it assembled the group. The word span is the one bound
-    /// that changes from row to row, so it stays here.
+    /// caller checked `codes.len() >= 32·⌈len/32⌉` (the reader's zero-padded plane),
+    /// `shift_vecs.len() >= ⌈len/32⌉` and `scales.len() >= ⌈len/32⌉` for every column when it
+    /// assembled the group. The word span is the one bound that changes from row to row, so it
+    /// stays here. This entry runs once per output row: re-reading eight columns' lengths here
+    /// cost 8.3 G instructions over the 1,827-token prefill (380.2 → 371.9 G).
     ///
     /// The wide tile calls this once per output row; re-checking eight columns' three fixed
     /// lengths there cost 8.3 G instructions over the 1,827-token prefill (380.2 → 371.9 G),
@@ -901,11 +927,11 @@ impl<'a> CodeTerms<'a> {
             // `i32` and a total inside `i64`, per column and per row.
             if unsafe {
                 code_select_rows2_avx2(
-                    self.codes,
+                    &self.codes,
                     self.scales,
                     &self.shift_vecs,
                     self.e_min,
-                    other.codes,
+                    &other.codes,
                     other.scales,
                     &other.shift_vecs,
                     other.e_min,
@@ -922,8 +948,8 @@ impl<'a> CodeTerms<'a> {
                 return true;
             }
         }
-        code_select_rows_twin(self.codes, self.scales, words, stride, rows, len, out_a)
-            && code_select_rows_twin(other.codes, other.scales, words, stride, rows, len, out_b)
+        code_select_rows_twin(&self.codes, self.scales, words, stride, rows, len, out_a)
+            && code_select_rows_twin(&other.codes, other.scales, words, stride, rows, len, out_b)
     }
 }
 
@@ -1079,7 +1105,7 @@ impl TernaryTerms {
 )]
 unsafe fn code_select_avx2(
     codes: &[i8],
-    scales: &[i64],
+    _scales: &[i64],
     shift_vecs: &[[i32; 8]],
     e_min: u32,
     words: &[u32],
@@ -1093,8 +1119,8 @@ unsafe fn code_select_avx2(
         _mm256_shuffle_epi8, _mm256_sllv_epi32, _mm256_srlv_epi32, _mm_add_epi64,
         _mm_cvtsi128_si64, _mm_unpackhi_epi64,
     };
-    let full = len / 32;
-    if words.len() < full || shift_vecs.len() < full {
+    let blocks = len.div_ceil(32);
+    if codes.len() < blocks * 32 || words.len() < blocks || shift_vecs.len() < blocks {
         return None;
     }
     let digit_mask = _mm256_set1_epi32(0x0804_0201);
@@ -1108,12 +1134,12 @@ unsafe fn code_select_avx2(
     let mut acc = _mm256_setzero_si256();
     // The full blocks iterate as three exact-length zips: no per-block bounds check, no `Option`,
     // no scalar `try_from`, and the shift arrives as one load rather than a port-5 broadcast.
-    for ((chunk, &word), shift) in codes[..full * 32]
+    for ((chunk, &word), shift) in codes[..blocks * 32]
         .as_chunks::<32>()
         .0
         .iter()
-        .zip(&words[..full])
-        .zip(&shift_vecs[..full])
+        .zip(&words[..blocks])
+        .zip(&shift_vecs[..blocks])
     {
         let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
         let nibble = _mm256_shuffle_epi8(spread, repeat);
@@ -1136,14 +1162,7 @@ unsafe fn code_select_avx2(
     );
     let half = _mm_add_epi64(half, _mm_unpackhi_epi64(half, half));
     let norm = _mm_cvtsi128_si64(half);
-    let mut total = i128::from(norm) << e_min;
-    let tail = full * 32;
-    if tail < len {
-        // The partial block starts at `tail`; its bits past `len` are padding. The full blocks'
-        // scales were normalized by `e_min`, the tail keeps its own scales.
-        total += code_select_twin(&codes[tail..], &scales[full..], &words[full..], len - tail);
-    }
-    i64::try_from(total).ok()
+    i64::try_from(i128::from(norm) << e_min).ok()
 }
 
 /// The largest factor-row block one column read folds: two `__m256i` accumulators per row (one
@@ -1450,7 +1469,7 @@ fn code_select_rows_twin(
 )]
 unsafe fn code_select_block_avx2<const R: usize>(
     codes: &[i8],
-    scales: &[i64],
+    _scales: &[i64],
     shift_vecs: &[[i32; 8]],
     e_min: u32,
     words: &[u32],
@@ -1466,9 +1485,13 @@ unsafe fn code_select_block_avx2<const R: usize>(
         _mm256_shuffle_epi8, _mm256_sllv_epi32, _mm256_srlv_epi32, _mm_add_epi64,
         _mm_cvtsi128_si64, _mm_unpackhi_epi64,
     };
-    let full = len / 32;
+    let blocks = len.div_ceil(32);
     // The caller's span check, repeated so the row loads below need no per-block bounds test.
-    if R.checked_mul(stride)? > words.len() || out.len() < R {
+    if codes.len() < blocks * 32
+        || stride < blocks
+        || R.checked_mul(stride)? > words.len()
+        || out.len() < R
+    {
         return None;
     }
     let digit_mask = _mm256_set1_epi32(0x0804_0201);
@@ -1481,9 +1504,9 @@ unsafe fn code_select_block_avx2<const R: usize>(
     let ones = _mm256_set1_epi16(1);
     let mut acc = [_mm256_setzero_si256(); R];
     let mut b = 0usize;
-    while b < full {
-        // SAFETY: `b < full <= codes.len()/32` and `b < full <= shift_vecs.len()`, so both loads
-        // read inside their own block.
+    while b < blocks {
+        // SAFETY: `b < blocks = ceil(len/32)`, `codes` covers `blocks·32` bytes with zeros past
+        // `len`, and `shift_vecs` covers every block, so both loads read inside their own block.
         let plane = unsafe { _mm256_loadu_si256(codes.as_ptr().add(b * 32).cast::<__m256i>()) };
         let sv = unsafe { _mm256_loadu_si256(shift_vecs.as_ptr().add(b).cast::<__m256i>()) };
         let mut r = 0usize;
@@ -1503,7 +1526,6 @@ unsafe fn code_select_block_avx2<const R: usize>(
         }
         b += 1;
     }
-    let tail = full * 32;
     let mut r = 0usize;
     while r < R {
         let lane = acc[r];
@@ -1515,18 +1537,7 @@ unsafe fn code_select_block_avx2<const R: usize>(
             _mm256_extracti128_si256::<1>(quad),
         );
         let half = _mm_add_epi64(half, _mm_unpackhi_epi64(half, half));
-        let mut total = i128::from(_mm_cvtsi128_si64(half)) << e_min;
-        if tail < len {
-            // The partial block starts at `tail`, a multiple of 32; its bits past `len` are
-            // padding, and the full blocks were folded above.
-            total += code_select_twin(
-                &codes[tail..],
-                &scales[full..],
-                &words[r * stride + full..],
-                len - tail,
-            );
-        }
-        out[r] = i64::try_from(total).ok()?;
+        out[r] = i64::try_from(i128::from(_mm_cvtsi128_si64(half)) << e_min).ok()?;
         r += 1;
     }
     Some(())
@@ -1655,7 +1666,7 @@ unsafe fn code_select_row_c_avx2<const C: usize>(
         _mm256_set1_epi32, _mm256_set1_epi8, _mm256_setr_epi32, _mm256_setr_epi8,
         _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_sllv_epi32, _mm256_srlv_epi32,
     };
-    let full = len / 32;
+    let blocks = len.div_ceil(32);
     let digit_mask = _mm256_set1_epi32(0x0804_0201);
     let bit_at = _mm256_setr_epi32(0, 4, 8, 12, 16, 20, 24, 28);
     let repeat = _mm256_setr_epi8(
@@ -1668,20 +1679,20 @@ unsafe fn code_select_row_c_avx2<const C: usize>(
     // A run of equal scales: fold its block pair sums in `i16` and shift once. `uniform_group`
     // gave every column the same run and `2·127·group ≤ 32767`; a `group` of one leaves the
     // per-block loop below untouched.
-    let run = if group >= 2 && group <= full {
+    let run = if group >= 2 && group <= blocks {
         group
     } else {
         1
     };
     let mut b = 0usize;
-    if run >= 2 && run == full {
+    if run >= 2 && run == blocks {
         // One run covers the whole row: every `len` term shares one scale, so eight `i16` pair
         // accumulators carry the row and one shift per column lands it in `acc`. That is the whole
         // register file the row needs, so nothing spills; the two-set form below (a `pair` set and
         // the `acc` set live together) costs a store and a load per column and block when the run
         // does not cover the row, which is what the widths past 1,024 pay.
         let mut pair = [_mm256_setzero_si256(); C];
-        while b < full {
+        while b < blocks {
             let word = words[b];
             let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
             let nibble = _mm256_shuffle_epi8(spread, repeat);
@@ -1709,7 +1720,7 @@ unsafe fn code_select_row_c_avx2<const C: usize>(
         }
     }
     if run >= 2 {
-        while b + run <= full {
+        while b + run <= blocks {
             let mut pair = [_mm256_setzero_si256(); C];
             let mut k = 0usize;
             while k < run {
@@ -1745,7 +1756,7 @@ unsafe fn code_select_row_c_avx2<const C: usize>(
             b += run;
         }
     }
-    while b < full {
+    while b < blocks {
         let word = words[b];
         let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
         let nibble = _mm256_shuffle_epi8(spread, repeat);
@@ -1765,27 +1776,14 @@ unsafe fn code_select_row_c_avx2<const C: usize>(
         }
         b += 1;
     }
-    let tail = full * 32;
     let mut c = 0usize;
     while c < C {
         // SAFETY: AVX2 is the caller's contract; the lane bound makes the fold exact.
         let lanes = unsafe { lane_sum(acc[c]) };
-        // `lanes · 2^e_min` is the column's selection over the full blocks in dequantized units.
+        // `lanes · 2^e_min` is the column's selection over every block in dequantized units.
         // `CodeTerms::new` bounded one column's whole dequantized total by `i64`
-        // (`scale_sum·4064 ≤ i64::MAX`), so `e_min < 64` and the shift is exact; the tail keeps
-        // its own scales and is added after it.
-        let mut selected = lanes.wrapping_shl(cols[c].e_min);
-        if tail < len {
-            selected = selected.checked_add(
-                i64::try_from(code_select_twin(
-                    &cols[c].codes[tail..],
-                    &cols[c].scales[full..],
-                    &words[full..],
-                    len - tail,
-                ))
-                .ok()?,
-            )?;
-        }
+        // (`scale_sum·4064 ≤ i64::MAX`), so `e_min < 64` and the shift is exact.
+        let selected = lanes.wrapping_shl(cols[c].e_min);
         out[c] = cols[c].sum.checked_sub(selected.checked_mul(2)?)?;
         c += 1;
     }
@@ -1816,11 +1814,11 @@ unsafe fn code_select_row_c_avx2<const C: usize>(
 )]
 unsafe fn code_select_block2_avx2<const R: usize>(
     codes_a: &[i8],
-    scales_a: &[i64],
+    _scales_a: &[i64],
     shift_a: &[[i32; 8]],
     e_min_a: u32,
     codes_b: &[i8],
-    scales_b: &[i64],
+    _scales_b: &[i64],
     shift_b: &[[i32; 8]],
     e_min_b: u32,
     words: &[u32],
@@ -1835,7 +1833,18 @@ unsafe fn code_select_block2_avx2<const R: usize>(
         _mm256_set1_epi8, _mm256_setr_epi32, _mm256_setr_epi8, _mm256_setzero_si256,
         _mm256_shuffle_epi8, _mm256_sllv_epi32, _mm256_srlv_epi32,
     };
-    let full = len / 32;
+    let blocks = len.div_ceil(32);
+    if codes_a.len() < blocks * 32
+        || codes_b.len() < blocks * 32
+        || shift_a.len() < blocks
+        || shift_b.len() < blocks
+        || stride < blocks
+        || R.checked_mul(stride)? > words.len()
+        || out_a.len() < R
+        || out_b.len() < R
+    {
+        return None;
+    }
     let digit_mask = _mm256_set1_epi32(0x0804_0201);
     let bit_at = _mm256_setr_epi32(0, 4, 8, 12, 16, 20, 24, 28);
     let repeat = _mm256_setr_epi8(
@@ -1847,9 +1856,9 @@ unsafe fn code_select_block2_avx2<const R: usize>(
     let mut acc_a = [_mm256_setzero_si256(); R];
     let mut acc_b = [_mm256_setzero_si256(); R];
     let mut b = 0usize;
-    while b < full {
-        // SAFETY: `b < full` and the caller's per-column bounds cover both codes arrays and both
-        // shift arrays at this block.
+    while b < blocks {
+        // SAFETY: `b < blocks = ceil(len/32)`; the check above covers both codes arrays (`blocks·32`
+        // bytes each, zeros past `len`), both shift arrays and the word stride.
         let plane_a = unsafe { _mm256_loadu_si256(codes_a.as_ptr().add(b * 32).cast::<__m256i>()) };
         let plane_b = unsafe { _mm256_loadu_si256(codes_b.as_ptr().add(b * 32).cast::<__m256i>()) };
         let sv_a = unsafe { _mm256_loadu_si256(shift_a.as_ptr().add(b).cast::<__m256i>()) };
@@ -1871,26 +1880,11 @@ unsafe fn code_select_block2_avx2<const R: usize>(
         }
         b += 1;
     }
-    let tail = full * 32;
     let mut r = 0usize;
     while r < R {
         // SAFETY: AVX2 is the caller's contract; the lane bound makes each sum exact.
-        let mut total_a = i128::from(unsafe { lane_sum(acc_a[r]) }) << e_min_a;
-        let mut total_b = i128::from(unsafe { lane_sum(acc_b[r]) }) << e_min_b;
-        if tail < len {
-            total_a += code_select_twin(
-                &codes_a[tail..],
-                &scales_a[full..],
-                &words[r * stride + full..],
-                len - tail,
-            );
-            total_b += code_select_twin(
-                &codes_b[tail..],
-                &scales_b[full..],
-                &words[r * stride + full..],
-                len - tail,
-            );
-        }
+        let total_a = i128::from(unsafe { lane_sum(acc_a[r]) }) << e_min_a;
+        let total_b = i128::from(unsafe { lane_sum(acc_b[r]) }) << e_min_b;
         out_a[r] = i64::try_from(total_a).ok()?;
         out_b[r] = i64::try_from(total_b).ok()?;
         r += 1;
@@ -2098,7 +2092,10 @@ impl Stage<'_> {
                 return None;
             };
             let col = codes.col_ref();
-            if len > col.codes.len() || col.shift_vecs.len() < blocks || col.scales.len() < blocks {
+            if col.codes.len() < blocks.saturating_mul(32)
+                || col.shift_vecs.len() < blocks
+                || col.scales.len() < blocks
+            {
                 return None;
             }
             cols[c] = col;
@@ -4109,7 +4106,7 @@ mod tests {
 
     /// The value the wide tile returns for one column, from the kernel's safe twin.
     fn sign_dot_of(terms: &CodeTerms<'_>, words: &[u32], len: usize) -> i64 {
-        code_sign_dot_twin(terms.codes, terms.scales, words, len, terms.sum)
+        code_sign_dot_twin(&terms.codes, terms.scales, words, len, terms.sum)
             .expect("the fixture's sign dot fits i64")
     }
 
@@ -4197,7 +4194,8 @@ mod tests {
         if !std::arch::is_x86_feature_detected!("avx2") {
             return;
         }
-        let codes = [-1i8];
+        let mut codes = [0i8; 32];
+        codes[0] = -1;
         let scales = [1i64];
         let shift_vecs = [[0i32; 8]];
         let words = [1u32];
@@ -4470,6 +4468,10 @@ mod tests {
             NQ_TILE_COLS * width,
             NQ_TILE_COLS * width + 1,
         ] {
+            // The pair refuses a verify-pass width: one column per column-band task reads both
+            // factor planes once per column and puts the SwiGLU epilogue on the critical path
+            // (`bench/cpu/1795767214-nq-pair-refusal.md`). The separate path below is the route.
+            let refused = k <= NQ_TILE_COLS;
             let xs: Vec<Vec<i64>> = (0..k)
                 .map(|c| {
                     (0..inn)
@@ -4486,17 +4488,24 @@ mod tests {
                     .expect("separate swiglu");
                 for block in [0usize, NQ_BLOCK] {
                     for cap in [0usize, PLANE_CAP] {
-                        let got = gate
-                            .project_gate_up_swiglu_capped(
-                                &up,
-                                &refs,
-                                Reader::Q8,
-                                block,
-                                NQ_TILE_COLS,
-                                cap,
-                                carrier,
-                            )
-                            .expect("fused");
+                        let got = gate.project_gate_up_swiglu_capped(
+                            &up,
+                            &refs,
+                            Reader::Q8,
+                            block,
+                            NQ_TILE_COLS,
+                            cap,
+                            carrier,
+                        );
+                        if refused {
+                            assert!(
+                                got.is_none(),
+                                "k {k}, carrier {carrier:?}, block {block}, cap {cap}: the \
+                                 pair must refuse a verify-pass width"
+                            );
+                            continue;
+                        }
+                        let got = got.expect("fused");
                         assert_eq!(
                             got, want,
                             "k {k}, carrier {carrier:?}, block {block}, cap {cap}, width {width}"
@@ -5377,11 +5386,12 @@ mod tests {
                         .collect();
                     let exact = i128::from(sign_dot!(&t, words, len, i64));
                     let sum: i128 = t.iter().map(|&v| i128::from(v)).sum();
-                    // SAFETY: AVX2 is detected above; `len == codes.len()`, `words` covers `len`
-                    // bits, and `terms` was admitted by `CodeTerms::new`.
+                    // SAFETY: AVX2 is detected above; `terms.codes` is the reader's copy zero-
+                    // padded to `blocks·32`, `words` covers `len` bits, and `terms` was admitted
+                    // by `CodeTerms::new`.
                     let vector = unsafe {
                         code_select_avx2(
-                            &codes,
+                            &terms.codes,
                             &scales,
                             &terms.shift_vecs,
                             terms.e_min,
