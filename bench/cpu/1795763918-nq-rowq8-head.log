@@ -1,0 +1,68 @@
+# Captured on the OVH box, 2026-11-27, `APEIRON_THREADS=8`, CPU-tier.
+
+## Standalone kernel bench
+
+$ rustc -O -C target-cpu=native -C codegen-units=1 head_bench.rs -o head_bench
+$ ~/bin/adg run -- ./head_bench
+     block:   76.397 ms  14.3 GMAC/s  sink 5223331142819643392
+       row:   17.812 ms  61.1 GMAC/s  sink 18415279088076488704
+
+## Lookup pair, `Q8_0` head
+
+$ APEIRON_THREADS=8 target/release/examples/lookup_accept \
+    --model ~/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf \
+    --pack ~/models/nq-scratch/nq06-v3.nqp --first 42 --n 128 --ngram 2 --draft 8
+greedy wall 2.028 s = 15.842 ms/token
+lookup wall 0.825 s = 6.444 ms/token; rounds 28 accepted 102 drafted 102; exact
+stream 128 ids; rounds 29; mean 4.448 ids/round; drafts 100; accepted 100 (100.0% per draft); accepted/round 3.448
+accepted-run histogram (0..=8): [12, 0, 0, 0, 1, 0, 16, 0, 0]
+first ids: [42, 15, 88, 11, 323, 279, 220, 16, 15, 339, 315, 279, 220, 16, 15, 339, 315, 279, ...]
+
+$ APEIRON_THREADS=8 target/release/examples/lookup_accept ... --trace
+phase split of the lookup decode, ms/token and share of wall:
+  attn.proj_in        0.948 ms/token   14.7% calls 812
+  attn.core           0.639 ms/token    9.9% calls 812
+  attn.proj_out       0.447 ms/token    6.9% calls 812
+  ffn                 2.191 ms/token   34.0% calls 812
+  head                1.793 ms/token   27.8% calls 29
+  pass                4.520 ms/token   70.1% calls 29
+
+Three interleaved runs:
+
+lookup wall 0.840 s = 6.566 ms/token; rounds 28 accepted 102 drafted 102; exact
+lookup wall 0.828 s = 6.470 ms/token; rounds 28 accepted 102 drafted 102; exact
+lookup wall 0.820 s = 6.406 ms/token; rounds 28 accepted 102 drafted 102; exact
+
+## Lookup pair, RowQ8 head (`APEIRON_ROWQ8=1`)
+
+$ APEIRON_THREADS=8 APEIRON_ROWQ8=1 target/release/examples/lookup_accept \
+    --model ~/models/qwen3-0.6b-base-nq/nq-pack/skeleton-q8head.gguf \
+    --pack ~/models/nq-scratch/nq06-v3.nqp --first 42 --n 128 --ngram 2 --draft 8
+greedy wall 2.107 s = 16.463 ms/token
+lookup wall 0.993 s = 7.759 ms/token; rounds 47 accepted 84 drafted 124; exact
+stream 128 ids; rounds 45; mean 2.867 ids/round; drafts 97; accepted 84 (86.6% per draft); accepted/round 1.867
+accepted-run histogram (0..=8): [32, 0, 0, 1, 1, 0, 0, 11, 0]
+first ids: [42, 15, 88, 11, 323, 279, 1156, 315, 279, 220, 16, 24, 23, 15, 82, 13, 576, 1156, ...]
+
+$ APEIRON_THREADS=8 APEIRON_ROWQ8=1 target/release/examples/lookup_accept ... --trace
+  norm                0.295 ms/token    3.7% calls 2736
+  attn.proj_in        1.539 ms/token   19.5% calls 1344
+  attn.core           0.954 ms/token   12.1% calls 1344
+  attn.proj_out       0.786 ms/token   10.0% calls 1344
+  ffn                 3.389 ms/token   43.0% calls 1344
+  head                0.614 ms/token    7.8% calls 48
+
+Three interleaved runs:
+
+lookup wall 0.982 s = 7.673 ms/token; rounds 47 accepted 84 drafted 124; exact
+lookup wall 0.993 s = 7.760 ms/token; rounds 47 accepted 84 drafted 124; exact
+lookup wall 0.977 s = 7.632 ms/token; rounds 47 accepted 84 drafted 124; exact
+
+## Head kernel disassembly, `Q8_0` k-column row kernel
+
+$ nm -S --size-sort target/release/examples/lookup_accept | grep q8_0_row_kcols
+0000000000114440 00000000000009dc t _RNvNtNtNtCs7rPN1reWdmT_7apeiron6engine5chart19q8_0_row_kcols_avx2
+
+$ objdump -d --start-address=0x114440 --stop-address=0x114e1c target/release/examples/lookup_accept
+per 4-block group: 4 x (vpabsb, vpsignb, vpmaddubsw, vpmaddwd), one vphaddd reduction tree, then
+4 scalar i128 scale multiplies and adds; 27 imul, 13 adc, 1688 instructions, IPC ~1.2.
