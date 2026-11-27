@@ -2071,7 +2071,7 @@ impl Stage<'_> {
     /// # Complexity
     ///
     /// `O(1)`: eight view reads and no work in `len`.
-    fn cols<'s>(stages: &'s [Self], len: usize) -> Option<StageCols<'s>> {
+    fn cols(stages: &[Self], len: usize) -> Option<StageCols<'_>> {
         let n = stages.len();
         if n == 0 || n > 8 {
             return None;
@@ -3173,18 +3173,19 @@ fn v_stage(
     let mut dots = [0i128; NQ_BLOCK_MAX];
     let mut dots2 = [0i128; NQ_BLOCK_MAX];
     let mut dots8 = [0i64; 8];
-    // The wide tile: eight columns per pass, one factor row at a time, so each column's codes
-    // and shift vectors are read once per row and the row's bit expansion is shared by all
-    // eight dots. The pair loop below keeps the leftover columns.
-    let groups = if wide { ncols / NQ_TILE_COLS } else { 0 };
+    // The wide tile: up to eight columns per pass, one factor row at a time, so each column's
+    // codes and shift vectors are read once per row and the row's bit expansion is shared by the
+    // whole group. A partial group of two or more columns takes the same tile — 2.0x the pair
+    // kernel at three columns, 1.5x at two (`the_tile_beats_the_pair_kernel_at_a_verify_width`)
+    // — and a single leftover column keeps the pair loop below.
     let mut wide_from = 0usize;
-    if groups > 0 {
+    if wide {
         // Group outer, row inner: a group's readers are assembled once for its rank rows, and
         // a group that refuses leaves the previous groups complete.
-        let mut g = 0usize;
-        while g < groups {
-            let base = g * NQ_TILE_COLS;
-            let Some(group) = Stage::cols(&t_stages[base..base + NQ_TILE_COLS], me.inn) else {
+        let mut base = 0usize;
+        while ncols - base >= 2 {
+            let n = (ncols - base).min(NQ_TILE_COLS);
+            let Some(group) = Stage::cols(&t_stages[base..base + n], me.inn) else {
                 break;
             };
             let mut r = 0usize;
@@ -3194,7 +3195,7 @@ fn v_stage(
                     break;
                 }
                 let mut c = 0usize;
-                while c < NQ_TILE_COLS {
+                while c < n {
                     match mul_q32(dots8[c], me.s_mid[r]) {
                         Some(v) => zs[(base + c) * me.rank + r] = v,
                         None => {
@@ -3208,8 +3209,8 @@ fn v_stage(
             if r < me.rank {
                 break;
             }
-            wide_from = base + NQ_TILE_COLS;
-            g += 1;
+            wide_from = base + n;
+            base += n;
         }
     }
     let mut r0 = 0usize;
@@ -3332,22 +3333,21 @@ fn u_stage<const PAIRED: bool>(
     // which is the same arithmetic.
     let gdense = gate.k == 0 && gate.res_layers == 0;
     let udense = up.is_some_and(|u| u.k == 0 && u.res_layers == 0);
-    // As in the `V` stage: eight columns per pass on whole groups, leftover columns in the
-    // block's pair loop below.
-    let groups = if wide { ncols / NQ_TILE_COLS } else { 0 };
+    // As in the `V` stage: up to eight columns per pass, a partial group of two or more on the
+    // same tile, and a single leftover column in the block's pair loop below.
     let mut wide_from = 0usize;
-    if groups > 0 {
+    if wide {
         // As in the `V` stage: a group's readers are assembled once for its `out` rows, and the
         // pair's two group readers are assembled together so one row loop folds both.
-        let mut g = 0usize;
-        while g < groups {
-            let base = g * NQ_TILE_COLS;
-            let Some(gcols) = Stage::cols(&gz[base..base + NQ_TILE_COLS], gate.rank) else {
+        let mut base = 0usize;
+        while ncols - base >= 2 {
+            let n = (ncols - base).min(NQ_TILE_COLS);
+            let Some(gcols) = Stage::cols(&gz[base..base + n], gate.rank) else {
                 break;
             };
             let ucols = if PAIRED {
                 let u = up.expect("a paired stage has its second linear");
-                match Stage::cols(&uz[base..base + NQ_TILE_COLS], u.rank) {
+                match Stage::cols(&uz[base..base + n], u.rank) {
                     Some(cols) => Some(cols),
                     None => break,
                 }
@@ -3370,7 +3370,7 @@ fn u_stage<const PAIRED: bool>(
                 let mut uv = [0i64; 8];
                 let mut full = true;
                 let mut c = 0usize;
-                while c < NQ_TILE_COLS {
+                while c < n {
                     let gdot = i128::from(g8[c]);
                     let gval = if gdense {
                         project_scaled(gdot, gate.s_post[i])
@@ -3388,7 +3388,7 @@ fn u_stage<const PAIRED: bool>(
                 if PAIRED {
                     let u = up.expect("a paired stage has its second linear");
                     let mut c = 0usize;
-                    while c < NQ_TILE_COLS {
+                    while c < n {
                         let udot = i128::from(u8[c]);
                         let uval = if udense {
                             project_scaled(udot, u.s_post[i])
@@ -3416,7 +3416,7 @@ fn u_stage<const PAIRED: bool>(
                         }
                     }
                     let mut c = 0usize;
-                    while c < NQ_TILE_COLS {
+                    while c < n {
                         hs[base + c][i] = word[c];
                         c += 1;
                     }
@@ -3426,8 +3426,8 @@ fn u_stage<const PAIRED: bool>(
             if i < gate.out {
                 break;
             }
-            wide_from = base + NQ_TILE_COLS;
-            g += 1;
+            wide_from = base + n;
+            base += n;
         }
     }
     let mut i0 = 0usize;
@@ -4361,7 +4361,7 @@ mod tests {
             .map(|q| CodeTerms::new(q).expect("the fixture admits"))
             .collect();
         let cols: [ColRef<'_>; NQ_TILE_COLS] = std::array::from_fn(|c| terms[c].col_ref());
-        let mut words: Vec<u32> = (0..blocks).map(|_| next_u32(&mut state)).collect();
+        let words: Vec<u32> = (0..blocks).map(|_| next_u32(&mut state)).collect();
         let mut n = 1usize;
         while n <= NQ_TILE_COLS {
             let mut got = [i64::MIN; NQ_TILE_COLS];
@@ -5714,6 +5714,206 @@ mod tests {
     /// A production-shaped packed linear: random sign planes, the staged test's scale pattern, no
     /// sparse column and no dense residual. The 1.174 b/w pack stores neither: its bit count is
     /// `32·(o·⌈r/32⌉ + r·⌈n/32⌉) + 16·(n + r + o)`, with no `salient` or `res` term.
+    /// Prices the dispatch itself, so a design that trades one dispatch for another can be
+    /// compared on measurement rather than on the pool's average wait.
+    #[test]
+    #[ignore = "reports timing; run in release with --ignored --nocapture"]
+    fn an_empty_dispatch_costs_what() {
+        use std::time::Instant;
+        let pool = Pool::global();
+        let n = 20_000usize;
+        let t0 = Instant::now();
+        for _ in 0..n {
+            pool.run(8, &|_| {});
+        }
+        let empty = t0.elapsed().as_nanos() as f64 / n as f64;
+        let t0 = Instant::now();
+        for _ in 0..n {
+            pool.run(8, &|_| {
+                std::hint::spin_loop();
+                std::hint::black_box(());
+            });
+        }
+        let spin = t0.elapsed().as_nanos() as f64 / n as f64;
+        println!("empty 8-task dispatch {empty:.0} ns; with a spin {spin:.0} ns");
+    }
+
+    /// The narrow tile at a verify pass's width: five columns must serve `dot_row` on the `V` and
+    /// `U` folds, because below eight columns the wide loop never runs and the row path is the only
+    /// caller of [`StageCols::dot_row`]. A refusal here sends the fold to one [`Stage::dot`] per
+    /// column, which is the same arithmetic at four times the instructions.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn the_narrow_tile_serves_five_columns() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let me = NqLinear::from_packed(production_packed(3072, 1024, 736, 11))
+            .expect("the fixture admits");
+        let k = 5usize;
+        let mut state = 0x5eed_1234_9abc_def0u64;
+        let xs_words: Vec<Vec<i64>> = (0..k)
+            .map(|_| {
+                (0..me.inn)
+                    .map(|_| i64::from(next_u32(&mut state).cast_signed() >> 8))
+                    .collect()
+            })
+            .collect();
+        let xs: Vec<&[i64]> = xs_words.iter().map(Vec::as_slice).collect();
+        let mut ts = vec![0i64; k * me.inn];
+        let mut narrow = vec![false; k];
+        t_build(&xs, &me.s_pre, me.inn, 0, &mut ts, &mut narrow).expect("t builds");
+        let t_q = quantized_band(&ts, me.inn, Reader::Q8);
+        let mut t_masks = ternary_columns(&ts, me.inn, Reader::Q8);
+        let t_stages = build_stages(ts.chunks_exact(me.inn), &narrow, &t_q, &mut t_masks);
+        let tile = Stage::cols(&t_stages[..k], me.inn).expect("five columns admit the tile");
+        let mut dots = [0i64; 8];
+        for r in 0..me.rank.min(96) {
+            let row = &me.v[r * me.v_words..];
+            assert!(
+                tile.dot_row(row, &mut dots),
+                "V row {r}: the narrow tile refused"
+            );
+            for (c, stage) in t_stages[..k].iter().enumerate() {
+                let want = i64::try_from(stage.dot(row, me.inn)).expect("the fixture stays in i64");
+                assert_eq!(dots[c], want, "V row {r} column {c}");
+            }
+        }
+        // The `U` fold's length is the rank, not `inn`: its tile must serve that geometry too.
+        let uz: Vec<Vec<i64>> = (0..k)
+            .map(|_| {
+                (0..me.rank)
+                    .map(|_| i64::from(next_u32(&mut state).cast_signed() >> 9))
+                    .collect()
+            })
+            .collect();
+        let urefs: Vec<&[i64]> = uz.iter().map(Vec::as_slice).collect();
+        let u_q = quantized_band(&uz.concat(), me.rank, Reader::Q8);
+        let mut u_masks = ternary_columns(&uz.concat(), me.rank, Reader::Q8);
+        let u_stages = build_stages(urefs.iter().copied(), &narrow, &u_q, &mut u_masks);
+        let ut = Stage::cols(&u_stages[..k], me.rank).expect("five columns admit the U tile");
+        for r in 0..me.out.min(96) {
+            let row = &me.u[r * me.u_words..];
+            assert!(
+                ut.dot_row(row, &mut dots),
+                "U row {r}: the narrow tile refused"
+            );
+            for (c, stage) in u_stages[..k].iter().enumerate() {
+                let want =
+                    i64::try_from(stage.dot(row, me.rank)).expect("the fixture stays in i64");
+                assert_eq!(dots[c], want, "U row {r} column {c}");
+            }
+        }
+    }
+
+    /// Times the fold shapes a verify pass can take on one thread at the widest `V` fold in the
+    /// 0.6B pack: the eight-column tile over `k` live columns, the two-column pair kernel plus a
+    /// single leftover column, and one [`Stage::dot`] per column. Prints MACs per cycle; asserts
+    /// that the tile is not slower than the pair kernel at every width, which is the condition a
+    /// partial group has to meet to replace the leftover loop.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    #[ignore = "reports timing; run in release with --ignored --nocapture"]
+    fn the_tile_beats_the_pair_kernel_at_a_verify_width() {
+        use std::time::Instant;
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        // `down`: the widest `V` fold in the 0.6B pack (3,072 inputs, rank 736).
+        let me = NqLinear::from_packed(production_packed(1024, 3072, 736, 13))
+            .expect("the fixture admits");
+        let kmax = 8usize;
+        let mut state = 0xfeed_0bad_1234_5678u64;
+        let xs_words: Vec<Vec<i64>> = (0..kmax)
+            .map(|_| {
+                (0..me.inn)
+                    .map(|_| i64::from(next_u32(&mut state).cast_signed() >> 8))
+                    .collect()
+            })
+            .collect();
+        let xs: Vec<&[i64]> = xs_words.iter().map(Vec::as_slice).collect();
+        let mut ts = vec![0i64; kmax * me.inn];
+        let mut narrow = vec![false; kmax];
+        t_build(&xs, &me.s_pre, me.inn, 0, &mut ts, &mut narrow).expect("t builds");
+        let t_q = quantized_band(&ts, me.inn, Reader::Q8);
+        let mut t_masks = ternary_columns(&ts, me.inn, Reader::Q8);
+        let t_stages = build_stages(ts.chunks_exact(me.inn), &narrow, &t_q, &mut t_masks);
+        let rows = me.rank;
+        let block = NQ_BLOCK_MAX.min(rows);
+        let iters = 60usize;
+        println!(
+            "V fold, {rows} rows x {} bits, {iters} passes; MACs/cycle at 3 GHz",
+            me.inn
+        );
+        for k in 2..=kmax {
+            let tile = Stage::cols(&t_stages[..k], me.inn).expect("k columns admit the tile");
+            let mut sink = 0i64;
+            let t0 = Instant::now();
+            for _ in 0..iters {
+                for r in 0..rows {
+                    let mut dots = [0i64; 8];
+                    assert!(tile.dot_row(&me.v[r * me.v_words..], &mut dots));
+                    sink = sink.wrapping_add(dots[k - 1]);
+                }
+            }
+            let tile_ns = t0.elapsed().as_nanos() as f64;
+            let mut a = [0i128; NQ_BLOCK_MAX];
+            let mut b = [0i128; NQ_BLOCK_MAX];
+            let mut one = [0i128; NQ_BLOCK_MAX];
+            let t0 = Instant::now();
+            for _ in 0..iters {
+                let mut r = 0usize;
+                while r + block <= rows {
+                    let words = &me.v[r * me.v_words..];
+                    let mut c = 0usize;
+                    while c + 1 < k {
+                        assert!(t_stages[c].dot_rows2(
+                            &t_stages[c + 1],
+                            words,
+                            me.v_words,
+                            block,
+                            me.inn,
+                            &mut a[..block],
+                            &mut b[..block],
+                        ));
+                        sink = sink.wrapping_add(i64::try_from(a[block - 1]).expect("i64"));
+                        c += 2;
+                    }
+                    if c < k {
+                        t_stages[c].dot_rows(words, me.v_words, block, me.inn, &mut one[..block]);
+                        sink = sink.wrapping_add(i64::try_from(one[block - 1]).expect("i64"));
+                    }
+                    r += block;
+                }
+            }
+            let pair_ns = t0.elapsed().as_nanos() as f64;
+            let t0 = Instant::now();
+            for _ in 0..iters {
+                for r in 0..rows {
+                    let row = &me.v[r * me.v_words..];
+                    for stage in &t_stages[..k] {
+                        sink =
+                            sink.wrapping_add(i64::try_from(stage.dot(row, me.inn)).expect("i64"));
+                    }
+                }
+            }
+            let per_ns = t0.elapsed().as_nanos() as f64;
+            std::hint::black_box(sink);
+            let macs = (iters * rows * me.inn * k) as f64;
+            println!(
+                "  k {k}: tile {:6.2}  pair {:6.2}  per-column {:6.2}  tile/pair {:.2}x",
+                macs / tile_ns / 3.0,
+                macs / pair_ns / 3.0,
+                macs / per_ns / 3.0,
+                pair_ns / tile_ns,
+            );
+            assert!(
+                tile_ns <= pair_ns,
+                "k {k}: the tile is slower than the pair kernel ({tile_ns:.0} vs {pair_ns:.0} ns)"
+            );
+        }
+    }
+
     fn production_packed(out: usize, inn: usize, rank: usize, seed: u64) -> PackedLinear {
         let u_words = rank.div_ceil(32);
         let v_words = inn.div_ceil(32);
