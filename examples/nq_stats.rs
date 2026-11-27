@@ -79,10 +79,14 @@ fn run() -> Result<(), String> {
     let gflop = 2.0 * gmacs;
     #[allow(clippy::cast_precision_loss, reason = "display only")]
     let gdense = 2.0 * dense as f64 / 1e9;
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "display only: 53 mantissa bits resolve the per-mille rate this prints"
+    )]
+    let bits_per_weight = bits as f64 / dense as f64;
     println!(
-        "linears {n}; factor bytes {}; bits/weight {:.6}; rank sum {rank_sum}",
+        "linears {n}; factor bytes {}; bits/weight {bits_per_weight:.6}; rank sum {rank_sum}",
         bits / 8,
-        bits as f64 / dense as f64,
     );
     println!("rank-decomposed: {gmacs:.4} GMAC/token = {gflop:.3} GFLOP/token");
     println!("dense equivalent: {gdense:.3} GFLOP/token");
