@@ -480,7 +480,7 @@ fn code_select_twin(codes: &[i8], scales: &[i64], words: &[u32], len: usize) -> 
 /// The Q8 block reader's safe twin: `sum - 2·selected` with the selection taken from
 /// [`code_select_twin`] and narrowed exactly as the kernel narrows it. `None` is the kernel's
 /// refusal: a selection that leaves `i64`, or a sign dot that leaves it, is the caller's exact
-/// `i128` path. The kernel ([`code_select_row8_avx2`]) is the intrinsic body and this is the
+/// `i128` path. The kernel ([`code_select_row_c_avx2`]) is the intrinsic body and this is the
 /// specification it is checked against, not a production route.
 ///
 /// # Complexity
@@ -808,7 +808,7 @@ impl<'a> CodeTerms<'a> {
             }
             c += 1;
         }
-        Self::selected_row_cols_ready(cols, words, len, out)
+        Self::selected_row_cols_ready(cols, 8, words, len, out)
     }
 
     /// The wide tile's entry, with the columns' admission already established by its caller: the
@@ -821,19 +821,23 @@ impl<'a> CodeTerms<'a> {
     /// measured on the box (`bench/cpu/1795660694-nq-select-sign-dot.md`).
     fn selected_row_cols_ready(
         cols: &[ColRef<'_>; 8],
+        n: usize,
         words: &[u32],
         len: usize,
         out: &mut [i64; 8],
     ) -> bool {
+        if n == 0 || n > 8 {
+            return false;
+        }
         let blocks = len.div_ceil(32);
         if words.len() < blocks {
             return false;
         }
         #[cfg(target_arch = "x86_64")]
-        if cols.iter().all(|c| c.vector) {
+        if cols[..n].iter().all(|c| c.vector) {
             // The tile folds one equal-scale run at a time, so every column must see the same
             // run; a mixed group falls back to the per-block chain inside the same kernel.
-            let group = if cols.iter().all(|c| c.group == cols[0].group) {
+            let group = if cols[..n].iter().all(|c| c.group == cols[0].group) {
                 cols[0].group
             } else {
                 1
@@ -841,8 +845,19 @@ impl<'a> CodeTerms<'a> {
             // SAFETY: `vector` names AVX2 on every column; the length, block and word bounds were
             // checked above, and `CodeTerms::new` admitted only a lane sum inside `i32` and a
             // total inside `i64`, per column. `group` is either `1` or a run the same admission
-            // bounded at `2·127·group ≤ 32767`.
-            if unsafe { code_select_row8_avx2(cols, words, len, group, out) }.is_some() {
+            // bounded at `2·127·group ≤ 32767`. The const column count is the one the caller
+            // assembled, so every column index below `n` is a live `ColRef`.
+            let ran = match n {
+                1 => unsafe { code_select_row_c_avx2::<1>(cols, words, len, group, out) },
+                2 => unsafe { code_select_row_c_avx2::<2>(cols, words, len, group, out) },
+                3 => unsafe { code_select_row_c_avx2::<3>(cols, words, len, group, out) },
+                4 => unsafe { code_select_row_c_avx2::<4>(cols, words, len, group, out) },
+                5 => unsafe { code_select_row_c_avx2::<5>(cols, words, len, group, out) },
+                6 => unsafe { code_select_row_c_avx2::<6>(cols, words, len, group, out) },
+                7 => unsafe { code_select_row_c_avx2::<7>(cols, words, len, group, out) },
+                _ => unsafe { code_select_row_c_avx2::<8>(cols, words, len, group, out) },
+            };
+            if ran.is_some() {
                 return true;
             }
         }
@@ -1627,7 +1642,7 @@ unsafe fn lane_sum(lane: std::arch::x86_64::__m256i) -> i64 {
               and accumulator declaration; factoring one out would duplicate the plane decode \
               the function exists to keep in registers"
 )]
-unsafe fn code_select_row8_avx2(
+unsafe fn code_select_row_c_avx2<const C: usize>(
     cols: &[ColRef<'_>; 8],
     words: &[u32],
     len: usize,
@@ -1649,7 +1664,7 @@ unsafe fn code_select_row8_avx2(
     );
     let one = _mm256_set1_epi8(1);
     let ones = _mm256_set1_epi16(1);
-    let mut acc = [_mm256_setzero_si256(); 8];
+    let mut acc = [_mm256_setzero_si256(); C];
     // A run of equal scales: fold its block pair sums in `i16` and shift once. `uniform_group`
     // gave every column the same run and `2·127·group ≤ 32767`; a `group` of one leaves the
     // per-block loop below untouched.
@@ -1665,7 +1680,7 @@ unsafe fn code_select_row8_avx2(
         // register file the row needs, so nothing spills; the two-set form below (a `pair` set and
         // the `acc` set live together) costs a store and a load per column and block when the run
         // does not cover the row, which is what the widths past 1,024 pay.
-        let mut pair = [_mm256_setzero_si256(); 8];
+        let mut pair = [_mm256_setzero_si256(); C];
         while b < full {
             let word = words[b];
             let spread = _mm256_srlv_epi32(_mm256_set1_epi32(word.cast_signed()), bit_at);
@@ -1673,7 +1688,7 @@ unsafe fn code_select_row8_avx2(
             // The masked byte is one of `1, 2, 4, 8` (or zero): `min(x, 1)` is the selector.
             let select = _mm256_min_epu8(_mm256_and_si256(nibble, digit_mask), one);
             let mut c = 0usize;
-            while c < 8 {
+            while c < C {
                 // SAFETY: the caller's per-column bounds cover the plane at `b`.
                 let plane = unsafe {
                     _mm256_loadu_si256(cols[c].codes.as_ptr().add(b * 32).cast::<__m256i>())
@@ -1684,7 +1699,7 @@ unsafe fn code_select_row8_avx2(
             b += 1;
         }
         let mut c = 0usize;
-        while c < 8 {
+        while c < C {
             let part = _mm256_madd_epi16(pair[c], ones);
             // SAFETY: the row is one run, so its shift vector is block 0's and the caller's bounds
             // cover it.
@@ -1695,7 +1710,7 @@ unsafe fn code_select_row8_avx2(
     }
     if run >= 2 {
         while b + run <= full {
-            let mut pair = [_mm256_setzero_si256(); 8];
+            let mut pair = [_mm256_setzero_si256(); C];
             let mut k = 0usize;
             while k < run {
                 let word = words[b + k];
@@ -1704,7 +1719,7 @@ unsafe fn code_select_row8_avx2(
                 // The masked byte is one of `1, 2, 4, 8` (or zero): `min(x, 1)` is the selector.
                 let select = _mm256_min_epu8(_mm256_and_si256(nibble, digit_mask), one);
                 let mut c = 0usize;
-                while c < 8 {
+                while c < C {
                     // SAFETY: the caller's per-column bounds cover the plane at `b + k`.
                     let plane = unsafe {
                         _mm256_loadu_si256(
@@ -1717,7 +1732,7 @@ unsafe fn code_select_row8_avx2(
                 k += 1;
             }
             let mut c = 0usize;
-            while c < 8 {
+            while c < C {
                 let part = _mm256_madd_epi16(pair[c], ones);
                 // SAFETY: the run's blocks share one scale, so the first block's shift vector is
                 // the run's, and the caller's bounds cover it.
@@ -1737,7 +1752,7 @@ unsafe fn code_select_row8_avx2(
         // The masked byte is one of `1, 2, 4, 8` (or zero): `min(x, 1)` is the selector.
         let select = _mm256_min_epu8(_mm256_and_si256(nibble, digit_mask), one);
         let mut c = 0usize;
-        while c < 8 {
+        while c < C {
             // SAFETY: the caller's per-column bounds cover both planes at block `b`.
             let plane =
                 unsafe { _mm256_loadu_si256(cols[c].codes.as_ptr().add(b * 32).cast::<__m256i>()) };
@@ -1752,7 +1767,7 @@ unsafe fn code_select_row8_avx2(
     }
     let tail = full * 32;
     let mut c = 0usize;
-    while c < 8 {
+    while c < C {
         // SAFETY: AVX2 is the caller's contract; the lane bound makes the fold exact.
         let lanes = unsafe { lane_sum(acc[c]) };
         // `lanes · 2^e_min` is the column's selection over the full blocks in dequantized units.
@@ -2062,7 +2077,11 @@ impl Stage<'_> {
     /// # Complexity
     ///
     /// `O(1)`: eight view reads and no work in `len`.
-    fn cols8<'s>(stages: &[&'s Self; 8], len: usize) -> Option<StageCols<'s>> {
+    fn cols<'s>(stages: &'s [Self], len: usize) -> Option<StageCols<'s>> {
+        let n = stages.len();
+        if n == 0 || n > 8 {
+            return None;
+        }
         let blocks = len.div_ceil(32);
         let mut cols = [ColRef {
             codes: &[],
@@ -2074,7 +2093,7 @@ impl Stage<'_> {
             sum: 0,
         }; 8];
         let mut c = 0usize;
-        while c < 8 {
+        while c < n {
             let Some(codes) = &stages[c].codes else {
                 return None;
             };
@@ -2085,14 +2104,20 @@ impl Stage<'_> {
             cols[c] = col;
             c += 1;
         }
-        Some(StageCols { cols, len })
+        while c < 8 {
+            cols[c] = cols[0];
+            c += 1;
+        }
+        Some(StageCols { cols, n, len })
     }
 }
 
 /// Eight adjacent activation readers of the wide tile, assembled once for all of a column
-/// group's output rows; see [`Stage::cols8`].
+/// group's output rows; see [`Stage::cols`].
 struct StageCols<'a> {
     cols: [ColRef<'a>; 8],
+    /// Live columns: `cols[..n]`, the rest mirror column 0 and are never read.
+    n: usize,
     len: usize,
 }
 
@@ -2110,7 +2135,7 @@ impl StageCols<'_> {
     ///
     /// `O(8·len)` terms with one word expansion per 32 terms; `O(1)` space beyond `out`.
     fn dot_row(&self, words: &[u32], out: &mut [i64; 8]) -> bool {
-        CodeTerms::selected_row_cols_ready(&self.cols, words, self.len, out)
+        CodeTerms::selected_row_cols_ready(&self.cols, self.n, words, self.len, out)
     }
 }
 
@@ -3154,8 +3179,7 @@ fn v_stage(
         let mut g = 0usize;
         while g < groups {
             let base = g * NQ_TILE_COLS;
-            let tiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &t_stages[base + c]);
-            let Some(group) = Stage::cols8(&tiles, me.inn) else {
+            let Some(group) = Stage::cols(&t_stages[base..base + NQ_TILE_COLS], me.inn) else {
                 break;
             };
             let mut r = 0usize;
@@ -3313,14 +3337,12 @@ fn u_stage<const PAIRED: bool>(
         let mut g = 0usize;
         while g < groups {
             let base = g * NQ_TILE_COLS;
-            let gtiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &gz[base + c]);
-            let Some(gcols) = Stage::cols8(&gtiles, gate.rank) else {
+            let Some(gcols) = Stage::cols(&gz[base..base + NQ_TILE_COLS], gate.rank) else {
                 break;
             };
             let ucols = if PAIRED {
                 let u = up.expect("a paired stage has its second linear");
-                let utiles: [&Stage<'_>; 8] = std::array::from_fn(|c| &uz[base + c]);
-                match Stage::cols8(&utiles, u.rank) {
+                match Stage::cols(&uz[base..base + NQ_TILE_COLS], u.rank) {
                     Some(cols) => Some(cols),
                     None => break,
                 }
@@ -4281,6 +4303,82 @@ mod tests {
         // The words span has no slack, so the admission above is the reader's whole bound.
         words.truncate(blocks - 1);
         assert!(!CodeTerms::selected_row_cols(&cols, &words, len, &mut got));
+    }
+
+    /// The wide tile over a partial group: `n` columns for every `n` in `1..=8`, with the tile's
+    /// remaining register slots mirrored from column 0 and never read. Each column must equal its
+    /// per-column twin, and a group whose word span is short must refuse without writing `out`.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn the_wide_source_folds_partial_groups() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let mut state = 0x1357_9bdf_2468_ace0u64;
+        let len = 736usize;
+        let blocks = len.div_ceil(32);
+        // Eight admitted columns, then the tile is told to read only `n` of them.
+        let mut acts: Vec<QuantAct> = Vec::with_capacity(NQ_TILE_COLS);
+        for c in 0..NQ_TILE_COLS {
+            let codes: Vec<i8> = (0..len)
+                .map(|_| {
+                    i8::try_from(i32::try_from(next_u32(&mut state) % 255).expect("byte") - 127)
+                        .expect("[-127, 127]")
+                })
+                .collect();
+            #[allow(clippy::cast_possible_truncation, reason = "block index < len / 32")]
+            let scales: Vec<i64> = (0..blocks)
+                .map(|b| 1i64 << ((b % 7) as u32 + 2 + c as u32))
+                .collect();
+            acts.push(QuantAct::from_parts(scales, codes));
+        }
+        let terms: Vec<CodeTerms<'_>> = acts
+            .iter()
+            .map(|q| CodeTerms::new(q).expect("the fixture admits"))
+            .collect();
+        let cols: [ColRef<'_>; NQ_TILE_COLS] = std::array::from_fn(|c| terms[c].col_ref());
+        let mut words: Vec<u32> = (0..blocks).map(|_| next_u32(&mut state)).collect();
+        let mut n = 1usize;
+        while n <= NQ_TILE_COLS {
+            let mut got = [i64::MIN; NQ_TILE_COLS];
+            assert!(
+                CodeTerms::selected_row_cols_ready(&cols, n, &words, len, &mut got),
+                "n {n}: the partial group refused"
+            );
+            for c in 0..n {
+                assert_eq!(
+                    got[c],
+                    sign_dot_of(&terms[c], &words, len),
+                    "n {n} column {c}"
+                );
+            }
+            for slot in &got[n..] {
+                assert_eq!(*slot, i64::MIN, "n {n}: a mirrored slot was written");
+            }
+            // The admission is the reader's whole bound: one word short refuses whole group.
+            let short = &words[..blocks - 1];
+            let mut untouched = [i64::MIN; NQ_TILE_COLS];
+            assert!(
+                !CodeTerms::selected_row_cols_ready(&cols, n, short, len, &mut untouched),
+                "n {n}: a short span was admitted"
+            );
+            assert!(
+                untouched.iter().all(|&v| v == i64::MIN),
+                "n {n}: a refused group wrote its output"
+            );
+            n += 1;
+        }
+        let mut zero = [i64::MIN; NQ_TILE_COLS];
+        assert!(!CodeTerms::selected_row_cols_ready(
+            &cols, 0, &words, len, &mut zero
+        ));
+        assert!(!CodeTerms::selected_row_cols_ready(
+            &cols,
+            NQ_TILE_COLS + 1,
+            &words,
+            len,
+            &mut zero
+        ));
     }
 
     /// The group dial reaches the real dispatch: a 1,056-element Q8 activation (33 blocks) is
